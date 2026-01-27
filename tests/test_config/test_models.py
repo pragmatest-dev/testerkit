@@ -197,9 +197,7 @@ class TestStationInstance:
             station_type="universal_bench",
             location="Lab A, Bench 3",
             instruments={
-                "dmm": InstrumentInstance(
-                    type="dmm", resource="TCPIP::192.168.1.101::INSTR"
-                )
+                "dmm": InstrumentInstance(type="dmm", resource="TCPIP::192.168.1.101::INSTR")
             },
             active_fixture="product_a_fixture",
         )

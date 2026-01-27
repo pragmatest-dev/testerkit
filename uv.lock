@@ -127,6 +127,8 @@ version = "0.1.0"
 source = { editable = "." }
 dependencies = [
     { name = "pydantic" },
+    { name = "pyvisa" },
+    { name = "pyvisa-sim" },
     { name = "pyyaml" },
 ]
 
@@ -142,6 +144,8 @@ requires-dist = [
     { name = "pydantic", specifier = ">=2.0" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.0" },
     { name = "pytest-cov", marker = "extra == 'dev'", specifier = ">=4.0" },
+    { name = "pyvisa", specifier = ">=1.14" },
+    { name = "pyvisa-sim", specifier = ">=0.6" },
     { name = "pyyaml", specifier = ">=6.0" },
     { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.4.0" },
 ]
@@ -317,6 +321,33 @@ wheels = [
 ]
 
 [[package]]
+name = "pyvisa"
+version = "1.16.1"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "typing-extensions" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/5f/45/b2cf76f58097040827fc6c61af4cb3ae473ef2fa47bc4f3e582e95fab3a0/pyvisa-1.16.1.tar.gz", hash = "sha256:44d637ef977097cae6247ce621514739e7a68b0e1d683d4e4b191b67f5b4d7b3", size = 238621, upload-time = "2026-01-13T14:47:26.361Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/91/1e/701cde98f835aaf84cd17851103715615a5ccb2f3d2ce3e215df8b5a4550/pyvisa-1.16.1-py3-none-any.whl", hash = "sha256:b0109a146f1d1a5d66d988fd5ea2a2abafb526f276d7cd60bfdba784513de3a7", size = 181348, upload-time = "2026-01-13T14:47:23.722Z" },
+]
+
+[[package]]
+name = "pyvisa-sim"
+version = "0.7.1"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "pyvisa" },
+    { name = "pyyaml" },
+    { name = "stringparser" },
+    { name = "typing-extensions" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/55/50/151ac5d9e067be9a3af09c2f188eebb7bd6416e32d8351c8f0012548693f/pyvisa_sim-0.7.1.tar.gz", hash = "sha256:11b10658e2152708eeada0c86627d894c4d11484312f02d3cf385196b4bc870f", size = 52679, upload-time = "2025-09-04T20:42:28.686Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/5e/d4/525c79a339b19d4509e78402bad301d77ee6cae0d33dab2668fb1c624ea4/pyvisa_sim-0.7.1-py3-none-any.whl", hash = "sha256:0468326ea76977ba0da4d25c334a8d82ceb22d9b068e2c6894a8075ce7168322", size = 35564, upload-time = "2025-09-04T20:42:27.17Z" },
+]
+
+[[package]]
 name = "pyyaml"
 version = "6.0.3"
 source = { registry = "https://pypi.org/simple" }
@@ -395,6 +426,18 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/2c/aa/9f89c719c467dfaf8ad799b9bae0df494513fb21d31a6059cb5870e57e74/ruff-0.14.14-py3-none-win32.whl", hash = "sha256:b530c191970b143375b6a68e6f743800b2b786bbcf03a7965b06c4bf04568167", size = 10502442, upload-time = "2026-01-22T22:30:38.93Z" },
     { url = "https://files.pythonhosted.org/packages/87/44/90fa543014c45560cae1fffc63ea059fb3575ee6e1cb654562197e5d16fb/ruff-0.14.14-py3-none-win_amd64.whl", hash = "sha256:3dde1435e6b6fe5b66506c1dff67a421d0b7f6488d466f651c07f4cab3bf20fd", size = 11630486, upload-time = "2026-01-22T22:30:10.852Z" },
     { url = "https://files.pythonhosted.org/packages/9e/6a/40fee331a52339926a92e17ae748827270b288a35ef4a15c9c8f2ec54715/ruff-0.14.14-py3-none-win_arm64.whl", hash = "sha256:56e6981a98b13a32236a72a8da421d7839221fa308b223b9283312312e5ac76c", size = 10920448, upload-time = "2026-01-22T22:30:15.417Z" },
+]
+
+[[package]]
+name = "stringparser"
+version = "0.7"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "typing-extensions" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/ac/c0/57c5e808f68ed9a822d83413a3516f06a7751dc35e7039252e25994bf654/stringparser-0.7.tar.gz", hash = "sha256:bf37aac0166fc8f5705b450cc332f0d323e2d8b8191017bbfebe1f489f18f64d", size = 10211, upload-time = "2023-11-16T00:08:35.958Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/33/8d/1ce822279ed69e5e5e83826b9f61d37ea146ffaf54b615d34ca363eb0aaa/stringparser-0.7-py3-none-any.whl", hash = "sha256:44678ca6067a5c0cb4c45da38448e1971e2b6fb136b82bfb6a798bdbda7dd71f", size = 7866, upload-time = "2023-11-16T00:08:34.488Z" },
 ]
 
 [[package]]

@@ -162,9 +162,7 @@ def load_specifications(path: Path) -> dict[str, Specification]:
     return specifications
 
 
-def resolve_limit_ref(
-    limit_ref: str, specs: dict[str, dict[str, Specification]]
-) -> Limit:
+def resolve_limit_ref(limit_ref: str, specs: dict[str, dict[str, Specification]]) -> Limit:
     """Resolve a limit reference to a Limit object.
 
     Limit references follow the pattern: specs.<product>.<spec_key>
@@ -183,8 +181,7 @@ def resolve_limit_ref(
     parts = limit_ref.split(".")
     if len(parts) != 3 or parts[0] != "specs":
         raise ValueError(
-            f"Invalid limit reference format: {limit_ref}. "
-            "Expected: specs.<product>.<spec_key>"
+            f"Invalid limit reference format: {limit_ref}. Expected: specs.<product>.<spec_key>"
         )
 
     _, product, spec_key = parts
