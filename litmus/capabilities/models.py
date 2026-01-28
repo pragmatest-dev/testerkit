@@ -1,12 +1,12 @@
 """Pydantic models for instrument capabilities."""
 
 from decimal import Decimal
-from enum import Enum
+from enum import StrEnum
 
 from pydantic import BaseModel, Field
 
 
-class Direction(str, Enum):
+class Direction(StrEnum):
     """Direction of signal flow for a capability."""
 
     INPUT = "input"  # Measure/sense from DUT
@@ -14,7 +14,7 @@ class Direction(str, Enum):
     BIDIR = "bidir"  # Both (SMU, VNA)
 
 
-class Domain(str, Enum):
+class Domain(StrEnum):
     """Physical domain of measurement or stimulus."""
 
     # Electrical - basic
@@ -36,7 +36,7 @@ class Domain(str, Enum):
     TEMPERATURE = "temperature"
 
 
-class SignalType(str, Enum):
+class SignalType(StrEnum):
     """Type of signal being measured or sourced."""
 
     DC = "dc"

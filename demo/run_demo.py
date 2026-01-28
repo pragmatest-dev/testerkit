@@ -74,7 +74,7 @@ def show_results():
             print(f"  Run ID: {table.column('test_run_id')[i]}")
             print(f"  DUT: {table.column('dut_serial')[i]}")
             print(f"  Station: {table.column('station_id')[i]}")
-            print(f"  Result: {table.column('pass_fail')[i]}")
+            print(f"  Result: {table.column('outcome')[i]}")
             print(
                 f"  Steps: {table.column('total_steps')[i]} total, "
                 f"{table.column('failed_steps')[i]} failed"
@@ -91,7 +91,7 @@ def show_results():
             name = str(table.column("measurement_name")[i])
             value = table.column("value")[i].as_py()
             units = str(table.column("units")[i]) if table.column("units")[i].as_py() else ""
-            result = str(table.column("pass_fail")[i])
+            result = str(table.column("outcome")[i])
             print(f"{name:<30} {value:>10.4f} {units:>6} {result:>8}")
 
     except ImportError:
