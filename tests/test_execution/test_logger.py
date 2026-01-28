@@ -2,7 +2,7 @@
 
 from decimal import Decimal
 
-from litmus.data.models import Measurement, PassFail
+from litmus.data.models import Measurement, Outcome
 from litmus.execution.logger import TestRunLogger
 
 
@@ -18,7 +18,7 @@ class TestTestRunLogger:
         assert logger.test_run.dut.serial == "SN001"
         assert logger.test_run.station_id == "station_001"
         assert logger.test_run.test_sequence_id == "test_suite"
-        assert logger.test_run.pass_fail == PassFail.PASS
+        assert logger.test_run.outcome == Outcome.PASS
 
     def test_init_with_all_options(self):
         logger = TestRunLogger(
@@ -54,7 +54,7 @@ class TestTestRunLogger:
         )
         logger.start_step("test_step")
 
-        m = Measurement(name="voltage", value=Decimal("5.0"), pass_fail=PassFail.PASS)
+        m = Measurement(name="voltage", value=Decimal("5.0"), outcome=Outcome.PASS)
         logger.log_measurement(m)
 
         assert len(logger._current_step.measurements) == 1
@@ -67,7 +67,7 @@ class TestTestRunLogger:
             test_sequence_id="test",
         )
 
-        m = Measurement(name="voltage", value=Decimal("5.0"), pass_fail=PassFail.PASS)
+        m = Measurement(name="voltage", value=Decimal("5.0"), outcome=Outcome.PASS)
         logger.log_measurement(m)
 
         assert len(logger.test_run.steps) == 1
@@ -81,11 +81,11 @@ class TestTestRunLogger:
         )
         logger.start_step("test_step")
 
-        m = Measurement(name="voltage", value=Decimal("6.0"), pass_fail=PassFail.FAIL)
+        m = Measurement(name="voltage", value=Decimal("6.0"), outcome=Outcome.FAIL)
         logger.log_measurement(m)
 
-        assert logger._current_step.pass_fail == PassFail.FAIL
-        assert logger.test_run.pass_fail == PassFail.FAIL
+        assert logger._current_step.outcome == Outcome.FAIL
+        assert logger.test_run.outcome == Outcome.FAIL
 
     def test_log_measurement_error_propagates(self):
         logger = TestRunLogger(
@@ -95,11 +95,11 @@ class TestTestRunLogger:
         )
         logger.start_step("test_step")
 
-        m = Measurement(name="voltage", value=None, pass_fail=PassFail.ERROR)
+        m = Measurement(name="voltage", value=None, outcome=Outcome.ERROR)
         logger.log_measurement(m)
 
-        assert logger._current_step.pass_fail == PassFail.ERROR
-        assert logger.test_run.pass_fail == PassFail.ERROR
+        assert logger._current_step.outcome == Outcome.ERROR
+        assert logger.test_run.outcome == Outcome.ERROR
 
     def test_fail_overrides_error(self):
         logger = TestRunLogger(
@@ -109,14 +109,14 @@ class TestTestRunLogger:
         )
         logger.start_step("test_step")
 
-        m1 = Measurement(name="voltage", value=None, pass_fail=PassFail.ERROR)
-        m2 = Measurement(name="current", value=Decimal("6.0"), pass_fail=PassFail.FAIL)
+        m1 = Measurement(name="voltage", value=None, outcome=Outcome.ERROR)
+        m2 = Measurement(name="current", value=Decimal("6.0"), outcome=Outcome.FAIL)
         logger.log_measurement(m1)
         logger.log_measurement(m2)
 
         # FAIL should override ERROR
-        assert logger._current_step.pass_fail == PassFail.FAIL
-        assert logger.test_run.pass_fail == PassFail.FAIL
+        assert logger._current_step.outcome == Outcome.FAIL
+        assert logger.test_run.outcome == Outcome.FAIL
 
     def test_end_step(self):
         logger = TestRunLogger(
@@ -152,12 +152,12 @@ class TestTestRunLogger:
         )
 
         logger.start_step("step1")
-        m1 = Measurement(name="voltage", value=Decimal("5.0"), pass_fail=PassFail.PASS)
+        m1 = Measurement(name="voltage", value=Decimal("5.0"), outcome=Outcome.PASS)
         logger.log_measurement(m1)
         logger.end_step()
 
         logger.start_step("step2")
-        m2 = Measurement(name="current", value=Decimal("0.1"), pass_fail=PassFail.PASS)
+        m2 = Measurement(name="current", value=Decimal("0.1"), outcome=Outcome.PASS)
         logger.log_measurement(m2)
         logger.end_step()
 

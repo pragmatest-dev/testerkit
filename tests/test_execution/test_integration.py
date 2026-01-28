@@ -3,7 +3,7 @@
 from decimal import Decimal
 
 from litmus.config.models import Limit
-from litmus.data.models import PassFail
+from litmus.data.models import Outcome
 from litmus.execution.decorators import measure
 from litmus.instruments import DMM
 
@@ -22,7 +22,7 @@ class TestFullFlow:
                 return dmm.measure_dc_voltage()
 
             result = measure_voltage()
-            assert result.pass_fail == PassFail.PASS
+            assert result.outcome == Outcome.PASS
             assert result.value == Decimal("5.0")
 
     def test_multiple_measurements(self, litmus_logger, litmus_step):
@@ -47,8 +47,8 @@ class TestFullFlow:
             v_result = measure_voltage()
             i_result = measure_current()
 
-            assert v_result.pass_fail == PassFail.PASS
-            assert i_result.pass_fail == PassFail.PASS
+            assert v_result.outcome == Outcome.PASS
+            assert i_result.outcome == Outcome.PASS
 
     def test_measurement_failure(self, litmus_logger, litmus_step):
         """Test that measurement failure is properly logged."""
@@ -61,5 +61,5 @@ class TestFullFlow:
                 return dmm.measure_dc_voltage()
 
             result = measure_voltage()
-            assert result.pass_fail == PassFail.FAIL
-            assert litmus_logger.test_run.pass_fail == PassFail.FAIL
+            assert result.outcome == Outcome.FAIL
+            assert litmus_logger.test_run.outcome == Outcome.FAIL

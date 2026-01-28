@@ -1,34 +1,51 @@
 """Measurement decorators for test functions."""
 
-from collections.abc import Callable
+from __future__ import annotations
+
+import inspect
+from collections.abc import Callable, Mapping
 from decimal import Decimal
 from functools import wraps
 from typing import TYPE_CHECKING, Any
 
-from litmus.data.models import Measurement, PassFail
+from litmus.data.models import Measurement, Outcome
 
 if TYPE_CHECKING:
-    from litmus.config.models import Limit
+    from litmus.config.models import Limit, MeasurementLimitConfig, RetryConfig
+    from litmus.execution.harness import TestHarness
     from litmus.execution.logger import TestRunLogger
+    from litmus.execution.vectors import Vector
 
-# Module-level storage for current logger
-_current_logger: "TestRunLogger | None" = None
+# Module-level storage for current logger and harness
+_current_logger: TestRunLogger | None = None
+_current_harness: TestHarness | None = None
 
 
-def set_current_logger(logger: "TestRunLogger | None"):
+def set_current_logger(logger: TestRunLogger | None):
     """Set the current logger for measurement capture."""
     global _current_logger
     _current_logger = logger
 
 
-def get_current_logger() -> "TestRunLogger | None":
+def get_current_logger() -> TestRunLogger | None:
     """Get the current logger."""
     return _current_logger
 
 
+def set_current_harness(harness: TestHarness | None):
+    """Set the current harness for @litmus_test decorator."""
+    global _current_harness
+    _current_harness = harness
+
+
+def get_current_harness() -> TestHarness | None:
+    """Get the current harness."""
+    return _current_harness
+
+
 def measure(
     name: str | None = None,
-    limit: "Limit | None" = None,
+    limit: Limit | None = None,
     units: str | None = None,
     raise_on_fail: bool = True,
 ):
@@ -73,7 +90,7 @@ def measure(
                 _current_logger.log_measurement(measurement)
 
             # Raise on failure if configured
-            if raise_on_fail and result == PassFail.FAIL:
+            if raise_on_fail and result == Outcome.FAIL:
                 raise AssertionError(
                     f"Measurement '{measurement.name}' FAILED: "
                     f"{measurement.value} not in "
@@ -84,4 +101,180 @@ def measure(
 
         return wrapper
 
+    return decorator
+
+
+def litmus_test(
+    func: Callable[..., Any] | None = None,
+    *,
+    config: Mapping[str, Any] | None = None,
+    config_file: str | None = None,
+    retry: RetryConfig | None = None,
+    limits: dict[str, MeasurementLimitConfig | Limit] | None = None,
+    raise_on_fail: bool = True,
+) -> Callable[..., None] | Callable[[Callable[..., Any]], Callable[..., None]]:
+    """Decorator for vector-based test functions.
+
+    Automatically loops over expanded vectors, handles retries, and logs
+    measurements. The decorated function receives a `vector` argument
+    containing the current parameter values.
+
+    The test function can:
+    - Return a single value → logged as measurement with function name
+    - Return a dict → logged as multiple named measurements
+    - Yield values → streamed as measurements (for progress/arrays)
+
+    Config resolution (in order of precedence):
+    1. Inline parameters (config=, retry=, limits=)
+    2. config_file parameter (explicit path)
+    3. Auto-discovered config.yaml in test file's directory
+
+    Args:
+        func: Test function (when used without parentheses).
+        config: Test configuration dict with 'vectors', 'retry', 'limits'.
+        config_file: Path to YAML config file (relative to test file).
+        retry: Override retry configuration.
+        limits: Override limit configurations by measurement name.
+        raise_on_fail: Raise AssertionError if any measurement fails.
+
+    Returns:
+        Decorated function that executes across all vectors.
+
+    Example (return single value):
+        @litmus_test
+        def test_voltage(vector, dmm):
+            return dmm.measure_dc_voltage()
+
+    Example (return multiple measurements):
+        @litmus_test
+        def test_power(vector, psu, dmm):
+            return {
+                "output_voltage": dmm.measure_voltage(),
+                "output_current": dmm.measure_current(),
+            }
+
+    Example (with config file):
+        @litmus_test  # loads from config.yaml in same directory
+        def test_sweep(vector, dmm):
+            return dmm.measure()
+
+    Example (with inline config):
+        @litmus_test(config={"vectors": {"expand": "product", "v": [1, 2, 3]}})
+        def test_sweep(vector, dmm):
+            return dmm.measure()
+    """
+
+    def decorator(fn: Callable[..., Any]) -> Callable[..., None]:
+        @wraps(fn)
+        def wrapper(*args: Any, **kwargs: Any) -> None:
+            # Import here to avoid circular dependency
+            from pathlib import Path
+
+            from litmus.config.loader import get_test_config
+            from litmus.execution.harness import TestHarness
+            from litmus.execution.plugin import _PYTEST_VECTOR_SENTINEL
+
+            # Get harness from kwargs, current harness, or create new one
+            harness = kwargs.pop("harness", None)
+            if harness is None:
+                harness = _current_harness
+            if harness is None:
+                # Resolve config: inline > config_file > auto-discover
+                resolved_config: dict[str, Any] = {}
+                resolved_limits = limits
+                resolved_retry = retry
+
+                # Try to load from file
+                test_file = Path(inspect.getfile(fn))
+                file_config = None
+
+                if config_file:
+                    # Explicit config file path
+                    from litmus.config.loader import load_test_config
+
+                    config_path = test_file.parent / config_file
+                    if config_path.exists():
+                        all_configs = load_test_config(config_path)
+                        file_config = all_configs.get(fn.__name__)
+                else:
+                    # Auto-discover config.yaml
+                    file_config = get_test_config(fn.__name__, test_file)
+
+                # Merge file config (lower precedence)
+                if file_config:
+                    resolved_config = dict(file_config)
+                    if "limits" in file_config and resolved_limits is None:
+                        resolved_limits = file_config["limits"]
+                    if "retry" in file_config and resolved_retry is None:
+                        resolved_retry = file_config["retry"]
+
+                # Merge inline config (higher precedence)
+                if config:
+                    resolved_config.update(config)
+
+                # Create harness from resolved config
+                harness = TestHarness(
+                    config=resolved_config,
+                    step_name=fn.__name__,
+                    retry=resolved_retry,
+                    limits=resolved_limits,
+                    logger=_current_logger,
+                )
+
+            # Check if pytest injected the vector sentinel as first arg
+            # If so, strip it - we'll inject the real vector ourselves
+            fixture_args = args
+            if args and args[0] is _PYTEST_VECTOR_SENTINEL:
+                fixture_args = args[1:]
+
+            # Also remove vector from kwargs if pytest put it there
+            kwargs.pop("vector", None)
+
+            # Run the test function across all vectors
+            def test_fn(vector: Vector) -> Any:
+                # Check if function expects 'vector' as first positional arg
+                sig = inspect.signature(fn)
+                params = list(sig.parameters.keys())
+
+                if params and params[0] == "vector":
+                    # Pass vector as first positional arg, then other fixtures
+                    result = fn(vector, *fixture_args, **kwargs)
+                else:
+                    # Inject vector into kwargs
+                    call_kwargs = dict(kwargs)
+                    call_kwargs["vector"] = vector
+                    result = fn(*fixture_args, **call_kwargs)
+
+                return result
+
+            step = harness.run_all(test_fn, step_name=fn.__name__)
+
+            # Check for failures
+            if raise_on_fail:
+                for tv in step.vectors:
+                    if tv.outcome == Outcome.FAIL:
+                        failed_measurements = [
+                            m for m in tv.measurements if m.outcome == Outcome.FAIL
+                        ]
+                        if failed_measurements:
+                            m = failed_measurements[0]
+                            raise AssertionError(
+                                f"Measurement '{m.name}' FAILED at vector {tv.index}: "
+                                f"{m.value} not in [{m.low_limit}, {m.high_limit}]"
+                            )
+                        raise AssertionError(
+                            f"Vector {tv.index} FAILED: {tv.error_message or 'unknown error'}"
+                        )
+                    elif tv.outcome == Outcome.ERROR:
+                        raise RuntimeError(
+                            f"Vector {tv.index} ERROR: {tv.error_message or 'unknown error'}"
+                        )
+
+            return step
+
+        return wrapper
+
+    # Handle both @litmus_test and @litmus_test(...) syntax
+    if func is not None:
+        return decorator(func)
     return decorator

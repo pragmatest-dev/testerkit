@@ -44,9 +44,13 @@ def pytest_addoption(parser):
     group.addoption("--results-dir", default="results", help="Directory for Parquet results")
 
 
-@pytest.fixture(scope="session")
+@pytest.fixture(scope="session", autouse=True)
 def litmus_logger(request) -> TestRunLogger:
-    """Provide test run logger for the session."""
+    """Provide test run logger for the session.
+
+    This fixture is autouse=True so it's always active, enabling
+    @litmus_test decorated functions to log measurements.
+    """
     logger = TestRunLogger(
         dut_serial=request.config.getoption("--dut-serial"),
         station_id=request.config.getoption("--station"),
@@ -70,6 +74,20 @@ def litmus_step(litmus_logger, request):
     litmus_logger.start_step(request.node.name)
     yield
     litmus_logger.end_step()
+
+
+# Sentinel object to detect pytest-injected vector
+_PYTEST_VECTOR_SENTINEL = object()
+
+
+@pytest.fixture
+def vector():
+    """Placeholder fixture for @litmus_test decorated functions.
+
+    The @litmus_test decorator injects the actual Vector object.
+    This fixture just satisfies pytest's fixture resolution.
+    """
+    return _PYTEST_VECTOR_SENTINEL
 
 
 def pytest_runtest_makereport(item, call):

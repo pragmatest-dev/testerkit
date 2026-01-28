@@ -1,11 +1,21 @@
 """Data models and storage backends."""
 
-from litmus.data.models import DUT, Measurement, PassFail, TestRun, TestStep
+from litmus.data.models import (
+    DUT,
+    Measurement,
+    Outcome,
+    TestCase,
+    TestRun,
+    TestStep,
+    TestVector,
+)
 
 __all__ = [
     "DUT",
     "Measurement",
-    "PassFail",
+    "Outcome",
+    "TestCase",  # Alias for TestVector (backward compat)
     "TestRun",
     "TestStep",
+    "TestVector",
 ]

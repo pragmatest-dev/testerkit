@@ -1,0 +1,65 @@
+# Test configuration for power board tests
+# Tests can load this automatically or specify config_file="config.yaml"
+
+test_input_voltage:
+  limits:
+    test_input_voltage:
+      low: 4.5
+      high: 5.5
+      nominal: 5.0
+      units: V
+      spec_ref: PWR-IN-001
+
+test_input_current:
+  limits:
+    test_input_current:
+      low: 0.005
+      high: 0.015
+      nominal: 0.010
+      units: A
+      spec_ref: PWR-IN-002
+
+test_output_voltage:
+  limits:
+    test_output_voltage:
+      low: 3.135
+      high: 3.465
+      nominal: 3.3
+      units: V
+      spec_ref: PWR-OUT-001
+
+test_output_stability:
+  vectors:
+    - sample: 1
+    - sample: 2
+    - sample: 3
+  limits:
+    test_output_stability:
+      low: 3.135
+      high: 3.465
+      nominal: 3.3
+      units: V
+      spec_ref: PWR-OUT-001
+
+test_efficiency:
+  limits:
+    test_efficiency:
+      low: 75
+      high: 100
+      nominal: 85
+      units: "%"
+      spec_ref: PWR-EFF-001
+
+test_load_sweep:
+  vectors:
+    expand: product
+    load_percent: [0, 50, 100]
+
+test_temp_load_matrix:
+  vectors:
+    expand: nested
+    loops:
+      - name: temperature
+        values: [25, 85]
+      - name: load
+        values: [0, 50, 100]

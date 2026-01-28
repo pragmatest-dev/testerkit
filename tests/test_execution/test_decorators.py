@@ -5,7 +5,7 @@ from decimal import Decimal
 import pytest
 
 from litmus.config.models import Limit
-from litmus.data.models import Measurement, PassFail
+from litmus.data.models import Measurement, Outcome
 from litmus.execution.decorators import get_current_logger, measure, set_current_logger
 from litmus.execution.logger import TestRunLogger
 
@@ -22,7 +22,7 @@ class TestMeasureDecorator:
         assert isinstance(result, Measurement)
         assert result.name == "test_voltage"
         assert result.value == Decimal("5.0")
-        assert result.pass_fail == PassFail.PASS
+        assert result.outcome == Outcome.PASS
 
     def test_measure_uses_function_name(self):
         @measure()
@@ -40,7 +40,7 @@ class TestMeasureDecorator:
             return 5.0
 
         result = get_voltage()
-        assert result.pass_fail == PassFail.PASS
+        assert result.outcome == Outcome.PASS
         assert result.low_limit == Decimal("4.5")
         assert result.high_limit == Decimal("5.5")
         assert result.units == "V"
@@ -63,7 +63,7 @@ class TestMeasureDecorator:
             return 6.0  # Above high limit
 
         result = get_voltage()
-        assert result.pass_fail == PassFail.FAIL
+        assert result.outcome == Outcome.FAIL
 
     def test_measure_with_decimal_value(self):
         @measure(name="precise")
@@ -80,7 +80,7 @@ class TestMeasureDecorator:
 
         result = get_value()
         assert result.value is None
-        assert result.pass_fail == PassFail.ERROR
+        assert result.outcome == Outcome.ERROR
 
     def test_measure_units_override(self):
         limit = Limit(low=Decimal("0"), high=Decimal("10"), units="V")

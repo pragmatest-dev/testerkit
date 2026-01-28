@@ -2,7 +2,7 @@
 
 from datetime import UTC, datetime
 
-from litmus.data.models import DUT, Measurement, PassFail, TestRun, TestStep
+from litmus.data.models import DUT, Measurement, Outcome, TestRun, TestStep
 
 
 def _utcnow() -> datetime:
@@ -45,14 +45,14 @@ class TestRunLogger:
         self._current_step.measurements.append(measurement)
 
         # Update step pass/fail
-        if measurement.pass_fail == PassFail.FAIL:
-            self._current_step.pass_fail = PassFail.FAIL
-            self.test_run.pass_fail = PassFail.FAIL
-        elif measurement.pass_fail == PassFail.ERROR:
-            if self._current_step.pass_fail != PassFail.FAIL:
-                self._current_step.pass_fail = PassFail.ERROR
-            if self.test_run.pass_fail != PassFail.FAIL:
-                self.test_run.pass_fail = PassFail.ERROR
+        if measurement.outcome == Outcome.FAIL:
+            self._current_step.outcome = Outcome.FAIL
+            self.test_run.outcome = Outcome.FAIL
+        elif measurement.outcome == Outcome.ERROR:
+            if self._current_step.outcome != Outcome.FAIL:
+                self._current_step.outcome = Outcome.ERROR
+            if self.test_run.outcome != Outcome.FAIL:
+                self.test_run.outcome = Outcome.ERROR
 
     def end_step(self):
         """Finalize current step."""

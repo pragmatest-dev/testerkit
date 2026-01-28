@@ -2,7 +2,8 @@
 
 from datetime import UTC, datetime
 from decimal import Decimal
-from enum import Enum
+from enum import StrEnum
+from typing import Any
 from uuid import UUID, uuid4
 
 from pydantic import BaseModel, Field
@@ -13,11 +14,12 @@ def _utcnow() -> datetime:
     return datetime.now(UTC)
 
 
-class PassFail(str, Enum):
-    """Test result status."""
+class Outcome(StrEnum):
+    """Test outcome per ATML/IEEE 1671 terminology."""
 
     PASS = "pass"
     FAIL = "fail"
+    SKIP = "skip"
     ERROR = "error"
 
 
@@ -30,34 +32,117 @@ class Measurement(BaseModel):
     low_limit: Decimal | None = None
     high_limit: Decimal | None = None
     nominal: Decimal | None = None
-    pass_fail: PassFail | None = None
+    outcome: Outcome | None = None
     spec_ref: str | None = None
     timestamp: datetime = Field(default_factory=_utcnow)
 
-    def check_limit(self) -> PassFail:
-        """Evaluate value against limits, set pass_fail, return result."""
+    def check_limit(self) -> Outcome:
+        """Evaluate value against limits, set outcome, return result."""
         if self.value is None:
-            self.pass_fail = PassFail.ERROR
+            self.outcome = Outcome.ERROR
         elif self.low_limit is not None and self.value < self.low_limit:
-            self.pass_fail = PassFail.FAIL
+            self.outcome = Outcome.FAIL
         elif self.high_limit is not None and self.value > self.high_limit:
-            self.pass_fail = PassFail.FAIL
+            self.outcome = Outcome.FAIL
         else:
-            self.pass_fail = PassFail.PASS
-        return self.pass_fail
+            self.outcome = Outcome.PASS
+        return self.outcome
+
+
+class TestVector(BaseModel):
+    """A test vector execution with its input parameters.
+
+    Represents a single execution of a test with specific input values.
+    Parameters are stored once here, not duplicated on each measurement.
+
+    This is the primary unit of test execution: the framework expands
+    vectors from config (product, zip, range, nested loops) and iterates
+    over them, calling the test function for each.
+
+    Hierarchy:
+        TestRun
+        └── TestStep (one per pytest test function)
+            └── TestVector[] (one per param set, expanded from config)
+                └── Measurement[] (values captured in that vector)
+    """
+
+    id: UUID = Field(default_factory=uuid4)
+    test_step_id: UUID | None = None  # FK to parent TestStep
+    index: int = 0  # 0-based index in the parameter expansion
+    params: dict[str, Any] = Field(default_factory=dict)  # Input parameter values
+    attempt: int = 1  # Current attempt number (for retries)
+    max_attempts: int = 1  # Maximum attempts allowed
+    outcome: Outcome = Outcome.PASS
+    measurements: list[Measurement] = Field(default_factory=list)
+    started_at: datetime = Field(default_factory=_utcnow)
+    ended_at: datetime | None = None
+    error_message: str | None = None
+
+
+# Alias for backward compatibility
+TestCase = TestVector
 
 
 class TestStep(BaseModel):
-    """A test step containing measurements."""
+    """A test step containing test vectors.
+
+    A step corresponds to a pytest test function. It may contain multiple
+    test vectors if the test is parametrized or uses vector expansion.
+
+    Hierarchy:
+        TestRun
+        └── TestStep (one per pytest test function)
+            └── TestVector[] (one per param set, expanded from config)
+                └── Measurement[] (values captured in that vector)
+    """
 
     id: UUID = Field(default_factory=uuid4)
     name: str
     description: str | None = None
     started_at: datetime = Field(default_factory=_utcnow)
     ended_at: datetime | None = None
-    pass_fail: PassFail = PassFail.PASS
+    outcome: Outcome = Outcome.PASS
+    vectors: list[TestVector] = Field(default_factory=list)
+    # Legacy: direct measurements for backward compatibility (deprecated)
     measurements: list[Measurement] = Field(default_factory=list)
     error_message: str | None = None
+
+    # Alias for backward compatibility
+    @property
+    def cases(self) -> list[TestVector]:
+        """Alias for vectors (deprecated, use vectors instead)."""
+        return self.vectors
+
+    @property
+    def total_vectors(self) -> int:
+        """Total number of test vectors."""
+        return len(self.vectors) if self.vectors else 1
+
+    @property
+    def passed_vectors(self) -> int:
+        """Number of passed test vectors."""
+        return sum(1 for v in self.vectors if v.outcome == Outcome.PASS)
+
+    @property
+    def failed_vectors(self) -> int:
+        """Number of failed test vectors."""
+        return sum(1 for v in self.vectors if v.outcome == Outcome.FAIL)
+
+    # Legacy aliases
+    @property
+    def total_cases(self) -> int:
+        """Alias for total_vectors (deprecated)."""
+        return self.total_vectors
+
+    @property
+    def passed_cases(self) -> int:
+        """Alias for passed_vectors (deprecated)."""
+        return self.passed_vectors
+
+    @property
+    def failed_cases(self) -> int:
+        """Alias for failed_vectors (deprecated)."""
+        return self.failed_vectors
 
 
 class DUT(BaseModel):
@@ -81,5 +166,5 @@ class TestRun(BaseModel):
     operator: str | None = None
     test_sequence_id: str
     test_phase: str = "production"
-    pass_fail: PassFail = PassFail.PASS
+    outcome: Outcome = Outcome.PASS
     steps: list[TestStep] = Field(default_factory=list)

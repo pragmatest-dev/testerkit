@@ -3,20 +3,23 @@
 from decimal import Decimal
 from uuid import UUID
 
-from litmus.data.models import DUT, Measurement, PassFail, TestRun, TestStep
+from litmus.data.models import DUT, Measurement, Outcome, TestRun, TestStep
 
 
-class TestPassFail:
-    """Tests for PassFail enum."""
+class TestOutcomeEnum:
+    """Tests for Outcome enum."""
 
     def test_pass_value(self):
-        assert PassFail.PASS.value == "pass"
+        assert Outcome.PASS.value == "pass"
 
     def test_fail_value(self):
-        assert PassFail.FAIL.value == "fail"
+        assert Outcome.FAIL.value == "fail"
 
     def test_error_value(self):
-        assert PassFail.ERROR.value == "error"
+        assert Outcome.ERROR.value == "error"
+
+    def test_skip_value(self):
+        assert Outcome.SKIP.value == "skip"
 
 
 class TestMeasurement:
@@ -27,7 +30,7 @@ class TestMeasurement:
         assert m.name == "voltage"
         assert m.value == Decimal("5.0")
         assert m.units is None
-        assert m.pass_fail is None
+        assert m.outcome is None
 
     def test_measurement_with_limits(self):
         m = Measurement(
@@ -48,8 +51,8 @@ class TestMeasurement:
             high_limit=Decimal("5.5"),
         )
         result = m.check_limit()
-        assert result == PassFail.PASS
-        assert m.pass_fail == PassFail.PASS
+        assert result == Outcome.PASS
+        assert m.outcome == Outcome.PASS
 
     def test_check_limit_fail_low(self):
         m = Measurement(
@@ -59,8 +62,8 @@ class TestMeasurement:
             high_limit=Decimal("5.5"),
         )
         result = m.check_limit()
-        assert result == PassFail.FAIL
-        assert m.pass_fail == PassFail.FAIL
+        assert result == Outcome.FAIL
+        assert m.outcome == Outcome.FAIL
 
     def test_check_limit_fail_high(self):
         m = Measurement(
@@ -70,8 +73,8 @@ class TestMeasurement:
             high_limit=Decimal("5.5"),
         )
         result = m.check_limit()
-        assert result == PassFail.FAIL
-        assert m.pass_fail == PassFail.FAIL
+        assert result == Outcome.FAIL
+        assert m.outcome == Outcome.FAIL
 
     def test_check_limit_error_none_value(self):
         m = Measurement(
@@ -81,31 +84,31 @@ class TestMeasurement:
             high_limit=Decimal("5.5"),
         )
         result = m.check_limit()
-        assert result == PassFail.ERROR
-        assert m.pass_fail == PassFail.ERROR
+        assert result == Outcome.ERROR
+        assert m.outcome == Outcome.ERROR
 
     def test_check_limit_no_limits_passes(self):
         m = Measurement(name="voltage", value=Decimal("5.0"))
         result = m.check_limit()
-        assert result == PassFail.PASS
+        assert result == Outcome.PASS
 
     def test_check_limit_only_low(self):
         m = Measurement(name="voltage", value=Decimal("5.0"), low_limit=Decimal("4.5"))
         result = m.check_limit()
-        assert result == PassFail.PASS
+        assert result == Outcome.PASS
 
         m2 = Measurement(name="voltage", value=Decimal("4.0"), low_limit=Decimal("4.5"))
         result2 = m2.check_limit()
-        assert result2 == PassFail.FAIL
+        assert result2 == Outcome.FAIL
 
     def test_check_limit_only_high(self):
         m = Measurement(name="voltage", value=Decimal("5.0"), high_limit=Decimal("5.5"))
         result = m.check_limit()
-        assert result == PassFail.PASS
+        assert result == Outcome.PASS
 
         m2 = Measurement(name="voltage", value=Decimal("6.0"), high_limit=Decimal("5.5"))
         result2 = m2.check_limit()
-        assert result2 == PassFail.FAIL
+        assert result2 == Outcome.FAIL
 
 
 class TestDUT:
@@ -136,7 +139,7 @@ class TestTestStep:
         step = TestStep(name="measure_voltage")
         assert step.name == "measure_voltage"
         assert isinstance(step.id, UUID)
-        assert step.pass_fail == PassFail.PASS
+        assert step.outcome == Outcome.PASS
         assert step.measurements == []
 
     def test_step_with_measurements(self):
@@ -158,7 +161,7 @@ class TestTestRun:
         assert run.dut.serial == "SN001"
         assert run.station_id == "station_001"
         assert run.test_sequence_id == "test_suite"
-        assert run.pass_fail == PassFail.PASS
+        assert run.outcome == Outcome.PASS
         assert run.steps == []
 
     def test_test_run_with_steps(self):
