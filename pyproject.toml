@@ -9,6 +9,7 @@ dependencies = [
     "pyyaml>=6.0",
     "pyvisa>=1.14",
     "pyvisa-sim>=0.6",
+    "pyarrow>=14.0",
 ]
 
 [project.optional-dependencies]
@@ -17,6 +18,9 @@ dev = [
     "pytest-cov>=4.0",
     "ruff>=0.4.0",
 ]
+
+[project.entry-points.pytest11]
+litmus = "litmus.execution.plugin"
 
 [build-system]
 requires = ["hatchling"]

@@ -1,0 +1,160 @@
+"""Tests for measurement decorators."""
+
+from decimal import Decimal
+
+import pytest
+
+from litmus.config.models import Limit
+from litmus.data.models import Measurement, PassFail
+from litmus.execution.decorators import get_current_logger, measure, set_current_logger
+from litmus.execution.logger import TestRunLogger
+
+
+class TestMeasureDecorator:
+    """Tests for @measure decorator."""
+
+    def test_basic_measure(self):
+        @measure(name="test_voltage")
+        def get_voltage():
+            return 5.0
+
+        result = get_voltage()
+        assert isinstance(result, Measurement)
+        assert result.name == "test_voltage"
+        assert result.value == Decimal("5.0")
+        assert result.pass_fail == PassFail.PASS
+
+    def test_measure_uses_function_name(self):
+        @measure()
+        def my_measurement():
+            return 3.3
+
+        result = my_measurement()
+        assert result.name == "my_measurement"
+
+    def test_measure_with_limit_pass(self):
+        limit = Limit(low=Decimal("4.5"), high=Decimal("5.5"), units="V")
+
+        @measure(name="voltage", limit=limit)
+        def get_voltage():
+            return 5.0
+
+        result = get_voltage()
+        assert result.pass_fail == PassFail.PASS
+        assert result.low_limit == Decimal("4.5")
+        assert result.high_limit == Decimal("5.5")
+        assert result.units == "V"
+
+    def test_measure_with_limit_fail_raises(self):
+        limit = Limit(low=Decimal("4.5"), high=Decimal("5.5"), units="V")
+
+        @measure(name="voltage", limit=limit)
+        def get_voltage():
+            return 6.0  # Above high limit
+
+        with pytest.raises(AssertionError, match="FAILED"):
+            get_voltage()
+
+    def test_measure_with_limit_fail_no_raise(self):
+        limit = Limit(low=Decimal("4.5"), high=Decimal("5.5"), units="V")
+
+        @measure(name="voltage", limit=limit, raise_on_fail=False)
+        def get_voltage():
+            return 6.0  # Above high limit
+
+        result = get_voltage()
+        assert result.pass_fail == PassFail.FAIL
+
+    def test_measure_with_decimal_value(self):
+        @measure(name="precise")
+        def get_value():
+            return Decimal("1.23456789")
+
+        result = get_value()
+        assert result.value == Decimal("1.23456789")
+
+    def test_measure_with_none_value(self):
+        @measure(name="missing", raise_on_fail=False)
+        def get_value():
+            return None
+
+        result = get_value()
+        assert result.value is None
+        assert result.pass_fail == PassFail.ERROR
+
+    def test_measure_units_override(self):
+        limit = Limit(low=Decimal("0"), high=Decimal("10"), units="V")
+
+        @measure(name="voltage", limit=limit, units="mV")
+        def get_voltage():
+            return 5.0
+
+        result = get_voltage()
+        assert result.units == "mV"  # Overridden from limit
+
+    def test_measure_spec_ref_from_limit(self):
+        limit = Limit(low=Decimal("0"), high=Decimal("10"), units="V", spec_ref="SPEC-001")
+
+        @measure(name="voltage", limit=limit)
+        def get_voltage():
+            return 5.0
+
+        result = get_voltage()
+        assert result.spec_ref == "SPEC-001"
+
+
+class TestMeasureWithLogger:
+    """Tests for @measure decorator with logger integration."""
+
+    def setup_method(self):
+        """Reset logger before each test."""
+        set_current_logger(None)
+
+    def teardown_method(self):
+        """Reset logger after each test."""
+        set_current_logger(None)
+
+    def test_measure_logs_to_logger(self):
+        logger = TestRunLogger(
+            dut_serial="SN001",
+            station_id="station_001",
+            test_sequence_id="test",
+        )
+        set_current_logger(logger)
+        logger.start_step("test_step")
+
+        @measure(name="voltage")
+        def get_voltage():
+            return 5.0
+
+        get_voltage()
+
+        assert len(logger._current_step.measurements) == 1
+        assert logger._current_step.measurements[0].name == "voltage"
+
+    def test_measure_without_logger_works(self):
+        assert get_current_logger() is None
+
+        @measure(name="voltage")
+        def get_voltage():
+            return 5.0
+
+        result = get_voltage()
+        assert result.name == "voltage"
+
+    def test_measure_auto_creates_step(self):
+        logger = TestRunLogger(
+            dut_serial="SN001",
+            station_id="station_001",
+            test_sequence_id="test",
+        )
+        set_current_logger(logger)
+
+        @measure(name="voltage")
+        def get_voltage():
+            return 5.0
+
+        get_voltage()
+
+        assert len(logger.test_run.steps) == 1
+        assert logger.test_run.steps[0].name == "voltage"
