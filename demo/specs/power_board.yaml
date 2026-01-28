@@ -1,0 +1,55 @@
+# Product Specification: Demo Power Board
+# A simple DC-DC converter board for demonstration
+
+product:
+  name: "Demo Power Board"
+  part_number: "DPB-001"
+  revision: "A"
+  description: "5V to 3.3V DC-DC converter with current monitoring"
+
+specifications:
+  # Input specifications
+  input_voltage:
+    id: "PWR-IN-001"
+    description: "Input voltage at VIN pin"
+    nominal: 5.0
+    tolerance_pct: 10
+    units: "V"
+
+  input_current:
+    id: "PWR-IN-002"
+    description: "Quiescent input current (no load)"
+    nominal: 0.010
+    tolerance_pct: 50
+    units: "A"
+
+  # Output specifications
+  output_voltage:
+    id: "PWR-OUT-001"
+    description: "Regulated output voltage at VOUT"
+    nominal: 3.3
+    tolerance_pct: 5
+    units: "V"
+
+  output_ripple:
+    id: "PWR-OUT-002"
+    description: "Output voltage ripple (peak-to-peak)"
+    nominal: 0.050
+    tolerance_abs: 0.030
+    units: "V"
+
+  # Load regulation
+  load_regulation:
+    id: "PWR-REG-001"
+    description: "Output voltage change from no-load to full-load"
+    nominal: 0.0
+    tolerance_abs: 0.033  # 1% of 3.3V
+    units: "V"
+
+  # Efficiency
+  efficiency:
+    id: "PWR-EFF-001"
+    description: "Power conversion efficiency at 100mA load"
+    nominal: 85
+    tolerance_abs: 10
+    units: "%"

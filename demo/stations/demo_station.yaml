@@ -1,0 +1,34 @@
+# Demo Station Configuration
+# Uses simulated instruments for demonstration without real hardware
+
+station:
+  id: "demo_station_001"
+  name: "Demo Test Station"
+  location: "Virtual Lab"
+  description: "Simulated station for demonstrating Litmus capabilities"
+
+instruments:
+  dmm_main:
+    type: "dmm"
+    resource: "SIM::DMM1"
+    simulated: true
+    description: "Primary DMM for voltage/current measurements"
+    sim_values:
+      voltage: 5.0      # Will be overridden per-test
+      current: 0.010
+      resistance: 1000.0
+
+  dmm_output:
+    type: "dmm"
+    resource: "SIM::DMM2"
+    simulated: true
+    description: "Secondary DMM for output measurements"
+    sim_values:
+      voltage: 3.3
+      current: 0.100
+
+# Test phases this station supports
+supported_phases:
+  - validation
+  - production
+  - debug
