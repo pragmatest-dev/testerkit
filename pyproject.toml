@@ -16,6 +16,7 @@ dependencies = [
     "click>=8.1",
     "nicegui>=2.0",
     "httpx>=0.28.1",
+    "fastmcp>=2.0",
 ]
 
 [project.optional-dependencies]

@@ -6,6 +6,7 @@ from pathlib import Path
 from nicegui import app, ui
 
 from litmus.data.backends.parquet import ParquetBackend
+from litmus.matching import service as matching_service
 
 # Serve static files
 _static_dir = Path(__file__).parent / "static"
@@ -13,179 +14,43 @@ app.add_static_files("/static", _static_dir)
 
 
 # -----------------------------------------------------------------------------
-# Capability Matching Helpers
+# Capability Matching Helpers (delegating to matching service)
 # -----------------------------------------------------------------------------
 
 
 def _load_product_model(product_id: str):
-    """Load a Product model from specs directory.
-
-    Returns the Product Pydantic model, or None if not found.
-    """
-    from litmus.products.loader import load_product
-
-    search_paths = [
-        Path.cwd() / "specs",
-        Path.cwd() / "demo" / "specs",
-    ]
-
-    for specs_dir in search_paths:
-        if not specs_dir.exists():
-            continue
-        for yaml_file in specs_dir.glob("*.yaml"):
-            try:
-                product = load_product(yaml_file)
-                if product.id == product_id:
-                    return product
-            except Exception:
-                continue
-    return None
+    """Load a Product model from specs directory."""
+    return matching_service.load_product_by_id(product_id)
 
 
-def _load_instrument_library(instrument_type: str) -> dict | None:
-    """Load instrument capabilities from library YAML."""
-    import yaml
-
-    library_dir = Path(__file__).parent.parent / "instruments" / "library"
-    yaml_file = library_dir / f"{instrument_type}.yaml"
-
-    if not yaml_file.exists():
-        return None
-
-    with open(yaml_file) as f:
-        return yaml.safe_load(f)
-
-
-def _get_station_capabilities(station_config: dict) -> list[dict]:
-    """Extract all capabilities from a station's instruments.
-
-    Returns a list of capability dicts with direction, domain, signal_types.
-    """
-    capabilities = []
-    instruments = station_config.get("instruments", {})
-
-    for _name, inst in instruments.items():
-        inst_type = inst.get("type")
-        if not inst_type:
-            continue
-
-        library = _load_instrument_library(inst_type)
-        if library and "capabilities" in library:
-            for cap in library["capabilities"]:
-                capabilities.append({
-                    "direction": cap.get("direction"),
-                    "domain": cap.get("domain"),
-                    "signal_types": cap.get("signal_types", []),
-                    "name": cap.get("name", ""),
-                    "instrument": inst_type,
-                })
-
-    return capabilities
-
-
-def _get_required_capabilities(product) -> list[dict]:
-    """Derive required instrument capabilities from product characteristics.
-
-    Uses Characteristic.to_capability_requirement() for direction flipping.
-    """
-    capabilities = []
-
-    for char_name, char in product.characteristics.items():
-        cap = char.to_capability_requirement()
-        capabilities.append({
-            "direction": cap.direction.value,
-            "domain": cap.domain.value,
-            "signal_types": [st.value for st in cap.signal_types],
-            "characteristic": char_name,
-        })
-
-    return capabilities
-
-
-def _capability_satisfies(station_cap: dict, required_cap: dict) -> bool:
-    """Check if a station capability satisfies a requirement.
-
-    Match criteria:
-    - direction matches (or station is bidir)
-    - domain matches
-    - signal_types overlap (at least one common type)
-    """
-    # Direction must match (or station cap is bidir)
-    if station_cap["direction"] != required_cap["direction"]:
-        if station_cap["direction"] != "bidir":
-            return False
-
-    # Domain must match
-    if station_cap["domain"] != required_cap["domain"]:
-        return False
-
-    # Signal types must overlap (if specified)
-    station_signals = set(station_cap.get("signal_types", []))
-    required_signals = set(required_cap.get("signal_types", []))
-
-    if required_signals and station_signals:
-        if not station_signals.intersection(required_signals):
-            return False
-
-    return True
-
-
-def _station_compatible_with_product(station_config: dict, product) -> bool:
-    """Check if station has instruments satisfying all product requirements."""
-    required = _get_required_capabilities(product)
-    available = _get_station_capabilities(station_config)
-
-    # Every required capability must be satisfied by at least one station capability
-    for req in required:
-        if not any(_capability_satisfies(avail, req) for avail in available):
-            return False
-
-    return True
+def _load_station_config(station_id: str) -> dict | None:
+    """Load station configuration by ID."""
+    return matching_service.load_station_config(station_id)
 
 
 def _get_compatible_stations_for_product(product_id: str) -> list[dict]:
     """Get stations that have instruments satisfying product requirements."""
-    product = _load_product_model(product_id)
+    product = matching_service.load_product_by_id(product_id)
     if not product:
         return []
 
-    compatible = []
-    stations = _discover_stations()
-
-    for station in stations:
-        station_config = _load_station_config(station["id"])
-        if station_config and _station_compatible_with_product(station_config, product):
-            compatible.append(station)
-
-    return compatible
+    matches = matching_service.find_compatible_stations(product)
+    return [
+        {"id": m.station_id, "name": m.station_name}
+        for m in matches
+        if m.compatible
+    ]
 
 
 def _discover_stations() -> list[dict]:
     """Discover station configurations from YAML files."""
-    import yaml
-
-    stations = []
-    search_paths = [
-        Path.cwd() / "stations",
-        Path.cwd() / "demo" / "stations",
-    ]
-
-    for stations_dir in search_paths:
-        if not stations_dir.exists():
-            continue
-        for yaml_file in stations_dir.glob("*.yaml"):
-            with open(yaml_file) as f:
-                data = yaml.safe_load(f)
-                if data and "station" in data:
-                    station_info = data["station"]
-                    stations.append(
-                        {
-                            "id": station_info.get("id", yaml_file.stem),
-                            "name": station_info.get("name", yaml_file.stem),
-                            "location": station_info.get("location", "Unknown"),
-                            "description": station_info.get("description", ""),
-                        }
-                    )
+    stations = matching_service.list_stations()
+    # Add default location for backwards compatibility
+    for s in stations:
+        if s.get("location") is None:
+            s["location"] = "Unknown"
+        if s.get("description") is None:
+            s["description"] = ""
     return stations
 
 
@@ -1089,27 +954,6 @@ def result_detail_page(run_id: str):
             with ui.card().classes("w-full p-6 text-center"):
                 ui.label("Run not found.").classes("text-xl text-slate-600")
                 ui.link("← Back to Results", "/results").classes("text-blue-600 hover:underline")
-
-
-def _load_station_config(station_id: str) -> dict | None:
-    """Load full station configuration from YAML."""
-    import yaml
-
-    search_paths = [
-        Path.cwd() / "stations",
-        Path.cwd() / "demo" / "stations",
-    ]
-
-    for stations_dir in search_paths:
-        if not stations_dir.exists():
-            continue
-        for yaml_file in stations_dir.glob("*.yaml"):
-            with open(yaml_file) as f:
-                data = yaml.safe_load(f)
-                if data and "station" in data:
-                    if data["station"].get("id") == station_id:
-                        return data
-    return None
 
 
 @ui.page("/stations")

@@ -92,5 +92,251 @@ def show(run_id: str, results_dir: str):
             click.echo(f"  {name}: {value} {units} [{outcome}]")
 
 
+# -----------------------------------------------------------------------------
+# MCP Server Commands
+# -----------------------------------------------------------------------------
+
+
+@main.group()
+def mcp():
+    """MCP server commands for AI-assisted workflows."""
+    pass
+
+
+@mcp.command("serve")
+@click.option("--transport", default="stdio", help="Transport type (stdio, sse)")
+def mcp_serve(transport: str):
+    """Start the MCP server for AI agents.
+
+    The MCP server exposes tools for:
+    - Reading product specs, stations, instruments
+    - Capability matching
+    - Saving new specs, sequences, tests
+    - Running tests
+
+    Configure Claude Code to use this server:
+        claude mcp add litmus -- litmus mcp serve
+    """
+    from litmus.mcp.server import create_mcp_server
+
+    mcp_server = create_mcp_server()
+
+    if transport == "stdio":
+        mcp_server.run()
+    else:
+        click.echo(f"Transport '{transport}' not yet supported. Use 'stdio'.")
+
+
+# -----------------------------------------------------------------------------
+# Setup Commands for AI Tools
+# -----------------------------------------------------------------------------
+
+
+@main.group()
+def setup():
+    """Configure AI tool integrations."""
+    pass
+
+
+@setup.command("claude-code")
+@click.option("--print-only", is_flag=True, help="Print config instead of installing")
+def setup_claude_code(print_only: bool):
+    """Configure Litmus MCP server for Claude Code.
+
+    Adds the Litmus MCP server to Claude Code's configuration.
+
+    Example:
+        litmus setup claude-code
+    """
+    import json
+    import subprocess
+    import sys
+    from pathlib import Path
+
+    # Find the litmus executable path
+    litmus_path = Path(sys.executable).parent / "litmus"
+    if not litmus_path.exists():
+        # Fall back to assuming it's on PATH
+        litmus_path = Path("litmus")
+
+    config = {
+        "name": "litmus",
+        "command": str(litmus_path),
+        "args": ["mcp", "serve"],
+    }
+
+    if print_only:
+        click.echo("Add this to your Claude Code MCP configuration:\n")
+        click.echo(json.dumps(config, indent=2))
+        click.echo("\nOr run: litmus setup claude-code")
+        return
+
+    # Try to add via claude CLI
+    try:
+        result = subprocess.run(
+            ["claude", "mcp", "add", "litmus", "--", str(litmus_path), "mcp", "serve"],
+            capture_output=True,
+            text=True,
+        )
+        if result.returncode == 0:
+            click.echo("Litmus MCP server added to Claude Code.")
+            click.echo("Restart Claude Code to use Litmus tools.")
+        else:
+            click.echo("Could not add via claude CLI. Add manually:")
+            click.echo(f"\n  claude mcp add litmus -- {litmus_path} mcp serve\n")
+    except FileNotFoundError:
+        click.echo("Claude CLI not found. Add manually:")
+        click.echo(f"\n  claude mcp add litmus -- {litmus_path} mcp serve\n")
+
+
+@setup.command("cursor")
+@click.option("--print-only", is_flag=True, help="Print config instead of installing")
+def setup_cursor(print_only: bool):
+    """Configure Litmus MCP server for Cursor.
+
+    Creates or updates .cursor/mcp.json in the current project.
+
+    Example:
+        litmus setup cursor
+    """
+    import json
+    import sys
+    from pathlib import Path
+
+    # Find the litmus executable path
+    litmus_path = Path(sys.executable).parent / "litmus"
+    if not litmus_path.exists():
+        litmus_path = Path("litmus")
+
+    config = {
+        "mcpServers": {
+            "litmus": {
+                "command": str(litmus_path),
+                "args": ["mcp", "serve"],
+            }
+        }
+    }
+
+    if print_only:
+        click.echo("Add this to .cursor/mcp.json:\n")
+        click.echo(json.dumps(config, indent=2))
+        return
+
+    # Create/update .cursor/mcp.json
+    cursor_dir = Path.cwd() / ".cursor"
+    cursor_dir.mkdir(exist_ok=True)
+    mcp_file = cursor_dir / "mcp.json"
+
+    if mcp_file.exists():
+        # Merge with existing config
+        existing = json.loads(mcp_file.read_text())
+        if "mcpServers" not in existing:
+            existing["mcpServers"] = {}
+        existing["mcpServers"]["litmus"] = config["mcpServers"]["litmus"]
+        config = existing
+
+    mcp_file.write_text(json.dumps(config, indent=2) + "\n")
+    click.echo(f"Wrote {mcp_file}")
+    click.echo("Restart Cursor to use Litmus tools.")
+
+
+@setup.command("cline")
+@click.option("--print-only", is_flag=True, help="Print config instead of installing")
+def setup_cline(print_only: bool):
+    """Configure Litmus MCP server for Cline (VS Code extension).
+
+    Creates or updates cline_mcp_settings.json in VS Code settings.
+
+    Example:
+        litmus setup cline
+    """
+    import json
+    import sys
+    from pathlib import Path
+
+    # Find the litmus executable path
+    litmus_path = Path(sys.executable).parent / "litmus"
+    if not litmus_path.exists():
+        litmus_path = Path("litmus")
+
+    config = {
+        "mcpServers": {
+            "litmus": {
+                "command": str(litmus_path),
+                "args": ["mcp", "serve"],
+            }
+        }
+    }
+
+    if print_only:
+        click.echo("Add this to your Cline MCP settings:\n")
+        click.echo(json.dumps(config, indent=2))
+        return
+
+    # Try to find VS Code settings directory
+    home = Path.home()
+    vscode_dirs = [
+        home / ".config" / "Code" / "User",  # Linux
+        home / "Library" / "Application Support" / "Code" / "User",  # macOS
+        home / "AppData" / "Roaming" / "Code" / "User",  # Windows
+    ]
+
+    settings_dir = None
+    for d in vscode_dirs:
+        if d.exists():
+            settings_dir = d
+            break
+
+    if not settings_dir:
+        click.echo("VS Code settings directory not found. Add manually:")
+        click.echo(json.dumps(config, indent=2))
+        return
+
+    mcp_file = settings_dir / "cline_mcp_settings.json"
+
+    if mcp_file.exists():
+        existing = json.loads(mcp_file.read_text())
+        if "mcpServers" not in existing:
+            existing["mcpServers"] = {}
+        existing["mcpServers"]["litmus"] = config["mcpServers"]["litmus"]
+        config = existing
+
+    mcp_file.write_text(json.dumps(config, indent=2) + "\n")
+    click.echo(f"Wrote {mcp_file}")
+    click.echo("Restart VS Code to use Litmus tools with Cline.")
+
+
+@setup.command("show")
+def setup_show():
+    """Show current MCP server configuration.
+
+    Displays the command to start the Litmus MCP server.
+    """
+    import sys
+    from pathlib import Path
+
+    litmus_path = Path(sys.executable).parent / "litmus"
+    if not litmus_path.exists():
+        litmus_path = Path("litmus")
+
+    click.echo("Litmus MCP Server")
+    click.echo("-" * 40)
+    click.echo(f"Command: {litmus_path} mcp serve")
+    click.echo(f"Transport: stdio")
+    click.echo()
+    click.echo("Available tools:")
+    click.echo("  - list_products: List all product specifications")
+    click.echo("  - get_product_spec: Get a product specification by ID")
+    click.echo("  - list_stations: List all test stations")
+    click.echo("  - get_station_config: Get a station configuration by ID")
+    click.echo("  - find_compatible_stations: Find stations for a product")
+    click.echo("  - check_station_compatibility: Check if station can test product")
+    click.echo("  - derive_required_capabilities: Get capability requirements")
+    click.echo("  - get_instrument_library: Get instrument definitions")
+    click.echo("  - list_sequences: List test sequences")
+    click.echo("  - save_product_spec: Save a new product specification")
+    click.echo("  - save_test_sequence: Save a new test sequence")
+
+
 if __name__ == "__main__":
     main()

@@ -252,6 +252,133 @@ def create_api_router() -> APIRouter:
             return {"status": "ok"}
         return {"error": "Dialog not found"}, 404
 
+    # -------------------------------------------------------------------------
+    # Matching API endpoints
+    # -------------------------------------------------------------------------
+
+    @router.get("/products")
+    def list_products():
+        """List all available product specifications."""
+        from litmus.matching.service import list_products as service_list_products
+
+        products = service_list_products()
+        return {"products": products}
+
+    @router.get("/products/{product_id}")
+    def get_product(product_id: str):
+        """Get a product specification by ID."""
+        from litmus.mcp.tools import get_product_spec_tool
+
+        result = get_product_spec_tool(product_id)
+        if "error" in result:
+            return {"error": result["error"]}, 404
+        return result
+
+    @router.get("/products/{product_id}/requirements")
+    def get_product_requirements(product_id: str):
+        """Get required capabilities for a product."""
+        from litmus.mcp.tools import derive_required_capabilities_tool
+
+        capabilities = derive_required_capabilities_tool(product_id)
+        if capabilities and "error" in capabilities[0]:
+            return {"error": capabilities[0]["error"]}, 404
+        return {"product_id": product_id, "requirements": capabilities}
+
+    @router.get("/stations")
+    def list_all_stations():
+        """List all available test stations."""
+        from litmus.matching.service import list_stations as service_list_stations
+
+        stations = service_list_stations()
+        return {"stations": stations}
+
+    @router.get("/stations/{station_id}")
+    def get_station(station_id: str):
+        """Get a station configuration by ID."""
+        from litmus.mcp.tools import get_station_config_tool
+
+        result = get_station_config_tool(station_id)
+        if "error" in result:
+            return {"error": result["error"]}, 404
+        return result
+
+    @router.get("/stations/{station_id}/capabilities")
+    def get_station_capabilities(station_id: str):
+        """Get capabilities provided by a station."""
+        from litmus.matching.service import (
+            get_station_capabilities as service_get_capabilities,
+            load_station_config,
+        )
+
+        config = load_station_config(station_id)
+        if not config:
+            return {"error": f"Station '{station_id}' not found"}, 404
+
+        capabilities = service_get_capabilities(config)
+        return {
+            "station_id": station_id,
+            "capabilities": [
+                {
+                    "name": cap.name,
+                    "direction": cap.direction.value,
+                    "domain": cap.domain.value,
+                    "signal_types": [st.value for st in cap.signal_types],
+                    "instrument_type": cap.instrument_type,
+                    "instrument_name": cap.instrument_name,
+                }
+                for cap in capabilities
+            ],
+        }
+
+    @router.get("/match")
+    def match_capabilities(product_id: str, station_id: str | None = None):
+        """Match product requirements to station capabilities.
+
+        If station_id is provided, returns detailed match for that station.
+        Otherwise, returns all stations with their compatibility status.
+        """
+        from litmus.mcp.tools import (
+            check_station_compatibility_tool,
+            find_compatible_stations_tool,
+        )
+
+        if station_id:
+            result = check_station_compatibility_tool(product_id, station_id)
+            if "error" in result:
+                return {"error": result["error"]}, 404
+            return result
+        else:
+            stations = find_compatible_stations_tool(product_id)
+            if stations and "error" in stations[0]:
+                return {"error": stations[0]["error"]}, 404
+            return {"product_id": product_id, "stations": stations}
+
+    @router.get("/instruments")
+    def list_instruments():
+        """List available instrument types in the library."""
+        from litmus.matching.service import list_instrument_types
+
+        types = list_instrument_types()
+        return {"instrument_types": types}
+
+    @router.get("/instruments/{instrument_type}")
+    def get_instrument(instrument_type: str):
+        """Get an instrument definition from the library."""
+        from litmus.mcp.tools import get_instrument_library_tool
+
+        result = get_instrument_library_tool(instrument_type)
+        if "error" in result:
+            return {"error": result["error"]}, 404
+        return result
+
+    @router.get("/sequences")
+    def list_all_sequences():
+        """List available test sequences."""
+        from litmus.mcp.tools import list_sequences_tool
+
+        sequences = list_sequences_tool()
+        return {"sequences": sequences}
+
     return router
 
 
