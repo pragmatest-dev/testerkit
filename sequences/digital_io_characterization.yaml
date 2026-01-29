@@ -1,0 +1,22 @@
+# Characterization sequence for digital I/O board
+sequence:
+  id: digital_io_char
+  name: "Digital I/O - Characterization"
+  description: "Characterization sweep across voltage and temperature"
+  product_family: digital_io
+  test_phase: characterization
+  pytest_args: ["--collect-all"]  # Collect all data points, don't stop on failure
+  timeout_seconds: 3600  # 1 hour for full characterization
+
+  steps:
+    - id: input_threshold_sweep
+      test: tests/test_digital_io.py::test_input_threshold_sweep
+      description: "Sweep input threshold voltage"
+
+    - id: output_drive_sweep
+      test: tests/test_digital_io.py::test_output_drive_sweep
+      description: "Measure output drive strength vs load"
+
+    - id: propagation_delay
+      test: tests/test_digital_io.py::test_propagation_delay
+      description: "Measure input-to-output propagation delay"

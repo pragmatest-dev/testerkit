@@ -5,15 +5,27 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
+from litmus.capabilities.models import Comparator
+
 
 class Limit(BaseModel):
-    """A test limit with units and optional spec reference."""
+    """A test limit with units and optional spec reference.
+
+    The comparator field (per ATML/IEEE 1671) defines how the measured
+    value is compared against the limits:
+        - GELE (default): low <= value <= high (inclusive range)
+        - EQ: value == nominal
+        - LE: value <= high
+        - GE: value >= low
+        - etc.
+    """
 
     low: Decimal | None = None
     high: Decimal | None = None
     nominal: Decimal | None = None
     units: str
     spec_ref: str | None = None
+    comparator: Comparator = Comparator.GELE
 
     model_config = {
         "json_schema_extra": {
@@ -23,6 +35,7 @@ class Limit(BaseModel):
                 "nominal": 5.0,
                 "units": "V",
                 "spec_ref": "PWR-RAIL-5V",
+                "comparator": "GELE",
             }
         }
     }
@@ -424,10 +437,25 @@ class TestConfig(BaseModel):
 
 
 class TestStepConfig(BaseModel):
-    """Configuration for a single test step."""
+    """Configuration for a single test step.
+
+    A step references either a test OR another sequence (mutually exclusive).
+
+    Example with test:
+        - id: measure_5v
+          test: tests/test_power.py::test_5v
+          description: "Verify 5V rail"
+
+    Example with sequence (composition):
+        - id: run_smoke
+          sequence: power_board_smoke
+          description: "Run smoke tests first"
+    """
 
     id: str
-    description: str
+    test: str | None = None  # pytest node ID, e.g. "tests/test_power.py::test_5v"
+    sequence: str | None = None  # Reference another sequence by ID
+    description: str | None = None
     measurement_name: str | None = None
     limit: Limit | None = None
     limit_ref: str | None = None  # Reference to spec -> derived limit
@@ -436,14 +464,73 @@ class TestStepConfig(BaseModel):
     retry: RetryConfig | None = None
     skip_on: list[str] | None = None  # Skip if these tests failed
 
+    def model_post_init(self, __context: Any) -> None:
+        """Validate that step has either test or sequence, not both."""
+        if not self.test and not self.sequence:
+            raise ValueError("Step must have either 'test' or 'sequence'")
+        if self.test and self.sequence:
+            raise ValueError("Step cannot have both 'test' and 'sequence'")
+
 
 class TestSequenceConfig(BaseModel):
-    """Configuration for a test sequence (maps to a pytest module)."""
+    """Configuration for a test sequence.
+
+    A test sequence is a named, ordered collection of test steps that an
+    operator can select and run. Steps reference pytest node IDs explicitly,
+    making the sequence the source of truth for test execution order.
+
+    Sequences can compose other sequences via step references:
+        - id: run_smoke
+          sequence: power_board_smoke  # Expands to all tests in that sequence
+
+    Example YAML (sequences/power_board_smoke.yaml):
+        sequence:
+          id: power_board_smoke
+          name: "Power Board - Smoke Test"
+          description: "Quick power-up verification"
+
+          steps:
+            - id: measure_5v_rail
+              test: tests/test_power_board.py::test_measure_5v_rail
+              description: "Verify 5V rail present"
+
+            - id: measure_3v3_rail
+              test: tests/test_power_board.py::test_measure_3v3_rail
+              description: "Verify 3.3V rail present"
+              skip_on: [measure_5v_rail]
+
+    Example YAML (sequences/power_board_full.yaml):
+        sequence:
+          id: power_board_full
+          name: "Power Board - Full Test"
+          description: "Complete functional test"
+          product_family: power_board
+          test_phase: production
+
+          steps:
+            - id: smoke_tests
+              sequence: power_board_smoke  # Compose smoke as first step
+
+            - id: load_test
+              test: tests/test_power_board.py::test_load_5v
+              pre_dialog: confirm_load_connected
+
+          dialogs:
+            confirm_load_connected:
+              id: confirm_load_connected
+              message: "Connect electronic load to 5V output"
+              dialog_type: confirm
+    """
 
     id: str
+    name: str | None = None  # Display name (defaults to id)
     description: str
-    product_family: str
-    test_phase: Literal["validation", "characterization", "production"]
-    required_fixture: str  # Reference to FixtureConfig
-    steps: list[TestStepConfig]
+    product_family: str | None = None  # Optional for composable sequences
+    test_phase: Literal["validation", "characterization", "production"] | None = None
+    required_fixture: str | None = None  # Reference to FixtureConfig
+    required_station_type: str | None = None  # Station type required
+    steps: list[TestStepConfig] = Field(default_factory=list)
     dialogs: dict[str, DialogConfig] = Field(default_factory=dict)
+    # pytest customization
+    pytest_args: list[str] = Field(default_factory=list)  # Extra pytest arguments
+    timeout_seconds: int | None = None  # Overall sequence timeout

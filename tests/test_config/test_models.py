@@ -261,15 +261,31 @@ class TestRetryConfig:
 
 
 class TestTestStepConfig:
-    def test_step_minimal(self):
-        step = TestStepConfig(id="test_5v_rail", description="Measure 5V rail voltage")
+    def test_step_with_test(self):
+        step = TestStepConfig(
+            id="test_5v_rail",
+            test="tests/test_power.py::test_5v_rail",
+            description="Measure 5V rail voltage",
+        )
         assert step.id == "test_5v_rail"
+        assert step.test == "tests/test_power.py::test_5v_rail"
+        assert step.sequence is None
         assert step.limit is None
         assert step.limit_ref is None
+
+    def test_step_with_sequence(self):
+        step = TestStepConfig(
+            id="run_smoke",
+            sequence="power_board_smoke",
+            description="Run smoke tests",
+        )
+        assert step.sequence == "power_board_smoke"
+        assert step.test is None
 
     def test_step_with_limit(self):
         step = TestStepConfig(
             id="test_5v_rail",
+            test="tests/test_power.py::test_5v_rail",
             description="Measure 5V rail voltage",
             measurement_name="rail_5v_voltage",
             limit=Limit(low=Decimal("4.75"), high=Decimal("5.25"), units="V"),
@@ -279,6 +295,7 @@ class TestTestStepConfig:
     def test_step_with_limit_ref(self):
         step = TestStepConfig(
             id="test_5v_rail",
+            test="tests/test_power.py::test_5v_rail",
             description="Measure 5V rail voltage",
             limit_ref="specs.product_a.rail_5v",
             pre_dialog="connect_dut",
@@ -288,8 +305,24 @@ class TestTestStepConfig:
         assert step.pre_dialog == "connect_dut"
         assert step.retry.max_attempts == 3
 
+    def test_step_requires_test_or_sequence(self):
+        import pytest
 
-class TestTestSequenceConfig:
+        with pytest.raises(ValueError, match="must have either 'test' or 'sequence'"):
+            TestStepConfig(id="invalid_step", description="No test or sequence")
+
+    def test_step_cannot_have_both(self):
+        import pytest
+
+        with pytest.raises(ValueError, match="cannot have both 'test' and 'sequence'"):
+            TestStepConfig(
+                id="invalid_step",
+                test="tests/test.py::test",
+                sequence="some_sequence",
+            )
+
+
+class TestTestSequenceConfigModel:
     def test_sequence_config(self):
         sequence = TestSequenceConfig(
             id="product_a_functional",
@@ -300,11 +333,13 @@ class TestTestSequenceConfig:
             steps=[
                 TestStepConfig(
                     id="test_5v_rail",
+                    test="tests/test_power.py::test_5v_rail",
                     description="Measure 5V rail",
                     limit_ref="specs.product_a.rail_5v",
                 ),
                 TestStepConfig(
                     id="test_3v3_rail",
+                    test="tests/test_power.py::test_3v3_rail",
                     description="Measure 3.3V rail",
                     skip_on=["test_5v_rail"],
                 ),
@@ -320,3 +355,34 @@ class TestTestSequenceConfig:
         assert sequence.test_phase == "production"
         assert len(sequence.steps) == 2
         assert "connect_dut" in sequence.dialogs
+
+    def test_sequence_with_composition(self):
+        sequence = TestSequenceConfig(
+            id="full_test",
+            description="Full test sequence",
+            steps=[
+                TestStepConfig(
+                    id="run_smoke",
+                    sequence="smoke_tests",
+                    description="Run smoke tests first",
+                ),
+                TestStepConfig(
+                    id="load_test",
+                    test="tests/test_power.py::test_load",
+                ),
+            ],
+        )
+        assert sequence.steps[0].sequence == "smoke_tests"
+        assert sequence.steps[1].test == "tests/test_power.py::test_load"
+
+    def test_sequence_optional_fields(self):
+        # Composable sequences don't need product_family or test_phase
+        sequence = TestSequenceConfig(
+            id="smoke_tests",
+            description="Basic smoke tests",
+            steps=[
+                TestStepConfig(id="test_1", test="tests/test.py::test_1"),
+            ],
+        )
+        assert sequence.product_family is None
+        assert sequence.test_phase is None

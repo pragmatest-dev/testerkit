@@ -1,0 +1,18 @@
+# Base smoke test sequence for power board
+# This is a composable sequence that can be included in other sequences
+sequence:
+  id: power_board_smoke
+  name: "Power Board - Smoke Test"
+  description: "Quick power-up verification"
+
+  steps:
+    - id: measure_5v_rail
+      test: tests/test_power_board.py::test_measure_5v_rail
+      description: "Verify 5V rail present"
+      limit_ref: specs.power_board.rail_5v
+
+    - id: measure_3v3_rail
+      test: tests/test_power_board.py::test_measure_3v3_rail
+      description: "Verify 3.3V rail present"
+      limit_ref: specs.power_board.rail_3v3
+      skip_on: [measure_5v_rail]  # Skip if 5V failed (likely power issue)

@@ -1,0 +1,48 @@
+# Full functional test sequence for power board
+# Composes the smoke sequence, then adds load and efficiency tests
+sequence:
+  id: power_board_full
+  name: "Power Board - Full Test"
+  description: "Complete functional test for production"
+  product_family: power_board
+  test_phase: production
+  required_fixture: power_board_fixture_v1
+  required_station_type: power_test_station
+
+  steps:
+    # Run smoke tests first (sequence composition)
+    - id: smoke_tests
+      sequence: power_board_smoke
+      description: "Run smoke tests first"
+
+    # Additional tests beyond smoke
+    - id: load_test_5v
+      test: tests/test_power_board.py::test_load_5v
+      description: "Test 5V rail under 1A load"
+      pre_dialog: confirm_load_connected
+      limit_ref: specs.power_board.rail_5v_loaded
+      retry:
+        max_attempts: 3
+        delay_seconds: 1.0
+        strategy: dialog
+        dialog_ref: retry_load_test
+
+    - id: efficiency_test
+      test: tests/test_power_board.py::test_efficiency
+      description: "Measure power conversion efficiency"
+      limit:
+        low: 85
+        high: null
+        units: "%"
+
+  dialogs:
+    confirm_load_connected:
+      id: confirm_load_connected
+      message: "Connect the electronic load to the 5V output"
+      dialog_type: confirm
+      timeout_seconds: 60
+
+    retry_load_test:
+      id: retry_load_test
+      message: "Load test failed. Check connections and retry?"
+      dialog_type: confirm
