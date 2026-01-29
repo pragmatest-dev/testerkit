@@ -1,0 +1,149 @@
+/* Litmus Global Styles */
+
+/* CSS Variables */
+:root {
+  --color-primary: #3b82f6;
+  --color-primary-dark: #2563eb;
+  --color-success: #10b981;
+  --color-danger: #ef4444;
+  --color-warning: #f59e0b;
+  --color-info: #3b82f6;
+
+  --color-bg: #f8fafc;
+  --color-bg-card: #ffffff;
+  --color-border: #e2e8f0;
+
+  --color-text: #1e293b;
+  --color-text-muted: #64748b;
+  --color-text-light: #94a3b8;
+
+  --sidebar-width: 240px;
+  --header-height: 56px;
+}
+
+/* Base */
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
+  background: var(--color-bg);
+  color: var(--color-text);
+}
+
+/* Quasar overrides */
+.q-page {
+  background: var(--color-bg);
+  padding-left: var(--sidebar-width) !important;
+}
+
+.q-header {
+  left: var(--sidebar-width) !important;
+  width: calc(100% - var(--sidebar-width)) !important;
+}
+
+.q-drawer--left {
+  top: 0 !important;
+}
+
+.q-table th {
+  background: #f1f5f9 !important;
+  font-weight: 600;
+  text-transform: uppercase;
+  font-size: 0.75rem;
+  letter-spacing: 0.05em;
+  color: var(--color-text-muted);
+}
+
+.q-table td {
+  font-size: 0.875rem;
+}
+
+.q-table tbody tr:hover {
+  background: #f8fafc;
+  cursor: pointer;
+}
+
+/* Sidebar */
+.q-drawer {
+  background: #0f172a !important;
+}
+
+.q-drawer .q-item {
+  border-radius: 0.375rem;
+  margin: 0.125rem 0.5rem;
+}
+
+.q-drawer .q-item:hover {
+  background: rgba(255, 255, 255, 0.1);
+}
+
+/* Cards */
+.q-card {
+  border-radius: 0.5rem;
+  box-shadow: 0 1px 3px 0 rgb(0 0 0 / 0.1);
+  border: 1px solid var(--color-border);
+}
+
+/* Buttons */
+.q-btn {
+  text-transform: none;
+  font-weight: 500;
+}
+
+/* Status badges */
+.badge-pass {
+  background: #dcfce7;
+  color: #166534;
+}
+
+.badge-fail {
+  background: #fee2e2;
+  color: #991b1b;
+}
+
+.badge-running {
+  background: #dbeafe;
+  color: #1e40af;
+}
+
+.badge-pending {
+  background: #f1f5f9;
+  color: #475569;
+}
+
+/* Log output */
+.nicegui-log {
+  font-family: 'SF Mono', 'Fira Code', 'Consolas', monospace;
+  font-size: 0.8125rem;
+  line-height: 1.5;
+}
+
+/* Form inputs */
+.q-field--outlined .q-field__control {
+  border-radius: 0.375rem;
+}
+
+/* Progress bar */
+.q-linear-progress {
+  border-radius: 0.25rem;
+  height: 0.5rem !important;
+}
+
+/* Animations */
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
+}
+
+.animate-pulse {
+  animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
+
+/* Utility classes */
+.truncate {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.font-mono {
+  font-family: 'SF Mono', 'Fira Code', 'Consolas', monospace;
+}

@@ -1,0 +1,1372 @@
+"""NiceGUI-based operator UI."""
+
+from datetime import datetime
+from pathlib import Path
+
+from nicegui import app, ui
+
+from litmus.data.backends.parquet import ParquetBackend
+
+# Serve static files
+_static_dir = Path(__file__).parent / "static"
+app.add_static_files("/static", _static_dir)
+
+
+def _discover_stations() -> list[dict]:
+    """Discover station configurations from YAML files."""
+    import yaml
+
+    stations = []
+    search_paths = [
+        Path.cwd() / "stations",
+        Path.cwd() / "demo" / "stations",
+    ]
+
+    for stations_dir in search_paths:
+        if not stations_dir.exists():
+            continue
+        for yaml_file in stations_dir.glob("*.yaml"):
+            with open(yaml_file) as f:
+                data = yaml.safe_load(f)
+                if data and "station" in data:
+                    station_info = data["station"]
+                    stations.append(
+                        {
+                            "id": station_info.get("id", yaml_file.stem),
+                            "name": station_info.get("name", yaml_file.stem),
+                            "location": station_info.get("location", "Unknown"),
+                            "description": station_info.get("description", ""),
+                        }
+                    )
+    return stations
+
+
+def _discover_tests() -> list[dict]:
+    """Discover available test directories."""
+    tests = []
+    search_paths = [
+        Path.cwd() / "tests",
+        Path.cwd() / "demo" / "tests",
+    ]
+
+    for tests_dir in search_paths:
+        if not tests_dir.exists():
+            continue
+        for test_file in tests_dir.rglob("test_*.py"):
+            test_dir = test_file.parent
+            cwd = Path.cwd()
+            relative = test_dir.relative_to(cwd) if test_dir.is_relative_to(cwd) else test_dir
+            test_entry = {"path": str(relative), "name": test_dir.name}
+            if test_entry not in tests:
+                tests.append(test_entry)
+    return tests
+
+
+def create_sidebar():
+    """Create the left-hand navigation sidebar."""
+    with ui.left_drawer(value=True).classes("bg-slate-900 text-white") as drawer:
+        drawer.props("width=240 behavior=desktop overlay=false bordered")
+
+        # Logo
+        with ui.column().classes("p-4"):
+            ui.label("⚡ Litmus").classes("text-2xl font-bold")
+            ui.label("Hardware Test Platform").classes("text-xs text-slate-400")
+
+        ui.separator().classes("bg-slate-700")
+
+        # Navigation
+        with ui.column().classes("p-2 gap-1"):
+            ui.label("NAVIGATION").classes("text-xs text-slate-500 px-3 pt-2")
+
+            with ui.link(target="/").classes("no-underline"):
+                with ui.row().classes(
+                    "w-full px-3 py-2 rounded hover:bg-slate-800 items-center gap-3 cursor-pointer"
+                ):
+                    ui.icon("dashboard").classes("text-slate-400")
+                    ui.label("Dashboard").classes("text-slate-200")
+
+            with ui.link(target="/launch").classes("no-underline"):
+                with ui.row().classes(
+                    "w-full px-3 py-2 rounded hover:bg-slate-800 items-center gap-3 cursor-pointer"
+                ):
+                    ui.icon("play_arrow").classes("text-slate-400")
+                    ui.label("Launch Test").classes("text-slate-200")
+
+            with ui.link(target="/sequences").classes("no-underline"):
+                with ui.row().classes(
+                    "w-full px-3 py-2 rounded hover:bg-slate-800 items-center gap-3 cursor-pointer"
+                ):
+                    ui.icon("list_alt").classes("text-slate-400")
+                    ui.label("Sequences").classes("text-slate-200")
+
+            with ui.link(target="/results").classes("no-underline"):
+                with ui.row().classes(
+                    "w-full px-3 py-2 rounded hover:bg-slate-800 items-center gap-3 cursor-pointer"
+                ):
+                    ui.icon("history").classes("text-slate-400")
+                    ui.label("Results").classes("text-slate-200")
+
+            with ui.link(target="/stations").classes("no-underline"):
+                with ui.row().classes(
+                    "w-full px-3 py-2 rounded hover:bg-slate-800 items-center gap-3 cursor-pointer"
+                ):
+                    ui.icon("settings_input_hdmi").classes("text-slate-400")
+                    ui.label("Stations").classes("text-slate-200")
+
+            with ui.link(target="/products").classes("no-underline"):
+                with ui.row().classes(
+                    "w-full px-3 py-2 rounded hover:bg-slate-800 items-center gap-3 cursor-pointer"
+                ):
+                    ui.icon("inventory_2").classes("text-slate-400")
+                    ui.label("Products").classes("text-slate-200")
+
+            with ui.link(target="/instruments").classes("no-underline"):
+                with ui.row().classes(
+                    "w-full px-3 py-2 rounded hover:bg-slate-800 items-center gap-3 cursor-pointer"
+                ):
+                    ui.icon("precision_manufacturing").classes("text-slate-400")
+                    ui.label("Instruments").classes("text-slate-200")
+
+        ui.separator().classes("bg-slate-700")
+
+        # Stations section
+        with ui.column().classes("p-2 gap-1"):
+            ui.label("STATIONS").classes("text-xs text-slate-500 px-3 pt-2")
+            stations = _discover_stations()
+            for station in stations:
+                with ui.link(target=f"/stations/{station['id']}").classes("no-underline"):
+                    row_classes = (
+                        "w-full px-3 py-2 rounded hover:bg-slate-800 "
+                        "items-center gap-3 cursor-pointer"
+                    )
+                    with ui.row().classes(row_classes):
+                        ui.icon("memory").classes("text-slate-400")
+                        with ui.column().classes("gap-0"):
+                            ui.label(station["name"]).classes("text-sm text-slate-200")
+                            ui.label(station["location"]).classes("text-xs text-slate-500")
+
+    return drawer
+
+
+def create_layout(title: str):
+    """Create the standard page layout with sidebar."""
+    # Include Tailwind and global styles
+    ui.add_head_html("""
+        <script src="https://cdn.tailwindcss.com"></script>
+        <link rel="stylesheet" href="/static/global.css">
+    """)
+    create_sidebar()
+
+    # Header bar
+    with ui.header().classes("bg-white border-b border-slate-200"):
+        with ui.row().classes("w-full items-center justify-between px-4"):
+            ui.label(title).classes("text-xl font-semibold text-slate-800")
+
+
+def create_dialog_container(run_id: str | None = None):
+    """Create a container for operator dialogs.
+
+    This sets up a timer that polls for pending dialogs and displays them.
+    """
+    from litmus.dialogs import DialogResponse, DialogType, get_dialog_manager
+
+    dialog_container = ui.column().classes("hidden")
+    current_dialog_id = ui.state(None)
+
+    async def check_dialogs():
+        manager = get_dialog_manager()
+        dialog = manager.get_pending_dialog(run_id)
+
+        if dialog and str(dialog.id) != current_dialog_id.value:
+            current_dialog_id.value = str(dialog.id)
+            dialog_container.classes(remove="hidden")
+            dialog_container.clear()
+
+            with dialog_container:
+                with ui.dialog(value=True) as modal:
+                    with ui.card().classes("w-96"):
+                        with ui.card_section():
+                            ui.label(dialog.title).classes("text-lg font-semibold")
+
+                        with ui.card_section():
+                            ui.label(dialog.message).classes("text-slate-600")
+
+                            # Dialog-specific content
+                            if dialog.type == DialogType.CONFIRM:
+                                pass  # Just buttons
+
+                            elif dialog.type == DialogType.CHOICE:
+                                choice_value = ui.state(dialog.default_choice)
+                                for i, choice in enumerate(dialog.choices):
+                                    ui.radio([choice], value=choice if i == 0 else None).bind_value(
+                                        choice_value
+                                    ).classes("w-full")
+
+                            elif dialog.type == DialogType.INPUT:
+                                input_value = ui.state(dialog.default_value)
+                                ui.input(
+                                    placeholder=dialog.placeholder,
+                                    value=dialog.default_value,
+                                ).bind_value(input_value).classes("w-full")
+
+                            elif dialog.type == DialogType.IMAGE:
+                                if dialog.image_url:
+                                    ui.image(dialog.image_url).classes("w-full rounded")
+                                elif dialog.image_path:
+                                    ui.image(dialog.image_path).classes("w-full rounded")
+
+                        with ui.card_actions().classes("justify-end gap-2"):
+
+                            def respond_cancel():
+                                manager.respond(
+                                    dialog.id,
+                                    DialogResponse(dialog_id=dialog.id, cancelled=True),
+                                )
+                                modal.close()
+                                current_dialog_id.value = None
+                                dialog_container.classes(add="hidden")
+
+                            def respond_confirm():
+                                response = DialogResponse(
+                                    dialog_id=dialog.id,
+                                    confirmed=True,
+                                )
+                                # Add type-specific response data
+                                if dialog.type == DialogType.CHOICE:
+                                    response.choice = choice_value.value
+                                elif dialog.type == DialogType.INPUT:
+                                    response.value = input_value.value
+
+                                manager.respond(dialog.id, response)
+                                modal.close()
+                                current_dialog_id.value = None
+                                dialog_container.classes(add="hidden")
+
+                            ui.button("Cancel", on_click=respond_cancel).props("flat")
+                            ui.button(
+                                dialog.confirm_label if hasattr(dialog, "confirm_label") else "OK",
+                                on_click=respond_confirm,
+                            ).props("color=primary")
+
+        elif not dialog and current_dialog_id.value:
+            current_dialog_id.value = None
+            dialog_container.classes(add="hidden")
+
+    ui.timer(0.5, check_dialogs)
+    return dialog_container
+
+
+def format_datetime(dt) -> str:
+    """Format datetime for display."""
+    if dt is None:
+        return "-"
+    if isinstance(dt, str):
+        return dt[:19].replace("T", " ")
+    if isinstance(dt, datetime):
+        return dt.strftime("%Y-%m-%d %H:%M:%S")
+    return str(dt)
+
+
+def outcome_badge(outcome: str):
+    """Create a styled badge for test outcome."""
+    colors = {
+        "pass": "bg-emerald-100 text-emerald-800",
+        "fail": "bg-red-100 text-red-800",
+        "error": "bg-orange-100 text-orange-800",
+        "running": "bg-blue-100 text-blue-800",
+        "pending": "bg-slate-100 text-slate-800",
+    }
+    color = colors.get(outcome, colors["pending"])
+    return ui.label(outcome.upper()).classes(f"px-2 py-1 rounded text-xs font-medium {color}")
+
+
+@ui.page("/")
+def dashboard_page():
+    """Main dashboard page."""
+    create_layout("Dashboard")
+
+    with ui.column().classes("w-full p-6 gap-6"):
+        # Stations section
+        with ui.row().classes("items-center gap-2"):
+            ui.icon("memory").classes("text-slate-600")
+            ui.label("Stations").classes("text-lg font-semibold text-slate-700")
+
+        stations = _discover_stations()
+
+        if stations:
+            with ui.row().classes("gap-4 flex-wrap"):
+                for station in stations:
+                    with ui.card().classes("w-80"):
+                        with ui.row().classes("items-start justify-between"):
+                            ui.label(station["name"]).classes("text-lg font-semibold")
+                            ui.badge("Ready", color="green").props("outline")
+                        ui.label(station["description"]).classes("text-sm text-slate-600 mt-1")
+                        with ui.row().classes("text-xs text-slate-500 gap-4 mt-3"):
+                            with ui.row().classes("items-center gap-1"):
+                                ui.icon("tag", size="xs")
+                                ui.label(station["id"])
+                            with ui.row().classes("items-center gap-1"):
+                                ui.icon("location_on", size="xs")
+                                ui.label(station["location"])
+                        ui.button(
+                            "Start Test",
+                            icon="play_arrow",
+                            on_click=lambda s=station: ui.navigate.to(f"/launch?station={s['id']}"),
+                        ).classes("mt-4 w-full").props("outline")
+        else:
+            ui.label("No stations configured.").classes("text-slate-500 italic")
+
+        # Recent runs section
+        with ui.row().classes("items-center gap-2 mt-4"):
+            ui.icon("history").classes("text-slate-600")
+            ui.label("Recent Runs").classes("text-lg font-semibold text-slate-700")
+
+        backend = ParquetBackend(results_dir="results")
+        runs = backend.list_runs(limit=10)
+
+        if runs:
+            with ui.card().classes("w-full"):
+                columns = [
+                    {"name": "run_id", "label": "Run ID", "field": "run_id", "align": "left"},
+                    {"name": "dut", "label": "DUT", "field": "dut_serial", "align": "left"},
+                    {"name": "station", "label": "Station", "field": "station_id", "align": "left"},
+                    {"name": "started", "label": "Started", "field": "started_at", "align": "left"},
+                    {"name": "outcome", "label": "Outcome", "field": "outcome", "align": "center"},
+                ]
+                rows = [
+                    {
+                        "run_id": r.get("test_run_id", "")[:8],
+                        "full_run_id": r.get("test_run_id", ""),
+                        "dut_serial": r.get("dut_serial", ""),
+                        "station_id": r.get("station_id", ""),
+                        "started_at": format_datetime(r.get("started_at")),
+                        "outcome": r.get("outcome", ""),
+                    }
+                    for r in runs
+                ]
+                table = ui.table(columns=columns, rows=rows, row_key="run_id").classes("w-full")
+                table.on(
+                    "row-click", lambda e: ui.navigate.to(f"/results/{e.args[1]['full_run_id']}")
+                )
+        else:
+            ui.label("No test runs yet.").classes("text-slate-500 italic")
+
+
+@ui.page("/launch")
+def _discover_sequences() -> list[dict]:
+    """Discover available test sequences from configuration files."""
+    from litmus.execution.runner import get_runner
+
+    runner = get_runner()
+    return runner.get_available_sequences()
+
+
+@ui.page("/launch")
+def launch_page():
+    """Test launch page."""
+    create_layout("Launch Test")
+
+    stations = _discover_stations()
+    tests = _discover_tests()
+    sequences = _discover_sequences()
+
+    # Form state
+    dut_serial = ui.state("")
+    station_id = ui.state("")
+    sequence_id = ui.state("")
+    test_path = ui.state("")
+    operator = ui.state("")
+
+    async def submit_launch():
+        if not dut_serial.value or not station_id.value:
+            ui.notify("Please fill in required fields", type="warning")
+            return
+        if not sequence_id.value and not test_path.value:
+            ui.notify("Select a test sequence or test suite", type="warning")
+            return
+
+        from litmus.api.models import LaunchRequest
+        from litmus.execution.runner import get_runner
+
+        request = LaunchRequest(
+            dut_serial=dut_serial.value,
+            station_id=station_id.value,
+            sequence_id=sequence_id.value or None,
+            test_path=test_path.value or "tests",
+            operator=operator.value or None,
+        )
+        runner = get_runner()
+        run_id = await runner.start(request)
+        ui.navigate.to(f"/live/{run_id}")
+
+    with ui.column().classes("w-full max-w-xl p-6 gap-6"):
+        with ui.card().classes("w-full"):
+            with ui.card_section():
+                ui.label("Test Configuration").classes("text-lg font-semibold")
+
+            with ui.card_section().classes("gap-4"):
+                ui.input(
+                    "DUT Serial Number",
+                    placeholder="e.g., DPB001-0001",
+                ).bind_value(dut_serial).classes("w-full").props("outlined dense")
+
+                ui.select(
+                    label="Station",
+                    options={s["id"]: f"{s['name']} ({s['id']})" for s in stations},
+                ).bind_value(station_id).classes("w-full").props("outlined dense")
+
+                # Test sequence selection (if available)
+                if sequences:
+                    ui.separator().classes("my-2")
+                    ui.label("Option 1: Select a Test Sequence").classes(
+                        "text-sm text-slate-500"
+                    )
+                    ui.select(
+                        label="Test Sequence",
+                        options={
+                            s["id"]: f"{s['name']} ({s['test_phase']})"
+                            for s in sequences
+                        },
+                    ).bind_value(sequence_id).classes("w-full").props(
+                        "outlined dense clearable"
+                    )
+
+                    ui.label("Option 2: Select a Test Suite (advanced)").classes(
+                        "text-sm text-slate-500 mt-2"
+                    )
+
+                ui.select(
+                    label="Test Suite",
+                    options={t["path"]: f"{t['name']} ({t['path']})" for t in tests},
+                ).bind_value(test_path).classes("w-full").props(
+                    "outlined dense clearable"
+                )
+
+                ui.input(
+                    "Operator (optional)",
+                    placeholder="Your name",
+                ).bind_value(operator).classes("w-full").props("outlined dense")
+
+            with ui.card_actions().classes("justify-end"):
+                ui.button("Start Test", icon="play_arrow", on_click=submit_launch).props(
+                    "color=primary"
+                )
+
+
+@ui.page("/live/{run_id}")
+async def live_page(run_id: str):
+    """Live test progress page."""
+    create_layout(f"Test Run: {run_id}")
+
+    from litmus.execution.runner import get_runner
+
+    runner = get_runner()
+
+    # Dialog container for operator prompts during test
+    create_dialog_container(run_id)
+
+    with ui.column().classes("w-full p-6 gap-6"):
+        with ui.card().classes("w-full"):
+            with ui.card_section():
+                with ui.row().classes("items-center gap-4"):
+                    ui.label("Status:").classes("font-semibold")
+                    status_label = ui.label("Starting...").classes(
+                        "px-3 py-1 rounded bg-blue-100 text-blue-800 text-sm font-medium"
+                    )
+
+            with ui.card_section():
+                progress = ui.linear_progress(value=0).classes("w-full")
+                step_label = ui.label("").classes("text-sm text-slate-600 mt-2")
+
+        with ui.card().classes("w-full"):
+            with ui.card_section():
+                ui.label("Output").classes("font-semibold")
+            log = ui.log(max_lines=100).classes(
+                "w-full h-80 bg-slate-900 text-slate-100 font-mono text-sm"
+            )
+
+        results_link = ui.link("View Full Results →", f"/results/{run_id}").classes("hidden")
+
+        async def update_progress():
+            async for event in runner.stream(run_id):
+                if event["type"] == "output":
+                    log.push(event["data"])
+                elif event["type"] == "progress":
+                    progress.set_value(event["progress_pct"] / 100)
+                    step_label.set_text(event.get("current_step") or "")
+                    status_label.set_text(event["status"].upper())
+                elif event["type"] == "complete":
+                    progress.set_value(1.0)
+                    if event["returncode"] == 0:
+                        status_label.set_text("PASSED")
+                        status_label.classes(remove="bg-blue-100 text-blue-800")
+                        status_label.classes(add="bg-emerald-100 text-emerald-800")
+                    else:
+                        status_label.set_text("FAILED")
+                        status_label.classes(remove="bg-blue-100 text-blue-800")
+                        status_label.classes(add="bg-red-100 text-red-800")
+                    results_link.classes(remove="hidden")
+                    break
+
+        ui.timer(0.1, update_progress, once=True)
+
+
+@ui.page("/results")
+def results_page():
+    """Results listing page."""
+    create_layout("Test Results")
+
+    backend = ParquetBackend(results_dir="results")
+    runs = backend.list_runs(limit=50)
+
+    with ui.column().classes("w-full p-6 gap-6"):
+        if runs:
+            with ui.card().classes("w-full"):
+                columns = [
+                    {"name": "run_id", "label": "Run ID", "field": "run_id", "align": "left"},
+                    {"name": "dut", "label": "DUT", "field": "dut_serial", "align": "left"},
+                    {"name": "station", "label": "Station", "field": "station_id", "align": "left"},
+                    {"name": "test", "label": "Test", "field": "test_sequence_id", "align": "left"},
+                    {"name": "started", "label": "Started", "field": "started_at", "align": "left"},
+                    {"name": "steps", "label": "Steps", "field": "steps", "align": "center"},
+                    {"name": "outcome", "label": "Outcome", "field": "outcome", "align": "center"},
+                ]
+                rows = [
+                    {
+                        "run_id": r.get("test_run_id", "")[:8],
+                        "full_run_id": r.get("test_run_id", ""),
+                        "dut_serial": r.get("dut_serial", ""),
+                        "station_id": r.get("station_id", ""),
+                        "test_sequence_id": r.get("test_sequence_id", ""),
+                        "started_at": format_datetime(r.get("started_at")),
+                        "steps": f"{r.get('total_steps', 0)} ({r.get('failed_steps', 0)} fail)",
+                        "outcome": r.get("outcome", ""),
+                    }
+                    for r in runs
+                ]
+                table = ui.table(columns=columns, rows=rows, row_key="run_id").classes("w-full")
+                table.on(
+                    "row-click", lambda e: ui.navigate.to(f"/results/{e.args[1]['full_run_id']}")
+                )
+        else:
+            with ui.card().classes("w-full p-6 text-center"):
+                ui.label("No test results found.").classes("text-slate-500")
+                ui.button(
+                    "Launch a Test", icon="play_arrow", on_click=lambda: ui.navigate.to("/launch")
+                ).classes("mt-4")
+
+
+@ui.page("/results/{run_id}")
+def result_detail_page(run_id: str):
+    """Single result detail page."""
+    backend = ParquetBackend(results_dir="results")
+    run = backend.get_run(run_id)
+    measurements = backend.get_measurements(run_id) if run else []
+
+    if run:
+        outcome = run.get("outcome", "")
+        create_layout(f"Run {run.get('test_run_id', '')[:8]}")
+    else:
+        create_layout("Run Not Found")
+
+    with ui.column().classes("w-full p-6 gap-6"):
+        if run:
+            # Summary card
+            with ui.card().classes("w-full"):
+                with ui.card_section():
+                    with ui.row().classes("items-center gap-4"):
+                        ui.label("Test Run Summary").classes("text-lg font-semibold")
+                        colors = {
+                            "pass": "bg-emerald-100 text-emerald-800",
+                            "fail": "bg-red-100 text-red-800",
+                        }
+                        ui.label(outcome.upper()).classes(
+                            f"px-3 py-1 rounded text-sm font-medium "
+                            f"{colors.get(outcome, 'bg-slate-100')}"
+                        )
+
+                with ui.card_section():
+                    with ui.grid(columns=3).classes("gap-6"):
+                        with ui.column().classes("gap-1"):
+                            ui.label("DUT Serial").classes("text-xs text-slate-500 uppercase")
+                            ui.label(run.get("dut_serial", "")).classes("font-semibold")
+                        with ui.column().classes("gap-1"):
+                            ui.label("Station").classes("text-xs text-slate-500 uppercase")
+                            ui.label(run.get("station_id", "")).classes("font-semibold")
+                        with ui.column().classes("gap-1"):
+                            ui.label("Test Sequence").classes("text-xs text-slate-500 uppercase")
+                            ui.label(run.get("test_sequence_id", "")).classes("font-semibold")
+                        with ui.column().classes("gap-1"):
+                            ui.label("Started").classes("text-xs text-slate-500 uppercase")
+                            ui.label(format_datetime(run.get("started_at"))).classes(
+                                "font-semibold"
+                            )
+                        with ui.column().classes("gap-1"):
+                            ui.label("Ended").classes("text-xs text-slate-500 uppercase")
+                            ui.label(format_datetime(run.get("ended_at"))).classes("font-semibold")
+                        with ui.column().classes("gap-1"):
+                            ui.label("Results").classes("text-xs text-slate-500 uppercase")
+                            total = run.get("total_steps", 0)
+                            failed = run.get("failed_steps", 0)
+                            ui.label(f"{total} steps, {failed} failed").classes("font-semibold")
+
+            # Measurements table
+            with ui.row().classes("items-center gap-2"):
+                ui.icon("science").classes("text-slate-600")
+                ui.label("Measurements").classes("text-lg font-semibold text-slate-700")
+
+            if measurements:
+                with ui.card().classes("w-full"):
+                    columns = [
+                        {"name": "step", "label": "Step", "field": "step_name", "align": "left"},
+                        {"name": "name", "label": "Measurement", "field": "name", "align": "left"},
+                        {"name": "value", "label": "Value", "field": "value", "align": "right"},
+                        {"name": "limits", "label": "Limits", "field": "limits", "align": "center"},
+                        {
+                            "name": "outcome",
+                            "label": "Outcome",
+                            "field": "outcome",
+                            "align": "center",
+                        },
+                    ]
+                    rows = [
+                        {
+                            "step_name": m.get("step_name", ""),
+                            "name": m.get("measurement_name", ""),
+                            "value": f"{m.get('value', '-')} {m.get('units', '')}".strip(),
+                            "limits": f"{m.get('low_limit', '')} – {m.get('high_limit', '')}",
+                            "outcome": m.get("outcome", ""),
+                        }
+                        for m in measurements
+                    ]
+                    ui.table(columns=columns, rows=rows, row_key="name").classes("w-full")
+            else:
+                ui.label("No measurements recorded.").classes("text-slate-500 italic")
+
+            ui.link("← Back to Results", "/results").classes("text-blue-600 hover:underline")
+        else:
+            with ui.card().classes("w-full p-6 text-center"):
+                ui.label("Run not found.").classes("text-xl text-slate-600")
+                ui.link("← Back to Results", "/results").classes("text-blue-600 hover:underline")
+
+
+def _load_station_config(station_id: str) -> dict | None:
+    """Load full station configuration from YAML."""
+    import yaml
+
+    search_paths = [
+        Path.cwd() / "stations",
+        Path.cwd() / "demo" / "stations",
+    ]
+
+    for stations_dir in search_paths:
+        if not stations_dir.exists():
+            continue
+        for yaml_file in stations_dir.glob("*.yaml"):
+            with open(yaml_file) as f:
+                data = yaml.safe_load(f)
+                if data and "station" in data:
+                    if data["station"].get("id") == station_id:
+                        return data
+    return None
+
+
+@ui.page("/stations")
+def stations_page():
+    """Stations listing page."""
+    create_layout("Stations")
+
+    stations = _discover_stations()
+
+    with ui.column().classes("w-full p-6 gap-6"):
+        with ui.row().classes("items-center gap-2"):
+            ui.icon("settings_input_hdmi").classes("text-slate-600")
+            ui.label("Test Stations").classes("text-lg font-semibold text-slate-700")
+
+        if stations:
+            with ui.row().classes("gap-4 flex-wrap"):
+                for station in stations:
+                    config = _load_station_config(station["id"])
+                    instruments = config.get("instruments", {}) if config else {}
+
+                    with ui.card().classes("w-96"):
+                        with ui.card_section():
+                            with ui.row().classes("items-start justify-between"):
+                                ui.label(station["name"]).classes("text-lg font-semibold")
+                                ui.badge("Online", color="green").props("outline")
+
+                        with ui.card_section():
+                            ui.label(station["description"]).classes("text-sm text-slate-600")
+                            with ui.row().classes("text-xs text-slate-500 gap-4 mt-3"):
+                                with ui.row().classes("items-center gap-1"):
+                                    ui.icon("tag", size="xs")
+                                    ui.label(station["id"])
+                                with ui.row().classes("items-center gap-1"):
+                                    ui.icon("location_on", size="xs")
+                                    ui.label(station["location"])
+
+                            if instruments:
+                                ui.label("Instruments").classes(
+                                    "text-xs text-slate-500 uppercase mt-4"
+                                )
+                                for name, inst in instruments.items():
+                                    with ui.row().classes("items-center gap-2 mt-1"):
+                                        simulated = inst.get("simulated", False)
+                                        ui.icon(
+                                            "sim_card" if simulated else "cable", size="xs"
+                                        ).classes("text-slate-400")
+                                        ui.label(name).classes("text-sm")
+                                        ui.label(inst.get("type", "")).classes(
+                                            "text-xs text-slate-500"
+                                        )
+
+                        with ui.card_actions():
+                            ui.button(
+                                "View Details",
+                                icon="visibility",
+                                on_click=lambda s=station: ui.navigate.to(f"/stations/{s['id']}"),
+                            ).props("flat")
+                            ui.button(
+                                "Start Test",
+                                icon="play_arrow",
+                                on_click=lambda s=station: ui.navigate.to(
+                                    f"/launch?station={s['id']}"
+                                ),
+                            ).props("flat color=primary")
+        else:
+            with ui.card().classes("w-full p-6 text-center"):
+                ui.label("No stations configured.").classes("text-slate-500")
+
+
+@ui.page("/stations/{station_id}")
+def station_detail_page(station_id: str):
+    """Station detail page with instrument status."""
+    config = _load_station_config(station_id)
+
+    if config:
+        station = config.get("station", {})
+        create_layout(station.get("name", station_id))
+    else:
+        create_layout("Station Not Found")
+
+    with ui.column().classes("w-full p-6 gap-6"):
+        if config:
+            station = config.get("station", {})
+            instruments = config.get("instruments", {})
+
+            # Station info card
+            with ui.card().classes("w-full"):
+                with ui.card_section():
+                    with ui.row().classes("items-center gap-4"):
+                        ui.label("Station Information").classes("text-lg font-semibold")
+                        ui.badge("Online", color="green").props("outline")
+
+                with ui.card_section():
+                    with ui.grid(columns=3).classes("gap-6"):
+                        with ui.column().classes("gap-1"):
+                            ui.label("Station ID").classes("text-xs text-slate-500 uppercase")
+                            ui.label(station.get("id", "")).classes("font-semibold")
+                        with ui.column().classes("gap-1"):
+                            ui.label("Name").classes("text-xs text-slate-500 uppercase")
+                            ui.label(station.get("name", "")).classes("font-semibold")
+                        with ui.column().classes("gap-1"):
+                            ui.label("Location").classes("text-xs text-slate-500 uppercase")
+                            ui.label(station.get("location", "")).classes("font-semibold")
+                        with ui.column().classes("gap-1 col-span-3"):
+                            ui.label("Description").classes("text-xs text-slate-500 uppercase")
+                            ui.label(station.get("description", "")).classes("font-semibold")
+
+            # Instruments section
+            with ui.row().classes("items-center gap-2"):
+                ui.icon("cable").classes("text-slate-600")
+                ui.label("Instruments").classes("text-lg font-semibold text-slate-700")
+
+            if instruments:
+                with ui.row().classes("gap-4 flex-wrap"):
+                    for name, inst in instruments.items():
+                        simulated = inst.get("simulated", False)
+                        with ui.card().classes("w-80"):
+                            with ui.card_section():
+                                with ui.row().classes("items-center justify-between"):
+                                    with ui.row().classes("items-center gap-2"):
+                                        ui.icon("sim_card" if simulated else "cable").classes(
+                                            "text-slate-600"
+                                        )
+                                        ui.label(name).classes("text-lg font-semibold")
+                                    if simulated:
+                                        ui.badge("Simulated", color="blue").props("outline")
+                                    else:
+                                        ui.badge("Ready", color="green").props("outline")
+
+                            with ui.card_section():
+                                with ui.column().classes("gap-2"):
+                                    with ui.row().classes("items-center gap-2"):
+                                        ui.label("Type:").classes("text-sm text-slate-500")
+                                        ui.label(inst.get("type", "unknown")).classes(
+                                            "text-sm font-medium"
+                                        )
+                                    with ui.row().classes("items-center gap-2"):
+                                        ui.label("Resource:").classes("text-sm text-slate-500")
+                                        ui.label(inst.get("resource", "N/A")).classes(
+                                            "text-sm font-mono"
+                                        )
+                                    if inst.get("description"):
+                                        ui.label(inst["description"]).classes(
+                                            "text-sm text-slate-600 mt-2"
+                                        )
+            else:
+                ui.label("No instruments configured.").classes("text-slate-500 italic")
+
+            # Supported phases
+            phases = config.get("supported_phases", [])
+            if phases:
+                with ui.row().classes("items-center gap-2 mt-4"):
+                    ui.icon("checklist").classes("text-slate-600")
+                    ui.label("Supported Phases").classes("text-lg font-semibold text-slate-700")
+
+                with ui.row().classes("gap-2"):
+                    for phase in phases:
+                        ui.badge(phase).props("outline")
+
+            # Actions
+            with ui.row().classes("mt-6 gap-2"):
+                ui.button(
+                    "Start Test",
+                    icon="play_arrow",
+                    on_click=lambda: ui.navigate.to(f"/launch?station={station_id}"),
+                ).props("color=primary")
+                ui.link("← Back to Stations", "/stations").classes(
+                    "text-blue-600 hover:underline self-center"
+                )
+        else:
+            with ui.card().classes("w-full p-6 text-center"):
+                ui.label("Station not found.").classes("text-xl text-slate-600")
+                ui.link("← Back to Stations", "/stations").classes("text-blue-600 hover:underline")
+
+
+def _discover_products() -> list[dict]:
+    """Discover product specifications from YAML files."""
+    import yaml
+
+    products = []
+    search_paths = [
+        Path.cwd() / "specs",
+        Path.cwd() / "demo" / "specs",
+    ]
+
+    for specs_dir in search_paths:
+        if not specs_dir.exists():
+            continue
+        for yaml_file in specs_dir.glob("*.yaml"):
+            with open(yaml_file) as f:
+                data = yaml.safe_load(f)
+                if data and "product" in data:
+                    product_info = data["product"]
+                    products.append({
+                        "id": product_info.get("id", yaml_file.stem),
+                        "name": product_info.get("name", yaml_file.stem),
+                        "description": product_info.get("description", ""),
+                        "revision": product_info.get("revision", ""),
+                        "characteristics": data.get("characteristics", {}),
+                        "test_requirements": data.get("test_requirements", {}),
+                        "file": str(yaml_file),
+                    })
+    return products
+
+
+def _discover_instrument_types() -> list[dict]:
+    """Discover available instrument types from YAML definitions."""
+    import yaml
+
+    instruments = []
+    library_dir = Path(__file__).parent.parent / "instruments" / "library"
+
+    if not library_dir.exists():
+        return instruments
+
+    for yaml_file in library_dir.glob("*.yaml"):
+        with open(yaml_file) as f:
+            data = yaml.safe_load(f)
+            if data and "instrument" in data:
+                inst = data["instrument"]
+                capabilities = data.get("capabilities", [])
+                instruments.append({
+                    "type": inst.get("type", yaml_file.stem),
+                    "name": inst.get("name", yaml_file.stem),
+                    "description": inst.get("description", ""),
+                    "icon": inst.get("icon", "device_unknown"),
+                    "capabilities": [c.get("name", "") for c in capabilities],
+                    "capability_details": capabilities,
+                })
+
+    return instruments
+
+
+@ui.page("/products")
+def products_page():
+    """Products listing page."""
+    create_layout("Products")
+
+    products = _discover_products()
+
+    with ui.column().classes("w-full p-6 gap-6"):
+        with ui.row().classes("items-center gap-2"):
+            ui.icon("inventory_2").classes("text-slate-600")
+            ui.label("Product Specifications").classes("text-lg font-semibold text-slate-700")
+
+        if products:
+            with ui.row().classes("gap-4 flex-wrap"):
+                for product in products:
+                    char_count = len(product.get("characteristics", {}))
+                    req_count = len(product.get("test_requirements", {}))
+
+                    with ui.card().classes("w-96"):
+                        with ui.card_section():
+                            with ui.row().classes("items-start justify-between"):
+                                ui.label(product["name"]).classes("text-lg font-semibold")
+                                if product.get("revision"):
+                                    ui.badge(f"Rev {product['revision']}").props("outline")
+
+                        with ui.card_section():
+                            ui.label(product["description"]).classes("text-sm text-slate-600")
+                            with ui.row().classes("text-xs text-slate-500 gap-4 mt-3"):
+                                with ui.row().classes("items-center gap-1"):
+                                    ui.icon("tag", size="xs")
+                                    ui.label(product["id"])
+
+                            with ui.row().classes("gap-4 mt-3"):
+                                with ui.row().classes("items-center gap-1"):
+                                    ui.icon("tune", size="xs").classes("text-slate-400")
+                                    ui.label(f"{char_count} characteristics").classes(
+                                        "text-sm text-slate-600"
+                                    )
+                                with ui.row().classes("items-center gap-1"):
+                                    ui.icon("checklist", size="xs").classes("text-slate-400")
+                                    ui.label(f"{req_count} test requirements").classes(
+                                        "text-sm text-slate-600"
+                                    )
+
+                        with ui.card_actions():
+                            ui.button(
+                                "View Details",
+                                icon="visibility",
+                                on_click=lambda p=product: ui.navigate.to(
+                                    f"/products/{p['id']}"
+                                ),
+                            ).props("flat")
+        else:
+            with ui.card().classes("w-full p-6 text-center"):
+                ui.label("No product specifications found.").classes("text-slate-500")
+                ui.label("Add YAML files to the specs/ directory.").classes(
+                    "text-sm text-slate-400"
+                )
+
+
+@ui.page("/products/{product_id}")
+def product_detail_page(product_id: str):
+    """Product detail page with characteristics and test requirements."""
+    products = _discover_products()
+    product = next((p for p in products if p["id"] == product_id), None)
+
+    if product:
+        create_layout(product["name"])
+    else:
+        create_layout("Product Not Found")
+
+    with ui.column().classes("w-full p-6 gap-6"):
+        if product:
+            # Product info card
+            with ui.card().classes("w-full"):
+                with ui.card_section():
+                    with ui.row().classes("items-center gap-4"):
+                        ui.label("Product Information").classes("text-lg font-semibold")
+                        if product.get("revision"):
+                            ui.badge(f"Rev {product['revision']}").props("outline")
+
+                with ui.card_section():
+                    with ui.grid(columns=2).classes("gap-6"):
+                        with ui.column().classes("gap-1"):
+                            ui.label("Product ID").classes("text-xs text-slate-500 uppercase")
+                            ui.label(product["id"]).classes("font-semibold")
+                        with ui.column().classes("gap-1"):
+                            ui.label("Name").classes("text-xs text-slate-500 uppercase")
+                            ui.label(product["name"]).classes("font-semibold")
+                        with ui.column().classes("gap-1 col-span-2"):
+                            ui.label("Description").classes("text-xs text-slate-500 uppercase")
+                            ui.label(product["description"]).classes("font-semibold")
+
+            # Characteristics section
+            characteristics = product.get("characteristics", {})
+            if characteristics:
+                with ui.row().classes("items-center gap-2"):
+                    ui.icon("tune").classes("text-slate-600")
+                    ui.label("Characteristics").classes("text-lg font-semibold text-slate-700")
+
+                with ui.card().classes("w-full"):
+                    columns = [
+                        {"name": "name", "label": "Name", "field": "name", "align": "left"},
+                        {"name": "direction", "label": "Direction", "field": "direction"},
+                        {"name": "domain", "label": "Domain", "field": "domain"},
+                        {"name": "units", "label": "Units", "field": "units"},
+                        {"name": "conditions", "label": "Conditions", "field": "conditions"},
+                    ]
+                    rows = [
+                        {
+                            "name": name,
+                            "direction": char.get("direction", ""),
+                            "domain": char.get("domain", ""),
+                            "units": char.get("units", ""),
+                            "conditions": len(char.get("conditions", [])),
+                        }
+                        for name, char in characteristics.items()
+                    ]
+                    ui.table(columns=columns, rows=rows, row_key="name").classes("w-full")
+
+            # Test requirements section
+            requirements = product.get("test_requirements", {})
+            if requirements:
+                with ui.row().classes("items-center gap-2 mt-4"):
+                    ui.icon("checklist").classes("text-slate-600")
+                    ui.label("Test Requirements").classes("text-lg font-semibold text-slate-700")
+
+                with ui.card().classes("w-full"):
+                    columns = [
+                        {"name": "name", "label": "Name", "field": "name", "align": "left"},
+                        {"name": "char_ref", "label": "Characteristic", "field": "char_ref"},
+                        {"name": "priority", "label": "Priority", "field": "priority"},
+                        {"name": "guardband", "label": "Guardband", "field": "guardband"},
+                        {"name": "description", "label": "Description", "field": "description"},
+                    ]
+                    rows = [
+                        {
+                            "name": name,
+                            "char_ref": req.get("characteristic_ref", "-"),
+                            "priority": req.get("priority", "standard"),
+                            "guardband": f"{req.get('guardband_pct', 0)}%",
+                            "description": req.get("description", "")[:50],
+                        }
+                        for name, req in requirements.items()
+                    ]
+                    ui.table(columns=columns, rows=rows, row_key="name").classes("w-full")
+
+            ui.link("← Back to Products", "/products").classes(
+                "text-blue-600 hover:underline mt-4"
+            )
+        else:
+            with ui.card().classes("w-full p-6 text-center"):
+                ui.label("Product not found.").classes("text-xl text-slate-600")
+                ui.link("← Back to Products", "/products").classes(
+                    "text-blue-600 hover:underline"
+                )
+
+
+@ui.page("/instruments")
+def instruments_page():
+    """Instruments listing page."""
+    create_layout("Instruments")
+
+    instrument_types = _discover_instrument_types()
+
+    with ui.column().classes("w-full p-6 gap-6"):
+        with ui.row().classes("items-center gap-2"):
+            ui.icon("precision_manufacturing").classes("text-slate-600")
+            ui.label("Instrument Types").classes("text-lg font-semibold text-slate-700")
+
+        with ui.row().classes("gap-4 flex-wrap"):
+            for inst in instrument_types:
+                with ui.card().classes("w-80"):
+                    with ui.card_section():
+                        with ui.row().classes("items-center gap-3"):
+                            ui.icon(inst["icon"]).classes("text-2xl text-slate-600")
+                            with ui.column().classes("gap-0"):
+                                ui.label(inst["name"]).classes("text-lg font-semibold")
+                                ui.label(inst["type"]).classes("text-xs text-slate-500 font-mono")
+
+                    with ui.card_section():
+                        ui.label(inst["description"]).classes("text-sm text-slate-600")
+
+                        ui.label("Capabilities").classes(
+                            "text-xs text-slate-500 uppercase mt-3"
+                        )
+                        with ui.row().classes("gap-2 flex-wrap mt-1"):
+                            for cap in inst["capabilities"]:
+                                ui.badge(cap).props("outline")
+
+
+def _load_sequence(sequence_id: str) -> dict | None:
+    """Load full sequence configuration from YAML."""
+    from litmus.execution.runner import get_runner
+
+    runner = get_runner()
+    return runner._load_sequence(sequence_id)
+
+
+@ui.page("/sequences")
+def sequences_page():
+    """Sequences listing page."""
+    create_layout("Test Sequences")
+
+    sequences = _discover_sequences()
+
+    with ui.column().classes("w-full p-6 gap-6"):
+        with ui.row().classes("items-center gap-2"):
+            ui.icon("list_alt").classes("text-slate-600")
+            ui.label("Test Sequences").classes("text-lg font-semibold text-slate-700")
+
+        if sequences:
+            with ui.row().classes("gap-4 flex-wrap"):
+                for seq in sequences:
+                    full_seq = _load_sequence(seq["id"])
+                    step_count = len(full_seq.get("steps", [])) if full_seq else 0
+
+                    with ui.card().classes("w-96"):
+                        with ui.card_section():
+                            with ui.row().classes("items-start justify-between"):
+                                ui.label(seq["name"]).classes("text-lg font-semibold")
+                                phase = seq.get("test_phase")
+                                if phase:
+                                    phase_colors = {
+                                        "validation": "blue",
+                                        "characterization": "purple",
+                                        "production": "green",
+                                    }
+                                    ui.badge(phase, color=phase_colors.get(phase, "gray")).props(
+                                        "outline"
+                                    )
+
+                        with ui.card_section():
+                            ui.label(seq["description"]).classes("text-sm text-slate-600")
+                            with ui.row().classes("text-xs text-slate-500 gap-4 mt-3"):
+                                with ui.row().classes("items-center gap-1"):
+                                    ui.icon("tag", size="xs")
+                                    ui.label(seq["id"])
+                                if seq.get("product_family"):
+                                    with ui.row().classes("items-center gap-1"):
+                                        ui.icon("inventory_2", size="xs")
+                                        ui.label(seq["product_family"])
+
+                            with ui.row().classes("items-center gap-1 mt-2"):
+                                ui.icon("format_list_numbered", size="xs").classes(
+                                    "text-slate-400"
+                                )
+                                ui.label(f"{step_count} steps").classes("text-sm text-slate-600")
+
+                        with ui.card_actions():
+                            ui.button(
+                                "View Details",
+                                icon="visibility",
+                                on_click=lambda s=seq: ui.navigate.to(f"/sequences/{s['id']}"),
+                            ).props("flat")
+                            ui.button(
+                                "Run",
+                                icon="play_arrow",
+                                on_click=lambda s=seq: ui.navigate.to(
+                                    f"/launch?sequence={s['id']}"
+                                ),
+                            ).props("flat color=primary")
+        else:
+            with ui.card().classes("w-full p-6 text-center"):
+                ui.label("No test sequences found.").classes("text-slate-500")
+                ui.label("Add YAML files to the sequences/ directory.").classes(
+                    "text-sm text-slate-400"
+                )
+
+
+@ui.page("/sequences/{sequence_id}")
+def sequence_detail_page(sequence_id: str):
+    """Sequence detail page with steps."""
+    from litmus.execution.runner import get_runner
+
+    runner = get_runner()
+    seq = runner._load_sequence(sequence_id)
+
+    if seq:
+        create_layout(seq.get("name") or sequence_id)
+    else:
+        create_layout("Sequence Not Found")
+
+    with ui.column().classes("w-full p-6 gap-6"):
+        if seq:
+            # Sequence info card
+            with ui.card().classes("w-full"):
+                with ui.card_section():
+                    with ui.row().classes("items-center gap-4"):
+                        ui.label("Sequence Information").classes("text-lg font-semibold")
+                        phase = seq.get("test_phase")
+                        if phase:
+                            phase_colors = {
+                                "validation": "blue",
+                                "characterization": "purple",
+                                "production": "green",
+                            }
+                            ui.badge(phase, color=phase_colors.get(phase, "gray")).props("outline")
+
+                with ui.card_section():
+                    with ui.grid(columns=3).classes("gap-6"):
+                        with ui.column().classes("gap-1"):
+                            ui.label("Sequence ID").classes("text-xs text-slate-500 uppercase")
+                            ui.label(seq.get("id", "")).classes("font-semibold")
+                        with ui.column().classes("gap-1"):
+                            ui.label("Product Family").classes("text-xs text-slate-500 uppercase")
+                            ui.label(seq.get("product_family") or "-").classes("font-semibold")
+                        with ui.column().classes("gap-1"):
+                            ui.label("Test Phase").classes("text-xs text-slate-500 uppercase")
+                            ui.label(seq.get("test_phase") or "-").classes("font-semibold")
+                        with ui.column().classes("gap-1 col-span-3"):
+                            ui.label("Description").classes("text-xs text-slate-500 uppercase")
+                            ui.label(seq.get("description", "")).classes("font-semibold")
+
+                    # Optional fields
+                    extras = []
+                    if seq.get("required_fixture"):
+                        extras.append(("Required Fixture", seq["required_fixture"]))
+                    if seq.get("required_station_type"):
+                        extras.append(("Required Station Type", seq["required_station_type"]))
+                    if seq.get("timeout_seconds"):
+                        extras.append(("Timeout", f"{seq['timeout_seconds']}s"))
+                    if seq.get("pytest_args"):
+                        extras.append(("pytest Args", " ".join(seq["pytest_args"])))
+
+                    if extras:
+                        with ui.grid(columns=3).classes("gap-6 mt-4"):
+                            for label, value in extras:
+                                with ui.column().classes("gap-1"):
+                                    ui.label(label).classes("text-xs text-slate-500 uppercase")
+                                    ui.label(value).classes("font-semibold font-mono text-sm")
+
+            # Steps section
+            steps = seq.get("steps", [])
+            with ui.row().classes("items-center gap-2"):
+                ui.icon("format_list_numbered").classes("text-slate-600")
+                ui.label("Test Steps").classes("text-lg font-semibold text-slate-700")
+                ui.badge(f"{len(steps)} steps").props("outline")
+
+            if steps:
+                # Show expanded view
+                expanded_tests = runner._expand_sequence(sequence_id)
+
+                with ui.card().classes("w-full"):
+                    for i, step in enumerate(steps):
+                        step_id = step.get("id", f"step_{i}")
+                        is_sequence_ref = bool(step.get("sequence"))
+
+                        with ui.expansion(
+                            text=step_id,
+                            icon="folder" if is_sequence_ref else "science",
+                        ).classes("w-full"):
+                            with ui.column().classes("gap-2 p-2"):
+                                if step.get("description"):
+                                    ui.label(step["description"]).classes("text-slate-600")
+
+                                if step.get("test"):
+                                    with ui.row().classes("items-center gap-2"):
+                                        ui.label("Test:").classes(
+                                            "text-xs text-slate-500 uppercase"
+                                        )
+                                        ui.label(step["test"]).classes("font-mono text-sm")
+
+                                if step.get("sequence"):
+                                    with ui.row().classes("items-center gap-2"):
+                                        ui.label("Sequence:").classes(
+                                            "text-xs text-slate-500 uppercase"
+                                        )
+                                        ui.link(
+                                            step["sequence"],
+                                            f"/sequences/{step['sequence']}",
+                                        ).classes("font-mono text-sm text-blue-600")
+
+                                    # Show what this expands to
+                                    nested_tests = runner._expand_sequence(step["sequence"])
+                                    if nested_tests:
+                                        ui.label("Expands to:").classes(
+                                            "text-xs text-slate-500 uppercase mt-2"
+                                        )
+                                        for test in nested_tests:
+                                            with ui.row().classes("items-center gap-2 ml-4"):
+                                                ui.icon("subdirectory_arrow_right", size="xs").classes(
+                                                    "text-slate-400"
+                                                )
+                                                ui.label(test).classes("font-mono text-xs")
+
+                                # Show additional step config
+                                config_items = []
+                                if step.get("limit_ref"):
+                                    config_items.append(("Limit Ref", step["limit_ref"]))
+                                if step.get("pre_dialog"):
+                                    config_items.append(("Pre-Dialog", step["pre_dialog"]))
+                                if step.get("post_dialog"):
+                                    config_items.append(("Post-Dialog", step["post_dialog"]))
+                                if step.get("skip_on"):
+                                    config_items.append(("Skip On", ", ".join(step["skip_on"])))
+                                if step.get("retry"):
+                                    retry = step["retry"]
+                                    config_items.append(
+                                        ("Retry", f"{retry.get('max_attempts', 1)} attempts")
+                                    )
+
+                                if config_items:
+                                    ui.separator().classes("my-2")
+                                    with ui.grid(columns=2).classes("gap-2"):
+                                        for label, value in config_items:
+                                            ui.label(label).classes(
+                                                "text-xs text-slate-500 uppercase"
+                                            )
+                                            ui.label(value).classes("text-sm")
+
+                # Summary of expanded tests
+                with ui.card().classes("w-full mt-4"):
+                    with ui.card_section():
+                        ui.label("Expanded Test Order").classes("text-sm font-semibold")
+                        ui.label(
+                            "This is the actual order tests will run when this sequence executes."
+                        ).classes("text-xs text-slate-500")
+
+                    with ui.card_section():
+                        for i, test in enumerate(expanded_tests, 1):
+                            with ui.row().classes("items-center gap-2"):
+                                ui.label(f"{i}.").classes("text-slate-400 w-6 text-right")
+                                ui.label(test).classes("font-mono text-sm")
+            else:
+                ui.label("No steps defined.").classes("text-slate-500 italic")
+
+            # Dialogs section
+            dialogs = seq.get("dialogs", {})
+            if dialogs:
+                with ui.row().classes("items-center gap-2 mt-4"):
+                    ui.icon("chat").classes("text-slate-600")
+                    ui.label("Dialogs").classes("text-lg font-semibold text-slate-700")
+
+                with ui.card().classes("w-full"):
+                    columns = [
+                        {"name": "id", "label": "ID", "field": "id", "align": "left"},
+                        {"name": "type", "label": "Type", "field": "type", "align": "left"},
+                        {"name": "message", "label": "Message", "field": "message", "align": "left"},
+                    ]
+                    rows = [
+                        {
+                            "id": dialog_id,
+                            "type": dialog.get("dialog_type", ""),
+                            "message": dialog.get("message", "")[:60] + "..."
+                            if len(dialog.get("message", "")) > 60
+                            else dialog.get("message", ""),
+                        }
+                        for dialog_id, dialog in dialogs.items()
+                    ]
+                    ui.table(columns=columns, rows=rows, row_key="id").classes("w-full")
+
+            # Actions
+            with ui.row().classes("mt-6 gap-2"):
+                ui.button(
+                    "Run Sequence",
+                    icon="play_arrow",
+                    on_click=lambda: ui.navigate.to(f"/launch?sequence={sequence_id}"),
+                ).props("color=primary")
+                ui.link("← Back to Sequences", "/sequences").classes(
+                    "text-blue-600 hover:underline self-center"
+                )
+        else:
+            with ui.card().classes("w-full p-6 text-center"):
+                ui.label("Sequence not found.").classes("text-xl text-slate-600")
+                ui.link("← Back to Sequences", "/sequences").classes(
+                    "text-blue-600 hover:underline"
+                )
