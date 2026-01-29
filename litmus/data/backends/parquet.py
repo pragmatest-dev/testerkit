@@ -130,6 +130,10 @@ class ParquetBackend:
                             "timestamp": m.timestamp,
                             "dut_serial": test_run.dut.serial,
                             "station_id": test_run.station_id,
+                            # Channel traceability
+                            "dut_pin": m.dut_pin,
+                            "instrument_channel": m.instrument_channel,
+                            "fixture_channel": m.fixture_channel,
                         }
                     )
 
@@ -152,6 +156,10 @@ class ParquetBackend:
                         "timestamp": m.timestamp,
                         "dut_serial": test_run.dut.serial,
                         "station_id": test_run.station_id,
+                        # Channel traceability
+                        "dut_pin": m.dut_pin,
+                        "instrument_channel": m.instrument_channel,
+                        "fixture_channel": m.fixture_channel,
                     }
                 )
 

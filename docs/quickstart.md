@@ -39,12 +39,39 @@ product:
   name: "My Product"
   revision: "A"
 
+pins:
+  VOUT:
+    name: "J1.1"           # Physical pin/connector
+
 characteristics:
   output_voltage:
     direction: output
     domain: voltage
     signal_types: [dc]
     units: V
+    pins: [VOUT]           # Which pin to measure
+    conditions:
+      - nominal: 3.3
+        tolerance_pct: 5
+```
+
+Or the absolute minimum:
+
+```yaml
+product:
+  id: my_product
+  name: "My Product"
+
+pins:
+  VOUT:
+    name: "J1.1"
+
+characteristics:
+  output_voltage:
+    direction: output
+    domain: voltage
+    units: V
+    pins: [VOUT]
     conditions:
       - nominal: 3.3
         tolerance_pct: 5

@@ -125,12 +125,28 @@ class StationInstance(BaseModel):
 
 
 class FixtureChannel(BaseModel):
-    """A single channel/pin on a test fixture."""
+    """A single channel/pin on a test fixture.
+
+    Maps a DUT connection point to an instrument channel, enabling
+    complete signal routing traceability.
+
+    Example YAML:
+        vout_measure:
+          name: vout_measure
+          instrument: dmm
+          instrument_channel: "1"
+          dut_pin: VOUT
+          net: "VOUT_3V3"
+    """
 
     name: str
     instrument: str  # Reference to instrument config
     instrument_channel: str | None = None
     description: str | None = None
+
+    # DUT-side mapping (ATML: signal routing)
+    dut_pin: str | None = None  # Reference to Product.pins key
+    net: str | None = None  # Match by schematic net name
 
 
 class FixtureConfig(BaseModel):
@@ -181,7 +197,7 @@ class RangeConfig(BaseModel):
     step: Decimal | None = None
     count: int | None = None
 
-    def model_post_init(self, __context: Any) -> None:
+    def model_post_init(self, _: Any) -> None:
         """Validate that exactly one of step or count is provided."""
         if (self.step is None) == (self.count is None):
             raise ValueError("Exactly one of 'step' or 'count' must be provided")
@@ -207,7 +223,7 @@ class LoopVariableConfig(BaseModel):
     range: RangeConfig | None = None
     prompt: "PromptConfig | None" = None  # Prompt shown when this variable changes
 
-    def model_post_init(self, __context: Any) -> None:
+    def model_post_init(self, _: Any) -> None:
         """Validate that exactly one of values or range is provided."""
         if (self.values is None) == (self.range is None):
             raise ValueError("Exactly one of 'values' or 'range' must be provided")
@@ -464,7 +480,7 @@ class TestStepConfig(BaseModel):
     retry: RetryConfig | None = None
     skip_on: list[str] | None = None  # Skip if these tests failed
 
-    def model_post_init(self, __context: Any) -> None:
+    def model_post_init(self, _: Any) -> None:
         """Validate that step has either test or sequence, not both."""
         if not self.test and not self.sequence:
             raise ValueError("Step must have either 'test' or 'sequence'")

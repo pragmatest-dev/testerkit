@@ -1,0 +1,22 @@
+# Minimal Product Specification
+# Shows the simplest possible spec to get started with Litmus
+#
+# This is all you need for basic voltage measurement
+
+product:
+  id: minimal_board
+  name: "Minimal Example"
+
+pins:
+  VOUT:
+    name: "J1.1"
+
+characteristics:
+  output_voltage:
+    direction: output
+    domain: voltage
+    units: V
+    pins: [VOUT]
+    conditions:
+      - nominal: 5.0
+        tolerance_pct: 10

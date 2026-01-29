@@ -8,9 +8,13 @@ import yaml
 
 from litmus.capabilities.models import Comparator, Direction, Domain, SignalType
 from litmus.products.models import (
+    BusSignal,
     Characteristic,
     ConditionPoint,
+    Pin,
+    PinType,
     Product,
+    SignalGroup,
     TestRequirement,
 )
 
@@ -52,6 +56,16 @@ def load_product(path: Path) -> Product:
     product_id = product_data.get("id", path.stem)
     product_name = product_data.get("name", product_id)
 
+    # Parse pins
+    pins = {}
+    for pin_key, pin_data in data.get("pins", {}).items():
+        pins[pin_key] = _parse_pin(pin_data)
+
+    # Parse signal groups
+    signal_groups = {}
+    for group_key, group_data in data.get("signal_groups", {}).items():
+        signal_groups[group_key] = _parse_signal_group(group_data)
+
     # Parse characteristics
     characteristics = {}
     for char_key, char_data in data.get("characteristics", {}).items():
@@ -69,8 +83,44 @@ def load_product(path: Path) -> Product:
         revision=product_data.get("revision"),
         datasheet=product_data.get("datasheet"),
         schematic=product_data.get("schematic"),
+        pins=pins,
+        signal_groups=signal_groups,
         characteristics=characteristics,
         test_requirements=test_requirements,
+    )
+
+
+def _parse_pin(data: dict[str, Any]) -> Pin:
+    """Parse a pin from YAML data."""
+    pin_type = PinType.SIGNAL
+    if "type" in data:
+        pin_type = PinType(data["type"].lower())
+
+    return Pin(
+        name=data["name"],
+        net=data.get("net"),
+        type=pin_type,
+        description=data.get("description"),
+    )
+
+
+def _parse_signal_group(data: dict[str, Any]) -> SignalGroup:
+    """Parse a signal group from YAML data."""
+    signals = []
+    for sig_data in data.get("signals", []):
+        signals.append(
+            BusSignal(
+                pin=sig_data["pin"],
+                role=sig_data["role"],
+                index=sig_data.get("index"),
+            )
+        )
+
+    return SignalGroup(
+        protocol=data["protocol"],
+        signals=signals,
+        parameters=data.get("parameters", {}),
+        description=data.get("description"),
     )
 
 
@@ -98,6 +148,9 @@ def _parse_characteristic(data: dict[str, Any]) -> Characteristic:
         units=data["units"],
         datasheet_ref=data.get("datasheet_ref"),
         schematic_ref=data.get("schematic_ref"),
+        pins=data.get("pins", []),
+        channel=data.get("channel"),
+        signal_group=data.get("signal_group"),
         conditions=conditions,
     )
 

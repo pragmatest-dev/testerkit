@@ -1,6 +1,6 @@
 # Core Concepts
 
-Litmus organizes hardware testing around four key concepts: **Products**, **Stations**, **Capabilities**, and **Matching**.
+Litmus organizes hardware testing around five key concepts: **Products**, **Pins & Channels**, **Stations**, **Capabilities**, and **Matching**.
 
 ## Products
 
@@ -16,12 +16,23 @@ product:
   name: "5V to 3.3V Converter"
   revision: "A"
 
+pins:
+  VIN:
+    name: "J1.1"
+    net: "VIN_5V"
+    type: power
+  VOUT:
+    name: "J1.3"
+    net: "VOUT_3V3"
+    type: signal
+
 characteristics:
   input_voltage:
     direction: input       # DUT receives this
     domain: voltage
     signal_types: [dc]
     units: V
+    pins: [VIN]            # Which pin this characteristic applies to
     conditions:
       - nominal: 5.0
         tolerance_pct: 10
@@ -31,6 +42,7 @@ characteristics:
     domain: voltage
     signal_types: [dc]
     units: V
+    pins: [VOUT]
     conditions:
       - nominal: 3.3
         tolerance_pct: 5
@@ -50,6 +62,108 @@ The `direction` field describes the DUT's perspective:
 |-----------|---------|------------------|
 | `input` | DUT receives power/signal | Instrument must **source** |
 | `output` | DUT provides power/signal | Instrument must **measure** |
+| `bidir` | DUT both receives and provides | Instrument must do both (e.g., SMU) |
+
+## Pins & Channels
+
+**Pins** represent physical connection points on the DUT (connectors, test points, pads). **Channels** are logical measurement/source points on instruments.
+
+### Pins
+
+Define the physical interface of your product:
+
+```yaml
+pins:
+  VIN:
+    name: "J1.1"           # Physical designator
+    net: "VIN_5V"          # Schematic net name
+    type: power
+  VOUT:
+    name: "J1.3"
+    net: "VOUT_3V3"
+    type: signal
+  SDA:
+    name: "J2.1"
+    net: "I2C_SDA"
+    type: signal
+```
+
+Pin types: `signal`, `power`, `ground`, `nc` (no connect)
+
+### Multiple Characteristics Per Pin
+
+A single pin can have multiple characteristics (e.g., DC voltage and AC ripple):
+
+```yaml
+pins:
+  VOUT:
+    name: "J1.3"
+    type: signal
+
+characteristics:
+  output_voltage:
+    pins: [VOUT]
+    direction: output
+    domain: voltage
+    signal_types: [dc]
+    units: V
+
+  output_ripple:
+    pins: [VOUT]           # Same pin, different measurement
+    direction: output
+    domain: voltage
+    signal_types: [ac]
+    units: mV
+```
+
+### Signal Groups (Buses)
+
+Group related signals for protocols like I2C, SPI, or UART:
+
+```yaml
+pins:
+  SDA:
+    name: "J2.1"
+    type: signal
+  SCL:
+    name: "J2.2"
+    type: signal
+
+signal_groups:
+  i2c_main:
+    protocol: i2c
+    signals:
+      - pin: SDA
+        role: data
+      - pin: SCL
+        role: clock
+    parameters:
+      frequency: 400000
+```
+
+### Minimal Spec
+
+The simplest spec that works:
+
+```yaml
+product:
+  id: minimal_board
+  name: "Minimal Example"
+
+pins:
+  VOUT:
+    name: "J1.1"
+
+characteristics:
+  output_voltage:
+    direction: output
+    domain: voltage
+    units: V
+    pins: [VOUT]
+    conditions:
+      - nominal: 5.0
+        tolerance_pct: 10
+```
 
 ## Stations
 

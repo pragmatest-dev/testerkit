@@ -1,55 +1,122 @@
 # Product Specification: Demo Power Board
 # A simple DC-DC converter board for demonstration
+#
+# This spec demonstrates the new ATML-aligned format with:
+# - Physical pins (DUT interface points)
+# - Characteristics with condition matrices
+# - Multiple characteristics per pin (DC + ripple)
 
 product:
+  id: power_board
   name: "Demo Power Board"
-  part_number: "DPB-001"
   revision: "A"
   description: "5V to 3.3V DC-DC converter with current monitoring"
+  datasheet: "docs/DS-DPB001.pdf"
 
-specifications:
-  # Input specifications
+# Physical interface (DUT pins)
+pins:
+  VIN:
+    name: "J1.1"
+    net: "VIN_5V"
+    type: power
+    description: "5V power input"
+  GND:
+    name: "J1.2"
+    net: "GND"
+    type: ground
+  VOUT:
+    name: "J1.3"
+    net: "VOUT_3V3"
+    type: signal
+    description: "3.3V regulated output"
+  IMON:
+    name: "TP1"
+    net: "IMON"
+    type: signal
+    description: "Current monitor test point"
+
+# Electrical characteristics
+characteristics:
+  # Input characteristics
   input_voltage:
-    id: "PWR-IN-001"
-    description: "Input voltage at VIN pin"
-    nominal: 5.0
-    tolerance_pct: 10
-    units: "V"
+    direction: input
+    domain: voltage
+    signal_types: [dc]
+    units: V
+    pins: [VIN]
+    datasheet_ref: "Section 7.1"
+    conditions:
+      - nominal: 5.0
+        tolerance_pct: 10
 
   input_current:
-    id: "PWR-IN-002"
-    description: "Quiescent input current (no load)"
-    nominal: 0.010
-    tolerance_pct: 50
-    units: "A"
+    direction: input
+    domain: current
+    signal_types: [dc]
+    units: A
+    pins: [VIN]
+    datasheet_ref: "Section 7.1"
+    conditions:
+      - load: 0
+        nominal: 0.010
+        tolerance_pct: 50
+        description: "Quiescent current"
 
-  # Output specifications
+  # Output characteristics (same pin, different measurements)
   output_voltage:
-    id: "PWR-OUT-001"
-    description: "Regulated output voltage at VOUT"
-    nominal: 3.3
-    tolerance_pct: 5
-    units: "V"
+    direction: output
+    domain: voltage
+    signal_types: [dc]
+    units: V
+    pins: [VOUT]
+    datasheet_ref: "Section 7.2"
+    conditions:
+      - temperature: 25
+        load: 0.1
+        nominal: 3.3
+        tolerance_pct: 5
 
   output_ripple:
-    id: "PWR-OUT-002"
-    description: "Output voltage ripple (peak-to-peak)"
-    nominal: 0.050
-    tolerance_abs: 0.030
-    units: "V"
+    direction: output
+    domain: voltage
+    signal_types: [ac]
+    units: V
+    pins: [VOUT]
+    datasheet_ref: "Section 7.2"
+    conditions:
+      - load: 0.1
+        nominal: 0.050
+        tolerance_abs: 0.030
+        description: "Peak-to-peak ripple"
 
-  # Load regulation
-  load_regulation:
-    id: "PWR-REG-001"
-    description: "Output voltage change from no-load to full-load"
-    nominal: 0.0
-    tolerance_abs: 0.033  # 1% of 3.3V
-    units: "V"
-
-  # Efficiency
+  # Efficiency (calculated from input/output power)
   efficiency:
-    id: "PWR-EFF-001"
-    description: "Power conversion efficiency at 100mA load"
-    nominal: 85
-    tolerance_abs: 10
+    direction: output
+    domain: power
+    signal_types: [dc]
     units: "%"
+    datasheet_ref: "Section 7.3"
+    conditions:
+      - load: 0.1
+        nominal: 85
+        tolerance_abs: 10
+
+# Test requirements (which characteristics to verify)
+test_requirements:
+  verify_input_voltage:
+    characteristic_ref: input_voltage
+    priority: critical
+
+  verify_output_voltage:
+    characteristic_ref: output_voltage
+    conditions:
+      temperature: 25
+      load: 0.1
+    guardband_pct: 10
+    priority: critical
+
+  verify_efficiency:
+    characteristic_ref: efficiency
+    conditions:
+      load: 0.1
+    priority: standard

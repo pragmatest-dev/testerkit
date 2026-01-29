@@ -15,12 +15,34 @@ product:
   datasheet: string       # Optional path/URL
   schematic: string       # Optional path/URL
 
+pins:                     # Physical connection points
+  <key>:                  # Pin reference name (used in characteristics)
+    name: string          # Physical designator (e.g., "J1.1", "TP5")
+    net: string           # Schematic net name (optional)
+    type: signal | power | ground | nc
+    description: string   # Optional
+
+signal_groups:            # Bus interfaces
+  <key>:
+    protocol: string      # i2c, spi, uart, parallel, custom
+    signals:
+      - pin: string       # Reference to pins.<key>
+        role: string      # data, clock, chip_select, etc.
+        index: integer    # For multi-bit (DATA[0], DATA[1])
+    parameters:           # Protocol-specific parameters
+      frequency: integer
+      <param>: value
+    description: string
+
 characteristics:
   <name>:                 # Characteristic identifier
-    direction: input | output
+    direction: input | output | bidir
     domain: voltage | current | resistance | frequency | time | digital
     signal_types: [dc, ac, pulse, sine, square, pwm]
     units: string         # e.g., "V", "A", "ohm"
+    pins: [string]        # References to pins.<key>
+    channel: string       # For multi-channel DUT outputs (optional)
+    signal_group: string  # Reference to signal_groups.<key> (optional)
     datasheet_ref: string # Optional reference
     schematic_ref: string # Optional reference
     conditions:
@@ -41,6 +63,15 @@ test_requirements:
     priority: integer           # Test order priority
     description: string
 ```
+
+### Pin Types
+
+| Type | Description |
+|------|-------------|
+| `signal` | General signal pin (default) |
+| `power` | Power supply pin |
+| `ground` | Ground reference |
+| `nc` | No connect / reserved |
 
 ### Comparator Reference
 
@@ -181,12 +212,39 @@ capabilities:
     direction: input | output | bidir
     domain: voltage | current | resistance | frequency | time | digital
     signal_types: [dc, ac, ...]
+    channels:
+      count: integer      # Number of channels
+      simultaneous: boolean   # Can measure all channels at once
+      naming: string      # Pattern: "CH{n}", "ai{n}"
+      labels: [string]    # Explicit: ["CH1", "CH2", "CH3", "CH4"]
     range:
       min: decimal
       max: decimal
       units: string
     resolution: decimal
     accuracy_pct: decimal
+```
+
+### Channel Naming
+
+Instruments with multiple channels can define naming patterns:
+
+```yaml
+capabilities:
+  - name: voltage_dc
+    direction: input
+    domain: voltage
+    channels:
+      count: 4
+      naming: "CH{n}"     # Generates: CH1, CH2, CH3, CH4
+```
+
+Or explicit labels:
+
+```yaml
+channels:
+  count: 2
+  labels: ["HI", "LO"]
 ```
 
 ## Environment Variables

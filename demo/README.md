@@ -11,8 +11,40 @@ python run_demo.py
 
 ## What's Included
 
+- **specs/power_board.yaml** - Product spec with pins, characteristics, and test requirements
+- **specs/minimal.yaml** - Minimal example showing how little you need to get started
 - **tests/config.yaml** - Test configuration (vectors, limits) separate from code
 - **tests/test_power_board.py** - Test suite using `@litmus_test` decorator
+
+## Product Specification (ATML-style)
+
+The power board spec demonstrates the new pin-based format:
+
+```yaml
+# specs/power_board.yaml
+product:
+  id: power_board
+  name: "Demo Power Board"
+
+pins:                        # Physical DUT connections
+  VIN:
+    name: "J1.1"
+    net: "VIN_5V"
+    type: power
+  VOUT:
+    name: "J1.3"
+    net: "VOUT_3V3"
+    type: signal
+
+characteristics:             # What to test
+  output_voltage:
+    direction: output        # DUT provides this
+    domain: voltage
+    pins: [VOUT]            # Which pin(s)
+    conditions:
+      - nominal: 3.3
+        tolerance_pct: 5
+```
 
 ## Test Patterns Demonstrated
 

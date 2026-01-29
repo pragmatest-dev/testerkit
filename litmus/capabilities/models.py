@@ -110,6 +110,18 @@ class ChannelSpec(BaseModel):
     simultaneous: bool = False  # Can measure/source all channels at once
     coupling: str | None = None  # single_ended, differential
 
+    # Channel identity
+    naming: str | None = None  # Pattern: "CH{n}", "ai{n}", "{n}"
+    labels: list[str] | None = None  # Explicit: ["CH1", "CH2", "CH3", "CH4"]
+
+    def channel_names(self) -> list[str]:
+        """Generate channel names based on count, naming pattern, or labels."""
+        if self.labels:
+            return self.labels[: self.count]
+        if self.naming:
+            return [self.naming.format(n=i + 1) for i in range(self.count)]
+        return [str(i + 1) for i in range(self.count)]
+
 
 class Capability(BaseModel):
     """A single capability of an instrument.

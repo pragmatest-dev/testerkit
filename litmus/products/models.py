@@ -14,6 +14,7 @@ trivial capability matching - opposite directions pair.
 """
 
 from decimal import Decimal
+from enum import StrEnum
 from typing import Any, Literal
 
 from pydantic import BaseModel, Field
@@ -112,6 +113,80 @@ class ConditionPoint(BaseModel):
         return True
 
 
+class PinType(StrEnum):
+    """Type of physical pin on a DUT."""
+
+    SIGNAL = "signal"
+    POWER = "power"
+    GROUND = "ground"
+    NC = "nc"  # No connect
+
+
+class Pin(BaseModel):
+    """Physical pin/pad on the DUT (ATML: Port).
+
+    Represents a single connection point that can be routed through
+    a fixture to an instrument.
+
+    Example YAML:
+        pins:
+          VIN:
+            name: "J1.1"
+            net: "VIN_5V"
+            type: power
+          VOUT:
+            name: "J1.3"
+            net: "VOUT_3V3"
+            type: signal
+    """
+
+    name: str  # Pin designator: "J1.1", "TP5", "U3.14"
+    net: str | None = None  # Schematic net name
+    type: PinType = PinType.SIGNAL
+    description: str | None = None
+
+
+class BusSignal(BaseModel):
+    """A signal within a bus group.
+
+    Example YAML:
+        signals:
+          - pin: SDA
+            role: data
+          - pin: SCL
+            role: clock
+    """
+
+    pin: str  # Reference to Pin key
+    role: str  # "clock", "data", "chip_select", "strobe", etc.
+    index: int | None = None  # For multi-bit: DATA[0], DATA[1]
+
+
+class SignalGroup(BaseModel):
+    """Grouped signals forming a bus interface (ATML: Bus).
+
+    Used for protocols like I2C, SPI, UART where multiple signals
+    must be treated as a unit for routing and testing.
+
+    Example YAML:
+        signal_groups:
+          i2c_main:
+            protocol: i2c
+            signals:
+              - pin: SDA
+                role: data
+              - pin: SCL
+                role: clock
+            parameters:
+              frequency: 400000
+    """
+
+    protocol: str  # "i2c", "spi", "uart", "parallel", "custom"
+    signals: list[BusSignal] = Field(default_factory=list)
+    parameters: dict[str, Any] = Field(default_factory=dict)
+    description: str | None = None
+
+
 class Characteristic(BaseModel):
     """A product characteristic (ATML: UUT Characteristic).
 
@@ -147,6 +222,11 @@ class Characteristic(BaseModel):
     # Traceability
     datasheet_ref: str | None = None
     schematic_ref: str | None = None  # Net name for fixture mapping
+
+    # Physical interface (ATML-style pin mapping)
+    pins: list[str] = Field(default_factory=list)  # References to Product.pins keys
+    channel: str | None = None  # For multi-channel DUT outputs
+    signal_group: str | None = None  # Reference to Product.signal_groups key
 
     # Spec values at conditions (ATML-style key-value)
     conditions: list[ConditionPoint] = Field(default_factory=list)
@@ -261,5 +341,11 @@ class Product(BaseModel):
     revision: str | None = None
     datasheet: str | None = None
     schematic: str | None = None
+
+    # Physical interface (ATML: UUT Ports)
+    pins: dict[str, Pin] = Field(default_factory=dict)
+    signal_groups: dict[str, SignalGroup] = Field(default_factory=dict)
+
+    # Electrical characteristics and test requirements
     characteristics: dict[str, Characteristic] = Field(default_factory=dict)
     test_requirements: dict[str, TestRequirement] = Field(default_factory=dict)
