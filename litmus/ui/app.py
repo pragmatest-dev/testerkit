@@ -12,6 +12,154 @@ _static_dir = Path(__file__).parent / "static"
 app.add_static_files("/static", _static_dir)
 
 
+# -----------------------------------------------------------------------------
+# Capability Matching Helpers
+# -----------------------------------------------------------------------------
+
+
+def _load_product_model(product_id: str):
+    """Load a Product model from specs directory.
+
+    Returns the Product Pydantic model, or None if not found.
+    """
+    from litmus.products.loader import load_product
+
+    search_paths = [
+        Path.cwd() / "specs",
+        Path.cwd() / "demo" / "specs",
+    ]
+
+    for specs_dir in search_paths:
+        if not specs_dir.exists():
+            continue
+        for yaml_file in specs_dir.glob("*.yaml"):
+            try:
+                product = load_product(yaml_file)
+                if product.id == product_id:
+                    return product
+            except Exception:
+                continue
+    return None
+
+
+def _load_instrument_library(instrument_type: str) -> dict | None:
+    """Load instrument capabilities from library YAML."""
+    import yaml
+
+    library_dir = Path(__file__).parent.parent / "instruments" / "library"
+    yaml_file = library_dir / f"{instrument_type}.yaml"
+
+    if not yaml_file.exists():
+        return None
+
+    with open(yaml_file) as f:
+        return yaml.safe_load(f)
+
+
+def _get_station_capabilities(station_config: dict) -> list[dict]:
+    """Extract all capabilities from a station's instruments.
+
+    Returns a list of capability dicts with direction, domain, signal_types.
+    """
+    capabilities = []
+    instruments = station_config.get("instruments", {})
+
+    for _name, inst in instruments.items():
+        inst_type = inst.get("type")
+        if not inst_type:
+            continue
+
+        library = _load_instrument_library(inst_type)
+        if library and "capabilities" in library:
+            for cap in library["capabilities"]:
+                capabilities.append({
+                    "direction": cap.get("direction"),
+                    "domain": cap.get("domain"),
+                    "signal_types": cap.get("signal_types", []),
+                    "name": cap.get("name", ""),
+                    "instrument": inst_type,
+                })
+
+    return capabilities
+
+
+def _get_required_capabilities(product) -> list[dict]:
+    """Derive required instrument capabilities from product characteristics.
+
+    Uses Characteristic.to_capability_requirement() for direction flipping.
+    """
+    capabilities = []
+
+    for char_name, char in product.characteristics.items():
+        cap = char.to_capability_requirement()
+        capabilities.append({
+            "direction": cap.direction.value,
+            "domain": cap.domain.value,
+            "signal_types": [st.value for st in cap.signal_types],
+            "characteristic": char_name,
+        })
+
+    return capabilities
+
+
+def _capability_satisfies(station_cap: dict, required_cap: dict) -> bool:
+    """Check if a station capability satisfies a requirement.
+
+    Match criteria:
+    - direction matches (or station is bidir)
+    - domain matches
+    - signal_types overlap (at least one common type)
+    """
+    # Direction must match (or station cap is bidir)
+    if station_cap["direction"] != required_cap["direction"]:
+        if station_cap["direction"] != "bidir":
+            return False
+
+    # Domain must match
+    if station_cap["domain"] != required_cap["domain"]:
+        return False
+
+    # Signal types must overlap (if specified)
+    station_signals = set(station_cap.get("signal_types", []))
+    required_signals = set(required_cap.get("signal_types", []))
+
+    if required_signals and station_signals:
+        if not station_signals.intersection(required_signals):
+            return False
+
+    return True
+
+
+def _station_compatible_with_product(station_config: dict, product) -> bool:
+    """Check if station has instruments satisfying all product requirements."""
+    required = _get_required_capabilities(product)
+    available = _get_station_capabilities(station_config)
+
+    # Every required capability must be satisfied by at least one station capability
+    for req in required:
+        if not any(_capability_satisfies(avail, req) for avail in available):
+            return False
+
+    return True
+
+
+def _get_compatible_stations_for_product(product_id: str) -> list[dict]:
+    """Get stations that have instruments satisfying product requirements."""
+    product = _load_product_model(product_id)
+    if not product:
+        return []
+
+    compatible = []
+    stations = _discover_stations()
+
+    for station in stations:
+        station_config = _load_station_config(station["id"])
+        if station_config and _station_compatible_with_product(station_config, product):
+            compatible.append(station)
+
+    return compatible
+
+
 def _discover_stations() -> list[dict]:
     """Discover station configurations from YAML files."""
     import yaml
@@ -966,11 +1114,71 @@ def station_detail_page(station_id: str):
 
                 # Sequences tab
                 with ui.tab_panel(sequences_tab):
+                    # Station capabilities summary
+                    station_caps = _get_station_capabilities(config)
+                    if station_caps:
+                        with ui.card().classes("w-full mb-4"):
+                            with ui.card_section():
+                                ui.label("Station Capabilities").classes("font-semibold")
+                                ui.label(
+                                    "What this station's instruments can measure/source"
+                                ).classes("text-xs text-slate-500")
+                            with ui.card_section():
+                                columns = [
+                                    {
+                                        "name": "instrument",
+                                        "label": "Instrument",
+                                        "field": "instrument",
+                                        "align": "left",
+                                    },
+                                    {
+                                        "name": "capability",
+                                        "label": "Capability",
+                                        "field": "capability",
+                                    },
+                                    {
+                                        "name": "direction",
+                                        "label": "Direction",
+                                        "field": "direction",
+                                    },
+                                    {"name": "domain", "label": "Domain", "field": "domain"},
+                                ]
+                                rows = [
+                                    {
+                                        "instrument": cap["instrument"],
+                                        "capability": cap["name"],
+                                        "direction": cap["direction"],
+                                        "domain": cap["domain"],
+                                    }
+                                    for cap in station_caps
+                                ]
+                                ui.table(
+                                    columns=columns, rows=rows, row_key="capability"
+                                ).classes("w-full")
+
+                    # Compatible sequences (based on capability matching)
                     sequences = _discover_sequences()
-                    # For now, show all sequences (capability matching will be added later)
-                    if sequences:
+                    compatible_sequences = []
+                    for seq in sequences:
+                        product_family = seq.get("product_family")
+                        if product_family:
+                            product = _load_product_model(product_family)
+                            if product and _station_compatible_with_product(config, product):
+                                compatible_sequences.append(seq)
+                        else:
+                            # Sequences without product_family are always shown
+                            compatible_sequences.append(seq)
+
+                    with ui.row().classes("items-center gap-2 mt-4 mb-2"):
+                        ui.icon("list_alt").classes("text-slate-600")
+                        ui.label("Compatible Sequences").classes(
+                            "font-semibold text-slate-700"
+                        )
+                        ui.badge(f"{len(compatible_sequences)} found").props("outline")
+
+                    if compatible_sequences:
                         with ui.row().classes("gap-4 flex-wrap"):
-                            for seq in sequences:
+                            for seq in compatible_sequences:
                                 with ui.card().classes("w-72"):
                                     with ui.card_section():
                                         ui.label(seq["name"]).classes("font-semibold")
@@ -987,6 +1195,10 @@ def station_detail_page(station_id: str):
                                         ui.label(seq.get("description", "")[:60]).classes(
                                             "text-sm text-slate-500 mt-1"
                                         )
+                                        if seq.get("product_family"):
+                                            ui.label(f"Product: {seq['product_family']}").classes(
+                                                "text-xs text-slate-400 mt-1"
+                                            )
                                     with ui.card_actions():
                                         ui.button(
                                             "Run",
@@ -996,7 +1208,9 @@ def station_detail_page(station_id: str):
                                             ),
                                         ).props("flat dense color=primary")
                     else:
-                        ui.label("No sequences available.").classes("text-slate-500 italic")
+                        ui.label("No compatible sequences found.").classes(
+                            "text-slate-500 italic"
+                        )
 
                 # Recent runs tab
                 with ui.tab_panel(runs_tab):
@@ -1322,6 +1536,84 @@ def product_detail_page(product_id: str):
 
                 # Sequences tab
                 with ui.tab_panel(seq_tab):
+                    # Required instrument capabilities
+                    product_model = _load_product_model(product_id)
+                    if product_model:
+                        required_caps = _get_required_capabilities(product_model)
+                        if required_caps:
+                            with ui.card().classes("w-full mb-4"):
+                                with ui.card_section():
+                                    ui.label("Required Instrument Capabilities").classes(
+                                        "font-semibold"
+                                    )
+                                    ui.label(
+                                        "Instruments needed to test this product"
+                                    ).classes("text-xs text-slate-500")
+                                with ui.card_section():
+                                    columns = [
+                                        {
+                                            "name": "char",
+                                            "label": "Characteristic",
+                                            "field": "char",
+                                            "align": "left",
+                                        },
+                                        {
+                                            "name": "direction",
+                                            "label": "Inst. Direction",
+                                            "field": "direction",
+                                        },
+                                        {"name": "domain", "label": "Domain", "field": "domain"},
+                                        {"name": "signals", "label": "Signals", "field": "signals"},
+                                    ]
+                                    rows = [
+                                        {
+                                            "char": cap["characteristic"],
+                                            "direction": cap["direction"],
+                                            "domain": cap["domain"],
+                                            "signals": ", ".join(cap["signal_types"]),
+                                        }
+                                        for cap in required_caps
+                                    ]
+                                    ui.table(columns=columns, rows=rows, row_key="char").classes(
+                                        "w-full"
+                                    )
+
+                        # Compatible stations
+                        compatible_stations = _get_compatible_stations_for_product(product_id)
+                        with ui.row().classes("items-center gap-2 mt-4 mb-2"):
+                            ui.icon("memory").classes("text-slate-600")
+                            ui.label("Compatible Stations").classes(
+                                "font-semibold text-slate-700"
+                            )
+                            ui.badge(f"{len(compatible_stations)} found").props("outline")
+
+                        if compatible_stations:
+                            with ui.row().classes("gap-4 flex-wrap mb-4"):
+                                for station in compatible_stations:
+                                    with ui.card().classes("w-64"):
+                                        with ui.card_section():
+                                            ui.label(station["name"]).classes("font-semibold")
+                                            ui.label(station["location"]).classes(
+                                                "text-xs text-slate-500"
+                                            )
+                                        with ui.card_actions():
+                                            ui.button(
+                                                "View",
+                                                icon="visibility",
+                                                on_click=lambda s=station: ui.navigate.to(
+                                                    f"/stations/{s['id']}"
+                                                ),
+                                            ).props("flat dense")
+                        else:
+                            ui.label(
+                                "No compatible stations found."
+                            ).classes("text-slate-500 italic mb-4")
+
+                    # Sequences for this product
+                    with ui.row().classes("items-center gap-2 mt-4 mb-2"):
+                        ui.icon("list_alt").classes("text-slate-600")
+                        ui.label("Test Sequences").classes("font-semibold text-slate-700")
+
                     sequences = _discover_sequences()
                     product_sequences = [
                         s for s in sequences if s.get("product_family") == product_id
@@ -1648,6 +1940,7 @@ def sequence_detail_page(sequence_id: str):
 
                 # Requirements tab
                 with ui.tab_panel(requirements_tab):
+                    # Station & Fixture requirements
                     with ui.card().classes("w-full"):
                         with ui.card_section():
                             ui.label("Station & Fixture Requirements").classes("font-semibold")
@@ -1683,6 +1976,93 @@ def sequence_detail_page(sequence_id: str):
                                     ui.label(" ".join(args) if args else "-").classes(
                                         "font-semibold font-mono"
                                     )
+
+                    # Required capabilities (derived from product)
+                    product_family = seq.get("product_family")
+                    if product_family:
+                        product = _load_product_model(product_family)
+                        if product:
+                            required_caps = _get_required_capabilities(product)
+                            if required_caps:
+                                with ui.card().classes("w-full mt-4"):
+                                    with ui.card_section():
+                                        ui.label("Required Instrument Capabilities").classes(
+                                            "font-semibold"
+                                        )
+                                        ui.label(
+                                            f"Derived from product: {product_family}"
+                                        ).classes("text-xs text-slate-500")
+                                    with ui.card_section():
+                                        columns = [
+                                            {
+                                                "name": "char",
+                                                "label": "Characteristic",
+                                                "field": "char",
+                                                "align": "left",
+                                            },
+                                            {
+                                                "name": "direction",
+                                                "label": "Direction",
+                                                "field": "direction",
+                                            },
+                                            {
+                                                "name": "domain",
+                                                "label": "Domain",
+                                                "field": "domain",
+                                            },
+                                            {
+                                                "name": "signals",
+                                                "label": "Signals",
+                                                "field": "signals",
+                                            },
+                                        ]
+                                        rows = [
+                                            {
+                                                "char": cap["characteristic"],
+                                                "direction": cap["direction"],
+                                                "domain": cap["domain"],
+                                                "signals": ", ".join(cap["signal_types"]),
+                                            }
+                                            for cap in required_caps
+                                        ]
+                                        ui.table(
+                                            columns=columns, rows=rows, row_key="char"
+                                        ).classes("w-full")
+
+                            # Compatible stations
+                            compatible_stations = _get_compatible_stations_for_product(
+                                product_family
+                            )
+                            with ui.row().classes("items-center gap-2 mt-6"):
+                                ui.icon("memory").classes("text-slate-600")
+                                ui.label("Compatible Stations").classes(
+                                    "text-lg font-semibold text-slate-700"
+                                )
+                                ui.badge(f"{len(compatible_stations)} found").props("outline")
+
+                            if compatible_stations:
+                                with ui.row().classes("gap-4 flex-wrap"):
+                                    for station in compatible_stations:
+                                        with ui.card().classes("w-64"):
+                                            with ui.card_section():
+                                                ui.label(station["name"]).classes(
+                                                    "font-semibold"
+                                                )
+                                                ui.label(station["location"]).classes(
+                                                    "text-xs text-slate-500"
+                                                )
+                                            with ui.card_actions():
+                                                ui.button(
+                                                    "Run Here",
+                                                    icon="play_arrow",
+                                                    on_click=lambda s=station: ui.navigate.to(
+                                                        f"/launch?sequence={sequence_id}&station={s['id']}"
+                                                    ),
+                                                ).props("flat dense color=primary")
+                            else:
+                                ui.label(
+                                    "No compatible stations found. Check instrument capabilities."
+                                ).classes("text-slate-500 italic")
 
                 # Dialogs tab
                 with ui.tab_panel(dialogs_tab):
