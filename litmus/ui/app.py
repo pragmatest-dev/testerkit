@@ -558,7 +558,7 @@ def results_page():
 
 @ui.page("/results/{run_id}")
 def result_detail_page(run_id: str):
-    """Single result detail page."""
+    """Single result detail page with tabbed interface."""
     backend = ParquetBackend(results_dir="results")
     run = backend.get_run(run_id)
     measurements = backend.get_measurements(run_id) if run else []
@@ -571,7 +571,7 @@ def result_detail_page(run_id: str):
 
     with ui.column().classes("w-full p-6 gap-6"):
         if run:
-            # Summary card
+            # Summary card (above tabs)
             with ui.card().classes("w-full"):
                 with ui.card_section():
                     with ui.row().classes("items-center gap-4"):
@@ -592,10 +592,22 @@ def result_detail_page(run_id: str):
                             ui.label(run.get("dut_serial", "")).classes("font-semibold")
                         with ui.column().classes("gap-1"):
                             ui.label("Station").classes("text-xs text-slate-500 uppercase")
-                            ui.label(run.get("station_id", "")).classes("font-semibold")
+                            station_id = run.get("station_id", "")
+                            if station_id:
+                                ui.link(station_id, f"/stations/{station_id}").classes(
+                                    "font-semibold text-blue-600 hover:underline"
+                                )
+                            else:
+                                ui.label("-").classes("font-semibold")
                         with ui.column().classes("gap-1"):
                             ui.label("Test Sequence").classes("text-xs text-slate-500 uppercase")
-                            ui.label(run.get("test_sequence_id", "")).classes("font-semibold")
+                            seq_id = run.get("test_sequence_id", "")
+                            if seq_id:
+                                ui.link(seq_id, f"/sequences/{seq_id}").classes(
+                                    "font-semibold text-blue-600 hover:underline"
+                                )
+                            else:
+                                ui.label("-").classes("font-semibold")
                         with ui.column().classes("gap-1"):
                             ui.label("Started").classes("text-xs text-slate-500 uppercase")
                             ui.label(format_datetime(run.get("started_at"))).classes(
@@ -610,38 +622,155 @@ def result_detail_page(run_id: str):
                             failed = run.get("failed_steps", 0)
                             ui.label(f"{total} steps, {failed} failed").classes("font-semibold")
 
-            # Measurements table
-            with ui.row().classes("items-center gap-2"):
-                ui.icon("science").classes("text-slate-600")
-                ui.label("Measurements").classes("text-lg font-semibold text-slate-700")
+            # Tabbed content
+            with ui.tabs().classes("w-full") as tabs:
+                overview_tab = ui.tab("Overview", icon="dashboard")
+                measurements_tab = ui.tab("Measurements", icon="science")
+                history_tab = ui.tab("DUT History", icon="history")
 
-            if measurements:
-                with ui.card().classes("w-full"):
-                    columns = [
-                        {"name": "step", "label": "Step", "field": "step_name", "align": "left"},
-                        {"name": "name", "label": "Measurement", "field": "name", "align": "left"},
-                        {"name": "value", "label": "Value", "field": "value", "align": "right"},
-                        {"name": "limits", "label": "Limits", "field": "limits", "align": "center"},
-                        {
-                            "name": "outcome",
-                            "label": "Outcome",
-                            "field": "outcome",
-                            "align": "center",
-                        },
+            with ui.tab_panels(tabs, value=overview_tab).classes("w-full"):
+                # Overview tab
+                with ui.tab_panel(overview_tab):
+                    with ui.card().classes("w-full"):
+                        with ui.card_section():
+                            ui.label("Test Statistics").classes("font-semibold")
+                        with ui.card_section():
+                            total = run.get("total_steps", 0)
+                            failed = run.get("failed_steps", 0)
+                            passed = total - failed
+
+                            with ui.row().classes("gap-8"):
+                                with ui.column().classes("items-center"):
+                                    ui.label(str(total)).classes("text-3xl font-bold text-slate-700")
+                                    ui.label("Total Steps").classes("text-sm text-slate-500")
+                                with ui.column().classes("items-center"):
+                                    ui.label(str(passed)).classes(
+                                        "text-3xl font-bold text-emerald-600"
+                                    )
+                                    ui.label("Passed").classes("text-sm text-slate-500")
+                                with ui.column().classes("items-center"):
+                                    ui.label(str(failed)).classes("text-3xl font-bold text-red-600")
+                                    ui.label("Failed").classes("text-sm text-slate-500")
+                                if total > 0:
+                                    with ui.column().classes("items-center"):
+                                        pct = int((passed / total) * 100)
+                                        ui.label(f"{pct}%").classes(
+                                            "text-3xl font-bold text-blue-600"
+                                        )
+                                        ui.label("Pass Rate").classes("text-sm text-slate-500")
+
+                # Measurements tab
+                with ui.tab_panel(measurements_tab):
+                    if measurements:
+                        with ui.card().classes("w-full"):
+                            columns = [
+                                {
+                                    "name": "step",
+                                    "label": "Step",
+                                    "field": "step_name",
+                                    "align": "left",
+                                },
+                                {
+                                    "name": "name",
+                                    "label": "Measurement",
+                                    "field": "name",
+                                    "align": "left",
+                                },
+                                {
+                                    "name": "value",
+                                    "label": "Value",
+                                    "field": "value",
+                                    "align": "right",
+                                },
+                                {
+                                    "name": "limits",
+                                    "label": "Limits",
+                                    "field": "limits",
+                                    "align": "center",
+                                },
+                                {
+                                    "name": "outcome",
+                                    "label": "Outcome",
+                                    "field": "outcome",
+                                    "align": "center",
+                                },
+                            ]
+                            rows = [
+                                {
+                                    "step_name": m.get("step_name", ""),
+                                    "name": m.get("measurement_name", ""),
+                                    "value": f"{m.get('value', '-')} {m.get('units', '')}".strip(),
+                                    "limits": f"{m.get('low_limit', '')} – {m.get('high_limit', '')}",
+                                    "outcome": m.get("outcome", ""),
+                                }
+                                for m in measurements
+                            ]
+                            ui.table(columns=columns, rows=rows, row_key="name").classes("w-full")
+                    else:
+                        ui.label("No measurements recorded.").classes("text-slate-500 italic")
+
+                # DUT History tab
+                with ui.tab_panel(history_tab):
+                    dut_serial = run.get("dut_serial", "")
+                    all_runs = backend.list_runs(limit=100)
+                    dut_runs = [
+                        r
+                        for r in all_runs
+                        if r.get("dut_serial") == dut_serial and r.get("test_run_id") != run_id
                     ]
-                    rows = [
-                        {
-                            "step_name": m.get("step_name", ""),
-                            "name": m.get("measurement_name", ""),
-                            "value": f"{m.get('value', '-')} {m.get('units', '')}".strip(),
-                            "limits": f"{m.get('low_limit', '')} – {m.get('high_limit', '')}",
-                            "outcome": m.get("outcome", ""),
-                        }
-                        for m in measurements
-                    ]
-                    ui.table(columns=columns, rows=rows, row_key="name").classes("w-full")
-            else:
-                ui.label("No measurements recorded.").classes("text-slate-500 italic")
+
+                    if dut_runs:
+                        with ui.card().classes("w-full"):
+                            ui.label(f"Other runs for DUT: {dut_serial}").classes(
+                                "text-sm text-slate-500 mb-2"
+                            )
+                            columns = [
+                                {
+                                    "name": "run_id",
+                                    "label": "Run ID",
+                                    "field": "run_id",
+                                    "align": "left",
+                                },
+                                {
+                                    "name": "sequence",
+                                    "label": "Sequence",
+                                    "field": "sequence",
+                                    "align": "left",
+                                },
+                                {
+                                    "name": "started",
+                                    "label": "Started",
+                                    "field": "started",
+                                    "align": "left",
+                                },
+                                {
+                                    "name": "outcome",
+                                    "label": "Outcome",
+                                    "field": "outcome",
+                                    "align": "center",
+                                },
+                            ]
+                            rows = [
+                                {
+                                    "run_id": r.get("test_run_id", "")[:8],
+                                    "full_run_id": r.get("test_run_id", ""),
+                                    "sequence": r.get("test_sequence_id", ""),
+                                    "started": format_datetime(r.get("started_at")),
+                                    "outcome": r.get("outcome", ""),
+                                }
+                                for r in dut_runs[:10]
+                            ]
+                            table = ui.table(columns=columns, rows=rows, row_key="run_id").classes(
+                                "w-full"
+                            )
+                            table.on(
+                                "row-click",
+                                lambda e: ui.navigate.to(f"/results/{e.args[1]['full_run_id']}"),
+                            )
+                    else:
+                        ui.label(f"No other runs found for DUT: {dut_serial}").classes(
+                            "text-slate-500 italic"
+                        )
 
             ui.link("← Back to Results", "/results").classes("text-blue-600 hover:underline")
         else:
@@ -740,7 +869,7 @@ def stations_page():
 
 @ui.page("/stations/{station_id}")
 def station_detail_page(station_id: str):
-    """Station detail page with instrument status."""
+    """Station detail page with tabbed interface."""
     config = _load_station_config(station_id)
 
     if config:
@@ -753,8 +882,9 @@ def station_detail_page(station_id: str):
         if config:
             station = config.get("station", {})
             instruments = config.get("instruments", {})
+            phases = config.get("supported_phases", [])
 
-            # Station info card
+            # Station info card (above tabs)
             with ui.card().classes("w-full"):
                 with ui.card_section():
                     with ui.row().classes("items-center gap-4"):
@@ -776,57 +906,160 @@ def station_detail_page(station_id: str):
                             ui.label("Description").classes("text-xs text-slate-500 uppercase")
                             ui.label(station.get("description", "")).classes("font-semibold")
 
-            # Instruments section
-            with ui.row().classes("items-center gap-2"):
-                ui.icon("cable").classes("text-slate-600")
-                ui.label("Instruments").classes("text-lg font-semibold text-slate-700")
+                    if phases:
+                        with ui.row().classes("gap-2 mt-4"):
+                            ui.label("Supported Phases:").classes(
+                                "text-xs text-slate-500 uppercase self-center"
+                            )
+                            for phase in phases:
+                                ui.badge(phase).props("outline")
 
-            if instruments:
-                with ui.row().classes("gap-4 flex-wrap"):
-                    for name, inst in instruments.items():
-                        simulated = inst.get("simulated", False)
-                        with ui.card().classes("w-80"):
-                            with ui.card_section():
-                                with ui.row().classes("items-center justify-between"):
-                                    with ui.row().classes("items-center gap-2"):
-                                        ui.icon("sim_card" if simulated else "cable").classes(
-                                            "text-slate-600"
-                                        )
-                                        ui.label(name).classes("text-lg font-semibold")
-                                    if simulated:
-                                        ui.badge("Simulated", color="blue").props("outline")
-                                    else:
-                                        ui.badge("Ready", color="green").props("outline")
+            # Tabbed content
+            with ui.tabs().classes("w-full") as tabs:
+                instruments_tab = ui.tab("Instruments", icon="cable")
+                sequences_tab = ui.tab("Sequences", icon="list_alt")
+                runs_tab = ui.tab("Recent Runs", icon="history")
 
-                            with ui.card_section():
-                                with ui.column().classes("gap-2"):
-                                    with ui.row().classes("items-center gap-2"):
-                                        ui.label("Type:").classes("text-sm text-slate-500")
-                                        ui.label(inst.get("type", "unknown")).classes(
-                                            "text-sm font-medium"
-                                        )
-                                    with ui.row().classes("items-center gap-2"):
-                                        ui.label("Resource:").classes("text-sm text-slate-500")
-                                        ui.label(inst.get("resource", "N/A")).classes(
-                                            "text-sm font-mono"
-                                        )
-                                    if inst.get("description"):
-                                        ui.label(inst["description"]).classes(
-                                            "text-sm text-slate-600 mt-2"
-                                        )
-            else:
-                ui.label("No instruments configured.").classes("text-slate-500 italic")
+            with ui.tab_panels(tabs, value=instruments_tab).classes("w-full"):
+                # Instruments tab
+                with ui.tab_panel(instruments_tab):
+                    if instruments:
+                        with ui.row().classes("gap-4 flex-wrap"):
+                            for name, inst in instruments.items():
+                                simulated = inst.get("simulated", False)
+                                with ui.card().classes("w-80"):
+                                    with ui.card_section():
+                                        with ui.row().classes("items-center justify-between"):
+                                            with ui.row().classes("items-center gap-2"):
+                                                ui.icon(
+                                                    "sim_card" if simulated else "cable"
+                                                ).classes("text-slate-600")
+                                                ui.label(name).classes("text-lg font-semibold")
+                                            if simulated:
+                                                ui.badge("Simulated", color="blue").props("outline")
+                                            else:
+                                                ui.badge("Ready", color="green").props("outline")
 
-            # Supported phases
-            phases = config.get("supported_phases", [])
-            if phases:
-                with ui.row().classes("items-center gap-2 mt-4"):
-                    ui.icon("checklist").classes("text-slate-600")
-                    ui.label("Supported Phases").classes("text-lg font-semibold text-slate-700")
+                                    with ui.card_section():
+                                        with ui.column().classes("gap-2"):
+                                            with ui.row().classes("items-center gap-2"):
+                                                ui.label("Type:").classes("text-sm text-slate-500")
+                                                ui.link(
+                                                    inst.get("type", "unknown"),
+                                                    "/instruments",
+                                                ).classes(
+                                                    "text-sm font-medium text-blue-600 hover:underline"
+                                                )
+                                            with ui.row().classes("items-center gap-2"):
+                                                ui.label("Resource:").classes(
+                                                    "text-sm text-slate-500"
+                                                )
+                                                ui.label(inst.get("resource", "N/A")).classes(
+                                                    "text-sm font-mono"
+                                                )
+                                            if inst.get("description"):
+                                                ui.label(inst["description"]).classes(
+                                                    "text-sm text-slate-600 mt-2"
+                                                )
+                    else:
+                        ui.label("No instruments configured.").classes("text-slate-500 italic")
 
-                with ui.row().classes("gap-2"):
-                    for phase in phases:
-                        ui.badge(phase).props("outline")
+                # Sequences tab
+                with ui.tab_panel(sequences_tab):
+                    sequences = _discover_sequences()
+                    # For now, show all sequences (capability matching will be added later)
+                    if sequences:
+                        with ui.row().classes("gap-4 flex-wrap"):
+                            for seq in sequences:
+                                with ui.card().classes("w-72"):
+                                    with ui.card_section():
+                                        ui.label(seq["name"]).classes("font-semibold")
+                                        if seq.get("test_phase"):
+                                            phase_colors = {
+                                                "validation": "blue",
+                                                "characterization": "purple",
+                                                "production": "green",
+                                            }
+                                            ui.badge(
+                                                seq["test_phase"],
+                                                color=phase_colors.get(seq["test_phase"], "gray"),
+                                            ).props("outline")
+                                        ui.label(seq.get("description", "")[:60]).classes(
+                                            "text-sm text-slate-500 mt-1"
+                                        )
+                                    with ui.card_actions():
+                                        ui.button(
+                                            "Run",
+                                            icon="play_arrow",
+                                            on_click=lambda s=seq: ui.navigate.to(
+                                                f"/launch?sequence={s['id']}&station={station_id}"
+                                            ),
+                                        ).props("flat dense color=primary")
+                    else:
+                        ui.label("No sequences available.").classes("text-slate-500 italic")
+
+                # Recent runs tab
+                with ui.tab_panel(runs_tab):
+                    backend = ParquetBackend(results_dir="results")
+                    all_runs = backend.list_runs(limit=100)
+                    station_runs = [r for r in all_runs if r.get("station_id") == station_id]
+
+                    if station_runs:
+                        with ui.card().classes("w-full"):
+                            columns = [
+                                {
+                                    "name": "run_id",
+                                    "label": "Run ID",
+                                    "field": "run_id",
+                                    "align": "left",
+                                },
+                                {
+                                    "name": "dut",
+                                    "label": "DUT",
+                                    "field": "dut",
+                                    "align": "left",
+                                },
+                                {
+                                    "name": "sequence",
+                                    "label": "Sequence",
+                                    "field": "sequence",
+                                    "align": "left",
+                                },
+                                {
+                                    "name": "started",
+                                    "label": "Started",
+                                    "field": "started",
+                                    "align": "left",
+                                },
+                                {
+                                    "name": "outcome",
+                                    "label": "Outcome",
+                                    "field": "outcome",
+                                    "align": "center",
+                                },
+                            ]
+                            rows = [
+                                {
+                                    "run_id": r.get("test_run_id", "")[:8],
+                                    "full_run_id": r.get("test_run_id", ""),
+                                    "dut": r.get("dut_serial", ""),
+                                    "sequence": r.get("test_sequence_id", ""),
+                                    "started": format_datetime(r.get("started_at")),
+                                    "outcome": r.get("outcome", ""),
+                                }
+                                for r in station_runs[:20]
+                            ]
+                            table = ui.table(
+                                columns=columns, rows=rows, row_key="run_id"
+                            ).classes("w-full")
+                            table.on(
+                                "row-click",
+                                lambda e: ui.navigate.to(f"/results/{e.args[1]['full_run_id']}"),
+                            )
+                    else:
+                        ui.label("No runs found on this station.").classes(
+                            "text-slate-500 italic"
+                        )
 
             # Actions
             with ui.row().classes("mt-6 gap-2"):
@@ -964,7 +1197,7 @@ def products_page():
 
 @ui.page("/products/{product_id}")
 def product_detail_page(product_id: str):
-    """Product detail page with characteristics and test requirements."""
+    """Product detail page with tabbed interface."""
     products = _discover_products()
     product = next((p for p in products if p["id"] == product_id), None)
 
@@ -975,7 +1208,7 @@ def product_detail_page(product_id: str):
 
     with ui.column().classes("w-full p-6 gap-6"):
         if product:
-            # Product info card
+            # Product info card (above tabs)
             with ui.card().classes("w-full"):
                 with ui.card_section():
                     with ui.row().classes("items-center gap-4"):
@@ -995,59 +1228,143 @@ def product_detail_page(product_id: str):
                             ui.label("Description").classes("text-xs text-slate-500 uppercase")
                             ui.label(product["description"]).classes("font-semibold")
 
-            # Characteristics section
+            # Tabbed content
             characteristics = product.get("characteristics", {})
-            if characteristics:
-                with ui.row().classes("items-center gap-2"):
-                    ui.icon("tune").classes("text-slate-600")
-                    ui.label("Characteristics").classes("text-lg font-semibold text-slate-700")
-
-                with ui.card().classes("w-full"):
-                    columns = [
-                        {"name": "name", "label": "Name", "field": "name", "align": "left"},
-                        {"name": "direction", "label": "Direction", "field": "direction"},
-                        {"name": "domain", "label": "Domain", "field": "domain"},
-                        {"name": "units", "label": "Units", "field": "units"},
-                        {"name": "conditions", "label": "Conditions", "field": "conditions"},
-                    ]
-                    rows = [
-                        {
-                            "name": name,
-                            "direction": char.get("direction", ""),
-                            "domain": char.get("domain", ""),
-                            "units": char.get("units", ""),
-                            "conditions": len(char.get("conditions", [])),
-                        }
-                        for name, char in characteristics.items()
-                    ]
-                    ui.table(columns=columns, rows=rows, row_key="name").classes("w-full")
-
-            # Test requirements section
             requirements = product.get("test_requirements", {})
-            if requirements:
-                with ui.row().classes("items-center gap-2 mt-4"):
-                    ui.icon("checklist").classes("text-slate-600")
-                    ui.label("Test Requirements").classes("text-lg font-semibold text-slate-700")
 
-                with ui.card().classes("w-full"):
-                    columns = [
-                        {"name": "name", "label": "Name", "field": "name", "align": "left"},
-                        {"name": "char_ref", "label": "Characteristic", "field": "char_ref"},
-                        {"name": "priority", "label": "Priority", "field": "priority"},
-                        {"name": "guardband", "label": "Guardband", "field": "guardband"},
-                        {"name": "description", "label": "Description", "field": "description"},
+            with ui.tabs().classes("w-full") as tabs:
+                char_tab = ui.tab("Characteristics", icon="tune")
+                req_tab = ui.tab("Requirements", icon="checklist")
+                seq_tab = ui.tab("Sequences", icon="list_alt")
+
+            with ui.tab_panels(tabs, value=char_tab).classes("w-full"):
+                # Characteristics tab
+                with ui.tab_panel(char_tab):
+                    if characteristics:
+                        with ui.card().classes("w-full"):
+                            columns = [
+                                {
+                                    "name": "name",
+                                    "label": "Name",
+                                    "field": "name",
+                                    "align": "left",
+                                },
+                                {
+                                    "name": "direction",
+                                    "label": "Direction",
+                                    "field": "direction",
+                                },
+                                {"name": "domain", "label": "Domain", "field": "domain"},
+                                {"name": "units", "label": "Units", "field": "units"},
+                                {
+                                    "name": "conditions",
+                                    "label": "Conditions",
+                                    "field": "conditions",
+                                },
+                            ]
+                            rows = [
+                                {
+                                    "name": name,
+                                    "direction": char.get("direction", ""),
+                                    "domain": char.get("domain", ""),
+                                    "units": char.get("units", ""),
+                                    "conditions": len(char.get("conditions", [])),
+                                }
+                                for name, char in characteristics.items()
+                            ]
+                            ui.table(columns=columns, rows=rows, row_key="name").classes(
+                                "w-full"
+                            )
+                    else:
+                        ui.label("No characteristics defined.").classes("text-slate-500 italic")
+
+                # Requirements tab
+                with ui.tab_panel(req_tab):
+                    if requirements:
+                        with ui.card().classes("w-full"):
+                            columns = [
+                                {
+                                    "name": "name",
+                                    "label": "Name",
+                                    "field": "name",
+                                    "align": "left",
+                                },
+                                {
+                                    "name": "char_ref",
+                                    "label": "Characteristic",
+                                    "field": "char_ref",
+                                },
+                                {"name": "priority", "label": "Priority", "field": "priority"},
+                                {"name": "guardband", "label": "Guardband", "field": "guardband"},
+                                {
+                                    "name": "description",
+                                    "label": "Description",
+                                    "field": "description",
+                                },
+                            ]
+                            rows = [
+                                {
+                                    "name": name,
+                                    "char_ref": req.get("characteristic_ref", "-"),
+                                    "priority": req.get("priority", "standard"),
+                                    "guardband": f"{req.get('guardband_pct', 0)}%",
+                                    "description": req.get("description", "")[:50],
+                                }
+                                for name, req in requirements.items()
+                            ]
+                            ui.table(columns=columns, rows=rows, row_key="name").classes(
+                                "w-full"
+                            )
+                    else:
+                        ui.label("No test requirements defined.").classes(
+                            "text-slate-500 italic"
+                        )
+
+                # Sequences tab
+                with ui.tab_panel(seq_tab):
+                    sequences = _discover_sequences()
+                    product_sequences = [
+                        s for s in sequences if s.get("product_family") == product_id
                     ]
-                    rows = [
-                        {
-                            "name": name,
-                            "char_ref": req.get("characteristic_ref", "-"),
-                            "priority": req.get("priority", "standard"),
-                            "guardband": f"{req.get('guardband_pct', 0)}%",
-                            "description": req.get("description", "")[:50],
-                        }
-                        for name, req in requirements.items()
-                    ]
-                    ui.table(columns=columns, rows=rows, row_key="name").classes("w-full")
+
+                    if product_sequences:
+                        with ui.row().classes("gap-4 flex-wrap"):
+                            for seq in product_sequences:
+                                with ui.card().classes("w-72"):
+                                    with ui.card_section():
+                                        ui.label(seq["name"]).classes("font-semibold")
+                                        if seq.get("test_phase"):
+                                            phase_colors = {
+                                                "validation": "blue",
+                                                "characterization": "purple",
+                                                "production": "green",
+                                            }
+                                            ui.badge(
+                                                seq["test_phase"],
+                                                color=phase_colors.get(seq["test_phase"], "gray"),
+                                            ).props("outline")
+                                        ui.label(seq.get("description", "")[:60]).classes(
+                                            "text-sm text-slate-500 mt-1"
+                                        )
+                                    with ui.card_actions():
+                                        ui.button(
+                                            "View",
+                                            icon="visibility",
+                                            on_click=lambda s=seq: ui.navigate.to(
+                                                f"/sequences/{s['id']}"
+                                            ),
+                                        ).props("flat dense")
+                                        ui.button(
+                                            "Run",
+                                            icon="play_arrow",
+                                            on_click=lambda s=seq: ui.navigate.to(
+                                                f"/launch?sequence={s['id']}"
+                                            ),
+                                        ).props("flat dense color=primary")
+                    else:
+                        ui.label("No sequences defined for this product.").classes(
+                            "text-slate-500 italic"
+                        )
 
             ui.link("← Back to Products", "/products").classes(
                 "text-blue-600 hover:underline mt-4"
@@ -1143,7 +1460,10 @@ def sequences_page():
                                 if seq.get("product_family"):
                                     with ui.row().classes("items-center gap-1"):
                                         ui.icon("inventory_2", size="xs")
-                                        ui.label(seq["product_family"])
+                                        ui.link(
+                                            seq["product_family"],
+                                            f"/products/{seq['product_family']}",
+                                        ).classes("text-blue-600 hover:underline")
 
                             with ui.row().classes("items-center gap-1 mt-2"):
                                 ui.icon("format_list_numbered", size="xs").classes(
@@ -1174,7 +1494,7 @@ def sequences_page():
 
 @ui.page("/sequences/{sequence_id}")
 def sequence_detail_page(sequence_id: str):
-    """Sequence detail page with steps."""
+    """Sequence detail page with tabbed interface."""
     from litmus.execution.runner import get_runner
 
     runner = get_runner()
@@ -1187,7 +1507,7 @@ def sequence_detail_page(sequence_id: str):
 
     with ui.column().classes("w-full p-6 gap-6"):
         if seq:
-            # Sequence info card
+            # Sequence info card (above tabs)
             with ui.card().classes("w-full"):
                 with ui.card_section():
                     with ui.row().classes("items-center gap-4"):
@@ -1208,7 +1528,13 @@ def sequence_detail_page(sequence_id: str):
                             ui.label(seq.get("id", "")).classes("font-semibold")
                         with ui.column().classes("gap-1"):
                             ui.label("Product Family").classes("text-xs text-slate-500 uppercase")
-                            ui.label(seq.get("product_family") or "-").classes("font-semibold")
+                            product_family = seq.get("product_family")
+                            if product_family:
+                                ui.link(product_family, f"/products/{product_family}").classes(
+                                    "font-semibold text-blue-600 hover:underline"
+                                )
+                            else:
+                                ui.label("-").classes("font-semibold")
                         with ui.column().classes("gap-1"):
                             ui.label("Test Phase").classes("text-xs text-slate-500 uppercase")
                             ui.label(seq.get("test_phase") or "-").classes("font-semibold")
@@ -1216,143 +1542,240 @@ def sequence_detail_page(sequence_id: str):
                             ui.label("Description").classes("text-xs text-slate-500 uppercase")
                             ui.label(seq.get("description", "")).classes("font-semibold")
 
-                    # Optional fields
-                    extras = []
-                    if seq.get("required_fixture"):
-                        extras.append(("Required Fixture", seq["required_fixture"]))
-                    if seq.get("required_station_type"):
-                        extras.append(("Required Station Type", seq["required_station_type"]))
-                    if seq.get("timeout_seconds"):
-                        extras.append(("Timeout", f"{seq['timeout_seconds']}s"))
-                    if seq.get("pytest_args"):
-                        extras.append(("pytest Args", " ".join(seq["pytest_args"])))
-
-                    if extras:
-                        with ui.grid(columns=3).classes("gap-6 mt-4"):
-                            for label, value in extras:
-                                with ui.column().classes("gap-1"):
-                                    ui.label(label).classes("text-xs text-slate-500 uppercase")
-                                    ui.label(value).classes("font-semibold font-mono text-sm")
-
-            # Steps section
+            # Tabbed content
             steps = seq.get("steps", [])
-            with ui.row().classes("items-center gap-2"):
-                ui.icon("format_list_numbered").classes("text-slate-600")
-                ui.label("Test Steps").classes("text-lg font-semibold text-slate-700")
-                ui.badge(f"{len(steps)} steps").props("outline")
+            dialogs = seq.get("dialogs", {})
 
-            if steps:
-                # Show expanded view
-                expanded_tests = runner._expand_sequence(sequence_id)
+            with ui.tabs().classes("w-full") as tabs:
+                steps_tab = ui.tab("Steps", icon="format_list_numbered")
+                requirements_tab = ui.tab("Requirements", icon="rule")
+                dialogs_tab = ui.tab("Dialogs", icon="chat")
+                runs_tab = ui.tab("Recent Runs", icon="history")
 
-                with ui.card().classes("w-full"):
-                    for i, step in enumerate(steps):
-                        step_id = step.get("id", f"step_{i}")
-                        is_sequence_ref = bool(step.get("sequence"))
+            with ui.tab_panels(tabs, value=steps_tab).classes("w-full"):
+                # Steps tab
+                with ui.tab_panel(steps_tab):
+                    with ui.row().classes("items-center gap-2 mb-4"):
+                        ui.badge(f"{len(steps)} steps").props("outline")
 
-                        with ui.expansion(
-                            text=step_id,
-                            icon="folder" if is_sequence_ref else "science",
-                        ).classes("w-full"):
-                            with ui.column().classes("gap-2 p-2"):
-                                if step.get("description"):
-                                    ui.label(step["description"]).classes("text-slate-600")
+                    if steps:
+                        expanded_tests = runner._expand_sequence(sequence_id)
 
-                                if step.get("test"):
-                                    with ui.row().classes("items-center gap-2"):
-                                        ui.label("Test:").classes(
-                                            "text-xs text-slate-500 uppercase"
-                                        )
-                                        ui.label(step["test"]).classes("font-mono text-sm")
+                        with ui.card().classes("w-full"):
+                            for i, step in enumerate(steps):
+                                step_id = step.get("id", f"step_{i}")
+                                is_sequence_ref = bool(step.get("sequence"))
 
-                                if step.get("sequence"):
-                                    with ui.row().classes("items-center gap-2"):
-                                        ui.label("Sequence:").classes(
-                                            "text-xs text-slate-500 uppercase"
-                                        )
-                                        ui.link(
-                                            step["sequence"],
-                                            f"/sequences/{step['sequence']}",
-                                        ).classes("font-mono text-sm text-blue-600")
+                                with ui.expansion(
+                                    text=step_id,
+                                    icon="folder" if is_sequence_ref else "science",
+                                ).classes("w-full"):
+                                    with ui.column().classes("gap-2 p-2"):
+                                        if step.get("description"):
+                                            ui.label(step["description"]).classes("text-slate-600")
 
-                                    # Show what this expands to
-                                    nested_tests = runner._expand_sequence(step["sequence"])
-                                    if nested_tests:
-                                        ui.label("Expands to:").classes(
-                                            "text-xs text-slate-500 uppercase mt-2"
-                                        )
-                                        for test in nested_tests:
-                                            with ui.row().classes("items-center gap-2 ml-4"):
-                                                ui.icon("subdirectory_arrow_right", size="xs").classes(
-                                                    "text-slate-400"
+                                        if step.get("test"):
+                                            with ui.row().classes("items-center gap-2"):
+                                                ui.label("Test:").classes(
+                                                    "text-xs text-slate-500 uppercase"
                                                 )
-                                                ui.label(test).classes("font-mono text-xs")
+                                                ui.label(step["test"]).classes("font-mono text-sm")
 
-                                # Show additional step config
-                                config_items = []
-                                if step.get("limit_ref"):
-                                    config_items.append(("Limit Ref", step["limit_ref"]))
-                                if step.get("pre_dialog"):
-                                    config_items.append(("Pre-Dialog", step["pre_dialog"]))
-                                if step.get("post_dialog"):
-                                    config_items.append(("Post-Dialog", step["post_dialog"]))
-                                if step.get("skip_on"):
-                                    config_items.append(("Skip On", ", ".join(step["skip_on"])))
-                                if step.get("retry"):
-                                    retry = step["retry"]
-                                    config_items.append(
-                                        ("Retry", f"{retry.get('max_attempts', 1)} attempts")
+                                        if step.get("sequence"):
+                                            with ui.row().classes("items-center gap-2"):
+                                                ui.label("Sequence:").classes(
+                                                    "text-xs text-slate-500 uppercase"
+                                                )
+                                                ui.link(
+                                                    step["sequence"],
+                                                    f"/sequences/{step['sequence']}",
+                                                ).classes("font-mono text-sm text-blue-600")
+
+                                            nested_tests = runner._expand_sequence(step["sequence"])
+                                            if nested_tests:
+                                                ui.label("Expands to:").classes(
+                                                    "text-xs text-slate-500 uppercase mt-2"
+                                                )
+                                                for test in nested_tests:
+                                                    with ui.row().classes("items-center gap-2 ml-4"):
+                                                        ui.icon(
+                                                            "subdirectory_arrow_right", size="xs"
+                                                        ).classes("text-slate-400")
+                                                        ui.label(test).classes("font-mono text-xs")
+
+                                        config_items = []
+                                        if step.get("limit_ref"):
+                                            config_items.append(("Limit Ref", step["limit_ref"]))
+                                        if step.get("pre_dialog"):
+                                            config_items.append(("Pre-Dialog", step["pre_dialog"]))
+                                        if step.get("post_dialog"):
+                                            config_items.append(("Post-Dialog", step["post_dialog"]))
+                                        if step.get("skip_on"):
+                                            config_items.append(
+                                                ("Skip On", ", ".join(step["skip_on"]))
+                                            )
+                                        if step.get("retry"):
+                                            retry = step["retry"]
+                                            config_items.append(
+                                                ("Retry", f"{retry.get('max_attempts', 1)} attempts")
+                                            )
+
+                                        if config_items:
+                                            ui.separator().classes("my-2")
+                                            with ui.grid(columns=2).classes("gap-2"):
+                                                for label, value in config_items:
+                                                    ui.label(label).classes(
+                                                        "text-xs text-slate-500 uppercase"
+                                                    )
+                                                    ui.label(value).classes("text-sm")
+
+                        # Expanded test order
+                        with ui.card().classes("w-full mt-4"):
+                            with ui.card_section():
+                                ui.label("Expanded Test Order").classes("text-sm font-semibold")
+                                ui.label(
+                                    "Actual order tests will run when this sequence executes."
+                                ).classes("text-xs text-slate-500")
+                            with ui.card_section():
+                                for i, test in enumerate(expanded_tests, 1):
+                                    with ui.row().classes("items-center gap-2"):
+                                        ui.label(f"{i}.").classes(
+                                            "text-slate-400 w-6 text-right"
+                                        )
+                                        ui.label(test).classes("font-mono text-sm")
+                    else:
+                        ui.label("No steps defined.").classes("text-slate-500 italic")
+
+                # Requirements tab
+                with ui.tab_panel(requirements_tab):
+                    with ui.card().classes("w-full"):
+                        with ui.card_section():
+                            ui.label("Station & Fixture Requirements").classes("font-semibold")
+                        with ui.card_section():
+                            with ui.grid(columns=2).classes("gap-6"):
+                                with ui.column().classes("gap-1"):
+                                    ui.label("Required Fixture").classes(
+                                        "text-xs text-slate-500 uppercase"
+                                    )
+                                    ui.label(seq.get("required_fixture") or "-").classes(
+                                        "font-semibold font-mono"
+                                    )
+                                with ui.column().classes("gap-1"):
+                                    ui.label("Required Station Type").classes(
+                                        "text-xs text-slate-500 uppercase"
+                                    )
+                                    ui.label(seq.get("required_station_type") or "-").classes(
+                                        "font-semibold font-mono"
+                                    )
+                                with ui.column().classes("gap-1"):
+                                    ui.label("Timeout").classes(
+                                        "text-xs text-slate-500 uppercase"
+                                    )
+                                    timeout = seq.get("timeout_seconds")
+                                    ui.label(f"{timeout}s" if timeout else "-").classes(
+                                        "font-semibold"
+                                    )
+                                with ui.column().classes("gap-1"):
+                                    ui.label("pytest Args").classes(
+                                        "text-xs text-slate-500 uppercase"
+                                    )
+                                    args = seq.get("pytest_args", [])
+                                    ui.label(" ".join(args) if args else "-").classes(
+                                        "font-semibold font-mono"
                                     )
 
-                                if config_items:
-                                    ui.separator().classes("my-2")
-                                    with ui.grid(columns=2).classes("gap-2"):
-                                        for label, value in config_items:
-                                            ui.label(label).classes(
-                                                "text-xs text-slate-500 uppercase"
-                                            )
-                                            ui.label(value).classes("text-sm")
+                # Dialogs tab
+                with ui.tab_panel(dialogs_tab):
+                    if dialogs:
+                        with ui.card().classes("w-full"):
+                            columns = [
+                                {"name": "id", "label": "ID", "field": "id", "align": "left"},
+                                {"name": "type", "label": "Type", "field": "type", "align": "left"},
+                                {
+                                    "name": "message",
+                                    "label": "Message",
+                                    "field": "message",
+                                    "align": "left",
+                                },
+                            ]
+                            rows = [
+                                {
+                                    "id": dialog_id,
+                                    "type": dialog.get("dialog_type", ""),
+                                    "message": dialog.get("message", "")[:60] + "..."
+                                    if len(dialog.get("message", "")) > 60
+                                    else dialog.get("message", ""),
+                                }
+                                for dialog_id, dialog in dialogs.items()
+                            ]
+                            ui.table(columns=columns, rows=rows, row_key="id").classes("w-full")
+                    else:
+                        ui.label("No dialogs defined.").classes("text-slate-500 italic")
 
-                # Summary of expanded tests
-                with ui.card().classes("w-full mt-4"):
-                    with ui.card_section():
-                        ui.label("Expanded Test Order").classes("text-sm font-semibold")
-                        ui.label(
-                            "This is the actual order tests will run when this sequence executes."
-                        ).classes("text-xs text-slate-500")
-
-                    with ui.card_section():
-                        for i, test in enumerate(expanded_tests, 1):
-                            with ui.row().classes("items-center gap-2"):
-                                ui.label(f"{i}.").classes("text-slate-400 w-6 text-right")
-                                ui.label(test).classes("font-mono text-sm")
-            else:
-                ui.label("No steps defined.").classes("text-slate-500 italic")
-
-            # Dialogs section
-            dialogs = seq.get("dialogs", {})
-            if dialogs:
-                with ui.row().classes("items-center gap-2 mt-4"):
-                    ui.icon("chat").classes("text-slate-600")
-                    ui.label("Dialogs").classes("text-lg font-semibold text-slate-700")
-
-                with ui.card().classes("w-full"):
-                    columns = [
-                        {"name": "id", "label": "ID", "field": "id", "align": "left"},
-                        {"name": "type", "label": "Type", "field": "type", "align": "left"},
-                        {"name": "message", "label": "Message", "field": "message", "align": "left"},
+                # Recent runs tab
+                with ui.tab_panel(runs_tab):
+                    backend = ParquetBackend(results_dir="results")
+                    all_runs = backend.list_runs(limit=100)
+                    seq_runs = [
+                        r for r in all_runs if r.get("test_sequence_id") == sequence_id
                     ]
-                    rows = [
-                        {
-                            "id": dialog_id,
-                            "type": dialog.get("dialog_type", ""),
-                            "message": dialog.get("message", "")[:60] + "..."
-                            if len(dialog.get("message", "")) > 60
-                            else dialog.get("message", ""),
-                        }
-                        for dialog_id, dialog in dialogs.items()
-                    ]
-                    ui.table(columns=columns, rows=rows, row_key="id").classes("w-full")
+
+                    if seq_runs:
+                        with ui.card().classes("w-full"):
+                            columns = [
+                                {
+                                    "name": "run_id",
+                                    "label": "Run ID",
+                                    "field": "run_id",
+                                    "align": "left",
+                                },
+                                {
+                                    "name": "dut",
+                                    "label": "DUT",
+                                    "field": "dut",
+                                    "align": "left",
+                                },
+                                {
+                                    "name": "station",
+                                    "label": "Station",
+                                    "field": "station",
+                                    "align": "left",
+                                },
+                                {
+                                    "name": "started",
+                                    "label": "Started",
+                                    "field": "started",
+                                    "align": "left",
+                                },
+                                {
+                                    "name": "outcome",
+                                    "label": "Outcome",
+                                    "field": "outcome",
+                                    "align": "center",
+                                },
+                            ]
+                            rows = [
+                                {
+                                    "run_id": r.get("test_run_id", "")[:8],
+                                    "full_run_id": r.get("test_run_id", ""),
+                                    "dut": r.get("dut_serial", ""),
+                                    "station": r.get("station_id", ""),
+                                    "started": format_datetime(r.get("started_at")),
+                                    "outcome": r.get("outcome", ""),
+                                }
+                                for r in seq_runs[:20]
+                            ]
+                            table = ui.table(
+                                columns=columns, rows=rows, row_key="run_id"
+                            ).classes("w-full")
+                            table.on(
+                                "row-click",
+                                lambda e: ui.navigate.to(f"/results/{e.args[1]['full_run_id']}"),
+                            )
+                    else:
+                        ui.label("No runs found for this sequence.").classes(
+                            "text-slate-500 italic"
+                        )
 
             # Actions
             with ui.row().classes("mt-6 gap-2"):
