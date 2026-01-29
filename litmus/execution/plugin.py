@@ -42,6 +42,8 @@ def pytest_addoption(parser):
     group.addoption("--station", default="station_001", help="Station ID")
     group.addoption("--operator", default=None, help="Operator name")
     group.addoption("--results-dir", default="results", help="Directory for Parquet results")
+    group.addoption("--spec", default=None, help="Path to product spec YAML file")
+    group.addoption("--guardband", default="0", help="Default guardband percentage")
 
 
 @pytest.fixture(scope="session", autouse=True)
@@ -88,6 +90,49 @@ def vector():
     This fixture just satisfies pytest's fixture resolution.
     """
     return _PYTEST_VECTOR_SENTINEL
+
+
+@pytest.fixture(scope="session")
+def spec_context(request):
+    """Provide product spec context for spec-driven testing.
+
+    Loads product spec from --spec option or auto-discovers from specs/ directory.
+    Provides SpecContext for deriving limits and tracking channel traceability.
+
+    Usage in tests:
+        def test_voltage(spec_context, dmm):
+            limit = spec_context.get_limit("output_voltage", temperature=25)
+            value = dmm.measure_dc_voltage()
+            # Use limit for validation...
+
+    Returns:
+        SpecContext or None if no spec configured.
+    """
+    from decimal import Decimal
+    from pathlib import Path
+
+    from litmus.products.context import SpecContext
+
+    spec_path = request.config.getoption("--spec")
+    guardband = Decimal(request.config.getoption("--guardband"))
+
+    if spec_path:
+        return SpecContext.from_file(spec_path, guardband_pct=guardband)
+
+    # Try auto-discover from specs/ directory
+    root = request.config.rootpath
+    specs_dir = root / "specs"
+    if specs_dir.exists():
+        # Find first .yaml file
+        yaml_files = list(specs_dir.glob("*.yaml"))
+        if yaml_files:
+            # Prefer non-underscore files
+            for f in yaml_files:
+                if not f.name.startswith("_"):
+                    return SpecContext.from_file(f, guardband_pct=guardband)
+            return SpecContext.from_file(yaml_files[0], guardband_pct=guardband)
+
+    return None
 
 
 def pytest_runtest_makereport(item, call):

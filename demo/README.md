@@ -175,6 +175,37 @@ test_function_name:
     delay_seconds: 0.5
 ```
 
+## Spec-Driven Testing
+
+The new workflow derives limits directly from product specs:
+
+```python
+from litmus.products import SpecContext
+from litmus.execution.harness import TestHarness
+
+# Load spec
+spec = SpecContext.from_file("specs/power_board.yaml")
+
+# Get limit for a characteristic at specific conditions
+limit = spec.get_limit("output_voltage", temperature=25, load=0.1)
+# Returns: Limit(low=3.135, high=3.465, spec_ref="Section 7.2 @ ...")
+
+# Or use with TestHarness for automatic resolution
+harness = TestHarness(step_name="test", spec_context=spec)
+
+with harness.step():
+    for vector in harness.vectors:
+        with harness.run_vector(vector):
+            # Limits auto-resolve from spec, dut_pin auto-populated
+            harness.measure("output_voltage", dmm.measure_dc_voltage())
+```
+
+Run the end-to-end tests to see the full workflow:
+
+```bash
+pytest tests/test_e2e/ -v
+```
+
 ## Querying Results
 
 ```python

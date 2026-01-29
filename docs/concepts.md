@@ -299,6 +299,76 @@ curl http://localhost:8000/api/match?product_id=power_board&station_id=bench_1
 └─────────────┘     └─────────────┘     └─────────────┘
 ```
 
+## Spec-Driven Testing
+
+The **SpecContext** bridges product specs and test execution, enabling:
+- Automatic limit derivation from characteristics
+- Channel traceability in measurements
+- Guardband application for manufacturing margin
+
+### Using SpecContext
+
+```python
+from litmus.products import SpecContext
+
+# Load spec
+spec = SpecContext.from_file("specs/power_board.yaml")
+
+# Get limit for characteristic at conditions
+limit = spec.get_limit("output_voltage", temperature=25, load=0.1)
+# Returns: Limit(low=3.135, high=3.465, spec_ref="Section 7.2 @ ...")
+
+# Get pin info for traceability
+pin_info = spec.get_pin_info("output_voltage")
+# Returns: {dut_pin: "J1.3", net: "VOUT_3V3", ...}
+```
+
+### With TestHarness
+
+```python
+from litmus.execution.harness import TestHarness
+from litmus.products import SpecContext
+
+spec = SpecContext.from_file("specs/power_board.yaml", guardband_pct=Decimal("10"))
+
+harness = TestHarness(
+    step_name="test_output",
+    spec_context=spec,
+    config={"vectors": [{"temperature": 25, "load": 0.1}]},
+)
+
+with harness.step():
+    for vector in harness.vectors:
+        with harness.run_vector(vector):
+            # Automatically resolves limits and channel info from spec
+            harness.measure("output_voltage", dmm.measure_dc_voltage())
+```
+
+### Workflow
+
+```
+Product Spec (YAML)
+       │
+       ▼
+SpecContext.from_file()
+       │
+       ├──► get_limit() → Limit with spec_ref
+       ├──► get_pin_info() → Channel traceability
+       │
+       ▼
+TestHarness.measure()
+       │
+       ├──► Auto-resolves limit from spec
+       ├──► Auto-populates dut_pin
+       ├──► Checks value against limits
+       │
+       ▼
+Measurement (with full traceability)
+       │
+       ▼
+Parquet Storage
+```
+
 ## Next Steps
 
 - [Configuration Reference](configuration.md) — Detailed YAML schemas

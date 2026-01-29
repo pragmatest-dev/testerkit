@@ -20,6 +20,7 @@ from litmus.execution.vectors import Vector, expand_vectors
 
 if TYPE_CHECKING:
     from litmus.execution.logger import TestRunLogger
+    from litmus.products.context import SpecContext
 
 
 def _utcnow() -> datetime:
@@ -60,6 +61,7 @@ class TestHarness:
         retry: RetryConfig | None = None,
         limits: dict[str, MeasurementLimitConfig | Limit] | None = None,
         prompt_handler: Callable[[PromptConfig], Any] | None = None,
+        spec_context: SpecContext | None = None,
     ):
         """Initialize harness.
 
@@ -71,11 +73,14 @@ class TestHarness:
             limits: Limit configurations by measurement name (overrides config).
             prompt_handler: Callback for operator prompts. If None, prompts
                            are printed to stdout.
+            spec_context: SpecContext for spec-driven limit derivation and
+                         channel traceability.
         """
         self._config = config or {}
         self._logger = logger
         self._step_name = step_name
         self._prompt_handler = prompt_handler or self._default_prompt_handler
+        self._spec_context = spec_context
 
         # Parse retry config
         if retry is not None:
@@ -183,7 +188,11 @@ class TestHarness:
     def _resolve_limit(self, name: str) -> Limit | None:
         """Resolve limit for a measurement name.
 
-        Looks up limit config and resolves it based on current vector params.
+        Resolution order:
+        1. Direct Limit object in self._limits
+        2. MeasurementLimitConfig with direct values
+        3. MeasurementLimitConfig with spec ref (uses SpecContext)
+        4. SpecContext characteristic lookup (name matches char_id)
 
         Args:
             name: Measurement name.
@@ -191,25 +200,48 @@ class TestHarness:
         Returns:
             Resolved Limit or None if no limit configured.
         """
-        if name not in self._limits:
-            return None
+        # First check explicit limits
+        if name in self._limits:
+            limit_config = self._limits[name]
 
-        limit_config = self._limits[name]
+            # Direct Limit object
+            if isinstance(limit_config, Limit):
+                return limit_config
 
-        # Direct Limit object
-        if isinstance(limit_config, Limit):
-            return limit_config
+            # MeasurementLimitConfig - resolve based on type
+            if isinstance(limit_config, MeasurementLimitConfig):
+                # Direct limit values
+                direct = limit_config.to_limit()
+                if direct is not None:
+                    return direct
 
-        # MeasurementLimitConfig - resolve based on type
-        if isinstance(limit_config, MeasurementLimitConfig):
-            # Direct limit values
-            direct = limit_config.to_limit()
-            if direct is not None:
-                return direct
+                # Spec ref resolution
+                if limit_config.ref and self._spec_context:
+                    try:
+                        # Get current vector params for conditions
+                        conditions = {}
+                        if self._current_vector:
+                            conditions = self._current_vector.params()
 
-            # TODO: Implement spec ref resolution, expression, lookup, etc.
-            # For now, just return None for complex limit types
-            return None
+                        guardband = limit_config.guardband_pct or Decimal("0")
+                        return self._spec_context.get_limit(
+                            limit_config.ref,
+                            guardband_pct=guardband,
+                            **conditions,
+                        )
+                    except (KeyError, ValueError):
+                        pass  # Fall through
+
+        # Try SpecContext direct lookup (measurement name = characteristic ID)
+        if self._spec_context:
+            try:
+                conditions = {}
+                if self._current_vector:
+                    conditions = self._current_vector.params()
+
+                return self._spec_context.get_limit(name, **conditions)
+            except (KeyError, ValueError):
+                pass  # No matching characteristic
 
         return None
 
@@ -219,6 +251,9 @@ class TestHarness:
         value: float | Decimal | None,
         units: str | None = None,
         limit: Limit | None = None,
+        dut_pin: str | None = None,
+        instrument_channel: str | None = None,
+        fixture_channel: str | None = None,
     ) -> Measurement:
         """Record a measurement for the current vector.
 
@@ -227,6 +262,9 @@ class TestHarness:
             value: Measured value.
             units: Units (optional, uses limit.units if available).
             limit: Explicit limit (optional, overrides config lookup).
+            dut_pin: DUT pin being measured (optional, auto-resolved from spec).
+            instrument_channel: Instrument channel used (optional).
+            fixture_channel: Fixture channel used (optional).
 
         Returns:
             Measurement object with outcome set.
@@ -238,6 +276,22 @@ class TestHarness:
         # Resolve limit
         resolved_limit = limit or self._resolve_limit(name)
 
+        # Resolve channel traceability from SpecContext if not provided
+        resolved_dut_pin = dut_pin
+        resolved_instrument_channel = instrument_channel
+        resolved_fixture_channel = fixture_channel
+
+        if self._spec_context and not all([dut_pin, instrument_channel, fixture_channel]):
+            pin_info = self._spec_context.get_pin_info(name)
+            if pin_info:
+                resolved_dut_pin = resolved_dut_pin or pin_info.get("dut_pin")
+                resolved_instrument_channel = resolved_instrument_channel or pin_info.get(
+                    "instrument_channel"
+                )
+                resolved_fixture_channel = resolved_fixture_channel or pin_info.get(
+                    "fixture_channel"
+                )
+
         # Create measurement
         measurement = Measurement(
             name=name,
@@ -247,6 +301,9 @@ class TestHarness:
             high_limit=resolved_limit.high if resolved_limit else None,
             nominal=resolved_limit.nominal if resolved_limit else None,
             spec_ref=resolved_limit.spec_ref if resolved_limit else None,
+            dut_pin=resolved_dut_pin,
+            instrument_channel=resolved_instrument_channel,
+            fixture_channel=resolved_fixture_channel,
         )
 
         # Check limits
