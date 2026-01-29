@@ -45,6 +45,39 @@ class SignalType(StrEnum):
     TRANSIENT = "transient"
 
 
+class Comparator(StrEnum):
+    """Limit comparators per ATML/IEEE 1671.
+
+    Used for limit checking in both instrument capabilities and product specs.
+    The comparator defines how a measured value is compared against limits.
+
+    Single-bound comparators:
+        EQ: value == nominal (exact match)
+        NE: value != nominal (not equal)
+        LT: value < high (less than)
+        LE: value <= high (less than or equal)
+        GT: value > low (greater than)
+        GE: value >= low (greater than or equal)
+
+    Range comparators (two bounds):
+        GELE: low <= value <= high (inclusive range, most common)
+        GELT: low <= value < high (inclusive low, exclusive high)
+        GTLE: low < value <= high (exclusive low, inclusive high)
+        GTLT: low < value < high (exclusive range)
+    """
+
+    EQ = "EQ"
+    NE = "NE"
+    LT = "LT"
+    LE = "LE"
+    GT = "GT"
+    GE = "GE"
+    GELE = "GELE"
+    GELT = "GELT"
+    GTLE = "GTLE"
+    GTLT = "GTLT"
+
+
 class RangeSpec(BaseModel):
     """Specification for measurement or output range."""
 

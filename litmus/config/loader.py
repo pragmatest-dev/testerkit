@@ -11,7 +11,6 @@ from litmus.config.models import (
     InstrumentConfig,
     InstrumentInstance,
     Limit,
-    MeasurementLimitConfig,
     RetryConfig,
     Specification,
     StationInstance,
