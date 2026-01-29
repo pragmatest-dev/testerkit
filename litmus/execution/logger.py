@@ -1,6 +1,8 @@
 """Test run logging for accumulating measurements."""
 
+import os
 from datetime import UTC, datetime
+from uuid import UUID
 
 from litmus.data.models import DUT, Measurement, Outcome, TestRun, TestStep
 
@@ -8,6 +10,22 @@ from litmus.data.models import DUT, Measurement, Outcome, TestRun, TestStep
 def _utcnow() -> datetime:
     """Return current UTC datetime (timezone-aware)."""
     return datetime.now(UTC)
+
+
+def _get_run_id() -> UUID:
+    """Get run ID from environment or generate new one."""
+    from uuid import uuid4
+
+    env_id = os.environ.get("LITMUS_RUN_ID")
+    if env_id:
+        try:
+            return UUID(env_id)
+        except ValueError:
+            # Not a valid UUID - generate deterministic one from the string
+            import hashlib
+            h = hashlib.md5(env_id.encode()).hexdigest()
+            return UUID(h)
+    return uuid4()
 
 
 class TestRunLogger:
@@ -21,8 +39,22 @@ class TestRunLogger:
         station_type: str | None = None,
         operator: str | None = None,
         test_phase: str = "production",
+        run_id: UUID | str | None = None,
     ):
+        # Use provided run_id, environment variable, or generate new
+        if run_id is not None:
+            if isinstance(run_id, str):
+                try:
+                    run_id = UUID(run_id)
+                except ValueError:
+                    import hashlib
+                    h = hashlib.md5(run_id.encode()).hexdigest()
+                    run_id = UUID(h)
+        else:
+            run_id = _get_run_id()
+
         self.test_run = TestRun(
+            id=run_id,
             dut=DUT(serial=dut_serial),
             station_id=station_id,
             station_type=station_type,

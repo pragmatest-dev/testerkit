@@ -159,3 +159,129 @@ class ParquetBackend:
             table = pa.Table.from_pylist(rows)
             path = meas_dir / f"{test_run.id}_measurements.parquet"
             pq.write_table(table, path)
+
+    def list_runs(self, limit: int = 50) -> list[dict]:
+        """List recent test runs.
+
+        Args:
+            limit: Maximum number of runs to return.
+
+        Returns:
+            List of test run records, most recent first.
+        """
+        runs = []
+        runs_dir = self.results_dir / "test_runs"
+
+        if not runs_dir.exists():
+            return runs
+
+        # Collect all parquet files across date directories
+        parquet_files = sorted(runs_dir.rglob("*.parquet"), reverse=True)
+
+        for pq_file in parquet_files[:limit]:
+            table = pq.read_table(pq_file)
+            for row in table.to_pylist():
+                runs.append(row)
+                if len(runs) >= limit:
+                    break
+            if len(runs) >= limit:
+                break
+
+        # Sort by started_at descending
+        runs.sort(key=lambda x: x.get("started_at", ""), reverse=True)
+        return runs[:limit]
+
+    def get_run(self, run_id: str) -> dict | None:
+        """Get a specific test run by ID.
+
+        Args:
+            run_id: The test run ID (can be partial, at least 8 chars).
+
+        Returns:
+            Test run record or None if not found.
+        """
+        runs_dir = self.results_dir / "test_runs"
+
+        if not runs_dir.exists():
+            return None
+
+        # Search through parquet files
+        for pq_file in runs_dir.rglob("*.parquet"):
+            # Check if filename matches (run_id is in filename)
+            if run_id in pq_file.stem:
+                table = pq.read_table(pq_file)
+                rows = table.to_pylist()
+                if rows:
+                    return rows[0]
+
+        # Full scan if not found by filename
+        for pq_file in runs_dir.rglob("*.parquet"):
+            table = pq.read_table(pq_file)
+            for row in table.to_pylist():
+                if row.get("test_run_id", "").startswith(run_id):
+                    return row
+
+        return None
+
+    def get_measurements(self, run_id: str) -> list[dict]:
+        """Get measurements for a specific test run.
+
+        Args:
+            run_id: The test run ID (can be partial, at least 8 chars).
+
+        Returns:
+            List of measurement records for the run.
+        """
+        measurements = []
+        meas_dir = self.results_dir / "measurements"
+
+        if not meas_dir.exists():
+            return measurements
+
+        # Search for matching measurement files
+        for pq_file in meas_dir.rglob("*.parquet"):
+            # Check filename for run_id
+            if run_id in pq_file.stem:
+                table = pq.read_table(pq_file)
+                measurements.extend(table.to_pylist())
+
+        # If no matches by filename, do full scan
+        if not measurements:
+            for pq_file in meas_dir.rglob("*.parquet"):
+                table = pq.read_table(pq_file)
+                for row in table.to_pylist():
+                    if row.get("test_run_id", "").startswith(run_id):
+                        measurements.append(row)
+
+        return measurements
+
+    def get_vectors(self, run_id: str) -> list[dict]:
+        """Get test vectors for a specific test run.
+
+        Args:
+            run_id: The test run ID (can be partial, at least 8 chars).
+
+        Returns:
+            List of vector records for the run.
+        """
+        vectors = []
+        vec_dir = self.results_dir / "vectors"
+
+        if not vec_dir.exists():
+            return vectors
+
+        # Search for matching vector files
+        for pq_file in vec_dir.rglob("*.parquet"):
+            if run_id in pq_file.stem:
+                table = pq.read_table(pq_file)
+                vectors.extend(table.to_pylist())
+
+        # If no matches by filename, do full scan
+        if not vectors:
+            for pq_file in vec_dir.rglob("*.parquet"):
+                table = pq.read_table(pq_file)
+                for row in table.to_pylist():
+                    if row.get("test_run_id", "").startswith(run_id):
+                        vectors.append(row)
+
+        return vectors

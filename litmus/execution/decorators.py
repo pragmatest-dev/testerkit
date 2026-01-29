@@ -43,6 +43,49 @@ def get_current_harness() -> TestHarness | None:
     return _current_harness
 
 
+def litmus_step(func: Callable[..., Any]) -> Callable[..., Any]:
+    """Decorator that tracks a test as a step without requiring measurements.
+
+    Use this for tests that don't return measurement values but should still
+    be tracked as steps in the test run (e.g., dialog confirmations, setup steps).
+
+    Example:
+        @litmus_step
+        async def test_confirm_dut_ready():
+            response = await dialog_manager.confirm("Is DUT ready?")
+            assert response.confirmed
+    """
+
+    @wraps(func)
+    def wrapper(*args: Any, **kwargs: Any) -> Any:
+        step_name = func.__name__
+        if _current_logger is not None:
+            _current_logger.start_step(step_name)
+        try:
+            result = func(*args, **kwargs)
+            return result
+        finally:
+            if _current_logger is not None:
+                _current_logger.end_step()
+
+    # Handle async functions
+    if inspect.iscoroutinefunction(func):
+        @wraps(func)
+        async def async_wrapper(*args: Any, **kwargs: Any) -> Any:
+            step_name = func.__name__
+            if _current_logger is not None:
+                _current_logger.start_step(step_name)
+            try:
+                result = await func(*args, **kwargs)
+                return result
+            finally:
+                if _current_logger is not None:
+                    _current_logger.end_step()
+        return async_wrapper
+
+    return wrapper
+
+
 def measure(
     name: str | None = None,
     limit: Limit | None = None,

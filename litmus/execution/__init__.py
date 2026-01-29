@@ -10,7 +10,12 @@ from litmus.execution.decorators import (
 )
 from litmus.execution.harness import TestHarness
 from litmus.execution.logger import TestRunLogger
-from litmus.execution.plugin import STEP_OUTCOMES
+
+# Plugin is only available when pytest is installed (dev dependency)
+try:
+    from litmus.execution.plugin import STEP_OUTCOMES
+except ImportError:
+    STEP_OUTCOMES = {}
 from litmus.execution.vectors import (
     Vector,
     expand_list,

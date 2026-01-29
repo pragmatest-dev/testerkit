@@ -109,7 +109,7 @@ class TestRunner:
 
     async def start(self, request: LaunchRequest) -> str:
         """Start a test run and return run ID."""
-        run_id = str(uuid.uuid4())[:8]
+        run_id = str(uuid.uuid4())
         run_info = RunInfo(run_id=run_id, request=request, status="pending")
         self.runs[run_id] = run_info
 
@@ -158,10 +158,20 @@ class TestRunner:
         if req.operator:
             cmd.append(f"--operator={req.operator}")
 
+        # Set up environment for subprocess
+        import os
+
+        env = os.environ.copy()
+        # Pass server URL so dialogs can communicate back
+        env["LITMUS_SERVER_URL"] = os.environ.get("LITMUS_SERVER_URL", "http://localhost:8000")
+        # Pass run ID so dialogs are linked to this run
+        env["LITMUS_RUN_ID"] = run_info.run_id
+
         proc = await asyncio.create_subprocess_exec(
             *cmd,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.STDOUT,
+            env=env,
         )
         run_info.process = proc
 

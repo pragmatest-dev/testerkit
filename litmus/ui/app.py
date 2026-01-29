@@ -210,6 +210,62 @@ def _discover_tests() -> list[dict]:
     return tests
 
 
+def _get_pending_dialogs() -> list[dict]:
+    """Get all pending dialogs across all test runs."""
+    from litmus.dialogs import get_dialog_manager
+
+    manager = get_dialog_manager()
+    dialogs = manager.get_pending_dialogs()
+    return [
+        {
+            "id": str(d.id),
+            "run_id": d.run_id,
+            "title": d.title,
+            "message": d.message,
+            "type": d.type.value,
+            "step_name": d.step_name,
+        }
+        for d in dialogs
+    ]
+
+
+def _get_active_runs() -> list[dict]:
+    """Get active test runs (running or with pending dialogs)."""
+    from litmus.execution.runner import get_runner
+
+    runner = get_runner()
+    active = []
+    seen_run_ids = set()
+
+    # Get runs with pending dialogs
+    dialogs = _get_pending_dialogs()
+
+    # Get running processes from runner
+    for run_id, run_info in list(runner.runs.items()):
+        if run_info.status in ("pending", "running"):
+            dialog_count = len([d for d in dialogs if d.get("run_id") == run_id])
+            active.append({
+                "run_id": run_id,
+                "status": "dialog" if dialog_count > 0 else "running",
+                "dialog_count": dialog_count,
+            })
+            seen_run_ids.add(run_id)
+
+    # Also show dialogs from runs not in runner (e.g., CLI-started tests)
+    for dialog in dialogs:
+        run_id = dialog.get("run_id")
+        if run_id and run_id not in seen_run_ids:
+            dialog_count = len([d for d in dialogs if d.get("run_id") == run_id])
+            active.append({
+                "run_id": run_id,
+                "status": "dialog",
+                "dialog_count": dialog_count,
+            })
+            seen_run_ids.add(run_id)
+
+    return active
+
+
 def create_sidebar():
     """Create the left-hand navigation sidebar."""
     with ui.left_drawer(value=True).classes("bg-slate-900 text-white") as drawer:
@@ -221,6 +277,45 @@ def create_sidebar():
             ui.label("Hardware Test Platform").classes("text-xs text-slate-400")
 
         ui.separator().classes("bg-slate-700")
+
+        # Active Tests section (dynamic - updates via timer)
+        active_tests_container = ui.column().classes("p-2 gap-1 hidden")
+
+        def update_active_tests():
+            active_runs = _get_active_runs()
+            if active_runs:
+                active_tests_container.classes(remove="hidden")
+                active_tests_container.clear()
+                with active_tests_container:
+                    ui.label("ACTIVE TESTS").classes("text-xs text-slate-500 px-3 pt-2")
+                    for run in active_runs:
+                        run_id_short = run["run_id"][:8] if run["run_id"] else "unknown"
+                        with ui.link(target=f"/live/{run['run_id']}").classes("no-underline"):
+                            row_classes = (
+                                "w-full px-3 py-2 rounded hover:bg-slate-800 "
+                                "items-center gap-3 cursor-pointer"
+                            )
+                            if run["status"] == "dialog":
+                                # Highlight runs needing attention
+                                row_classes += " bg-amber-900/30 border border-amber-600/50"
+                            with ui.row().classes(row_classes):
+                                if run["status"] == "dialog":
+                                    ui.icon("notification_important").classes("text-amber-400")
+                                else:
+                                    ui.icon("autorenew").classes("text-blue-400 animate-spin")
+                                with ui.column().classes("gap-0 flex-1"):
+                                    ui.label(f"Run {run_id_short}").classes("text-sm text-slate-200")
+                                    if run["status"] == "dialog":
+                                        ui.label(f"{run['dialog_count']} dialog(s) waiting").classes(
+                                            "text-xs text-amber-400"
+                                        )
+                                    else:
+                                        ui.label("Running...").classes("text-xs text-blue-400")
+                    ui.separator().classes("bg-slate-700 mt-2")
+            else:
+                active_tests_container.classes(add="hidden")
+
+        ui.timer(1.0, update_active_tests)
 
         # Navigation
         with ui.column().classes("p-2 gap-1"):
@@ -310,23 +405,65 @@ def create_layout(title: str):
         with ui.row().classes("w-full items-center justify-between px-4"):
             ui.label(title).classes("text-xl font-semibold text-slate-800")
 
+            # Dialog notification indicator in header
+            notification_container = ui.row().classes("items-center gap-2 hidden")
+
+            def update_header_notifications():
+                dialogs = _get_pending_dialogs()
+                if dialogs:
+                    notification_container.classes(remove="hidden")
+                    notification_container.clear()
+                    with notification_container:
+                        # Group by run_id
+                        runs_with_dialogs = {}
+                        for d in dialogs:
+                            run_id = d["run_id"] or "unknown"
+                            if run_id not in runs_with_dialogs:
+                                runs_with_dialogs[run_id] = []
+                            runs_with_dialogs[run_id].append(d)
+
+                        # Show first dialog's run as a button
+                        first_run = list(runs_with_dialogs.keys())[0]
+                        dialog_count = sum(len(v) for v in runs_with_dialogs.values())
+
+                        def go_to_dialog():
+                            ui.navigate.to(f"/live/{first_run}")
+
+                        with ui.button(on_click=go_to_dialog).props(
+                            "flat dense color=amber"
+                        ).classes("animate-pulse"):
+                            with ui.row().classes("items-center gap-2"):
+                                ui.icon("notification_important").classes("text-amber-600")
+                                ui.label(f"{dialog_count} dialog(s) waiting").classes(
+                                    "text-amber-700 text-sm font-medium"
+                                )
+                else:
+                    notification_container.classes(add="hidden")
+
+            ui.timer(1.0, update_header_notifications)
+
 
 def create_dialog_container(run_id: str | None = None):
     """Create a container for operator dialogs.
 
     This sets up a timer that polls for pending dialogs and displays them.
+    Uses in-process DialogManager directly (same process as server).
     """
+    from uuid import UUID
+
     from litmus.dialogs import DialogResponse, DialogType, get_dialog_manager
 
     dialog_container = ui.column().classes("hidden")
-    current_dialog_id = ui.state(None)
+    state = {"current_dialog_id": None, "choice": 0, "input": ""}
 
-    async def check_dialogs():
+    def check_dialogs():
         manager = get_dialog_manager()
         dialog = manager.get_pending_dialog(run_id)
 
-        if dialog and str(dialog.id) != current_dialog_id.value:
-            current_dialog_id.value = str(dialog.id)
+        if dialog and str(dialog.id) != state["current_dialog_id"]:
+            state["current_dialog_id"] = str(dialog.id)
+            state["choice"] = getattr(dialog, "default_choice", 0) or 0
+            state["input"] = getattr(dialog, "default_value", "") or ""
             dialog_container.classes(remove="hidden")
             dialog_container.clear()
 
@@ -337,67 +474,70 @@ def create_dialog_container(run_id: str | None = None):
                             ui.label(dialog.title).classes("text-lg font-semibold")
 
                         with ui.card_section():
-                            ui.label(dialog.message).classes("text-slate-600")
+                            ui.label(dialog.message).classes("text-slate-600 mb-4")
 
                             # Dialog-specific content
                             if dialog.type == DialogType.CONFIRM:
                                 pass  # Just buttons
 
                             elif dialog.type == DialogType.CHOICE:
-                                choice_value = ui.state(dialog.default_choice)
-                                for i, choice in enumerate(dialog.choices):
-                                    ui.radio([choice], value=choice if i == 0 else None).bind_value(
-                                        choice_value
-                                    ).classes("w-full")
+                                choices = getattr(dialog, "choices", [])
+                                options = {i: choice for i, choice in enumerate(choices)}
+                                ui.radio(
+                                    options=options,
+                                    value=state["choice"],
+                                    on_change=lambda e: state.update({"choice": e.value}),
+                                ).classes("w-full")
 
                             elif dialog.type == DialogType.INPUT:
-                                input_value = ui.state(dialog.default_value)
                                 ui.input(
-                                    placeholder=dialog.placeholder,
-                                    value=dialog.default_value,
-                                ).bind_value(input_value).classes("w-full")
+                                    placeholder=getattr(dialog, "placeholder", ""),
+                                    value=state["input"],
+                                    on_change=lambda e: state.update({"input": e.value}),
+                                ).classes("w-full")
 
                             elif dialog.type == DialogType.IMAGE:
-                                if dialog.image_url:
+                                if getattr(dialog, "image_url", None):
                                     ui.image(dialog.image_url).classes("w-full rounded")
-                                elif dialog.image_path:
+                                elif getattr(dialog, "image_path", None):
                                     ui.image(dialog.image_path).classes("w-full rounded")
 
                         with ui.card_actions().classes("justify-end gap-2"):
+                            # Capture dialog in closure
+                            captured_dialog = dialog
 
                             def respond_cancel():
                                 manager.respond(
-                                    dialog.id,
-                                    DialogResponse(dialog_id=dialog.id, cancelled=True),
+                                    captured_dialog.id,
+                                    DialogResponse(dialog_id=captured_dialog.id, cancelled=True),
                                 )
                                 modal.close()
-                                current_dialog_id.value = None
+                                state["current_dialog_id"] = None
                                 dialog_container.classes(add="hidden")
 
                             def respond_confirm():
                                 response = DialogResponse(
-                                    dialog_id=dialog.id,
+                                    dialog_id=captured_dialog.id,
                                     confirmed=True,
                                 )
-                                # Add type-specific response data
-                                if dialog.type == DialogType.CHOICE:
-                                    response.choice = choice_value.value
-                                elif dialog.type == DialogType.INPUT:
-                                    response.value = input_value.value
+                                if captured_dialog.type == DialogType.CHOICE:
+                                    response.choice = state["choice"]
+                                elif captured_dialog.type == DialogType.INPUT:
+                                    response.value = state["input"]
 
-                                manager.respond(dialog.id, response)
+                                manager.respond(captured_dialog.id, response)
                                 modal.close()
-                                current_dialog_id.value = None
+                                state["current_dialog_id"] = None
                                 dialog_container.classes(add="hidden")
 
                             ui.button("Cancel", on_click=respond_cancel).props("flat")
                             ui.button(
-                                dialog.confirm_label if hasattr(dialog, "confirm_label") else "OK",
+                                getattr(dialog, "confirm_label", "OK"),
                                 on_click=respond_confirm,
                             ).props("color=primary")
 
-        elif not dialog and current_dialog_id.value:
-            current_dialog_id.value = None
+        elif not dialog and state["current_dialog_id"]:
+            state["current_dialog_id"] = None
             dialog_container.classes(add="hidden")
 
     ui.timer(0.5, check_dialogs)
@@ -510,26 +650,34 @@ def _discover_sequences() -> list[dict]:
 
 
 @ui.page("/launch")
-def launch_page():
-    """Test launch page."""
+def launch_page(station: str = "", sequence: str = ""):
+    """Test launch page.
+
+    Args:
+        station: Pre-fill station ID from query param
+        sequence: Pre-fill sequence ID from query param
+    """
     create_layout("Launch Test")
 
     stations = _discover_stations()
     tests = _discover_tests()
     sequences = _discover_sequences()
 
-    # Form state
-    dut_serial = ui.state("")
-    station_id = ui.state("")
-    sequence_id = ui.state("")
-    test_path = ui.state("")
-    operator = ui.state("")
+    # Form state - use dict for NiceGUI binding
+    # Pre-fill from query params if provided
+    form = {
+        "dut_serial": "",
+        "station_id": station,
+        "sequence_id": sequence,
+        "test_path": "",
+        "operator": "",
+    }
 
     async def submit_launch():
-        if not dut_serial.value or not station_id.value:
+        if not form["dut_serial"] or not form["station_id"]:
             ui.notify("Please fill in required fields", type="warning")
             return
-        if not sequence_id.value and not test_path.value:
+        if not form["sequence_id"] and not form["test_path"]:
             ui.notify("Select a test sequence or test suite", type="warning")
             return
 
@@ -537,11 +685,11 @@ def launch_page():
         from litmus.execution.runner import get_runner
 
         request = LaunchRequest(
-            dut_serial=dut_serial.value,
-            station_id=station_id.value,
-            sequence_id=sequence_id.value or None,
-            test_path=test_path.value or "tests",
-            operator=operator.value or None,
+            dut_serial=form["dut_serial"],
+            station_id=form["station_id"],
+            sequence_id=form["sequence_id"] or None,
+            test_path=form["test_path"] or "tests",
+            operator=form["operator"] or None,
         )
         runner = get_runner()
         run_id = await runner.start(request)
@@ -552,48 +700,61 @@ def launch_page():
             with ui.card_section():
                 ui.label("Test Configuration").classes("text-lg font-semibold")
 
-            with ui.card_section().classes("gap-4"):
-                ui.input(
-                    "DUT Serial Number",
-                    placeholder="e.g., DPB001-0001",
-                ).bind_value(dut_serial).classes("w-full").props("outlined dense")
+            with ui.card_section().classes("flex flex-col gap-4"):
+                with ui.column().classes("gap-1"):
+                    ui.label("DUT Serial Number").classes("text-sm font-medium text-slate-700")
+                    ui.input(
+                        placeholder="e.g., DPB001-0001",
+                    ).bind_value(form, "dut_serial").classes("w-full").props("outlined dense")
 
-                ui.select(
-                    label="Station",
-                    options={s["id"]: f"{s['name']} ({s['id']})" for s in stations},
-                ).bind_value(station_id).classes("w-full").props("outlined dense")
+                with ui.column().classes("gap-1"):
+                    ui.label("Station").classes("text-sm font-medium text-slate-700")
+                    ui.select(
+                        options={s["id"]: f"{s['name']} ({s['id']})" for s in stations},
+                    ).bind_value(form, "station_id").classes("w-full").props("outlined dense")
 
-                # Test sequence selection (if available)
+                # Test sequence selection (primary method)
                 if sequences:
                     ui.separator().classes("my-2")
-                    ui.label("Option 1: Select a Test Sequence").classes(
-                        "text-sm text-slate-500"
-                    )
-                    ui.select(
-                        label="Test Sequence",
-                        options={
-                            s["id"]: f"{s['name']} ({s['test_phase']})"
-                            for s in sequences
-                        },
-                    ).bind_value(sequence_id).classes("w-full").props(
-                        "outlined dense clearable"
-                    )
+                    with ui.column().classes("gap-1"):
+                        ui.label("Test Sequence").classes("text-sm font-medium text-slate-700")
+                        ui.select(
+                            options={
+                                s["id"]: f"{s['name']} ({s['test_phase']})"
+                                for s in sequences
+                            },
+                        ).bind_value(form, "sequence_id").classes("w-full").props(
+                            "outlined dense clearable"
+                        )
 
-                    ui.label("Option 2: Select a Test Suite (advanced)").classes(
-                        "text-sm text-slate-500 mt-2"
-                    )
+                    with ui.expansion("Advanced: Run by test path", icon="code").classes(
+                        "w-full text-slate-500"
+                    ):
+                        ui.label(
+                            "Run tests by pytest discovery instead of a defined sequence."
+                        ).classes("text-xs text-slate-400 mb-2")
+                        with ui.column().classes("gap-1"):
+                            ui.label("Test Path").classes("text-sm font-medium text-slate-700")
+                            ui.select(
+                                options={t["path"]: f"{t['name']} ({t['path']})" for t in tests},
+                            ).bind_value(form, "test_path").classes("w-full").props(
+                                "outlined dense clearable"
+                            )
+                else:
+                    # No sequences defined, show test path as primary
+                    with ui.column().classes("gap-1"):
+                        ui.label("Test Path").classes("text-sm font-medium text-slate-700")
+                        ui.select(
+                            options={t["path"]: f"{t['name']} ({t['path']})" for t in tests},
+                        ).bind_value(form, "test_path").classes("w-full").props(
+                            "outlined dense clearable"
+                        )
 
-                ui.select(
-                    label="Test Suite",
-                    options={t["path"]: f"{t['name']} ({t['path']})" for t in tests},
-                ).bind_value(test_path).classes("w-full").props(
-                    "outlined dense clearable"
-                )
-
-                ui.input(
-                    "Operator (optional)",
-                    placeholder="Your name",
-                ).bind_value(operator).classes("w-full").props("outlined dense")
+                with ui.column().classes("gap-1"):
+                    ui.label("Operator (optional)").classes("text-sm font-medium text-slate-700")
+                    ui.input(
+                        placeholder="Your name",
+                    ).bind_value(form, "operator").classes("w-full").props("outlined dense")
 
             with ui.card_actions().classes("justify-end"):
                 ui.button("Start Test", icon="play_arrow", on_click=submit_launch).props(
@@ -621,6 +782,9 @@ async def live_page(run_id: str):
                     status_label = ui.label("Starting...").classes(
                         "px-3 py-1 rounded bg-blue-100 text-blue-800 text-sm font-medium"
                     )
+                with ui.row().classes("items-center gap-4 mt-2"):
+                    ui.label("Run ID:").classes("text-sm text-slate-500")
+                    ui.label(run_id).classes("text-sm font-mono text-slate-600")
 
             with ui.card_section():
                 progress = ui.linear_progress(value=0).classes("w-full")

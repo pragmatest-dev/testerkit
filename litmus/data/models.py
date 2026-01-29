@@ -3,10 +3,13 @@
 from datetime import UTC, datetime
 from decimal import Decimal
 from enum import StrEnum
-from typing import Any
+from typing import TYPE_CHECKING, Any
 from uuid import UUID, uuid4
 
 from pydantic import BaseModel, Field
+
+if TYPE_CHECKING:
+    pass
 
 
 def _utcnow() -> datetime:
@@ -21,6 +24,8 @@ class Outcome(StrEnum):
     FAIL = "fail"
     SKIP = "skip"
     ERROR = "error"
+    ABORTED = "aborted"
+    NOT_TESTED = "not_tested"
 
 
 class Measurement(BaseModel):
@@ -34,18 +39,93 @@ class Measurement(BaseModel):
     nominal: Decimal | None = None
     outcome: Outcome | None = None
     spec_ref: str | None = None
+    comparator: str | None = None  # ATML comparator: EQ, NE, GE, LE, GELE, etc.
     timestamp: datetime = Field(default_factory=_utcnow)
 
     def check_limit(self) -> Outcome:
-        """Evaluate value against limits, set outcome, return result."""
+        """Evaluate value against limits using comparator, set outcome, return result.
+
+        Comparator meanings (per ATML/IEEE 1671):
+            EQ: value == nominal
+            NE: value != nominal
+            LT: value < high_limit
+            LE: value <= high_limit
+            GT: value > low_limit
+            GE: value >= low_limit
+            GELE: low_limit <= value <= high_limit (default)
+            GELT: low_limit <= value < high_limit
+            GTLE: low_limit < value <= high_limit
+            GTLT: low_limit < value < high_limit
+        """
         if self.value is None:
             self.outcome = Outcome.ERROR
-        elif self.low_limit is not None and self.value < self.low_limit:
-            self.outcome = Outcome.FAIL
-        elif self.high_limit is not None and self.value > self.high_limit:
-            self.outcome = Outcome.FAIL
+            return self.outcome
+
+        # Default to GELE (inclusive range) if no comparator specified
+        comp = self.comparator or "GELE"
+
+        if comp == "EQ":
+            # Exact match to nominal
+            if self.nominal is not None and self.value == self.nominal:
+                self.outcome = Outcome.PASS
+            else:
+                self.outcome = Outcome.FAIL
+        elif comp == "NE":
+            # Not equal to nominal
+            if self.nominal is not None and self.value != self.nominal:
+                self.outcome = Outcome.PASS
+            else:
+                self.outcome = Outcome.FAIL
+        elif comp == "LT":
+            # Less than high limit
+            if self.high_limit is not None and self.value < self.high_limit:
+                self.outcome = Outcome.PASS
+            else:
+                self.outcome = Outcome.FAIL
+        elif comp == "LE":
+            # Less than or equal to high limit
+            if self.high_limit is not None and self.value <= self.high_limit:
+                self.outcome = Outcome.PASS
+            else:
+                self.outcome = Outcome.FAIL
+        elif comp == "GT":
+            # Greater than low limit
+            if self.low_limit is not None and self.value > self.low_limit:
+                self.outcome = Outcome.PASS
+            else:
+                self.outcome = Outcome.FAIL
+        elif comp == "GE":
+            # Greater than or equal to low limit
+            if self.low_limit is not None and self.value >= self.low_limit:
+                self.outcome = Outcome.PASS
+            else:
+                self.outcome = Outcome.FAIL
+        elif comp == "GELE":
+            # Inclusive range: low <= value <= high
+            low_ok = self.low_limit is None or self.value >= self.low_limit
+            high_ok = self.high_limit is None or self.value <= self.high_limit
+            self.outcome = Outcome.PASS if (low_ok and high_ok) else Outcome.FAIL
+        elif comp == "GELT":
+            # low <= value < high
+            low_ok = self.low_limit is None or self.value >= self.low_limit
+            high_ok = self.high_limit is None or self.value < self.high_limit
+            self.outcome = Outcome.PASS if (low_ok and high_ok) else Outcome.FAIL
+        elif comp == "GTLE":
+            # low < value <= high
+            low_ok = self.low_limit is None or self.value > self.low_limit
+            high_ok = self.high_limit is None or self.value <= self.high_limit
+            self.outcome = Outcome.PASS if (low_ok and high_ok) else Outcome.FAIL
+        elif comp == "GTLT":
+            # Exclusive range: low < value < high
+            low_ok = self.low_limit is None or self.value > self.low_limit
+            high_ok = self.high_limit is None or self.value < self.high_limit
+            self.outcome = Outcome.PASS if (low_ok and high_ok) else Outcome.FAIL
         else:
-            self.outcome = Outcome.PASS
+            # Unknown comparator, fall back to GELE behavior
+            low_ok = self.low_limit is None or self.value >= self.low_limit
+            high_ok = self.high_limit is None or self.value <= self.high_limit
+            self.outcome = Outcome.PASS if (low_ok and high_ok) else Outcome.FAIL
+
         return self.outcome
 
 
