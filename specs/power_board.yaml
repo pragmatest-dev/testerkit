@@ -1,0 +1,176 @@
+# Power Board Product Specification
+# Example product definition following ATML-inspired modeling
+#
+# This demonstrates the shared vocabulary approach where product characteristics
+# use the same Direction/Domain/SignalType primitives as instrument capabilities.
+
+product:
+  id: power_board_v1
+  name: "DC-DC Power Board Rev A"
+  description: "5V to 3.3V buck converter with 1A output capability"
+  revision: "A"
+  datasheet: "docs/DS-001.pdf"
+  schematic: "docs/SCH-001.pdf"
+
+characteristics:
+  # DUT INPUT: needs instrument OUTPUT (PSU) to source it
+  rail_5v_input:
+    direction: input          # DUT CONSUMES this power
+    domain: voltage
+    signal_types: [dc]
+    units: V
+    datasheet_ref: "DS-001 Section 7.2, Table 3"
+    schematic_ref: "VIN"
+    conditions:
+      - temperature: 25
+        load: 0.5
+        nominal: 5.0
+        tolerance_pct: 5      # Operating range: 4.75V to 5.25V
+
+      - temperature: -40
+        load: 0.5
+        nominal: 5.0
+        tolerance_pct: 7      # Wider tolerance at cold
+
+      - temperature: 85
+        load: 0.5
+        nominal: 5.0
+        tolerance_pct: 6      # Wider tolerance at hot
+
+  # DUT OUTPUT: needs instrument INPUT (DMM) to measure it
+  rail_3v3_output:
+    direction: output         # DUT PROVIDES this voltage
+    domain: voltage
+    signal_types: [dc]
+    units: V
+    datasheet_ref: "DS-001 Section 7.3"
+    schematic_ref: "VOUT_3V3"
+    conditions:
+      - temperature: 25
+        load: 0.1
+        input_voltage: 5.0
+        nominal: 3.3
+        tolerance_pct: 3      # Tight at light load
+
+      - temperature: 25
+        load: 1.0
+        input_voltage: 5.0
+        nominal: 3.3
+        tolerance_pct: 4      # Slightly wider at full load
+
+      - temperature: -40
+        load: 0.5
+        input_voltage: 4.5
+        nominal: 3.3
+        tolerance_pct: 5
+
+      - temperature: 85
+        load: 1.0
+        input_voltage: 5.5
+        nominal: 3.3
+        tolerance_pct: 6      # Widest at hot + full load
+
+  # DUT INPUT (current draw): uses LE comparator (upper limit only)
+  quiescent_current:
+    direction: input          # Current drawn by DUT
+    domain: current
+    signal_types: [dc]
+    units: A
+    datasheet_ref: "DS-001 Section 7.4"
+    schematic_ref: "IIN"
+    conditions:
+      - temperature: 25
+        load: 0               # No load condition
+        comparator: LE        # Only upper limit matters
+        limit_high: 0.015     # Max 15mA quiescent
+
+      - temperature: 85
+        load: 0
+        comparator: LE
+        limit_high: 0.020     # Higher at hot
+
+  # Efficiency characteristic (derived measurement)
+  efficiency:
+    direction: output         # Calculated value
+    domain: power
+    signal_types: [dc]
+    units: "%"
+    datasheet_ref: "DS-001 Section 7.5"
+    conditions:
+      - temperature: 25
+        load: 0.5
+        comparator: GE        # Minimum efficiency required
+        limit_low: 85
+
+      - temperature: 25
+        load: 1.0
+        comparator: GE
+        limit_low: 80
+
+test_requirements:
+  verify_input_voltage_room:
+    characteristic_ref: rail_5v_input
+    conditions:
+      temperature: 25
+      load: 0.5
+    guardband_pct: 10        # Tighten by 10% for mfg margin
+    priority: critical
+    description: "Verify input voltage within spec at room temp"
+
+  verify_output_voltage_room_light:
+    characteristic_ref: rail_3v3_output
+    conditions:
+      temperature: 25
+      load: 0.1
+      input_voltage: 5.0
+    guardband_pct: 5
+    priority: critical
+    description: "Verify output voltage at room temp, light load"
+
+  verify_output_voltage_room_full:
+    characteristic_ref: rail_3v3_output
+    conditions:
+      temperature: 25
+      load: 1.0
+      input_voltage: 5.0
+    guardband_pct: 5
+    priority: critical
+    description: "Verify output voltage at room temp, full load"
+
+  verify_output_voltage_hot:
+    characteristic_ref: rail_3v3_output
+    conditions:
+      temperature: 85
+      load: 1.0
+      input_voltage: 5.5
+    guardband_pct: 5
+    priority: standard       # Only run in full qualification
+    description: "Verify output voltage at hot, full load, high input"
+
+  verify_quiescent_current:
+    characteristic_ref: quiescent_current
+    conditions:
+      temperature: 25
+      load: 0
+    guardband_pct: 20        # Conservative for quiescent
+    priority: critical
+    description: "Verify quiescent current is within spec"
+
+  verify_efficiency_half_load:
+    characteristic_ref: efficiency
+    conditions:
+      temperature: 25
+      load: 0.5
+    guardband_pct: 5
+    priority: standard
+    description: "Verify efficiency at half load"
+
+  characterize_line_regulation:
+    characteristic_ref: null  # No characteristic - data collection only
+    priority: optional
+    description: "Characterize output vs input voltage (no limits)"
+
+  characterize_load_regulation:
+    characteristic_ref: null
+    priority: optional
+    description: "Characterize output vs load current (no limits)"

@@ -1,0 +1,29 @@
+# Oscilloscope Instrument Definition
+
+instrument:
+  type: scope
+  name: Oscilloscope
+  description: Time-domain signal capture and analysis
+  icon: show_chart
+
+capabilities:
+  - name: voltage_ac
+    direction: input
+    domain: voltage
+    signal_types: [ac, pulse]
+    description: Capture AC/transient voltage waveforms
+
+  - name: frequency
+    direction: input
+    domain: frequency
+    description: Measure signal frequency
+
+  - name: timing
+    direction: input
+    domain: time
+    description: Measure timing parameters (rise time, period, etc.)
+
+  - name: trigger
+    direction: input
+    domain: voltage
+    description: Trigger on voltage threshold

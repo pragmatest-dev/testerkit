@@ -1,0 +1,48 @@
+# Power Supply Instrument Definition
+
+instrument:
+  type: psu
+  name: Power Supply
+  description: DC voltage and current sourcing with programmable limits
+  icon: electrical_services
+
+capabilities:
+  - name: voltage_source
+    direction: output
+    domain: voltage
+    signal_types: [dc]
+    description: Source DC voltage
+
+  - name: current_source
+    direction: output
+    domain: current
+    signal_types: [dc]
+    description: Source DC current (constant current mode)
+
+  - name: current_limit
+    direction: output
+    domain: current
+    signal_types: [dc]
+    description: Programmable current limit
+
+  - name: voltage_readback
+    direction: input
+    domain: voltage
+    signal_types: [dc]
+    description: Read actual output voltage
+
+  - name: current_readback
+    direction: input
+    domain: current
+    signal_types: [dc]
+    description: Read actual output current
+
+scpi_commands:
+  identify: "*IDN?"
+  reset: "*RST"
+  set_voltage: "VOLT {value}"
+  set_current_limit: "CURR {value}"
+  output_on: "OUTP ON"
+  output_off: "OUTP OFF"
+  measure_voltage: "MEAS:VOLT?"
+  measure_current: "MEAS:CURR?"

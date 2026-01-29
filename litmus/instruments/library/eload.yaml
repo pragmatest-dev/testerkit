@@ -1,0 +1,44 @@
+# Electronic Load Instrument Definition
+
+instrument:
+  type: eload
+  name: Electronic Load
+  description: Programmable current sink for power supply testing
+  icon: download
+
+capabilities:
+  - name: current_sink
+    direction: input
+    domain: current
+    signal_types: [dc]
+    description: Sink constant current
+
+  - name: constant_resistance
+    direction: input
+    domain: resistance
+    description: Simulate constant resistance load
+
+  - name: constant_power
+    direction: input
+    domain: power
+    description: Simulate constant power load
+
+  - name: voltage_readback
+    direction: input
+    domain: voltage
+    signal_types: [dc]
+    description: Read voltage at load terminals
+
+  - name: current_readback
+    direction: input
+    domain: current
+    signal_types: [dc]
+    description: Read actual sink current
+
+scpi_commands:
+  identify: "*IDN?"
+  reset: "*RST"
+  set_current: "CURR {value}"
+  set_resistance: "RES {value}"
+  input_on: "INP ON"
+  input_off: "INP OFF"
