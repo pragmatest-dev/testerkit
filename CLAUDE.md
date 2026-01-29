@@ -22,8 +22,8 @@ Litmus is a Python-native hardware test **platform** for the AI-assisted era. It
 - **Language:** Python 3.11+
 - **Test Execution:** pytest with custom plugin
 - **Configuration:** YAML files with Pydantic validation
-- **Web Framework:** FastAPI
-- **Operator UI:** HTMX
+- **Web Framework:** FastAPI (API) + NiceGUI (UI)
+- **Operator UI:** NiceGUI with Tailwind CSS
 - **Instrument Communication:** PyVISA, pyserial
 - **Data Storage:** Parquet files (local PoC), with plugin backends for PostgreSQL, InfluxDB, etc.
 - **AI Integration:** MCP (Model Context Protocol) server + HTTP API
@@ -52,9 +52,12 @@ litmus/
 │   ├── mcp/                   # MCP server
 │   │   └── server.py          # MCP tool definitions
 │   ├── api/                   # HTTP API
-│   │   └── routes.py          # FastAPI routes
-│   └── ui/                    # Operator UI
-│       └── app.py             # HTMX-based web UI
+│   │   ├── app.py             # FastAPI + NiceGUI app factory
+│   │   └── models.py          # API request/response models
+│   ├── ui/                    # Operator UI
+│   │   ├── app.py             # NiceGUI pages (dashboard, launch, results)
+│   │   └── static/            # Static assets (global.css)
+│   └── cli.py                 # CLI entry point
 ├── stations/                  # Station configurations
 │   ├── _base.yaml             # Base station type definitions
 │   └── station_*.yaml         # Instance configurations
@@ -96,12 +99,17 @@ pytest --cov=litmus            # Run tests with coverage
 ruff check .                   # Lint code
 ruff format .                  # Format code
 
-# MCP server
-litmus mcp serve               # Start MCP server
+# Operator UI
+litmus serve                   # Start operator UI (default: http://localhost:8000)
+litmus serve --port 8080       # Custom port
+litmus serve --reload          # Auto-reload for development
 
-# Setup for AI tools
-litmus setup claude-code       # Configure for Claude Code
-litmus setup cursor            # Configure for Cursor
+# CLI tools
+litmus runs                    # List recent test runs
+litmus show <run_id>           # Show details for a test run
+
+# MCP server (planned)
+litmus mcp serve               # Start MCP server
 ```
 
 ## Configuration Patterns
@@ -131,7 +139,9 @@ spec.to_limit(guardband_pct=Decimal("10"))
 - Keep instrument drivers thin—use PyVISA for SCPI instruments
 - All MCP tools should have equivalent HTTP API endpoints
 - Results use a consistent schema across all storage backends
-- Non-blocking operator dialogs via FastAPI + HTMX
+- Operator UI uses NiceGUI for reactive Python-native interfaces
+- API routes use FastAPI for JSON endpoints (consumed by CLI, MCP, external systems)
+- Style UI components with Tailwind CSS classes via `.classes()`
 
 ## Testing Approach
 
@@ -139,6 +149,27 @@ spec.to_limit(guardband_pct=Decimal("10"))
 - Custom pytest plugin provides fixtures for instruments, config, and dialogs
 - Test configuration is separate from test code
 - Support for retry logic, skip conditions, and operator prompts
+
+## Operator UI Architecture
+
+The UI combines NiceGUI (for browser UI) with FastAPI (for JSON API):
+
+```
+Browser ──WebSocket──► NiceGUI Pages (/, /launch, /results, /live/{id})
+                              │
+CLI/MCP/External ──HTTP──► FastAPI Routes (/api/runs, /api/runs/{id})
+                              │
+                       ┌──────┴──────┐
+                       │   Shared    │
+                       │   Backend   │
+                       │  (Parquet)  │
+                       └─────────────┘
+```
+
+- **NiceGUI pages** (`litmus/ui/app.py`): Reactive UI with left sidebar navigation
+- **FastAPI routes** (`litmus/api/app.py`): JSON API at `/api/*` for programmatic access
+- **Static assets** (`litmus/ui/static/`): global.css for custom styles
+- **Test runner** (`litmus/execution/runner.py`): Async subprocess execution with streaming
 
 ## AI Integration Notes
 
