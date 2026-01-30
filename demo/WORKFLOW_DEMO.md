@@ -188,10 +188,40 @@ Result: output_voltage = 3.301V PASS
                  └─ Datasheet: Section 7.4, Table 1
 ```
 
+## You're Always in Control
+
+Throughout the entire workflow, you have full access to:
+
+**Files** - Everything Claude creates is a plain file you can edit:
+```
+products/tps54302/spec.yaml      # Edit specs directly
+stations/bench_main.yaml         # Adjust instrument config
+tests/test_tps54302/*.py         # Modify test code
+sequences/tps54302_validation.yaml  # Change test order
+```
+
+**UI** - Take over at any point:
+- http://localhost:8000/products/tps54302 - Edit product spec visually
+- http://localhost:8000/stations/bench_main - Adjust station config
+- http://localhost:8000/sequences/tps54302_validation - Modify sequence
+- http://localhost:8000/launch - Run tests manually
+
+**Workflow** - Claude's progress is just a manifest file:
+```yaml
+# products/tps54302/manifest.yaml
+workflow:
+  current_step: generate_tests
+  completed_steps: [parse_datasheet, review_spec, derive_requirements]
+```
+
+You can edit any file, use the UI to make changes, then return to Claude and say "I updated the spec, continue from here." Claude will pick up where you left off.
+
+---
+
 ## Key Points
 
 1. **Datasheet First**: Claude reads the actual datasheet (PDF or text), not manual entry
 2. **Deterministic Matching**: Capability matching is algorithmic, not AI guesswork
-3. **Review Points**: Links to UI for human review at each step
+3. **Human in the Loop**: Files and UI accessible at every step - take control anytime
 4. **Incremental**: Workflow state is tracked; you can resume where you left off
-5. **Portable**: All artifacts are files that can be version controlled
+5. **Portable**: All artifacts are plain files that can be version controlled
