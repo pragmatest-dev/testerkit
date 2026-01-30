@@ -750,16 +750,26 @@ def run_tool(sequence_id: str, station_id: str, dut_serial: str) -> dict[str, An
         # Direct test path
         test_targets = [sequence_id]
     else:
-        # Find test file by name
-        search_paths = [
-            Path.cwd() / "tests" / f"test_{sequence_id}.py",
-            Path.cwd() / "demo" / "tests" / f"test_{sequence_id}.py",
-            Path.cwd() / f"test_{sequence_id}.py",
-        ]
+        # Try exact name, then strip common suffixes (_datasheet, _validation, _smoke, etc.)
+        names_to_try = [sequence_id]
+        for suffix in ["_datasheet", "_validation", "_smoke", "_full", "_quick"]:
+            if sequence_id.endswith(suffix):
+                names_to_try.append(sequence_id[:-len(suffix)])
+                break
+
         test_targets = []
-        for test_path in search_paths:
-            if test_path.exists():
-                test_targets = [str(test_path)]
+        search_paths = []
+        for name in names_to_try:
+            paths = [
+                Path.cwd() / "tests" / f"test_{name}.py",
+                Path.cwd() / "demo" / "tests" / f"test_{name}.py",
+            ]
+            search_paths.extend(paths)
+            for test_path in paths:
+                if test_path.exists():
+                    test_targets = [str(test_path)]
+                    break
+            if test_targets:
                 break
 
         if not test_targets:
