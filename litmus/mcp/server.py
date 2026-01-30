@@ -19,7 +19,9 @@ from litmus.mcp.tools import (
     check_station_compatibility_tool,
     complete_workflow_step_tool,
     create_product_folder_tool,
+    create_station_tool,
     derive_required_capabilities_tool,
+    discover_visa_resources_tool,
     dry_run_sequence_tool,
     find_compatible_stations_tool,
     get_editor_url_tool,
@@ -29,6 +31,7 @@ from litmus.mcp.tools import (
     get_run_status_tool,
     get_station_config_tool,
     get_test_templates_tool,
+    list_available_instrument_types_tool,
     list_instrument_types_tool,
     list_product_folders_tool,
     list_products_tool,
@@ -51,21 +54,83 @@ def create_mcp_server() -> FastMCP:
         "Litmus",
         instructions="""Litmus is a hardware test platform. Use these tools to:
 
-1. EXPLORE: List and read products, stations, instruments, sequences
-2. MATCH: Find which stations can test which products (deterministic capability matching)
-3. CREATE: Save new product specs, instrument definitions, test sequences, test code
-4. EXECUTE: Run tests and check results
+1. SETUP: Discover instruments, create station configs
+2. EXPLORE: List and read products, stations, instruments, sequences
+3. MATCH: Find which stations can test which products (deterministic capability matching)
+4. CREATE: Save new product specs, test sequences, test code
+5. EXECUTE: Run tests and check results
 
-Typical workflow:
-- Parse datasheet → save_product_spec
-- derive_required_capabilities → find_compatible_stations
-- If no stations, create new instruments with save_instrument_library
-- Generate test code with save_test_file
-- Generate sequence with save_test_sequence
-- dry_run_sequence to validate
-- run_sequence to execute
+Typical workflow (starting from nothing):
+1. discover_visa_resources → see what instruments are connected
+2. list_available_instrument_types → see what drivers are available
+3. create_station → create station config from discovered instruments
+4. create_product_folder → start a new product workflow
+5. Read datasheet (user provides file) → create product spec from characteristics
+6. save_product_spec_to_folder → save the spec
+7. derive_required_capabilities → find_compatible_stations
+8. save_test_file → generate pytest test code
+9. save_test_sequence → define test order
+10. run_sequence → execute tests
 """,
     )
+
+    # -----------------------------------------------------------------------------
+    # Station Discovery Tools
+    # -----------------------------------------------------------------------------
+
+    @mcp.tool
+    def discover_visa_resources() -> dict[str, Any]:
+        """Discover connected VISA instruments on this computer.
+
+        Scans for available VISA resources using PyVISA. Returns a list of
+        discovered instruments with their addresses, types, and identification.
+
+        Use this as the first step when setting up a new test station.
+
+        Returns:
+            List of discovered resources with addresses and suggested types.
+        """
+        return discover_visa_resources_tool()
+
+    @mcp.tool
+    def create_station(
+        station_id: str,
+        name: str,
+        instruments: list[dict[str, str]],
+        location: str | None = None,
+        description: str | None = None,
+    ) -> dict[str, Any]:
+        """Create a new station configuration.
+
+        Use this after discover_visa_resources to create a station config
+        from discovered instruments.
+
+        Args:
+            station_id: Unique identifier (e.g., "bench_1")
+            name: Human-readable name (e.g., "Main Test Bench")
+            instruments: List of instruments, each with:
+                - name: Instrument name (e.g., "dmm_main", "psu_dut")
+                - type: Instrument type (e.g., "dmm", "psu")
+                - address: VISA address
+            location: Optional location (e.g., "Lab A Room 101")
+            description: Optional description
+
+        Returns:
+            Path to created station config file.
+        """
+        return create_station_tool(station_id, name, instruments, location, description)
+
+    @mcp.tool
+    def list_available_instrument_types() -> list[dict[str, Any]]:
+        """List instrument types with drivers available.
+
+        Use this to see what instrument types can be used when creating
+        a station. Each type has specific capabilities.
+
+        Returns:
+            List of instrument types with names, descriptions, and capabilities.
+        """
+        return list_available_instrument_types_tool()
 
     # -----------------------------------------------------------------------------
     # Read/Context Tools

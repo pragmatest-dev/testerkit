@@ -11,6 +11,219 @@ import yaml
 
 
 # -----------------------------------------------------------------------------
+# Station Discovery Tools
+# -----------------------------------------------------------------------------
+
+
+def discover_visa_resources_tool() -> dict[str, Any]:
+    """Discover connected VISA instruments.
+
+    Scans for available VISA resources on the system using PyVISA.
+    Returns a list of discovered resources with their addresses and
+    any identification information available.
+
+    Returns:
+        Dict with list of discovered resources and their info.
+    """
+    try:
+        import pyvisa
+
+        rm = pyvisa.ResourceManager()
+        resources = rm.list_resources()
+
+        discovered = []
+        for resource in resources:
+            info = {
+                "address": resource,
+                "type": _classify_visa_resource(resource),
+                "idn": None,
+            }
+
+            # Try to query *IDN? for identification
+            try:
+                inst = rm.open_resource(resource)
+                inst.timeout = 2000  # 2 second timeout
+                idn = inst.query("*IDN?").strip()
+                inst.close()
+                info["idn"] = idn
+                info["suggested_type"] = _suggest_instrument_type(idn)
+            except Exception:
+                # Can't query - might be a non-SCPI device
+                pass
+
+            discovered.append(info)
+
+        rm.close()
+
+        return {
+            "success": True,
+            "count": len(discovered),
+            "resources": discovered,
+            "message": f"Found {len(discovered)} VISA resource(s)",
+        }
+
+    except ImportError:
+        return {
+            "success": False,
+            "error": "PyVISA not installed. Install with: pip install pyvisa",
+        }
+    except Exception as e:
+        return {
+            "success": False,
+            "error": f"Failed to discover resources: {str(e)}",
+        }
+
+
+def _classify_visa_resource(resource: str) -> str:
+    """Classify a VISA resource string by connection type."""
+    resource_upper = resource.upper()
+    if resource_upper.startswith("TCPIP"):
+        return "tcp"
+    elif resource_upper.startswith("USB"):
+        return "usb"
+    elif resource_upper.startswith("GPIB"):
+        return "gpib"
+    elif resource_upper.startswith("ASRL") or "COM" in resource_upper:
+        return "serial"
+    elif "SIM" in resource_upper:
+        return "simulated"
+    else:
+        return "unknown"
+
+
+def _suggest_instrument_type(idn: str) -> str | None:
+    """Suggest an instrument type based on *IDN? response."""
+    idn_lower = idn.lower()
+
+    # DMM patterns
+    if any(x in idn_lower for x in ["34401", "34461", "34465", "dmm", "multimeter"]):
+        return "dmm"
+
+    # Power supply patterns
+    if any(x in idn_lower for x in ["e36", "n67", "power supply", "psu", "dp8"]):
+        return "psu"
+
+    # Oscilloscope patterns
+    if any(x in idn_lower for x in ["dso", "mso", "scope", "oscilloscope", "tds", "rtb"]):
+        return "scope"
+
+    # Electronic load patterns
+    if any(x in idn_lower for x in ["load", "n33", "el3"]):
+        return "eload"
+
+    return None
+
+
+def create_station_tool(
+    station_id: str,
+    name: str,
+    instruments: list[dict[str, str]],
+    location: str | None = None,
+    description: str | None = None,
+) -> dict[str, Any]:
+    """Create a new station configuration.
+
+    Args:
+        station_id: Unique identifier for the station
+        name: Human-readable station name
+        instruments: List of instruments, each with:
+            - name: Instrument name (e.g., "dmm_main")
+            - type: Instrument type (e.g., "dmm", "psu")
+            - address: VISA address (e.g., "TCPIP::192.168.1.100::INSTR")
+        location: Optional location description
+        description: Optional station description
+
+    Returns:
+        Result with path to created station config.
+    """
+    # Ensure stations directory exists
+    stations_dir = Path.cwd() / "stations"
+    stations_dir.mkdir(parents=True, exist_ok=True)
+
+    # Build station config
+    station_config = {
+        "station": {
+            "id": station_id,
+            "name": name,
+        },
+        "instruments": {},
+    }
+
+    if location:
+        station_config["station"]["location"] = location
+    if description:
+        station_config["station"]["description"] = description
+
+    # Add instruments
+    for inst in instruments:
+        inst_name = inst.get("name")
+        if not inst_name:
+            return {
+                "success": False,
+                "error": "Each instrument must have a 'name' field",
+            }
+
+        station_config["instruments"][inst_name] = {
+            "type": inst.get("type", "unknown"),
+            "address": inst.get("address", ""),
+        }
+
+        # Add optional fields if present
+        if inst.get("simulated"):
+            station_config["instruments"][inst_name]["simulated"] = True
+        if inst.get("description"):
+            station_config["instruments"][inst_name]["description"] = inst["description"]
+
+    # Save YAML
+    filepath = stations_dir / f"{station_id}.yaml"
+    with open(filepath, "w") as f:
+        yaml.dump(station_config, f, default_flow_style=False, sort_keys=False)
+
+    return {
+        "success": True,
+        "station_id": station_id,
+        "path": str(filepath),
+        "instrument_count": len(instruments),
+        "message": f"Created station config at {filepath}",
+    }
+
+
+def list_available_instrument_types_tool() -> list[dict[str, Any]]:
+    """List available instrument types with their capabilities.
+
+    Returns a list of instrument types that have drivers available,
+    along with their capabilities. Use this to see what instrument
+    types can be used when creating a station.
+
+    Returns:
+        List of instrument types with name, description, and capabilities.
+    """
+    library_dir = Path(__file__).parent.parent / "instruments" / "library"
+
+    if not library_dir.exists():
+        return []
+
+    types = []
+    for yaml_file in sorted(library_dir.glob("*.yaml")):
+        try:
+            with open(yaml_file) as f:
+                data = yaml.safe_load(f)
+                if data and "instrument" in data:
+                    inst = data["instrument"]
+                    capabilities = data.get("capabilities", [])
+                    types.append({
+                        "type": inst.get("type", yaml_file.stem),
+                        "name": inst.get("name", yaml_file.stem),
+                        "description": inst.get("description", ""),
+                        "capabilities": [c.get("name", "") for c in capabilities],
+                    })
+        except Exception:
+            continue
+
+    return types
+
+
+# -----------------------------------------------------------------------------
 # Read/Context Tools
 # -----------------------------------------------------------------------------
 

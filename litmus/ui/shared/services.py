@@ -5,6 +5,7 @@ from pathlib import Path
 import yaml
 
 from litmus.matching import service as matching_service
+from litmus.products.folder import ProductFolder
 
 # -----------------------------------------------------------------------------
 # Product Services
@@ -12,8 +13,59 @@ from litmus.matching import service as matching_service
 
 
 def discover_products() -> list[dict]:
-    """Discover product specifications from YAML files."""
+    """Discover products from folders and spec files.
+
+    Checks:
+    1. products/ folder (new workflow structure)
+    2. specs/ and demo/specs/ (legacy flat structure)
+    """
     products = []
+    seen_ids = set()
+
+    # 1. Check products/ folder (new workflow structure)
+    products_dir = Path.cwd() / "products"
+    if products_dir.exists():
+        for folder in ProductFolder.list_all(products_dir):
+            spec = folder.load_spec()
+            product_id = folder.product_id
+
+            if product_id in seen_ids:
+                continue
+            seen_ids.add(product_id)
+
+            if spec:
+                products.append({
+                    "id": spec.id,
+                    "name": spec.name,
+                    "description": spec.description or "",
+                    "revision": spec.revision or "",
+                    "pins": None,  # Not in Product model yet
+                    "characteristics": {
+                        name: char.model_dump() for name, char in spec.characteristics.items()
+                    },
+                    "test_requirements": {
+                        name: req.model_dump() for name, req in spec.test_requirements.items()
+                    },
+                    "file": str(folder.path / "spec.yaml"),
+                    "folder_path": str(folder.path),
+                    "workflow_step": folder.current_step.value if folder.current_step else None,
+                })
+            else:
+                # Folder exists but no spec yet (in progress)
+                products.append({
+                    "id": product_id,
+                    "name": folder.name,
+                    "description": folder.manifest.description or "",
+                    "revision": "",
+                    "pins": None,
+                    "characteristics": {},
+                    "test_requirements": {},
+                    "file": None,
+                    "folder_path": str(folder.path),
+                    "workflow_step": folder.current_step.value if folder.current_step else None,
+                })
+
+    # 2. Check specs/ for backwards compat (legacy flat structure)
     search_paths = [
         Path.cwd() / "specs",
         Path.cwd() / "demo" / "specs",
@@ -27,8 +79,14 @@ def discover_products() -> list[dict]:
                 data = yaml.safe_load(f)
                 if data and "product" in data:
                     product_info = data["product"]
+                    product_id = product_info.get("id", yaml_file.stem)
+
+                    if product_id in seen_ids:
+                        continue
+                    seen_ids.add(product_id)
+
                     products.append({
-                        "id": product_info.get("id", yaml_file.stem),
+                        "id": product_id,
                         "name": product_info.get("name", yaml_file.stem),
                         "description": product_info.get("description", ""),
                         "revision": product_info.get("revision", ""),
@@ -36,7 +94,10 @@ def discover_products() -> list[dict]:
                         "characteristics": data.get("characteristics", {}),
                         "test_requirements": data.get("test_requirements", {}),
                         "file": str(yaml_file),
+                        "folder_path": None,
+                        "workflow_step": None,
                     })
+
     return products
 
 

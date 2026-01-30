@@ -2,6 +2,18 @@
 
 This guide walks through demonstrating the Litmus hardware test platform.
 
+## Demo Options
+
+**AI-Assisted Workflow (Recommended)**
+Use Claude Desktop to create tests from datasheets through conversation:
+- [CLAUDE_DESKTOP_SETUP.md](./CLAUDE_DESKTOP_SETUP.md) - Connect Claude Desktop to Litmus
+- [WORKFLOW_DEMO.md](./WORKFLOW_DEMO.md) - Full walkthrough from datasheet to tests
+
+**UI-Only Workflow**
+Use the web UI to browse and run existing tests (documented below).
+
+---
+
 ## Prerequisites
 
 ```bash
