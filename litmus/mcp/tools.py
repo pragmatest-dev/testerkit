@@ -161,9 +161,51 @@ def _list_stations() -> list[dict[str, Any]]:
 
 
 def _list_products() -> list[dict[str, Any]]:
-    """List all product specifications."""
-    from litmus.matching.service import list_products
-    return list_products()
+    """List all product specifications.
+
+    Searches both legacy specs/ directories and new products/ folder structure.
+    """
+    from litmus.products.folder import ProductFolder
+
+    products = []
+    seen_ids = set()
+
+    # First, check products/ folder structure (new style)
+    products_paths = [
+        Path.cwd() / "products",
+        Path.cwd() / "demo" / "products",
+    ]
+
+    for products_dir in products_paths:
+        for folder in ProductFolder.list_all(products_dir):
+            if folder.product_id in seen_ids:
+                continue
+            seen_ids.add(folder.product_id)
+
+            product_info = {
+                "id": folder.product_id,
+                "name": folder.name,
+                "description": folder.manifest.description,
+                "current_step": folder.current_step.value if folder.current_step else None,
+                "completed_steps": [s.value for s in folder.manifest.completed_steps],
+            }
+
+            # Try to load spec for more details
+            spec = folder.load_spec()
+            if spec:
+                product_info["revision"] = spec.revision
+                product_info["characteristics_count"] = len(spec.characteristics)
+                product_info["test_requirements_count"] = len(spec.test_requirements)
+
+            products.append(product_info)
+
+    # Also check legacy specs/ directories
+    from litmus.matching.service import list_products as legacy_list_products
+    for product in legacy_list_products():
+        if product["id"] not in seen_ids:
+            products.append(product)
+
+    return products
 
 
 def _list_fixtures() -> list[dict[str, Any]]:
@@ -322,7 +364,78 @@ def _get_station(station_id: str) -> dict[str, Any]:
 
 
 def _get_product(product_id: str) -> dict[str, Any]:
-    """Get product specification."""
+    """Get product specification.
+
+    Searches both new products/ folder structure and legacy specs/ directories.
+    """
+    from litmus.products.folder import ProductFolder
+
+    # First, try products/ folder structure (new style)
+    products_paths = [
+        Path.cwd() / "products",
+        Path.cwd() / "demo" / "products",
+    ]
+
+    for products_dir in products_paths:
+        folder_path = products_dir / product_id
+        if folder_path.exists() and (folder_path / "manifest.yaml").exists():
+            try:
+                folder = ProductFolder.load(folder_path)
+                result = {
+                    "product": {
+                        "id": folder.product_id,
+                        "name": folder.name,
+                        "description": folder.manifest.description,
+                    },
+                    "workflow": {
+                        "current_step": folder.current_step.value if folder.current_step else None,
+                        "completed_steps": [s.value for s in folder.manifest.completed_steps],
+                    },
+                    "files": folder.manifest.files.model_dump(exclude_none=True),
+                }
+
+                # Load spec if available
+                spec = folder.load_spec()
+                if spec:
+                    result["product"]["revision"] = spec.revision
+                    result["characteristics"] = {
+                        name: {
+                            "direction": char.direction.value,
+                            "domain": char.domain.value,
+                            "signal_types": [st.value for st in char.signal_types],
+                            "units": char.units,
+                            "conditions": [
+                                {
+                                    **cond.condition_params,
+                                    "nominal": str(cond.nominal) if cond.nominal else None,
+                                    "tolerance_pct": (
+                                        str(cond.tolerance_pct) if cond.tolerance_pct else None
+                                    ),
+                                    "limit_low": str(cond.limit_low) if cond.limit_low else None,
+                                    "limit_high": (
+                                        str(cond.limit_high) if cond.limit_high else None
+                                    ),
+                                }
+                                for cond in char.conditions
+                            ],
+                        }
+                        for name, char in spec.characteristics.items()
+                    }
+                    result["test_requirements"] = {
+                        name: {
+                            "characteristic_ref": req.characteristic_ref,
+                            "conditions": req.conditions,
+                            "guardband_pct": str(req.guardband_pct),
+                            "description": req.description,
+                        }
+                        for name, req in spec.test_requirements.items()
+                    }
+
+                return result
+            except Exception:
+                pass
+
+    # Fall back to legacy specs/ directories
     from litmus.matching.service import load_product_by_id
 
     product = load_product_by_id(product_id)
@@ -482,17 +595,23 @@ def _save_station(station_id: str, content: dict[str, Any]) -> dict[str, Any]:
 
 
 def _save_product(product_id: str, content: dict[str, Any]) -> dict[str, Any]:
-    """Validate and save product specification."""
+    """Validate and save product specification using ProductFolder.
+
+    Creates or updates a product folder with the specification.
+    """
+    from litmus.products.folder import ProductFolder
+    from litmus.products.manifest import WorkflowStep
+
     errors = []
 
     # Validate
     if "product" not in content:
         errors.append("Missing 'product' section")
     else:
-        product = content["product"]
-        if "id" not in product:
+        product_data = content["product"]
+        if "id" not in product_data:
             errors.append("product.id is required")
-        if "name" not in product:
+        if "name" not in product_data:
             errors.append("product.name is required")
 
     if "characteristics" in content:
@@ -505,14 +624,46 @@ def _save_product(product_id: str, content: dict[str, Any]) -> dict[str, Any]:
     if errors:
         return {"success": False, "errors": errors}
 
-    specs_dir = Path.cwd() / "specs"
-    specs_dir.mkdir(parents=True, exist_ok=True)
+    # Use products/ folder structure
+    products_dir = Path.cwd() / "products"
+    folder_path = products_dir / product_id
 
-    filepath = specs_dir / f"{product_id}.yaml"
-    with open(filepath, "w") as f:
-        yaml.dump(content, f, default_flow_style=False, sort_keys=False)
+    try:
+        if folder_path.exists() and (folder_path / "manifest.yaml").exists():
+            # Load existing folder
+            folder = ProductFolder.load(folder_path)
+        else:
+            # Create new folder
+            folder = ProductFolder.create(
+                base_path=products_dir,
+                product_id=product_id,
+                name=content["product"].get("name", product_id),
+                description=content["product"].get("description"),
+            )
 
-    return {"success": True, "path": str(filepath)}
+        # Save the spec file directly (ProductFolder.save_spec expects a Product model)
+        spec_path = folder.path / "spec.yaml"
+        with open(spec_path, "w") as f:
+            yaml.dump(content, f, default_flow_style=False, sort_keys=False)
+
+        folder.manifest.files.spec = "spec.yaml"
+
+        # Mark parse_datasheet step complete if we're saving a spec
+        if folder.current_step == WorkflowStep.PARSE_DATASHEET:
+            folder.manifest.complete_step(WorkflowStep.PARSE_DATASHEET)
+
+        folder.save_manifest()
+
+        return {
+            "success": True,
+            "path": str(folder.path),
+            "spec_path": str(spec_path),
+            "current_step": folder.current_step.value if folder.current_step else None,
+            "completed_steps": [s.value for s in folder.manifest.completed_steps],
+        }
+
+    except Exception as e:
+        return {"success": False, "errors": [str(e)]}
 
 
 def _save_fixture(fixture_id: str, content: dict[str, Any]) -> dict[str, Any]:
@@ -988,13 +1139,16 @@ def read_tool(path: str) -> dict[str, Any]:
     - "template:test" - Get test file template using @litmus_test decorator
 
     Common paths:
-    - demo/datasheets/*.md - Product datasheets
-    - demo/specs/*.yaml - Product specifications
+    - products/{id}/ - Product folders (new structure)
+    - products/{id}/datasheet.md - Product datasheet
+    - products/{id}/spec.yaml - Product specification
+    - products/{id}/tests/ - Product tests
+    - demo/products/{id}/ - Example product folders
     - demo/stations/*.yaml - Station configurations
     - demo/tests/*.py - Test files (use test_power_board.py as example)
 
     Args:
-        path: Relative path to file (e.g., "demo/datasheets/tps54302.md")
+        path: Relative path to file (e.g., "demo/products/tps54302/spec.yaml")
 
     Returns:
         File contents or error.

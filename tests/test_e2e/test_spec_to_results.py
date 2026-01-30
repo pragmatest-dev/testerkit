@@ -48,7 +48,8 @@ from litmus.products.context import SpecContext
 
 
 # Path to demo spec
-SPEC_PATH = Path(__file__).parent.parent.parent / "demo" / "specs" / "power_board.yaml"
+SPEC_PATH = Path(__file__).parent.parent.parent / "demo" / "products" / "power_board" / "spec.yaml"
+MINIMAL_SPEC_PATH = Path(__file__).parent.parent.parent / "demo" / "products" / "minimal_board" / "spec.yaml"
 
 
 class TestSpecContext:
@@ -313,7 +314,7 @@ class TestMinimalSpec:
 
     def test_minimal_spec_loads(self):
         """Verify minimal spec loads and works."""
-        minimal_path = SPEC_PATH.parent / "minimal.yaml"
+        minimal_path = MINIMAL_SPEC_PATH
         spec = SpecContext.from_file(minimal_path)
 
         assert spec.product.id == "minimal_board"
@@ -322,7 +323,7 @@ class TestMinimalSpec:
 
     def test_minimal_spec_limit_derivation(self):
         """Derive limit from minimal spec."""
-        minimal_path = SPEC_PATH.parent / "minimal.yaml"
+        minimal_path = MINIMAL_SPEC_PATH
         spec = SpecContext.from_file(minimal_path)
 
         limit = spec.get_limit("output_voltage")
@@ -334,7 +335,7 @@ class TestMinimalSpec:
 
     def test_minimal_spec_harness(self):
         """Run test with minimal spec."""
-        minimal_path = SPEC_PATH.parent / "minimal.yaml"
+        minimal_path = MINIMAL_SPEC_PATH
         spec = SpecContext.from_file(minimal_path)
 
         harness = TestHarness(step_name="test_minimal", spec_context=spec)

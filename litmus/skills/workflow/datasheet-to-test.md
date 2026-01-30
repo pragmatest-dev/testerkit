@@ -448,7 +448,7 @@ Continue from **Derive Requirements**? [Y/n]
 
 ## Example Session
 
-**User:** Help me create tests for the TPS54302 buck converter. The datasheet is in demo/datasheets/tps54302.md
+**User:** Help me create tests for the TPS54302 buck converter. The datasheet is in demo/products/tps54302/datasheet.md
 
 **Claude:** I'll help you through the workflow. Let me start by reading that datasheet...
 

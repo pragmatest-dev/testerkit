@@ -1,0 +1,12 @@
+product_id: power_board
+name: "Demo Power Board"
+description: "5V to 3.3V DC-DC converter with current monitoring"
+current_step: generate_tests
+completed_steps:
+  - parse_datasheet
+  - review_spec
+  - derive_requirements
+  - select_station
+files:
+  spec: spec.yaml
+  tests: ../../tests/test_power_board.py

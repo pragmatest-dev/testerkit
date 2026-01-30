@@ -16,7 +16,7 @@ class TestLoadProduct:
     @pytest.fixture
     def power_board_path(self) -> Path:
         """Path to the sample power board spec."""
-        return Path(__file__).parent.parent.parent / "specs" / "power_board.yaml"
+        return Path(__file__).parent.parent / "fixtures" / "specs" / "power_board.yaml"
 
     def test_load_product_metadata(self, power_board_path):
         """Test loading product metadata."""
@@ -106,7 +106,7 @@ class TestIntegration:
     @pytest.fixture
     def power_board_path(self) -> Path:
         """Path to the sample power board spec."""
-        return Path(__file__).parent.parent.parent / "specs" / "power_board.yaml"
+        return Path(__file__).parent.parent / "fixtures" / "specs" / "power_board.yaml"
 
     def test_derive_limit_from_loaded_product(self, power_board_path):
         """Test deriving limits from a loaded product."""
@@ -155,7 +155,7 @@ class TestLoadProductsFromDirectory:
 
     def test_load_products_directory(self):
         """Test loading all products from specs directory."""
-        specs_dir = Path(__file__).parent.parent.parent / "specs"
+        specs_dir = Path(__file__).parent.parent / "fixtures" / "specs"
         products = load_products_from_directory(specs_dir)
 
         assert "power_board_v1" in products

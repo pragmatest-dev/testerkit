@@ -78,7 +78,7 @@ class StationMatch(BaseModel):
 def _get_search_paths() -> tuple[list[Path], list[Path], list[Path]]:
     """Get search paths for specs, stations, and instrument library."""
     cwd = Path.cwd()
-    specs_paths = [cwd / "specs", cwd / "demo" / "specs"]
+    specs_paths = [cwd / "specs"]
     stations_paths = [cwd / "stations", cwd / "demo" / "stations"]
     # User instruments first, then built-in library as fallback
     library_paths = [

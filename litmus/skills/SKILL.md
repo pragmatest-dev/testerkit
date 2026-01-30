@@ -43,7 +43,7 @@ Skills are designed for **Claude Desktop + MCP** (for Max subscribers) or any AI
 2. Configure Claude Desktop to use the server (in settings)
 
 3. Ask Claude:
-   > "Help me create tests for the TPS54302. The datasheet is in demo/datasheets/tps54302.md"
+   > "Help me create tests for the TPS54302. The datasheet is in demo/products/tps54302/datasheet.md"
 
 4. Claude will guide you through each step, asking for approval before proceeding
 

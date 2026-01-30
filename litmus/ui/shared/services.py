@@ -16,15 +16,20 @@ def discover_products() -> list[dict]:
     """Discover products from folders and spec files.
 
     Checks:
-    1. products/ folder (new workflow structure)
-    2. specs/ and demo/specs/ (legacy flat structure)
+    1. products/ and demo/products/ folders (new workflow structure)
+    2. specs/ (legacy flat structure)
     """
     products = []
     seen_ids = set()
 
-    # 1. Check products/ folder (new workflow structure)
-    products_dir = Path.cwd() / "products"
-    if products_dir.exists():
+    # 1. Check products/ folders (new workflow structure)
+    products_dirs = [
+        Path.cwd() / "products",
+        Path.cwd() / "demo" / "products",
+    ]
+    for products_dir in products_dirs:
+        if not products_dir.exists():
+            continue
         for folder in ProductFolder.list_all(products_dir):
             spec = folder.load_spec()
             product_id = folder.product_id
@@ -68,7 +73,6 @@ def discover_products() -> list[dict]:
     # 2. Check specs/ for backwards compat (legacy flat structure)
     search_paths = [
         Path.cwd() / "specs",
-        Path.cwd() / "demo" / "specs",
     ]
 
     for specs_dir in search_paths:

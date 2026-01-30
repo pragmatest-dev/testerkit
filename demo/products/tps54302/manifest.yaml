@@ -1,0 +1,13 @@
+product_id: tps54302
+name: "TPS54302 3A Synchronous Buck Converter"
+description: "5V to 3.3V DC-DC converter, 3A max output"
+current_step: generate_tests
+completed_steps:
+  - parse_datasheet
+  - review_spec
+  - derive_requirements
+  - select_station
+files:
+  datasheet: datasheet.md
+  spec: spec.yaml
+  tests: ../../tests/test_tps54302.py

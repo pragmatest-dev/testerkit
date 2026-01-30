@@ -48,25 +48,50 @@ def create_mcp_server() -> FastMCP:
 8. litmus_open_ui - Get URL to view/edit entity in browser
 9. litmus_read - Read project files (datasheets, specs, tests)
 
-Project structure:
-- demo/datasheets/ - Product datasheets (.md files)
-- demo/specs/ - Product specifications (.yaml)
+## Product Folder Structure
+
+Products are organized in folders with all artifacts together:
+
+    products/{product_id}/
+        manifest.yaml       # Workflow position
+        datasheet.md        # Source document
+        spec.yaml           # Extracted specification
+        tests/              # Generated tests
+
+## Workflow Steps
+
+Products progress through these steps:
+
+1. PARSE_DATASHEET - Extract spec from datasheet
+2. REVIEW_SPEC - Human reviews/approves spec
+3. DERIVE_REQUIREMENTS - Create test requirements
+4. SELECT_STATION - Match to compatible station
+5. GENERATE_TESTS - Create test code
+6. EXECUTE_ANALYZE - Run tests and analyze results
+
+The workflow position is tracked in manifest.yaml.
+
+## Example Workflow
+
+1. litmus_read("demo/products/") → list product folders
+2. litmus_read("demo/products/tps54302/datasheet.md") → read datasheet
+3. litmus_save(product, "tps54302", {...}) → create product folder with spec
+4. litmus_list("product") → see products with workflow status
+5. litmus_get("product", "tps54302") → get spec and workflow position
+6. litmus_match(product_id="tps54302") → find compatible stations
+7. litmus_save("test", "products/tps54302/tests/test_tps54302.py", {code: ...})
+8. litmus_run("tps54302", station_id, dut_serial) → execute tests
+9. litmus_status(run_id) → check results
+
+## Project Structure
+
+- products/ - Product folders (new structure)
+- demo/products/ - Example product folders
 - demo/stations/ - Station configurations (.yaml)
-- demo/tests/ - Test files (.py)
 - template:test - Test template using @litmus_test decorator
 
 IMPORTANT: Use @litmus_test decorator for tests, NOT TestHarness directly.
 See demo/tests/test_power_board.py or litmus_read("template:test") for examples.
-
-Typical workflow:
-1. litmus_read("demo/datasheets/") → list available datasheets
-2. litmus_read("demo/datasheets/tps54302.md") → read datasheet content
-3. litmus_save(product, ...) → create product spec from datasheet
-4. litmus_list(station) → see available test stations
-5. litmus_match(product_id) → find compatible stations
-6. litmus_save(test, ...) → generate pytest test code
-7. litmus_run(...) → execute tests
-8. litmus_status(...) → check results
 """,
     )
 
@@ -253,13 +278,13 @@ Typical workflow:
         Paths are relative to the project root.
 
         Common paths:
-        - demo/datasheets/ - Product datasheets
-        - demo/specs/ - Product specifications
+        - demo/products/{id}/ - Product folders (datasheet.md, spec.yaml)
         - demo/stations/ - Station configurations
+        - demo/sequences/ - Test sequences
         - demo/tests/ - Test files
 
         Args:
-            path: Relative path (e.g., "demo/datasheets/tps54302.md")
+            path: Relative path (e.g., "demo/products/tps54302/spec.yaml")
 
         Returns:
             File contents or directory listing.

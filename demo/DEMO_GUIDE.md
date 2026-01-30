@@ -53,7 +53,7 @@ Click on a station card to see details, or click "Start Test" to launch a test.
 
 **URL:** http://localhost:8000/products
 
-Shows all product specifications loaded from `specs/` and `demo/specs/`.
+Shows all product specifications loaded from `products/` and `demo/products/`.
 
 Each product card shows:
 - Name and revision
@@ -233,10 +233,15 @@ Each instrument shows:
 
 ## Key Files
 
-### Product Specs
+### Product Folders
 ```
-demo/specs/power_board_v1.yaml    # Power board product specification
-demo/specs/tps54302.yaml          # TPS54302 DC-DC converter spec
+demo/products/tps54302/           # TPS54302 DC-DC converter
+  manifest.yaml                   # Workflow position
+  datasheet.md                    # Source datasheet
+  spec.yaml                       # Product specification
+demo/products/power_board/        # Demo power board
+  manifest.yaml
+  spec.yaml
 ```
 
 ### Station Configs
@@ -246,9 +251,9 @@ demo/stations/bench_full.yaml     # Full bench with DMM, PSU, scope, load
 
 ### Test Sequences
 ```
-sequences/power_board_smoke.yaml  # Quick smoke test
-sequences/power_board_quick.yaml  # Quick validation
-sequences/power_board_full.yaml   # Full production test with dialogs
+demo/sequences/power_board_smoke.yaml  # Quick smoke test
+demo/sequences/power_board_quick.yaml  # Quick validation
+demo/sequences/power_board_full.yaml   # Full production test with dialogs
 ```
 
 ### Test Code

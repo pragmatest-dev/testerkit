@@ -114,10 +114,11 @@ class SpecContext:
             raise KeyError(f"Characteristic '{char_id}' not found in product '{self.product.id}'")
 
         # Create synthetic TestRequirement for limit derivation
+        gb_pct = guardband_pct if guardband_pct is not None else self.default_guardband_pct
         req = TestRequirement(
             characteristic_ref=char_id,
             conditions=conditions,
-            guardband_pct=guardband_pct if guardband_pct is not None else self.default_guardband_pct,
+            guardband_pct=gb_pct,
         )
 
         return derive_limit(char, req, conditions if conditions else None)

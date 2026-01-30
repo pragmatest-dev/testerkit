@@ -58,18 +58,18 @@ litmus/
 │   │   ├── app.py             # NiceGUI pages (dashboard, launch, results)
 │   │   └── static/            # Static assets (global.css)
 │   └── cli.py                 # CLI entry point
+│   └── skills/               # AI workflow prompts
+├── products/                  # Product folders
+│   └── {product_id}/
+│       ├── manifest.yaml      # Workflow position
+│       ├── datasheet.md       # Source document
+│       └── spec.yaml          # Product specification
 ├── stations/                  # Station configurations
-│   ├── _base.yaml             # Base station type definitions
-│   └── station_*.yaml         # Instance configurations
+├── sequences/                 # Test sequences
 ├── fixtures/                  # Test fixture definitions
-├── specs/                     # Product specifications
 ├── tests/                     # Test suites
 │   ├── conftest.py            # pytest configuration
-│   └── test_*/                # Product-specific tests
-├── skills/                    # AI skills (portable markdown docs)
-│   ├── SKILL.md
-│   ├── recipes/               # YAML workflows
-│   └── prompts/               # Sub-agent prompts
+│   └── test_*.py              # Test files
 ├── results/                   # Parquet output (gitignored)
 ├── litmus.yaml                # Project-level configuration
 ├── pyproject.toml             # Python project configuration
@@ -176,4 +176,4 @@ CLI/MCP/External ──HTTP──► FastAPI Routes (/api/runs, /api/runs/{id})
 The platform exposes tools for AI agents but never calls LLMs itself:
 - **MCP Server:** Tools for reading context, validating config, saving files, running tests
 - **HTTP API:** Mirrors MCP exactly for non-MCP clients
-- **Skills:** Plain markdown documents in `skills/` directory
+- **Skills:** Plain markdown documents in `litmus/skills/` directory

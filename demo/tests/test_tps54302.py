@@ -1,6 +1,6 @@
 """Generated tests for TPS54302 DC-DC Converter.
 
-Auto-generated from product specification: demo/specs/tps54302.yaml
+Auto-generated from product specification.
 Based on datasheet: SLVSD12A (March 2024)
 
 Test coverage:
@@ -27,8 +27,8 @@ from litmus.execution.harness import TestHarness
 from litmus.products import SpecContext
 
 
-# Load spec once for the module
-SPEC_PATH = "demo/specs/tps54302.yaml"
+# Load spec from product folder
+SPEC_PATH = "demo/products/tps54302/spec.yaml"
 
 
 @pytest.fixture(scope="module")
