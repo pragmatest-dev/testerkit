@@ -44,6 +44,7 @@ class TestSkipOnFailure:
         """This test passes and should not cause skips."""
         assert True
 
+    @pytest.mark.xfail(reason="Intentional failure to test skip-on-failure", strict=True)
     def test_dependency_that_fails(self):
         """This test fails intentionally to trigger skip."""
         pytest.fail("Intentional failure for skip testing")
@@ -105,6 +106,7 @@ class TestMultipleDependencies:
         """First dependency - passes."""
         assert True
 
+    @pytest.mark.xfail(reason="Intentional failure to test skip-on-failure", strict=True)
     def test_second_dep(self):
         """Second dependency - fails."""
         pytest.fail("Second dependency fails")

@@ -143,3 +143,36 @@ def test_temp_load_matrix(vector, output_dmm):
         pass
 
     return output_dmm.measure_dc_voltage()
+
+
+# =============================================================================
+# Sequence-Referenced Tests (for power_board_smoke.yaml)
+# =============================================================================
+
+
+@litmus_test
+def test_measure_5v_rail(vector, input_dmm):
+    """Verify 5V rail is present and within spec.
+
+    Referenced by: sequences/power_board_smoke.yaml
+    """
+    return input_dmm.measure_dc_voltage()
+
+
+@litmus_test
+def test_measure_3v3_rail(vector, output_dmm):
+    """Verify 3.3V rail is present and within spec.
+
+    Referenced by: sequences/power_board_smoke.yaml
+    """
+    return output_dmm.measure_dc_voltage()
+
+
+@litmus_test
+def test_load_5v(vector, input_dmm):
+    """Test 5V rail under load.
+
+    Referenced by: sequences/power_board_full.yaml
+    """
+    # In real test, electronic load would be enabled here
+    return input_dmm.measure_dc_voltage()

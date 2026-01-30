@@ -1,0 +1,149 @@
+product:
+  id: power_board_v1
+  name: DC-DC Power Board Rev A
+  description: 5V to 3.3V buck converter with 1A output capability
+  revision: B
+characteristics:
+  rail_5v_input:
+    direction: input
+    domain: voltage
+    signal_types:
+    - dc
+    units: V
+    datasheet_ref: DS-001 Section 7.2, Table 3
+    schematic_ref: VIN
+    conditions:
+    - temperature: 25
+      load: 0.5
+      nominal: 5.0
+      tolerance_pct: 5
+    - temperature: -40
+      load: 0.5
+      nominal: 5.0
+      tolerance_pct: 7
+    - temperature: 85
+      load: 0.5
+      nominal: 5.0
+      tolerance_pct: 6
+  rail_3v3_output:
+    direction: output
+    domain: voltage
+    signal_types:
+    - dc
+    units: V
+    datasheet_ref: DS-001 Section 7.3
+    schematic_ref: VOUT_3V3
+    conditions:
+    - temperature: 25
+      load: 0.1
+      input_voltage: 5.0
+      nominal: 3.3
+      tolerance_pct: 3
+    - temperature: 25
+      load: 1.0
+      input_voltage: 5.0
+      nominal: 3.3
+      tolerance_pct: 4
+    - temperature: -40
+      load: 0.5
+      input_voltage: 4.5
+      nominal: 3.3
+      tolerance_pct: 5
+    - temperature: 85
+      load: 1.0
+      input_voltage: 5.5
+      nominal: 3.3
+      tolerance_pct: 6
+  quiescent_current:
+    direction: input
+    domain: current
+    signal_types:
+    - dc
+    units: A
+    datasheet_ref: DS-001 Section 7.4
+    schematic_ref: IIN
+    conditions:
+    - temperature: 25
+      load: 0
+      comparator: LE
+      limit_high: 0.015
+    - temperature: 85
+      load: 0
+      comparator: LE
+      limit_high: 0.02
+  efficiency:
+    direction: output
+    domain: power
+    signal_types:
+    - dc
+    units: '%'
+    datasheet_ref: DS-001 Section 7.5
+    conditions:
+    - temperature: 25
+      load: 0.5
+      comparator: GE
+      limit_low: 85
+    - temperature: 25
+      load: 1.0
+      comparator: GE
+      limit_low: 80
+test_requirements:
+  verify_input_voltage_room:
+    characteristic_ref: rail_5v_input
+    conditions:
+      temperature: 25
+      load: 0.5
+    guardband_pct: 10
+    priority: critical
+    description: Verify input voltage within spec at room temp
+  verify_output_voltage_room_light:
+    characteristic_ref: rail_3v3_output
+    conditions:
+      temperature: 25
+      load: 0.1
+      input_voltage: 5.0
+    guardband_pct: 5
+    priority: critical
+    description: Verify output voltage at room temp, light load
+  verify_output_voltage_room_full:
+    characteristic_ref: rail_3v3_output
+    conditions:
+      temperature: 25
+      load: 1.0
+      input_voltage: 5.0
+    guardband_pct: 5
+    priority: critical
+    description: Verify output voltage at room temp, full load
+  verify_output_voltage_hot:
+    characteristic_ref: rail_3v3_output
+    conditions:
+      temperature: 85
+      load: 1.0
+      input_voltage: 5.5
+    guardband_pct: 5
+    priority: standard
+    description: Verify output voltage at hot, full load, high input
+  verify_quiescent_current:
+    characteristic_ref: quiescent_current
+    conditions:
+      temperature: 25
+      load: 0
+    guardband_pct: 20
+    priority: critical
+    description: Verify quiescent current is within spec
+  verify_efficiency_half_load:
+    characteristic_ref: efficiency
+    conditions:
+      temperature: 25
+      load: 0.5
+    guardband_pct: 5
+    priority: standard
+    description: Verify efficiency at half load
+  characterize_line_regulation:
+    characteristic_ref: null
+    priority: optional
+    description: Characterize output vs input voltage (no limits)
+  characterize_load_regulation:
+    characteristic_ref: null
+    priority: optional
+    description: Characterize output vs load current (no limits)

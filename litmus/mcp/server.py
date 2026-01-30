@@ -17,20 +17,26 @@ from fastmcp import FastMCP
 
 from litmus.mcp.tools import (
     check_station_compatibility_tool,
+    complete_workflow_step_tool,
+    create_product_folder_tool,
     derive_required_capabilities_tool,
     dry_run_sequence_tool,
     find_compatible_stations_tool,
+    get_editor_url_tool,
     get_instrument_library_tool,
+    get_product_folder_tool,
     get_product_spec_tool,
     get_run_status_tool,
     get_station_config_tool,
     get_test_templates_tool,
     list_instrument_types_tool,
+    list_product_folders_tool,
     list_products_tool,
     list_sequences_tool,
     list_stations_tool,
     run_sequence_tool,
     save_instrument_library_tool,
+    save_product_spec_to_folder_tool,
     save_product_spec_tool,
     save_test_file_tool,
     save_test_sequence_tool,
@@ -321,6 +327,130 @@ Typical workflow:
             Run status including progress, outcome, and any errors.
         """
         return get_run_status_tool(run_id)
+
+    # -----------------------------------------------------------------------------
+    # Product Folder Tools (workflow state management)
+    # -----------------------------------------------------------------------------
+
+    @mcp.tool
+    def create_product_folder(
+        product_id: str,
+        name: str,
+        description: str | None = None,
+        datasheet_content: str | None = None,
+    ) -> dict[str, Any]:
+        """Create a new product folder with workflow manifest.
+
+        This is the starting point for the datasheet-to-test workflow.
+        Creates a folder structure for tracking the product through all steps.
+
+        Args:
+            product_id: Unique identifier (e.g., "tps54302")
+            name: Human-readable name (e.g., "TPS54302 3A Buck Converter")
+            description: Optional description
+            datasheet_content: Optional datasheet content to save immediately
+
+        Returns:
+            Folder info including path and initial workflow state.
+        """
+        return create_product_folder_tool(
+            product_id, name, description, datasheet_content
+        )
+
+    @mcp.tool
+    def get_product_folder(product_id: str) -> dict[str, Any]:
+        """Get product folder info and workflow state.
+
+        Use this to check where a product is in the workflow and what
+        files have been created.
+
+        Args:
+            product_id: The product ID
+
+        Returns:
+            Folder info including workflow state, file references, and progress.
+        """
+        return get_product_folder_tool(product_id)
+
+    @mcp.tool
+    def list_product_folders() -> list[dict[str, Any]]:
+        """List all product folders and their workflow states.
+
+        Returns:
+            List of products with IDs, names, current step, and progress.
+        """
+        return list_product_folders_tool()
+
+    @mcp.tool
+    def complete_workflow_step(
+        product_id: str,
+        step: str,
+        agent: str | None = None,
+        confidence: float | None = None,
+        notes: str | None = None,
+    ) -> dict[str, Any]:
+        """Mark a workflow step as completed and advance to next step.
+
+        Valid steps in order:
+        - parse_datasheet: Extract characteristics from datasheet
+        - review_spec: Human review/edit of product spec
+        - derive_requirements: Get instrument requirements (deterministic)
+        - select_station: Choose compatible station
+        - generate_tests: Create pytest test code
+        - execute_analyze: Run tests and analyze results
+
+        Args:
+            product_id: The product ID
+            step: The step to complete
+            agent: Optional agent name (e.g., "claude")
+            confidence: Optional confidence score (0.0-1.0)
+            notes: Optional notes about the completion
+
+        Returns:
+            Updated workflow state with next step.
+        """
+        return complete_workflow_step_tool(product_id, step, agent, confidence, notes)
+
+    @mcp.tool
+    def save_product_spec_to_folder(
+        product_id: str, spec: dict[str, Any]
+    ) -> dict[str, Any]:
+        """Save a product spec to an existing product folder.
+
+        The spec should have this structure:
+        {
+            "product": {"id": "...", "name": "..."},
+            "characteristics": {...},
+            "test_requirements": {...}
+        }
+
+        Args:
+            product_id: The product ID (folder must exist)
+            spec: Product spec dict
+
+        Returns:
+            Path to saved spec file.
+        """
+        return save_product_spec_to_folder_tool(product_id, spec)
+
+    @mcp.tool
+    def get_editor_url(
+        resource_type: str, resource_id: str, base_url: str = "http://localhost:8000"
+    ) -> dict[str, Any]:
+        """Get URL to open the UI editor for detailed editing.
+
+        Use this when the user wants to review or edit a resource
+        in a visual interface.
+
+        Args:
+            resource_type: "product", "station", or "results"
+            resource_id: ID of the resource
+            base_url: UI server URL (default: http://localhost:8000)
+
+        Returns:
+            URL to open in browser.
+        """
+        return get_editor_url_tool(resource_type, resource_id, base_url)
 
     return mcp
 

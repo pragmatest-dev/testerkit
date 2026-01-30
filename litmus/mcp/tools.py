@@ -551,3 +551,280 @@ def get_run_status_tool(run_id: str) -> dict[str, Any]:
         "total_steps": run.get("total_steps", 0),
         "failed_steps": run.get("failed_steps", 0),
     }
+
+
+# -----------------------------------------------------------------------------
+# Product Folder Tools (workflow state management)
+# -----------------------------------------------------------------------------
+
+
+def create_product_folder_tool(
+    product_id: str,
+    name: str,
+    description: str | None = None,
+    datasheet_content: str | None = None,
+) -> dict[str, Any]:
+    """Create a new product folder with manifest.
+
+    Args:
+        product_id: Unique identifier for the product
+        name: Human-readable product name
+        description: Optional description
+        datasheet_content: Optional datasheet content to save
+
+    Returns:
+        Result with folder path and manifest info.
+    """
+    from litmus.products.folder import ProductFolder
+    from litmus.products.manifest import WorkflowStep
+
+    products_dir = Path.cwd() / "products"
+    products_dir.mkdir(parents=True, exist_ok=True)
+
+    try:
+        folder = ProductFolder.create(
+            base_path=products_dir,
+            product_id=product_id,
+            name=name,
+            description=description,
+        )
+
+        # Save datasheet if provided
+        if datasheet_content:
+            folder.save_datasheet(datasheet_content)
+
+        return {
+            "success": True,
+            "product_id": product_id,
+            "path": str(folder.path),
+            "current_step": folder.current_step.value if folder.current_step else None,
+            "message": f"Created product folder at {folder.path}",
+        }
+    except FileExistsError:
+        return {
+            "success": False,
+            "error": f"Product folder '{product_id}' already exists",
+        }
+
+
+def get_product_folder_tool(product_id: str) -> dict[str, Any]:
+    """Get product folder info and workflow state.
+
+    Args:
+        product_id: The product ID
+
+    Returns:
+        Product folder info including manifest and workflow state.
+    """
+    from litmus.products.folder import ProductFolder
+
+    products_dir = Path.cwd() / "products"
+    folder_path = products_dir / product_id
+
+    try:
+        folder = ProductFolder.load(folder_path)
+
+        return {
+            "success": True,
+            "product_id": folder.product_id,
+            "name": folder.name,
+            "description": folder.manifest.description,
+            "path": str(folder.path),
+            "workflow": {
+                "current_step": folder.manifest.workflow.current_step.value
+                if folder.manifest.workflow.current_step
+                else None,
+                "completed_steps": [
+                    s.value for s in folder.manifest.workflow.completed_steps
+                ],
+                "progress_pct": folder.manifest.get_progress_percentage(),
+            },
+            "files": {
+                "datasheet": folder.manifest.files.datasheet,
+                "spec": folder.manifest.files.spec,
+                "requirements": folder.manifest.files.requirements,
+                "station_selection": folder.manifest.files.station_selection,
+                "tests": folder.manifest.files.tests,
+            },
+            "history_count": len(folder.manifest.history),
+        }
+    except FileNotFoundError:
+        return {
+            "success": False,
+            "error": f"Product folder '{product_id}' not found",
+        }
+
+
+def list_product_folders_tool() -> list[dict[str, Any]]:
+    """List all product folders.
+
+    Returns:
+        List of product folders with basic info.
+    """
+    from litmus.products.folder import ProductFolder
+
+    products_dir = Path.cwd() / "products"
+
+    if not products_dir.exists():
+        return []
+
+    results = []
+    for folder in ProductFolder.list_all(products_dir):
+        results.append(
+            {
+                "product_id": folder.product_id,
+                "name": folder.name,
+                "current_step": folder.manifest.workflow.current_step.value
+                if folder.manifest.workflow.current_step
+                else None,
+                "progress_pct": folder.manifest.get_progress_percentage(),
+                "path": str(folder.path),
+            }
+        )
+
+    return results
+
+
+def complete_workflow_step_tool(
+    product_id: str,
+    step: str,
+    agent: str | None = None,
+    confidence: float | None = None,
+    notes: str | None = None,
+) -> dict[str, Any]:
+    """Mark a workflow step as completed and advance to next step.
+
+    Args:
+        product_id: The product ID
+        step: The step to complete (e.g., "parse_datasheet", "review_spec")
+        agent: Optional agent name that completed the step
+        confidence: Optional confidence score (0.0-1.0)
+        notes: Optional notes about the step completion
+
+    Returns:
+        Updated workflow state.
+    """
+    from litmus.products.folder import ProductFolder
+    from litmus.products.manifest import WorkflowStep
+
+    products_dir = Path.cwd() / "products"
+    folder_path = products_dir / product_id
+
+    try:
+        folder = ProductFolder.load(folder_path)
+
+        # Convert string to WorkflowStep enum
+        try:
+            workflow_step = WorkflowStep(step)
+        except ValueError:
+            valid_steps = [s.value for s in WorkflowStep]
+            return {
+                "success": False,
+                "error": f"Invalid step '{step}'. Valid steps: {valid_steps}",
+            }
+
+        # Complete the step
+        folder.manifest.complete_step(
+            step=workflow_step,
+            agent=agent,
+            confidence=confidence,
+        )
+
+        # Add notes if provided
+        if notes and folder.manifest.history:
+            folder.manifest.history[-1].notes = notes
+
+        folder.save_manifest()
+
+        return {
+            "success": True,
+            "product_id": product_id,
+            "completed_step": step,
+            "current_step": folder.manifest.workflow.current_step.value
+            if folder.manifest.workflow.current_step
+            else None,
+            "progress_pct": folder.manifest.get_progress_percentage(),
+            "message": f"Completed step '{step}', now on '{folder.manifest.workflow.current_step.value if folder.manifest.workflow.current_step else 'done'}'",
+        }
+    except FileNotFoundError:
+        return {
+            "success": False,
+            "error": f"Product folder '{product_id}' not found",
+        }
+
+
+def save_product_spec_to_folder_tool(
+    product_id: str, spec: dict[str, Any]
+) -> dict[str, Any]:
+    """Save a product spec to an existing product folder.
+
+    Args:
+        product_id: The product ID
+        spec: Product spec dict with product, characteristics, test_requirements
+
+    Returns:
+        Result with path to saved file.
+    """
+    from litmus.products.folder import ProductFolder
+    from litmus.products.loader import _parse_product
+
+    products_dir = Path.cwd() / "products"
+    folder_path = products_dir / product_id
+
+    try:
+        folder = ProductFolder.load(folder_path)
+
+        # Validate the spec first
+        validation = validate_product_spec_tool(spec)
+        if not validation["valid"]:
+            return {"success": False, "errors": validation["errors"]}
+
+        # Parse and save
+        product = _parse_product(spec)
+        spec_path = folder.save_spec(product)
+
+        return {
+            "success": True,
+            "product_id": product_id,
+            "path": str(spec_path),
+            "message": f"Saved spec to {spec_path}",
+        }
+    except FileNotFoundError:
+        return {
+            "success": False,
+            "error": f"Product folder '{product_id}' not found",
+        }
+
+
+def get_editor_url_tool(
+    resource_type: str, resource_id: str, base_url: str = "http://localhost:8000"
+) -> dict[str, Any]:
+    """Get URL to open the UI editor for a resource.
+
+    Args:
+        resource_type: Type of resource ("product", "station", "results")
+        resource_id: ID of the resource
+        base_url: Base URL of the Litmus UI server
+
+    Returns:
+        URL to open in browser.
+    """
+    routes = {
+        "product": f"/products/{resource_id}",
+        "station": f"/stations/{resource_id}",
+        "results": f"/results/{resource_id}",
+    }
+
+    if resource_type not in routes:
+        return {
+            "success": False,
+            "error": f"Unknown resource type '{resource_type}'. Valid: {list(routes.keys())}",
+        }
+
+    url = f"{base_url}{routes[resource_type]}"
+
+    return {
+        "success": True,
+        "url": url,
+        "message": f"Open {url} to edit {resource_type} '{resource_id}'",
+    }
