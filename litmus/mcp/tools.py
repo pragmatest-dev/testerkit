@@ -933,17 +933,65 @@ def open_ui_tool(
 # =============================================================================
 
 
+TEST_TEMPLATE = '''"""Tests for {product_name}.
+
+Generated from product specification.
+"""
+
+from litmus.execution import litmus_test
+from litmus.instruments import DMM, PSU
+
+
+@pytest.fixture
+def psu():
+    """Power supply for DUT input."""
+    with PSU("SIM::PSU1", simulated=True) as psu:
+        psu.set_voltage(5.0)
+        psu.enable()
+        yield psu
+        psu.disable()
+
+
+@pytest.fixture
+def dmm():
+    """DMM for output measurement."""
+    with DMM("SIM::DMM1", simulated=True, sim_values={{"voltage": 3.3}}) as dmm:
+        yield dmm
+
+
+@litmus_test
+def test_output_voltage(vector, dmm):
+    """Measure output voltage - limits from config.yaml."""
+    return dmm.measure_dc_voltage()
+
+
+@litmus_test
+def test_efficiency(vector, psu, dmm):
+    """Calculate efficiency."""
+    v_in = psu.measure_voltage()
+    i_in = psu.measure_current()
+    v_out = dmm.measure_dc_voltage()
+    i_out = vector.get("load_current", 0.1)
+
+    efficiency = (v_out * i_out) / (v_in * i_in) * 100
+    return efficiency
+'''
+
+
 def read_tool(path: str) -> dict[str, Any]:
     """Read a file from the project directory.
 
     Can read datasheets, specs, configs, and other project files.
     Paths are relative to the project root.
 
+    Special paths:
+    - "template:test" - Get test file template using @litmus_test decorator
+
     Common paths:
     - demo/datasheets/*.md - Product datasheets
     - demo/specs/*.yaml - Product specifications
     - demo/stations/*.yaml - Station configurations
-    - demo/tests/*.py - Test files
+    - demo/tests/*.py - Test files (use test_power_board.py as example)
 
     Args:
         path: Relative path to file (e.g., "demo/datasheets/tps54302.md")
@@ -951,6 +999,19 @@ def read_tool(path: str) -> dict[str, Any]:
     Returns:
         File contents or error.
     """
+    # Special template paths
+    if path == "template:test":
+        return {
+            "type": "template",
+            "name": "test",
+            "description": "Test file template using @litmus_test decorator",
+            "content": TEST_TEMPLATE.format(product_name="ProductName"),
+            "notes": [
+                "@litmus_test decorator handles vectors, limits, and logging",
+                "Just return the measured value - limits come from config.yaml",
+                "See demo/tests/test_power_board.py for complete example",
+            ],
+        }
     # Security: only allow reading from project directory
     cwd = Path.cwd()
     filepath = cwd / path

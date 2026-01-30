@@ -53,6 +53,10 @@ Project structure:
 - demo/specs/ - Product specifications (.yaml)
 - demo/stations/ - Station configurations (.yaml)
 - demo/tests/ - Test files (.py)
+- template:test - Test template using @litmus_test decorator
+
+IMPORTANT: Use @litmus_test decorator for tests, NOT TestHarness directly.
+See demo/tests/test_power_board.py or litmus_read("template:test") for examples.
 
 Typical workflow:
 1. litmus_read("demo/datasheets/") → list available datasheets
