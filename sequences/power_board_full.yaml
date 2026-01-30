@@ -17,7 +17,7 @@ sequence:
 
     # Additional tests beyond smoke
     - id: load_test_5v
-      test: tests/test_power_board.py::test_load_5v
+      test: demo/tests/test_power_board.py::test_load_5v
       description: "Test 5V rail under 1A load"
       pre_dialog: confirm_load_connected
       limit_ref: specs.power_board.rail_5v_loaded
@@ -28,7 +28,7 @@ sequence:
         dialog_ref: retry_load_test
 
     - id: efficiency_test
-      test: tests/test_power_board.py::test_efficiency
+      test: demo/tests/test_power_board.py::test_efficiency
       description: "Measure power conversion efficiency"
       limit:
         low: 85
