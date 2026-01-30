@@ -172,8 +172,9 @@ def derive_limits_for_requirement(
     results = []
 
     for point in char.conditions:
-        # Check if this point matches the requirement's conditions
-        if point.matches(req.conditions):
+        # Check if this point satisfies the requirement's conditions
+        # (requirement params must exist in condition point)
+        if point.satisfies(req.conditions):
             # Merge the full condition params for the limit derivation
             full_conditions = point.condition_params
             limit = derive_limit(char, req, full_conditions)

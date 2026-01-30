@@ -1,0 +1,245 @@
+# TPS54302 Product Specification
+# Generated from datasheet SLVSD12A (March 2024)
+#
+# AI parsing notes:
+# - Pins extracted from Section 1 (Pin Configuration)
+# - Characteristics extracted from Section 4 (Electrical Characteristics)
+# - Test requirements derived from Section 7 (Typical Application Tests)
+# - Conditions include temperature and load variations from datasheet
+
+product:
+  id: tps54302
+  name: "TPS54302 3A Synchronous Buck Converter"
+  revision: "A"
+  datasheet: "SLVSD12A"
+  description: "5V to 3.3V DC-DC converter, 3A max output"
+
+# Physical interface - from Section 1 and 6
+pins:
+  VIN:
+    name: "TP1"
+    net: "VIN_5V"
+    type: power
+    description: "Input supply voltage (5V nominal)"
+  VOUT:
+    name: "TP2"
+    net: "VOUT_3V3"
+    type: signal
+    description: "Regulated output voltage (3.3V)"
+  SW:
+    name: "TP3"
+    net: "SW_NODE"
+    type: signal
+    description: "Switching node for waveform analysis"
+  GND:
+    name: "TP4"
+    net: "GND"
+    type: ground
+    description: "Ground reference"
+  IOUT:
+    name: "TP5"
+    net: "IOUT_SENSE"
+    type: signal
+    description: "Output current sense point"
+
+# Electrical characteristics - from Section 4
+characteristics:
+  # Section 4.1 - Input supply
+  input_voltage:
+    direction: input
+    domain: voltage
+    signal_types: [dc]
+    units: V
+    pins: [VIN]
+    datasheet_ref: "Section 4.1"
+    conditions:
+      - nominal: 5.0
+        tolerance_pct: 10
+        description: "Nominal operating voltage"
+
+  quiescent_current:
+    direction: input
+    domain: current
+    signal_types: [dc]
+    units: uA
+    pins: [VIN]
+    datasheet_ref: "Section 4.1"
+    conditions:
+      - load: 0
+        nominal: 146
+        limit_high: 200
+        description: "Not switching, VEN = 2V"
+
+  # Section 4.2 - Output voltage
+  output_voltage:
+    direction: output
+    domain: voltage
+    signal_types: [dc]
+    units: V
+    pins: [VOUT]
+    datasheet_ref: "Section 4.2"
+    conditions:
+      # Room temperature, various loads
+      - temperature: 25
+        load: 0.5
+        nominal: 3.3
+        tolerance_pct: 1
+        description: "TA=25C, IOUT=0.5A"
+      - temperature: 25
+        load: 1.0
+        nominal: 3.3
+        tolerance_pct: 1
+        description: "TA=25C, IOUT=1A"
+      - temperature: 25
+        load: 3.0
+        nominal: 3.3
+        tolerance_pct: 1
+        description: "TA=25C, IOUT=3A (full load)"
+      # High temperature
+      - temperature: 85
+        load: 1.0
+        nominal: 3.3
+        tolerance_pct: 2
+        description: "TA=85C, IOUT=1A"
+
+  load_regulation:
+    direction: output
+    domain: voltage
+    signal_types: [dc]
+    units: "%"
+    datasheet_ref: "Section 4.2"
+    conditions:
+      - temperature: 25
+        load_min: 0.1
+        load_max: 3.0
+        nominal: 0.2
+        limit_high: 0.5
+        description: "IOUT 0.1A to 3A"
+
+  line_regulation:
+    direction: output
+    domain: voltage
+    signal_types: [dc]
+    units: "%"
+    datasheet_ref: "Section 4.2"
+    conditions:
+      - temperature: 25
+        vin_min: 4.5
+        vin_max: 28
+        nominal: 0.1
+        limit_high: 0.25
+        description: "VIN 4.5V to 28V"
+
+  # Section 4.3 - Output ripple
+  output_ripple:
+    direction: output
+    domain: voltage
+    signal_types: [ac]
+    units: mV
+    pins: [VOUT]
+    datasheet_ref: "Section 4.3"
+    conditions:
+      - temperature: 25
+        load: 1.0
+        nominal: 15
+        limit_high: 30
+        description: "IOUT=1A, COUT=47uF"
+      - temperature: 25
+        load: 3.0
+        nominal: 25
+        limit_high: 50
+        description: "IOUT=3A, COUT=47uF (worst case)"
+
+  # Section 4.4 - Efficiency
+  efficiency:
+    direction: output
+    domain: power
+    signal_types: [dc]
+    units: "%"
+    datasheet_ref: "Section 4.4"
+    conditions:
+      - temperature: 25
+        vin: 5.0
+        load: 0.1
+        nominal: 85
+        limit_low: 80
+        description: "Light load efficiency"
+      - temperature: 25
+        vin: 5.0
+        load: 0.5
+        nominal: 91
+        limit_low: 88
+        description: "Medium load efficiency"
+      - temperature: 25
+        vin: 5.0
+        load: 1.0
+        nominal: 93
+        limit_low: 90
+        description: "1A load efficiency"
+      - temperature: 25
+        vin: 5.0
+        load: 3.0
+        nominal: 92
+        limit_low: 89
+        description: "Full load efficiency"
+      - temperature: 25
+        vin: 12.0
+        load: 1.0
+        nominal: 88
+        limit_low: 85
+        description: "12V input efficiency"
+
+# Test requirements - from Section 7
+test_requirements:
+  verify_output_voltage_accuracy:
+    characteristic_ref: output_voltage
+    conditions:
+      temperature: 25
+      load: 0.5
+    guardband_pct: 10
+    priority: critical
+    description: "Section 7.1 - Output Voltage Accuracy Test"
+
+  verify_output_voltage_full_load:
+    characteristic_ref: output_voltage
+    conditions:
+      temperature: 25
+      load: 3.0
+    guardband_pct: 10
+    priority: critical
+    description: "Full load voltage test"
+
+  verify_load_regulation:
+    characteristic_ref: load_regulation
+    conditions:
+      temperature: 25
+    guardband_pct: 0
+    priority: standard
+    description: "Section 7.2 - Load Regulation Test"
+
+  verify_efficiency:
+    characteristic_ref: efficiency
+    conditions:
+      temperature: 25
+      vin: 5.0
+      load: 1.0
+    guardband_pct: 0
+    priority: standard
+    description: "Section 7.3 - Efficiency Test"
+
+  verify_output_ripple:
+    characteristic_ref: output_ripple
+    conditions:
+      temperature: 25
+      load: 3.0
+    guardband_pct: 0
+    priority: standard
+    description: "Section 7.4 - Output Ripple Test"
+
+  verify_quiescent_current:
+    characteristic_ref: quiescent_current
+    conditions:
+      load: 0
+    guardband_pct: 10
+    priority: standard
+    description: "Standby current consumption"

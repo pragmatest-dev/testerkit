@@ -40,9 +40,10 @@ class ConditionPoint(BaseModel):
           load: 0.5
           nominal: 3.3
           tolerance_pct: 5
+          description: "Room temp, light load"
 
     The condition parameters (temperature, load) go into __pydantic_extra__,
-    while the spec values are explicit fields.
+    while the spec values and metadata are explicit fields.
     """
 
     # Spec values (what we're specifying)
@@ -52,6 +53,9 @@ class ConditionPoint(BaseModel):
     limit_low: Decimal | None = None
     limit_high: Decimal | None = None
     comparator: Comparator = Comparator.GELE
+
+    # Metadata (not used for condition matching)
+    description: str | None = None
 
     # Condition parameters via extra="allow"
     model_config = {"extra": "allow"}
@@ -63,10 +67,19 @@ class ConditionPoint(BaseModel):
 
     @property
     def low(self) -> Decimal | None:
-        """Calculate lower bound from nominal - tolerance or explicit limit_low."""
+        """Calculate lower bound from nominal - tolerance or explicit limit_low.
+
+        Handles single-sided specs:
+        - If limit_low is set → use it
+        - If limit_high is set without limit_low → return None (one-sided: <= only)
+        - Otherwise derive from nominal ± tolerance
+        """
         if self.limit_low is not None:
             return self.limit_low
         if self.nominal is None:
+            return None
+        # If only limit_high is set, this is a one-sided spec (<=)
+        if self.limit_high is not None:
             return None
         if self.tolerance_pct is not None:
             return self.nominal * (Decimal("1") - self.tolerance_pct / Decimal("100"))
@@ -76,10 +89,19 @@ class ConditionPoint(BaseModel):
 
     @property
     def high(self) -> Decimal | None:
-        """Calculate upper bound from nominal + tolerance or explicit limit_high."""
+        """Calculate upper bound from nominal + tolerance or explicit limit_high.
+
+        Handles single-sided specs:
+        - If limit_high is set → use it
+        - If limit_low is set without limit_high → return None (one-sided: >= only)
+        - Otherwise derive from nominal ± tolerance
+        """
         if self.limit_high is not None:
             return self.limit_high
         if self.nominal is None:
+            return None
+        # If only limit_low is set, this is a one-sided spec (>=)
+        if self.limit_low is not None:
             return None
         if self.tolerance_pct is not None:
             return self.nominal * (Decimal("1") + self.tolerance_pct / Decimal("100"))
@@ -90,15 +112,24 @@ class ConditionPoint(BaseModel):
     def matches(self, params: dict[str, Any]) -> bool:
         """Check if this condition point matches the given parameters.
 
-        Returns True if all keys in params exist in this condition point
-        with matching values. This allows partial matching - querying with
-        {temperature: 25} will match a point with {temperature: 25, load: 0.5}.
+        Returns True if all keys in THIS CONDITION exist in params with matching
+        values. Extra keys in params are ignored. This allows flexible matching:
+        - Query {temperature: 25, load: 1.0, vin: 5.0}
+        - Condition {temperature: 25, load: 1.0}
+        - Result: MATCH (condition params satisfied, vin ignored)
+
+        If this condition has no parameters, it matches any query (universal default).
         """
         my_params = self.condition_params
-        for key, query_value in params.items():
-            if key not in my_params:
+
+        # No condition params means this is a universal/default condition
+        if not my_params:
+            return True
+
+        for key, point_value in my_params.items():
+            if key not in params:
                 return False
-            point_value = my_params[key]
+            query_value = params[key]
             # Compare with type coercion for numeric values
             if isinstance(query_value, (int, float, Decimal)) or isinstance(
                 point_value, (int, float, Decimal)
@@ -109,6 +140,39 @@ class ConditionPoint(BaseModel):
                 except (ValueError, TypeError):
                     return False
             elif query_value != point_value:
+                return False
+        return True
+
+    def satisfies(self, requirement: dict[str, Any]) -> bool:
+        """Check if this condition point satisfies a requirement.
+
+        Use this for test planning: finding which conditions match a partial
+        requirement. All REQUIREMENT params must exist in this condition.
+
+        Example:
+        - Condition: {temperature: 25, load: 1.0}
+        - Requirement: {temperature: 25}
+        - Result: MATCH (requirement param satisfied, extra load is fine)
+
+        Note: This is the inverse of matches(). Use matches() for vector
+        execution, use satisfies() for test planning.
+        """
+        my_params = self.condition_params
+
+        for key, req_value in requirement.items():
+            if key not in my_params:
+                return False
+            point_value = my_params[key]
+            # Compare with type coercion for numeric values
+            if isinstance(req_value, (int, float, Decimal)) or isinstance(
+                point_value, (int, float, Decimal)
+            ):
+                try:
+                    if Decimal(str(req_value)) != Decimal(str(point_value)):
+                        return False
+                except (ValueError, TypeError):
+                    return False
+            elif req_value != point_value:
                 return False
         return True
 

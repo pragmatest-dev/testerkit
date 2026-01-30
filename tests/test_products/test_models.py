@@ -97,33 +97,42 @@ class TestConditionPoint:
         )
         assert point.matches({"temperature": 25, "load": 0.5})
 
-    def test_matches_subset_query(self):
-        """Test that partial query matches a condition with more params."""
+    def test_matches_subset_query_fails(self):
+        """Test that subset query fails when condition has more params.
+
+        The condition {temperature: 25, load: 0.5} requires BOTH params
+        to be present in the query for a match.
+        """
         point = ConditionPoint(
             temperature=25,
             load=0.5,
             nominal=Decimal("3.3"),
         )
-        # Query with subset of params should match
-        assert point.matches({"temperature": 25})
+        # Query missing 'load' should NOT match condition that has it
+        assert not point.matches({"temperature": 25})
 
-    def test_matches_superset_query_fails(self):
-        """Test that query with extra params fails to match."""
+    def test_matches_superset_query_passes(self):
+        """Test that query with extra params still matches.
+
+        Extra params in the query are ignored - only condition params matter.
+        This allows vector {temperature: 25, load: 0.5, vin: 5.0} to match
+        condition {temperature: 25, load: 0.5} even though vin is extra.
+        """
         point = ConditionPoint(
             temperature=25,
             nominal=Decimal("3.3"),
         )
-        # Query has params not in condition point - should fail
-        assert not point.matches({"temperature": 25, "load": 0.5})
+        # Query has extra 'load' param but condition only needs 'temperature'
+        assert point.matches({"temperature": 25, "load": 0.5})
 
-    def test_matches_query_param_not_in_point(self):
-        """Test that query param not in point fails match."""
+    def test_matches_extra_query_params_ignored(self):
+        """Test that extra query params don't affect matching."""
         point = ConditionPoint(
             temperature=25,
             nominal=Decimal("3.3"),
         )
-        # Query has 'load' but point doesn't
-        assert not point.matches({"temperature": 25, "load": 0.5})
+        # Query has 'load' but point doesn't care - all condition params satisfied
+        assert point.matches({"temperature": 25, "load": 0.5, "vin": 12.0})
 
     def test_matches_wrong_value(self):
         """Test that wrong value fails match."""

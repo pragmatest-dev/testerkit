@@ -235,8 +235,10 @@ def get_station_capabilities(station_config: dict) -> list[StationCapability]:
     library definition, and extracts capabilities.
     """
     capabilities = []
-    station_data = station_config.get("station", station_config)
-    instruments = station_data.get("instruments", {})
+    # Instruments can be at root level or inside station block
+    instruments = station_config.get("instruments", {})
+    if not instruments and "station" in station_config:
+        instruments = station_config["station"].get("instruments", {})
 
     for inst_name, inst_config in instruments.items():
         inst_type = inst_config.get("type")

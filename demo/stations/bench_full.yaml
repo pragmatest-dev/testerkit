@@ -1,0 +1,72 @@
+# Full-Capability Test Station
+# Equipped to test DC-DC converters like TPS54302
+#
+# Instruments:
+# - PSU: Source input voltage
+# - DMM: Measure DC voltage/current
+# - Scope: Measure AC ripple
+# - Eload: Set output load current
+
+station:
+  id: "bench_full"
+  name: "DC-DC Converter Test Bench"
+  location: "Lab A - Bench 3"
+  description: "Full capability station for power supply testing"
+
+instruments:
+  # Power Supply - sources input voltage to DUT
+  psu_main:
+    type: "psu"
+    resource: "SIM::PSU1"
+    simulated: true
+    description: "Programmable DC power supply for DUT input"
+    sim_values:
+      voltage: 5.0
+      current: 1.0
+
+  # Primary DMM - measures output voltage
+  dmm_vout:
+    type: "dmm"
+    resource: "SIM::DMM1"
+    simulated: true
+    description: "6.5 digit DMM for output voltage measurement"
+    sim_values:
+      voltage: 3.298    # Slightly under nominal for realism
+      current: 0.0
+      resistance: 0.0
+
+  # Secondary DMM - measures input current
+  dmm_iin:
+    type: "dmm"
+    resource: "SIM::DMM2"
+    simulated: true
+    description: "DMM for input current measurement"
+    sim_values:
+      voltage: 0.0
+      current: 0.680    # ~680mA at 1A load (93% efficiency)
+
+  # Oscilloscope - measures AC ripple
+  scope_main:
+    type: "scope"
+    resource: "SIM::SCOPE1"
+    simulated: true
+    description: "4-channel scope for ripple and transient analysis"
+    sim_values:
+      voltage_pp: 0.022  # 22mV ripple
+
+  # Electronic Load - sets output load current
+  eload_main:
+    type: "eload"
+    resource: "SIM::ELOAD1"
+    simulated: true
+    description: "Programmable electronic load"
+    sim_values:
+      current: 1.0
+      voltage: 3.3
+
+# Test phases this station supports
+supported_phases:
+  - validation
+  - characterization
+  - production
+  - debug
