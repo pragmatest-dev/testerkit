@@ -193,14 +193,13 @@ I'll create an instrument definition with the actual SCPI commands.
 Created instruments/acme_model9000.yaml
 ```
 
-The new instrument definition includes real SCPI commands:
+The new instrument definition includes real SCPI commands AND simulation support:
 ```yaml
 # instruments/acme_model9000.yaml
 instrument:
   type: acme_model9000
   name: "ACME Model 9000 DMM"
   description: "6.5 digit precision DMM"
-  driver_class: litmus.instruments.scpi.ScpiDmm  # Generic SCPI driver
 
 capabilities:
   - name: voltage_dc
@@ -211,20 +210,43 @@ capabilities:
     direction: input
     domain: current
     range_max: 10
-  - name: resistance
-    direction: input
-    domain: resistance
-    range_max: 100e6
 
 scpi_commands:
-  measure_voltage_dc: "MEAS:VOLT:DC?"
-  measure_current_dc: "MEAS:CURR:DC?"
-  measure_resistance: "MEAS:RES?"
-  configure_voltage_dc: "CONF:VOLT:DC {range}"
-  configure_current_dc: "CONF:CURR:DC {range}"
+  measure_voltage_dc:
+    command: "MEAS:VOLT:DC?"
+    response_format: float
+    sim_default: 3.3          # Default simulated response
+    sim_noise: 0.01           # Add ±1% noise in simulation
+  measure_current_dc:
+    command: "MEAS:CURR:DC?"
+    response_format: float
+    sim_default: 0.1
+    sim_noise: 0.02
+  configure_voltage_dc:
+    command: "CONF:VOLT:DC {range}"
+    response_format: none     # No response expected
+  identify:
+    command: "*IDN?"
+    sim_response: "ACME,Model9000,SIM001,1.0"
 ```
 
-Now Claude can generate tests that use the correct SCPI commands for your instrument.
+With this definition, tests can run in simulation mode without real hardware:
+```yaml
+# stations/sim_bench.yaml
+station:
+  id: sim_bench
+  name: Simulation Bench
+
+instruments:
+  dmm_main:
+    type: acme_model9000
+    address: SIM::DMM1
+    simulated: true           # Use simulated responses from YAML
+```
+
+Claude generates instrument definitions that work both ways:
+- **Real hardware**: Sends actual SCPI commands via VISA
+- **Simulation**: Returns defined sim values with optional noise
 
 ---
 
