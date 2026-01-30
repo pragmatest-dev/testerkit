@@ -773,9 +773,11 @@ def run_tool(sequence_id: str, station_id: str, dut_serial: str) -> dict[str, An
                     "searched": [str(p) for p in seq_paths] + [test_target],
                 }
 
-    # Build pytest command
+    # Build pytest command - use pytest from same venv as litmus
+    import sys
+    pytest_path = Path(sys.executable).parent / "pytest"
     cmd = [
-        "uv", "run", "python", "-m", "pytest",
+        str(pytest_path),
         test_target,
         f"--dut-serial={dut_serial}",
         f"--station={station_id}",
