@@ -189,6 +189,87 @@ def setup_claude_code(print_only: bool):
         click.echo(f"\n  claude mcp add litmus -- {litmus_path} mcp serve\n")
 
 
+@setup.command("claude-desktop")
+@click.option("--print-only", is_flag=True, help="Print config instead of installing")
+def setup_claude_desktop(print_only: bool):
+    """Configure Litmus MCP server for Claude Desktop.
+
+    Writes claude_desktop_config.json to the appropriate location.
+    Run this from your litmus project directory.
+
+    Example:
+        cd /path/to/my-litmus-project
+        litmus setup claude-desktop
+    """
+    import json
+    import os
+    import sys
+    from pathlib import Path
+
+    # Get litmus executable and project directory
+    litmus_path = Path(sys.executable).parent / "litmus"
+    project_dir = Path.cwd()
+
+    # Build config based on platform
+    if sys.platform == "win32":
+        config = {
+            "mcpServers": {
+                "litmus": {
+                    "command": str(litmus_path),
+                    "args": ["mcp", "serve"],
+                    "cwd": str(project_dir),
+                }
+            }
+        }
+        config_dir = Path(os.environ.get("APPDATA", "")) / "Claude"
+    elif sys.platform == "darwin":
+        config = {
+            "mcpServers": {
+                "litmus": {
+                    "command": str(litmus_path),
+                    "args": ["mcp", "serve"],
+                    "cwd": str(project_dir),
+                }
+            }
+        }
+        config_dir = Path.home() / "Library" / "Application Support" / "Claude"
+    else:
+        # Linux (including WSL)
+        config = {
+            "mcpServers": {
+                "litmus": {
+                    "command": str(litmus_path),
+                    "args": ["mcp", "serve"],
+                    "cwd": str(project_dir),
+                }
+            }
+        }
+        config_dir = Path.home() / ".config" / "Claude"
+
+    if print_only:
+        click.echo("Add this to claude_desktop_config.json:\n")
+        click.echo(json.dumps(config, indent=2))
+        click.echo(f"\nConfig location: {config_dir / 'claude_desktop_config.json'}")
+        return
+
+    # Write config
+    config_dir.mkdir(parents=True, exist_ok=True)
+    config_file = config_dir / "claude_desktop_config.json"
+
+    # Merge with existing config if present
+    if config_file.exists():
+        existing = json.loads(config_file.read_text())
+        if "mcpServers" not in existing:
+            existing["mcpServers"] = {}
+        existing["mcpServers"]["litmus"] = config["mcpServers"]["litmus"]
+        config = existing
+
+    config_file.write_text(json.dumps(config, indent=2) + "\n")
+    click.echo(f"Wrote {config_file}")
+    click.echo(f"Project directory: {project_dir}")
+    click.echo("Restart Claude Desktop to use Litmus tools.")
+
+
 @setup.command("cursor")
 @click.option("--print-only", is_flag=True, help="Print config instead of installing")
 def setup_cursor(print_only: bool):
@@ -322,7 +403,7 @@ def setup_show():
     click.echo("Litmus MCP Server")
     click.echo("-" * 40)
     click.echo(f"Command: {litmus_path} mcp serve")
-    click.echo(f"Transport: stdio")
+    click.echo("Transport: stdio")
     click.echo()
     click.echo("Available tools:")
     click.echo("  - list_products: List all product specifications")
