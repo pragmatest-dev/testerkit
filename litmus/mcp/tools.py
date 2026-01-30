@@ -732,28 +732,113 @@ def match_tool(
 def run_tool(sequence_id: str, station_id: str, dut_serial: str) -> dict[str, Any]:
     """Start a test sequence run.
 
+    Executes pytest with the specified sequence/tests and returns results.
+
     Args:
-        sequence_id: The sequence to run
+        sequence_id: The sequence to run (or test file path like "demo/tests/test_tps54302.py")
         station_id: Which station to run on
         dut_serial: Serial number of device under test
 
     Returns:
-        Run info with run_id for tracking.
+        Run info with outcome and summary.
     """
-    import uuid
+    import subprocess
     from datetime import datetime
 
-    run_id = str(uuid.uuid4())
+    # Determine test target - could be a sequence ID or direct test path
+    test_target = sequence_id
+    if not test_target.endswith(".py") and not "::" in test_target:
+        # Try to find sequence file
+        seq_paths = [
+            Path.cwd() / "sequences" / f"{sequence_id}.yaml",
+            Path.cwd() / "demo" / "sequences" / f"{sequence_id}.yaml",
+        ]
+        for seq_path in seq_paths:
+            if seq_path.exists():
+                # Load sequence and get test paths
+                with open(seq_path) as f:
+                    seq_data = yaml.safe_load(f)
+                    seq = seq_data.get("sequence", seq_data)
+                    steps = seq.get("steps", [])
+                    tests = [s["test"] for s in steps if s.get("test")]
+                    if tests:
+                        test_target = " ".join(tests)
+                        break
+        else:
+            # Default to demo tests if no sequence found
+            test_target = f"demo/tests/test_{sequence_id}.py"
+            if not Path(test_target).exists():
+                return {
+                    "error": f"Sequence or test file not found: {sequence_id}",
+                    "searched": [str(p) for p in seq_paths] + [test_target],
+                }
 
-    return {
-        "run_id": run_id,
-        "sequence_id": sequence_id,
-        "dut_serial": dut_serial,
-        "station_id": station_id,
-        "status": "pending",
-        "started_at": datetime.now().isoformat(),
-        "message": "Test run queued. Use status tool to check progress.",
-    }
+    # Build pytest command
+    cmd = [
+        "uv", "run", "python", "-m", "pytest",
+        test_target,
+        f"--dut-serial={dut_serial}",
+        f"--station={station_id}",
+        "--results-dir=results",
+        "-v", "--tb=short",
+        "--simulate",  # Use simulation mode for MCP
+    ]
+
+    started_at = datetime.now()
+
+    try:
+        result = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            timeout=300,  # 5 minute timeout
+            cwd=str(Path.cwd()),
+        )
+
+        # Parse output for summary
+        output_lines = result.stdout.split("\n")
+        summary_line = ""
+        for line in reversed(output_lines):
+            if "passed" in line or "failed" in line or "error" in line:
+                summary_line = line.strip()
+                break
+
+        # Determine outcome
+        if result.returncode == 0:
+            status = "passed"
+        elif result.returncode == 1:
+            status = "failed"
+        else:
+            status = "error"
+
+        # Try to get run_id from results
+        from litmus.data.backends.parquet import ParquetBackend
+        backend = ParquetBackend(results_dir="results")
+        recent_runs = backend.list_runs(limit=1)
+        run_id = recent_runs[0].get("test_run_id", "unknown") if recent_runs else "unknown"
+
+        return {
+            "run_id": run_id,
+            "status": status,
+            "returncode": result.returncode,
+            "summary": summary_line,
+            "test_target": test_target,
+            "dut_serial": dut_serial,
+            "station_id": station_id,
+            "started_at": started_at.isoformat(),
+            "output": result.stdout[-2000:] if len(result.stdout) > 2000 else result.stdout,
+        }
+
+    except subprocess.TimeoutExpired:
+        return {
+            "error": "Test execution timed out after 5 minutes",
+            "test_target": test_target,
+        }
+    except Exception as e:
+        return {
+            "error": f"Failed to run tests: {e}",
+            "test_target": test_target,
+        }
 
 
 # =============================================================================
