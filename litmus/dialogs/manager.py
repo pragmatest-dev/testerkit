@@ -3,6 +3,7 @@
 import asyncio
 import os
 from collections.abc import Callable
+from collections import deque
 from uuid import UUID
 
 from litmus.dialogs.models import (
@@ -13,6 +14,10 @@ from litmus.dialogs.models import (
     ImageDialog,
     InputDialog,
 )
+
+# Environment variable for auto-respond mode
+# Values: "confirm", "cancel", "skip" (or any truthy value defaults to "confirm")
+LITMUS_DIALOG_AUTO = "LITMUS_DIALOG_AUTO"
 
 
 class DialogManager:
@@ -43,18 +48,24 @@ class DialogManager:
             manager.respond(dialog.id, DialogResponse(...))
     """
 
-    def __init__(self, server_url: str | None = None):
+    def __init__(self, server_url: str | None = None, auto_respond: str | None = None):
         """Initialize dialog manager.
 
         Args:
             server_url: If provided, use HTTP mode to communicate with server.
                        If None, uses in-process mode with asyncio events.
+            auto_respond: Auto-respond mode. Values:
+                - "confirm": Auto-confirm all dialogs
+                - "cancel": Auto-cancel all dialogs
+                - None: Check LITMUS_DIALOG_AUTO env var, then use normal behavior
         """
         self.server_url = server_url
+        self._auto_respond = auto_respond
         self._pending: dict[UUID, Dialog] = {}
         self._responses: dict[UUID, DialogResponse] = {}
         self._events: dict[UUID, asyncio.Event] = {}
         self._listeners: list[Callable[[Dialog], None]] = []
+        self._preset_responses: deque[DialogResponse] = deque()
 
     def add_listener(self, callback: Callable[[Dialog], None]) -> None:
         """Add a listener for new dialogs."""
@@ -73,6 +84,91 @@ class DialogManager:
             except Exception:
                 pass  # Don't let listener errors break dialog flow
 
+    def preset_response(
+        self,
+        confirmed: bool = True,
+        choice: int | None = 0,
+        choices: list[int] | None = None,
+        value: str = "auto",
+        cancelled: bool = False,
+    ) -> None:
+        """Queue a preset response for the next dialog.
+
+        Preset responses are consumed in FIFO order. Use this in tests
+        to avoid waiting for operator input.
+
+        Args:
+            confirmed: Whether to confirm the dialog
+            choice: Selected choice index (for choice dialogs)
+            choices: Selected choice indices (for multi-select)
+            value: Input value (for input dialogs)
+            cancelled: Whether the dialog was cancelled
+
+        Example:
+            manager.preset_response(confirmed=True)
+            response = await manager.confirm("Ready?")  # Returns immediately
+            assert response.confirmed
+        """
+        # dialog_id will be set when consumed
+        response = DialogResponse(
+            dialog_id=UUID("00000000-0000-0000-0000-000000000000"),
+            confirmed=confirmed,
+            choice=choice,
+            choices=choices,
+            value=value,
+            cancelled=cancelled,
+            timed_out=False,
+        )
+        self._preset_responses.append(response)
+
+    def clear_preset_responses(self) -> None:
+        """Clear all queued preset responses."""
+        self._preset_responses.clear()
+
+    def _get_auto_response(self, dialog: Dialog) -> DialogResponse | None:
+        """Check for auto-respond mode and return immediate response if enabled.
+
+        Checks in order:
+        1. Preset responses queue
+        2. Instance auto_respond setting
+        3. LITMUS_DIALOG_AUTO environment variable
+
+        Returns:
+            DialogResponse if auto-respond is enabled, None otherwise.
+        """
+        # Check preset responses first
+        if self._preset_responses:
+            response = self._preset_responses.popleft()
+            # Update dialog_id to match actual dialog
+            return DialogResponse(
+                dialog_id=dialog.id,
+                confirmed=response.confirmed,
+                choice=response.choice,
+                choices=response.choices,
+                value=response.value,
+                cancelled=response.cancelled,
+                timed_out=False,
+            )
+
+        # Check instance setting, then environment variable
+        auto_mode = self._auto_respond or os.environ.get(LITMUS_DIALOG_AUTO)
+        if not auto_mode:
+            return None
+
+        # Generate appropriate auto-response based on mode
+        auto_mode = auto_mode.lower()
+
+        if auto_mode == "cancel":
+            return DialogResponse(dialog_id=dialog.id, cancelled=True)
+
+        # Default to confirm mode
+        return DialogResponse(
+            dialog_id=dialog.id,
+            confirmed=True,
+            choice=0,  # First choice for choice dialogs
+            value="auto",  # Default value for input dialogs
+        )
+
     async def show(self, dialog: Dialog) -> DialogResponse:
         """Show a dialog and wait for response.
 
@@ -82,6 +178,11 @@ class DialogManager:
         Returns:
             The operator's response.
         """
+        # Check for auto-respond mode first
+        auto_response = self._get_auto_response(dialog)
+        if auto_response is not None:
+            return auto_response
+
         if self.server_url:
             return await self._show_http(dialog)
         return await self._show_local(dialog)
@@ -307,6 +408,10 @@ def get_dialog_manager(server_url: str | None = None) -> DialogManager:
         server_url: Optional server URL for HTTP mode. If not provided,
                    checks LITMUS_SERVER_URL environment variable.
                    If neither is set, uses in-process mode.
+
+    Environment variables:
+        LITMUS_SERVER_URL: Server URL for HTTP mode
+        LITMUS_DIALOG_AUTO: Auto-respond mode ("confirm", "cancel", or any truthy value)
     """
     global _manager
     if _manager is None:
@@ -314,3 +419,12 @@ def get_dialog_manager(server_url: str | None = None) -> DialogManager:
         url = server_url or os.environ.get("LITMUS_SERVER_URL")
         _manager = DialogManager(server_url=url)
     return _manager
+
+
+def reset_dialog_manager() -> None:
+    """Reset the global dialog manager.
+
+    Useful for tests that need a fresh manager state.
+    """
+    global _manager
+    _manager = None

@@ -11,9 +11,9 @@ instruments:
   dmm_main:
     type: "dmm"
     resource: "SIM::DMM1"
-    simulated: true
+    simulate: true
     description: "Primary DMM for voltage/current measurements"
-    sim_values:
+    sim_config:
       voltage: 5.0      # Will be overridden per-test
       current: 0.010
       resistance: 1000.0
@@ -21,9 +21,9 @@ instruments:
   dmm_output:
     type: "dmm"
     resource: "SIM::DMM2"
-    simulated: true
+    simulate: true
     description: "Secondary DMM for output measurements"
-    sim_values:
+    sim_config:
       voltage: 3.3
       current: 0.100
 

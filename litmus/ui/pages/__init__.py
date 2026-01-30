@@ -5,6 +5,7 @@ Import all page modules to register their @ui.page routes.
 
 from litmus.ui.pages import (
     dashboard,  # noqa: F401
+    fixtures,  # noqa: F401
     instruments,  # noqa: F401
     launch,  # noqa: F401
     live,  # noqa: F401

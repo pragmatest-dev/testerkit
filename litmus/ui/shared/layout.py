@@ -120,6 +120,7 @@ def create_sidebar():
 
             _nav_item("/stations", "settings_input_hdmi", "Stations")
             _nav_item("/products", "inventory_2", "Products")
+            _nav_item("/fixtures", "hub", "Fixtures")
             _nav_item("/instruments", "precision_manufacturing", "Instruments")
             _nav_item("/sequences", "list_alt", "Sequences")
 

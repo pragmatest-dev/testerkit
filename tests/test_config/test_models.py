@@ -4,8 +4,8 @@ from decimal import Decimal
 
 from litmus.config.models import (
     DialogConfig,
-    FixtureChannel,
     FixtureConfig,
+    FixturePoint,
     InstrumentConfig,
     InstrumentInstance,
     Limit,
@@ -211,12 +211,15 @@ class TestFixtureConfig:
         config = FixtureConfig(
             id="product_a_fixture",
             product_family="product_a",
-            channels={
-                "vcc": FixtureChannel(name="VCC", instrument="psu", instrument_channel="CH1"),
-                "gnd": FixtureChannel(name="GND", instrument="psu", instrument_channel="CH1_GND"),
+            points={
+                "vcc": FixturePoint(name="VCC", instrument="psu", instrument_channel="CH1"),
+                "gnd": FixturePoint(name="GND", instrument="psu", instrument_channel="CH1_GND"),
             },
         )
         assert config.id == "product_a_fixture"
+        assert "vcc" in config.points
+        assert config.points["vcc"].instrument == "psu"
+        # Test backwards compatibility alias
         assert "vcc" in config.channels
         assert config.channels["vcc"].instrument == "psu"
 

@@ -123,7 +123,7 @@ def _render_instruments_tab(instruments: dict):
 
 def _instrument_card(name: str, inst: dict):
     """Render an instrument card."""
-    simulated = inst.get("simulated", False)
+    simulated = inst.get("simulate", False)
     with ui.card().classes("w-80"):
         with ui.card_section():
             with ui.row().classes("items-center justify-between"):

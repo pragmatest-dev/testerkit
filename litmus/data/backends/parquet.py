@@ -133,7 +133,7 @@ class ParquetBackend:
                             # Channel traceability
                             "dut_pin": m.dut_pin,
                             "instrument_channel": m.instrument_channel,
-                            "fixture_channel": m.fixture_channel,
+                            "fixture_point": m.fixture_point,
                         }
                     )
 
@@ -159,7 +159,7 @@ class ParquetBackend:
                         # Channel traceability
                         "dut_pin": m.dut_pin,
                         "instrument_channel": m.instrument_channel,
-                        "fixture_channel": m.fixture_channel,
+                        "fixture_point": m.fixture_point,
                     }
                 )
 

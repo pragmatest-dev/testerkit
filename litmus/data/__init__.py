@@ -14,7 +14,7 @@ __all__ = [
     "DUT",
     "Measurement",
     "Outcome",
-    "TestCase",  # Alias for TestVector (backward compat)
+    "TestCase",  # Alias for TestVector
     "TestRun",
     "TestStep",
     "TestVector",

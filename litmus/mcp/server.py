@@ -24,7 +24,10 @@ from litmus.mcp.tools import (
     discover_visa_resources_tool,
     dry_run_sequence_tool,
     find_compatible_stations_tool,
+    get_compatible_stations_for_fixture_tool,
     get_editor_url_tool,
+    get_fixture_config_tool,
+    get_fixtures_for_product_tool,
     get_instrument_library_tool,
     get_product_folder_tool,
     get_product_spec_tool,
@@ -32,17 +35,20 @@ from litmus.mcp.tools import (
     get_station_config_tool,
     get_test_templates_tool,
     list_available_instrument_types_tool,
+    list_fixtures_tool,
     list_instrument_types_tool,
     list_product_folders_tool,
     list_products_tool,
     list_sequences_tool,
     list_stations_tool,
     run_sequence_tool,
+    save_fixture_config_tool,
     save_instrument_library_tool,
     save_product_spec_to_folder_tool,
     save_product_spec_tool,
     save_test_file_tool,
     save_test_sequence_tool,
+    validate_fixture_config_tool,
     validate_product_spec_tool,
     validate_test_sequence_tool,
 )
@@ -516,6 +522,87 @@ Typical workflow (starting from nothing):
             URL to open in browser.
         """
         return get_editor_url_tool(resource_type, resource_id, base_url)
+
+    # -----------------------------------------------------------------------------
+    # Fixture Tools
+    # -----------------------------------------------------------------------------
+
+    @mcp.tool
+    def list_fixtures() -> list[dict[str, Any]]:
+        """List all available fixture configurations.
+
+        Fixtures define pin-to-instrument mappings for testing products.
+        They bridge product pins to station instruments.
+
+        Returns:
+            List of fixtures with id, name, product info, and point count.
+        """
+        return list_fixtures_tool()
+
+    @mcp.tool
+    def get_fixture_config(fixture_id: str) -> dict[str, Any]:
+        """Get fixture configuration by ID.
+
+        Args:
+            fixture_id: The fixture ID
+
+        Returns:
+            Full fixture config including all pin mapping points.
+        """
+        return get_fixture_config_tool(fixture_id)
+
+    @mcp.tool
+    def validate_fixture_config(config: dict[str, Any]) -> dict[str, Any]:
+        """Validate a fixture configuration without saving.
+
+        Args:
+            config: Fixture config with fixture and points sections
+
+        Returns:
+            Validation result with success/failure and any errors.
+        """
+        return validate_fixture_config_tool(config)
+
+    @mcp.tool
+    def save_fixture_config(
+        fixture_id: str, config: dict[str, Any]
+    ) -> dict[str, Any]:
+        """Validate and save a fixture configuration.
+
+        Args:
+            fixture_id: ID for the fixture (used as filename)
+            config: Fixture config with fixture and points sections
+
+        Returns:
+            Result with path to saved file or validation errors.
+        """
+        return save_fixture_config_tool(fixture_id, config)
+
+    @mcp.tool
+    def get_fixtures_for_product(product_id: str) -> list[dict[str, Any]]:
+        """Find fixtures compatible with a product.
+
+        Searches by product_id match or product_family pattern.
+
+        Args:
+            product_id: The product ID to find fixtures for
+
+        Returns:
+            List of matching fixtures with match type.
+        """
+        return get_fixtures_for_product_tool(product_id)
+
+    @mcp.tool
+    def get_compatible_stations_for_fixture(fixture_id: str) -> list[dict[str, Any]]:
+        """Find stations that have all instruments required by a fixture.
+
+        Args:
+            fixture_id: The fixture ID
+
+        Returns:
+            List of stations with compatibility info and missing instruments.
+        """
+        return get_compatible_stations_for_fixture_tool(fixture_id)
 
     return mcp
 

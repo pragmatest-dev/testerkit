@@ -41,6 +41,20 @@ scpi_commands:
   identify: "*IDN?"
   reset: "*RST"
   measure_voltage_dc: "MEAS:VOLT:DC?"
+  measure_voltage_ac: "MEAS:VOLT:AC?"
   measure_current_dc: "MEAS:CURR:DC?"
+  measure_current_ac: "MEAS:CURR:AC?"
   measure_resistance: "MEAS:RES?"
   measure_resistance_4w: "MEAS:FRES?"
+  measure_frequency: "MEAS:FREQ?"
+  measure_period: "MEAS:PER?"
+
+# Simulation defaults for pyvisa-sim
+# These values are used when simulate=True and no sim_config is provided
+simulation:
+  idn: "Litmus,SimDMM,SN001,1.0"
+  defaults:
+    voltage: 0.0
+    current: 0.0
+    resistance: 1000.0
+    frequency: 1000.0

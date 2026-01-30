@@ -16,46 +16,92 @@ uv sync
 pip install -e .
 ```
 
-## Run the Demo
+## Simplest Test (With Logging)
 
-The fastest way to see Litmus in action:
+Create a station config and write the test:
 
-```bash
-cd demo
-python run_demo.py
+```yaml
+# stations/my_station.yaml
+station:
+  id: my_station
+
+instruments:
+  dmm:
+    type: dmm
+    resource: "TCPIP::192.168.1.100::INSTR"
 ```
 
-This runs a simulated power board test and displays the results.
+```python
+# tests/test_voltage.py
+from litmus.execution.decorators import litmus_test
 
-## Your First Test
+@litmus_test
+def test_voltage(vector, instruments):
+    """Measure voltage - result logged to Parquet."""
+    dmm = instruments["dmm"]
+    return dmm.measure_voltage()
+```
+
+Run with `--simulate` for simulated instruments:
+
+```bash
+pytest tests/ --station=my_station --simulate --dut-serial=TEST001 -v
+```
+
+Results appear in `results/` and via `litmus runs`.
+
+## Without Logging (Plain pytest)
+
+If you don't need Litmus logging, use mock instruments directly:
+
+```python
+# tests/test_simple.py
+from litmus.instruments import MockDMM
+
+def test_voltage():
+    """Plain pytest - no logging to Litmus."""
+    dmm = MockDMM(voltage=3.31)
+    assert float(dmm.measure_voltage()) > 3.0
+```
+
+```bash
+pytest tests/test_simple.py -v
+```
+
+This is just pytest with Litmus mock instruments — no fixtures, no logging.
+
+## Adding Limits
+
+For production testing, add limit checking:
+
+```python
+# tests/test_with_limits.py
+from decimal import Decimal
+from litmus.instruments import MockDMM
+from litmus.data import Measurement, Outcome
+
+def test_output_voltage():
+    dmm = MockDMM(voltage=3.31)
+
+    m = Measurement(
+        name="output_voltage",
+        value=dmm.measure_voltage(),
+        units="V",
+        low_limit=Decimal("3.135"),
+        high_limit=Decimal("3.465"),
+    )
+    m.check_limit()
+
+    assert m.outcome == Outcome.PASS
+```
+
+## Using YAML Config
+
+For spec-driven testing with traceability:
 
 ### 1. Create a Product Spec
 
 Define what you're testing in `specs/my_product.yaml`:
-
-```yaml
-product:
-  id: my_product
-  name: "My Product"
-  revision: "A"
-
-pins:
-  VOUT:
-    name: "J1.1"           # Physical pin/connector
-
-characteristics:
-  output_voltage:
-    direction: output
-    domain: voltage
-    signal_types: [dc]
-    units: V
-    pins: [VOUT]           # Which pin to measure
-    conditions:
-      - nominal: 3.3
-        tolerance_pct: 5
-```
-
-Or the absolute minimum:
 
 ```yaml
 product:
@@ -89,40 +135,39 @@ station:
 instruments:
   dmm:
     type: dmm
-    resource: "SIM::DMM"
-    simulated: true
-    sim_values:
+    resource: "TCPIP::192.168.1.100::INSTR"
+    simulate: true
+    sim_config:
       voltage: 3.31
 ```
 
-### 3. Create a Test
-
-Write your test in `tests/test_my_product.py`:
+### 3. Write the Test
 
 ```python
+# tests/test_my_product.py
 import pytest
-from litmus.execution import litmus_test
 from litmus.instruments import DMM
 
 @pytest.fixture
 def dmm():
-    with DMM("SIM::DMM", simulated=True, sim_values={"voltage": 3.31}) as d:
+    # Driver-level simulation (uses pyvisa-sim)
+    with DMM("TCPIP::192.168.1.100::INSTR", simulate=True, sim_config={"voltage": 3.31}) as d:
         yield d
 
-@litmus_test
-def test_output_voltage(vector, dmm):
+def test_output_voltage(dmm):
     """Measure output voltage."""
-    return dmm.measure_dc_voltage()
+    voltage = dmm.measure_voltage()
+    assert float(voltage) > 3.0
 ```
 
-### 4. Configure Limits
+### 4. Add Test Config
 
-Add test configuration in `tests/config.yaml`:
+Configure limits in `tests/config.yaml`:
 
 ```yaml
 test_output_voltage:
   limits:
-    test_output_voltage:
+    output_voltage:
       low: 3.135
       high: 3.465
       units: V
@@ -134,9 +179,84 @@ test_output_voltage:
 pytest tests/ --dut-serial=SN001 -v
 ```
 
-Output:
+## Instrument Access Options
+
+| Approach | Setup | When to Use |
+|----------|-------|-------------|
+| **`--simulate` flag** | None | Development, CI |
+| **Station config** | `stations/*.yaml` | Real hardware |
+| **Pin mapping** | `fixtures/*.yaml` | Production, complex routing |
+
+### Station Config
+
+Create `stations/my_station.yaml`:
+
+```yaml
+station:
+  id: my_station
+  name: "My Bench"
+
+instruments:
+  dmm:
+    type: dmm
+    resource: "TCPIP::192.168.1.100::INSTR"
+  psu:
+    type: psu
+    resource: "GPIB0::5::INSTR"
 ```
-tests/test_my_product.py::test_output_voltage PASSED
+
+Access instruments by name:
+
+```python
+@litmus_test
+def test_voltage(vector, instruments):
+    psu = instruments["psu"]
+    dmm = instruments["dmm"]
+
+    psu.set_voltage(5.0)
+    psu.enable_output()
+    return dmm.measure_voltage()
+```
+
+```bash
+# Real hardware
+pytest --station=my_station --dut-serial=SN001
+
+# Simulated (same code, no hardware)
+pytest --station=my_station --simulate --dut-serial=SN001
+```
+
+### Pin Mapping (Production)
+
+For complex fixtures, create `fixtures/my_fixture.yaml`:
+
+```yaml
+fixture:
+  id: my_fixture
+  product_id: my_product
+
+points:
+  VIN:
+    dut_pin: VIN
+    instrument: psu
+    instrument_channel: "1"
+  VOUT:
+    dut_pin: VOUT
+    instrument: dmm
+```
+
+Access instruments by DUT pin name:
+
+```python
+@litmus_test
+def test_output(vector, pins):
+    pins["VIN"].set_voltage(5.0)
+    pins["VIN"].enable_output()
+    return pins["VOUT"].measure_voltage()
+```
+
+```bash
+pytest --station=my_station --fixture-config=fixtures/my_fixture.yaml --dut-serial=SN001
 ```
 
 ## View Results

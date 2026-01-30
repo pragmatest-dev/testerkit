@@ -1,8 +1,11 @@
 """pytest plugin for Litmus test framework."""
 
 import time
+from pathlib import Path
+from typing import Any
 
 import pytest
+import yaml
 from _pytest.runner import runtestprotocol
 
 from litmus.data.backends.parquet import ParquetBackend
@@ -11,6 +14,9 @@ from litmus.execution.logger import TestRunLogger
 
 # Track test outcomes for skip-on-failure logic
 STEP_OUTCOMES: dict[str, bool] = {}
+
+# Track instrument instances for cleanup
+_ACTIVE_INSTRUMENTS: dict[str, Any] = {}
 
 
 def pytest_configure(config):
@@ -44,6 +50,22 @@ def pytest_addoption(parser):
     group.addoption("--results-dir", default="results", help="Directory for Parquet results")
     group.addoption("--spec", default=None, help="Path to product spec YAML file")
     group.addoption("--guardband", default="0", help="Default guardband percentage")
+    group.addoption(
+        "--simulate",
+        action="store_true",
+        default=False,
+        help="Run instruments in simulation mode",
+    )
+    group.addoption(
+        "--fixture-config",
+        default=None,
+        help="Path to fixture configuration YAML file",
+    )
+    group.addoption(
+        "--station-config",
+        default=None,
+        help="Path to station configuration YAML file",
+    )
 
 
 @pytest.fixture(scope="session", autouse=True)
@@ -133,6 +155,143 @@ def spec_context(request):
             return SpecContext.from_file(yaml_files[0], guardband_pct=guardband)
 
     return None
+
+
+@pytest.fixture(scope="session")
+def simulate(request) -> bool:
+    """Return whether instruments should run in simulation mode."""
+    return request.config.getoption("--simulate")
+
+
+@pytest.fixture(scope="session")
+def station_config(request) -> dict[str, Any] | None:
+    """Load station configuration from --station-config option.
+
+    Returns:
+        Station configuration dict, or None if not specified.
+    """
+    config_path = request.config.getoption("--station-config")
+    if not config_path:
+        # Try auto-discover from stations/ directory
+        root = request.config.rootpath
+        station_id = request.config.getoption("--station")
+        stations_dir = root / "stations"
+        if stations_dir.exists():
+            station_file = stations_dir / f"{station_id}.yaml"
+            if station_file.exists():
+                config_path = str(station_file)
+
+    if config_path:
+        with open(config_path) as f:
+            return yaml.safe_load(f)
+    return None
+
+
+@pytest.fixture(scope="session")
+def fixture_config(request):
+    """Load fixture configuration from --fixture-config option.
+
+    Returns:
+        FixtureConfig instance, or None if not specified.
+    """
+    from litmus.config.models import FixtureConfig
+
+    config_path = request.config.getoption("--fixture-config")
+    if not config_path:
+        # Try auto-discover from fixtures/ directory
+        root = request.config.rootpath
+        fixtures_dir = root / "fixtures"
+        if fixtures_dir.exists():
+            yaml_files = list(fixtures_dir.glob("*.yaml"))
+            if yaml_files:
+                config_path = str(yaml_files[0])
+
+    if config_path:
+        with open(config_path) as f:
+            data = yaml.safe_load(f)
+            return FixtureConfig.model_validate(data.get("fixture", data))
+    return None
+
+
+def _get_driver_class(instrument_type: str):
+    """Get driver class for an instrument type."""
+    from litmus.instruments import DMM, PSU
+
+    drivers = {
+        "dmm": DMM,
+        "psu": PSU,
+        # Add more as implemented
+    }
+    return drivers.get(instrument_type.lower())
+
+
+@pytest.fixture(scope="session")
+def instruments(request, station_config, simulate) -> dict[str, Any]:
+    """Create instrument instances from station configuration.
+
+    Instruments are connected at session start and disconnected at end.
+    Uses simulation mode if --simulate is passed.
+
+    Returns:
+        Dictionary mapping instrument names to instances.
+    """
+    global _ACTIVE_INSTRUMENTS
+    _ACTIVE_INSTRUMENTS.clear()
+
+    if not station_config:
+        return {}
+
+    # Load instruments from station config
+    inst_configs = station_config.get("instruments", {})
+    for name, config in inst_configs.items():
+        driver_class = _get_driver_class(config.get("type", ""))
+        if driver_class is None:
+            continue
+
+        resource = config.get("resource", "")
+        sim_config = config.get("sim_config", {})
+
+        # Create and connect instrument
+        inst = driver_class(
+            resource=resource,
+            simulate=simulate or config.get("simulate", False),
+            sim_config=sim_config,
+        )
+        inst.connect()
+        _ACTIVE_INSTRUMENTS[name] = inst
+
+    yield _ACTIVE_INSTRUMENTS
+
+    # Cleanup: disconnect all instruments
+    for inst in _ACTIVE_INSTRUMENTS.values():
+        try:
+            inst.disconnect()
+        except Exception:
+            pass
+    _ACTIVE_INSTRUMENTS.clear()
+
+
+@pytest.fixture(scope="session")
+def pins(instruments, fixture_config):
+    """UUT-centric pin accessor for tests.
+
+    Resolves DUT pin names to instrument instances:
+
+        def test_output(pins):
+            pins["VIN"].set_voltage(5.0)
+            pins["VIN"].enable_output()
+            assert pins["VOUT"].measure_voltage() > 3.0
+
+    Returns:
+        PinAccessor instance, or None if no fixture configured.
+    """
+    from litmus.fixtures.manager import FixtureManager, PinAccessor
+
+    if not fixture_config or not instruments:
+        return None
+
+    manager = FixtureManager(fixture_config, instruments)
+    return PinAccessor(manager)
 
 
 def pytest_runtest_makereport(item, call):

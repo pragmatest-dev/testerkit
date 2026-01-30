@@ -289,8 +289,14 @@ class Characteristic(BaseModel):
 
     # Physical interface (ATML-style pin mapping)
     pins: list[str] = Field(default_factory=list)  # References to Product.pins keys
-    channel: str | None = None  # For multi-channel DUT outputs
+    output_channel: str | None = None  # For multi-channel DUT outputs (e.g., "CH1", "OUT2")
     signal_group: str | None = None  # Reference to Product.signal_groups key
+
+    # Backwards compatibility alias
+    @property
+    def channel(self) -> str | None:
+        """Backwards compatibility alias for output_channel."""
+        return self.output_channel
 
     # Spec values at conditions (ATML-style key-value)
     conditions: list[ConditionPoint] = Field(default_factory=list)

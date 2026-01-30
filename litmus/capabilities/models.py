@@ -103,8 +103,12 @@ class ResolutionSpec(BaseModel):
     units: str | None = None
 
 
-class ChannelSpec(BaseModel):
-    """Specification for instrument channels."""
+class InstrumentChannelSpec(BaseModel):
+    """Specification for instrument channels.
+
+    This describes the physical channels on an instrument (CH1, ai0, Output1),
+    NOT fixture routing points or DUT pins.
+    """
 
     count: int = 1
     simultaneous: bool = False  # Can measure/source all channels at once
@@ -123,6 +127,10 @@ class ChannelSpec(BaseModel):
         return [str(i + 1) for i in range(self.count)]
 
 
+# Backwards compatibility alias
+ChannelSpec = InstrumentChannelSpec
+
+
 class Capability(BaseModel):
     """A single capability of an instrument.
 
@@ -133,7 +141,7 @@ class Capability(BaseModel):
     direction: Direction
     domain: Domain
     signal_types: list[SignalType] = Field(default_factory=list)
-    channels: ChannelSpec = Field(default_factory=ChannelSpec)
+    channels: InstrumentChannelSpec = Field(default_factory=InstrumentChannelSpec)
     range: RangeSpec | None = None
     accuracy: AccuracySpec | None = None
     resolution: ResolutionSpec | None = None

@@ -169,8 +169,8 @@ def create_station_tool(
         }
 
         # Add optional fields if present
-        if inst.get("simulated"):
-            station_config["instruments"][inst_name]["simulated"] = True
+        if inst.get("simulate"):
+            station_config["instruments"][inst_name]["simulate"] = True
         if inst.get("description"):
             station_config["instruments"][inst_name]["description"] = inst["description"]
 
@@ -1023,6 +1023,237 @@ def save_product_spec_to_folder_tool(
             "success": False,
             "error": f"Product folder '{product_id}' not found",
         }
+
+
+# -----------------------------------------------------------------------------
+# Fixture Tools
+# -----------------------------------------------------------------------------
+
+
+def list_fixtures_tool() -> list[dict[str, Any]]:
+    """List all available fixtures.
+
+    Returns:
+        List of fixtures with id, name, product_id, and point count.
+    """
+    fixtures = []
+    search_paths = [
+        Path.cwd() / "fixtures",
+        Path.cwd() / "demo" / "fixtures",
+    ]
+
+    for fixtures_dir in search_paths:
+        if not fixtures_dir.exists():
+            continue
+        for yaml_file in fixtures_dir.glob("*.yaml"):
+            if yaml_file.name.startswith("_"):
+                continue
+            try:
+                with open(yaml_file) as f:
+                    data = yaml.safe_load(f)
+                    if data and "fixture" in data:
+                        fixture_info = data["fixture"]
+                        points = data.get("points", {})
+                        fixtures.append({
+                            "id": fixture_info.get("id", yaml_file.stem),
+                            "name": fixture_info.get("name", yaml_file.stem),
+                            "product_id": fixture_info.get("product_id"),
+                            "product_family": fixture_info.get("product_family"),
+                            "point_count": len(points),
+                            "source": str(yaml_file),
+                        })
+            except Exception:
+                continue
+
+    return fixtures
+
+
+def get_fixture_config_tool(fixture_id: str) -> dict[str, Any]:
+    """Get fixture configuration by ID.
+
+    Args:
+        fixture_id: The fixture ID to look up.
+
+    Returns:
+        Full fixture configuration including points.
+    """
+    search_paths = [
+        Path.cwd() / "fixtures",
+        Path.cwd() / "demo" / "fixtures",
+    ]
+
+    for fixtures_dir in search_paths:
+        yaml_file = fixtures_dir / f"{fixture_id}.yaml"
+        if yaml_file.exists():
+            with open(yaml_file) as f:
+                data = yaml.safe_load(f)
+                if data:
+                    return {
+                        "success": True,
+                        "fixture": data.get("fixture", {}),
+                        "points": data.get("points", {}),
+                        "path": str(yaml_file),
+                    }
+
+    return {"success": False, "error": f"Fixture '{fixture_id}' not found"}
+
+
+def validate_fixture_config_tool(config: dict[str, Any]) -> dict[str, Any]:
+    """Validate a fixture configuration.
+
+    Args:
+        config: Fixture config dict with fixture and points sections.
+
+    Returns:
+        Validation result with errors if any.
+    """
+    errors = []
+
+    # Check required sections
+    if "fixture" not in config:
+        errors.append("Missing 'fixture' section")
+    else:
+        fixture = config["fixture"]
+        if "id" not in fixture:
+            errors.append("fixture.id is required")
+        # Must have either product_id or product_family
+        if not fixture.get("product_id") and not fixture.get("product_family"):
+            errors.append("fixture must have product_id or product_family")
+
+    # Validate points
+    if "points" in config:
+        points = config["points"]
+        if not isinstance(points, dict):
+            errors.append("points must be a dict")
+        else:
+            for name, point in points.items():
+                if not isinstance(point, dict):
+                    errors.append(f"points.{name} must be a dict")
+                    continue
+                # dut_pin or net is recommended but not required
+                if not point.get("dut_pin") and not point.get("net"):
+                    errors.append(f"points.{name} should have dut_pin or net")
+                if not point.get("instrument"):
+                    errors.append(f"points.{name}.instrument is required")
+
+    if errors:
+        return {"valid": False, "errors": errors}
+
+    return {"valid": True, "errors": []}
+
+
+def save_fixture_config_tool(
+    fixture_id: str, config: dict[str, Any]
+) -> dict[str, Any]:
+    """Validate and save a fixture configuration.
+
+    Args:
+        fixture_id: ID for the fixture file.
+        config: Fixture config dict with fixture and points sections.
+
+    Returns:
+        Result with path to saved file.
+    """
+    # Validate first
+    validation = validate_fixture_config_tool(config)
+    if not validation["valid"]:
+        return {"success": False, "errors": validation["errors"]}
+
+    # Ensure fixtures directory exists
+    fixtures_dir = Path.cwd() / "fixtures"
+    fixtures_dir.mkdir(parents=True, exist_ok=True)
+
+    # Save YAML
+    filepath = fixtures_dir / f"{fixture_id}.yaml"
+    with open(filepath, "w") as f:
+        yaml.dump(config, f, default_flow_style=False, sort_keys=False)
+
+    return {"success": True, "path": str(filepath)}
+
+
+def get_fixtures_for_product_tool(product_id: str) -> list[dict[str, Any]]:
+    """Find fixtures compatible with a product.
+
+    Args:
+        product_id: Product ID to find fixtures for.
+
+    Returns:
+        List of matching fixtures.
+    """
+    all_fixtures = list_fixtures_tool()
+    matches = []
+
+    for fixture in all_fixtures:
+        # Match by exact product_id
+        if fixture.get("product_id") == product_id:
+            matches.append({**fixture, "match_type": "product_id"})
+        # Match by product_family (product_id might be like "tps54302" and family "tps543xx")
+        elif fixture.get("product_family"):
+            family = fixture["product_family"]
+            if product_id.startswith(family.replace("xx", "").replace("*", "")):
+                matches.append({**fixture, "match_type": "product_family"})
+
+    return matches
+
+
+def get_compatible_stations_for_fixture_tool(fixture_id: str) -> list[dict[str, Any]]:
+    """Find stations that have all instruments required by a fixture.
+
+    Args:
+        fixture_id: The fixture ID.
+
+    Returns:
+        List of compatible stations with matching info.
+    """
+    # Get fixture config
+    fixture_result = get_fixture_config_tool(fixture_id)
+    if not fixture_result.get("success"):
+        return [{"error": fixture_result.get("error")}]
+
+    points = fixture_result.get("points", {})
+
+    # Get required instrument names
+    required_instruments = set()
+    for point in points.values():
+        if point.get("instrument"):
+            required_instruments.add(point["instrument"])
+
+    if not required_instruments:
+        return [{"error": "Fixture has no instrument references"}]
+
+    # Check each station
+    stations = list_stations_tool()
+    compatible = []
+
+    for station in stations:
+        station_id = station.get("id")
+        station_config = get_station_config_tool(station_id)
+
+        if isinstance(station_config, dict) and "error" not in station_config:
+            station_instruments = set(station_config.get("instruments", {}).keys())
+            missing = required_instruments - station_instruments
+
+            if not missing:
+                compatible.append({
+                    "station_id": station_id,
+                    "station_name": station.get("name", station_id),
+                    "compatible": True,
+                    "matched_instruments": list(required_instruments),
+                })
+            else:
+                compatible.append({
+                    "station_id": station_id,
+                    "station_name": station.get("name", station_id),
+                    "compatible": False,
+                    "missing_instruments": list(missing),
+                })
+
+    return compatible
+
+
+# -----------------------------------------------------------------------------
+# Editor URL Tools
+# -----------------------------------------------------------------------------
 
 
 def get_editor_url_tool(

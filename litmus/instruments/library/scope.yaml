@@ -27,3 +27,27 @@ capabilities:
     direction: input
     domain: voltage
     description: Trigger on voltage threshold
+
+scpi_commands:
+  identify: "*IDN?"
+  reset: "*RST"
+  run: ":RUN"
+  stop: ":STOP"
+  single: ":SING"
+  auto_scale: ":AUT"
+  set_sample_rate: ":ACQ:SRAT {value}"
+  set_record_length: ":ACQ:POIN {value}"
+  fetch_waveform: ":WAV:DATA?"
+  get_x_increment: ":WAV:XINC?"
+  measure_frequency: ":MEAS:FREQ?"
+  measure_vpp: ":MEAS:VPP?"
+
+# Simulation defaults for pyvisa-sim
+simulation:
+  idn: "Litmus,SimScope,SN001,1.0"
+  defaults:
+    waveform: [0.0, 0.5, 1.0, 0.5, 0.0, -0.5, -1.0, -0.5]
+    x_increment: 1.0e-9
+    frequency: 1000.0
+    vpp: 2.0
+  driver_class: litmus.instruments.scope.Scope

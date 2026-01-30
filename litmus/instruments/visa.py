@@ -1,0 +1,240 @@
+"""VISA instrument protocol family.
+
+VisaInstrument is the base class for all SCPI/IEEE 488.2 instruments
+that communicate via PyVISA. When simulate=True, it uses pyvisa-sim
+for realistic simulation based on the instrument library YAML.
+
+Example usage:
+    class DMM(VisaInstrument, VoltageInput, CurrentInput):
+        def measure_voltage(self, signal_type=SignalType.DC) -> Decimal:
+            return Decimal(self.query("MEAS:VOLT:DC?"))
+
+    # Real hardware
+    dmm = DMM("TCPIP::192.168.1.100::INSTR")
+    dmm.connect()
+    v = dmm.measure_voltage()
+
+    # Simulation
+    dmm = DMM("TCPIP::192.168.1.100::INSTR", simulate=True)
+    dmm.connect()
+    v = dmm.measure_voltage()  # Returns value from pyvisa-sim
+"""
+
+import random
+import tempfile
+from decimal import Decimal
+from pathlib import Path
+from typing import Any
+
+import pyvisa
+
+from litmus.instruments.base import Instrument
+
+
+class VisaInstrument(Instrument):
+    """Base class for VISA/SCPI instruments with automatic simulation.
+
+    This is the protocol family base for all SCPI instruments. It extends
+    Instrument and provides:
+
+    - Real hardware communication via PyVISA
+    - Simulation via pyvisa-sim (auto-generated from instrument library)
+    - Standard SCPI methods: write(), query(), read()
+
+    Concrete drivers (DMM, PSU, Scope, etc.) extend this class and
+    implement capability interfaces.
+    """
+
+    # Class-level simulation defaults (override in subclasses or via sim_config)
+    _default_idn: str = "Litmus,SimulatedVisa,SN001,1.0"
+    _sim_responses: dict[str, str | float] = {}
+
+    def __init__(
+        self,
+        resource: str,
+        simulate: bool = False,
+        sim_config: dict[str, Any] | None = None,
+        timeout_ms: int = 5000,
+    ):
+        """Initialize VISA instrument.
+
+        Args:
+            resource: VISA resource string (e.g., "TCPIP::192.168.1.100::INSTR")
+            simulate: If True, use pyvisa-sim instead of real hardware
+            sim_config: Simulation configuration with keys like:
+                - idn: Custom *IDN? response
+                - responses: Dict of SCPI command -> response value
+                - noise: Dict of measurement name -> noise percentage
+            timeout_ms: Communication timeout in milliseconds
+        """
+        super().__init__(resource=resource, simulate=simulate, sim_config=sim_config)
+        self.timeout_ms = timeout_ms
+
+        self._rm: pyvisa.ResourceManager | None = None
+        self._inst: pyvisa.resources.Resource | None = None
+        self._sim_yaml_path: Path | None = None
+
+    def connect(self) -> None:
+        """Connect to instrument (real or simulated).
+
+        For simulated mode, generates a pyvisa-sim configuration file
+        and connects to the simulated instrument.
+        """
+        if self._connected:
+            return
+
+        if self.simulate:
+            # Generate pyvisa-sim config and connect
+            self._sim_yaml_path = self._generate_sim_config()
+            self._rm = pyvisa.ResourceManager(f"{self._sim_yaml_path}@sim")
+        else:
+            # Connect to real hardware
+            self._rm = pyvisa.ResourceManager()
+
+        self._inst = self._rm.open_resource(self.resource)
+        self._inst.timeout = self.timeout_ms
+        self._inst.write_termination = "\n"
+        self._inst.read_termination = "\n"
+        self._connected = True
+
+    def disconnect(self) -> None:
+        """Disconnect from instrument and clean up resources."""
+        if self._inst:
+            self._inst.close()
+            self._inst = None
+        if self._rm:
+            self._rm.close()
+            self._rm = None
+
+        # Clean up temp sim config file
+        if self._sim_yaml_path and self._sim_yaml_path.exists():
+            try:
+                self._sim_yaml_path.unlink()
+            except OSError:
+                pass
+            self._sim_yaml_path = None
+
+        self._connected = False
+
+    def write(self, command: str) -> None:
+        """Send command to instrument.
+
+        Args:
+            command: SCPI command string
+
+        Raises:
+            RuntimeError: If not connected
+        """
+        if self._inst is None:
+            raise RuntimeError("Not connected to instrument")
+        self._inst.write(command)
+
+    def query(self, command: str) -> str:
+        """Send command and return response.
+
+        Args:
+            command: SCPI query string (typically ends with ?)
+
+        Returns:
+            Response string from instrument
+
+        Raises:
+            RuntimeError: If not connected
+        """
+        if self._inst is None:
+            raise RuntimeError("Not connected to instrument")
+        return self._inst.query(command).strip()
+
+    def read(self) -> str:
+        """Read response from instrument.
+
+        Returns:
+            Response string
+
+        Raises:
+            RuntimeError: If not connected
+        """
+        if self._inst is None:
+            raise RuntimeError("Not connected to instrument")
+        return self._inst.read().strip()
+
+    def _generate_sim_config(self) -> Path:
+        """Generate pyvisa-sim YAML configuration.
+
+        Creates a temporary YAML file with simulation dialogues based on:
+        1. Class-level _sim_responses
+        2. Instance sim_config overrides
+
+        Returns:
+            Path to generated YAML file
+        """
+        # Merge class defaults with instance config
+        idn = self.sim_config.get("idn", self._default_idn)
+        responses = {**self._sim_responses, **self.sim_config.get("responses", {})}
+
+        # Build pyvisa-sim YAML content
+        yaml_lines = [
+            "spec: '1.0'",
+            "devices:",
+            "  device 1:",
+            "    eom:",
+            "      TCPIP INSTR:",
+            '        q: "\\n"',
+            '        r: "\\n"',
+            "      GPIB INSTR:",
+            '        q: "\\n"',
+            '        r: "\\n"',
+            "      USB INSTR:",
+            '        q: "\\n"',
+            '        r: "\\n"',
+            "    dialogues:",
+            '      - q: "*IDN?"',
+            f'        r: "{idn}"',
+        ]
+
+        # Add response dialogues
+        for cmd, response in responses.items():
+            if isinstance(response, (int, float)):
+                # Add noise if configured
+                noise_pct = self.sim_config.get("noise", {}).get(cmd, 0)
+                if noise_pct > 0:
+                    noise = response * noise_pct / 100
+                    response = response + random.uniform(-noise, noise)
+                response = str(response)
+            yaml_lines.append(f'      - q: "{cmd}"')
+            yaml_lines.append(f'        r: "{response}"')
+
+        # Add resources section to map resource string to device
+        yaml_lines.append("")
+        yaml_lines.append("resources:")
+        yaml_lines.append(f"  {self.resource}:")
+        yaml_lines.append("    device: device 1")
+
+        # Write to temp file
+        yaml_content = "\n".join(yaml_lines)
+        with tempfile.NamedTemporaryFile(
+            mode="w", suffix=".yaml", delete=False, prefix="litmus_sim_"
+        ) as f:
+            f.write(yaml_content)
+            return Path(f.name)
+
+    def _get_sim_value(self, name: str, default: float = 0.0) -> Decimal:
+        """Get a simulated measurement value with optional noise.
+
+        Helper method for concrete drivers implementing measurement methods.
+
+        Args:
+            name: Measurement name (e.g., "voltage", "current")
+            default: Default value if not configured
+
+        Returns:
+            Simulated value as Decimal
+        """
+        base = float(self.sim_config.get(name, default))
+        noise_pct = float(self.sim_config.get("noise", {}).get(name, 0))
+
+        if noise_pct > 0:
+            noise = base * noise_pct / 100
+            base = base + random.uniform(-noise, noise)
+
+        return Decimal(str(round(base, 9)))

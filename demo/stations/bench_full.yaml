@@ -18,9 +18,9 @@ instruments:
   psu_main:
     type: "psu"
     resource: "SIM::PSU1"
-    simulated: true
+    simulate: true
     description: "Programmable DC power supply for DUT input"
-    sim_values:
+    sim_config:
       voltage: 5.0
       current: 1.0
 
@@ -28,9 +28,9 @@ instruments:
   dmm_vout:
     type: "dmm"
     resource: "SIM::DMM1"
-    simulated: true
+    simulate: true
     description: "6.5 digit DMM for output voltage measurement"
-    sim_values:
+    sim_config:
       voltage: 3.298    # Slightly under nominal for realism
       current: 0.0
       resistance: 0.0
@@ -39,9 +39,9 @@ instruments:
   dmm_iin:
     type: "dmm"
     resource: "SIM::DMM2"
-    simulated: true
+    simulate: true
     description: "DMM for input current measurement"
-    sim_values:
+    sim_config:
       voltage: 0.0
       current: 0.680    # ~680mA at 1A load (93% efficiency)
 
@@ -49,18 +49,18 @@ instruments:
   scope_main:
     type: "scope"
     resource: "SIM::SCOPE1"
-    simulated: true
+    simulate: true
     description: "4-channel scope for ripple and transient analysis"
-    sim_values:
+    sim_config:
       voltage_pp: 0.022  # 22mV ripple
 
   # Electronic Load - sets output load current
   eload_main:
     type: "eload"
     resource: "SIM::ELOAD1"
-    simulated: true
+    simulate: true
     description: "Programmable electronic load"
-    sim_values:
+    sim_config:
       current: 1.0
       voltage: 3.3
 

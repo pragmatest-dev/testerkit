@@ -2,8 +2,54 @@
 
 import pytest
 
-from litmus.instruments.base import Instrument, SimulatedBackend, VisaInstrument
-from litmus.instruments.simulated import get_sim_resource_manager, get_simulated_resource
+from litmus.instruments.base import Instrument
+from litmus.instruments.visa import VisaInstrument
+from litmus.instruments.dmm import DMM
+
+
+class TestInstrumentBase:
+    """Tests for Instrument abstract base class."""
+
+    def test_cannot_instantiate_abstract(self):
+        with pytest.raises(TypeError):
+            Instrument()  # type: ignore
+
+    def test_subclass_implementation(self):
+        class ConcreteInstrument(Instrument):
+            def connect(self):
+                self._connected = True
+
+            def disconnect(self):
+                self._connected = False
+
+        inst = ConcreteInstrument()
+        assert inst.simulate is False
+        assert inst.sim_config == {}
+        assert inst._connected is False
+
+    def test_subclass_with_simulation(self):
+        class ConcreteInstrument(Instrument):
+            def connect(self):
+                self._connected = True
+
+            def disconnect(self):
+                self._connected = False
+
+        inst = ConcreteInstrument(simulate=True, sim_config={"voltage": 3.3})
+        assert inst.simulate is True
+        assert inst.sim_config == {"voltage": 3.3}
+
+    def test_context_manager(self):
+        class ConcreteInstrument(Instrument):
+            def connect(self):
+                self._connected = True
+
+            def disconnect(self):
+                self._connected = False
+
+        with ConcreteInstrument() as inst:
+            assert inst._connected is True
+        assert inst._connected is False
 
 
 class TestVisaInstrument:
@@ -12,44 +58,19 @@ class TestVisaInstrument:
     def test_init(self):
         vi = VisaInstrument("TCPIP::192.168.1.100::INSTR")
         assert vi.resource == "TCPIP::192.168.1.100::INSTR"
-        assert vi.visa_library == ""
+        assert vi.simulate is False
         assert vi.timeout_ms == 5000
 
-    def test_init_with_options(self):
+    def test_init_with_simulation(self):
         vi = VisaInstrument(
-            "GPIB::1::INSTR",
-            visa_library="/path/to/visa.so",
+            "TCPIP::192.168.1.100::INSTR",
+            simulate=True,
+            sim_config={"responses": {"*IDN?": "Test,Sim,001,1.0"}},
             timeout_ms=10000,
         )
-        assert vi.resource == "GPIB::1::INSTR"
-        assert vi.visa_library == "/path/to/visa.so"
+        assert vi.resource == "TCPIP::192.168.1.100::INSTR"
+        assert vi.simulate is True
         assert vi.timeout_ms == 10000
-
-    def test_connect_simulated(self):
-        visa_lib = get_sim_resource_manager()
-        resource = get_simulated_resource()
-
-        vi = VisaInstrument(resource, visa_library=visa_lib)
-        idn = vi.connect()
-
-        assert idn == "Litmus,SimDMM,SN001,1.0"
-        vi.disconnect()
-
-    def test_context_manager_simulated(self):
-        visa_lib = get_sim_resource_manager()
-        resource = get_simulated_resource()
-
-        with VisaInstrument(resource, visa_library=visa_lib) as vi:
-            response = vi.query("*IDN?")
-            assert response == "Litmus,SimDMM,SN001,1.0"
-
-    def test_query_simulated(self):
-        visa_lib = get_sim_resource_manager()
-        resource = get_simulated_resource()
-
-        with VisaInstrument(resource, visa_library=visa_lib) as vi:
-            voltage = vi.query("MEAS:VOLT:DC?")
-            assert voltage == "5.0012"
 
     def test_query_not_connected_raises(self):
         vi = VisaInstrument("TCPIP::192.168.1.100::INSTR")
@@ -61,103 +82,82 @@ class TestVisaInstrument:
         with pytest.raises(RuntimeError, match="Not connected"):
             vi.write("*RST")
 
-
-class TestInstrumentBase:
-    """Tests for Instrument abstract base class."""
-
-    def test_cannot_instantiate_abstract(self):
-        with pytest.raises(TypeError):
-            Instrument("TCPIP::192.168.1.100::INSTR")  # type: ignore
-
-    def test_subclass_implementation(self):
-        class ConcreteInstrument(Instrument):
-            def connect(self):
-                pass
-
-            def disconnect(self):
-                pass
-
-        inst = ConcreteInstrument("TCPIP::192.168.1.100::INSTR")
-        assert inst.resource == "TCPIP::192.168.1.100::INSTR"
-
-    def test_subclass_with_simulated_flag(self):
-        class ConcreteInstrument(Instrument):
-            def connect(self):
-                pass
-
-            def disconnect(self):
-                pass
-
-        inst = ConcreteInstrument("SIM::TEST", simulated=True, sim_values={"voltage": 3.3})
-        assert inst.resource == "SIM::TEST"
-        assert inst.simulated is True
-        assert inst.sim_values == {"voltage": 3.3}
-
-
-class TestSimulatedBackend:
-    """Tests for SimulatedBackend class."""
-
-    def test_init_defaults(self):
-        backend = SimulatedBackend("SIM::TEST")
-        assert backend.resource == "SIM::TEST"
-        assert backend._idn == "Litmus,Simulated,SN001,1.0"
-        assert backend._responses == {}
-        assert backend._connected is False
-
-    def test_init_with_options(self):
-        backend = SimulatedBackend(
-            "SIM::TEST",
-            idn="Test,Instrument,001,1.0",
-            responses={"*IDN?": "Test"},
+    def test_simulated_connection(self):
+        """Test that simulate=True creates a pyvisa-sim connection."""
+        vi = VisaInstrument(
+            "TCPIP::192.168.1.100::INSTR",
+            simulate=True,
         )
-        assert backend._idn == "Test,Instrument,001,1.0"
-        assert backend._responses == {"*IDN?": "Test"}
+        vi.connect()
+        try:
+            # Should be able to query *IDN? on simulated instrument
+            response = vi.query("*IDN?")
+            assert response is not None
+        finally:
+            vi.disconnect()
 
-    def test_connect_returns_idn(self):
-        backend = SimulatedBackend("SIM::TEST", idn="Test,Instrument,001,1.0")
-        idn = backend.connect()
-        assert idn == "Test,Instrument,001,1.0"
-        assert backend._connected is True
+    def test_simulated_context_manager(self):
+        """Test context manager with simulation."""
+        with VisaInstrument(
+            "TCPIP::192.168.1.100::INSTR",
+            simulate=True,
+            sim_config={"idn": "Test,Simulated,001,1.0"},
+        ) as vi:
+            response = vi.query("*IDN?")
+            assert response == "Test,Simulated,001,1.0"
 
-    def test_disconnect(self):
-        backend = SimulatedBackend("SIM::TEST")
-        backend.connect()
-        assert backend._connected is True
-        backend.disconnect()
-        assert backend._connected is False
 
-    def test_query_returns_configured_response(self):
-        backend = SimulatedBackend(
-            "SIM::TEST",
-            responses={"MEAS:VOLT?": "5.0", "MEAS:CURR?": "0.1"},
+class TestDMM:
+    """Tests for DMM driver."""
+
+    def test_init(self):
+        dmm = DMM("TCPIP::192.168.1.100::INSTR")
+        assert dmm.resource == "TCPIP::192.168.1.100::INSTR"
+        assert dmm.simulate is False
+
+    def test_simulated_measurement(self):
+        """Test DMM simulation with pyvisa-sim."""
+        dmm = DMM(
+            "TCPIP::192.168.1.100::INSTR",
+            simulate=True,
+            sim_config={"voltage": 3.3},
         )
-        backend.connect()
-        assert backend.query("MEAS:VOLT?") == "5.0"
-        assert backend.query("MEAS:CURR?") == "0.1"
+        with dmm:
+            voltage = dmm.measure_voltage()
+            # Should return configured voltage
+            assert float(voltage) == pytest.approx(3.3, abs=0.001)
 
-    def test_query_returns_default_for_unknown(self):
-        backend = SimulatedBackend("SIM::TEST", responses={})
-        backend.connect()
-        assert backend.query("UNKNOWN:CMD?") == "0"
+    def test_simulated_current_measurement(self):
+        """Test DMM current simulation."""
+        dmm = DMM(
+            "TCPIP::192.168.1.100::INSTR",
+            simulate=True,
+            sim_config={"current": 0.5},
+        )
+        with dmm:
+            current = dmm.measure_current()
+            assert float(current) == pytest.approx(0.5, abs=0.001)
 
-    def test_query_not_connected_raises(self):
-        backend = SimulatedBackend("SIM::TEST")
-        with pytest.raises(RuntimeError, match="Not connected"):
-            backend.query("*IDN?")
+    def test_simulated_resistance_measurement(self):
+        """Test DMM resistance simulation."""
+        dmm = DMM(
+            "TCPIP::192.168.1.100::INSTR",
+            simulate=True,
+            sim_config={"resistance": 1000.0},
+        )
+        with dmm:
+            resistance = dmm.measure_resistance()
+            assert float(resistance) == pytest.approx(1000.0, abs=0.1)
 
-    def test_write_not_connected_raises(self):
-        backend = SimulatedBackend("SIM::TEST")
-        with pytest.raises(RuntimeError, match="Not connected"):
-            backend.write("*RST")
-
-    def test_write_connected_does_not_raise(self):
-        backend = SimulatedBackend("SIM::TEST")
-        backend.connect()
-        # Write should succeed silently (simulation ignores writes)
-        backend.write("CONF:VOLT:DC 10")
-
-    def test_context_manager(self):
-        with SimulatedBackend("SIM::TEST", idn="Test,IDN") as backend:
-            assert backend._connected is True
-            assert backend.query("*IDN?") == "0"  # No response configured
-        assert backend._connected is False
+    def test_idn_after_connect(self):
+        """Test that IDN is read on connect."""
+        dmm = DMM(
+            "TCPIP::192.168.1.100::INSTR",
+            simulate=True,
+        )
+        dmm.connect()
+        try:
+            assert dmm.idn is not None
+            assert "Litmus,SimDMM" in dmm.idn
+        finally:
+            dmm.disconnect()

@@ -384,3 +384,143 @@ def discover_sequences() -> list[dict]:
                         "steps": data.get("steps", []),
                     })
     return sequences
+
+
+# -----------------------------------------------------------------------------
+# Fixture Services
+# -----------------------------------------------------------------------------
+
+
+def discover_fixtures() -> list[dict]:
+    """Discover fixture configurations from YAML files.
+
+    Searches fixtures/ and demo/fixtures/ directories.
+    """
+    fixtures = []
+    seen_ids = set()
+
+    search_paths = [
+        Path.cwd() / "fixtures",
+        Path.cwd() / "demo" / "fixtures",
+    ]
+
+    for fixtures_dir in search_paths:
+        if not fixtures_dir.exists():
+            continue
+        for yaml_file in fixtures_dir.glob("*.yaml"):
+            with open(yaml_file) as f:
+                data = yaml.safe_load(f)
+                if data and "fixture" in data:
+                    fixture_info = data["fixture"]
+                    fixture_id = fixture_info.get("id", yaml_file.stem)
+
+                    if fixture_id in seen_ids:
+                        continue
+                    seen_ids.add(fixture_id)
+
+                    points = data.get("points", {})
+                    # Support both product_id (specific) and product_family (legacy)
+                    product_id = fixture_info.get("product_id")
+                    product_family = fixture_info.get("product_family", "")
+                    product_revision = fixture_info.get("product_revision")
+
+                    fixtures.append({
+                        "id": fixture_id,
+                        "name": fixture_info.get("name", yaml_file.stem),
+                        "description": fixture_info.get("description", ""),
+                        "product_id": product_id,
+                        "product_family": product_family,
+                        "product_revision": product_revision,
+                        "points": points,
+                        "point_count": len(points),
+                        "file": str(yaml_file),
+                    })
+
+    return fixtures
+
+
+def load_fixture_config(fixture_id: str) -> dict | None:
+    """Load fixture configuration by ID."""
+    search_paths = [
+        Path.cwd() / "fixtures",
+        Path.cwd() / "demo" / "fixtures",
+    ]
+
+    for fixtures_dir in search_paths:
+        if not fixtures_dir.exists():
+            continue
+        for yaml_file in fixtures_dir.glob("*.yaml"):
+            with open(yaml_file) as f:
+                data = yaml.safe_load(f)
+                if data and "fixture" in data:
+                    fixture_info = data["fixture"]
+                    if fixture_info.get("id") == fixture_id or yaml_file.stem == fixture_id:
+                        return data
+    return None
+
+
+def save_fixture(fixture_id: str, fixture_data: dict, points_data: dict) -> bool:
+    """Save fixture configuration to YAML file."""
+    search_paths = [
+        Path.cwd() / "fixtures",
+        Path.cwd() / "demo" / "fixtures",
+    ]
+
+    target_file = None
+    for fixtures_dir in search_paths:
+        if fixtures_dir.exists():
+            existing = fixtures_dir / f"{fixture_id}.yaml"
+            if existing.exists():
+                target_file = existing
+                break
+
+    if target_file is None:
+        for fixtures_dir in search_paths:
+            if fixtures_dir.exists():
+                target_file = fixtures_dir / f"{fixture_id}.yaml"
+                break
+
+    if target_file is None:
+        fixtures_dir = Path.cwd() / "fixtures"
+        fixtures_dir.mkdir(exist_ok=True)
+        target_file = fixtures_dir / f"{fixture_id}.yaml"
+
+    yaml_data = {
+        "fixture": fixture_data,
+        "points": points_data,
+    }
+
+    with open(target_file, "w") as f:
+        yaml.dump(yaml_data, f, default_flow_style=False, sort_keys=False)
+
+    return True
+
+
+def get_fixtures_for_product(product_family: str) -> list[dict]:
+    """Get all fixtures for a product family."""
+    all_fixtures = discover_fixtures()
+    return [f for f in all_fixtures if f.get("product_family") == product_family]
+
+
+def get_compatible_stations_for_fixture(fixture_id: str) -> list[dict]:
+    """Get stations that have all instruments referenced by a fixture."""
+    fixture_config = load_fixture_config(fixture_id)
+    if not fixture_config:
+        return []
+
+    # Get instrument names referenced by fixture points
+    points = fixture_config.get("points", {})
+    required_instruments = {p.get("instrument") for p in points.values() if p.get("instrument")}
+
+    # Check each station
+    compatible = []
+    for station in discover_stations():
+        station_config = load_station_config(station["id"])
+        if not station_config:
+            continue
+
+        station_instruments = set(station_config.get("instruments", {}).keys())
+        if required_instruments <= station_instruments:
+            compatible.append(station)
+
+    return compatible

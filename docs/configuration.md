@@ -101,10 +101,10 @@ station:
 
 instruments:
   <name>:                 # Instrument alias (used in tests)
-    type: string          # Instrument type (dmm, scope, power_supply, etc.)
-    resource: string      # VISA address or "SIM::<name>"
-    simulated: boolean    # Use simulated driver (default false)
-    sim_values:           # Values for simulation
+    type: string          # Instrument type (dmm, scope, psu, eload, etc.)
+    resource: string      # VISA address
+    simulate: boolean     # Use simulated driver (default false)
+    sim_config:           # Values for simulation
       voltage: decimal
       current: decimal
       resistance: decimal
@@ -124,6 +124,58 @@ supported_phases:         # Optional: which test phases this station supports
 | `power_supply` | DC Power Supply | voltage output, current output |
 | `eload` | Electronic Load | current sink |
 | `funcgen` | Function Generator | waveform output |
+
+## Fixture Configuration
+
+**Location:** `fixtures/<fixture_id>.yaml`
+
+Fixtures define pin-to-instrument mappings, bridging product pins to station instruments.
+
+```yaml
+fixture:
+  id: string              # Unique identifier
+  name: string            # Display name
+  product_id: string      # Specific product (preferred)
+  product_family: string  # Or product family for shared fixtures
+  product_revision: string # Optional: specific revision
+
+points:
+  <name>:                 # Fixture point name
+    dut_pin: string       # Product pin reference
+    net: string           # Or schematic net name
+    instrument: string    # Station instrument name
+    instrument_channel: string  # Channel on instrument
+```
+
+### Example
+
+```yaml
+# fixtures/power_board_fixture.yaml
+fixture:
+  id: power_board_fixture
+  name: "Power Board Test Fixture"
+  product_id: power_board
+
+points:
+  VIN:
+    dut_pin: VIN
+    net: VIN_5V
+    instrument: psu
+    instrument_channel: "1"
+  VOUT:
+    dut_pin: VOUT
+    net: VOUT_3V3
+    instrument: dmm
+```
+
+### When to Use Fixtures
+
+| Scenario | Use Fixture? |
+|----------|--------------|
+| Simple bench, one product | No — use direct instrument fixtures |
+| Multiple products on same bench | Yes — map each product's pins |
+| Production test with compliance needs | Yes — provides traceability |
+| Development/CI | No — use MockDMM, MockPSU |
 
 ## Test Configuration
 

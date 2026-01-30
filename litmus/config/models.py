@@ -124,11 +124,18 @@ class StationInstance(BaseModel):
     active_fixture: str | None = None  # May be detected at runtime
 
 
-class FixtureChannel(BaseModel):
-    """A single channel/pin on a test fixture.
+class FixturePoint(BaseModel):
+    """A named routing junction on a test fixture.
 
     Maps a DUT connection point to an instrument channel, enabling
-    complete signal routing traceability.
+    complete signal routing traceability. Called "Point" rather than
+    "Channel" to avoid confusion with instrument channels.
+
+    Terminology:
+    - Pin: Physical DUT connection point (J1.1, TP5)
+    - Net: Schematic signal name (VOUT_3V3)
+    - FixturePoint: Named routing junction (vout_measure)
+    - InstrumentChannel: Physical channel on instrument (CH1, ai0)
 
     Example YAML:
         vout_measure:
@@ -149,12 +156,58 @@ class FixtureChannel(BaseModel):
     net: str | None = None  # Match by schematic net name
 
 
+# Backwards compatibility alias
+FixtureChannel = FixturePoint
+
+
 class FixtureConfig(BaseModel):
-    """Test fixture definition (DUT interface)."""
+    """Test fixture definition (DUT interface).
+
+    Fixtures define how product pins connect to station instruments.
+    They can be scoped to:
+    - A specific product (product_id)
+    - A product family (product_family) - for shared fixtures
+    - A specific revision (product_revision) - optional refinement
+
+    For simple setups without formal fixtures, tests can use:
+    - Direct instrument access via fixtures (dmm, psu)
+    - Ad-hoc pin mappings in test config
+    """
 
     id: str
-    product_family: str
-    channels: dict[str, FixtureChannel]
+    name: str | None = None
+
+    # Product scope - use one or both
+    product_id: str | None = None  # Specific product (preferred)
+    product_family: str | None = None  # Product family (for shared fixtures)
+    product_revision: str | None = None  # Optional: specific revision
+
+    # Pin-to-instrument mappings
+    points: dict[str, FixturePoint] = Field(default_factory=dict)
+
+    description: str | None = None
+
+    # Backwards compatibility: accept 'channels' as alias for 'points'
+    @property
+    def channels(self) -> dict[str, FixturePoint]:
+        """Backwards compatibility alias for points."""
+        return self.points
+
+    def matches_product(self, product_id: str, revision: str | None = None) -> bool:
+        """Check if this fixture matches a product."""
+        # Exact product match
+        if self.product_id and self.product_id == product_id:
+            if self.product_revision and revision:
+                return self.product_revision == revision
+            return True
+
+        # Family match (less specific)
+        if self.product_family:
+            # Would need product lookup to check family membership
+            # For now, direct ID comparison as fallback
+            return self.product_family == product_id
+
+        return False
 
 
 class DialogConfig(BaseModel):

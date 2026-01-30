@@ -41,8 +41,19 @@ scpi_commands:
   identify: "*IDN?"
   reset: "*RST"
   set_voltage: "VOLT {value}"
-  set_current_limit: "CURR {value}"
+  set_current: "CURR {value}"
+  set_current_limit: "CURR:PROT {value}"
+  set_voltage_limit: "VOLT:PROT {value}"
   output_on: "OUTP ON"
   output_off: "OUTP OFF"
   measure_voltage: "MEAS:VOLT?"
   measure_current: "MEAS:CURR?"
+  clear_protection: "OUTP:PROT:CLE"
+
+# Simulation defaults for pyvisa-sim
+simulation:
+  idn: "Litmus,SimPSU,SN001,1.0"
+  defaults:
+    voltage: 0.0
+    current: 0.0
+  driver_class: litmus.instruments.psu.PSU

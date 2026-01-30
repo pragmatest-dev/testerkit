@@ -191,18 +191,75 @@ instruments:
 
 ### Simulated Mode
 
-For development without hardware:
+For development without hardware, use `simulate: true`:
 
 ```yaml
 instruments:
   dmm:
     type: dmm
-    resource: "SIM::DMM"
-    simulated: true
-    sim_values:
+    resource: "TCPIP::192.168.1.100::INSTR"
+    simulate: true
+    sim_config:
       voltage: 3.31
       current: 0.1
 ```
+
+Or in Python:
+
+```python
+from litmus.instruments import DMM
+
+# Driver-level simulation (uses pyvisa-sim)
+dmm = DMM("TCPIP::192.168.1.100::INSTR", simulate=True, sim_config={"voltage": 3.3})
+
+# Interface-level mocks (instant, no I/O)
+from litmus.instruments import MockDMM
+dmm = MockDMM(voltage=3.3)
+```
+
+## Fixtures (Optional)
+
+**Fixtures** define pin-to-instrument mappings, bridging product pins to station instruments. They're optional — you can test without them.
+
+### When to Use Fixtures
+
+| Approach | When to Use |
+|----------|-------------|
+| **Mock objects** | Development, CI, unit tests |
+| **Direct fixtures** | Simple benches, quick prototyping |
+| **Pin mapping (fixtures)** | Production, complex routing, compliance |
+
+### Fixture Configuration
+
+```yaml
+# fixtures/power_board_fixture.yaml
+fixture:
+  id: power_board_fixture
+  product_id: power_board
+
+points:
+  VIN:
+    dut_pin: VIN
+    instrument: psu
+    instrument_channel: "1"
+  VOUT:
+    dut_pin: VOUT
+    instrument: dmm
+```
+
+### Using the `pins` Fixture
+
+With a fixture configured, tests can access instruments by DUT pin name:
+
+```python
+def test_output(pins):
+    pins["VIN"].set_voltage(5.0)
+    pins["VIN"].enable_output()
+    voltage = pins["VOUT"].measure_voltage()
+    assert float(voltage) > 3.0
+```
+
+This decouples test code from station wiring — the same test runs on different stations with different fixtures.
 
 ## Capabilities
 

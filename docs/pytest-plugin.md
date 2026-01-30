@@ -159,7 +159,7 @@ Create pytest fixtures for your instruments:
 
 ```python
 import pytest
-from litmus.instruments import DMM, PowerSupply
+from litmus.instruments import DMM, PSU
 
 @pytest.fixture
 def dmm():
@@ -168,14 +168,41 @@ def dmm():
 
 @pytest.fixture
 def psu():
-    with PowerSupply("GPIB0::5::INSTR") as p:
+    with PSU("GPIB0::5::INSTR") as p:
         yield p
 
-# Simulated for development
+# Simulated for development (driver-level with pyvisa-sim)
 @pytest.fixture
 def sim_dmm():
-    with DMM("SIM::DMM", simulated=True, sim_values={"voltage": 5.0}) as d:
+    with DMM("TCPIP::192.168.1.100::INSTR", simulate=True, sim_config={"voltage": 5.0}) as d:
         yield d
+
+# Interface-level mocks (instant, no I/O overhead)
+@pytest.fixture
+def mock_dmm():
+    from litmus.instruments import MockDMM
+    with MockDMM(voltage=5.0) as d:
+        yield d
+```
+
+### Using the `pins` Fixture
+
+For UUT-centric tests, use the `pins` fixture to access instruments via DUT pin names:
+
+```python
+def test_output_voltage(pins):
+    pins["VIN"].set_voltage(5.0)
+    pins["VIN"].enable_output()
+    voltage = pins["VOUT"].measure_voltage()
+    assert float(voltage) > 3.0
+```
+
+### CLI Options for Simulation
+
+Run all tests in simulation mode:
+
+```bash
+pytest tests/ --simulate --dut-serial=TEST001
 ```
 
 ## CLI Options
@@ -257,19 +284,19 @@ from litmus.instruments import DMM
 
 @pytest.fixture
 def dmm():
-    with DMM("SIM::DMM", simulated=True, sim_values={"voltage": 5.02}) as d:
+    with DMM("TCPIP::192.168.1.100::INSTR", simulate=True, sim_config={"voltage": 5.02}) as d:
         yield d
 
 @litmus_test
 def test_input_voltage(vector, dmm):
     """Verify input voltage."""
-    return dmm.measure_dc_voltage()
+    return dmm.measure_voltage()
 
 @litmus_test
 def test_output_sweep(vector, dmm):
     """Sweep load conditions."""
     # vector["load_percent"] contains current load value
-    return dmm.measure_dc_voltage()
+    return dmm.measure_voltage()
 ```
 
 **Run:**

@@ -160,7 +160,7 @@ class SpecContext:
                 - pins: List of pin IDs
                 - dut_pin: Primary pin (first in list) or None
                 - net: Schematic net name (from primary pin)
-                - fixture_channel: Fixture channel name (if fixture configured)
+                - fixture_point: Fixture channel name (if fixture configured)
                 - instrument_channel: Instrument channel (if fixture configured)
         """
         char = self.product.characteristics.get(char_id)
@@ -171,7 +171,7 @@ class SpecContext:
             "pins": char.pins,
             "dut_pin": None,
             "net": None,
-            "fixture_channel": None,
+            "fixture_point": None,
             "instrument_channel": None,
         }
 
@@ -187,7 +187,7 @@ class SpecContext:
                 if self.fixture:
                     for ch_name, ch in self.fixture.channels.items():
                         if ch.dut_pin == primary_pin_id or ch.net == pin.net:
-                            result["fixture_channel"] = ch_name
+                            result["fixture_point"] = ch_name
                             result["instrument_channel"] = ch.instrument_channel
                             break
 

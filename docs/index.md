@@ -7,11 +7,19 @@ Litmus is a Python-native hardware test platform for the AI-assisted era.
 | Guide | Description |
 |-------|-------------|
 | [Quick Start](quickstart.md) | Install, run demo, write first test |
-| [Core Concepts](concepts.md) | Products, stations, capabilities, matching |
+| [Core Concepts](concepts.md) | Products, stations, fixtures, capabilities, matching |
 | [Configuration](configuration.md) | YAML schemas and Pydantic models |
 | [pytest Plugin](pytest-plugin.md) | `@litmus_test`, vectors, retries |
+| [Custom Drivers](instruments/custom-drivers.md) | Non-VISA, DAQmx, serial protocols |
 | [Python Client](client.md) | Submit results from external tools |
 | [API Reference](api.md) | MCP tools and HTTP endpoints |
+
+## Diagrams
+
+| Diagram | Description |
+|---------|-------------|
+| [Architecture ERD](architecture-erd.md) | System overview, execution flow, types vs instances |
+| [Models ERD](models-erd.md) | Pydantic model relationships |
 
 ## Quick Links
 

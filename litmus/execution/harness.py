@@ -253,7 +253,7 @@ class TestHarness:
         limit: Limit | None = None,
         dut_pin: str | None = None,
         instrument_channel: str | None = None,
-        fixture_channel: str | None = None,
+        fixture_point: str | None = None,
     ) -> Measurement:
         """Record a measurement for the current vector.
 
@@ -264,7 +264,7 @@ class TestHarness:
             limit: Explicit limit (optional, overrides config lookup).
             dut_pin: DUT pin being measured (optional, auto-resolved from spec).
             instrument_channel: Instrument channel used (optional).
-            fixture_channel: Fixture channel used (optional).
+            fixture_point: Fixture channel used (optional).
 
         Returns:
             Measurement object with outcome set.
@@ -279,17 +279,17 @@ class TestHarness:
         # Resolve channel traceability from SpecContext if not provided
         resolved_dut_pin = dut_pin
         resolved_instrument_channel = instrument_channel
-        resolved_fixture_channel = fixture_channel
+        resolved_fixture_point = fixture_point
 
-        if self._spec_context and not all([dut_pin, instrument_channel, fixture_channel]):
+        if self._spec_context and not all([dut_pin, instrument_channel, fixture_point]):
             pin_info = self._spec_context.get_pin_info(name)
             if pin_info:
                 resolved_dut_pin = resolved_dut_pin or pin_info.get("dut_pin")
                 resolved_instrument_channel = resolved_instrument_channel or pin_info.get(
                     "instrument_channel"
                 )
-                resolved_fixture_channel = resolved_fixture_channel or pin_info.get(
-                    "fixture_channel"
+                resolved_fixture_point = resolved_fixture_point or pin_info.get(
+                    "fixture_point"
                 )
 
         # Create measurement
@@ -303,7 +303,7 @@ class TestHarness:
             spec_ref=resolved_limit.spec_ref if resolved_limit else None,
             dut_pin=resolved_dut_pin,
             instrument_channel=resolved_instrument_channel,
-            fixture_channel=resolved_fixture_channel,
+            fixture_point=resolved_fixture_point,
         )
 
         # Check limits

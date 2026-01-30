@@ -151,7 +151,7 @@ def _render_instruments_tab(form_data: dict, type_options: dict):
 
 def _render_instrument_expansion(inst_name: str, inst_data: dict):
     """Render an instrument expansion panel."""
-    simulated = inst_data.get("simulated", False)
+    simulated = inst_data.get("simulate", False)
     with ui.expansion(inst_name, icon="cable").classes("w-full"):
         with ui.column().classes("gap-4 p-2"):
             with ui.row().classes("gap-4 items-end"):
@@ -200,7 +200,7 @@ def _show_add_instrument_dialog(type_options: dict, on_add: callable):
         "name": "",
         "type": list(type_options.keys())[0] if type_options else "",
         "resource": "",
-        "simulated": False,
+        "simulate": False,
     }
 
     with ui.dialog() as dialog, ui.card().classes("w-96"):
@@ -228,7 +228,7 @@ def _show_add_instrument_dialog(type_options: dict, on_add: callable):
                 ).props("outlined dense").classes("w-full")
             ui.checkbox(
                 "Simulated",
-                on_change=lambda e: inst_form.update({"simulated": e.value}),
+                on_change=lambda e: inst_form.update({"simulate": e.value}),
             )
         with ui.card_actions().classes("justify-end"):
             ui.button("Cancel", on_click=dialog.close).props("flat")

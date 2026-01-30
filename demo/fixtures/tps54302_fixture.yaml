@@ -1,0 +1,67 @@
+# TPS54302 Test Fixture
+# Maps DUT pins to station instruments for the bench_full station
+#
+# This fixture is specific to product_id: tps54302 (revision A)
+# It defines how the physical test points connect to instruments.
+
+fixture:
+  id: tps54302_fixture
+  name: "TPS54302 Test Fixture"
+  product_id: tps54302
+  product_revision: "A"
+  description: "Pin mapping for TPS54302 DC-DC converter on bench_full station"
+
+# Pin-to-instrument mappings
+# Each point connects a DUT pin to a station instrument
+points:
+  # Input power - supplied by PSU
+  vin_source:
+    name: vin_source
+    dut_pin: VIN
+    net: VIN_5V
+    instrument: psu_main
+    instrument_channel: "1"
+    description: "Input voltage supply from PSU channel 1"
+
+  # Output voltage measurement - measured by DMM
+  vout_measure:
+    name: vout_measure
+    dut_pin: VOUT
+    net: VOUT_3V3
+    instrument: dmm_vout
+    instrument_channel: "1"
+    description: "Output voltage measurement by primary DMM"
+
+  # Output ripple measurement - measured by scope
+  vout_ripple:
+    name: vout_ripple
+    dut_pin: VOUT
+    net: VOUT_3V3
+    instrument: scope_main
+    instrument_channel: "CH1"
+    description: "Output ripple measurement by oscilloscope"
+
+  # Switching node - measured by scope
+  sw_node:
+    name: sw_node
+    dut_pin: SW
+    net: SW_NODE
+    instrument: scope_main
+    instrument_channel: "CH2"
+    description: "Switching node waveform capture"
+
+  # Input current measurement - via DMM with shunt
+  iin_measure:
+    name: iin_measure
+    dut_pin: VIN
+    net: VIN_5V
+    instrument: dmm_iin
+    description: "Input current measurement (via current shunt)"
+
+  # Output load - controlled by electronic load
+  load_sink:
+    name: load_sink
+    dut_pin: IOUT
+    net: IOUT_SENSE
+    instrument: eload_main
+    description: "Output current sink via electronic load"

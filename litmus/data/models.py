@@ -42,10 +42,12 @@ class Measurement(BaseModel):
     comparator: str | None = None  # ATML comparator: EQ, NE, GE, LE, GELE, etc.
     timestamp: datetime = Field(default_factory=_utcnow)
 
-    # Channel traceability (ATML: signal routing)
+    # Traceability (ATML: signal routing)
     dut_pin: str | None = None  # Which DUT pin was measured
-    instrument_channel: str | None = None  # Which instrument channel
-    fixture_channel: str | None = None  # Which fixture channel
+    instrument_name: str | None = None  # Station config name (e.g., "dmm_main")
+    instrument_resource: str | None = None  # VISA address or connection string
+    instrument_channel: str | None = None  # Channel on instrument (e.g., "CH1")
+    fixture_point: str | None = None  # Fixture point name (e.g., "VOUT")
 
     def check_limit(self) -> Outcome:
         """Evaluate value against limits using comparator, set outcome, return result.
