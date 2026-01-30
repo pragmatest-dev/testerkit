@@ -36,24 +36,24 @@ def create_mcp_server() -> FastMCP:
         "Litmus",
         instructions="""Litmus is a hardware test platform. Use these 8 tools:
 
-1. discover - Scan for connected VISA instruments
-2. list - List entities (station/product/fixture/sequence/instrument/run)
-3. get - Get full details of an entity by type and ID
-4. save - Create or update an entity
-5. match - Check compatibility between products, stations, fixtures
-6. run - Execute a test sequence
-7. status - Get test run status and results
-8. open_ui - Get URL to view/edit entity in browser
+1. litmus_discover - Scan for connected VISA instruments
+2. litmus_list - List entities (station/product/fixture/sequence/instrument/run)
+3. litmus_get - Get full details of an entity by type and ID
+4. litmus_save - Create or update an entity
+5. litmus_match - Check compatibility between products, stations, fixtures
+6. litmus_run - Execute a test sequence
+7. litmus_status - Get test run status and results
+8. litmus_open_ui - Get URL to view/edit entity in browser
 
 Typical workflow:
-1. discover → see what instruments are connected
-2. save(station, ...) → create station config from discovered instruments
-3. save(product, ...) → create product spec from datasheet characteristics
-4. match(product_id) → find compatible stations and derive requirements
-5. save(test, ...) → generate pytest test code
-6. save(sequence, ...) → define test order
-7. run(...) → execute tests
-8. status(...) → check results
+1. litmus_discover → see what instruments are connected
+2. litmus_save(station, ...) → create station config from discovered instruments
+3. litmus_save(product, ...) → create product spec from datasheet characteristics
+4. litmus_match(product_id) → find compatible stations and derive requirements
+5. litmus_save(test, ...) → generate pytest test code
+6. litmus_save(sequence, ...) → define test order
+7. litmus_run(...) → execute tests
+8. litmus_status(...) → check results
 """,
     )
 
@@ -61,7 +61,7 @@ Typical workflow:
     # Tool 1: discover
     # -------------------------------------------------------------------------
 
-    @mcp.tool
+    @mcp.tool(name="litmus_discover")
     def discover() -> dict[str, Any]:
         """Scan for connected VISA instruments.
 
@@ -79,8 +79,8 @@ Typical workflow:
     # Tool 2: list
     # -------------------------------------------------------------------------
 
-    @mcp.tool
-    def list(entity_type: str) -> list[dict[str, Any]] | dict[str, Any]:
+    @mcp.tool(name="litmus_list")
+    def list_entities(entity_type: str) -> list[dict[str, Any]] | dict[str, Any]:
         """List entities of a given type.
 
         Args:
@@ -101,25 +101,25 @@ Typical workflow:
     # Tool 3: get
     # -------------------------------------------------------------------------
 
-    @mcp.tool
-    def get(entity_type: str, id: str) -> dict[str, Any]:
+    @mcp.tool(name="litmus_get")
+    def get_entity(entity_type: str, entity_id: str) -> dict[str, Any]:
         """Get full details of an entity.
 
         Args:
             entity_type: One of: station, product, fixture, sequence, instrument, run
-            id: The entity ID (e.g., "bench_1", "tps54302")
+            entity_id: The entity ID (e.g., "bench_1", "tps54302")
 
         Returns:
             Full entity details including all nested data.
         """
-        return get_tool(entity_type, id)
+        return get_tool(entity_type, entity_id)
 
     # -------------------------------------------------------------------------
     # Tool 4: save
     # -------------------------------------------------------------------------
 
-    @mcp.tool
-    def save(entity_type: str, id: str, content: dict[str, Any]) -> dict[str, Any]:
+    @mcp.tool(name="litmus_save")
+    def save_entity(entity_type: str, entity_id: str, content: dict[str, Any]) -> dict[str, Any]:
         """Create or update an entity.
 
         Validates the content before saving. Returns the path to the saved file
@@ -127,7 +127,7 @@ Typical workflow:
 
         Args:
             entity_type: One of: station, product, fixture, sequence, instrument, test
-            id: The entity ID (used as filename)
+            entity_id: The entity ID (used as filename)
             content: The entity content to save (structure varies by type)
 
         Returns:
@@ -141,13 +141,13 @@ Typical workflow:
         - instrument: {instrument: {type, name}, capabilities: [...]}
         - test: {code: "...python source..."}
         """
-        return save_tool(entity_type, id, content)
+        return save_tool(entity_type, entity_id, content)
 
     # -------------------------------------------------------------------------
     # Tool 5: match
     # -------------------------------------------------------------------------
 
-    @mcp.tool
+    @mcp.tool(name="litmus_match")
     def match(
         product_id: str | None = None,
         station_id: str | None = None,
@@ -174,8 +174,8 @@ Typical workflow:
     # Tool 6: run
     # -------------------------------------------------------------------------
 
-    @mcp.tool
-    def run(sequence_id: str, station_id: str, dut_serial: str) -> dict[str, Any]:
+    @mcp.tool(name="litmus_run")
+    def run_tests(sequence_id: str, station_id: str, dut_serial: str) -> dict[str, Any]:
         """Execute a test sequence.
 
         Starts a test run and returns a run_id for tracking progress.
@@ -194,7 +194,7 @@ Typical workflow:
     # Tool 7: status
     # -------------------------------------------------------------------------
 
-    @mcp.tool
+    @mcp.tool(name="litmus_status")
     def status(run_id: str) -> dict[str, Any]:
         """Get status of a test run.
 
@@ -210,7 +210,7 @@ Typical workflow:
     # Tool 8: open_ui
     # -------------------------------------------------------------------------
 
-    @mcp.tool
+    @mcp.tool(name="litmus_open_ui")
     def open_ui(
         entity_type: str, id: str, base_url: str = "http://localhost:8000"
     ) -> dict[str, Any]:
