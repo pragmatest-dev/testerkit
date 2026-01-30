@@ -164,40 +164,43 @@ Found:
 - TCPIP::192.168.1.100::INSTR - Unknown (IDN: "ACME,Model9000,...")
 - TCPIP::192.168.1.101::INSTR - Keysight E36312A PSU
 
-I don't recognize "ACME Model9000". What type of instrument is it?
+I don't recognize "ACME Model9000". Do you have the SCPI programming
+manual or a datasheet I can reference?
 ```
 
 **You:**
 ```
-It's a 6.5 digit DMM with voltage and current measurement up to 1000V/10A
+Here's the SCPI reference: [attach PDF or paste relevant sections]
 ```
 
 **Claude:**
 ```
-I'll create an instrument definition for it.
+I've analyzed the SCPI reference. The ACME Model9000 supports:
+
+Measurement Commands:
+- MEASure:VOLTage:DC? - DC voltage measurement
+- MEASure:CURRent:DC? - DC current measurement
+- MEASure:RESistance? - 2-wire resistance
+
+Configuration:
+- CONFigure:VOLTage:DC <range> - Set voltage range (100mV to 1000V)
+- CONFigure:CURRent:DC <range> - Set current range (10uA to 10A)
+
+I'll create an instrument definition with the actual SCPI commands.
 
 [Calls save_instrument_library]
 
-Created instruments/acme_model9000.yaml with capabilities:
-- voltage_dc INPUT (range: 1000V)
-- current_dc INPUT (range: 10A)
-
-Now I can use it in your station config.
-
-[Calls create_station]
-
-Created station with:
-- dmm_main: ACME Model9000 (type: acme_model9000)
-- psu_input: Keysight E36312A (type: psu)
+Created instruments/acme_model9000.yaml
 ```
 
-The new instrument definition is saved to YOUR `instruments/` folder:
+The new instrument definition includes real SCPI commands:
 ```yaml
 # instruments/acme_model9000.yaml
 instrument:
   type: acme_model9000
   name: "ACME Model 9000 DMM"
   description: "6.5 digit precision DMM"
+  driver_class: litmus.instruments.scpi.ScpiDmm  # Generic SCPI driver
 
 capabilities:
   - name: voltage_dc
@@ -208,9 +211,20 @@ capabilities:
     direction: input
     domain: current
     range_max: 10
+  - name: resistance
+    direction: input
+    domain: resistance
+    range_max: 100e6
+
+scpi_commands:
+  measure_voltage_dc: "MEAS:VOLT:DC?"
+  measure_current_dc: "MEAS:CURR:DC?"
+  measure_resistance: "MEAS:RES?"
+  configure_voltage_dc: "CONF:VOLT:DC {range}"
+  configure_current_dc: "CONF:CURR:DC {range}"
 ```
 
-You can edit this file to add more capabilities, SCPI commands, etc.
+Now Claude can generate tests that use the correct SCPI commands for your instrument.
 
 ---
 
