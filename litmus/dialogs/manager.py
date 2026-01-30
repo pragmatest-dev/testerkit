@@ -2,8 +2,8 @@
 
 import asyncio
 import os
-from collections.abc import Callable
 from collections import deque
+from collections.abc import Callable
 from uuid import UUID
 
 from litmus.dialogs.models import (

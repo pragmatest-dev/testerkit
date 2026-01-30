@@ -121,7 +121,6 @@ def create_api_router() -> APIRouter:
         from litmus.dialogs.models import (
             ChoiceDialog,
             ConfirmDialog,
-            DialogType,
             InputDialog,
         )
 
@@ -307,6 +306,8 @@ def create_api_router() -> APIRouter:
         """Get capabilities provided by a station."""
         from litmus.matching.service import (
             get_station_capabilities as service_get_capabilities,
+        )
+        from litmus.matching.service import (
             load_station_config,
         )
 

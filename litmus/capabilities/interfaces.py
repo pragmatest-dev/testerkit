@@ -25,7 +25,6 @@ from typing import Protocol, runtime_checkable
 
 from litmus.capabilities.models import SignalType
 
-
 # =============================================================================
 # Measurement Capabilities (INPUT direction)
 # =============================================================================

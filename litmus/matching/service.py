@@ -18,7 +18,7 @@ from typing import Any
 import yaml
 from pydantic import BaseModel, Field
 
-from litmus.capabilities.models import Capability, Direction, Domain, SignalType
+from litmus.capabilities.models import Direction, Domain, SignalType
 from litmus.products.loader import load_product
 from litmus.products.models import Product
 

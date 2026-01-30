@@ -236,13 +236,13 @@ def _render_diagram_tab(fixture: dict, points: dict):
 
         # Render diagram
         product_family = fixture.get("product_family", "DUT")
-        ui.label(f"  ┌─────────────────┐          ┌─────────────────┐").classes(
+        ui.label("  ┌─────────────────┐          ┌─────────────────┐").classes(
             "text-slate-600"
         )
         ui.label(f"  │  {product_family:^15} │          │   Instruments   │").classes(
             "text-slate-600"
         )
-        ui.label(f"  └─────────────────┘          └─────────────────┘").classes(
+        ui.label("  └─────────────────┘          └─────────────────┘").classes(
             "text-slate-600"
         )
 

@@ -39,11 +39,12 @@ The client automatically:
 - Saves to Parquet via the configured backend
 """
 
+from collections.abc import Generator
 from contextlib import contextmanager
 from datetime import UTC, datetime
 from decimal import Decimal
 from pathlib import Path
-from typing import Any, Generator
+from typing import Any
 from uuid import UUID
 
 from litmus.data.backends.parquet import ParquetBackend

@@ -4,7 +4,6 @@ from nicegui import ui
 
 from litmus.ui.shared.layout import create_layout
 from litmus.ui.shared.services import (
-    discover_instrument_types,
     discover_products,
     discover_stations,
     load_fixture_config,
