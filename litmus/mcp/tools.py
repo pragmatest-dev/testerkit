@@ -745,38 +745,28 @@ def run_tool(sequence_id: str, station_id: str, dut_serial: str) -> dict[str, An
     import subprocess
     from datetime import datetime
 
-    # Determine test targets - could be a sequence ID or direct test path
-    test_targets = []
+    # Determine test target - direct path or find by product/sequence name
     if sequence_id.endswith(".py") or "::" in sequence_id:
         # Direct test path
         test_targets = [sequence_id]
     else:
-        # Try to find sequence file
-        seq_paths = [
-            Path.cwd() / "sequences" / f"{sequence_id}.yaml",
-            Path.cwd() / "demo" / "sequences" / f"{sequence_id}.yaml",
+        # Find test file by name
+        search_paths = [
+            Path.cwd() / "tests" / f"test_{sequence_id}.py",
+            Path.cwd() / "demo" / "tests" / f"test_{sequence_id}.py",
+            Path.cwd() / f"test_{sequence_id}.py",
         ]
-        for seq_path in seq_paths:
-            if seq_path.exists():
-                # Load sequence and get test paths
-                with open(seq_path) as f:
-                    seq_data = yaml.safe_load(f)
-                    seq = seq_data.get("sequence", seq_data)
-                    steps = seq.get("steps", [])
-                    test_targets = [s["test"] for s in steps if s.get("test")]
-                    if test_targets:
-                        break
+        test_targets = []
+        for test_path in search_paths:
+            if test_path.exists():
+                test_targets = [str(test_path)]
+                break
 
         if not test_targets:
-            # Default to demo tests if no sequence found
-            default_path = f"demo/tests/test_{sequence_id}.py"
-            if Path(default_path).exists():
-                test_targets = [default_path]
-            else:
-                return {
-                    "error": f"Sequence or test file not found: {sequence_id}",
-                    "searched": [str(p) for p in seq_paths] + [default_path],
-                }
+            return {
+                "error": f"Test file not found for: {sequence_id}",
+                "searched": [str(p) for p in search_paths],
+            }
 
     # Build pytest command - use pytest from same venv as litmus
     import sys
