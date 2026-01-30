@@ -745,9 +745,12 @@ def run_tool(sequence_id: str, station_id: str, dut_serial: str) -> dict[str, An
     import subprocess
     from datetime import datetime
 
-    # Determine test target - could be a sequence ID or direct test path
-    test_target = sequence_id
-    if not test_target.endswith(".py") and not "::" in test_target:
+    # Determine test targets - could be a sequence ID or direct test path
+    test_targets = []
+    if sequence_id.endswith(".py") or "::" in sequence_id:
+        # Direct test path
+        test_targets = [sequence_id]
+    else:
         # Try to find sequence file
         seq_paths = [
             Path.cwd() / "sequences" / f"{sequence_id}.yaml",
@@ -760,17 +763,19 @@ def run_tool(sequence_id: str, station_id: str, dut_serial: str) -> dict[str, An
                     seq_data = yaml.safe_load(f)
                     seq = seq_data.get("sequence", seq_data)
                     steps = seq.get("steps", [])
-                    tests = [s["test"] for s in steps if s.get("test")]
-                    if tests:
-                        test_target = " ".join(tests)
+                    test_targets = [s["test"] for s in steps if s.get("test")]
+                    if test_targets:
                         break
-        else:
+
+        if not test_targets:
             # Default to demo tests if no sequence found
-            test_target = f"demo/tests/test_{sequence_id}.py"
-            if not Path(test_target).exists():
+            default_path = f"demo/tests/test_{sequence_id}.py"
+            if Path(default_path).exists():
+                test_targets = [default_path]
+            else:
                 return {
                     "error": f"Sequence or test file not found: {sequence_id}",
-                    "searched": [str(p) for p in seq_paths] + [test_target],
+                    "searched": [str(p) for p in seq_paths] + [default_path],
                 }
 
     # Build pytest command - use pytest from same venv as litmus
@@ -778,7 +783,7 @@ def run_tool(sequence_id: str, station_id: str, dut_serial: str) -> dict[str, An
     pytest_path = Path(sys.executable).parent / "pytest"
     cmd = [
         str(pytest_path),
-        test_target,
+        *test_targets,  # Spread test targets as separate args
         f"--dut-serial={dut_serial}",
         f"--station={station_id}",
         "--results-dir=results",
@@ -824,7 +829,7 @@ def run_tool(sequence_id: str, station_id: str, dut_serial: str) -> dict[str, An
             "status": status,
             "returncode": result.returncode,
             "summary": summary_line,
-            "test_target": test_target,
+            "test_targets": test_targets,
             "dut_serial": dut_serial,
             "station_id": station_id,
             "started_at": started_at.isoformat(),
@@ -834,12 +839,12 @@ def run_tool(sequence_id: str, station_id: str, dut_serial: str) -> dict[str, An
     except subprocess.TimeoutExpired:
         return {
             "error": "Test execution timed out after 5 minutes",
-            "test_target": test_target,
+            "test_targets": test_targets,
         }
     except Exception as e:
         return {
             "error": f"Failed to run tests: {e}",
-            "test_target": test_target,
+            "test_targets": test_targets,
         }
 
 
