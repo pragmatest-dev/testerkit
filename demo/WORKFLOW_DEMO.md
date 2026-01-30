@@ -165,12 +165,30 @@ Found:
 - TCPIP::192.168.1.101::INSTR - Keysight E36312A PSU
 
 I don't recognize "ACME Model9000". Do you have the SCPI programming
-manual or a datasheet I can reference?
+manual? Or I can search for it online.
 ```
 
-**You:**
+**Option A: You have the manual**
 ```
 Here's the SCPI reference: [attach PDF or paste relevant sections]
+```
+
+**Option B: You don't have it**
+```
+I don't have the manual handy.
+```
+
+**Claude (if no manual):**
+```
+[Searches web for "ACME Model9000 SCPI programming manual"]
+
+Found the programming guide on ACME's website. Downloading...
+
+[Or, if not found online:]
+
+I couldn't find an official manual, but based on my knowledge of similar
+6.5-digit DMMs, they typically follow IEEE 488.2 / SCPI standards.
+I'll create a definition using standard commands - you can adjust if needed.
 ```
 
 **Claude:**
