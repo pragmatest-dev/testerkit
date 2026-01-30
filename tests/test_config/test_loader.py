@@ -149,7 +149,6 @@ station:
     scope:
       type: oscilloscope
       resource: "USB0::0x0957::0x1796::MY54321234::INSTR"
-  active_fixture: product_a_fixture
 """
         station_file = tmp_path / "station_001.yaml"
         station_file.write_text(yaml_content)
@@ -160,7 +159,6 @@ station:
         assert station.location == "Lab A, Bench 3"
         assert "dmm" in station.instruments
         assert station.instruments["dmm"].resource == "TCPIP::192.168.1.101::INSTR"
-        assert station.active_fixture == "product_a_fixture"
 
     def test_load_station_instance_legacy_format(self, tmp_path):
         """Test loading legacy format with instrument_resources."""

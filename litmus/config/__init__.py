@@ -12,7 +12,6 @@ from litmus.config.loader import (
     resolve_limit_ref,
 )
 from litmus.config.models import (
-    DialogConfig,
     FixtureChannel,
     FixtureConfig,
     InstrumentConfig,
@@ -40,7 +39,6 @@ from litmus.config.models import (
 
 __all__ = [
     # Models
-    "DialogConfig",
     "FixtureChannel",
     "FixtureConfig",
     "InstrumentConfig",

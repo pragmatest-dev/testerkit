@@ -3,7 +3,6 @@
 from decimal import Decimal
 
 from litmus.config.models import (
-    DialogConfig,
     FixtureConfig,
     FixturePoint,
     InstrumentConfig,
@@ -150,21 +149,14 @@ class TestInstrumentInstance:
         instance = InstrumentInstance(type="dmm", resource="GPIB0::5::INSTR")
         assert instance.type == "dmm"
         assert instance.resource == "GPIB0::5::INSTR"
-        assert instance.capabilities == []
 
-    def test_instrument_instance_full(self):
+    def test_instrument_instance_with_resource(self):
         instance = InstrumentInstance(
             type="oscilloscope",
             resource="USB0::0x0957::0x1796::MY54321234::INSTR",
-            model="Keysight MSO-X 3024T",
-            capabilities=["analog", "digital", "awg"],
-            bandwidth="200MHz",
-            channels=4,
         )
-        assert instance.model == "Keysight MSO-X 3024T"
-        assert "analog" in instance.capabilities
-        assert instance.bandwidth == "200MHz"
-        assert instance.channels == 4
+        assert instance.type == "oscilloscope"
+        assert instance.resource == "USB0::0x0957::0x1796::MY54321234::INSTR"
 
 
 class TestStationType:
@@ -199,11 +191,9 @@ class TestStationInstance:
             instruments={
                 "dmm": InstrumentInstance(type="dmm", resource="TCPIP::192.168.1.101::INSTR")
             },
-            active_fixture="product_a_fixture",
         )
         assert instance.location == "Lab A, Bench 3"
         assert "dmm" in instance.instruments
-        assert instance.active_fixture == "product_a_fixture"
 
 
 class TestFixtureConfig:
@@ -222,27 +212,6 @@ class TestFixtureConfig:
         # Test backwards compatibility alias
         assert "vcc" in config.channels
         assert config.channels["vcc"].instrument == "psu"
-
-
-class TestDialogConfig:
-    def test_dialog_confirm(self):
-        dialog = DialogConfig(
-            id="connect_dut",
-            message="Connect DUT to fixture and press OK",
-            dialog_type="confirm",
-        )
-        assert dialog.dialog_type == "confirm"
-        assert dialog.choices is None
-
-    def test_dialog_choice(self):
-        dialog = DialogConfig(
-            id="verify_led",
-            message="Is the power LED illuminated green?",
-            dialog_type="choice",
-            choices=["Yes - Green", "No - Off", "No - Other Color"],
-        )
-        assert dialog.dialog_type == "choice"
-        assert len(dialog.choices) == 3
 
 
 class TestRetryConfig:
@@ -348,11 +317,11 @@ class TestTestSequenceConfigModel:
                 ),
             ],
             dialogs={
-                "connect_dut": DialogConfig(
-                    id="connect_dut",
-                    message="Connect DUT",
-                    dialog_type="confirm",
-                )
+                "connect_dut": {
+                    "id": "connect_dut",
+                    "message": "Connect DUT",
+                    "dialog_type": "confirm",
+                }
             },
         )
         assert sequence.test_phase == "production"

@@ -1,7 +1,6 @@
 """pytest plugin for Litmus test framework."""
 
 import time
-from pathlib import Path
 from typing import Any
 
 import pytest
@@ -131,7 +130,6 @@ def spec_context(request):
         SpecContext or None if no spec configured.
     """
     from decimal import Decimal
-    from pathlib import Path
 
     from litmus.products.context import SpecContext
 
@@ -292,6 +290,28 @@ def pins(instruments, fixture_config):
 
     manager = FixtureManager(fixture_config, instruments)
     return PinAccessor(manager)
+
+
+@pytest.fixture(scope="session")
+def fixture_manager(instruments, fixture_config):
+    """Fixture manager for advanced pin/net routing.
+
+    Provides direct access to the FixtureManager for tests that need
+    advanced routing methods beyond the simple pins[] accessor:
+
+        def test_with_net_lookup(fixture_manager):
+            point = fixture_manager.get_point_for_net("VOUT_3V3")
+            instrument = fixture_manager.get_instrument_for_point(point.name)
+
+    Returns:
+        FixtureManager instance, or None if no fixture configured.
+    """
+    from litmus.fixtures.manager import FixtureManager
+
+    if not fixture_config or not instruments:
+        return None
+
+    return FixtureManager(fixture_config, instruments)
 
 
 def pytest_runtest_makereport(item, call):

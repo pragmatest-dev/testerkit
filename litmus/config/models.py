@@ -98,11 +98,6 @@ class InstrumentInstance(BaseModel):
 
     type: str
     resource: str  # VISA address
-    model: str | None = None  # Expected model (for validation)
-    capabilities: list[str] = Field(default_factory=list)
-    resolution: str | None = None
-    bandwidth: str | None = None
-    channels: int | None = None
 
 
 class StationType(BaseModel):
@@ -121,7 +116,6 @@ class StationInstance(BaseModel):
     station_type: str  # Reference to StationType
     location: str | None = None
     instruments: dict[str, InstrumentInstance] = Field(default_factory=dict)
-    active_fixture: str | None = None  # May be detected at runtime
 
 
 class FixturePoint(BaseModel):
@@ -208,17 +202,6 @@ class FixtureConfig(BaseModel):
             return self.product_family == product_id
 
         return False
-
-
-class DialogConfig(BaseModel):
-    """Definition of an operator dialog."""
-
-    id: str
-    message: str
-    dialog_type: Literal["confirm", "choice", "input", "image"]
-    choices: list[str] | None = None
-    image_path: str | None = None
-    timeout_seconds: int | None = None
 
 
 class RetryConfig(BaseModel):
@@ -599,7 +582,7 @@ class TestSequenceConfig(BaseModel):
     required_fixture: str | None = None  # Reference to FixtureConfig
     required_station_type: str | None = None  # Station type required
     steps: list[TestStepConfig] = Field(default_factory=list)
-    dialogs: dict[str, DialogConfig] = Field(default_factory=dict)
+    dialogs: dict[str, Any] = Field(default_factory=dict)  # Inline dialog definitions
     # pytest customization
     pytest_args: list[str] = Field(default_factory=list)  # Extra pytest arguments
     timeout_seconds: int | None = None  # Overall sequence timeout
