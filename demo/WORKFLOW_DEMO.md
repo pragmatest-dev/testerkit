@@ -152,11 +152,76 @@ Full results at:
 http://localhost:8000/results/abc123-def456
 ```
 
+## Alternate Flow: Unknown Instrument
+
+What if you have an instrument that's not in the built-in library?
+
+**Claude:**
+```
+[Calls discover_visa_resources]
+
+Found:
+- TCPIP::192.168.1.100::INSTR - Unknown (IDN: "ACME,Model9000,...")
+- TCPIP::192.168.1.101::INSTR - Keysight E36312A PSU
+
+I don't recognize "ACME Model9000". What type of instrument is it?
+```
+
+**You:**
+```
+It's a 6.5 digit DMM with voltage and current measurement up to 1000V/10A
+```
+
+**Claude:**
+```
+I'll create an instrument definition for it.
+
+[Calls save_instrument_library]
+
+Created instruments/acme_model9000.yaml with capabilities:
+- voltage_dc INPUT (range: 1000V)
+- current_dc INPUT (range: 10A)
+
+Now I can use it in your station config.
+
+[Calls create_station]
+
+Created station with:
+- dmm_main: ACME Model9000 (type: acme_model9000)
+- psu_input: Keysight E36312A (type: psu)
+```
+
+The new instrument definition is saved to YOUR `instruments/` folder:
+```yaml
+# instruments/acme_model9000.yaml
+instrument:
+  type: acme_model9000
+  name: "ACME Model 9000 DMM"
+  description: "6.5 digit precision DMM"
+
+capabilities:
+  - name: voltage_dc
+    direction: input
+    domain: voltage
+    range_max: 1000
+  - name: current_dc
+    direction: input
+    domain: current
+    range_max: 10
+```
+
+You can edit this file to add more capabilities, SCPI commands, etc.
+
+---
+
 ## What Claude Creates
 
 After this workflow, you'll have:
 
 ```
+instruments/
+  acme_model9000.yaml    # YOUR custom instrument definition
+
 products/
   tps54302/
     manifest.yaml      # Workflow state tracking
