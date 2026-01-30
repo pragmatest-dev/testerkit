@@ -75,13 +75,18 @@ class StationMatch(BaseModel):
 # -----------------------------------------------------------------------------
 
 
-def _get_search_paths() -> tuple[list[Path], list[Path], Path]:
+def _get_search_paths() -> tuple[list[Path], list[Path], list[Path]]:
     """Get search paths for specs, stations, and instrument library."""
     cwd = Path.cwd()
     specs_paths = [cwd / "specs", cwd / "demo" / "specs"]
     stations_paths = [cwd / "stations", cwd / "demo" / "stations"]
-    library_path = Path(__file__).parent.parent / "instruments" / "library"
-    return specs_paths, stations_paths, library_path
+    # User instruments first, then built-in library as fallback
+    library_paths = [
+        cwd / "instruments",
+        cwd / "demo" / "instruments",
+        Path(__file__).parent.parent / "instruments" / "library",  # Built-in fallback
+    ]
+    return specs_paths, stations_paths, library_paths
 
 
 def load_product_by_id(product_id: str) -> Product | None:
@@ -130,23 +135,39 @@ def list_products() -> list[dict[str, Any]]:
 
 
 def load_instrument_library(instrument_type: str) -> dict | None:
-    """Load instrument capabilities from library YAML."""
-    _, _, library_path = _get_search_paths()
-    yaml_file = library_path / f"{instrument_type}.yaml"
+    """Load instrument capabilities from library YAML.
 
-    if not yaml_file.exists():
-        return None
+    Searches user's instruments/ first, then falls back to built-in library.
+    """
+    _, _, library_paths = _get_search_paths()
 
-    with open(yaml_file) as f:
-        return yaml.safe_load(f)
+    for library_path in library_paths:
+        yaml_file = library_path / f"{instrument_type}.yaml"
+        if yaml_file.exists():
+            with open(yaml_file) as f:
+                return yaml.safe_load(f)
+
+    return None
 
 
 def list_instrument_types() -> list[str]:
-    """List available instrument types in the library."""
-    _, _, library_path = _get_search_paths()
-    if not library_path.exists():
-        return []
-    return [f.stem for f in library_path.glob("*.yaml")]
+    """List available instrument types from all library locations.
+
+    User-defined instruments appear alongside built-in ones.
+    """
+    _, _, library_paths = _get_search_paths()
+    seen = set()
+    types = []
+
+    for library_path in library_paths:
+        if not library_path.exists():
+            continue
+        for yaml_file in library_path.glob("*.yaml"):
+            if yaml_file.stem not in seen:
+                seen.add(yaml_file.stem)
+                types.append(yaml_file.stem)
+
+    return sorted(types)
 
 
 def load_station_config(station_id: str) -> dict | None:

@@ -198,27 +198,42 @@ def list_available_instrument_types_tool() -> list[dict[str, Any]]:
     Returns:
         List of instrument types with name, description, and capabilities.
     """
-    library_dir = Path(__file__).parent.parent / "instruments" / "library"
-
-    if not library_dir.exists():
-        return []
+    # User instruments first, then built-in library
+    search_paths = [
+        Path.cwd() / "instruments",
+        Path.cwd() / "demo" / "instruments",
+        Path(__file__).parent.parent / "instruments" / "library",
+    ]
 
     types = []
-    for yaml_file in sorted(library_dir.glob("*.yaml")):
-        try:
-            with open(yaml_file) as f:
-                data = yaml.safe_load(f)
-                if data and "instrument" in data:
-                    inst = data["instrument"]
-                    capabilities = data.get("capabilities", [])
-                    types.append({
-                        "type": inst.get("type", yaml_file.stem),
-                        "name": inst.get("name", yaml_file.stem),
-                        "description": inst.get("description", ""),
-                        "capabilities": [c.get("name", "") for c in capabilities],
-                    })
-        except Exception:
+    seen_types = set()
+
+    for library_dir in search_paths:
+        if not library_dir.exists():
             continue
+
+        for yaml_file in sorted(library_dir.glob("*.yaml")):
+            try:
+                with open(yaml_file) as f:
+                    data = yaml.safe_load(f)
+                    if data and "instrument" in data:
+                        inst = data["instrument"]
+                        inst_type = inst.get("type", yaml_file.stem)
+
+                        if inst_type in seen_types:
+                            continue
+                        seen_types.add(inst_type)
+
+                        capabilities = data.get("capabilities", [])
+                        types.append({
+                            "type": inst_type,
+                            "name": inst.get("name", yaml_file.stem),
+                            "description": inst.get("description", ""),
+                            "capabilities": [c.get("name", "") for c in capabilities],
+                            "source": "user" if "instruments/library" not in str(library_dir) else "built-in",
+                        })
+            except Exception:
+                continue
 
     return types
 
@@ -598,11 +613,12 @@ def save_product_spec_tool(product_id: str, spec: dict[str, Any]) -> dict[str, A
 def save_instrument_library_tool(
     instrument_type: str, spec: dict[str, Any]
 ) -> dict[str, Any]:
-    """Save a new instrument type definition."""
-    library_dir = Path(__file__).parent.parent / "instruments" / "library"
-    library_dir.mkdir(parents=True, exist_ok=True)
+    """Save a new instrument type definition to user's instruments/ folder."""
+    # Save to user's instruments folder, not built-in library
+    instruments_dir = Path.cwd() / "instruments"
+    instruments_dir.mkdir(parents=True, exist_ok=True)
 
-    filepath = library_dir / f"{instrument_type}.yaml"
+    filepath = instruments_dir / f"{instrument_type}.yaml"
     with open(filepath, "w") as f:
         yaml.dump(spec, f, default_flow_style=False, sort_keys=False)
 

@@ -289,27 +289,46 @@ def station_compatible_with_product(station_config: dict, product) -> bool:
 
 
 def discover_instrument_types() -> list[dict]:
-    """Discover available instrument types from YAML definitions."""
+    """Discover available instrument types from YAML definitions.
+
+    Searches user's instruments/ first, then built-in library.
+    """
     instruments = []
-    library_dir = Path(__file__).parent.parent.parent / "instruments" / "library"
+    seen_types = set()
 
-    if not library_dir.exists():
-        return instruments
+    # User instruments first, then built-in library
+    search_paths = [
+        Path.cwd() / "instruments",
+        Path.cwd() / "demo" / "instruments",
+        Path(__file__).parent.parent.parent / "instruments" / "library",
+    ]
 
-    for yaml_file in library_dir.glob("*.yaml"):
-        with open(yaml_file) as f:
-            data = yaml.safe_load(f)
-            if data and "instrument" in data:
-                inst = data["instrument"]
-                capabilities = data.get("capabilities", [])
-                instruments.append({
-                    "type": inst.get("type", yaml_file.stem),
-                    "name": inst.get("name", yaml_file.stem),
-                    "description": inst.get("description", ""),
-                    "icon": inst.get("icon", "device_unknown"),
-                    "capabilities": [c.get("name", "") for c in capabilities],
-                    "capability_details": capabilities,
-                })
+    for library_dir in search_paths:
+        if not library_dir.exists():
+            continue
+
+        for yaml_file in library_dir.glob("*.yaml"):
+            with open(yaml_file) as f:
+                data = yaml.safe_load(f)
+                if data and "instrument" in data:
+                    inst = data["instrument"]
+                    inst_type = inst.get("type", yaml_file.stem)
+
+                    # Skip if we already saw this type (user overrides built-in)
+                    if inst_type in seen_types:
+                        continue
+                    seen_types.add(inst_type)
+
+                    capabilities = data.get("capabilities", [])
+                    instruments.append({
+                        "type": inst_type,
+                        "name": inst.get("name", yaml_file.stem),
+                        "description": inst.get("description", ""),
+                        "icon": inst.get("icon", "device_unknown"),
+                        "capabilities": [c.get("name", "") for c in capabilities],
+                        "capability_details": capabilities,
+                        "source": str(library_dir),
+                    })
 
     return instruments
 
