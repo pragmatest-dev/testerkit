@@ -834,3 +834,76 @@ def open_ui_tool(
         "url": url,
         "message": f"Open {url} to view/edit {entity_type} '{id}'",
     }
+
+
+# =============================================================================
+# Tool 9: read (project files)
+# =============================================================================
+
+
+def read_tool(path: str) -> dict[str, Any]:
+    """Read a file from the project directory.
+
+    Can read datasheets, specs, configs, and other project files.
+    Paths are relative to the project root.
+
+    Common paths:
+    - demo/datasheets/*.md - Product datasheets
+    - demo/specs/*.yaml - Product specifications
+    - demo/stations/*.yaml - Station configurations
+    - demo/tests/*.py - Test files
+
+    Args:
+        path: Relative path to file (e.g., "demo/datasheets/tps54302.md")
+
+    Returns:
+        File contents or error.
+    """
+    # Security: only allow reading from project directory
+    cwd = Path.cwd()
+    filepath = cwd / path
+
+    # Resolve to absolute and check it's under cwd
+    try:
+        filepath = filepath.resolve()
+        if not str(filepath).startswith(str(cwd.resolve())):
+            return {"error": "Path must be within project directory"}
+    except Exception:
+        return {"error": f"Invalid path: {path}"}
+
+    if not filepath.exists():
+        # Try to suggest alternatives
+        suggestions = []
+        parent = filepath.parent
+        if parent.exists():
+            suggestions = [f.name for f in parent.glob("*") if f.is_file()][:5]
+
+        return {
+            "error": f"File not found: {path}",
+            "suggestions": suggestions if suggestions else None,
+        }
+
+    if filepath.is_dir():
+        # List directory contents
+        contents = []
+        for f in sorted(filepath.iterdir()):
+            contents.append({
+                "name": f.name,
+                "type": "dir" if f.is_dir() else "file",
+            })
+        return {
+            "type": "directory",
+            "path": path,
+            "contents": contents,
+        }
+
+    # Read file
+    try:
+        content = filepath.read_text()
+        return {
+            "type": "file",
+            "path": path,
+            "content": content,
+        }
+    except Exception as e:
+        return {"error": f"Failed to read file: {e}"}

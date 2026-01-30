@@ -1,6 +1,6 @@
 """MCP server for AI-assisted test generation workflows.
 
-This server exposes 8 tools for:
+This server exposes 9 tools for:
 - discover: Scan for VISA instruments
 - list: List entities (stations, products, fixtures, sequences, instruments, runs)
 - get: Get entity details
@@ -9,6 +9,7 @@ This server exposes 8 tools for:
 - run: Execute test sequences
 - status: Get run status
 - open_ui: Get URL to view/edit in browser
+- read: Read project files (datasheets, specs, tests)
 
 The platform does NOT call LLMs - it exposes these tools so that AI agents
 (Claude Code, etc.) can orchestrate the full datasheet-to-test workflow.
@@ -24,6 +25,7 @@ from litmus.mcp.tools import (
     list_tool,
     match_tool,
     open_ui_tool,
+    read_tool,
     run_tool,
     save_tool,
     status_tool,
@@ -34,7 +36,7 @@ def create_mcp_server() -> FastMCP:
     """Create and configure the Litmus MCP server."""
     mcp = FastMCP(
         "Litmus",
-        instructions="""Litmus is a hardware test platform. Use these 8 tools:
+        instructions="""Litmus is a hardware test platform. Use these 9 tools:
 
 1. litmus_discover - Scan for connected VISA instruments
 2. litmus_list - List entities (station/product/fixture/sequence/instrument/run)
@@ -44,14 +46,21 @@ def create_mcp_server() -> FastMCP:
 6. litmus_run - Execute a test sequence
 7. litmus_status - Get test run status and results
 8. litmus_open_ui - Get URL to view/edit entity in browser
+9. litmus_read - Read project files (datasheets, specs, tests)
+
+Project structure:
+- demo/datasheets/ - Product datasheets (.md files)
+- demo/specs/ - Product specifications (.yaml)
+- demo/stations/ - Station configurations (.yaml)
+- demo/tests/ - Test files (.py)
 
 Typical workflow:
-1. litmus_discover → see what instruments are connected
-2. litmus_save(station, ...) → create station config from discovered instruments
-3. litmus_save(product, ...) → create product spec from datasheet characteristics
-4. litmus_match(product_id) → find compatible stations and derive requirements
-5. litmus_save(test, ...) → generate pytest test code
-6. litmus_save(sequence, ...) → define test order
+1. litmus_read("demo/datasheets/") → list available datasheets
+2. litmus_read("demo/datasheets/tps54302.md") → read datasheet content
+3. litmus_save(product, ...) → create product spec from datasheet
+4. litmus_list(station) → see available test stations
+5. litmus_match(product_id) → find compatible stations
+6. litmus_save(test, ...) → generate pytest test code
 7. litmus_run(...) → execute tests
 8. litmus_status(...) → check results
 """,
@@ -227,6 +236,31 @@ Typical workflow:
             URL to open in browser.
         """
         return open_ui_tool(entity_type, id, base_url)
+
+    # -------------------------------------------------------------------------
+    # Tool 9: read
+    # -------------------------------------------------------------------------
+
+    @mcp.tool(name="litmus_read")
+    def read_file(path: str) -> dict[str, Any]:
+        """Read a file or list directory contents from the project.
+
+        Use this to access datasheets, specs, tests, and other project files.
+        Paths are relative to the project root.
+
+        Common paths:
+        - demo/datasheets/ - Product datasheets
+        - demo/specs/ - Product specifications
+        - demo/stations/ - Station configurations
+        - demo/tests/ - Test files
+
+        Args:
+            path: Relative path (e.g., "demo/datasheets/tps54302.md")
+
+        Returns:
+            File contents or directory listing.
+        """
+        return read_tool(path)
 
     return mcp
 
