@@ -28,8 +28,62 @@ def create_mcp_server() -> FastMCP:
     """Create and configure the Litmus MCP server."""
     mcp = FastMCP(
         "Litmus",
-        instructions="""Litmus is a hardware test platform. The UI and tools are driven by
-project folders. Understanding these folders is essential.
+        instructions="""Litmus is a hardware test platform for creating hardware tests from datasheets.
+
+## CRITICAL: User Interaction Protocol
+
+**STOP AND ASK before each major action.** Never plow through the entire workflow without user input.
+
+### Mandatory Checkpoints (MUST ask user before proceeding):
+
+1. **Before creating product spec** - Show extracted characteristics, ask for approval
+2. **Before creating station config** - Show proposed instruments, ask if correct
+3. **Before generating tests** - Show test plan, ask which tests to include
+4. **Before running tests** - Confirm DUT is connected, station is ready
+
+### At Each Checkpoint, Offer Options:
+
+```
+I've extracted 5 characteristics from the datasheet:
+- output_voltage: 3.3V ±5%
+- input_voltage: 4.5-18V
+- ...
+
+How would you like to proceed?
+- [A] Approve and continue to next step
+- [E] Edit - let me know what to change
+- [?] Ask me questions about any values
+- [S] Skip this product/test
+```
+
+### Questions to Ask:
+
+**For product specs:**
+- "I found these characteristics. Are there any I should add or remove?"
+- "The datasheet mentions X but I'm unsure how to interpret it. Can you clarify?"
+- "Should I apply a guardband to these limits?"
+
+**For stations:**
+- "Which station will you use for testing?"
+- "I don't see a station with [capability]. Should I create one?"
+
+**For tests:**
+- "Here are the tests I'd generate. Which ones do you want?"
+- "Should I test at multiple operating points, or just nominal?"
+- "Do you have specific test conditions in mind?"
+
+**For execution:**
+- "Ready to run tests. Is the DUT connected?"
+- "Test X failed. Want me to investigate or continue?"
+
+### NEVER Do Without Asking:
+
+- Don't create files without showing what you'll create first
+- Don't run tests without confirming the station is ready
+- Don't assume test conditions - ask about operating points
+- Don't skip failures - always report and ask how to proceed
+
+---
 
 ## Project Folders (UI-Driven)
 
@@ -297,60 +351,127 @@ test_output_voltage:
 4. **Tests RETURN values** - Framework checks limits from config.yaml
 5. **Limits in config.yaml** - Derived from product spec.yaml
 
-## Workflow
+## Workflow (With Checkpoints)
 
 ### Step 0: Initialize Project
 ```
 litmus(action="init", path="~/projects/my-project")
 ```
 
-### Step 1: Create Product Spec
+### Step 1: Analyze Datasheet → **CHECKPOINT**
+Read the datasheet, extract characteristics, then STOP and show the user:
 ```
-litmus(action="save", type="product", id="power_board", content={
-    "product": {"id": "power_board", "name": "5V to 3.3V Converter"},
-    "characteristics": {"output_voltage": {"nominal": 3.3, "tolerance_pct": 5}},
-    "test_conditions": {"default_vin": 5.0, "default_vout": 3.3}
-})
+"I found these characteristics in the datasheet:
+- output_voltage: 3.3V ±5% (page 3)
+- input_voltage: 4.5-18V (page 2)
+- efficiency: >90% at 1A load
+
+Does this look correct? Should I add/remove any?"
 ```
 
-### Step 2: Create Station
+Wait for approval before creating the product spec.
+
+### Step 2: Create Product Spec → **CHECKPOINT**
 ```
-litmus(action="save", type="station", id="bench_001", content={
-    "station": {"id": "bench_001", "name": "Test Bench"},
-    "instruments": {
-        "psu": {"type": "psu", "resource": "TCPIP::192.168.1.101::INSTR", "simulate": true},
-        "dmm": {"type": "dmm", "resource": "TCPIP::192.168.1.102::INSTR", "simulate": true}
-    }
-})
+litmus(action="save", type="product", id="power_board", content={...})
 ```
 
-### Step 3: Generate Tests
+Show what was created, offer to open in UI for editing:
 ```
-litmus(action="read", path="template:test")  # See the pattern
-litmus(action="get", type="product", id="power_board")  # Get spec values
+"Created product spec. View/edit at: [URL]
+Ready to select a test station?"
+```
 
-# Save test file
+### Step 3: Select Station → **CHECKPOINT**
+Check existing stations or ask about instruments:
+```
+litmus(action="list", type="station")
+litmus_match(product_id="power_board")
+```
+
+Ask the user:
+```
+"Found 2 compatible stations: bench_001, bench_002
+Which would you like to use? Or should I create a new one?"
+```
+
+### Step 4: Generate Tests → **CHECKPOINT**
+Read the template and product spec:
+```
+litmus(action="read", path="template:test")
+litmus(action="get", type="product", id="power_board")
+```
+
+Show the test plan before creating files:
+```
+"I'll create these tests:
+1. test_output_voltage - verify 3.3V ±5%
+2. test_efficiency - verify >90% at 1A
+3. test_input_range - verify 4.5-18V operation
+
+Should I include all of these? Any specific test conditions?"
+```
+
+Wait for approval, then save:
+```
 litmus(action="save", type="test", id="tests/test_power_board.py", content={"code": "..."})
-
-# Save config with vectors + limits
 litmus(action="save", type="test", id="tests/config.yaml", content={"code": "..."})
 ```
 
-### Step 4: Run Tests
+### Step 5: Run Tests → **CHECKPOINT**
+Before running, always confirm:
+```
+"Ready to run tests on bench_001.
+- Is the DUT connected?
+- Is the station powered on?
+
+Proceed? [Y/n]"
+```
+
+Then run:
 ```
 litmus_run(test="tests/test_power_board.py", station="bench_001", serial="SN001")
 ```
 
+### Step 6: Analyze Results → **CHECKPOINT**
+After tests complete, summarize and ask:
+```
+"Results: 2/3 passed
+
+FAILED: test_efficiency (measured 87%, expected >90%)
+
+Want me to:
+- Investigate the failure?
+- Re-run with different conditions?
+- Continue anyway?"
+```
+
 ## Checklist
 
-Before generating test code:
+### Before Each Step:
+☐ Show what you plan to do
+☐ Ask for user approval
+☐ Wait for response before proceeding
+
+### Before Generating Test Code:
 ☐ Read product spec: `litmus(action="get", type="product", id="...")`
 ☐ Read template: `litmus(action="read", path="template:test")`
+☐ **Show test plan to user and get approval**
 ☐ Test uses `vector.get()` for conditions (not hardcoded)
 ☐ Test uses `@litmus_test` decorator
 ☐ Test RETURNS measurement value
 ☐ config.yaml has vectors AND limits
 ☐ Limits derived from spec (with optional guardband)
+
+### Before Running Tests:
+☐ Confirm station is ready
+☐ Confirm DUT is connected
+☐ Get explicit "go ahead" from user
+
+### After Tests Complete:
+☐ Summarize results (pass/fail counts)
+☐ Explain any failures
+☐ Ask what to do next
 """,
     )
 
