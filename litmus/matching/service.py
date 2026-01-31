@@ -15,12 +15,13 @@ Key concepts:
 from pathlib import Path
 from typing import Any
 
-import yaml
 from pydantic import BaseModel, Field
 
 from litmus.capabilities.models import Direction, Domain, SignalType
 from litmus.products.loader import load_product
 from litmus.products.models import Product
+from litmus.utils.loaders import find_yaml_files, load_yaml_file, parse_capability_enums
+from litmus.utils.paths import get_instrument_paths, get_station_paths
 
 
 class CapabilityRequirement(BaseModel):
@@ -90,62 +91,40 @@ class PartialStationMatch(BaseModel):
 # -----------------------------------------------------------------------------
 
 
-def _get_search_paths() -> tuple[list[Path], list[Path], list[Path]]:
-    """Get search paths for specs, stations, and instrument library."""
-    cwd = Path.cwd()
-    specs_paths = [cwd / "specs"]
-    stations_paths = [cwd / "stations", cwd / "demo" / "stations"]
-    # User instruments first, then built-in library as fallback
-    library_paths = [
-        cwd / "instruments",
-        cwd / "demo" / "instruments",
-        Path(__file__).parent.parent / "instruments" / "library",  # Built-in fallback
-    ]
-    return specs_paths, stations_paths, library_paths
+def _get_specs_paths() -> list[Path]:
+    """Get search paths for product specs (legacy)."""
+    return [Path.cwd() / "specs"]
 
 
 def load_product_by_id(product_id: str) -> Product | None:
     """Load a Product model by ID from specs directories."""
-    specs_paths, _, _ = _get_search_paths()
-
-    for specs_dir in specs_paths:
-        if not specs_dir.exists():
+    for yaml_file, _ in find_yaml_files(_get_specs_paths()):
+        try:
+            product = load_product(yaml_file)
+            if product.id == product_id:
+                return product
+        except Exception:
             continue
-        for yaml_file in specs_dir.glob("*.yaml"):
-            if yaml_file.name.startswith("_"):
-                continue
-            try:
-                product = load_product(yaml_file)
-                if product.id == product_id:
-                    return product
-            except Exception:
-                continue
     return None
 
 
 def list_products() -> list[dict[str, Any]]:
     """List all available products."""
-    specs_paths, _, _ = _get_search_paths()
     products = []
 
-    for specs_dir in specs_paths:
-        if not specs_dir.exists():
+    for yaml_file, _ in find_yaml_files(_get_specs_paths()):
+        try:
+            product = load_product(yaml_file)
+            products.append({
+                "id": product.id,
+                "name": product.name,
+                "description": product.description,
+                "revision": product.revision,
+                "characteristics_count": len(product.characteristics),
+                "test_requirements_count": len(product.test_requirements),
+            })
+        except Exception:
             continue
-        for yaml_file in specs_dir.glob("*.yaml"):
-            if yaml_file.name.startswith("_"):
-                continue
-            try:
-                product = load_product(yaml_file)
-                products.append({
-                    "id": product.id,
-                    "name": product.name,
-                    "description": product.description,
-                    "revision": product.revision,
-                    "characteristics_count": len(product.characteristics),
-                    "test_requirements_count": len(product.test_requirements),
-                })
-            except Exception:
-                continue
     return products
 
 
@@ -154,14 +133,11 @@ def load_instrument_library(instrument_type: str) -> dict | None:
 
     Searches user's instruments/ first, then falls back to built-in library.
     """
-    _, _, library_paths = _get_search_paths()
-
-    for library_path in library_paths:
+    for library_path in get_instrument_paths():
         yaml_file = library_path / f"{instrument_type}.yaml"
-        if yaml_file.exists():
-            with open(yaml_file) as f:
-                return yaml.safe_load(f)
-
+        data = load_yaml_file(yaml_file)
+        if data is not None:
+            return data
     return None
 
 
@@ -170,64 +146,41 @@ def list_instrument_types() -> list[str]:
 
     User-defined instruments appear alongside built-in ones.
     """
-    _, _, library_paths = _get_search_paths()
     seen = set()
     types = []
 
-    for library_path in library_paths:
-        if not library_path.exists():
-            continue
-        for yaml_file in library_path.glob("*.yaml"):
-            if yaml_file.stem not in seen:
-                seen.add(yaml_file.stem)
-                types.append(yaml_file.stem)
+    for yaml_file, _ in find_yaml_files(get_instrument_paths(), prefix_skip=""):
+        if yaml_file.stem not in seen:
+            seen.add(yaml_file.stem)
+            types.append(yaml_file.stem)
 
     return sorted(types)
 
 
 def load_station_config(station_id: str) -> dict | None:
     """Load station configuration by ID."""
-    _, stations_paths, _ = _get_search_paths()
-
-    for stations_dir in stations_paths:
-        if not stations_dir.exists():
-            continue
-        for yaml_file in stations_dir.glob("*.yaml"):
-            if yaml_file.name.startswith("_"):
-                continue
-            with open(yaml_file) as f:
-                data = yaml.safe_load(f)
-                if data and "station" in data:
-                    station_info = data["station"]
-                    if station_info.get("id") == station_id:
-                        return data
+    for _, data in find_yaml_files(get_station_paths()):
+        if data and "station" in data:
+            station_info = data["station"]
+            if station_info.get("id") == station_id:
+                return data
     return None
 
 
 def list_stations() -> list[dict[str, Any]]:
     """List all available stations."""
-    _, stations_paths, _ = _get_search_paths()
     stations = []
 
-    for stations_dir in stations_paths:
-        if not stations_dir.exists():
-            continue
-        for yaml_file in stations_dir.glob("*.yaml"):
-            if yaml_file.name.startswith("_"):
-                continue
-            try:
-                with open(yaml_file) as f:
-                    data = yaml.safe_load(f)
-                    if data and "station" in data:
-                        station_info = data["station"]
-                        stations.append({
-                            "id": station_info.get("id", yaml_file.stem),
-                            "name": station_info.get("name", yaml_file.stem),
-                            "location": station_info.get("location"),
-                            "description": station_info.get("description"),
-                        })
-            except Exception:
-                continue
+    for yaml_file, data in find_yaml_files(get_station_paths()):
+        if data and "station" in data:
+            station_info = data["station"]
+            stations.append({
+                "id": station_info.get("id", yaml_file.stem),
+                "name": station_info.get("name", yaml_file.stem),
+                "location": station_info.get("location"),
+                "description": station_info.get("description"),
+            })
+
     return stations
 
 
@@ -284,15 +237,12 @@ def get_station_capabilities(station_config: dict) -> list[StationCapability]:
         library = load_instrument_library(inst_type)
         if library and "capabilities" in library:
             for cap in library["capabilities"]:
-                # Parse direction and domain as enums
-                direction_str = cap.get("direction", "input")
-                domain_str = cap.get("domain", "voltage")
-                signal_types_raw = cap.get("signal_types", [])
-
                 try:
-                    direction = Direction(direction_str.lower())
-                    domain = Domain(domain_str.lower())
-                    signal_types = [SignalType(st.lower()) for st in signal_types_raw]
+                    direction, domain, signal_types = parse_capability_enums(
+                        cap.get("direction", "input"),
+                        cap.get("domain", "voltage"),
+                        cap.get("signal_types", []),
+                    )
                 except ValueError:
                     # Skip capabilities with unknown enum values
                     continue

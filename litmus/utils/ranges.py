@@ -178,10 +178,55 @@ def expand_numeric_range(spec: str | list) -> list[Decimal]:
     return result
 
 
-def _generate_decimal_range(start: Decimal, stop: Decimal, step: Decimal) -> list[Decimal]:
-    """Generate a range of Decimal values, inclusive of stop.
+def generate_numeric_range(
+    start: float | Decimal,
+    stop: float | Decimal,
+    step: float | Decimal | None = None,
+    count: int | None = None,
+) -> list[Decimal]:
+    """Generate a range of Decimal values with step or count.
 
-    Unlike Python's range(), this is inclusive of the stop value (SCPI-style).
+    Exactly one of step or count must be provided. Range is inclusive of stop.
+
+    Args:
+        start: Starting value (inclusive)
+        stop: Ending value (inclusive)
+        step: Step size between values
+        count: Number of values to generate (evenly spaced)
+
+    Returns:
+        List of Decimal values from start to stop (inclusive)
+
+    Raises:
+        ValueError: If neither step nor count provided, or both provided
+
+    Examples:
+        >>> generate_numeric_range(0, 5, step=1)
+        [Decimal('0'), Decimal('1'), Decimal('2'), Decimal('3'), Decimal('4'), Decimal('5')]
+        >>> generate_numeric_range(0, 1, count=3)
+        [Decimal('0'), Decimal('0.5'), Decimal('1')]
+    """
+    if (step is None) == (count is None):
+        raise ValueError("Exactly one of 'step' or 'count' must be provided")
+
+    start_d = Decimal(str(start))
+    stop_d = Decimal(str(stop))
+
+    if step is not None:
+        step_d = Decimal(str(step))
+        return _generate_decimal_range(start_d, stop_d, step_d)
+    else:
+        # count is not None - generate evenly spaced values
+        if count == 1:
+            return [start_d]
+        step_d = (stop_d - start_d) / Decimal(count - 1)
+        return [start_d + step_d * Decimal(i) for i in range(count)]
+
+
+def _generate_decimal_range(start: Decimal, stop: Decimal, step: Decimal) -> list[Decimal]:
+    """Generate a range of Decimal values with step, inclusive of stop.
+
+    Internal helper - use generate_numeric_range() for public API.
 
     Args:
         start: Starting value

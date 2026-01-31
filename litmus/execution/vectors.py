@@ -10,7 +10,7 @@ from decimal import Decimal
 from itertools import product as itertools_product
 from typing import Any
 
-from litmus.utils.ranges import expand_numeric_range
+from litmus.utils.ranges import expand_numeric_range, generate_numeric_range
 
 
 class Vector(dict):
@@ -196,28 +196,10 @@ def expand_range(
         >>> expand_range("voltage", 0.0, 5.0, step=1.0)
         [Vector(voltage=0.0), Vector(voltage=1.0), ..., Vector(voltage=5.0)]
     """
-    if (step is None) == (count is None):
-        raise ValueError("Exactly one of 'step' or 'count' must be provided")
+    # Use shared range generation utility
+    values = generate_numeric_range(start, stop, step=step, count=count)
 
-    # Convert to Decimal for precise arithmetic
-    start_d = Decimal(str(start))
-    stop_d = Decimal(str(stop))
-
-    values: list[Decimal] = []
-    if step is not None:
-        step_d = Decimal(str(step))
-        current = start_d
-        while current <= stop_d:
-            values.append(current)
-            current += step_d
-    else:
-        # count is not None
-        if count == 1:
-            values = [start_d]
-        else:
-            step_d = (stop_d - start_d) / Decimal(count - 1)
-            values = [start_d + step_d * Decimal(i) for i in range(count)]
-
+    # Wrap values in Vector objects with index and prev tracking
     result = []
     for i, val in enumerate(values):
         v = Vector({name: val, "_index": i})

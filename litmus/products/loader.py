@@ -6,7 +6,7 @@ from typing import Any
 
 import yaml
 
-from litmus.capabilities.models import Comparator, Direction, Domain, SignalType
+from litmus.capabilities.models import Comparator
 from litmus.products.models import (
     BusSignal,
     Characteristic,
@@ -16,6 +16,11 @@ from litmus.products.models import (
     Product,
     SignalGroup,
     TestRequirement,
+)
+from litmus.utils.loaders import (
+    SPEC_DECIMAL_FIELDS,
+    convert_decimal_fields,
+    parse_capability_enums,
 )
 
 
@@ -126,15 +131,12 @@ def _parse_signal_group(data: dict[str, Any]) -> SignalGroup:
 
 def _parse_characteristic(data: dict[str, Any]) -> Characteristic:
     """Parse a characteristic from YAML data."""
-    # Parse direction enum (values are lowercase: input, output, bidir)
-    direction = Direction(data["direction"].lower())
-
-    # Parse domain enum (values are lowercase: voltage, current, etc.)
-    domain = Domain(data["domain"].lower())
-
-    # Parse signal types (values are lowercase: dc, ac, etc.)
-    signal_types_raw = data.get("signal_types", ["dc"])
-    signal_types = [SignalType(st.lower()) for st in signal_types_raw]
+    # Parse capability enums (direction, domain, signal_types)
+    direction, domain, signal_types = parse_capability_enums(
+        data["direction"],
+        data["domain"],
+        data.get("signal_types", ["dc"]),
+    )
 
     # Parse conditions
     conditions = []
@@ -165,51 +167,29 @@ def _parse_condition_point(data: dict[str, Any]) -> ConditionPoint:
     Known spec fields are extracted, everything else goes to condition_params
     via Pydantic's extra="allow".
     """
-    # Extract known spec fields
-    spec_fields = {}
+    # Copy data and convert decimal fields in place
+    parsed = dict(data)
+    convert_decimal_fields(parsed, SPEC_DECIMAL_FIELDS)
 
-    if "nominal" in data:
-        spec_fields["nominal"] = Decimal(str(data["nominal"]))
-    if "tolerance_pct" in data:
-        spec_fields["tolerance_pct"] = Decimal(str(data["tolerance_pct"]))
-    if "tolerance_abs" in data:
-        spec_fields["tolerance_abs"] = Decimal(str(data["tolerance_abs"]))
-    if "limit_low" in data:
-        spec_fields["limit_low"] = Decimal(str(data["limit_low"]))
-    if "limit_high" in data:
-        spec_fields["limit_high"] = Decimal(str(data["limit_high"]))
-    if "comparator" in data:
-        spec_fields["comparator"] = Comparator(data["comparator"].upper())
+    # Handle comparator enum separately
+    if "comparator" in parsed:
+        parsed["comparator"] = Comparator(parsed["comparator"].upper())
 
-    # All other fields are condition parameters (temperature, load, etc.)
-    known_fields = {
-        "nominal",
-        "tolerance_pct",
-        "tolerance_abs",
-        "limit_low",
-        "limit_high",
-        "comparator",
-    }
-    condition_params = {k: v for k, v in data.items() if k not in known_fields}
-
-    # Combine spec fields with condition params
-    all_fields = {**spec_fields, **condition_params}
-
-    return ConditionPoint.model_validate(all_fields)
+    return ConditionPoint.model_validate(parsed)
 
 
 def _parse_test_requirement(data: dict[str, Any]) -> TestRequirement:
     """Parse a test requirement from YAML data."""
-    guardband_pct = Decimal("0")
-    if "guardband_pct" in data:
-        guardband_pct = Decimal(str(data["guardband_pct"]))
+    # Convert guardband_pct to Decimal if present
+    parsed = dict(data)
+    convert_decimal_fields(parsed, ["guardband_pct"])
 
     return TestRequirement(
-        characteristic_ref=data.get("characteristic_ref"),
-        conditions=data.get("conditions", {}),
-        guardband_pct=guardband_pct,
-        priority=data.get("priority", "standard"),
-        description=data.get("description"),
+        characteristic_ref=parsed.get("characteristic_ref"),
+        conditions=parsed.get("conditions", {}),
+        guardband_pct=parsed.get("guardband_pct", Decimal("0")),
+        priority=parsed.get("priority", "standard"),
+        description=parsed.get("description"),
     )
 
 
