@@ -10,6 +10,8 @@ from decimal import Decimal
 from itertools import product as itertools_product
 from typing import Any
 
+from litmus.utils.ranges import expand_numeric_range
+
 
 class Vector(dict):
     """A dict subclass representing test input parameters with helper methods.
@@ -77,7 +79,7 @@ def expand_product(**params: list[Any]) -> list[Vector]:
     (slowest changing), last is innermost (fastest changing).
 
     Args:
-        **params: Named parameters with their possible values as lists.
+        **params: Named parameters with their possible values as lists or range strings.
 
     Returns:
         List of Vector objects covering all combinations.
@@ -90,12 +92,19 @@ def expand_product(**params: list[Any]) -> list[Vector]:
             Vector(voltage=5.0, current=0.1, _index=2),
             Vector(voltage=5.0, current=0.5, _index=3),
         ]
+        >>> expand_product(voltage="3.3:5.0:0.1", load=[0.1, 0.5])  # Range string
     """
     if not params:
         return [Vector(_index=0)]
 
     keys = list(params.keys())
-    values = [params[k] for k in keys]
+    # Expand string range syntax for each parameter
+    values = []
+    for k in keys:
+        v = params[k]
+        if isinstance(v, str):
+            v = expand_numeric_range(v)
+        values.append(v)
 
     result = []
     for i, combo in enumerate(itertools_product(*values)):
@@ -113,7 +122,7 @@ def expand_zip(**params: list[Any]) -> list[Vector]:
     All parameter lists must have the same length.
 
     Args:
-        **params: Named parameters with their possible values as lists.
+        **params: Named parameters with their possible values as lists or range strings.
 
     Returns:
         List of Vector objects with paired values.
@@ -128,12 +137,19 @@ def expand_zip(**params: list[Any]) -> list[Vector]:
             Vector(voltage=5.0, expected=4.9, _index=1),
             Vector(voltage=12.0, expected=11.8, _index=2),
         ]
+        >>> expand_zip(voltage="3.3:5.0:0.1", expected="3.2:4.9:0.1")  # Range strings
     """
     if not params:
         return [Vector(_index=0)]
 
     keys = list(params.keys())
-    values = [params[k] for k in keys]
+    # Expand string range syntax for each parameter
+    values = []
+    for k in keys:
+        v = params[k]
+        if isinstance(v, str):
+            v = expand_numeric_range(v)
+        values.append(v)
 
     lengths = set(len(v) for v in values)
     if len(lengths) > 1:
@@ -233,7 +249,11 @@ def _expand_loop_level(loop_spec: dict[str, Any]) -> Iterator[dict[str, Any]]:
         for spec in zip_specs:
             var_name = spec["name"]
             if "values" in spec:
-                expanded_lists.append([{var_name: v} for v in spec["values"]])
+                values = spec["values"]
+                # Handle string range syntax: "-40:85:25" or "0.1:0.5:0.1"
+                if isinstance(values, str):
+                    values = expand_numeric_range(values)
+                expanded_lists.append([{var_name: v} for v in values])
             elif "range" in spec:
                 range_spec = spec["range"]
                 range_vectors = expand_range(
@@ -266,7 +286,11 @@ def _expand_loop_level(loop_spec: dict[str, Any]) -> Iterator[dict[str, Any]]:
         # Single variable loop
         var_name = loop_spec["name"]
         if "values" in loop_spec:
-            for val in loop_spec["values"]:
+            values = loop_spec["values"]
+            # Handle string range syntax: "-40:85:25" or "0.1:0.5:0.1"
+            if isinstance(values, str):
+                values = expand_numeric_range(values)
+            for val in values:
                 yield {var_name: val}
         elif "range" in loop_spec:
             range_spec = loop_spec["range"]

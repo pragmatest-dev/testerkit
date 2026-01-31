@@ -312,3 +312,78 @@ class TestExpandVectors:
     def test_unknown_mode_raises(self):
         with pytest.raises(ValueError, match="Unknown expansion mode"):
             expand_vectors({"expand": "invalid"})
+
+
+class TestStringRangeSyntax:
+    """Tests for string range syntax in vector expansion."""
+
+    def test_product_with_string_range(self):
+        """expand_product should expand string range values."""
+        result = expand_product(voltage="3.0:3.2:0.1", load=[0.1, 0.5])
+        assert len(result) == 6  # 3 voltages x 2 loads
+
+        # Check voltage values are Decimals from range expansion
+        voltages = sorted(set(v["voltage"] for v in result))
+        assert voltages == [Decimal("3.0"), Decimal("3.1"), Decimal("3.2")]
+
+    def test_zip_with_string_range(self):
+        """expand_zip should expand string range values."""
+        result = expand_zip(voltage="3.0:3.2:0.1", expected="2.9:3.1:0.1")
+        assert len(result) == 3
+
+        assert result[0]["voltage"] == Decimal("3.0")
+        assert result[0]["expected"] == Decimal("2.9")
+
+    def test_nested_with_string_range(self):
+        """expand_nested should expand string range values."""
+        loops = [
+            {"name": "temperature", "values": "-40:85:25"},  # String range
+            {"name": "voltage", "values": [3.3, 5.0]},  # Regular list
+        ]
+        result = expand_nested(loops)
+        # -40, -15, 10, 35, 60, 85 = 6 temps x 2 voltages = 12
+        assert len(result) == 12
+
+        # Check temperature values
+        temps = sorted(set(v["temperature"] for v in result))
+        assert temps == [
+            Decimal("-40"), Decimal("-15"), Decimal("10"),
+            Decimal("35"), Decimal("60"), Decimal("85"),
+        ]
+
+    def test_nested_zip_with_string_range(self):
+        """Zipped groups should expand string range values."""
+        loops = [
+            {
+                "zip": [
+                    {"name": "voltage", "values": "3.3:5.3:1.0"},
+                    {"name": "expected", "values": "3.2:5.2:1.0"},
+                ]
+            },
+        ]
+        result = expand_nested(loops)
+        assert len(result) == 3  # 3.3, 4.3, 5.3
+
+        assert result[0]["voltage"] == Decimal("3.3")
+        assert result[0]["expected"] == Decimal("3.2")
+
+    def test_expand_vectors_product_with_string_range(self):
+        """expand_vectors with product mode should handle string ranges."""
+        config = {
+            "expand": "product",
+            "temperature": "-40:85:125",  # -40, 85 (step 125 gives 2 values)
+            "voltage": [3.3, 5.0],
+        }
+        result = expand_vectors(config)
+        assert len(result) == 4  # 2 temps x 2 voltages
+
+    def test_expand_vectors_nested_with_string_range(self):
+        """expand_vectors with nested mode should handle string ranges."""
+        config = {
+            "expand": "nested",
+            "loops": [
+                {"name": "load", "values": "0.1:0.5:0.2"},  # 0.1, 0.3, 0.5
+            ],
+        }
+        result = expand_vectors(config)
+        assert len(result) == 3
