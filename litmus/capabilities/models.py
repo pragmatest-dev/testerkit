@@ -5,6 +5,8 @@ from enum import StrEnum
 
 from pydantic import BaseModel, Field
 
+from litmus.utils.ranges import expand_range
+
 
 class Direction(StrEnum):
     """Direction of signal flow for a capability."""
@@ -108,18 +110,35 @@ class InstrumentChannelSpec(BaseModel):
 
     This describes the physical channels on an instrument (CH1, ai0, Output1),
     NOT fixture routing points or DUT pins.
+
+    Supports multiple ways to specify channels:
+    - count + naming: Generate names from pattern (count=4, naming="CH{n}" → CH1, CH2, CH3, CH4)
+    - labels: Explicit list of names (["CH1", "CH2", "TRIG"])
+    - range: Range syntax string ("CH[1:4]" → CH1, CH2, CH3, CH4)
     """
 
     count: int = 1
     simultaneous: bool = False  # Can measure/source all channels at once
     coupling: str | None = None  # single_ended, differential
 
-    # Channel identity
+    # Channel identity - multiple options
     naming: str | None = None  # Pattern: "CH{n}", "ai{n}", "{n}"
     labels: list[str] | None = None  # Explicit: ["CH1", "CH2", "CH3", "CH4"]
+    range: str | None = None  # Range syntax: "CH[1:4]", "ai[0:15]", "1:4"
 
     def channel_names(self) -> list[str]:
-        """Generate channel names based on count, naming pattern, or labels."""
+        """Generate channel names.
+
+        Priority: range > labels > count+naming
+
+        Examples:
+            range="CH[1:4]" → ["CH1", "CH2", "CH3", "CH4"]
+            labels=["A", "B"] → ["A", "B"]
+            count=4, naming="CH{n}" → ["CH1", "CH2", "CH3", "CH4"]
+            count=4, no naming → ["1", "2", "3", "4"]
+        """
+        if self.range:
+            return expand_range(self.range)
         if self.labels:
             return self.labels[: self.count]
         if self.naming:

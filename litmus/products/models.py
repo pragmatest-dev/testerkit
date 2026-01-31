@@ -15,9 +15,9 @@ trivial capability matching - opposite directions pair.
 
 from decimal import Decimal
 from enum import StrEnum
-from typing import Any, Literal
+from typing import Any, Literal, Self
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, computed_field, model_validator
 
 from litmus.capabilities.models import (
     Capability,
@@ -27,6 +27,7 @@ from litmus.capabilities.models import (
     RangeSpec,
     SignalType,
 )
+from litmus.utils.ranges import expand_range
 
 
 class ConditionPoint(BaseModel):
@@ -252,7 +253,7 @@ class SignalGroup(BaseModel):
 
 
 class Characteristic(BaseModel):
-    """A product characteristic (ATML: UUT Characteristic).
+    """A product characteristic tied to physical DUT interface (ATML: UUT Characteristic).
 
     REUSES Direction, Domain, SignalType from the capabilities module.
     This is the product-side mirror of instrument Capability.
@@ -262,14 +263,21 @@ class Characteristic(BaseModel):
     - DUT OUTPUT -> Instrument INPUT (measure what DUT provides)
     - DUT INPUT -> Instrument OUTPUT (source what DUT needs)
 
+    REQUIRES physical interface: Every characteristic must be tied to at least one
+    physical connection point (pin, net, or signal_group). This enables:
+    - Fixture mapping (characteristic → pin → fixture point → instrument channel)
+    - Traceability from measurement back to schematic
+    - Clear routing for test execution
+
     Example YAML:
         rail_3v3_output:
-          direction: output         # DUT provides this voltage
+          pin: VOUT               # Physical connection point (REQUIRED)
+          direction: output       # DUT provides this voltage
           domain: voltage
           signal_types: [dc]
           units: V
+          channel: "1"            # For multi-output DUTs (like instrument channels)
           datasheet_ref: "DS-001 Section 7.3"
-          schematic_ref: "VOUT_3V3"
           conditions:
             - temperature: 25
               load: 0.1
@@ -283,23 +291,91 @@ class Characteristic(BaseModel):
     signal_types: list[SignalType] = Field(default_factory=lambda: [SignalType.DC])
     units: str
 
-    # Traceability
-    datasheet_ref: str | None = None
-    schematic_ref: str | None = None  # Net name for fixture mapping
-
-    # Physical interface (ATML-style pin mapping)
-    pins: list[str] = Field(default_factory=list)  # References to Product.pins keys
-    output_channel: str | None = None  # For multi-channel DUT outputs (e.g., "CH1", "OUT2")
+    # Physical interface - AT LEAST ONE REQUIRED
+    # These mirror how instruments have `channels` - characteristics need connection points
+    pin: str | None = None  # Single pin reference (Product.pins key)
+    pins: str | list[str] = Field(default_factory=list)  # Multiple pins (range: "GPIO[0:7]")
+    net: str | None = None  # Schematic net name (matches fixture routing)
     signal_group: str | None = None  # Reference to Product.signal_groups key
 
-    # Backwards compatibility alias
-    @property
-    def channel(self) -> str | None:
-        """Backwards compatibility alias for output_channel."""
-        return self.output_channel
+    # For multi-channel DUT outputs (like instrument's `channels`)
+    # E.g., a 4-channel power supply has characteristics for CH1, CH2, CH3, CH4
+    channel: str | None = None  # Single channel
+    channels: str | list[str] = Field(default_factory=list)  # Multiple channels (range: "CH[1:4]")
+
+    # Traceability
+    datasheet_ref: str | None = None
+    schematic_ref: str | None = None  # Deprecated: use `net` instead
 
     # Spec values at conditions (ATML-style key-value)
     conditions: list[ConditionPoint] = Field(default_factory=list)
+
+    @computed_field
+    @property
+    def resolved_pins(self) -> list[str]:
+        """Expand pins to list, handling range syntax.
+
+        Supports:
+        - Single pin: pin="TP_VOUT" → ["TP_VOUT"]
+        - Explicit list: pins=["GPIO0", "GPIO1"] → ["GPIO0", "GPIO1"]
+        - Range string: pins="GPIO[0:7]" → ["GPIO0", "GPIO1", ..., "GPIO7"]
+        - Non-contiguous: pins="GPIO[0,2,4:6]" → ["GPIO0", "GPIO2", "GPIO4", "GPIO5", "GPIO6"]
+        """
+        if self.pin:
+            return [self.pin]
+        if self.pins:
+            return expand_range(self.pins)
+        return []
+
+    @computed_field
+    @property
+    def resolved_channels(self) -> list[str]:
+        """Expand channels to list, handling range syntax.
+
+        Supports:
+        - Single channel: channel="1" → ["1"]
+        - Explicit list: channels=["CH1", "CH2"] → ["CH1", "CH2"]
+        - Range string: channels="CH[1:4]" → ["CH1", "CH2", "CH3", "CH4"]
+        - Numeric range: channels="1:4" → ["1", "2", "3", "4"]
+        """
+        if self.channel:
+            return [self.channel]
+        if self.channels:
+            return expand_range(self.channels)
+        return []
+
+    @model_validator(mode="after")
+    def validate_physical_interface(self) -> Self:
+        """Ensure characteristic is tied to physical interface.
+
+        Every characteristic must specify WHERE on the DUT it applies.
+        This enables fixture mapping and signal routing.
+
+        Accepts:
+        - pin/pins: Reference to Product.pins keys (pins supports range syntax)
+        - channel/channels: For multi-channel DUTs (channels supports range syntax)
+        - net: Schematic net name (preferred)
+        - schematic_ref: Legacy alias for net (deprecated)
+        - signal_group: Reference to Product.signal_groups key
+
+        For calculated characteristics (efficiency, regulation) that involve
+        multiple measurement points, list all involved pins in `pins`.
+        """
+        has_interface = any([
+            self.pin,
+            self.pins,
+            self.channel,
+            self.channels,
+            self.net,
+            self.signal_group,
+            self.schematic_ref,  # Legacy support
+        ])
+        if not has_interface:
+            raise ValueError(
+                "Characteristic must specify physical interface: "
+                "pin, pins, net, signal_group, or schematic_ref"
+            )
+        return self
 
     def get_at_conditions(self, params: dict[str, Any]) -> ConditionPoint | None:
         """Find the condition point matching the given parameters.

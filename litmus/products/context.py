@@ -59,11 +59,40 @@ class SpecContext:
         self._pin_by_char: dict[str, list[str]] = {}  # char_id -> [pins]
 
         for char_id, char in product.characteristics.items():
-            self._pin_by_char[char_id] = char.pins
-            for pin in char.pins:
+            # Collect all pins for this characteristic (pin, pins, or net lookup)
+            all_pins = self._get_char_pins(char)
+            self._pin_by_char[char_id] = all_pins
+            for pin in all_pins:
                 if pin not in self._char_by_pin:
                     self._char_by_pin[pin] = []
                 self._char_by_pin[pin].append(char_id)
+
+    def _get_char_pins(self, char: Characteristic) -> list[str]:
+        """Get all pin references for a characteristic.
+
+        Uses resolved_pins computed property which handles:
+        - char.pin: Single pin reference
+        - char.pins: List or range string (e.g., "GPIO[0:7]")
+        - char.net: Net name (looked up in product.pins)
+        """
+        # Use computed property that handles range expansion
+        pins = list(char.resolved_pins)
+
+        # Net reference - find matching pin by net name
+        if char.net and not pins:
+            for pin_id, pin in self.product.pins.items():
+                if pin.net == char.net:
+                    pins.append(pin_id)
+                    break
+
+        # Legacy: schematic_ref as net name
+        if char.schematic_ref and not pins:
+            for pin_id, pin in self.product.pins.items():
+                if pin.net == char.schematic_ref:
+                    pins.append(pin_id)
+                    break
+
+        return pins
 
     @classmethod
     def from_file(
@@ -158,8 +187,9 @@ class SpecContext:
 
         Returns:
             Dict with pin details:
-                - pins: List of pin IDs
-                - dut_pin: Primary pin (first in list) or None
+                - pin: Primary pin ID (from char.pin or first of char.pins)
+                - pins: List of all pin IDs
+                - dut_pin: Physical pin name (from Pin.name)
                 - net: Schematic net name (from primary pin)
                 - fixture_point: Fixture channel name (if fixture configured)
                 - instrument_channel: Instrument channel (if fixture configured)
@@ -168,17 +198,21 @@ class SpecContext:
         if char is None:
             return {}
 
+        # Get all pins for this characteristic
+        all_pins = self._get_char_pins(char)
+
         result: dict[str, Any] = {
-            "pins": char.pins,
+            "pin": char.pin or (all_pins[0] if all_pins else None),
+            "pins": all_pins,
             "dut_pin": None,
-            "net": None,
+            "net": char.net,  # Direct net reference
             "fixture_point": None,
             "instrument_channel": None,
         }
 
         # Get primary pin info
-        if char.pins:
-            primary_pin_id = char.pins[0]
+        if all_pins:
+            primary_pin_id = all_pins[0]
             pin = self.product.pins.get(primary_pin_id)
             if pin:
                 result["dut_pin"] = pin.name

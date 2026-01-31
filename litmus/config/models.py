@@ -3,9 +3,10 @@
 from decimal import Decimal
 from typing import Any, Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, computed_field
 
 from litmus.capabilities.models import Comparator
+from litmus.utils.ranges import expand_numeric_range
 
 
 class Limit(BaseModel):
@@ -242,20 +243,31 @@ class RangeConfig(BaseModel):
 class LoopVariableConfig(BaseModel):
     """Configuration for a single loop variable.
 
+    Supports three input formats:
+    1. Explicit list: values=[3.3, 5.0, 12.0]
+    2. Range object: range={start: -40, stop: 85, step: 25}
+    3. Range string: values="-40:125:25" (compact SCPI-style syntax)
+
     Example YAML (explicit values):
         - name: voltage
           values: [3.3, 5.0, 12.0]
 
-    Example YAML (range):
+    Example YAML (range object):
         - name: temperature
           range:
             start: -40
             stop: 85
             step: 25
+
+    Example YAML (range string - NEW):
+        - name: temperature
+          values: "-40:125:25"    # start:stop:step → -40, -15, 10, ...
+        - name: load
+          values: "0.1:0.5:0.1"  # → 0.1, 0.2, 0.3, 0.4, 0.5
     """
 
     name: str
-    values: list[Any] | None = None
+    values: list[Any] | str | None = None  # List, or range string like "-40:125:25"
     range: RangeConfig | None = None
     prompt: "PromptConfig | None" = None  # Prompt shown when this variable changes
 
@@ -263,6 +275,41 @@ class LoopVariableConfig(BaseModel):
         """Validate that exactly one of values or range is provided."""
         if (self.values is None) == (self.range is None):
             raise ValueError("Exactly one of 'values' or 'range' must be provided")
+
+    @computed_field
+    @property
+    def resolved_values(self) -> list[Decimal]:
+        """Expand values to list, handling range syntax.
+
+        Returns:
+            List of Decimal values ready for iteration.
+
+        Examples:
+            values=[1, 2, 3] → [Decimal('1'), Decimal('2'), Decimal('3')]
+            values="-40:125:55" → [Decimal('-40'), Decimal('15'), Decimal('70'), Decimal('125')]
+            range={start: 0, stop: 1, step: 0.5} → [Decimal('0'), Decimal('0.5'), Decimal('1')]
+        """
+        if self.values is not None:
+            return expand_numeric_range(self.values)
+
+        if self.range is not None:
+            # Generate from RangeConfig
+            result = []
+            current = self.range.start
+            if self.range.step is not None:
+                step = self.range.step
+                while current <= self.range.stop:
+                    result.append(current)
+                    current += step
+            elif self.range.count is not None:
+                # Linear interpolation
+                span = self.range.stop - self.range.start
+                count = self.range.count
+                for i in range(count):
+                    result.append(self.range.start + span * Decimal(i) / Decimal(count - 1))
+            return result
+
+        return []
 
 
 class ZippedLoopConfig(BaseModel):
