@@ -2,8 +2,6 @@
 
 from decimal import Decimal
 
-import pytest
-
 from litmus.capabilities.models import (
     Capability,
     Comparator,
@@ -163,6 +161,7 @@ class TestCharacteristic:
             domain=Domain.VOLTAGE,
             signal_types=[SignalType.DC],
             units="V",
+            pin="VOUT",
         )
         assert char.direction == Direction.OUTPUT
         assert char.domain == Domain.VOLTAGE
@@ -174,6 +173,7 @@ class TestCharacteristic:
             direction=Direction.OUTPUT,
             domain=Domain.VOLTAGE,
             units="V",
+            pin="VOUT",
             conditions=[
                 ConditionPoint(
                     temperature=25,
@@ -195,6 +195,7 @@ class TestCharacteristic:
             direction=Direction.OUTPUT,
             domain=Domain.VOLTAGE,
             units="V",
+            pin="VOUT",
             conditions=[
                 ConditionPoint(
                     temperature=25,
@@ -218,6 +219,7 @@ class TestCharacteristic:
             direction=Direction.OUTPUT,
             domain=Domain.VOLTAGE,
             units="V",
+            pin="VOUT",
             conditions=[
                 ConditionPoint(temperature=25, nominal=Decimal("3.3")),
             ],
@@ -232,6 +234,7 @@ class TestCharacteristic:
             domain=Domain.VOLTAGE,
             signal_types=[SignalType.DC],
             units="V",
+            pin="VOUT",
             conditions=[
                 ConditionPoint(nominal=Decimal("3.3")),
             ],
@@ -249,6 +252,7 @@ class TestCharacteristic:
             domain=Domain.VOLTAGE,
             signal_types=[SignalType.DC],
             units="V",
+            pin="VIN",
             conditions=[
                 ConditionPoint(nominal=Decimal("5.0")),
             ],
@@ -264,6 +268,7 @@ class TestCharacteristic:
             domain=Domain.VOLTAGE,
             signal_types=[SignalType.DC],
             units="V",
+            pin="DATA",
         )
         cap = char.to_capability_requirement()
         assert cap.direction == Direction.BIDIR
@@ -274,6 +279,7 @@ class TestCharacteristic:
             direction=Direction.OUTPUT,
             domain=Domain.VOLTAGE,
             units="V",
+            pin="VOUT",
             conditions=[
                 ConditionPoint(nominal=Decimal("3.3")),
                 ConditionPoint(nominal=Decimal("5.0")),
@@ -334,6 +340,7 @@ class TestProduct:
                     direction=Direction.OUTPUT,
                     domain=Domain.VOLTAGE,
                     units="V",
+                    pin="VOUT",
                     datasheet_ref="DS-001 Section 7.3",
                     conditions=[
                         ConditionPoint(

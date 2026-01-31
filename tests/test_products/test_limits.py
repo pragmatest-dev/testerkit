@@ -21,6 +21,7 @@ class TestDeriveLimit:
             domain=Domain.VOLTAGE,
             signal_types=[SignalType.DC],
             units="V",
+            pin="VOUT",  # Physical interface required
             datasheet_ref="DS-001 Section 7.3",
             conditions=[
                 ConditionPoint(
@@ -108,6 +109,7 @@ class TestDeriveLimit:
             direction=Direction.INPUT,
             domain=Domain.CURRENT,
             units="A",
+            pin="VIN",
             conditions=[
                 ConditionPoint(
                     temperature=25,
@@ -130,6 +132,7 @@ class TestDeriveLimit:
             direction=Direction.OUTPUT,
             domain=Domain.VOLTAGE,
             units="V",
+            pin="VOUT",
             conditions=[
                 ConditionPoint(
                     temperature=25,
@@ -165,6 +168,7 @@ class TestDeriveLimit:
             direction=Direction.INPUT,
             domain=Domain.CURRENT,
             units="A",
+            pin="VIN",
             conditions=[
                 ConditionPoint(
                     temperature=25,
@@ -190,6 +194,7 @@ class TestDeriveLimit:
             direction=Direction.OUTPUT,
             domain=Domain.VOLTAGE,
             units="V",
+            pin="VOUT",
             conditions=[
                 ConditionPoint(
                     temperature=25,
@@ -219,6 +224,7 @@ class TestDeriveLimitsForRequirement:
             direction=Direction.OUTPUT,
             domain=Domain.VOLTAGE,
             units="V",
+            pin="VOUT",
             conditions=[
                 ConditionPoint(
                     temperature=25,
@@ -245,6 +251,7 @@ class TestDeriveLimitsForRequirement:
             direction=Direction.OUTPUT,
             domain=Domain.VOLTAGE,
             units="V",
+            pin="VOUT",
             conditions=[
                 ConditionPoint(
                     temperature=25,
@@ -285,6 +292,7 @@ class TestDeriveLimitsForRequirement:
             direction=Direction.OUTPUT,
             domain=Domain.VOLTAGE,
             units="V",
+            pin="VOUT",
             conditions=[
                 ConditionPoint(
                     temperature=25,
@@ -310,6 +318,7 @@ class TestGuardbandEdgeCases:
             direction=Direction.OUTPUT,
             domain=Domain.VOLTAGE,
             units="V",
+            pin="VOUT",
             conditions=[
                 ConditionPoint(
                     temperature=25,
@@ -334,6 +343,7 @@ class TestGuardbandEdgeCases:
             direction=Direction.OUTPUT,
             domain=Domain.VOLTAGE,
             units="V",
+            pin="VOUT",
             conditions=[
                 ConditionPoint(
                     temperature=25,
@@ -359,6 +369,7 @@ class TestGuardbandEdgeCases:
             direction=Direction.OUTPUT,
             domain=Domain.VOLTAGE,
             units="V",
+            pin="VOUT",
             conditions=[
                 ConditionPoint(
                     temperature=25,

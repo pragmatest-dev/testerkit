@@ -24,7 +24,7 @@ def fixtures_page():
             ui.button(
                 "New Fixture",
                 icon="add",
-                on_click=lambda: ui.navigate.to("/fixtures/new/edit"),
+                on_click=lambda: ui.navigate.to("/fixtures/new"),
             ).props("color=primary")
 
         # Info card
@@ -140,5 +140,5 @@ def _render_empty_state():
             ui.button(
                 "Create Fixture",
                 icon="add",
-                on_click=lambda: ui.navigate.to("/fixtures/new/edit"),
+                on_click=lambda: ui.navigate.to("/fixtures/new"),
             ).props("color=primary")

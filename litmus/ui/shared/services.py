@@ -54,6 +54,8 @@ def discover_products() -> list[dict]:
                     "file": str(folder.path / "spec.yaml"),
                     "folder_path": str(folder.path),
                     "workflow_step": folder.current_step.value if folder.current_step else None,
+                    "completed_steps": [s.value for s in folder.manifest.completed_steps],
+                    "files": folder.manifest.files.model_dump(),
                 })
             else:
                 # Folder exists but no spec yet (in progress)
@@ -68,6 +70,8 @@ def discover_products() -> list[dict]:
                     "file": None,
                     "folder_path": str(folder.path),
                     "workflow_step": folder.current_step.value if folder.current_step else None,
+                    "completed_steps": [s.value for s in folder.manifest.completed_steps],
+                    "files": folder.manifest.files.model_dump(),
                 })
 
     # 2. Check specs/ for backwards compat (legacy flat structure)
@@ -110,6 +114,37 @@ def load_product_model(product_id: str):
     return matching_service.load_product_by_id(product_id)
 
 
+def create_product(product_id: str, name: str, description: str = "") -> dict | None:
+    """Create a new product folder.
+
+    Args:
+        product_id: Unique identifier for the product
+        name: Human-readable product name
+        description: Optional description
+
+    Returns:
+        Dict with product info if successful, None if product already exists
+    """
+    products_dir = Path.cwd() / "products"
+    products_dir.mkdir(exist_ok=True)
+
+    try:
+        folder = ProductFolder.create(
+            base_path=products_dir,
+            product_id=product_id,
+            name=name,
+            description=description or None,
+        )
+        return {
+            "id": product_id,
+            "name": name,
+            "description": description,
+            "folder_path": str(folder.path),
+        }
+    except FileExistsError:
+        return None
+
+
 def get_required_capabilities(product) -> list[dict]:
     """Get required instrument capabilities for a product."""
     if not product:
@@ -141,6 +176,41 @@ def get_compatible_stations_for_product(product_id: str) -> list[dict]:
         for m in matches
         if m.compatible
     ]
+
+
+def get_partial_stations_for_product(product_id: str) -> list[dict]:
+    """Get stations with partial capability coverage for a product.
+
+    Returns stations that have some but not all required capabilities.
+    Useful for procurement planning.
+    """
+    product = matching_service.load_product_by_id(product_id)
+    if not product:
+        return []
+
+    partial_matches = matching_service.find_partial_stations(product)
+    return [
+        {
+            "id": m.station_id,
+            "name": m.station_name,
+            "location": m.location,
+            "coverage": m.coverage_pct,
+            "missing": m.missing,
+        }
+        for m in partial_matches
+    ]
+
+
+def get_all_station_matches_for_product(product_id: str) -> dict[str, list]:
+    """Get all stations categorized by compatibility level.
+
+    Returns dict with 'compatible', 'partial', and 'incompatible' lists.
+    """
+    product = matching_service.load_product_by_id(product_id)
+    if not product:
+        return {"compatible": [], "partial": [], "incompatible": []}
+
+    return matching_service.find_all_station_matches(product)
 
 
 def save_product(product_id: str, product_data: dict) -> bool:
@@ -210,6 +280,53 @@ def discover_stations() -> list[dict]:
 def load_station_config(station_id: str) -> dict | None:
     """Load station configuration by ID."""
     return matching_service.load_station_config(station_id)
+
+
+def create_station(
+    station_id: str, name: str, location: str = "", description: str = ""
+) -> dict | None:
+    """Create a new station configuration file.
+
+    Args:
+        station_id: Unique identifier for the station
+        name: Human-readable station name
+        location: Physical location
+        description: Optional description
+
+    Returns:
+        Dict with station info if successful, None if station already exists
+    """
+    stations_dir = Path.cwd() / "stations"
+    stations_dir.mkdir(exist_ok=True)
+
+    station_file = stations_dir / f"{station_id}.yaml"
+    if station_file.exists():
+        return None
+
+    station_data = {
+        "id": station_id,
+        "name": name,
+    }
+    if location:
+        station_data["location"] = location
+    if description:
+        station_data["description"] = description
+
+    yaml_data = {
+        "station": station_data,
+        "instruments": {},
+    }
+
+    with open(station_file, "w") as f:
+        yaml.dump(yaml_data, f, default_flow_style=False, sort_keys=False)
+
+    return {
+        "id": station_id,
+        "name": name,
+        "location": location,
+        "description": description,
+        "file": str(station_file),
+    }
 
 
 def save_station(station_id: str, station_data: dict, instruments_data: dict) -> bool:
@@ -337,6 +454,85 @@ def discover_instrument_types() -> list[dict]:
     return instruments
 
 
+def load_instrument_definition(instrument_type: str) -> dict | None:
+    """Load instrument definition by type.
+
+    Searches user's instruments/ first, then built-in library.
+    """
+    search_paths = [
+        Path.cwd() / "instruments",
+        Path.cwd() / "demo" / "instruments",
+        Path(__file__).parent.parent.parent / "instruments" / "library",
+    ]
+
+    for library_dir in search_paths:
+        yaml_file = library_dir / f"{instrument_type}.yaml"
+        if yaml_file.exists():
+            with open(yaml_file) as f:
+                return yaml.safe_load(f)
+    return None
+
+
+def save_instrument_definition(instrument_type: str, data: dict) -> bool:
+    """Save instrument definition to YAML file.
+
+    Saves to user's instruments/ directory (creates if needed).
+    """
+    instruments_dir = Path.cwd() / "instruments"
+    instruments_dir.mkdir(exist_ok=True)
+
+    target_file = instruments_dir / f"{instrument_type}.yaml"
+
+    with open(target_file, "w") as f:
+        yaml.dump(data, f, default_flow_style=False, sort_keys=False)
+
+    return True
+
+
+def create_instrument_definition(
+    instrument_type: str,
+    name: str,
+    description: str = "",
+    icon: str = "device_unknown",
+) -> dict | None:
+    """Create a new instrument definition file.
+
+    Args:
+        instrument_type: Unique type identifier
+        name: Human-readable name
+        description: Optional description
+        icon: Material icon name
+
+    Returns:
+        Dict with instrument info if successful, None if already exists
+    """
+    instruments_dir = Path.cwd() / "instruments"
+    instruments_dir.mkdir(exist_ok=True)
+
+    instrument_file = instruments_dir / f"{instrument_type}.yaml"
+    if instrument_file.exists():
+        return None
+
+    data = {
+        "instrument": {
+            "type": instrument_type,
+            "name": name,
+            "description": description,
+            "icon": icon,
+        },
+        "capabilities": [],
+    }
+
+    with open(instrument_file, "w") as f:
+        yaml.dump(data, f, default_flow_style=False, sort_keys=False)
+
+    return {
+        "type": instrument_type,
+        "name": name,
+        "file": str(instrument_file),
+    }
+
+
 # -----------------------------------------------------------------------------
 # Test & Sequence Services
 # -----------------------------------------------------------------------------
@@ -361,6 +557,67 @@ def discover_tests() -> list[dict]:
             if test_entry not in tests:
                 tests.append(test_entry)
     return tests
+
+
+def load_test_config(test_path: str) -> dict | None:
+    """Load test configuration for a test directory.
+
+    Args:
+        test_path: Path to test directory (e.g., 'demo/tests')
+
+    Returns:
+        Dict with test config or None if not found
+    """
+    config_file = Path.cwd() / test_path / "config.yaml"
+    if config_file.exists():
+        with open(config_file) as f:
+            return yaml.safe_load(f) or {}
+    return None
+
+
+def save_test_config(test_path: str, config: dict) -> bool:
+    """Save test configuration to YAML file.
+
+    Args:
+        test_path: Path to test directory
+        config: Configuration dict
+
+    Returns:
+        True if successful
+    """
+    test_dir = Path.cwd() / test_path
+    if not test_dir.exists():
+        return False
+
+    config_file = test_dir / "config.yaml"
+    with open(config_file, "w") as f:
+        yaml.dump(config, f, default_flow_style=False, sort_keys=False)
+    return True
+
+
+def get_test_functions(test_path: str) -> list[str]:
+    """Get list of test function names from a test directory.
+
+    Args:
+        test_path: Path to test directory
+
+    Returns:
+        List of test function names
+    """
+    test_dir = Path.cwd() / test_path
+    if not test_dir.exists():
+        return []
+
+    functions = []
+    for test_file in test_dir.glob("test_*.py"):
+        with open(test_file) as f:
+            content = f.read()
+            # Simple regex to find test functions
+            import re
+            matches = re.findall(r"def (test_\w+)\s*\(", content)
+            functions.extend(matches)
+
+    return sorted(set(functions))
 
 
 def discover_sequences() -> list[dict]:
@@ -388,6 +645,118 @@ def discover_sequences() -> list[dict]:
                         "steps": data.get("steps", []),
                     })
     return sequences
+
+
+def create_sequence(
+    sequence_id: str,
+    name: str,
+    product_family: str = "",
+    test_phase: str = "validation",
+    description: str = "",
+) -> dict | None:
+    """Create a new sequence configuration file.
+
+    Args:
+        sequence_id: Unique identifier for the sequence
+        name: Human-readable sequence name
+        product_family: Associated product family
+        test_phase: Test phase (validation, characterization, production)
+        description: Optional description
+
+    Returns:
+        Dict with sequence info if successful, None if sequence already exists
+    """
+    sequences_dir = Path.cwd() / "sequences"
+    sequences_dir.mkdir(exist_ok=True)
+
+    sequence_file = sequences_dir / f"{sequence_id}.yaml"
+    if sequence_file.exists():
+        return None
+
+    sequence_data = {
+        "id": sequence_id,
+        "name": name,
+        "test_phase": test_phase,
+    }
+    if product_family:
+        sequence_data["product_family"] = product_family
+    if description:
+        sequence_data["description"] = description
+
+    yaml_data = {
+        "sequence": sequence_data,
+        "steps": [],
+    }
+
+    with open(sequence_file, "w") as f:
+        yaml.dump(yaml_data, f, default_flow_style=False, sort_keys=False)
+
+    return {
+        "id": sequence_id,
+        "name": name,
+        "product_family": product_family,
+        "test_phase": test_phase,
+        "file": str(sequence_file),
+    }
+
+
+def load_sequence_config(sequence_id: str) -> dict | None:
+    """Load sequence configuration by ID."""
+    search_paths = [
+        Path.cwd() / "sequences",
+        Path.cwd() / "demo" / "sequences",
+    ]
+
+    for seq_dir in search_paths:
+        if not seq_dir.exists():
+            continue
+        for yaml_file in seq_dir.glob("*.yaml"):
+            with open(yaml_file) as f:
+                data = yaml.safe_load(f)
+                if data and "sequence" in data:
+                    seq = data["sequence"]
+                    if seq.get("id") == sequence_id or yaml_file.stem == sequence_id:
+                        return data
+    return None
+
+
+def save_sequence(sequence_id: str, sequence_data: dict, steps: list, dialogs: dict) -> bool:
+    """Save sequence configuration to YAML file."""
+    search_paths = [
+        Path.cwd() / "sequences",
+        Path.cwd() / "demo" / "sequences",
+    ]
+
+    target_file = None
+    for seq_dir in search_paths:
+        if seq_dir.exists():
+            existing = seq_dir / f"{sequence_id}.yaml"
+            if existing.exists():
+                target_file = existing
+                break
+
+    if target_file is None:
+        for seq_dir in search_paths:
+            if seq_dir.exists():
+                target_file = seq_dir / f"{sequence_id}.yaml"
+                break
+
+    if target_file is None:
+        sequences_dir = Path.cwd() / "sequences"
+        sequences_dir.mkdir(exist_ok=True)
+        target_file = sequences_dir / f"{sequence_id}.yaml"
+
+    yaml_data = {
+        "sequence": sequence_data,
+        "steps": steps,
+    }
+    if dialogs:
+        yaml_data["dialogs"] = dialogs
+
+    with open(target_file, "w") as f:
+        yaml.dump(yaml_data, f, default_flow_style=False, sort_keys=False)
+
+    return True
 
 
 # -----------------------------------------------------------------------------
@@ -461,6 +830,59 @@ def load_fixture_config(fixture_id: str) -> dict | None:
                     if fixture_info.get("id") == fixture_id or yaml_file.stem == fixture_id:
                         return data
     return None
+
+
+def create_fixture(
+    fixture_id: str,
+    name: str,
+    product_id: str = "",
+    product_revision: str = "",
+    description: str = "",
+) -> dict | None:
+    """Create a new fixture configuration file.
+
+    Args:
+        fixture_id: Unique identifier for the fixture
+        name: Human-readable fixture name
+        product_id: Associated product ID
+        product_revision: Optional product revision
+        description: Optional description
+
+    Returns:
+        Dict with fixture info if successful, None if fixture already exists
+    """
+    fixtures_dir = Path.cwd() / "fixtures"
+    fixtures_dir.mkdir(exist_ok=True)
+
+    fixture_file = fixtures_dir / f"{fixture_id}.yaml"
+    if fixture_file.exists():
+        return None
+
+    fixture_data = {
+        "id": fixture_id,
+        "name": name,
+    }
+    if product_id:
+        fixture_data["product_id"] = product_id
+    if product_revision:
+        fixture_data["product_revision"] = product_revision
+    if description:
+        fixture_data["description"] = description
+
+    yaml_data = {
+        "fixture": fixture_data,
+        "points": {},
+    }
+
+    with open(fixture_file, "w") as f:
+        yaml.dump(yaml_data, f, default_flow_style=False, sort_keys=False)
+
+    return {
+        "id": fixture_id,
+        "name": name,
+        "product_id": product_id,
+        "file": str(fixture_file),
+    }
 
 
 def save_fixture(fixture_id: str, fixture_data: dict, points_data: dict) -> bool:

@@ -3,32 +3,86 @@
 from nicegui import ui
 
 from litmus.ui.shared.layout import create_layout
-from litmus.ui.shared.services import discover_sequences, discover_stations, discover_tests
+from litmus.ui.shared.services import (
+    discover_products,
+    discover_sequences,
+    discover_stations,
+    discover_tests,
+    get_compatible_stations_for_product,
+)
 
 
 @ui.page("/launch")
-def launch_page(station: str = "", sequence: str = ""):
+def launch_page(
+    product: str = "", station: str = "", sequence: str = "", simulate: str = ""
+):
     """Test launch page.
 
     Args:
+        product: Pre-fill product ID from query param
         station: Pre-fill station ID from query param
         sequence: Pre-fill sequence ID from query param
+        simulate: Pre-fill simulate checkbox ("1" = checked)
     """
     create_layout("Launch Test")
 
-    stations = discover_stations()
+    products = discover_products()
+    all_stations = discover_stations()
     tests = discover_tests()
     sequences = discover_sequences()
 
     # Form state - use dict for NiceGUI binding
     # Pre-fill from query params if provided
     form = {
+        "product_id": product,
         "dut_serial": "",
-        "station_id": station,
         "sequence_id": sequence,
         "test_path": "",
+        "station_id": station,
         "operator": "",
+        "simulate": simulate == "1",
     }
+
+    # Reactive state for filtered stations
+    station_options = {}
+    station_select = None
+    station_hint = None
+
+    def update_station_options():
+        """Update station dropdown based on selected product."""
+        nonlocal station_options
+        if form["product_id"]:
+            compatible = get_compatible_stations_for_product(form["product_id"])
+            if compatible:
+                station_options = {s["id"]: f"{s['name']} ({s['id']})" for s in compatible}
+            else:
+                # No compatible stations - show all with warning
+                station_options = {s["id"]: f"{s['name']} ({s['id']})" for s in all_stations}
+        else:
+            # No product selected - show all stations
+            station_options = {s["id"]: f"{s['name']} ({s['id']})" for s in all_stations}
+
+        if station_select:
+            station_select.options = station_options
+            station_select.update()
+
+        # Update hint
+        if station_hint:
+            if form["product_id"]:
+                compatible = get_compatible_stations_for_product(form["product_id"])
+                if compatible:
+                    station_hint.text = f"{len(compatible)} compatible station(s)"
+                    station_hint.classes(replace="text-xs text-emerald-600")
+                else:
+                    station_hint.text = "No compatible stations - consider simulation"
+                    station_hint.classes(replace="text-xs text-amber-600")
+            else:
+                station_hint.text = "Select a product to filter compatible stations"
+                station_hint.classes(replace="text-xs text-slate-500")
+            station_hint.update()
+
+    # Initialize station options
+    update_station_options()
 
     async def submit_launch():
         if not form["dut_serial"] or not form["station_id"]:
@@ -42,11 +96,13 @@ def launch_page(station: str = "", sequence: str = ""):
         from litmus.execution.runner import get_runner
 
         request = LaunchRequest(
+            product_id=form["product_id"] or None,
             dut_serial=form["dut_serial"],
             station_id=form["station_id"],
             sequence_id=form["sequence_id"] or None,
             test_path=form["test_path"] or "tests",
             operator=form["operator"] or None,
+            simulate=form["simulate"],
         )
         runner = get_runner()
         run_id = await runner.start(request)
@@ -58,15 +114,19 @@ def launch_page(station: str = "", sequence: str = ""):
                 ui.label("Test Configuration").classes("text-lg font-semibold")
 
             with ui.card_section().classes("flex flex-col gap-4"):
+                # 1. Product selection (first)
+                with ui.column().classes("gap-1"):
+                    ui.label("Product").classes("text-sm font-medium text-slate-700")
+                    ui.select(
+                        options={p["id"]: p["name"] for p in products},
+                    ).bind_value(form, "product_id").on_value_change(
+                        lambda _: update_station_options()
+                    ).classes("w-full").props("outlined dense clearable")
+
+                # 2. DUT Serial
                 _labeled_input(form, "dut_serial", "DUT Serial Number", "e.g., DPB001-0001")
 
-                with ui.column().classes("gap-1"):
-                    ui.label("Station").classes("text-sm font-medium text-slate-700")
-                    ui.select(
-                        options={s["id"]: f"{s['name']} ({s['id']})" for s in stations},
-                    ).bind_value(form, "station_id").classes("w-full").props("outlined dense")
-
-                # Test sequence selection (primary method)
+                # 3. Test sequence selection
                 if sequences:
                     ui.separator().classes("my-2")
                     with ui.column().classes("gap-1"):
@@ -102,6 +162,26 @@ def launch_page(station: str = "", sequence: str = ""):
                             "outlined dense clearable"
                         )
 
+                ui.separator().classes("my-2")
+
+                # 4. Station (filtered by product)
+                with ui.column().classes("gap-1"):
+                    ui.label("Station").classes("text-sm font-medium text-slate-700")
+                    station_select = ui.select(
+                        options=station_options,
+                    ).bind_value(form, "station_id").classes("w-full").props("outlined dense")
+                    station_hint = ui.label(
+                        "Select a product to filter compatible stations"
+                    ).classes("text-xs text-slate-500")
+
+                # 5. Simulate checkbox
+                with ui.row().classes("items-center gap-2 mt-2"):
+                    ui.checkbox("Simulate Hardware").bind_value(form, "simulate")
+                    ui.label("Run without real instruments").classes("text-xs text-slate-500")
+
+                ui.separator().classes("my-2")
+
+                # 6. Operator (optional)
                 _labeled_input(form, "operator", "Operator (optional)", "Your name")
 
             with ui.card_actions().classes("justify-end"):

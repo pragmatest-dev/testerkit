@@ -22,9 +22,17 @@ def sequences_page():
     sequences = discover_sequences()
 
     with ui.column().classes("w-full p-6 gap-6"):
-        with ui.row().classes("items-center gap-2"):
-            ui.icon("list_alt").classes("text-slate-600")
-            ui.label("Test Sequences").classes("text-lg font-semibold text-slate-700")
+        with ui.row().classes("items-center justify-between w-full"):
+            with ui.row().classes("items-center gap-2"):
+                ui.icon("list_alt").classes("text-slate-600")
+                ui.label("Test Sequences").classes(
+                    "text-lg font-semibold text-slate-700"
+                )
+            ui.button(
+                "New Sequence",
+                icon="add",
+                on_click=lambda: ui.navigate.to("/sequences/new"),
+            ).props("color=primary")
 
         if sequences:
             with ui.row().classes("gap-4 flex-wrap"):
@@ -32,10 +40,16 @@ def sequences_page():
                     _sequence_card(seq)
         else:
             with ui.card().classes("w-full p-6 text-center"):
-                ui.label("No test sequences found.").classes("text-slate-500")
-                ui.label("Add YAML files to the sequences/ directory.").classes(
-                    "text-sm text-slate-400"
-                )
+                ui.icon("list_alt").classes("text-4xl text-slate-300")
+                ui.label("No test sequences found.").classes("text-slate-500 mt-2")
+                ui.label(
+                    "Create a sequence to define the order and configuration of tests."
+                ).classes("text-sm text-slate-400")
+                ui.button(
+                    "Create Sequence",
+                    icon="add",
+                    on_click=lambda: ui.navigate.to("/sequences/new"),
+                ).classes("mt-4")
 
 
 def _sequence_card(seq: dict):

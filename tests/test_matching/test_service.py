@@ -1,13 +1,11 @@
 """Tests for the capability matching service."""
 
-import pytest
 from decimal import Decimal
 
 from litmus.capabilities.models import Direction, Domain, SignalType
 from litmus.matching.service import (
     CapabilityRequirement,
     StationCapability,
-    MatchResult,
     capability_satisfies,
     get_required_capabilities,
     get_station_capabilities,
@@ -286,6 +284,7 @@ class TestGetRequiredCapabilities:
                     domain=Domain.VOLTAGE,
                     signal_types=[SignalType.DC],
                     units="V",
+                    pin="VOUT",
                     conditions=[
                         ConditionPoint(
                             nominal=Decimal("3.3"),
@@ -316,6 +315,7 @@ class TestGetRequiredCapabilities:
                     domain=Domain.VOLTAGE,
                     signal_types=[SignalType.DC],
                     units="V",
+                    pin="VIN",
                     conditions=[
                         ConditionPoint(
                             nominal=Decimal("12"),
@@ -344,6 +344,7 @@ class TestGetRequiredCapabilities:
                     domain=Domain.VOLTAGE,
                     signal_types=[SignalType.DC],
                     units="V",
+                    pin="DATA",
                 ),
             },
         )
@@ -364,18 +365,21 @@ class TestGetRequiredCapabilities:
                     domain=Domain.VOLTAGE,
                     signal_types=[SignalType.DC],
                     units="V",
+                    pin="VOUT_3V3",
                 ),
                 "rail_5v": Characteristic(
                     direction=Direction.OUTPUT,
                     domain=Domain.VOLTAGE,
                     signal_types=[SignalType.DC],
                     units="V",
+                    pin="VOUT_5V",
                 ),
                 "input_current": Characteristic(
                     direction=Direction.INPUT,
                     domain=Domain.CURRENT,
                     signal_types=[SignalType.DC],
                     units="A",
+                    pin="VIN",
                 ),
             },
         )

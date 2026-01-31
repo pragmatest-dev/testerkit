@@ -58,16 +58,24 @@ def _render_sequence_detail(sequence_id: str, seq: dict):
     # Sequence info card
     with ui.card().classes("w-full"):
         with ui.card_section():
-            with ui.row().classes("items-center gap-4"):
-                ui.label("Sequence Information").classes("text-lg font-semibold")
-                phase = seq.get("test_phase")
-                if phase:
-                    phase_colors = {
-                        "validation": "blue",
-                        "characterization": "purple",
-                        "production": "green",
-                    }
-                    ui.badge(phase, color=phase_colors.get(phase, "gray")).props("outline")
+            with ui.row().classes("items-center justify-between w-full"):
+                with ui.row().classes("items-center gap-4"):
+                    ui.label("Sequence Information").classes("text-lg font-semibold")
+                    phase = seq.get("test_phase")
+                    if phase:
+                        phase_colors = {
+                            "validation": "blue",
+                            "characterization": "purple",
+                            "production": "green",
+                        }
+                        ui.badge(phase, color=phase_colors.get(phase, "gray")).props(
+                            "outline"
+                        )
+                ui.button(
+                    "Edit",
+                    icon="edit",
+                    on_click=lambda: ui.navigate.to(f"/sequences/{sequence_id}/edit"),
+                ).props("flat")
 
         with ui.card_section():
             with ui.grid(columns=3).classes("gap-6"):

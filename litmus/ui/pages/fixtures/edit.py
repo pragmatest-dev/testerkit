@@ -59,7 +59,8 @@ def fixture_edit_page(fixture_id: str):
         station_config = load_station_config(station["id"])
         if station_config:
             all_instruments.update(station_config.get("instruments", {}).keys())
-    instrument_options = sorted(all_instruments) if all_instruments else ["dmm", "psu", "eload", "scope"]
+    default_instruments = ["dmm", "psu", "eload", "scope"]
+    instrument_options = sorted(all_instruments) if all_instruments else default_instruments
 
     # Reactive state
     form_data = {"fixture": dict(fixture_data), "points": dict(points_data)}
@@ -173,10 +174,13 @@ def _render_point_row(
         with ui.card_section():
             with ui.row().classes("items-center justify-between"):
                 ui.label(point_name).classes("font-semibold font-mono")
-                ui.button(
-                    icon="delete",
-                    on_click=lambda: _delete_point(all_points, point_name, container, instrument_options),
-                ).props("flat dense color=red")
+
+                def delete_handler(pn=point_name):
+                    _delete_point(all_points, pn, container, instrument_options)
+
+                ui.button(icon="delete", on_click=delete_handler).props(
+                    "flat dense color=red"
+                )
 
         with ui.card_section():
             with ui.grid(columns=4).classes("gap-4"):

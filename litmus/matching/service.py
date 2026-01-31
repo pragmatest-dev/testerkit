@@ -70,6 +70,21 @@ class StationMatch(BaseModel):
     match_result: MatchResult
 
 
+class PartialStationMatch(BaseModel):
+    """Summary of a station's partial compatibility with a product.
+
+    Used for procurement planning - shows what's available and what's missing.
+    """
+
+    station_id: str
+    station_name: str
+    location: str | None = None
+    coverage_pct: int  # Percentage of requirements satisfied (0-100)
+    satisfied_count: int
+    total_count: int
+    missing: list[str] = Field(default_factory=list)  # Human-readable missing capabilities
+
+
 # -----------------------------------------------------------------------------
 # Loaders
 # -----------------------------------------------------------------------------
@@ -451,3 +466,116 @@ def check_station_compatibility(
             for m in match_result.matches
         ],
     }
+
+
+def find_partial_stations(product: Product) -> list[PartialStationMatch]:
+    """Find stations with partial capability coverage for a product.
+
+    Returns stations that have some but not all required capabilities.
+    Useful for procurement planning - shows what's available and what to order.
+
+    Args:
+        product: Product to match against
+
+    Returns:
+        List of PartialStationMatch objects, sorted by coverage (highest first).
+        Only includes stations with 0 < coverage < 100%.
+    """
+    required = get_required_capabilities(product)
+    if not required:
+        return []
+
+    stations_list = list_stations()
+    results = []
+
+    for station_info in stations_list:
+        station_id = station_info["id"]
+        station_config = load_station_config(station_id)
+
+        if not station_config:
+            continue
+
+        available = get_station_capabilities(station_config)
+        match_result = match_capabilities(required, available)
+
+        satisfied_count = len([m for m in match_result.matches if m.satisfied])
+        total_count = len(required)
+        coverage_pct = int((satisfied_count / total_count) * 100) if total_count > 0 else 0
+
+        # Only include partial matches (not 0% and not 100%)
+        if 0 < coverage_pct < 100:
+            # Build human-readable missing list
+            missing_readable = []
+            for req in match_result.missing:
+                missing_readable.append(f"{req.domain.value} {req.direction.value}")
+
+            results.append(
+                PartialStationMatch(
+                    station_id=station_id,
+                    station_name=station_info.get("name", station_id),
+                    location=station_info.get("location"),
+                    coverage_pct=coverage_pct,
+                    satisfied_count=satisfied_count,
+                    total_count=total_count,
+                    missing=missing_readable,
+                )
+            )
+
+    # Sort by coverage (highest first)
+    results.sort(key=lambda x: x.coverage_pct, reverse=True)
+    return results
+
+
+def find_all_station_matches(product: Product) -> dict[str, list]:
+    """Find all stations categorized by compatibility level.
+
+    Returns:
+        Dict with keys:
+        - "compatible": Fully compatible stations (100% coverage)
+        - "partial": Partially compatible stations (0 < coverage < 100%)
+        - "incompatible": Stations with 0% coverage
+    """
+    required = get_required_capabilities(product)
+    if not required:
+        return {"compatible": [], "partial": [], "incompatible": []}
+
+    stations_list = list_stations()
+    compatible = []
+    partial = []
+    incompatible = []
+
+    for station_info in stations_list:
+        station_id = station_info["id"]
+        station_config = load_station_config(station_id)
+
+        if not station_config:
+            continue
+
+        available = get_station_capabilities(station_config)
+        match_result = match_capabilities(required, available)
+
+        satisfied_count = len([m for m in match_result.matches if m.satisfied])
+        total_count = len(required)
+        coverage_pct = int((satisfied_count / total_count) * 100) if total_count > 0 else 0
+
+        station_data = {
+            "id": station_id,
+            "name": station_info.get("name", station_id),
+            "location": station_info.get("location"),
+            "coverage": coverage_pct,
+            "satisfied": satisfied_count,
+            "total": total_count,
+            "missing": [f"{r.domain.value} {r.direction.value}" for r in match_result.missing],
+        }
+
+        if coverage_pct == 100:
+            compatible.append(station_data)
+        elif coverage_pct > 0:
+            partial.append(station_data)
+        else:
+            incompatible.append(station_data)
+
+    # Sort partial by coverage (highest first)
+    partial.sort(key=lambda x: x["coverage"], reverse=True)
+
+    return {"compatible": compatible, "partial": partial, "incompatible": incompatible}

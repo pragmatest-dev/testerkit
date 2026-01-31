@@ -1,22 +1,46 @@
 # Minimal Product Specification
 # Shows the simplest possible spec to get started with Litmus
 #
-# This is all you need for basic voltage measurement
+# This is a bare-minimum example: one connector, one test point, one spec
 
 product:
   id: minimal_board
-  name: "Minimal Example"
+  name: "Minimal Example Board"
+  description: "Simple 5V output board for demonstration"
 
 pins:
-  VOUT:
+  # Power connector
+  J1_VOUT:
     name: "J1.1"
+    net: "VOUT_5V"
+    type: power
+    description: "5V output"
+  J1_GND:
+    name: "J1.2"
+    net: "GND"
+    type: ground
+
+  # Test point for measurement
+  TP_VOUT:
+    name: "TP1"
+    net: "VOUT_5V"
+    type: signal
+    description: "Output voltage test point"
 
 characteristics:
   output_voltage:
     direction: output
     domain: voltage
+    signal_types: [dc]
     units: V
-    pins: [VOUT]
+    pin: TP_VOUT
     conditions:
       - nominal: 5.0
         tolerance_pct: 10
+        description: "5V ±10%"
+
+test_requirements:
+  verify_output:
+    characteristic_ref: output_voltage
+    guardband_pct: 10
+    priority: critical

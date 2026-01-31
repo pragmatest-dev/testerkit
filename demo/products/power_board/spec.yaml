@@ -1,122 +1,249 @@
 # Product Specification: Demo Power Board
-# A simple DC-DC converter board for demonstration
+# A simple LDO-based power board using TLV1117-33 (or similar)
 #
-# This spec demonstrates the new ATML-aligned format with:
-# - Physical pins (DUT interface points)
-# - Characteristics with condition matrices
-# - Multiple characteristics per pin (DC + ripple)
+# This is a BOARD spec, not an IC spec. It shows:
+# - Connector pins (J1) for power input/output
+# - Test points (TP) for measurements
+# - Board-level characteristics derived from IC specs
 
 product:
   id: power_board
-  name: "Demo Power Board"
+  name: "Demo Power Board Rev A"
   revision: "A"
-  description: "5V to 3.3V DC-DC converter with current monitoring"
+  description: "5V to 3.3V LDO regulator board, 800mA max"
   datasheet: "docs/DS-DPB001.pdf"
+  schematic: "docs/SCH-DPB001.pdf"
 
-# Physical interface (DUT pins)
+# Physical interface - connector pins and test points
 pins:
-  VIN:
+  # Input connector (J1)
+  J1_VIN:
     name: "J1.1"
     net: "VIN_5V"
     type: power
-    description: "5V power input"
-  GND:
+    description: "5V power input from bench supply"
+  J1_GND:
     name: "J1.2"
     net: "GND"
     type: ground
-  VOUT:
+    description: "Ground return"
+  J1_VOUT:
     name: "J1.3"
     net: "VOUT_3V3"
-    type: signal
-    description: "3.3V regulated output"
-  IMON:
+    type: power
+    description: "3.3V regulated output to load"
+
+  # Test points for probing
+  TP_VIN:
     name: "TP1"
-    net: "IMON"
+    net: "VIN_5V"
     type: signal
-    description: "Current monitor test point"
+    description: "Input voltage test point"
+  TP_VOUT:
+    name: "TP2"
+    net: "VOUT_3V3"
+    type: signal
+    description: "Output voltage test point"
+  TP_GND:
+    name: "TP3"
+    net: "GND"
+    type: ground
+    description: "Ground reference test point"
+
+  # LDO IC pins (TLV1117-33 in SOT-223)
+  U1_VIN:
+    name: "U1.3"
+    net: "VIN_5V"
+    type: power
+    description: "LDO input pin"
+  U1_VOUT:
+    name: "U1.2"
+    net: "VOUT_3V3"
+    type: power
+    description: "LDO output pin"
+  U1_GND:
+    name: "U1.1"
+    net: "GND"
+    type: ground
+    description: "LDO ground pin"
 
 # Electrical characteristics
 characteristics:
-  # Input characteristics
+  # Input voltage range (measured at TP_VIN)
   input_voltage:
     direction: input
     domain: voltage
     signal_types: [dc]
     units: V
-    pins: [VIN]
-    datasheet_ref: "Section 7.1"
+    pin: TP_VIN
+    datasheet_ref: "TLV1117-33 Table 6.3"
     conditions:
       - nominal: 5.0
-        tolerance_pct: 10
+        limit_low: 4.75
+        limit_high: 10
+        description: "Operating input range (VOUT+1.4V to 15V)"
 
-  input_current:
+  # Quiescent current (measured at J1_VIN with no load)
+  quiescent_current:
     direction: input
     domain: current
     signal_types: [dc]
-    units: A
-    pins: [VIN]
-    datasheet_ref: "Section 7.1"
+    units: mA
+    pin: J1_VIN
+    datasheet_ref: "TLV1117-33 Table 6.5"
     conditions:
       - load: 0
-        nominal: 0.010
-        tolerance_pct: 50
-        description: "Quiescent current"
+        comparator: LE
+        nominal: 5
+        limit_high: 10
+        description: "Ground current, no load"
 
-  # Output characteristics (same pin, different measurements)
+  # Output voltage (measured at TP_VOUT)
   output_voltage:
     direction: output
     domain: voltage
     signal_types: [dc]
     units: V
-    pins: [VOUT]
-    datasheet_ref: "Section 7.2"
+    pin: TP_VOUT
+    datasheet_ref: "TLV1117-33 Table 6.5"
     conditions:
       - temperature: 25
         load: 0.1
         nominal: 3.3
-        tolerance_pct: 5
+        tolerance_pct: 2
+        description: "Light load, room temp"
+      - temperature: 25
+        load: 0.5
+        nominal: 3.3
+        tolerance_pct: 2
+        description: "Half load"
+      - temperature: 25
+        load: 0.8
+        nominal: 3.3
+        tolerance_pct: 3
+        description: "Full load (800mA)"
+      - temperature: 85
+        load: 0.8
+        nominal: 3.3
+        tolerance_pct: 4
+        description: "Full load, hot"
 
+  # Load regulation (output change over load range)
+  load_regulation:
+    direction: output
+    domain: voltage
+    signal_types: [dc]
+    units: mV
+    pin: TP_VOUT
+    datasheet_ref: "TLV1117-33 Table 6.5"
+    conditions:
+      - load_min: 0.01
+        load_max: 0.8
+        comparator: LE
+        nominal: 5
+        limit_high: 15
+        description: "VOUT change from 10mA to 800mA"
+
+  # Line regulation (output change over input range)
+  line_regulation:
+    direction: output
+    domain: voltage
+    signal_types: [dc]
+    units: mV
+    pin: TP_VOUT
+    datasheet_ref: "TLV1117-33 Table 6.5"
+    conditions:
+      - vin_min: 4.75
+        vin_max: 10
+        comparator: LE
+        nominal: 3
+        limit_high: 10
+        description: "VOUT change from 4.75V to 10V input"
+
+  # Output ripple/noise
   output_ripple:
     direction: output
     domain: voltage
     signal_types: [ac]
-    units: V
-    pins: [VOUT]
-    datasheet_ref: "Section 7.2"
+    units: mV
+    pin: TP_VOUT
+    datasheet_ref: "Application note"
     conditions:
-      - load: 0.1
-        nominal: 0.050
-        tolerance_abs: 0.030
-        description: "Peak-to-peak ripple"
+      - load: 0.5
+        bandwidth: 10000000  # 10MHz
+        comparator: LE
+        limit_high: 50
+        description: "Output noise, 10Hz-10MHz"
 
-  # Efficiency (calculated from input/output power)
+  # Dropout voltage (VIN - VOUT at regulation limit)
+  dropout_voltage:
+    direction: output
+    domain: voltage
+    signal_types: [dc]
+    units: V
+    pins: [TP_VIN, TP_VOUT]
+    datasheet_ref: "TLV1117-33 Table 6.5"
+    conditions:
+      - load: 0.8
+        comparator: LE
+        nominal: 1.1
+        limit_high: 1.4
+        description: "Dropout at full load"
+
+  # Efficiency (calculated)
   efficiency:
     direction: output
     domain: power
     signal_types: [dc]
     units: "%"
-    datasheet_ref: "Section 7.3"
+    pins: [J1_VIN, J1_VOUT]
+    datasheet_ref: "Calculated: (VOUT*IOUT)/(VIN*IIN)"
     conditions:
-      - load: 0.1
-        nominal: 85
-        tolerance_abs: 10
+      - vin: 5.0
+        load: 0.5
+        comparator: GE
+        nominal: 66
+        limit_low: 60
+        description: "Efficiency at 5V in, 500mA out"
 
-# Test requirements (which characteristics to verify)
+# Test requirements
 test_requirements:
-  verify_input_voltage:
-    characteristic_ref: input_voltage
-    priority: critical
-
-  verify_output_voltage:
+  verify_output_voltage_light:
     characteristic_ref: output_voltage
     conditions:
       temperature: 25
       load: 0.1
     guardband_pct: 10
     priority: critical
+    description: "Verify 3.3V output at light load"
 
-  verify_efficiency:
-    characteristic_ref: efficiency
+  verify_output_voltage_full:
+    characteristic_ref: output_voltage
     conditions:
-      load: 0.1
+      temperature: 25
+      load: 0.8
+    guardband_pct: 10
+    priority: critical
+    description: "Verify 3.3V output at full load"
+
+  verify_quiescent:
+    characteristic_ref: quiescent_current
+    conditions:
+      load: 0
+    guardband_pct: 20
     priority: standard
+    description: "Verify low quiescent current"
+
+  verify_load_regulation:
+    characteristic_ref: load_regulation
+    guardband_pct: 0
+    priority: standard
+    description: "Verify output stability over load"
+
+  verify_dropout:
+    characteristic_ref: dropout_voltage
+    conditions:
+      load: 0.8
+    guardband_pct: 0
+    priority: standard
+    description: "Verify dropout voltage"

@@ -146,11 +146,15 @@ def _parse_characteristic(data: dict[str, Any]) -> Characteristic:
         domain=domain,
         signal_types=signal_types,
         units=data["units"],
-        datasheet_ref=data.get("datasheet_ref"),
-        schematic_ref=data.get("schematic_ref"),
-        pins=data.get("pins", []),
-        channel=data.get("channel"),
+        # Physical interface fields
+        pin=data.get("pin"),  # Single pin reference
+        pins=data.get("pins", []),  # Multiple pins
+        net=data.get("net"),  # Schematic net name
         signal_group=data.get("signal_group"),
+        channel=data.get("channel"),
+        # Traceability
+        datasheet_ref=data.get("datasheet_ref"),
+        schematic_ref=data.get("schematic_ref"),  # Legacy, use net instead
         conditions=conditions,
     )
 

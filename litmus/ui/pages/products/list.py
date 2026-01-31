@@ -14,9 +14,17 @@ def products_page():
     products = discover_products()
 
     with ui.column().classes("w-full p-6 gap-6"):
-        with ui.row().classes("items-center gap-2"):
-            ui.icon("inventory_2").classes("text-slate-600")
-            ui.label("Product Specifications").classes("text-lg font-semibold text-slate-700")
+        with ui.row().classes("items-center justify-between w-full"):
+            with ui.row().classes("items-center gap-2"):
+                ui.icon("inventory_2").classes("text-slate-600")
+                ui.label("Product Specifications").classes(
+                    "text-lg font-semibold text-slate-700"
+                )
+            ui.button(
+                "New Product",
+                icon="add",
+                on_click=lambda: ui.navigate.to("/products/new"),
+            ).props("color=primary")
 
         if products:
             with ui.row().classes("gap-4 flex-wrap"):

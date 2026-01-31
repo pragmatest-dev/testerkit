@@ -182,7 +182,8 @@ def _render_stations_tab(fixture_id: str, points: dict):
                 "text-amber-800 font-semibold mt-2"
             )
             ui.label(
-                "Create a station with the required instruments, or check existing station configurations."
+                "Create a station with the required instruments, "
+                "or check existing station configurations."
             ).classes("text-amber-700 text-sm mt-1")
 
 

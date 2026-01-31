@@ -157,8 +157,15 @@ def spec_context(request):
 
 @pytest.fixture(scope="session")
 def simulate(request) -> bool:
-    """Return whether instruments should run in simulation mode."""
-    return request.config.getoption("--simulate")
+    """Return whether instruments should run in simulation mode.
+
+    Checks both:
+    - --simulate pytest option
+    - LITMUS_SIMULATE environment variable (set by UI when launching with simulation)
+    """
+    import os
+
+    return request.config.getoption("--simulate") or os.environ.get("LITMUS_SIMULATE") == "1"
 
 
 @pytest.fixture(scope="session")

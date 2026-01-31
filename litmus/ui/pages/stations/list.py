@@ -14,9 +14,15 @@ def stations_page():
     stations = discover_stations()
 
     with ui.column().classes("w-full p-6 gap-6"):
-        with ui.row().classes("items-center gap-2"):
-            ui.icon("settings_input_hdmi").classes("text-slate-600")
-            ui.label("Test Stations").classes("text-lg font-semibold text-slate-700")
+        with ui.row().classes("items-center justify-between w-full"):
+            with ui.row().classes("items-center gap-2"):
+                ui.icon("settings_input_hdmi").classes("text-slate-600")
+                ui.label("Test Stations").classes("text-lg font-semibold text-slate-700")
+            ui.button(
+                "New Station",
+                icon="add",
+                on_click=lambda: ui.navigate.to("/stations/new"),
+            ).props("color=primary")
 
         if stations:
             with ui.row().classes("gap-4 flex-wrap"):
@@ -24,7 +30,16 @@ def stations_page():
                     _station_card(station)
         else:
             with ui.card().classes("w-full p-6 text-center"):
-                ui.label("No stations configured.").classes("text-slate-500")
+                ui.icon("settings_input_hdmi").classes("text-4xl text-slate-300")
+                ui.label("No stations configured.").classes("text-slate-500 mt-2")
+                ui.label(
+                    "Create a station to define your test equipment setup."
+                ).classes("text-sm text-slate-400")
+                ui.button(
+                    "Create Station",
+                    icon="add",
+                    on_click=lambda: ui.navigate.to("/stations/new"),
+                ).classes("mt-4")
 
 
 def _station_card(station: dict):

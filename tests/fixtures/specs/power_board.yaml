@@ -19,8 +19,8 @@ characteristics:
     domain: voltage
     signal_types: [dc]
     units: V
+    net: "VIN"               # Physical interface: schematic net name
     datasheet_ref: "DS-001 Section 7.2, Table 3"
-    schematic_ref: "VIN"
     conditions:
       - temperature: 25
         load: 0.5
@@ -43,8 +43,8 @@ characteristics:
     domain: voltage
     signal_types: [dc]
     units: V
+    net: "VOUT_3V3"          # Physical interface: schematic net name
     datasheet_ref: "DS-001 Section 7.3"
-    schematic_ref: "VOUT_3V3"
     conditions:
       - temperature: 25
         load: 0.1
@@ -76,8 +76,8 @@ characteristics:
     domain: current
     signal_types: [dc]
     units: A
+    net: "IIN"               # Physical interface: input current sense
     datasheet_ref: "DS-001 Section 7.4"
-    schematic_ref: "IIN"
     conditions:
       - temperature: 25
         load: 0               # No load condition
@@ -95,6 +95,7 @@ characteristics:
     domain: power
     signal_types: [dc]
     units: "%"
+    pins: [VIN, VOUT]        # Derived from multiple measurement points
     datasheet_ref: "DS-001 Section 7.5"
     conditions:
       - temperature: 25

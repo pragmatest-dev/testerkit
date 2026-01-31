@@ -1,245 +1,283 @@
 # TPS54302 Product Specification
-# Generated from datasheet SLVSD12A (March 2024)
+# Based on TI datasheet SLVSDG6B (May 2016, Rev April 2021)
 #
-# AI parsing notes:
-# - Pins extracted from Section 1 (Pin Configuration)
-# - Characteristics extracted from Section 4 (Electrical Characteristics)
-# - Test requirements derived from Section 7 (Typical Application Tests)
-# - Conditions include temperature and load variations from datasheet
+# This spec is for a BOARD using the TPS54302, not just the IC.
+# The IC has 6 pins: GND, SW, VIN, FB, EN, BOOT
+# The board has test points for measuring the regulated output.
 
 product:
   id: tps54302
-  name: "TPS54302 3A Synchronous Buck Converter"
+  name: "TPS54302 3A Synchronous Buck Converter Module"
   revision: "A"
-  datasheet: "SLVSD12A"
-  description: "5V to 3.3V DC-DC converter, 3A max output"
+  datasheet: "SLVSDG6B"
+  description: "4.5V-28V input to 3.3V output DC-DC converter, 3A max"
 
-# Physical interface - from Section 1 and 6
+# Physical interface
+# IC pins + board-level test points
 pins:
+  # TPS54302 IC pins (accent the real pinout)
   VIN:
-    name: "TP1"
-    net: "VIN_5V"
+    name: "Pin 3"
+    net: "VIN"
     type: power
-    description: "Input supply voltage (5V nominal)"
-  VOUT:
-    name: "TP2"
-    net: "VOUT_3V3"
-    type: signal
-    description: "Regulated output voltage (3.3V)"
-  SW:
-    name: "TP3"
-    net: "SW_NODE"
-    type: signal
-    description: "Switching node for waveform analysis"
+    description: "IC pin 3 - Input supply (4.5V to 28V)"
   GND:
-    name: "TP4"
+    name: "Pin 1"
     net: "GND"
     type: ground
-    description: "Ground reference"
-  IOUT:
-    name: "TP5"
-    net: "IOUT_SENSE"
+    description: "IC pin 1 - Ground reference"
+  SW:
+    name: "Pin 2"
+    net: "SW"
     type: signal
-    description: "Output current sense point"
+    description: "IC pin 2 - Switch node (to inductor)"
+  FB:
+    name: "Pin 4"
+    net: "FB"
+    type: signal
+    description: "IC pin 4 - Feedback input (0.6V reference)"
+  EN:
+    name: "Pin 5"
+    net: "EN"
+    type: signal
+    description: "IC pin 5 - Enable with UVLO"
+  BOOT:
+    name: "Pin 6"
+    net: "BOOT"
+    type: signal
+    description: "IC pin 6 - Bootstrap for high-side gate drive"
 
-# Electrical characteristics - from Section 4
+  # Board-level test points (not IC pins)
+  TP_VOUT:
+    name: "TP1"
+    net: "VOUT_3V3"
+    type: signal
+    description: "Test point - Regulated output after LC filter"
+  TP_IIN:
+    name: "TP2"
+    net: "IIN_SENSE"
+    type: signal
+    description: "Test point - Input current sense resistor"
+
+# Electrical characteristics from datasheet
 characteristics:
-  # Section 4.1 - Input supply
-  input_voltage:
+  # Input Supply (VIN pin) - Section 7.3
+  input_voltage_range:
     direction: input
     domain: voltage
     signal_types: [dc]
     units: V
-    pins: [VIN]
-    datasheet_ref: "Section 4.1"
+    pin: VIN
+    datasheet_ref: "Table 7-1, VIN"
     conditions:
-      - nominal: 5.0
-        tolerance_pct: 10
-        description: "Nominal operating voltage"
+      - nominal: 12
+        limit_low: 4.5
+        limit_high: 28
+        description: "Operating input voltage range"
 
+  # Quiescent Current (measured at VIN) - Section 7.5
   quiescent_current:
     direction: input
     domain: current
     signal_types: [dc]
     units: uA
-    pins: [VIN]
-    datasheet_ref: "Section 4.1"
+    pin: VIN
+    datasheet_ref: "Table 7-5, IQ"
     conditions:
-      - load: 0
-        nominal: 146
-        limit_high: 200
-        description: "Not switching, VEN = 2V"
+      - ven: 2.0
+        comparator: LE
+        nominal: 45
+        limit_high: 70
+        description: "Non-switching, VEN=2V, VIN=12V"
+      - ven: 0
+        comparator: LE
+        nominal: 2
+        limit_high: 5
+        description: "Shutdown current, VEN=0V"
 
-  # Section 4.2 - Output voltage
+  # Feedback Voltage (FB pin) - Section 7.5
+  feedback_voltage:
+    direction: input
+    domain: voltage
+    signal_types: [dc]
+    units: V
+    pin: FB
+    datasheet_ref: "Table 7-5, VFB"
+    conditions:
+      - temperature: 25
+        nominal: 0.596
+        tolerance_pct: 1
+        description: "FB regulation voltage, TA=25C"
+      - temperature: -40
+        nominal: 0.596
+        tolerance_pct: 1.5
+        description: "FB regulation voltage, TA=-40C"
+      - temperature: 125
+        nominal: 0.596
+        tolerance_pct: 1.5
+        description: "FB regulation voltage, TA=125C"
+
+  # Enable Threshold (EN pin) - Section 7.5
+  enable_threshold_rising:
+    direction: input
+    domain: voltage
+    signal_types: [dc]
+    units: V
+    pin: EN
+    datasheet_ref: "Table 7-5, VEN"
+    conditions:
+      - nominal: 1.2
+        limit_low: 1.0
+        limit_high: 1.4
+        description: "EN rising threshold"
+
+  enable_threshold_falling:
+    direction: input
+    domain: voltage
+    signal_types: [dc]
+    units: V
+    pin: EN
+    datasheet_ref: "Table 7-5, VEN"
+    conditions:
+      - nominal: 1.1
+        limit_low: 0.9
+        limit_high: 1.3
+        description: "EN falling threshold (hysteresis)"
+
+  # Output Voltage (board test point, after LC filter)
+  # This is what the user actually cares about testing
   output_voltage:
     direction: output
     domain: voltage
     signal_types: [dc]
     units: V
-    pins: [VOUT]
-    datasheet_ref: "Section 4.2"
+    pin: TP_VOUT
+    datasheet_ref: "Application, VOUT = VFB * (1 + R1/R2)"
     conditions:
-      # Room temperature, various loads
+      # Calculated from FB accuracy and resistor divider
+      # VOUT = 0.6V * (1 + 4.53k/1k) = 3.318V nominal
       - temperature: 25
         load: 0.5
         nominal: 3.3
-        tolerance_pct: 1
-        description: "TA=25C, IOUT=0.5A"
-      - temperature: 25
-        load: 1.0
-        nominal: 3.3
-        tolerance_pct: 1
-        description: "TA=25C, IOUT=1A"
+        tolerance_pct: 2
+        description: "Output at 0.5A load"
       - temperature: 25
         load: 3.0
         nominal: 3.3
-        tolerance_pct: 1
-        description: "TA=25C, IOUT=3A (full load)"
-      # High temperature
+        tolerance_pct: 3
+        description: "Output at 3A full load"
       - temperature: 85
-        load: 1.0
+        load: 3.0
         nominal: 3.3
-        tolerance_pct: 2
-        description: "TA=85C, IOUT=1A"
+        tolerance_pct: 4
+        description: "Output at hot, full load"
 
-  load_regulation:
-    direction: output
-    domain: voltage
-    signal_types: [dc]
-    units: "%"
-    datasheet_ref: "Section 4.2"
-    conditions:
-      - temperature: 25
-        load_min: 0.1
-        load_max: 3.0
-        nominal: 0.2
-        limit_high: 0.5
-        description: "IOUT 0.1A to 3A"
-
-  line_regulation:
-    direction: output
-    domain: voltage
-    signal_types: [dc]
-    units: "%"
-    datasheet_ref: "Section 4.2"
-    conditions:
-      - temperature: 25
-        vin_min: 4.5
-        vin_max: 28
-        nominal: 0.1
-        limit_high: 0.25
-        description: "VIN 4.5V to 28V"
-
-  # Section 4.3 - Output ripple
+  # Output Ripple (board test point)
   output_ripple:
     direction: output
     domain: voltage
     signal_types: [ac]
     units: mV
-    pins: [VOUT]
-    datasheet_ref: "Section 4.3"
+    pin: TP_VOUT
+    datasheet_ref: "Application circuit"
     conditions:
-      - temperature: 25
-        load: 1.0
-        nominal: 15
-        limit_high: 30
-        description: "IOUT=1A, COUT=47uF"
-      - temperature: 25
-        load: 3.0
-        nominal: 25
+      - load: 3.0
+        cout: 47
+        comparator: LE
         limit_high: 50
-        description: "IOUT=3A, COUT=47uF (worst case)"
+        description: "Peak-to-peak ripple at full load"
 
-  # Section 4.4 - Efficiency
+  # Switch Node (SW pin) - for waveform analysis
+  switch_frequency:
+    direction: output
+    domain: frequency
+    signal_types: [pulsed]
+    units: kHz
+    pin: SW
+    datasheet_ref: "Table 7-5, fSW"
+    conditions:
+      - nominal: 400
+        tolerance_pct: 10
+        description: "Switching frequency"
+
+  # Efficiency (calculated from VIN and VOUT measurements)
   efficiency:
     direction: output
     domain: power
     signal_types: [dc]
     units: "%"
-    datasheet_ref: "Section 4.4"
+    pins: [VIN, TP_VOUT, TP_IIN]
+    datasheet_ref: "Figure 7-3, Efficiency curves"
     conditions:
-      - temperature: 25
-        vin: 5.0
-        load: 0.1
-        nominal: 85
-        limit_low: 80
-        description: "Light load efficiency"
-      - temperature: 25
-        vin: 5.0
+      - vin: 12
         load: 0.5
-        nominal: 91
-        limit_low: 88
-        description: "Medium load efficiency"
-      - temperature: 25
-        vin: 5.0
-        load: 1.0
-        nominal: 93
+        comparator: GE
         limit_low: 90
-        description: "1A load efficiency"
-      - temperature: 25
-        vin: 5.0
+        description: "Efficiency at 12V in, 0.5A out"
+      - vin: 12
         load: 3.0
-        nominal: 92
-        limit_low: 89
-        description: "Full load efficiency"
-      - temperature: 25
-        vin: 12.0
-        load: 1.0
-        nominal: 88
-        limit_low: 85
-        description: "12V input efficiency"
+        comparator: GE
+        limit_low: 88
+        description: "Efficiency at 12V in, 3A out"
+      - vin: 5
+        load: 3.0
+        comparator: GE
+        limit_low: 92
+        description: "Efficiency at 5V in, 3A out"
 
-# Test requirements - from Section 7
+# Test requirements
 test_requirements:
-  verify_output_voltage_accuracy:
+  verify_feedback_voltage:
+    characteristic_ref: feedback_voltage
+    conditions:
+      temperature: 25
+    guardband_pct: 10
+    priority: critical
+    description: "Verify FB pin regulates to 0.6V"
+
+  verify_output_voltage:
     characteristic_ref: output_voltage
     conditions:
       temperature: 25
       load: 0.5
     guardband_pct: 10
     priority: critical
-    description: "Section 7.1 - Output Voltage Accuracy Test"
+    description: "Verify regulated output voltage"
 
-  verify_output_voltage_full_load:
+  verify_output_full_load:
     characteristic_ref: output_voltage
     conditions:
       temperature: 25
       load: 3.0
     guardband_pct: 10
     priority: critical
-    description: "Full load voltage test"
+    description: "Verify output at full load"
 
-  verify_load_regulation:
-    characteristic_ref: load_regulation
+  verify_quiescent:
+    characteristic_ref: quiescent_current
     conditions:
-      temperature: 25
+      ven: 2.0
+    guardband_pct: 20
+    priority: standard
+    description: "Verify low quiescent current"
+
+  verify_enable_threshold:
+    characteristic_ref: enable_threshold_rising
     guardband_pct: 0
     priority: standard
-    description: "Section 7.2 - Load Regulation Test"
+    description: "Verify EN pin threshold"
+
+  verify_switching_frequency:
+    characteristic_ref: switch_frequency
+    guardband_pct: 0
+    priority: standard
+    description: "Verify 400kHz switching"
 
   verify_efficiency:
     characteristic_ref: efficiency
     conditions:
-      temperature: 25
-      vin: 5.0
-      load: 1.0
-    guardband_pct: 0
-    priority: standard
-    description: "Section 7.3 - Efficiency Test"
-
-  verify_output_ripple:
-    characteristic_ref: output_ripple
-    conditions:
-      temperature: 25
+      vin: 12
       load: 3.0
-    guardband_pct: 0
+    guardband_pct: 5
     priority: standard
-    description: "Section 7.4 - Output Ripple Test"
-
-  verify_quiescent_current:
-    characteristic_ref: quiescent_current
-    conditions:
-      load: 0
-    guardband_pct: 10
-    priority: standard
-    description: "Standby current consumption"
+    description: "Verify power efficiency"
