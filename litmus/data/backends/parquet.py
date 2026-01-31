@@ -42,10 +42,21 @@ class ParquetBackend:
             "test_run_id": [str(test_run.id)],
             "started_at": [test_run.started_at],
             "ended_at": [test_run.ended_at],
+            # DUT traceability
             "dut_serial": [test_run.dut.serial],
+            "dut_part_number": [test_run.dut.part_number],
+            "dut_revision": [test_run.dut.revision],
+            # Product traceability
+            "product_id": [getattr(test_run, "product_id", None)],
+            # Station traceability
             "station_id": [test_run.station_id],
+            "station_type": [test_run.station_type],
+            # Sequence traceability
             "test_sequence_id": [test_run.test_sequence_id],
             "test_phase": [test_run.test_phase],
+            # Operator
+            "operator": [test_run.operator],
+            # Results
             "outcome": [test_run.outcome.value],
             "total_steps": [len(test_run.steps)],
             "failed_steps": [sum(1 for s in test_run.steps if s.outcome != Outcome.PASS)],
@@ -89,8 +100,11 @@ class ParquetBackend:
                         "started_at": tv.started_at,
                         "ended_at": tv.ended_at,
                         "error_message": tv.error_message,
+                        # Traceability - denormalized for query convenience
                         "dut_serial": test_run.dut.serial,
+                        "product_id": getattr(test_run, "product_id", None),
                         "station_id": test_run.station_id,
+                        "sequence_id": test_run.test_sequence_id,
                     }
                 )
 
@@ -115,10 +129,12 @@ class ParquetBackend:
                 for m in tv.measurements:
                     rows.append(
                         {
+                            # Identity
                             "test_run_id": str(test_run.id),
                             "test_vector_id": str(tv.id),
                             "step_name": step.name,
                             "vector_index": tv.index,
+                            # Measurement data
                             "measurement_name": m.name,
                             "value": float(m.value) if m.value else None,
                             "units": m.units,
@@ -126,14 +142,24 @@ class ParquetBackend:
                             "high_limit": float(m.high_limit) if m.high_limit else None,
                             "nominal": float(m.nominal) if m.nominal else None,
                             "outcome": m.outcome.value if m.outcome else None,
-                            "spec_ref": m.spec_ref,
+                            "comparator": m.comparator,
                             "timestamp": m.timestamp,
+                            # Spec traceability
+                            "spec_ref": m.spec_ref,
+                            # Product traceability
+                            "product_id": getattr(test_run, "product_id", None),
+                            # DUT traceability
                             "dut_serial": test_run.dut.serial,
+                            # Station traceability
                             "station_id": test_run.station_id,
-                            # Channel traceability
+                            # Sequence traceability
+                            "sequence_id": test_run.test_sequence_id,
+                            # Signal path traceability (fixture → instrument)
                             "dut_pin": m.dut_pin,
-                            "instrument_channel": m.instrument_channel,
                             "fixture_point": m.fixture_point,
+                            "instrument_name": m.instrument_name,
+                            "instrument_resource": m.instrument_resource,
+                            "instrument_channel": m.instrument_channel,
                         }
                     )
 

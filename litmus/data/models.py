@@ -219,11 +219,24 @@ class TestRun(BaseModel):
     id: UUID = Field(default_factory=uuid4)
     started_at: datetime = Field(default_factory=_utcnow)
     ended_at: datetime | None = None
+
+    # DUT identification
     dut: DUT
+
+    # Product traceability
+    product_id: str | None = None
+
+    # Station traceability
     station_id: str
     station_type: str | None = None
-    operator: str | None = None
+
+    # Sequence traceability
     test_sequence_id: str
     test_phase: str = "production"
+
+    # Operator
+    operator: str | None = None
+
+    # Results
     outcome: Outcome = Outcome.PASS
     steps: list[TestStep] = Field(default_factory=list)
