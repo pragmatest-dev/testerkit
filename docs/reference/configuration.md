@@ -4,7 +4,7 @@ Litmus uses YAML files for configuration, validated by Pydantic models.
 
 ## Product Specification
 
-**Location:** `specs/<product_id>.yaml`
+**Location:** `products/<product_id>/spec.yaml`
 
 ```yaml
 product:
@@ -37,14 +37,24 @@ signal_groups:            # Bus interfaces
 characteristics:
   <name>:                 # Characteristic identifier
     direction: input | output | bidir
-    domain: voltage | current | resistance | frequency | time | digital
-    signal_types: [dc, ac, pulse, sine, square, pwm]
+    domain: voltage | current | resistance | frequency | time | digital | temperature
+    signal_types: [dc, ac, pulsed, transient]
     units: string         # e.g., "V", "A", "ohm"
-    pins: [string]        # References to pins.<key>
-    channel: string       # For multi-channel DUT outputs (optional)
-    signal_group: string  # Reference to signal_groups.<key> (optional)
+
+    # Physical interface (at least one required)
+    pin: string           # Single pin reference (Product.pins key)
+    pins: [string] | string  # Multiple pins (list or range: "GPIO[0:7]")
+    net: string           # Schematic net name
+    signal_group: string  # Reference to signal_groups.<key>
+
+    # For multi-channel DUT outputs
+    channel: string       # Single channel
+    channels: [string] | string  # Multiple channels (list or range: "CH[1:4]")
+
+    # Traceability
     datasheet_ref: string # Optional reference
-    schematic_ref: string # Optional reference
+    schematic_ref: string # Deprecated: use net instead
+
     conditions:
       - nominal: decimal  # Expected value
         tolerance_pct: decimal    # Percentage tolerance
@@ -318,7 +328,7 @@ from litmus.products.models import Product
 from litmus.products.loader import load_product
 
 # Load and validate
-product = load_product("specs/my_product.yaml")
+product = load_product("products/my_product/spec.yaml")
 print(product.id)
 print(product.characteristics["output_voltage"].nominal)
 ```

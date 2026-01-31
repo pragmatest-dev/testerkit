@@ -117,7 +117,7 @@ def vector():
 def spec_context(request):
     """Provide product spec context for spec-driven testing.
 
-    Loads product spec from --spec option or auto-discovers from specs/ directory.
+    Loads product spec from --spec option or auto-discovers from products/ directory.
     Provides SpecContext for deriving limits and tracking channel traceability.
 
     Usage in tests:
@@ -139,18 +139,16 @@ def spec_context(request):
     if spec_path:
         return SpecContext.from_file(spec_path, guardband_pct=guardband)
 
-    # Try auto-discover from specs/ directory
+    # Try auto-discover from products/ directory
     root = request.config.rootpath
-    specs_dir = root / "specs"
-    if specs_dir.exists():
-        # Find first .yaml file
-        yaml_files = list(specs_dir.glob("*.yaml"))
-        if yaml_files:
-            # Prefer non-underscore files
-            for f in yaml_files:
-                if not f.name.startswith("_"):
-                    return SpecContext.from_file(f, guardband_pct=guardband)
-            return SpecContext.from_file(yaml_files[0], guardband_pct=guardband)
+    products_dir = root / "products"
+    if products_dir.exists():
+        # Find first product folder with spec.yaml
+        for product_folder in products_dir.iterdir():
+            if product_folder.is_dir() and not product_folder.name.startswith("_"):
+                spec_file = product_folder / "spec.yaml"
+                if spec_file.exists():
+                    return SpecContext.from_file(spec_file, guardband_pct=guardband)
 
     return None
 
@@ -220,12 +218,13 @@ def fixture_config(request):
 
 def _get_driver_class(instrument_type: str):
     """Get driver class for an instrument type."""
-    from litmus.instruments import DMM, PSU
+    from litmus.instruments import DMM, ELoad, PSU, Scope
 
     drivers = {
         "dmm": DMM,
         "psu": PSU,
-        # Add more as implemented
+        "eload": ELoad,
+        "scope": Scope,
     }
     return drivers.get(instrument_type.lower())
 
@@ -243,27 +242,25 @@ def instruments(request, station_config, simulate) -> dict[str, Any]:
     global _ACTIVE_INSTRUMENTS
     _ACTIVE_INSTRUMENTS.clear()
 
-    if not station_config:
-        return {}
+    if station_config:
+        # Load instruments from station config
+        inst_configs = station_config.get("instruments", {})
+        for name, config in inst_configs.items():
+            driver_class = _get_driver_class(config.get("type", ""))
+            if driver_class is None:
+                continue
 
-    # Load instruments from station config
-    inst_configs = station_config.get("instruments", {})
-    for name, config in inst_configs.items():
-        driver_class = _get_driver_class(config.get("type", ""))
-        if driver_class is None:
-            continue
+            resource = config.get("resource", "")
+            sim_config = config.get("sim_config", {})
 
-        resource = config.get("resource", "")
-        sim_config = config.get("sim_config", {})
-
-        # Create and connect instrument
-        inst = driver_class(
-            resource=resource,
-            simulate=simulate or config.get("simulate", False),
-            sim_config=sim_config,
-        )
-        inst.connect()
-        _ACTIVE_INSTRUMENTS[name] = inst
+            # Create and connect instrument
+            inst = driver_class(
+                resource=resource,
+                simulate=simulate or config.get("simulate", False),
+                sim_config=sim_config,
+            )
+            inst.connect()
+            _ACTIVE_INSTRUMENTS[name] = inst
 
     yield _ACTIVE_INSTRUMENTS
 

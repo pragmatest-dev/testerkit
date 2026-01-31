@@ -184,7 +184,7 @@ pytest tests/ \
 
 **Product spec:**
 ```yaml
-# specs/power_board.yaml
+# products/power_board/spec.yaml
 product:
   id: power_board
 

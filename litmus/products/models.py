@@ -305,7 +305,6 @@ class Characteristic(BaseModel):
 
     # Traceability
     datasheet_ref: str | None = None
-    schematic_ref: str | None = None  # Deprecated: use `net` instead
 
     # Spec values at conditions (ATML-style key-value)
     conditions: list[ConditionPoint] = Field(default_factory=list)
@@ -354,8 +353,7 @@ class Characteristic(BaseModel):
         Accepts:
         - pin/pins: Reference to Product.pins keys (pins supports range syntax)
         - channel/channels: For multi-channel DUTs (channels supports range syntax)
-        - net: Schematic net name (preferred)
-        - schematic_ref: Legacy alias for net (deprecated)
+        - net: Schematic net name
         - signal_group: Reference to Product.signal_groups key
 
         For calculated characteristics (efficiency, regulation) that involve
@@ -368,12 +366,11 @@ class Characteristic(BaseModel):
             self.channels,
             self.net,
             self.signal_group,
-            self.schematic_ref,  # Legacy support
         ])
         if not has_interface:
             raise ValueError(
                 "Characteristic must specify physical interface: "
-                "pin, pins, net, signal_group, or schematic_ref"
+                "pin, pins, channel, channels, net, or signal_group"
             )
         return self
 

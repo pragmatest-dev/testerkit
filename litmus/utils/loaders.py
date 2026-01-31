@@ -35,7 +35,7 @@ def find_yaml_files(
         Files that fail to parse are silently skipped.
 
     Example:
-        >>> for path, data in find_yaml_files([Path("specs/"), Path("demo/specs/")]):
+        >>> for path, data in find_yaml_files([Path("products/"), Path("demo/products/")]):
         ...     print(path.stem, data.get("id"))
     """
     for search_dir in search_paths:

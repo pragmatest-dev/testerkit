@@ -156,7 +156,6 @@ def _parse_characteristic(data: dict[str, Any]) -> Characteristic:
         channel=data.get("channel"),
         # Traceability
         datasheet_ref=data.get("datasheet_ref"),
-        schematic_ref=data.get("schematic_ref"),  # Legacy, use net instead
         conditions=conditions,
     )
 

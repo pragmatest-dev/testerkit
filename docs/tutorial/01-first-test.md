@@ -123,4 +123,4 @@ source .venv/bin/activate  # Linux/Mac
 
 Now let's make the test actually do something useful.
 
-[Step 2: Add Measurement →](02-measurement.md)
+[Step 2: Mock Instruments →](02-mock-instruments.md)

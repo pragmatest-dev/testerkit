@@ -151,8 +151,6 @@ class FixturePoint(BaseModel):
     net: str | None = None  # Match by schematic net name
 
 
-# Backwards compatibility alias
-FixtureChannel = FixturePoint
 
 
 class FixtureConfig(BaseModel):
@@ -181,12 +179,6 @@ class FixtureConfig(BaseModel):
     points: dict[str, FixturePoint] = Field(default_factory=dict)
 
     description: str | None = None
-
-    # Backwards compatibility: accept 'channels' as alias for 'points'
-    @property
-    def channels(self) -> dict[str, FixturePoint]:
-        """Backwards compatibility alias for points."""
-        return self.points
 
     def matches_product(self, product_id: str, revision: str | None = None) -> bool:
         """Check if this fixture matches a product."""

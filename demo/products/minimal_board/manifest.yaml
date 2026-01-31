@@ -1,8 +1,0 @@
-product_id: minimal_board
-name: "Minimal Example"
-description: "Shows the simplest possible spec to get started with Litmus"
-current_step: review_spec
-completed_steps:
-  - parse_datasheet
-files:
-  spec: spec.yaml

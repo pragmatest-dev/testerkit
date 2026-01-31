@@ -215,3 +215,15 @@ class PSU(VisaInstrument, VoltageOutput, CurrentOutput):
     def clear_protection(self) -> None:
         """Clear any tripped protection."""
         self.write("OUTP:PROT:CLE")
+
+    # -------------------------------------------------------------------------
+    # Convenience aliases for simpler test API
+    # -------------------------------------------------------------------------
+
+    def measure_voltage(self) -> Decimal:
+        """Alias for measure_output_voltage()."""
+        return self.measure_output_voltage()
+
+    def measure_current(self) -> Decimal:
+        """Alias for measure_output_current()."""
+        return self.measure_output_current()

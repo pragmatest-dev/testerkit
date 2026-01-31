@@ -86,8 +86,8 @@ def test_sweep(vector, psu, dmm):
 ```python
 vector["voltage"]          # Get parameter
 vector.get("temp", 25)     # Get with default
-vector.params              # All parameters as dict
-vector.index               # 0-based index
+vector.params()            # All parameters as dict (method)
+vector["_index"]           # 0-based index in expansion
 
 # Change detection (for nested loops)
 if vector.changed("temperature"):

@@ -26,7 +26,7 @@ SpecContext bridges product specs and test execution:
 from litmus.products import SpecContext
 
 # Load spec
-spec = SpecContext.from_file("specs/power_board.yaml")
+spec = SpecContext.from_file("products/power_board/spec.yaml")
 
 # Get limit for characteristic
 limit = spec.get_limit("output_voltage", temperature=25, load=0.1)
@@ -38,7 +38,7 @@ limit = spec.get_limit("output_voltage", temperature=25, load=0.1)
 Define characteristics with conditions:
 
 ```yaml
-# specs/power_board.yaml
+# products/power_board/spec.yaml
 product:
   id: power_board
   name: "5V to 3.3V Converter"
@@ -75,7 +75,7 @@ test_requirements:
 ```python
 from litmus.products import SpecContext
 
-spec = SpecContext.from_file("specs/power_board.yaml")
+spec = SpecContext.from_file("products/power_board/spec.yaml")
 
 # Get limit
 limit = spec.get_limit("output_voltage")
@@ -93,7 +93,7 @@ from decimal import Decimal
 
 # Apply 10% guardband (tighten limits)
 spec = SpecContext.from_file(
-    "specs/power_board.yaml",
+    "products/power_board/spec.yaml",
     guardband_pct=Decimal("10")
 )
 
@@ -117,7 +117,7 @@ print(pin_info)
 from litmus.execution.harness import TestHarness
 from litmus.products import SpecContext
 
-spec = SpecContext.from_file("specs/power_board.yaml", guardband_pct=Decimal("10"))
+spec = SpecContext.from_file("products/power_board/spec.yaml", guardband_pct=Decimal("10"))
 
 harness = TestHarness(
     step_name="test_output",
@@ -137,7 +137,7 @@ Configure spec reference in YAML:
 ```yaml
 # tests/config.yaml
 test_output_voltage:
-  spec: specs/power_board.yaml
+  spec: products/power_board/spec.yaml
   guardband_pct: 10
   limits:
     output_voltage:
@@ -156,7 +156,7 @@ SpecContext finds the best matching condition:
 
 ```python
 # Spec has conditions for temp=25 and temp=85
-spec = SpecContext.from_file("specs/power_board.yaml")
+spec = SpecContext.from_file("products/power_board/spec.yaml")
 
 # Exact match
 limit = spec.get_limit("output_voltage", temperature=25)
@@ -214,7 +214,7 @@ for m in measurements:
 ### 1. Define Product Spec
 
 ```yaml
-# specs/power_board.yaml
+# products/power_board/spec.yaml
 product:
   id: power_board
   name: "5V to 3.3V Converter"
@@ -246,7 +246,7 @@ test_requirements:
 ```yaml
 # tests/config.yaml
 test_output_voltage:
-  spec: specs/power_board.yaml
+  spec: products/power_board/spec.yaml
   guardband_pct: 10
   vectors:
     expand: product

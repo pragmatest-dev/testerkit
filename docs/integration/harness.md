@@ -47,7 +47,7 @@ harness = TestHarness(
 
 # With spec context for automatic limits
 from litmus.products import SpecContext
-spec = SpecContext.from_file("specs/my_product.yaml")
+spec = SpecContext.from_file("products/my_product/spec.yaml")
 harness = TestHarness(
     step_name="my_test",
     spec_context=spec,
@@ -180,7 +180,7 @@ harness.finish()
 from litmus.execution.harness import TestHarness
 from litmus.products import SpecContext
 
-spec = SpecContext.from_file("specs/power_board.yaml", guardband_pct=10)
+spec = SpecContext.from_file("products/power_board/spec.yaml", guardband_pct=10)
 
 harness = TestHarness(
     step_name="test_output",
@@ -190,6 +190,130 @@ harness = TestHarness(
 v = measure_voltage()
 harness.measure("output_voltage", v)  # Limits from spec with guardband
 harness.finish()
+```
+
+## Decorators for Test Architects
+
+### @measure Decorator
+
+Create reusable measurement functions with embedded limits.
+
+#### Parameters
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `name` | `str` | Function name | Measurement name in results |
+| `limit` | `Limit` | `None` | Limit object with low/high bounds |
+| `units` | `str` | `None` | Measurement units (overrides `limit.units`) |
+| `raise_on_fail` | `bool` | `True` | Raise AssertionError if limit check fails |
+
+#### Basic Usage
+
+```python
+from litmus.execution.decorators import measure
+from litmus.config.models import Limit
+
+@measure(
+    name="output_voltage",
+    limit=Limit(low=3.2, high=3.4, nominal=3.3, units="V"),
+    raise_on_fail=False,  # Return Measurement object instead of raising
+)
+def measure_output_voltage(dmm):
+    """Reusable measurement - can be called from multiple tests."""
+    return dmm.measure_dc_voltage()
+
+# Usage
+def test_voltage(dmm, litmus_logger):
+    result = measure_output_voltage(dmm)  # Returns Measurement object
+    assert result.outcome == Outcome.PASS
+```
+
+#### Examples
+
+**Minimal (uses function name, no limits):**
+```python
+@measure()
+def measure_temperature(sensor):
+    return sensor.read_temp()
+```
+
+**With limit that raises on failure:**
+```python
+@measure(
+    name="supply_current",
+    limit=Limit(low=0, high=1.5, units="A"),
+    raise_on_fail=True,  # Default - raises AssertionError on FAIL
+)
+def measure_supply_current(psu):
+    return psu.measure_current()
+```
+
+**Override units from limit:**
+```python
+@measure(
+    limit=Limit(low=0, high=1500),  # Stored as mA
+    units="mA",  # Override display units
+)
+def measure_current_ma(psu):
+    return psu.measure_current() * 1000
+```
+
+### @litmus_step Decorator
+
+Track non-measurement steps (setup, verification, dialogs).
+
+#### Parameters
+
+None. This decorator takes no parameters.
+
+#### What It Does
+
+1. Registers the function execution as a step in the test run
+2. Tracks pass/fail based on whether the function raises an exception
+3. Does NOT produce measurements (use `@measure` for that)
+
+#### Basic Usage
+
+```python
+from litmus.execution.decorators import litmus_step
+
+@litmus_step
+def verify_dut_connection(psu):
+    """Step tracked in test run without producing measurements."""
+    psu.set_voltage(0.1)
+    current = psu.measure_current()
+    assert current < 0.001, "DUT appears shorted!"
+
+@litmus_step
+def configure_test_equipment(psu, eload):
+    """Setup step - tracked but no measurement."""
+    psu.set_voltage(5.0)
+    psu.enable_output()
+    eload.set_current(0.5)
+    eload.enable()
+
+# Usage
+def test_with_steps(psu, dmm, eload, litmus_logger):
+    verify_dut_connection(psu)      # Tracked as step
+    configure_test_equipment(psu, eload)  # Tracked as step
+    result = measure_output_voltage(dmm)  # Measurement logged
+```
+
+#### Use Cases
+
+- **Setup steps:** Configure instruments before measurements
+- **Verification steps:** Check DUT connection, continuity tests
+- **Operator dialogs:** Confirm DUT placement, visual inspections
+- **Cleanup steps:** Disable outputs, safe state transitions
+
+#### Async Support
+
+```python
+@litmus_step
+async def wait_for_temperature(chamber, target):
+    """Async step - works with async functions."""
+    while await chamber.read_temp() < target:
+        await asyncio.sleep(1)
 ```
 
 ## Advanced Features

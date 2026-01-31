@@ -227,3 +227,19 @@ class ELoad(VisaInstrument, ConstantCurrentLoad, ConstantPowerLoad, ConstantResi
     def clear_protection(self) -> None:
         """Clear any tripped protection."""
         self.write("INP:PROT:CLE")
+
+    # -------------------------------------------------------------------------
+    # Convenience aliases for simpler test API
+    # -------------------------------------------------------------------------
+
+    def set_current(self, current: Decimal) -> None:
+        """Alias for set_load_current()."""
+        self.set_load_current(current)
+
+    def enable(self) -> None:
+        """Alias for enable_load()."""
+        self.enable_load()
+
+    def disable(self) -> None:
+        """Alias for disable_load()."""
+        self.disable_load()

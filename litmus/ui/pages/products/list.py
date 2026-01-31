@@ -33,7 +33,7 @@ def products_page():
         else:
             with ui.card().classes("w-full p-6 text-center"):
                 ui.label("No product specifications found.").classes("text-slate-500")
-                ui.label("Add YAML files to the specs/ directory.").classes(
+                ui.label("Create product folders in products/ directory.").classes(
                     "text-sm text-slate-400"
                 )
 

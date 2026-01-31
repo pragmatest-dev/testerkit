@@ -10,7 +10,7 @@ A **Product** is what you're testing — a PCB, module, or device. Product specs
 - **Test Requirements** — Which characteristics to test and how
 
 ```yaml
-# specs/power_board.yaml
+# products/power_board/spec.yaml
 product:
   id: power_board
   name: "5V to 3.3V Converter"
@@ -369,7 +369,7 @@ The **SpecContext** bridges product specs and test execution, enabling:
 from litmus.products import SpecContext
 
 # Load spec
-spec = SpecContext.from_file("specs/power_board.yaml")
+spec = SpecContext.from_file("products/power_board/spec.yaml")
 
 # Get limit for characteristic at conditions
 limit = spec.get_limit("output_voltage", temperature=25, load=0.1)
@@ -386,7 +386,7 @@ pin_info = spec.get_pin_info("output_voltage")
 from litmus.execution.harness import TestHarness
 from litmus.products import SpecContext
 
-spec = SpecContext.from_file("specs/power_board.yaml", guardband_pct=Decimal("10"))
+spec = SpecContext.from_file("products/power_board/spec.yaml", guardband_pct=Decimal("10"))
 
 harness = TestHarness(
     step_name="test_output",

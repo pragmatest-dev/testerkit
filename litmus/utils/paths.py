@@ -14,7 +14,6 @@ class ResourceType(StrEnum):
     """Types of resources in the Litmus ecosystem."""
 
     PRODUCTS = "products"  # Product folders with spec.yaml
-    SPECS = "specs"  # Legacy flat spec files
     STATIONS = "stations"  # Station configurations
     INSTRUMENTS = "instruments"  # Instrument library definitions
     SEQUENCES = "sequences"  # Test sequences
@@ -50,12 +49,6 @@ def get_search_paths(
         paths.append(cwd / "products")
         if include_demo:
             paths.append(cwd / "demo" / "products")
-
-    elif resource_type == ResourceType.SPECS:
-        # Legacy flat spec structure
-        paths.append(cwd / "specs")
-        if include_demo:
-            paths.append(cwd / "demo" / "specs")
 
     elif resource_type == ResourceType.STATIONS:
         paths.append(cwd / "stations")

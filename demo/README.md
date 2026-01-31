@@ -1,209 +1,273 @@
-# Litmus Demo
+# Litmus Demo - Golden Example
 
-This demo showcases the Litmus test framework with a simulated power board test.
+This demo showcases the Litmus hardware test framework with a simulated power board.
+It demonstrates **every major feature** of the framework.
 
 ## Quick Start
 
 ```bash
 cd demo
-python run_demo.py
+pytest tests/test_power_board.py --station=demo_station_001 --simulate -v
 ```
 
-## What's Included
+## Project Structure
 
-- **specs/power_board.yaml** - Product spec with pins, characteristics, and test requirements
-- **specs/minimal.yaml** - Minimal example showing how little you need to get started
-- **tests/config.yaml** - Test configuration (vectors, limits) separate from code
-- **tests/test_power_board.py** - Test suite using `@litmus_test` decorator
-
-## Product Specification (ATML-style)
-
-The power board spec demonstrates the new pin-based format:
-
-```yaml
-# specs/power_board.yaml
-product:
-  id: power_board
-  name: "Demo Power Board"
-
-pins:                        # Physical DUT connections
-  VIN:
-    name: "J1.1"
-    net: "VIN_5V"
-    type: power
-  VOUT:
-    name: "J1.3"
-    net: "VOUT_3V3"
-    type: signal
-
-characteristics:             # What to test
-  output_voltage:
-    direction: output        # DUT provides this
-    domain: voltage
-    pins: [VOUT]            # Which pin(s)
-    conditions:
-      - nominal: 3.3
-        tolerance_pct: 5
+```
+demo/
+├── products/
+│   └── power_board/
+│       └── spec.yaml           # Product specification (characteristics, limits)
+├── stations/
+│   └── demo_station_001.yaml   # Station config (instruments, addresses)
+├── fixtures/
+│   └── power_board_fixture.yaml  # Pin routing (DUT pin → instrument)
+├── sequences/
+│   └── power_board_smoke.yaml    # Test sequence (execution order, dialogs)
+├── tests/
+│   ├── conftest.py             # Instrument fixtures
+│   ├── config.yaml             # Test configuration (vectors, limits)
+│   ├── test_power_board.py     # @litmus_test decorator examples
+│   └── test_pure_pytest.py     # Pure pytest with litmus_logger
+└── results/                    # Output (Parquet files, gitignored)
 ```
 
-## Test Patterns Demonstrated
+## The 7 Project Folders
 
-### 1. Simple Measurement with File-Based Config
+| Folder | Purpose | Key File |
+|--------|---------|----------|
+| `products/` | WHAT you're testing | `{id}/spec.yaml` |
+| `stations/` | WHERE you test | `{id}.yaml` |
+| `fixtures/` | HOW pins connect | `{id}.yaml` |
+| `instruments/` | Custom drivers | `{type}.yaml` |
+| `sequences/` | Test order | `{id}.yaml` |
+| `tests/` | Test code | `test_*.py` + `config.yaml` |
+| `results/` | Output | Parquet files |
 
-Test code is clean - configuration lives in `config.yaml`:
+## Three Approaches (Simple → Advanced)
+
+### 1. `@litmus_test` Decorator (Recommended for Most Users)
+
+Clean, declarative tests with configuration in YAML:
 
 ```python
 # tests/test_power_board.py
 @litmus_test
-def test_input_voltage(vector, input_dmm):
-    return input_dmm.measure_dc_voltage()
+def test_output_voltage(vector, psu, dmm):
+    vin = vector.get("vin", 5.0)
+    psu.set_voltage(vin)
+    psu.enable_output()
+    return dmm.measure_dc_voltage()  # Framework checks limit
 ```
 
 ```yaml
 # tests/config.yaml
-test_input_voltage:
-  limits:
-    test_input_voltage:
-      low: 4.5
-      high: 5.5
-      units: V
-```
-
-### 2. Vector Expansion (Multiple Test Cases)
-
-Define test vectors in config, loop happens automatically:
-
-```yaml
-# config.yaml
-test_output_stability:
+test_output_voltage:
   vectors:
-    - sample: 1
-    - sample: 2
-    - sample: 3
+    - vin: 5.0
   limits:
-    test_output_stability:
-      low: 3.135
-      high: 3.465
+    test_output_voltage:
+      low: 3.2
+      high: 3.4
+      nominal: 3.3
       units: V
+      spec_ref: "output_voltage @ 25C"
 ```
+
+### 2. Pure Pytest with `litmus_logger`
+
+Full control with manual logging:
 
 ```python
-@litmus_test
-def test_output_stability(vector, output_dmm):
-    return output_dmm.measure_dc_voltage()  # Runs 3 times
+# tests/test_pure_pytest.py
+def test_basic(psu, dmm, litmus_logger):
+    psu.set_voltage(5.0)
+    psu.enable_output()
+    vout = dmm.measure_dc_voltage()
+
+    litmus_logger.measure(
+        name="output_voltage",
+        value=vout,
+        limit=Limit(low=3.2, high=3.4, units="V"),
+        dut_pin="TP_VOUT",
+    )
+    assert vout >= 3.2
 ```
 
-### 3. Nested Loops with Change Detection
+### 3. Test Architect Patterns (TestHarness, @measure, @litmus_step)
 
+For test architects who need maximum control:
+
+```python
+# tests/test_architect.py
+
+# @measure: Reusable measurement functions with embedded limits
+@measure(name="output_voltage", limit=Limit(low=3.2, high=3.4, units="V"))
+def measure_output_voltage(dmm):
+    return dmm.measure_dc_voltage()
+
+# @litmus_step: Track non-measurement operations
+@litmus_step
+def verify_dut_connection(psu):
+    psu.set_voltage(0.1)
+    current = psu.measure_current()
+    assert current < 0.001, "DUT shorted!"
+
+# TestHarness: Explicit vector control
+def test_explicit_control(psu, dmm, litmus_logger):
+    harness = TestHarness(
+        config={"vectors": [{"load": 0.1}, {"load": 0.8}]},
+        logger=litmus_logger,
+    )
+    for vector in harness.vectors:
+        with harness.run_vector(vector):
+            harness.measure("vout", dmm.measure_dc_voltage())
+```
+
+See `tests/test_architect.py` for complete examples.
+
+## Vector Expansion Modes
+
+### Explicit List
 ```yaml
-# config.yaml
-test_temp_load_matrix:
-  vectors:
-    expand: nested
-    loops:
-      - name: temperature
-        values: [25, 85]        # Outer loop
-      - name: load
-        values: [0, 50, 100]    # Inner loop
+vectors:
+  - vin: 5.0
+    load: 0.1
+  - vin: 5.0
+    load: 0.8
 ```
 
-```python
-@litmus_test
-def test_temp_load_matrix(vector, output_dmm):
-    if vector.changed("temperature"):
-        set_chamber_temp(vector["temperature"])  # Only when temp changes
-    return output_dmm.measure_dc_voltage()
+### Product (Cartesian)
+```yaml
+vectors:
+  expand: product
+  vin: [4.75, 5.0, 5.5]
+  load: [0.1, 0.5, 0.8]
+# Result: 9 vectors (3×3)
 ```
 
-### 4. Multiple Measurements (Dict Return)
+### Nested Loops
+```yaml
+vectors:
+  expand: nested
+  loops:
+    - name: temperature
+      values: [25, 85]      # Outer (slow)
+    - name: load
+      values: [0.1, 0.5]    # Inner (fast)
+# Result: 4 vectors, temperature changes first
+```
 
+### Range
+```yaml
+vectors:
+  expand: range
+  name: vin
+  start: 4.5
+  stop: 6.0
+  step: 0.5
+# Result: [4.5, 5.0, 5.5, 6.0]
+```
+
+## Return Patterns
+
+### Single Value
 ```python
 @litmus_test
-def test_power(vector, input_dmm, output_dmm):
+def test_voltage(vector, dmm):
+    return dmm.measure_dc_voltage()
+```
+
+### Dict (Multiple Measurements)
+```python
+@litmus_test
+def test_power(vector, psu, dmm):
     return {
-        "input_voltage": input_dmm.measure_dc_voltage(),
-        "output_voltage": output_dmm.measure_dc_voltage(),
+        "input_power": psu.measure_voltage() * psu.measure_current(),
+        "output_voltage": dmm.measure_dc_voltage(),
     }
 ```
 
-### 5. Streaming Measurements (Yield)
-
+### Yield (Streaming)
 ```python
 @litmus_test
 def test_burn_in(vector, dmm):
-    for minute in range(60):
+    for i in range(10):
         yield {"voltage": dmm.measure_dc_voltage()}
         time.sleep(60)
 ```
 
-## Running Tests Manually
+## Change Detection
 
-```bash
-# From the demo directory
-pytest tests/ --dut-serial=DPB001-0001 -v
-
-# With custom options
-pytest tests/ \
-  --dut-serial=MY-SERIAL \
-  --station=my_station \
-  --operator="Test Engineer" \
-  --results-dir=./my_results \
-  -v
-```
-
-## Config File Format
-
-The `config.yaml` file maps test function names to their configuration:
-
-```yaml
-test_function_name:
-  vectors:                    # Optional: parameter combinations
-    expand: product           # product, zip, range, or nested
-    param1: [1, 2, 3]
-    param2: [a, b]
-
-  limits:                     # Optional: pass/fail limits
-    measurement_name:
-      low: 3.0
-      high: 3.6
-      nominal: 3.3
-      units: V
-      spec_ref: SPEC-001
-
-  retry:                      # Optional: retry on failure
-    max_attempts: 3
-    delay_seconds: 0.5
-```
-
-## Spec-Driven Testing
-
-The new workflow derives limits directly from product specs:
+Optimize slow operations by detecting when parameters change:
 
 ```python
-from litmus.products import SpecContext
-from litmus.execution.harness import TestHarness
+@litmus_test
+def test_temp_sweep(vector, psu, dmm):
+    if vector.changed("temperature"):
+        # Only runs when temperature changes
+        set_chamber_temperature(vector["temperature"])
 
-# Load spec
-spec = SpecContext.from_file("specs/power_board.yaml")
-
-# Get limit for a characteristic at specific conditions
-limit = spec.get_limit("output_voltage", temperature=25, load=0.1)
-# Returns: Limit(low=3.135, high=3.465, spec_ref="Section 7.2 @ ...")
-
-# Or use with TestHarness for automatic resolution
-harness = TestHarness(step_name="test", spec_context=spec)
-
-with harness.step():
-    for vector in harness.vectors:
-        with harness.run_vector(vector):
-            # Limits auto-resolve from spec, dut_pin auto-populated
-            harness.measure("output_voltage", dmm.measure_dc_voltage())
+    psu.set_voltage(vector["vin"])
+    return dmm.measure_dc_voltage()
 ```
 
-Run the end-to-end tests to see the full workflow:
+## Retry Configuration
+
+```yaml
+test_flaky_measurement:
+  retry:
+    max_attempts: 3
+    delay_seconds: 0.5
+  limits:
+    ...
+```
+
+## Limit Comparators (IEEE 1671)
+
+| Comparator | Meaning |
+|------------|---------|
+| `GELE` | low ≤ value ≤ high (default) |
+| `LE` | value ≤ high (upper only) |
+| `GE` | value ≥ low (lower only) |
+| `EQ` | value == nominal |
+| `LT` | value < high |
+| `GT` | value > low |
+
+## Traceability
+
+Every measurement records the complete signal path:
+
+```python
+measurement = Measurement(
+    name="output_voltage",
+    value=3.3,
+    units="V",
+    # Traceability chain:
+    dut_pin="TP_VOUT",              # DUT connection
+    fixture_point="vout_measure",    # Fixture junction
+    instrument_name="dmm",           # Station instrument
+    instrument_channel="1",          # Physical channel
+    spec_ref="output_voltage @ 25C", # Spec reference
+)
+```
+
+## Running Tests
 
 ```bash
-pytest tests/test_e2e/ -v
+# Basic run with simulation
+pytest tests/test_power_board.py --station=demo_station_001 --simulate -v
+
+# Run specific test
+pytest tests/test_power_board.py::test_load_sweep --station=demo_station_001 --simulate -v
+
+# With DUT serial number (for production)
+pytest tests/ --station=demo_station_001 --dut-serial=DPB001-0001 --simulate -v
+
+# With custom results directory
+pytest tests/ --results-dir=./my_results --simulate -v
+
+# Pure pytest examples
+pytest tests/test_pure_pytest.py --station=demo_station_001 --simulate -v
 ```
 
 ## Querying Results
@@ -211,26 +275,68 @@ pytest tests/test_e2e/ -v
 ```python
 import pyarrow.parquet as pq
 
-# Read all measurements
-table = pq.read_table("results/measurements")
-for i in range(table.num_rows):
-    print(f"{table.column('measurement_name')[i]}: {table.column('value')[i]}")
+# Read test runs
+runs = pq.read_table("results/test_runs")
+print(f"Outcome: {runs['outcome'][0]}")
 
-# Read test run summary
-table = pq.read_table("results/test_runs")
-print(f"Result: {table.column('outcome')[0]}")
+# Read measurements
+measurements = pq.read_table("results/measurements")
+for row in measurements.to_pylist():
+    print(f"{row['name']}: {row['value']} {row['units']}")
 
-# Read test vectors (parameter combinations)
-table = pq.read_table("results/vectors")
-for i in range(table.num_rows):
-    print(f"Vector {table.column('index')[i]}: {table.column('params')[i]}")
+# Read vectors
+vectors = pq.read_table("results/vectors")
+for row in vectors.to_pylist():
+    print(f"Vector {row['index']}: {row['params']}")
 ```
 
-## Test Limits
+## What's Demonstrated
 
-| Measurement | Nominal | Low | High | Units |
-|-------------|---------|-----|------|-------|
-| Input Voltage | 5.0 | 4.5 | 5.5 | V |
-| Input Current | 0.010 | 0.005 | 0.015 | A |
-| Output Voltage | 3.3 | 3.135 | 3.465 | V |
-| Efficiency | 85 | 75 | 100 | % |
+| Feature | File | Pattern |
+|---------|------|---------|
+| Product spec | `products/power_board/spec.yaml` | Characteristics, conditions, limits |
+| Station config | `stations/demo_station_001.yaml` | Instruments, simulation |
+| Fixture routing | `fixtures/power_board_fixture.yaml` | DUT pin → instrument |
+| Test sequence | `sequences/power_board_smoke.yaml` | Ordered execution |
+| Single vector | `config.yaml` | `test_output_voltage_no_load` |
+| Retry | `config.yaml` | `test_output_voltage_full_load` |
+| Explicit list | `config.yaml` | `test_load_regulation` |
+| Product expansion | `config.yaml` | `test_load_sweep` |
+| Nested loops | `config.yaml` | `test_temp_load_matrix` |
+| Range expansion | `config.yaml` | `test_line_regulation` |
+| Dict return | `test_power_board.py` | `test_power_analysis` |
+| Yield streaming | `test_power_board.py` | `test_stability_over_time` |
+| Change detection | `test_power_board.py` | `test_load_sweep` |
+| One-sided limit | `config.yaml` | `test_quiescent_current` |
+| Pure pytest | `test_pure_pytest.py` | Manual litmus_logger |
+| @measure decorator | `test_architect.py` | Reusable measurement functions |
+| @litmus_step | `test_architect.py` | Non-measurement step tracking |
+| TestHarness direct | `test_architect.py` | Explicit vector control |
+| Spec-driven limits | `test_architect.py` | SpecContext integration |
+
+## Simulation Mode
+
+All instruments support simulation:
+
+```yaml
+# Station config
+instruments:
+  dmm:
+    type: "dmm"
+    resource: "TCPIP::192.168.1.102::INSTR"
+    simulate: true
+    sim_config:
+      voltage: 3.3
+```
+
+Simulation is also enabled by:
+- `--simulate` pytest flag
+- `LITMUS_SIMULATE=1` environment variable (set by UI)
+
+## Next Steps
+
+1. **Explore the files** - Read each YAML to understand the data model
+2. **Run tests** - See how vectors expand and limits are checked
+3. **Modify limits** - Change `config.yaml` and re-run
+4. **Add a test** - Create a new test following the patterns
+5. **Query results** - Explore the Parquet output

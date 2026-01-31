@@ -270,17 +270,18 @@ Usually capabilities are derived from instrument types, but explicit declaration
 
 ## Validation
 
-Validate station configuration:
+Station configuration is validated by Pydantic models when loaded:
 
 ```python
-from litmus.config.loader import load_station, validate_station
+from litmus.config.loader import load_station_instance
 
-station = load_station("stations/bench_1.yaml")
-errors = validate_station(station)
-if errors:
-    for error in errors:
-        print(f"Error: {error}")
+# Raises ValidationError if config is invalid
+station = load_station_instance("stations/bench_1.yaml")
+print(f"Station: {station.id}")
+print(f"Instruments: {list(station.instruments.keys())}")
 ```
+
+Invalid configurations raise `pydantic.ValidationError` with details about what's wrong.
 
 ## Best Practices
 

@@ -4,10 +4,10 @@ A **Product** is what you're testing — a PCB, module, or device. Product specs
 
 ## Product Specification
 
-Product specs are defined in YAML files, typically in `specs/` or `products/*/spec.yaml`:
+Product specs are defined in YAML files, in `products/{product_id}/spec.yaml`:
 
 ```yaml
-# specs/power_board.yaml
+# products/power_board/spec.yaml
 product:
   id: power_board
   name: "5V to 3.3V Converter"
@@ -246,7 +246,7 @@ In Python:
 ```python
 from litmus.products.loader import load_product
 
-product = load_product("specs/power_board.yaml")
+product = load_product("products/power_board/spec.yaml")
 print(product.id)
 print(product.characteristics["output_voltage"].nominal)
 ```

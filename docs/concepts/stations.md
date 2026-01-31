@@ -163,7 +163,8 @@ def test_voltage(vector, dmm):
 
 ```bash
 litmus serve                    # Start UI
-litmus runs --station=bench_1   # Filter runs by station
+litmus runs                     # List recent runs
+litmus show <run_id>            # Show run details
 ```
 
 ## Supported Test Phases

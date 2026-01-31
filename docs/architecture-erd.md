@@ -10,7 +10,7 @@
   1. SPEC                 2. CONFIG                3. CODE               4. RUN
   ───────                 ────────                 ──────                ──────
 
-  specs/*.yaml            tests/config.yaml        tests/test_*.py       pytest
+  products/*/spec.yaml            tests/config.yaml        tests/test_*.py       pytest
   ┌───────────┐          ┌────────────┐           ┌────────────┐       ┌───────┐
   │ Product   │          │ vectors    │           │ @litmus_   │       │ CLI   │
   │ - pins    │          │ - sweep    │           │   test     │       │  or   │
@@ -286,7 +286,7 @@ erDiagram
   OPTION A: Product Spec                OPTION B: Test Config        OPTION C: Inline
   (Derived from datasheet)              (Per-test overrides)         (In test code)
 
-  specs/product.yaml                    tests/config.yaml            test_*.py
+  products/product/spec.yaml                    tests/config.yaml            test_*.py
   ┌─────────────────────┐              ┌─────────────────────┐      ┌─────────────┐
   │ characteristics:    │              │ test_output:        │      │ harness.    │
   │   output_voltage:   │              │   limits:           │      │   measure(  │
@@ -321,7 +321,7 @@ erDiagram
 Product Spec (YAML)              Test Config (YAML)           Test Code (Python)
 ────────────────────             ──────────────────           ──────────────────
 
-specs/tps54302.yaml              tests/config.yaml            tests/test_*.py
+products/tps54302/spec.yaml              tests/config.yaml            tests/test_*.py
 ┌────────────────────┐           ┌────────────────────┐       ┌────────────────┐
 │ characteristics:   │           │ test_output:       │       │ @litmus_test   │
 │   output_voltage:  │           │   vectors:         │       │ def test_output│
@@ -374,7 +374,7 @@ TestSequence  →  TestRun   →  TestVector  →  Measurement  →  Parquet
 
 | Entity | Location |
 |--------|----------|
-| Product specs | `specs/*.yaml` or `products/*/spec.yaml` |
+| Product specs | `products/*/spec.yaml` or `products/*/spec.yaml` |
 | Station configs | `stations/*.yaml` |
 | Test sequences | `sequences/*.yaml` |
 | Fixtures | `fixtures/*.yaml` |

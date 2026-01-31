@@ -1,4 +1,4 @@
-# Step 5: Real Instruments
+# Step 7: Real Instruments
 
 **Goal:** Connect to real hardware with the ability to simulate when unavailable.
 
@@ -8,14 +8,14 @@ A test that works with real instruments OR in simulation mode using the same cod
 
 ## Station Configuration
 
-Define your test station:
+Define your test station (the bench where you test):
 
 ```yaml
-# stations/my_station.yaml
+# stations/bench_1.yaml
 station:
-  id: my_station
-  name: "My Test Bench"
-  location: "Lab A"
+  id: bench_1
+  name: "Production Bench 1"
+  location: "Lab A, Position 1"
 
 instruments:
   dmm:
@@ -28,11 +28,13 @@ instruments:
 ```
 
 This defines:
-- Station identity and location
+- A station identity and location
 - A DMM at a TCP/IP address
 - A PSU on GPIB
 
-## Using Station Instruments
+## The instruments Fixture
+
+When you run with `--station-config`, Litmus provides an `instruments` fixture:
 
 ```python
 # tests/test_power.py
@@ -40,7 +42,7 @@ from litmus.execution import litmus_test
 
 @litmus_test
 def test_output_voltage(vector, instruments):
-    """Test using station instruments."""
+    """Access instruments by name from station config."""
     psu = instruments["psu"]
     dmm = instruments["dmm"]
 
@@ -50,58 +52,53 @@ def test_output_voltage(vector, instruments):
     return dmm.measure_voltage()
 ```
 
-The `instruments` fixture provides access to station instruments by name.
-
-## Running with Real Hardware
-
+Run with:
 ```bash
-pytest tests/ --station=my_station --dut-serial=SN001
+pytest tests/ --station-config=stations/bench_1.yaml --dut-serial=SN001
 ```
 
 ## Running in Simulation Mode
 
-When hardware isn't available, use `--simulate`:
+When hardware isn't available, add `--simulate`:
 
 ```bash
-pytest tests/ --station=my_station --simulate --dut-serial=SN001
+pytest tests/ --station-config=stations/bench_1.yaml --simulate --dut-serial=SIM001
 ```
 
-The same test code works in both modes!
+The **same test code** works in both modes.
 
 ## How Simulation Works
 
 When `--simulate` is set:
-
 1. Drivers use pyvisa-sim instead of real I/O
 2. Responses come from `sim_config` values
 3. No hardware required
 
-Configure simulation values:
+Configure simulation values in the station:
 
 ```yaml
-# stations/my_station.yaml
+# stations/bench_1.yaml
 instruments:
   dmm:
     type: dmm
     resource: "TCPIP::192.168.1.100::INSTR"
-    simulate: true          # Always simulate this instrument
     sim_config:
-      voltage: 3.31
+      voltage: 3.31       # Value returned in simulation
       current: 0.1
 ```
 
 ## The simulate Fixture
 
-Access the simulation flag in tests:
+Access the simulation flag in custom fixtures:
 
 ```python
+# tests/conftest.py
 import pytest
+from litmus.instruments import DMM
 
 @pytest.fixture
-def dmm(simulate):
-    """DMM fixture that respects --simulate flag."""
-    from litmus.instruments import DMM
-
+def my_dmm(simulate):
+    """Custom DMM fixture that respects --simulate flag."""
     with DMM(
         "TCPIP::192.168.1.100::INSTR",
         simulate=simulate,
@@ -110,11 +107,11 @@ def dmm(simulate):
         yield d
 ```
 
-The `simulate` fixture is `True` when `--simulate` flag is passed.
+The `simulate` fixture is `True` when `--simulate` is passed.
 
-## CI Configuration
+## Station for CI/CD
 
-Create a station for CI environments:
+Create a fully-simulated station for CI:
 
 ```yaml
 # stations/ci_station.yaml
@@ -127,7 +124,7 @@ instruments:
   dmm:
     type: dmm
     resource: "SIM::DMM"
-    simulate: true
+    simulate: true         # Always simulate
     sim_config:
       voltage: 3.31
 
@@ -135,28 +132,39 @@ instruments:
     type: power_supply
     resource: "SIM::PSU"
     simulate: true
+    sim_config:
+      voltage: 5.0
+      current: 0.1
 ```
 
 Run in CI:
-
 ```bash
-pytest tests/ --station=ci_station --dut-serial=CI-TEST
+pytest tests/ --station-config=stations/ci_station.yaml --dut-serial=CI-TEST
 ```
 
-## VISA Addresses
-
-Common VISA address formats:
+## VISA Address Formats
 
 | Type | Format | Example |
 |------|--------|---------|
-| TCP/IP | `TCPIP::host::port::INSTR` | `TCPIP::192.168.1.100::INSTR` |
+| TCP/IP | `TCPIP::host::INSTR` | `TCPIP::192.168.1.100::INSTR` |
 | GPIB | `GPIB0::address::INSTR` | `GPIB0::5::INSTR` |
 | USB | `USB0::vid::pid::serial::INSTR` | `USB0::0x2A8D::0x0101::MY12345::INSTR` |
 | Serial | `ASRL/dev/ttyUSB0::INSTR` | `ASRL/dev/ttyUSB0::INSTR` |
 
-## Driver-Level vs Interface-Level Simulation
+## Discovering Instruments
 
-Litmus supports two simulation approaches:
+Find connected instruments:
+
+```bash
+python -c "import pyvisa; rm = pyvisa.ResourceManager(); print(rm.list_resources())"
+```
+
+Or use the Litmus MCP tool:
+```
+litmus_discover()
+```
+
+## Two Levels of Simulation
 
 ### Driver-Level (simulate=True)
 
@@ -188,68 +196,66 @@ dmm = MockDMM(voltage=3.3)
 
 ## Complete Example
 
-**Station config:**
+**stations/bench_1.yaml:**
 ```yaml
-# stations/bench_1.yaml
 station:
   id: bench_1
   name: "Production Bench 1"
-  location: "Lab A, Position 1"
+  location: "Lab A"
 
 instruments:
   dmm:
     type: dmm
     resource: "TCPIP::192.168.1.100::INSTR"
+    sim_config:
+      voltage: 3.31
   psu:
     type: power_supply
     resource: "GPIB0::5::INSTR"
+    sim_config:
+      voltage: 5.0
 ```
 
-**Test code:**
+**tests/test_power.py:**
 ```python
-# tests/test_power.py
 from litmus.execution import litmus_test
 
 @litmus_test
 def test_output_voltage(vector, instruments):
-    """Verify output voltage under load."""
+    """Works with real hardware OR simulation."""
     psu = instruments["psu"]
     dmm = instruments["dmm"]
 
-    # Apply input
     psu.set_voltage(5.0)
     psu.set_current_limit(1.0)
     psu.enable_output()
 
-    # Measure output
     voltage = dmm.measure_voltage()
 
-    # Cleanup
     psu.disable_output()
-
     return voltage
 ```
 
 **Run with hardware:**
 ```bash
-pytest tests/test_power.py --station=bench_1 --dut-serial=SN12345
+pytest tests/ --station-config=stations/bench_1.yaml --dut-serial=SN12345
 ```
 
 **Run simulated:**
 ```bash
-pytest tests/test_power.py --station=bench_1 --simulate --dut-serial=SIM001
+pytest tests/ --station-config=stations/bench_1.yaml --simulate --dut-serial=SIM001
 ```
 
 ## What You Learned
 
-- How to configure stations with instruments
-- Using the `instruments` fixture
-- Running tests with real hardware vs simulation
-- Different simulation approaches
+- Station configuration with instruments
+- The `instruments` fixture from station config
+- `--simulate` flag for hardware-free testing
+- Driver-level vs interface-level simulation
 - VISA address formats
 
 ## Next Step
 
 How does Litmus know which station can test which product?
 
-[Step 6: Capability Matching →](06-capabilities.md)
+[Step 8: Capability Matching →](08-capabilities.md)

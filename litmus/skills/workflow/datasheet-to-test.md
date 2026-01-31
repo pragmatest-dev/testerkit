@@ -287,7 +287,7 @@ from litmus.products import SpecContext
 
 @pytest.fixture
 def spec_context(request):
-    return SpecContext.from_yaml("specs/tps54302.yaml")
+    return SpecContext.from_yaml("products/tps54302/spec.yaml")
 
 class TestTPS54302:
     def test_output_voltage(self, psu, dmm, eload, spec_context):

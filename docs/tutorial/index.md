@@ -1,18 +1,20 @@
 # Tutorial: Engineer's First Project
 
-Welcome to Litmus! This tutorial takes you from your first test to a production-ready test suite. Each step builds on the previous one, introducing concepts only when you need them.
+Welcome to Litmus! This tutorial takes you from your first test to a production-ready test suite. Each step builds on the previous one, introducing one concept at a time.
 
 ## Learning Path
 
 | Step | Goal | What You'll Learn |
 |------|------|-------------------|
-| [1. First Test](01-first-test.md) | Run something | pytest, conftest.py, basic test |
-| [2. Add Measurement](02-measurement.md) | Measure a voltage | MockDMM, @litmus_test decorator |
-| [3. Add Limits](03-limits.md) | Pass/fail based on limits | Measurement, Limit, Outcome |
-| [4. YAML Configuration](04-configuration.md) | Configure without code | config.yaml, spec.yaml |
-| [5. Real Instruments](05-real-instruments.md) | Talk to hardware | stations/*.yaml, VISA, simulate=True |
-| [6. Capability Matching](06-capabilities.md) | Find compatible stations | capabilities, direction flip |
-| [7. Production Ready](07-production.md) | Full traceability | fixtures, sequences, results |
+| [1. First Test](01-first-test.md) | Run something | pytest, project structure |
+| [2. Mock Instruments](02-mock-instruments.md) | Measure a voltage | MockDMM, MockPSU, context managers |
+| [3. The @litmus_test Decorator](03-decorator.md) | Log measurements | @litmus_test, vector, return values |
+| [4. Add Limits](04-limits.md) | Pass/fail criteria | Limit, Measurement, Outcome |
+| [5. Test Configuration](05-configuration.md) | Configure in YAML | config.yaml, vectors, limits |
+| [6. Product Specifications](06-specifications.md) | Define products | products/*/spec.yaml, characteristics |
+| [7. Real Instruments](07-real-instruments.md) | Talk to hardware | stations/*.yaml, VISA, simulation |
+| [8. Capability Matching](08-capabilities.md) | Find compatible stations | direction flip, matching API |
+| [9. Production Ready](09-production.md) | Full traceability | fixtures, sequences, pins |
 
 ## Prerequisites
 
@@ -22,7 +24,7 @@ Welcome to Litmus! This tutorial takes you from your first test to a production-
 
 ## Time Commitment
 
-Each step takes 10-15 minutes. You can complete the entire tutorial in about 90 minutes, or work through it over several sessions.
+Each step takes 10-15 minutes. You can complete the entire tutorial in about 2 hours, or work through it over several sessions.
 
 ## What You'll Build
 

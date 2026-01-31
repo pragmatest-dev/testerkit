@@ -1,0 +1,50 @@
+# Demo Station Configuration
+# Uses simulated instruments for demonstration without real hardware
+#
+# NOTE: Simulation values are static approximations. Real instruments would
+# show dynamic behavior (e.g., input current increases with load).
+# These values are chosen to pass most tests while demonstrating the framework.
+
+station:
+  id: "demo_station_001"
+  name: "Demo Test Station"
+  location: "Virtual Lab"
+  description: "Simulated station for demonstrating Litmus capabilities"
+
+instruments:
+  psu:
+    type: "psu"
+    resource: "TCPIP::192.168.1.101::INSTR"
+    simulate: true
+    description: "Power supply for DUT input power"
+    sim_config:
+      # Simulate typical LDO behavior at moderate load
+      # Input current ~0.25A represents average behavior across test scenarios
+      voltage: 5.0
+      current: 0.25
+
+  dmm:
+    type: "dmm"
+    resource: "TCPIP::192.168.1.102::INSTR"
+    simulate: true
+    description: "DMM for output voltage measurement"
+    sim_config:
+      # Simulates LDO output: 3.3V nominal
+      voltage: 3.3
+      current: 0.0
+      resistance: 1000.0
+
+  eload:
+    type: "eload"
+    resource: "TCPIP::192.168.1.103::INSTR"
+    simulate: true
+    description: "Electronic load for output loading"
+    sim_config:
+      current: 0.5
+      voltage: 3.3
+
+# Test phases this station supports
+supported_phases:
+  - validation
+  - production
+  - debug

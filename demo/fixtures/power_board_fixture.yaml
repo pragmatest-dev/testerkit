@@ -1,0 +1,58 @@
+# Fixture Configuration: Power Board Test Fixture
+#
+# This fixture maps DUT pins to instrument channels, enabling:
+# - Automatic signal routing (which instrument measures which pin)
+# - Full traceability (measurement → fixture point → DUT pin)
+# - Reusable hardware configuration across test stations
+#
+# The fixture sits between the product spec (logical pins) and the
+# station config (physical instruments).
+
+fixture:
+  id: power_board_fixture_v1
+  name: "Power Board Test Fixture Rev 1"
+  description: "Pogo-pin fixture for Demo Power Board Rev A"
+  product_id: power_board
+  product_revision: "A"
+
+# Fixture points map DUT pins to instrument channels
+# Each point defines: what pin → which instrument → which channel
+points:
+  # Input power routing
+  vin_supply:
+    dut_pin: J1_VIN
+    net: VIN_5V
+    instrument: psu
+    instrument_channel: "1"
+    description: "5V input from PSU channel 1"
+
+  gnd_return:
+    dut_pin: J1_GND
+    net: GND
+    instrument: psu
+    instrument_channel: "GND"
+    description: "Ground return to PSU"
+
+  # Output measurement routing
+  vout_measure:
+    dut_pin: TP_VOUT
+    net: VOUT_3V3
+    instrument: dmm
+    instrument_channel: "1"
+    description: "Output voltage measurement via DMM"
+
+  # Input measurement routing (for current measurement)
+  vin_measure:
+    dut_pin: TP_VIN
+    net: VIN_5V
+    instrument: dmm
+    instrument_channel: "2"
+    description: "Input voltage sense via DMM ch2"
+
+  # Load connection routing
+  load_output:
+    dut_pin: J1_VOUT
+    net: VOUT_3V3
+    instrument: eload
+    instrument_channel: "1"
+    description: "Electronic load on output"

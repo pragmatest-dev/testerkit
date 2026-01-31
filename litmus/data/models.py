@@ -166,10 +166,6 @@ class TestVector(BaseModel):
     error_message: str | None = None
 
 
-# Alias for backward compatibility
-TestCase = TestVector
-
-
 class TestStep(BaseModel):
     """A test step containing test vectors.
 
@@ -190,15 +186,7 @@ class TestStep(BaseModel):
     ended_at: datetime | None = None
     outcome: Outcome = Outcome.PASS
     vectors: list[TestVector] = Field(default_factory=list)
-    # Legacy: direct measurements for backward compatibility (deprecated)
-    measurements: list[Measurement] = Field(default_factory=list)
     error_message: str | None = None
-
-    # Alias for backward compatibility
-    @property
-    def cases(self) -> list[TestVector]:
-        """Alias for vectors (deprecated, use vectors instead)."""
-        return self.vectors
 
     @property
     def total_vectors(self) -> int:
@@ -214,22 +202,6 @@ class TestStep(BaseModel):
     def failed_vectors(self) -> int:
         """Number of failed test vectors."""
         return sum(1 for v in self.vectors if v.outcome == Outcome.FAIL)
-
-    # Legacy aliases
-    @property
-    def total_cases(self) -> int:
-        """Alias for total_vectors (deprecated)."""
-        return self.total_vectors
-
-    @property
-    def passed_cases(self) -> int:
-        """Alias for passed_vectors (deprecated)."""
-        return self.passed_vectors
-
-    @property
-    def failed_cases(self) -> int:
-        """Alias for failed_vectors (deprecated)."""
-        return self.failed_vectors
 
 
 class DUT(BaseModel):

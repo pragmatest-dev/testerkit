@@ -91,40 +91,73 @@ class PartialStationMatch(BaseModel):
 # -----------------------------------------------------------------------------
 
 
-def _get_specs_paths() -> list[Path]:
-    """Get search paths for product specs (legacy)."""
-    return [Path.cwd() / "specs"]
+def _get_product_paths() -> list[Path]:
+    """Get search paths for product folders."""
+    return [Path.cwd() / "products", Path.cwd() / "demo" / "products"]
 
 
 def load_product_by_id(product_id: str) -> Product | None:
-    """Load a Product model by ID from specs directories."""
-    for yaml_file, _ in find_yaml_files(_get_specs_paths()):
-        try:
-            product = load_product(yaml_file)
-            if product.id == product_id:
-                return product
-        except Exception:
+    """Load a Product model by ID from products directory.
+
+    Products are stored in folder structure: products/{product_id}/spec.yaml
+    """
+    for products_dir in _get_product_paths():
+        if not products_dir.exists():
             continue
+        # Direct lookup by folder name
+        spec_file = products_dir / product_id / "spec.yaml"
+        if spec_file.exists():
+            try:
+                return load_product(spec_file)
+            except Exception:
+                pass
+        # Fallback: search all folders for matching product ID
+        for product_folder in products_dir.iterdir():
+            if not product_folder.is_dir():
+                continue
+            spec_file = product_folder / "spec.yaml"
+            if spec_file.exists():
+                try:
+                    product = load_product(spec_file)
+                    if product.id == product_id:
+                        return product
+                except Exception:
+                    continue
     return None
 
 
 def list_products() -> list[dict[str, Any]]:
-    """List all available products."""
-    products = []
+    """List all available products.
 
-    for yaml_file, _ in find_yaml_files(_get_specs_paths()):
-        try:
-            product = load_product(yaml_file)
-            products.append({
-                "id": product.id,
-                "name": product.name,
-                "description": product.description,
-                "revision": product.revision,
-                "characteristics_count": len(product.characteristics),
-                "test_requirements_count": len(product.test_requirements),
-            })
-        except Exception:
+    Products are stored in folder structure: products/{product_id}/spec.yaml
+    """
+    products = []
+    seen_ids = set()
+
+    for products_dir in _get_product_paths():
+        if not products_dir.exists():
             continue
+        for product_folder in products_dir.iterdir():
+            if not product_folder.is_dir():
+                continue
+            spec_file = product_folder / "spec.yaml"
+            if not spec_file.exists():
+                continue
+            try:
+                product = load_product(spec_file)
+                if product.id in seen_ids:
+                    continue
+                seen_ids.add(product.id)
+                products.append({
+                    "id": product.id,
+                    "name": product.name,
+                    "description": product.description,
+                    "revision": product.revision,
+                    "characteristics_count": len(product.characteristics),
+                    "test_requirements_count": len(product.test_requirements),
+                })
+            except Exception:
+                continue
     return products
 
 

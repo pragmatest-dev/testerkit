@@ -16,248 +16,170 @@ uv sync
 pip install -e .
 ```
 
-## Simplest Test (With Logging)
+## Project Structure
 
-Create a station config and write the test:
+Litmus projects follow a standard folder structure. The UI is driven by these folders.
+
+```
+my_project/
+├── products/                    # WHAT you're testing
+│   └── my_product/
+│       └── spec.yaml            # Product specification
+├── stations/                    # WHERE you test
+│   └── my_station.yaml          # Instruments + addresses
+├── fixtures/                    # HOW pins connect to instruments
+│   └── my_fixture.yaml          # Pin-to-channel mappings
+├── instruments/                 # Custom instrument drivers
+│   └── custom_dmm.yaml          # Driver definitions
+├── sequences/                   # Test execution order
+│   └── full_validation.yaml     # Ordered test list
+├── tests/                       # Test code
+│   ├── conftest.py              # Fixture definitions
+│   ├── config.yaml              # CONDITIONS + LIMITS
+│   └── test_my_product.py       # Test functions
+├── results/                     # Output (gitignored)
+│   └── measurements/            # Parquet files
+└── pyproject.toml
+```
+
+## Your First Test
+
+### 1. Define the Product Spec
+
+```yaml
+# products/my_product/spec.yaml
+product:
+  id: my_product
+  name: "5V to 3.3V Power Module"
+
+characteristics:
+  output_voltage:
+    nominal: 3.3
+    tolerance_pct: 5
+    unit: V
+
+test_conditions:
+  default_vin: 5.0
+  default_vout: 3.3
+```
+
+### 2. Configure the Station
 
 ```yaml
 # stations/my_station.yaml
 station:
   id: my_station
-
-instruments:
-  dmm:
-    type: dmm
-    resource: "TCPIP::192.168.1.100::INSTR"
-```
-
-```python
-# tests/test_voltage.py
-from litmus.execution.decorators import litmus_test
-
-@litmus_test
-def test_voltage(vector, instruments):
-    """Measure voltage - result logged to Parquet."""
-    dmm = instruments["dmm"]
-    return dmm.measure_voltage()
-```
-
-Run with `--simulate` for simulated instruments:
-
-```bash
-pytest tests/ --station=my_station --simulate --dut-serial=TEST001 -v
-```
-
-Results appear in `results/` and via `litmus runs`.
-
-## Without Logging (Plain pytest)
-
-If you don't need Litmus logging, use mock instruments directly:
-
-```python
-# tests/test_simple.py
-from litmus.instruments import MockDMM
-
-def test_voltage():
-    """Plain pytest - no logging to Litmus."""
-    dmm = MockDMM(voltage=3.31)
-    assert float(dmm.measure_voltage()) > 3.0
-```
-
-```bash
-pytest tests/test_simple.py -v
-```
-
-This is just pytest with Litmus mock instruments — no fixtures, no logging.
-
-## Adding Limits
-
-For production testing, add limit checking:
-
-```python
-# tests/test_with_limits.py
-from decimal import Decimal
-from litmus.instruments import MockDMM
-from litmus.data import Measurement, Outcome
-
-def test_output_voltage():
-    dmm = MockDMM(voltage=3.31)
-
-    m = Measurement(
-        name="output_voltage",
-        value=dmm.measure_voltage(),
-        units="V",
-        low_limit=Decimal("3.135"),
-        high_limit=Decimal("3.465"),
-    )
-    m.check_limit()
-
-    assert m.outcome == Outcome.PASS
-```
-
-## Using YAML Config
-
-For spec-driven testing with traceability:
-
-### 1. Create a Product Spec
-
-Define what you're testing in `specs/my_product.yaml`:
-
-```yaml
-product:
-  id: my_product
-  name: "My Product"
-
-pins:
-  VOUT:
-    name: "J1.1"
-
-characteristics:
-  output_voltage:
-    direction: output
-    domain: voltage
-    units: V
-    pins: [VOUT]
-    conditions:
-      - nominal: 3.3
-        tolerance_pct: 5
-```
-
-### 2. Create a Station Config
-
-Define your test station in `stations/my_station.yaml`:
-
-```yaml
-station:
-  id: my_station
   name: "My Test Bench"
 
 instruments:
-  dmm:
-    type: dmm
-    resource: "TCPIP::192.168.1.100::INSTR"
+  psu:
+    type: psu
+    resource: "TCPIP::192.168.1.101::INSTR"
     simulate: true
     sim_config:
-      voltage: 3.31
+      voltage: 5.0
+      current: 0.1
+
+  dmm:
+    type: dmm
+    resource: "TCPIP::192.168.1.102::INSTR"
+    simulate: true
+    sim_config:
+      voltage: 3.31  # Simulated output measurement
 ```
 
-### 3. Write the Test
+### 3. Create conftest.py
+
+```python
+# tests/conftest.py
+import pytest
+
+@pytest.fixture(scope="session")
+def psu(instruments):
+    """Power supply from station config."""
+    return instruments.get("psu")
+
+@pytest.fixture(scope="session")
+def dmm(instruments):
+    """DMM from station config."""
+    return instruments.get("dmm")
+```
+
+### 4. Configure Test Conditions and Limits
+
+**Both conditions (vectors) AND limits go in config.yaml:**
+
+```yaml
+# tests/config.yaml
+test_output_voltage:
+  vectors:
+    - vin: 5.0  # Test condition from spec.test_conditions.default_vin
+  limits:
+    test_output_voltage:
+      low: 3.135      # 3.3V - 5% (from spec)
+      high: 3.465     # 3.3V + 5% (from spec)
+      nominal: 3.3
+      units: V
+      spec_ref: "output_voltage @ tolerance_pct=5"
+```
+
+### 5. Write the Test
 
 ```python
 # tests/test_my_product.py
-import pytest
-from litmus.instruments import DMM
+from litmus.execution import litmus_test
 
-@pytest.fixture
-def dmm():
-    # Driver-level simulation (uses pyvisa-sim)
-    with DMM("TCPIP::192.168.1.100::INSTR", simulate=True, sim_config={"voltage": 3.31}) as d:
-        yield d
-
-def test_output_voltage(dmm):
-    """Measure output voltage."""
-    voltage = dmm.measure_voltage()
-    assert float(voltage) > 3.0
-```
-
-### 4. Add Test Config
-
-Configure limits in `tests/config.yaml`:
-
-```yaml
-test_output_voltage:
-  limits:
-    output_voltage:
-      low: 3.135
-      high: 3.465
-      units: V
-```
-
-### 5. Run the Test
-
-```bash
-pytest tests/ --dut-serial=SN001 -v
-```
-
-## Instrument Access Options
-
-| Approach | Setup | When to Use |
-|----------|-------|-------------|
-| **`--simulate` flag** | None | Development, CI |
-| **Station config** | `stations/*.yaml` | Real hardware |
-| **Pin mapping** | `fixtures/*.yaml` | Production, complex routing |
-
-### Station Config
-
-Create `stations/my_station.yaml`:
-
-```yaml
-station:
-  id: my_station
-  name: "My Bench"
-
-instruments:
-  dmm:
-    type: dmm
-    resource: "TCPIP::192.168.1.100::INSTR"
-  psu:
-    type: psu
-    resource: "GPIB0::5::INSTR"
-```
-
-Access instruments by name:
-
-```python
 @litmus_test
-def test_voltage(vector, instruments):
-    psu = instruments["psu"]
-    dmm = instruments["dmm"]
+def test_output_voltage(vector, psu, dmm):
+    """Verify output voltage is within spec.
 
-    psu.set_voltage(5.0)
+    The @litmus_test decorator:
+    1. Loads vectors from config.yaml
+    2. Loads limits from config.yaml
+    3. Captures the return value as a measurement
+    4. Checks against limits
+    5. Records results to Parquet
+    """
+    # Get conditions from vector (not hardcoded!)
+    vin = vector.get("vin", 5.0)
+
+    # Set up stimulus
+    psu.set_voltage(vin)
     psu.enable_output()
-    return dmm.measure_voltage()
+
+    # Measure and return - framework checks limits
+    return dmm.measure_dc_voltage()
 ```
+
+### 6. Run the Test
 
 ```bash
-# Real hardware
-pytest --station=my_station --dut-serial=SN001
+# With simulation (no hardware required)
+pytest tests/ --station-config=stations/my_station.yaml --simulate --dut-serial=TEST001 -v
 
-# Simulated (same code, no hardware)
-pytest --station=my_station --simulate --dut-serial=SN001
+# With real hardware
+pytest tests/ --station-config=stations/my_station.yaml --dut-serial=SN001 -v
 ```
 
-### Pin Mapping (Production)
+## The Pattern
 
-For complex fixtures, create `fixtures/my_fixture.yaml`:
+Every Litmus test follows this pattern:
 
-```yaml
-fixture:
-  id: my_fixture
-  product_id: my_product
-
-points:
-  VIN:
-    dut_pin: VIN
-    instrument: psu
-    instrument_channel: "1"
-  VOUT:
-    dut_pin: VOUT
-    instrument: dmm
-```
-
-Access instruments by DUT pin name:
+1. **GET CONDITIONS** from vector (not hardcoded)
+2. **SET UP** stimulus (PSU voltage, load current)
+3. **MEASURE** the result
+4. **RETURN** the value (framework checks limits from config.yaml)
 
 ```python
 @litmus_test
-def test_output(vector, pins):
-    pins["VIN"].set_voltage(5.0)
-    pins["VIN"].enable_output()
-    return pins["VOUT"].measure_voltage()
+def test_something(vector, psu, dmm):
+    vin = vector.get("vin", 5.0)  # GET from vector
+    psu.set_voltage(vin)          # SET UP
+    psu.enable_output()
+    return dmm.measure_dc_voltage()  # MEASURE and RETURN
 ```
 
-```bash
-pytest --station=my_station --fixture-config=fixtures/my_fixture.yaml --dut-serial=SN001
-```
+**No hardcoded values in code.** Conditions come from vectors, limits from config.yaml.
 
 ## View Results
 
@@ -275,30 +197,30 @@ litmus serve
 # Open http://localhost:8000
 ```
 
-### Programmatic (Python)
-
-```python
-from litmus import LitmusClient
-
-client = LitmusClient()
-runs = client.list_runs()
-print(runs[0])
-```
-
-### Raw Parquet
+### Programmatic
 
 ```python
 import pyarrow.parquet as pq
 
-# Read measurements
 table = pq.read_table("results/measurements")
 print(table.to_pandas())
 ```
 
+## Key Folders
+
+| Folder | Purpose | UI Page |
+|--------|---------|---------|
+| `products/` | Product specs (what you're testing) | /products |
+| `stations/` | Station configs (instruments + addresses) | /stations |
+| `fixtures/` | Pin-to-instrument mappings | /fixtures |
+| `instruments/` | Custom instrument drivers | /instruments |
+| `sequences/` | Test execution order | /sequences |
+| `tests/` | Test code + config.yaml | - |
+| `results/` | Parquet output (gitignored) | /runs |
+
 ## Next Steps
 
 - [Core Concepts](concepts.md) — Understand products, stations, and capabilities
-- [Configuration Reference](configuration.md) — YAML schema details
-- [pytest Plugin Guide](pytest-plugin.md) — `@litmus_test`, vectors, retries
-- [Python Client](client.md) — Submit results from external tools
-- [API Reference](api.md) — MCP tools and HTTP endpoints
+- [Writing Tests](guides/writing-tests.md) — Patterns and best practices
+- [Configuration Reference](reference/configuration.md) — YAML schema details
+- [Tutorial](tutorial/index.md) — Step-by-step learning path

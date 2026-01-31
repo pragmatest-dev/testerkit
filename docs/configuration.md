@@ -4,7 +4,7 @@ Litmus uses YAML files for configuration, validated by Pydantic models.
 
 ## Product Specification
 
-**Location:** `specs/<product_id>.yaml`
+**Location:** `products/<product_id>/spec.yaml`
 
 ```yaml
 product:
@@ -318,7 +318,7 @@ from litmus.products.models import Product
 from litmus.products.loader import load_product
 
 # Load and validate
-product = load_product("specs/my_product.yaml")
+product = load_product("products/my_product/spec.yaml")
 print(product.id)
 print(product.characteristics["output_voltage"].nominal)
 ```

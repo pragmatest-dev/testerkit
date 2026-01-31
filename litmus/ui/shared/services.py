@@ -13,11 +13,9 @@ from litmus.products.folder import ProductFolder
 
 
 def discover_products() -> list[dict]:
-    """Discover products from folders and spec files.
+    """Discover products from folders.
 
-    Checks:
-    1. products/ and demo/products/ folders (new workflow structure)
-    2. specs/ (legacy flat structure)
+    Checks products/ and demo/products/ folders for product specifications.
     """
     products = []
     seen_ids = set()
@@ -74,43 +72,11 @@ def discover_products() -> list[dict]:
                     "files": folder.manifest.files.model_dump(),
                 })
 
-    # 2. Check specs/ for backwards compat (legacy flat structure)
-    search_paths = [
-        Path.cwd() / "specs",
-    ]
-
-    for specs_dir in search_paths:
-        if not specs_dir.exists():
-            continue
-        for yaml_file in specs_dir.glob("*.yaml"):
-            with open(yaml_file) as f:
-                data = yaml.safe_load(f)
-                if data and "product" in data:
-                    product_info = data["product"]
-                    product_id = product_info.get("id", yaml_file.stem)
-
-                    if product_id in seen_ids:
-                        continue
-                    seen_ids.add(product_id)
-
-                    products.append({
-                        "id": product_id,
-                        "name": product_info.get("name", yaml_file.stem),
-                        "description": product_info.get("description", ""),
-                        "revision": product_info.get("revision", ""),
-                        "pins": product_info.get("pins"),
-                        "characteristics": data.get("characteristics", {}),
-                        "test_requirements": data.get("test_requirements", {}),
-                        "file": str(yaml_file),
-                        "folder_path": None,
-                        "workflow_step": None,
-                    })
-
     return products
 
 
 def load_product_model(product_id: str):
-    """Load a Product model from specs directory."""
+    """Load a Product model by ID."""
     return matching_service.load_product_by_id(product_id)
 
 
@@ -214,30 +180,30 @@ def get_all_station_matches_for_product(product_id: str) -> dict[str, list]:
 
 
 def save_product(product_id: str, product_data: dict) -> bool:
-    """Save product specification to YAML file."""
+    """Save product specification to YAML file.
+
+    Saves to products/{product_id}/spec.yaml, creating the folder if needed.
+    """
+    # Check if product folder already exists
     search_paths = [
-        Path.cwd() / "specs",
-        Path.cwd() / "demo" / "specs",
+        Path.cwd() / "products",
+        Path.cwd() / "demo" / "products",
     ]
 
     target_file = None
-    for specs_dir in search_paths:
-        if specs_dir.exists():
-            existing = specs_dir / f"{product_id}.yaml"
-            if existing.exists():
-                target_file = existing
-                break
+    for products_dir in search_paths:
+        product_folder = products_dir / product_id
+        if product_folder.exists():
+            target_file = product_folder / "spec.yaml"
+            break
 
+    # Create new product folder if not found
     if target_file is None:
-        for specs_dir in search_paths:
-            if specs_dir.exists():
-                target_file = specs_dir / f"{product_id}.yaml"
-                break
-
-    if target_file is None:
-        specs_dir = Path.cwd() / "specs"
-        specs_dir.mkdir(exist_ok=True)
-        target_file = specs_dir / f"{product_id}.yaml"
+        products_dir = Path.cwd() / "products"
+        products_dir.mkdir(exist_ok=True)
+        product_folder = products_dir / product_id
+        product_folder.mkdir(exist_ok=True)
+        target_file = product_folder / "spec.yaml"
 
     yaml_data = {
         "product": {

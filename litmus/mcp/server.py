@@ -1,15 +1,11 @@
 """MCP server for AI-assisted test generation workflows.
 
-This server exposes 9 tools for:
-- discover: Scan for VISA instruments
-- list: List entities (stations, products, fixtures, sequences, instruments, runs)
-- get: Get entity details
-- save: Create/update entities
-- match: Check compatibility between products, stations, fixtures
-- run: Execute test sequences
-- status: Get run status
-- open_ui: Get URL to view/edit in browser
-- read: Read project files (datasheets, specs, tests)
+This server exposes 5 tools:
+- litmus: Unified CRUD operations (init, list, get, save, read)
+- litmus_discover: Scan for VISA instruments
+- litmus_match: Check compatibility between products/stations/fixtures
+- litmus_run: Execute tests and return results
+- litmus_open: Get URL to view/edit in browser
 
 The platform does NOT call LLMs - it exposes these tools so that AI agents
 (Claude Code, etc.) can orchestrate the full datasheet-to-test workflow.
@@ -21,14 +17,10 @@ from fastmcp import FastMCP
 
 from litmus.mcp.tools import (
     discover_tool,
-    get_tool,
-    list_tool,
+    litmus_tool,
     match_tool,
-    open_ui_tool,
-    read_tool,
+    open_tool,
     run_tool,
-    save_tool,
-    status_tool,
 )
 
 
@@ -36,67 +28,381 @@ def create_mcp_server() -> FastMCP:
     """Create and configure the Litmus MCP server."""
     mcp = FastMCP(
         "Litmus",
-        instructions="""Litmus is a hardware test platform. Use these 9 tools:
+        instructions="""Litmus is a hardware test platform. The UI and tools are driven by
+project folders. Understanding these folders is essential.
 
-1. litmus_discover - Scan for connected VISA instruments
-2. litmus_list - List entities (station/product/fixture/sequence/instrument/run)
-3. litmus_get - Get full details of an entity by type and ID
-4. litmus_save - Create or update an entity
-5. litmus_match - Check compatibility between products, stations, fixtures
-6. litmus_run - Execute a test sequence
-7. litmus_status - Get test run status and results
-8. litmus_open_ui - Get URL to view/edit entity in browser
-9. litmus_read - Read project files (datasheets, specs, tests)
+## Project Folders (UI-Driven)
 
-## Product Folder Structure
+Each folder has a corresponding UI page. Create the appropriate folder/files to populate the UI.
 
-Products are organized in folders with all artifacts together:
+```
+my-project/
+├── products/                    # WHAT you're testing
+│   └── {product_id}/
+│       └── spec.yaml            # Product specification
+├── stations/                    # WHERE you test (instruments + addresses)
+│   └── {station_id}.yaml        # Station configuration
+├── fixtures/                    # HOW pins connect to instruments
+│   └── {fixture_id}.yaml        # Pin-to-channel mappings
+├── instruments/                 # Custom instrument drivers
+│   └── {instrument_id}.yaml     # YAML driver definition
+│   └── {instrument_id}.py       # Python driver (optional)
+├── sequences/                   # Test execution order
+│   └── {sequence_id}.yaml       # Ordered list of tests
+├── tests/                       # Test code + configuration
+│   ├── test_{product_id}.py     # Test functions
+│   ├── config.yaml              # CONDITIONS (vectors) + LIMITS
+│   └── conftest.py              # pytest fixtures
+└── results/                     # Output (gitignored)
+    └── measurements/            # Parquet files
+```
 
-    products/{product_id}/
-        manifest.yaml       # Workflow position
-        datasheet.md        # Source document
-        spec.yaml           # Extracted specification
-        tests/              # Generated tests
+## Folder Details
 
-## Workflow Steps
+### products/ - Product Specifications
+**Purpose:** Define WHAT you're testing - electrical characteristics, limits, test conditions.
+**UI Page:** /products
+**File Pattern:** `products/{product_id}/spec.yaml`
 
-Products progress through these steps:
+```yaml
+# products/power_board/spec.yaml
+product:
+  id: power_board
+  name: "5V to 3.3V Buck Converter"
 
-1. PARSE_DATASHEET - Extract spec from datasheet
-2. REVIEW_SPEC - Human reviews/approves spec
-3. DERIVE_REQUIREMENTS - Create test requirements
-4. SELECT_STATION - Match to compatible station
-5. GENERATE_TESTS - Create test code
-6. EXECUTE_ANALYZE - Run tests and analyze results
+characteristics:
+  output_voltage:
+    nominal: 3.3
+    tolerance_pct: 5
+    unit: V
 
-The workflow position is tracked in manifest.yaml.
+test_conditions:
+  default_vin: 5.0
+  default_vout: 3.3
+```
 
-## Example Workflow
+**CRUD Operations:**
+- `litmus(action="list", type="product")` - List all products
+- `litmus(action="get", type="product", id="power_board")` - Get spec details
+- `litmus(action="save", type="product", id="power_board", content={...})` - Create/update
 
-1. litmus_read("demo/products/") → list product folders
-2. litmus_read("demo/products/tps54302/datasheet.md") → read datasheet
-3. litmus_save(product, "tps54302", {...}) → create product folder with spec
-4. litmus_list("product") → see products with workflow status
-5. litmus_get("product", "tps54302") → get spec and workflow position
-6. litmus_match(product_id="tps54302") → find compatible stations
-7. litmus_save("test", "products/tps54302/tests/test_tps54302.py", {code: ...})
-8. litmus_run("tps54302", station_id, dut_serial) → execute tests
-9. litmus_status(run_id) → check results
+### stations/ - Test Stations
+**Purpose:** Define WHERE you test - which instruments at which addresses.
+**UI Page:** /stations
+**File Pattern:** `stations/{station_id}.yaml`
 
-## Project Structure
+```yaml
+# stations/bench_001.yaml
+station:
+  id: bench_001
+  name: "Main Test Bench"
 
-- products/ - Product folders (new structure)
-- demo/products/ - Example product folders
-- demo/stations/ - Station configurations (.yaml)
-- template:test - Test template using @litmus_test decorator
+instruments:
+  psu:
+    type: psu
+    resource: "TCPIP::192.168.1.101::INSTR"
+    simulate: true
+    sim_config:
+      voltage: 5.0
+      current: 0.5
+  dmm:
+    type: dmm
+    resource: "TCPIP::192.168.1.102::INSTR"
+    simulate: true
+    sim_config:
+      voltage: 3.31
+```
 
-IMPORTANT: Use @litmus_test decorator for tests, NOT TestHarness directly.
-See demo/tests/test_power_board.py or litmus_read("template:test") for examples.
+**CRUD Operations:**
+- `litmus(action="list", type="station")` - List all stations
+- `litmus(action="get", type="station", id="bench_001")` - Get station details
+- `litmus(action="save", type="station", id="bench_001", content={...})` - Create/update
+- `litmus_discover()` - Scan for connected VISA instruments
+
+### fixtures/ - Pin Mappings
+**Purpose:** Define HOW product pins connect to station instruments.
+**UI Page:** /fixtures
+**File Pattern:** `fixtures/{fixture_id}.yaml`
+
+```yaml
+# fixtures/power_board_fixture.yaml
+fixture:
+  id: power_board_fixture
+  product: power_board
+
+channels:
+  VIN:
+    instrument: psu
+    channel: 1
+    type: power
+  VOUT:
+    instrument: dmm
+    channel: 1
+    type: measure
+  GND:
+    instrument: psu
+    channel: GND
+    type: ground
+```
+
+**CRUD Operations:**
+- `litmus(action="list", type="fixture")` - List all fixtures
+- `litmus(action="get", type="fixture", id="power_board_fixture")` - Get fixture
+- `litmus(action="save", type="fixture", id="power_board_fixture", content={...})`
+
+### instruments/ - Custom Drivers
+**Purpose:** Define custom instrument drivers for non-standard equipment.
+**UI Page:** /instruments
+**File Pattern:** `instruments/{instrument_id}.yaml` or `.py`
+
+```yaml
+# instruments/custom_dmm.yaml
+instrument:
+  id: custom_dmm
+  name: "Custom Multimeter"
+  type: dmm
+
+capabilities:
+  - domain: voltage
+    direction: measure
+    range: [0, 1000]
+    resolution: 0.001
+
+commands:
+  measure_dc_voltage: "MEAS:VOLT:DC?"
+  set_range: "VOLT:RANG {value}"
+```
+
+**CRUD Operations:**
+- `litmus(action="list", type="instrument")` - List instrument library
+- `litmus(action="get", type="instrument", id="custom_dmm")` - Get driver
+- `litmus(action="save", type="instrument", id="custom_dmm", content={...})`
+- `litmus(action="read", path="template:instrument")` - Get Python template
+- `litmus(action="read", path="template:instrument_yaml")` - Get YAML template
+- `litmus(action="read", path="template:capabilities")` - See capability interfaces
+
+### sequences/ - Test Sequences
+**Purpose:** Define test execution order and grouping.
+**UI Page:** /sequences
+**File Pattern:** `sequences/{sequence_id}.yaml`
+
+```yaml
+# sequences/full_validation.yaml
+sequence:
+  id: full_validation
+  name: "Full Product Validation"
+  product: power_board
+
+steps:
+  - test: test_output_voltage_no_load
+    required: true
+  - test: test_output_voltage_full_load
+    required: true
+  - test: test_efficiency
+    required: false
+```
+
+**CRUD Operations:**
+- `litmus(action="list", type="sequence")` - List sequences
+- `litmus(action="get", type="sequence", id="full_validation")` - Get sequence
+- `litmus(action="save", type="sequence", id="full_validation", content={...})`
+
+### tests/ - Test Code
+**Purpose:** Test functions + configuration (vectors and limits).
+**Files:**
+- `test_{product}.py` - Test functions using @litmus_test
+- `config.yaml` - Test CONDITIONS (vectors) and LIMITS
+- `conftest.py` - pytest fixture definitions
+
+**CRUD Operations:**
+- `litmus(action="list", type="test")` - List test files
+- `litmus(action="read", path="template:test")` - Get test template
+- `litmus(action="save", type="test", id="tests/test_x.py", content={"code": "..."})`
+
+### results/ - Test Output
+**Purpose:** Parquet files with test measurements (gitignored).
+**UI Page:** /runs (via litmus_open)
+
+**CRUD Operations:**
+- `litmus(action="list", type="run")` - List test runs
+- `litmus(action="get", type="run", id="{run_id}")` - Get run details
+
+## Tools
+
+1. **litmus** - Unified CRUD operations
+   - `litmus(action="init", path="~/projects/my-project")` - Initialize project
+   - `litmus(action="list", type="product|station|fixture|instrument|sequence|test|run")`
+   - `litmus(action="get", type="...", id="...")`
+   - `litmus(action="save", type="...", id="...", content={...})`
+   - `litmus(action="read", path="...")`
+
+2. **litmus_discover** - Scan for connected VISA instruments
+
+3. **litmus_match** - Check compatibility
+   - `litmus_match(product_id="x")` - Find compatible stations
+   - `litmus_match(product_id="x", station_id="y")` - Detailed check
+
+4. **litmus_run** - Execute tests
+   - `litmus_run(test="tests/test_x.py", station="bench_001", serial="SN001")`
+
+5. **litmus_open** - Get browser URL
+   - `litmus_open(type="product|station|fixture|instrument|sequence|run", id="x")`
+
+## Test Code Pattern
+
+ALWAYS read the template first: `litmus(action="read", path="template:test")`
+
+### Two Files Required
+
+1. **test_xxx.py** - Test functions
+2. **config.yaml** - CONDITIONS (vectors) + LIMITS
+
+### Test Function Pattern
+
+```python
+from litmus.execution import litmus_test
+
+@litmus_test
+def test_output_voltage(vector, psu, dmm):
+    # 1. Get conditions FROM VECTOR (not hardcoded!)
+    vin = vector.get("vin", 5.0)  # From config.yaml vectors
+
+    # 2. SET UP stimulus
+    psu.set_voltage(vin)
+    psu.enable_output()
+
+    # 3. MEASURE and RETURN - framework checks limits
+    return dmm.measure_dc_voltage()
+```
+
+### config.yaml Pattern
+
+```yaml
+test_output_voltage:
+  vectors:
+    - vin: 5.0  # Test condition from spec
+  limits:
+    test_output_voltage:
+      low: 3.135   # 3.3V - 5% (from spec)
+      high: 3.465  # 3.3V + 5% (from spec)
+      nominal: 3.3
+      units: V
+```
+
+### Key Rules
+
+1. **NO HARDCODED VALUES** - Get everything from spec or config.yaml
+2. **Tests SET UP conditions** - psu.set_voltage(), eload.set_current()
+3. **Tests MEASURE results** - dmm.measure_dc_voltage()
+4. **Tests RETURN values** - Framework checks limits from config.yaml
+5. **Limits in config.yaml** - Derived from product spec.yaml
+
+## Workflow
+
+### Step 0: Initialize Project
+```
+litmus(action="init", path="~/projects/my-project")
+```
+
+### Step 1: Create Product Spec
+```
+litmus(action="save", type="product", id="power_board", content={
+    "product": {"id": "power_board", "name": "5V to 3.3V Converter"},
+    "characteristics": {"output_voltage": {"nominal": 3.3, "tolerance_pct": 5}},
+    "test_conditions": {"default_vin": 5.0, "default_vout": 3.3}
+})
+```
+
+### Step 2: Create Station
+```
+litmus(action="save", type="station", id="bench_001", content={
+    "station": {"id": "bench_001", "name": "Test Bench"},
+    "instruments": {
+        "psu": {"type": "psu", "resource": "TCPIP::192.168.1.101::INSTR", "simulate": true},
+        "dmm": {"type": "dmm", "resource": "TCPIP::192.168.1.102::INSTR", "simulate": true}
+    }
+})
+```
+
+### Step 3: Generate Tests
+```
+litmus(action="read", path="template:test")  # See the pattern
+litmus(action="get", type="product", id="power_board")  # Get spec values
+
+# Save test file
+litmus(action="save", type="test", id="tests/test_power_board.py", content={"code": "..."})
+
+# Save config with vectors + limits
+litmus(action="save", type="test", id="tests/config.yaml", content={"code": "..."})
+```
+
+### Step 4: Run Tests
+```
+litmus_run(test="tests/test_power_board.py", station="bench_001", serial="SN001")
+```
+
+## Checklist
+
+Before generating test code:
+☐ Read product spec: `litmus(action="get", type="product", id="...")`
+☐ Read template: `litmus(action="read", path="template:test")`
+☐ Test uses `vector.get()` for conditions (not hardcoded)
+☐ Test uses `@litmus_test` decorator
+☐ Test RETURNS measurement value
+☐ config.yaml has vectors AND limits
+☐ Limits derived from spec (with optional guardband)
 """,
     )
 
     # -------------------------------------------------------------------------
-    # Tool 1: discover
+    # Tool 1: litmus (unified CRUD)
+    # -------------------------------------------------------------------------
+
+    @mcp.tool(name="litmus")
+    def litmus(
+        action: str,
+        type: str | None = None,
+        id: str | None = None,
+        path: str | None = None,
+        content: dict[str, Any] | None = None,
+        create: bool = True,
+        scaffold: bool = True,
+    ) -> dict[str, Any]:
+        """Unified Litmus operations: init, list, get, save, read.
+
+        Actions:
+        - init: Initialize/switch project directory
+          litmus(action="init", path="~/my-project")
+
+        - list: List entities of a type
+          litmus(action="list", type="product")
+
+        - get: Get entity details
+          litmus(action="get", type="product", id="tps54302")
+
+        - save: Create/update entity
+          litmus(action="save", type="product", id="tps54302", content={...})
+
+        - read: Read project file or template
+          litmus(action="read", path="products/x/spec.yaml")
+          litmus(action="read", path="template:test")
+
+        Args:
+            action: One of: init, list, get, save, read
+            type: Entity type for list/get/save (product, station, fixture, sequence, instrument, run, test)
+            id: Entity ID for get/save
+            path: Path for init/read actions
+            content: Content dict for save action
+            create: For init - create directory if missing (default True)
+            scaffold: For init - create folder structure (default True)
+
+        Returns:
+            Action-specific results.
+        """
+        return litmus_tool(action, type, id, path, content, create, scaffold)
+
+    # -------------------------------------------------------------------------
+    # Tool 2: litmus_discover
     # -------------------------------------------------------------------------
 
     @mcp.tool(name="litmus_discover")
@@ -106,83 +412,13 @@ See demo/tests/test_power_board.py or litmus_read("template:test") for examples.
         Discovers available VISA resources on this computer. Returns a list of
         instruments with their addresses, connection types, and identification.
 
-        Use this as the first step when setting up a new test station.
-
         Returns:
             List of discovered resources with addresses and suggested types.
         """
         return discover_tool()
 
     # -------------------------------------------------------------------------
-    # Tool 2: list
-    # -------------------------------------------------------------------------
-
-    @mcp.tool(name="litmus_list")
-    def list_entities(entity_type: str) -> list[dict[str, Any]] | dict[str, Any]:
-        """List entities of a given type.
-
-        Args:
-            entity_type: One of:
-                - station: Test station configurations
-                - product: Product specifications
-                - fixture: Fixture/pinmap configurations
-                - sequence: Test sequences
-                - instrument: Instrument library definitions
-                - run: Test run results
-
-        Returns:
-            List of entities with id, name, and basic info.
-        """
-        return list_tool(entity_type)
-
-    # -------------------------------------------------------------------------
-    # Tool 3: get
-    # -------------------------------------------------------------------------
-
-    @mcp.tool(name="litmus_get")
-    def get_entity(entity_type: str, entity_id: str) -> dict[str, Any]:
-        """Get full details of an entity.
-
-        Args:
-            entity_type: One of: station, product, fixture, sequence, instrument, run
-            entity_id: The entity ID (e.g., "bench_1", "tps54302")
-
-        Returns:
-            Full entity details including all nested data.
-        """
-        return get_tool(entity_type, entity_id)
-
-    # -------------------------------------------------------------------------
-    # Tool 4: save
-    # -------------------------------------------------------------------------
-
-    @mcp.tool(name="litmus_save")
-    def save_entity(entity_type: str, entity_id: str, content: dict[str, Any]) -> dict[str, Any]:
-        """Create or update an entity.
-
-        Validates the content before saving. Returns the path to the saved file
-        or validation errors.
-
-        Args:
-            entity_type: One of: station, product, fixture, sequence, instrument, test
-            entity_id: The entity ID (used as filename)
-            content: The entity content to save (structure varies by type)
-
-        Returns:
-            Result with path to saved file or validation errors.
-
-        Content structure by type:
-        - station: {id, name, instruments: {name: {type, resource}}}
-        - product: {product: {id, name}, characteristics: {...}, test_requirements: {...}}
-        - fixture: {fixture: {id}, points: {name: {instrument, instrument_channel}}}
-        - sequence: {sequence: {id, description, steps: [...]}}
-        - instrument: {instrument: {type, name}, capabilities: [...]}
-        - test: {code: "...python source..."}
-        """
-        return save_tool(entity_type, entity_id, content)
-
-    # -------------------------------------------------------------------------
-    # Tool 5: match
+    # Tool 3: litmus_match
     # -------------------------------------------------------------------------
 
     @mcp.tool(name="litmus_match")
@@ -209,87 +445,47 @@ See demo/tests/test_power_board.py or litmus_read("template:test") for examples.
         return match_tool(product_id, station_id, fixture_id)
 
     # -------------------------------------------------------------------------
-    # Tool 6: run
+    # Tool 4: litmus_run
     # -------------------------------------------------------------------------
 
     @mcp.tool(name="litmus_run")
-    def run_tests(sequence_id: str, station_id: str, dut_serial: str) -> dict[str, Any]:
-        """Execute a test sequence.
+    def run(test: str, station: str, serial: str) -> dict[str, Any]:
+        """Execute tests and return results.
 
-        Starts a test run and returns a run_id for tracking progress.
-
-        Args:
-            sequence_id: The sequence to run
-            station_id: Which station to run on
-            dut_serial: Serial number of device under test
-
-        Returns:
-            Run info with run_id for tracking progress via status().
-        """
-        return run_tool(sequence_id, station_id, dut_serial)
-
-    # -------------------------------------------------------------------------
-    # Tool 7: status
-    # -------------------------------------------------------------------------
-
-    @mcp.tool(name="litmus_status")
-    def status(run_id: str) -> dict[str, Any]:
-        """Get status of a test run.
+        Runs pytest with the specified test path and waits for completion.
+        Returns full results including pass/fail status and measurements.
 
         Args:
-            run_id: The run ID returned from run()
+            test: Test file or directory (e.g., "products/x/tests/test_x.py")
+            station: Station ID to run on
+            serial: DUT serial number
 
         Returns:
-            Run status including outcome, step counts, and timing.
+            Run results with outcome, measurements, and any errors.
         """
-        return status_tool(run_id)
+        return run_tool(test, station, serial)
 
     # -------------------------------------------------------------------------
-    # Tool 8: open_ui
+    # Tool 5: litmus_open
     # -------------------------------------------------------------------------
 
-    @mcp.tool(name="litmus_open_ui")
+    @mcp.tool(name="litmus_open")
     def open_ui(
-        entity_type: str, id: str, base_url: str = "http://localhost:8000"
+        type: str, id: str, base_url: str = "http://localhost:8000"
     ) -> dict[str, Any]:
         """Get URL to view/edit an entity in the browser UI.
 
         Use this when detailed viewing or visual editing is needed.
 
         Args:
-            entity_type: One of: product, station, run, fixture, sequence
+            type: Entity type (product, station, run, fixture, sequence)
             id: Entity ID
             base_url: UI server URL (default: http://localhost:8000)
 
         Returns:
             URL to open in browser.
         """
-        return open_ui_tool(entity_type, id, base_url)
-
-    # -------------------------------------------------------------------------
-    # Tool 9: read
-    # -------------------------------------------------------------------------
-
-    @mcp.tool(name="litmus_read")
-    def read_file(path: str) -> dict[str, Any]:
-        """Read a file or list directory contents from the project.
-
-        Use this to access datasheets, specs, tests, and other project files.
-        Paths are relative to the project root.
-
-        Common paths:
-        - demo/products/{id}/ - Product folders (datasheet.md, spec.yaml)
-        - demo/stations/ - Station configurations
-        - demo/sequences/ - Test sequences
-        - demo/tests/ - Test files
-
-        Args:
-            path: Relative path (e.g., "demo/products/tps54302/spec.yaml")
-
-        Returns:
-            File contents or directory listing.
-        """
-        return read_tool(path)
+        return open_tool(type, id, base_url)
 
     return mcp
 

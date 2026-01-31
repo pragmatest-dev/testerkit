@@ -146,8 +146,6 @@ class InstrumentChannelSpec(BaseModel):
         return [str(i + 1) for i in range(self.count)]
 
 
-# Backwards compatibility alias
-ChannelSpec = InstrumentChannelSpec
 
 
 class Capability(BaseModel):

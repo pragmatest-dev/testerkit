@@ -1,65 +1,208 @@
-# Test configuration for power board tests
-# Tests can load this automatically or specify config_file="config.yaml"
+# Test Configuration: Power Board Tests
+#
+# This file defines CONDITIONS (vectors) and LIMITS (pass/fail criteria)
+# for all test functions. The @litmus_test decorator auto-loads this file.
+#
+# KEY CONCEPTS:
+# - VECTORS: Test conditions (stimulus parameters like voltage, load)
+# - LIMITS: Pass/fail criteria (derived from product spec with guardbands)
+# - RETRY: Automatic retry on failure
+# - DIALOGS: Operator prompts before/during tests
+#
+# All values trace back to: products/power_board/spec.yaml
 
-test_input_voltage:
-  limits:
-    test_input_voltage:
-      low: 4.5
-      high: 5.5
-      nominal: 5.0
-      units: V
-      spec_ref: PWR-IN-001
-
-test_input_current:
-  limits:
-    test_input_current:
-      low: 0.005
-      high: 0.015
-      nominal: 0.010
-      units: A
-      spec_ref: PWR-IN-002
-
-test_output_voltage:
-  limits:
-    test_output_voltage:
-      low: 3.135
-      high: 3.465
-      nominal: 3.3
-      units: V
-      spec_ref: PWR-OUT-001
-
-test_output_stability:
+# =============================================================================
+# Pattern 1: Single Vector (simple test)
+# =============================================================================
+test_output_voltage_no_load:
+  description: "Verify 3.3V output at no load"
   vectors:
-    - sample: 1
-    - sample: 2
-    - sample: 3
+    - vin: 5.0
   limits:
-    test_output_stability:
-      low: 3.135
-      high: 3.465
+    test_output_voltage_no_load:
+      low: 3.234       # 3.3V - 2% spec - 10% guardband
+      high: 3.366      # 3.3V + 2% spec + 10% guardband
       nominal: 3.3
       units: V
-      spec_ref: PWR-OUT-001
+      spec_ref: "output_voltage @ load=0.1A, temp=25C"
+      comparator: GELE  # >= low AND <= high (IEEE 1671)
 
-test_efficiency:
+# =============================================================================
+# Pattern 2: Single Vector with Retry
+# =============================================================================
+test_output_voltage_full_load:
+  description: "Verify 3.3V output at full 800mA load"
+  vectors:
+    - vin: 5.0
+      load_current: 0.8
+  retry:
+    max_attempts: 3
+    delay_seconds: 0.5
   limits:
-    test_efficiency:
-      low: 75
-      high: 100
-      nominal: 85
-      units: "%"
-      spec_ref: PWR-EFF-001
+    test_output_voltage_full_load:
+      low: 3.201       # 3.3V - 3% spec (full load tolerance)
+      high: 3.399
+      nominal: 3.3
+      units: V
+      spec_ref: "output_voltage @ load=0.8A, temp=25C"
 
+# =============================================================================
+# Pattern 3: Explicit Vector List (load sweep)
+# =============================================================================
+test_load_regulation:
+  description: "Measure output at multiple load points"
+  vectors:
+    - vin: 5.0
+      load_current: 0.1
+      expected_dropout: 0
+    - vin: 5.0
+      load_current: 0.4
+      expected_dropout: 2
+    - vin: 5.0
+      load_current: 0.8
+      expected_dropout: 5
+  limits:
+    test_load_regulation:
+      low: 3.2
+      high: 3.4
+      nominal: 3.3
+      units: V
+      spec_ref: "output_voltage over load range"
+
+# =============================================================================
+# Pattern 4: Product Expansion (Cartesian product)
+# Creates 3 x 3 = 9 test vectors
+# =============================================================================
 test_load_sweep:
+  description: "Sweep VIN and load - product expansion"
   vectors:
     expand: product
-    load_percent: [0, 50, 100]
+    vin: [4.75, 5.0, 5.5]         # Input voltage range
+    load_current: [0.1, 0.4, 0.8]  # Load current range
+  limits:
+    test_load_sweep:
+      low: 3.1
+      high: 3.5
+      nominal: 3.3
+      units: V
+      spec_ref: "output_voltage - line/load regulation"
 
+# =============================================================================
+# Pattern 5: Nested Loops with Change Detection
+# Outer loop: temperature (slowest changing)
+# Inner loop: load_current (fastest changing)
+# =============================================================================
 test_temp_load_matrix:
+  description: "Full characterization matrix"
   vectors:
     expand: nested
     loops:
       - name: temperature
         values: [25, 85]
-      - name: load
-        values: [0, 50, 100]
+      - name: load_current
+        values: [0.1, 0.5, 0.8]
+  limits:
+    test_temp_load_matrix:
+      low: 3.0           # Wide limits for characterization
+      high: 3.6
+      nominal: 3.3
+      units: V
+      spec_ref: "output_voltage - characterization"
+
+# =============================================================================
+# Pattern 6: Range Expansion (SCPI-style)
+# =============================================================================
+test_line_regulation:
+  description: "Sweep input voltage from 4.5V to 6V"
+  vectors:
+    expand: range
+    name: vin
+    start: 4.5
+    stop: 6.0
+    step: 0.5
+  limits:
+    test_line_regulation:
+      low: 3.2
+      high: 3.4
+      nominal: 3.3
+      units: V
+      spec_ref: "line regulation"
+
+# =============================================================================
+# Pattern 7: Multiple Measurements (dict return)
+# =============================================================================
+test_power_analysis:
+  description: "Measure input and output power"
+  vectors:
+    - vin: 5.0
+      load_current: 0.5
+  limits:
+    # Each key in the returned dict gets its own limit
+    input_power:
+      low: 0
+      high: 5.0
+      nominal: 2.0
+      units: W
+    output_power:
+      low: 0
+      high: 3.0
+      nominal: 1.65
+      units: W
+    efficiency:
+      low: 60
+      high: 100
+      nominal: 66
+      units: "%"
+      spec_ref: "efficiency @ vin=5V, load=0.5A"
+
+# =============================================================================
+# Pattern 8: Quiescent Current
+# =============================================================================
+test_quiescent_current:
+  description: "Verify low standby current"
+  vectors:
+    - vin: 5.0
+  limits:
+    test_quiescent_current:
+      low: 0
+      high: 10          # Spec max: 10mA
+      nominal: 5
+      units: mA
+      comparator: LE    # Only upper limit matters
+      spec_ref: "quiescent_current @ no load"
+
+# =============================================================================
+# Pattern 9: Streaming Measurements (yield)
+# =============================================================================
+test_stability_over_time:
+  description: "Monitor output stability for 5 seconds"
+  vectors:
+    - vin: 5.0
+      load_current: 0.5
+      sample_count: 5
+  limits:
+    voltage:
+      low: 3.25
+      high: 3.35
+      nominal: 3.3
+      units: V
+      spec_ref: "output stability"
+
+# =============================================================================
+# Pattern 10: Operator Dialog Before Test
+# =============================================================================
+test_thermal_shutdown:
+  description: "Verify thermal protection"
+  prompt_before:
+    message: "Apply heat gun to U1 until thermal shutdown triggers"
+    type: confirm
+  vectors:
+    - vin: 5.0
+      load_current: 0.5
+  limits:
+    test_thermal_shutdown:
+      low: 0
+      high: 0.1
+      nominal: 0
+      units: V
+      spec_ref: "thermal shutdown - output should collapse"

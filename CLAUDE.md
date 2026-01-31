@@ -127,7 +127,7 @@ Tests use YAML configs (`tests/test_*/config.yaml`) that define:
 - Retry behavior
 
 ### Specs to Limits
-Product specifications (`specs/`) define nominal values and tolerances. Test limits are derived from specs with optional guardbanding:
+Product specifications (`products/{id}/spec.yaml`) define nominal values and tolerances. Test limits are derived from specs with optional guardbanding:
 ```python
 spec.to_limit(guardband_pct=Decimal("10"))
 ```

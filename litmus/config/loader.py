@@ -109,14 +109,6 @@ def load_station_instance(path: Path) -> StationInstance:
     for inst_id, inst_data in station_data.get("instruments", {}).items():
         instruments[inst_id] = InstrumentInstance.model_validate(inst_data)
 
-    # Handle legacy format with instrument_resources
-    if "instrument_resources" in station_data and not instruments:
-        for inst_id, resource in station_data["instrument_resources"].items():
-            instruments[inst_id] = InstrumentInstance(
-                type=inst_id,  # Use the key as type if not specified
-                resource=resource,
-            )
-
     return StationInstance(
         id=station_data["id"],
         station_type=station_data["station_type"],

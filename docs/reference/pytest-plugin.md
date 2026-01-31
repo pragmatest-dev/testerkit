@@ -86,10 +86,10 @@ def test_sweep(vector, psu, dmm):
 
 **Access parameters:**
 ```python
-vector["voltage"]      # Get parameter value
-vector.get("temp", 25) # With default
-vector.params          # All parameters as dict
-vector.index           # 0-based index in expansion
+vector["voltage"]        # Get parameter value
+vector.get("temp", 25)   # With default
+vector.params()          # All parameters as dict (method, not property)
+vector["_index"]         # 0-based index in expansion
 ```
 
 **Change detection (for nested loops):**
@@ -132,15 +132,89 @@ test_stability:
     delay_seconds: 0.5
 ```
 
-## Decorator Options
+## @litmus_test Parameters
+
+All parameters are optional:
 
 ```python
 @litmus_test(
-    raise_on_fail=True,    # Raise exception if limit fails (default True)
-    config_file="custom.yaml",  # Custom config file
+    config=None,           # Inline config dict (highest precedence)
+    config_file=None,      # Path to YAML config (relative to test file)
+    retry=None,            # RetryConfig override
+    limits=None,           # Dict of limit overrides by measurement name
+    raise_on_fail=True,    # Raise AssertionError if limit fails
 )
 def test_example(vector, dmm):
     ...
+```
+
+### Parameter Details
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `config` | `dict` | `None` | Inline configuration with vectors, limits, retry |
+| `config_file` | `str` | `None` | Path to YAML config file (relative to test file) |
+| `retry` | `RetryConfig` | `None` | Override retry config from file |
+| `limits` | `dict` | `None` | Override limits by measurement name |
+| `raise_on_fail` | `bool` | `True` | Raise on failed measurements |
+
+### Config Resolution Order
+
+1. **Inline parameters** (highest) - `config=`, `retry=`, `limits=`
+2. **Explicit config_file** - `config_file="custom.yaml"`
+3. **Auto-discovered config.yaml** (lowest) - In same directory as test file
+
+### Examples
+
+**Inline config (no YAML needed):**
+```python
+@litmus_test(
+    config={
+        "vectors": {"expand": "product", "vin": [5.0, 12.0], "load": [0.1, 0.5]},
+        "limits": {"test_sweep": {"low": 3.0, "high": 13.0, "units": "V"}},
+    }
+)
+def test_sweep(vector, dmm):
+    return dmm.measure_dc_voltage()
+```
+
+**Override limits only:**
+```python
+from litmus.config.models import Limit
+
+@litmus_test(
+    limits={
+        "voltage": Limit(low=3.2, high=3.4, nominal=3.3, units="V"),
+    }
+)
+def test_voltage(vector, dmm):
+    return {"voltage": dmm.measure_dc_voltage()}
+```
+
+**Override retry only:**
+```python
+from litmus.config.models import RetryConfig
+
+@litmus_test(
+    retry=RetryConfig(max_attempts=5, delay_seconds=1.0)
+)
+def test_flaky(vector, dmm):
+    return dmm.measure_dc_voltage()
+```
+
+**Custom config file:**
+```python
+@litmus_test(config_file="special_config.yaml")
+def test_special(vector, dmm):
+    return dmm.measure_dc_voltage()
+```
+
+**Characterization mode (don't fail on limits):**
+```python
+@litmus_test(raise_on_fail=False)
+def test_characterize(vector, dmm):
+    # Measurements recorded but won't fail test
+    return dmm.measure_dc_voltage()
 ```
 
 ### Characterization Mode
@@ -185,9 +259,23 @@ def mock_dmm():
         yield d
 ```
 
-### Using the `pins` Fixture
+### Station-Based Fixtures
 
-For UUT-centric tests, use the `pins` fixture to access instruments via DUT pin names:
+When using `--station-config`, the plugin provides automatic instrument management:
+
+**`instruments` fixture (session-scoped):**
+```python
+@litmus_test
+def test_voltage(vector, instruments):
+    dmm = instruments["dmm"]       # Access by station config name
+    psu = instruments["psu"]
+    psu.set_voltage(5.0)
+    return dmm.measure_dc_voltage()
+```
+
+**`pins` fixture (session-scoped):**
+
+For UUT-centric tests, access instruments via DUT pin names:
 
 ```python
 def test_output_voltage(pins):
@@ -195,6 +283,43 @@ def test_output_voltage(pins):
     pins["VIN"].enable_output()
     voltage = pins["VOUT"].measure_voltage()
     assert float(voltage) > 3.0
+```
+
+Requires `--fixture-config` to map pins to instruments.
+
+**`fixture_manager` fixture (session-scoped):**
+
+For advanced routing needs:
+
+```python
+def test_with_net_lookup(fixture_manager):
+    point = fixture_manager.get_point_for_net("VOUT_3V3")
+    instrument = fixture_manager.get_instrument_for_point(point.name)
+```
+
+**`spec_context` fixture (session-scoped):**
+
+For spec-driven limit derivation:
+
+```python
+def test_voltage(spec_context, dmm):
+    # Get limit from product spec with guardband
+    limit = spec_context.get_limit("output_voltage", temperature=25)
+    value = dmm.measure_dc_voltage()
+    # Framework checks against derived limit
+```
+
+Auto-discovers from `products/` directory or use `--spec` option.
+
+**`simulate` fixture (session-scoped):**
+
+Returns `True` if `--simulate` flag or `LITMUS_SIMULATE=1` environment variable is set:
+
+```python
+@pytest.fixture
+def dmm(simulate):
+    with DMM("TCPIP::192.168.1.100::INSTR", simulate=simulate) as d:
+        yield d
 ```
 
 ### CLI Options for Simulation
@@ -209,13 +334,70 @@ pytest tests/ --simulate --dut-serial=TEST001
 
 ```bash
 pytest tests/ \
-  --dut-serial=SN12345 \       # Required: DUT serial number
-  --station=bench_1 \          # Station ID (default: "default")
-  --operator="Jane Doe" \      # Operator name
-  --results-dir=./results \    # Results directory
-  --test-phase=production \    # Test phase
+  --dut-serial=SN12345 \         # DUT serial number (default: DUT001)
+  --station=bench_1 \            # Station ID (default: station_001)
+  --operator="Jane Doe" \        # Operator name
+  --results-dir=./results \      # Results directory (default: results)
+  --simulate \                   # Run instruments in simulation mode
+  --spec=products/x/spec.yaml \  # Path to product spec YAML
+  --guardband=10 \               # Default guardband percentage (default: 0)
+  --station-config=stations/bench_1.yaml \  # Station config file
+  --fixture-config=fixtures/x.yaml \        # Fixture config file
   -v
 ```
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| `--dut-serial` | `DUT001` | DUT serial number |
+| `--station` | `station_001` | Station ID |
+| `--operator` | `None` | Operator name |
+| `--results-dir` | `results` | Directory for Parquet results |
+| `--simulate` | `False` | Run instruments in simulation mode |
+| `--spec` | `None` | Path to product spec YAML file |
+| `--guardband` | `0` | Default guardband percentage |
+| `--station-config` | `None` | Path to station configuration YAML |
+| `--fixture-config` | `None` | Path to fixture configuration YAML |
+
+## Markers
+
+### `@pytest.mark.litmus_retry`
+
+Retry failed tests automatically:
+
+```python
+import pytest
+
+@pytest.mark.litmus_retry(max_attempts=3, delay=0.5)
+@litmus_test
+def test_flaky_measurement(vector, dmm):
+    return dmm.measure_dc_voltage()
+```
+
+| Parameter | Default | Description |
+|-----------|---------|-------------|
+| `max_attempts` | `3` | Maximum retry attempts |
+| `delay` | `0.0` | Delay in seconds between retries |
+
+### `@pytest.mark.litmus_skip_on`
+
+Skip test if dependencies failed:
+
+```python
+import pytest
+
+@litmus_test
+def test_power_on(vector, psu):
+    psu.enable_output()
+    return psu.measure_voltage()
+
+@pytest.mark.litmus_skip_on(["test_power_on"])
+@litmus_test
+def test_output_voltage(vector, dmm):
+    # Skipped if test_power_on failed
+    return dmm.measure_dc_voltage()
+```
+
+Dependencies can be test function names or full node IDs.
 
 ## Results
 

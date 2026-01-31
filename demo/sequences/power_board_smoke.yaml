@@ -1,18 +1,52 @@
-# Base smoke test sequence for power board
-# This is a composable sequence that can be included in other sequences
+# Test Sequence: Power Board Smoke Test
+#
+# Sequences define the ORDER of test execution and can include:
+# - Pre/post-test operator dialogs
+# - Skip conditions based on previous failures
+# - Retry policies at the sequence level
+# - Grouping for reporting
+#
+# This is the "quick check" sequence that runs during production.
+
 sequence:
   id: power_board_smoke
   name: "Power Board - Smoke Test"
-  description: "Quick power-up verification"
+  description: "Quick power-up verification for production screening"
+  product_family: power_board
+  test_phase: production
+  timeout_seconds: 120
 
-  steps:
-    - id: measure_5v_rail
-      test: demo/tests/test_power_board.py::test_measure_5v_rail
-      description: "Verify 5V rail present"
-      limit_ref: specs.power_board.rail_5v
+steps:
+  # Step 1: Basic power-up (must pass for others to run)
+  - id: basic_power
+    test: tests/test_power_board.py::test_output_voltage_no_load
+    description: "Verify 3.3V output at no load"
+    pre_dialog: confirm_dut_inserted
 
-    - id: measure_3v3_rail
-      test: demo/tests/test_power_board.py::test_measure_3v3_rail
-      description: "Verify 3.3V rail present"
-      limit_ref: specs.power_board.rail_3v3
-      skip_on: [measure_5v_rail]  # Skip if 5V failed (likely power issue)
+  # Step 2: Load test (skip if basic fails)
+  - id: load_test
+    test: tests/test_power_board.py::test_output_voltage_full_load
+    description: "Verify 3.3V output under 800mA load"
+    skip_on: [basic_power]
+
+  # Step 3: Quiescent current (independent)
+  - id: quiescent
+    test: tests/test_power_board.py::test_quiescent_current
+    description: "Verify low standby current"
+
+  # Step 4: Full sweep (optional for smoke)
+  - id: regulation_sweep
+    test: tests/test_power_board.py::test_load_sweep
+    description: "Sweep load from 100mA to 800mA"
+    skip_on: [load_test]
+
+dialogs:
+  confirm_dut_inserted:
+    id: confirm_dut_inserted
+    message: "Insert DUT into fixture and verify LED is off"
+    dialog_type: confirm
+
+  confirm_load_connected:
+    id: confirm_load_connected
+    message: "Verify electronic load is connected to output"
+    dialog_type: confirm

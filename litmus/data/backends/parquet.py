@@ -137,32 +137,6 @@ class ParquetBackend:
                         }
                     )
 
-            # Handle legacy direct measurements on step (backward compat)
-            for m in step.measurements:
-                rows.append(
-                    {
-                        "test_run_id": str(test_run.id),
-                        "test_vector_id": None,  # No vector for legacy measurements
-                        "step_name": step.name,
-                        "vector_index": None,
-                        "measurement_name": m.name,
-                        "value": float(m.value) if m.value else None,
-                        "units": m.units,
-                        "low_limit": float(m.low_limit) if m.low_limit else None,
-                        "high_limit": float(m.high_limit) if m.high_limit else None,
-                        "nominal": float(m.nominal) if m.nominal else None,
-                        "outcome": m.outcome.value if m.outcome else None,
-                        "spec_ref": m.spec_ref,
-                        "timestamp": m.timestamp,
-                        "dut_serial": test_run.dut.serial,
-                        "station_id": test_run.station_id,
-                        # Channel traceability
-                        "dut_pin": m.dut_pin,
-                        "instrument_channel": m.instrument_channel,
-                        "fixture_point": m.fixture_point,
-                    }
-                )
-
         if rows:
             table = pa.Table.from_pylist(rows)
             path = meas_dir / f"{test_run.id}_measurements.parquet"

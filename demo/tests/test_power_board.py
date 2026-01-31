@@ -1,178 +1,340 @@
 """
 Demo Test Suite: Power Board Validation
+========================================
 
-This test suite demonstrates the Litmus test framework by validating
-a simulated DC-DC converter board. All instruments run in simulation
-mode, so no real hardware is required.
+This is the GOLDEN EXAMPLE demonstrating Litmus best practices:
 
-Test configuration is loaded from config.yaml in the same directory.
+1. CONDITIONS (stimulus) come from vectors in config.yaml
+2. LIMITS (pass/fail) come from config.yaml (derived from spec)
+3. Tests SET UP conditions, MEASURE results, RETURN values
+4. Framework handles limit checking, retry, logging, traceability
+
+NO HARDCODED VALUES - everything is configurable.
+
+PATTERNS DEMONSTRATED:
+- Pattern 1: Simple single measurement
+- Pattern 2: Multiple vectors with retry
+- Pattern 3: Explicit vector list
+- Pattern 4: Product expansion (Cartesian product)
+- Pattern 5: Nested loops with change detection
+- Pattern 6: Range expansion
+- Pattern 7: Multiple measurements (dict return)
+- Pattern 8: One-sided limits (max only)
+- Pattern 9: Streaming measurements (yield)
+- Pattern 10: Skipped test (thermal)
 
 Run with:
     cd demo
-    pytest tests/ --dut-serial=DPB001-0001 -v
-
-Or use the demo runner:
-    python run_demo.py
+    pytest tests/test_power_board.py --station=demo_station_001 --simulate -v
 """
 
-from decimal import Decimal
-
-import pytest
+import time
 
 from litmus.execution import litmus_test
-from litmus.instruments import DMM
 
 
 # =============================================================================
-# Test Fixtures
+# Pattern 1: Simple Single Measurement
 # =============================================================================
-
-
-@pytest.fixture
-def input_dmm():
-    """DMM for input-side measurements."""
-    with DMM(
-        "SIM::DMM1",
-        simulated=True,
-        sim_values={
-            "voltage": 5.02,  # Slightly above nominal
-            "current": 0.0095,  # Within spec
-        },
-    ) as dmm:
-        yield dmm
-
-
-@pytest.fixture
-def output_dmm():
-    """DMM for output-side measurements."""
-    with DMM(
-        "SIM::DMM2",
-        simulated=True,
-        sim_values={
-            "voltage": 3.31,  # Within spec
-            "current": 0.098,
-        },
-    ) as dmm:
-        yield dmm
-
-
-# =============================================================================
-# Tests - Using @litmus_test decorator with file-based config
-#
-# Configuration (vectors, limits, retry) is loaded from config.yaml
-# in the same directory. The decorator auto-discovers the config file.
-# =============================================================================
-
-
 @litmus_test
-def test_input_voltage(vector, input_dmm):
-    """Verify input voltage is within specification."""
-    return input_dmm.measure_dc_voltage()
+def test_output_voltage_no_load(vector, psu, dmm):
+    """Verify output voltage at no load.
 
+    Vector: vin=5.0 (from config.yaml)
+    Limit: 3.234V to 3.366V (from config.yaml, derived from spec ±2% + guardband)
 
-@litmus_test
-def test_input_current(vector, input_dmm):
-    """Verify quiescent input current is within specification."""
-    return input_dmm.measure_dc_current()
-
-
-@litmus_test
-def test_output_voltage(vector, output_dmm):
-    """Verify regulated output voltage is within specification."""
-    return output_dmm.measure_dc_voltage()
-
-
-@litmus_test
-def test_output_stability(vector, output_dmm):
-    """Verify output voltage stability over multiple readings.
-
-    Vectors are defined in config.yaml: [{sample: 1}, {sample: 2}, {sample: 3}]
+    This is the simplest pattern:
+    - Get conditions from vector
+    - Set up stimulus
+    - Measure and return
     """
-    return output_dmm.measure_dc_voltage()
+    vin = vector.get("vin", 5.0)
+
+    psu.set_voltage(vin)
+    psu.set_current_limit(0.1)
+    psu.enable_output()
+
+    return dmm.measure_dc_voltage()
 
 
+# =============================================================================
+# Pattern 2: Single Vector with Retry (configured in config.yaml)
+# =============================================================================
 @litmus_test
-def test_efficiency(vector, input_dmm, output_dmm):
-    """Calculate and verify power conversion efficiency."""
-    # Read input power
-    v_in = input_dmm.measure_dc_voltage()  # 5.02V
-    i_in = Decimal("0.080")  # Input current at load
+def test_output_voltage_full_load(vector, psu, dmm, eload):
+    """Verify output voltage at full load.
 
-    # Read output power
-    v_out = output_dmm.measure_dc_voltage()  # 3.31V
-    i_out = Decimal("0.100")  # 100mA load
+    Vector: vin=5.0, load_current=0.8 (from config.yaml)
+    Limit: 3.201V to 3.399V (spec ±3% for full load)
+    Retry: max_attempts=3, delay=0.5s (from config.yaml)
 
-    # Calculate efficiency: P_out / P_in * 100
-    p_in = v_in * i_in
-    p_out = v_out * i_out
-    efficiency = (p_out / p_in) * 100
+    If measurement fails, framework automatically retries.
+    """
+    vin = vector.get("vin", 5.0)
+    load = vector.get("load_current", 0.8)
 
-    return efficiency
+    psu.set_voltage(vin)
+    psu.set_current_limit(1.0)
+    psu.enable_output()
+
+    eload.set_current(load)
+    eload.enable()
+
+    vout = dmm.measure_dc_voltage()
+
+    eload.disable()
+    return vout
 
 
 # =============================================================================
-# Vector Expansion Examples (config-driven)
+# Pattern 3: Explicit Vector List
 # =============================================================================
+@litmus_test
+def test_load_regulation(vector, psu, dmm, eload):
+    """Measure output at multiple load points.
 
+    Vectors defined explicitly in config.yaml:
+    - {vin: 5.0, load_current: 0.1}
+    - {vin: 5.0, load_current: 0.4}
+    - {vin: 5.0, load_current: 0.8}
 
-@litmus_test(raise_on_fail=False)
-def test_load_sweep(vector, output_dmm):
-    """Sweep through multiple load conditions.
-
-    Vectors from config.yaml: expand=product, load_percent=[0, 50, 100]
-    Creates 3 test vectors.
-    No limits = characterization mode (all measurements recorded as PASS).
+    Test runs 3 times, once per vector.
     """
-    # In real test, would set load to vector["load_percent"]
-    return output_dmm.measure_dc_voltage()
+    vin = vector.get("vin", 5.0)
+    load = vector["load_current"]
+
+    psu.set_voltage(vin)
+    psu.set_current_limit(1.0)
+    psu.enable_output()
+
+    eload.set_current(load)
+    eload.enable()
+
+    vout = dmm.measure_dc_voltage()
+
+    eload.disable()
+    return vout
 
 
-@litmus_test(raise_on_fail=False)
-def test_temp_load_matrix(vector, output_dmm):
-    """Test across temperature and load matrix.
+# =============================================================================
+# Pattern 4: Product Expansion (Cartesian Product)
+# =============================================================================
+@litmus_test
+def test_load_sweep(vector, psu, dmm, eload):
+    """Sweep VIN and load using product expansion.
 
-    Vectors from config.yaml: nested loops
-    - temperature: [25, 85] (outer loop)
-    - load: [0, 50, 100] (inner loop)
-    Creates 2 x 3 = 6 vectors.
+    Config specifies: expand=product, vin=[4.75, 5.0, 5.5], load_current=[0.1, 0.4, 0.8]
+    Results in 3×3 = 9 vectors.
 
-    Use vector.changed() to detect outer loop transitions.
+    Uses vector.changed() to detect when parameters change.
     """
+    vin = vector["vin"]
+    load = vector["load_current"]
+
+    # Only reconfigure PSU when VIN changes (optimization)
+    if vector.changed("vin"):
+        psu.set_voltage(vin)
+        psu.set_current_limit(1.0)
+        psu.enable_output()
+
+    # Load changes more frequently
+    eload.set_current(load)
+    eload.enable()
+
+    vout = dmm.measure_dc_voltage()
+
+    eload.disable()
+    return vout
+
+
+# =============================================================================
+# Pattern 5: Nested Loops with Change Detection
+# =============================================================================
+@litmus_test
+def test_temp_load_matrix(vector, psu, dmm, eload):
+    """Full characterization matrix with nested loops.
+
+    Config specifies nested expansion:
+    - Outer loop: temperature=[25, 85]
+    - Inner loop: load_current=[0.1, 0.5, 0.8]
+
+    Uses vector.changed() to detect when outer parameter changes.
+    In real test, you'd adjust thermal chamber when temperature changes.
+    """
+    temp = vector["temperature"]
+    load = vector["load_current"]
+
+    # Temperature is outer loop - changes less frequently
     if vector.changed("temperature"):
-        # Would set chamber temperature here
+        # In production: set_chamber_temperature(temp)
+        # Here we just log it
         pass
 
-    return output_dmm.measure_dc_voltage()
+    psu.set_voltage(5.0)
+    psu.set_current_limit(1.0)
+    psu.enable_output()
+
+    eload.set_current(load)
+    eload.enable()
+
+    vout = dmm.measure_dc_voltage()
+
+    eload.disable()
+    return vout
 
 
 # =============================================================================
-# Sequence-Referenced Tests (for power_board_smoke.yaml)
+# Pattern 6: Range Expansion
 # =============================================================================
-
-
 @litmus_test
-def test_measure_5v_rail(vector, input_dmm):
-    """Verify 5V rail is present and within spec.
+def test_line_regulation(vector, psu, dmm, eload):
+    """Sweep input voltage using range expansion.
 
-    Referenced by: sequences/power_board_smoke.yaml
+    Config specifies: expand=range, start=4.5, stop=6.0, step=0.5
+    Results in vectors: vin=[4.5, 5.0, 5.5, 6.0]
     """
-    return input_dmm.measure_dc_voltage()
+    vin = vector["vin"]
+
+    psu.set_voltage(vin)
+    psu.set_current_limit(1.0)
+    psu.enable_output()
+
+    # Fixed load for line regulation test
+    eload.set_current(0.5)
+    eload.enable()
+
+    vout = dmm.measure_dc_voltage()
+
+    eload.disable()
+    return vout
 
 
+# =============================================================================
+# Pattern 7: Multiple Measurements (Dict Return)
+# =============================================================================
 @litmus_test
-def test_measure_3v3_rail(vector, output_dmm):
-    """Verify 3.3V rail is present and within spec.
+def test_power_analysis(vector, psu, dmm, eload):
+    """Measure multiple values and return as dict.
 
-    Referenced by: sequences/power_board_smoke.yaml
+    Returns: {"input_power": W, "output_power": W, "efficiency": %}
+
+    Each key gets checked against its own limit in config.yaml.
+    This is the pattern for calculated values and multi-point measurements.
     """
-    return output_dmm.measure_dc_voltage()
+    vin = vector.get("vin", 5.0)
+    load = vector.get("load_current", 0.5)
+
+    psu.set_voltage(vin)
+    psu.set_current_limit(1.0)
+    psu.enable_output()
+
+    eload.set_current(load)
+    eload.enable()
+
+    # Measure input
+    v_in = float(psu.measure_voltage())
+    i_in = float(psu.measure_current())
+
+    # Measure output
+    v_out = float(dmm.measure_dc_voltage())
+    i_out = load  # Load current we commanded
+
+    eload.disable()
+
+    # Calculate power and efficiency
+    p_in = v_in * i_in
+    p_out = v_out * i_out
+    efficiency = (p_out / p_in * 100) if p_in > 0 else 0
+
+    # Return multiple measurements - framework checks each against its limit
+    return {
+        "input_power": p_in,
+        "output_power": p_out,
+        "efficiency": efficiency,
+    }
 
 
+# =============================================================================
+# Pattern 8: One-Sided Limit (Max Only)
+# =============================================================================
 @litmus_test
-def test_load_5v(vector, input_dmm):
-    """Test 5V rail under load.
+def test_quiescent_current(vector, psu):
+    """Verify quiescent current (no load).
 
-    Referenced by: sequences/power_board_full.yaml
+    Limit uses comparator=LE (less than or equal) for upper-bound-only check.
+    Spec: max 10mA quiescent current.
     """
-    # In real test, electronic load would be enabled here
-    return input_dmm.measure_dc_voltage()
+    vin = vector.get("vin", 5.0)
+
+    psu.set_voltage(vin)
+    psu.set_current_limit(0.05)  # Low limit - no load
+    psu.enable_output()
+
+    # Measure input current (no load attached)
+    current_ma = float(psu.measure_current()) * 1000
+    return current_ma
+
+
+# =============================================================================
+# Pattern 9: Streaming Measurements (Yield)
+# =============================================================================
+@litmus_test
+def test_stability_over_time(vector, psu, dmm, eload):
+    """Monitor output stability over time using yield.
+
+    Yield pattern allows streaming multiple measurements from a single test.
+    Each yielded value is logged and checked against limits.
+
+    This is the pattern for:
+    - Time-series data (burn-in, soak tests)
+    - Progress reporting during long tests
+    - Data arrays (waveform capture)
+    """
+    vin = vector.get("vin", 5.0)
+    load = vector.get("load_current", 0.5)
+    sample_count = vector.get("sample_count", 5)
+
+    psu.set_voltage(vin)
+    psu.set_current_limit(1.0)
+    psu.enable_output()
+
+    eload.set_current(load)
+    eload.enable()
+
+    # Stream measurements over time
+    for i in range(sample_count):
+        voltage = dmm.measure_dc_voltage()
+        yield {"voltage": float(voltage)}
+        time.sleep(0.1)  # Sample interval
+
+    eload.disable()
+
+
+# =============================================================================
+# Pattern 10: Manual Test (Requires Operator Action)
+# =============================================================================
+@litmus_test
+def test_thermal_shutdown(vector, psu, dmm, eload):
+    """Verify thermal protection (manual test).
+
+    Config includes prompt_before to instruct operator.
+    This test is typically skipped in automated runs.
+
+    In production, this would verify the LDO shuts down
+    when overheated, protecting the circuit.
+    """
+    vin = vector.get("vin", 5.0)
+    load = vector.get("load_current", 0.5)
+
+    psu.set_voltage(vin)
+    psu.set_current_limit(1.0)
+    psu.enable_output()
+
+    eload.set_current(load)
+    eload.enable()
+
+    # After thermal shutdown, output should collapse
+    vout = dmm.measure_dc_voltage()
+
+    eload.disable()
+    return float(vout)

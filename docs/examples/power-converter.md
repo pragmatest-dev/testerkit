@@ -23,25 +23,27 @@ A simple 5V to 3.3V DC-DC converter with:
 
 ```
 power_converter_test/
-├── specs/
-│   └── dc_converter.yaml
-├── stations/
+├── products/                       # WHAT you're testing
+│   └── dc_converter/
+│       └── spec.yaml
+├── stations/                       # WHERE you test
 │   └── bench_1.yaml
-├── fixtures/
+├── fixtures/                       # HOW pins connect to instruments
 │   └── dc_converter_fixture.yaml
-├── sequences/
+├── instruments/                    # Custom drivers (optional)
+├── sequences/                      # Test execution order
 │   └── production_test.yaml
-├── tests/
-│   ├── config.yaml
+├── tests/                          # Test code
+│   ├── config.yaml                 # CONDITIONS + LIMITS
 │   ├── conftest.py
 │   └── test_dc_converter.py
-└── results/
+└── results/                        # Output (gitignored)
 ```
 
 ## Product Specification
 
 ```yaml
-# specs/dc_converter.yaml
+# products/dc_converter/spec.yaml
 product:
   id: dc_converter
   name: "5V to 3.3V DC-DC Converter"

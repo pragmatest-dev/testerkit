@@ -28,7 +28,7 @@ class SpecContext:
     channel traceability through the test execution.
 
     Example usage:
-        spec = SpecContext.from_file("specs/power_board.yaml")
+        spec = SpecContext.from_file("products/power_board/spec.yaml")
 
         # Get limit for a characteristic at specific conditions
         limit = spec.get_limit("output_voltage", temperature=25, load=0.1)
@@ -82,13 +82,6 @@ class SpecContext:
         if char.net and not pins:
             for pin_id, pin in self.product.pins.items():
                 if pin.net == char.net:
-                    pins.append(pin_id)
-                    break
-
-        # Legacy: schematic_ref as net name
-        if char.schematic_ref and not pins:
-            for pin_id, pin in self.product.pins.items():
-                if pin.net == char.schematic_ref:
                     pins.append(pin_id)
                     break
 
