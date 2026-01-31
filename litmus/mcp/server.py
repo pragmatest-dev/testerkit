@@ -41,7 +41,9 @@ def create_mcp_server() -> FastMCP:
 3. **Before generating tests** - Show test plan, ask which tests to include
 4. **Before running tests** - Confirm DUT is connected, station is ready
 
-### At Each Checkpoint, Offer Options:
+### At Each Checkpoint, Offer Options AND Link to UI:
+
+Always call `litmus_open()` to get the UI URL and include it:
 
 ```
 I've extracted 5 characteristics from the datasheet:
@@ -49,11 +51,18 @@ I've extracted 5 characteristics from the datasheet:
 - input_voltage: 4.5-18V
 - ...
 
+View/edit in browser: http://localhost:8000/products/tps54302
+
 How would you like to proceed?
 - [A] Approve and continue to next step
-- [E] Edit - let me know what to change
+- [E] Edit in UI (I'll wait for you to finish)
 - [?] Ask me questions about any values
 - [S] Skip this product/test
+```
+
+**IMPORTANT:** After saving any entity, ALWAYS provide the UI link:
+```python
+litmus_open(type="product", id="tps54302")  # Get URL to include in response
 ```
 
 ### Questions to Ask:
@@ -374,12 +383,17 @@ Wait for approval before creating the product spec.
 ### Step 2: Create Product Spec → **CHECKPOINT**
 ```
 litmus(action="save", type="product", id="power_board", content={...})
+url = litmus_open(type="product", id="power_board")
 ```
 
-Show what was created, offer to open in UI for editing:
+Show what was created WITH the UI link:
 ```
-"Created product spec. View/edit at: [URL]
-Ready to select a test station?"
+"Created product spec.
+
+📝 View/edit in browser: http://localhost:8000/products/power_board
+
+Take your time to review. Let me know when you're ready to continue,
+or if you made changes I should incorporate."
 ```
 
 ### Step 3: Select Station → **CHECKPOINT**
@@ -389,9 +403,12 @@ litmus(action="list", type="station")
 litmus_match(product_id="power_board")
 ```
 
-Ask the user:
+Ask the user WITH links to view each station:
 ```
-"Found 2 compatible stations: bench_001, bench_002
+"Found 2 compatible stations:
+- bench_001: http://localhost:8000/stations/bench_001
+- bench_002: http://localhost:8000/stations/bench_002
+
 Which would you like to use? Or should I create a new one?"
 ```
 
@@ -412,10 +429,20 @@ Show the test plan before creating files:
 Should I include all of these? Any specific test conditions?"
 ```
 
-Wait for approval, then save:
+Wait for approval, then save and provide file paths:
 ```
 litmus(action="save", type="test", id="tests/test_power_board.py", content={"code": "..."})
 litmus(action="save", type="test", id="tests/config.yaml", content={"code": "..."})
+```
+
+After saving:
+```
+"Created test files:
+- tests/test_power_board.py (3 test functions)
+- tests/config.yaml (vectors + limits)
+
+You can edit these files directly in your editor.
+Ready to run the tests?"
 ```
 
 ### Step 5: Run Tests → **CHECKPOINT**
@@ -430,20 +457,23 @@ Proceed? [Y/n]"
 
 Then run:
 ```
-litmus_run(test="tests/test_power_board.py", station="bench_001", serial="SN001")
+result = litmus_run(test="tests/test_power_board.py", station="bench_001", serial="SN001")
+run_url = litmus_open(type="run", id=result["run_id"])
 ```
 
 ### Step 6: Analyze Results → **CHECKPOINT**
-After tests complete, summarize and ask:
+After tests complete, provide results link and summarize:
 ```
-"Results: 2/3 passed
+"Tests complete! Results: 2/3 passed
+
+📊 View full results: http://localhost:8000/results/{run_id}
 
 FAILED: test_efficiency (measured 87%, expected >90%)
 
 Want me to:
 - Investigate the failure?
 - Re-run with different conditions?
-- Continue anyway?"
+- Export results to a report?"
 ```
 
 ## Checklist
