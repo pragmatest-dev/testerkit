@@ -2,26 +2,18 @@
 
 Litmus is a Python-native hardware test platform for the AI-assisted era.
 
-## Guides
+## Documentation Sections
 
-| Guide | Description |
-|-------|-------------|
-| [Quick Start](quickstart.md) | Install, run demo, write first test |
-| [Core Concepts](concepts.md) | Products, stations, fixtures, capabilities, matching |
-| [Configuration](configuration.md) | YAML schemas and Pydantic models |
-| [pytest Plugin](pytest-plugin.md) | `@litmus_test`, vectors, retries |
-| [Custom Drivers](instruments/custom-drivers.md) | Non-VISA, DAQmx, serial protocols |
-| [Python Client](client.md) | Submit results from external tools |
-| [API Reference](api.md) | MCP tools and HTTP endpoints |
-
-## Diagrams
-
-| Diagram | Description |
+| Section | Description |
 |---------|-------------|
-| [Architecture ERD](architecture-erd.md) | System overview, execution flow, types vs instances |
-| [Models ERD](models-erd.md) | Pydantic model relationships |
+| [Tutorial](tutorial/index.md) | Engineer's First Project - progressive learning path |
+| [Integration](integration/overview.md) | Adopt Litmus with existing tests and infrastructure |
+| [Concepts](concepts/overview.md) | Products, stations, capabilities, fixtures, and matching |
+| [How-To Guides](guides/writing-tests.md) | Step-by-step guides for common tasks |
+| [Reference](reference/api.md) | MCP tools, HTTP endpoints, CLI, models |
+| [Examples](examples/power-converter.md) | Complete working examples |
 
-## Quick Links
+## Quick Start
 
 **Run the demo:**
 ```bash
@@ -38,7 +30,7 @@ litmus serve
 litmus setup claude-code
 ```
 
-## Architecture
+## Architecture Overview
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
@@ -79,6 +71,20 @@ litmus setup claude-code
 - **AI-ready** — MCP server for Claude Code, Cursor, Cline
 - **Parquet storage** — Efficient columnar storage for analytics
 
+## Learning Paths
+
+### New to Litmus?
+
+Start with the [Tutorial](tutorial/index.md) — a progressive learning path from your first test to production deployment.
+
+### Have Existing Tests?
+
+Check out [Integration](integration/overview.md) — guides for adopting Litmus incrementally with LabVIEW, TestStand, or existing pytest suites.
+
+### Quick Reference
+
+Jump to [Reference](reference/api.md) for API documentation, configuration schemas, and CLI commands.
+
 ## Project Structure
 
 ```
@@ -93,3 +99,8 @@ litmus/
 ├── ui/              # Operator UI (NiceGUI)
 └── client.py        # Python client library
 ```
+
+## Getting Help
+
+- **GitHub Issues:** [Report bugs and request features](https://github.com/anthropics/litmus/issues)
+- **CLI Help:** `litmus --help`

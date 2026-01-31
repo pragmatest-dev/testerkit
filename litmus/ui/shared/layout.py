@@ -124,6 +124,11 @@ def create_sidebar():
             _nav_item("/instruments", "precision_manufacturing", "Instruments")
             _nav_item("/sequences", "list_alt", "Sequences")
 
+            ui.separator().classes("bg-slate-700 my-2")
+            ui.label("DOCUMENTATION").classes("text-xs text-slate-500 px-3 pt-2")
+
+            _nav_item("/docs", "menu_book", "Documentation")
+
     return drawer
 
 
