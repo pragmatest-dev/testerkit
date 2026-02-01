@@ -348,10 +348,18 @@ products/tps54302/spec.yaml              tests/config.yaml            tests/test
 │                         RUNTIME (TestHarness)                                │
 │                                                                             │
 │   for vector in vectors:  # {temp:25, load:0.5}, {temp:25, load:3.0}, ...  │
-│       limit = spec.get_limit("output_voltage", **vector.params)             │
-│       value = test_func(vector, dmm)                                        │
+│       # Create vector context and populate with vector params               │
+│       context = Context(parent=step_context, prev=prev_vector_context)      │
+│       context.set_inputs(vector.params())  # temp, load → context.inputs    │
+│                                                                             │
+│       # Resolve limit (may be callable using context)                       │
+│       limit = spec.get_limit("output_voltage", ctx=context)                 │
+│                                                                             │
+│       # Call test with context (vector params inside)                       │
+│       value = test_func(context, dmm)  # context.inputs["temp"], ["load"]   │
+│                                                                             │
 │       result = check(value, limit)  # PASS/FAIL                            │
-│       store(Measurement(value, limit, result))                              │
+│       store(Measurement(value, limit, result, params=context.inputs))       │
 │                                                                             │
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
