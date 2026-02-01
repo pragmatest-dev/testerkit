@@ -195,7 +195,7 @@ test_load_regulation:
 ```python
 litmus_run(
     test="tests/test_tps54302.py",
-    station="sim_bench",
+    station="test_bench",
     serial="TEST001",
     project=project_root
 )
