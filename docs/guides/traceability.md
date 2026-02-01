@@ -212,14 +212,14 @@ test_exact_value:
 
 ## Querying Traceable Results
 
-Results are stored in Parquet files at `results/runs/{date}/{run_id}_{dut_serial}/measurements.parquet`.
+Results are stored in Parquet files at `results/runs/{date}/{timestamp}_{serial}.parquet` (UTC timestamps).
 
 ### By DUT Pin
 
 ```python
 import pandas as pd
 
-df = pd.read_parquet("results/runs/2026-01-15/abc123_SN001/measurements.parquet")
+df = pd.read_parquet("results/runs/2026-01-15/20260115T143025Z_SN001.parquet")
 
 # Find all measurements on pin J1.3
 j1_3_measurements = df[df["meas_dut_pin"] == "J1.3"]

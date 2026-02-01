@@ -128,25 +128,21 @@ def test_voltage(dut_serial: str, run):
 
 ### Default Location
 
-Results are stored in Parquet files:
+Results are stored in Parquet files with self-describing filenames:
 
 ```
-results/
-├── test_runs/
-│   └── 2026-01-30/
-│       └── <run_id>.parquet
-├── vectors/
-│   └── 2026-01-30/
-│       └── <run_id>_vectors.parquet
-└── measurements/
-    └── 2026-01-30/
-        └── <run_id>_measurements.parquet
+results/runs/{date}/
+├── {timestamp}_{serial}.parquet     # With serial (production)
+├── {timestamp}.parquet              # Without serial (dev/debug)
+└── {timestamp}_{serial}_raw/        # Raw data (waveforms, images)
 ```
+
+All timestamps are UTC for consistent cross-timezone analysis.
 
 ### Custom Location
 
-```python
-client = LitmusClient(results_dir="/path/to/results")
+```bash
+pytest tests/ --results-dir=/path/to/results
 ```
 
 ### Environment Variable
@@ -157,42 +153,34 @@ export LITMUS_RESULTS_DIR=/shared/test_results
 
 ## Querying Results
 
-### Python API
+### Pandas
 
 ```python
-from litmus import LitmusClient
-
-client = LitmusClient()
-
-# List runs
-runs = client.list_runs(limit=100)
-for run in runs:
-    print(f"{run['dut_serial']}: {run['outcome']}")
-
-# Get specific run
-run = client.get_run("abc12345")
-
-# Get measurements
-measurements = client.get_measurements("abc12345")
-for m in measurements:
-    print(f"{m['measurement_name']}: {m['value']}")
-```
-
-### Direct Parquet Access
-
-```python
-import pyarrow.parquet as pq
 import pandas as pd
 
-# Read all measurements
-table = pq.read_table("results/measurements")
-df = table.to_pandas()
+# Load a specific run
+df = pd.read_parquet("results/runs/2026-01-30/20260130T143025Z_SN001.parquet")
 
-# Filter by serial
-board_df = df[df['dut_serial'] == 'SN12345']
+# Filter by test
+vout = df[df["step_name"] == "test_output_voltage"]
+print(vout[["value", "outcome", "in_vin"]])
 
-# Aggregate
-summary = df.groupby('measurement_name')['value'].agg(['mean', 'std', 'count'])
+# Load all runs
+df_all = pd.read_parquet("results/runs/**/*.parquet")
+print(df_all.groupby("step_name")["outcome"].value_counts())
+```
+
+### DuckDB
+
+```python
+import duckdb
+
+# Query across all runs
+duckdb.sql("""
+    SELECT dut_serial, step_name, outcome, COUNT(*)
+    FROM 'results/runs/**/*.parquet'
+    GROUP BY dut_serial, step_name, outcome
+""").show()
 ```
 
 ### CLI
@@ -200,7 +188,6 @@ summary = df.groupby('measurement_name')['value'].agg(['mean', 'std', 'count'])
 ```bash
 litmus runs                  # List recent runs
 litmus show <run_id>         # Show run details
-litmus export <run_id>       # Export to CSV
 ```
 
 ## Metadata

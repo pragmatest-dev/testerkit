@@ -4,11 +4,12 @@ Implements an analysis-ready schema with one row per measurement and all
 metadata denormalized for easy querying with DuckDB, Spark, Polars, etc.
 
 Directory structure:
-    results/runs/{date}/{run_id}_{dut_serial}/
-    ├── measurements.parquet     # All scalar measurements (queryable)
-    └── raw/                     # Raw data files (waveforms, images, etc.)
-        ├── {acquisition_id}_waveform.npy
-        └── ...
+    results/runs/{date}/
+    ├── {timestamp}_{serial}.parquet     # With serial (production)
+    ├── {timestamp}.parquet              # Without serial (dev/debug)
+    └── {timestamp}_{serial}_raw/        # Raw data (waveforms, images)
+
+All timestamps are UTC for consistent cross-timezone analysis.
 
 Schema design:
 - One row per measurement
@@ -44,22 +45,32 @@ class ParquetBackend:
     def save_test_run(self, test_run: TestRun) -> Path:
         """Save test run to Parquet with analysis-ready schema.
 
-        Creates directory structure:
-            results/runs/{date}/{run_id}_{dut_serial}/measurements.parquet
+        Creates files:
+            results/runs/{date}/{timestamp}_{serial}.parquet  (with serial)
+            results/runs/{date}/{timestamp}.parquet           (without serial)
+
+        All timestamps are UTC for consistent cross-timezone analysis.
 
         Args:
             test_run: Complete TestRun with steps, vectors, and measurements.
 
         Returns:
-            Path to the measurements.parquet file.
+            Path to the Parquet file.
         """
+        # UTC timestamp for filename (compact ISO 8601 basic format)
+        timestamp = test_run.started_at.strftime("%Y%m%dT%H%M%SZ")
         date_str = test_run.started_at.strftime("%Y-%m-%d")
-        run_id_short = str(test_run.id)[:8]
-        dut_serial = test_run.dut.serial
+        dut_serial = test_run.dut.serial.strip() if test_run.dut.serial else ""
 
-        # Create run directory
-        run_dir = self.results_dir / "runs" / date_str / f"{run_id_short}_{dut_serial}"
-        run_dir.mkdir(parents=True, exist_ok=True)
+        # Create date directory
+        date_dir = self.results_dir / "runs" / date_str
+        date_dir.mkdir(parents=True, exist_ok=True)
+
+        # Filename: timestamp first, serial if present
+        if dut_serial:
+            filename = f"{timestamp}_{dut_serial}.parquet"
+        else:
+            filename = f"{timestamp}.parquet"
 
         # Build measurement rows
         rows = self._build_measurement_rows(test_run)
@@ -76,14 +87,10 @@ class ParquetBackend:
         table = table.replace_schema_metadata(metadata)
 
         # Write to Parquet
-        measurements_path = run_dir / "measurements.parquet"
-        pq.write_table(table, measurements_path)
+        parquet_path = date_dir / filename
+        pq.write_table(table, parquet_path)
 
-        # Create raw/ directory for future waveform/image storage
-        raw_dir = run_dir / "raw"
-        raw_dir.mkdir(exist_ok=True)
-
-        return measurements_path
+        return parquet_path
 
     def _build_measurement_rows(self, test_run: TestRun) -> list[dict[str, Any]]:
         """Build one row per measurement with all metadata denormalized."""

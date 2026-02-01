@@ -427,15 +427,15 @@ Dependencies can be test function names or full node IDs.
 Results are saved to Parquet files with **one row per measurement** and all metadata denormalized:
 
 ```
-results/runs/{date}/{run_id}_{dut_serial}/
-├── measurements.parquet     # All scalar measurements (queryable)
-└── raw/                     # Raw data files (waveforms, images)
+results/runs/{date}/{timestamp}_{serial}.parquet   # With serial
+results/runs/{date}/{timestamp}.parquet            # Without serial (dev/debug)
 ```
 
 **Key principles:**
-- One directory per DUT (easy to find/ship data for a specific unit)
-- DUT serial in path for quick lookup
-- Self-contained (directory can be zipped and sent anywhere)
+- UTC timestamps for consistent cross-timezone analysis
+- Self-describing filename (timestamp + serial)
+- Chronological sorting in file listings
+- Portable (copy the file anywhere and you know what it is)
 
 Query with the CLI:
 
@@ -450,7 +450,7 @@ Or programmatically:
 import pandas as pd
 
 # Load a specific run
-df = pd.read_parquet("results/runs/2026-01-28/abc123_SN001/measurements.parquet")
+df = pd.read_parquet("results/runs/2026-01-28/20260128T143025Z_SN001.parquet")
 
 # Filter to specific test
 vout = df[df["step_name"] == "test_output_voltage"]

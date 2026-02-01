@@ -272,22 +272,35 @@ pytest tests/test_pure_pytest.py --station=demo_station_001 --simulate -v
 
 ## Querying Results
 
+Results are saved with self-describing filenames using UTC timestamps:
+- `results/runs/{date}/{timestamp}_{serial}.parquet` (with serial)
+- `results/runs/{date}/{timestamp}.parquet` (without serial)
+
 ```python
-import pyarrow.parquet as pq
+import pandas as pd
 
-# Read test runs
-runs = pq.read_table("results/test_runs")
-print(f"Outcome: {runs['outcome'][0]}")
+# Load a run (filename tells you when and which DUT)
+df = pd.read_parquet("results/runs/2026-01-31/20260131T143025Z_SN001.parquet")
 
-# Read measurements
-measurements = pq.read_table("results/measurements")
-for row in measurements.to_pylist():
-    print(f"{row['name']}: {row['value']} {row['units']}")
+# Filter to specific test
+vout = df[df["step_name"] == "test_output_voltage"]
+print(vout[["value", "outcome", "in_vin"]])
 
-# Read vectors
-vectors = pq.read_table("results/vectors")
-for row in vectors.to_pylist():
-    print(f"Vector {row['index']}: {row['params']}")
+# Aggregate across all runs
+df_all = pd.read_parquet("results/runs/**/*.parquet")
+print(df_all.groupby("step_name")["outcome"].value_counts())
+```
+
+Or use DuckDB for SQL queries:
+
+```python
+import duckdb
+
+duckdb.sql("""
+    SELECT step_name, outcome, COUNT(*)
+    FROM 'results/runs/**/*.parquet'
+    GROUP BY step_name, outcome
+""").show()
 ```
 
 ## What's Demonstrated

@@ -15,20 +15,22 @@ When `measure()` is called, Litmus knows:
 
 This is captured automatically—no user effort required.
 
-## Directory Structure
+## File Structure
 
 ```
-results/runs/{date}/{run_id}_{dut_serial}/
-├── measurements.parquet     # All scalar measurements (queryable)
-└── raw/                     # Raw data files (waveforms, images, etc.)
+results/runs/{date}/
+├── {timestamp}_{serial}.parquet     # With serial (production)
+├── {timestamp}.parquet              # Without serial (dev/debug)
+└── {timestamp}_{serial}_raw/        # Raw data (waveforms, images)
     ├── {acquisition_id}_waveform.npy
     └── ...
 ```
 
 **Key principles:**
-- **One directory per DUT** — Even in gang testing, each serial gets its own folder
-- **DUT serial in path** — Easy to find/ship data for a specific unit
-- **Self-contained** — Directory can be zipped and sent anywhere
+- **UTC timestamps** — Consistent cross-timezone analysis
+- **Chronological sorting** — Files sort naturally by time
+- **Self-describing** — Timestamp + serial tells you exactly what's in the file
+- **Portable** — Copy the file anywhere and you know what it is
 
 ## Schema Overview
 
@@ -178,7 +180,7 @@ Access with PyArrow:
 import pyarrow.parquet as pq
 import yaml
 
-pf = pq.ParquetFile("results/runs/2026-01-15/abc123_SN001/measurements.parquet")
+pf = pq.ParquetFile("results/runs/2026-01-15/20260115T143025Z_SN001/measurements.parquet")
 metadata = pf.schema_arrow.metadata
 
 station_config = yaml.safe_load(metadata[b"station_config_yaml"])
@@ -192,7 +194,7 @@ product_spec = yaml.safe_load(metadata[b"product_spec_yaml"])
 ```python
 import pandas as pd
 
-df = pd.read_parquet("results/runs/2026-01-15/abc123_SN001/measurements.parquet")
+df = pd.read_parquet("results/runs/2026-01-15/20260115T143025Z_SN001/measurements.parquet")
 
 # Filter to specific test step
 vout_tests = df[df["step_name"] == "test_output_voltage"]
