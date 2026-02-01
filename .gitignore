@@ -9,3 +9,4 @@ results/
 .coverage
 .claude/settings.local.json
 demo/uv.lock
+dist/
