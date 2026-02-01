@@ -330,3 +330,22 @@ body {
 .prose.max-w-none {
   max-width: none;
 }
+
+/* Documentation page layout */
+.docs-layout {
+  display: flex;
+  min-height: 100%;
+}
+
+.docs-sidebar {
+  position: sticky;
+  top: 0;
+  height: 100vh;
+  overflow-y: auto;
+  flex-shrink: 0;
+}
+
+.docs-content {
+  flex: 1;
+  min-width: 0;
+}

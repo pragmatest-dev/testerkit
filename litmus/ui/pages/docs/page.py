@@ -4,8 +4,6 @@ from pathlib import Path
 
 from nicegui import ui
 
-from litmus.ui.shared.layout import create_layout
-
 # Path to docs directory (relative to this file)
 DOCS_DIR = Path(__file__).parent.parent.parent.parent.parent / "docs"
 
@@ -59,19 +57,33 @@ def _find_page_section(page_name: str) -> str | None:
     return None
 
 
-def _render_breadcrumbs(section: str, page: str | None = None):
-    """Render breadcrumb navigation."""
-    with ui.row().classes("gap-2 text-sm text-slate-500 mb-4 items-center"):
-        ui.link("Docs", "/docs").classes("hover:text-blue-600")
-        ui.icon("chevron_right").classes("text-xs")
-        if page:
-            ui.link(_get_section_title(section), f"/docs/{section}").classes(
-                "hover:text-blue-600"
-            )
-            ui.icon("chevron_right").classes("text-xs")
-            ui.label(page.replace("-", " ").title()).classes("text-slate-700")
-        else:
-            ui.label(_get_section_title(section)).classes("text-slate-700")
+def _create_docs_layout(section: str | None = None, page: str | None = None):
+    """Create docs layout with breadcrumb in header."""
+    from litmus.ui.shared.layout import create_sidebar
+
+    ui.add_head_html('<link rel="stylesheet" href="/static/global.css">')
+    ui.query("body").classes("bg-slate-50")
+
+    create_sidebar()
+
+    # Header with breadcrumb
+    with ui.header().classes("bg-white border-b border-slate-200 shadow-sm"):
+        with ui.row().classes("gap-2 text-sm items-center"):
+            ui.link("Docs", "/docs").classes("text-slate-500 hover:text-blue-600")
+            if section:
+                ui.icon("chevron_right").classes("text-xs text-slate-400")
+                if page:
+                    ui.link(
+                        _get_section_title(section), f"/docs/{section}"
+                    ).classes("text-slate-500 hover:text-blue-600")
+                    ui.icon("chevron_right").classes("text-xs text-slate-400")
+                    ui.label(page.replace("-", " ").title()).classes(
+                        "text-slate-800 font-medium"
+                    )
+                else:
+                    ui.label(_get_section_title(section)).classes(
+                        "text-slate-800 font-medium"
+                    )
 
 
 def _render_sidebar_nav(section: str, current_page: str | None = None):
@@ -85,7 +97,7 @@ def _render_sidebar_nav(section: str, current_page: str | None = None):
     if not pages:
         return
 
-    with ui.column().classes("w-56 pr-6 border-r border-slate-200 shrink-0"):
+    with ui.column().classes("w-56 p-4 border-r border-slate-200 docs-sidebar bg-white"):
         ui.label(_get_section_title(section).upper()).classes(
             "text-xs text-slate-500 font-medium mb-2"
         )
@@ -115,47 +127,44 @@ def _render_doc_page_content(section: str, page: str):
     """Render the content of a documentation page (without layout)."""
     md_path = DOCS_DIR / section / f"{page}.md"
 
-    with ui.column().classes("w-full max-w-5xl mx-auto p-6"):
-        _render_breadcrumbs(section, page)
+    with ui.element("div").classes("docs-layout"):
+        # Sidebar navigation (sticky)
+        _render_sidebar_nav(section, page)
 
-        with ui.row().classes("gap-6"):
-            # Sidebar navigation
-            _render_sidebar_nav(section, page)
+        # Main content (scrolls with window)
+        with ui.column().classes("docs-content p-6 max-w-4xl"):
+            if md_path.exists():
+                content = md_path.read_text()
+                ui.markdown(content).classes("prose prose-slate max-w-none")
 
-            # Main content
-            with ui.column().classes("flex-1 min-w-0"):
-                if md_path.exists():
-                    content = md_path.read_text()
-                    ui.markdown(content).classes("prose prose-slate max-w-none")
-
-                    # Next/prev navigation
-                    section_dir = DOCS_DIR / section
-                    pages = sorted([p.stem for p in section_dir.glob("*.md") if p.stem != "index"])
-                    if page in pages:
-                        idx = pages.index(page)
-                        with ui.row().classes("mt-8 pt-6 border-t border-slate-200 gap-4"):
-                            if idx > 0:
-                                prev_page = pages[idx - 1]
-                                ui.link(
-                                    f"← {prev_page.replace('-', ' ').title()}",
-                                    f"/docs/{section}/{prev_page}",
-                                ).classes("text-blue-600 hover:underline")
-                            ui.element("div").classes("flex-1")
-                            if idx < len(pages) - 1:
-                                next_page = pages[idx + 1]
-                                ui.link(
-                                    f"{next_page.replace('-', ' ').title()} →",
-                                    f"/docs/{section}/{next_page}",
-                                ).classes("text-blue-600 hover:underline")
-                else:
-                    with ui.column().classes("gap-4"):
-                        ui.icon("warning").classes("text-amber-500 text-4xl")
-                        ui.label(f"Page not found: {section}/{page}").classes(
-                            "text-lg text-slate-700"
-                        )
-                        ui.link(
-                            f"Back to {_get_section_title(section)}", f"/docs/{section}"
-                        ).classes("text-blue-600 hover:underline")
+                # Next/prev navigation
+                section_dir = DOCS_DIR / section
+                pages = sorted([p.stem for p in section_dir.glob("*.md") if p.stem != "index"])
+                if page in pages:
+                    idx = pages.index(page)
+                    with ui.row().classes("mt-8 pt-6 border-t border-slate-200 gap-4"):
+                        if idx > 0:
+                            prev_page = pages[idx - 1]
+                            ui.link(
+                                f"← {prev_page.replace('-', ' ').title()}",
+                                f"/docs/{section}/{prev_page}",
+                            ).classes("text-blue-600 hover:underline")
+                        ui.element("div").classes("flex-1")
+                        if idx < len(pages) - 1:
+                            next_page = pages[idx + 1]
+                            ui.link(
+                                f"{next_page.replace('-', ' ').title()} →",
+                                f"/docs/{section}/{next_page}",
+                            ).classes("text-blue-600 hover:underline")
+            else:
+                with ui.column().classes("gap-4"):
+                    ui.icon("warning").classes("text-amber-500 text-4xl")
+                    ui.label(f"Page not found: {section}/{page}").classes(
+                        "text-lg text-slate-700"
+                    )
+                    ui.link(
+                        f"Back to {_get_section_title(section)}", f"/docs/{section}"
+                    ).classes("text-blue-600 hover:underline")
 
 
 def _render_section_index_content(section: str):
@@ -163,8 +172,6 @@ def _render_section_index_content(section: str):
     section_dir = DOCS_DIR / section
 
     with ui.column().classes("w-full max-w-4xl mx-auto p-6"):
-        _render_breadcrumbs(section)
-
         # Check for index.md first
         index_path = section_dir / "index.md"
         if index_path.exists():
@@ -229,17 +236,17 @@ def section_index(section: str):
         section = section[:-3]
 
     # If this isn't a known section, it might be a page name from a relative link
-    # (e.g., user clicked "01-first-test.md" from /docs/tutorial which resolved to /docs/01-first-test.md)
+    # (e.g., clicked "01-first-test.md" from /docs/tutorial → /docs/01-first-test.md)
     # Try to find which section contains this page and render it
     if section not in KNOWN_SECTIONS:
         found_section = _find_page_section(section)
         if found_section:
             # Render the page content with proper layout
-            create_layout(f"Docs - {section.replace('-', ' ').title()}")
+            _create_docs_layout(found_section, section)
             _render_doc_page_content(found_section, section)
             return
 
-    create_layout(f"Docs - {_get_section_title(section)}")
+    _create_docs_layout(section)
     _render_section_index_content(section)
 
 
@@ -250,5 +257,5 @@ def doc_page(section: str, page: str):
     if page.endswith(".md"):
         page = page[:-3]
 
-    create_layout(f"Docs - {page.replace('-', ' ').title()}")
+    _create_docs_layout(section, page)
     _render_doc_page_content(section, page)
