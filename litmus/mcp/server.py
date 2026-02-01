@@ -56,16 +56,14 @@ station:
 instruments:
   psu:
     type: psu              # Valid: psu, dmm, eload, scope
-    resource: "MOCK::PSU"
-    simulate: true
-    sim_config:
+    resource: "TCPIP::192.168.1.100::INSTR"
+    mock_config:           # Values for --mock-instruments mode
       voltage: 5.0
       current: 0.5
   dmm:
     type: dmm
-    resource: "MOCK::DMM"
-    simulate: true
-    sim_config:
+    resource: "TCPIP::192.168.1.101::INSTR"
+    mock_config:
       voltage: 3.3
 ```
 
@@ -110,9 +108,9 @@ test_output_voltage:
 1. **STOP at each step** - Show plan, ask approval, wait for response
 2. **Pass project=** to all calls after init
 3. **Station types:** psu, dmm, eload, scope (exactly)
-4. **simulate: true + sim_config** for mock instruments
+4. **mock_config** in station for default mock values
 5. **Create BOTH test files** - .py AND config.yaml
-6. **_mock in config.yaml** - Values mocks return
+6. **_mock in config.yaml** - Per-test/per-vector mock values
 """,
     )
 
@@ -284,13 +282,13 @@ You are helping create hardware tests from a product datasheet. This is COLLABOR
 
 3. **Create Station Config**: Show config, ask approval, save
    ```python
-   litmus(action="save", type="station", id="sim_bench", content={
-       "station": {"id": "sim_bench", "name": "Simulated Bench"},
+   litmus(action="save", type="station", id="test_bench", content={
+       "station": {"id": "test_bench", "name": "Test Bench"},
        "instruments": {
-           "psu": {"type": "psu", "resource": "MOCK::PSU", "simulate": True,
-                   "sim_config": {"voltage": 12.0, "current": 1.0}},
-           "dmm": {"type": "dmm", "resource": "MOCK::DMM", "simulate": True,
-                   "sim_config": {"voltage": 5.0}}
+           "psu": {"type": "psu", "resource": "TCPIP::192.168.1.100::INSTR",
+                   "mock_config": {"voltage": 12.0, "current": 1.0}},
+           "dmm": {"type": "dmm", "resource": "TCPIP::192.168.1.101::INSTR",
+                   "mock_config": {"voltage": 5.0}}
        }
    }, project=project_root)
    ```
@@ -328,7 +326,7 @@ def test_output_voltage(vector, psu, dmm):
 
 5. **Run Tests**:
    ```python
-   litmus_run(test="tests/test_partnum.py", station="sim_bench",
+   litmus_run(test="tests/test_partnum.py", station="test_bench",
               serial="TEST001", project=project_root)
    ```
 
@@ -337,9 +335,9 @@ def test_output_voltage(vector, psu, dmm):
 1. **STOP and ASK** before each step - never proceed without approval
 2. **Pass project=** to ALL calls after init
 3. **Station instrument types**: psu, dmm, eload, scope (exactly these)
-4. **simulate: true + sim_config** for mock instruments
+4. **mock_config** in station for default mock values
 5. **Create BOTH test files**: .py AND config.yaml
-6. **_mock in config.yaml**: Values mocks return during simulation
+6. **_mock in config.yaml**: Per-test/per-vector mock values
 '''
 
     return mcp

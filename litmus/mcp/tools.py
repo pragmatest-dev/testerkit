@@ -168,46 +168,32 @@ python_functions = ["test_*"]
         if not conftest_path.exists():
             conftest_content = '''"""Pytest configuration for Litmus tests.
 
-NOTE: Mock instruments are RESPONSIVE - they return whatever value
-was last SET. Tests should configure the stimulus, then measure.
+Instruments come from station config via the `instruments` fixture.
+Run with --mock-instruments for hardware-free testing.
 
-Example test pattern:
-    def test_output(psu, dmm):
-        psu.set_voltage(12.0)  # Set input
-        psu.enable_output()
-        # DMM will return simulated output based on mock behavior
-        return dmm.measure_voltage()
+Example:
+    pytest tests/ --station=test_bench --mock-instruments --dut-serial=TEST001
 """
 
 import pytest
-from litmus.instruments import DMM, PSU, ELoad, Mock
 
 
 @pytest.fixture
-def dmm():
-    """Simulated DMM - returns last measured/set value."""
-    dmm = Mock(DMM)  # No hardcoded values - responsive to test
-    dmm.connect()
-    yield dmm
-    dmm.disconnect()
+def dmm(instruments):
+    """DMM from station config."""
+    return instruments.get("dmm")
 
 
 @pytest.fixture
-def psu():
-    """Simulated PSU - tracks voltage/current settings."""
-    psu = Mock(PSU)  # No hardcoded values - test sets conditions
-    psu.connect()
-    yield psu
-    psu.disconnect()
+def psu(instruments):
+    """PSU from station config."""
+    return instruments.get("psu")
 
 
 @pytest.fixture
-def eload():
-    """Simulated electronic load."""
-    eload = Mock(ELoad)  # No hardcoded values
-    eload.connect()
-    yield eload
-    eload.disconnect()
+def eload(instruments):
+    """Electronic load from station config."""
+    return instruments.get("eload")
 '''
             conftest_path.write_text(conftest_content)
             created_files.append("conftest.py")
@@ -651,19 +637,13 @@ def _save_station(station_id: str, content: dict[str, Any], project: str) -> dic
                         f"Valid types: {', '.join(sorted(VALID_INSTRUMENT_TYPES))}"
                     )
 
-                # Check for simulate without sim_config
-                if config.get("simulate") and "sim_config" not in config:
-                    errors.append(
-                        f"instruments.{name}: 'simulate: true' requires 'sim_config' dict"
-                    )
-
     if errors:
         return {
             "success": False,
             "errors": errors,
             "hint": "Station format example: {'station': {'id': 'x', 'name': 'X'}, "
-                    "'instruments': {'psu': {'type': 'psu', 'resource': 'MOCK::PSU', "
-                    "'simulate': true, 'sim_config': {'voltage': 5.0}}}}"
+                    "'instruments': {'psu': {'type': 'psu', 'resource': 'TCPIP::192.168.1.100::INSTR', "
+                    "'mock_config': {'voltage': 5.0}}}}"
         }
 
     stations_dir = get_project_root(project) / "stations"
@@ -872,7 +852,7 @@ Values in config.yaml come from the product spec.yaml:
 
 INSTRUMENT_TEMPLATE = '''"""{instrument_name} driver.
 
-Supports both real hardware (VISA) and simulation (simulate=True).
+Supports both real hardware (VISA) and mock mode (--mock-instruments).
 """
 
 from decimal import Decimal
@@ -888,9 +868,9 @@ class {class_name}(VisaInstrument):
         self,
         resource: str,
         simulate: bool = False,
-        sim_config: dict[str, Any] | None = None,
+        mock_config: dict[str, Any] | None = None,
     ):
-        super().__init__(resource=resource, simulate=simulate, sim_config=sim_config)
+        super().__init__(resource=resource, simulate=simulate, sim_config=mock_config)
 
     # Implement capability methods here
     # def measure_voltage(self) -> Decimal:

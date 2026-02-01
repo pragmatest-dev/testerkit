@@ -68,34 +68,31 @@ litmus(action="save", type="product", id="tps54302", content={
 **USE THIS EXACT FORMAT:**
 
 ```python
-litmus(action="save", type="station", id="sim_bench", content={
+litmus(action="save", type="station", id="test_bench", content={
     "station": {
-        "id": "sim_bench",
-        "name": "Simulated Test Bench"
+        "id": "test_bench",
+        "name": "Test Bench"
     },
     "instruments": {
         "psu": {
             "type": "psu",           # MUST be: psu, dmm, eload, or scope
-            "resource": "MOCK::PSU",
-            "simulate": True,
-            "sim_config": {
+            "resource": "TCPIP::192.168.1.100::INSTR",
+            "mock_config": {         # Values for --mock-instruments mode
                 "voltage": 12.0,
                 "current": 1.0
             }
         },
         "dmm": {
             "type": "dmm",
-            "resource": "MOCK::DMM",
-            "simulate": True,
-            "sim_config": {
+            "resource": "TCPIP::192.168.1.101::INSTR",
+            "mock_config": {
                 "voltage": 5.0
             }
         },
         "eload": {
             "type": "eload",
-            "resource": "MOCK::ELOAD",
-            "simulate": True,
-            "sim_config": {
+            "resource": "TCPIP::192.168.1.102::INSTR",
+            "mock_config": {
                 "current": 1.0
             }
         }
@@ -211,9 +208,9 @@ litmus_run(
 1. **STOP and ASK** before each step - never proceed without approval
 2. **Pass `project=`** to ALL calls after init
 3. **Station instrument types:** `psu`, `dmm`, `eload`, `scope` (exactly)
-4. **Station format:** `type` + `simulate: true` + `sim_config` (NOT `driver:`)
+4. **Station format:** `type` + `resource` + `mock_config` (NOT `driver:`)
 5. **Create BOTH test files:** `.py` AND `config.yaml`
-6. **`_mock` in config.yaml:** Values mocks return during simulation
+6. **`_mock` in config.yaml:** Per-test/per-vector mock values
 7. **Use Decimal for math:** Instruments return `Decimal`. Use `Decimal("1e6")` not `1e6`
 
 ---

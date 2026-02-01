@@ -37,6 +37,7 @@ instruments:
 | `type` | Yes | Instrument type (dmm, power_supply, etc.) |
 | `resource` | Yes | VISA address or connection string |
 | `mock_config` | No | Values for `--mock-instruments` mode |
+| `mock` | No | Always mock this instrument (even without `--mock-instruments`) |
 
 ## VISA Addresses
 

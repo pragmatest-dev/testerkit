@@ -117,6 +117,49 @@ This allows realistic tests where:
       -v
 ```
 
+## Per-Instrument Mock Control
+
+Mock individual instruments while using real hardware for others:
+
+```yaml
+# stations/mixed_bench.yaml
+station:
+  id: mixed_bench
+  name: "Mixed Mode Bench"
+
+instruments:
+  psu:
+    type: psu
+    resource: "GPIB0::5::INSTR"
+    # No mock flag - uses real hardware
+
+  dmm:
+    type: dmm
+    resource: "TCPIP::192.168.1.100::INSTR"
+    mock: true              # Always mock this instrument
+    mock_config:
+      voltage: 3.3
+
+  eload:
+    type: eload
+    resource: "TCPIP::192.168.1.101::INSTR"
+    # No mock flag - uses real hardware
+```
+
+Run without `--mock-instruments`:
+
+```bash
+pytest tests/ --station-config=stations/mixed_bench.yaml --dut-serial=SN001
+```
+
+- `psu` and `eload` connect to real hardware
+- `dmm` uses mock (returns 3.3V)
+
+This is useful when:
+- One instrument is unavailable or broken
+- Testing instrument-specific edge cases
+- Simulating hard-to-reproduce conditions
+
 ## Environment Variable
 
 Set `LITMUS_MOCK_INSTRUMENTS=1` to enable mock mode without the CLI flag:
