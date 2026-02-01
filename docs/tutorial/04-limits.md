@@ -117,7 +117,7 @@ During development, you may want to record values without failing:
 
 ```python
 @litmus_test(raise_on_fail=False)
-def test_characterize(vector, instruments):
+def test_characterize(context, instruments):
     # Measurements recorded but won't fail test
     return instruments["dmm"].measure_voltage()
 ```
@@ -275,7 +275,7 @@ test_output_voltage:
 from litmus.execution import litmus_test
 
 @litmus_test
-def test_output_voltage(vector, instruments):
+def test_output_voltage(context, instruments):
     """Verify output voltage is within spec."""
     return instruments["dmm"].measure_voltage()
 ```

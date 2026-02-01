@@ -47,7 +47,7 @@ When you run with `--station-config`, Litmus provides an `instruments` fixture:
 from litmus.execution import litmus_test
 
 @litmus_test
-def test_output_voltage(vector, instruments):
+def test_output_voltage(context, instruments):
     """Access instruments by name from station config."""
     psu = instruments["psu"]
     dmm = instruments["dmm"]
@@ -181,7 +181,7 @@ test_output_voltage:
 from litmus.execution import litmus_test
 
 @litmus_test
-def test_output_voltage(vector, instruments):
+def test_output_voltage(context, instruments):
     """Works with real hardware OR mock mode."""
     psu = instruments["psu"]
     dmm = instruments["dmm"]

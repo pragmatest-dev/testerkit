@@ -26,7 +26,7 @@ The `@litmus_test` decorator transforms a test function into a hardware test:
 from litmus.execution import litmus_test
 
 @litmus_test
-def test_voltage(vector, dmm):
+def test_voltage(context, dmm):
     """Measure and return voltage."""
     return dmm.measure_dc_voltage()
 ```
@@ -44,14 +44,14 @@ def test_voltage(vector, dmm):
 **Single measurement:**
 ```python
 @litmus_test
-def test_voltage(vector, dmm):
+def test_voltage(context, dmm):
     return dmm.measure_dc_voltage()  # Stored as "test_voltage"
 ```
 
 **Multiple measurements (dict):**
 ```python
 @litmus_test
-def test_power(vector, dmm):
+def test_power(context, dmm):
     return {
         "input_voltage": dmm.measure_dc_voltage(),
         "input_current": dmm.measure_dc_current(),
@@ -61,7 +61,7 @@ def test_power(vector, dmm):
 **Streaming measurements (yield):**
 ```python
 @litmus_test
-def test_stability(vector, dmm):
+def test_stability(context, dmm):
     for i in range(10):
         yield {"voltage": dmm.measure_dc_voltage()}
         time.sleep(1)
@@ -73,7 +73,7 @@ Every `@litmus_test` function receives a `vector` parameter containing the curre
 
 ```python
 @litmus_test
-def test_sweep(vector, psu, dmm):
+def test_sweep(context, psu, dmm):
     # Access vector parameters
     voltage = vector["voltage"]
     load = vector["load"]
@@ -139,7 +139,7 @@ test_stability:
     raise_on_fail=True,    # Raise exception if limit fails (default True)
     config_file="custom.yaml",  # Custom config file
 )
-def test_example(vector, dmm):
+def test_example(context, dmm):
     ...
 ```
 
@@ -149,7 +149,7 @@ When no limits are configured, measurements are recorded as PASS (characterizati
 
 ```python
 @litmus_test(raise_on_fail=False)
-def test_characterize(vector, dmm):
+def test_characterize(context, dmm):
     return dmm.measure_dc_voltage()  # Always passes, records value
 ```
 
@@ -279,12 +279,12 @@ def dmm(instruments):
     return instruments["dmm"]
 
 @litmus_test
-def test_input_voltage(vector, dmm):
+def test_input_voltage(context, dmm):
     """Verify input voltage."""
     return dmm.measure_voltage()
 
 @litmus_test
-def test_output_sweep(vector, dmm):
+def test_output_sweep(context, dmm):
     """Sweep load conditions."""
     # vector["load_percent"] contains current load value
     return dmm.measure_voltage()

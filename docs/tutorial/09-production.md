@@ -64,7 +64,7 @@ With a fixture config, you can access instruments via pin names:
 from litmus.execution import litmus_test
 
 @litmus_test
-def test_output_voltage(vector, pins):
+def test_output_voltage(context, pins):
     """Access instruments by DUT pin name."""
     pins["VIN"].set_voltage(5.0)
     pins["VIN"].enable_output()
@@ -238,14 +238,14 @@ test_output_voltage:
 from litmus.execution import litmus_test
 
 @litmus_test
-def test_input_voltage(vector, pins):
+def test_input_voltage(context, pins):
     """Verify input voltage."""
     pins["VIN"].set_voltage(5.0)
     pins["VIN"].enable_output()
     return pins["VIN"].measure_voltage()
 
 @litmus_test
-def test_output_voltage(vector, pins):
+def test_output_voltage(context, pins):
     """Verify output at various loads."""
     return pins["VOUT"].measure_voltage()
 ```

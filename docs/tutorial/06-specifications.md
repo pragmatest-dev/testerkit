@@ -265,7 +265,7 @@ test_output_voltage:
 from litmus.execution import litmus_test
 
 @litmus_test
-def test_output_voltage(vector, dmm):
+def test_output_voltage(context, dmm):
     """Verify output voltage meets guardbanded spec."""
     return dmm.measure_voltage()
 ```

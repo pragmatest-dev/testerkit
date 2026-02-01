@@ -56,7 +56,7 @@ The **same test code** works with real hardware or mocks.
 from litmus.execution import litmus_test
 
 @litmus_test
-def test_output_voltage(vector, instruments):
+def test_output_voltage(context, instruments):
     """Measure output voltage."""
     dmm = instruments["dmm"]
     psu = instruments["psu"]

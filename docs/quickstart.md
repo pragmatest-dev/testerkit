@@ -128,7 +128,7 @@ test_output_voltage:
 from litmus.execution import litmus_test
 
 @litmus_test
-def test_output_voltage(vector, psu, dmm):
+def test_output_voltage(context, psu, dmm):
     """Verify output voltage is within spec.
 
     The @litmus_test decorator:
@@ -138,8 +138,8 @@ def test_output_voltage(vector, psu, dmm):
     4. Checks against limits
     5. Records results to Parquet
     """
-    # Get conditions from vector (not hardcoded!)
-    vin = vector.get("vin", 5.0)
+    # Get conditions from context (not hardcoded!)
+    vin = context.get_in("vin", 5.0)
 
     # Set up stimulus
     psu.set_voltage(vin)
@@ -163,21 +163,21 @@ pytest tests/ --station-config=stations/my_station.yaml --dut-serial=SN001 -v
 
 Every Litmus test follows this pattern:
 
-1. **GET CONDITIONS** from vector (not hardcoded)
+1. **GET CONDITIONS** from context (not hardcoded)
 2. **SET UP** stimulus (PSU voltage, load current)
 3. **MEASURE** the result
 4. **RETURN** the value (framework checks limits from config.yaml)
 
 ```python
 @litmus_test
-def test_something(vector, psu, dmm):
-    vin = vector.get("vin", 5.0)  # GET from vector
-    psu.set_voltage(vin)          # SET UP
+def test_something(context, psu, dmm):
+    vin = context.get_in("vin", 5.0)  # GET from context
+    psu.set_voltage(vin)              # SET UP
     psu.enable_output()
-    return dmm.measure_dc_voltage()  # MEASURE and RETURN
+    return dmm.measure_dc_voltage()   # MEASURE and RETURN
 ```
 
-**No hardcoded values in code.** Conditions come from vectors, limits from config.yaml.
+**No hardcoded values in code.** Conditions come from context (populated by test vectors), limits from config.yaml.
 
 ## View Results
 
