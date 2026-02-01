@@ -2,6 +2,7 @@
 
 from nicegui import ui
 
+from litmus.ui.shared.components import setup_hash_sync_for_tabs
 from litmus.ui.shared.layout import create_layout
 from litmus.ui.shared.services import discover_products, save_product
 
@@ -70,6 +71,8 @@ def product_edit_page(product_id: str):
             pins_tab = ui.tab("Pins", icon="memory")
             chars_tab = ui.tab("Characteristics", icon="tune")
             reqs_tab = ui.tab("Requirements", icon="checklist")
+
+        setup_hash_sync_for_tabs(tabs, ["Info", "Pins", "Characteristics", "Requirements"])
 
         with ui.tab_panels(tabs, value=info_tab).classes("w-full"):
             with ui.tab_panel(info_tab):

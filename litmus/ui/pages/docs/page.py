@@ -62,6 +62,28 @@ def _create_docs_layout(section: str | None = None, page: str | None = None):
     from litmus.ui.shared.layout import create_sidebar
 
     ui.add_head_html('<link rel="stylesheet" href="/static/global.css">')
+    # Add Mermaid.js for diagram rendering
+    ui.add_head_html('''
+        <script type="module">
+            import mermaid from 'https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs';
+            mermaid.initialize({ startOnLoad: false, theme: 'neutral' });
+
+            // Render mermaid diagrams after page load
+            document.addEventListener('DOMContentLoaded', () => {
+                setTimeout(() => {
+                    // Find code blocks with language-mermaid class
+                    document.querySelectorAll('pre code.language-mermaid').forEach((block, index) => {
+                        const pre = block.parentElement;
+                        const container = document.createElement('div');
+                        container.className = 'mermaid';
+                        container.textContent = block.textContent;
+                        pre.replaceWith(container);
+                    });
+                    mermaid.run();
+                }, 100);
+            });
+        </script>
+    ''')
     ui.query("body").classes("bg-slate-50")
 
     create_sidebar()
@@ -135,7 +157,9 @@ def _render_doc_page_content(section: str, page: str):
         with ui.column().classes("docs-content p-6 max-w-4xl"):
             if md_path.exists():
                 content = md_path.read_text()
-                ui.markdown(content).classes("prose prose-slate max-w-none")
+                ui.markdown(content, extras=["fenced-code-blocks"]).classes(
+                    "prose prose-slate max-w-none"
+                )
 
                 # Next/prev navigation
                 section_dir = DOCS_DIR / section
@@ -176,7 +200,9 @@ def _render_section_index_content(section: str):
         index_path = section_dir / "index.md"
         if index_path.exists():
             content = index_path.read_text()
-            ui.markdown(content).classes("prose prose-slate max-w-none")
+            ui.markdown(content, extras=["fenced-code-blocks"]).classes(
+                "prose prose-slate max-w-none"
+            )
         else:
             # Generate a section listing
             with ui.row().classes("items-center gap-3 mb-6"):

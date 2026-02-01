@@ -2,6 +2,7 @@
 
 from nicegui import ui
 
+from litmus.ui.shared.components import setup_hash_sync_for_tabs
 from litmus.ui.shared.layout import create_layout
 from litmus.ui.shared.services import (
     discover_products,
@@ -81,6 +82,8 @@ def _render_fixture_detail(fixture_id: str, config: dict, products: dict):
         mappings_tab = ui.tab("Pin Mappings", icon="cable")
         stations_tab = ui.tab("Compatible Stations", icon="dns")
         diagram_tab = ui.tab("Diagram", icon="account_tree")
+
+    setup_hash_sync_for_tabs(tabs, ["Pin Mappings", "Compatible Stations", "Diagram"])
 
     with ui.tab_panels(tabs, value=mappings_tab).classes("w-full"):
         with ui.tab_panel(mappings_tab):
@@ -225,37 +228,63 @@ def _station_card(station: dict, required_instruments: list[str]):
 
 
 def _render_diagram_tab(fixture: dict, points: dict):
-    """Render a simple ASCII-style diagram of the fixture."""
-    with ui.card().classes("w-full bg-slate-50 p-4 font-mono text-sm"):
-        # Group points by instrument
-        by_instrument: dict[str, list] = {}
-        for name, data in points.items():
-            inst = data.get("instrument", "?")
-            if inst not in by_instrument:
-                by_instrument[inst] = []
-            by_instrument[inst].append((name, data))
+    """Render a Mermaid diagram of the fixture connections."""
+    # Group points by instrument
+    by_instrument: dict[str, list] = {}
+    for name, data in points.items():
+        inst = data.get("instrument", "unknown")
+        if inst not in by_instrument:
+            by_instrument[inst] = []
+        by_instrument[inst].append((name, data))
 
-        # Render diagram
-        product_family = fixture.get("product_family", "DUT")
-        ui.label("  ┌─────────────────┐          ┌─────────────────┐").classes(
-            "text-slate-600"
-        )
-        ui.label(f"  │  {product_family:^15} │          │   Instruments   │").classes(
-            "text-slate-600"
-        )
-        ui.label("  └─────────────────┘          └─────────────────┘").classes(
-            "text-slate-600"
-        )
+    product_family = fixture.get("product_family", "DUT")
 
-        for inst, inst_points in by_instrument.items():
-            ui.label("").classes("h-2")  # Spacer
-            for point_name, point_data in inst_points:
-                dut_pin = point_data.get("dut_pin", point_name)
-                channel = point_data.get("instrument_channel", "")
-                channel_str = f":{channel}" if channel else ""
-                ui.label(
-                    f"    {dut_pin:12} ──────────────────► {inst}{channel_str}"
-                ).classes("text-slate-700")
+    # Build Mermaid diagram
+    lines = [
+        "%%{init: {'flowchart': {'curve': 'stepBefore'}}}%%",
+        "flowchart LR",
+        f"    subgraph Product[{product_family}]",
+    ]
+
+    # Add DUT pins
+    pin_ids = []
+    for name, data in points.items():
+        dut_pin = data.get("dut_pin", name)
+        pin_id = f"pin_{name.replace('-', '_')}"
+        pin_ids.append((pin_id, name, data))
+        lines.append(f"        {pin_id}[{dut_pin}]")
+    lines.append("    end")
+
+    # Add fixture subgraph
+    lines.append("    subgraph Fixture")
+    fixture_ids = []
+    for pin_id, name, data in pin_ids:
+        fix_id = f"fix_{name.replace('-', '_')}"
+        inst = data.get("instrument", "?")
+        channel = data.get("instrument_channel", "")
+        channel_str = f".{channel}" if channel else ""
+        fixture_ids.append((fix_id, pin_id, inst))
+        lines.append(f"        {fix_id}[{name} → {inst}{channel_str}]")
+    lines.append("    end")
+
+    # Add instruments subgraph
+    instruments = sorted(by_instrument.keys())
+    lines.append("    subgraph Station[Instruments]")
+    for inst in instruments:
+        inst_id = f"inst_{inst.replace('-', '_')}"
+        lines.append(f"        {inst_id}[{inst}]")
+    lines.append("    end")
+
+    # Add connections
+    for fix_id, pin_id, inst in fixture_ids:
+        lines.append(f"    {pin_id} --- {fix_id}")
+        inst_id = f"inst_{inst.replace('-', '_')}"
+        lines.append(f"    {fix_id} --- {inst_id}")
+
+    mermaid_code = "\n".join(lines)
+
+    with ui.card().classes("w-full p-4"):
+        ui.mermaid(mermaid_code).classes("w-full")
 
 
 def _render_not_found():

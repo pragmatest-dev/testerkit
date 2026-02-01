@@ -3,6 +3,7 @@
 from nicegui import ui
 
 from litmus.data.backends.parquet import ParquetBackend
+from litmus.ui.shared.components import setup_hash_sync_for_tabs
 from litmus.ui.shared.layout import create_layout
 from litmus.ui.shared.services import (
     discover_sequences,
@@ -81,6 +82,8 @@ def _render_station_detail(station_id: str, config: dict):
         instruments_tab = ui.tab("Instruments", icon="cable")
         sequences_tab = ui.tab("Sequences", icon="list_alt")
         runs_tab = ui.tab("Recent Runs", icon="history")
+
+    setup_hash_sync_for_tabs(tabs, ["Instruments", "Sequences", "Recent Runs"])
 
     with ui.tab_panels(tabs, value=instruments_tab).classes("w-full"):
         with ui.tab_panel(instruments_tab):

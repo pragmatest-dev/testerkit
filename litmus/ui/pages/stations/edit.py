@@ -2,6 +2,7 @@
 
 from nicegui import ui
 
+from litmus.ui.shared.components import setup_hash_sync_for_tabs
 from litmus.ui.shared.layout import create_layout
 from litmus.ui.shared.services import (
     discover_instrument_types,
@@ -77,6 +78,8 @@ def station_edit_page(station_id: str):
         with ui.tabs().classes("w-full") as tabs:
             info_tab = ui.tab("Info", icon="info")
             instruments_tab = ui.tab("Instruments", icon="cable")
+
+        setup_hash_sync_for_tabs(tabs, ["Info", "Instruments"])
 
         with ui.tab_panels(tabs, value=info_tab).classes("w-full"):
             with ui.tab_panel(info_tab):

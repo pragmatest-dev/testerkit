@@ -2,6 +2,7 @@
 
 from nicegui import ui
 
+from litmus.ui.shared.components import setup_hash_sync_for_tabs
 from litmus.ui.shared.layout import create_layout
 from litmus.ui.shared.services import load_instrument_definition
 
@@ -65,6 +66,8 @@ def _render_instrument_detail(instrument_type: str, data: dict):
         caps_tab = ui.tab("Capabilities", icon="tune")
         scpi_tab = ui.tab("SCPI Commands", icon="terminal")
         sim_tab = ui.tab("Simulation", icon="sim_card")
+
+    setup_hash_sync_for_tabs(tabs, ["Capabilities", "SCPI Commands", "Simulation"])
 
     with ui.tab_panels(tabs, value=caps_tab).classes("w-full"):
         with ui.tab_panel(caps_tab):

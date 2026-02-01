@@ -2,6 +2,7 @@
 
 from nicegui import ui
 
+from litmus.ui.shared.components import setup_hash_sync_for_tabs
 from litmus.ui.shared.layout import create_layout
 from litmus.ui.shared.services import (
     discover_products,
@@ -102,6 +103,8 @@ def sequence_edit_page(sequence_id: str):
             info_tab = ui.tab("Info", icon="info")
             steps_tab = ui.tab("Steps", icon="format_list_numbered")
             dialogs_tab = ui.tab("Dialogs", icon="chat")
+
+        setup_hash_sync_for_tabs(tabs, ["Info", "Steps", "Dialogs"])
 
         with ui.tab_panels(tabs, value=info_tab).classes("w-full"):
             with ui.tab_panel(info_tab):

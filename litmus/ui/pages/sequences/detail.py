@@ -3,6 +3,7 @@
 from nicegui import ui
 
 from litmus.data.backends.parquet import ParquetBackend
+from litmus.ui.shared.components import setup_hash_sync_for_tabs
 from litmus.ui.shared.layout import create_layout
 from litmus.ui.shared.services import (
     get_compatible_stations_for_product,
@@ -95,6 +96,8 @@ def _render_sequence_detail(sequence_id: str, seq: dict):
         requirements_tab = ui.tab("Requirements", icon="rule")
         dialogs_tab = ui.tab("Dialogs", icon="chat")
         runs_tab = ui.tab("Recent Runs", icon="history")
+
+    setup_hash_sync_for_tabs(tabs, ["Steps", "Requirements", "Dialogs", "Recent Runs"])
 
     with ui.tab_panels(tabs, value=steps_tab).classes("w-full"):
         with ui.tab_panel(steps_tab):
