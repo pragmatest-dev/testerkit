@@ -100,7 +100,11 @@ def _init_project(
     create: bool = True,
     scaffold: bool = True,
 ) -> dict[str, Any]:
-    """Initialize or switch to a project directory."""
+    """Initialize or switch to a project directory.
+
+    Uses shared scaffolding from litmus.init for consistency with CLI.
+    """
+    from litmus.init import get_project_contents, init_project
 
     # If no path, report current status
     if path is None:
@@ -131,119 +135,17 @@ def _init_project(
     if not project_path.is_dir():
         return {"error": f"Path is not a directory: {path}"}
 
-    created_dirs = []
-    created_files = []
+    created_dirs: list[str] = []
+    created_files: list[str] = []
 
     if scaffold:
-        # Create directories
-        for subdir in ["products", "stations", "sequences", "fixtures", "instruments", "tests", "results"]:
-            dir_path = project_path / subdir
-            if not dir_path.exists():
-                dir_path.mkdir()
-                created_dirs.append(subdir)
-
-        # Create pyproject.toml
-        pyproject_path = project_path / "pyproject.toml"
-        if not pyproject_path.exists():
-            project_name = project_path.name.replace("-", "_").replace(" ", "_")
-            pyproject_content = f'''[project]
-name = "{project_name}"
-version = "0.1.0"
-requires-python = ">=3.11"
-dependencies = [
-    "litmus",  # Install from PyPI, or use: litmus @ git+https://github.com/your-org/litmus
-    "pytest>=8.0",
-]
-
-[tool.pytest.ini_options]
-testpaths = ["tests"]
-python_files = ["test_*.py"]
-python_functions = ["test_*"]
-'''
-            pyproject_path.write_text(pyproject_content)
-            created_files.append("pyproject.toml")
-
-        # Create conftest.py
-        conftest_path = project_path / "conftest.py"
-        if not conftest_path.exists():
-            conftest_content = '''"""Pytest configuration for Litmus tests.
-
-Instruments come from station config via the `instruments` fixture.
-Run with --mock-instruments for hardware-free testing.
-
-Example:
-    pytest tests/ --station=test_bench --mock-instruments --dut-serial=TEST001
-"""
-
-import pytest
-
-
-@pytest.fixture
-def dmm(instruments):
-    """DMM from station config."""
-    return instruments.get("dmm")
-
-
-@pytest.fixture
-def psu(instruments):
-    """PSU from station config."""
-    return instruments.get("psu")
-
-
-@pytest.fixture
-def eload(instruments):
-    """Electronic load from station config."""
-    return instruments.get("eload")
-'''
-            conftest_path.write_text(conftest_content)
-            created_files.append("conftest.py")
-
-        # Create litmus.yaml
-        litmus_yaml_path = project_path / "litmus.yaml"
-        if not litmus_yaml_path.exists():
-            litmus_yaml_content = '''# Litmus project configuration
-project:
-  name: "{project_name}"
-
-default_station: null
-
-results:
-  backend: parquet
-  path: results/
-'''
-            litmus_yaml_path.write_text(litmus_yaml_content.format(
-                project_name=project_path.name
-            ))
-            created_files.append("litmus.yaml")
-
-        # Create .gitignore
-        gitignore_path = project_path / ".gitignore"
-        if not gitignore_path.exists():
-            gitignore_content = '''# Python
-__pycache__/
-*.py[cod]
-*.egg-info/
-.venv/
-venv/
-
-# Litmus
-results/
-
-# IDE
-.idea/
-.vscode/
-'''
-            gitignore_path.write_text(gitignore_content)
-            created_files.append(".gitignore")
+        # Use shared scaffolding logic
+        result = init_project(project_path, git=True)
+        created_dirs = result["created_dirs"]
+        created_files = result["created_files"]
 
     # List contents
-    contents = []
-    for item in sorted(project_path.iterdir()):
-        if not item.name.startswith(".") or item.name == ".gitignore":
-            contents.append({
-                "name": item.name,
-                "type": "dir" if item.is_dir() else "file",
-            })
+    contents = get_project_contents(project_path)
 
     return {
         "success": True,

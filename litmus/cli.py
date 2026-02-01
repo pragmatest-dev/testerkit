@@ -10,6 +10,81 @@ def main():
     pass
 
 
+# -----------------------------------------------------------------------------
+# Project Initialization
+# -----------------------------------------------------------------------------
+
+
+@main.command()
+@click.argument("name", required=False)
+@click.option("--no-git", is_flag=True, help="Skip git initialization")
+def init(name: str | None, no_git: bool):
+    """Initialize a new Litmus project.
+
+    Creates a new project directory with scaffolding for hardware tests.
+
+    Example:
+
+        litmus init my_project
+
+        cd my_project
+
+        uv sync
+    """
+    from pathlib import Path
+
+    from litmus.init import check_command, init_project
+
+    # Prompt for name if not provided
+    if not name:
+        name = click.prompt("Project name")
+
+    project_path = Path.cwd() / name
+
+    # Check if directory already exists
+    if project_path.exists():
+        click.echo(f"Error: '{name}' already exists", err=True)
+        raise SystemExit(1)
+
+    # Check dependencies and warn if missing
+    if not check_command("git") and not no_git:
+        click.echo("Warning: git not found, skipping git init")
+        click.echo("  Install git: https://git-scm.com/downloads")
+        no_git = True
+
+    if not check_command("uv"):
+        click.echo("Warning: uv not found")
+        click.echo("  Install: curl -LsSf https://astral.sh/uv/install.sh | sh")
+
+    # Create and initialize project
+    project_path.mkdir()
+    result = init_project(project_path, git=not no_git)
+
+    # Print summary
+    click.echo(f"\nCreated {name}/")
+    for d in result["created_dirs"]:
+        click.echo(f"  {d}/")
+    for f in result["created_files"]:
+        click.echo(f"  {f}")
+
+    if result["git_initialized"]:
+        click.echo("  .git/")
+
+    for warning in result["warnings"]:
+        click.echo(f"Warning: {warning}")
+
+    click.echo("\nNext steps:")
+    click.echo(f"  cd {name}")
+    click.echo("  uv sync")
+    click.echo("  # Edit stations/, products/, tests/")
+    click.echo("  pytest tests/ --station=<station> --mock-instruments --dut-serial=TEST001")
+
+
+# -----------------------------------------------------------------------------
+# Server Commands
+# -----------------------------------------------------------------------------
+
+
 @main.command()
 @click.option("--host", default="127.0.0.1", help="Host to bind to")
 @click.option("--port", default=8000, help="Port to bind to")
