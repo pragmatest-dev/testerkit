@@ -62,16 +62,21 @@ with PSU("GPIB0::5::INSTR") as psu, DMM("TCPIP::192.168.1.100::INSTR") as dmm:
     psu.disable_output()
 ```
 
-### Simulation Flag
+### Mock Mode Flag
 
 ```python
 import os
-from litmus.instruments import DMM
+from litmus.instruments import DMM, Mock
 
-# Environment-based simulation
-simulate = os.environ.get("LITMUS_SIMULATE", "false").lower() == "true"
+# Environment-based mock mode
+mock_mode = os.environ.get("LITMUS_MOCK_INSTRUMENTS", "") == "1"
 
-with DMM("TCPIP::192.168.1.100::INSTR", simulate=simulate) as dmm:
+if mock_mode:
+    dmm = Mock(DMM, voltage=3.31)
+else:
+    dmm = DMM("TCPIP::192.168.1.100::INSTR")
+
+with dmm:
     voltage = dmm.measure_voltage()
 ```
 
@@ -80,10 +85,10 @@ with DMM("TCPIP::192.168.1.100::INSTR", simulate=simulate) as dmm:
 For unit tests and CI, use mock instruments (no I/O overhead):
 
 ```python
-from litmus.instruments import MockDMM, MockPSU, MockELoad
+from litmus.instruments import DMM, PSU, ELoad, Mock
 
 # Instant mock responses
-dmm = MockDMM(voltage=3.31, current=0.1)
+dmm = Mock(DMM, voltage=3.31, current=0.1)
 dmm.connect()
 
 v = dmm.measure_voltage()  # Returns Decimal("3.31")
@@ -95,7 +100,7 @@ v = dmm.measure_voltage()  # Returns Decimal("5.0")
 
 ### Mock vs simulate=True
 
-| Feature | MockDMM | DMM(simulate=True) |
+| Feature | Mock(DMM) | DMM(simulate=True) |
 |---------|---------|-------------------|
 | I/O overhead | None | pyvisa-sim |
 | Realistic timing | No | Yes |
@@ -114,7 +119,7 @@ from litmus.instruments import DMM
 @pytest.fixture
 def dmm(request):
     """DMM fixture with simulation option."""
-    simulate = request.config.getoption("--simulate", False)
+    simulate = request.config.getoption("--mock-instruments", False)
     with DMM(
         "TCPIP::192.168.1.100::INSTR",
         simulate=simulate,
@@ -165,11 +170,11 @@ Test Voltage
 
 ```python
 import unittest
-from litmus.instruments import MockDMM
+from litmus.instruments import DMM, Mock
 
 class TestVoltage(unittest.TestCase):
     def setUp(self):
-        self.dmm = MockDMM(voltage=3.31)
+        self.dmm = Mock(DMM, voltage=3.31)
         self.dmm.connect()
 
     def tearDown(self):
@@ -203,7 +208,7 @@ def run_test(serial: str, simulate: bool = False):
 
 if __name__ == "__main__":
     import sys
-    success = run_test(sys.argv[1], simulate="--simulate" in sys.argv)
+    success = run_test(sys.argv[1], simulate="--mock-instruments" in sys.argv)
     sys.exit(0 if success else 1)
 ```
 

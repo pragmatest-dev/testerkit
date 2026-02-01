@@ -14,7 +14,7 @@ Results are still saved to Parquet with full traceability.
 
 Run with:
     cd demo
-    pytest tests/test_pure_pytest.py --station=demo_station_001 --simulate -v
+    pytest tests/test_pure_pytest.py --station=demo_station_001 --mock-instruments -v
 """
 
 import pytest

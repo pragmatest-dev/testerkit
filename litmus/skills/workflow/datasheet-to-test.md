@@ -1,462 +1,256 @@
+---
+name: datasheet-to-test
+description: Create hardware tests from a product datasheet using Litmus MCP tools. Guides through spec extraction, station setup, and test generation.
+---
+
 # Datasheet to Test Workflow
 
 You are helping the user create hardware tests from a product datasheet using Litmus. This is a **collaborative** workflow where you propose and the user approves at each step.
 
-## Workflow Overview
+## CRITICAL: Stop and Ask at Every Step
 
-```
-Datasheet → Product Spec → Requirements → Station → Tests → Results
-   1           2              3            4         5        6
-```
-
-**Key principle:** Never proceed to the next step without user approval. At each step:
-1. Show what you found/created
-2. Ask if they want to approve, edit, or regenerate
+**Never proceed without user approval.** At each step:
+1. Show what you plan to do
+2. Ask for approval before executing
+3. Wait for response
 
 ## MCP Tools Available
 
-Use these Litmus MCP tools throughout the workflow:
+Litmus provides 5 tools:
 
-**Read/Context:**
-- `list_products` - List existing product specs
-- `get_product_spec` - Get a product spec by ID
-- `list_stations` - List available test stations
-- `get_station_config` - Get station details
-- `list_instrument_types` - List instrument library
-- `get_instrument_library` - Get instrument capabilities
+| Tool | Purpose |
+|------|---------|
+| `litmus(action="init", path="...")` | Initialize project, returns `project_root` |
+| `litmus(action="save", type="...", id="...", content={...}, project=...)` | Save product/station/test |
+| `litmus(action="read", path="...", project=...)` | Read files or templates |
+| `litmus_run(test="...", station="...", serial="...", project=...)` | Execute tests |
+| `litmus_open(type="...", id="...")` | Get browser URL |
 
-**Product Folders:**
-- `create_product_folder` - Create new product folder (Step 1)
-- `get_product_folder` - Get folder state and files
-- `list_product_folders` - List all products in workflow
-- `save_product_spec_to_folder` - Save spec to folder (Step 2)
-- `complete_workflow_step` - Mark step complete and advance
-
-**Matching (Deterministic):**
-- `derive_required_capabilities` - Get requirements from spec (Step 3)
-- `find_compatible_stations` - Find stations that can test product (Step 4)
-- `check_station_compatibility` - Detailed match for one station
-
-**Write:**
-- `save_test_file` - Save pytest test code (Step 5)
-
-**Execute:**
-- `run_sequence` - Run tests (Step 6)
-- `get_run_status` - Check results
-
-**UI:**
-- `get_editor_url` - Get URL for visual editing
+**IMPORTANT:** Pass `project=<project_root>` to ALL calls after init.
 
 ---
 
-## Step 1: Parse Datasheet
+## Workflow Steps
 
-**Goal:** Extract electrical characteristics, pins, and test conditions from the datasheet.
-
-**Your actions:**
-1. Read the datasheet file the user provides
-2. Extract key information:
-   - Product ID, name, description
-   - Pin definitions (name, type, net)
-   - Electrical characteristics (voltage, current, power, timing)
-   - Test conditions (temperature, load, input voltage)
-   - Performance specs with limits (nominal, min, max, tolerance)
-3. Create product folder with `create_product_folder`
-
-**Present to user:**
-```
-I've analyzed the datasheet and extracted:
-
-**Product:** TPS54302 - 3A Buck Converter
-
-**Pins (5):**
-| Name | Type   | Description |
-|------|--------|-------------|
-| VIN  | power  | Input voltage |
-| SW   | power  | Switch node |
-| VOUT | power  | Output voltage |
-| GND  | power  | Ground |
-| EN   | signal | Enable |
-
-**Characteristics (7):**
-| Name           | Direction | Value      | Conditions        |
-|----------------|-----------|------------|-------------------|
-| input_voltage  | INPUT     | 4.5-18V    | -                 |
-| output_voltage | OUTPUT    | 3.3V ±1%   | Vin=5V, Iout=1A   |
-| efficiency     | OUTPUT    | ≥90%       | Vin=5V, Iout=1A   |
-| ...            |           |            |                   |
-
-**Confidence:** 94% (some thermal specs unclear)
-
-Want me to:
-- [A]pprove and continue
-- [E]dit - I'll open the editor: {url}
-- [R]egenerate with different focus
-- [?] Ask me questions about specific values
-```
-
-**After approval:**
-```python
-complete_workflow_step(product_id, "parse_datasheet", agent="claude", confidence=0.94)
-```
-
----
-
-## Step 2: Review Product Spec
-
-**Goal:** Validate the extracted spec and let user refine it.
-
-**Your actions:**
-1. Show the draft spec structure
-2. Highlight any uncertainties or missing fields
-3. Suggest improvements based on common patterns
-4. Offer the UI editor for detailed changes
-
-**Present to user:**
-```
-Here's the draft product specification:
-
-**Validation Results:** ✓ Valid structure
-
-**Suggestions:**
-- Consider adding guardband to efficiency (currently at datasheet limit)
-- Missing: thermal shutdown temperature (common for power ICs)
-- Pin 'EN' could use threshold voltage spec
-
-**Spec Preview:**
-```yaml
-product:
-  id: tps54302
-  name: "TPS54302 3A Buck Converter"
-  pins:
-    - name: VIN
-      type: power
-      net: input_power
-  characteristics:
-    output_voltage:
-      direction: OUTPUT
-      domain: voltage
-      ...
-```
-
-Want me to:
-- [A]pprove as-is
-- [E]dit in UI: http://localhost:8000/products/tps54302
-- [S]uggest guardbands (I'll add 5-10% margins)
-- [?] Explain any characteristic
-```
-
-**After approval:**
-```python
-save_product_spec_to_folder(product_id, spec)
-complete_workflow_step(product_id, "review_spec", agent="claude")
-```
-
----
-
-## Step 3: Derive Requirements
-
-**Goal:** Determine what instrument capabilities are needed to test this product.
-
-**This step is deterministic** - no AI judgment needed, just run the tool.
-
-**Your actions:**
-1. Call `derive_required_capabilities(product_id)`
-2. Present the requirements clearly
-3. Explain the direction pairing logic
-
-**Present to user:**
-```
-Based on the product spec, here are the **instrument requirements**:
-
-**Direction Pairing Logic:**
-- DUT OUTPUT → Instrument must INPUT (measure what DUT provides)
-- DUT INPUT → Instrument must OUTPUT (source what DUT needs)
-
-**Required Capabilities:**
-
-| Capability        | Direction | Why                              |
-|-------------------|-----------|----------------------------------|
-| voltage_dc INPUT  | measure   | Measure output_voltage (3.3V)    |
-| voltage_dc OUTPUT | source    | Provide input_voltage (4.5-18V)  |
-| current_dc INPUT  | measure   | Measure output_current (0-3A)    |
-| current_dc OUTPUT | sink      | Load the output (electronic load)|
-| power OUTPUT      | source    | Power supply for VIN             |
-
-**Performance Requirements:**
-- Voltage measurement: ±0.01V accuracy (for 1% tolerance)
-- Current range: 0-3A minimum
-- Power supply: 18V, 1A minimum
-
-Ready to find compatible stations? [Y/n]
-```
-
-**After approval:**
-```python
-complete_workflow_step(product_id, "derive_requirements", agent="claude")
-```
-
----
-
-## Step 4: Select Station
-
-**Goal:** Find a test station that has all required capabilities.
-
-**Your actions:**
-1. Call `find_compatible_stations(product_id)`
-2. Rank stations by coverage and suitability
-3. Let user select or suggest creating a new station
-
-**Present to user:**
-```
-**Compatible Stations:**
-
-| Station      | Coverage | Missing        | Location    |
-|--------------|----------|----------------|-------------|
-| bench_001    | 100%     | -              | Lab A       |
-| bench_002    | 85%      | high current   | Lab B       |
-| production_1 | 100%     | -              | Factory     |
-
-**Recommended: bench_001**
-- Has DMM (voltage/current measurement)
-- Has PSU (18V, 3A capable)
-- Has E-Load (0-10A range)
-- Located in Lab A (same as you)
-
-**Detailed Capabilities:**
-```
-DMM: Keithley 34461A
-  - voltage_dc INPUT: ±0.0015% accuracy
-  - current_dc INPUT: 0-3A range
-
-PSU: Keysight E36312A
-  - voltage_dc OUTPUT: 0-25V
-  - current_dc OUTPUT: 0-3A
-
-E-Load: BK 8600
-  - current_dc OUTPUT (sink): 0-30A
-```
-
-Select station:
-- [1] bench_001 (recommended)
-- [2] bench_002
-- [C] Create new station
-- [?] Show more details
-```
-
-**After selection:**
-```python
-complete_workflow_step(product_id, "select_station", agent="claude",
-                       notes="Selected bench_001")
-```
-
----
-
-## Step 5: Generate Tests
-
-**Goal:** Create pytest test code that exercises all characteristics.
-
-**Your actions:**
-1. Generate test code based on spec and station
-2. Use the `SpecContext` pattern for limit derivation
-3. Include proper instrument setup and teardown
-4. Show the code for review
-
-**Present to user:**
-```
-I've generated test code for TPS54302:
-
-**Test Structure:**
-```
-tests/test_tps54302/
-  test_tps54302.py    # Main test file
-```
-
-**Tests Generated (6):**
-1. `test_output_voltage` - Measure VOUT at multiple loads
-2. `test_efficiency` - Calculate Pin/Pout at operating points
-3. `test_input_voltage_range` - Verify operation 4.5-18V
-4. `test_output_current_limit` - Check overcurrent protection
-5. `test_enable_threshold` - Measure EN pin thresholds
-6. `test_line_regulation` - VOUT stability vs VIN
-
-**Code Preview:**
-```python
-import pytest
-from litmus.products import SpecContext
-
-@pytest.fixture
-def spec_context(request):
-    return SpecContext.from_yaml("products/tps54302/spec.yaml")
-
-class TestTPS54302:
-    def test_output_voltage(self, psu, dmm, eload, spec_context):
-        """Verify output voltage at rated conditions."""
-        # Get limits from spec
-        limits = spec_context.get_limits(
-            "output_voltage",
-            temperature=25, load=1.0, vin=5.0
-        )
-
-        # Setup
-        psu.set_voltage(5.0)
-        psu.set_current_limit(1.0)
-        psu.output_on()
-        eload.set_current(1.0)
-
-        # Measure
-        vout = dmm.measure_voltage()
-
-        # Verify
-        assert limits.low <= vout <= limits.high, \
-            f"VOUT {vout}V outside {limits.low}-{limits.high}V"
-```
-
-Want me to:
-- [A]pprove and save
-- [E]dit - I'll show full code
-- [M]odify test coverage (add/remove tests)
-- [?] Explain any test
-```
-
-**After approval:**
-```python
-save_test_file("test_tps54302/test_tps54302.py", code)
-complete_workflow_step(product_id, "generate_tests", agent="claude")
-```
-
----
-
-## Step 6: Execute and Analyze
-
-**Goal:** Run the tests and help analyze results.
-
-**Your actions:**
-1. Confirm test execution with user
-2. Start test run with `run_sequence`
-3. Monitor progress with `get_run_status`
-4. Analyze results and suggest next steps
-
-**Present to user:**
-```
-Ready to execute tests on **bench_001** for **TPS54302**.
-
-**Pre-flight Checklist:**
-- [ ] DUT connected to fixture
-- [ ] Station instruments powered on
-- [ ] Safety interlocks verified
-
-**Test Sequence:** 6 tests, ~3 minutes estimated
-
-Start test run? [Y/n]
-```
-
-**During execution:**
-```
-**Test Progress:** ████████░░ 4/6
-
-| Test                  | Status  | Result    |
-|-----------------------|---------|-----------|
-| test_output_voltage   | ✓ PASS  | 3.301V    |
-| test_efficiency       | ✓ PASS  | 91.2%     |
-| test_input_voltage    | ✓ PASS  | 4.5-18V   |
-| test_output_current   | ✗ FAIL  | 2.8A      |
-| test_enable_threshold | Running | -         |
-| test_line_regulation  | Pending | -         |
-```
-
-**After completion:**
-```
-**Test Results Summary:**
-
-| Metric        | Value |
-|---------------|-------|
-| Total         | 6     |
-| Passed        | 5     |
-| Failed        | 1     |
-| Pass Rate     | 83%   |
-
-**Failed Test Analysis:**
-`test_output_current_limit` - Expected ≥3A, measured 2.8A
-
-**Possible Causes:**
-1. Current limit set too low in DUT firmware
-2. Thermal throttling (check DUT temperature)
-3. Test setup issue (check load connection)
-
-**Recommendations:**
-- Re-run with thermal monitoring
-- Check DUT against datasheet derating curves
-- Verify e-load calibration
-
-Want me to:
-- [R]e-run failed tests
-- [D]rill into specific result
-- [E]xport results to report
-- [?] Investigate failure further
-```
-
-**After completion:**
-```python
-complete_workflow_step(product_id, "execute_analyze", agent="claude",
-                       notes="5/6 passed, investigating current limit")
-```
-
----
-
-## Resuming a Workflow
-
-If the user wants to continue a previous workflow:
+### Step 1: Initialize Project
 
 ```python
-# Check existing products
-list_product_folders()
-
-# Get specific product state
-folder = get_product_folder("tps54302")
-# Returns: current_step, completed_steps, files, history
+result = litmus(action="init", path="~/my-project")
+project_root = result["project_root"]  # USE THIS IN ALL SUBSEQUENT CALLS
 ```
 
-**Present to user:**
+### Step 2: Extract and Save Product Spec
+
+1. Read the datasheet
+2. Extract specs (voltage, current, limits, etc.)
+3. **Show extracted specs to user and ask approval**
+4. Save:
+
+```python
+litmus(action="save", type="product", id="tps54302", content={
+    "product": {
+        "id": "tps54302",
+        "name": "TPS54302 DC-DC Converter",
+        "manufacturer": "Texas Instruments"
+    },
+    "specs": {
+        "input_voltage": {"min": 4.5, "max": 28, "unit": "V"},
+        "output_current": {"max": 3, "unit": "A"},
+        "feedback_voltage": {"min": 0.581, "typ": 0.596, "max": 0.611, "unit": "V"}
+    }
+}, project=project_root)
 ```
-**Product:** TPS54302 - 3A Buck Converter
-**Progress:** ████░░░░░░ 40%
 
-| Step               | Status    | Agent  | Notes          |
-|--------------------|-----------|--------|----------------|
-| Parse Datasheet    | ✓ Done    | claude | 94% confidence |
-| Review Spec        | ✓ Done    | human  | Added thermal  |
-| Derive Requirements| → Current | -      | -              |
-| Select Station     | ○ Pending | -      | -              |
-| Generate Tests     | ○ Pending | -      | -              |
-| Execute & Analyze  | ○ Pending | -      | -              |
+### Step 3: Create Station Config
 
-Continue from **Derive Requirements**? [Y/n]
+**Show config to user and ask approval before saving.**
+
+**USE THIS EXACT FORMAT:**
+
+```python
+litmus(action="save", type="station", id="sim_bench", content={
+    "station": {
+        "id": "sim_bench",
+        "name": "Simulated Test Bench"
+    },
+    "instruments": {
+        "psu": {
+            "type": "psu",           # MUST be: psu, dmm, eload, or scope
+            "resource": "MOCK::PSU",
+            "simulate": True,
+            "sim_config": {
+                "voltage": 12.0,
+                "current": 1.0
+            }
+        },
+        "dmm": {
+            "type": "dmm",
+            "resource": "MOCK::DMM",
+            "simulate": True,
+            "sim_config": {
+                "voltage": 5.0
+            }
+        },
+        "eload": {
+            "type": "eload",
+            "resource": "MOCK::ELOAD",
+            "simulate": True,
+            "sim_config": {
+                "current": 1.0
+            }
+        }
+    }
+}, project=project_root)
+```
+
+**Valid instrument types:** `psu`, `dmm`, `eload`, `scope` (use exactly these)
+
+### Step 4: Create Test Files
+
+**MUST create BOTH files. Show to user and ask approval.**
+
+**File 1: Test Code (tests/test_tps54302.py)**
+
+**IMPORTANT:** Instruments return `Decimal`, not `float`. For unit conversions, use `Decimal("1e6")` not `1e6`.
+
+```python
+litmus(action="save", type="test", id="tests/test_tps54302.py", content={
+    "code": '''from decimal import Decimal
+from litmus.execution import litmus_test
+
+
+@litmus_test
+def test_output_voltage(vector, psu, dmm):
+    """Measure output voltage at specified input."""
+    psu.set_voltage(vector.get("vin", 12.0))
+    psu.enable_output()
+    return dmm.measure_dc_voltage()
+
+
+@litmus_test
+def test_quiescent_current(vector, psu):
+    """Measure quiescent current in uA."""
+    psu.set_voltage(vector.get("vin", 12.0))
+    psu.enable_output()
+    current_a = psu.measure_current()  # Returns Decimal
+    return current_a * Decimal("1e6")  # Convert to uA
+
+
+@litmus_test
+def test_load_regulation(vector, psu, dmm, eload):
+    """Output voltage under load."""
+    psu.set_voltage(vector.get("vin", 12.0))
+    psu.enable_output()
+    eload.set_current(vector["load"])
+    eload.enable()
+    vout = dmm.measure_dc_voltage()
+    eload.disable()
+    return vout
+'''
+}, project=project_root)
+```
+
+**File 2: Config with Limits and Mocks (tests/config.yaml)**
+
+```python
+litmus(action="save", type="test", id="tests/config.yaml", content={
+    "code": '''test_output_voltage:
+  vectors:
+    - vin: 12.0
+  _mock:
+    dmm.measure_voltage: 5.0
+    psu.measure_current: 0.1
+  limits:
+    test_output_voltage:
+      low: 4.75
+      high: 5.25
+      nominal: 5.0
+      units: V
+
+test_load_regulation:
+  vectors:
+    - vin: 12.0
+      load: 0.5
+      _mock:
+        dmm.measure_voltage: 5.02
+    - vin: 12.0
+      load: 1.0
+      _mock:
+        dmm.measure_voltage: 5.00
+    - vin: 12.0
+      load: 2.0
+      _mock:
+        dmm.measure_voltage: 4.95
+  limits:
+    test_load_regulation:
+      low: 4.7
+      high: 5.3
+      nominal: 5.0
+      units: V
+'''
+}, project=project_root)
+```
+
+### Step 5: Run Tests
+
+**Confirm with user before running.**
+
+```python
+litmus_run(
+    test="tests/test_tps54302.py",
+    station="sim_bench",
+    serial="TEST001",
+    project=project_root
+)
 ```
 
 ---
 
-## Tips for Good Results
+## Key Rules
 
-1. **Be specific about datasheets** - Tell me the file path or paste the content
-2. **Review each step** - Don't rush; catch issues early
-3. **Use the UI for complex edits** - I can give you the editor URL
-4. **Ask questions** - I can explain any characteristic or test
-5. **Save progress** - Workflow state persists in the product folder
+1. **STOP and ASK** before each step - never proceed without approval
+2. **Pass `project=`** to ALL calls after init
+3. **Station instrument types:** `psu`, `dmm`, `eload`, `scope` (exactly)
+4. **Station format:** `type` + `simulate: true` + `sim_config` (NOT `driver:`)
+5. **Create BOTH test files:** `.py` AND `config.yaml`
+6. **`_mock` in config.yaml:** Values mocks return during simulation
+7. **Use Decimal for math:** Instruments return `Decimal`. Use `Decimal("1e6")` not `1e6`
 
 ---
 
-## Example Session
+## Example Interaction
 
-**User:** Help me create tests for the TPS54302 buck converter. The datasheet is in demo/products/tps54302/datasheet.md
+**User:** Create tests for the TPS54302 from the datasheet at ~/datasheets/tps54302.pdf
 
-**Claude:** I'll help you through the workflow. Let me start by reading that datasheet...
+**Assistant:** I'll help you create tests for the TPS54302. Let me start by initializing a project.
 
-*[Reads file, extracts characteristics]*
+**Step 1: Initialize Project**
 
-I've analyzed the datasheet and found 7 electrical characteristics. Here's what I extracted:
+I'll create a project at `~/litmus-tps54302`:
 
-**Product:** TPS54302 - 3A Synchronous Step-Down Converter
-...
+```
+litmus(action="init", path="~/litmus-tps54302")
+```
 
-Would you like me to create a product folder with this spec, or should we review/modify anything first?
+Should I proceed? [Y/n]
+
+**User:** Y
+
+**Assistant:** *[Executes init, gets project_root]*
+
+Project initialized at `/home/user/litmus-tps54302`.
+
+**Step 2: Extract Product Spec**
+
+I've read the datasheet and extracted these specifications:
+
+| Spec | Min | Typ | Max | Unit |
+|------|-----|-----|-----|------|
+| Input Voltage | 4.5 | - | 28 | V |
+| Output Current | - | - | 3 | A |
+| Feedback Voltage | 0.581 | 0.596 | 0.611 | V |
+| Switching Freq | 290 | 400 | 510 | kHz |
+
+Should I save this product spec? [Y/n]
+
+*[Continues step by step, always asking before each action...]*

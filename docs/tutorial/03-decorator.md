@@ -11,11 +11,11 @@ A test that automatically logs measurements to Litmus results storage.
 ```python
 # tests/test_voltage.py
 from litmus.execution import litmus_test
-from litmus.instruments import MockDMM
 
 @litmus_test
-def test_output_voltage(vector, dmm):
+def test_output_voltage(vector, instruments):
     """Measure and return voltage - automatically logged."""
+    dmm = instruments["dmm"]
     return dmm.measure_voltage()
 ```
 
@@ -31,41 +31,26 @@ Every `@litmus_test` function receives a `vector` parameter as its first argumen
 
 ```python
 @litmus_test
-def test_output_voltage(vector, dmm):
+def test_output_voltage(vector, instruments):
     # vector contains test parameters (we'll use it later)
     print(f"Running with: {vector.params()}")
-    return dmm.measure_voltage()
+    return instruments["dmm"].measure_voltage()
 ```
 
 For now, `vector` is empty. In Step 5, we'll configure it with test conditions.
 
-## Setting Up Fixtures
+## The instruments Fixture
 
-You need pytest fixtures for your instruments. Create a `conftest.py`:
-
-```python
-# tests/conftest.py
-import pytest
-from litmus.instruments import MockDMM, MockPSU
-
-@pytest.fixture
-def dmm():
-    """Simulated DMM for testing."""
-    with MockDMM(voltage=3.31) as d:
-        yield d
-
-@pytest.fixture
-def psu():
-    """Simulated PSU for testing."""
-    with MockPSU() as p:
-        yield p
-```
-
-Now your test can request `dmm` as a parameter:
+When you run with `--station-config`, Litmus provides an `instruments` fixture:
 
 ```python
 @litmus_test
-def test_output_voltage(vector, dmm):
+def test_output_voltage(vector, instruments):
+    dmm = instruments["dmm"]   # From station config
+    psu = instruments["psu"]
+
+    psu.set_voltage(5.0)
+    psu.enable_output()
     return dmm.measure_voltage()
 ```
 
@@ -77,8 +62,8 @@ Return a single measurement:
 
 ```python
 @litmus_test
-def test_voltage(vector, dmm):
-    return dmm.measure_voltage()  # Logged as "test_voltage"
+def test_voltage(vector, instruments):
+    return instruments["dmm"].measure_voltage()  # Logged as "test_voltage"
 ```
 
 The measurement name defaults to the function name.
@@ -89,7 +74,9 @@ Return a dict for multiple measurements:
 
 ```python
 @litmus_test
-def test_power_analysis(vector, psu, dmm):
+def test_power_analysis(vector, instruments):
+    psu = instruments["psu"]
+    dmm = instruments["dmm"]
     return {
         "input_voltage": psu.measure_voltage(),
         "input_current": psu.measure_current(),
@@ -105,8 +92,9 @@ Yield measurements over time:
 
 ```python
 @litmus_test
-def test_stability(vector, dmm):
+def test_stability(vector, instruments):
     import time
+    dmm = instruments["dmm"]
     for i in range(10):
         yield {"voltage": dmm.measure_voltage()}
         time.sleep(1)
@@ -117,10 +105,12 @@ Each yield adds a measurement. Useful for time-series data.
 ## Running the Test
 
 ```bash
-pytest tests/test_voltage.py -v --dut-serial=TEST001
-```
+# With mock instruments (no hardware)
+pytest tests/test_voltage.py --station-config=stations/my_station.yaml --mock-instruments -v
 
-The `--dut-serial` flag identifies the device under test.
+# With real hardware
+pytest tests/test_voltage.py --station-config=stations/my_station.yaml --dut-serial=SN001 -v
+```
 
 ## What Gets Stored
 
@@ -142,33 +132,36 @@ Both forms work:
 ```python
 # Without parentheses - uses all defaults
 @litmus_test
-def test_voltage(vector, dmm):
-    return dmm.measure_voltage()
+def test_voltage(vector, instruments):
+    return instruments["dmm"].measure_voltage()
 
 # With parentheses - can customize behavior
 @litmus_test()
-def test_voltage(vector, dmm):
-    return dmm.measure_voltage()
+def test_voltage(vector, instruments):
+    return instruments["dmm"].measure_voltage()
 ```
 
 We'll use the parentheses form in later steps when we add configuration.
 
 ## Complete Example
 
-**tests/conftest.py:**
-```python
-import pytest
-from litmus.instruments import MockDMM, MockPSU
+**stations/my_station.yaml:**
+```yaml
+station:
+  id: my_station
+  name: "My Test Bench"
 
-@pytest.fixture
-def dmm():
-    with MockDMM(voltage=3.31) as d:
-        yield d
-
-@pytest.fixture
-def psu():
-    with MockPSU() as p:
-        yield p
+instruments:
+  dmm:
+    type: dmm
+    resource: "TCPIP::192.168.1.100::INSTR"
+    mock_config:
+      voltage: 3.31
+  psu:
+    type: psu
+    resource: "GPIB0::5::INSTR"
+    mock_config:
+      voltage: 5.0
 ```
 
 **tests/test_power.py:**
@@ -176,29 +169,30 @@ def psu():
 from litmus.execution import litmus_test
 
 @litmus_test
-def test_input_voltage(vector, psu):
+def test_input_voltage(vector, instruments):
     """Measure input voltage."""
+    psu = instruments["psu"]
     psu.set_voltage(5.0)
     psu.enable_output()
     return psu.measure_voltage()
 
 @litmus_test
-def test_output_voltage(vector, dmm):
+def test_output_voltage(vector, instruments):
     """Measure output voltage."""
-    return dmm.measure_voltage()
+    return instruments["dmm"].measure_voltage()
 ```
 
 **Run:**
 ```bash
-pytest tests/test_power.py -v --dut-serial=TEST001
+pytest tests/test_power.py --station-config=stations/my_station.yaml --mock-instruments -v
 ```
 
 ## What You Learned
 
 - The @litmus_test decorator for automatic measurement logging
 - The `vector` parameter (used for conditions in later steps)
+- The `instruments` fixture from station config
 - Return value patterns: single, dict, yield
-- Setting up instrument fixtures in conftest.py
 
 ## Next Step
 

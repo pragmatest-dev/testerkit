@@ -161,9 +161,14 @@ class VisaInstrument(Instrument):
     def _generate_sim_config(self) -> Path:
         """Generate pyvisa-sim YAML configuration.
 
-        Creates a temporary YAML file with simulation dialogues based on:
-        1. Class-level _sim_responses
-        2. Instance sim_config overrides
+        Creates a temporary YAML file with simulation configuration using
+        pyvisa-sim's stateful properties system. This allows:
+        - Commands like "VOLT 5.0" to set state
+        - Queries like "VOLT?" or "MEAS:VOLT?" to read that state
+
+        Configuration sources (in order of precedence):
+        1. Instance sim_config overrides
+        2. Class-level _sim_responses (for backwards compatibility)
 
         Returns:
             Path to generated YAML file
@@ -172,7 +177,18 @@ class VisaInstrument(Instrument):
         idn = self.sim_config.get("idn", self._default_idn)
         responses = {**self._sim_responses, **self.sim_config.get("responses", {})}
 
-        # Build pyvisa-sim YAML content
+        # Get default values from sim_config
+        default_voltage = self.sim_config.get("voltage", 0.0)
+        default_current = self.sim_config.get("current", 0.0)
+
+        # Build pyvisa-sim YAML content with stateful properties
+        #
+        # specs.type must be 'float' so values are stored as float (not string),
+        # otherwise "{:f}".format() fails with "Unknown format code 'f' for str"
+        #
+        # Getter/setter must match actual SCPI queries used by the driver:
+        # - PSU.measure_output_voltage() queries "MEAS:VOLT?"
+        # - PSU.set_voltage() writes "VOLT {value}"
         yaml_lines = [
             "spec: '1.0'",
             "devices:",
@@ -187,19 +203,41 @@ class VisaInstrument(Instrument):
             "      USB INSTR:",
             '        q: "\\n"',
             '        r: "\\n"',
+            "",
+            "    properties:",
+            "      voltage:",
+            f"        default: {default_voltage}",
+            "        specs:",
+            "          type: float",
+            "        getter:",
+            '          q: "MEAS:VOLT?"',
+            '          r: "{:f}"',
+            "        setter:",
+            '          q: "VOLT {:f}"',
+            "      current:",
+            f"        default: {default_current}",
+            "        specs:",
+            "          type: float",
+            "        getter:",
+            '          q: "MEAS:CURR?"',
+            '          r: "{:f}"',
+            "        setter:",
+            '          q: "CURR {:f}"',
+            "",
             "    dialogues:",
             '      - q: "*IDN?"',
             f'        r: "{idn}"',
+            '      - q: "OUTP ON"',
+            '      - q: "OUTP OFF"',
+            '      - q: "OUTP:PROT:CLE"',
         ]
 
-        # Add response dialogues
+        # Add any additional static response dialogues
         for cmd, response in responses.items():
+            # Skip voltage/current - handled by properties above
+            if cmd in ("VOLT?", "CURR?", "MEAS:VOLT?", "MEAS:CURR?"):
+                continue
             if isinstance(response, (int, float)):
-                # Add noise if configured
-                noise_pct = self.sim_config.get("noise", {}).get(cmd, 0)
-                if noise_pct > 0:
-                    noise = response * noise_pct / 100
-                    response = response + random.uniform(-noise, noise)
                 response = str(response)
             yaml_lines.append(f'      - q: "{cmd}"')
             yaml_lines.append(f'        r: "{response}"')

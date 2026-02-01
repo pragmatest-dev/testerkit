@@ -1,259 +1,257 @@
-"""Mock instrument implementations for fast unit testing.
+"""Generic mock factory for instrument drivers.
 
-These mocks implement capability interfaces directly without any
-pyvisa-sim overhead. Use for fast unit tests of test logic.
-
-For integration tests that validate SCPI commands, use the real
-drivers with simulate=True instead.
+Mock instruments inherit from real drivers, ensuring interface consistency.
+All measurement methods work automatically because they call query(), which
+is overridden to return configured values.
 
 Example usage:
-    from litmus.instruments.mocks import MockDMM, MockPSU
+    from litmus.instruments import DMM, PSU, ELoad
+    from litmus.instruments.mocks import Mock
 
-    def test_voltage_check():
-        dmm = MockDMM(voltage=3.3)
-        assert dmm.measure_voltage() == Decimal("3.3")
+    # Create mocks with friendly parameter names
+    dmm = Mock(DMM, measure_voltage=3.3, measure_current=0.1)
+    psu = Mock(PSU, measure_voltage=5.0, measure_current=0.5)
+    eload = Mock(ELoad, measure_voltage=12.0, measure_power=6.0)
 
-    def test_power_sequence():
-        psu = MockPSU()
-        psu.set_voltage(5.0)
-        psu.enable_output()
-        assert psu.output_enabled
-        assert psu.voltage_setpoint == Decimal("5.0")
+    # Use exactly like real instruments
+    with dmm:
+        v = dmm.measure_voltage()  # Returns Decimal("3.3")
+
+    # Update mock values dynamically
+    dmm.set_mock_value("measure_voltage", 5.0)
+
+    # Or provide raw SCPI responses for custom commands
+    dmm = Mock(DMM, responses={"MEAS:VOLT:DC?": "3.3"})
 """
 
-from decimal import Decimal
-from typing import Any
+from typing import Any, ClassVar, TypeVar
 
-from litmus.capabilities.interfaces import (
-    ConstantCurrentLoad,
-    ConstantPowerLoad,
-    ConstantResistanceLoad,
-    CurrentInput,
-    CurrentOutput,
-    FrequencyInput,
-    ResistanceInput,
-    VoltageInput,
-    VoltageOutput,
-)
-from litmus.capabilities.models import SignalType
 from litmus.instruments.base import Instrument
 
+T = TypeVar("T", bound=Instrument)
 
-class MockDMM(Instrument, VoltageInput, CurrentInput, ResistanceInput, FrequencyInput):
-    """Mock DMM for fast unit tests.
+# SCPI command mappings for friendly parameter names
+# Maps method name -> list of SCPI commands that should return that value
+_SCPI_MAPPINGS: dict[type, dict[str, list[str]]] = {}
 
-    All values are configurable and returned immediately without I/O.
 
-    Args:
-        voltage: Voltage reading to return
-        current: Current reading to return
-        resistance: Resistance reading to return
-        frequency: Frequency reading to return
-        **kwargs: Additional values accessible via get_value()
+def _register_scpi_mapping(cls: type, mapping: dict[str, list[str]]) -> None:
+    """Register SCPI mapping for an instrument class."""
+    _SCPI_MAPPINGS[cls] = mapping
+
+
+def _get_scpi_mapping(cls: type) -> dict[str, list[str]]:
+    """Get SCPI mapping for an instrument class, checking parent classes."""
+    for klass in cls.__mro__:
+        if klass in _SCPI_MAPPINGS:
+            return _SCPI_MAPPINGS[klass]
+    return {}
+
+
+# Register mappings for standard instruments
+# Import here to avoid circular imports at module level
+def _register_standard_mappings() -> None:
+    """Register SCPI mappings for standard instrument types."""
+    # Lazy import to avoid circular dependency
+    from litmus.instruments.dmm import DMM
+    from litmus.instruments.eload import ELoad
+    from litmus.instruments.psu import PSU
+
+    _register_scpi_mapping(
+        DMM,
+        {
+            # Method names
+            "measure_voltage": ["MEAS:VOLT:DC?", "MEAS:VOLT:AC?"],
+            "measure_current": ["MEAS:CURR:DC?", "MEAS:CURR:AC?"],
+            "measure_resistance": ["MEAS:RES?", "MEAS:FRES?"],
+            "measure_frequency": ["MEAS:FREQ?"],
+            "measure_period": ["MEAS:PER?"],
+            # Aliases (for station config compatibility)
+            "voltage": ["MEAS:VOLT:DC?", "MEAS:VOLT:AC?"],
+            "current": ["MEAS:CURR:DC?", "MEAS:CURR:AC?"],
+            "resistance": ["MEAS:RES?", "MEAS:FRES?"],
+            "frequency": ["MEAS:FREQ?"],
+        },
+    )
+
+    _register_scpi_mapping(
+        PSU,
+        {
+            # Method names
+            "measure_voltage": ["MEAS:VOLT?", "VOLT?"],
+            "measure_current": ["MEAS:CURR?", "CURR?"],
+            "measure_output_voltage": ["MEAS:VOLT?", "VOLT?"],
+            "measure_output_current": ["MEAS:CURR?", "CURR?"],
+            # Aliases (for station config compatibility)
+            "voltage": ["MEAS:VOLT?", "VOLT?"],
+            "current": ["MEAS:CURR?", "CURR?"],
+        },
+    )
+
+    _register_scpi_mapping(
+        ELoad,
+        {
+            # Method names
+            "measure_voltage": ["MEAS:VOLT?"],
+            "measure_current": ["MEAS:CURR?"],
+            "measure_power": ["MEAS:POW?"],
+            # Aliases (for station config compatibility)
+            "voltage": ["MEAS:VOLT?"],
+            "current": ["MEAS:CURR?"],
+            "power": ["MEAS:POW?"],
+        },
+    )
+
+
+class MockMixin:
+    """Mixin that provides mock behavior for any VisaInstrument subclass.
+
+    Overrides connect/disconnect to be no-ops and query/write to use mock data.
     """
 
-    def __init__(
-        self,
-        voltage: float = 0.0,
-        current: float = 0.0,
-        resistance: float = 1000.0,
-        frequency: float = 1000.0,
-        **kwargs: Any,
-    ):
-        super().__init__(resource="MOCK::DMM", simulate=True)
-        self._values = {
-            "voltage": Decimal(str(voltage)),
-            "current": Decimal(str(current)),
-            "resistance": Decimal(str(resistance)),
-            "frequency": Decimal(str(frequency)),
-            **{k: Decimal(str(v)) if isinstance(v, (int, float)) else v for k, v in kwargs.items()},
-        }
+    _mock_responses: dict[str, str]
+    _mock_write_log: list[str]
+    _mock_state: dict[str, Any]
+    _scpi_mapping: ClassVar[dict[str, list[str]]]
+
+    def _init_mock_state(self, **kwargs: Any) -> None:
+        """Initialize mock state from keyword arguments."""
+        self._mock_responses = {}
+        self._mock_write_log = []
+        self._mock_state = {}
         self._connected = False
 
+        # Get SCPI mapping for this class
+        scpi_map = _get_scpi_mapping(type(self))
+
+        # Handle raw SCPI responses
+        if "responses" in kwargs:
+            for cmd, value in kwargs.pop("responses").items():
+                self._mock_responses[cmd] = str(value)
+
+        # Map friendly names to SCPI commands
+        for name, value in kwargs.items():
+            self.set_mock_value(name, value)
+
+        # Store initial responses for reset
+        self._initial_mock_responses = dict(self._mock_responses)
+
     def connect(self) -> None:
+        """No-op connect for mock."""
         self._connected = True
 
     def disconnect(self) -> None:
+        """No-op disconnect for mock."""
         self._connected = False
 
-    def set_value(self, name: str, value: float | Decimal) -> None:
-        """Update a simulated value dynamically."""
-        self._values[name] = Decimal(str(value))
+    def query(self, command: str) -> str:
+        """Return mock response for SCPI query."""
+        return self._mock_responses.get(command, "0.0")
 
-    def get_value(self, name: str) -> Decimal:
-        """Get a configured value."""
-        return self._values.get(name, Decimal("0"))
+    def write(self, command: str) -> None:
+        """Track SCPI write commands and update state."""
+        self._mock_write_log.append(command)
 
-    # VoltageInput
-    def measure_voltage(self, signal_type: SignalType = SignalType.DC) -> Decimal:
-        return self._values["voltage"]
+        # Parse common state-changing commands
+        if command.startswith("VOLT "):
+            self._mock_state["voltage_setpoint"] = command.split()[1]
+        elif command.startswith("CURR "):
+            self._mock_state["current_setpoint"] = command.split()[1]
+        elif command == "OUTP ON":
+            self._mock_state["output_enabled"] = True
+        elif command == "OUTP OFF":
+            self._mock_state["output_enabled"] = False
+        elif command == "INP ON":
+            self._mock_state["load_enabled"] = True
+        elif command == "INP OFF":
+            self._mock_state["load_enabled"] = False
+        elif command.startswith("MODE "):
+            self._mock_state["mode"] = command.split()[1]
 
-    def configure_voltage_range(self, range_val: Decimal | str) -> None:
-        pass  # No-op for mock
+    def set_mock_value(self, name: str, value: Any) -> None:
+        """Set mock return value for a method or SCPI command.
 
-    # CurrentInput
-    def measure_current(self, signal_type: SignalType = SignalType.DC) -> Decimal:
-        return self._values["current"]
+        Args:
+            name: Method name (e.g., "measure_voltage") or SCPI command
+            value: Value to return (will be converted to string for SCPI)
+        """
+        scpi_map = _get_scpi_mapping(type(self))
 
-    def configure_current_range(self, range_val: Decimal | str) -> None:
-        pass
+        if name in scpi_map:
+            # Map method name to SCPI commands
+            for cmd in scpi_map[name]:
+                self._mock_responses[cmd] = str(value)
+        else:
+            # Treat as raw SCPI command
+            self._mock_responses[name] = str(value)
 
-    # ResistanceInput
-    def measure_resistance(self, four_wire: bool = False) -> Decimal:
-        return self._values["resistance"]
+    def reset_mock_state(self) -> None:
+        """Reset mock to initial state.
 
-    def configure_resistance_range(self, range_val: Decimal | str) -> None:
-        pass
+        Restores mock responses to values from initial creation,
+        clears write log, and clears tracked state.
+        """
+        self._mock_responses = dict(self._initial_mock_responses)
+        self._mock_write_log.clear()
+        self._mock_state.clear()
 
-    # FrequencyInput
-    def measure_frequency(self) -> Decimal:
-        return self._values["frequency"]
+    @property
+    def mock_write_log(self) -> list[str]:
+        """Return list of SCPI commands that were written."""
+        return self._mock_write_log
 
-    def measure_period(self) -> Decimal:
-        freq = self._values["frequency"]
-        return Decimal("1") / freq if freq else Decimal("0")
+    @property
+    def mock_state(self) -> dict[str, Any]:
+        """Return tracked mock state (voltage setpoint, output enabled, etc.)."""
+        return self._mock_state
 
 
-class MockPSU(Instrument, VoltageOutput, CurrentOutput):
-    """Mock PSU for fast unit tests.
+def Mock(instrument_class: type[T], **kwargs: Any) -> T:
+    """Create a mock instance of any instrument class.
 
-    Tracks setpoints and output state without any I/O.
+    The mock inherits from the real instrument class, so it has all the same
+    methods and passes isinstance() checks. SCPI query() calls return
+    configured mock values instead of communicating with hardware.
 
     Args:
-        voltage: Initial voltage readback
-        current: Initial current readback
+        instrument_class: The instrument class to mock (e.g., DMM, PSU, ELoad)
+        **kwargs: Mock values. Use method names for friendly API:
+            - measure_voltage=3.3
+            - measure_current=0.1
+            Or use 'responses' dict for raw SCPI:
+            - responses={"MEAS:VOLT:DC?": "3.3"}
+
+    Returns:
+        Mock instance that behaves like the real instrument
+
+    Example:
+        dmm = Mock(DMM, measure_voltage=3.3)
+        with dmm:
+            v = dmm.measure_voltage()  # Returns Decimal("3.3")
+            assert isinstance(dmm, DMM)  # True
+            assert isinstance(dmm, VoltageInput)  # True
     """
+    # Ensure mappings are registered
+    if not _SCPI_MAPPINGS:
+        _register_standard_mappings()
 
-    def __init__(self, voltage: float = 0.0, current: float = 0.0):
-        super().__init__(resource="MOCK::PSU", simulate=True)
-        self._voltage_setpoint = Decimal("0")
-        self._current_setpoint = Decimal("0")
-        self._voltage_readback = Decimal(str(voltage))
-        self._current_readback = Decimal(str(current))
-        self._output_enabled = False
-        self._connected = False
+    # Create a dynamic subclass that mixes in mock behavior
+    class_name = f"Mock{instrument_class.__name__}"
 
-    def connect(self) -> None:
-        self._connected = True
+    class MockInstrument(MockMixin, instrument_class):  # type: ignore[valid-type,misc]
+        def __init__(self, **init_kwargs: Any) -> None:
+            # Skip VisaInstrument.__init__ which tries to set up pyvisa
+            # Just call Instrument.__init__ directly
+            Instrument.__init__(
+                self,
+                resource=f"MOCK::{instrument_class.__name__}",
+                simulate=True,
+            )
+            self._init_mock_state(**init_kwargs)
 
-    def disconnect(self) -> None:
-        self._connected = False
+    MockInstrument.__name__ = class_name
+    MockInstrument.__qualname__ = class_name
 
-    @property
-    def voltage_setpoint(self) -> Decimal:
-        return self._voltage_setpoint
-
-    @property
-    def current_setpoint(self) -> Decimal:
-        return self._current_setpoint
-
-    @property
-    def output_enabled(self) -> bool:
-        return self._output_enabled
-
-    # VoltageOutput
-    def set_voltage(self, voltage: Decimal) -> None:
-        self._voltage_setpoint = Decimal(str(voltage))
-        # When output enabled, readback follows setpoint
-        if self._output_enabled:
-            self._voltage_readback = self._voltage_setpoint
-
-    def set_voltage_limit(self, limit: Decimal) -> None:
-        pass
-
-    def enable_output(self, channel: str | None = None) -> None:
-        self._output_enabled = True
-        self._voltage_readback = self._voltage_setpoint
-        self._current_readback = self._current_setpoint
-
-    def disable_output(self, channel: str | None = None) -> None:
-        self._output_enabled = False
-        self._voltage_readback = Decimal("0")
-        self._current_readback = Decimal("0")
-
-    def measure_output_voltage(self) -> Decimal:
-        return self._voltage_readback
-
-    # CurrentOutput
-    def set_current(self, current: Decimal) -> None:
-        self._current_setpoint = Decimal(str(current))
-        if self._output_enabled:
-            self._current_readback = self._current_setpoint
-
-    def set_current_limit(self, limit: Decimal) -> None:
-        pass
-
-    def measure_output_current(self) -> Decimal:
-        return self._current_readback
+    return MockInstrument(**kwargs)
 
 
-class MockELoad(Instrument, ConstantCurrentLoad, ConstantPowerLoad, ConstantResistanceLoad):
-    """Mock Electronic Load for fast unit tests.
-
-    Tracks load settings and simulates voltage/power based on mode.
-
-    Args:
-        voltage: Simulated input voltage from DUT
-    """
-
-    def __init__(self, voltage: float = 5.0):
-        super().__init__(resource="MOCK::ELOAD", simulate=True)
-        self._input_voltage = Decimal(str(voltage))
-        self._load_current = Decimal("0")
-        self._load_power = Decimal("0")
-        self._load_resistance = Decimal("1000000")  # High-Z default
-        self._enabled = False
-        self._mode = "CC"  # CC, CP, CR
-        self._connected = False
-
-    def connect(self) -> None:
-        self._connected = True
-
-    def disconnect(self) -> None:
-        self._connected = False
-
-    @property
-    def enabled(self) -> bool:
-        return self._enabled
-
-    @property
-    def mode(self) -> str:
-        return self._mode
-
-    def set_input_voltage(self, voltage: float) -> None:
-        """Set simulated input voltage (for test setup)."""
-        self._input_voltage = Decimal(str(voltage))
-
-    # ConstantCurrentLoad
-    def set_load_current(self, current: Decimal) -> None:
-        self._load_current = Decimal(str(current))
-        self._mode = "CC"
-
-    def enable_load(self) -> None:
-        self._enabled = True
-
-    def disable_load(self) -> None:
-        self._enabled = False
-
-    def measure_voltage(self) -> Decimal:
-        return self._input_voltage
-
-    def measure_power(self) -> Decimal:
-        if not self._enabled:
-            return Decimal("0")
-        if self._mode == "CC":
-            return self._input_voltage * self._load_current
-        elif self._mode == "CP":
-            return self._load_power
-        else:  # CR
-            return self._input_voltage * self._input_voltage / self._load_resistance
-
-    # ConstantPowerLoad
-    def set_load_power(self, power: Decimal) -> None:
-        self._load_power = Decimal(str(power))
-        self._mode = "CP"
-
-    # ConstantResistanceLoad
-    def set_load_resistance(self, resistance: Decimal) -> None:
-        self._load_resistance = Decimal(str(resistance))
-        self._mode = "CR"

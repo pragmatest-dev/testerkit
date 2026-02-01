@@ -171,18 +171,8 @@ def psu():
     with PSU("GPIB0::5::INSTR") as p:
         yield p
 
-# Simulated for development (driver-level with pyvisa-sim)
-@pytest.fixture
-def sim_dmm():
-    with DMM("TCPIP::192.168.1.100::INSTR", simulate=True, sim_config={"voltage": 5.0}) as d:
-        yield d
-
-# Interface-level mocks (instant, no I/O overhead)
-@pytest.fixture
-def mock_dmm():
-    from litmus.instruments import MockDMM
-    with MockDMM(voltage=5.0) as d:
-        yield d
+# The instruments fixture from station config handles mock mode automatically
+# Use --mock-instruments flag to enable mock mode
 ```
 
 ### Using the `pins` Fixture
@@ -197,13 +187,15 @@ def test_output_voltage(pins):
     assert float(voltage) > 3.0
 ```
 
-### CLI Options for Simulation
+### Mock Mode
 
-Run all tests in simulation mode:
+Run all tests in mock mode (no hardware required):
 
 ```bash
-pytest tests/ --simulate --dut-serial=TEST001
+pytest tests/ --station-config=stations/bench_1.yaml --mock-instruments --dut-serial=TEST001
 ```
+
+Mock values come from station `mock_config` and can be overridden per-test with `_mock` in config.yaml.
 
 ## CLI Options
 
@@ -283,9 +275,8 @@ from litmus.execution import litmus_test
 from litmus.instruments import DMM
 
 @pytest.fixture
-def dmm():
-    with DMM("TCPIP::192.168.1.100::INSTR", simulate=True, sim_config={"voltage": 5.02}) as d:
-        yield d
+def dmm(instruments):
+    return instruments["dmm"]
 
 @litmus_test
 def test_input_voltage(vector, dmm):

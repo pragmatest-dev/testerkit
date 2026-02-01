@@ -36,8 +36,7 @@ instruments:
 |-------|----------|-------------|
 | `type` | Yes | Instrument type (dmm, power_supply, etc.) |
 | `resource` | Yes | VISA address or connection string |
-| `simulate` | No | Always simulate this instrument |
-| `sim_config` | No | Simulation values |
+| `mock_config` | No | Values for `--mock-instruments` mode |
 
 ## VISA Addresses
 
@@ -70,29 +69,28 @@ resource: "ASRL/dev/ttyUSB0::INSTR"  # Linux
 resource: "ASRLCOM3::INSTR"          # Windows
 ```
 
-## Simulation Configuration
+## Mock Mode Configuration
 
-### Per-Instrument
+Configure default values for `--mock-instruments` mode:
 
 ```yaml
 instruments:
   dmm:
     type: dmm
     resource: "TCPIP::192.168.1.100::INSTR"
-    simulate: true
-    sim_config:
+    mock_config:
       voltage: 3.31
       current: 0.1
       resistance: 1000
 ```
 
-### Command-Line Override
+### Running in Mock Mode
 
 ```bash
-pytest tests/ --station=bench_1 --simulate
+pytest tests/ --station-config=stations/bench_1.yaml --mock-instruments --dut-serial=SIM001
 ```
 
-The `--simulate` flag overrides all instruments to simulation mode.
+The `--mock-instruments` flag uses mock instruments instead of real hardware. Mock values come from `mock_config` in the station, or can be overridden per-test with `_mock` in config.yaml.
 
 ## Environment Variables
 
@@ -214,20 +212,25 @@ instruments:
 station:
   id: ci_station
   name: "CI Environment"
-  description: "Fully simulated for automated testing"
+  description: "For automated testing with --mock-instruments"
 
 instruments:
   dmm:
     type: dmm
-    resource: "SIM::DMM"
-    simulate: true
-    sim_config:
+    resource: "TCPIP::192.168.1.100::INSTR"
+    mock_config:
       voltage: 3.31
       current: 0.1
   psu:
     type: power_supply
-    resource: "SIM::PSU"
-    simulate: true
+    resource: "GPIB0::5::INSTR"
+    mock_config:
+      voltage: 5.0
+```
+
+Run in CI:
+```bash
+pytest tests/ --station-config=stations/ci_station.yaml --mock-instruments --dut-serial=CI-TEST
 ```
 
 ## Active Fixture

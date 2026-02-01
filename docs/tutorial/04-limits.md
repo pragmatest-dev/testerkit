@@ -12,8 +12,8 @@ In Step 3, we logged measurements but didn't check if they were good or bad:
 
 ```python
 @litmus_test
-def test_voltage(vector, dmm):
-    return dmm.measure_voltage()  # Logged, but is it passing?
+def test_voltage(vector, instruments):
+    return instruments["dmm"].measure_voltage()  # Logged, but is it passing?
 ```
 
 We need limits to determine pass/fail.
@@ -78,28 +78,32 @@ from litmus.config.models import Limit
         "test_output_voltage": Limit(low=3.135, high=3.465, units="V"),
     }
 )
-def test_output_voltage(vector, dmm):
-    return dmm.measure_voltage()
+def test_output_voltage(vector, instruments):
+    return instruments["dmm"].measure_voltage()
 ```
 
 If the measurement is outside limits, the test fails with an `AssertionError`.
 
 ## What If It Fails?
 
-Change the mock value to something out of range:
+Configure a mock value outside the limit range in your test config:
 
-```python
-# In conftest.py
-@pytest.fixture
-def dmm():
-    with MockDMM(voltage=2.5) as d:  # Below limit!
-        yield d
+```yaml
+# tests/config.yaml
+test_output_voltage:
+  _mock:
+    dmm.measure_voltage: 2.5  # Below limit - will fail!
+  limits:
+    test_output_voltage:
+      low: 3.135
+      high: 3.465
+      units: V
 ```
 
 Run the test:
 
 ```bash
-pytest tests/test_voltage.py -v --dut-serial=TEST001
+pytest tests/test_voltage.py --station-config=stations/my_station.yaml --mock-instruments -v
 ```
 
 Output:
@@ -114,9 +118,9 @@ During development, you may want to record values without failing:
 
 ```python
 @litmus_test(raise_on_fail=False)
-def test_characterize(vector, dmm):
+def test_characterize(vector, instruments):
     # Measurements recorded but won't fail test
-    return dmm.measure_voltage()
+    return instruments["dmm"].measure_voltage()
 ```
 
 ## Comparators
@@ -160,7 +164,7 @@ Limits in code have issues:
 @litmus_test(
     limits={"test_voltage": Limit(low=3.135, high=3.465, units="V")}
 )
-def test_voltage(vector, dmm):
+def test_voltage(vector, instruments):
     ...
 ```
 
@@ -174,40 +178,43 @@ Solution: **YAML configuration** (next step).
 
 ## Complete Example
 
-**tests/conftest.py:**
-```python
-import pytest
-from litmus.instruments import MockDMM
+**stations/my_station.yaml:**
+```yaml
+station:
+  id: my_station
 
-@pytest.fixture
-def dmm():
-    with MockDMM(voltage=3.31) as d:
-        yield d
+instruments:
+  dmm:
+    type: dmm
+    resource: "TCPIP::192.168.1.100::INSTR"
+    mock_config:
+      voltage: 3.31
+```
+
+**tests/config.yaml:**
+```yaml
+test_output_voltage:
+  limits:
+    test_output_voltage:
+      low: 3.135
+      high: 3.465
+      nominal: 3.3
+      units: V
 ```
 
 **tests/test_limits.py:**
 ```python
 from litmus.execution import litmus_test
-from litmus.config.models import Limit
 
-@litmus_test(
-    limits={
-        "test_output_voltage": Limit(
-            low=3.135,
-            high=3.465,
-            nominal=3.3,
-            units="V",
-        ),
-    }
-)
-def test_output_voltage(vector, dmm):
+@litmus_test
+def test_output_voltage(vector, instruments):
     """Verify output voltage is within spec."""
-    return dmm.measure_voltage()
+    return instruments["dmm"].measure_voltage()
 ```
 
 **Run:**
 ```bash
-pytest tests/test_limits.py -v --dut-serial=TEST001
+pytest tests/test_limits.py --station-config=stations/my_station.yaml --mock-instruments -v
 ```
 
 ## What You Learned

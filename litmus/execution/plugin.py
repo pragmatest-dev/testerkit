@@ -1,6 +1,8 @@
 """pytest plugin for Litmus test framework."""
 
+import os
 import time
+from pathlib import Path
 from typing import Any
 
 import pytest
@@ -50,10 +52,10 @@ def pytest_addoption(parser):
     group.addoption("--spec", default=None, help="Path to product spec YAML file")
     group.addoption("--guardband", default="0", help="Default guardband percentage")
     group.addoption(
-        "--simulate",
+        "--mock-instruments",
         action="store_true",
         default=False,
-        help="Run instruments in simulation mode",
+        help="Use mock instruments instead of real hardware",
     )
     group.addoption(
         "--fixture-config",
@@ -256,30 +258,38 @@ def spec_context(request):
         return SpecContext.from_file(spec_path, guardband_pct=guardband)
 
     # Try auto-discover from products/ directory
-    root = request.config.rootpath
-    products_dir = root / "products"
-    if products_dir.exists():
-        # Find first product folder with spec.yaml
-        for product_folder in products_dir.iterdir():
-            if product_folder.is_dir() and not product_folder.name.startswith("_"):
-                spec_file = product_folder / "spec.yaml"
-                if spec_file.exists():
-                    return SpecContext.from_file(spec_file, guardband_pct=guardband)
+    # Check both rootpath and invocation directory (cwd) for nested project support
+    from pathlib import Path
+
+    search_roots = [
+        request.config.rootpath,
+        Path(request.config.invocation_params.dir),  # Where pytest was invoked
+    ]
+
+    for root in search_roots:
+        products_dir = root / "products"
+        if products_dir.exists():
+            # Find first product folder with spec.yaml
+            for product_folder in products_dir.iterdir():
+                if product_folder.is_dir() and not product_folder.name.startswith("_"):
+                    spec_file = product_folder / "spec.yaml"
+                    if spec_file.exists():
+                        return SpecContext.from_file(spec_file, guardband_pct=guardband)
 
     return None
 
 
 @pytest.fixture(scope="session")
-def simulate(request) -> bool:
-    """Return whether instruments should run in simulation mode.
+def mock_instruments(request) -> bool:
+    """Return whether to use mock instruments instead of real hardware.
 
     Checks both:
-    - --simulate pytest option
-    - LITMUS_SIMULATE environment variable (set by UI when launching with simulation)
+    - --mock-instruments pytest option
+    - LITMUS_MOCK_INSTRUMENTS environment variable (set by UI)
     """
     import os
 
-    return request.config.getoption("--simulate") or os.environ.get("LITMUS_SIMULATE") == "1"
+    return request.config.getoption("--mock-instruments") or os.environ.get("LITMUS_MOCK_INSTRUMENTS") == "1"
 
 
 @pytest.fixture(scope="session")
@@ -292,13 +302,19 @@ def station_config(request) -> dict[str, Any] | None:
     config_path = request.config.getoption("--station-config")
     if not config_path:
         # Try auto-discover from stations/ directory
-        root = request.config.rootpath
+        # Check both rootpath and invocation directory (for nested projects like demo/)
         station_id = request.config.getoption("--station")
-        stations_dir = root / "stations"
-        if stations_dir.exists():
-            station_file = stations_dir / f"{station_id}.yaml"
-            if station_file.exists():
-                config_path = str(station_file)
+        search_roots = [
+            request.config.rootpath,
+            Path(request.config.invocation_params.dir),  # Where pytest was invoked
+        ]
+        for root in search_roots:
+            stations_dir = root / "stations"
+            if stations_dir.exists():
+                station_file = stations_dir / f"{station_id}.yaml"
+                if station_file.exists():
+                    config_path = str(station_file)
+                    break
 
     if config_path:
         with open(config_path) as f:
@@ -318,18 +334,26 @@ def fixture_config(request):
     config_path = request.config.getoption("--fixture-config")
     if not config_path:
         # Try auto-discover from fixtures/ directory
-        root = request.config.rootpath
-        fixtures_dir = root / "fixtures"
-        if fixtures_dir.exists():
-            yaml_files = list(fixtures_dir.glob("*.yaml"))
-            if yaml_files:
-                config_path = str(yaml_files[0])
+        # Check both rootpath and invocation directory (for nested projects like demo/)
+        search_roots = [
+            request.config.rootpath,
+            Path(request.config.invocation_params.dir),  # Where pytest was invoked
+        ]
+        for root in search_roots:
+            fixtures_dir = root / "fixtures"
+            if fixtures_dir.exists():
+                yaml_files = list(fixtures_dir.glob("*.yaml"))
+                if yaml_files:
+                    config_path = str(yaml_files[0])
+                    break
 
     if config_path:
         with open(config_path) as f:
             data = yaml.safe_load(f)
             return FixtureConfig.model_validate(data.get("fixture", data))
     return None
+
+
 
 
 def _get_driver_class(instrument_type: str):
@@ -346,11 +370,13 @@ def _get_driver_class(instrument_type: str):
 
 
 @pytest.fixture(scope="session")
-def instruments(request, station_config, simulate) -> dict[str, Any]:
+def instruments(request, station_config, mock_instruments) -> dict[str, Any]:
     """Create instrument instances from station configuration.
 
     Instruments are connected at session start and disconnected at end.
-    Uses simulation mode if --simulate is passed.
+
+    When --mock-instruments is passed (or LITMUS_MOCK_INSTRUMENTS=1), uses mock
+    instruments instead of real drivers. Mocks are config-driven and instant.
 
     Returns:
         Dictionary mapping instrument names to instances.
@@ -359,22 +385,26 @@ def instruments(request, station_config, simulate) -> dict[str, Any]:
     _ACTIVE_INSTRUMENTS.clear()
 
     if station_config:
-        # Load instruments from station config
+        from litmus.instruments.mocks import Mock
+
         inst_configs = station_config.get("instruments", {})
         for name, config in inst_configs.items():
-            driver_class = _get_driver_class(config.get("type", ""))
+            inst_type = config.get("type", "")
+            mock_config = config.get("mock_config", config.get("sim_config", {}))
+            use_mock = mock_instruments or config.get("mock", config.get("simulate", False))
+
+            driver_class = _get_driver_class(inst_type)
             if driver_class is None:
                 continue
 
-            resource = config.get("resource", "")
-            sim_config = config.get("sim_config", {})
+            if use_mock:
+                # Use mock instruments - config-driven, instant
+                inst = Mock(driver_class, **mock_config)
+            else:
+                # Real hardware path
+                resource = config.get("resource", "")
+                inst = driver_class(resource=resource)
 
-            # Create and connect instrument
-            inst = driver_class(
-                resource=resource,
-                simulate=simulate or config.get("simulate", False),
-                sim_config=sim_config,
-            )
             inst.connect()
             _ACTIVE_INSTRUMENTS[name] = inst
 
@@ -445,7 +475,13 @@ def pytest_runtest_makereport(item, call):
 
 @pytest.hookimpl(tryfirst=True)
 def pytest_runtest_setup(item):
-    """Skip tests if their dependencies failed."""
+    """Reset mock state and skip tests if their dependencies failed."""
+    # Reset mock state for clean test isolation
+    for inst in _ACTIVE_INSTRUMENTS.values():
+        if hasattr(inst, "reset_mock_state"):
+            inst.reset_mock_state()
+
+    # Check skip-on-failure dependencies
     marker = item.get_closest_marker("litmus_skip_on")
     if marker is None:
         return

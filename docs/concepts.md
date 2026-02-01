@@ -189,32 +189,24 @@ instruments:
     resource: "GPIB0::5::INSTR"
 ```
 
-### Simulated Mode
+### Mock Mode
 
-For development without hardware, use `simulate: true`:
+For development without hardware, use `--mock-instruments`:
+
+```bash
+pytest tests/ --station-config=stations/bench_1.yaml --mock-instruments --dut-serial=SIM001
+```
+
+Configure mock values in the station:
 
 ```yaml
 instruments:
   dmm:
     type: dmm
     resource: "TCPIP::192.168.1.100::INSTR"
-    simulate: true
-    sim_config:
+    mock_config:
       voltage: 3.31
       current: 0.1
-```
-
-Or in Python:
-
-```python
-from litmus.instruments import DMM
-
-# Driver-level simulation (uses pyvisa-sim)
-dmm = DMM("TCPIP::192.168.1.100::INSTR", simulate=True, sim_config={"voltage": 3.3})
-
-# Interface-level mocks (instant, no I/O)
-from litmus.instruments import MockDMM
-dmm = MockDMM(voltage=3.3)
 ```
 
 ## Fixtures (Optional)
@@ -225,7 +217,7 @@ dmm = MockDMM(voltage=3.3)
 
 | Approach | When to Use |
 |----------|-------------|
-| **Mock objects** | Development, CI, unit tests |
+| **--mock-instruments** | Development, CI, unit tests |
 | **Direct fixtures** | Simple benches, quick prototyping |
 | **Pin mapping (fixtures)** | Production, complex routing, compliance |
 

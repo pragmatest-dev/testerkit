@@ -26,7 +26,7 @@ def pytest_addoption(parser):
     """Add Litmus command-line options."""
     parser.addoption("--dut-serial", action="store", help="DUT serial number")
     parser.addoption("--station", action="store", default="default", help="Station ID")
-    parser.addoption("--simulate", action="store_true", help="Simulate instruments")
+    parser.addoption("--mock-instruments", action="store_true", help="Simulate instruments")
 ```
 
 ### Step 3: Use Litmus in New Tests
@@ -158,33 +158,29 @@ def test_voltage(vector, instruments):
 
 ## Fixture Patterns
 
-### Shared Instruments
+### Using Station Instruments
+
+The recommended approach is to use the `instruments` fixture from station config:
 
 ```python
 # tests/conftest.py
 import pytest
-from litmus.instruments import DMM, PSU
 
 @pytest.fixture(scope="session")
-def dmm(request):
-    """DMM shared across all tests."""
-    simulate = request.config.getoption("--simulate")
-    with DMM(
-        "TCPIP::192.168.1.100::INSTR",
-        simulate=simulate,
-        sim_config={"voltage": 3.31}
-    ) as d:
-        yield d
+def dmm(instruments):
+    """DMM from station config."""
+    return instruments["dmm"]
 
 @pytest.fixture(scope="session")
-def psu(request):
-    """PSU shared across all tests."""
-    simulate = request.config.getoption("--simulate")
-    with PSU(
-        "GPIB0::5::INSTR",
-        simulate=simulate
-    ) as p:
-        yield p
+def psu(instruments):
+    """PSU from station config."""
+    return instruments["psu"]
+```
+
+Run with `--mock-instruments` for hardware-free testing:
+
+```bash
+pytest tests/ --station-config=stations/bench_1.yaml --mock-instruments --dut-serial=SIM001
 ```
 
 ### Station-Based Fixtures
@@ -203,7 +199,7 @@ def station(request):
 @pytest.fixture
 def instruments(station, request):
     """Get instruments from station."""
-    simulate = request.config.getoption("--simulate")
+    simulate = request.config.getoption("--mock-instruments")
     return station.get_instruments(simulate=simulate)
 ```
 
@@ -254,7 +250,7 @@ test_power_rails:
 pytest tests/ -v
 
 # Run with simulation
-pytest tests/ --simulate -v
+pytest tests/ --mock-instruments -v
 
 # Run specific test
 pytest tests/test_voltage.py -v
@@ -267,7 +263,7 @@ pytest tests/test_voltage.py -v
 - name: Run tests
   run: |
     pytest tests/ \
-      --simulate \
+      --mock-instruments \
       --dut-serial=CI-TEST \
       --station=ci_station \
       -v

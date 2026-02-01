@@ -1,52 +1,8 @@
-# Step 2: Mock Instruments
+# Step 2: Running Without Hardware
 
-**Goal:** Measure a voltage using a simulated instrument.
+**Goal:** Run tests without real instruments using mock mode.
 
-## What You'll Build
-
-A test that measures voltage from a mock DMM and verifies it's reasonable.
-
-## The Code
-
-```python
-# tests/test_voltage.py
-from litmus.instruments import MockDMM
-
-def test_measure_voltage():
-    """Measure voltage from a simulated DMM."""
-    # Create a mock DMM
-    dmm = MockDMM(voltage=3.31)
-    dmm.connect()
-
-    # Read the voltage
-    voltage = dmm.measure_voltage()
-
-    # Check it's reasonable
-    assert float(voltage) > 0
-    assert float(voltage) < 10
-
-    dmm.disconnect()
-```
-
-Run it:
-
-```bash
-pytest tests/test_voltage.py -v
-```
-
-Expected output:
-```
-tests/test_voltage.py::test_measure_voltage PASSED
-```
-
-## What's Happening
-
-1. **MockDMM** is a simulated digital multimeter
-2. `voltage=3.31` configures what value it returns
-3. `measure_voltage()` returns a `Decimal` value
-4. We assert the value is within a reasonable range
-
-## Why Mock Instruments?
+## The Problem
 
 Real hardware testing requires real instruments. But during development:
 
@@ -54,87 +10,138 @@ Real hardware testing requires real instruments. But during development:
 - CI/CD runs on servers without hardware
 - Iteration should be fast
 
-Mock instruments provide the same interface as real drivers, letting you write tests that work with both.
+Litmus solves this with the `--mock-instruments` flag.
 
-## Context Managers
+## Station Configuration
 
-The connect/disconnect pattern is common. Use a context manager for cleaner code:
+Define your instruments in a station config:
+
+```yaml
+# stations/my_station.yaml
+station:
+  id: my_station
+  name: "My Test Bench"
+
+instruments:
+  dmm:
+    type: dmm
+    resource: "TCPIP::192.168.1.100::INSTR"
+    mock_config:
+      voltage: 3.31      # Value returned in mock mode
+      current: 0.1
+
+  psu:
+    type: psu
+    resource: "GPIB0::5::INSTR"
+    mock_config:
+      voltage: 5.0
+```
+
+The `mock_config` section defines what values mock instruments return.
+
+## Running in Mock Mode
+
+Add `--mock-instruments` to run without hardware:
+
+```bash
+pytest tests/ --station-config=stations/my_station.yaml --mock-instruments -v
+```
+
+The **same test code** works with real hardware or mocks.
+
+## A Simple Test
 
 ```python
 # tests/test_voltage.py
-from litmus.instruments import MockDMM
+from litmus.execution import litmus_test
 
-def test_measure_voltage():
-    """Measure voltage using context manager."""
-    with MockDMM(voltage=3.31) as dmm:
-        voltage = dmm.measure_voltage()
-        assert float(voltage) > 0
+@litmus_test
+def test_output_voltage(vector, instruments):
+    """Measure output voltage."""
+    dmm = instruments["dmm"]
+    psu = instruments["psu"]
+
+    psu.set_voltage(5.0)
+    psu.enable_output()
+
+    return dmm.measure_voltage()  # Returns 3.31 in mock mode
 ```
 
-This automatically handles connect/disconnect and cleanup on errors.
+Run it:
 
-## Available Mock Instruments
+```bash
+# With mock instruments
+pytest tests/test_voltage.py --station-config=stations/my_station.yaml --mock-instruments -v
 
-Litmus provides mocks for common instrument types:
-
-```python
-from litmus.instruments import MockDMM, MockPSU, MockELoad
-
-# Digital multimeter - measures voltage, current, resistance
-dmm = MockDMM(voltage=3.3, current=0.1, resistance=1000)
-
-# Power supply - sources voltage/current
-psu = MockPSU()
-psu.set_voltage(5.0)
-psu.set_current_limit(1.0)
-psu.enable_output()
-
-# Electronic load - sinks current
-eload = MockELoad()
-eload.set_current(0.5)
-eload.enable()
+# With real hardware (when available)
+pytest tests/test_voltage.py --station-config=stations/my_station.yaml -v
 ```
 
-## Changing Simulated Values
+## Per-Test Mock Values
 
-Mock instruments can change their return values:
+For tests that need specific mock values, use `_mock` in your test config:
 
-```python
-def test_multiple_readings():
-    with MockDMM(voltage=5.0) as dmm:
-        v1 = dmm.measure_voltage()
-        assert float(v1) == 5.0
-
-        # Change the simulated value
-        dmm.set_value("voltage", 3.3)
-
-        v2 = dmm.measure_voltage()
-        assert float(v2) == 3.3
+```yaml
+# tests/config.yaml
+test_output_voltage:
+  _mock:
+    dmm.measure_voltage: 3.31
+    psu.measure_current: 0.5
+  limits:
+    test_output_voltage:
+      low: 3.2
+      high: 3.4
+      units: V
 ```
 
-## A Complete Test Pattern
+The `_mock` key maps `instrument.method` to return values.
 
-Here's a realistic test using multiple instruments:
+## Per-Vector Mock Values
 
-```python
-from litmus.instruments import MockDMM, MockPSU
+For sweeps with different outputs per condition:
 
-def test_power_supply_output():
-    """Verify PSU outputs correct voltage."""
-    with MockPSU() as psu, MockDMM(voltage=5.02) as dmm:
-        # Configure power supply
-        psu.set_voltage(5.0)
-        psu.set_current_limit(1.0)
-        psu.enable_output()
+```yaml
+# tests/config.yaml
+test_load_sweep:
+  vectors:
+    - load: 0.1
+      _mock:
+        dmm.measure_voltage: 3.32
+    - load: 0.5
+      _mock:
+        dmm.measure_voltage: 3.30
+    - load: 0.8
+      _mock:
+        dmm.measure_voltage: 3.28
+  limits:
+    test_load_sweep:
+      low: 3.2
+      high: 3.4
+      units: V
+```
 
-        # Measure output
-        voltage = dmm.measure_voltage()
+Each vector gets its own mock values, simulating realistic output changes.
 
-        # Verify
-        assert 4.5 < float(voltage) < 5.5
+## Mock Value Priority
 
-        # Cleanup
-        psu.disable_output()
+When running with `--mock-instruments`, values are resolved in order:
+
+1. **Vector-level `_mock`** - Specific to this test vector
+2. **Test-level `_mock`** - Constant for all vectors in this test
+3. **Station `mock_config`** - Default for this instrument
+4. **Zero** - If nothing else configured
+
+## CI/CD Configuration
+
+```yaml
+# .github/workflows/test.yml
+- name: Run tests
+  run: |
+    pytest tests/ \
+      --station-config=stations/ci_station.yaml \
+      --mock-instruments \
+      --dut-serial=CI-TEST \
+      -v
 ```
 
 ## Why Decimal?
@@ -149,24 +156,17 @@ print(type(voltage))  # <class 'decimal.Decimal'>
 print(voltage)        # 3.31
 ```
 
-`Decimal` avoids floating-point precision issues that can cause false test failures:
-
-```python
-# Float precision problem
-0.1 + 0.2 == 0.3  # False!
-
-# Decimal is exact
-Decimal("0.1") + Decimal("0.2") == Decimal("0.3")  # True
-```
+`Decimal` avoids floating-point precision issues that can cause false test failures.
 
 ## What You Learned
 
-- MockDMM, MockPSU, MockELoad for simulated instruments
-- Context managers for clean resource handling
-- Why measurements use Decimal
+- `--mock-instruments` flag for hardware-free testing
+- Station `mock_config` for default mock values
+- Test config `_mock` for per-test/per-vector values
+- Same test code works with real hardware or mocks
 
 ## Next Step
 
-Now let's use the @litmus_test decorator to log measurements to results.
+Now let's use the @litmus_test decorator to check limits automatically.
 
 [Step 3: The @litmus_test Decorator →](03-decorator.md)

@@ -8,16 +8,27 @@
 # - LIMITS: Pass/fail criteria (derived from product spec with guardbands)
 # - RETRY: Automatic retry on failure
 # - DIALOGS: Operator prompts before/during tests
+# - _MOCK: Per-vector mock outputs for simulation mode
+#
+# MOCK CONFIGURATION (_mock):
+# When running with --mock-instruments, _mock values configure what mock instruments return.
+# - Vector-level _mock: Different outputs per test condition
+# - Test-level _mock: Constant outputs for all vectors
+# - Fallback: Uses limit nominal value if no _mock specified
 #
 # All values trace back to: products/power_board/spec.yaml
 
 # =============================================================================
-# Pattern 1: Single Vector (simple test)
+# Pattern 1: Single Vector (simple test) - Test-level _mock
 # =============================================================================
 test_output_voltage_no_load:
   description: "Verify 3.3V output at no load"
   vectors:
     - vin: 5.0
+  # Test-level _mock: constant for all vectors (single vector here)
+  _mock:
+    dmm.measure_voltage: 3.3
+    psu.measure_current: 0.005  # 5mA quiescent current
   limits:
     test_output_voltage_no_load:
       low: 3.234       # 3.3V - 2% spec - 10% guardband
@@ -28,13 +39,16 @@ test_output_voltage_no_load:
       comparator: GELE  # >= low AND <= high (IEEE 1671)
 
 # =============================================================================
-# Pattern 2: Single Vector with Retry
+# Pattern 2: Single Vector with Retry - Test-level _mock
 # =============================================================================
 test_output_voltage_full_load:
   description: "Verify 3.3V output at full 800mA load"
   vectors:
     - vin: 5.0
       load_current: 0.8
+  _mock:
+    dmm.measure_voltage: 3.28   # Voltage drops slightly under full load
+    psu.measure_current: 0.85   # Input current at full load
   retry:
     max_attempts: 3
     delay_seconds: 0.5
@@ -47,20 +61,30 @@ test_output_voltage_full_load:
       spec_ref: "output_voltage @ load=0.8A, temp=25C"
 
 # =============================================================================
-# Pattern 3: Explicit Vector List (load sweep)
+# Pattern 3: Explicit Vector List (load sweep) - Per-vector _mock
 # =============================================================================
 test_load_regulation:
   description: "Measure output at multiple load points"
   vectors:
+    # Per-vector _mock: different outputs for each load condition
     - vin: 5.0
       load_current: 0.1
       expected_dropout: 0
+      _mock:
+        dmm.measure_voltage: 3.32   # Slight increase at light load
+        psu.measure_current: 0.15
     - vin: 5.0
       load_current: 0.4
       expected_dropout: 2
+      _mock:
+        dmm.measure_voltage: 3.30   # Nominal at medium load
+        psu.measure_current: 0.45
     - vin: 5.0
       load_current: 0.8
       expected_dropout: 5
+      _mock:
+        dmm.measure_voltage: 3.28   # Drops at full load
+        psu.measure_current: 0.85
   limits:
     test_load_regulation:
       low: 3.2
@@ -129,13 +153,20 @@ test_line_regulation:
       spec_ref: "line regulation"
 
 # =============================================================================
-# Pattern 7: Multiple Measurements (dict return)
+# Pattern 7: Multiple Measurements (dict return) - _mock for power calculation
 # =============================================================================
 test_power_analysis:
   description: "Measure input and output power"
   vectors:
     - vin: 5.0
       load_current: 0.5
+  _mock:
+    # Mock values chosen so efficiency calculation passes:
+    # P_in = 5.0V * 0.5A = 2.5W
+    # P_out = 3.3V * 0.5A = 1.65W
+    # Efficiency = 1.65/2.5 * 100 = 66%
+    dmm.measure_voltage: 3.3    # Output voltage
+    psu.measure_current: 0.5    # Input current
   limits:
     # Each key in the returned dict gets its own limit
     input_power:
@@ -156,12 +187,14 @@ test_power_analysis:
       spec_ref: "efficiency @ vin=5V, load=0.5A"
 
 # =============================================================================
-# Pattern 8: Quiescent Current
+# Pattern 8: Quiescent Current - _mock for current measurement
 # =============================================================================
 test_quiescent_current:
   description: "Verify low standby current"
   vectors:
     - vin: 5.0
+  _mock:
+    psu.measure_current: 0.005  # 5mA quiescent - well below 10mA limit
   limits:
     test_quiescent_current:
       low: 0
@@ -172,7 +205,7 @@ test_quiescent_current:
       spec_ref: "quiescent_current @ no load"
 
 # =============================================================================
-# Pattern 9: Streaming Measurements (yield)
+# Pattern 9: Streaming Measurements (yield) - _mock for stability
 # =============================================================================
 test_stability_over_time:
   description: "Monitor output stability for 5 seconds"
@@ -180,6 +213,8 @@ test_stability_over_time:
     - vin: 5.0
       load_current: 0.5
       sample_count: 5
+  _mock:
+    dmm.measure_voltage: 3.3    # Stable output for all samples
   limits:
     voltage:
       low: 3.25
@@ -189,7 +224,7 @@ test_stability_over_time:
       spec_ref: "output stability"
 
 # =============================================================================
-# Pattern 10: Operator Dialog Before Test
+# Pattern 10: Operator Dialog Before Test - _mock for shutdown condition
 # =============================================================================
 test_thermal_shutdown:
   description: "Verify thermal protection"
@@ -199,6 +234,8 @@ test_thermal_shutdown:
   vectors:
     - vin: 5.0
       load_current: 0.5
+  _mock:
+    dmm.measure_voltage: 0.05   # Output collapsed after thermal shutdown
   limits:
     test_thermal_shutdown:
       low: 0

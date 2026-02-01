@@ -113,8 +113,7 @@ instruments:
   <name>:                 # Instrument alias (used in tests)
     type: string          # Instrument type (dmm, scope, psu, eload, etc.)
     resource: string      # VISA address
-    simulate: boolean     # Use simulated driver (default false)
-    sim_config:           # Values for simulation
+    mock_config:          # Values for --mock-instruments mode
       voltage: decimal
       current: decimal
       resistance: decimal
@@ -185,7 +184,7 @@ points:
 | Simple bench, one product | No — use direct instrument fixtures |
 | Multiple products on same bench | Yes — map each product's pins |
 | Production test with compliance needs | Yes — provides traceability |
-| Development/CI | No — use MockDMM, MockPSU |
+| Development/CI | No — use Mock(DMM), Mock(PSU) |
 
 ## Test Configuration
 

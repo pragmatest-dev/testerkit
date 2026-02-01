@@ -174,8 +174,8 @@ litmus_run(test="products/{id}/tests/", station="{station}", serial="{serial}")
 
 ```python
 # ❌ WRONG - where did 3.3 and 5.0 come from?
-MockDMM(voltage=3.3)
-MockPSU(voltage=5.0)
+Mock(DMM, voltage=3.3)
+Mock(PSU, voltage=5.0)
 
 # ✅ CORRECT - values from spec
 # spec.test_conditions.default_vin = 12

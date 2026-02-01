@@ -166,9 +166,9 @@ class TestRunner:
         env["LITMUS_SERVER_URL"] = os.environ.get("LITMUS_SERVER_URL", "http://localhost:8000")
         # Pass run ID so dialogs are linked to this run
         env["LITMUS_RUN_ID"] = run_info.run_id
-        # Enable simulation mode if requested
-        if req.simulate:
-            env["LITMUS_SIMULATE"] = "1"
+        # Enable mock instruments if requested
+        if req.mock_instruments:
+            env["LITMUS_MOCK_INSTRUMENTS"] = "1"
 
         proc = await asyncio.create_subprocess_exec(
             *cmd,

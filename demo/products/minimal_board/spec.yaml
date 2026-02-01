@@ -1,0 +1,20 @@
+# Minimal spec for testing - simplest valid product specification
+product:
+  id: minimal_board
+  name: "Minimal Test Board"
+  revision: "1.0"
+
+pins:
+  VOUT:
+    name: "TP1"
+    type: signal
+
+characteristics:
+  output_voltage:
+    direction: output
+    domain: voltage
+    units: V
+    pins: [VOUT]
+    conditions:
+      - nominal: 3.3
+        tolerance_pct: 5

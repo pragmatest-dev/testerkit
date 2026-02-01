@@ -25,10 +25,12 @@ PATTERNS DEMONSTRATED:
 
 Run with:
     cd demo
-    pytest tests/test_power_board.py --station=demo_station_001 --simulate -v
+    pytest tests/test_power_board.py --station=demo_station_001 --mock-instruments -v
 """
 
 import time
+
+import pytest
 
 from litmus.execution import litmus_test
 

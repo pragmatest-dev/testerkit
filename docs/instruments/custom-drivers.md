@@ -318,10 +318,10 @@ class USBPowerSupply(Instrument, VoltageOutput):
 For unit testing without any I/O, use interface-level mocks:
 
 ```python
-from litmus.instruments.mocks import MockDMM, MockPSU, MockELoad
+from litmus.instruments.mocks import DMM, PSU, ELoad, Mock
 
 # Instant, no I/O overhead
-dmm = MockDMM(voltage=5.0, current=0.1)
+dmm = Mock(DMM, voltage=5.0, current=0.1)
 dmm.connect()
 v = dmm.measure_voltage()  # Returns Decimal("5.0")
 

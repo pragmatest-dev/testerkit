@@ -24,6 +24,7 @@ def _get_run_id() -> UUID:
         except ValueError:
             # Not a valid UUID - generate deterministic one from the string
             import hashlib
+
             h = hashlib.md5(env_id.encode()).hexdigest()
             return UUID(h)
     return uuid4()
@@ -134,6 +135,7 @@ class TestRunLogger:
                     run_id = UUID(run_id)
                 except ValueError:
                     import hashlib
+
                     h = hashlib.md5(run_id.encode()).hexdigest()
                     run_id = UUID(h)
         else:
@@ -228,6 +230,97 @@ class TestRunLogger:
                 self._current_vector.ended_at = _utcnow()
         self._current_step = None
         self._current_vector = None
+
+    def measure(
+        self,
+        name: str,
+        value: float | int | None,
+        limit: Any | None = None,  # Limit object from litmus.config.models
+        units: str | None = None,
+        dut_pin: str | None = None,
+        instrument_name: str | None = None,
+        instrument_resource: str | None = None,
+        instrument_channel: str | None = None,
+        fixture_point: str | None = None,
+        spec_ref: str | None = None,
+    ) -> Measurement:
+        """Log a measurement with optional limit checking.
+
+        This is a convenience method that creates a Measurement and logs it.
+        Use this instead of constructing Measurement objects manually.
+
+        Args:
+            name: Measurement name (e.g., "output_voltage")
+            value: Measured value
+            limit: Optional Limit object with low/high/nominal/units/spec_ref
+            units: Units (overrides limit.units if provided)
+            dut_pin: DUT pin measured (e.g., "TP_VOUT")
+            instrument_name: Station config instrument name (e.g., "dmm_main")
+            instrument_resource: VISA address or connection string
+            instrument_channel: Channel on instrument (e.g., "CH1")
+            fixture_point: Fixture routing point name
+            spec_ref: Spec reference (overrides limit.spec_ref if provided)
+
+        Returns:
+            The Measurement object created and logged.
+
+        Example:
+            litmus_logger.measure(
+                name="output_voltage",
+                value=3.31,
+                limit=Limit(low=3.2, high=3.4, units="V"),
+                dut_pin="TP_VOUT",
+            )
+        """
+        from decimal import Decimal
+
+        # Extract limit fields if provided
+        low_limit = None
+        high_limit = None
+        nominal = None
+        comparator = None
+
+        if limit is not None:
+            low_limit = limit.low
+            high_limit = limit.high
+            nominal = limit.nominal
+            if units is None:
+                units = limit.units
+            if spec_ref is None:
+                spec_ref = limit.spec_ref
+            comparator = getattr(limit, "comparator", None)
+            if comparator is not None:
+                comparator = (
+                    str(comparator.value) if hasattr(comparator, "value") else str(comparator)
+                )
+
+        # Convert value to Decimal
+        decimal_value = Decimal(str(value)) if value is not None else None
+
+        # Create measurement
+        measurement = Measurement(
+            name=name,
+            value=decimal_value,
+            units=units,
+            low_limit=low_limit,
+            high_limit=high_limit,
+            nominal=nominal,
+            comparator=comparator,
+            spec_ref=spec_ref,
+            dut_pin=dut_pin,
+            instrument_name=instrument_name,
+            instrument_resource=instrument_resource,
+            instrument_channel=instrument_channel,
+            fixture_point=fixture_point,
+        )
+
+        # Check limits and set outcome
+        measurement.check_limit()
+
+        # Log it
+        self.log_measurement(measurement)
+
+        return measurement
 
     def finalize(self) -> TestRun:
         """Complete test run and return result."""

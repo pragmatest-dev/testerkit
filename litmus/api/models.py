@@ -12,7 +12,7 @@ class LaunchRequest(BaseModel):
     sequence_id: str | None = None  # Test sequence to run (from sequences/*.yaml)
     test_path: str = "tests"  # Fallback if no sequence specified
     operator: str | None = None
-    simulate: bool = False  # Run with simulated instruments
+    mock_instruments: bool = False  # Use mock instruments instead of real hardware
 
 
 class RunStatus(BaseModel):

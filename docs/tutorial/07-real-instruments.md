@@ -1,10 +1,10 @@
 # Step 7: Real Instruments
 
-**Goal:** Connect to real hardware with the ability to simulate when unavailable.
+**Goal:** Connect to real hardware with the ability to mock when unavailable.
 
 ## What You'll Build
 
-A test that works with real instruments OR in simulation mode using the same code.
+A test that works with real instruments OR in mock mode using the same code.
 
 ## Station Configuration
 
@@ -21,16 +21,22 @@ instruments:
   dmm:
     type: dmm
     resource: "TCPIP::192.168.1.100::INSTR"
+    mock_config:
+      voltage: 3.31       # Value returned in mock mode
+      current: 0.1
 
   psu:
     type: power_supply
     resource: "GPIB0::5::INSTR"
+    mock_config:
+      voltage: 5.0
+      current: 0.1
 ```
 
 This defines:
 - A station identity and location
-- A DMM at a TCP/IP address
-- A PSU on GPIB
+- A DMM at a TCP/IP address with mock values
+- A PSU on GPIB with mock values
 
 ## The instruments Fixture
 
@@ -52,94 +58,67 @@ def test_output_voltage(vector, instruments):
     return dmm.measure_voltage()
 ```
 
-Run with:
+Run with real hardware:
 ```bash
 pytest tests/ --station-config=stations/bench_1.yaml --dut-serial=SN001
 ```
 
-## Running in Simulation Mode
+## Running with Mock Instruments
 
-When hardware isn't available, add `--simulate`:
+When hardware isn't available, add `--mock-instruments`:
 
 ```bash
-pytest tests/ --station-config=stations/bench_1.yaml --simulate --dut-serial=SIM001
+pytest tests/ --station-config=stations/bench_1.yaml --mock-instruments --dut-serial=SIM001
 ```
 
 The **same test code** works in both modes.
 
-## How Simulation Works
+## How Mock Mode Works
 
-When `--simulate` is set:
-1. Drivers use pyvisa-sim instead of real I/O
-2. Responses come from `sim_config` values
+When `--mock-instruments` is set:
+1. Mock instruments are used instead of real drivers
+2. Responses come from `mock_config` values in station config
 3. No hardware required
 
-Configure simulation values in the station:
+## Per-Test Mock Values
+
+For tests that need specific mock values, use `_mock` in your test config:
 
 ```yaml
-# stations/bench_1.yaml
-instruments:
-  dmm:
-    type: dmm
-    resource: "TCPIP::192.168.1.100::INSTR"
-    sim_config:
-      voltage: 3.31       # Value returned in simulation
-      current: 0.1
+# tests/config.yaml
+test_output_voltage:
+  _mock:
+    dmm.measure_voltage: 3.31
+    psu.measure_current: 0.5
+  limits:
+    test_output_voltage:
+      low: 3.2
+      high: 3.4
+      units: V
 ```
 
-## The simulate Fixture
+## Mock Value Priority
 
-Access the simulation flag in custom fixtures:
+When running with `--mock-instruments`, values are resolved in order:
 
-```python
-# tests/conftest.py
-import pytest
-from litmus.instruments import DMM
+1. **Vector-level `_mock`** — Specific to this test vector
+2. **Test-level `_mock`** — Constant for all vectors in this test
+3. **Station `mock_config`** — Default for this instrument
+4. **Zero** — If nothing else configured
 
-@pytest.fixture
-def my_dmm(simulate):
-    """Custom DMM fixture that respects --simulate flag."""
-    with DMM(
-        "TCPIP::192.168.1.100::INSTR",
-        simulate=simulate,
-        sim_config={"voltage": 3.31}
-    ) as d:
-        yield d
-```
+## CI/CD Configuration
 
-The `simulate` fixture is `True` when `--simulate` is passed.
-
-## Station for CI/CD
-
-Create a fully-simulated station for CI:
+In CI, always run with `--mock-instruments`:
 
 ```yaml
-# stations/ci_station.yaml
-station:
-  id: ci_station
-  name: "CI Environment"
-  description: "Fully simulated for CI/CD"
-
-instruments:
-  dmm:
-    type: dmm
-    resource: "SIM::DMM"
-    simulate: true         # Always simulate
-    sim_config:
-      voltage: 3.31
-
-  psu:
-    type: power_supply
-    resource: "SIM::PSU"
-    simulate: true
-    sim_config:
-      voltage: 5.0
-      current: 0.1
-```
-
-Run in CI:
-```bash
-pytest tests/ --station-config=stations/ci_station.yaml --dut-serial=CI-TEST
+# .github/workflows/test.yml
+- name: Run tests
+  run: |
+    pytest tests/ \
+      --station-config=stations/bench_1.yaml \
+      --mock-instruments \
+      --dut-serial=CI-TEST \
+      -v
 ```
 
 ## VISA Address Formats
@@ -164,36 +143,6 @@ Or use the Litmus MCP tool:
 litmus_discover()
 ```
 
-## Two Levels of Simulation
-
-### Driver-Level (simulate=True)
-
-Uses pyvisa-sim. The driver sends I/O through the communication stack:
-
-```python
-from litmus.instruments import DMM
-
-dmm = DMM(
-    "TCPIP::192.168.1.100::INSTR",
-    simulate=True,
-    sim_config={"voltage": 3.3}
-)
-```
-
-**Use for:** Testing driver logic, realistic timing
-
-### Interface-Level (MockDMM)
-
-Bypasses I/O entirely:
-
-```python
-from litmus.instruments import MockDMM
-
-dmm = MockDMM(voltage=3.3)
-```
-
-**Use for:** Unit tests, fast iteration, CI
-
 ## Complete Example
 
 **stations/bench_1.yaml:**
@@ -207,13 +156,24 @@ instruments:
   dmm:
     type: dmm
     resource: "TCPIP::192.168.1.100::INSTR"
-    sim_config:
+    mock_config:
       voltage: 3.31
   psu:
     type: power_supply
     resource: "GPIB0::5::INSTR"
-    sim_config:
+    mock_config:
       voltage: 5.0
+```
+
+**tests/config.yaml:**
+```yaml
+test_output_voltage:
+  limits:
+    test_output_voltage:
+      low: 3.135
+      high: 3.465
+      nominal: 3.3
+      units: V
 ```
 
 **tests/test_power.py:**
@@ -222,7 +182,7 @@ from litmus.execution import litmus_test
 
 @litmus_test
 def test_output_voltage(vector, instruments):
-    """Works with real hardware OR simulation."""
+    """Works with real hardware OR mock mode."""
     psu = instruments["psu"]
     dmm = instruments["dmm"]
 
@@ -241,17 +201,17 @@ def test_output_voltage(vector, instruments):
 pytest tests/ --station-config=stations/bench_1.yaml --dut-serial=SN12345
 ```
 
-**Run simulated:**
+**Run with mocks:**
 ```bash
-pytest tests/ --station-config=stations/bench_1.yaml --simulate --dut-serial=SIM001
+pytest tests/ --station-config=stations/bench_1.yaml --mock-instruments --dut-serial=SIM001
 ```
 
 ## What You Learned
 
-- Station configuration with instruments
+- Station configuration with instruments and `mock_config`
 - The `instruments` fixture from station config
-- `--simulate` flag for hardware-free testing
-- Driver-level vs interface-level simulation
+- `--mock-instruments` flag for hardware-free testing
+- Per-test mock values with `_mock` in test config
 - VISA address formats
 
 ## Next Step

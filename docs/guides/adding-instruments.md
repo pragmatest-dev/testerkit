@@ -19,7 +19,7 @@ Concrete Drivers (DMM, PSU, YourCustomInstrument)
 **Key principles:**
 - Capabilities are interchangeable (any `VoltageInput` can replace another)
 - Drivers are NOT interchangeable (embrace vendor weirdness)
-- `simulate=True` is the universal simulation interface
+- `simulate=True` enables mock mode for driver-level testing
 
 ## VISA Instruments (Recommended Path)
 
@@ -69,7 +69,7 @@ dmm = MyDMM("TCPIP::192.168.1.100::INSTR")
 dmm = MyDMM(
     "TCPIP::192.168.1.100::INSTR",
     simulate=True,
-    sim_config={"voltage": 5.0, "current": 0.1}
+    mock_config={"voltage": 5.0, "current": 0.1}
 )
 ```
 
@@ -93,15 +93,15 @@ class SerialDMM(Instrument, VoltageInput):
         port: str,
         baudrate: int = 9600,
         simulate: bool = False,
-        sim_config: dict | None = None,
+        mock_config: dict | None = None,
     ):
-        super().__init__(simulate=simulate, sim_config=sim_config)
+        super().__init__(simulate=simulate, mock_config=mock_config)
         self.port = port
         self.baudrate = baudrate
         self._serial: serial.Serial | None = None
 
         # Simulation state
-        self._sim_voltage = Decimal(str(sim_config.get("voltage", 0.0))) if sim_config else Decimal("0")
+        self._sim_voltage = Decimal(str(mock_config.get("voltage", 0.0))) if mock_config else Decimal("0")
 
     def connect(self) -> None:
         if self.simulate:
@@ -167,14 +167,14 @@ class DaqmxAnalogInput(Instrument, VoltageInput):
         self,
         physical_channel: str,  # e.g., "Dev1/ai0"
         simulate: bool = False,
-        sim_config: dict | None = None,
+        mock_config: dict | None = None,
     ):
-        super().__init__(simulate=simulate, sim_config=sim_config)
+        super().__init__(simulate=simulate, mock_config=mock_config)
         self.physical_channel = physical_channel
         self._task: Any = None
 
         # Simulation state
-        self._sim_voltage = Decimal(str(sim_config.get("voltage", 0.0))) if sim_config else Decimal("0")
+        self._sim_voltage = Decimal(str(mock_config.get("voltage", 0.0))) if mock_config else Decimal("0")
 
     def connect(self) -> None:
         if self.simulate:
@@ -235,9 +235,9 @@ class USBPowerSupply(Instrument, VoltageOutput):
     def __init__(
         self,
         simulate: bool = False,
-        sim_config: dict | None = None,
+        mock_config: dict | None = None,
     ):
-        super().__init__(simulate=simulate, sim_config=sim_config)
+        super().__init__(simulate=simulate, mock_config=mock_config)
         self._device = None
 
         # Simulation state
@@ -313,22 +313,26 @@ class USBPowerSupply(Instrument, VoltageOutput):
         return Decimal(str(struct.unpack("<f", response)[0]))
 ```
 
-## Interface-Level Mocks
+## Mock Mode in Tests
 
-For unit testing without any I/O, use interface-level mocks:
+For running tests without hardware, use `--mock-instruments` with config-driven mock values:
 
-```python
-from litmus.instruments.mocks import MockDMM, MockPSU, MockELoad
-
-# Instant, no I/O overhead
-dmm = MockDMM(voltage=5.0, current=0.1)
-dmm.connect()
-v = dmm.measure_voltage()  # Returns Decimal("5.0")
-
-# Dynamic value updates
-dmm.set_value("voltage", 3.3)
-v = dmm.measure_voltage()  # Returns Decimal("3.3")
+```yaml
+# stations/my_station.yaml
+instruments:
+  dmm:
+    type: my_drivers.MyDMM
+    resource: "TCPIP::192.168.1.100::INSTR"
+    mock_config:
+      voltage: 5.0
+      current: 0.1
 ```
+
+```bash
+pytest tests/ --station-config=stations/my_station.yaml --mock-instruments
+```
+
+See [Mock Mode](simulation-mode.md) for per-test and per-vector mock configuration.
 
 ## Creating Custom Mocks
 
@@ -348,7 +352,7 @@ class MockTempLogger(Instrument, TemperatureInput):
         **kwargs,
     ):
         # Mocks always simulate
-        super().__init__(simulate=True, sim_config={})
+        super().__init__(simulate=True, mock_config={})
         self._values = {"temperature": Decimal(str(temperature))}
         self._values.update({k: Decimal(str(v)) for k, v in kwargs.items()})
 
@@ -382,7 +386,7 @@ class TestMyDMM:
         dmm = MyDMM(
             "TCPIP::192.168.1.100::INSTR",
             simulate=True,
-            sim_config={"voltage": 3.3}
+            mock_config={"voltage": 3.3}
         )
         dmm.connect()
         v = dmm.measure_voltage()
@@ -394,7 +398,7 @@ class TestMyDMM:
         with MyDMM(
             "TCPIP::192.168.1.100::INSTR",
             simulate=True,
-            sim_config={"voltage": 5.0}
+            mock_config={"voltage": 5.0}
         ) as dmm:
             assert dmm.measure_voltage() == Decimal("5.0")
 
@@ -416,7 +420,7 @@ class TestMyDMM:
 3. **Implement capability interfaces** - Enable protocol-based testing
 4. **Handle missing dependencies gracefully** - Check for optional imports
 5. **Use `Decimal` for measurements** - Avoid floating-point precision issues
-6. **Provide `sim_config` for test-specific values** - Don't hardcode defaults
+6. **Provide `mock_config` for test-specific values** - Don't hardcode defaults
 7. **Test both modes** - Simulation and (marked) hardware tests
 
 ## Registering Custom Drivers
@@ -429,12 +433,12 @@ import pytest
 from my_drivers import MyDMM, MyPSU
 
 @pytest.fixture
-def dmm(simulate):
+def dmm(mock_instruments):
     """Custom DMM fixture."""
     with MyDMM(
         "TCPIP::192.168.1.100::INSTR",
-        simulate=simulate,
-        sim_config={"voltage": 5.0}
+        simulate=mock_instruments,
+        mock_config={"voltage": 5.0}
     ) as dmm:
         yield dmm
 ```
@@ -452,7 +456,7 @@ instruments:
     type: my_drivers.MyDMM  # Full module path
     resource: "TCPIP::192.168.1.100::INSTR"
     simulate: true
-    sim_config:
+    mock_config:
       voltage: 5.0
 ```
 

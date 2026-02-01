@@ -103,8 +103,7 @@ instruments:
   <name>:                 # Instrument alias (used in tests)
     type: string          # Instrument type (dmm, scope, psu, eload, etc.)
     resource: string      # VISA address
-    simulate: boolean     # Use simulated driver (default false)
-    sim_config:           # Values for simulation
+    mock_config:          # Values for --mock-instruments mode
       voltage: decimal
       current: decimal
       resistance: decimal
@@ -175,7 +174,7 @@ points:
 | Simple bench, one product | No — use direct instrument fixtures |
 | Multiple products on same bench | Yes — map each product's pins |
 | Production test with compliance needs | Yes — provides traceability |
-| Development/CI | No — use MockDMM, MockPSU |
+| Development/CI | No — use Mock(DMM), Mock(PSU) |
 
 ## Test Configuration
 
@@ -202,7 +201,40 @@ points:
   retry:
     max_attempts: integer # Default: 1
     delay_seconds: float  # Delay between retries
+
+  _mock:                  # Mock instrument values (for --mock-instruments)
+    <instrument>.<method>: value  # Test-level constant (e.g., dmm.measure_voltage)
 ```
+
+### Per-Vector Mock Configuration
+
+For simulation mode, you can configure mock instrument return values:
+
+```yaml
+test_load_sweep:
+  vectors:
+    - load: 0.1
+      _mock:                    # Per-vector mock values
+        dmm.measure_voltage: 3.32
+        psu.measure_current: 0.12
+    - load: 0.5
+      _mock:
+        dmm.measure_voltage: 3.30
+        psu.measure_current: 0.52
+  _mock:                        # Test-level fallback
+    eload.measure_voltage: 3.3
+  limits:
+    test_load_sweep:
+      low: 3.2
+      high: 3.4
+      units: V
+```
+
+Mock value resolution order:
+1. Vector-level `_mock`
+2. Test-level `_mock`
+3. Limit `nominal` value
+4. Zero (default)
 
 ### Vector Expansion Modes
 

@@ -255,6 +255,34 @@ def litmus_test(
                 if config:
                     resolved_config.update(config)
 
+                # Extract instruments for mock configuration per vector
+                # First try kwargs (if test explicitly includes these fixtures)
+                instruments_fixture = kwargs.get("instruments")
+
+                # If not in kwargs, try to get from the plugin's active instruments
+                if instruments_fixture is None:
+                    from litmus.execution.plugin import _ACTIVE_INSTRUMENTS
+                    instruments_fixture = _ACTIVE_INSTRUMENTS if _ACTIVE_INSTRUMENTS else {}
+
+                # If still empty, extract individual instrument fixtures from kwargs
+                # This handles cases where tests use psu, dmm, eload fixtures directly
+                if not instruments_fixture:
+                    instrument_names = ["psu", "dmm", "eload", "scope"]
+                    extracted = {}
+                    for name in instrument_names:
+                        if name in kwargs and kwargs[name] is not None:
+                            extracted[name] = kwargs[name]
+                    if extracted:
+                        instruments_fixture = extracted
+
+                # Detect mock mode by checking if instruments have set_mock_value
+                using_mocks = False
+                if instruments_fixture:
+                    for inst in instruments_fixture.values():
+                        if hasattr(inst, "set_mock_value"):
+                            using_mocks = True
+                            break
+
                 # Create harness from resolved config
                 harness = TestHarness(
                     config=resolved_config,
@@ -262,6 +290,8 @@ def litmus_test(
                     retry=resolved_retry,
                     limits=resolved_limits,
                     logger=_current_logger,
+                    instruments=instruments_fixture,
+                    mock_instruments=using_mocks,
                 )
 
             # Check if pytest injected the vector sentinel as first arg

@@ -245,18 +245,8 @@ def psu():
     with PSU("GPIB0::5::INSTR") as p:
         yield p
 
-# Simulated for development (driver-level with pyvisa-sim)
-@pytest.fixture
-def sim_dmm():
-    with DMM("TCPIP::192.168.1.100::INSTR", simulate=True, sim_config={"voltage": 5.0}) as d:
-        yield d
-
-# Interface-level mocks (instant, no I/O overhead)
-@pytest.fixture
-def mock_dmm():
-    from litmus.instruments import MockDMM
-    with MockDMM(voltage=5.0) as d:
-        yield d
+# For mock mode, use --mock-instruments with station config
+# Mock values come from station mock_config or test _mock config
 ```
 
 ### Station-Based Fixtures
@@ -334,23 +324,28 @@ Custom fields are denormalized onto every measurement row for easy querying.
 
 The underlying logger that captures all measurements. Automatically active for all tests. You rarely need to access it directly—use `run_context` for custom metadata or `@litmus_test` for measurement capture.
 
-**`simulate` fixture (session-scoped):**
+**`mock_instruments` fixture (session-scoped):**
 
-Returns `True` if `--simulate` flag or `LITMUS_SIMULATE=1` environment variable is set:
+Returns `True` if `--mock-instruments` flag or `LITMUS_MOCK_INSTRUMENTS=1` environment variable is set:
 
 ```python
 @pytest.fixture
-def dmm(simulate):
-    with DMM("TCPIP::192.168.1.100::INSTR", simulate=simulate) as d:
-        yield d
+def dmm(mock_instruments):
+    if mock_instruments:
+        from litmus.instruments import Mock
+        with Mock(DMM, voltage=5.0) as d:
+            yield d
+    else:
+        with DMM("TCPIP::192.168.1.100::INSTR") as d:
+            yield d
 ```
 
-### CLI Options for Simulation
+### CLI Options for Mock Mode
 
-Run all tests in simulation mode:
+Run all tests with mock instruments:
 
 ```bash
-pytest tests/ --simulate --dut-serial=TEST001
+pytest tests/ --mock-instruments --dut-serial=TEST001
 ```
 
 ## CLI Options
@@ -361,7 +356,7 @@ pytest tests/ \
   --station=bench_1 \            # Station ID (default: station_001)
   --operator="Jane Doe" \        # Operator name
   --results-dir=./results \      # Results directory (default: results)
-  --simulate \                   # Run instruments in simulation mode
+  --mock-instruments \           # Use mock instruments instead of real hardware
   --spec=products/x/spec.yaml \  # Path to product spec YAML
   --guardband=10 \               # Default guardband percentage (default: 0)
   --station-config=stations/bench_1.yaml \  # Station config file
@@ -375,7 +370,7 @@ pytest tests/ \
 | `--station` | `station_001` | Station ID |
 | `--operator` | `None` | Operator name |
 | `--results-dir` | `results` | Directory for Parquet results |
-| `--simulate` | `False` | Run instruments in simulation mode |
+| `--mock-instruments` | `False` | Use mock instruments instead of real hardware |
 | `--spec` | `None` | Path to product spec YAML file |
 | `--guardband` | `0` | Default guardband percentage |
 | `--station-config` | `None` | Path to station configuration YAML |
@@ -507,9 +502,8 @@ from litmus.execution import litmus_test
 from litmus.instruments import DMM
 
 @pytest.fixture
-def dmm():
-    with DMM("TCPIP::192.168.1.100::INSTR", simulate=True, sim_config={"voltage": 5.02}) as d:
-        yield d
+def dmm(instruments):
+    return instruments["dmm"]
 
 @litmus_test
 def test_input_voltage(vector, dmm):

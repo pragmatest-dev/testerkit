@@ -21,7 +21,7 @@ from litmus.capabilities.interfaces import (
 )
 from litmus.config.models import FixtureConfig, FixturePoint
 from litmus.fixtures.manager import FixtureManager, PinAccessor
-from litmus.instruments import DMM, PSU, ELoad, MockDMM, MockELoad, MockPSU, Scope
+from litmus.instruments import DMM, PSU, ELoad, Mock, Scope
 
 
 class TestCapabilityProtocols:
@@ -29,32 +29,32 @@ class TestCapabilityProtocols:
 
     def test_dmm_implements_voltage_input(self):
         """DMM should implement VoltageInput protocol."""
-        dmm = MockDMM(voltage=5.0)
+        dmm = Mock(DMM,measure_voltage=5.0)
         assert isinstance(dmm, VoltageInput)
 
     def test_dmm_implements_current_input(self):
         """DMM should implement CurrentInput protocol."""
-        dmm = MockDMM(current=0.1)
+        dmm = Mock(DMM,measure_current=0.1)
         assert isinstance(dmm, CurrentInput)
 
     def test_dmm_implements_resistance_input(self):
         """DMM should implement ResistanceInput protocol."""
-        dmm = MockDMM(resistance=1000)
+        dmm = Mock(DMM,measure_resistance=1000)
         assert isinstance(dmm, ResistanceInput)
 
     def test_psu_implements_voltage_output(self):
         """PSU should implement VoltageOutput protocol."""
-        psu = MockPSU()
+        psu = Mock(PSU)
         assert isinstance(psu, VoltageOutput)
 
     def test_psu_implements_current_output(self):
         """PSU should implement CurrentOutput protocol."""
-        psu = MockPSU()
+        psu = Mock(PSU)
         assert isinstance(psu, CurrentOutput)
 
     def test_eload_implements_constant_current_load(self):
         """ELoad should implement ConstantCurrentLoad protocol."""
-        eload = MockELoad()
+        eload = Mock(ELoad,)
         assert isinstance(eload, ConstantCurrentLoad)
 
 
@@ -66,14 +66,14 @@ class TestCapabilityBasedTesting:
         return meter.measure_voltage()
 
     def test_mock_dmm_as_voltage_input(self):
-        """MockDMM should work as VoltageInput."""
-        dmm = MockDMM(voltage=3.3)
+        """Mock(DMM) should work as VoltageInput."""
+        dmm = Mock(DMM,measure_voltage=3.3)
         voltage = self.measure_voltage_portable(dmm)
         assert voltage == Decimal("3.3")
 
     def test_mock_eload_as_voltage_input(self):
-        """MockELoad should work as VoltageInput (via measure_voltage)."""
-        eload = MockELoad(voltage=5.0)
+        """Mock(ELoad) should work as VoltageInput (via measure_voltage)."""
+        eload = Mock(ELoad,measure_voltage=5.0)
         # ELoad has measure_voltage method
         assert eload.measure_voltage() == Decimal("5.0")
 
@@ -167,9 +167,9 @@ class TestFixtureManager:
     def mock_instruments(self):
         """Create mock instruments dictionary."""
         return {
-            "psu_main": MockPSU(),
-            "dmm_main": MockDMM(voltage=3.3),
-            "eload_main": MockELoad(voltage=3.3),
+            "psu_main": Mock(PSU),
+            "dmm_main": Mock(DMM,measure_voltage=3.3),
+            "eload_main": Mock(ELoad,measure_voltage=3.3),
         }
 
     def test_get_instrument_for_point(self, simple_fixture_config, mock_instruments):
@@ -241,8 +241,8 @@ class TestPinAccessor:
             },
         )
         instruments = {
-            "psu_main": MockPSU(),
-            "dmm_main": MockDMM(voltage=3.3),
+            "psu_main": Mock(PSU),
+            "dmm_main": Mock(DMM,measure_voltage=3.3),
         }
         manager = FixtureManager(config, instruments)
         return PinAccessor(manager)
@@ -250,7 +250,7 @@ class TestPinAccessor:
     def test_getitem_returns_instrument(self, pin_accessor):
         """pins[name] should return the instrument."""
         dmm = pin_accessor["VOUT"]
-        assert isinstance(dmm, MockDMM)
+        assert isinstance(dmm, DMM)
 
     def test_contains_check(self, pin_accessor):
         """'pin in pins' should work."""
@@ -287,9 +287,9 @@ class TestEndToEndWorkflow:
     def test_power_supply_characterization(self):
         """Simulate a power supply characterization test."""
         # Setup instruments (all mocked)
-        psu = MockPSU()
-        dmm = MockDMM(voltage=3.3)
-        eload = MockELoad(voltage=3.3)
+        psu = Mock(PSU)
+        dmm = Mock(DMM,measure_voltage=3.3)
+        eload = Mock(ELoad,measure_voltage=3.3)
 
         # Connect instruments
         psu.connect()
@@ -315,7 +315,7 @@ class TestEndToEndWorkflow:
             assert loaded_voltage == Decimal("3.3")  # Mock doesn't change
 
             # Update mock to simulate load regulation
-            dmm.set_value("voltage", 3.25)
+            dmm.set_mock_value("measure_voltage", 3.25)
             loaded_voltage = dmm.measure_voltage()
             assert loaded_voltage == Decimal("3.25")
 
@@ -329,8 +329,8 @@ class TestEndToEndWorkflow:
 
     def test_multi_point_sweep(self):
         """Simulate a sweep across multiple test points."""
-        psu = MockPSU()
-        dmm = MockDMM()
+        psu = Mock(PSU)
+        dmm = Mock(DMM)
         results = []
 
         psu.connect()
@@ -341,7 +341,7 @@ class TestEndToEndWorkflow:
             for vin in [3.3, 5.0, 12.0]:
                 # Simulate output voltage based on input (mock behavior)
                 expected_vout = vin * 0.66  # ~66% of input
-                dmm.set_value("voltage", expected_vout)
+                dmm.set_mock_value("measure_voltage", expected_vout)
 
                 # Set and measure
                 psu.set_voltage(Decimal(str(vin)))

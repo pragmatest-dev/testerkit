@@ -75,17 +75,15 @@ instruments:
   psu:
     type: psu
     resource: "TCPIP::192.168.1.101::INSTR"
-    simulate: true
-    sim_config:
+    mock_config:
       voltage: 5.0
       current: 0.1
 
   dmm:
     type: dmm
     resource: "TCPIP::192.168.1.102::INSTR"
-    simulate: true
-    sim_config:
-      voltage: 3.31  # Simulated output measurement
+    mock_config:
+      voltage: 3.31  # Value returned in mock mode
 ```
 
 ### 3. Create conftest.py
@@ -154,8 +152,8 @@ def test_output_voltage(vector, psu, dmm):
 ### 6. Run the Test
 
 ```bash
-# With simulation (no hardware required)
-pytest tests/ --station-config=stations/my_station.yaml --simulate --dut-serial=TEST001 -v
+# With mock instruments (no hardware required)
+pytest tests/ --station-config=stations/my_station.yaml --mock-instruments --dut-serial=TEST001 -v
 
 # With real hardware
 pytest tests/ --station-config=stations/my_station.yaml --dut-serial=SN001 -v

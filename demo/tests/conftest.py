@@ -12,7 +12,7 @@ This conftest demonstrates TWO approaches to instrument access:
 
 Run tests with:
     cd demo
-    pytest tests/ --station=demo_station_001 --simulate -v
+    pytest tests/ --station=demo_station_001 --mock-instruments -v
 """
 
 import pytest

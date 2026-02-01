@@ -31,8 +31,7 @@ Each instrument has:
 |-------|-------------|
 | `type` | Instrument type (dmm, scope, psu, eload, etc.) |
 | `resource` | VISA address or connection string |
-| `simulate` | Use simulated driver (default: false) |
-| `sim_config` | Values for simulation |
+| `mock_config` | Values for `--mock-instruments` mode |
 
 ### Common Instrument Types
 
@@ -44,51 +43,31 @@ Each instrument has:
 | `eload` | Electronic Load | current sink |
 | `funcgen` | Function Generator | waveform output |
 
-## Simulated Mode
+## Mock Mode
 
-For development without hardware, use `simulate: true`:
+For development without hardware, use `--mock-instruments`:
+
+```bash
+pytest tests/ --station-config=stations/bench_1.yaml --mock-instruments --dut-serial=SIM001
+```
+
+Configure mock values in the station:
 
 ```yaml
 instruments:
   dmm:
     type: dmm
     resource: "TCPIP::192.168.1.100::INSTR"
-    simulate: true
-    sim_config:
+    mock_config:
       voltage: 3.31
       current: 0.1
 ```
 
-### Simulation Levels
-
-Litmus supports two levels of simulation:
-
-**1. Driver-level simulation (pyvisa-sim)**
-
-Uses `simulate=True` on the driver. The driver sends simulated I/O through the full communication stack:
-
-```python
-from litmus.instruments import DMM
-
-dmm = DMM("TCPIP::192.168.1.100::INSTR", simulate=True, sim_config={"voltage": 3.3})
-```
-
-**2. Interface-level mocks**
-
-Uses mock classes that implement capability interfaces directly. No I/O overhead:
-
-```python
-from litmus.instruments import MockDMM
-
-dmm = MockDMM(voltage=3.3)
-```
-
-### When to Use Each
+### When to Use Mock Mode
 
 | Approach | Use Case |
 |----------|----------|
-| `--simulate` flag | Development, CI, station without hardware |
-| Mock objects | Unit tests, fast iteration |
+| `--mock-instruments` flag | Development, CI, station without hardware |
 | Real hardware | Production, calibration |
 
 ## Station Types and Instances
@@ -218,20 +197,25 @@ stations/
 station:
   id: ci_station
   name: "CI Environment"
-  description: "Fully simulated for CI/CD"
+  description: "For CI/CD with --mock-instruments"
 
 instruments:
   dmm:
     type: dmm
-    resource: "SIM::DMM"
-    simulate: true
-    sim_config:
+    resource: "TCPIP::192.168.1.100::INSTR"
+    mock_config:
       voltage: 3.3
       current: 0.1
   psu:
     type: power_supply
-    resource: "SIM::PSU"
-    simulate: true
+    resource: "GPIB0::5::INSTR"
+    mock_config:
+      voltage: 5.0
+```
+
+Run in CI:
+```bash
+pytest tests/ --station-config=stations/ci_station.yaml --mock-instruments --dut-serial=CI-TEST
 ```
 
 ## Next Steps

@@ -20,7 +20,7 @@ PATTERNS DEMONSTRATED:
 
 Run with:
     cd demo
-    pytest tests/test_architect.py --station=demo_station_001 --simulate -v
+    pytest tests/test_architect.py --station=demo_station_001 --mock-instruments -v
 """
 
 from decimal import Decimal
@@ -121,7 +121,7 @@ class TestMeasureDecorator:
 
 
 @litmus_step
-def verify_dut_connection(psu):
+def verify_dut_connection(psu, mock_instruments: bool = False):
     """Step that verifies DUT is connected (no measurement).
 
     @litmus_step tracks this as a test step without requiring
@@ -129,6 +129,9 @@ def verify_dut_connection(psu):
     - Setup verification
     - Configuration steps
     - Operator confirmations
+
+    In mock mode, the check is skipped since mock
+    instruments return static values.
     """
     # In production, this might check continuity or ID
     psu.set_voltage(0.1)
@@ -137,8 +140,9 @@ def verify_dut_connection(psu):
     current = float(psu.measure_current())
     psu.disable_output()
 
-    # Assert (step passes/fails based on this)
-    assert current < 0.001, "DUT appears to be shorted!"
+    # In mock mode, skip the assertion (mock values are static)
+    if not mock_instruments:
+        assert current < 0.001, "DUT appears to be shorted!"
 
 
 @litmus_step
@@ -155,14 +159,14 @@ def configure_for_full_load(psu, eload):
 class TestLitmusStep:
     """Tests using @litmus_step decorated functions."""
 
-    def test_with_step_functions(self, psu, dmm, eload, litmus_logger):
+    def test_with_step_functions(self, psu, dmm, eload, litmus_logger, mock_instruments):
         """Combine @litmus_step with measurements.
 
         Steps are tracked in the test run even though they don't
         produce measurements.
         """
         # Step 1: Verify connection (tracked as step)
-        verify_dut_connection(psu)
+        verify_dut_connection(psu, mock_instruments=mock_instruments)
 
         # Step 2: Configure (tracked as step)
         configure_for_full_load(psu, eload)
@@ -324,7 +328,6 @@ class TestDirectHarness:
 class TestSpecDriven:
     """Tests using SpecContext for spec-driven limit derivation."""
 
-    @pytest.mark.skip(reason="Requires spec_context fixture setup")
     def test_spec_derived_limits(self, psu, dmm, spec_context, litmus_logger):
         """Limits derived automatically from product spec.
 
@@ -355,7 +358,6 @@ class TestSpecDriven:
                 # current vector conditions (temperature, load)
                 harness.measure("output_voltage", dmm.measure_dc_voltage())
 
-    @pytest.mark.skip(reason="Requires spec_context fixture setup")
     def test_explicit_limit_from_spec(self, psu, dmm, spec_context, litmus_logger):
         """Explicitly get limit from spec for custom logic."""
         psu.set_voltage(5.0)

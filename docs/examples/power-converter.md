@@ -361,7 +361,7 @@ import pytest
 def pytest_addoption(parser):
     parser.addoption("--dut-serial", action="store", required=True)
     parser.addoption("--station", action="store", default="bench_1")
-    parser.addoption("--simulate", action="store_true")
+    parser.addoption("--mock-instruments", action="store_true")
 
 
 @pytest.fixture
@@ -376,7 +376,7 @@ def station_id(request):
 
 @pytest.fixture
 def simulate(request):
-    return request.config.getoption("--simulate")
+    return request.config.getoption("--mock-instruments")
 ```
 
 ## Running Tests
@@ -386,7 +386,7 @@ def simulate(request):
 ```bash
 pytest tests/ \
   --station=bench_1 \
-  --simulate \
+  --mock-instruments \
   --dut-serial=SIM001 \
   -v
 ```
@@ -469,7 +469,7 @@ jobs:
         run: |
           pytest tests/ \
             --station=ci_station \
-            --simulate \
+            --mock-instruments \
             --dut-serial=CI-TEST \
             -v
 ```

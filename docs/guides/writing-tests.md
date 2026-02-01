@@ -131,22 +131,6 @@ test_flaky:
 
 ## Instrument Fixtures
 
-### Direct Fixtures
-
-```python
-import pytest
-from litmus.instruments import DMM
-
-@pytest.fixture
-def dmm(simulate):
-    with DMM(
-        "TCPIP::192.168.1.100::INSTR",
-        simulate=simulate,
-        sim_config={"voltage": 3.31}
-    ) as d:
-        yield d
-```
-
 ### Station Instruments
 
 ```python
@@ -247,7 +231,7 @@ pytest tests/ \
   --station=bench_1 \         # Station ID
   --operator="Jane Doe" \     # Operator name
   --test-phase=production \   # Test phase
-  --simulate \                # Simulation mode
+  --mock-instruments \        # Mock instruments mode
   -v
 ```
 

@@ -7,7 +7,7 @@ It demonstrates **every major feature** of the framework.
 
 ```bash
 cd demo
-pytest tests/test_power_board.py --station=demo_station_001 --simulate -v
+pytest tests/test_power_board.py --station=demo_station_001 --mock-instruments -v
 ```
 
 ## Project Structure
@@ -255,19 +255,19 @@ measurement = Measurement(
 
 ```bash
 # Basic run with simulation
-pytest tests/test_power_board.py --station=demo_station_001 --simulate -v
+pytest tests/test_power_board.py --station=demo_station_001 --mock-instruments -v
 
 # Run specific test
-pytest tests/test_power_board.py::test_load_sweep --station=demo_station_001 --simulate -v
+pytest tests/test_power_board.py::test_load_sweep --station=demo_station_001 --mock-instruments -v
 
 # With DUT serial number (for production)
-pytest tests/ --station=demo_station_001 --dut-serial=DPB001-0001 --simulate -v
+pytest tests/ --station=demo_station_001 --dut-serial=DPB001-0001 --mock-instruments -v
 
 # With custom results directory
-pytest tests/ --results-dir=./my_results --simulate -v
+pytest tests/ --results-dir=./my_results --mock-instruments -v
 
 # Pure pytest examples
-pytest tests/test_pure_pytest.py --station=demo_station_001 --simulate -v
+pytest tests/test_pure_pytest.py --station=demo_station_001 --mock-instruments -v
 ```
 
 ## Querying Results
@@ -343,8 +343,8 @@ instruments:
 ```
 
 Simulation is also enabled by:
-- `--simulate` pytest flag
-- `LITMUS_SIMULATE=1` environment variable (set by UI)
+- `--mock-instruments` pytest flag
+- `LITMUS_MOCK_INSTRUMENTS=1` environment variable (set by UI)
 
 ## Next Steps
 

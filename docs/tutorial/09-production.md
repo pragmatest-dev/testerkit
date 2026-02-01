@@ -197,11 +197,11 @@ instruments:
   psu:
     type: power_supply
     resource: "GPIB0::5::INSTR"
-    sim_config: {voltage: 5.0}
+    mock_config: {voltage: 5.0}
   dmm:
     type: dmm
     resource: "TCPIP::192.168.1.100::INSTR"
-    sim_config: {voltage: 3.31}
+    mock_config: {voltage: 3.31}
 ```
 
 **fixtures/power_board_fixture.yaml:**
@@ -266,7 +266,7 @@ With simulation:
 pytest tests/ \
   --station-config=stations/bench_1.yaml \
   --fixture-config=fixtures/power_board_fixture.yaml \
-  --simulate \
+  --mock-instruments \
   --dut-serial=SIM001 \
   -v
 ```

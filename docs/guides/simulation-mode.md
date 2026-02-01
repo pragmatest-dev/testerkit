@@ -1,243 +1,209 @@
-# Simulation Mode
+# Mock Mode
 
-Develop and test without hardware using Litmus simulation features.
+Run tests without hardware using Litmus mock instruments.
 
-## Overview
+## Quick Start
 
-Litmus supports two simulation levels:
+Add `--mock-instruments` to run without hardware:
 
-| Level | Method | Use Case |
-|-------|--------|----------|
-| Driver-level | `simulate=True` | Integration tests, realistic timing |
-| Interface-level | `MockDMM`, etc. | Unit tests, instant response |
-
-## Driver-Level Simulation
-
-### Per-Instrument
-
-```python
-from litmus.instruments import DMM
-
-dmm = DMM(
-    "TCPIP::192.168.1.100::INSTR",
-    simulate=True,
-    sim_config={"voltage": 3.31}
-)
-dmm.connect()
-v = dmm.measure_voltage()  # Returns Decimal("3.31")
+```bash
+pytest tests/ --station-config=stations/bench_1.yaml --mock-instruments --dut-serial=SIM001
 ```
 
-### Station Configuration
+The same test code works with real hardware or mocks.
+
+## Configuring Mock Values
+
+### Station-Level (Default Values)
+
+Define default mock values in your station config:
 
 ```yaml
 # stations/bench_1.yaml
+station:
+  id: bench_1
+  name: "Production Bench 1"
+
 instruments:
   dmm:
     type: dmm
     resource: "TCPIP::192.168.1.100::INSTR"
-    simulate: true
-    sim_config:
+    mock_config:
       voltage: 3.31
       current: 0.1
-```
+      resistance: 1000
 
-### Command-Line Flag
-
-```bash
-pytest tests/ --station=bench_1 --simulate --dut-serial=SIM001
-```
-
-The `--simulate` flag enables simulation for all instruments.
-
-## Interface-Level Mocks
-
-### Direct Use
-
-```python
-from litmus.instruments import MockDMM, MockPSU
-
-# Create mock with initial values
-dmm = MockDMM(voltage=3.31, current=0.1)
-dmm.connect()
-
-v = dmm.measure_voltage()  # Instant, returns Decimal("3.31")
-
-# Update values
-dmm.set_value("voltage", 5.0)
-v = dmm.measure_voltage()  # Returns Decimal("5.0")
-```
-
-### Available Mocks
-
-| Mock | Simulates |
-|------|-----------|
-| `MockDMM` | Digital multimeter |
-| `MockPSU` | Power supply |
-| `MockELoad` | Electronic load |
-| `MockScope` | Oscilloscope |
-| `MockFuncGen` | Function generator |
-
-### In Tests
-
-```python
-import pytest
-from litmus.instruments import MockDMM
-
-@pytest.fixture
-def dmm():
-    """Mock DMM for testing."""
-    with MockDMM(voltage=3.31) as d:
-        yield d
-
-def test_voltage(dmm):
-    v = dmm.measure_voltage()
-    assert float(v) > 3.0
-```
-
-## Simulation Patterns
-
-### Environment-Based
-
-```python
-import os
-from litmus.instruments import DMM
-
-simulate = os.environ.get("LITMUS_SIMULATE", "").lower() == "true"
-
-with DMM("TCPIP::192.168.1.100::INSTR", simulate=simulate) as dmm:
-    voltage = dmm.measure_voltage()
-```
-
-### pytest Fixture
-
-```python
-@pytest.fixture
-def simulate(request):
-    """Get simulation mode from command line."""
-    return request.config.getoption("--simulate", False)
-
-@pytest.fixture
-def dmm(simulate):
-    """DMM that respects --simulate flag."""
-    with DMM(
-        "TCPIP::192.168.1.100::INSTR",
-        simulate=simulate,
-        sim_config={"voltage": 3.31}
-    ) as d:
-        yield d
-```
-
-### CI Station
-
-```yaml
-# stations/ci_station.yaml
-station:
-  id: ci_station
-  name: "CI Environment"
-
-instruments:
-  dmm:
-    type: dmm
-    resource: "SIM::DMM"
-    simulate: true
-    sim_config:
-      voltage: 3.31
   psu:
     type: power_supply
-    resource: "SIM::PSU"
-    simulate: true
+    resource: "GPIB0::5::INSTR"
+    mock_config:
+      voltage: 5.0
+      current: 0.5
 ```
 
-```bash
-# In CI pipeline
-pytest tests/ --station=ci_station --dut-serial=CI-TEST
-```
+### Test-Level (Override for Specific Tests)
 
-## Configuring Simulation Values
-
-### Static Values
+Override mock values for a specific test:
 
 ```yaml
-sim_config:
-  voltage: 3.31
-  current: 0.1
-  resistance: 1000
+# tests/config.yaml
+test_output_voltage:
+  _mock:
+    dmm.measure_voltage: 3.31
+    psu.measure_current: 0.5
+  limits:
+    test_output_voltage:
+      low: 3.2
+      high: 3.4
+      nominal: 3.3
+      units: V
 ```
 
-### Dynamic Updates
+The `_mock` key maps `instrument.method` to return values.
 
-```python
-from litmus.instruments import MockDMM
+### Vector-Level (Different Values per Condition)
 
-dmm = MockDMM(voltage=3.31)
-dmm.connect()
+For parametrized tests with different outputs per condition:
 
-# Initial value
-v1 = dmm.measure_voltage()  # 3.31
-
-# Change simulated value
-dmm.set_value("voltage", 5.0)
-v2 = dmm.measure_voltage()  # 5.0
+```yaml
+# tests/config.yaml
+test_load_regulation:
+  vectors:
+    - load: 0.1
+      _mock:
+        dmm.measure_voltage: 3.32
+        psu.measure_current: 0.15
+    - load: 0.5
+      _mock:
+        dmm.measure_voltage: 3.30
+        psu.measure_current: 0.55
+    - load: 0.8
+      _mock:
+        dmm.measure_voltage: 3.28
+        psu.measure_current: 0.85
+  limits:
+    test_load_regulation:
+      low: 3.2
+      high: 3.4
+      units: V
 ```
 
-### Behavior Simulation
+Each vector gets its own mock values, simulating realistic output changes.
 
-For more complex simulation, extend the mock:
+## Mock Value Priority
 
-```python
-from decimal import Decimal
-from litmus.instruments import MockDMM
+When running with `--mock-instruments`, values are resolved in order:
 
-class RealisticMockDMM(MockDMM):
-    """Mock DMM with noise and drift."""
+1. **Vector-level `_mock`** — Specific to this test vector
+2. **Test-level `_mock`** — Constant for all vectors in this test
+3. **Limit `nominal`** — From the measurement's limit config
+4. **Station `mock_config`** — Default for this instrument
+5. **Zero** — Default if nothing else configured
 
-    def measure_voltage(self):
-        import random
-        base = float(self._values["voltage"])
-        noise = random.gauss(0, 0.01)  # 10mV noise
-        return Decimal(str(round(base + noise, 4)))
+This allows realistic tests where:
+- Simple tests use limit nominal values automatically
+- Complex tests configure per-vector outputs for realistic sweeps
+
+## CI/CD Configuration
+
+```yaml
+# .github/workflows/test.yml
+- name: Run tests
+  run: |
+    pytest tests/ \
+      --station-config=stations/bench_1.yaml \
+      --mock-instruments \
+      --dut-serial=CI-TEST \
+      -v
 ```
 
-## Testing Both Modes
+## Environment Variable
 
-### Parametrized Tests
+Set `LITMUS_MOCK_INSTRUMENTS=1` to enable mock mode without the CLI flag:
+
+```bash
+export LITMUS_MOCK_INSTRUMENTS=1
+pytest tests/ --station-config=stations/bench_1.yaml --dut-serial=CI-TEST
+```
+
+## The mock_instruments Fixture
+
+Access the mock flag in custom fixtures:
 
 ```python
-import pytest
-from litmus.instruments import DMM, MockDMM
-
-@pytest.fixture(params=["mock", "simulate"])
-def dmm(request):
-    if request.param == "mock":
-        with MockDMM(voltage=3.31) as d:
-            yield d
+@pytest.fixture
+def my_custom_setup(mock_instruments):
+    """Setup that behaves differently in mock mode."""
+    if mock_instruments:
+        # Skip hardware initialization
+        yield {"mode": "mock"}
     else:
-        with DMM(
-            "TCPIP::192.168.1.100::INSTR",
-            simulate=True,
-            sim_config={"voltage": 3.31}
-        ) as d:
-            yield d
-
-def test_measure_voltage(dmm):
-    """Test works with both mock and simulated driver."""
-    v = dmm.measure_voltage()
-    assert float(v) == pytest.approx(3.31, abs=0.1)
+        # Real hardware setup
+        yield {"mode": "hardware"}
 ```
 
-### Hardware Tests
+## Best Practices
+
+### 1. Use Realistic Values
+
+Configure mock values close to real measurements:
+
+```yaml
+# Good: realistic values
+mock_config:
+  voltage: 3.31
+  current: 0.102
+
+# Bad: obviously fake
+mock_config:
+  voltage: 1234
+  current: 5678
+```
+
+### 2. Test Edge Cases
+
+Use vector-level `_mock` to simulate failure conditions:
+
+```yaml
+test_out_of_range_handling:
+  vectors:
+    - condition: normal
+      _mock:
+        dmm.measure_voltage: 3.3
+    - condition: high
+      _mock:
+        dmm.measure_voltage: 99.99  # Way out of spec
+```
+
+### 3. Match Limit Nominals
+
+For simple tests, configure mock values to match limit nominals:
+
+```yaml
+test_voltage:
+  _mock:
+    dmm.measure_voltage: 3.3  # Matches nominal
+  limits:
+    test_voltage:
+      low: 3.135
+      high: 3.465
+      nominal: 3.3
+      units: V
+```
+
+## Hardware Tests
+
+For tests that require real hardware:
 
 ```python
 import pytest
 
 @pytest.mark.hardware
-def test_real_measurement():
+def test_real_measurement(instruments):
     """Test requiring real hardware."""
-    from litmus.instruments import DMM
-
-    with DMM("TCPIP::192.168.1.100::INSTR") as dmm:
-        v = dmm.measure_voltage()
-        assert isinstance(v, Decimal)
+    dmm = instruments["dmm"]
+    v = dmm.measure_voltage()
+    assert isinstance(v, Decimal)
 ```
 
 Run hardware tests separately:
@@ -247,93 +213,8 @@ pytest -m hardware           # Only hardware tests
 pytest -m "not hardware"     # Skip hardware tests
 ```
 
-## Best Practices
-
-### 1. Default to Simulation
-
-Make tests run simulated by default:
-
-```python
-# conftest.py
-def pytest_addoption(parser):
-    parser.addoption(
-        "--hardware",
-        action="store_true",
-        help="Run with real hardware (default: simulate)"
-    )
-
-@pytest.fixture
-def simulate(request):
-    return not request.config.getoption("--hardware")
-```
-
-### 2. Realistic Values
-
-Use values close to real measurements:
-
-```yaml
-# Good: realistic values
-sim_config:
-  voltage: 3.31
-  current: 0.102
-
-# Bad: obviously fake
-sim_config:
-  voltage: 1234
-  current: 5678
-```
-
-### 3. Test Edge Cases
-
-Simulate failure conditions:
-
-```python
-def test_out_of_range():
-    dmm = MockDMM(voltage=99.99)  # Way out of spec
-    dmm.connect()
-    v = dmm.measure_voltage()
-    # Test handles out-of-range values correctly
-```
-
-### 4. CI Configuration
-
-```yaml
-# .github/workflows/test.yml
-- name: Run tests
-  run: |
-    pytest tests/ \
-      --station=ci_station \
-      --dut-serial=CI-TEST \
-      -v
-```
-
-## Comparison
-
-| Feature | `simulate=True` | `MockDMM` |
-|---------|----------------|-----------|
-| I/O through pyvisa-sim | Yes | No |
-| Realistic timing | Yes | No |
-| Tests driver code | Yes | No |
-| Speed | ~5-50ms/call | Instant |
-| Dependencies | pyvisa-sim | None |
-| Use case | Integration | Unit tests |
-
-## When to Use Each
-
-### Use `simulate=True` when:
-- Testing driver communication logic
-- Need realistic timing behavior
-- Testing error handling
-- Integration testing
-
-### Use `MockDMM` when:
-- Unit testing business logic
-- CI/CD pipelines need speed
-- No pyvisa dependency wanted
-- Testing in isolation
-
 ## Next Steps
 
 - [Writing Tests](writing-tests.md) — Test patterns
 - [Configuring Stations](configuring-stations.md) — Station configuration
-- [Adding Instruments](adding-instruments.md) — Custom drivers with simulation
+- [Adding Instruments](adding-instruments.md) — Custom drivers

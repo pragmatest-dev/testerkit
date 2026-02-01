@@ -17,12 +17,19 @@ import yaml
 # Project root management
 # =============================================================================
 
-_project_root: Path | None = None
 
+def get_project_root(project: str | None = None) -> Path:
+    """Get the project root path.
 
-def get_project_root() -> Path:
-    """Get the active project root. Returns cwd if not explicitly set."""
-    return _project_root or Path.cwd()
+    Args:
+        project: Explicit project path. If None, uses cwd.
+
+    Returns:
+        Resolved project root path.
+    """
+    if project:
+        return Path(project).expanduser().resolve()
+    return Path.cwd()
 
 
 # =============================================================================
@@ -38,24 +45,35 @@ def litmus_tool(
     content: dict[str, Any] | None = None,
     create: bool = True,
     scaffold: bool = True,
+    project: str | None = None,
 ) -> dict[str, Any]:
-    """Unified CRUD operations dispatcher."""
+    """Unified CRUD operations dispatcher.
+
+    Args:
+        project: Project root path. Required for list/get/save/read actions.
+                 For init action, use 'path' parameter instead.
+    """
     valid_actions = ["init", "list", "get", "save", "read"]
     if action not in valid_actions:
         return {"error": f"Unknown action '{action}'. Valid: {valid_actions}"}
 
     if action == "init":
         return _init_project(path, create, scaffold)
-    elif action == "list":
+
+    # All other actions require project parameter
+    if not project:
+        return {"error": f"action='{action}' requires 'project' parameter - use the path from litmus(action='init')"}
+
+    if action == "list":
         if not type:
             return {"error": "action='list' requires 'type' parameter"}
-        return _list_entities(type)
+        return _list_entities(type, project)
     elif action == "get":
         if not type:
             return {"error": "action='get' requires 'type' parameter"}
         if not id:
             return {"error": "action='get' requires 'id' parameter"}
-        return _get_entity(type, id)
+        return _get_entity(type, id, project)
     elif action == "save":
         if not type:
             return {"error": "action='save' requires 'type' parameter"}
@@ -63,11 +81,11 @@ def litmus_tool(
             return {"error": "action='save' requires 'id' parameter"}
         if not content:
             return {"error": "action='save' requires 'content' parameter"}
-        return _save_entity(type, id, content)
+        return _save_entity(type, id, content, project)
     elif action == "read":
         if not path:
             return {"error": "action='read' requires 'path' parameter"}
-        return _read_file(path)
+        return _read_file(path, project)
 
     return {"error": "Not implemented"}
 
@@ -83,7 +101,6 @@ def _init_project(
     scaffold: bool = True,
 ) -> dict[str, Any]:
     """Initialize or switch to a project directory."""
-    global _project_root
 
     # If no path, report current status
     if path is None:
@@ -96,11 +113,11 @@ def _init_project(
                         "name": item.name,
                         "type": "dir" if item.is_dir() else "file",
                     })
+
         return {
             "project_root": str(root),
-            "explicitly_set": _project_root is not None,
             "contents": contents,
-            "message": "Current project root" if _project_root else "Using cwd (use action='init' with path to set)",
+            "message": f"Current directory: {root}. Use action='init' with path to initialize a project.",
         }
 
     project_path = Path(path).expanduser().resolve()
@@ -113,8 +130,6 @@ def _init_project(
 
     if not project_path.is_dir():
         return {"error": f"Path is not a directory: {path}"}
-
-    _project_root = project_path
 
     created_dirs = []
     created_files = []
@@ -165,13 +180,13 @@ Example test pattern:
 """
 
 import pytest
-from litmus.instruments.mocks import MockDMM, MockPSU, MockELoad
+from litmus.instruments import DMM, PSU, ELoad, Mock
 
 
 @pytest.fixture
 def dmm():
     """Simulated DMM - returns last measured/set value."""
-    dmm = MockDMM()  # No hardcoded values - responsive to test
+    dmm = Mock(DMM)  # No hardcoded values - responsive to test
     dmm.connect()
     yield dmm
     dmm.disconnect()
@@ -180,7 +195,7 @@ def dmm():
 @pytest.fixture
 def psu():
     """Simulated PSU - tracks voltage/current settings."""
-    psu = MockPSU()  # No hardcoded values - test sets conditions
+    psu = Mock(PSU)  # No hardcoded values - test sets conditions
     psu.connect()
     yield psu
     psu.disconnect()
@@ -189,7 +204,7 @@ def psu():
 @pytest.fixture
 def eload():
     """Simulated electronic load."""
-    eload = MockELoad()  # No hardcoded values
+    eload = Mock(ELoad)  # No hardcoded values
     eload.connect()
     yield eload
     eload.disconnect()
@@ -246,11 +261,11 @@ results/
 
     return {
         "success": True,
-        "project_root": str(_project_root),
+        "project_root": str(project_path),
         "created_directories": created_dirs,
         "created_files": created_files,
         "contents": contents,
-        "message": f"Project initialized at {_project_root}",
+        "message": f"Project initialized at {project_path}",
         "next_steps": [
             "Run 'uv sync' to install dependencies",
             "Use litmus(action='read', path='template:test') to see test pattern",
@@ -266,31 +281,31 @@ results/
 ENTITY_TYPES = ["station", "product", "fixture", "sequence", "instrument", "run"]
 
 
-def _list_entities(entity_type: str) -> list[dict[str, Any]] | dict[str, Any]:
+def _list_entities(entity_type: str, project: str) -> list[dict[str, Any]] | dict[str, Any]:
     """List entities of a given type."""
     if entity_type not in ENTITY_TYPES:
         return {"error": f"Unknown type '{entity_type}'. Valid: {ENTITY_TYPES}"}
 
     if entity_type == "station":
-        return _list_stations()
+        return _list_stations(project)
     elif entity_type == "product":
-        return _list_products()
+        return _list_products(project)
     elif entity_type == "fixture":
-        return _list_fixtures()
+        return _list_fixtures(project)
     elif entity_type == "sequence":
-        return _list_sequences()
+        return _list_sequences(project)
     elif entity_type == "instrument":
-        return _list_instruments()
+        return _list_instruments(project)
     elif entity_type == "run":
-        return _list_runs()
+        return _list_runs(project)
 
     return []
 
 
-def _list_stations() -> list[dict[str, Any]]:
+def _list_stations(project: str) -> list[dict[str, Any]]:
     """List all station configurations."""
     stations = []
-    stations_dir = get_project_root() / "stations"
+    stations_dir = get_project_root(project) / "stations"
 
     if not stations_dir.exists():
         return []
@@ -314,10 +329,10 @@ def _list_stations() -> list[dict[str, Any]]:
     return stations
 
 
-def _list_products() -> list[dict[str, Any]]:
+def _list_products(project: str) -> list[dict[str, Any]]:
     """List all product specifications from products/ directory."""
     products = []
-    products_dir = get_project_root() / "products"
+    products_dir = get_project_root(project) / "products"
 
     if not products_dir.exists():
         return []
@@ -345,10 +360,10 @@ def _list_products() -> list[dict[str, Any]]:
     return products
 
 
-def _list_fixtures() -> list[dict[str, Any]]:
+def _list_fixtures(project: str) -> list[dict[str, Any]]:
     """List all fixture configurations."""
     fixtures = []
-    fixtures_dir = get_project_root() / "fixtures"
+    fixtures_dir = get_project_root(project) / "fixtures"
 
     if not fixtures_dir.exists():
         return []
@@ -374,10 +389,10 @@ def _list_fixtures() -> list[dict[str, Any]]:
     return fixtures
 
 
-def _list_sequences() -> list[dict[str, Any]]:
+def _list_sequences(project: str) -> list[dict[str, Any]]:
     """List available test sequences."""
     sequences = []
-    seq_dir = get_project_root() / "sequences"
+    seq_dir = get_project_root(project) / "sequences"
 
     if not seq_dir.exists():
         return []
@@ -401,10 +416,10 @@ def _list_sequences() -> list[dict[str, Any]]:
     return sequences
 
 
-def _list_instruments() -> list[dict[str, Any]]:
+def _list_instruments(project: str) -> list[dict[str, Any]]:
     """List available instrument types."""
     search_paths = [
-        get_project_root() / "instruments",
+        get_project_root(project) / "instruments",
         Path(__file__).parent.parent / "instruments" / "library",
     ]
 
@@ -439,11 +454,11 @@ def _list_instruments() -> list[dict[str, Any]]:
     return types
 
 
-def _list_runs() -> list[dict[str, Any]]:
+def _list_runs(project: str) -> list[dict[str, Any]]:
     """List recent test runs."""
     from litmus.data.backends.parquet import ParquetBackend
 
-    results_dir = str(get_project_root() / "results")
+    results_dir = str(get_project_root(project) / "results")
     backend = ParquetBackend(results_dir=results_dir)
     return backend.list_runs(limit=50)
 
@@ -453,30 +468,30 @@ def _list_runs() -> list[dict[str, Any]]:
 # =============================================================================
 
 
-def _get_entity(entity_type: str, id: str) -> dict[str, Any]:
+def _get_entity(entity_type: str, id: str, project: str) -> dict[str, Any]:
     """Get full details of an entity."""
     if entity_type not in ENTITY_TYPES:
         return {"error": f"Unknown type '{entity_type}'. Valid: {ENTITY_TYPES}"}
 
     if entity_type == "station":
-        return _get_station(id)
+        return _get_station(id, project)
     elif entity_type == "product":
-        return _get_product(id)
+        return _get_product(id, project)
     elif entity_type == "fixture":
-        return _get_fixture(id)
+        return _get_fixture(id, project)
     elif entity_type == "sequence":
-        return _get_sequence(id)
+        return _get_sequence(id, project)
     elif entity_type == "instrument":
-        return _get_instrument(id)
+        return _get_instrument(id, project)
     elif entity_type == "run":
-        return _get_run(id)
+        return _get_run(id, project)
 
     return {"error": "Not implemented"}
 
 
-def _get_station(station_id: str) -> dict[str, Any]:
+def _get_station(station_id: str, project: str) -> dict[str, Any]:
     """Get station configuration."""
-    yaml_file = get_project_root() / "stations" / f"{station_id}.yaml"
+    yaml_file = get_project_root(project) / "stations" / f"{station_id}.yaml"
 
     if not yaml_file.exists():
         return {"error": f"Station '{station_id}' not found"}
@@ -488,9 +503,9 @@ def _get_station(station_id: str) -> dict[str, Any]:
         return {"error": f"Failed to load station: {e}"}
 
 
-def _get_product(product_id: str) -> dict[str, Any]:
+def _get_product(product_id: str, project: str) -> dict[str, Any]:
     """Get product specification from products/{product_id}/spec.yaml."""
-    spec_file = get_project_root() / "products" / product_id / "spec.yaml"
+    spec_file = get_project_root(project) / "products" / product_id / "spec.yaml"
 
     if not spec_file.exists():
         return {"error": f"Product '{product_id}' not found in products/"}
@@ -502,9 +517,9 @@ def _get_product(product_id: str) -> dict[str, Any]:
         return {"error": f"Failed to load product: {e}"}
 
 
-def _get_fixture(fixture_id: str) -> dict[str, Any]:
+def _get_fixture(fixture_id: str, project: str) -> dict[str, Any]:
     """Get fixture configuration."""
-    yaml_file = get_project_root() / "fixtures" / f"{fixture_id}.yaml"
+    yaml_file = get_project_root(project) / "fixtures" / f"{fixture_id}.yaml"
     if yaml_file.exists():
         with open(yaml_file) as f:
             data = yaml.safe_load(f)
@@ -517,9 +532,9 @@ def _get_fixture(fixture_id: str) -> dict[str, Any]:
     return {"error": f"Fixture '{fixture_id}' not found"}
 
 
-def _get_sequence(sequence_id: str) -> dict[str, Any]:
+def _get_sequence(sequence_id: str, project: str) -> dict[str, Any]:
     """Get test sequence."""
-    yaml_file = get_project_root() / "sequences" / f"{sequence_id}.yaml"
+    yaml_file = get_project_root(project) / "sequences" / f"{sequence_id}.yaml"
     if yaml_file.exists():
         with open(yaml_file) as f:
             return yaml.safe_load(f)
@@ -527,10 +542,10 @@ def _get_sequence(sequence_id: str) -> dict[str, Any]:
     return {"error": f"Sequence '{sequence_id}' not found"}
 
 
-def _get_instrument(instrument_type: str) -> dict[str, Any]:
+def _get_instrument(instrument_type: str, project: str) -> dict[str, Any]:
     """Get instrument library definition."""
     search_paths = [
-        get_project_root() / "instruments",
+        get_project_root(project) / "instruments",
         Path(__file__).parent.parent / "instruments" / "library",
     ]
 
@@ -546,11 +561,11 @@ def _get_instrument(instrument_type: str) -> dict[str, Any]:
     return {"error": f"Instrument type '{instrument_type}' not found"}
 
 
-def _get_run(run_id: str) -> dict[str, Any]:
+def _get_run(run_id: str, project: str) -> dict[str, Any]:
     """Get test run details."""
     from litmus.data.backends.parquet import ParquetBackend
 
-    results_dir = str(get_project_root() / "results")
+    results_dir = str(get_project_root(project) / "results")
     backend = ParquetBackend(results_dir=results_dir)
     run = backend.get_run(run_id)
 
@@ -566,31 +581,92 @@ def _get_run(run_id: str) -> dict[str, Any]:
 # =============================================================================
 
 
-def _save_entity(entity_type: str, id: str, content: dict[str, Any]) -> dict[str, Any]:
+def _save_entity(entity_type: str, id: str, content: dict[str, Any], project: str) -> dict[str, Any]:
     """Validate and save an entity."""
     valid_types = ["station", "product", "fixture", "sequence", "instrument", "test"]
     if entity_type not in valid_types:
         return {"error": f"Unknown type '{entity_type}'. Valid: {valid_types}"}
 
     if entity_type == "station":
-        return _save_station(id, content)
+        return _save_station(id, content, project)
     elif entity_type == "product":
-        return _save_product(id, content)
+        return _save_product(id, content, project)
     elif entity_type == "fixture":
-        return _save_fixture(id, content)
+        return _save_fixture(id, content, project)
     elif entity_type == "sequence":
-        return _save_sequence(id, content)
+        return _save_sequence(id, content, project)
     elif entity_type == "instrument":
-        return _save_instrument(id, content)
+        return _save_instrument(id, content, project)
     elif entity_type == "test":
-        return _save_test(id, content)
+        return _save_test(id, content, project)
 
     return {"error": "Not implemented"}
 
 
-def _save_station(station_id: str, content: dict[str, Any]) -> dict[str, Any]:
-    """Save station configuration."""
-    stations_dir = get_project_root() / "stations"
+VALID_INSTRUMENT_TYPES = {"psu", "dmm", "eload", "scope"}
+
+
+def _save_station(station_id: str, content: dict[str, Any], project: str) -> dict[str, Any]:
+    """Save station configuration with validation."""
+    errors = []
+
+    # Validate station section
+    if "station" not in content:
+        errors.append("Missing 'station' section")
+    else:
+        if "id" not in content["station"]:
+            errors.append("station.id is required")
+        if "name" not in content["station"]:
+            errors.append("station.name is required")
+
+    # Validate instruments section
+    if "instruments" not in content:
+        errors.append("Missing 'instruments' section")
+    else:
+        instruments = content["instruments"]
+        if not isinstance(instruments, dict):
+            errors.append("'instruments' must be a dict")
+        else:
+            for name, config in instruments.items():
+                if not isinstance(config, dict):
+                    errors.append(f"instruments.{name} must be a dict")
+                    continue
+
+                # Check for common mistakes
+                if "driver" in config:
+                    errors.append(
+                        f"instruments.{name}: Use 'type' not 'driver'. "
+                        f"Valid types: {', '.join(sorted(VALID_INSTRUMENT_TYPES))}"
+                    )
+
+                # Validate type
+                if "type" not in config:
+                    errors.append(
+                        f"instruments.{name}: Missing 'type'. "
+                        f"Valid types: {', '.join(sorted(VALID_INSTRUMENT_TYPES))}"
+                    )
+                elif config["type"] not in VALID_INSTRUMENT_TYPES:
+                    errors.append(
+                        f"instruments.{name}: Invalid type '{config['type']}'. "
+                        f"Valid types: {', '.join(sorted(VALID_INSTRUMENT_TYPES))}"
+                    )
+
+                # Check for simulate without sim_config
+                if config.get("simulate") and "sim_config" not in config:
+                    errors.append(
+                        f"instruments.{name}: 'simulate: true' requires 'sim_config' dict"
+                    )
+
+    if errors:
+        return {
+            "success": False,
+            "errors": errors,
+            "hint": "Station format example: {'station': {'id': 'x', 'name': 'X'}, "
+                    "'instruments': {'psu': {'type': 'psu', 'resource': 'MOCK::PSU', "
+                    "'simulate': true, 'sim_config': {'voltage': 5.0}}}}"
+        }
+
+    stations_dir = get_project_root(project) / "stations"
     stations_dir.mkdir(parents=True, exist_ok=True)
 
     filepath = stations_dir / f"{station_id}.yaml"
@@ -600,7 +676,7 @@ def _save_station(station_id: str, content: dict[str, Any]) -> dict[str, Any]:
     return {"success": True, "path": str(filepath)}
 
 
-def _save_product(product_id: str, content: dict[str, Any]) -> dict[str, Any]:
+def _save_product(product_id: str, content: dict[str, Any], project: str) -> dict[str, Any]:
     """Save product specification to products/{product_id}/spec.yaml."""
     errors = []
 
@@ -616,7 +692,7 @@ def _save_product(product_id: str, content: dict[str, Any]) -> dict[str, Any]:
         return {"success": False, "errors": errors}
 
     # Save to products/{product_id}/spec.yaml
-    product_dir = get_project_root() / "products" / product_id
+    product_dir = get_project_root(project) / "products" / product_id
     product_dir.mkdir(parents=True, exist_ok=True)
 
     filepath = product_dir / "spec.yaml"
@@ -626,9 +702,9 @@ def _save_product(product_id: str, content: dict[str, Any]) -> dict[str, Any]:
     return {"success": True, "path": str(filepath)}
 
 
-def _save_fixture(fixture_id: str, content: dict[str, Any]) -> dict[str, Any]:
+def _save_fixture(fixture_id: str, content: dict[str, Any], project: str) -> dict[str, Any]:
     """Save fixture configuration."""
-    fixtures_dir = get_project_root() / "fixtures"
+    fixtures_dir = get_project_root(project) / "fixtures"
     fixtures_dir.mkdir(parents=True, exist_ok=True)
 
     filepath = fixtures_dir / f"{fixture_id}.yaml"
@@ -638,9 +714,9 @@ def _save_fixture(fixture_id: str, content: dict[str, Any]) -> dict[str, Any]:
     return {"success": True, "path": str(filepath)}
 
 
-def _save_sequence(sequence_id: str, content: dict[str, Any]) -> dict[str, Any]:
+def _save_sequence(sequence_id: str, content: dict[str, Any], project: str) -> dict[str, Any]:
     """Save test sequence."""
-    sequences_dir = get_project_root() / "sequences"
+    sequences_dir = get_project_root(project) / "sequences"
     sequences_dir.mkdir(parents=True, exist_ok=True)
 
     filepath = sequences_dir / f"{sequence_id}.yaml"
@@ -650,9 +726,9 @@ def _save_sequence(sequence_id: str, content: dict[str, Any]) -> dict[str, Any]:
     return {"success": True, "path": str(filepath)}
 
 
-def _save_instrument(instrument_type: str, content: dict[str, Any]) -> dict[str, Any]:
+def _save_instrument(instrument_type: str, content: dict[str, Any], project: str) -> dict[str, Any]:
     """Save instrument library definition."""
-    instruments_dir = get_project_root() / "instruments"
+    instruments_dir = get_project_root(project) / "instruments"
     instruments_dir.mkdir(parents=True, exist_ok=True)
 
     filepath = instruments_dir / f"{instrument_type}.yaml"
@@ -662,16 +738,16 @@ def _save_instrument(instrument_type: str, content: dict[str, Any]) -> dict[str,
     return {"success": True, "path": str(filepath)}
 
 
-def _save_test(path: str, content: dict[str, Any]) -> dict[str, Any]:
+def _save_test(path: str, content: dict[str, Any], project: str) -> dict[str, Any]:
     """Save a Python test file."""
     if "code" not in content:
         return {"success": False, "errors": ["content.code is required"]}
 
     # Support both absolute-ish paths and relative paths
     if path.startswith("products/") or path.startswith("tests/"):
-        filepath = get_project_root() / path
+        filepath = get_project_root(project) / path
     else:
-        filepath = get_project_root() / "tests" / path
+        filepath = get_project_root(project) / "tests" / path
 
     filepath.parent.mkdir(parents=True, exist_ok=True)
 
@@ -690,8 +766,14 @@ TEST_TEMPLATE = '''
 FILE 1: tests/test_{product_id}.py
 ================================================================================
 
-"""Tests for {product_name}."""
+"""Tests for {product_name}.
 
+NOTE: Instruments return Decimal, not float. For unit conversions:
+    from decimal import Decimal
+    current_ua = current * Decimal("1e6")  # NOT current * 1e6
+"""
+
+from decimal import Decimal
 from litmus.execution import litmus_test
 
 
@@ -701,6 +783,16 @@ def test_output_voltage(vector, psu, dmm):
     psu.set_voltage(vector.get("vin", 12.0))
     psu.enable_output()
     return dmm.measure_dc_voltage()
+
+
+@litmus_test
+def test_quiescent_current(vector, psu):
+    """Measure quiescent current in uA. Shows Decimal conversion."""
+    psu.set_voltage(vector.get("vin", 12.0))
+    psu.enable_output()
+    current_a = psu.measure_current()  # Returns Decimal in Amps
+    current_ua = current_a * Decimal("1e6")  # Convert to µA
+    return current_ua
 
 
 @litmus_test
@@ -720,8 +812,12 @@ FILE 2: tests/config.yaml  (REQUIRED! Limits MUST be here, not in code)
 ================================================================================
 
 # Limits for each test function - MUST match function names exactly
+# _mock configures what mock instruments return when running with --mock-instruments
 
 test_output_voltage:
+  _mock:
+    dmm.measure_voltage: 5.0      # Mock returns nominal value
+    psu.measure_current: 0.1
   limits:
     test_output_voltage:
       low: 4.75       # From spec: nominal - tolerance
@@ -732,8 +828,23 @@ test_output_voltage:
 
 test_load_regulation:
   vectors:
-    expand: product
-    load_current: [0.5, 1.0, 2.0, 3.0]  # From spec.specs.continuous_output_current
+    # Per-vector _mock: different outputs for each load condition
+    - load_current: 0.5
+      _mock:
+        dmm.measure_voltage: 5.02
+        psu.measure_current: 0.55
+    - load_current: 1.0
+      _mock:
+        dmm.measure_voltage: 5.00
+        psu.measure_current: 1.05
+    - load_current: 2.0
+      _mock:
+        dmm.measure_voltage: 4.95
+        psu.measure_current: 2.10
+    - load_current: 3.0
+      _mock:
+        dmm.measure_voltage: 4.90
+        psu.measure_current: 3.15
   limits:
     test_load_regulation:
       low: 4.7
@@ -754,6 +865,9 @@ Values in config.yaml come from the product spec.yaml:
 - nominal: spec.test_conditions.default_vout
 - low/high: Calculate from spec tolerance (e.g., 5.0V ± 5% = 4.75 to 5.25)
 - vectors: From spec ranges (e.g., load_current up to spec.specs.continuous_output_current.max)
+- _mock: Configure mock instrument return values for --mock-instruments mode
+  - Test-level _mock: constant for all vectors
+  - Per-vector _mock: different values per test condition
 '''
 
 INSTRUMENT_TEMPLATE = '''"""{instrument_name} driver.
@@ -821,7 +935,7 @@ ELECTRONIC LOAD:
 """
 
 
-def _read_file(path: str) -> dict[str, Any]:
+def _read_file(path: str, project: str) -> dict[str, Any]:
     """Read a file from the project directory."""
     # Special template paths
     if path == "template:test":
@@ -857,7 +971,7 @@ def _read_file(path: str) -> dict[str, Any]:
         }
 
     # Security: only allow reading from project directory
-    root = get_project_root()
+    root = get_project_root(project)
     filepath = root / path
 
     try:
@@ -988,8 +1102,16 @@ def match_tool(
     product_id: str | None = None,
     station_id: str | None = None,
     fixture_id: str | None = None,
+    project: str | None = None,
 ) -> dict[str, Any]:
-    """Check compatibility between products, stations, and fixtures."""
+    """Check compatibility between products, stations, and fixtures.
+
+    Args:
+        product_id: Product ID to check compatibility for
+        station_id: Station ID for detailed check
+        fixture_id: Fixture ID to find compatible stations
+        project: Project root path (required for fixture matching)
+    """
     from litmus.matching.service import (
         check_station_compatibility,
         find_compatible_stations,
@@ -1038,7 +1160,10 @@ def match_tool(
 
     # Fixture: find stations with required instruments
     if fixture_id:
-        fixture_result = _get_fixture(fixture_id)
+        if not project:
+            return {"error": "fixture_id matching requires 'project' parameter"}
+
+        fixture_result = _get_fixture(fixture_id, project)
         if "error" in fixture_result:
             return fixture_result
 
@@ -1048,12 +1173,12 @@ def match_tool(
             if point.get("instrument"):
                 required_instruments.add(point["instrument"])
 
-        stations = _list_stations()
+        stations = _list_stations(project)
         compatible = []
 
         for station in stations:
             sid = station.get("id")
-            station_config = _get_station(sid)
+            station_config = _get_station(sid, project)
 
             if "error" not in station_config:
                 station_instruments = set(station_config.get("instruments", {}).keys())
@@ -1079,14 +1204,24 @@ def match_tool(
 # =============================================================================
 
 
-def run_tool(test: str, station: str, serial: str) -> dict[str, Any]:
-    """Execute tests and return results."""
+def run_tool(test: str, station: str, serial: str, project: str | None = None) -> dict[str, Any]:
+    """Execute tests and return results.
+
+    Args:
+        test: Test file path relative to project root
+        station: Station ID
+        serial: DUT serial number
+        project: Project root path (required)
+    """
     import subprocess
     import sys
     from datetime import datetime
 
+    if not project:
+        return {"error": "project parameter is required - pass the path returned from litmus(action='init')"}
+
     # Determine test target
-    root = get_project_root()
+    root = get_project_root(project)
     if test.endswith(".py") or "/" in test:
         test_path = root / test
         if not test_path.exists():
@@ -1116,7 +1251,7 @@ def run_tool(test: str, station: str, serial: str) -> dict[str, Any]:
         f"--station={station}",
         "--results-dir=results",
         "-v", "--tb=short",
-        "--simulate",
+        "--mock-instruments",
     ]
 
     started_at = datetime.now()

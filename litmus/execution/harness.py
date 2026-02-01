@@ -37,6 +37,7 @@ class TestHarness:
     - Retry logic at the vector level
     - Measurement logging with limit resolution
     - Operator prompts
+    - Mock configuration per vector (when using mocks)
 
     Usage (explicit loop):
         harness = TestHarness(config, logger=logger)
@@ -62,6 +63,8 @@ class TestHarness:
         limits: dict[str, MeasurementLimitConfig | Limit] | None = None,
         prompt_handler: Callable[[PromptConfig], Any] | None = None,
         spec_context: SpecContext | None = None,
+        instruments: dict[str, Any] | None = None,
+        mock_instruments: bool = False,
     ):
         """Initialize harness.
 
@@ -75,12 +78,17 @@ class TestHarness:
                            are printed to stdout.
             spec_context: SpecContext for spec-driven limit derivation and
                          channel traceability.
+            instruments: Dictionary of instrument instances for mock configuration.
+            mock_instruments: Whether using mock instruments.
         """
         self._config = config or {}
         self._logger = logger
         self._step_name = step_name
         self._prompt_handler = prompt_handler or self._default_prompt_handler
         self._spec_context = spec_context
+        self._instruments = instruments or {}
+        self._mock_instruments = mock_instruments
+        self._test_level_mock = self._config.get("_mock", {})
 
         # Parse retry config
         if retry is not None:
@@ -341,6 +349,62 @@ class TestHarness:
         else:
             self.measure(self._step_name, result)
 
+    def _reset_mock_state(self) -> None:
+        """Reset mock state flags on all instruments.
+
+        This ensures that mocks behave normally when no explicit
+        mock values are configured for a vector.
+        """
+        for inst in self._instruments.values():
+            if hasattr(inst, "reset_mock_state"):
+                inst.reset_mock_state()
+
+    def _configure_mocks(self, mock_config: dict[str, Any]) -> None:
+        """Configure mock instruments with values from config.
+
+        Args:
+            mock_config: Dict mapping "instrument.method" to values.
+                        Example: {"dmm.measure_voltage": 3.3, "psu.measure_current": 0.5}
+        """
+        for key, value in mock_config.items():
+            if "." not in key:
+                continue
+            inst_name, measurement = key.split(".", 1)
+            if inst_name in self._instruments:
+                inst = self._instruments[inst_name]
+                if hasattr(inst, "set_mock_value"):
+                    inst.set_mock_value(measurement, value)
+
+    def _get_mock_config_for_vector(self, vector: Vector) -> dict[str, Any]:
+        """Get mock configuration for a vector.
+
+        Resolution order:
+        1. Vector-level _mock (per-vector config)
+        2. Test-level _mock (constant for all vectors)
+        3. Limit nominal values (fallback)
+        """
+        # Check for vector-level _mock
+        vector_mock = vector.get("_mock", {})
+        if vector_mock:
+            return vector_mock
+
+        # Fall back to test-level _mock
+        if self._test_level_mock:
+            return self._test_level_mock
+
+        # Fall back to limit nominal values
+        mock_from_limits: dict[str, Any] = {}
+        for name, limit_config in self._limits.items():
+            if isinstance(limit_config, Limit) and limit_config.nominal is not None:
+                # Infer instrument.measurement from limit name
+                # Convention: limit name matches measurement, dmm is default for voltage
+                if "voltage" in name.lower():
+                    mock_from_limits["dmm.measure_voltage"] = float(limit_config.nominal)
+                elif "current" in name.lower():
+                    mock_from_limits["psu.measure_current"] = float(limit_config.nominal)
+
+        return mock_from_limits
+
     @contextmanager
     def run_vector(self, vector: Vector) -> Iterator[TestVector]:
         """Context manager for executing a single vector with retry support.
@@ -348,6 +412,7 @@ class TestHarness:
         Handles:
         - Creating TestVector record
         - Setting up current vector context
+        - Configuring mocks for this vector (when simulate=True)
         - Retry logic on failure
         - Finalizing vector timing
 
@@ -364,6 +429,15 @@ class TestHarness:
         """
         self._current_vector = vector
         self._attempt = 1
+
+        # Configure mocks for this vector if using mocks
+        if self._mock_instruments and self._instruments:
+            # Reset mock state from previous vector
+            self._reset_mock_state()
+            # Apply mock config for this vector
+            mock_config = self._get_mock_config_for_vector(vector)
+            if mock_config:
+                self._configure_mocks(mock_config)
 
         # Create TestVector record
         test_vector = TestVector(

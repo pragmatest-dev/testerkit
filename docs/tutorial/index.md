@@ -7,7 +7,7 @@ Welcome to Litmus! This tutorial takes you from your first test to a production-
 | Step | Goal | What You'll Learn |
 |------|------|-------------------|
 | [1. First Test](01-first-test.md) | Run something | pytest, project structure |
-| [2. Mock Instruments](02-mock-instruments.md) | Measure a voltage | MockDMM, MockPSU, context managers |
+| [2. Running Without Hardware](02-mock-instruments.md) | Use mock mode | `--mock-instruments`, `mock_config`, `_mock` |
 | [3. The @litmus_test Decorator](03-decorator.md) | Log measurements | @litmus_test, vector, return values |
 | [4. Add Limits](04-limits.md) | Pass/fail criteria | Limit, Measurement, Outcome |
 | [5. Test Configuration](05-configuration.md) | Configure in YAML | config.yaml, vectors, limits |
