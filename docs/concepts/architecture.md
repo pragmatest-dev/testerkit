@@ -325,9 +325,9 @@ products/tps54302/spec.yaml              tests/config.yaml            tests/test
 ┌────────────────────┐           ┌────────────────────┐       ┌────────────────┐
 │ characteristics:   │           │ test_output:       │       │ @litmus_test   │
 │   output_voltage:  │           │   vectors:         │       │ def test_output│
-│     conditions:    │           │     expand: product│       │  (vector, dmm):│
+│     conditions:    │           │     expand: product│       │  (context, dmm):│
 │       - temp: 25   │──────────►│     temp: [25, 85] │──────►│                │
-│         load: 0.5  │  lookup   │     load: [0.5,3.0]│ sweep │  # vector has  │
+│         load: 0.5  │  lookup   │     load: [0.5,3.0]│ sweep │  # context has  │
 │         nominal:3.3│  limit    │                    │       │  # temp & load │
 │         tol: 1%    │  for      │   limits:          │       │                │
 │       - temp: 25   │  condition│     ref: specs.    │       │  return dmm.   │

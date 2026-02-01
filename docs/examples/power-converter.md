@@ -231,7 +231,7 @@ test_output_full_load:
       spec_ref: "output_voltage @ load_ma=1000, guardband=10%"
 
 test_load_sweep:
-  vectors:
+  contexts:
     expand: range
     load_ma:
       start: 0
@@ -289,7 +289,7 @@ from litmus.execution import litmus_test
 
 
 @litmus_test
-def test_startup(vector, pins):
+def test_startup(context, pins):
     """Measure startup time."""
     # Ensure output is off
     pins["VIN"].disable_output()
@@ -317,7 +317,7 @@ def test_startup(vector, pins):
 
 
 @litmus_test
-def test_output_no_load(vector, pins):
+def test_output_no_load(context, pins):
     """Verify output voltage with no load."""
     pins["LOAD"].set_current(0)
     time.sleep(0.05)
@@ -325,7 +325,7 @@ def test_output_no_load(vector, pins):
 
 
 @litmus_test
-def test_output_half_load(vector, pins):
+def test_output_half_load(context, pins):
     """Verify output voltage at 500mA."""
     pins["LOAD"].set_current(0.5)
     time.sleep(0.05)
@@ -333,7 +333,7 @@ def test_output_half_load(vector, pins):
 
 
 @litmus_test
-def test_output_full_load(vector, pins):
+def test_output_full_load(context, pins):
     """Verify output voltage at 1A."""
     pins["LOAD"].set_current(1.0)
     time.sleep(0.05)
@@ -343,9 +343,9 @@ def test_output_full_load(vector, pins):
 
 
 @litmus_test
-def test_load_sweep(vector, pins):
+def test_load_sweep(context, pins):
     """Characterize output across load range."""
-    load_ma = vector["load_ma"]
+    load_ma = context["load_ma"]
     pins["LOAD"].set_current(load_ma / 1000)
     time.sleep(0.02)
     return pins["VOUT"].measure_voltage()
@@ -421,7 +421,7 @@ litmus show abc123
 #   no_load: PASS (output_voltage=3.31V)
 #   half_load: PASS (output_voltage=3.29V)
 #   full_load: PASS (output_voltage=3.27V)
-#   load_sweep: PASS (11 vectors)
+#   load_sweep: PASS (11 contexts)
 ```
 
 ### Operator UI

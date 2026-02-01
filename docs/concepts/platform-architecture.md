@@ -87,15 +87,15 @@ For new projects, use the pytest plugin:
 from litmus.execution import litmus_test
 
 @litmus_test
-def test_output_voltage(vector, psu, dmm):
-    psu.set_voltage(vector.get("vin", 5.0))
+def test_output_voltage(context, psu, dmm):
+    psu.set_voltage(context.get("vin", 5.0))
     psu.enable_output()
     return dmm.measure_dc_voltage()
 ```
 
 The plugin provides:
 - `@litmus_test` decorator for test functions
-- `vector` fixture for test parameters
+- `context` fixture for test parameters
 - Instrument fixtures from station config
 - Automatic result logging
 

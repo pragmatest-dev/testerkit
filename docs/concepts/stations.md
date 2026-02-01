@@ -134,7 +134,7 @@ def dmm(station):
     return station.instruments["dmm"]
 
 @litmus_test
-def test_voltage(vector, dmm):
+def test_voltage(context, dmm):
     return dmm.measure_voltage()
 ```
 
