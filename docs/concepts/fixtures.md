@@ -124,15 +124,28 @@ points:
 
 Fixtures connect products to stations:
 
-```
-Product                    Fixture                    Station
-───────                    ───────                    ───────
+```mermaid
+%%{init: {'flowchart': {'curve': 'stepBefore'}}}%%
+flowchart LR
+    subgraph Product
+        VIN[VIN]
+        VOUT[VOUT]
+    end
 
-┌─────────┐            ┌─────────────┐            ┌─────────┐
-│ pins:   │            │ points:     │            │instrs:  │
-│   VIN   │◄───────────│   VIN→psu.1 │───────────►│   psu   │
-│   VOUT  │◄───────────│   VOUT→dmm  │───────────►│   dmm   │
-└─────────┘            └─────────────┘            └─────────┘
+    subgraph Fixture
+        F_VIN[VIN → psu.1]
+        F_VOUT[VOUT → dmm]
+    end
+
+    subgraph Station
+        PSU[psu]
+        DMM[dmm]
+    end
+
+    VIN --- F_VIN
+    VOUT --- F_VOUT
+    F_VIN --- PSU
+    F_VOUT --- DMM
 ```
 
 ## Active Fixture
