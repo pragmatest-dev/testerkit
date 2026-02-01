@@ -220,35 +220,28 @@ def litmus_step(litmus_logger, request):
     litmus_logger.end_step()
 
 
-# Sentinel object to detect pytest-injected vector
-_PYTEST_VECTOR_SENTINEL = object()
-
-
-@pytest.fixture
-def vector():
-    """Placeholder fixture for @litmus_test decorated functions.
-
-    The @litmus_test decorator injects the actual Vector object.
-    This fixture just satisfies pytest's fixture resolution.
-    """
-    return _PYTEST_VECTOR_SENTINEL
-
-
 # Sentinel object to detect pytest-injected context
 _PYTEST_CONTEXT_SENTINEL = object()
 
 
 @pytest.fixture
 def context():
-    """Placeholder fixture for @litmus_test decorated functions.
+    """Context fixture for @litmus_test decorated functions.
 
     The @litmus_test decorator injects the actual Context object from
-    the TestHarness. This provides access to:
-    - context.configure(key, value) - Record inputs (→ in_* columns)
-    - context.observe(key, value) - Record observations (→ out_* columns)
-    - context.get_in(key) - Read input values
-    - context.get_out(key) - Read observation values
+    the TestHarness. Context is THE primary API for test functions:
 
+    Access vector parameters (inputs):
+        temp = context.get_in("temperature")
+        vin = context.inputs["vin"]
+
+    Record observations:
+        context.observe("dut_temp", 42.3)
+
+    Record commanded values:
+        context.configure("psu.voltage", 5.0)
+
+    The context contains all vector parameters automatically.
     This fixture just satisfies pytest's fixture resolution.
     """
     return _PYTEST_CONTEXT_SENTINEL

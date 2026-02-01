@@ -59,13 +59,15 @@ class Context:
     - Implementation details use fixture prefix: psu.voltage, dmm.sample_count
     """
 
-    def __init__(self, parent: Context | None = None):
+    def __init__(self, parent: Context | None = None, prev: Context | None = None):
         """Initialize context with optional parent for inheritance.
 
         Args:
             parent: Parent context to inherit values from. If None, this is a root context.
+            prev: Previous sibling context (for change detection across vectors).
         """
         self._parent = parent
+        self._prev = prev
         self._inputs: dict[str, Any] = {}
         self._outputs: dict[str, Any] = {}
 
@@ -102,6 +104,22 @@ class Context:
             value: The observed value. Large arrays may be stored in _raw directory.
         """
         self._outputs[key] = value
+
+    def changed(self, key: str) -> bool:
+        """Check if an input parameter changed from the previous vector.
+
+        Args:
+            key: Parameter name to check.
+
+        Returns:
+            True if the value changed or this is the first vector, False otherwise.
+        """
+        if self._prev is None:
+            return True  # First vector - everything is "changed"
+
+        current_value = self.get_in(key)
+        prev_value = self._prev.get_in(key)
+        return current_value != prev_value
 
     # -------------------------------------------------------------------------
     # Explicit API (aliases)
@@ -366,6 +384,7 @@ class TestHarness:
         self._run_context: Context = Context()
         self._step_context: Context | None = None
         self._vector_context: Context | None = None
+        self._prev_vector_context: Context | None = None
 
     @property
     def vectors(self) -> list[Vector]:
@@ -781,7 +800,7 @@ class TestHarness:
 
         # Create vector context as child of step (or run if no step)
         parent_context = self._step_context or self._run_context
-        self._vector_context = parent_context.child()
+        self._vector_context = Context(parent=parent_context, prev=self._prev_vector_context)
 
         # Pre-populate with vector params (they become in_* columns)
         self._vector_context.set_inputs(vector.params())
@@ -811,6 +830,8 @@ class TestHarness:
             test_vector.params = self._vector_context.inputs
             test_vector.observations = self._vector_context.outputs
             test_vector.ended_at = _utcnow()
+            # Save current context for next vector's change detection
+            self._prev_vector_context = self._vector_context
             self._vector_context = None
             self._current_test_vector = None
             self._current_vector = None

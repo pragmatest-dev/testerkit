@@ -184,25 +184,29 @@ def litmus_test(
 
     Example (return single value):
         @litmus_test
-        def test_voltage(vector, dmm):
+        def test_voltage(context, dmm):
             return dmm.measure_dc_voltage()
 
-    Example (return multiple measurements):
+    Example (accessing vector parameters):
         @litmus_test
-        def test_power(vector, psu, dmm):
+        def test_sweep(context, psu, dmm):
+            vin = context.get_in("vin")  # From vectors in config.yaml
+            psu.set_voltage(vin)
+            return dmm.measure_voltage()
+
+    Example (with observations):
+        @litmus_test
+        def test_power(context, psu, dmm):
+            context.observe("ambient_temp", 24.5)
             return {
                 "output_voltage": dmm.measure_voltage(),
                 "output_current": dmm.measure_current(),
             }
 
-    Example (with config file):
-        @litmus_test  # loads from config.yaml in same directory
-        def test_sweep(vector, dmm):
-            return dmm.measure()
-
     Example (with inline config):
         @litmus_test(config={"vectors": {"expand": "product", "v": [1, 2, 3]}})
-        def test_sweep(vector, dmm):
+        def test_sweep(context, dmm):
+            v = context.get_in("v")
             return dmm.measure()
     """
 
@@ -214,7 +218,6 @@ def litmus_test(
 
             from litmus.config.loader import get_test_config
             from litmus.execution.harness import TestHarness
-            from litmus.execution.plugin import _PYTEST_VECTOR_SENTINEL
 
             # Get harness from kwargs, current harness, or create new one
             harness = kwargs.pop("harness", None)
@@ -293,39 +296,28 @@ def litmus_test(
                     mock_instruments=using_mocks,
                 )
 
-            # Check if pytest injected the vector sentinel as first arg
-            # If so, strip it - we'll inject the real vector ourselves
-            fixture_args = args
-            if args and args[0] is _PYTEST_VECTOR_SENTINEL:
-                fixture_args = args[1:]
+            # Strip context sentinel from args/kwargs - we inject the real context
+            from litmus.execution.plugin import _PYTEST_CONTEXT_SENTINEL
 
-            # Also remove vector and context from kwargs if pytest put them there
-            # (we inject these ourselves from the harness)
-            kwargs.pop("vector", None)
+            fixture_args = tuple(
+                arg for arg in args if arg is not _PYTEST_CONTEXT_SENTINEL
+            )
             kwargs.pop("context", None)
 
             # Check if function expects 'context' parameter
             sig = inspect.signature(fn)
             params = list(sig.parameters.keys())
-            wants_context = "context" in params
 
             # Run the test function across all vectors
+            # Context is injected as first param (or via kwargs if not first)
             def test_fn(vector: Vector) -> Any:
-                if params and params[0] == "vector":
-                    # Pass vector as first positional arg, then other fixtures
-                    if wants_context:
-                        # Inject context into kwargs
-                        call_kwargs = dict(kwargs)
-                        call_kwargs["context"] = harness.context
-                        result = fn(vector, *fixture_args, **call_kwargs)
-                    else:
-                        result = fn(vector, *fixture_args, **kwargs)
+                if params and params[0] == "context":
+                    # context is first positional arg
+                    result = fn(harness.context, *fixture_args, **kwargs)
                 else:
-                    # Inject vector (and optionally context) into kwargs
+                    # Inject context into kwargs
                     call_kwargs = dict(kwargs)
-                    call_kwargs["vector"] = vector
-                    if wants_context:
-                        call_kwargs["context"] = harness.context
+                    call_kwargs["context"] = harness.context
                     result = fn(*fixture_args, **call_kwargs)
 
                 return result

@@ -25,8 +25,8 @@ class TestLitmusTestDecorator:
         }
 
         @litmus_test(config=config, raise_on_fail=False)
-        def test_sweep(vector):
-            return vector["voltage"]
+        def test_sweep(context):
+            return context.inputs["voltage"]
 
         step = test_sweep()
 
@@ -38,7 +38,7 @@ class TestLitmusTestDecorator:
     def test_decorator_without_parens(self):
         """Test @litmus_test without parentheses."""
         @litmus_test
-        def test_simple(vector):
+        def test_simple(context):
             return 42
 
         step = test_simple()
@@ -53,8 +53,8 @@ class TestLitmusTestDecorator:
         }
 
         @litmus_test(config=config, raise_on_fail=False)
-        def test_multi(vector):
-            yield "output_voltage", vector["voltage"]
+        def test_multi(context):
+            yield "output_voltage", context.inputs["voltage"]
             yield "output_current", 0.1
 
         step = test_multi()
@@ -74,8 +74,8 @@ class TestLitmusTestDecorator:
         }
 
         @litmus_test(config=config, raise_on_fail=False)
-        def test_matrix(vector):
-            return vector["voltage"] * vector["load"]
+        def test_matrix(context):
+            return context.inputs["voltage"] * context.inputs["load"]
 
         step = test_matrix()
 
@@ -91,7 +91,7 @@ class TestLitmusTestDecorator:
         }
 
         @litmus_test(config=config)
-        def test_with_limit(vector):
+        def test_with_limit(context):
             return 3.3  # Within limits
 
         step = test_with_limit()
@@ -110,7 +110,7 @@ class TestLitmusTestDecorator:
         }
 
         @litmus_test(config=config)
-        def test_fails(vector):
+        def test_fails(context):
             return 3.5  # Above high limit
 
         with pytest.raises(AssertionError, match="FAILED"):
@@ -127,7 +127,7 @@ class TestLitmusTestDecorator:
         }
 
         @litmus_test(config=config, raise_on_fail=False)
-        def test_no_raise(vector):
+        def test_no_raise(context):
             return 3.5  # Above high limit
 
         step = test_no_raise()
@@ -144,7 +144,7 @@ class TestLitmusTestDecorator:
         }
 
         @litmus_test(config=config, raise_on_fail=False)
-        def test_retry(vector):
+        def test_retry(context):
             nonlocal call_count
             call_count += 1
             if call_count < 3:
@@ -170,8 +170,8 @@ class TestLitmusTestDecorator:
         )
 
         @litmus_test(raise_on_fail=False)
-        def test_with_harness(vector, harness=None):
-            return vector["x"]
+        def test_with_harness(context, harness=None):
+            return context.inputs["x"]
 
         step = test_with_harness(harness=harness)
 
@@ -192,7 +192,7 @@ class TestLitmusTestDecoratorWithInstruments:
                 return 3.28
 
         @litmus_test(config=config, raise_on_fail=False)
-        def test_with_dmm(vector, dmm):
+        def test_with_dmm(context, dmm):
             return dmm.measure()
 
         mock_dmm = MockDMM()
@@ -201,7 +201,7 @@ class TestLitmusTestDecoratorWithInstruments:
         assert step.vectors[0].measurements[0].value == 3.28
 
     def test_decorator_changed_detection(self):
-        """Test that vector.changed() works in decorated function."""
+        """Test that context.changed() works in decorated function."""
         config = {
             "vectors": {
                 "expand": "nested",
@@ -215,9 +215,9 @@ class TestLitmusTestDecoratorWithInstruments:
         changes = []
 
         @litmus_test(config=config, raise_on_fail=False)
-        def test_changed(vector):
-            changes.append(vector.changed("temp"))
-            return vector["volt"]
+        def test_changed(context):
+            changes.append(context.changed("temp"))
+            return context.inputs["volt"]
 
         test_changed()
 
