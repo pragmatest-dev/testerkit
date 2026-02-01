@@ -8,3 +8,4 @@ results/
 .pytest_cache/
 .coverage
 .claude/settings.local.json
+demo/uv.lock
