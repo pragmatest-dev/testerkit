@@ -1,3 +1,8 @@
+---
+name: litmus-skills
+description: AI workflow prompts for hardware test generation with Litmus
+---
+
 # Litmus Skills
 
 Skills are markdown prompts that guide AI assistants (Claude, Copilot, etc.) through hardware test workflows. They work with any AI that can call MCP tools.
