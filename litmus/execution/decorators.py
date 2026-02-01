@@ -299,22 +299,33 @@ def litmus_test(
             if args and args[0] is _PYTEST_VECTOR_SENTINEL:
                 fixture_args = args[1:]
 
-            # Also remove vector from kwargs if pytest put it there
+            # Also remove vector and context from kwargs if pytest put them there
+            # (we inject these ourselves from the harness)
             kwargs.pop("vector", None)
+            kwargs.pop("context", None)
+
+            # Check if function expects 'context' parameter
+            sig = inspect.signature(fn)
+            params = list(sig.parameters.keys())
+            wants_context = "context" in params
 
             # Run the test function across all vectors
             def test_fn(vector: Vector) -> Any:
-                # Check if function expects 'vector' as first positional arg
-                sig = inspect.signature(fn)
-                params = list(sig.parameters.keys())
-
                 if params and params[0] == "vector":
                     # Pass vector as first positional arg, then other fixtures
-                    result = fn(vector, *fixture_args, **kwargs)
+                    if wants_context:
+                        # Inject context into kwargs
+                        call_kwargs = dict(kwargs)
+                        call_kwargs["context"] = harness.context
+                        result = fn(vector, *fixture_args, **call_kwargs)
+                    else:
+                        result = fn(vector, *fixture_args, **kwargs)
                 else:
-                    # Inject vector into kwargs
+                    # Inject vector (and optionally context) into kwargs
                     call_kwargs = dict(kwargs)
                     call_kwargs["vector"] = vector
+                    if wants_context:
+                        call_kwargs["context"] = harness.context
                     result = fn(*fixture_args, **call_kwargs)
 
                 return result

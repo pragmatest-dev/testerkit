@@ -234,6 +234,26 @@ def vector():
     return _PYTEST_VECTOR_SENTINEL
 
 
+# Sentinel object to detect pytest-injected context
+_PYTEST_CONTEXT_SENTINEL = object()
+
+
+@pytest.fixture
+def context():
+    """Placeholder fixture for @litmus_test decorated functions.
+
+    The @litmus_test decorator injects the actual Context object from
+    the TestHarness. This provides access to:
+    - context.configure(key, value) - Record inputs (→ in_* columns)
+    - context.observe(key, value) - Record observations (→ out_* columns)
+    - context.get_in(key) - Read input values
+    - context.get_out(key) - Read observation values
+
+    This fixture just satisfies pytest's fixture resolution.
+    """
+    return _PYTEST_CONTEXT_SENTINEL
+
+
 @pytest.fixture(scope="session")
 def spec_context(request):
     """Provide product spec context for spec-driven testing.

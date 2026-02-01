@@ -196,6 +196,69 @@ def test_burn_in(vector, dmm):
         time.sleep(60)
 ```
 
+## Advanced Patterns
+
+### Waveform Capture (Pattern 11)
+
+Capture and analyze oscilloscope waveforms:
+
+```python
+@litmus_test
+def test_output_ripple(vector, psu, eload, scope):
+    psu.set_voltage(5.0)
+    psu.enable_output()
+    eload.set_current(0.5)
+    eload.enable()
+
+    waveform = scope.fetch_waveform("CH1")  # Returns Waveform(t0, dt, Y, attrs)
+    ripple = max(waveform.Y) - min(waveform.Y)
+    return ripple  # mV
+```
+
+### Callable Limits (Pattern 12)
+
+Dynamic limits based on test conditions:
+
+```yaml
+# config.yaml
+test_output_voltage_temp:
+  vectors:
+    expand: product
+    temperature: [-40, 25, 85]
+  limits:
+    test_output_voltage_temp:
+      callable: |
+        temp = ctx.get_in("temperature")
+        if temp < 0:
+          return Limit(low=3.15, high=3.45, units="V")
+        elif temp < 50:
+          return Limit(low=3.25, high=3.35, units="V")
+        else:
+          return Limit(low=3.10, high=3.50, units="V")
+```
+
+### Context Traceability (Pattern 13)
+
+Record inputs and observations for full traceability:
+
+```python
+@litmus_test
+def test_efficiency_with_context(vector, psu, dmm, eload, context):
+    # Record commanded values (→ in_* columns in Parquet)
+    context.configure("vin", vector["vin"])
+    context.configure("load", vector["load_current"])
+
+    # Record observations (→ out_* columns in Parquet)
+    context.observe("ambient_temp", 24.5)
+    context.observe("dut_temp", 42.3)
+
+    # Measurements (→ limit checked, stored)
+    pin = psu.measure_voltage() * psu.measure_current()
+    pout = dmm.measure_dc_voltage() * vector["load_current"]
+
+    return {"input_power": pin, "output_power": pout, "efficiency": pout/pin * 100}
+```
+
 ## Change Detection
 
 Optimize slow operations by detecting when parameters change:
@@ -321,6 +384,9 @@ duckdb.sql("""
 | Yield streaming | `test_power_board.py` | `test_stability_over_time` |
 | Change detection | `test_power_board.py` | `test_load_sweep` |
 | One-sided limit | `config.yaml` | `test_quiescent_current` |
+| Waveform capture | `test_power_board.py` | `test_output_ripple` |
+| Callable limits | `config.yaml` | `test_output_voltage_temp` |
+| Context API | `test_power_board.py` | `test_efficiency_with_context` |
 | Pure pytest | `test_pure_pytest.py` | Manual litmus_logger |
 | @measure decorator | `test_architect.py` | Reusable measurement functions |
 | @litmus_step | `test_architect.py` | Non-measurement step tracking |

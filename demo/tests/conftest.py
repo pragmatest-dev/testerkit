@@ -51,6 +51,16 @@ def eload(instruments):
     return instruments.get("eload")
 
 
+@pytest.fixture(scope="session")
+def scope(instruments):
+    """Oscilloscope fixture.
+
+    Resolves 'scope' from the instruments dictionary loaded from station config.
+    Used for waveform capture patterns (Pattern 11: Ripple measurement).
+    """
+    return instruments.get("scope")
+
+
 # =============================================================================
 # Pin-Based Fixtures (for traceability)
 #

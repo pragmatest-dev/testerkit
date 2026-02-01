@@ -263,12 +263,17 @@ def load_test_config(path: Path) -> dict[str, dict[str, Any]]:
             limits = {}
             for name, limit_data in test_data["limits"].items():
                 if isinstance(limit_data, dict):
-                    # Convert numeric values to float
-                    limit_dict = dict(limit_data)
-                    for key in ["low", "high", "nominal"]:
-                        if key in limit_dict and limit_dict[key] is not None:
-                            limit_dict[key] = float(limit_dict[key])
-                    limits[name] = Limit.model_validate(limit_dict)
+                    # Check for callable limit (defer resolution to harness)
+                    if "callable" in limit_data:
+                        # Keep as dict for harness to resolve at runtime
+                        limits[name] = limit_data
+                    else:
+                        # Convert numeric values to float
+                        limit_dict = dict(limit_data)
+                        for key in ["low", "high", "nominal"]:
+                            if key in limit_dict and limit_dict[key] is not None:
+                                limit_dict[key] = float(limit_dict[key])
+                        limits[name] = Limit.model_validate(limit_dict)
                 else:
                     limits[name] = limit_data
             config["limits"] = limits

@@ -22,6 +22,9 @@ PATTERNS DEMONSTRATED:
 - Pattern 8: One-sided limits (max only)
 - Pattern 9: Streaming measurements (yield)
 - Pattern 10: Skipped test (thermal)
+- Pattern 11: Waveform capture (oscilloscope)
+- Pattern 12: Callable limits (temperature-dependent)
+- Pattern 13: Context traceability (configure/observe)
 
 Run with:
     cd demo
@@ -340,3 +343,147 @@ def test_thermal_shutdown(vector, psu, dmm, eload):
 
     eload.disable()
     return float(vout)
+
+
+# =============================================================================
+# Pattern 11: Waveform Capture (Oscilloscope)
+# =============================================================================
+@litmus_test
+def test_output_ripple(vector, psu, eload, scope):
+    """Measure output ripple using oscilloscope waveform capture.
+
+    Captures a waveform from the scope, calculates peak-to-peak ripple.
+
+    This pattern demonstrates:
+    - Waveform capture from oscilloscope
+    - Analysis of time-series data
+    - Scope mock configuration with sample data
+
+    The scope.fetch_waveform() returns (samples, dt):
+    - samples: list of voltage values
+    - dt: time between samples (seconds)
+
+    For the Waveform model (with t0, dt, Y, attrs), see:
+    litmus.data.models.Waveform
+    """
+    vin = vector.get("vin", 5.0)
+    load = vector.get("load_current", 0.5)
+
+    psu.set_voltage(vin)
+    psu.set_current_limit(1.0)
+    psu.enable_output()
+
+    eload.set_current(load)
+    eload.enable()
+
+    # Capture waveform from scope (returns samples, dt)
+    samples, dt = scope.fetch_waveform("CH1")
+
+    # Calculate ripple (peak-to-peak voltage) in mV
+    ripple_vpp = (max(samples) - min(samples)) * 1000
+
+    eload.disable()
+    return ripple_vpp  # mV ripple
+
+
+# =============================================================================
+# Pattern 12: Callable Limits (Temperature-Dependent)
+# =============================================================================
+@litmus_test
+def test_output_voltage_temp(vector, psu, dmm, context):
+    """Verify output voltage with temperature-dependent limits.
+
+    Uses a callable limit (defined in config.yaml) that adjusts
+    based on the temperature condition from the vector.
+
+    This pattern demonstrates:
+    - Dynamic limits via inline Python in config.yaml
+    - context.configure() to record test conditions
+    - Limits that access ctx.get_in() for condition-dependent checks
+
+    Callable limits have access to:
+    - ctx.get_in(key) - Input parameters from vectors
+    - ctx.get_out(key) - Observations from context.observe()
+    - Limit class - For constructing return limits
+    """
+    temp = vector["temperature"]
+    vin = vector.get("vin", 5.0)
+
+    # Record conditions for traceability (and callable limit access)
+    context.configure("temperature", temp)
+    context.configure("vin", vin)
+
+    psu.set_voltage(vin)
+    psu.set_current_limit(0.5)
+    psu.enable_output()
+
+    voltage = float(dmm.measure_dc_voltage())
+    return voltage
+
+
+# =============================================================================
+# Pattern 13: Context Traceability (Configure/Observe)
+# =============================================================================
+@litmus_test
+def test_efficiency_with_context(vector, psu, dmm, eload, context):
+    """Full efficiency test with context traceability.
+
+    Uses context.configure() for commanded stimulus and context.observe()
+    for environmental observations that aren't formal measurements.
+
+    This pattern demonstrates:
+    - context.configure() - Records inputs (→ in_* columns in Parquet)
+    - context.observe() - Records observations (→ out_* columns in Parquet)
+    - Separation of stimulus, environment, and measurements
+
+    Use context for:
+    - Commanded setpoints (PSU voltage, load current)
+    - Environmental data (temperature probes, humidity)
+    - Debug data (timestamps, instrument status)
+
+    Use return values for:
+    - Measurements with pass/fail limits
+    """
+    vin = vector["vin"]
+    load = vector["load_current"]
+
+    # Record commanded stimulus (→ in_vin, in_load columns)
+    context.configure("vin", vin)
+    context.configure("load", load)
+
+    # Observe environmental conditions (→ out_* columns)
+    # In production, these would come from sensors
+    context.observe("ambient_temp", 24.5)
+    context.observe("dut_temp", 42.3)
+
+    # Set up stimulus
+    psu.set_voltage(vin)
+    psu.set_current_limit(1.0)
+    psu.enable_output()
+
+    eload.set_current(load)
+    eload.enable()
+
+    # Take measurements
+    vin_actual = float(psu.measure_voltage())
+    iin = float(psu.measure_current())
+    vout = float(dmm.measure_dc_voltage())
+    iout = load  # Commanded load current
+
+    # Also observe actuals (not limit-checked, but recorded)
+    context.observe("vin_actual", vin_actual)
+    context.observe("iin_actual", iin)
+
+    eload.disable()
+
+    # Calculate derived values
+    pin = vin_actual * iin
+    pout = vout * iout
+    efficiency = (pout / pin * 100) if pin > 0 else 0
+
+    # Return measurements for limit checking
+    return {
+        "input_power": pin,
+        "output_power": pout,
+        "efficiency": efficiency,
+    }

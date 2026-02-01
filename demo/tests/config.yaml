@@ -243,3 +243,84 @@ test_thermal_shutdown:
       nominal: 0
       units: V
       spec_ref: "thermal shutdown - output should collapse"
+
+# =============================================================================
+# Pattern 11: Waveform Capture (Oscilloscope) - _mock with Waveform data
+# =============================================================================
+test_output_ripple:
+  description: "Measure output ripple with oscilloscope"
+  vectors:
+    - vin: 5.0
+      load_current: 0.5
+  _mock:
+    # Scope.fetch_waveform returns (samples, dt) tuple
+    # Samples: 3.3V baseline with ~30mV ripple (well below 50mV limit)
+    scope.fetch_waveform:
+      - [3.285, 3.290, 3.300, 3.310, 3.315, 3.310, 3.300, 3.290, 3.285, 3.290]
+      - 0.00001  # dt: 10µs sample interval (100kHz)
+  limits:
+    test_output_ripple:
+      low: 0
+      high: 50        # Max 50mV peak-to-peak ripple
+      nominal: 30
+      units: mV
+      comparator: LE
+      spec_ref: "output ripple @ 500mA load"
+
+# =============================================================================
+# Pattern 12: Callable Limits (temperature-dependent)
+# The limit varies based on temperature condition from the vector
+# =============================================================================
+test_output_voltage_temp:
+  description: "Verify output voltage with temperature-dependent limits"
+  vectors:
+    expand: product
+    temperature: [-40, 25, 85]
+    vin: [5.0]
+  _mock:
+    dmm.measure_voltage: 3.3
+  limits:
+    # Callable limit: adjusts based on temperature condition
+    # Inline Python has access to: ctx, Limit
+    test_output_voltage_temp:
+      callable: |
+        temp = ctx.get_in("temperature")
+        if temp < 0:
+          # Cold: wider tolerance
+          return Limit(low=3.15, high=3.45, units="V")
+        elif temp < 50:
+          # Room temp: tight tolerance
+          return Limit(low=3.25, high=3.35, units="V")
+        else:
+          # Hot: wider tolerance
+          return Limit(low=3.10, high=3.50, units="V")
+
+# =============================================================================
+# Pattern 13: Context Traceability (configure/observe)
+# Shows full signal chain traceability with environmental data
+# =============================================================================
+test_efficiency_with_context:
+  description: "Efficiency test with full context traceability"
+  vectors:
+    # Use explicit list to provide per-vector mock values for realistic efficiency
+    - vin: 5.0
+      load_current: 0.5
+      _mock:
+        psu.measure_voltage: 5.0
+        psu.measure_current: 0.55    # Input current slightly higher than output
+        dmm.measure_voltage: 3.3
+  limits:
+    input_power:
+      low: 0
+      high: 6.0
+      units: W
+    output_power:
+      low: 0
+      high: 4.0
+      units: W
+    efficiency:
+      low: 55
+      high: 100
+      nominal: 60
+      units: "%"
+      spec_ref: "efficiency across line/load"
