@@ -6,7 +6,7 @@ import pytest
 
 from litmus.config.models import Limit, RetryConfig
 from litmus.data.models import Outcome, TestVector
-from litmus.execution.harness import TestHarness
+from litmus.execution.harness import Context, TestHarness, VectorContext
 from litmus.execution.vectors import Vector
 
 
@@ -438,3 +438,370 @@ class TestHarnessPrompt:
                 )
 
         assert result == "A"
+
+
+class TestContext:
+    """Tests for Context class (hierarchical context with scoped inheritance)."""
+
+    def test_configure_adds_to_inputs(self):
+        """Test that configure() adds values to inputs dict."""
+        ctx = Context()
+        ctx.configure("psu.voltage", 5.0)
+        ctx.configure("temperature", 25)
+
+        assert ctx.get_in("psu.voltage") == 5.0
+        assert ctx.get_in("temperature") == 25
+        assert ctx.inputs == {"psu.voltage": 5.0, "temperature": 25}
+
+    def test_observe_adds_to_outputs(self):
+        """Test that observe() adds values to outputs dict."""
+        ctx = Context()
+        ctx.observe("temp_probe.temperature", 24.8)
+        ctx.observe("temp_probe.humidity", 45.2)
+
+        assert ctx.get_out("temp_probe.temperature") == 24.8
+        assert ctx.get_out("temp_probe.humidity") == 45.2
+        assert ctx.outputs == {"temp_probe.temperature": 24.8, "temp_probe.humidity": 45.2}
+
+    def test_set_in_alias(self):
+        """Test that set_in() is an alias for configure()."""
+        ctx = Context()
+        ctx.set_in("psu.voltage", 5.0)
+
+        assert ctx.get_in("psu.voltage") == 5.0
+
+    def test_set_out_alias(self):
+        """Test that set_out() is an alias for observe()."""
+        ctx = Context()
+        ctx.set_out("temp_probe.temperature", 24.8)
+
+        assert ctx.get_out("temp_probe.temperature") == 24.8
+
+    def test_configure_all_bulk(self):
+        """Test that configure_all() adds multiple inputs at once."""
+        ctx = Context()
+        ctx.configure_all({"psu.voltage": 5.0, "eload.current": 0.8})
+
+        assert ctx.inputs == {"psu.voltage": 5.0, "eload.current": 0.8}
+
+    def test_observe_all_bulk(self):
+        """Test that observe_all() adds multiple outputs at once."""
+        ctx = Context()
+        ctx.observe_all({"temp_probe.temperature": 24.8, "temp_probe.humidity": 45.2})
+
+        assert ctx.outputs == {"temp_probe.temperature": 24.8, "temp_probe.humidity": 45.2}
+
+    def test_get_default_value(self):
+        """Test that get_in/get_out return default when key missing."""
+        ctx = Context()
+
+        assert ctx.get_in("missing") is None
+        assert ctx.get_in("missing", 42) == 42
+        assert ctx.get_out("missing") is None
+        assert ctx.get_out("missing", "default") == "default"
+
+    def test_set_inputs_initializes_from_vector(self):
+        """Test that set_inputs() sets initial values (from vector params)."""
+        ctx = Context()
+        ctx.set_inputs({"temperature": 25, "load": 0.8})
+
+        assert ctx.inputs == {"temperature": 25, "load": 0.8}
+
+    def test_set_outputs_sets_observations(self):
+        """Test that set_outputs() sets observation values."""
+        ctx = Context()
+        ctx.set_outputs({"temp_probe.temperature": 24.8, "temp_probe.humidity": 45.2})
+
+        assert ctx.outputs == {"temp_probe.temperature": 24.8, "temp_probe.humidity": 45.2}
+
+    def test_child_creates_new_context_with_parent(self):
+        """Test that child() creates a new context with this as parent."""
+        parent = Context()
+        parent.configure("operator", "jane")
+
+        child = parent.child()
+
+        assert child._parent is parent
+        assert child.get_in("operator") == "jane"
+
+    def test_child_inherits_inputs_from_parent(self):
+        """Test that child context inherits inputs from parent chain."""
+        run_ctx = Context()
+        run_ctx.configure("operator", "jane")
+        run_ctx.configure("station", "station_01")
+
+        step_ctx = run_ctx.child()
+        step_ctx.configure("fixture.id", "FIX-01")
+
+        vector_ctx = step_ctx.child()
+        vector_ctx.configure("temp", 25)
+
+        # Vector sees all inherited values
+        assert vector_ctx.get_in("operator") == "jane"
+        assert vector_ctx.get_in("station") == "station_01"
+        assert vector_ctx.get_in("fixture.id") == "FIX-01"
+        assert vector_ctx.get_in("temp") == 25
+
+        # Inputs property merges the full chain
+        assert vector_ctx.inputs == {
+            "operator": "jane",
+            "station": "station_01",
+            "fixture.id": "FIX-01",
+            "temp": 25,
+        }
+
+    def test_child_inherits_outputs_from_parent(self):
+        """Test that child context inherits outputs from parent chain."""
+        run_ctx = Context()
+        run_ctx.observe("start_time", "2026-01-15T10:00:00")
+
+        step_ctx = run_ctx.child()
+        step_ctx.observe("setup.duration", 5.2)
+
+        vector_ctx = step_ctx.child()
+        vector_ctx.observe("temp_probe.temp", 24.8)
+
+        # Outputs property merges the full chain
+        assert vector_ctx.outputs == {
+            "start_time": "2026-01-15T10:00:00",
+            "setup.duration": 5.2,
+            "temp_probe.temp": 24.8,
+        }
+
+    def test_child_can_override_parent_value(self):
+        """Test that child can override a parent's value locally."""
+        parent = Context()
+        parent.configure("temp", 25)
+
+        child = parent.child()
+        child.configure("temp", 85)
+
+        # Child sees its own value
+        assert child.get_in("temp") == 85
+        # Parent still has original value
+        assert parent.get_in("temp") == 25
+
+    def test_sibling_contexts_are_independent(self):
+        """Test that sibling child contexts don't share data."""
+        parent = Context()
+        parent.configure("operator", "jane")
+
+        child1 = parent.child()
+        child1.configure("temp", 25)
+
+        child2 = parent.child()
+        child2.configure("temp", 85)
+
+        # Each child has its own temp
+        assert child1.get_in("temp") == 25
+        assert child2.get_in("temp") == 85
+
+        # But both inherit operator
+        assert child1.get_in("operator") == "jane"
+        assert child2.get_in("operator") == "jane"
+
+    def test_run_context_compatibility_set_get(self):
+        """Test that Context has RunContext-compatible set/get methods."""
+        ctx = Context()
+        ctx.set("operator_badge", "EMP-12345")
+
+        assert ctx.get("operator_badge") == "EMP-12345"
+        assert ctx.get("missing", "default") == "default"
+
+    def test_run_context_compatibility_update(self):
+        """Test that Context has RunContext-compatible update method."""
+        ctx = Context()
+        ctx.update(operator_badge="EMP-12345", fixture_serial="FIX-001")
+
+        assert ctx.get("operator_badge") == "EMP-12345"
+        assert ctx.get("fixture_serial") == "FIX-001"
+
+    def test_run_context_compatibility_metadata(self):
+        """Test that Context has RunContext-compatible metadata property."""
+        ctx = Context()
+        ctx.set("operator_badge", "EMP-12345")
+
+        assert ctx.metadata == {"operator_badge": "EMP-12345"}
+
+
+class TestVectorContextAlias:
+    """Tests that VectorContext is an alias for Context."""
+
+    def test_vector_context_is_context(self):
+        """Test that VectorContext is Context."""
+        assert VectorContext is Context
+
+    def test_vector_context_works_as_before(self):
+        """Test that VectorContext API works for backwards compatibility."""
+        ctx = VectorContext()
+        ctx.configure("psu.voltage", 5.0)
+        ctx.observe("temp_probe.temperature", 24.8)
+
+        assert ctx.get_in("psu.voltage") == 5.0
+        assert ctx.get_out("temp_probe.temperature") == 24.8
+
+
+class TestHarnessContext:
+    """Tests for Context integration with TestHarness."""
+
+    def test_context_property_available(self):
+        """Test that harness has context property."""
+        harness = TestHarness()
+        assert isinstance(harness.context, Context)
+
+    def test_vector_context_property_available(self):
+        """Test that harness has vector_context property (backwards compat)."""
+        harness = TestHarness()
+        assert isinstance(harness.vector_context, Context)
+        # Should return the same as context
+        assert harness.vector_context is harness.context
+
+    def test_run_context_persists_across_steps(self):
+        """Test that run context is available across steps."""
+        harness = TestHarness()
+        harness.run_context.configure("operator", "jane")
+
+        with harness.step():
+            with harness.run_vector(Vector(_index=0)):
+                # Run context value should be inherited
+                assert harness.context.get_in("operator") == "jane"
+
+        with harness.step():
+            with harness.run_vector(Vector(_index=0)):
+                # Still available in second step
+                assert harness.context.get_in("operator") == "jane"
+
+    def test_step_context_inherits_from_run(self):
+        """Test that step context inherits from run context."""
+        harness = TestHarness()
+        harness.run_context.configure("operator", "jane")
+
+        with harness.step():
+            # In step but outside vector, context is step context
+            harness.context.configure("fixture.id", "FIX-01")
+
+            # Step context has both run and step values
+            assert harness.context.get_in("operator") == "jane"
+            assert harness.context.get_in("fixture.id") == "FIX-01"
+
+    def test_vector_context_inherits_from_step_and_run(self):
+        """Test that vector context inherits from step and run."""
+        harness = TestHarness()
+        harness.run_context.configure("operator", "jane")
+
+        with harness.step():
+            harness.context.configure("fixture.id", "FIX-01")
+
+            with harness.run_vector(Vector(temp=25, _index=0)):
+                # Vector context sees all levels
+                assert harness.context.get_in("operator") == "jane"
+                assert harness.context.get_in("fixture.id") == "FIX-01"
+                assert harness.context.get_in("temp") == 25
+
+    def test_vector_context_fresh_for_each_vector(self):
+        """Test that each vector gets a fresh context."""
+        harness = TestHarness()
+
+        with harness.step():
+            # First vector
+            with harness.run_vector(Vector(temp=25, _index=0)):
+                harness.context.observe("probe.temp", 24.8)
+                assert harness.context.get_out("probe.temp") == 24.8
+
+            # Second vector - should not have first vector's observations
+            with harness.run_vector(Vector(temp=85, _index=1)):
+                assert harness.context.get_out("probe.temp") is None
+
+    def test_vector_params_in_context_inputs(self):
+        """Test that vector params are in context inputs."""
+        harness = TestHarness()
+
+        with harness.step():
+            with harness.run_vector(Vector(temperature=25, load=0.8, _index=0)):
+                assert harness.context.get_in("temperature") == 25
+                assert harness.context.get_in("load") == 0.8
+
+    def test_observations_stored_in_test_vector(self):
+        """Test that observations flow to TestVector.observations."""
+        harness = TestHarness()
+
+        with harness.step():
+            with harness.run_vector(Vector(_index=0)) as tv:
+                harness.context.observe("temp_probe.temperature", 24.8)
+                harness.context.observe("temp_probe.humidity", 45.2)
+
+        assert tv.observations == {
+            "temp_probe.temperature": 24.8,
+            "temp_probe.humidity": 45.2,
+        }
+
+    def test_inherited_inputs_stored_in_test_vector(self):
+        """Test that inherited inputs are stored in TestVector.params."""
+        harness = TestHarness()
+        harness.run_context.configure("operator", "jane")
+
+        with harness.step():
+            harness.context.configure("fixture.id", "FIX-01")
+
+            with harness.run_vector(Vector(temp=25, _index=0)) as tv:
+                pass
+
+        # TestVector params should include inherited values
+        assert tv.params["operator"] == "jane"
+        assert tv.params["fixture.id"] == "FIX-01"
+        assert tv.params["temp"] == 25
+
+    def test_step_context_not_visible_in_next_step(self):
+        """Test that step context is discarded after step ends."""
+        harness = TestHarness()
+
+        with harness.step():
+            harness.context.configure("step1.value", 100)
+            assert harness.context.get_in("step1.value") == 100
+
+        with harness.step():
+            # Step context from previous step should not be visible
+            assert harness.context.get_in("step1.value") is None
+
+    def test_context_outside_step_is_run_context(self):
+        """Test that context outside step returns run context."""
+        harness = TestHarness()
+        harness.run_context.configure("operator", "jane")
+
+        # Outside step, context should be run context
+        assert harness.context.get_in("operator") == "jane"
+        harness.context.configure("global.value", 42)
+        assert harness.run_context.get_in("global.value") == 42
+
+
+class TestHarnessSpecId:
+    """Tests for spec_id propagation in TestHarness."""
+
+    def test_measure_copies_spec_id_from_limit(self):
+        """Test that measure() copies spec_id from resolved limit."""
+        limit = Limit(
+            low=Decimal("3.0"),
+            high=Decimal("3.6"),
+            units="V",
+            spec_id="output_voltage",
+            spec_ref="Table 4.2 @ temp=25",
+        )
+        harness = TestHarness()
+
+        with harness.step():
+            with harness.run_vector(Vector(_index=0)):
+                m = harness.measure("vout", 3.3, limit=limit)
+
+        assert m.spec_id == "output_voltage"
+        assert m.spec_ref == "Table 4.2 @ temp=25"
+
+    def test_measure_spec_id_none_without_limit(self):
+        """Test that spec_id is None when no limit is provided."""
+        harness = TestHarness()
+
+        with harness.step():
+            with harness.run_vector(Vector(_index=0)):
+                m = harness.measure("vout", 3.3)
+
+        assert m.spec_id is None
+        assert m.spec_ref is None

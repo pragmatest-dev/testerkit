@@ -96,7 +96,7 @@ One row per measurement. Every column queryable. All metadata automatic.
 | `test_phase` | string | production/engineering/debug |
 | `git_commit` | string | Code version at test time |
 
-### Stimulus — Input Conditions (Dynamic)
+### Configuration — Input Conditions (Dynamic `in_*`)
 
 For each input parameter, columns are created dynamically:
 
@@ -113,20 +113,83 @@ For each input parameter, columns are created dynamically:
 - `in_vin`, `in_vin_instrument`, `in_vin_resource`, `in_vin_channel`
 - `in_load`, `in_load_instrument`, `in_load_resource`, `in_load_channel`
 
+#### Naming Convention
+
+Parameter names follow a convention that distinguishes spec-relevant conditions from implementation details:
+
+| Type | Pattern | Examples | Notes |
+|------|---------|----------|-------|
+| **Spec conditions** | Bare name | `in_temperature`, `in_load` | Match spec condition keys |
+| **Implementation details** | Fixture-prefixed | `in_psu.voltage`, `in_dmm.sample_count` | Stimulus/settings |
+
+This convention is enforced by documentation, not code. When analyzing data:
+- Bare names (`in_temperature`, `in_load`) are spec-relevant for condition matching
+- Prefixed names (`in_psu.voltage`) are implementation details
+
+### Observation — Context Data (Dynamic `out_*`)
+
+Observations are measured context captured during test execution—not the commanded values (in_*), but actual readings that provide context for the measurement.
+
+| Column Pattern | Type | Description |
+|----------------|------|-------------|
+| `out_{key}` | varies | Observed value (scalar, array, or path reference) |
+
+**Examples:**
+- `out_temp_probe.temperature` — Actual temperature reading (24.8°C)
+- `out_temp_probe.humidity` — Humidity at time of test (45.2%)
+- `out_scope.waveform` — Raw waveform data or path reference
+
+**Usage in test code:**
+```python
+def test_output_voltage(psu, dmm, temp_probe, vector_context):
+    # Log environmental observations
+    vector_context.observe("temp_probe.temperature", temp_probe.read())
+    vector_context.observe("temp_probe.humidity", temp_probe.read_humidity())
+
+    # Configure stimulus (if tracking actual applied values)
+    vector_context.configure("psu.actual_voltage", psu.read_voltage())
+
+    # THE measurement
+    return dmm.measure_dc_voltage()
+```
+
+**Large arrays** (waveforms, images) can be stored in the `_raw` directory:
+- Small arrays: Stored inline as JSON in the column
+- Large arrays: Saved to `_raw/{vector_id}_{key}.npy`, column contains path reference
+
 ### Measurement — Core
 
 | Column | Type | Description |
 |--------|------|-------------|
 | `measurement_name` | string | "vout", "iout", "efficiency" |
 | `measurement_timestamp` | timestamp | When measured |
-| `value` | float64 | Measured value |
+| `value` | float64 | Measured value (always scalar) |
 | `units` | string | Units (V, A, %, etc.) |
 | `outcome` | string | pass/fail/error |
 | `low_limit` | float64 | Lower limit |
 | `high_limit` | float64 | Upper limit |
 | `nominal` | float64 | Expected value |
 | `comparator` | string | GELE, EQ, GT, etc. |
-| `spec_ref` | string | Characteristic ID from spec |
+
+### Spec Traceability
+
+| Column | Type | Description |
+|--------|------|-------------|
+| `spec_id` | string | Characteristic ID for structured queries (e.g., "output_voltage") |
+| `spec_ref` | string | Human-readable reference with conditions (e.g., "Table 4.2 @ temp=25") |
+
+**`spec_id`** enables structured queries:
+```sql
+-- Find all measurements for a specific characteristic
+SELECT * FROM results WHERE spec_id = 'output_voltage';
+
+-- Yield by characteristic across all products
+SELECT spec_id, product_id, AVG(CASE WHEN outcome='pass' THEN 1.0 ELSE 0.0 END) as yield
+FROM results
+GROUP BY spec_id, product_id;
+```
+
+**`spec_ref`** provides human-readable traceability for reports and documentation.
 
 ### Measurement Signal Path
 
@@ -256,15 +319,16 @@ Parquet is self-describing—schema is embedded in each file:
 **Schema varies per test—this is correct and unavoidable.**
 
 Different tests have different:
-- Input parameters (vin, load, temp, duty_cycle, ...)
-- Measurements (vout, iout, efficiency, ...)
+- Configuration parameters (`in_*`): vin, load, temp, duty_cycle, ...
+- Observations (`out_*`): temp_probe.temperature, scope.waveform, ...
+- Measurements: vout, iout, efficiency, ...
 - Custom metadata
 
 When querying across runs, big data platforms handle this automatically:
 
 ```sql
 -- DuckDB/Spark union schemas; missing columns become NULL
-SELECT station_id, measurement_name, outcome, in_vin, in_temp
+SELECT station_id, measurement_name, outcome, in_vin, in_temp, out_temp_probe.temperature
 FROM read_parquet('results/runs/**/*.parquet')
 WHERE in_vin IS NOT NULL  -- filter to tests that used vin
 ```
@@ -320,6 +384,67 @@ Filter to final attempt with window functions or `WHERE attempt = (SELECT MAX(at
 | `GT` | `value > low` |
 | `LE` | `value <= high` |
 | `LT` | `value < high` |
+
+## Context API
+
+The `Context` provides methods for recording `in_*` and `out_*` data during test execution. Context is hierarchical with scoped inheritance:
+
+- **Run level**: Data visible to all steps and vectors
+- **Step level**: Data visible to all vectors in that step
+- **Vector level**: Data visible only to that vector
+
+Data set at parent level is inherited by children. Children can override parent values locally.
+
+```python
+def test_output_voltage(psu, dmm, temp_probe, harness):
+    ctx = harness.context  # Current active context (vector > step > run)
+
+    # Semantic methods (preferred)
+    ctx.configure("psu.voltage", 5.0)              # → in_psu.voltage
+    ctx.observe("temp_probe.temperature", 24.8)    # → out_temp_probe.temperature
+
+    # Explicit aliases
+    ctx.set_in("psu.voltage", 5.0)
+    ctx.set_out("temp_probe.temperature", 24.8)
+
+    # Bulk operations
+    ctx.configure_all({"psu.voltage": 5.0, "eload.current": 0.8})
+    ctx.observe_all({"temp_probe.temperature": 24.8, "temp_probe.humidity": 45})
+
+    # Direct set (aliases)
+    ctx.set_inputs({"psu.voltage": 5.0})
+    ctx.set_outputs({"temp_probe.temperature": 24.8})
+
+    # Read back (includes inherited values from parent contexts)
+    voltage = ctx.get_in("psu.voltage")
+    all_inputs = ctx.inputs     # Dict of all in_* values (merged with parents)
+    all_outputs = ctx.outputs   # Dict of all out_* values (merged with parents)
+
+    return dmm.measure_dc_voltage()
+```
+
+### Context Inheritance Example
+
+```python
+# Run-level context (persists across all tests)
+harness.run_context.configure("operator", "jane")
+
+with harness.step():
+    # Step-level context (inherits from run)
+    harness.context.configure("fixture.id", "FIX-01")
+
+    with harness.run_vector(Vector(temp=25)):
+        # Vector context inherits from step and run
+        harness.context.inputs
+        # → {"operator": "jane", "fixture.id": "FIX-01", "temp": 25}
+
+    with harness.run_vector(Vector(temp=85)):
+        # Fresh vector context, still inherits step and run
+        harness.context.inputs
+        # → {"operator": "jane", "fixture.id": "FIX-01", "temp": 85}
+```
+
+**Note:** Vector params from config are automatically populated as `in_*` columns. Use `configure()` to add implementation details (fixture-prefixed names) or readback values.
 
 ## See Also
 

@@ -62,7 +62,8 @@ class Measurement(BaseModel):
     high_limit: Decimal | None = None
     nominal: Decimal | None = None
     outcome: Outcome | None = None
-    spec_ref: str | None = None
+    spec_id: str | None = None  # Characteristic ID for structured traceability
+    spec_ref: str | None = None  # Human-readable spec reference with conditions
     comparator: str | None = None  # ATML comparator: EQ, NE, GE, LE, GELE, etc.
     timestamp: datetime = Field(default_factory=_utcnow)
 
@@ -161,7 +162,7 @@ class Measurement(BaseModel):
 
 
 class TestVector(BaseModel):
-    """A test vector execution with its input parameters.
+    """A test vector execution with its input parameters and observations.
 
     Represents a single execution of a test with specific input values.
     Parameters are stored once here, not duplicated on each measurement.
@@ -175,12 +176,18 @@ class TestVector(BaseModel):
         └── TestStep (one per pytest test function)
             └── TestVector[] (one per param set, expanded from config)
                 └── Measurement[] (values captured in that vector)
+
+    Data categories:
+        - params (in_*): Configuration - commanded values, setpoints, settings
+        - observations (out_*): Measured context, environmental readings, raw data
+        - measurements: The actual test results (always scalars)
     """
 
     id: UUID = Field(default_factory=uuid4)
     test_step_id: UUID | None = None  # FK to parent TestStep
     index: int = 0  # 0-based index in the parameter expansion
-    params: dict[str, Any] = Field(default_factory=dict)  # Input parameter values
+    params: dict[str, Any] = Field(default_factory=dict)  # Input parameter values (→ in_*)
+    observations: dict[str, Any] = Field(default_factory=dict)  # Observed context (→ out_*)
     stimulus: list[StimulusRecord] = Field(default_factory=list)  # Stimulus signal paths
     attempt: int = 1  # Current attempt number (for retries)
     max_attempts: int = 1  # Maximum attempts allowed

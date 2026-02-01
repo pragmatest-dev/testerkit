@@ -317,6 +317,65 @@ class TestEndToEndWorkflow:
         assert m.value is not None
         assert m.outcome in [Outcome.PASS, Outcome.FAIL]
 
+    def test_spec_id_populated_in_workflow(self):
+        """spec_id is populated for spec-driven measurements."""
+        spec = SpecContext.from_file(SPEC_PATH)
+
+        char_id, conditions = _find_testable_characteristic(spec)
+        if char_id is None:
+            pytest.skip("No testable characteristic found")
+
+        limit = spec.get_limit(char_id, **conditions)
+
+        harness = TestHarness(
+            step_name="test_spec_id",
+            spec_context=spec,
+            config={"vectors": [conditions]},
+        )
+
+        with harness.step() as step:
+            for vector in harness.vectors:
+                with harness.run_vector(vector):
+                    test_value = limit.nominal or limit.low or limit.high
+                    harness.measure(char_id, test_value)
+
+        # Verify spec_id is populated
+        m = step.vectors[0].measurements[0]
+        assert m.spec_id == char_id
+        assert m.spec_ref is not None
+
+    def test_observations_captured_in_workflow(self):
+        """Context observations are captured in TestVector."""
+        spec = SpecContext.from_file(SPEC_PATH)
+
+        char_id, conditions = _find_testable_characteristic(spec)
+        if char_id is None:
+            pytest.skip("No testable characteristic found")
+
+        limit = spec.get_limit(char_id, **conditions)
+
+        harness = TestHarness(
+            step_name="test_observations",
+            spec_context=spec,
+            config={"vectors": [conditions]},
+        )
+
+        with harness.step() as step:
+            for vector in harness.vectors:
+                with harness.run_vector(vector):
+                    # Add observations via Context
+                    harness.context.observe("temp_probe.temperature", 24.8)
+                    harness.context.observe("temp_probe.humidity", 45.2)
+
+                    # Measure
+                    test_value = limit.nominal or limit.low or limit.high
+                    harness.measure(char_id, test_value)
+
+        # Verify observations are captured
+        tv = step.vectors[0]
+        assert tv.observations["temp_probe.temperature"] == 24.8
+        assert tv.observations["temp_probe.humidity"] == 45.2
+
     def test_failure_propagates_to_step(self):
         """Measurement failure propagates to vector and step outcome."""
         spec = SpecContext.from_file(SPEC_PATH)

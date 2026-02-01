@@ -28,6 +28,234 @@ def _utcnow() -> datetime:
     return datetime.now(UTC)
 
 
+class Context:
+    """Hierarchical context with scoped inheritance.
+
+    Data set at parent level is inherited by children. Children can override
+    parent values locally. This enables run → step → vector scoping:
+
+    - **Run level**: Data visible to all steps and vectors
+    - **Step level**: Data visible to all vectors in that step
+    - **Vector level**: Data visible only to that vector
+
+    The context provides semantic methods for data capture:
+    - configure(): Record configuration/stimulus values (→ in_*)
+    - observe(): Record measured context/observations (→ out_*)
+
+    Example usage:
+        def test_output_voltage(psu, dmm, temp_probe, context):
+            # Log environmental observation
+            context.observe("temp_probe.temperature", temp_probe.read())
+            context.observe("temp_probe.humidity", temp_probe.read_humidity())
+
+            # Configure stimulus (if not already from vector params)
+            context.configure("psu.actual_voltage", psu.read_voltage())
+
+            # THE measurement
+            return dmm.measure_dc_voltage()
+
+    Naming convention:
+    - Spec conditions use bare names: temperature, load (match spec condition keys)
+    - Implementation details use fixture prefix: psu.voltage, dmm.sample_count
+    """
+
+    def __init__(self, parent: Context | None = None):
+        """Initialize context with optional parent for inheritance.
+
+        Args:
+            parent: Parent context to inherit values from. If None, this is a root context.
+        """
+        self._parent = parent
+        self._inputs: dict[str, Any] = {}
+        self._outputs: dict[str, Any] = {}
+
+    def child(self) -> Context:
+        """Create a child context that inherits from this one.
+
+        Returns:
+            New Context with this context as parent.
+        """
+        return Context(parent=self)
+
+    # -------------------------------------------------------------------------
+    # Semantic API (preferred)
+    # -------------------------------------------------------------------------
+
+    def configure(self, key: str, value: Any) -> None:
+        """Record a configuration/stimulus value (→ in_* column).
+
+        Use for commanded values, setpoints, and settings.
+
+        Args:
+            key: Parameter name (e.g., "psu.voltage", "temperature").
+            value: The commanded value.
+        """
+        self._inputs[key] = value
+
+    def observe(self, key: str, value: Any) -> None:
+        """Record an observation/measurement context (→ out_* column).
+
+        Use for measured environmental data, raw readings, and context.
+
+        Args:
+            key: Observation name (e.g., "temp_probe.temperature", "scope.waveform").
+            value: The observed value. Large arrays may be stored in _raw directory.
+        """
+        self._outputs[key] = value
+
+    # -------------------------------------------------------------------------
+    # Explicit API (aliases)
+    # -------------------------------------------------------------------------
+
+    def set_in(self, key: str, value: Any) -> None:
+        """Alias for configure() - explicitly set an in_* value."""
+        self.configure(key, value)
+
+    def set_out(self, key: str, value: Any) -> None:
+        """Alias for observe() - explicitly set an out_* value."""
+        self.observe(key, value)
+
+    # -------------------------------------------------------------------------
+    # Bulk operations
+    # -------------------------------------------------------------------------
+
+    def configure_all(self, values: dict[str, Any]) -> None:
+        """Record multiple configuration values at once.
+
+        Args:
+            values: Dict of key-value pairs for in_* columns.
+        """
+        for key, value in values.items():
+            self.configure(key, value)
+
+    def observe_all(self, values: dict[str, Any]) -> None:
+        """Record multiple observations at once.
+
+        Args:
+            values: Dict of key-value pairs for out_* columns.
+        """
+        for key, value in values.items():
+            self.observe(key, value)
+
+    def set_inputs(self, values: dict[str, Any]) -> None:
+        """Set multiple input values at once (typically from vector params).
+
+        Args:
+            values: Dict of input parameter values.
+        """
+        self._inputs.update(values)
+
+    def set_outputs(self, values: dict[str, Any]) -> None:
+        """Set multiple output observation values at once.
+
+        Args:
+            values: Dict of observation values.
+        """
+        self._outputs.update(values)
+
+    # -------------------------------------------------------------------------
+    # Read access (with parent chain lookup)
+    # -------------------------------------------------------------------------
+
+    def get_in(self, key: str, default: Any = None) -> Any:
+        """Get an input configuration value, checking parent chain.
+
+        Args:
+            key: Parameter name.
+            default: Default if not found in this context or any parent.
+
+        Returns:
+            The value or default.
+        """
+        if key in self._inputs:
+            return self._inputs[key]
+        if self._parent is not None:
+            return self._parent.get_in(key, default)
+        return default
+
+    def get_out(self, key: str, default: Any = None) -> Any:
+        """Get an observation value, checking parent chain.
+
+        Args:
+            key: Observation name.
+            default: Default if not found in this context or any parent.
+
+        Returns:
+            The value or default.
+        """
+        if key in self._outputs:
+            return self._outputs[key]
+        if self._parent is not None:
+            return self._parent.get_out(key, default)
+        return default
+
+    @property
+    def inputs(self) -> dict[str, Any]:
+        """All input configuration values, merged with parent chain."""
+        result: dict[str, Any] = {}
+        if self._parent is not None:
+            result.update(self._parent.inputs)
+        result.update(self._inputs)
+        return result
+
+    @property
+    def outputs(self) -> dict[str, Any]:
+        """All observation values, merged with parent chain."""
+        result: dict[str, Any] = {}
+        if self._parent is not None:
+            result.update(self._parent.outputs)
+        result.update(self._outputs)
+        return result
+
+    # -------------------------------------------------------------------------
+    # RunContext compatibility (for metadata at run level)
+    # -------------------------------------------------------------------------
+
+    def set(self, key: str, value: Any) -> None:
+        """Set a custom metadata field (RunContext compatibility).
+
+        For run-level context, this is the primary way to add custom fields
+        that become columns in Parquet. For vector-level context, use
+        configure() for inputs or observe() for outputs.
+
+        Args:
+            key: Field name.
+            value: Field value (must be JSON-serializable for Parquet).
+        """
+        # Store as input for now - custom metadata flows through inputs
+        self._inputs[key] = value
+
+    def get(self, key: str, default: Any = None) -> Any:
+        """Get a custom metadata field (RunContext compatibility).
+
+        Args:
+            key: Field name.
+            default: Value to return if key not found.
+
+        Returns:
+            The stored value or default.
+        """
+        return self.get_in(key, default)
+
+    def update(self, **kwargs: Any) -> None:
+        """Set multiple custom metadata fields at once (RunContext compatibility).
+
+        Args:
+            **kwargs: Key-value pairs to set.
+        """
+        for key, value in kwargs.items():
+            self.set(key, value)
+
+    @property
+    def metadata(self) -> dict[str, Any]:
+        """Access the underlying metadata dict (RunContext compatibility)."""
+        return self.inputs
+
+
+# Backwards compatibility alias
+VectorContext = Context
+
+
 class TestHarness:
     """Harness for executing tests across expanded vectors.
 
@@ -134,6 +362,11 @@ class TestHarness:
         self._current_step: TestStep | None = None
         self._attempt: int = 1
 
+        # Hierarchical context: run → step → vector
+        self._run_context: Context = Context()
+        self._step_context: Context | None = None
+        self._vector_context: Context | None = None
+
     @property
     def vectors(self) -> list[Vector]:
         """Expanded vectors for iteration."""
@@ -148,6 +381,37 @@ class TestHarness:
     def retry_config(self) -> RetryConfig:
         """Retry configuration."""
         return self._retry
+
+    @property
+    def vector_context(self) -> Context:
+        """Current vector context for logging in_*/out_* data.
+
+        Deprecated: Use `context` property instead for the active context
+        at any scope (vector > step > run).
+        """
+        return self.context
+
+    @property
+    def context(self) -> Context:
+        """Current active context (vector > step > run).
+
+        Returns the most specific active context:
+        - During vector execution: vector context (inherits from step and run)
+        - During step but outside vector: step context (inherits from run)
+        - Outside step: run context
+
+        This is the primary API for setting and reading context values.
+        """
+        if self._vector_context is not None:
+            return self._vector_context
+        if self._step_context is not None:
+            return self._step_context
+        return self._run_context
+
+    @property
+    def run_context(self) -> Context:
+        """Run-level context, persists across all steps and vectors."""
+        return self._run_context
 
     def _default_prompt_handler(self, prompt: PromptConfig) -> Any:
         """Default prompt handler - prints to stdout and waits for input."""
@@ -308,6 +572,7 @@ class TestHarness:
             low_limit=resolved_limit.low if resolved_limit else None,
             high_limit=resolved_limit.high if resolved_limit else None,
             nominal=resolved_limit.nominal if resolved_limit else None,
+            spec_id=resolved_limit.spec_id if resolved_limit else None,
             spec_ref=resolved_limit.spec_ref if resolved_limit else None,
             dut_pin=resolved_dut_pin,
             instrument_channel=resolved_instrument_channel,
@@ -411,7 +676,7 @@ class TestHarness:
 
         Handles:
         - Creating TestVector record
-        - Setting up current vector context
+        - Setting up vector context as child of step/run context
         - Configuring mocks for this vector (when simulate=True)
         - Retry logic on failure
         - Finalizing vector timing
@@ -425,6 +690,7 @@ class TestHarness:
         Example:
             for vector in harness.vectors:
                 with harness.run_vector(vector) as tv:
+                    harness.context.observe("temp_probe.temp", 24.8)
                     harness.measure("voltage", dmm.measure())
         """
         self._current_vector = vector
@@ -439,10 +705,17 @@ class TestHarness:
             if mock_config:
                 self._configure_mocks(mock_config)
 
+        # Create vector context as child of step (or run if no step)
+        parent_context = self._step_context or self._run_context
+        self._vector_context = parent_context.child()
+
+        # Pre-populate with vector params (they become in_* columns)
+        self._vector_context.set_inputs(vector.params())
+
         # Create TestVector record
         test_vector = TestVector(
             index=vector.get("_index", 0),
-            params=vector.params(),
+            params=self._vector_context.inputs,  # Includes inherited values
             attempt=self._attempt,
             max_attempts=self._retry.max_attempts,
             started_at=_utcnow(),
@@ -460,7 +733,11 @@ class TestHarness:
             test_vector.error_message = str(e)
             raise
         finally:
+            # Snapshot context into TestVector before clearing
+            test_vector.params = self._vector_context.inputs
+            test_vector.observations = self._vector_context.outputs
             test_vector.ended_at = _utcnow()
+            self._vector_context = None
             self._current_test_vector = None
             self._current_vector = None
 
@@ -517,6 +794,7 @@ class TestHarness:
         """Context manager for a test step.
 
         Creates a TestStep and adds it to the logger if available.
+        Also creates a step-level context that inherits from the run context.
 
         Args:
             name: Step name (defaults to harness step_name).
@@ -531,6 +809,9 @@ class TestHarness:
             started_at=_utcnow(),
         )
         self._current_step = step
+
+        # Create step context as child of run context
+        self._step_context = self._run_context.child()
 
         # Add to logger
         if self._logger is not None:
@@ -549,6 +830,7 @@ class TestHarness:
                 elif tv.outcome == Outcome.ERROR and step.outcome != Outcome.FAIL:
                     step.outcome = Outcome.ERROR
 
+            self._step_context = None
             self._current_step = None
 
     def run_all(

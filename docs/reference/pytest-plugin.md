@@ -320,6 +320,35 @@ def test_with_metadata(run_context, psu, dmm):
 
 Custom fields are denormalized onto every measurement row for easy querying.
 
+**Hierarchical Context:**
+
+The TestHarness provides hierarchical context with scoped inheritance:
+
+- **Run level** (`harness.run_context`): Data visible to all steps and vectors
+- **Step level** (`harness.context` inside step): Data visible to all vectors in that step
+- **Vector level** (`harness.context` inside run_vector): Data visible only to that vector
+
+Data set at parent level is inherited by children:
+
+```python
+from litmus.execution.harness import TestHarness
+
+harness = TestHarness(step_name="my_test")
+
+# Run-level context persists across all steps
+harness.run_context.configure("operator", "jane")
+
+with harness.step():
+    # Step-level context
+    harness.context.configure("fixture.id", "FIX-01")
+
+    with harness.run_vector(vector) as tv:
+        # Vector context inherits from step and run
+        harness.context.observe("temp_probe.temp", 24.8)
+
+        # tv.params includes: operator, fixture.id, temp
+```
+
 **`litmus_logger` fixture (session-scoped, autouse):**
 
 The underlying logger that captures all measurements. Automatically active for all tests. You rarely need to access it directly—use `run_context` for custom metadata or `@litmus_test` for measurement capture.

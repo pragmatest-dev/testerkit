@@ -162,6 +162,39 @@ class TestDeriveLimit:
         assert "temperature=25" in limit.spec_ref
         assert "load=0.1" in limit.spec_ref
 
+    def test_limit_spec_id_from_char_id_param(self, voltage_characteristic):
+        """Test that spec_id is set from explicit char_id parameter."""
+        req = TestRequirement(
+            characteristic_ref="other_ref",
+            conditions={"temperature": 25, "load": Decimal("0.1")},
+        )
+
+        limit = derive_limit(voltage_characteristic, req, char_id="output_voltage")
+
+        assert limit.spec_id == "output_voltage"
+
+    def test_limit_spec_id_falls_back_to_characteristic_ref(self, voltage_characteristic):
+        """Test that spec_id falls back to characteristic_ref if no char_id given."""
+        req = TestRequirement(
+            characteristic_ref="rail_3v3_output",
+            conditions={"temperature": 25, "load": Decimal("0.1")},
+        )
+
+        limit = derive_limit(voltage_characteristic, req)
+
+        assert limit.spec_id == "rail_3v3_output"
+
+    def test_limit_spec_id_is_none_when_no_ref(self, voltage_characteristic):
+        """Test that spec_id can be None if no reference is provided."""
+        req = TestRequirement(
+            conditions={"temperature": 25, "load": Decimal("0.1")},
+        )
+
+        limit = derive_limit(voltage_characteristic, req)
+
+        # characteristic_ref is None by default, so spec_id should also be None
+        assert limit.spec_id is None
+
     def test_guardband_le_comparator(self):
         """Test guardband with single-sided LE comparator."""
         char = Characteristic(

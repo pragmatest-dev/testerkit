@@ -201,6 +201,9 @@ def litmus_logger(request) -> TestRunLogger:
 def run_context(litmus_logger):
     """Provide run context for adding custom metadata.
 
+    This is the run-level context that persists across all tests in the session.
+    For step or vector-scoped context, use the `context` fixture instead.
+
     Usage:
         def test_example(run_context):
             run_context.set("operator_badge", "EMP-12345")
@@ -287,9 +290,10 @@ def mock_instruments(request) -> bool:
     - --mock-instruments pytest option
     - LITMUS_MOCK_INSTRUMENTS environment variable (set by UI)
     """
-    import os
-
-    return request.config.getoption("--mock-instruments") or os.environ.get("LITMUS_MOCK_INSTRUMENTS") == "1"
+    return (
+        request.config.getoption("--mock-instruments")
+        or os.environ.get("LITMUS_MOCK_INSTRUMENTS") == "1"
+    )
 
 
 @pytest.fixture(scope="session")

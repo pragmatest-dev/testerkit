@@ -103,6 +103,7 @@ class ParquetBackend:
             for vector in step.vectors:
                 vector_outcome = vector.outcome.value if vector.outcome else None
                 stimulus_cols = self._build_stimulus_columns(vector)
+                observation_cols = self._build_observation_columns(vector)
 
                 for measurement in vector.measurements:
                     # Build limit values
@@ -172,6 +173,7 @@ class ParquetBackend:
                         "nominal": nom,
                         "comparator": measurement.comparator,
                         # Spec traceability
+                        "spec_id": measurement.spec_id,
                         "spec_ref": measurement.spec_ref,
                         # ═══════════════════════════════════════════════════════════════
                         # MEASUREMENT SIGNAL PATH - How value was captured
@@ -190,6 +192,9 @@ class ParquetBackend:
 
                     # Add stimulus columns (dynamic in_* columns)
                     row.update(stimulus_cols)
+
+                    # Add observation columns (dynamic out_* columns)
+                    row.update(observation_cols)
 
                     # Add custom metadata columns
                     for key, value in test_run.custom_metadata.items():
@@ -251,6 +256,47 @@ class ParquetBackend:
 
         return cols
 
+    def _build_observation_columns(self, vector) -> dict[str, Any]:
+        """Build dynamic out_* columns from vector observations.
+
+        For each observation, creates columns:
+        - out_{key}: The observed value
+
+        Observations are measured context (not commanded values):
+        - Environmental readings (temperature, humidity)
+        - Raw data (waveforms, images)
+        - Actual readback values from instruments
+
+        Large arrays (numpy, etc.) are serialized to JSON for small arrays,
+        or saved to _raw directory with path reference for large arrays.
+        """
+        cols: dict[str, Any] = {}
+
+        if not hasattr(vector, "observations"):
+            return cols
+
+        for key, value in vector.observations.items():
+            if key.startswith("_"):
+                continue  # Skip internal keys
+
+            col_name = f"out_{key}"
+
+            # Handle different value types
+            if isinstance(value, Decimal):
+                cols[col_name] = float(value)
+            elif hasattr(value, "tolist"):
+                # numpy array or similar - convert to list for JSON serialization
+                # For large arrays, this should be saved to _raw directory
+                # (future enhancement: check size threshold)
+                cols[col_name] = value.tolist()
+            elif isinstance(value, (list, dict)):
+                # Store as-is (will be serialized to JSON by PyArrow)
+                cols[col_name] = value
+            else:
+                cols[col_name] = value
+
+        return cols
+
     def _build_empty_row(self, test_run: TestRun) -> dict[str, Any]:
         """Build a placeholder row when no measurements exist."""
         return {
@@ -288,6 +334,7 @@ class ParquetBackend:
             "high_limit": None,
             "nominal": None,
             "comparator": None,
+            "spec_id": None,
             "spec_ref": None,
             "meas_dut_pin": None,
             "meas_fixture_point": None,

@@ -33,6 +33,10 @@ def _get_run_id() -> UUID:
 class RunContext:
     """Context for adding custom metadata during test execution.
 
+    Note: This class is deprecated. Use Context from litmus.execution.harness
+    for new code. This class remains for backwards compatibility with existing
+    code that uses the run_context fixture.
+
     Allows test architects to add custom fields that become columns in Parquet:
 
         @litmus_test
@@ -94,6 +98,44 @@ class RunContext:
     def metadata(self) -> dict[str, Any]:
         """Access the underlying metadata dict (read-only view)."""
         return dict(self._test_run.custom_metadata)
+
+    # -------------------------------------------------------------------------
+    # Context API compatibility (for use as unified context)
+    # -------------------------------------------------------------------------
+
+    def configure(self, key: str, value: Any) -> None:
+        """Alias for set() - Context API compatibility."""
+        self.set(key, value)
+
+    def observe(self, key: str, value: Any) -> None:
+        """Alias for set() - Context API compatibility."""
+        self.set(key, value)
+
+    def set_in(self, key: str, value: Any) -> None:
+        """Alias for set() - Context API compatibility."""
+        self.set(key, value)
+
+    def set_out(self, key: str, value: Any) -> None:
+        """Alias for set() - Context API compatibility."""
+        self.set(key, value)
+
+    def get_in(self, key: str, default: Any = None) -> Any:
+        """Alias for get() - Context API compatibility."""
+        return self.get(key, default)
+
+    def get_out(self, key: str, default: Any = None) -> Any:
+        """Alias for get() - Context API compatibility."""
+        return self.get(key, default)
+
+    @property
+    def inputs(self) -> dict[str, Any]:
+        """Alias for metadata - Context API compatibility."""
+        return self.metadata
+
+    @property
+    def outputs(self) -> dict[str, Any]:
+        """Alias for metadata - Context API compatibility."""
+        return self.metadata
 
 
 class TestRunLogger:

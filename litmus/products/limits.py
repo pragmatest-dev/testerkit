@@ -15,6 +15,7 @@ def derive_limit(
     char: Characteristic,
     req: TestRequirement,
     conditions: dict[str, Any] | None = None,
+    char_id: str | None = None,
 ) -> Limit:
     """Derive test limit from characteristic and requirement.
 
@@ -23,14 +24,16 @@ def derive_limit(
     2. Calculates bounds from nominal ± tolerance (or explicit limits)
     3. Applies guardband to tighten the limits
     4. Preserves the comparator from the spec
+    5. Sets spec_id for structured traceability
 
     Args:
         char: The product characteristic containing spec values.
         req: The test requirement with conditions and guardband.
         conditions: Optional override for conditions (defaults to req.conditions).
+        char_id: Optional characteristic ID (uses char.id if available, else req.characteristic_ref).
 
     Returns:
-        A Limit object with derived low/high bounds.
+        A Limit object with derived low/high bounds and spec_id.
 
     Raises:
         ValueError: If no condition point matches the given conditions.
@@ -55,7 +58,11 @@ def derive_limit(
         spec_low, spec_high, req.guardband_pct, point.comparator.value
     )
 
-    # Build spec reference for traceability
+    # Determine spec_id for structured traceability
+    # Priority: explicit char_id > char.id > req.characteristic_ref
+    spec_id = char_id or getattr(char, "id", None) or req.characteristic_ref
+
+    # Build spec reference for traceability (human-readable with conditions)
     spec_ref = _build_spec_ref(char, params)
 
     return Limit(
@@ -64,6 +71,7 @@ def derive_limit(
         nominal=point.nominal,
         units=char.units,
         comparator=point.comparator,
+        spec_id=spec_id,
         spec_ref=spec_ref,
     )
 
@@ -156,6 +164,7 @@ def _build_spec_ref(char: Characteristic, conditions: dict[str, Any]) -> str:
 def derive_limits_for_requirement(
     char: Characteristic,
     req: TestRequirement,
+    char_id: str | None = None,
 ) -> list[tuple[dict[str, Any], Limit]]:
     """Derive limits for all condition points matching a requirement.
 
@@ -165,6 +174,7 @@ def derive_limits_for_requirement(
     Args:
         char: The product characteristic.
         req: The test requirement.
+        char_id: Optional characteristic ID for spec_id traceability.
 
     Returns:
         List of (conditions, limit) tuples for each matching condition point.
@@ -177,7 +187,7 @@ def derive_limits_for_requirement(
         if point.satisfies(req.conditions):
             # Merge the full condition params for the limit derivation
             full_conditions = point.condition_params
-            limit = derive_limit(char, req, full_conditions)
+            limit = derive_limit(char, req, full_conditions, char_id=char_id)
             results.append((full_conditions, limit))
 
     return results

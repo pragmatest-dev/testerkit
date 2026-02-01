@@ -19,13 +19,18 @@ class Limit(BaseModel):
         - LE: value <= high
         - GE: value >= low
         - etc.
+
+    Traceability fields:
+        - spec_id: Structured identifier of the characteristic (e.g., "output_voltage")
+        - spec_ref: Human-readable reference with conditions (e.g., "Table 4.2 @ temp=25")
     """
 
     low: Decimal | None = None
     high: Decimal | None = None
     nominal: Decimal | None = None
     units: str
-    spec_ref: str | None = None
+    spec_id: str | None = None  # Characteristic ID for structured traceability
+    spec_ref: str | None = None  # Human-readable spec reference with conditions
     comparator: Comparator = Comparator.GELE
 
     model_config = {
@@ -35,7 +40,8 @@ class Limit(BaseModel):
                 "high": 5.5,
                 "nominal": 5.0,
                 "units": "V",
-                "spec_ref": "PWR-RAIL-5V",
+                "spec_id": "output_voltage",
+                "spec_ref": "Table 4.2 @ temp=25, load=0.8",
                 "comparator": "GELE",
             }
         }

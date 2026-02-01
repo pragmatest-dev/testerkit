@@ -747,14 +747,75 @@ A complete test run with all steps and measurements.
 }
 ```
 
-## RunContext (Execution Module)
+## Context (Execution Module)
 
-The `RunContext` class allows adding custom metadata during test execution:
+The `Context` class provides hierarchical context with scoped inheritance:
+
+- **Run level**: Data visible to all steps and vectors
+- **Step level**: Data visible to all vectors in that step
+- **Vector level**: Data visible only to that vector
+
+Data set at parent level is inherited by children. Children can override parent values locally.
 
 ```python
-from litmus.execution import RunContext
+from litmus.execution import Context
+from litmus.execution.harness import TestHarness
 
-def test_with_metadata(run_context: RunContext, psu, dmm):
+harness = TestHarness(step_name="my_test")
+
+# Run-level context - persists across all steps
+harness.run_context.configure("operator", "jane")
+
+with harness.step():
+    # Step-level context - visible to all vectors in this step
+    harness.context.configure("fixture.id", "FIX-01")
+
+    with harness.run_vector(vector) as tv:
+        # Vector-level context - inherits from step and run
+        harness.context.observe("temp_probe.temp", 24.8)
+
+        # Merged inputs: {"operator": "jane", "fixture.id": "FIX-01", "temp": 25}
+        print(harness.context.inputs)
+```
+
+### Context API
+
+```python
+# Configuration (→ in_* columns)
+context.configure("psu.voltage", 5.0)
+context.set_in("psu.voltage", 5.0)  # Alias
+
+# Observations (→ out_* columns)
+context.observe("temp_probe.temp", 24.8)
+context.set_out("temp_probe.temp", 24.8)  # Alias
+
+# Bulk operations
+context.configure_all({"psu.voltage": 5.0, "eload.current": 0.8})
+context.observe_all({"temp_probe.temp": 24.8, "humidity": 45.2})
+
+# Read values (checks parent chain)
+voltage = context.get_in("psu.voltage")
+temp = context.get_out("temp_probe.temp")
+
+# Merged properties
+all_inputs = context.inputs   # All inputs, merged with parent chain
+all_outputs = context.outputs  # All outputs, merged with parent chain
+
+# Create child context
+child = context.child()
+
+# RunContext compatibility
+context.set("key", value)
+context.get("key", default)
+context.update(key1=val1, key2=val2)
+```
+
+### RunContext (Legacy)
+
+The `RunContext` class provides RunContext-compatible API for custom metadata:
+
+```python
+def test_with_metadata(run_context, psu, dmm):
     # Add custom fields - these become Parquet columns
     run_context.set("operator_badge", "EMP-12345")
     run_context.set("fixture_serial", "FIX-001")

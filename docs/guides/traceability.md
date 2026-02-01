@@ -136,6 +136,29 @@ def test_output_voltage(vector, dmm, harness):
     )
 ```
 
+### Hierarchical Context
+
+The harness provides hierarchical context with scoped inheritance:
+
+```python
+from litmus.execution.harness import TestHarness
+
+harness = TestHarness(step_name="my_test")
+
+# Run-level: visible to all steps and vectors
+harness.run_context.configure("operator", "jane")
+
+with harness.step():
+    # Step-level: visible to all vectors in this step
+    harness.context.configure("fixture.id", "FIX-01")
+
+    with harness.run_vector(vector) as tv:
+        # Vector-level: inherits from step and run
+        harness.context.observe("temp_probe.temp", 24.8)
+
+        # tv.params includes: operator, fixture.id, temp
+```
+
 ### Custom Metadata with run_context
 
 Add custom traceability fields that become Parquet columns:

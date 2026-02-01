@@ -125,7 +125,7 @@ class SpecContext:
             **conditions: Condition parameters (e.g., temperature=25, load=0.1).
 
         Returns:
-            Limit with derived low/high bounds and spec_ref.
+            Limit with derived low/high bounds, spec_id, and spec_ref.
 
         Raises:
             KeyError: If characteristic not found.
@@ -143,7 +143,7 @@ class SpecContext:
             guardband_pct=gb_pct,
         )
 
-        return derive_limit(char, req, conditions if conditions else None)
+        return derive_limit(char, req, conditions if conditions else None, char_id=char_id)
 
     def get_limit_from_requirement(self, req_id: str) -> Limit:
         """Derive limit from a test requirement.
@@ -152,7 +152,7 @@ class SpecContext:
             req_id: Test requirement ID.
 
         Returns:
-            Limit derived from the requirement's characteristic.
+            Limit derived from the requirement's characteristic with spec_id.
 
         Raises:
             KeyError: If requirement or referenced characteristic not found.
@@ -168,7 +168,7 @@ class SpecContext:
         if char is None:
             raise KeyError(f"Characteristic '{req.characteristic_ref}' not found")
 
-        return derive_limit(char, req)
+        return derive_limit(char, req, char_id=req.characteristic_ref)
 
     def get_pin_info(self, char_id: str) -> dict[str, Any]:
         """Get pin information for a characteristic.

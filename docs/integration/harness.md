@@ -354,6 +354,36 @@ finally:
     harness.finish()
 ```
 
+### Hierarchical Context
+
+The TestHarness provides a hierarchical `Context` with scoped inheritance:
+
+- **Run level**: Data visible to all steps and vectors
+- **Step level**: Data visible to all vectors in that step
+- **Vector level**: Data visible only to that vector
+
+```python
+from litmus.execution.harness import TestHarness
+
+harness = TestHarness(step_name="my_test")
+
+# Run-level context - persists across all steps
+harness.run_context.configure("operator", "jane")
+
+with harness.step():
+    # Step-level context - visible to all vectors in this step
+    harness.context.configure("fixture.id", "FIX-01")
+
+    for vector in harness.vectors:
+        with harness.run_vector(vector) as tv:
+            # Vector-level context - inherits from step and run
+            harness.context.observe("temp_probe.temp", 24.8)
+
+            # All levels merged in tv.params
+            # → {"operator": "jane", "fixture.id": "FIX-01", "temp": 25}
+            harness.measure("voltage", dmm.measure())
+```
+
 ### Custom Metadata with run_context
 
 The `run_context` fixture lets you add custom columns to the Parquet output:
@@ -384,6 +414,29 @@ Use meaningful prefixes for organization:
 - `custom_*` — General custom fields
 
 The `run_context` is session-scoped, so values set in one test persist across all tests in the session.
+
+### Context API Methods
+
+The `harness.context` property returns the current active context (vector > step > run):
+
+```python
+# Configuration (→ in_* columns)
+harness.context.configure("psu.voltage", 5.0)
+harness.context.set_in("psu.voltage", 5.0)  # Alias
+
+# Observations (→ out_* columns)
+harness.context.observe("temp_probe.temp", 24.8)
+harness.context.set_out("temp_probe.temp", 24.8)  # Alias
+
+# Bulk operations
+harness.context.configure_all({"psu.voltage": 5.0, "eload.current": 0.8})
+harness.context.observe_all({"temp_probe.temp": 24.8, "humidity": 45.2})
+
+# Read values (checks parent chain)
+voltage = harness.context.get_in("psu.voltage")
+all_inputs = harness.context.inputs   # Merged with parent chain
+all_outputs = harness.context.outputs  # Merged with parent chain
+```
 
 ## Comparison with @litmus_test
 
