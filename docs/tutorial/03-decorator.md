@@ -13,7 +13,7 @@ A test that automatically logs measurements to Litmus results storage.
 from litmus.execution import litmus_test
 
 @litmus_test
-def test_output_voltage(vector, instruments):
+def test_output_voltage(context, instruments):
     """Measure and return voltage - automatically logged."""
     dmm = instruments["dmm"]
     return dmm.measure_voltage()
@@ -23,21 +23,26 @@ The decorator does several things:
 
 1. **Captures the return value** as a measurement
 2. **Logs it** to Litmus results storage
-3. **Provides the `vector` parameter** for test conditions
+3. **Provides the `context` parameter** for test data and conditions
 
-## The vector Parameter
+## The context Parameter
 
-Every `@litmus_test` function receives a `vector` parameter as its first argument:
+Every `@litmus_test` function receives a `context` parameter as its first argument:
 
 ```python
 @litmus_test
-def test_output_voltage(vector, instruments):
-    # vector contains test parameters (we'll use it later)
-    print(f"Running with: {vector.params()}")
+def test_output_voltage(context, instruments):
+    # context contains test parameters and provides observation logging
+    # We'll use it extensively in later steps
     return instruments["dmm"].measure_voltage()
 ```
 
-For now, `vector` is empty. In Step 5, we'll configure it with test conditions.
+The context provides:
+- **Inputs**: Test vector parameters (configured in Step 5)
+- **Observations**: Log environmental data
+- **Configuration**: Record commanded values
+
+For now, you can ignore it. In Step 5, we'll use it to access test conditions.
 
 ## The instruments Fixture
 
@@ -45,7 +50,7 @@ When you run with `--station-config`, Litmus provides an `instruments` fixture:
 
 ```python
 @litmus_test
-def test_output_voltage(vector, instruments):
+def test_output_voltage(context, instruments):
     dmm = instruments["dmm"]   # From station config
     psu = instruments["psu"]
 
@@ -62,7 +67,7 @@ Return a single measurement:
 
 ```python
 @litmus_test
-def test_voltage(vector, instruments):
+def test_voltage(context, instruments):
     return instruments["dmm"].measure_voltage()  # Logged as "test_voltage"
 ```
 
@@ -74,7 +79,7 @@ Return a dict for multiple measurements:
 
 ```python
 @litmus_test
-def test_power_analysis(vector, instruments):
+def test_power_analysis(context, instruments):
     psu = instruments["psu"]
     dmm = instruments["dmm"]
     return {
@@ -92,7 +97,7 @@ Yield measurements over time:
 
 ```python
 @litmus_test
-def test_stability(vector, instruments):
+def test_stability(context, instruments):
     import time
     dmm = instruments["dmm"]
     for i in range(10):
@@ -132,12 +137,12 @@ Both forms work:
 ```python
 # Without parentheses - uses all defaults
 @litmus_test
-def test_voltage(vector, instruments):
+def test_voltage(context, instruments):
     return instruments["dmm"].measure_voltage()
 
 # With parentheses - can customize behavior
 @litmus_test()
-def test_voltage(vector, instruments):
+def test_voltage(context, instruments):
     return instruments["dmm"].measure_voltage()
 ```
 
@@ -169,7 +174,7 @@ instruments:
 from litmus.execution import litmus_test
 
 @litmus_test
-def test_input_voltage(vector, instruments):
+def test_input_voltage(context, instruments):
     """Measure input voltage."""
     psu = instruments["psu"]
     psu.set_voltage(5.0)
@@ -177,7 +182,7 @@ def test_input_voltage(vector, instruments):
     return psu.measure_voltage()
 
 @litmus_test
-def test_output_voltage(vector, instruments):
+def test_output_voltage(context, instruments):
     """Measure output voltage."""
     return instruments["dmm"].measure_voltage()
 ```
@@ -190,7 +195,7 @@ pytest tests/test_power.py --station-config=stations/my_station.yaml --mock-inst
 ## What You Learned
 
 - The @litmus_test decorator for automatic measurement logging
-- The `vector` parameter (used for conditions in later steps)
+- The `context` parameter (used extensively in later steps)
 - The `instruments` fixture from station config
 - Return value patterns: single, dict, yield
 

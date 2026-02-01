@@ -28,7 +28,7 @@ Now simplify your test:
 from litmus.execution import litmus_test
 
 @litmus_test
-def test_output_voltage(vector, dmm):
+def test_output_voltage(context, dmm):
     """Limits come from config.yaml automatically."""
     return dmm.measure_voltage()
 ```
@@ -87,34 +87,38 @@ This runs the test 9 times (3 voltages x 3 loads):
 
 ```python
 @litmus_test
-def test_voltage_sweep(vector, dmm):
+def test_voltage_sweep(context, dmm):
     """Run at multiple conditions."""
-    vin = vector["input_voltage"]
-    load = vector["load_percent"]
+    vin = context.inputs["input_voltage"]
+    load = context.inputs["load_percent"]
     print(f"Testing at {vin}V, {load}% load")
     return dmm.measure_voltage()
 ```
 
-## Accessing Vector Values
+## Accessing Vector Parameters via Context
+
+Test vectors are accessed through the `context` parameter:
 
 ```python
 @litmus_test
-def test_sweep(vector, psu, dmm):
+def test_sweep(context, psu, dmm):
     # Get required parameter
-    vin = vector["input_voltage"]
+    vin = context.inputs["input_voltage"]
 
     # Get optional parameter with default
-    load = vector.get("load_percent", 0)
+    load = context.get_in("load_percent", 0)
 
     # Get all parameters
-    print(vector.params())  # {"input_voltage": 5.0, "load_percent": 50}
-
-    # Get vector index
-    print(vector["_index"])  # 0, 1, 2, ...
+    print(context.inputs)  # {"input_voltage": 5.0, "load_percent": 50}
 
     psu.set_voltage(vin)
     return dmm.measure_voltage()
 ```
+
+The context provides:
+- `context.inputs["key"]` - Required parameter (raises KeyError if missing)
+- `context.get_in("key", default)` - Optional parameter with default
+- `context.inputs` - All parameters as a dict
 
 ## Expansion Modes
 
@@ -184,14 +188,14 @@ vectors:
       values: [0.1, 0.5]    # Inner (changes fast)
 ```
 
-Use `vector.changed()` to detect outer loop changes:
+Use `context.changed()` to detect outer loop changes:
 
 ```python
 @litmus_test
-def test_temp_sweep(vector, chamber, dmm):
-    if vector.changed("temperature"):
+def test_temp_sweep(context, chamber, dmm):
+    if context.changed("temperature"):
         # Only reconfigure when temperature changes
-        chamber.set_temp(vector["temperature"])
+        chamber.set_temp(context.inputs["temperature"])
         time.sleep(60)  # Wait for stabilization
 
     return dmm.measure_voltage()
@@ -244,19 +248,19 @@ test_load_sweep:
 from litmus.execution import litmus_test
 
 @litmus_test
-def test_input_voltage(vector, psu):
+def test_input_voltage(context, psu):
     """Single vector, limits from config."""
     psu.set_voltage(5.0)
     psu.enable_output()
     return psu.measure_voltage()
 
 @litmus_test
-def test_load_sweep(vector, psu, dmm, eload):
+def test_load_sweep(context, psu, dmm, eload):
     """Multiple vectors from config."""
     psu.set_voltage(5.0)
     psu.enable_output()
 
-    eload.set_current(vector["load_percent"] / 100.0)
+    eload.set_current(context.inputs["load_percent"] / 100.0)
     eload.enable()
 
     voltage = dmm.measure_voltage()
@@ -282,7 +286,8 @@ pytest tests/test_power.py -v --dut-serial=TEST001
 - How @litmus_test auto-discovers config.yaml
 - Configuring limits in YAML
 - Vector expansion modes (product, zip, range, nested)
-- Using vector.changed() for nested loops
+- Accessing vector parameters via context.inputs and context.get_in()
+- Using context.changed() for nested loops
 - Retry configuration
 
 ## Next Step

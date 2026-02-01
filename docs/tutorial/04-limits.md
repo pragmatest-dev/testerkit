@@ -12,7 +12,7 @@ In Step 3, we logged measurements but didn't check if they were good or bad:
 
 ```python
 @litmus_test
-def test_voltage(vector, instruments):
+def test_voltage(context, instruments):
     return instruments["dmm"].measure_voltage()  # Logged, but is it passing?
 ```
 
@@ -77,7 +77,7 @@ from litmus.config.models import Limit
         "test_output_voltage": Limit(low=3.135, high=3.465, units="V"),
     }
 )
-def test_output_voltage(vector, instruments):
+def test_output_voltage(context, instruments):
     return instruments["dmm"].measure_voltage()
 ```
 
@@ -163,7 +163,7 @@ Limits in code have issues:
 @litmus_test(
     limits={"test_voltage": Limit(low=3.135, high=3.465, units="V")}
 )
-def test_voltage(vector, instruments):
+def test_voltage(context, instruments):
     ...
 ```
 
@@ -174,6 +174,75 @@ Problems:
 - Different limits for different conditions (temperature, load) are awkward
 
 Solution: **YAML configuration** (next step).
+
+## Dynamic Limits (Callable)
+
+For limits that vary based on test conditions (temperature, load, etc.), use callable limits.
+
+### Why Callable Limits?
+
+Sometimes limits depend on test conditions:
+- Tighter tolerance at room temperature, looser at extremes
+- Different limits for different loads
+- Limits that scale with input voltage
+
+### Inline Python (Simple)
+
+Define limits as Python expressions in YAML:
+
+```yaml
+# tests/config.yaml
+test_output_voltage_temp:
+  vectors:
+    expand: product
+    temperature: [-40, 25, 85]
+  limits:
+    test_output_voltage_temp:
+      callable: |
+        temp = ctx.get_in("temperature")
+        if temp < 0:
+          return Limit(low=3.15, high=3.45, units="V")
+        elif temp < 50:
+          return Limit(low=3.25, high=3.35, units="V")
+        else:
+          return Limit(low=3.10, high=3.50, units="V")
+```
+
+The callable has access to:
+- `ctx.get_in(key)` - Input parameters from test vectors
+- `ctx.get_out(key)` - Observations from context.observe()
+- `Limit` class - For constructing return limits
+
+### Module Function (Complex)
+
+For more complex logic, use a Python function:
+
+```python
+# myproject/limits.py
+from litmus.config.models import Limit
+
+def output_voltage(ctx):
+    """Temperature-dependent voltage limit."""
+    temp = ctx.get_in("temperature")
+    load = ctx.get_in("load_current")
+
+    # Tighter limits at room temp, nominal load
+    if temp >= 20 and temp <= 30 and load < 0.5:
+        return Limit(low=3.25, high=3.35, units="V")
+    else:
+        return Limit(low=3.10, high=3.50, units="V")
+```
+
+Reference it in YAML:
+
+```yaml
+test_output_voltage:
+  limits:
+    output_voltage:
+      callable: myproject.limits.output_voltage
+```
+
+See the [Limits Guide](../guides/limits.md) for full details on callable limits.
 
 ## Complete Example
 
@@ -221,6 +290,7 @@ pytest tests/test_limits.py --station-config=stations/my_station.yaml --mock-ins
 - The Limit model for pass/fail criteria
 - How measurements are checked against limits
 - Different comparator types (GELE, LE, GE, EQ, etc.)
+- Callable limits for condition-dependent pass/fail criteria
 - Why we need external configuration
 
 ## Next Step

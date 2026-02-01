@@ -52,8 +52,8 @@ Clean, declarative tests with configuration in YAML:
 ```python
 # tests/test_power_board.py
 @litmus_test
-def test_output_voltage(vector, psu, dmm):
-    vin = vector.get("vin", 5.0)
+def test_output_voltage(context, psu, dmm):
+    vin = context.get_in("vin", 5.0)
     psu.set_voltage(vin)
     psu.enable_output()
     return dmm.measure_dc_voltage()  # Framework checks limit
@@ -173,14 +173,14 @@ vectors:
 ### Single Value
 ```python
 @litmus_test
-def test_voltage(vector, dmm):
+def test_voltage(context, dmm):
     return dmm.measure_dc_voltage()
 ```
 
 ### Dict (Multiple Measurements)
 ```python
 @litmus_test
-def test_power(vector, psu, dmm):
+def test_power(context, psu, dmm):
     return {
         "input_power": psu.measure_voltage() * psu.measure_current(),
         "output_voltage": dmm.measure_dc_voltage(),
@@ -190,7 +190,7 @@ def test_power(vector, psu, dmm):
 ### Yield (Streaming)
 ```python
 @litmus_test
-def test_burn_in(vector, dmm):
+def test_burn_in(context, dmm):
     for i in range(10):
         yield {"voltage": dmm.measure_dc_voltage()}
         time.sleep(60)
@@ -204,15 +204,16 @@ Capture and analyze oscilloscope waveforms:
 
 ```python
 @litmus_test
-def test_output_ripple(vector, psu, eload, scope):
+def test_output_ripple(context, psu, eload, scope):
     psu.set_voltage(5.0)
     psu.enable_output()
     eload.set_current(0.5)
     eload.enable()
 
-    waveform = scope.fetch_waveform("CH1")  # Returns Waveform(t0, dt, Y, attrs)
-    ripple = max(waveform.Y) - min(waveform.Y)
-    return ripple  # mV
+    # Capture waveform from scope (returns samples, dt)
+    samples, dt = scope.fetch_waveform("CH1")
+    ripple = (max(samples) - min(samples)) * 1000  # mV
+    return ripple
 ```
 
 ### Callable Limits (Pattern 12)
@@ -243,10 +244,10 @@ Record inputs and observations for full traceability:
 
 ```python
 @litmus_test
-def test_efficiency_with_context(vector, psu, dmm, eload, context):
+def test_efficiency_with_context(context, psu, dmm, eload):
     # Record commanded values (→ in_* columns in Parquet)
-    context.configure("vin", vector["vin"])
-    context.configure("load", vector["load_current"])
+    context.configure("vin", context.inputs["vin"])
+    context.configure("load", context.inputs["load_current"])
 
     # Record observations (→ out_* columns in Parquet)
     context.observe("ambient_temp", 24.5)
@@ -254,7 +255,7 @@ def test_efficiency_with_context(vector, psu, dmm, eload, context):
 
     # Measurements (→ limit checked, stored)
     pin = psu.measure_voltage() * psu.measure_current()
-    pout = dmm.measure_dc_voltage() * vector["load_current"]
+    pout = dmm.measure_dc_voltage() * context.inputs["load_current"]
 
     return {"input_power": pin, "output_power": pout, "efficiency": pout/pin * 100}
 ```
@@ -265,12 +266,12 @@ Optimize slow operations by detecting when parameters change:
 
 ```python
 @litmus_test
-def test_temp_sweep(vector, psu, dmm):
-    if vector.changed("temperature"):
+def test_temp_sweep(context, psu, dmm):
+    if context.changed("temperature"):
         # Only runs when temperature changes
-        set_chamber_temperature(vector["temperature"])
+        set_chamber_temperature(context.inputs["temperature"])
 
-    psu.set_voltage(vector["vin"])
+    psu.set_voltage(context.inputs["vin"])
     return dmm.measure_dc_voltage()
 ```
 
