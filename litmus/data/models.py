@@ -17,6 +17,30 @@ def _utcnow() -> datetime:
     return datetime.now(UTC)
 
 
+class StimulusRecord(BaseModel):
+    """Record of a stimulus applied during test execution.
+
+    Captures the full signal path when an instrument sets an input condition:
+    - param: The parameter name (e.g., "vin", "load", "temp")
+    - value: The commanded value
+    - units: Units of the value
+    - instrument: Station config name (e.g., "psu_main")
+    - resource: VISA address or connection string
+    - channel: Channel on instrument (e.g., "CH1")
+    - dut_pin: DUT pin being driven
+    - fixture_point: Fixture routing point
+    """
+
+    param: str
+    value: Decimal | float | None = None
+    units: str | None = None
+    instrument: str | None = None  # Station config name (e.g., "psu_main")
+    resource: str | None = None  # VISA address or connection string
+    channel: str | None = None  # Channel on instrument (e.g., "CH1")
+    dut_pin: str | None = None  # DUT pin being driven
+    fixture_point: str | None = None  # Fixture routing point
+
+
 class Outcome(StrEnum):
     """Test outcome per ATML/IEEE 1671 terminology."""
 
@@ -157,6 +181,7 @@ class TestVector(BaseModel):
     test_step_id: UUID | None = None  # FK to parent TestStep
     index: int = 0  # 0-based index in the parameter expansion
     params: dict[str, Any] = Field(default_factory=dict)  # Input parameter values
+    stimulus: list[StimulusRecord] = Field(default_factory=list)  # Stimulus signal paths
     attempt: int = 1  # Current attempt number (for retries)
     max_attempts: int = 1  # Maximum attempts allowed
     outcome: Outcome = Outcome.PASS
@@ -225,18 +250,37 @@ class TestRun(BaseModel):
 
     # Product traceability
     product_id: str | None = None
+    product_name: str | None = None
+    product_revision: str | None = None
 
     # Station traceability
     station_id: str
     station_type: str | None = None
+    station_location: str | None = None
+
+    # Fixture traceability
+    fixture_id: str | None = None
 
     # Sequence traceability
     test_sequence_id: str
     test_phase: str = "production"
 
     # Operator
-    operator: str | None = None
+    operator_id: str | None = None  # from --operator
+    operator_name: str | None = None  # human-readable name
+
+    # Code traceability
+    git_commit: str | None = None
 
     # Results
     outcome: Outcome = Outcome.PASS
     steps: list[TestStep] = Field(default_factory=list)
+
+    # Custom metadata (user-defined fields)
+    custom_metadata: dict[str, Any] = Field(default_factory=dict)
+
+    # Config snapshots for reconstruction (stored in Parquet file metadata)
+    station_config_yaml: str | None = None
+    product_spec_yaml: str | None = None
+    fixture_config_yaml: str | None = None
+    test_config_yaml: str | None = None

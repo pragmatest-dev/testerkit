@@ -209,9 +209,6 @@ class TestFixtureConfig:
         assert config.id == "product_a_fixture"
         assert "vcc" in config.points
         assert config.points["vcc"].instrument == "psu"
-        # Test backwards compatibility alias
-        assert "vcc" in config.channels
-        assert config.channels["vcc"].instrument == "psu"
 
 
 class TestRetryConfig:

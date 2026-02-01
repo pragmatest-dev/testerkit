@@ -129,8 +129,10 @@ class TestMeasureWithLogger:
 
         get_voltage()
 
-        assert len(logger._current_step.measurements) == 1
-        assert logger._current_step.measurements[0].name == "voltage"
+        # Measurements are stored in vectors within the step
+        assert len(logger._current_step.vectors) == 1
+        assert len(logger._current_step.vectors[0].measurements) == 1
+        assert logger._current_step.vectors[0].measurements[0].name == "voltage"
 
     def test_measure_without_logger_works(self):
         assert get_current_logger() is None

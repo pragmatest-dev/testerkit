@@ -233,22 +233,30 @@ class DMM(VisaInstrument, VoltageInput, CurrentInput, ResistanceInput, Frequency
         return Decimal(response)
 
     # -------------------------------------------------------------------------
-    # Legacy compatibility methods
+    # Convenience methods for common DC measurements
     # -------------------------------------------------------------------------
 
     def measure_dc_voltage(self, range: float | str = "AUTO") -> Decimal:
-        """Measure DC voltage (legacy method).
+        """Measure DC voltage with optional range setting.
 
-        Use measure_voltage() for new code.
+        Args:
+            range: Voltage range in V, or "AUTO" for autoranging (default)
+
+        Returns:
+            Measured voltage in Volts
         """
         if range != "AUTO":
             self.configure_voltage_range(Decimal(str(range)))
         return self.measure_voltage(SignalType.DC)
 
     def measure_dc_current(self, range: float | str = "AUTO") -> Decimal:
-        """Measure DC current (legacy method).
+        """Measure DC current with optional range setting.
 
-        Use measure_current() for new code.
+        Args:
+            range: Current range in A, or "AUTO" for autoranging (default)
+
+        Returns:
+            Measured current in Amps
         """
         if range != "AUTO":
             self.configure_current_range(Decimal(str(range)))

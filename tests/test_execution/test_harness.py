@@ -1,7 +1,6 @@
 """Tests for TestHarness class."""
 
 from decimal import Decimal
-from unittest.mock import MagicMock
 
 import pytest
 

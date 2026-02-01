@@ -311,6 +311,29 @@ def test_voltage(spec_context, dmm):
 
 Auto-discovers from `products/` directory or use `--spec` option.
 
+**`run_context` fixture (session-scoped):**
+
+Add custom metadata that becomes queryable Parquet columns:
+
+```python
+def test_with_metadata(run_context, psu, dmm):
+    # These become columns in the Parquet file
+    run_context.set("operator_badge", "EMP-12345")
+    run_context.set("operator_shift", "day")
+    run_context.set("fixture_serial", "FIX-001")
+    run_context.set("ambient_temp", 23.5)
+
+    # Normal test code...
+    psu.set_voltage(5.0)
+    return dmm.measure_dc_voltage()
+```
+
+Custom fields are denormalized onto every measurement row for easy querying.
+
+**`litmus_logger` fixture (session-scoped, autouse):**
+
+The underlying logger that captures all measurements. Automatically active for all tests. You rarely need to access it directly—use `run_context` for custom metadata or `@litmus_test` for measurement capture.
+
 **`simulate` fixture (session-scoped):**
 
 Returns `True` if `--simulate` flag or `LITMUS_SIMULATE=1` environment variable is set:
@@ -401,20 +424,18 @@ Dependencies can be test function names or full node IDs.
 
 ## Results
 
-Results are saved to Parquet files:
+Results are saved to Parquet files with **one row per measurement** and all metadata denormalized:
 
 ```
-results/
-├── test_runs/
-│   └── 2026-01-28/
-│       └── <run_id>.parquet
-├── vectors/
-│   └── 2026-01-28/
-│       └── <run_id>_vectors.parquet
-└── measurements/
-    └── 2026-01-28/
-        └── <run_id>_measurements.parquet
+results/runs/{date}/{run_id}_{dut_serial}/
+├── measurements.parquet     # All scalar measurements (queryable)
+└── raw/                     # Raw data files (waveforms, images)
 ```
+
+**Key principles:**
+- One directory per DUT (easy to find/ship data for a specific unit)
+- DUT serial in path for quick lookup
+- Self-contained (directory can be zipped and sent anywhere)
 
 Query with the CLI:
 
@@ -426,11 +447,32 @@ litmus show <run_id>
 Or programmatically:
 
 ```python
-import pyarrow.parquet as pq
+import pandas as pd
 
-measurements = pq.read_table("results/measurements")
-print(measurements.to_pandas())
+# Load a specific run
+df = pd.read_parquet("results/runs/2026-01-28/abc123_SN001/measurements.parquet")
+
+# Filter to specific test
+vout = df[df["step_name"] == "test_output_voltage"]
+
+# Analyze by input condition
+print(vout.groupby("in_vin")["value"].mean())
 ```
+
+For cross-run analysis:
+
+```python
+import duckdb
+
+# Query all runs
+duckdb.sql("""
+    SELECT measurement_name, AVG(value), COUNT(*)
+    FROM read_parquet('results/runs/**/*.parquet')
+    GROUP BY measurement_name
+""")
+```
+
+See [Parquet Schema Reference](parquet-schema.md) for the complete column list.
 
 ## Complete Example
 

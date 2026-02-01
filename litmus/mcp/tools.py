@@ -1033,7 +1033,7 @@ def match_tool(
     if product_id and station_id:
         result = check_station_compatibility(product_id, station_id)
         if not result:
-            return {"error": f"Product or station not found"}
+            return {"error": "Product or station not found"}
         return result
 
     # Fixture: find stations with required instruments

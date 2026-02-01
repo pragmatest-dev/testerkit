@@ -4,7 +4,6 @@ from decimal import Decimal
 
 import pytest
 
-from litmus.config.models import Limit
 from litmus.data.models import Outcome
 from litmus.execution.decorators import litmus_test, set_current_harness
 from litmus.execution.harness import TestHarness

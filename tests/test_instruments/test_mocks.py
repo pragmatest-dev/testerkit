@@ -2,8 +2,6 @@
 
 from decimal import Decimal
 
-import pytest
-
 from litmus.instruments.mocks import MockDMM, MockELoad, MockPSU
 
 

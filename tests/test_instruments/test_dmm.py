@@ -1,6 +1,5 @@
 """Tests for DMM driver."""
 
-from decimal import Decimal
 
 import pytest
 

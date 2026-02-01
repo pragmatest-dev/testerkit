@@ -18,11 +18,10 @@ from litmus.capabilities.interfaces import (
     ResistanceInput,
     VoltageInput,
     VoltageOutput,
-    WaveformInput,
 )
 from litmus.config.models import FixtureConfig, FixturePoint
 from litmus.fixtures.manager import FixtureManager, PinAccessor
-from litmus.instruments import DMM, PSU, ELoad, Scope, MockDMM, MockPSU, MockELoad
+from litmus.instruments import DMM, PSU, ELoad, MockDMM, MockELoad, MockPSU, Scope
 
 
 class TestCapabilityProtocols:

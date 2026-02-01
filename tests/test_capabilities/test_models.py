@@ -5,9 +5,9 @@ from decimal import Decimal
 from litmus.capabilities import (
     AccuracySpec,
     Capability,
-    ChannelSpec,
     Direction,
     Domain,
+    InstrumentChannelSpec,
     RangeSpec,
     ResolutionSpec,
     SignalType,
@@ -117,17 +117,17 @@ class TestResolutionSpec:
         assert spec.units == "V"
 
 
-class TestChannelSpec:
-    """Tests for ChannelSpec model."""
+class TestInstrumentChannelSpec:
+    """Tests for InstrumentChannelSpec model."""
 
     def test_defaults(self):
-        spec = ChannelSpec()
+        spec = InstrumentChannelSpec()
         assert spec.count == 1
         assert spec.simultaneous is False
         assert spec.coupling is None
 
     def test_multichannel(self):
-        spec = ChannelSpec(count=4, simultaneous=True, coupling="differential")
+        spec = InstrumentChannelSpec(count=4, simultaneous=True, coupling="differential")
         assert spec.count == 4
         assert spec.simultaneous is True
         assert spec.coupling == "differential"
@@ -167,7 +167,7 @@ class TestCapability:
             direction=Direction.OUTPUT,
             domain=Domain.VOLTAGE,
             signal_types=[SignalType.DC],
-            channels=ChannelSpec(count=2, simultaneous=True),
+            channels=InstrumentChannelSpec(count=2, simultaneous=True),
             range=RangeSpec(min=Decimal("0"), max=Decimal("30"), units="V"),
             features=["ovp", "ocp", "remote_sense"],
         )

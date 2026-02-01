@@ -1,24 +1,40 @@
-"""Parquet storage backend for test results."""
+"""Parquet storage backend for test results.
 
-import json
+Implements an analysis-ready schema with one row per measurement and all
+metadata denormalized for easy querying with DuckDB, Spark, Polars, etc.
+
+Directory structure:
+    results/runs/{date}/{run_id}_{dut_serial}/
+    ├── measurements.parquet     # All scalar measurements (queryable)
+    └── raw/                     # Raw data files (waveforms, images, etc.)
+        ├── {acquisition_id}_waveform.npy
+        └── ...
+
+Schema design:
+- One row per measurement
+- All metadata denormalized onto each row
+- Dynamic in_* columns for stimulus conditions
+- Config snapshots in Parquet file-level metadata
+"""
+
+from decimal import Decimal
 from pathlib import Path
+from typing import Any
 
 import pyarrow as pa
 import pyarrow.parquet as pq
 
-from litmus.data.models import Outcome, TestRun
+from litmus.data.models import TestRun
 
 
 class ParquetBackend:
-    """Save test results to Parquet files.
+    """Save test results to Parquet files with analysis-ready schema.
 
-    Stores three types of records:
-    1. Test runs - one row per test execution
-    2. Test vectors - one row per vector (parameter combination) per step
-    3. Measurements - one row per measurement, referencing vector
-
-    The vector params are stored once per vector, not duplicated on each
-    measurement. Measurements reference vectors by ID.
+    Key design principles:
+    1. One row per measurement - enables flexible queries
+    2. All metadata denormalized - no joins needed
+    3. Dynamic schema - in_* columns vary per test
+    4. Config snapshots in file metadata - full reconstruction possible
     """
 
     def __init__(self, results_dir: Path | str = "results"):
@@ -26,147 +42,273 @@ class ParquetBackend:
         self.results_dir.mkdir(parents=True, exist_ok=True)
 
     def save_test_run(self, test_run: TestRun) -> Path:
-        """Save test run to Parquet, return path."""
+        """Save test run to Parquet with analysis-ready schema.
+
+        Creates directory structure:
+            results/runs/{date}/{run_id}_{dut_serial}/measurements.parquet
+
+        Args:
+            test_run: Complete TestRun with steps, vectors, and measurements.
+
+        Returns:
+            Path to the measurements.parquet file.
+        """
         date_str = test_run.started_at.strftime("%Y-%m-%d")
-        run_dir = self.results_dir / "test_runs" / date_str
+        run_id_short = str(test_run.id)[:8]
+        dut_serial = test_run.dut.serial
+
+        # Create run directory
+        run_dir = self.results_dir / "runs" / date_str / f"{run_id_short}_{dut_serial}"
         run_dir.mkdir(parents=True, exist_ok=True)
 
-        # Count total vectors across all steps
-        total_vectors = sum(len(step.vectors) for step in test_run.steps)
-        failed_vectors = sum(
-            sum(1 for v in step.vectors if v.outcome != Outcome.PASS) for step in test_run.steps
-        )
+        # Build measurement rows
+        rows = self._build_measurement_rows(test_run)
 
-        # Build test run record
-        run_data = {
-            "test_run_id": [str(test_run.id)],
-            "started_at": [test_run.started_at],
-            "ended_at": [test_run.ended_at],
-            # DUT traceability
-            "dut_serial": [test_run.dut.serial],
-            "dut_part_number": [test_run.dut.part_number],
-            "dut_revision": [test_run.dut.revision],
-            # Product traceability
-            "product_id": [getattr(test_run, "product_id", None)],
-            # Station traceability
-            "station_id": [test_run.station_id],
-            "station_type": [test_run.station_type],
-            # Sequence traceability
-            "test_sequence_id": [test_run.test_sequence_id],
-            "test_phase": [test_run.test_phase],
-            # Operator
-            "operator": [test_run.operator],
-            # Results
-            "outcome": [test_run.outcome.value],
-            "total_steps": [len(test_run.steps)],
-            "failed_steps": [sum(1 for s in test_run.steps if s.outcome != Outcome.PASS)],
-            "total_vectors": [total_vectors],
-            "failed_vectors": [failed_vectors],
-        }
+        if not rows:
+            # No measurements - create empty file with minimal schema
+            rows = [self._build_empty_row(test_run)]
 
-        run_table = pa.Table.from_pydict(run_data)
-        run_path = run_dir / f"{test_run.id}.parquet"
-        pq.write_table(run_table, run_path)
+        # Convert to PyArrow table
+        table = pa.Table.from_pylist(rows)
 
-        # Save vectors and measurements
-        self._save_vectors(test_run, date_str)
-        self._save_measurements(test_run, date_str)
+        # Add file-level metadata (config snapshots)
+        metadata = self._build_file_metadata(test_run)
+        table = table.replace_schema_metadata(metadata)
 
-        return run_path
+        # Write to Parquet
+        measurements_path = run_dir / "measurements.parquet"
+        pq.write_table(table, measurements_path)
 
-    def _save_vectors(self, test_run: TestRun, date_str: str):
-        """Save test vectors table.
+        # Create raw/ directory for future waveform/image storage
+        raw_dir = run_dir / "raw"
+        raw_dir.mkdir(exist_ok=True)
 
-        Each row represents one parameter combination execution.
-        Params are stored as JSON string for flexibility.
-        """
-        vec_dir = self.results_dir / "vectors" / date_str
-        vec_dir.mkdir(parents=True, exist_ok=True)
+        return measurements_path
 
+    def _build_measurement_rows(self, test_run: TestRun) -> list[dict[str, Any]]:
+        """Build one row per measurement with all metadata denormalized."""
         rows = []
-        for step in test_run.steps:
-            for tv in step.vectors:
-                rows.append(
-                    {
-                        "test_run_id": str(test_run.id),
-                        "test_vector_id": str(tv.id),
-                        "test_step_id": str(step.id),
-                        "step_name": step.name,
-                        "index": tv.index,
-                        "params": json.dumps(tv.params),  # Store as JSON string
-                        "attempt": tv.attempt,
-                        "max_attempts": tv.max_attempts,
-                        "outcome": tv.outcome.value,
-                        "started_at": tv.started_at,
-                        "ended_at": tv.ended_at,
-                        "error_message": tv.error_message,
-                        # Traceability - denormalized for query convenience
-                        "dut_serial": test_run.dut.serial,
-                        "product_id": getattr(test_run, "product_id", None),
-                        "station_id": test_run.station_id,
-                        "sequence_id": test_run.test_sequence_id,
-                    }
-                )
 
-        if rows:
-            table = pa.Table.from_pylist(rows)
-            path = vec_dir / f"{test_run.id}_vectors.parquet"
-            pq.write_table(table, path)
+        # Compute run outcome
+        run_outcome = test_run.outcome.value
 
-    def _save_measurements(self, test_run: TestRun, date_str: str):
-        """Save flattened measurements table.
+        for step_idx, step in enumerate(test_run.steps):
+            for vector in step.vectors:
+                vector_outcome = vector.outcome.value if vector.outcome else None
+                stimulus_cols = self._build_stimulus_columns(vector)
 
-        Measurements reference their parent vector by ID. Vector params
-        are NOT duplicated here - join with vectors table for full context.
-        """
-        meas_dir = self.results_dir / "measurements" / date_str
-        meas_dir.mkdir(parents=True, exist_ok=True)
-
-        rows = []
-        for step in test_run.steps:
-            # Handle measurements from vectors (new pattern)
-            for tv in step.vectors:
-                for m in tv.measurements:
-                    rows.append(
-                        {
-                            # Identity
-                            "test_run_id": str(test_run.id),
-                            "test_vector_id": str(tv.id),
-                            "step_name": step.name,
-                            "vector_index": tv.index,
-                            # Measurement data
-                            "measurement_name": m.name,
-                            "value": float(m.value) if m.value else None,
-                            "units": m.units,
-                            "low_limit": float(m.low_limit) if m.low_limit else None,
-                            "high_limit": float(m.high_limit) if m.high_limit else None,
-                            "nominal": float(m.nominal) if m.nominal else None,
-                            "outcome": m.outcome.value if m.outcome else None,
-                            "comparator": m.comparator,
-                            "timestamp": m.timestamp,
-                            # Spec traceability
-                            "spec_ref": m.spec_ref,
-                            # Product traceability
-                            "product_id": getattr(test_run, "product_id", None),
-                            # DUT traceability
-                            "dut_serial": test_run.dut.serial,
-                            # Station traceability
-                            "station_id": test_run.station_id,
-                            # Sequence traceability
-                            "sequence_id": test_run.test_sequence_id,
-                            # Signal path traceability (fixture → instrument)
-                            "dut_pin": m.dut_pin,
-                            "fixture_point": m.fixture_point,
-                            "instrument_name": m.instrument_name,
-                            "instrument_resource": m.instrument_resource,
-                            "instrument_channel": m.instrument_channel,
-                        }
+                for measurement in vector.measurements:
+                    # Build limit values
+                    low = (
+                        float(measurement.low_limit)
+                        if measurement.low_limit is not None
+                        else None
+                    )
+                    high = (
+                        float(measurement.high_limit)
+                        if measurement.high_limit is not None
+                        else None
+                    )
+                    nom = (
+                        float(measurement.nominal)
+                        if measurement.nominal is not None
+                        else None
+                    )
+                    val = (
+                        float(measurement.value)
+                        if measurement.value is not None
+                        else None
                     )
 
-        if rows:
-            table = pa.Table.from_pylist(rows)
-            path = meas_dir / f"{test_run.id}_measurements.parquet"
-            pq.write_table(table, path)
+                    row = {
+                        # IDENTITY & TIMING
+                        "run_id": str(test_run.id),
+                        "run_started_at": test_run.started_at,
+                        "run_ended_at": test_run.ended_at,
+                        "step_name": step.name,
+                        "step_index": step_idx,
+                        "vector_index": vector.index,
+                        "attempt": vector.attempt,
+                        "vector_started_at": vector.started_at,
+                        "vector_ended_at": vector.ended_at,
+                        # WHO - Operator
+                        "operator_id": test_run.operator_id,
+                        "operator_name": test_run.operator_name,
+                        # WHAT - DUT
+                        "dut_serial": test_run.dut.serial,
+                        "dut_part_number": test_run.dut.part_number,
+                        "dut_revision": test_run.dut.revision,
+                        "dut_lot_number": test_run.dut.lot_number,
+                        # WHAT - Product
+                        "product_id": test_run.product_id,
+                        "product_name": test_run.product_name,
+                        "product_revision": test_run.product_revision,
+                        # WHERE - Station
+                        "station_id": test_run.station_id,
+                        "station_type": test_run.station_type,
+                        "station_location": test_run.station_location,
+                        # WHERE - Fixture
+                        "fixture_id": test_run.fixture_id,
+                        # WHAT - Test Context
+                        "sequence_id": test_run.test_sequence_id,
+                        "test_phase": test_run.test_phase,
+                        "git_commit": test_run.git_commit,
+                        # MEASUREMENT - Core
+                        "measurement_name": measurement.name,
+                        "measurement_timestamp": measurement.timestamp,
+                        "value": val,
+                        "units": measurement.units,
+                        "outcome": measurement.outcome.value if measurement.outcome else None,
+                        # Limits
+                        "low_limit": low,
+                        "high_limit": high,
+                        "nominal": nom,
+                        "comparator": measurement.comparator,
+                        # Spec traceability
+                        "spec_ref": measurement.spec_ref,
+                        # ═══════════════════════════════════════════════════════════════
+                        # MEASUREMENT SIGNAL PATH - How value was captured
+                        # ═══════════════════════════════════════════════════════════════
+                        "meas_dut_pin": measurement.dut_pin,
+                        "meas_fixture_point": measurement.fixture_point,
+                        "meas_instrument": measurement.instrument_name,
+                        "meas_instrument_resource": measurement.instrument_resource,
+                        "meas_instrument_channel": measurement.instrument_channel,
+                        # ═══════════════════════════════════════════════════════════════
+                        # ROLLUP OUTCOMES
+                        # ═══════════════════════════════════════════════════════════════
+                        "vector_outcome": vector_outcome,
+                        "run_outcome": run_outcome,
+                    }
+
+                    # Add stimulus columns (dynamic in_* columns)
+                    row.update(stimulus_cols)
+
+                    # Add custom metadata columns
+                    for key, value in test_run.custom_metadata.items():
+                        # Convert Decimal to float for Parquet
+                        if isinstance(value, Decimal):
+                            value = float(value)
+                        row[key] = value
+
+                    rows.append(row)
+
+        return rows
+
+    def _build_stimulus_columns(self, vector) -> dict[str, Any]:
+        """Build dynamic in_* columns from vector params and stimulus records.
+
+        For each input parameter, creates columns:
+        - in_{param}: The value
+        - in_{param}_instrument: Instrument name
+        - in_{param}_resource: VISA address
+        - in_{param}_channel: Channel
+        - in_{param}_dut_pin: DUT pin driven
+        - in_{param}_fixture_point: Fixture routing point
+        """
+        cols: dict[str, Any] = {}
+
+        # First, add all vector params as in_{param} columns
+        for param, value in vector.params.items():
+            if param.startswith("_"):
+                continue  # Skip internal params like _index
+            col_name = f"in_{param}"
+            # Convert Decimal to float
+            if isinstance(value, Decimal):
+                value = float(value)
+            cols[col_name] = value
+
+        # Then, overlay stimulus signal path info
+        for stim in vector.stimulus:
+            param = stim.param
+            prefix = f"in_{param}"
+
+            # Value (may override from params, but stimulus is more authoritative)
+            if stim.value is not None:
+                value = stim.value
+                if isinstance(value, Decimal):
+                    value = float(value)
+                cols[prefix] = value
+
+            # Signal path info
+            if stim.instrument:
+                cols[f"{prefix}_instrument"] = stim.instrument
+            if stim.resource:
+                cols[f"{prefix}_resource"] = stim.resource
+            if stim.channel:
+                cols[f"{prefix}_channel"] = stim.channel
+            if stim.dut_pin:
+                cols[f"{prefix}_dut_pin"] = stim.dut_pin
+            if stim.fixture_point:
+                cols[f"{prefix}_fixture_point"] = stim.fixture_point
+
+        return cols
+
+    def _build_empty_row(self, test_run: TestRun) -> dict[str, Any]:
+        """Build a placeholder row when no measurements exist."""
+        return {
+            "run_id": str(test_run.id),
+            "run_started_at": test_run.started_at,
+            "run_ended_at": test_run.ended_at,
+            "step_name": None,
+            "step_index": None,
+            "vector_index": None,
+            "attempt": None,
+            "vector_started_at": None,
+            "vector_ended_at": None,
+            "operator_id": test_run.operator_id,
+            "operator_name": test_run.operator_name,
+            "dut_serial": test_run.dut.serial,
+            "dut_part_number": test_run.dut.part_number,
+            "dut_revision": test_run.dut.revision,
+            "dut_lot_number": test_run.dut.lot_number,
+            "product_id": test_run.product_id,
+            "product_name": test_run.product_name,
+            "product_revision": test_run.product_revision,
+            "station_id": test_run.station_id,
+            "station_type": test_run.station_type,
+            "station_location": test_run.station_location,
+            "fixture_id": test_run.fixture_id,
+            "sequence_id": test_run.test_sequence_id,
+            "test_phase": test_run.test_phase,
+            "git_commit": test_run.git_commit,
+            "measurement_name": None,
+            "measurement_timestamp": None,
+            "value": None,
+            "units": None,
+            "outcome": None,
+            "low_limit": None,
+            "high_limit": None,
+            "nominal": None,
+            "comparator": None,
+            "spec_ref": None,
+            "meas_dut_pin": None,
+            "meas_fixture_point": None,
+            "meas_instrument": None,
+            "meas_instrument_resource": None,
+            "meas_instrument_channel": None,
+            "vector_outcome": None,
+            "run_outcome": test_run.outcome.value,
+        }
+
+    def _build_file_metadata(self, test_run: TestRun) -> dict[bytes, bytes]:
+        """Build Parquet file-level metadata with config snapshots."""
+        metadata: dict[bytes, bytes] = {}
+
+        if test_run.station_config_yaml:
+            metadata[b"station_config_yaml"] = test_run.station_config_yaml.encode("utf-8")
+        if test_run.product_spec_yaml:
+            metadata[b"product_spec_yaml"] = test_run.product_spec_yaml.encode("utf-8")
+        if test_run.fixture_config_yaml:
+            metadata[b"fixture_config_yaml"] = test_run.fixture_config_yaml.encode("utf-8")
+        if test_run.test_config_yaml:
+            metadata[b"test_config_yaml"] = test_run.test_config_yaml.encode("utf-8")
+
+        # Add some convenience metadata
+        metadata[b"litmus_version"] = b"1.0.0"
+        metadata[b"schema_version"] = b"2.0"  # New analysis-ready schema
+
+        return metadata
 
     def list_runs(self, limit: int = 50) -> list[dict]:
         """List recent test runs.
@@ -175,28 +317,54 @@ class ParquetBackend:
             limit: Maximum number of runs to return.
 
         Returns:
-            List of test run records, most recent first.
+            List of test run summary records, most recent first.
         """
         runs = []
-        runs_dir = self.results_dir / "test_runs"
+        runs_dir = self.results_dir / "runs"
 
         if not runs_dir.exists():
             return runs
 
-        # Collect all parquet files across date directories
-        parquet_files = sorted(runs_dir.rglob("*.parquet"), reverse=True)
+        # Collect all measurement files across date/run directories
+        parquet_files = sorted(runs_dir.rglob("measurements.parquet"), reverse=True)
 
-        for pq_file in parquet_files[:limit]:
-            table = pq.read_table(pq_file)
-            for row in table.to_pylist():
-                runs.append(row)
-                if len(runs) >= limit:
-                    break
+        for pq_file in parquet_files:
             if len(runs) >= limit:
                 break
 
+            try:
+                table = pq.read_table(pq_file)
+                if table.num_rows == 0:
+                    continue
+
+                # Get first row for run-level info (all rows have same run metadata)
+                row = table.to_pylist()[0]
+
+                # Build summary record
+                summary = {
+                    "test_run_id": row.get("run_id"),
+                    "started_at": row.get("run_started_at"),
+                    "ended_at": row.get("run_ended_at"),
+                    "dut_serial": row.get("dut_serial"),
+                    "dut_part_number": row.get("dut_part_number"),
+                    "product_id": row.get("product_id"),
+                    "station_id": row.get("station_id"),
+                    "station_type": row.get("station_type"),
+                    "test_sequence_id": row.get("sequence_id"),
+                    "test_phase": row.get("test_phase"),
+                    "operator": row.get("operator_id"),
+                    "outcome": row.get("run_outcome"),
+                    "total_measurements": table.num_rows,
+                    "failed_measurements": sum(
+                        1 for r in table.to_pylist() if r.get("outcome") == "fail"
+                    ),
+                }
+                runs.append(summary)
+            except Exception:
+                continue  # Skip corrupted files
+
         # Sort by started_at descending
-        runs.sort(key=lambda x: x.get("started_at", ""), reverse=True)
+        runs.sort(key=lambda x: x.get("started_at") or "", reverse=True)
         return runs[:limit]
 
     def get_run(self, run_id: str) -> dict | None:
@@ -206,33 +374,44 @@ class ParquetBackend:
             run_id: The test run ID (can be partial, at least 8 chars).
 
         Returns:
-            Test run record or None if not found.
+            Test run summary record or None if not found.
         """
-        runs_dir = self.results_dir / "test_runs"
+        runs_dir = self.results_dir / "runs"
 
         if not runs_dir.exists():
             return None
 
-        # Search through parquet files
-        for pq_file in runs_dir.rglob("*.parquet"):
-            # Check if filename matches (run_id is in filename)
-            if run_id in pq_file.stem:
-                table = pq.read_table(pq_file)
-                rows = table.to_pylist()
-                if rows:
-                    return rows[0]
-
-        # Full scan if not found by filename
-        for pq_file in runs_dir.rglob("*.parquet"):
-            table = pq.read_table(pq_file)
-            for row in table.to_pylist():
-                if row.get("test_run_id", "").startswith(run_id):
-                    return row
+        # Search for matching run directory
+        for date_dir in runs_dir.iterdir():
+            if not date_dir.is_dir():
+                continue
+            for run_dir in date_dir.iterdir():
+                if run_id in run_dir.name:
+                    measurements_file = run_dir / "measurements.parquet"
+                    if measurements_file.exists():
+                        table = pq.read_table(measurements_file)
+                        if table.num_rows > 0:
+                            row = table.to_pylist()[0]
+                            return {
+                                "test_run_id": row.get("run_id"),
+                                "started_at": row.get("run_started_at"),
+                                "ended_at": row.get("run_ended_at"),
+                                "dut_serial": row.get("dut_serial"),
+                                "dut_part_number": row.get("dut_part_number"),
+                                "product_id": row.get("product_id"),
+                                "station_id": row.get("station_id"),
+                                "station_type": row.get("station_type"),
+                                "test_sequence_id": row.get("sequence_id"),
+                                "test_phase": row.get("test_phase"),
+                                "operator": row.get("operator_id"),
+                                "outcome": row.get("run_outcome"),
+                                "total_measurements": table.num_rows,
+                            }
 
         return None
 
     def get_measurements(self, run_id: str) -> list[dict]:
-        """Get measurements for a specific test run.
+        """Get all measurements for a specific test run.
 
         Args:
             run_id: The test run ID (can be partial, at least 8 chars).
@@ -240,31 +419,29 @@ class ParquetBackend:
         Returns:
             List of measurement records for the run.
         """
-        measurements = []
-        meas_dir = self.results_dir / "measurements"
+        runs_dir = self.results_dir / "runs"
 
-        if not meas_dir.exists():
-            return measurements
+        if not runs_dir.exists():
+            return []
 
-        # Search for matching measurement files
-        for pq_file in meas_dir.rglob("*.parquet"):
-            # Check filename for run_id
-            if run_id in pq_file.stem:
-                table = pq.read_table(pq_file)
-                measurements.extend(table.to_pylist())
+        # Search for matching run directory
+        for date_dir in runs_dir.iterdir():
+            if not date_dir.is_dir():
+                continue
+            for run_dir in date_dir.iterdir():
+                if run_id in run_dir.name:
+                    measurements_file = run_dir / "measurements.parquet"
+                    if measurements_file.exists():
+                        table = pq.read_table(measurements_file)
+                        return table.to_pylist()
 
-        # If no matches by filename, do full scan
-        if not measurements:
-            for pq_file in meas_dir.rglob("*.parquet"):
-                table = pq.read_table(pq_file)
-                for row in table.to_pylist():
-                    if row.get("test_run_id", "").startswith(run_id):
-                        measurements.append(row)
-
-        return measurements
+        return []
 
     def get_vectors(self, run_id: str) -> list[dict]:
-        """Get test vectors for a specific test run.
+        """Get unique test vectors for a specific test run.
+
+        Extracts unique (step_name, vector_index, attempt) combinations
+        from the measurements table.
 
         Args:
             run_id: The test run ID (can be partial, at least 8 chars).
@@ -272,24 +449,68 @@ class ParquetBackend:
         Returns:
             List of vector records for the run.
         """
-        vectors = []
-        vec_dir = self.results_dir / "vectors"
+        measurements = self.get_measurements(run_id)
+        if not measurements:
+            return []
 
-        if not vec_dir.exists():
-            return vectors
+        # Group by (step_name, vector_index, attempt)
+        vectors_seen: dict[tuple, dict] = {}
+        for m in measurements:
+            key = (m.get("step_name"), m.get("vector_index"), m.get("attempt"))
+            if key not in vectors_seen:
+                # Extract vector-level info
+                vector_info = {
+                    "test_run_id": m.get("run_id"),
+                    "step_name": m.get("step_name"),
+                    "index": m.get("vector_index"),
+                    "attempt": m.get("attempt"),
+                    "outcome": m.get("vector_outcome"),
+                    "started_at": m.get("vector_started_at"),
+                    "ended_at": m.get("vector_ended_at"),
+                    "dut_serial": m.get("dut_serial"),
+                    "product_id": m.get("product_id"),
+                    "station_id": m.get("station_id"),
+                    "sequence_id": m.get("sequence_id"),
+                }
+                # Extract params (in_* columns without suffix)
+                params = {}
+                for k, v in m.items():
+                    if k.startswith("in_") and "_" not in k[3:]:
+                        # e.g., in_vin but not in_vin_instrument
+                        param_name = k[3:]  # Remove "in_" prefix
+                        params[param_name] = v
+                vector_info["params"] = params
+                vectors_seen[key] = vector_info
 
-        # Search for matching vector files
-        for pq_file in vec_dir.rglob("*.parquet"):
-            if run_id in pq_file.stem:
-                table = pq.read_table(pq_file)
-                vectors.extend(table.to_pylist())
+        return list(vectors_seen.values())
 
-        # If no matches by filename, do full scan
-        if not vectors:
-            for pq_file in vec_dir.rglob("*.parquet"):
-                table = pq.read_table(pq_file)
-                for row in table.to_pylist():
-                    if row.get("test_run_id", "").startswith(run_id):
-                        vectors.append(row)
+    def get_run_metadata(self, run_id: str) -> dict[str, str] | None:
+        """Get file-level metadata (config snapshots) for a run.
 
-        return vectors
+        Args:
+            run_id: The test run ID (can be partial).
+
+        Returns:
+            Dict with config YAML strings, or None if not found.
+        """
+        runs_dir = self.results_dir / "runs"
+
+        if not runs_dir.exists():
+            return None
+
+        for date_dir in runs_dir.iterdir():
+            if not date_dir.is_dir():
+                continue
+            for run_dir in date_dir.iterdir():
+                if run_id in run_dir.name:
+                    measurements_file = run_dir / "measurements.parquet"
+                    if measurements_file.exists():
+                        pf = pq.ParquetFile(measurements_file)
+                        raw_metadata = pf.schema_arrow.metadata or {}
+                        # Decode bytes to strings
+                        return {
+                            k.decode("utf-8"): v.decode("utf-8")
+                            for k, v in raw_metadata.items()
+                        }
+
+        return None

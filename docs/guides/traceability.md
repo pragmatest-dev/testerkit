@@ -2,6 +2,8 @@
 
 Litmus provides ATML-style traceability for every measurement, enabling compliance reporting, root cause analysis, and calibration tracking.
 
+**The framework automatically captures ALL metadata when a measurement is produced.** No user effort required.
+
 ## What is ATML?
 
 **ATML (Automatic Test Markup Language)** is an IEEE standard (IEEE 1671) for exchanging test information. It defines:
@@ -16,14 +18,29 @@ Litmus adopts ATML terminology and concepts to enable interoperability with othe
 
 Every Measurement in Litmus includes traceability fields:
 
+### Measurement Signal Path
+
 | Field | Description | Example |
 |-------|-------------|---------|
-| `spec_ref` | Reference to specification | `"output_voltage @ tolerance_pct=5"` |
-| `dut_pin` | Which DUT pin was measured | `"J1.3"`, `"TP_VOUT"` |
-| `instrument_name` | Station config instrument name | `"dmm"`, `"dmm_main"` |
-| `instrument_resource` | VISA address or connection | `"TCPIP::192.168.1.100::INSTR"` |
-| `instrument_channel` | Channel on the instrument | `"CH1"`, `"ai0"`, `"1"` |
-| `fixture_point` | Fixture point name | `"VOUT"`, `"VIN_SENSE"` |
+| `spec_ref` | Reference to specification | `"output_voltage"` |
+| `meas_dut_pin` | Which DUT pin was measured | `"J1.3"`, `"TP_VOUT"` |
+| `meas_instrument` | Station config instrument name | `"dmm"`, `"dmm_main"` |
+| `meas_instrument_resource` | VISA address or connection | `"TCPIP::192.168.1.100::INSTR"` |
+| `meas_instrument_channel` | Channel on the instrument | `"CH1"`, `"ai0"`, `"1"` |
+| `meas_fixture_point` | Fixture point name | `"VOUT"`, `"VIN_SENSE"` |
+
+### Stimulus Signal Path (Dynamic)
+
+For each input parameter, Litmus captures the full signal path:
+
+| Column Pattern | Description | Example |
+|----------------|-------------|---------|
+| `in_{param}` | Value commanded | `in_vin = 12.0` |
+| `in_{param}_instrument` | Instrument name | `in_vin_instrument = "psu_main"` |
+| `in_{param}_resource` | VISA address | `in_vin_resource = "TCPIP::..."` |
+| `in_{param}_channel` | Channel | `in_vin_channel = "CH1"` |
+| `in_{param}_dut_pin` | DUT pin driven | `in_vin_dut_pin = "VIN"` |
+| `in_{param}_fixture_point` | Fixture routing | `in_vin_fixture_point = "vin_supply"` |
 
 ## The Traceability Chain
 
@@ -34,24 +51,32 @@ Every measurement can be traced from result back to source:
 │                         TRACEABILITY CHAIN                               │
 ├─────────────────────────────────────────────────────────────────────────┤
 │                                                                         │
-│  Measurement                                                            │
-│  └── spec_ref ──────────► Product Spec (spec.yaml)                     │
-│      │                     └── Datasheet section reference              │
+│  Measurement Output                                                     │
+│  └── spec_ref ────────────► Product Spec (spec.yaml)                   │
+│      │                       └── Characteristic ID from datasheet       │
 │      │                                                                  │
-│      ├── dut_pin ───────► Product Pin Definition                       │
-│      │                     └── Physical location: "J1.3", net: "VOUT"  │
+│      ├── meas_dut_pin ────► Product Pin Definition                     │
+│      │                       └── Physical location: "J1.3", net: "VOUT"│
 │      │                                                                  │
-│      ├── fixture_point ─► Fixture Config (fixture.yaml)                │
-│      │                     └── Maps DUT pin to instrument               │
+│      ├── meas_fixture_point ► Fixture Config (fixture.yaml)            │
+│      │                       └── Maps DUT pin to instrument             │
 │      │                                                                  │
-│      ├── instrument_name ► Station Config (station.yaml)               │
-│      │                     └── Logical name: "dmm", "psu"               │
+│      ├── meas_instrument ──► Station Config (station.yaml)             │
+│      │                       └── Logical name: "dmm_main"               │
 │      │                                                                  │
-│      ├── instrument_resource ► Physical Connection                      │
-│      │                     └── VISA: "TCPIP::192.168.1.100::INSTR"     │
+│      ├── meas_instrument_resource ► Physical Connection                 │
+│      │                       └── VISA: "TCPIP::192.168.1.100::INSTR"   │
 │      │                                                                  │
-│      └── instrument_channel ► Instrument Channel                        │
-│                            └── Specific input: "CH1", "ai0"             │
+│      └── meas_instrument_channel ► Instrument Channel                   │
+│                              └── Specific input: "CH1", "ai0"           │
+│                                                                         │
+│  Stimulus Inputs (per parameter)                                        │
+│  └── in_{param} ──────────► Value commanded                            │
+│      ├── in_{param}_instrument ► Source instrument                      │
+│      ├── in_{param}_resource ► VISA address                            │
+│      ├── in_{param}_channel ► Channel on instrument                    │
+│      ├── in_{param}_dut_pin ► DUT pin driven                           │
+│      └── in_{param}_fixture_point ► Fixture routing                    │
 │                                                                         │
 └─────────────────────────────────────────────────────────────────────────┘
 ```
@@ -60,16 +85,16 @@ Every measurement can be traced from result back to source:
 
 ### Automatic (via Fixture)
 
-When you use the `pins` fixture, traceability is automatic:
+When you use the `pins` fixture, traceability is captured automatically:
 
 ```python
 @litmus_test
 def test_output_voltage(pins):
     # pins["VOUT"] knows:
-    # - dut_pin (from product spec)
-    # - instrument_name (from fixture)
-    # - instrument_resource (from station)
-    # - instrument_channel (from fixture)
+    # - meas_dut_pin (from product spec)
+    # - meas_instrument (from fixture)
+    # - meas_instrument_resource (from station)
+    # - meas_instrument_channel (from fixture)
     return pins["VOUT"].measure_voltage()
 ```
 
@@ -105,12 +130,27 @@ def test_output_voltage(vector, dmm, harness):
     voltage = dmm.measure_dc_voltage()
 
     # spec_context provides spec_ref and dut_pin automatically
-    harness.measure_spec(
+    harness.measure(
         "output_voltage",  # Characteristic name in spec
         voltage,
-        spec_context=spec,
-        instrument_name="dmm",
     )
+```
+
+### Custom Metadata with run_context
+
+Add custom traceability fields that become Parquet columns:
+
+```python
+def test_with_context(run_context, psu, dmm):
+    # Custom fields for your organization's needs
+    run_context.set("operator_badge", "EMP-12345")
+    run_context.set("fixture_serial", "FIX-001")
+    run_context.set("ambient_temp", 23.5)
+    run_context.set("calibration_due", "2026-06-15")
+
+    # Normal test code...
+    psu.set_voltage(5.0)
+    return dmm.measure_dc_voltage()
 ```
 
 ## Comparators (ATML/IEEE 1671)
@@ -172,35 +212,63 @@ test_exact_value:
 
 ## Querying Traceable Results
 
+Results are stored in Parquet files at `results/runs/{date}/{run_id}_{dut_serial}/measurements.parquet`.
+
 ### By DUT Pin
 
 ```python
-import pyarrow.parquet as pq
+import pandas as pd
 
-df = pq.read_table("results/measurements").to_pandas()
+df = pd.read_parquet("results/runs/2026-01-15/abc123_SN001/measurements.parquet")
 
 # Find all measurements on pin J1.3
-j1_3_measurements = df[df["dut_pin"] == "J1.3"]
+j1_3_measurements = df[df["meas_dut_pin"] == "J1.3"]
 
 # Find failures on specific pin
-failures = df[(df["dut_pin"] == "J1.3") & (df["outcome"] == "fail")]
+failures = df[(df["meas_dut_pin"] == "J1.3") & (df["outcome"] == "fail")]
 ```
 
 ### By Instrument
 
 ```python
 # Find all measurements from the main DMM
-dmm_measurements = df[df["instrument_name"] == "dmm"]
+dmm_measurements = df[df["meas_instrument"] == "dmm_main"]
 
 # Find measurements from specific VISA address
-visa_measurements = df[df["instrument_resource"] == "TCPIP::192.168.1.100::INSTR"]
+visa_measurements = df[df["meas_instrument_resource"] == "TCPIP::192.168.1.100::INSTR"]
 ```
 
 ### By Spec Reference
 
 ```python
-# Find all measurements for output_voltage spec
-output_v = df[df["spec_ref"].str.contains("output_voltage", na=False)]
+# Find all measurements for output_voltage characteristic
+output_v = df[df["spec_ref"] == "output_voltage"]
+```
+
+### By Input Conditions
+
+```python
+# Find measurements at specific input voltage
+high_vin = df[df["in_vin"] == 12.0]
+
+# Find measurements across input conditions
+print(df.groupby(["in_vin", "in_load"])["value"].mean())
+```
+
+### Cross-Run Queries (DuckDB)
+
+```sql
+-- Query all runs with full traceability
+SELECT
+    dut_serial,
+    measurement_name,
+    value,
+    meas_instrument,
+    meas_dut_pin,
+    in_vin,
+    in_load
+FROM read_parquet('results/runs/**/*.parquet')
+WHERE outcome = 'fail';
 ```
 
 ## Compliance Reporting
@@ -208,20 +276,25 @@ output_v = df[df["spec_ref"].str.contains("output_voltage", na=False)]
 Traceability enables compliance reports that link:
 
 1. **Measurement** → **Spec Requirement** (via `spec_ref`)
-2. **Measurement** → **Test Equipment** (via `instrument_*` fields)
-3. **Measurement** → **DUT** (via `dut_pin` and parent TestRun.dut)
+2. **Measurement** → **Test Equipment** (via `meas_instrument*` fields)
+3. **Measurement** → **DUT** (via `meas_dut_pin` and `dut_serial`)
+4. **Stimulus** → **Source Equipment** (via `in_*` fields)
 
 Example compliance report structure:
 
 ```
 Test Report: SN12345
 ──────────────────────────────────────────────────────
-Requirement: output_voltage @ tolerance_pct=5
-  Source: products/power_board/spec.yaml, Section 7.2
+Requirement: output_voltage
+  Source: products/power_board/spec.yaml
   DUT Pin: J1.3 (VOUT_3V3)
-  Instrument: dmm (Keithley 2000)
+  Instrument: dmm_main (Keithley 2000)
   Resource: TCPIP::192.168.1.100::INSTR
   Channel: CH1
+
+  Input Conditions:
+    VIN: 12.0V via psu_main (TCPIP::192.168.1.101::INSTR)
+    Load: 0.5A via eload_main (USB0::0x1234::INSTR)
 
   Measured: 3.31 V
   Limits: 3.135 V to 3.465 V
@@ -231,27 +304,34 @@ Requirement: output_voltage @ tolerance_pct=5
 
 ## Benefits of Traceability
 
-1. **Root Cause Analysis** — When a test fails, identify exactly which instrument and channel were involved
+1. **Root Cause Analysis** — When a test fails, identify exactly which instrument and channel were involved, plus the input conditions that triggered the failure
 
-2. **Calibration Tracking** — Link measurements to instrument calibration records via `instrument_resource`
+2. **Calibration Tracking** — Link measurements to instrument calibration records via `meas_instrument_resource`
 
-3. **Fixture Debugging** — Verify signal routing through the fixture via `fixture_point`
+3. **Fixture Debugging** — Verify signal routing through the fixture via `meas_fixture_point`
 
 4. **Specification Compliance** — Prove that measurements satisfy specific spec requirements via `spec_ref`
 
 5. **Audit Trail** — Complete chain from measurement to DUT pin to datasheet reference
 
+6. **Stimulus Correlation** — Understand how input conditions affect outputs via `in_*` columns
+
 ## Best Practices
 
-1. **Always set `spec_ref`** — Link measurements to specifications for traceability
+1. **Let the framework capture traceability** — Most fields are auto-captured when using fixtures and SpecContext
 
-2. **Use fixtures for complex routing** — Let the framework handle traceability automatically
+2. **Use `run_context` for custom fields** — Add organization-specific metadata that becomes queryable columns
 
-3. **Include `instrument_channel`** — Especially for multi-channel instruments
+3. **Use fixtures for complex routing** — Let the framework handle signal path traceability automatically
 
-4. **Reference spec conditions** — Include temperature, load, etc. in `spec_ref`:
-   ```yaml
-   spec_ref: "output_voltage @ load=0.5A, temp=25°C"
+4. **Use meaningful DUT pin names** — Match your schematic/PCB designators in product spec
+
+5. **Query with DuckDB for big data** — Use glob patterns to analyze across all runs:
+   ```sql
+   SELECT * FROM read_parquet('results/runs/**/*.parquet')
    ```
 
-5. **Use meaningful DUT pin names** — Match your schematic/PCB designators
+## See Also
+
+- [Parquet Schema Reference](../reference/parquet-schema.md) — Complete column definitions
+- [Test Harness](../integration/harness.md) — Recording measurements with traceability

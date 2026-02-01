@@ -160,24 +160,6 @@ station:
         assert "dmm" in station.instruments
         assert station.instruments["dmm"].resource == "TCPIP::192.168.1.101::INSTR"
 
-    def test_load_station_instance_legacy_format(self, tmp_path):
-        """Test loading legacy format with instrument_resources."""
-        yaml_content = """
-station:
-  id: station_001
-  station_type: universal_bench
-  instrument_resources:
-    dmm: "TCPIP::192.168.1.101::INSTR"
-    scope: "USB0::0x0957::0x1796::MY54321234::INSTR"
-"""
-        station_file = tmp_path / "station_001.yaml"
-        station_file.write_text(yaml_content)
-
-        station = load_station_instance(station_file)
-        assert station.id == "station_001"
-        assert "dmm" in station.instruments
-        assert station.instruments["dmm"].resource == "TCPIP::192.168.1.101::INSTR"
-
 
 class TestResolveLimitRef:
     @pytest.fixture

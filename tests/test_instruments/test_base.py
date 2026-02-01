@@ -3,8 +3,8 @@
 import pytest
 
 from litmus.instruments.base import Instrument
-from litmus.instruments.visa import VisaInstrument
 from litmus.instruments.dmm import DMM
+from litmus.instruments.visa import VisaInstrument
 
 
 class TestInstrumentBase:

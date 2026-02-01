@@ -26,11 +26,11 @@ class TestTestRunLogger:
             station_id="station_001",
             test_sequence_id="test_suite",
             station_type="production",
-            operator="John Doe",
+            operator_id="John Doe",
             test_phase="debug",
         )
         assert logger.test_run.station_type == "production"
-        assert logger.test_run.operator == "John Doe"
+        assert logger.test_run.operator_id == "John Doe"
         assert logger.test_run.test_phase == "debug"
 
     def test_start_step(self):
@@ -57,8 +57,10 @@ class TestTestRunLogger:
         m = Measurement(name="voltage", value=Decimal("5.0"), outcome=Outcome.PASS)
         logger.log_measurement(m)
 
-        assert len(logger._current_step.measurements) == 1
-        assert logger._current_step.measurements[0].name == "voltage"
+        # Measurements are stored in vectors within the step
+        assert len(logger._current_step.vectors) == 1
+        assert len(logger._current_step.vectors[0].measurements) == 1
+        assert logger._current_step.vectors[0].measurements[0].name == "voltage"
 
     def test_log_measurement_auto_creates_step(self):
         logger = TestRunLogger(

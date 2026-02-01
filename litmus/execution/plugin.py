@@ -67,18 +67,122 @@ def pytest_addoption(parser):
     )
 
 
+def _get_git_commit() -> str | None:
+    """Get current git commit hash, or None if not in a git repo."""
+    import subprocess
+
+    try:
+        result = subprocess.run(
+            ["git", "rev-parse", "HEAD"],
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+        if result.returncode == 0:
+            return result.stdout.strip()[:12]  # Short hash
+    except (subprocess.TimeoutExpired, FileNotFoundError):
+        pass
+    return None
+
+
+def _serialize_config(config: dict | None) -> str | None:
+    """Serialize config dict to YAML string for storage."""
+    if config is None:
+        return None
+    return yaml.dump(config, default_flow_style=False, sort_keys=False)
+
+
+def _safe_get_session_fixture(request, name):
+    """Safely get a session-scoped fixture value, returning None if not available.
+
+    Only attempts to access fixtures that exist at session scope to avoid
+    ScopeMismatch errors from test-defined fixtures with the same name.
+    """
+    # Check if the fixture exists and is session-scoped before accessing
+    try:
+        # Look up the fixture definition
+        fixturedefs = request._fixturemanager.getfixturedefs(name, request._pyfuncitem.nodeid)
+        if not fixturedefs:
+            return None
+        # Check if any fixture with this name is session-scoped
+        for fixturedef in fixturedefs:
+            if fixturedef.scope == "session":
+                return request.getfixturevalue(name)
+        return None
+    except Exception:
+        return None
+
+
 @pytest.fixture(scope="session", autouse=True)
 def litmus_logger(request) -> TestRunLogger:
     """Provide test run logger for the session.
 
     This fixture is autouse=True so it's always active, enabling
     @litmus_test decorated functions to log measurements.
+
+    Captures config snapshots at run start for full traceability.
     """
+    # Safely access optional session-scoped fixtures
+    # (avoids ScopeMismatch from test-defined fixtures with same name)
+    station_config = _safe_get_session_fixture(request, "station_config")
+    fixture_config = _safe_get_session_fixture(request, "fixture_config")
+    spec_context = _safe_get_session_fixture(request, "spec_context")
+
+    # Serialize configs for storage
+    station_yaml = _serialize_config(station_config) if station_config else None
+
+    # Get product info from spec_context
+    product_id = None
+    product_name = None
+    product_revision = None
+    product_yaml = None
+    if spec_context:
+        product_id = spec_context.product.id
+        product_name = spec_context.product.name
+        product_revision = spec_context.product.revision
+        # Serialize product spec
+        product_yaml = yaml.dump(
+            spec_context.product.model_dump(mode="json", exclude_none=True),
+            default_flow_style=False,
+            sort_keys=False,
+        )
+
+    # Get fixture info
+    fixture_id = None
+    fixture_yaml = None
+    if fixture_config:
+        fixture_id = getattr(fixture_config, "id", None) or getattr(fixture_config, "name", None)
+        fixture_yaml = yaml.dump(
+            fixture_config.model_dump(mode="json", exclude_none=True)
+            if hasattr(fixture_config, "model_dump")
+            else fixture_config,
+            default_flow_style=False,
+            sort_keys=False,
+        )
+
+    # Get station info
+    station_id = request.config.getoption("--station")
+    station_type = None
+    station_location = None
+    if station_config:
+        station_type = station_config.get("station_type") or station_config.get("type")
+        station_location = station_config.get("location")
+
     logger = TestRunLogger(
         dut_serial=request.config.getoption("--dut-serial"),
-        station_id=request.config.getoption("--station"),
-        operator=request.config.getoption("--operator"),
+        station_id=station_id,
+        station_type=station_type,
+        station_location=station_location,
+        operator_id=request.config.getoption("--operator"),
         test_sequence_id=request.config.rootpath.name,
+        product_id=product_id,
+        product_name=product_name,
+        product_revision=product_revision,
+        fixture_id=fixture_id,
+        station_config_yaml=station_yaml,
+        product_spec_yaml=product_yaml,
+        fixture_config_yaml=fixture_yaml,
+        git_commit=_get_git_commit(),
     )
     set_current_logger(logger)
     yield logger
@@ -89,6 +193,18 @@ def litmus_logger(request) -> TestRunLogger:
     backend = ParquetBackend(results_dir=results_dir)
     backend.save_test_run(test_run)
     set_current_logger(None)
+
+
+@pytest.fixture(scope="session")
+def run_context(litmus_logger):
+    """Provide run context for adding custom metadata.
+
+    Usage:
+        def test_example(run_context):
+            run_context.set("operator_badge", "EMP-12345")
+            run_context.set("fixture_serial", "FIX-001")
+    """
+    return litmus_logger.run_context
 
 
 @pytest.fixture
@@ -218,7 +334,7 @@ def fixture_config(request):
 
 def _get_driver_class(instrument_type: str):
     """Get driver class for an instrument type."""
-    from litmus.instruments import DMM, ELoad, PSU, Scope
+    from litmus.instruments import DMM, PSU, ELoad, Scope
 
     drivers = {
         "dmm": DMM,

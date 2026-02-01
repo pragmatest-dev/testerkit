@@ -19,7 +19,6 @@ from litmus.data.models import Outcome
 from litmus.execution.harness import TestHarness
 from litmus.products.context import SpecContext
 
-
 # Path to demo specs (used for integration testing, not value assertions)
 SPEC_PATH = Path(__file__).parent.parent.parent / "demo" / "products" / "power_board" / "spec.yaml"
 MINIMAL_SPEC_PATH = Path(__file__).parent.parent.parent / "demo" / "products" / "minimal_board" / "spec.yaml"
@@ -352,6 +351,7 @@ class TestEndToEndWorkflow:
         assert step.outcome == Outcome.FAIL
 
 
+@pytest.mark.skipif(not MINIMAL_SPEC_PATH.exists(), reason="minimal_board spec not found")
 class TestMinimalSpec:
     """Test with minimal spec to verify simple specs work."""
 

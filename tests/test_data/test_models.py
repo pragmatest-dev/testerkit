@@ -140,13 +140,18 @@ class TestTestStep:
         assert step.name == "measure_voltage"
         assert isinstance(step.id, UUID)
         assert step.outcome == Outcome.PASS
-        assert step.measurements == []
+        # Steps now contain vectors, which contain measurements
+        assert step.vectors == []
 
-    def test_step_with_measurements(self):
+    def test_step_with_vectors(self):
         m = Measurement(name="voltage", value=Decimal("5.0"))
-        step = TestStep(name="measure_voltage", measurements=[m])
-        assert len(step.measurements) == 1
-        assert step.measurements[0].name == "voltage"
+        from litmus.data.models import TestVector
+
+        vector = TestVector(measurements=[m])
+        step = TestStep(name="measure_voltage", vectors=[vector])
+        assert len(step.vectors) == 1
+        assert len(step.vectors[0].measurements) == 1
+        assert step.vectors[0].measurements[0].name == "voltage"
 
 
 class TestTestRun:

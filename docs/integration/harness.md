@@ -354,20 +354,36 @@ finally:
     harness.finish()
 ```
 
-### Custom Metadata
+### Custom Metadata with run_context
+
+The `run_context` fixture lets you add custom columns to the Parquet output:
 
 ```python
-harness = TestHarness("my_test")
+def test_with_custom_metadata(run_context, psu, dmm):
+    # These become columns in the Parquet file
+    run_context.set("operator_badge", "EMP-12345")
+    run_context.set("operator_shift", "day")
+    run_context.set("fixture_serial", "FIX-001")
+    run_context.set("ambient_temp", 23.5)
+    run_context.set("calibration_due", "2026-06-15")
 
-harness.add_metadata(
-    operator="Jane Doe",
-    firmware_version="1.2.3",
-    calibration_date="2026-01-15",
-)
-
-harness.measure("voltage", 3.31, low=3.0, high=3.6)
-harness.finish()
+    # Normal test code...
+    psu.set_voltage(5.0)
+    return dmm.measure_dc_voltage()
 ```
+
+**Result in Parquet:**
+```
+operator_badge | operator_shift | fixture_serial | ambient_temp | value
+EMP-12345      | day            | FIX-001        | 23.5         | 5.01
+```
+
+Use meaningful prefixes for organization:
+- `operator_*` — Operator-related fields
+- `fixture_*` — Fixture-related fields
+- `custom_*` — General custom fields
+
+The `run_context` is session-scoped, so values set in one test persist across all tests in the session.
 
 ## Comparison with @litmus_test
 
