@@ -378,7 +378,7 @@ pin_info = spec.get_pin_info("output_voltage")
 from litmus.execution.harness import TestHarness
 from litmus.products import SpecContext
 
-spec = SpecContext.from_file("products/power_board/spec.yaml", guardband_pct=Decimal("10"))
+spec = SpecContext.from_file("products/power_board/spec.yaml", guardband_pct=10.0)
 
 harness = TestHarness(
     step_name="test_output",

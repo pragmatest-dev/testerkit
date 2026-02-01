@@ -1,7 +1,5 @@
 """Tests for capability models."""
 
-from decimal import Decimal
-
 from litmus.capabilities import (
     AccuracySpec,
     Capability,
@@ -66,9 +64,9 @@ class TestRangeSpec:
     """Tests for RangeSpec model."""
 
     def test_full_range(self):
-        spec = RangeSpec(min=Decimal("0"), max=Decimal("10"), units="V")
-        assert spec.min == Decimal("0")
-        assert spec.max == Decimal("10")
+        spec = RangeSpec(min=0.0, max=10.0, units="V")
+        assert spec.min == 0.0
+        assert spec.max == 10.0
         assert spec.units == "V"
 
     def test_units_only(self):
@@ -82,20 +80,20 @@ class TestAccuracySpec:
     """Tests for AccuracySpec model."""
 
     def test_percent_reading(self):
-        spec = AccuracySpec(pct_reading=Decimal("0.1"))
-        assert spec.pct_reading == Decimal("0.1")
+        spec = AccuracySpec(pct_reading=0.1)
+        assert float(spec.pct_reading) == 0.1
         assert spec.pct_range is None
         assert spec.absolute is None
 
     def test_combined_accuracy(self):
         spec = AccuracySpec(
-            pct_reading=Decimal("0.05"),
-            pct_range=Decimal("0.01"),
-            absolute=Decimal("0.001"),
+            pct_reading=0.05,
+            pct_range=0.01,
+            absolute=0.001,
         )
-        assert spec.pct_reading == Decimal("0.05")
-        assert spec.pct_range == Decimal("0.01")
-        assert spec.absolute == Decimal("0.001")
+        assert float(spec.pct_reading) == 0.05
+        assert float(spec.pct_range) == 0.01
+        assert float(spec.absolute) == 0.001
 
 
 class TestResolutionSpec:
@@ -112,8 +110,8 @@ class TestResolutionSpec:
         assert spec.units == "V"
 
     def test_value_resolution(self):
-        spec = ResolutionSpec(value=Decimal("0.001"), units="V")
-        assert spec.value == Decimal("0.001")
+        spec = ResolutionSpec(value=0.001, units="V")
+        assert float(spec.value) == 0.001
         assert spec.units == "V"
 
 
@@ -148,8 +146,8 @@ class TestCapability:
             direction=Direction.INPUT,
             domain=Domain.VOLTAGE,
             signal_types=[SignalType.DC, SignalType.AC],
-            range=RangeSpec(min=Decimal("0"), max=Decimal("1000"), units="V"),
-            accuracy=AccuracySpec(pct_reading=Decimal("0.05")),
+            range=RangeSpec(min=0.0, max=1000.0, units="V"),
+            accuracy=AccuracySpec(pct_reading=0.05),
             resolution=ResolutionSpec(digits=6.5),
             features=["auto_range", "true_rms", "4_wire"],
         )
@@ -158,7 +156,7 @@ class TestCapability:
         assert SignalType.DC in cap.signal_types
         assert SignalType.AC in cap.signal_types
         assert cap.range is not None
-        assert cap.range.max == Decimal("1000")
+        assert cap.range.max == 1000.0
         assert "auto_range" in cap.features
         assert "true_rms" in cap.features
 
@@ -168,7 +166,7 @@ class TestCapability:
             domain=Domain.VOLTAGE,
             signal_types=[SignalType.DC],
             channels=InstrumentChannelSpec(count=2, simultaneous=True),
-            range=RangeSpec(min=Decimal("0"), max=Decimal("30"), units="V"),
+            range=RangeSpec(min=0.0, max=30.0, units="V"),
             features=["ovp", "ocp", "remote_sense"],
         )
         assert cap.direction == Direction.OUTPUT

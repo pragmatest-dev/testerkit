@@ -8,8 +8,6 @@ This package provides shared utilities for the litmus codebase:
 """
 
 from litmus.utils.loaders import (
-    SPEC_DECIMAL_FIELDS,
-    convert_decimal_fields,
     find_or_create_path,
     find_yaml_files,
     load_yaml_file,
@@ -38,10 +36,8 @@ __all__ = [
     # loaders
     "find_yaml_files",
     "load_yaml_file",
-    "convert_decimal_fields",
     "parse_capability_enums",
     "find_or_create_path",
-    "SPEC_DECIMAL_FIELDS",
     # paths
     "ResourceType",
     "get_search_paths",

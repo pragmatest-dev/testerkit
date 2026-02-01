@@ -1,7 +1,5 @@
 """Tests for product specification models."""
 
-from decimal import Decimal
-
 from litmus.capabilities.models import (
     Capability,
     Comparator,
@@ -23,11 +21,11 @@ class TestConditionPoint:
     def test_basic_condition_point(self):
         """Test creating a condition point with nominal and tolerance."""
         point = ConditionPoint(
-            nominal=Decimal("3.3"),
-            tolerance_pct=Decimal("5"),
+            nominal=3.3,
+            tolerance_pct=5.0,
         )
-        assert point.nominal == Decimal("3.3")
-        assert point.tolerance_pct == Decimal("5")
+        assert point.nominal == 3.3
+        assert point.tolerance_pct == 5.0
         assert point.comparator == Comparator.GELE
 
     def test_condition_params_via_extra(self):
@@ -35,63 +33,64 @@ class TestConditionPoint:
         point = ConditionPoint(
             temperature=25,
             load=0.5,
-            nominal=Decimal("3.3"),
-            tolerance_pct=Decimal("5"),
+            nominal=3.3,
+            tolerance_pct=5.0,
         )
         assert point.condition_params == {"temperature": 25, "load": 0.5}
 
     def test_low_from_tolerance_pct(self):
         """Test low property calculation from percentage tolerance."""
         point = ConditionPoint(
-            nominal=Decimal("100"),
-            tolerance_pct=Decimal("10"),
+            nominal=100.0,
+            tolerance_pct=10.0,
         )
         # 100 * (1 - 10/100) = 90
-        assert point.low == Decimal("90")
+        assert point.low == 90.0
 
     def test_high_from_tolerance_pct(self):
         """Test high property calculation from percentage tolerance."""
+        import pytest
         point = ConditionPoint(
-            nominal=Decimal("100"),
-            tolerance_pct=Decimal("10"),
+            nominal=100.0,
+            tolerance_pct=10.0,
         )
         # 100 * (1 + 10/100) = 110
-        assert point.high == Decimal("110")
+        assert point.high == pytest.approx(110.0)
 
     def test_low_from_tolerance_abs(self):
         """Test low property calculation from absolute tolerance."""
         point = ConditionPoint(
-            nominal=Decimal("5.0"),
-            tolerance_abs=Decimal("0.5"),
+            nominal=5.0,
+            tolerance_abs=0.5,
         )
-        assert point.low == Decimal("4.5")
+        assert point.low == 4.5
 
     def test_high_from_tolerance_abs(self):
         """Test high property calculation from absolute tolerance."""
         point = ConditionPoint(
-            nominal=Decimal("5.0"),
-            tolerance_abs=Decimal("0.5"),
+            nominal=5.0,
+            tolerance_abs=0.5,
         )
-        assert point.high == Decimal("5.5")
+        assert point.high == 5.5
 
     def test_explicit_limits_override_tolerance(self):
         """Test that explicit limit_low/high override tolerance calculation."""
         point = ConditionPoint(
-            nominal=Decimal("100"),
-            tolerance_pct=Decimal("10"),
-            limit_low=Decimal("85"),
-            limit_high=Decimal("115"),
+            nominal=100.0,
+            tolerance_pct=10.0,
+            limit_low=85.0,
+            limit_high=115.0,
         )
         # Should use explicit limits, not calculated
-        assert point.low == Decimal("85")
-        assert point.high == Decimal("115")
+        assert point.low == 85.0
+        assert point.high == 115.0
 
     def test_matches_exact(self):
         """Test matching with exact condition parameters."""
         point = ConditionPoint(
             temperature=25,
             load=0.5,
-            nominal=Decimal("3.3"),
+            nominal=3.3,
         )
         assert point.matches({"temperature": 25, "load": 0.5})
 
@@ -104,7 +103,7 @@ class TestConditionPoint:
         point = ConditionPoint(
             temperature=25,
             load=0.5,
-            nominal=Decimal("3.3"),
+            nominal=3.3,
         )
         # Query missing 'load' should NOT match condition that has it
         assert not point.matches({"temperature": 25})
@@ -118,7 +117,7 @@ class TestConditionPoint:
         """
         point = ConditionPoint(
             temperature=25,
-            nominal=Decimal("3.3"),
+            nominal=3.3,
         )
         # Query has extra 'load' param but condition only needs 'temperature'
         assert point.matches({"temperature": 25, "load": 0.5})
@@ -127,7 +126,7 @@ class TestConditionPoint:
         """Test that extra query params don't affect matching."""
         point = ConditionPoint(
             temperature=25,
-            nominal=Decimal("3.3"),
+            nominal=3.3,
         )
         # Query has 'load' but point doesn't care - all condition params satisfied
         assert point.matches({"temperature": 25, "load": 0.5, "vin": 12.0})
@@ -136,7 +135,7 @@ class TestConditionPoint:
         """Test that wrong value fails match."""
         point = ConditionPoint(
             temperature=25,
-            nominal=Decimal("3.3"),
+            nominal=3.3,
         )
         assert not point.matches({"temperature": 85})
 
@@ -144,11 +143,11 @@ class TestConditionPoint:
         """Test that numeric comparison works across types."""
         point = ConditionPoint(
             temperature=25,  # int
-            nominal=Decimal("3.3"),
+            nominal=3.3,
         )
-        # Should match with Decimal comparison
-        assert point.matches({"temperature": Decimal("25")})
+        # Should match with float comparison
         assert point.matches({"temperature": 25.0})
+        assert point.matches({"temperature": 25})
 
 
 class TestCharacteristic:
@@ -177,13 +176,13 @@ class TestCharacteristic:
             conditions=[
                 ConditionPoint(
                     temperature=25,
-                    nominal=Decimal("3.3"),
-                    tolerance_pct=Decimal("3"),
+                    nominal=3.3,
+                    tolerance_pct=3.0,
                 ),
                 ConditionPoint(
                     temperature=85,
-                    nominal=Decimal("3.3"),
-                    tolerance_pct=Decimal("5"),
+                    nominal=3.3,
+                    tolerance_pct=5.0,
                 ),
             ],
         )
@@ -199,19 +198,19 @@ class TestCharacteristic:
             conditions=[
                 ConditionPoint(
                     temperature=25,
-                    nominal=Decimal("3.3"),
-                    tolerance_pct=Decimal("3"),
+                    nominal=3.3,
+                    tolerance_pct=3.0,
                 ),
                 ConditionPoint(
                     temperature=85,
-                    nominal=Decimal("3.35"),
-                    tolerance_pct=Decimal("5"),
+                    nominal=3.35,
+                    tolerance_pct=5.0,
                 ),
             ],
         )
         point = char.get_at_conditions({"temperature": 85})
         assert point is not None
-        assert point.nominal == Decimal("3.35")
+        assert point.nominal == 3.35
 
     def test_get_at_conditions_no_match(self):
         """Test that no match returns None."""
@@ -221,7 +220,7 @@ class TestCharacteristic:
             units="V",
             pin="VOUT",
             conditions=[
-                ConditionPoint(temperature=25, nominal=Decimal("3.3")),
+                ConditionPoint(temperature=25, nominal=3.3),
             ],
         )
         point = char.get_at_conditions({"temperature": -40})
@@ -236,7 +235,7 @@ class TestCharacteristic:
             units="V",
             pin="VOUT",
             conditions=[
-                ConditionPoint(nominal=Decimal("3.3")),
+                ConditionPoint(nominal=3.3),
             ],
         )
         cap = char.to_capability_requirement()
@@ -254,7 +253,7 @@ class TestCharacteristic:
             units="V",
             pin="VIN",
             conditions=[
-                ConditionPoint(nominal=Decimal("5.0")),
+                ConditionPoint(nominal=5.0),
             ],
         )
         cap = char.to_capability_requirement()
@@ -275,21 +274,22 @@ class TestCharacteristic:
 
     def test_to_capability_requirement_range(self):
         """Test that capability range is derived from conditions."""
+        import pytest
         char = Characteristic(
             direction=Direction.OUTPUT,
             domain=Domain.VOLTAGE,
             units="V",
             pin="VOUT",
             conditions=[
-                ConditionPoint(nominal=Decimal("3.3")),
-                ConditionPoint(nominal=Decimal("5.0")),
-                ConditionPoint(nominal=Decimal("12.0")),
+                ConditionPoint(nominal=3.3),
+                ConditionPoint(nominal=5.0),
+                ConditionPoint(nominal=12.0),
             ],
         )
         cap = char.to_capability_requirement()
         # Max nominal is 12.0, with 20% headroom = 14.4
         assert cap.range is not None
-        assert cap.range.max == Decimal("14.4")
+        assert float(cap.range.max) == pytest.approx(14.4)
         assert cap.range.units == "V"
 
 
@@ -301,18 +301,18 @@ class TestTestRequirement:
         req = TestRequirement(
             characteristic_ref="rail_3v3_output",
             conditions={"temperature": 25},
-            guardband_pct=Decimal("10"),
+            guardband_pct=10.0,
             priority="critical",
         )
         assert req.characteristic_ref == "rail_3v3_output"
-        assert req.guardband_pct == Decimal("10")
+        assert req.guardband_pct == 10.0
         assert req.priority == "critical"
 
     def test_requirement_defaults(self):
         """Test default values for test requirement."""
         req = TestRequirement()
         assert req.conditions == {}
-        assert req.guardband_pct == Decimal("0")
+        assert req.guardband_pct == 0.0
         assert req.priority == "standard"
 
 
@@ -345,9 +345,9 @@ class TestProduct:
                     conditions=[
                         ConditionPoint(
                             temperature=25,
-                            load=Decimal("0.1"),
-                            nominal=Decimal("3.3"),
-                            tolerance_pct=Decimal("3"),
+                            load=0.1,
+                            nominal=3.3,
+                            tolerance_pct=3.0,
                         ),
                     ],
                 ),
@@ -355,8 +355,8 @@ class TestProduct:
             test_requirements={
                 "verify_output_voltage": TestRequirement(
                     characteristic_ref="rail_3v3_output",
-                    conditions={"temperature": 25, "load": Decimal("0.1")},
-                    guardband_pct=Decimal("5"),
+                    conditions={"temperature": 25, "load": 0.1},
+                    guardband_pct=5.0,
                     priority="critical",
                 ),
             },

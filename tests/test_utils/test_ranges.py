@@ -1,7 +1,5 @@
 """Tests for range expansion utilities."""
 
-from decimal import Decimal
-
 from litmus.utils.ranges import expand_numeric_range, expand_range
 
 
@@ -104,80 +102,81 @@ class TestExpandNumericRange:
     # === Simple ranges ===
 
     def test_simple_range(self):
-        """1:4 → [1, 2, 3, 4] as Decimals."""
+        """1:4 → [1, 2, 3, 4] as floats."""
         result = expand_numeric_range("1:4")
-        assert result == [Decimal("1"), Decimal("2"), Decimal("3"), Decimal("4")]
+        assert result == [1.0, 2.0, 3.0, 4.0]
 
     def test_range_with_step(self):
         """-40:125:55 → [-40, 15, 70, 125]."""
         result = expand_numeric_range("-40:125:55")
-        assert result == [Decimal("-40"), Decimal("15"), Decimal("70"), Decimal("125")]
+        assert result == [-40.0, 15.0, 70.0, 125.0]
 
     def test_float_range_with_step(self):
         """0.1:0.5:0.1 → [0.1, 0.2, 0.3, 0.4, 0.5]."""
         result = expand_numeric_range("0.1:0.5:0.1")
         assert len(result) == 5
-        assert result[0] == Decimal("0.1")
-        assert result[4] == Decimal("0.5")
+        assert result[0] == 0.1
+        assert result[4] == 0.5
 
     def test_comma_separated(self):
         """3.3,5.0,12.0 → [3.3, 5.0, 12.0]."""
         result = expand_numeric_range("3.3,5.0,12.0")
-        assert result == [Decimal("3.3"), Decimal("5.0"), Decimal("12.0")]
+        assert result == [3.3, 5.0, 12.0]
 
     def test_mixed_comma_and_range(self):
         """0,0.5:2:0.5,5 → [0, 0.5, 1.0, 1.5, 2.0, 5]."""
         result = expand_numeric_range("0,0.5:2:0.5,5")
         expected = [
-            Decimal("0"), Decimal("0.5"), Decimal("1.0"),
-            Decimal("1.5"), Decimal("2.0"), Decimal("5"),
+            0.0, 0.5, 1.0,
+            1.5, 2.0, 5.0,
         ]
         assert result == expected
 
     # === List pass-through ===
 
     def test_list_passthrough(self):
-        """List input passes through with Decimal conversion."""
+        """List input passes through with float conversion."""
         result = expand_numeric_range([1, 2, 3])
-        assert result == [Decimal("1"), Decimal("2"), Decimal("3")]
+        assert result == [1.0, 2.0, 3.0]
 
     def test_list_float_passthrough(self):
         """Float list passes through."""
         result = expand_numeric_range([0.1, 0.2, 0.3])
-        assert result == [Decimal("0.1"), Decimal("0.2"), Decimal("0.3")]
+        assert result == [0.1, 0.2, 0.3]
 
     # === Single values ===
 
     def test_single_int(self):
         """Single int returns single-item list."""
-        assert expand_numeric_range(5) == [Decimal("5")]
+        assert expand_numeric_range(5) == [5.0]
 
     def test_single_float(self):
         """Single float returns single-item list."""
-        assert expand_numeric_range(3.14) == [Decimal("3.14")]
+        assert expand_numeric_range(3.14) == [3.14]
 
     # === Edge cases ===
 
     def test_negative_step(self):
         """125:-40:-55 → [125, 70, 15, -40] (descending)."""
         result = expand_numeric_range("125:-40:-55")
-        assert result == [Decimal("125"), Decimal("70"), Decimal("15"), Decimal("-40")]
+        assert result == [125.0, 70.0, 15.0, -40.0]
 
     def test_temperature_sweep(self):
         """Realistic temperature sweep: -40:85:25."""
         result = expand_numeric_range("-40:85:25")
         expected = [
-            Decimal("-40"), Decimal("-15"), Decimal("10"),
-            Decimal("35"), Decimal("60"), Decimal("85"),
+            -40.0, -15.0, 10.0,
+            35.0, 60.0, 85.0,
         ]
         assert result == expected
 
     def test_voltage_sweep(self):
         """Realistic voltage sweep: 3.0:3.6:0.1."""
+        import pytest
         result = expand_numeric_range("3.0:3.6:0.1")
         assert len(result) == 7
-        assert result[0] == Decimal("3.0")
-        assert result[-1] == Decimal("3.6")
+        assert result[0] == 3.0
+        assert result[-1] == pytest.approx(3.6)
 
 
 class TestIntegrationWithModels:
@@ -263,8 +262,8 @@ class TestIntegrationWithModels:
 
         config = LoopVariableConfig(name="temperature", values="-40:85:25")
         expected = [
-            Decimal("-40"), Decimal("-15"), Decimal("10"),
-            Decimal("35"), Decimal("60"), Decimal("85"),
+            -40.0, -15.0, 10.0,
+            35.0, 60.0, 85.0,
         ]
         assert config.resolved_values == expected
 
@@ -273,7 +272,7 @@ class TestIntegrationWithModels:
         from litmus.config.models import LoopVariableConfig
 
         config = LoopVariableConfig(name="voltage", values=[3.3, 5.0, 12.0])
-        assert config.resolved_values == [Decimal("3.3"), Decimal("5.0"), Decimal("12.0")]
+        assert config.resolved_values == [3.3, 5.0, 12.0]
 
     def test_loop_variable_config_with_range_object(self):
         """LoopVariableConfig.resolved_values works with RangeConfig."""
@@ -281,6 +280,6 @@ class TestIntegrationWithModels:
 
         config = LoopVariableConfig(
             name="load",
-            range=RangeConfig(start=Decimal("0"), stop=Decimal("1"), step=Decimal("0.5")),
+            range=RangeConfig(start=0.0, stop=1.0, step=0.5),
         )
-        assert config.resolved_values == [Decimal("0"), Decimal("0.5"), Decimal("1")]
+        assert config.resolved_values == [0.0, 0.5, 1.0]

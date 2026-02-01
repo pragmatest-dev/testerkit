@@ -12,18 +12,20 @@ Key design principles:
 Usage in tests:
     def test_voltage(voltage_meter: VoltageInput):
         v = voltage_meter.measure_voltage()
-        assert v > Decimal("3.0")
+        assert v > 3.0
 
 Usage in drivers:
     class DMM(VisaInstrument, VoltageInput, CurrentInput, ResistanceInput):
-        def measure_voltage(self, signal_type=SignalType.DC) -> Decimal:
-            return Decimal(self.query("MEAS:VOLT:DC?"))
+        def measure_voltage(self, signal_type=SignalType.DC) -> float:
+            return float(self.query("MEAS:VOLT:DC?"))
 """
 
-from decimal import Decimal
-from typing import Protocol, runtime_checkable
+from typing import TYPE_CHECKING, Protocol, runtime_checkable
 
 from litmus.capabilities.models import SignalType
+
+if TYPE_CHECKING:
+    from litmus.data.models import Waveform
 
 # =============================================================================
 # Measurement Capabilities (INPUT direction)
@@ -37,7 +39,7 @@ class VoltageInput(Protocol):
     Implemented by: DMM, Oscilloscope, SMU, DAQ analog input
     """
 
-    def measure_voltage(self, signal_type: SignalType = SignalType.DC) -> Decimal:
+    def measure_voltage(self, signal_type: SignalType = SignalType.DC) -> float:
         """Measure voltage and return the reading.
 
         Args:
@@ -48,7 +50,7 @@ class VoltageInput(Protocol):
         """
         ...
 
-    def configure_voltage_range(self, range_val: Decimal | str) -> None:
+    def configure_voltage_range(self, range_val: float | str) -> None:
         """Configure the voltage measurement range.
 
         Args:
@@ -64,7 +66,7 @@ class CurrentInput(Protocol):
     Implemented by: DMM, SMU, Current probe, Shunt-based measurement
     """
 
-    def measure_current(self, signal_type: SignalType = SignalType.DC) -> Decimal:
+    def measure_current(self, signal_type: SignalType = SignalType.DC) -> float:
         """Measure current and return the reading.
 
         Args:
@@ -75,7 +77,7 @@ class CurrentInput(Protocol):
         """
         ...
 
-    def configure_current_range(self, range_val: Decimal | str) -> None:
+    def configure_current_range(self, range_val: float | str) -> None:
         """Configure the current measurement range.
 
         Args:
@@ -91,7 +93,7 @@ class ResistanceInput(Protocol):
     Implemented by: DMM with 2-wire or 4-wire capability
     """
 
-    def measure_resistance(self, four_wire: bool = False) -> Decimal:
+    def measure_resistance(self, four_wire: bool = False) -> float:
         """Measure resistance and return the reading.
 
         Args:
@@ -102,7 +104,7 @@ class ResistanceInput(Protocol):
         """
         ...
 
-    def configure_resistance_range(self, range_val: Decimal | str) -> None:
+    def configure_resistance_range(self, range_val: float | str) -> None:
         """Configure the resistance measurement range.
 
         Args:
@@ -118,7 +120,7 @@ class FrequencyInput(Protocol):
     Implemented by: DMM with frequency counter, Frequency counter
     """
 
-    def measure_frequency(self) -> Decimal:
+    def measure_frequency(self) -> float:
         """Measure frequency and return the reading.
 
         Returns:
@@ -126,7 +128,7 @@ class FrequencyInput(Protocol):
         """
         ...
 
-    def measure_period(self) -> Decimal:
+    def measure_period(self) -> float:
         """Measure period and return the reading.
 
         Returns:
@@ -142,7 +144,7 @@ class TemperatureInput(Protocol):
     Implemented by: DMM with temperature measurement, Temperature logger
     """
 
-    def measure_temperature(self, sensor_type: str = "rtd") -> Decimal:
+    def measure_temperature(self, sensor_type: str = "rtd") -> float:
         """Measure temperature and return the reading.
 
         Args:
@@ -168,20 +170,18 @@ class WaveformInput(Protocol):
         """
         ...
 
-    def fetch_waveform(self, channel: str) -> tuple[list[float], float]:
+    def fetch_waveform(self, channel: str) -> "Waveform":
         """Fetch acquired waveform data.
 
         Args:
             channel: Channel name (e.g., "CH1", "1")
 
         Returns:
-            Tuple of (data_points, x_increment) where:
-            - data_points: List of voltage values
-            - x_increment: Time between samples in seconds
+            Waveform with t0, dt, Y[], and attrs.
         """
         ...
 
-    def configure_acquisition(self, sample_rate: Decimal, record_length: int) -> None:
+    def configure_acquisition(self, sample_rate: float, record_length: int) -> None:
         """Configure acquisition parameters.
 
         Args:
@@ -190,7 +190,7 @@ class WaveformInput(Protocol):
         """
         ...
 
-    def configure_trigger(self, source: str, level: Decimal, slope: str) -> None:
+    def configure_trigger(self, source: str, level: float, slope: str) -> None:
         """Configure trigger settings.
 
         Args:
@@ -213,7 +213,7 @@ class VoltageOutput(Protocol):
     Implemented by: Power supply, SMU, DAQ analog output
     """
 
-    def set_voltage(self, voltage: Decimal) -> None:
+    def set_voltage(self, voltage: float) -> None:
         """Set the output voltage level.
 
         Args:
@@ -221,7 +221,7 @@ class VoltageOutput(Protocol):
         """
         ...
 
-    def set_voltage_limit(self, limit: Decimal) -> None:
+    def set_voltage_limit(self, limit: float) -> None:
         """Set the voltage limit (for current-priority mode).
 
         Args:
@@ -245,7 +245,7 @@ class VoltageOutput(Protocol):
         """
         ...
 
-    def measure_output_voltage(self) -> Decimal:
+    def measure_output_voltage(self) -> float:
         """Read back the actual output voltage.
 
         Returns:
@@ -261,7 +261,7 @@ class CurrentOutput(Protocol):
     Implemented by: Power supply in current mode, SMU, Current source
     """
 
-    def set_current(self, current: Decimal) -> None:
+    def set_current(self, current: float) -> None:
         """Set the output current level.
 
         Args:
@@ -269,7 +269,7 @@ class CurrentOutput(Protocol):
         """
         ...
 
-    def set_current_limit(self, limit: Decimal) -> None:
+    def set_current_limit(self, limit: float) -> None:
         """Set the current limit (for voltage-priority mode).
 
         Args:
@@ -293,7 +293,7 @@ class CurrentOutput(Protocol):
         """
         ...
 
-    def measure_output_current(self) -> Decimal:
+    def measure_output_current(self) -> float:
         """Read back the actual output current.
 
         Returns:
@@ -310,7 +310,7 @@ class WaveformOutput(Protocol):
     """
 
     def configure_standard_waveform(
-        self, waveform: str, frequency: Decimal, amplitude: Decimal
+        self, waveform: str, frequency: float, amplitude: float
     ) -> None:
         """Configure a standard waveform.
 
@@ -321,7 +321,7 @@ class WaveformOutput(Protocol):
         """
         ...
 
-    def configure_arbitrary_waveform(self, data: list[float], sample_rate: Decimal) -> None:
+    def configure_arbitrary_waveform(self, data: list[float], sample_rate: float) -> None:
         """Configure an arbitrary waveform.
 
         Args:
@@ -359,7 +359,7 @@ class ConstantCurrentLoad(Protocol):
     The load draws a fixed current regardless of the source voltage.
     """
 
-    def set_load_current(self, current: Decimal) -> None:
+    def set_load_current(self, current: float) -> None:
         """Set the load current.
 
         Args:
@@ -375,7 +375,7 @@ class ConstantCurrentLoad(Protocol):
         """Disable the electronic load."""
         ...
 
-    def measure_voltage(self) -> Decimal:
+    def measure_voltage(self) -> float:
         """Measure the input voltage.
 
         Returns:
@@ -383,7 +383,7 @@ class ConstantCurrentLoad(Protocol):
         """
         ...
 
-    def measure_power(self) -> Decimal:
+    def measure_power(self) -> float:
         """Measure the dissipated power.
 
         Returns:
@@ -399,7 +399,7 @@ class ConstantPowerLoad(Protocol):
     The load adjusts current to maintain constant power dissipation.
     """
 
-    def set_load_power(self, power: Decimal) -> None:
+    def set_load_power(self, power: float) -> None:
         """Set the load power.
 
         Args:
@@ -423,7 +423,7 @@ class ConstantResistanceLoad(Protocol):
     The load behaves as a fixed resistance.
     """
 
-    def set_load_resistance(self, resistance: Decimal) -> None:
+    def set_load_resistance(self, resistance: float) -> None:
         """Set the load resistance.
 
         Args:
@@ -464,7 +464,7 @@ class DigitalInput(Protocol):
         """
         ...
 
-    def configure_digital_input(self, channel: str, threshold: Decimal | None = None) -> None:
+    def configure_digital_input(self, channel: str, threshold: float | None = None) -> None:
         """Configure digital input.
 
         Args:

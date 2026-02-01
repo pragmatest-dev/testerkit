@@ -1,6 +1,5 @@
 """Pydantic models for instrument capabilities."""
 
-from decimal import Decimal
 from enum import StrEnum
 
 from pydantic import BaseModel, Field
@@ -83,17 +82,17 @@ class Comparator(StrEnum):
 class RangeSpec(BaseModel):
     """Specification for measurement or output range."""
 
-    min: Decimal | None = None
-    max: Decimal | None = None
+    min: float | None = None
+    max: float | None = None
     units: str
 
 
 class AccuracySpec(BaseModel):
     """Specification for measurement accuracy."""
 
-    pct_reading: Decimal | None = None  # % of reading
-    pct_range: Decimal | None = None  # % of range
-    absolute: Decimal | None = None  # Fixed offset
+    pct_reading: float | None = None  # % of reading
+    pct_range: float | None = None  # % of range
+    absolute: float | None = None  # Fixed offset
 
 
 class ResolutionSpec(BaseModel):
@@ -101,7 +100,7 @@ class ResolutionSpec(BaseModel):
 
     bits: int | None = None  # ADC resolution
     digits: float | None = None  # Display digits (e.g., 6.5)
-    value: Decimal | None = None  # Absolute resolution
+    value: float | None = None  # Absolute resolution
     units: str | None = None
 
 

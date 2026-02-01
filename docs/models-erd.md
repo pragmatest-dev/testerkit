@@ -92,17 +92,17 @@ erDiagram
     }
 
     ConditionPoint {
-        decimal nominal
-        decimal tolerance_pct
-        decimal limit_low
-        decimal limit_high
+        float nominal
+        float tolerance_pct
+        float limit_low
+        float limit_high
         Comparator comparator
     }
 
     TestRequirement {
         string characteristic_ref FK
         dict conditions
-        decimal guardband_pct
+        float guardband_pct
         string priority
     }
 
@@ -211,9 +211,9 @@ erDiagram
     }
 
     Limit {
-        decimal low
-        decimal high
-        decimal nominal
+        float low
+        float high
+        float nominal
         string units
         string spec_ref FK
         Comparator comparator
@@ -222,8 +222,8 @@ erDiagram
     Specification {
         string id PK
         string description
-        decimal nominal
-        decimal tolerance_pct
+        float nominal
+        float tolerance_pct
         string units
     }
 
@@ -267,10 +267,10 @@ erDiagram
 
     Measurement {
         string name
-        decimal value
+        float value
         string units
-        decimal low_limit
-        decimal high_limit
+        float low_limit
+        float high_limit
         Outcome outcome
         string dut_pin
         string instrument_channel

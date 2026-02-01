@@ -42,7 +42,6 @@ The client automatically:
 from collections.abc import Generator
 from contextlib import contextmanager
 from datetime import UTC, datetime
-from decimal import Decimal
 from pathlib import Path
 from typing import Any
 from uuid import UUID
@@ -51,13 +50,13 @@ from litmus.data.backends.parquet import ParquetBackend
 from litmus.data.models import DUT, Measurement, Outcome, TestRun, TestStep, TestVector
 
 
-def _to_decimal(value: float | int | Decimal | str | None) -> Decimal | None:
-    """Convert a numeric value to Decimal."""
+def _to_float(value: float | int | str | None) -> float | None:
+    """Convert a numeric value to float."""
     if value is None:
         return None
-    if isinstance(value, Decimal):
+    if isinstance(value, float):
         return value
-    return Decimal(str(value))
+    return float(value)
 
 
 class VectorBuilder:
@@ -77,12 +76,12 @@ class VectorBuilder:
     def measure(
         self,
         name: str,
-        value: float | int | Decimal | None,
+        value: float | int | None,
         *,
         units: str | None = None,
-        low: float | int | Decimal | None = None,
-        high: float | int | Decimal | None = None,
-        nominal: float | int | Decimal | None = None,
+        low: float | int | None = None,
+        high: float | int | None = None,
+        nominal: float | int | None = None,
         comparator: str = "GELE",
         spec_ref: str | None = None,
     ) -> Measurement:
@@ -104,11 +103,11 @@ class VectorBuilder:
         """
         m = Measurement(
             name=name,
-            value=_to_decimal(value),
+            value=_to_float(value),
             units=units,
-            low_limit=_to_decimal(low),
-            high_limit=_to_decimal(high),
-            nominal=_to_decimal(nominal),
+            low_limit=_to_float(low),
+            high_limit=_to_float(high),
+            nominal=_to_float(nominal),
             comparator=comparator,
             spec_ref=spec_ref,
         )
@@ -185,12 +184,12 @@ class StepBuilder:
     def measure(
         self,
         name: str,
-        value: float | int | Decimal | None,
+        value: float | int | None,
         *,
         units: str | None = None,
-        low: float | int | Decimal | None = None,
-        high: float | int | Decimal | None = None,
-        nominal: float | int | Decimal | None = None,
+        low: float | int | None = None,
+        high: float | int | None = None,
+        nominal: float | int | None = None,
         comparator: str = "GELE",
         spec_ref: str | None = None,
     ) -> Measurement:

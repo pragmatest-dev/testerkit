@@ -152,7 +152,62 @@ This:
 2. Calculates limits (3.135 to 3.465)
 3. Applies guardband (3.152 to 3.449)
 
-### 3. Inline in Test (Not Recommended)
+### 3. Callable Limits (Dynamic)
+
+For limits that depend on test conditions or require complex logic, use callable limits:
+
+```yaml
+# tests/config.yaml
+test_output_voltage:
+  limits:
+    test_output_voltage:
+      # Module function reference
+      callable: myproject.limits.output_voltage
+
+test_efficiency:
+  limits:
+    test_efficiency:
+      # Inline Python expression
+      callable: "Limit(low=80 if ctx.get_in('load') > 0.5 else 85, units='%')"
+
+test_ripple:
+  limits:
+    test_ripple:
+      # Multi-line inline Python
+      callable: |
+        vin = ctx.get_in('vin')
+        if vin < 5.0:
+          return Limit(high=vin * 0.01, units='V')
+        else:
+          return Limit(high=0.05, units='V')
+```
+
+**Module function example:**
+
+```python
+# myproject/limits.py
+from litmus.config.models import Limit
+
+def output_voltage(context) -> Limit:
+    """Temperature-dependent limits with full context access."""
+    temp = context.get_in("temperature", 25)
+
+    if temp < 0:
+        return Limit(low=3.0, high=3.6, units="V")
+    elif temp < 50:
+        return Limit(low=3.1, high=3.5, units="V")
+    else:
+        return Limit(low=3.0, high=3.6, units="V")
+```
+
+Callable limits have access to:
+- `ctx.get_in(key)` — Input parameters (from vectors)
+- `ctx.get_out(key)` — Observations (from `context.observe()`)
+- `ctx.inputs` — All input parameters as dict
+- `ctx.outputs` — All observations as dict
+- `Limit` — The Limit class for creating limits
+
+### 4. Inline in Test (Not Recommended)
 
 You can specify limits in the decorator, but this defeats configuration-driven testing:
 

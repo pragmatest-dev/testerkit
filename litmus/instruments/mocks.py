@@ -15,7 +15,7 @@ Example usage:
 
     # Use exactly like real instruments
     with dmm:
-        v = dmm.measure_voltage()  # Returns Decimal("3.3")
+        v = dmm.measure_voltage()  # Returns 3.3
 
     # Update mock values dynamically
     dmm.set_mock_value("measure_voltage", 5.0)
@@ -227,7 +227,7 @@ def Mock(instrument_class: type[T], **kwargs: Any) -> T:
     Example:
         dmm = Mock(DMM, measure_voltage=3.3)
         with dmm:
-            v = dmm.measure_voltage()  # Returns Decimal("3.3")
+            v = dmm.measure_voltage()  # Returns 3.3
             assert isinstance(dmm, DMM)  # True
             assert isinstance(dmm, VoltageInput)  # True
     """

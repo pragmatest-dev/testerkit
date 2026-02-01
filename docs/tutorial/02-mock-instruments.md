@@ -144,20 +144,6 @@ When running with `--mock-instruments`, values are resolved in order:
       -v
 ```
 
-## Why Decimal?
-
-Measurements return `Decimal` instead of `float`:
-
-```python
-from decimal import Decimal
-
-voltage = dmm.measure_voltage()
-print(type(voltage))  # <class 'decimal.Decimal'>
-print(voltage)        # 3.31
-```
-
-`Decimal` avoids floating-point precision issues that can cause false test failures.
-
 ## What You Learned
 
 - `--mock-instruments` flag for hardware-free testing

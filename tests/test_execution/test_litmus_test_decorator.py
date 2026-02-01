@@ -1,7 +1,5 @@
 """Tests for @litmus_test decorator."""
 
-from decimal import Decimal
-
 import pytest
 
 from litmus.data.models import Outcome
@@ -34,8 +32,8 @@ class TestLitmusTestDecorator:
 
         assert step.name == "test_sweep"
         assert len(step.vectors) == 2
-        assert step.vectors[0].measurements[0].value == Decimal("3.3")
-        assert step.vectors[1].measurements[0].value == Decimal("5.0")
+        assert step.vectors[0].measurements[0].value == 3.3
+        assert step.vectors[1].measurements[0].value == 5.0
 
     def test_decorator_without_parens(self):
         """Test @litmus_test without parentheses."""
@@ -46,7 +44,7 @@ class TestLitmusTestDecorator:
         step = test_simple()
 
         assert len(step.vectors) == 1
-        assert step.vectors[0].measurements[0].value == Decimal("42")
+        assert step.vectors[0].measurements[0].value == 42.0
 
     def test_decorator_with_yield(self):
         """Test generator pattern for multiple measurements."""
@@ -200,7 +198,7 @@ class TestLitmusTestDecoratorWithInstruments:
         mock_dmm = MockDMM()
         step = test_with_dmm(dmm=mock_dmm)
 
-        assert step.vectors[0].measurements[0].value == Decimal("3.28")
+        assert step.vectors[0].measurements[0].value == 3.28
 
     def test_decorator_changed_detection(self):
         """Test that vector.changed() works in decorated function."""

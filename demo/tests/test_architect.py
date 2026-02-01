@@ -23,8 +23,6 @@ Run with:
     pytest tests/test_architect.py --station=demo_station_001 --mock-instruments -v
 """
 
-from decimal import Decimal
-
 import pytest
 
 from litmus.config.models import Limit
@@ -46,7 +44,7 @@ from litmus.execution.harness import TestHarness
 
 @measure(
     name="output_voltage",
-    limit=Limit(low=Decimal("3.2"), high=Decimal("3.4"), nominal=Decimal("3.3"), units="V"),
+    limit=Limit(low=3.2, high=3.4, nominal=3.3, units="V"),
     units="V",
     raise_on_fail=False,  # Don't raise, let caller handle
 )
@@ -61,7 +59,7 @@ def measure_output_voltage(dmm):
 
 @measure(
     name="input_current",
-    limit=Limit(low=Decimal("0"), high=Decimal("1.0"), nominal=Decimal("0.5"), units="A"),
+    limit=Limit(low=0.0, high=1.0, nominal=0.5, units="A"),
 )
 def measure_input_current(psu):
     """Reusable input current measurement."""
@@ -108,7 +106,7 @@ class TestMeasureDecorator:
         litmus_logger.measure(
             name="output_power",
             value=power,
-            limit=Limit(low=Decimal("0"), high=Decimal("5.0"), units="W"),
+            limit=Limit(low=0.0, high=5.0, units="W"),
         )
 
 
@@ -368,7 +366,7 @@ class TestSpecDriven:
             "output_voltage",
             temperature=25,
             load=0.1,
-            guardband_pct=Decimal("10"),  # Tighten by 10%
+            guardband_pct=10.0,  # Tighten by 10%
         )
 
         vout = float(dmm.measure_dc_voltage())

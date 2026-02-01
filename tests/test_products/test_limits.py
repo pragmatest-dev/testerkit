@@ -1,7 +1,5 @@
 """Tests for limit derivation from product specifications."""
 
-from decimal import Decimal
-
 import pytest
 
 from litmus.capabilities.models import Comparator, Direction, Domain, SignalType
@@ -26,21 +24,21 @@ class TestDeriveLimit:
             conditions=[
                 ConditionPoint(
                     temperature=25,
-                    load=Decimal("0.1"),
-                    nominal=Decimal("3.3"),
-                    tolerance_pct=Decimal("3"),
+                    load=0.1,
+                    nominal=3.3,
+                    tolerance_pct=3.0,
                 ),
                 ConditionPoint(
                     temperature=25,
-                    load=Decimal("1.0"),
-                    nominal=Decimal("3.3"),
-                    tolerance_pct=Decimal("5"),
+                    load=1.0,
+                    nominal=3.3,
+                    tolerance_pct=5.0,
                 ),
                 ConditionPoint(
                     temperature=85,
-                    load=Decimal("1.0"),
-                    nominal=Decimal("3.3"),
-                    tolerance_pct=Decimal("6"),
+                    load=1.0,
+                    nominal=3.3,
+                    tolerance_pct=6.0,
                 ),
             ],
         )
@@ -49,26 +47,26 @@ class TestDeriveLimit:
         """Test deriving a limit with no guardband."""
         req = TestRequirement(
             characteristic_ref="rail_3v3_output",
-            conditions={"temperature": 25, "load": Decimal("0.1")},
-            guardband_pct=Decimal("0"),
+            conditions={"temperature": 25, "load": 0.1},
+            guardband_pct=0.0,
         )
 
         limit = derive_limit(voltage_characteristic, req)
 
         assert isinstance(limit, Limit)
-        assert limit.nominal == Decimal("3.3")
+        assert limit.nominal == 3.3
         assert limit.units == "V"
         # 3.3 * (1 - 0.03) = 3.201, 3.3 * (1 + 0.03) = 3.399
-        assert limit.low == Decimal("3.201")
-        assert limit.high == Decimal("3.399")
+        assert limit.low == pytest.approx(3.201)
+        assert limit.high == pytest.approx(3.399)
         assert limit.comparator == Comparator.GELE
 
     def test_limit_with_guardband(self, voltage_characteristic):
         """Test that guardband tightens the limits."""
         req = TestRequirement(
             characteristic_ref="rail_3v3_output",
-            conditions={"temperature": 25, "load": Decimal("0.1")},
-            guardband_pct=Decimal("10"),
+            conditions={"temperature": 25, "load": 0.1},
+            guardband_pct=10.0,
         )
 
         limit = derive_limit(voltage_characteristic, req)
@@ -76,28 +74,28 @@ class TestDeriveLimit:
         # Spec range: 3.201 to 3.399 (0.198 total)
         # Guardband of 10% removes 0.0198 from each side
         # New range: 3.2109 to 3.3891
-        expected_low = Decimal("3.201") + (Decimal("0.198") * Decimal("0.10") / 2)
-        expected_high = Decimal("3.399") - (Decimal("0.198") * Decimal("0.10") / 2)
-        assert limit.low == expected_low
-        assert limit.high == expected_high
+        expected_low = 3.201 + (0.198 * 0.10 / 2)
+        expected_high = 3.399 - (0.198 * 0.10 / 2)
+        assert limit.low == pytest.approx(expected_low)
+        assert limit.high == pytest.approx(expected_high)
 
     def test_limit_different_conditions(self, voltage_characteristic):
         """Test deriving limit for different condition point."""
         req = TestRequirement(
-            conditions={"temperature": 85, "load": Decimal("1.0")},
-            guardband_pct=Decimal("0"),
+            conditions={"temperature": 85, "load": 1.0},
+            guardband_pct=0.0,
         )
 
         limit = derive_limit(voltage_characteristic, req)
 
         # 6% tolerance at 85C, 1.0A load
-        assert limit.low == Decimal("3.3") * (1 - Decimal("0.06"))
-        assert limit.high == Decimal("3.3") * (1 + Decimal("0.06"))
+        assert limit.low == pytest.approx(3.3 * (1 - 0.06))
+        assert limit.high == pytest.approx(3.3 * (1 + 0.06))
 
     def test_limit_no_matching_condition(self, voltage_characteristic):
         """Test that missing condition raises ValueError."""
         req = TestRequirement(
-            conditions={"temperature": -40, "load": Decimal("0.5")},
+            conditions={"temperature": -40, "load": 0.5},
         )
 
         with pytest.raises(ValueError, match="No condition point matches"):
@@ -114,7 +112,7 @@ class TestDeriveLimit:
                 ConditionPoint(
                     temperature=25,
                     comparator=Comparator.LE,
-                    limit_high=Decimal("0.015"),
+                    limit_high=0.015,
                 ),
             ],
         )
@@ -123,7 +121,7 @@ class TestDeriveLimit:
         limit = derive_limit(char, req)
 
         assert limit.comparator == Comparator.LE
-        assert limit.high == Decimal("0.015")
+        assert limit.high == 0.015
         assert limit.low is None  # LE comparator only needs high
 
     def test_limit_with_explicit_limits(self):
@@ -136,9 +134,9 @@ class TestDeriveLimit:
             conditions=[
                 ConditionPoint(
                     temperature=25,
-                    nominal=Decimal("3.3"),
-                    limit_low=Decimal("3.0"),
-                    limit_high=Decimal("3.6"),
+                    nominal=3.3,
+                    limit_low=3.0,
+                    limit_high=3.6,
                 ),
             ],
         )
@@ -146,14 +144,14 @@ class TestDeriveLimit:
 
         limit = derive_limit(char, req)
 
-        assert limit.low == Decimal("3.0")
-        assert limit.high == Decimal("3.6")
-        assert limit.nominal == Decimal("3.3")
+        assert limit.low == 3.0
+        assert limit.high == 3.6
+        assert limit.nominal == 3.3
 
     def test_limit_spec_ref_traceability(self, voltage_characteristic):
         """Test that spec_ref includes condition info for traceability."""
         req = TestRequirement(
-            conditions={"temperature": 25, "load": Decimal("0.1")},
+            conditions={"temperature": 25, "load": 0.1},
         )
 
         limit = derive_limit(voltage_characteristic, req)
@@ -166,7 +164,7 @@ class TestDeriveLimit:
         """Test that spec_id is set from explicit char_id parameter."""
         req = TestRequirement(
             characteristic_ref="other_ref",
-            conditions={"temperature": 25, "load": Decimal("0.1")},
+            conditions={"temperature": 25, "load": 0.1},
         )
 
         limit = derive_limit(voltage_characteristic, req, char_id="output_voltage")
@@ -177,7 +175,7 @@ class TestDeriveLimit:
         """Test that spec_id falls back to characteristic_ref if no char_id given."""
         req = TestRequirement(
             characteristic_ref="rail_3v3_output",
-            conditions={"temperature": 25, "load": Decimal("0.1")},
+            conditions={"temperature": 25, "load": 0.1},
         )
 
         limit = derive_limit(voltage_characteristic, req)
@@ -187,7 +185,7 @@ class TestDeriveLimit:
     def test_limit_spec_id_is_none_when_no_ref(self, voltage_characteristic):
         """Test that spec_id can be None if no reference is provided."""
         req = TestRequirement(
-            conditions={"temperature": 25, "load": Decimal("0.1")},
+            conditions={"temperature": 25, "load": 0.1},
         )
 
         limit = derive_limit(voltage_characteristic, req)
@@ -206,19 +204,19 @@ class TestDeriveLimit:
                 ConditionPoint(
                     temperature=25,
                     comparator=Comparator.LE,
-                    limit_high=Decimal("1.0"),
+                    limit_high=1.0,
                 ),
             ],
         )
         req = TestRequirement(
             conditions={"temperature": 25},
-            guardband_pct=Decimal("10"),
+            guardband_pct=10.0,
         )
 
         limit = derive_limit(char, req)
 
         # LE with 10% guardband: 1.0 - 0.1 = 0.9
-        assert limit.high == Decimal("0.9")
+        assert limit.high == 0.9
         assert limit.comparator == Comparator.LE
 
     def test_guardband_ge_comparator(self):
@@ -232,19 +230,19 @@ class TestDeriveLimit:
                 ConditionPoint(
                     temperature=25,
                     comparator=Comparator.GE,
-                    limit_low=Decimal("3.0"),
+                    limit_low=3.0,
                 ),
             ],
         )
         req = TestRequirement(
             conditions={"temperature": 25},
-            guardband_pct=Decimal("10"),
+            guardband_pct=10.0,
         )
 
         limit = derive_limit(char, req)
 
         # GE with 10% guardband: 3.0 + 0.3 = 3.3
-        assert limit.low == Decimal("3.3")
+        assert limit.low == 3.3
         assert limit.comparator == Comparator.GE
 
 
@@ -261,22 +259,22 @@ class TestDeriveLimitsForRequirement:
             conditions=[
                 ConditionPoint(
                     temperature=25,
-                    load=Decimal("0.5"),
-                    nominal=Decimal("3.3"),
-                    tolerance_pct=Decimal("3"),
+                    load=0.5,
+                    nominal=3.3,
+                    tolerance_pct=3.0,
                 ),
             ],
         )
         req = TestRequirement(
-            conditions={"temperature": 25, "load": Decimal("0.5")},
+            conditions={"temperature": 25, "load": 0.5},
         )
 
         results = derive_limits_for_requirement(char, req)
 
         assert len(results) == 1
         conditions, limit = results[0]
-        assert conditions == {"temperature": 25, "load": Decimal("0.5")}
-        assert limit.nominal == Decimal("3.3")
+        assert conditions == {"temperature": 25, "load": 0.5}
+        assert limit.nominal == 3.3
 
     def test_partial_condition_match(self):
         """Test deriving limits with partial condition match."""
@@ -288,21 +286,21 @@ class TestDeriveLimitsForRequirement:
             conditions=[
                 ConditionPoint(
                     temperature=25,
-                    load=Decimal("0.1"),
-                    nominal=Decimal("3.3"),
-                    tolerance_pct=Decimal("3"),
+                    load=0.1,
+                    nominal=3.3,
+                    tolerance_pct=3.0,
                 ),
                 ConditionPoint(
                     temperature=25,
-                    load=Decimal("0.5"),
-                    nominal=Decimal("3.3"),
-                    tolerance_pct=Decimal("4"),
+                    load=0.5,
+                    nominal=3.3,
+                    tolerance_pct=4.0,
                 ),
                 ConditionPoint(
                     temperature=85,
-                    load=Decimal("0.5"),
-                    nominal=Decimal("3.3"),
-                    tolerance_pct=Decimal("5"),
+                    load=0.5,
+                    nominal=3.3,
+                    tolerance_pct=5.0,
                 ),
             ],
         )
@@ -316,8 +314,8 @@ class TestDeriveLimitsForRequirement:
         # Should match both temperature=25 conditions
         assert len(results) == 2
         loads = [c["load"] for c, _ in results]
-        assert Decimal("0.1") in loads
-        assert Decimal("0.5") in loads
+        assert 0.1 in loads
+        assert 0.5 in loads
 
     def test_no_matches(self):
         """Test that no matches returns empty list."""
@@ -329,7 +327,7 @@ class TestDeriveLimitsForRequirement:
             conditions=[
                 ConditionPoint(
                     temperature=25,
-                    nominal=Decimal("3.3"),
+                    nominal=3.3,
                 ),
             ],
         )
@@ -355,20 +353,20 @@ class TestGuardbandEdgeCases:
             conditions=[
                 ConditionPoint(
                     temperature=25,
-                    limit_low=Decimal("3.0"),
-                    limit_high=Decimal("3.6"),
+                    limit_low=3.0,
+                    limit_high=3.6,
                 ),
             ],
         )
         req = TestRequirement(
             conditions={"temperature": 25},
-            guardband_pct=Decimal("0"),
+            guardband_pct=0.0,
         )
 
         limit = derive_limit(char, req)
 
-        assert limit.low == Decimal("3.0")
-        assert limit.high == Decimal("3.6")
+        assert limit.low == 3.0
+        assert limit.high == 3.6
 
     def test_large_guardband(self):
         """Test that large guardband significantly tightens limits."""
@@ -380,21 +378,21 @@ class TestGuardbandEdgeCases:
             conditions=[
                 ConditionPoint(
                     temperature=25,
-                    limit_low=Decimal("3.0"),
-                    limit_high=Decimal("4.0"),
+                    limit_low=3.0,
+                    limit_high=4.0,
                 ),
             ],
         )
         req = TestRequirement(
             conditions={"temperature": 25},
-            guardband_pct=Decimal("50"),  # 50% guardband
+            guardband_pct=50.0,  # 50% guardband
         )
 
         limit = derive_limit(char, req)
 
         # Original range: 1.0, guardband removes 0.25 from each side
-        assert limit.low == Decimal("3.25")
-        assert limit.high == Decimal("3.75")
+        assert limit.low == 3.25
+        assert limit.high == 3.75
 
     def test_eq_comparator_no_guardband(self):
         """Test that EQ comparator ignores guardband."""
@@ -406,18 +404,18 @@ class TestGuardbandEdgeCases:
             conditions=[
                 ConditionPoint(
                     temperature=25,
-                    nominal=Decimal("3.3"),
+                    nominal=3.3,
                     comparator=Comparator.EQ,
                 ),
             ],
         )
         req = TestRequirement(
             conditions={"temperature": 25},
-            guardband_pct=Decimal("10"),
+            guardband_pct=10.0,
         )
 
         limit = derive_limit(char, req)
 
         # EQ comparator - guardband not applicable
-        assert limit.nominal == Decimal("3.3")
+        assert limit.nominal == 3.3
         assert limit.comparator == Comparator.EQ

@@ -1,6 +1,5 @@
 """Tests for product YAML loading."""
 
-from decimal import Decimal
 from pathlib import Path
 
 import pytest
@@ -64,11 +63,11 @@ class TestLoadProduct:
 
         # Find the room temp, light load condition
         point = char.get_at_conditions(
-            {"temperature": 25, "load": Decimal("0.1"), "input_voltage": Decimal("5.0")}
+            {"temperature": 25, "load": 0.1, "input_voltage": 5.0}
         )
         assert point is not None
-        assert point.nominal == Decimal("3.3")
-        assert point.tolerance_pct == Decimal("3")
+        assert point.nominal == 3.3
+        assert point.tolerance_pct == 3.0
 
     def test_characteristic_comparator(self, power_board_path):
         """Test that non-default comparators are parsed."""
@@ -78,7 +77,7 @@ class TestLoadProduct:
         point = char.get_at_conditions({"temperature": 25, "load": 0})
         assert point is not None
         assert point.comparator == Comparator.LE
-        assert point.high == Decimal("0.015")
+        assert point.high == 0.015
 
     def test_test_requirements(self, power_board_path):
         """Test loading test requirements."""
@@ -88,7 +87,7 @@ class TestLoadProduct:
         req = product.test_requirements["verify_output_voltage_room_light"]
 
         assert req.characteristic_ref == "rail_3v3_output"
-        assert req.guardband_pct == Decimal("5")
+        assert req.guardband_pct == 5.0
         assert req.priority == "critical"
 
     def test_test_requirement_no_characteristic(self, power_board_path):
@@ -118,16 +117,16 @@ class TestIntegration:
         limit = derive_limit(char, req)
 
         # Check limit was derived correctly
-        assert limit.nominal == Decimal("3.3")
+        assert limit.nominal == 3.3
         assert limit.units == "V"
         assert limit.comparator == Comparator.GELE
 
         # With 3% tolerance: 3.201 to 3.399
         # With 5% guardband on that range
-        spec_low = Decimal("3.3") * (1 - Decimal("0.03"))
-        spec_high = Decimal("3.3") * (1 + Decimal("0.03"))
+        spec_low = 3.3 * (1 - 0.03)
+        spec_high = 3.3 * (1 + 0.03)
         range_size = spec_high - spec_low
-        guardband = range_size * Decimal("0.05") / 2
+        guardband = range_size * 0.05 / 2
 
         expected_low = spec_low + guardband
         expected_high = spec_high - guardband
@@ -147,7 +146,7 @@ class TestIntegration:
         assert cap.domain == Domain.VOLTAGE
         assert cap.range is not None
         # Max nominal is 3.3V, with 20% headroom = 3.96V
-        assert cap.range.max == Decimal("3.96")
+        assert float(cap.range.max) == pytest.approx(3.96)
 
 
 class TestLoadProductsFromDirectory:

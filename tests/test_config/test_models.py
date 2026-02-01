@@ -1,7 +1,5 @@
 """Tests for Litmus configuration models."""
 
-from decimal import Decimal
-
 from litmus.config.models import (
     FixtureConfig,
     FixturePoint,
@@ -19,29 +17,29 @@ from litmus.config.models import (
 
 class TestLimit:
     def test_limit_creation(self):
-        limit = Limit(low=Decimal("4.5"), high=Decimal("5.5"), units="V")
-        assert limit.low == Decimal("4.5")
-        assert limit.high == Decimal("5.5")
+        limit = Limit(low=4.5, high=5.5, units="V")
+        assert limit.low == 4.5
+        assert limit.high == 5.5
         assert limit.units == "V"
         assert limit.nominal is None
         assert limit.spec_ref is None
 
     def test_limit_with_all_fields(self):
         limit = Limit(
-            low=Decimal("4.5"),
-            high=Decimal("5.5"),
-            nominal=Decimal("5.0"),
+            low=4.5,
+            high=5.5,
+            nominal=5.0,
             units="V",
             spec_ref="PWR-RAIL-5V",
         )
-        assert limit.nominal == Decimal("5.0")
+        assert limit.nominal == 5.0
         assert limit.spec_ref == "PWR-RAIL-5V"
 
     def test_limit_nominal_only(self):
-        limit = Limit(nominal=Decimal("3.3"), units="V")
+        limit = Limit(nominal=3.3, units="V")
         assert limit.low is None
         assert limit.high is None
-        assert limit.nominal == Decimal("3.3")
+        assert limit.nominal == 3.3
 
 
 class TestSpecification:
@@ -49,26 +47,26 @@ class TestSpecification:
         spec = Specification(
             id="PWR-RAIL-5V",
             description="5V rail",
-            nominal=Decimal("5.0"),
-            tolerance_pct=Decimal("5"),
+            nominal=5.0,
+            tolerance_pct=5.0,
             units="V",
         )
         assert spec.id == "PWR-RAIL-5V"
-        assert spec.nominal == Decimal("5.0")
-        assert spec.tolerance_pct == Decimal("5")
+        assert spec.nominal == 5.0
+        assert spec.tolerance_pct == 5.0
 
     def test_spec_to_limit_with_pct_tolerance(self):
         spec = Specification(
             id="PWR-RAIL-5V",
             description="5V rail",
-            nominal=Decimal("5.0"),
-            tolerance_pct=Decimal("5"),
+            nominal=5.0,
+            tolerance_pct=5.0,
             units="V",
         )
         limit = spec.to_limit()
-        assert limit.low == Decimal("4.75")
-        assert limit.high == Decimal("5.25")
-        assert limit.nominal == Decimal("5.0")
+        assert limit.low == 4.75
+        assert limit.high == 5.25
+        assert limit.nominal == 5.0
         assert limit.units == "V"
         assert limit.spec_ref == "PWR-RAIL-5V"
 
@@ -76,53 +74,53 @@ class TestSpecification:
         spec = Specification(
             id="PWR-INPUT-I",
             description="Input current",
-            nominal=Decimal("0.5"),
-            tolerance_abs=Decimal("0.1"),
+            nominal=0.5,
+            tolerance_abs=0.1,
             units="A",
         )
         limit = spec.to_limit()
-        assert limit.low == Decimal("0.4")
-        assert limit.high == Decimal("0.6")
-        assert limit.nominal == Decimal("0.5")
+        assert limit.low == 0.4
+        assert limit.high == 0.6
+        assert limit.nominal == 0.5
 
     def test_spec_to_limit_with_guardband(self):
         spec = Specification(
             id="PWR-RAIL-5V",
             description="5V rail",
-            nominal=Decimal("5.0"),
-            tolerance_pct=Decimal("10"),
+            nominal=5.0,
+            tolerance_pct=10.0,
             units="V",
         )
         # 10% tolerance = ±0.5V, 10% guardband reduces to ±0.45V
-        limit = spec.to_limit(guardband_pct=Decimal("10"))
-        assert limit.low == Decimal("4.55")
-        assert limit.high == Decimal("5.45")
+        limit = spec.to_limit(guardband_pct=10.0)
+        assert limit.low == 4.55
+        assert limit.high == 5.45
 
     def test_spec_to_limit_no_tolerance(self):
         spec = Specification(
             id="FIXED-VALUE",
             description="Fixed value spec",
-            nominal=Decimal("1.0"),
+            nominal=1.0,
             units="V",
         )
         limit = spec.to_limit()
         assert limit.low is None
         assert limit.high is None
-        assert limit.nominal == Decimal("1.0")
+        assert limit.nominal == 1.0
 
     def test_spec_tolerance_pct_takes_precedence(self):
         spec = Specification(
             id="TEST",
             description="Test",
-            nominal=Decimal("10.0"),
-            tolerance_pct=Decimal("10"),
-            tolerance_abs=Decimal("0.5"),  # Should be ignored
+            nominal=10.0,
+            tolerance_pct=10.0,
+            tolerance_abs=0.5,  # Should be ignored
             units="V",
         )
         limit = spec.to_limit()
         # 10% of 10 = 1, so limits should be 9 and 11
-        assert limit.low == Decimal("9.0")
-        assert limit.high == Decimal("11.0")
+        assert limit.low == 9.0
+        assert limit.high == 11.0
 
 
 class TestInstrumentConfig:
@@ -257,9 +255,9 @@ class TestTestStepConfig:
             test="tests/test_power.py::test_5v_rail",
             description="Measure 5V rail voltage",
             measurement_name="rail_5v_voltage",
-            limit=Limit(low=Decimal("4.75"), high=Decimal("5.25"), units="V"),
+            limit=Limit(low=4.75, high=5.25, units="V"),
         )
-        assert step.limit.low == Decimal("4.75")
+        assert step.limit.low == 4.75
 
     def test_step_with_limit_ref(self):
         step = TestStepConfig(

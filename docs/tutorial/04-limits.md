@@ -39,14 +39,13 @@ Under the hood, @litmus_test creates `Measurement` objects:
 
 ```python
 from litmus.data import Measurement, Outcome
-from decimal import Decimal
 
 m = Measurement(
     name="output_voltage",
-    value=Decimal("3.31"),
+    value=3.31,
     units="V",
-    low_limit=Decimal("3.135"),
-    high_limit=Decimal("3.465"),
+    low_limit=3.135,
+    high_limit=3.465,
 )
 
 # Check against limits

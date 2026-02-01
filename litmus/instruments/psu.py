@@ -18,7 +18,6 @@ Example usage:
         v = psu.measure_output_voltage()  # Returns ~5.0V
 """
 
-from decimal import Decimal
 from typing import Any
 
 from litmus.capabilities.interfaces import CurrentOutput, VoltageOutput
@@ -72,8 +71,8 @@ class PSU(VisaInstrument, VoltageOutput, CurrentOutput):
         )
         self._idn: str | None = None
         self._output_enabled: bool = False
-        self._set_voltage: Decimal = Decimal("0")
-        self._set_current: Decimal = Decimal("0")
+        self._set_voltage: float = 0.0
+        self._set_current: float = 0.0
 
     def _process_sim_config(self, config: dict[str, Any]) -> dict[str, Any]:
         """Process sim_config to map friendly names to SCPI responses."""
@@ -107,16 +106,16 @@ class PSU(VisaInstrument, VoltageOutput, CurrentOutput):
     # VoltageOutput interface
     # -------------------------------------------------------------------------
 
-    def set_voltage(self, voltage: Decimal) -> None:
+    def set_voltage(self, voltage: float) -> None:
         """Set output voltage.
 
         Args:
             voltage: Voltage in Volts
         """
-        self._set_voltage = Decimal(str(voltage))
+        self._set_voltage = float(voltage)
         self.write(f"VOLT {voltage}")
 
-    def set_voltage_limit(self, limit: Decimal) -> None:
+    def set_voltage_limit(self, limit: float) -> None:
         """Set voltage protection limit.
 
         Args:
@@ -148,29 +147,29 @@ class PSU(VisaInstrument, VoltageOutput, CurrentOutput):
             self.write("OUTP OFF")
         self._output_enabled = False
 
-    def measure_output_voltage(self) -> Decimal:
+    def measure_output_voltage(self) -> float:
         """Measure actual output voltage.
 
         Returns:
             Measured voltage in Volts
         """
         response = self.query("MEAS:VOLT?")
-        return Decimal(response)
+        return float(response)
 
     # -------------------------------------------------------------------------
     # CurrentOutput interface
     # -------------------------------------------------------------------------
 
-    def set_current(self, current: Decimal) -> None:
+    def set_current(self, current: float) -> None:
         """Set output current (for CC mode) or current limit (for CV mode).
 
         Args:
             current: Current in Amps
         """
-        self._set_current = Decimal(str(current))
+        self._set_current = float(current)
         self.write(f"CURR {current}")
 
-    def set_current_limit(self, limit: Decimal) -> None:
+    def set_current_limit(self, limit: float) -> None:
         """Set current protection limit.
 
         Args:
@@ -178,14 +177,14 @@ class PSU(VisaInstrument, VoltageOutput, CurrentOutput):
         """
         self.write(f"CURR:PROT {limit}")
 
-    def measure_output_current(self) -> Decimal:
+    def measure_output_current(self) -> float:
         """Measure actual output current.
 
         Returns:
             Measured current in Amps
         """
         response = self.query("MEAS:CURR?")
-        return Decimal(response)
+        return float(response)
 
     # -------------------------------------------------------------------------
     # Additional PSU-specific methods
@@ -196,7 +195,7 @@ class PSU(VisaInstrument, VoltageOutput, CurrentOutput):
         """Return whether output is enabled."""
         return self._output_enabled
 
-    def set_ovp(self, voltage: Decimal) -> None:
+    def set_ovp(self, voltage: float) -> None:
         """Set over-voltage protection.
 
         Args:
@@ -204,7 +203,7 @@ class PSU(VisaInstrument, VoltageOutput, CurrentOutput):
         """
         self.write(f"VOLT:PROT {voltage}")
 
-    def set_ocp(self, current: Decimal) -> None:
+    def set_ocp(self, current: float) -> None:
         """Set over-current protection.
 
         Args:
@@ -220,10 +219,10 @@ class PSU(VisaInstrument, VoltageOutput, CurrentOutput):
     # Convenience aliases for simpler test API
     # -------------------------------------------------------------------------
 
-    def measure_voltage(self) -> Decimal:
+    def measure_voltage(self) -> float:
         """Alias for measure_output_voltage()."""
         return self.measure_output_voltage()
 
-    def measure_current(self) -> Decimal:
+    def measure_current(self) -> float:
         """Alias for measure_output_current()."""
         return self.measure_output_current()

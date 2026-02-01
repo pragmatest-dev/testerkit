@@ -26,7 +26,6 @@ Concrete Drivers (DMM, PSU, YourCustomInstrument)
 For SCPI-based instruments, extend `VisaInstrument`:
 
 ```python
-from decimal import Decimal
 from litmus.instruments.visa import VisaInstrument
 from litmus.capabilities.interfaces import VoltageInput, CurrentInput
 
@@ -39,20 +38,20 @@ class MyDMM(VisaInstrument, VoltageInput, CurrentInput):
         "MEAS:CURR:DC?": "current",
     }
 
-    def measure_voltage(self, signal_type=None) -> Decimal:
-        return Decimal(self.query("MEAS:VOLT:DC?"))
+    def measure_voltage(self, signal_type=None) -> float:
+        return float(self.query("MEAS:VOLT:DC?"))
 
-    def measure_current(self, signal_type=None) -> Decimal:
-        return Decimal(self.query("MEAS:CURR:DC?"))
+    def measure_current(self, signal_type=None) -> float:
+        return float(self.query("MEAS:CURR:DC?"))
 
     # Optional: configure methods
-    def configure_voltage_range(self, range_val: Decimal | str) -> None:
+    def configure_voltage_range(self, range_val: float | str) -> None:
         if range_val == "AUTO":
             self.write("VOLT:RANG:AUTO ON")
         else:
             self.write(f"VOLT:RANG {range_val}")
 
-    def configure_current_range(self, range_val: Decimal | str) -> None:
+    def configure_current_range(self, range_val: float | str) -> None:
         if range_val == "AUTO":
             self.write("CURR:RANG:AUTO ON")
         else:
@@ -80,7 +79,6 @@ For serial, DAQmx, or proprietary protocols, extend the `Instrument` base class 
 ### Serial Devices
 
 ```python
-from decimal import Decimal
 import serial
 from litmus.instruments.base import Instrument
 from litmus.capabilities.interfaces import VoltageInput
@@ -101,7 +99,7 @@ class SerialDMM(Instrument, VoltageInput):
         self._serial: serial.Serial | None = None
 
         # Simulation state
-        self._sim_voltage = Decimal(str(mock_config.get("voltage", 0.0))) if mock_config else Decimal("0")
+        self._sim_voltage = float(mock_config.get("voltage", 0.0))) if mock_config else 0.0
 
     def connect(self) -> None:
         if self.simulate:
@@ -133,11 +131,11 @@ class SerialDMM(Instrument, VoltageInput):
             return str(self._sim_voltage)
         return "0"
 
-    def measure_voltage(self, signal_type=None) -> Decimal:
+    def measure_voltage(self, signal_type=None) -> float:
         self._ensure_connected()
-        return Decimal(self._query("MEAS:VOLT?"))
+        return float(self._query("MEAS:VOLT?"))
 
-    def configure_voltage_range(self, range_val: Decimal | str) -> None:
+    def configure_voltage_range(self, range_val: float | str) -> None:
         self._ensure_connected()
         self._write(f"VOLT:RANG {range_val}")
 ```
@@ -147,7 +145,6 @@ class SerialDMM(Instrument, VoltageInput):
 For DAQmx, create a simulation layer that mimics NI's API:
 
 ```python
-from decimal import Decimal
 from typing import Any
 from litmus.instruments.base import Instrument
 from litmus.capabilities.interfaces import VoltageInput
@@ -174,7 +171,7 @@ class DaqmxAnalogInput(Instrument, VoltageInput):
         self._task: Any = None
 
         # Simulation state
-        self._sim_voltage = Decimal(str(mock_config.get("voltage", 0.0))) if mock_config else Decimal("0")
+        self._sim_voltage = float(mock_config.get("voltage", 0.0))) if mock_config else 0.0
 
     def connect(self) -> None:
         if self.simulate:
@@ -197,13 +194,13 @@ class DaqmxAnalogInput(Instrument, VoltageInput):
             self._task = None
         self._connected = False
 
-    def measure_voltage(self, signal_type=None) -> Decimal:
+    def measure_voltage(self, signal_type=None) -> float:
         self._ensure_connected()
         if self.simulate:
             return self._sim_voltage
-        return Decimal(str(self._task.read()))
+        return float(self._task.read())
 
-    def configure_voltage_range(self, range_val: Decimal | str) -> None:
+    def configure_voltage_range(self, range_val: float | str) -> None:
         # DAQmx sets range when creating the channel
         # For dynamic range changes, recreate the task
         pass
@@ -214,7 +211,6 @@ class DaqmxAnalogInput(Instrument, VoltageInput):
 For USB devices with custom protocols:
 
 ```python
-from decimal import Decimal
 import struct
 from litmus.instruments.base import Instrument
 from litmus.capabilities.interfaces import VoltageOutput
@@ -241,7 +237,7 @@ class USBPowerSupply(Instrument, VoltageOutput):
         self._device = None
 
         # Simulation state
-        self._sim_voltage = Decimal("0")
+        self._sim_voltage = 0.0
         self._sim_enabled = False
 
     def connect(self) -> None:
@@ -276,18 +272,18 @@ class USBPowerSupply(Instrument, VoltageOutput):
         """Simulate command responses."""
         if cmd_id == 0x10:  # Set voltage
             voltage = struct.unpack("<f", data)[0]
-            self._sim_voltage = Decimal(str(voltage))
+            self._sim_voltage = float(voltage)
             return b"\x00"  # OK
         elif cmd_id == 0x20:  # Read voltage
             return struct.pack("<f", float(self._sim_voltage))
         return b"\xFF"  # Error
 
-    def set_voltage(self, voltage: Decimal) -> None:
+    def set_voltage(self, voltage: float) -> None:
         self._ensure_connected()
         data = struct.pack("<f", float(voltage))
         self._send_command(0x10, data)
 
-    def set_voltage_limit(self, limit: Decimal) -> None:
+    def set_voltage_limit(self, limit: float) -> None:
         # Not supported by this device
         pass
 
@@ -305,12 +301,12 @@ class USBPowerSupply(Instrument, VoltageOutput):
             return
         self._send_command(0x30, b"\x00")
 
-    def measure_output_voltage(self) -> Decimal:
+    def measure_output_voltage(self) -> float:
         self._ensure_connected()
         if self.simulate:
-            return self._sim_voltage if self._sim_enabled else Decimal("0")
+            return self._sim_voltage if self._sim_enabled else 0.0
         response = self._send_command(0x20, b"")
-        return Decimal(str(struct.unpack("<f", response)[0]))
+        return float(struct.unpack("<f", response)[0])
 ```
 
 ## Mock Mode in Tests
@@ -339,7 +335,6 @@ See [Mock Mode](simulation-mode.md) for per-test and per-vector mock configurati
 Extend the mock pattern for custom instruments:
 
 ```python
-from decimal import Decimal
 from litmus.instruments.base import Instrument
 from litmus.capabilities.interfaces import TemperatureInput
 
@@ -353,8 +348,8 @@ class MockTempLogger(Instrument, TemperatureInput):
     ):
         # Mocks always simulate
         super().__init__(simulate=True, mock_config={})
-        self._values = {"temperature": Decimal(str(temperature))}
-        self._values.update({k: Decimal(str(v)) for k, v in kwargs.items()})
+        self._values = {"temperature": float(temperature)}
+        self._values.update({k: float(v) for k, v in kwargs.items()})
 
     def connect(self) -> None:
         self._connected = True
@@ -362,11 +357,11 @@ class MockTempLogger(Instrument, TemperatureInput):
     def disconnect(self) -> None:
         self._connected = False
 
-    def set_value(self, name: str, value: float | Decimal) -> None:
+    def set_value(self, name: str, value: float) -> None:
         """Update a simulated value."""
-        self._values[name] = Decimal(str(value))
+        self._values[name] = float(value)
 
-    def measure_temperature(self, sensor_type: str = "rtd") -> Decimal:
+    def measure_temperature(self, sensor_type: str = "rtd") -> float:
         return self._values["temperature"]
 ```
 
@@ -376,7 +371,6 @@ Write tests that exercise both simulation modes:
 
 ```python
 import pytest
-from decimal import Decimal
 
 class TestMyDMM:
     """Tests for custom DMM driver."""
@@ -400,7 +394,7 @@ class TestMyDMM:
             simulate=True,
             mock_config={"voltage": 5.0}
         ) as dmm:
-            assert dmm.measure_voltage() == Decimal("5.0")
+            assert dmm.measure_voltage() == pytest.approx(5.0)
 
     @pytest.mark.hardware
     def test_measure_voltage_real(self):
@@ -408,8 +402,8 @@ class TestMyDMM:
         dmm = MyDMM("TCPIP::192.168.1.100::INSTR")
         dmm.connect()
         v = dmm.measure_voltage()
-        assert isinstance(v, Decimal)
-        assert v > Decimal("0")  # Sanity check
+        assert isinstance(v, float)
+        assert v > 0.0  # Sanity check
         dmm.disconnect()
 ```
 
@@ -419,7 +413,7 @@ class TestMyDMM:
 2. **Use `_sim_*` methods for simulation logic** - Keep it separate from real I/O
 3. **Implement capability interfaces** - Enable protocol-based testing
 4. **Handle missing dependencies gracefully** - Check for optional imports
-5. **Use `Decimal` for measurements** - Avoid floating-point precision issues
+5. **Use `float` for measurements** - Standard Python floats with 15-17 significant digits
 6. **Provide `mock_config` for test-specific values** - Don't hardcode defaults
 7. **Test both modes** - Simulation and (marked) hardware tests
 

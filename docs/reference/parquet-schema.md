@@ -21,8 +21,10 @@ This is captured automatically—no user effort required.
 results/runs/{date}/
 ├── {timestamp}_{serial}.parquet     # With serial (production)
 ├── {timestamp}.parquet              # Without serial (dev/debug)
-└── {timestamp}_{serial}_raw/        # Raw data (waveforms, images)
-    ├── {acquisition_id}_waveform.npy
+└── {timestamp}_{serial}_ref/        # Reference data (waveforms, images, files)
+    ├── {vector_id}_scope_waveform.npz    # Waveform data
+    ├── {vector_id}_camera_image.png      # Image file
+    ├── {vector_id}_debug_log.txt         # Log file
     └── ...
 ```
 
@@ -153,9 +155,27 @@ def test_output_voltage(psu, dmm, temp_probe, vector_context):
     return dmm.measure_dc_voltage()
 ```
 
-**Large arrays** (waveforms, images) can be stored in the `_raw` directory:
-- Small arrays: Stored inline as JSON in the column
-- Large arrays: Saved to `_raw/{vector_id}_{key}.npy`, column contains path reference
+**File references** are stored in the `_ref/` directory with type-based formats:
+
+| Data Type | Storage Format | Column Value |
+|-----------|----------------|--------------|
+| Scalar (float, int, str, bool) | Inline | `3.31` |
+| `Waveform` | `.npz` with t0, dt, Y, attrs | `_ref/{id}_scope_waveform.npz` |
+| `numpy.ndarray` | `.npy` compressed | `_ref/{id}_raw_samples.npy` |
+| `Path` | Copied, extension preserved | `_ref/{id}_debug_log.txt` |
+| Pydantic model | `.json` | `_ref/{id}_protocol_trace.json` |
+| `bytes` | `.bin` | `_ref/{id}_raw_data.bin` |
+
+**Detecting file references:** Values starting with `_ref/` are file paths relative to the parquet file.
+
+**Loading file references:**
+```python
+from litmus.data.backends.parquet import load_file, is_file_reference
+
+# Check if value is a file reference
+if is_file_reference(column_value):
+    data = load_file(parquet_path, column_value)
+```
 
 ### Measurement — Core
 
@@ -445,6 +465,57 @@ with harness.step():
 ```
 
 **Note:** Vector params from config are automatically populated as `in_*` columns. Use `configure()` to add implementation details (fixture-prefixed names) or readback values.
+
+## Waveform Model
+
+The `Waveform` model captures time-series data with efficient storage:
+
+```python
+from litmus.data.models import Waveform
+
+# Create waveform from oscilloscope data
+waveform = Waveform(
+    t0=0.0,           # Start time (seconds from trigger)
+    dt=1e-6,          # Sample interval (1 µs)
+    Y=[0.1, 0.2, ...], # Sample values
+    attrs={           # Metadata
+        "channel": "CH1",
+        "units": "V",
+        "coupling": "DC",
+    }
+)
+
+# Properties
+print(waveform.num_samples)  # Number of samples
+print(waveform.duration)     # Total duration in seconds
+time = waveform.time_axis()  # Reconstructed time array
+```
+
+**Storing waveforms:**
+```python
+def test_transient(vector, scope, harness):
+    scope.trigger_single()
+    waveform = scope.fetch_waveform("CH1")
+
+    # Observe stores to _ref/ automatically
+    harness.context.observe("scope.waveform", waveform)
+
+    return analyze_peak(waveform.Y)
+```
+
+**Loading waveforms:**
+```python
+import pandas as pd
+from litmus.data.backends.parquet import load_file
+
+df = pd.read_parquet("results/runs/2026-01-28/run.parquet")
+row = df.iloc[0]
+
+# Load waveform from _ref/
+if row["out_scope_waveform"].startswith("_ref/"):
+    waveform = load_file(parquet_path, row["out_scope_waveform"])
+    # waveform is a Waveform object with t0, dt, Y, attrs
+```
 
 ## See Also
 

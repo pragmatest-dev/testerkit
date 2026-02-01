@@ -92,17 +92,17 @@ erDiagram
     }
 
     ConditionPoint {
-        decimal nominal
-        decimal tolerance_pct
-        decimal limit_low
-        decimal limit_high
+        float nominal
+        float tolerance_pct
+        float limit_low
+        float limit_high
         Comparator comparator
     }
 
     TestRequirement {
         string characteristic_ref FK
         dict conditions
-        decimal guardband_pct
+        float guardband_pct
         string priority
     }
 
@@ -211,9 +211,9 @@ erDiagram
     }
 
     Limit {
-        decimal low
-        decimal high
-        decimal nominal
+        float low
+        float high
+        float nominal
         string units
         string spec_ref FK
         Comparator comparator
@@ -222,8 +222,8 @@ erDiagram
     Specification {
         string id PK
         string description
-        decimal nominal
-        decimal tolerance_pct
+        float nominal
+        float tolerance_pct
         string units
     }
 
@@ -278,7 +278,7 @@ erDiagram
 
     StimulusRecord {
         string param
-        decimal value
+        float value
         string units
         string instrument
         string resource
@@ -289,10 +289,10 @@ erDiagram
 
     Measurement {
         string name
-        decimal value
+        float value
         string units
-        decimal low_limit
-        decimal high_limit
+        float low_limit
+        float high_limit
         Outcome outcome
         string dut_pin
         string instrument_name
@@ -555,11 +555,11 @@ A single measurement with optional limit checking and full traceability.
 | Field | Type | Parquet Column | Description |
 |-------|------|----------------|-------------|
 | `name` | `str` | `measurement_name` | Measurement name (e.g., "output_voltage") |
-| `value` | `Decimal | None` | `value` | Measured value |
+| `value` | `float | None` | `value` | Measured value |
 | `units` | `str | None` | `units` | Units (e.g., "V", "mA", "%") |
-| `low_limit` | `Decimal | None` | `low_limit` | Lower limit for pass/fail |
-| `high_limit` | `Decimal | None` | `high_limit` | Upper limit for pass/fail |
-| `nominal` | `Decimal | None` | `nominal` | Expected nominal value |
+| `low_limit` | `float | None` | `low_limit` | Lower limit for pass/fail |
+| `high_limit` | `float | None` | `high_limit` | Upper limit for pass/fail |
+| `nominal` | `float | None` | `nominal` | Expected nominal value |
 | `outcome` | `Outcome | None` | `outcome` | Pass/fail result |
 | `spec_ref` | `str | None` | `spec_ref` | Reference to specification |
 | `comparator` | `str | None` | `comparator` | ATML comparator type (default: "GELE") |
@@ -611,7 +611,7 @@ Records the signal path for an input stimulus (for traceability).
 | Field | Type | Description |
 |-------|------|-------------|
 | `param` | `str` | Parameter name (e.g., "vin", "load") |
-| `value` | `Decimal | float | None` | Value commanded |
+| `value` | `float | None` | Value commanded |
 | `units` | `str | None` | Units (e.g., "V", "A") |
 | `instrument` | `str | None` | Instrument name (e.g., "psu_main") |
 | `resource` | `str | None` | VISA address at test time |

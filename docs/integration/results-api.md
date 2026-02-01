@@ -285,10 +285,10 @@ Results are stored in Parquet format:
 | test_run_id | string | Parent run ID |
 | step_name | string | Test step name |
 | measurement_name | string | Measurement name |
-| value | decimal | Measured value |
+| value | float | Measured value |
 | units | string | Unit of measure |
-| low_limit | decimal | Low limit (if any) |
-| high_limit | decimal | High limit (if any) |
+| low_limit | float | Low limit (if any) |
+| high_limit | float | High limit (if any) |
 | outcome | string | PASS, FAIL |
 
 ## Benefits

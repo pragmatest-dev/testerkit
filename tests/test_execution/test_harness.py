@@ -1,7 +1,5 @@
 """Tests for TestHarness class."""
 
-from decimal import Decimal
-
 import pytest
 
 from litmus.config.models import Limit, RetryConfig
@@ -72,24 +70,24 @@ class TestHarnessMeasure:
             with harness.run_vector(Vector(voltage=3.3, _index=0)) as tv:
                 m = harness.measure("output", 3.28)
                 assert m.name == "output"
-                assert m.value == Decimal("3.28")
+                assert m.value == 3.28
                 assert m.outcome == Outcome.PASS
 
     def test_measure_with_explicit_limit(self):
         harness = TestHarness()
-        limit = Limit(low=Decimal("3.0"), high=Decimal("3.6"), units="V")
+        limit = Limit(low=3.0, high=3.6, units="V")
 
         with harness.step():
             with harness.run_vector(Vector(_index=0)) as tv:
                 m = harness.measure("voltage", 3.3, limit=limit)
-                assert m.low_limit == Decimal("3.0")
-                assert m.high_limit == Decimal("3.6")
+                assert m.low_limit == 3.0
+                assert m.high_limit == 3.6
                 assert m.units == "V"
                 assert m.outcome == Outcome.PASS
 
     def test_measure_fail_updates_vector_outcome(self):
         harness = TestHarness()
-        limit = Limit(low=Decimal("3.0"), high=Decimal("3.6"), units="V")
+        limit = Limit(low=3.0, high=3.6, units="V")
 
         with harness.step():
             with harness.run_vector(Vector(_index=0)) as tv:
@@ -108,7 +106,7 @@ class TestHarnessMeasure:
         with harness.step():
             with harness.run_vector(Vector(_index=0)) as tv:
                 m = harness.measure("voltage", 3.3)
-                assert m.low_limit == Decimal("3.0")
+                assert m.low_limit == 3.0
                 assert m.outcome == Outcome.PASS
 
     def test_measure_no_limit_passes(self):
@@ -260,7 +258,7 @@ class TestHarnessStep:
 
     def test_step_computes_outcome(self):
         harness = TestHarness()
-        limit = Limit(low=Decimal("3.0"), high=Decimal("3.6"), units="V")
+        limit = Limit(low=3.0, high=3.6, units="V")
 
         with harness.step() as step:
             with harness.run_vector(Vector(_index=0)) as tv:
@@ -285,8 +283,8 @@ class TestHarnessRunAll:
 
         assert step.name == "test_sweep"
         assert len(step.vectors) == 2
-        assert step.vectors[0].measurements[0].value == Decimal("3.3")
-        assert step.vectors[1].measurements[0].value == Decimal("5.0")
+        assert step.vectors[0].measurements[0].value == 3.3
+        assert step.vectors[1].measurements[0].value == 5.0
 
     def test_run_all_with_generator(self):
         config = {
@@ -317,8 +315,8 @@ class TestHarnessMockConfiguration:
         harness = TestHarness(instruments=instruments, mock_instruments=True)
         harness._configure_mocks({"dmm.measure_voltage": 3.3, "psu.measure_current": 0.5})
 
-        assert dmm.measure_voltage() == Decimal("3.3")
-        assert psu.measure_current() == Decimal("0.5")
+        assert float(dmm.measure_voltage()) == 3.3
+        assert float(psu.measure_current()) == 0.5
 
     def test_run_vector_configures_mocks_when_simulating(self):
         """Test that run_vector applies _mock config from vector."""
@@ -336,7 +334,7 @@ class TestHarnessMockConfiguration:
 
         with harness.step():
             with harness.run_vector(harness.vectors[0]):
-                assert dmm.measure_voltage() == Decimal("3.3")
+                assert float(dmm.measure_voltage()) == 3.3
 
     def test_per_vector_mock_config(self):
         """Test that each vector gets its own mock values."""
@@ -358,9 +356,9 @@ class TestHarnessMockConfiguration:
         with harness.step():
             for vector in harness.vectors:
                 with harness.run_vector(vector):
-                    measurements.append(dmm.measure_voltage())
+                    measurements.append(float(dmm.measure_voltage()))
 
-        assert measurements == [Decimal("3.32"), Decimal("3.30"), Decimal("3.28")]
+        assert measurements == [3.32, 3.30, 3.28]
 
     def test_test_level_mock_fallback(self):
         """Test that test-level _mock is used when vector has none."""
@@ -377,7 +375,7 @@ class TestHarnessMockConfiguration:
 
         with harness.step():
             with harness.run_vector(harness.vectors[0]):
-                assert dmm.measure_voltage() == Decimal("3.3")
+                assert float(dmm.measure_voltage()) == 3.3
 
     def test_no_mock_config_when_not_mocking(self):
         """Test that mocks are not configured when mock_instruments=False."""
@@ -395,7 +393,7 @@ class TestHarnessMockConfiguration:
         with harness.step():
             with harness.run_vector(harness.vectors[0]):
                 # Mock should not have been configured
-                assert dmm.measure_voltage() == Decimal("0.0")
+                assert float(dmm.measure_voltage()) == 0.0
 
 
 class TestHarnessPrompt:
@@ -780,8 +778,8 @@ class TestHarnessSpecId:
     def test_measure_copies_spec_id_from_limit(self):
         """Test that measure() copies spec_id from resolved limit."""
         limit = Limit(
-            low=Decimal("3.0"),
-            high=Decimal("3.6"),
+            low=3.0,
+            high=3.6,
             units="V",
             spec_id="output_voltage",
             spec_ref="Table 4.2 @ temp=25",

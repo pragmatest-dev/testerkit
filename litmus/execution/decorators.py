@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import inspect
 from collections.abc import Callable, Mapping
-from decimal import Decimal
 from functools import wraps
 from typing import TYPE_CHECKING, Any
 
@@ -110,9 +109,9 @@ def measure(
             # Execute measurement function
             value = func(*args, **kwargs)
 
-            # Convert to Decimal if needed
-            if value is not None and not isinstance(value, Decimal):
-                value = Decimal(str(value))
+            # Convert to float if needed
+            if value is not None and not isinstance(value, float):
+                value = float(value)
 
             # Build measurement
             measurement = Measurement(

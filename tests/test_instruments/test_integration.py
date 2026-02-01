@@ -7,8 +7,6 @@ These tests verify:
 - SpecContext integrates with fixtures
 """
 
-from decimal import Decimal
-
 import pytest
 
 from litmus.capabilities.interfaces import (
@@ -61,7 +59,7 @@ class TestCapabilityProtocols:
 class TestCapabilityBasedTesting:
     """Test that capability-based testing patterns work."""
 
-    def measure_voltage_portable(self, meter: VoltageInput) -> Decimal:
+    def measure_voltage_portable(self, meter: VoltageInput) -> float:
         """A portable function that works with any VoltageInput."""
         return meter.measure_voltage()
 
@@ -69,13 +67,13 @@ class TestCapabilityBasedTesting:
         """Mock(DMM) should work as VoltageInput."""
         dmm = Mock(DMM,measure_voltage=3.3)
         voltage = self.measure_voltage_portable(dmm)
-        assert voltage == Decimal("3.3")
+        assert float(voltage) == 3.3
 
     def test_mock_eload_as_voltage_input(self):
         """Mock(ELoad) should work as VoltageInput (via measure_voltage)."""
         eload = Mock(ELoad,measure_voltage=5.0)
         # ELoad has measure_voltage method
-        assert eload.measure_voltage() == Decimal("5.0")
+        assert float(eload.measure_voltage()) == 5.0
 
 
 class TestVISASimulation:
@@ -98,8 +96,8 @@ class TestVISASimulation:
             simulate=True,
             sim_config={"voltage": 5.0, "current": 0.1},
         ) as psu:
-            psu.set_voltage(Decimal("5.0"))
-            psu.set_current(Decimal("1.0"))
+            psu.set_voltage(5.0)
+            psu.set_current(1.0)
             psu.enable_output()
             voltage = psu.measure_output_voltage()
             assert float(voltage) == pytest.approx(5.0, abs=0.01)
@@ -111,7 +109,7 @@ class TestVISASimulation:
             simulate=True,
             sim_config={"frequency": 1000.0, "vpp": 2.0},
         ) as scope:
-            scope.configure_acquisition(Decimal("1e9"), 1000)
+            scope.configure_acquisition(1e9, 1000)
             scope.initiate_acquisition()
             data, x_inc = scope.fetch_waveform("CH1")
             assert len(data) > 0
@@ -124,7 +122,7 @@ class TestVISASimulation:
             simulate=True,
             sim_config={"voltage": 5.0, "current": 1.0},
         ) as eload:
-            eload.set_load_current(Decimal("1.0"))
+            eload.set_load_current(1.0)
             eload.enable_load()
             voltage = eload.measure_voltage()
             assert float(voltage) == pytest.approx(5.0, abs=0.01)
@@ -271,14 +269,14 @@ class TestPinAccessor:
         """Demonstrate the UUT-centric test pattern."""
         # Apply input voltage
         psu = pin_accessor["VIN"]
-        psu.set_voltage(Decimal("5.0"))
+        psu.set_voltage(5.0)
         psu.enable_output()
 
         # Measure output
         dmm = pin_accessor["VOUT"]
         voltage = dmm.measure_voltage()
 
-        assert voltage == Decimal("3.3")
+        assert float(voltage) == 3.3
 
 
 class TestEndToEndWorkflow:
@@ -298,26 +296,26 @@ class TestEndToEndWorkflow:
 
         try:
             # Apply input voltage
-            psu.set_voltage(Decimal("5.0"))
-            psu.set_current_limit(Decimal("2.0"))
+            psu.set_voltage(5.0)
+            psu.set_current_limit(2.0)
             psu.enable_output()
 
             # Measure no-load output
             no_load_voltage = dmm.measure_voltage()
-            assert no_load_voltage == Decimal("3.3")
+            assert float(no_load_voltage) == 3.3
 
             # Apply load
-            eload.set_load_current(Decimal("0.5"))
+            eload.set_load_current(0.5)
             eload.enable_load()
 
             # Measure under load
             loaded_voltage = dmm.measure_voltage()
-            assert loaded_voltage == Decimal("3.3")  # Mock doesn't change
+            assert float(loaded_voltage) == 3.3  # Mock doesn't change
 
             # Update mock to simulate load regulation
             dmm.set_mock_value("measure_voltage", 3.25)
             loaded_voltage = dmm.measure_voltage()
-            assert loaded_voltage == Decimal("3.25")
+            assert float(loaded_voltage) == 3.25
 
         finally:
             # Cleanup
@@ -344,7 +342,7 @@ class TestEndToEndWorkflow:
                 dmm.set_mock_value("measure_voltage", expected_vout)
 
                 # Set and measure
-                psu.set_voltage(Decimal(str(vin)))
+                psu.set_voltage(float(vin))
                 psu.enable_output()
                 vout = dmm.measure_voltage()
 

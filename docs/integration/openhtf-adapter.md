@@ -177,7 +177,7 @@ from litmus.instruments import DMM
 # Direct use (no custom class needed for SCPI instruments)
 dmm = DMM("TCPIP::192.168.1.100::INSTR")
 dmm.connect()
-voltage = dmm.measure_voltage()  # Returns Decimal
+voltage = dmm.measure_voltage()  # Returns float
 dmm.disconnect()
 
 # Or with context manager
@@ -238,8 +238,8 @@ m = Measurement(
     name="voltage",
     value=dmm.measure_voltage(),
     units="V",
-    low_limit=Decimal("3.0"),
-    high_limit=Decimal("3.6"),
+    low_limit=3.0,
+    high_limit=3.6,
 )
 m.check_limit()
 ```

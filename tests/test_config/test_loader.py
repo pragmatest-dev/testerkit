@@ -1,7 +1,5 @@
 """Tests for Litmus configuration loader."""
 
-from decimal import Decimal
-
 import pytest
 
 from litmus.config.loader import (
@@ -26,8 +24,8 @@ units: V
         yaml_file.write_text(yaml_content)
 
         limit = load_yaml(yaml_file, Limit)
-        assert limit.low == Decimal("4.5")
-        assert limit.high == Decimal("5.5")
+        assert limit.low == 4.5
+        assert limit.high == 5.5
         assert limit.units == "V"
 
     def test_load_yaml_file_not_found(self, tmp_path):
@@ -58,9 +56,9 @@ specifications:
         specs = load_specifications(spec_file)
         assert "rail_5v" in specs
         assert "rail_3v3" in specs
-        assert specs["rail_5v"].nominal == Decimal("5.0")
-        assert specs["rail_5v"].tolerance_pct == Decimal("5")
-        assert specs["rail_3v3"].nominal == Decimal("3.3")
+        assert specs["rail_5v"].nominal == 5.0
+        assert specs["rail_5v"].tolerance_pct == 5.0
+        assert specs["rail_3v3"].nominal == 3.3
 
     def test_load_specifications_with_abs_tolerance(self, tmp_path):
         yaml_content = """
@@ -76,7 +74,7 @@ specifications:
         spec_file.write_text(yaml_content)
 
         specs = load_specifications(spec_file)
-        assert specs["input_current"].tolerance_abs == Decimal("0.1")
+        assert specs["input_current"].tolerance_abs == 0.1
 
     def test_load_specifications_empty(self, tmp_path):
         yaml_content = """
@@ -169,15 +167,15 @@ class TestResolveLimitRef:
                 "rail_5v": Specification(
                     id="PWR-RAIL-5V",
                     description="5V rail",
-                    nominal=Decimal("5.0"),
-                    tolerance_pct=Decimal("5"),
+                    nominal=5.0,
+                    tolerance_pct=5.0,
                     units="V",
                 ),
                 "rail_3v3": Specification(
                     id="PWR-RAIL-3V3",
                     description="3.3V rail",
-                    nominal=Decimal("3.3"),
-                    tolerance_pct=Decimal("3"),
+                    nominal=3.3,
+                    tolerance_pct=3.0,
                     units="V",
                 ),
             }
@@ -185,9 +183,9 @@ class TestResolveLimitRef:
 
     def test_resolve_limit_ref(self, sample_specs):
         limit = resolve_limit_ref("specs.product_a.rail_5v", sample_specs)
-        assert limit.low == Decimal("4.75")
-        assert limit.high == Decimal("5.25")
-        assert limit.nominal == Decimal("5.0")
+        assert limit.low == 4.75
+        assert limit.high == 5.25
+        assert limit.nominal == 5.0
         assert limit.units == "V"
 
     def test_resolve_limit_ref_invalid_format(self, sample_specs):
@@ -215,8 +213,8 @@ class TestResolveAllLimitRefs:
                 "rail_5v": Specification(
                     id="PWR-RAIL-5V",
                     description="5V rail",
-                    nominal=Decimal("5.0"),
-                    tolerance_pct=Decimal("5"),
+                    nominal=5.0,
+                    tolerance_pct=5.0,
                     units="V",
                 ),
             }
@@ -228,7 +226,7 @@ class TestResolveAllLimitRefs:
         resolved = resolve_all_limit_refs(config, sample_specs)
         assert "limit" in resolved
         assert "limit_ref" not in resolved
-        assert resolved["limit"].low == Decimal("4.75")
+        assert resolved["limit"].low == 4.75
 
     def test_resolve_all_limit_refs_nested(self, sample_specs):
         config = {
@@ -239,7 +237,7 @@ class TestResolveAllLimitRefs:
         }
 
         resolved = resolve_all_limit_refs(config, sample_specs)
-        assert resolved["steps"][0]["limit"].nominal == Decimal("5.0")
+        assert resolved["steps"][0]["limit"].nominal == 5.0
         assert "limit" not in resolved["steps"][1]
 
     def test_resolve_all_limit_refs_preserves_other_fields(self, sample_specs):

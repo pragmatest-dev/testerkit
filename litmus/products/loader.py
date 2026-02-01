@@ -1,6 +1,5 @@
 """YAML loading for product specifications."""
 
-from decimal import Decimal
 from pathlib import Path
 from typing import Any
 
@@ -17,11 +16,7 @@ from litmus.products.models import (
     SignalGroup,
     TestRequirement,
 )
-from litmus.utils.loaders import (
-    SPEC_DECIMAL_FIELDS,
-    convert_decimal_fields,
-    parse_capability_enums,
-)
+from litmus.utils.loaders import parse_capability_enums
 
 
 def load_product(path: Path) -> Product:
@@ -166,9 +161,8 @@ def _parse_condition_point(data: dict[str, Any]) -> ConditionPoint:
     Known spec fields are extracted, everything else goes to condition_params
     via Pydantic's extra="allow".
     """
-    # Copy data and convert decimal fields in place
+    # Copy data for parsing
     parsed = dict(data)
-    convert_decimal_fields(parsed, SPEC_DECIMAL_FIELDS)
 
     # Handle comparator enum separately
     if "comparator" in parsed:
@@ -179,14 +173,12 @@ def _parse_condition_point(data: dict[str, Any]) -> ConditionPoint:
 
 def _parse_test_requirement(data: dict[str, Any]) -> TestRequirement:
     """Parse a test requirement from YAML data."""
-    # Convert guardband_pct to Decimal if present
     parsed = dict(data)
-    convert_decimal_fields(parsed, ["guardband_pct"])
 
     return TestRequirement(
         characteristic_ref=parsed.get("characteristic_ref"),
         conditions=parsed.get("conditions", {}),
-        guardband_pct=parsed.get("guardband_pct", Decimal("0")),
+        guardband_pct=parsed.get("guardband_pct", 0.0),
         priority=parsed.get("priority", "standard"),
         description=parsed.get("description"),
     )

@@ -1,7 +1,5 @@
 """Tests for measurement decorators."""
 
-from decimal import Decimal
-
 import pytest
 
 from litmus.config.models import Limit
@@ -21,7 +19,7 @@ class TestMeasureDecorator:
         result = get_voltage()
         assert isinstance(result, Measurement)
         assert result.name == "test_voltage"
-        assert result.value == Decimal("5.0")
+        assert result.value == 5.0
         assert result.outcome == Outcome.PASS
 
     def test_measure_uses_function_name(self):
@@ -33,7 +31,7 @@ class TestMeasureDecorator:
         assert result.name == "my_measurement"
 
     def test_measure_with_limit_pass(self):
-        limit = Limit(low=Decimal("4.5"), high=Decimal("5.5"), units="V")
+        limit = Limit(low=4.5, high=5.5, units="V")
 
         @measure(name="voltage", limit=limit)
         def get_voltage():
@@ -41,12 +39,12 @@ class TestMeasureDecorator:
 
         result = get_voltage()
         assert result.outcome == Outcome.PASS
-        assert result.low_limit == Decimal("4.5")
-        assert result.high_limit == Decimal("5.5")
+        assert result.low_limit == 4.5
+        assert result.high_limit == 5.5
         assert result.units == "V"
 
     def test_measure_with_limit_fail_raises(self):
-        limit = Limit(low=Decimal("4.5"), high=Decimal("5.5"), units="V")
+        limit = Limit(low=4.5, high=5.5, units="V")
 
         @measure(name="voltage", limit=limit)
         def get_voltage():
@@ -56,7 +54,7 @@ class TestMeasureDecorator:
             get_voltage()
 
     def test_measure_with_limit_fail_no_raise(self):
-        limit = Limit(low=Decimal("4.5"), high=Decimal("5.5"), units="V")
+        limit = Limit(low=4.5, high=5.5, units="V")
 
         @measure(name="voltage", limit=limit, raise_on_fail=False)
         def get_voltage():
@@ -65,13 +63,13 @@ class TestMeasureDecorator:
         result = get_voltage()
         assert result.outcome == Outcome.FAIL
 
-    def test_measure_with_decimal_value(self):
+    def test_measure_with_float_value(self):
         @measure(name="precise")
         def get_value():
-            return Decimal("1.23456789")
+            return 1.23456789
 
         result = get_value()
-        assert result.value == Decimal("1.23456789")
+        assert result.value == 1.23456789
 
     def test_measure_with_none_value(self):
         @measure(name="missing", raise_on_fail=False)
@@ -83,7 +81,7 @@ class TestMeasureDecorator:
         assert result.outcome == Outcome.ERROR
 
     def test_measure_units_override(self):
-        limit = Limit(low=Decimal("0"), high=Decimal("10"), units="V")
+        limit = Limit(low=0.0, high=10.0, units="V")
 
         @measure(name="voltage", limit=limit, units="mV")
         def get_voltage():
@@ -93,7 +91,7 @@ class TestMeasureDecorator:
         assert result.units == "mV"  # Overridden from limit
 
     def test_measure_spec_ref_from_limit(self):
-        limit = Limit(low=Decimal("0"), high=Decimal("10"), units="V", spec_ref="SPEC-001")
+        limit = Limit(low=0.0, high=10.0, units="V", spec_ref="SPEC-001")
 
         @measure(name="voltage", limit=limit)
         def get_voltage():

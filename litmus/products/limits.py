@@ -4,7 +4,6 @@ This module provides functions to derive test limits from product
 characteristics and test requirements, including guardband application.
 """
 
-from decimal import Decimal
 from typing import Any
 
 from litmus.config.models import Limit
@@ -76,7 +75,7 @@ def derive_limit(
     )
 
 
-def _calculate_bounds(point: ConditionPoint) -> tuple[Decimal | None, Decimal | None]:
+def _calculate_bounds(point: ConditionPoint) -> tuple[float | None, float | None]:
     """Calculate spec bounds from a condition point.
 
     Priority:
@@ -91,11 +90,11 @@ def _calculate_bounds(point: ConditionPoint) -> tuple[Decimal | None, Decimal | 
 
 
 def _apply_guardband(
-    spec_low: Decimal | None,
-    spec_high: Decimal | None,
-    guardband_pct: Decimal,
+    spec_low: float | None,
+    spec_high: float | None,
+    guardband_pct: float,
     comparator: str,
-) -> tuple[Decimal | None, Decimal | None]:
+) -> tuple[float | None, float | None]:
     """Apply guardband to tighten spec limits.
 
     Guardband reduces the acceptable range by moving limits inward:
@@ -114,7 +113,7 @@ def _apply_guardband(
     Returns:
         Tuple of (new_low, new_high) with guardband applied.
     """
-    if guardband_pct == Decimal("0"):
+    if guardband_pct == 0.0:
         return spec_low, spec_high
 
     # For range comparators, tighten both sides
@@ -123,19 +122,19 @@ def _apply_guardband(
     if comparator in range_comparators and spec_low is not None and spec_high is not None:
         # Calculate range and guardband amount
         range_size = spec_high - spec_low
-        guardband_amount = range_size * guardband_pct / Decimal("100") / Decimal("2")
+        guardband_amount = range_size * guardband_pct / 100.0 / 2.0
 
         return spec_low + guardband_amount, spec_high - guardband_amount
 
     # For single-sided comparators, tighten the relevant limit
     if comparator in {"LE", "LT"} and spec_high is not None:
         # Upper limit only - tighten by percentage of the limit value
-        guardband_amount = abs(spec_high) * guardband_pct / Decimal("100")
+        guardband_amount = abs(spec_high) * guardband_pct / 100.0
         return spec_low, spec_high - guardband_amount
 
     if comparator in {"GE", "GT"} and spec_low is not None:
         # Lower limit only - tighten by percentage of the limit value
-        guardband_amount = abs(spec_low) * guardband_pct / Decimal("100")
+        guardband_amount = abs(spec_low) * guardband_pct / 100.0
         return spec_low + guardband_amount, spec_high
 
     # EQ/NE comparators or missing bounds - no guardband applied

@@ -15,7 +15,6 @@ Example usage:
         v = dmm.measure_voltage()  # Returns ~3.3V
 """
 
-from decimal import Decimal
 from typing import Any
 
 from litmus.capabilities.interfaces import (
@@ -122,7 +121,7 @@ class DMM(VisaInstrument, VoltageInput, CurrentInput, ResistanceInput, Frequency
     # VoltageInput interface
     # -------------------------------------------------------------------------
 
-    def measure_voltage(self, signal_type: SignalType = SignalType.DC) -> Decimal:
+    def measure_voltage(self, signal_type: SignalType = SignalType.DC) -> float:
         """Measure voltage.
 
         Args:
@@ -133,9 +132,9 @@ class DMM(VisaInstrument, VoltageInput, CurrentInput, ResistanceInput, Frequency
         """
         cmd = "MEAS:VOLT:AC?" if signal_type == SignalType.AC else "MEAS:VOLT:DC?"
         response = self.query(cmd)
-        return Decimal(response)
+        return float(response)
 
-    def configure_voltage_range(self, range_val: Decimal | str) -> None:
+    def configure_voltage_range(self, range_val: float | str) -> None:
         """Configure the voltage measurement range.
 
         Args:
@@ -146,7 +145,7 @@ class DMM(VisaInstrument, VoltageInput, CurrentInput, ResistanceInput, Frequency
         else:
             self.write(f"CONF:VOLT:DC {range_val}")
 
-    def configure_voltage_nplc(self, nplc: Decimal) -> None:
+    def configure_voltage_nplc(self, nplc: float) -> None:
         """Configure voltage integration time in power line cycles.
 
         Args:
@@ -158,7 +157,7 @@ class DMM(VisaInstrument, VoltageInput, CurrentInput, ResistanceInput, Frequency
     # CurrentInput interface
     # -------------------------------------------------------------------------
 
-    def measure_current(self, signal_type: SignalType = SignalType.DC) -> Decimal:
+    def measure_current(self, signal_type: SignalType = SignalType.DC) -> float:
         """Measure current.
 
         Args:
@@ -169,9 +168,9 @@ class DMM(VisaInstrument, VoltageInput, CurrentInput, ResistanceInput, Frequency
         """
         cmd = "MEAS:CURR:AC?" if signal_type == SignalType.AC else "MEAS:CURR:DC?"
         response = self.query(cmd)
-        return Decimal(response)
+        return float(response)
 
-    def configure_current_range(self, range_val: Decimal | str) -> None:
+    def configure_current_range(self, range_val: float | str) -> None:
         """Configure the current measurement range.
 
         Args:
@@ -186,7 +185,7 @@ class DMM(VisaInstrument, VoltageInput, CurrentInput, ResistanceInput, Frequency
     # ResistanceInput interface
     # -------------------------------------------------------------------------
 
-    def measure_resistance(self, four_wire: bool = False) -> Decimal:
+    def measure_resistance(self, four_wire: bool = False) -> float:
         """Measure resistance.
 
         Args:
@@ -197,9 +196,9 @@ class DMM(VisaInstrument, VoltageInput, CurrentInput, ResistanceInput, Frequency
         """
         cmd = "MEAS:FRES?" if four_wire else "MEAS:RES?"
         response = self.query(cmd)
-        return Decimal(response)
+        return float(response)
 
-    def configure_resistance_range(self, range_val: Decimal | str) -> None:
+    def configure_resistance_range(self, range_val: float | str) -> None:
         """Configure the resistance measurement range.
 
         Args:
@@ -214,29 +213,29 @@ class DMM(VisaInstrument, VoltageInput, CurrentInput, ResistanceInput, Frequency
     # FrequencyInput interface
     # -------------------------------------------------------------------------
 
-    def measure_frequency(self) -> Decimal:
+    def measure_frequency(self) -> float:
         """Measure frequency.
 
         Returns:
             Measured frequency in Hz
         """
         response = self.query("MEAS:FREQ?")
-        return Decimal(response)
+        return float(response)
 
-    def measure_period(self) -> Decimal:
+    def measure_period(self) -> float:
         """Measure period.
 
         Returns:
             Measured period in seconds
         """
         response = self.query("MEAS:PER?")
-        return Decimal(response)
+        return float(response)
 
     # -------------------------------------------------------------------------
     # Convenience methods for common DC measurements
     # -------------------------------------------------------------------------
 
-    def measure_dc_voltage(self, range: float | str = "AUTO") -> Decimal:
+    def measure_dc_voltage(self, range: float | str = "AUTO") -> float:
         """Measure DC voltage with optional range setting.
 
         Args:
@@ -246,10 +245,10 @@ class DMM(VisaInstrument, VoltageInput, CurrentInput, ResistanceInput, Frequency
             Measured voltage in Volts
         """
         if range != "AUTO":
-            self.configure_voltage_range(Decimal(str(range)))
+            self.configure_voltage_range(float(range))
         return self.measure_voltage(SignalType.DC)
 
-    def measure_dc_current(self, range: float | str = "AUTO") -> Decimal:
+    def measure_dc_current(self, range: float | str = "AUTO") -> float:
         """Measure DC current with optional range setting.
 
         Args:
@@ -259,5 +258,5 @@ class DMM(VisaInstrument, VoltageInput, CurrentInput, ResistanceInput, Frequency
             Measured current in Amps
         """
         if range != "AUTO":
-            self.configure_current_range(Decimal(str(range)))
+            self.configure_current_range(float(range))
         return self.measure_current(SignalType.DC)

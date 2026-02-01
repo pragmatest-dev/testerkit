@@ -129,7 +129,7 @@ Tests use YAML configs (`tests/test_*/config.yaml`) that define:
 ### Specs to Limits
 Product specifications (`products/{id}/spec.yaml`) define nominal values and tolerances. Test limits are derived from specs with optional guardbanding:
 ```python
-spec.to_limit(guardband_pct=Decimal("10"))
+spec.to_limit(guardband_pct=10.0)
 ```
 
 ## Development Guidelines

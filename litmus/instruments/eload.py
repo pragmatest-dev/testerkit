@@ -21,7 +21,6 @@ Example usage:
         voltage = eload.measure_voltage()  # Returns simulated value
 """
 
-from decimal import Decimal
 from typing import Any
 
 from litmus.capabilities.interfaces import (
@@ -129,7 +128,7 @@ class ELoad(VisaInstrument, ConstantCurrentLoad, ConstantPowerLoad, ConstantResi
     # ConstantCurrentLoad interface
     # -------------------------------------------------------------------------
 
-    def set_load_current(self, current: Decimal) -> None:
+    def set_load_current(self, current: float) -> None:
         """Set load current (CC mode).
 
         Args:
@@ -149,29 +148,29 @@ class ELoad(VisaInstrument, ConstantCurrentLoad, ConstantPowerLoad, ConstantResi
         self.write("INP OFF")
         self._load_enabled = False
 
-    def measure_voltage(self) -> Decimal:
+    def measure_voltage(self) -> float:
         """Measure input voltage.
 
         Returns:
             Input voltage in Volts
         """
         response = self.query("MEAS:VOLT?")
-        return Decimal(response)
+        return float(response)
 
-    def measure_power(self) -> Decimal:
+    def measure_power(self) -> float:
         """Measure input power.
 
         Returns:
             Input power in Watts
         """
         response = self.query("MEAS:POW?")
-        return Decimal(response)
+        return float(response)
 
     # -------------------------------------------------------------------------
     # ConstantPowerLoad interface
     # -------------------------------------------------------------------------
 
-    def set_load_power(self, power: Decimal) -> None:
+    def set_load_power(self, power: float) -> None:
         """Set load power (CP mode).
 
         Args:
@@ -185,7 +184,7 @@ class ELoad(VisaInstrument, ConstantCurrentLoad, ConstantPowerLoad, ConstantResi
     # ConstantResistanceLoad interface
     # -------------------------------------------------------------------------
 
-    def set_load_resistance(self, resistance: Decimal) -> None:
+    def set_load_resistance(self, resistance: float) -> None:
         """Set load resistance (CR mode).
 
         Args:
@@ -199,16 +198,16 @@ class ELoad(VisaInstrument, ConstantCurrentLoad, ConstantPowerLoad, ConstantResi
     # Additional ELoad-specific methods
     # -------------------------------------------------------------------------
 
-    def measure_current(self) -> Decimal:
+    def measure_current(self) -> float:
         """Measure actual load current.
 
         Returns:
             Current in Amps
         """
         response = self.query("MEAS:CURR?")
-        return Decimal(response)
+        return float(response)
 
-    def set_voltage_limit(self, voltage: Decimal) -> None:
+    def set_voltage_limit(self, voltage: float) -> None:
         """Set voltage limit (protection).
 
         Args:
@@ -216,7 +215,7 @@ class ELoad(VisaInstrument, ConstantCurrentLoad, ConstantPowerLoad, ConstantResi
         """
         self.write(f"VOLT:LIM {voltage}")
 
-    def set_power_limit(self, power: Decimal) -> None:
+    def set_power_limit(self, power: float) -> None:
         """Set power limit (protection).
 
         Args:
@@ -232,7 +231,7 @@ class ELoad(VisaInstrument, ConstantCurrentLoad, ConstantPowerLoad, ConstantResi
     # Convenience aliases for simpler test API
     # -------------------------------------------------------------------------
 
-    def set_current(self, current: Decimal) -> None:
+    def set_current(self, current: float) -> None:
         """Alias for set_load_current()."""
         self.set_load_current(current)
 

@@ -115,16 +115,16 @@ erDiagram
     }
 
     Condition {
-        decimal nominal
-        decimal tolerance_pct
-        decimal min
-        decimal max
+        float nominal
+        float tolerance_pct
+        float min
+        float max
     }
 
     TestRequirement {
         string name PK
         string characteristic_ref FK
-        decimal guardband_pct
+        float guardband_pct
     }
 
     %% ============================================
@@ -172,8 +172,8 @@ erDiagram
     }
 
     Limit {
-        decimal low
-        decimal high
+        float low
+        float high
         string units
     }
 
@@ -218,7 +218,7 @@ erDiagram
 
     Measurement {
         string name
-        decimal value
+        float value
         string units
         enum outcome
     }

@@ -246,7 +246,7 @@ def test_real_measurement(instruments):
     """Test requiring real hardware."""
     dmm = instruments["dmm"]
     v = dmm.measure_voltage()
-    assert isinstance(v, Decimal)
+    assert isinstance(v, float)
 ```
 
 Run hardware tests separately:

@@ -648,14 +648,8 @@ TEST_TEMPLATE = '''
 FILE 1: tests/test_{product_id}.py
 ================================================================================
 
-"""Tests for {product_name}.
+"""Tests for {product_name}."""
 
-NOTE: Instruments return Decimal, not float. For unit conversions:
-    from decimal import Decimal
-    current_ua = current * Decimal("1e6")  # NOT current * 1e6
-"""
-
-from decimal import Decimal
 from litmus.execution import litmus_test
 
 
@@ -669,11 +663,11 @@ def test_output_voltage(vector, psu, dmm):
 
 @litmus_test
 def test_quiescent_current(vector, psu):
-    """Measure quiescent current in uA. Shows Decimal conversion."""
+    """Measure quiescent current in uA."""
     psu.set_voltage(vector.get("vin", 12.0))
     psu.enable_output()
-    current_a = psu.measure_current()  # Returns Decimal in Amps
-    current_ua = current_a * Decimal("1e6")  # Convert to µA
+    current_a = psu.measure_current()  # Returns float in Amps
+    current_ua = current_a * 1e6  # Convert to µA
     return current_ua
 
 
@@ -757,7 +751,6 @@ INSTRUMENT_TEMPLATE = '''"""{instrument_name} driver.
 Supports both real hardware (VISA) and mock mode (--mock-instruments).
 """
 
-from decimal import Decimal
 from typing import Any
 
 from litmus.instruments.visa import VisaInstrument
@@ -775,8 +768,8 @@ class {class_name}(VisaInstrument):
         super().__init__(resource=resource, simulate=simulate, sim_config=mock_config)
 
     # Implement capability methods here
-    # def measure_voltage(self) -> Decimal:
-    #     return Decimal(self.query("MEAS:VOLT:DC?"))
+    # def measure_voltage(self) -> float:
+    #     return float(self.query("MEAS:VOLT:DC?"))
 '''
 
 INSTRUMENT_YAML_TEMPLATE = '''instrument:

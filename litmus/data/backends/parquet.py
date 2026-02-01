@@ -7,7 +7,7 @@ Directory structure:
     results/runs/{date}/
     ├── {timestamp}_{serial}.parquet     # With serial (production)
     ├── {timestamp}.parquet              # Without serial (dev/debug)
-    └── {timestamp}_{serial}_raw/        # Raw data (waveforms, images)
+    └── {timestamp}_{serial}_ref/        # Reference data (waveforms, images)
 
 All timestamps are UTC for consistent cross-timezone analysis.
 
@@ -15,17 +15,23 @@ Schema design:
 - One row per measurement
 - All metadata denormalized onto each row
 - Dynamic in_* columns for stimulus conditions
+- Dynamic out_* columns for observations (scalars inline, large data in _ref/)
 - Config snapshots in Parquet file-level metadata
 """
 
-from decimal import Decimal
+import json
+import pickle
+import shutil
 from pathlib import Path
 from typing import Any
 
 import pyarrow as pa
 import pyarrow.parquet as pq
 
-from litmus.data.models import TestRun
+from litmus.data.models import TestRun, Waveform
+
+# Prefix for path references in columns
+REF_PATH_PREFIX = "_ref/"
 
 
 class ParquetBackend:
@@ -72,8 +78,11 @@ class ParquetBackend:
         else:
             filename = f"{timestamp}.parquet"
 
-        # Build measurement rows
-        rows = self._build_measurement_rows(test_run)
+        # Determine parquet path for _ref/ directory creation
+        parquet_path = date_dir / filename
+
+        # Build measurement rows (may create _ref/ directory for large data)
+        rows = self._build_measurement_rows(test_run, parquet_path)
 
         if not rows:
             # No measurements - create empty file with minimal schema
@@ -87,12 +96,13 @@ class ParquetBackend:
         table = table.replace_schema_metadata(metadata)
 
         # Write to Parquet
-        parquet_path = date_dir / filename
         pq.write_table(table, parquet_path)
 
         return parquet_path
 
-    def _build_measurement_rows(self, test_run: TestRun) -> list[dict[str, Any]]:
+    def _build_measurement_rows(
+        self, test_run: TestRun, parquet_path: Path
+    ) -> list[dict[str, Any]]:
         """Build one row per measurement with all metadata denormalized."""
         rows = []
 
@@ -103,30 +113,16 @@ class ParquetBackend:
             for vector in step.vectors:
                 vector_outcome = vector.outcome.value if vector.outcome else None
                 stimulus_cols = self._build_stimulus_columns(vector)
-                observation_cols = self._build_observation_columns(vector)
+                observation_cols = self._build_observation_columns(
+                    vector, parquet_path, str(vector.id)
+                )
 
                 for measurement in vector.measurements:
-                    # Build limit values
-                    low = (
-                        float(measurement.low_limit)
-                        if measurement.low_limit is not None
-                        else None
-                    )
-                    high = (
-                        float(measurement.high_limit)
-                        if measurement.high_limit is not None
-                        else None
-                    )
-                    nom = (
-                        float(measurement.nominal)
-                        if measurement.nominal is not None
-                        else None
-                    )
-                    val = (
-                        float(measurement.value)
-                        if measurement.value is not None
-                        else None
-                    )
+                    # Limit values are already float, no conversion needed
+                    low = measurement.low_limit
+                    high = measurement.high_limit
+                    nom = measurement.nominal
+                    val = measurement.value
 
                     row = {
                         # IDENTITY & TIMING
@@ -198,9 +194,6 @@ class ParquetBackend:
 
                     # Add custom metadata columns
                     for key, value in test_run.custom_metadata.items():
-                        # Convert Decimal to float for Parquet
-                        if isinstance(value, Decimal):
-                            value = float(value)
                         row[key] = value
 
                     rows.append(row)
@@ -225,9 +218,6 @@ class ParquetBackend:
             if param.startswith("_"):
                 continue  # Skip internal params like _index
             col_name = f"in_{param}"
-            # Convert Decimal to float
-            if isinstance(value, Decimal):
-                value = float(value)
             cols[col_name] = value
 
         # Then, overlay stimulus signal path info
@@ -237,10 +227,7 @@ class ParquetBackend:
 
             # Value (may override from params, but stimulus is more authoritative)
             if stim.value is not None:
-                value = stim.value
-                if isinstance(value, Decimal):
-                    value = float(value)
-                cols[prefix] = value
+                cols[prefix] = stim.value
 
             # Signal path info
             if stim.instrument:
@@ -256,19 +243,26 @@ class ParquetBackend:
 
         return cols
 
-    def _build_observation_columns(self, vector) -> dict[str, Any]:
+    def _build_observation_columns(
+        self, vector, parquet_path: Path, vector_id: str
+    ) -> dict[str, Any]:
         """Build dynamic out_* columns from vector observations.
 
         For each observation, creates columns:
-        - out_{key}: The observed value
+        - out_{key}: The observed value (scalar) or path reference (large data)
 
         Observations are measured context (not commanded values):
         - Environmental readings (temperature, humidity)
         - Raw data (waveforms, images)
         - Actual readback values from instruments
 
-        Large arrays (numpy, etc.) are serialized to JSON for small arrays,
-        or saved to _raw directory with path reference for large arrays.
+        Storage by type:
+        - Scalars (float, int, str, bool) → inline
+        - Waveform → serialize to _ref/*.npz
+        - ndarray → serialize to _ref/*.npy
+        - Path → copy file to _ref/, preserve extension
+        - Pydantic model → serialize to _ref/*.json
+        - bytes → serialize to _ref/*.bin
         """
         cols: dict[str, Any] = {}
 
@@ -281,21 +275,103 @@ class ParquetBackend:
 
             col_name = f"out_{key}"
 
-            # Handle different value types
-            if isinstance(value, Decimal):
-                cols[col_name] = float(value)
+            # Scalars → inline
+            if isinstance(value, (int, float, str, bool, type(None))):
+                cols[col_name] = value
+
+            # Structured types → serialize to _ref/
+            elif isinstance(value, Path):
+                cols[col_name] = self._save_file(parquet_path, vector_id, key, value)
+            elif isinstance(value, Waveform):
+                cols[col_name] = self._save_file(parquet_path, vector_id, key, value)
+            elif isinstance(value, bytes):
+                cols[col_name] = self._save_file(parquet_path, vector_id, key, value)
             elif hasattr(value, "tolist"):
-                # numpy array or similar - convert to list for JSON serialization
-                # For large arrays, this should be saved to _raw directory
-                # (future enhancement: check size threshold)
-                cols[col_name] = value.tolist()
+                # numpy array - save to _ref/
+                cols[col_name] = self._save_file(parquet_path, vector_id, key, value)
+            elif hasattr(value, "model_dump"):
+                # Pydantic model - save to _ref/
+                cols[col_name] = self._save_file(parquet_path, vector_id, key, value)
             elif isinstance(value, (list, dict)):
-                # Store as-is (will be serialized to JSON by PyArrow)
+                # Small lists/dicts → inline (will be serialized to JSON by PyArrow)
                 cols[col_name] = value
             else:
+                # Unknown → inline (may fail on non-serializable types)
                 cols[col_name] = value
 
         return cols
+
+    def _get_ref_dir(self, parquet_path: Path) -> Path:
+        """Get or create the _ref directory for a parquet file."""
+        # Replace .parquet with _ref
+        ref_dir = parquet_path.parent / (parquet_path.stem + "_ref")
+        ref_dir.mkdir(parents=True, exist_ok=True)
+        return ref_dir
+
+    def _save_file(
+        self, parquet_path: Path, vector_id: str, key: str, value: Any
+    ) -> str:
+        """Save file in format appropriate for the data type.
+
+        Returns:
+            Path reference string like "_ref/abc123_scope_waveform.npz"
+        """
+        ref_dir = self._get_ref_dir(parquet_path)
+        prefix = f"{vector_id[:8]}_{key}"
+
+        if isinstance(value, Path):
+            # File reference → copy, preserve extension
+            ext = value.suffix or ".bin"
+            filename = f"{prefix}{ext}"
+            shutil.copy(value, ref_dir / filename)
+
+        elif isinstance(value, Waveform):
+            # Waveform → .npz with structure preserved
+            filename = f"{prefix}.npz"
+            try:
+                import numpy as np
+
+                np.savez(
+                    ref_dir / filename,
+                    Y=value.Y,
+                    t0=value.t0,
+                    dt=value.dt,
+                    **value.attrs,
+                )
+            except ImportError:
+                # Fallback to JSON if numpy not available
+                filename = f"{prefix}.json"
+                (ref_dir / filename).write_text(value.model_dump_json())
+
+        elif isinstance(value, bytes):
+            # Raw bytes → .bin
+            filename = f"{prefix}.bin"
+            (ref_dir / filename).write_bytes(value)
+
+        elif hasattr(value, "model_dump"):
+            # Pydantic model → .json
+            filename = f"{prefix}.json"
+            (ref_dir / filename).write_text(value.model_dump_json())
+
+        elif hasattr(value, "tolist"):
+            # numpy array → .npy
+            filename = f"{prefix}.npy"
+            try:
+                import numpy as np
+
+                np.save(ref_dir / filename, value)
+            except ImportError:
+                # Fallback to JSON if numpy not available
+                filename = f"{prefix}.json"
+                (ref_dir / filename).write_text(json.dumps(value.tolist()))
+
+        else:
+            # Fallback: pickle
+            filename = f"{prefix}.pkl"
+            with open(ref_dir / filename, "wb") as f:
+                pickle.dump(value, f)
+
+        return f"{REF_PATH_PREFIX}{filename}"
 
     def _build_empty_row(self, test_run: TestRun) -> dict[str, Any]:
         """Build a placeholder row when no measurements exist."""
@@ -568,3 +644,77 @@ class ParquetBackend:
                         }
 
         return None
+
+
+def load_file(parquet_path: Path, ref: str) -> Any:
+    """Load a file from _ref/ directory based on its extension.
+
+    Args:
+        parquet_path: Path to the parquet file (used to locate _ref/ dir).
+        ref: Reference string like "_ref/abc123_waveform.npz".
+
+    Returns:
+        Loaded data in appropriate format:
+        - .npz → Waveform model (if has Y, t0, dt) or dict
+        - .npy → numpy array
+        - .json → dict or Pydantic model
+        - .bin → bytes
+        - .pkl → pickled object
+        - Other → raw file path
+    """
+    if not ref.startswith(REF_PATH_PREFIX):
+        return ref  # Not a reference, return as-is
+
+    # Get path relative to parquet file
+    ref_dir = parquet_path.parent / (parquet_path.stem + "_ref")
+    filename = ref[len(REF_PATH_PREFIX) :]
+    path = ref_dir / filename
+    ext = path.suffix.lower()
+
+    if not path.exists():
+        return ref  # File not found, return reference
+
+    if ext == ".npz":
+        try:
+            import numpy as np
+
+            data = dict(np.load(path, allow_pickle=True))
+            # Check if this looks like a Waveform
+            if "Y" in data and "t0" in data and "dt" in data:
+                attrs = {k: v for k, v in data.items() if k not in ("Y", "t0", "dt")}
+                return Waveform(
+                    Y=data["Y"].tolist(),
+                    t0=float(data["t0"]),
+                    dt=float(data["dt"]),
+                    attrs=attrs,
+                )
+            return data
+        except ImportError:
+            return path
+
+    elif ext == ".npy":
+        try:
+            import numpy as np
+
+            return np.load(path)
+        except ImportError:
+            return path
+
+    elif ext == ".json":
+        return json.loads(path.read_text())
+
+    elif ext == ".bin":
+        return path.read_bytes()
+
+    elif ext == ".pkl":
+        with open(path, "rb") as f:
+            return pickle.load(f)
+
+    else:
+        # Return path for other file types
+        return path
+
+
+def is_file_reference(value: Any) -> bool:
+    """Check if a value is a _ref/ file reference."""
+    return isinstance(value, str) and value.startswith(REF_PATH_PREFIX)

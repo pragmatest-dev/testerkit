@@ -223,10 +223,7 @@ litmus(action="save", type="station", id="test_bench", content={...}, project=pr
 
 **File 1: Test Code (tests/test_tps54302.py)**
 
-**IMPORTANT:** Instruments return `Decimal`, not `float`. For unit conversions, use `Decimal("1e6")` not `1e6`.
-
 ```python
-from decimal import Decimal
 from litmus.execution import litmus_test
 
 
@@ -243,8 +240,8 @@ def test_quiescent_current(vector, psu):
     """Measure quiescent current in uA."""
     psu.set_voltage(vector.get("vin", 12.0))
     psu.enable_output()
-    current_a = psu.measure_current()  # Returns Decimal
-    return current_a * Decimal("1e6")  # Convert to uA
+    current_a = psu.measure_current()
+    return current_a * 1e6  # Convert to uA
 
 
 @litmus_test
@@ -392,7 +389,7 @@ Want me to:
 4. **Station format:** `type` + `resource` + `mock_config`
 5. **Create BOTH test files:** `.py` AND `config.yaml`
 6. **`_mock` in config.yaml:** Per-test/per-vector mock values
-7. **Use Decimal for math:** Instruments return `Decimal`. Use `Decimal("1e6")` not `1e6`
+7. **Standard Python math:** Instruments return `float`. Use standard Python arithmetic
 
 ---
 

@@ -6,8 +6,8 @@ for realistic simulation based on the instrument library YAML.
 
 Example usage:
     class DMM(VisaInstrument, VoltageInput, CurrentInput):
-        def measure_voltage(self, signal_type=SignalType.DC) -> Decimal:
-            return Decimal(self.query("MEAS:VOLT:DC?"))
+        def measure_voltage(self, signal_type=SignalType.DC) -> float:
+            return float(self.query("MEAS:VOLT:DC?"))
 
     # Real hardware
     dmm = DMM("TCPIP::192.168.1.100::INSTR")
@@ -22,7 +22,6 @@ Example usage:
 
 import random
 import tempfile
-from decimal import Decimal
 from pathlib import Path
 from typing import Any
 
@@ -256,7 +255,7 @@ class VisaInstrument(Instrument):
             f.write(yaml_content)
             return Path(f.name)
 
-    def _get_sim_value(self, name: str, default: float = 0.0) -> Decimal:
+    def _get_sim_value(self, name: str, default: float = 0.0) -> float:
         """Get a simulated measurement value with optional noise.
 
         Helper method for concrete drivers implementing measurement methods.
@@ -266,7 +265,7 @@ class VisaInstrument(Instrument):
             default: Default value if not configured
 
         Returns:
-            Simulated value as Decimal
+            Simulated value as float
         """
         base = float(self.sim_config.get(name, default))
         noise_pct = float(self.sim_config.get("noise", {}).get(name, 0))
@@ -275,4 +274,4 @@ class VisaInstrument(Instrument):
             noise = base * noise_pct / 100
             base = base + random.uniform(-noise, noise)
 
-        return Decimal(str(round(base, 9)))
+        return round(base, 9)

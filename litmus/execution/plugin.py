@@ -250,12 +250,10 @@ def spec_context(request):
     Returns:
         SpecContext or None if no spec configured.
     """
-    from decimal import Decimal
-
     from litmus.products.context import SpecContext
 
     spec_path = request.config.getoption("--spec")
-    guardband = Decimal(request.config.getoption("--guardband"))
+    guardband = float(request.config.getoption("--guardband"))
 
     if spec_path:
         return SpecContext.from_file(spec_path, guardband_pct=guardband)

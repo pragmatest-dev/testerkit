@@ -8,7 +8,7 @@ Litmus instrument drivers provide:
 - Unified interface across instrument types
 - Built-in simulation mode
 - Capability-based matching
-- Decimal precision for measurements
+- Float precision for measurements
 
 ## Quick Start
 
@@ -24,7 +24,7 @@ dmm.disconnect()
 # Simulated (same interface)
 dmm = DMM("TCPIP::192.168.1.100::INSTR", simulate=True, sim_config={"voltage": 3.3})
 dmm.connect()
-voltage = dmm.measure_voltage()  # Returns Decimal("3.3")
+voltage = dmm.measure_voltage()  # Returns 3.3
 dmm.disconnect()
 ```
 
@@ -91,11 +91,11 @@ from litmus.instruments import DMM, PSU, ELoad, Mock
 dmm = Mock(DMM, voltage=3.31, current=0.1)
 dmm.connect()
 
-v = dmm.measure_voltage()  # Returns Decimal("3.31")
+v = dmm.measure_voltage()  # Returns 3.31
 
 # Update simulated values
 dmm.set_value("voltage", 5.0)
-v = dmm.measure_voltage()  # Returns Decimal("5.0")
+v = dmm.measure_voltage()  # Returns 5.0
 ```
 
 ### Mock vs simulate=True
@@ -269,7 +269,6 @@ instruments:
 Create drivers for custom instruments:
 
 ```python
-from decimal import Decimal
 from litmus.instruments.base import Instrument
 from litmus.capabilities.interfaces import VoltageInput
 
@@ -279,7 +278,7 @@ class MyCustomDMM(Instrument, VoltageInput):
     def __init__(self, port: str, simulate: bool = False, sim_config: dict = None):
         super().__init__(simulate=simulate, sim_config=sim_config)
         self.port = port
-        self._sim_voltage = Decimal(str(sim_config.get("voltage", 0))) if sim_config else Decimal("0")
+        self._sim_voltage = float(sim_config.get("voltage", 0)) if sim_config else 0.0
 
     def connect(self):
         if self.simulate:
@@ -291,11 +290,11 @@ class MyCustomDMM(Instrument, VoltageInput):
     def disconnect(self):
         self._connected = False
 
-    def measure_voltage(self, signal_type=None) -> Decimal:
+    def measure_voltage(self, signal_type=None) -> float:
         if self.simulate:
             return self._sim_voltage
         # Real measurement logic
-        return Decimal("3.31")
+        return 3.31
 ```
 
 ## Next Steps

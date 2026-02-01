@@ -1,7 +1,5 @@
 """Tests for TestRunLogger."""
 
-from decimal import Decimal
-
 from litmus.data.models import Measurement, Outcome
 from litmus.execution.logger import TestRunLogger
 
@@ -54,7 +52,7 @@ class TestTestRunLogger:
         )
         logger.start_step("test_step")
 
-        m = Measurement(name="voltage", value=Decimal("5.0"), outcome=Outcome.PASS)
+        m = Measurement(name="voltage", value=5.0, outcome=Outcome.PASS)
         logger.log_measurement(m)
 
         # Measurements are stored in vectors within the step
@@ -69,7 +67,7 @@ class TestTestRunLogger:
             test_sequence_id="test",
         )
 
-        m = Measurement(name="voltage", value=Decimal("5.0"), outcome=Outcome.PASS)
+        m = Measurement(name="voltage", value=5.0, outcome=Outcome.PASS)
         logger.log_measurement(m)
 
         assert len(logger.test_run.steps) == 1
@@ -83,7 +81,7 @@ class TestTestRunLogger:
         )
         logger.start_step("test_step")
 
-        m = Measurement(name="voltage", value=Decimal("6.0"), outcome=Outcome.FAIL)
+        m = Measurement(name="voltage", value=6.0, outcome=Outcome.FAIL)
         logger.log_measurement(m)
 
         assert logger._current_step.outcome == Outcome.FAIL
@@ -112,7 +110,7 @@ class TestTestRunLogger:
         logger.start_step("test_step")
 
         m1 = Measurement(name="voltage", value=None, outcome=Outcome.ERROR)
-        m2 = Measurement(name="current", value=Decimal("6.0"), outcome=Outcome.FAIL)
+        m2 = Measurement(name="current", value=6.0, outcome=Outcome.FAIL)
         logger.log_measurement(m1)
         logger.log_measurement(m2)
 
@@ -154,12 +152,12 @@ class TestTestRunLogger:
         )
 
         logger.start_step("step1")
-        m1 = Measurement(name="voltage", value=Decimal("5.0"), outcome=Outcome.PASS)
+        m1 = Measurement(name="voltage", value=5.0, outcome=Outcome.PASS)
         logger.log_measurement(m1)
         logger.end_step()
 
         logger.start_step("step2")
-        m2 = Measurement(name="current", value=Decimal("0.1"), outcome=Outcome.PASS)
+        m2 = Measurement(name="current", value=0.1, outcome=Outcome.PASS)
         logger.log_measurement(m2)
         logger.end_step()
 

@@ -7,11 +7,11 @@ the pytest plugin fixtures.
 
 from __future__ import annotations
 
+import importlib
 import time
 from collections.abc import Callable, Iterator, Mapping
 from contextlib import contextmanager
 from datetime import UTC, datetime
-from decimal import Decimal
 from typing import TYPE_CHECKING, Any
 
 from litmus.config.models import Limit, MeasurementLimitConfig, PromptConfig, RetryConfig
@@ -495,7 +495,7 @@ class TestHarness:
                         if self._current_vector:
                             conditions = self._current_vector.params()
 
-                        guardband = limit_config.guardband_pct or Decimal("0")
+                        guardband = limit_config.guardband_pct or 0.0
                         return self._spec_context.get_limit(
                             limit_config.ref,
                             guardband_pct=guardband,
@@ -503,6 +503,10 @@ class TestHarness:
                         )
                     except (KeyError, ValueError):
                         pass  # Fall through
+
+                # Callable resolution
+                if limit_config.callable:
+                    return self._resolve_callable_limit(limit_config.callable)
 
         # Try SpecContext direct lookup (measurement name = characteristic ID)
         if self._spec_context:
@@ -517,10 +521,80 @@ class TestHarness:
 
         return None
 
+    def _resolve_callable_limit(self, callable_str: str) -> Limit:
+        """Resolve a callable limit from a dotted module path or inline Python.
+
+        Args:
+            callable_str: Either a dotted module path (e.g., "myproject.limits.output_voltage")
+                         or inline Python code (e.g., "Limit(high=ctx.get_in('vin') * 0.01, units='V')")
+
+        Returns:
+            Resolved Limit object.
+        """
+        # Detect inline Python vs module path
+        # Inline Python contains: newlines, Limit(, return, if, =, operators
+        is_inline = any(
+            marker in callable_str
+            for marker in ("\n", "Limit(", "return ", "if ", " = ", " + ", " - ", " * ", " / ")
+        )
+
+        if not is_inline and "." in callable_str:
+            # Module path → import and call
+            return self._call_module_function(callable_str)
+        else:
+            # Inline Python → eval with context
+            return self._eval_inline_limit(callable_str)
+
+    def _call_module_function(self, dotted_path: str) -> Limit:
+        """Import and call a function by its dotted module path.
+
+        Args:
+            dotted_path: e.g., "myproject.limits.output_voltage"
+
+        Returns:
+            Limit returned by the function.
+        """
+        # Split into module and function
+        module_path, func_name = dotted_path.rsplit(".", 1)
+        module = importlib.import_module(module_path)
+        func = getattr(module, func_name)
+
+        # Call with context
+        return func(self.context)
+
+    def _eval_inline_limit(self, code: str) -> Limit:
+        """Evaluate inline Python code to produce a Limit.
+
+        Args:
+            code: Python expression or statements that return a Limit.
+
+        Returns:
+            Limit object from evaluation.
+        """
+        # Build namespace with useful values
+        namespace = {
+            "Limit": Limit,
+            "ctx": self.context,
+            **self.context.inputs,
+        }
+
+        # Handle multi-line code (need exec + return capture)
+        if "\n" in code or code.strip().startswith("if "):
+            # Wrap in function to capture return
+            wrapped = f"def __limit_fn__():\n"
+            for line in code.strip().split("\n"):
+                wrapped += f"    {line}\n"
+            wrapped += "__result__ = __limit_fn__()"
+            exec(wrapped, namespace)
+            return namespace["__result__"]
+        else:
+            # Simple expression
+            return eval(code, namespace)
+
     def measure(
         self,
         name: str,
-        value: float | Decimal | None,
+        value: float | None,
         units: str | None = None,
         limit: Limit | None = None,
         dut_pin: str | None = None,
@@ -541,9 +615,9 @@ class TestHarness:
         Returns:
             Measurement object with outcome set.
         """
-        # Convert to Decimal
-        if value is not None and not isinstance(value, Decimal):
-            value = Decimal(str(value))
+        # Ensure value is float
+        if value is not None and not isinstance(value, float):
+            value = float(value)
 
         # Resolve limit
         resolved_limit = limit or self._resolve_limit(name)

@@ -89,12 +89,10 @@ print(f"At 85°C: {limit.low} to {limit.high}")
 ### With Guardband
 
 ```python
-from decimal import Decimal
-
 # Apply 10% guardband (tighten limits)
 spec = SpecContext.from_file(
     "products/power_board/spec.yaml",
-    guardband_pct=Decimal("10")
+    guardband_pct=10.0
 )
 
 limit = spec.get_limit("output_voltage")
@@ -117,7 +115,7 @@ print(pin_info)
 from litmus.execution.harness import TestHarness
 from litmus.products import SpecContext
 
-spec = SpecContext.from_file("products/power_board/spec.yaml", guardband_pct=Decimal("10"))
+spec = SpecContext.from_file("products/power_board/spec.yaml", guardband_pct=10.0)
 
 harness = TestHarness(
     step_name="test_output",

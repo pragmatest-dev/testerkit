@@ -1,7 +1,5 @@
 """Tests for vector expansion functions."""
 
-from decimal import Decimal
-
 import pytest
 
 from litmus.execution.vectors import (
@@ -147,26 +145,26 @@ class TestExpandRange:
     def test_basic_range_step(self):
         result = expand_range("voltage", start=0.0, stop=5.0, step=1.0)
         assert len(result) == 6  # 0, 1, 2, 3, 4, 5
-        assert result[0]["voltage"] == Decimal("0")
-        assert result[5]["voltage"] == Decimal("5")
+        assert result[0]["voltage"] == 0.0
+        assert result[5]["voltage"] == 5.0
 
-    def test_range_step_decimal(self):
+    def test_range_step_float(self):
         result = expand_range("voltage", start=0.0, stop=1.0, step=0.25)
         assert len(result) == 5  # 0, 0.25, 0.5, 0.75, 1.0
-        assert result[2]["voltage"] == Decimal("0.5")
+        assert result[2]["voltage"] == 0.5
 
     def test_range_count(self):
         result = expand_range("voltage", start=0.0, stop=10.0, count=5)
         assert len(result) == 5
         # Should be 0, 2.5, 5, 7.5, 10
-        assert result[0]["voltage"] == Decimal("0")
-        assert result[2]["voltage"] == Decimal("5")
-        assert result[4]["voltage"] == Decimal("10")
+        assert result[0]["voltage"] == 0.0
+        assert result[2]["voltage"] == 5.0
+        assert result[4]["voltage"] == 10.0
 
     def test_range_count_one(self):
         result = expand_range("voltage", start=5.0, stop=10.0, count=1)
         assert len(result) == 1
-        assert result[0]["voltage"] == Decimal("5")
+        assert result[0]["voltage"] == 5.0
 
     def test_range_requires_step_or_count(self):
         with pytest.raises(ValueError, match="step.*count"):
@@ -322,17 +320,17 @@ class TestStringRangeSyntax:
         result = expand_product(voltage="3.0:3.2:0.1", load=[0.1, 0.5])
         assert len(result) == 6  # 3 voltages x 2 loads
 
-        # Check voltage values are Decimals from range expansion
+        # Check voltage values are floats from range expansion
         voltages = sorted(set(v["voltage"] for v in result))
-        assert voltages == [Decimal("3.0"), Decimal("3.1"), Decimal("3.2")]
+        assert voltages == [3.0, 3.1, 3.2]
 
     def test_zip_with_string_range(self):
         """expand_zip should expand string range values."""
         result = expand_zip(voltage="3.0:3.2:0.1", expected="2.9:3.1:0.1")
         assert len(result) == 3
 
-        assert result[0]["voltage"] == Decimal("3.0")
-        assert result[0]["expected"] == Decimal("2.9")
+        assert result[0]["voltage"] == 3.0
+        assert result[0]["expected"] == 2.9
 
     def test_nested_with_string_range(self):
         """expand_nested should expand string range values."""
@@ -347,8 +345,8 @@ class TestStringRangeSyntax:
         # Check temperature values
         temps = sorted(set(v["temperature"] for v in result))
         assert temps == [
-            Decimal("-40"), Decimal("-15"), Decimal("10"),
-            Decimal("35"), Decimal("60"), Decimal("85"),
+            -40.0, -15.0, 10.0,
+            35.0, 60.0, 85.0,
         ]
 
     def test_nested_zip_with_string_range(self):
@@ -364,8 +362,8 @@ class TestStringRangeSyntax:
         result = expand_nested(loops)
         assert len(result) == 3  # 3.3, 4.3, 5.3
 
-        assert result[0]["voltage"] == Decimal("3.3")
-        assert result[0]["expected"] == Decimal("3.2")
+        assert result[0]["voltage"] == 3.3
+        assert result[0]["expected"] == 3.2
 
     def test_expand_vectors_product_with_string_range(self):
         """expand_vectors with product mode should handle string ranges."""

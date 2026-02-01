@@ -314,8 +314,6 @@ class TestRunLogger:
                 dut_pin="TP_VOUT",
             )
         """
-        from decimal import Decimal
-
         # Extract limit fields if provided
         low_limit = None
         high_limit = None
@@ -336,13 +334,10 @@ class TestRunLogger:
                     str(comparator.value) if hasattr(comparator, "value") else str(comparator)
                 )
 
-        # Convert value to Decimal
-        decimal_value = Decimal(str(value)) if value is not None else None
-
         # Create measurement
         measurement = Measurement(
             name=name,
-            value=decimal_value,
+            value=float(value) if value is not None else None,
             units=units,
             low_limit=low_limit,
             high_limit=high_limit,

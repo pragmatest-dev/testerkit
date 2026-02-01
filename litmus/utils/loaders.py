@@ -7,7 +7,6 @@ the litmus codebase for loading YAML configuration files.
 from __future__ import annotations
 
 from collections.abc import Iterator
-from decimal import Decimal
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -70,43 +69,6 @@ def load_yaml_file(path: Path) -> dict[str, Any] | None:
             return yaml.safe_load(f)
     except Exception:
         return None
-
-
-def convert_decimal_fields(
-    data: dict[str, Any],
-    field_names: list[str],
-) -> dict[str, Any]:
-    """Convert specified fields to Decimal in a dictionary.
-
-    Modifies the dictionary in place and returns it.
-
-    Args:
-        data: Dictionary to modify.
-        field_names: List of field names to convert.
-
-    Returns:
-        The modified dictionary (same object).
-
-    Example:
-        >>> data = {"nominal": 3.3, "tolerance_pct": 5, "name": "output"}
-        >>> convert_decimal_fields(data, ["nominal", "tolerance_pct"])
-        {'nominal': Decimal('3.3'), 'tolerance_pct': Decimal('5'), 'name': 'output'}
-    """
-    for field in field_names:
-        if field in data:
-            data[field] = Decimal(str(data[field]))
-    return data
-
-
-# Common decimal fields used in spec/condition parsing
-SPEC_DECIMAL_FIELDS = [
-    "nominal",
-    "tolerance_pct",
-    "tolerance_abs",
-    "limit_low",
-    "limit_high",
-    "guardband_pct",
-]
 
 
 def parse_capability_enums(

@@ -8,7 +8,6 @@ The SpecContext bridges product specifications and test execution by:
 
 from __future__ import annotations
 
-from decimal import Decimal
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -41,7 +40,7 @@ class SpecContext:
         self,
         product: Product,
         fixture: FixtureConfig | None = None,
-        guardband_pct: Decimal = Decimal("0"),
+        guardband_pct: float = 0.0,
     ):
         """Initialize spec context.
 
@@ -92,7 +91,7 @@ class SpecContext:
         cls,
         spec_path: str | Path,
         fixture: FixtureConfig | None = None,
-        guardband_pct: Decimal = Decimal("0"),
+        guardband_pct: float = 0.0,
     ) -> SpecContext:
         """Load spec context from YAML file.
 
@@ -114,7 +113,7 @@ class SpecContext:
     def get_limit(
         self,
         char_id: str,
-        guardband_pct: Decimal | None = None,
+        guardband_pct: float | None = None,
         **conditions: Any,
     ) -> Limit:
         """Derive test limit from a characteristic.

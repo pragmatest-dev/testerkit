@@ -1,6 +1,5 @@
 """YAML loading and configuration resolution for Litmus."""
 
-from decimal import Decimal
 from pathlib import Path
 from typing import Any, TypeVar
 
@@ -141,14 +140,14 @@ def load_specifications(path: Path) -> dict[str, Specification]:
 
     specifications = {}
     for spec_key, spec_data in data.get("specifications", {}).items():
-        # Convert numeric values to Decimal
+        # Convert numeric values to float
         spec_dict = dict(spec_data)
         if "nominal" in spec_dict:
-            spec_dict["nominal"] = Decimal(str(spec_dict["nominal"]))
+            spec_dict["nominal"] = float(spec_dict["nominal"])
         if "tolerance_pct" in spec_dict:
-            spec_dict["tolerance_pct"] = Decimal(str(spec_dict["tolerance_pct"]))
+            spec_dict["tolerance_pct"] = float(spec_dict["tolerance_pct"])
         if "tolerance_abs" in spec_dict:
-            spec_dict["tolerance_abs"] = Decimal(str(spec_dict["tolerance_abs"]))
+            spec_dict["tolerance_abs"] = float(spec_dict["tolerance_abs"])
 
         specifications[spec_key] = Specification.model_validate(spec_dict)
 
@@ -264,11 +263,11 @@ def load_test_config(path: Path) -> dict[str, dict[str, Any]]:
             limits = {}
             for name, limit_data in test_data["limits"].items():
                 if isinstance(limit_data, dict):
-                    # Convert numeric values to Decimal
+                    # Convert numeric values to float
                     limit_dict = dict(limit_data)
                     for key in ["low", "high", "nominal"]:
                         if key in limit_dict and limit_dict[key] is not None:
-                            limit_dict[key] = Decimal(str(limit_dict[key]))
+                            limit_dict[key] = float(limit_dict[key])
                     limits[name] = Limit.model_validate(limit_dict)
                 else:
                     limits[name] = limit_data

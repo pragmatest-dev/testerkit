@@ -1,6 +1,5 @@
 """Tests for data models."""
 
-from decimal import Decimal
 from uuid import UUID
 
 from litmus.data.models import DUT, Measurement, Outcome, TestRun, TestStep
@@ -26,29 +25,29 @@ class TestMeasurement:
     """Tests for Measurement model."""
 
     def test_basic_measurement(self):
-        m = Measurement(name="voltage", value=Decimal("5.0"))
+        m = Measurement(name="voltage", value=5.0)
         assert m.name == "voltage"
-        assert m.value == Decimal("5.0")
+        assert m.value == 5.0
         assert m.units is None
         assert m.outcome is None
 
     def test_measurement_with_limits(self):
         m = Measurement(
             name="voltage",
-            value=Decimal("5.0"),
+            value=5.0,
             units="V",
-            low_limit=Decimal("4.5"),
-            high_limit=Decimal("5.5"),
+            low_limit=4.5,
+            high_limit=5.5,
         )
-        assert m.low_limit == Decimal("4.5")
-        assert m.high_limit == Decimal("5.5")
+        assert m.low_limit == 4.5
+        assert m.high_limit == 5.5
 
     def test_check_limit_pass(self):
         m = Measurement(
             name="voltage",
-            value=Decimal("5.0"),
-            low_limit=Decimal("4.5"),
-            high_limit=Decimal("5.5"),
+            value=5.0,
+            low_limit=4.5,
+            high_limit=5.5,
         )
         result = m.check_limit()
         assert result == Outcome.PASS
@@ -57,9 +56,9 @@ class TestMeasurement:
     def test_check_limit_fail_low(self):
         m = Measurement(
             name="voltage",
-            value=Decimal("4.0"),
-            low_limit=Decimal("4.5"),
-            high_limit=Decimal("5.5"),
+            value=4.0,
+            low_limit=4.5,
+            high_limit=5.5,
         )
         result = m.check_limit()
         assert result == Outcome.FAIL
@@ -68,9 +67,9 @@ class TestMeasurement:
     def test_check_limit_fail_high(self):
         m = Measurement(
             name="voltage",
-            value=Decimal("6.0"),
-            low_limit=Decimal("4.5"),
-            high_limit=Decimal("5.5"),
+            value=6.0,
+            low_limit=4.5,
+            high_limit=5.5,
         )
         result = m.check_limit()
         assert result == Outcome.FAIL
@@ -80,33 +79,33 @@ class TestMeasurement:
         m = Measurement(
             name="voltage",
             value=None,
-            low_limit=Decimal("4.5"),
-            high_limit=Decimal("5.5"),
+            low_limit=4.5,
+            high_limit=5.5,
         )
         result = m.check_limit()
         assert result == Outcome.ERROR
         assert m.outcome == Outcome.ERROR
 
     def test_check_limit_no_limits_passes(self):
-        m = Measurement(name="voltage", value=Decimal("5.0"))
+        m = Measurement(name="voltage", value=5.0)
         result = m.check_limit()
         assert result == Outcome.PASS
 
     def test_check_limit_only_low(self):
-        m = Measurement(name="voltage", value=Decimal("5.0"), low_limit=Decimal("4.5"))
+        m = Measurement(name="voltage", value=5.0, low_limit=4.5)
         result = m.check_limit()
         assert result == Outcome.PASS
 
-        m2 = Measurement(name="voltage", value=Decimal("4.0"), low_limit=Decimal("4.5"))
+        m2 = Measurement(name="voltage", value=4.0, low_limit=4.5)
         result2 = m2.check_limit()
         assert result2 == Outcome.FAIL
 
     def test_check_limit_only_high(self):
-        m = Measurement(name="voltage", value=Decimal("5.0"), high_limit=Decimal("5.5"))
+        m = Measurement(name="voltage", value=5.0, high_limit=5.5)
         result = m.check_limit()
         assert result == Outcome.PASS
 
-        m2 = Measurement(name="voltage", value=Decimal("6.0"), high_limit=Decimal("5.5"))
+        m2 = Measurement(name="voltage", value=6.0, high_limit=5.5)
         result2 = m2.check_limit()
         assert result2 == Outcome.FAIL
 
@@ -144,7 +143,7 @@ class TestTestStep:
         assert step.vectors == []
 
     def test_step_with_vectors(self):
-        m = Measurement(name="voltage", value=Decimal("5.0"))
+        m = Measurement(name="voltage", value=5.0)
         from litmus.data.models import TestVector
 
         vector = TestVector(measurements=[m])

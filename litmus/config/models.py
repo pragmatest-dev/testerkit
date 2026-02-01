@@ -1,6 +1,5 @@
 """Pydantic models for Litmus configuration."""
 
-from decimal import Decimal
 from typing import Any, Literal
 
 from pydantic import BaseModel, Field, computed_field
@@ -25,9 +24,9 @@ class Limit(BaseModel):
         - spec_ref: Human-readable reference with conditions (e.g., "Table 4.2 @ temp=25")
     """
 
-    low: Decimal | None = None
-    high: Decimal | None = None
-    nominal: Decimal | None = None
+    low: float | None = None
+    high: float | None = None
+    nominal: float | None = None
     units: str
     spec_id: str | None = None  # Characteristic ID for structured traceability
     spec_ref: str | None = None  # Human-readable spec reference with conditions
@@ -53,12 +52,12 @@ class Specification(BaseModel):
 
     id: str
     description: str
-    nominal: Decimal
-    tolerance_pct: Decimal | None = None
-    tolerance_abs: Decimal | None = None
+    nominal: float
+    tolerance_pct: float | None = None
+    tolerance_abs: float | None = None
     units: str
 
-    def to_limit(self, guardband_pct: Decimal = Decimal("0")) -> Limit:
+    def to_limit(self, guardband_pct: float = 0.0) -> Limit:
         """Convert spec to test limit with optional guardbanding.
 
         Guardband tightens the limit relative to the specification.
@@ -71,10 +70,10 @@ class Specification(BaseModel):
         Returns:
             Limit with low/high calculated from nominal and tolerance.
         """
-        guardband_factor = Decimal("1") - guardband_pct / Decimal("100")
+        guardband_factor = 1.0 - guardband_pct / 100.0
 
         if self.tolerance_pct is not None:
-            tolerance = self.nominal * self.tolerance_pct / Decimal("100")
+            tolerance = self.nominal * self.tolerance_pct / 100.0
         elif self.tolerance_abs is not None:
             tolerance = self.tolerance_abs
         else:
@@ -227,9 +226,9 @@ class RangeConfig(BaseModel):
           step: 0.5
     """
 
-    start: Decimal
-    stop: Decimal
-    step: Decimal | None = None
+    start: float
+    stop: float
+    step: float | None = None
     count: int | None = None
 
     def model_post_init(self, _: Any) -> None:
@@ -276,23 +275,23 @@ class LoopVariableConfig(BaseModel):
 
     @computed_field
     @property
-    def resolved_values(self) -> list[Decimal]:
+    def resolved_values(self) -> list[float]:
         """Expand values to list, handling range syntax.
 
         Returns:
-            List of Decimal values ready for iteration.
+            List of float values ready for iteration.
 
         Examples:
-            values=[1, 2, 3] → [Decimal('1'), Decimal('2'), Decimal('3')]
-            values="-40:125:55" → [Decimal('-40'), Decimal('15'), Decimal('70'), Decimal('125')]
-            range={start: 0, stop: 1, step: 0.5} → [Decimal('0'), Decimal('0.5'), Decimal('1')]
+            values=[1, 2, 3] → [1.0, 2.0, 3.0]
+            values="-40:125:55" → [-40.0, 15.0, 70.0, 125.0]
+            range={start: 0, stop: 1, step: 0.5} → [0.0, 0.5, 1.0]
         """
         if self.values is not None:
             return expand_numeric_range(self.values)
 
         if self.range is not None:
             # Generate from RangeConfig
-            result = []
+            result: list[float] = []
             current = self.range.start
             if self.range.step is not None:
                 step = self.range.step
@@ -304,7 +303,7 @@ class LoopVariableConfig(BaseModel):
                 span = self.range.stop - self.range.start
                 count = self.range.count
                 for i in range(count):
-                    result.append(self.range.start + span * Decimal(i) / Decimal(count - 1))
+                    result.append(self.range.start + span * i / (count - 1))
             return result
 
         return []
@@ -350,7 +349,7 @@ class LimitRefConfig(BaseModel):
     """
 
     ref: str
-    guardband_pct: Decimal = Decimal("0")
+    guardband_pct: float = 0.0
 
 
 class LimitExprConfig(BaseModel):
@@ -365,8 +364,8 @@ class LimitExprConfig(BaseModel):
     """
 
     expr: str
-    tolerance_pct: Decimal | None = None
-    tolerance_abs: Decimal | None = None
+    tolerance_pct: float | None = None
+    tolerance_abs: float | None = None
     units: str
 
 
@@ -434,19 +433,19 @@ class MeasurementLimitConfig(BaseModel):
     """
 
     # Direct limit values
-    low: Decimal | None = None
-    high: Decimal | None = None
-    nominal: Decimal | None = None
+    low: float | None = None
+    high: float | None = None
+    nominal: float | None = None
     units: str | None = None
 
     # Spec reference
     ref: str | None = None
-    guardband_pct: Decimal | None = None
+    guardband_pct: float | None = None
 
     # Expression
     expr: str | None = None
-    tolerance_pct: Decimal | None = None
-    tolerance_abs: Decimal | None = None
+    tolerance_pct: float | None = None
+    tolerance_abs: float | None = None
 
     # Lookup table
     lookup: LimitLookupConfig | None = None

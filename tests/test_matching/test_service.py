@@ -1,7 +1,5 @@
 """Tests for the capability matching service."""
 
-from decimal import Decimal
-
 from litmus.capabilities.models import Direction, Domain, SignalType
 from litmus.matching.service import (
     CapabilityRequirement,
@@ -287,8 +285,8 @@ class TestGetRequiredCapabilities:
                     pin="VOUT",
                     conditions=[
                         ConditionPoint(
-                            nominal=Decimal("3.3"),
-                            tolerance_pct=Decimal("3"),
+                            nominal=3.3,
+                            tolerance_pct=3.0,
                         )
                     ],
                 ),
@@ -318,8 +316,8 @@ class TestGetRequiredCapabilities:
                     pin="VIN",
                     conditions=[
                         ConditionPoint(
-                            nominal=Decimal("12"),
-                            tolerance_pct=Decimal("5"),
+                            nominal=12.0,
+                            tolerance_pct=5.0,
                         )
                     ],
                 ),

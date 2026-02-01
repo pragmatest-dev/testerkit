@@ -13,7 +13,6 @@ the same vocabulary (Direction, Domain, SignalType, Comparator). This enables
 trivial capability matching - opposite directions pair.
 """
 
-from decimal import Decimal
 from enum import StrEnum
 from typing import Any, Literal, Self
 
@@ -48,11 +47,11 @@ class ConditionPoint(BaseModel):
     """
 
     # Spec values (what we're specifying)
-    nominal: Decimal | None = None
-    tolerance_pct: Decimal | None = None
-    tolerance_abs: Decimal | None = None
-    limit_low: Decimal | None = None
-    limit_high: Decimal | None = None
+    nominal: float | None = None
+    tolerance_pct: float | None = None
+    tolerance_abs: float | None = None
+    limit_low: float | None = None
+    limit_high: float | None = None
     comparator: Comparator = Comparator.GELE
 
     # Metadata (not used for condition matching)
@@ -67,7 +66,7 @@ class ConditionPoint(BaseModel):
         return dict(self.__pydantic_extra__) if self.__pydantic_extra__ else {}
 
     @property
-    def low(self) -> Decimal | None:
+    def low(self) -> float | None:
         """Calculate lower bound from nominal - tolerance or explicit limit_low.
 
         Handles single-sided specs:
@@ -83,13 +82,13 @@ class ConditionPoint(BaseModel):
         if self.limit_high is not None:
             return None
         if self.tolerance_pct is not None:
-            return self.nominal * (Decimal("1") - self.tolerance_pct / Decimal("100"))
+            return self.nominal * (1.0 - self.tolerance_pct / 100.0)
         if self.tolerance_abs is not None:
             return self.nominal - self.tolerance_abs
         return self.nominal
 
     @property
-    def high(self) -> Decimal | None:
+    def high(self) -> float | None:
         """Calculate upper bound from nominal + tolerance or explicit limit_high.
 
         Handles single-sided specs:
@@ -105,7 +104,7 @@ class ConditionPoint(BaseModel):
         if self.limit_low is not None:
             return None
         if self.tolerance_pct is not None:
-            return self.nominal * (Decimal("1") + self.tolerance_pct / Decimal("100"))
+            return self.nominal * (1.0 + self.tolerance_pct / 100.0)
         if self.tolerance_abs is not None:
             return self.nominal + self.tolerance_abs
         return self.nominal
@@ -132,11 +131,9 @@ class ConditionPoint(BaseModel):
                 return False
             query_value = params[key]
             # Compare with type coercion for numeric values
-            if isinstance(query_value, (int, float, Decimal)) or isinstance(
-                point_value, (int, float, Decimal)
-            ):
+            if isinstance(query_value, (int, float)) or isinstance(point_value, (int, float)):
                 try:
-                    if Decimal(str(query_value)) != Decimal(str(point_value)):
+                    if float(query_value) != float(point_value):
                         return False
                 except (ValueError, TypeError):
                     return False
@@ -165,11 +162,9 @@ class ConditionPoint(BaseModel):
                 return False
             point_value = my_params[key]
             # Compare with type coercion for numeric values
-            if isinstance(req_value, (int, float, Decimal)) or isinstance(
-                point_value, (int, float, Decimal)
-            ):
+            if isinstance(req_value, (int, float)) or isinstance(point_value, (int, float)):
                 try:
-                    if Decimal(str(req_value)) != Decimal(str(point_value)):
+                    if float(req_value) != float(point_value):
                         return False
                 except (ValueError, TypeError):
                     return False
@@ -413,7 +408,7 @@ class Characteristic(BaseModel):
         if all_nominals:
             max_nominal = max(all_nominals)
             # Include 20% headroom for range coverage
-            range_max = max_nominal * Decimal("1.2")
+            range_max = max_nominal * 1.2
             range_spec = RangeSpec(max=range_max, units=self.units)
 
         return Capability(
@@ -445,7 +440,7 @@ class TestRequirement(BaseModel):
 
     characteristic_ref: str | None = None
     conditions: dict[str, Any] = Field(default_factory=dict)
-    guardband_pct: Decimal = Decimal("0")
+    guardband_pct: float = 0.0
     priority: Literal["critical", "standard", "optional"] = "standard"
     description: str | None = None
 

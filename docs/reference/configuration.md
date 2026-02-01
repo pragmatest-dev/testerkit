@@ -56,11 +56,11 @@ characteristics:
     schematic_ref: string # Deprecated: use net instead
 
     conditions:
-      - nominal: decimal  # Expected value
-        tolerance_pct: decimal    # Percentage tolerance
-        tolerance_abs: decimal    # Or absolute tolerance
-        limit_low: decimal        # Or explicit limits
-        limit_high: decimal
+      - nominal: float  # Expected value
+        tolerance_pct: float    # Percentage tolerance
+        tolerance_abs: float    # Or absolute tolerance
+        limit_low: float        # Or explicit limits
+        limit_high: float
         comparator: GELE | EQ | NE | LT | LE | GT | GE | GELT | GTLE | GTLT
         # Additional condition parameters (e.g., temperature, load)
         <param>: value
@@ -69,7 +69,7 @@ test_requirements:
   <name>:
     characteristic_ref: string   # Reference to characteristic
     conditions: dict            # Which conditions to test
-    guardband_pct: decimal      # Tighten limits by this percentage (default 0)
+    guardband_pct: float      # Tighten limits by this percentage (default 0)
     priority: integer           # Test order priority
     description: string
 ```
@@ -114,9 +114,9 @@ instruments:
     type: string          # Instrument type (dmm, scope, psu, eload, etc.)
     resource: string      # VISA address
     mock_config:          # Values for --mock-instruments mode
-      voltage: decimal
-      current: decimal
-      resistance: decimal
+      voltage: float
+      current: float
+      resistance: float
 
 supported_phases:         # Optional: which test phases this station supports
   - validation
@@ -201,9 +201,9 @@ points:
 
   limits:
     <measurement_name>:
-      low: decimal
-      high: decimal
-      nominal: decimal
+      low: float
+      high: float
+      nominal: float
       units: string
       spec_ref: string
       comparator: string  # Default: GELE
@@ -279,11 +279,11 @@ capabilities:
       naming: string      # Pattern: "CH{n}", "ai{n}"
       labels: [string]    # Explicit: ["CH1", "CH2", "CH3", "CH4"]
     range:
-      min: decimal
-      max: decimal
+      min: float
+      max: float
       units: string
-    resolution: decimal
-    accuracy_pct: decimal
+    resolution: float
+    accuracy_pct: float
 ```
 
 ### Channel Naming

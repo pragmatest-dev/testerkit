@@ -10,7 +10,6 @@ These tests verify BEHAVIOR, not specific values from demo specs.
 Demo specs can change freely without breaking these tests.
 """
 
-from decimal import Decimal
 from pathlib import Path
 
 import pytest
@@ -63,8 +62,8 @@ class TestSpecContext:
 
     def test_get_limit_with_guardband_tightens_range(self):
         """Guardband should tighten the limit range."""
-        spec_no_gb = SpecContext.from_file(SPEC_PATH, guardband_pct=Decimal("0"))
-        spec_with_gb = SpecContext.from_file(SPEC_PATH, guardband_pct=Decimal("10"))
+        spec_no_gb = SpecContext.from_file(SPEC_PATH, guardband_pct=0.0)
+        spec_with_gb = SpecContext.from_file(SPEC_PATH, guardband_pct=10.0)
 
         # Find a characteristic with tolerance-based limits (has both low and high)
         char_id = None
@@ -186,7 +185,7 @@ class TestHarnessSpecIntegration:
         with harness.step():
             for vector in harness.vectors:
                 with harness.run_vector(vector):
-                    m = harness.measure(char_id, Decimal("1.0"))
+                    m = harness.measure(char_id, 1.0)
                     assert m.dut_pin == expected_pin_info["dut_pin"]
 
     def test_measurement_pass_when_in_spec(self):
@@ -240,9 +239,9 @@ class TestHarnessSpecIntegration:
                 with harness.run_vector(vector):
                     # Use value way outside limits
                     if limit.high:
-                        test_value = limit.high * Decimal("2")
+                        test_value = limit.high * 2.0
                     elif limit.low:
-                        test_value = limit.low * Decimal("0.1")
+                        test_value = limit.low * 0.1
                     else:
                         pytest.skip("No testable limit bounds")
 
@@ -259,8 +258,8 @@ class TestHarnessSpecIntegration:
         char_id = next(iter(spec.product.characteristics.keys()))
 
         explicit_limit = Limit(
-            low=Decimal("0"),
-            high=Decimal("100"),
+            low=0.0,
+            high=100.0,
             units="V",
             spec_ref="EXPLICIT_OVERRIDE",
         )
@@ -270,10 +269,10 @@ class TestHarnessSpecIntegration:
         with harness.step():
             for vector in harness.vectors:
                 with harness.run_vector(vector):
-                    m = harness.measure(char_id, Decimal("50"), limit=explicit_limit)
+                    m = harness.measure(char_id, 50.0, limit=explicit_limit)
 
-                    assert m.low_limit == Decimal("0")
-                    assert m.high_limit == Decimal("100")
+                    assert m.low_limit == 0.0
+                    assert m.high_limit == 100.0
                     assert m.spec_ref == "EXPLICIT_OVERRIDE"
 
 
@@ -397,9 +396,9 @@ class TestEndToEndWorkflow:
                 with harness.run_vector(vector):
                     # Force failure with out-of-spec value
                     if limit.high:
-                        bad_value = limit.high * Decimal("10")
+                        bad_value = limit.high * 10.0
                     elif limit.low:
-                        bad_value = Decimal("0")
+                        bad_value = 0.0
                     else:
                         pytest.skip("No testable limit bounds")
 

@@ -1,7 +1,6 @@
 """Data models for test results."""
 
 from datetime import UTC, datetime
-from decimal import Decimal
 from enum import StrEnum
 from typing import TYPE_CHECKING, Any
 from uuid import UUID, uuid4
@@ -32,7 +31,7 @@ class StimulusRecord(BaseModel):
     """
 
     param: str
-    value: Decimal | float | None = None
+    value: float | None = None
     units: str | None = None
     instrument: str | None = None  # Station config name (e.g., "psu_main")
     resource: str | None = None  # VISA address or connection string
@@ -56,11 +55,11 @@ class Measurement(BaseModel):
     """A single measurement with optional limit checking."""
 
     name: str
-    value: Decimal | None
+    value: float | None
     units: str | None = None
-    low_limit: Decimal | None = None
-    high_limit: Decimal | None = None
-    nominal: Decimal | None = None
+    low_limit: float | None = None
+    high_limit: float | None = None
+    nominal: float | None = None
     outcome: Outcome | None = None
     spec_id: str | None = None  # Characteristic ID for structured traceability
     spec_ref: str | None = None  # Human-readable spec reference with conditions
@@ -291,3 +290,36 @@ class TestRun(BaseModel):
     product_spec_yaml: str | None = None
     fixture_config_yaml: str | None = None
     test_config_yaml: str | None = None
+
+
+class Waveform(BaseModel):
+    """Time-series waveform data with metadata.
+
+    Uses compressed representation where time axis is reconstructed
+    from t0 + i*dt instead of storing paired timestamps.
+
+    Attributes:
+        t0: Start time (seconds from trigger)
+        dt: Sample interval (seconds)
+        Y: Sample values (voltage, current, etc.)
+        attrs: Metadata (units, channel, coupling, etc.)
+    """
+
+    t0: float = 0.0
+    dt: float
+    Y: list[float]  # Sample values
+    attrs: dict[str, Any] = Field(default_factory=dict)
+
+    @property
+    def num_samples(self) -> int:
+        """Number of samples in the waveform."""
+        return len(self.Y)
+
+    @property
+    def duration(self) -> float:
+        """Total duration in seconds."""
+        return self.num_samples * self.dt
+
+    def time_axis(self) -> list[float]:
+        """Reconstruct time axis: t = t0 + i*dt."""
+        return [self.t0 + i * self.dt for i in range(self.num_samples)]

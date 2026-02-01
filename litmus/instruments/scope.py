@@ -18,7 +18,6 @@ Example usage:
         data, x_inc = scope.fetch_waveform("CH1")  # Returns simulated waveform
 """
 
-from decimal import Decimal
 from typing import Any
 
 from litmus.capabilities.interfaces import WaveformInput
@@ -112,7 +111,7 @@ class Scope(VisaInstrument, WaveformInput):
     # WaveformInput interface
     # -------------------------------------------------------------------------
 
-    def configure_acquisition(self, sample_rate: Decimal, record_length: int) -> None:
+    def configure_acquisition(self, sample_rate: float, record_length: int) -> None:
         """Configure acquisition parameters.
 
         Args:
@@ -159,7 +158,7 @@ class Scope(VisaInstrument, WaveformInput):
 
         return data, x_inc
 
-    def configure_trigger(self, source: str, level: Decimal, slope: str) -> None:
+    def configure_trigger(self, source: str, level: float, slope: str) -> None:
         """Configure trigger.
 
         Args:
@@ -178,7 +177,7 @@ class Scope(VisaInstrument, WaveformInput):
     # Additional measurement methods
     # -------------------------------------------------------------------------
 
-    def measure_frequency(self, channel: str = "CH1") -> Decimal:
+    def measure_frequency(self, channel: str = "CH1") -> float:
         """Measure frequency on a channel.
 
         Args:
@@ -190,9 +189,9 @@ class Scope(VisaInstrument, WaveformInput):
         ch_num = channel.replace("CH", "").replace("ch", "")
         self.write(f":MEAS:SOUR CHAN{ch_num}")
         response = self.query(":MEAS:FREQ?")
-        return Decimal(response)
+        return float(response)
 
-    def measure_vpp(self, channel: str = "CH1") -> Decimal:
+    def measure_vpp(self, channel: str = "CH1") -> float:
         """Measure peak-to-peak voltage on a channel.
 
         Args:
@@ -204,7 +203,7 @@ class Scope(VisaInstrument, WaveformInput):
         ch_num = channel.replace("CH", "").replace("ch", "")
         self.write(f":MEAS:SOUR CHAN{ch_num}")
         response = self.query(":MEAS:VPP?")
-        return Decimal(response)
+        return float(response)
 
     def auto_scale(self) -> None:
         """Run auto-scale to automatically configure display."""

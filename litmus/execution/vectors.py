@@ -6,7 +6,6 @@ iterates over them, calling the test function for each.
 """
 
 from collections.abc import Iterator, Mapping
-from decimal import Decimal
 from itertools import product as itertools_product
 from typing import Any
 
@@ -170,9 +169,9 @@ def expand_zip(**params: list[Any]) -> list[Vector]:
 
 def expand_range(
     name: str,
-    start: float | Decimal,
-    stop: float | Decimal,
-    step: float | Decimal | None = None,
+    start: float,
+    stop: float,
+    step: float | None = None,
     count: int | None = None,
 ) -> list[Vector]:
     """Expand a single parameter over a numeric range.
