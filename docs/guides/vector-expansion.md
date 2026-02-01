@@ -8,9 +8,9 @@ A **Vector** is a dict of parameters for a single test iteration:
 
 ```python
 @litmus_test
-def test_output_voltage(vector, psu, dmm):
-    vin = vector.get("vin", 5.0)      # Get parameter from vector
-    load = vector.get("load", 0.1)    # With default fallback
+def test_output_voltage(context, psu, dmm):
+    vin = context.get_in("vin", 5.0)      # Get parameter from context
+    load = context.get_in("load", 0.1)    # With default fallback
 
     psu.set_voltage(vin)
     psu.enable_output()
@@ -170,9 +170,9 @@ vectors:
 
 **Note:** Ranges are **inclusive** of both start and stop (unlike Python's range). This matches hardware industry conventions (SCPI, Verilog, NI DAQmx).
 
-## Change Detection with `vector.changed()`
+## Change Detection with `context.changed()`
 
-When iterating through vectors, use `vector.changed()` to detect when outer-loop parameters change. This is useful for:
+When iterating through vectors, use `context.changed()` to detect when outer-loop parameters change. This is useful for:
 
 - Showing operator prompts only when temperature changes
 - Re-initializing equipment on major parameter changes
@@ -180,12 +180,12 @@ When iterating through vectors, use `vector.changed()` to detect when outer-loop
 
 ```python
 @litmus_test
-def test_with_temperature(vector, psu, dmm, chamber):
-    temp = vector["temperature"]
-    vin = vector["vin"]
+def test_with_temperature(context, psu, dmm, chamber):
+    temp = context.inputs["temperature"]
+    vin = context.inputs["vin"]
 
     # Only change chamber when temperature changes
-    if vector.changed("temperature"):
+    if context.changed("temperature"):
         chamber.set_temperature(temp)
         chamber.wait_for_stable()
 
@@ -277,18 +277,18 @@ test_load_regulation:
 ```python
 # tests/test_power.py
 @litmus_test
-def test_load_regulation(vector, psu, dmm, eload, chamber):
-    temp = vector["temperature"]
-    vin = vector["vin"]
-    load = vector["load_current"]
+def test_load_regulation(context, psu, dmm, eload, chamber):
+    temp = context.inputs["temperature"]
+    vin = context.inputs["vin"]
+    load = context.inputs["load_current"]
 
     # Expensive: only when temperature changes
-    if vector.changed("temperature"):
+    if context.changed("temperature"):
         chamber.set_temperature(temp)
         chamber.wait_for_stable(timeout=300)
 
     # Medium cost: only when vin changes
-    if vector.changed("vin"):
+    if context.changed("vin"):
         psu.set_voltage(vin)
         psu.enable_output()
 

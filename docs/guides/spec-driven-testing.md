@@ -144,7 +144,7 @@ test_output_voltage:
 
 ```python
 @litmus_test
-def test_output_voltage(vector, instruments):
+def test_output_voltage(context, instruments):
     return instruments["dmm"].measure_voltage()
 ```
 
@@ -256,11 +256,11 @@ test_output_voltage:
 
 ```python
 @litmus_test
-def test_output_voltage(vector, instruments, spec):
+def test_output_voltage(context, instruments, spec):
     """Verify output voltage per spec."""
-    # Vector provides conditions
-    temp = vector["temperature"]
-    load = vector["load"]
+    # context provides conditions
+    temp = context["temperature"]
+    load = context["load"]
 
     # Configure conditions
     set_chamber_temp(temp)
@@ -270,7 +270,7 @@ def test_output_voltage(vector, instruments, spec):
     voltage = instruments["dmm"].measure_voltage()
 
     return voltage
-    # Limits resolved from spec at vector conditions
+    # Limits resolved from spec at context conditions
 ```
 
 ### 5. Run

@@ -8,7 +8,7 @@ This guide covers patterns and best practices for writing Litmus tests.
 from litmus.execution import litmus_test
 
 @litmus_test
-def test_voltage(vector, instruments):
+def test_voltage(context, instruments):
     """Measure and return voltage."""
     dmm = instruments["dmm"]
     return dmm.measure_voltage()
@@ -31,7 +31,7 @@ The decorator transforms your function into a hardware test:
     raise_on_fail=True,       # Raise if limit fails (default: True)
     config_file="custom.yaml", # Custom config file
 )
-def test_example(vector):
+def test_example(context):
     ...
 ```
 
@@ -41,7 +41,7 @@ def test_example(vector):
 
 ```python
 @litmus_test
-def test_voltage(vector, dmm):
+def test_voltage(context, dmm):
     return dmm.measure_voltage()  # Stored as "test_voltage"
 ```
 
@@ -49,7 +49,7 @@ def test_voltage(vector, dmm):
 
 ```python
 @litmus_test
-def test_power(vector, dmm):
+def test_power(context, dmm):
     return {
         "input_voltage": dmm.measure_voltage(),
         "input_current": dmm.measure_current(),
@@ -60,38 +60,38 @@ def test_power(vector, dmm):
 
 ```python
 @litmus_test
-def test_stability(vector, dmm):
+def test_stability(context, dmm):
     for i in range(10):
         yield {"voltage": dmm.measure_voltage()}
         time.sleep(1)
 ```
 
-## The vector Fixture
+## The context Fixture
 
-Every `@litmus_test` function receives a `vector` parameter:
+Every `@litmus_test` function receives a `context` parameter:
 
 ```python
 @litmus_test
-def test_sweep(vector, psu, dmm):
+def test_sweep(context, psu, dmm):
     # Access parameters
-    voltage = vector["voltage"]
-    load = vector["load"]
+    voltage = context["voltage"]
+    load = context["load"]
 
     psu.set_voltage(voltage)
     return dmm.measure_voltage()
 ```
 
-### Vector Methods
+### Context Methods
 
 ```python
-vector["voltage"]          # Get parameter
-vector.get("temp", 25)     # Get with default
-vector.params()            # All parameters as dict (method)
-vector["_index"]           # 0-based index in expansion
+context["voltage"]          # Get parameter
+context.get("temp", 25)     # Get with default
+context.params()            # All parameters as dict (method)
+context["_index"]           # 0-based index in expansion
 
 # Change detection (for nested loops)
-if vector.changed("temperature"):
-    set_chamber_temp(vector["temperature"])
+if context.changed("temperature"):
+    set_chamber_temp(context["temperature"])
 ```
 
 ## Test Configuration
@@ -135,7 +135,7 @@ test_flaky:
 
 ```python
 @litmus_test
-def test_voltage(vector, instruments):
+def test_voltage(context, instruments):
     dmm = instruments["dmm"]
     psu = instruments["psu"]
     ...
@@ -145,7 +145,7 @@ def test_voltage(vector, instruments):
 
 ```python
 @litmus_test
-def test_output(vector, pins):
+def test_output(context, pins):
     pins["VIN"].set_voltage(5.0)
     pins["VIN"].enable_output()
     return pins["VOUT"].measure_voltage()
@@ -157,7 +157,7 @@ def test_output(vector, pins):
 
 ```python
 @litmus_test
-def test_with_setup(vector, psu, dmm):
+def test_with_setup(context, psu, dmm):
     # Setup
     psu.set_voltage(5.0)
     psu.enable_output()
@@ -175,8 +175,8 @@ def test_with_setup(vector, psu, dmm):
 
 ```python
 @litmus_test
-def test_conditional(vector, instruments):
-    if vector.get("high_voltage", False):
+def test_conditional(context, instruments):
+    if context.get("high_voltage", False):
         instruments["hvps"].set_voltage(100)
     else:
         instruments["psu"].set_voltage(5)
@@ -188,7 +188,7 @@ def test_conditional(vector, instruments):
 
 ```python
 @litmus_test
-def test_sweep(vector, psu, dmm):
+def test_sweep(context, psu, dmm):
     results = {}
 
     for voltage in [3.3, 5.0, 12.0]:
@@ -203,7 +203,7 @@ def test_sweep(vector, psu, dmm):
 
 ```python
 @litmus_test
-def test_with_retry(vector, dmm):
+def test_with_retry(context, dmm):
     for attempt in range(3):
         try:
             return dmm.measure_voltage()
@@ -218,7 +218,7 @@ When no limits are configured, measurements pass (for data collection):
 
 ```python
 @litmus_test(raise_on_fail=False)
-def test_characterize(vector, dmm):
+def test_characterize(context, dmm):
     """Collect data without pass/fail."""
     return dmm.measure_voltage()
 ```
@@ -251,7 +251,7 @@ pytest tests/ \
 ```python
 # Bad
 @litmus_test
-def test_everything(vector, instruments):
+def test_everything(context, instruments):
     return {
         "voltage": measure_voltage(),
         "temperature": measure_temp(),
@@ -264,11 +264,11 @@ def test_everything(vector, instruments):
 ```python
 # Good
 @litmus_test
-def test_voltage(vector, instruments):
+def test_voltage(context, instruments):
     return instruments["dmm"].measure_voltage()
 
 @litmus_test
-def test_temperature(vector, instruments):
+def test_temperature(context, instruments):
     return instruments["temp_logger"].measure_temperature()
 ```
 
@@ -277,7 +277,7 @@ def test_temperature(vector, instruments):
 ```python
 # Bad
 @litmus_test
-def test_voltage(vector, dmm):
+def test_voltage(context, dmm):
     v = dmm.measure_voltage()
     assert 3.0 < float(v) < 3.6  # Hardcoded!
     return v

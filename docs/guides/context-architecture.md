@@ -332,6 +332,41 @@ def test_slow_measurement(context, dmm):
     # This doesn't affect other steps
 ```
 
+### Pattern 5: Accessing Limits from Tests
+
+Tests can access resolved limits through the context:
+
+```python
+@litmus_test
+def test_adaptive_sampling(context, dmm):
+    """Take more samples if limit is tight."""
+    limit = context.get_limit("output_voltage")
+
+    if limit and limit.tolerance_pct < 2.0:
+        # Tight limit - take 10 samples and average
+        samples = [dmm.measure_voltage() for _ in range(10)]
+        return sum(samples) / len(samples)
+    else:
+        # Loose limit - single sample is fine
+        return dmm.measure_voltage()
+```
+
+**When to use `get_limit()`:**
+
+- **Adaptive behavior**: Adjust test based on limit tightness
+- **Logging**: Record limit info in observations for analysis
+- **Custom validation**: Implement domain-specific pass/fail logic
+- **Debugging**: Display limit context during test development
+
+**How it works:**
+
+`context.get_limit(name)` uses the same resolution logic as `harness.measure()`:
+
+1. Check `_limits` dict for explicit limits
+2. Resolve callable limits with current context
+3. Look up spec-driven limits from SpecContext
+4. Return None if no limit defined
+
 ## Advanced: Direct TestHarness Usage
 
 For test architects who need explicit control:

@@ -143,13 +143,13 @@ Observations are measured context captured during test execution—not the comma
 
 **Usage in test code:**
 ```python
-def test_output_voltage(psu, dmm, temp_probe, vector_context):
+def test_output_voltage(psu, dmm, temp_probe, context):
     # Log environmental observations
-    vector_context.observe("temp_probe.temperature", temp_probe.read())
-    vector_context.observe("temp_probe.humidity", temp_probe.read_humidity())
+    context.observe("temp_probe.temperature", temp_probe.read())
+    context.observe("temp_probe.humidity", temp_probe.read_humidity())
 
     # Configure stimulus (if tracking actual applied values)
-    vector_context.configure("psu.actual_voltage", psu.read_voltage())
+    context.configure("psu.actual_voltage", psu.read_voltage())
 
     # THE measurement
     return dmm.measure_dc_voltage()
@@ -493,7 +493,7 @@ time = waveform.time_axis()  # Reconstructed time array
 
 **Storing waveforms:**
 ```python
-def test_transient(vector, scope, harness):
+def test_transient(context, scope, harness):
     scope.trigger_single()
     waveform = scope.fetch_waveform("CH1")
 

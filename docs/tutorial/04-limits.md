@@ -244,6 +244,30 @@ test_output_voltage:
 
 See the [Limits Guide](../guides/limits.md) for full details on callable limits.
 
+## Accessing Limits in Tests
+
+Tests can retrieve resolved limits via context:
+
+```python
+@litmus_test
+def test_voltage_with_limit_logging(context, dmm):
+    # Get the resolved limit
+    limit = context.get_limit("test_voltage_with_limit_logging")
+
+    # Log limit info for traceability
+    if limit:
+        context.observe("limit_low", limit.low)
+        context.observe("limit_high", limit.high)
+        context.observe("spec_ref", limit.spec_ref)
+
+    return dmm.measure_voltage()
+```
+
+This is useful for:
+- **Adaptive test behavior**: Take more samples if near limit
+- **Enhanced logging**: Record limit context alongside measurements
+- **Custom validation**: Implement domain-specific pass/fail logic
+
 ## Complete Example
 
 **stations/my_station.yaml:**

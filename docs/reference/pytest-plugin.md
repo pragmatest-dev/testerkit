@@ -26,7 +26,7 @@ The `@litmus_test` decorator transforms a test function into a hardware test:
 from litmus.execution import litmus_test
 
 @litmus_test
-def test_voltage(vector, dmm):
+def test_voltage(context, dmm):
     """Measure and return voltage."""
     return dmm.measure_dc_voltage()
 ```
@@ -44,14 +44,14 @@ def test_voltage(vector, dmm):
 **Single measurement:**
 ```python
 @litmus_test
-def test_voltage(vector, dmm):
+def test_voltage(context, dmm):
     return dmm.measure_dc_voltage()  # Stored as "test_voltage"
 ```
 
 **Multiple measurements (dict):**
 ```python
 @litmus_test
-def test_power(vector, dmm):
+def test_power(context, dmm):
     return {
         "input_voltage": dmm.measure_dc_voltage(),
         "input_current": dmm.measure_dc_current(),
@@ -61,42 +61,42 @@ def test_power(vector, dmm):
 **Streaming measurements (yield):**
 ```python
 @litmus_test
-def test_stability(vector, dmm):
+def test_stability(context, dmm):
     for i in range(10):
         yield {"voltage": dmm.measure_dc_voltage()}
         time.sleep(1)
 ```
 
-## The vector Fixture
+## The context Fixture
 
-Every `@litmus_test` function receives a `vector` parameter containing the current test parameters:
+Every `@litmus_test` function receives a `context` parameter containing the current test parameters:
 
 ```python
 @litmus_test
-def test_sweep(vector, psu, dmm):
-    # Access vector parameters
-    voltage = vector["voltage"]
-    load = vector["load"]
+def test_sweep(context, psu, dmm):
+    # Access context parameters
+    voltage = context.inputs["voltage"]
+    load = context.get_in("load", 0.1)  # With default
 
     psu.set_voltage(voltage)
     return dmm.measure_dc_voltage()
 ```
 
-### Vector Methods
+### Context Methods
 
 **Access parameters:**
 ```python
-vector["voltage"]        # Get parameter value
-vector.get("temp", 25)   # With default
-vector.params()          # All parameters as dict (method, not property)
-vector["_index"]         # 0-based index in expansion
+context.inputs["voltage"]     # Get parameter value from merged dict
+context.get_in("temp", 25)    # Get with default (checks parent chain)
+context.inputs                # All inputs as dict (includes inherited)
+context.inputs.get("_index")  # 0-based index in expansion
 ```
 
 **Change detection (for nested loops):**
 ```python
-if vector.changed("temperature"):
-    # Temperature changed since last vector
-    set_chamber_temp(vector["temperature"])
+if context.changed("temperature"):
+    # Temperature changed since last context
+    set_chamber_temp(context.inputs["temperature"])
 ```
 
 ## Test Configuration
@@ -144,7 +144,7 @@ All parameters are optional:
     limits=None,           # Dict of limit overrides by measurement name
     raise_on_fail=True,    # Raise AssertionError if limit fails
 )
-def test_example(vector, dmm):
+def test_example(context, dmm):
     ...
 ```
 
@@ -174,7 +174,7 @@ def test_example(vector, dmm):
         "limits": {"test_sweep": {"low": 3.0, "high": 13.0, "units": "V"}},
     }
 )
-def test_sweep(vector, dmm):
+def test_sweep(context, dmm):
     return dmm.measure_dc_voltage()
 ```
 
@@ -187,7 +187,7 @@ from litmus.config.models import Limit
         "voltage": Limit(low=3.2, high=3.4, nominal=3.3, units="V"),
     }
 )
-def test_voltage(vector, dmm):
+def test_voltage(context, dmm):
     return {"voltage": dmm.measure_dc_voltage()}
 ```
 
@@ -198,21 +198,21 @@ from litmus.config.models import RetryConfig
 @litmus_test(
     retry=RetryConfig(max_attempts=5, delay_seconds=1.0)
 )
-def test_flaky(vector, dmm):
+def test_flaky(context, dmm):
     return dmm.measure_dc_voltage()
 ```
 
 **Custom config file:**
 ```python
 @litmus_test(config_file="special_config.yaml")
-def test_special(vector, dmm):
+def test_special(context, dmm):
     return dmm.measure_dc_voltage()
 ```
 
 **Characterization mode (don't fail on limits):**
 ```python
 @litmus_test(raise_on_fail=False)
-def test_characterize(vector, dmm):
+def test_characterize(context, dmm):
     # Measurements recorded but won't fail test
     return dmm.measure_dc_voltage()
 ```
@@ -223,7 +223,7 @@ When no limits are configured, measurements are recorded as PASS (characterizati
 
 ```python
 @litmus_test(raise_on_fail=False)
-def test_characterize(vector, dmm):
+def test_characterize(context, dmm):
     return dmm.measure_dc_voltage()  # Always passes, records value
 ```
 
@@ -256,7 +256,7 @@ When using `--station-config`, the plugin provides automatic instrument manageme
 **`instruments` fixture (session-scoped):**
 ```python
 @litmus_test
-def test_voltage(vector, instruments):
+def test_voltage(context, instruments):
     dmm = instruments["dmm"]       # Access by station config name
     psu = instruments["psu"]
     psu.set_voltage(5.0)
@@ -416,7 +416,7 @@ import pytest
 
 @pytest.mark.litmus_retry(max_attempts=3, delay=0.5)
 @litmus_test
-def test_flaky_measurement(vector, dmm):
+def test_flaky_measurement(context, dmm):
     return dmm.measure_dc_voltage()
 ```
 
@@ -433,13 +433,13 @@ Skip test if dependencies failed:
 import pytest
 
 @litmus_test
-def test_power_on(vector, psu):
+def test_power_on(context, psu):
     psu.enable_output()
     return psu.measure_voltage()
 
 @pytest.mark.litmus_skip_on(["test_power_on"])
 @litmus_test
-def test_output_voltage(vector, dmm):
+def test_output_voltage(context, dmm):
     # Skipped if test_power_on failed
     return dmm.measure_dc_voltage()
 ```
@@ -535,14 +535,14 @@ def dmm(instruments):
     return instruments["dmm"]
 
 @litmus_test
-def test_input_voltage(vector, dmm):
+def test_input_voltage(context, dmm):
     """Verify input voltage."""
     return dmm.measure_voltage()
 
 @litmus_test
-def test_output_sweep(vector, dmm):
+def test_output_sweep(context, dmm):
     """Sweep load conditions."""
-    # vector["load_percent"] contains current load value
+    # context.inputs["load_percent"] contains current load value
     return dmm.measure_voltage()
 ```
 

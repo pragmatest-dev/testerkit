@@ -67,36 +67,36 @@ def test_stability(context, dmm):
         time.sleep(1)
 ```
 
-## The vector Fixture
+## The context Fixture
 
-Every `@litmus_test` function receives a `vector` parameter containing the current test parameters:
+Every `@litmus_test` function receives a `context` parameter containing the current test parameters:
 
 ```python
 @litmus_test
 def test_sweep(context, psu, dmm):
-    # Access vector parameters
-    voltage = vector["voltage"]
-    load = vector["load"]
+    # Access context parameters
+    voltage = context.inputs["voltage"]
+    load = context.get_in("load", 0.1)  # With default
 
     psu.set_voltage(voltage)
     return dmm.measure_dc_voltage()
 ```
 
-### Vector Methods
+### Context Methods
 
 **Access parameters:**
 ```python
-vector["voltage"]      # Get parameter value
-vector.get("temp", 25) # With default
-vector.params          # All parameters as dict
-vector.index           # 0-based index in expansion
+context.inputs["voltage"]     # Get parameter value from merged dict
+context.get_in("temp", 25)    # Get with default (checks parent chain)
+context.inputs                # All inputs as dict (includes inherited)
+context.inputs.get("_index")  # 0-based index in expansion
 ```
 
 **Change detection (for nested loops):**
 ```python
-if vector.changed("temperature"):
-    # Temperature changed since last vector
-    set_chamber_temp(vector["temperature"])
+if context.changed("temperature"):
+    # Temperature changed since last context
+    set_chamber_temp(context.inputs["temperature"])
 ```
 
 ## Test Configuration
@@ -286,7 +286,7 @@ def test_input_voltage(context, dmm):
 @litmus_test
 def test_output_sweep(context, dmm):
     """Sweep load conditions."""
-    # vector["load_percent"] contains current load value
+    # context.inputs["load_percent"] contains current load value
     return dmm.measure_voltage()
 ```
 

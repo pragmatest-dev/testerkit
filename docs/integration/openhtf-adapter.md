@@ -66,7 +66,7 @@ Run both OpenHTF and Litmus tests during migration:
 from litmus.execution import litmus_test
 
 @litmus_test
-def test_voltage(vector, instruments):
+def test_voltage(context, instruments):
     """Litmus version of voltage test."""
     return instruments["dmm"].measure_voltage()
 ```
@@ -111,7 +111,7 @@ def power_test(test):
 from litmus.execution import litmus_test
 
 @litmus_test
-def test_power(vector, instruments):
+def test_power(context, instruments):
     """Power test migrated from OpenHTF."""
     psu = instruments["psu"]
     dmm = instruments["dmm"]

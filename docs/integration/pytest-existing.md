@@ -36,7 +36,7 @@ def pytest_addoption(parser):
 from litmus.execution import litmus_test
 
 @litmus_test
-def test_new_voltage_check(vector, instruments):
+def test_new_voltage_check(context, instruments):
     """New test using Litmus."""
     return instruments["dmm"].measure_voltage()
 ```
@@ -151,7 +151,7 @@ Convert tests to use the decorator:
 from litmus.execution import litmus_test
 
 @litmus_test
-def test_voltage(vector, instruments):
+def test_voltage(context, instruments):
     """Fully converted Litmus test."""
     return instruments["dmm"].measure_voltage()
 ```
@@ -289,7 +289,7 @@ import pytest
 
 @pytest.mark.litmus
 @litmus_test
-def test_with_litmus(vector):
+def test_with_litmus(context):
     ...
 
 @pytest.mark.unit

@@ -158,8 +158,8 @@ def litmus_test(
     """Decorator for vector-based test functions.
 
     Automatically loops over expanded vectors, handles retries, and logs
-    measurements. The decorated function receives a `vector` argument
-    containing the current parameter values.
+    measurements. The decorated function receives a `context` argument
+    containing the current parameter values and test context.
 
     The test function can:
     - Return a single value → logged as measurement with function name
@@ -310,7 +310,9 @@ def litmus_test(
 
             # Run the test function across all vectors
             # Context is injected as first param (or via kwargs if not first)
-            def test_fn(vector: Vector) -> Any:
+            # Note: vector param is required by run_all() signature but we use
+            # harness.context instead (which is set up from the vector by run_vector)
+            def test_fn(_vector: Vector) -> Any:
                 if params and params[0] == "context":
                     # context is first positional arg
                     result = fn(harness.context, *fixture_args, **kwargs)

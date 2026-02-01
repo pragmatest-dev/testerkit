@@ -97,7 +97,7 @@ Follow the **full tutorial** for complete integration:
 from litmus.execution import litmus_test
 
 @litmus_test
-def test_voltage(vector, instruments):
+def test_voltage(context, instruments):
     return instruments["dmm"].measure_voltage()
 ```
 

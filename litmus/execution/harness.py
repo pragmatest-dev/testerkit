@@ -22,6 +22,9 @@ if TYPE_CHECKING:
     from litmus.execution.logger import TestRunLogger
     from litmus.products.context import SpecContext
 
+# Forward reference for type hints
+_TestHarness = "TestHarness"
+
 
 def _utcnow() -> datetime:
     """Return current UTC datetime."""
@@ -59,15 +62,22 @@ class Context:
     - Implementation details use fixture prefix: psu.voltage, dmm.sample_count
     """
 
-    def __init__(self, parent: Context | None = None, prev: Context | None = None):
+    def __init__(
+        self,
+        parent: Context | None = None,
+        prev: Context | None = None,
+        harness: _TestHarness | None = None,
+    ):
         """Initialize context with optional parent for inheritance.
 
         Args:
             parent: Parent context to inherit values from. If None, this is a root context.
             prev: Previous sibling context (for change detection across vectors).
+            harness: TestHarness reference for accessing limits and other harness features.
         """
         self._parent = parent
         self._prev = prev
+        self._harness = harness
         self._inputs: dict[str, Any] = {}
         self._outputs: dict[str, Any] = {}
 
@@ -77,7 +87,7 @@ class Context:
         Returns:
             New Context with this context as parent.
         """
-        return Context(parent=self)
+        return Context(parent=self, harness=self._harness)
 
     # -------------------------------------------------------------------------
     # Semantic API (preferred)
@@ -224,6 +234,38 @@ class Context:
             result.update(self._parent.outputs)
         result.update(self._outputs)
         return result
+
+    # -------------------------------------------------------------------------
+    # Limit access
+    # -------------------------------------------------------------------------
+
+    def get_limit(self, name: str) -> Limit | None:
+        """Get resolved limit for a measurement.
+
+        Resolves limit using the same logic as harness.measure():
+        1. Check harness._limits for direct/config limits
+        2. Try MeasurementLimitConfig.to_limit() for direct values
+        3. Try spec reference via SpecContext
+        4. Try callable limit evaluation
+        5. Fall back to SpecContext characteristic lookup
+
+        Args:
+            name: Measurement name to get limit for.
+
+        Returns:
+            Resolved Limit object, or None if no limit defined.
+
+        Example:
+            @litmus_test
+            def test_adaptive(context, dmm):
+                limit = context.get_limit("output_voltage")
+                if limit:
+                    # Take more samples if nominal is tight
+                    samples = 10 if limit.tolerance < 0.05 else 5
+        """
+        if self._harness is None:
+            return None
+        return self._harness._resolve_limit(name)
 
     # -------------------------------------------------------------------------
     # RunContext compatibility (for metadata at run level)
@@ -381,7 +423,7 @@ class TestHarness:
         self._attempt: int = 1
 
         # Hierarchical context: run → step → vector
-        self._run_context: Context = Context()
+        self._run_context: Context = Context(harness=self)
         self._step_context: Context | None = None
         self._vector_context: Context | None = None
         self._prev_vector_context: Context | None = None
@@ -800,7 +842,9 @@ class TestHarness:
 
         # Create vector context as child of step (or run if no step)
         parent_context = self._step_context or self._run_context
-        self._vector_context = Context(parent=parent_context, prev=self._prev_vector_context)
+        self._vector_context = Context(
+            parent=parent_context, prev=self._prev_vector_context, harness=self
+        )
 
         # Pre-populate with vector params (they become in_* columns)
         self._vector_context.set_inputs(vector.params())

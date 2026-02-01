@@ -74,8 +74,8 @@ instruments:
 from litmus.execution import litmus_test
 
 @litmus_test
-def test_output_voltage(vector, psu, dmm):
-    psu.set_voltage(vector.get("vin", 5.0))
+def test_output_voltage(context, psu, dmm):
+    psu.set_voltage(context.get_in("vin", 5.0))
     psu.enable_output()
     return dmm.measure_dc_voltage()
 ```
@@ -300,8 +300,8 @@ You are helping create hardware tests from a product datasheet. This is COLLABOR
        "code": """from litmus.execution import litmus_test
 
 @litmus_test
-def test_output_voltage(vector, psu, dmm):
-    psu.set_voltage(vector.get("vin", 12.0))
+def test_output_voltage(context, psu, dmm):
+    psu.set_voltage(context.get_in("vin", 12.0))
     psu.enable_output()
     return dmm.measure_dc_voltage()
 """

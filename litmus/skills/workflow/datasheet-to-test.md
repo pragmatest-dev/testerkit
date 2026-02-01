@@ -228,28 +228,28 @@ from litmus.execution import litmus_test
 
 
 @litmus_test
-def test_output_voltage(vector, psu, dmm):
+def test_output_voltage(context, psu, dmm):
     """Measure output voltage at specified input."""
-    psu.set_voltage(vector.get("vin", 12.0))
+    psu.set_voltage(context.get_in("vin", 12.0))
     psu.enable_output()
     return dmm.measure_dc_voltage()
 
 
 @litmus_test
-def test_quiescent_current(vector, psu):
+def test_quiescent_current(context, psu):
     """Measure quiescent current in uA."""
-    psu.set_voltage(vector.get("vin", 12.0))
+    psu.set_voltage(context.get_in("vin", 12.0))
     psu.enable_output()
     current_a = psu.measure_current()
     return current_a * 1e6  # Convert to uA
 
 
 @litmus_test
-def test_load_regulation(vector, psu, dmm, eload):
+def test_load_regulation(context, psu, dmm, eload):
     """Output voltage under load."""
-    psu.set_voltage(vector.get("vin", 12.0))
+    psu.set_voltage(context.get_in("vin", 12.0))
     psu.enable_output()
-    eload.set_current(vector["load"])
+    eload.set_current(context.inputs["load"])
     eload.enable()
     vout = dmm.measure_dc_voltage()
     eload.disable()

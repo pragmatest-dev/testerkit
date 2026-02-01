@@ -104,7 +104,7 @@ When using instruments directly, set traceability manually:
 
 ```python
 @litmus_test
-def test_output_voltage(vector, dmm, harness):
+def test_output_voltage(context, dmm, harness):
     voltage = dmm.measure_dc_voltage()
 
     harness.measure(
@@ -126,7 +126,7 @@ from litmus.products import SpecContext
 spec = SpecContext.from_file("products/power_board/spec.yaml")
 
 @litmus_test
-def test_output_voltage(vector, dmm, harness):
+def test_output_voltage(context, dmm, harness):
     voltage = dmm.measure_dc_voltage()
 
     # spec_context provides spec_ref and dut_pin automatically

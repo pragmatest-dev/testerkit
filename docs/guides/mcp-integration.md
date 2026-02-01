@@ -189,9 +189,9 @@ psu.set_voltage(12.0)  # From spec!
 from litmus.execution import litmus_test
 
 @litmus_test
-def test_output_voltage(vector, psu, dmm):
+def test_output_voltage(context, psu, dmm):
     # 1. Get conditions from spec/vector
-    vin = vector.get("vin", 12.0)  # From spec.test_conditions.default_vin
+    vin = context.get("vin", 12.0)  # From spec.test_conditions.default_vin
 
     # 2. Set up stimulus
     psu.set_voltage(vin)
@@ -295,7 +295,7 @@ litmus(action="save", type="test", id="products/dc_converter/tests/test_dc_conve
 from litmus.execution import litmus_test
 
 @litmus_test
-def test_output_voltage(vector, dmm, psu):
+def test_output_voltage(context, dmm, psu):
     psu.set_voltage(5.0)
     psu.enable_output()
     return dmm.measure_dc_voltage()

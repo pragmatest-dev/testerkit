@@ -37,9 +37,9 @@ When you use `@litmus_test`, the framework:
 from litmus.execution import litmus_test
 
 @litmus_test
-def test_output_voltage(vector, psu, dmm):
+def test_output_voltage(context, psu, dmm):
     """Framework finds limits in config.yaml for 'test_output_voltage'"""
-    vin = vector.get("vin", 5.0)
+    vin = context.get("vin", 5.0)
     psu.set_voltage(vin)
     psu.enable_output()
 
@@ -94,7 +94,7 @@ When your test returns multiple values:
 
 ```python
 @litmus_test
-def test_power(vector, psu, dmm):
+def test_power(context, psu, dmm):
     return {
         "input_voltage": psu.measure_voltage(),
         "output_voltage": dmm.measure_dc_voltage(),
@@ -215,7 +215,7 @@ You can specify limits in the decorator, but this defeats configuration-driven t
 @litmus_test(
     limits={"test_voltage": Limit(low=3.0, high=3.6, units="V")}
 )
-def test_voltage(vector, dmm):
+def test_voltage(context, dmm):
     return dmm.measure_dc_voltage()
 ```
 
@@ -278,7 +278,7 @@ If no limits are configured for a test, measurements still get recorded but alwa
 
 ```python
 @litmus_test
-def test_characterize(vector, dmm):
+def test_characterize(context, dmm):
     """Collect data without pass/fail."""
     return dmm.measure_dc_voltage()  # No limits → always PASS
 ```
@@ -295,7 +295,7 @@ The framework finds config.yaml by searching:
 
 ```python
 @litmus_test(config_file="custom_limits.yaml")
-def test_special(vector, dmm):
+def test_special(context, dmm):
     return dmm.measure_dc_voltage()
 ```
 
@@ -346,15 +346,15 @@ test_efficiency:
 from litmus.execution import litmus_test
 
 @litmus_test
-def test_output_voltage(vector, psu, dmm):
-    vin = vector.get("vin", 5.0)
+def test_output_voltage(context, psu, dmm):
+    vin = context.get("vin", 5.0)
     psu.set_voltage(vin)
     psu.enable_output()
     return dmm.measure_dc_voltage()
 
 @litmus_test
-def test_power_supply(vector, psu, dmm):
-    load = vector["load"]
+def test_power_supply(context, psu, dmm):
+    load = context["load"]
     # ... setup load ...
     return {
         "voltage": psu.measure_voltage(),
@@ -362,7 +362,7 @@ def test_power_supply(vector, psu, dmm):
     }
 
 @litmus_test
-def test_efficiency(vector, psu, dmm, eload):
+def test_efficiency(context, psu, dmm, eload):
     # ... measure efficiency ...
     return efficiency_percent
 ```

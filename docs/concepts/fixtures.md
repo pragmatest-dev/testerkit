@@ -78,7 +78,7 @@ You don't always need pin mapping. For simple setups, access instruments directl
 
 ```python
 @litmus_test
-def test_voltage(vector, instruments):
+def test_voltage(context, instruments):
     """Direct instrument access."""
     psu = instruments["psu"]
     dmm = instruments["dmm"]
