@@ -189,6 +189,11 @@ Available tools:
 
 - [Architecture](./litmus-architecture.md)
 - [CLAUDE.md](./CLAUDE.md) - AI assistant instructions
+- [docs/](./docs/) - Full documentation (tutorials, guides, reference)
+
+## Contributing
+
+See [CONTRIBUTING.md](./CONTRIBUTING.md) for architecture deep-dive, core abstractions, and development workflow.
 
 ## License
 
