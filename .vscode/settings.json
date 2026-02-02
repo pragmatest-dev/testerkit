@@ -1,0 +1,11 @@
+{
+    "sqltools.connections": [
+        {
+            "previewLimit": 50,
+            "driver": "DuckDB",
+            "database": ":memory:",
+            "name": "Litmus Repo Results"
+        }
+    ],
+    "sqltools.useNodeRuntime": true
+}
