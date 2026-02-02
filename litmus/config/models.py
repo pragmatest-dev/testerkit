@@ -523,6 +523,8 @@ class TestConfig(BaseModel):
               guardband_pct: 10
     """
 
+    __test__ = False  # Prevent pytest collection
+
     description: str | None = None
     vectors: VectorConfig | list[dict[str, Any]] | None = None
     retry: RetryConfig | None = None
@@ -547,6 +549,8 @@ class TestStepConfig(BaseModel):
           sequence: power_board_smoke
           description: "Run smoke tests first"
     """
+
+    __test__ = False  # Prevent pytest collection
 
     id: str
     test: str | None = None  # pytest node ID, e.g. "tests/test_power.py::test_5v"
@@ -617,6 +621,8 @@ class TestSequenceConfig(BaseModel):
               message: "Connect electronic load to 5V output"
               dialog_type: confirm
     """
+
+    __test__ = False  # Prevent pytest collection
 
     id: str
     name: str | None = None  # Display name (defaults to id)

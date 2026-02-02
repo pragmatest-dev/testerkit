@@ -342,6 +342,8 @@ class TestHarness:
             return dmm.measure_dc_voltage()
     """
 
+    __test__ = False  # Prevent pytest collection (name starts with "Test")
+
     def __init__(
         self,
         config: Mapping[str, Any] | None = None,

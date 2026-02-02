@@ -141,6 +141,8 @@ class RunContext:
 class TestRunLogger:
     """Accumulates measurements during test run, produces TestRun."""
 
+    __test__ = False  # Prevent pytest collection
+
     def __init__(
         self,
         dut_serial: str,

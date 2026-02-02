@@ -46,6 +46,10 @@ select = ["E", "F", "I", "UP"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 asyncio_mode = "auto"
+filterwarnings = [
+    # @litmus_test returns TestStep for programmatic use, pytest can ignore it
+    "ignore::pytest.PytestReturnNotNoneWarning",
+]
 
 [dependency-groups]
 dev = [

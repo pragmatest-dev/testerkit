@@ -26,6 +26,8 @@ class RunInfo:
 class TestRunner:
     """Manages test run execution via subprocess."""
 
+    __test__ = False  # Prevent pytest collection
+
     def __init__(self, results_dir: Path | str = "results"):
         self.results_dir = Path(results_dir)
         self.runs: dict[str, RunInfo] = {}

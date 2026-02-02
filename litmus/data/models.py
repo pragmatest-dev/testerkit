@@ -182,6 +182,8 @@ class TestVector(BaseModel):
         - measurements: The actual test results (always scalars)
     """
 
+    __test__ = False  # Prevent pytest collection
+
     id: UUID = Field(default_factory=uuid4)
     test_step_id: UUID | None = None  # FK to parent TestStep
     index: int = 0  # 0-based index in the parameter expansion
@@ -209,6 +211,8 @@ class TestStep(BaseModel):
             └── TestVector[] (one per param set, expanded from config)
                 └── Measurement[] (values captured in that vector)
     """
+
+    __test__ = False  # Prevent pytest collection
 
     id: UUID = Field(default_factory=uuid4)
     name: str
@@ -246,6 +250,8 @@ class DUT(BaseModel):
 
 class TestRun(BaseModel):
     """A complete test run with steps and measurements."""
+
+    __test__ = False  # Prevent pytest collection
 
     id: UUID = Field(default_factory=uuid4)
     started_at: datetime = Field(default_factory=_utcnow)

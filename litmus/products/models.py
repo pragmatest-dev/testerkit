@@ -438,6 +438,8 @@ class TestRequirement(BaseModel):
           priority: critical
     """
 
+    __test__ = False  # Prevent pytest collection
+
     characteristic_ref: str | None = None
     conditions: dict[str, Any] = Field(default_factory=dict)
     guardband_pct: float = 0.0
