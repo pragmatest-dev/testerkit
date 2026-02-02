@@ -25,12 +25,14 @@ PATTERNS DEMONSTRATED:
 - Pattern 11: Waveform capture (oscilloscope)
 - Pattern 12: Callable limits (temperature-dependent)
 - Pattern 13: Context traceability (configure/observe)
+- Pattern 14: Large data observation (waveform stored in _ref/)
 
 Run with:
     cd demo
     pytest tests/test_power_board.py --station=demo_station_001 --mock-instruments -v
 """
 
+import random
 import time
 
 import pytest
@@ -487,3 +489,74 @@ def test_efficiency_with_context(context, psu, dmm, eload):
         "output_power": pout,
         "efficiency": efficiency,
     }
+
+
+# =============================================================================
+# Pattern 14: Large Data Observation (Waveform → _ref/)
+# =============================================================================
+@litmus_test
+def test_ripple_waveform_capture(context, psu, eload, scope):
+    """Capture and observe raw waveform data.
+
+    This pattern demonstrates storing large data structures via context.observe().
+    Waveform objects (and numpy arrays, large byte strings) are automatically
+    stored in the _ref/ directory alongside the Parquet file, with a path
+    reference in the Parquet column.
+
+    The waveform has semi-random noise added to demonstrate realistic data.
+
+    Use this pattern for:
+    - Oscilloscope waveforms for post-test analysis
+    - FFT data for frequency domain analysis
+    - Image captures (e.g., thermal camera)
+    - Large sensor arrays
+    """
+    from litmus.data.models import Waveform
+
+    vin = context.get_in("vin", 5.0)
+    load = context.get_in("load_current", 0.5)
+
+    psu.set_voltage(vin)
+    psu.set_current_limit(1.0)
+    psu.enable_output()
+
+    eload.set_current(load)
+    eload.enable()
+
+    # Capture waveform from scope
+    samples, dt = scope.fetch_waveform("CH1")
+
+    # Generate realistic waveform: 100 samples of 3.3V with ripple + noise
+    # (Real scope would return actual captured data)
+    import math
+    t0 = time.time()  # Capture timestamp
+    dt = 1e-5  # 10µs sample interval (100kHz)
+    num_samples = 100
+    noisy_samples = [
+        3.3 + 0.015 * math.sin(2 * math.pi * 50000 * i * dt)  # 50kHz ripple
+        + random.gauss(0, 0.005)  # noise
+        for i in range(num_samples)
+    ]
+
+    # Create Waveform model - stored in _ref/ due to size
+    waveform = Waveform(
+        t0=t0,
+        dt=dt,
+        Y=noisy_samples,
+        attrs={
+            "channel": "CH1",
+            "units": "V",
+            "coupling": "DC",
+            "vin": vin,
+            "load": load,
+        },
+    )
+
+    # Observe the waveform - stored in _ref/ directory
+    context.observe("ripple_waveform", waveform)
+
+    # Calculate and return ripple for limit checking
+    ripple_mV = (max(noisy_samples) - min(noisy_samples)) * 1000
+
+    eload.disable()
+    return ripple_mV

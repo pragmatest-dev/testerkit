@@ -111,7 +111,7 @@ class Context:
 
         Args:
             key: Observation name (e.g., "temp_probe.temperature", "scope.waveform").
-            value: The observed value. Large arrays may be stored in _raw directory.
+            value: The observed value. Large arrays are stored in _ref/ directory.
         """
         self._outputs[key] = value
 
@@ -709,6 +709,7 @@ class TestHarness:
             low_limit=resolved_limit.low if resolved_limit else None,
             high_limit=resolved_limit.high if resolved_limit else None,
             nominal=resolved_limit.nominal if resolved_limit else None,
+            comparator=resolved_limit.comparator if resolved_limit else None,
             spec_id=resolved_limit.spec_id if resolved_limit else None,
             spec_ref=resolved_limit.spec_ref if resolved_limit else None,
             dut_pin=resolved_dut_pin,

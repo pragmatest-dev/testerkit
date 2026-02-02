@@ -339,32 +339,62 @@ pytest tests/test_pure_pytest.py --station=demo_station_001 --mock-instruments -
 Results are saved with self-describing filenames using UTC timestamps:
 - `results/runs/{date}/{timestamp}_{serial}.parquet` (with serial)
 - `results/runs/{date}/{timestamp}.parquet` (without serial)
+- `results/runs/{date}/{timestamp}_{serial}_ref/` (external data like waveforms)
 
-```python
-import pandas as pd
+### Query Script (Recommended)
 
-# Load a run (filename tells you when and which DUT)
-df = pd.read_parquet("results/runs/2026-01-31/20260131T143025Z_SN001.parquet")
+Use the built-in query script for common analysis:
 
-# Filter to specific test
-vout = df[df["step_name"] == "test_output_voltage"]
-print(vout[["value", "outcome", "in_vin"]])
-
-# Aggregate across all runs
-df_all = pd.read_parquet("results/runs/**/*.parquet")
-print(df_all.groupby("step_name")["outcome"].value_counts())
+```bash
+uv run python scripts/query_results.py           # Full report
+uv run python scripts/query_results.py summary   # Just summary stats
+uv run python scripts/query_results.py tests     # Results by test
+uv run python scripts/query_results.py recent    # Recent runs
+uv run python scripts/query_results.py failed    # Failed measurements
+uv run python scripts/query_results.py dist test_load_sweep    # Value histogram
+uv run python scripts/query_results.py cpk test_load_sweep     # Cpk analysis
+uv run python scripts/query_results.py conditions              # By conditions
+uv run python scripts/query_results.py export results.csv      # Export to CSV
 ```
 
-Or use DuckDB for SQL queries:
+### DuckDB (SQL Queries)
 
 ```python
 import duckdb
 
+# Query across ALL runs with SQL
 duckdb.sql("""
     SELECT step_name, outcome, COUNT(*)
-    FROM 'results/runs/**/*.parquet'
+    FROM read_parquet('results/runs/**/*.parquet', union_by_name=true)
     GROUP BY step_name, outcome
 """).show()
+
+# Process capability analysis
+duckdb.sql("""
+    WITH stats AS (
+        SELECT AVG(value) as mean, STDDEV(value) as sigma,
+               MIN(low_limit) as lsl, MAX(high_limit) as usl
+        FROM read_parquet('results/runs/**/*.parquet', union_by_name=true)
+        WHERE step_name = 'test_load_sweep' AND value IS NOT NULL
+    )
+    SELECT ROUND((usl - lsl) / (6 * sigma), 2) as Cp,
+           ROUND(LEAST(usl - mean, mean - lsl) / (3 * sigma), 2) as Cpk
+    FROM stats
+""").show()
+```
+
+### Pandas / PyArrow
+
+```python
+import pyarrow.parquet as pq
+
+# Load single run
+table = pq.read_table("results/runs/2026-01-31/20260131T143025Z_SN001.parquet")
+
+# Or use pyarrow.dataset for glob patterns
+import pyarrow.dataset as ds
+dataset = ds.dataset("results/runs/", format="parquet")
+table = dataset.to_table(filter=ds.field("step_name") == "test_load_sweep")
 ```
 
 ## What's Demonstrated

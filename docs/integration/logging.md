@@ -133,8 +133,9 @@ Results are stored in Parquet files with self-describing filenames:
 ```
 results/runs/{date}/
 ├── {timestamp}_{serial}.parquet     # With serial (production)
+├── {timestamp}_{serial}_ref/        # External data for above (waveforms, images)
 ├── {timestamp}.parquet              # Without serial (dev/debug)
-└── {timestamp}_{serial}_raw/        # Raw data (waveforms, images)
+└── {timestamp}_ref/                 # External data for above
 ```
 
 All timestamps are UTC for consistent cross-timezone analysis.

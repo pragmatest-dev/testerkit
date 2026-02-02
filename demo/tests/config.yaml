@@ -95,14 +95,14 @@ test_load_regulation:
 
 # =============================================================================
 # Pattern 4: Product Expansion (Cartesian product)
-# Creates 3 x 3 = 9 test vectors
+# Creates 5 x 5 = 25 test vectors
 # =============================================================================
 test_load_sweep:
   description: "Sweep VIN and load - product expansion"
   vectors:
     expand: product
-    vin: [4.75, 5.0, 5.5]         # Input voltage range
-    load_current: [0.1, 0.4, 0.8]  # Load current range
+    vin: [4.5, 4.75, 5.0, 5.25, 5.5]           # Input voltage range (5 points)
+    load_current: [0.1, 0.25, 0.4, 0.6, 0.8]   # Load current range (5 points)
   limits:
     test_load_sweep:
       low: 3.1
@@ -115,6 +115,7 @@ test_load_sweep:
 # Pattern 5: Nested Loops with Change Detection
 # Outer loop: temperature (slowest changing)
 # Inner loop: load_current (fastest changing)
+# Creates 4 x 5 = 20 test vectors
 # =============================================================================
 test_temp_load_matrix:
   description: "Full characterization matrix"
@@ -122,9 +123,9 @@ test_temp_load_matrix:
     expand: nested
     loops:
       - name: temperature
-        values: [25, 85]
+        values: [-20, 25, 55, 85]        # 4 temperature corners
       - name: load_current
-        values: [0.1, 0.5, 0.8]
+        values: [0.1, 0.3, 0.5, 0.7, 0.8]  # 5 load points
   limits:
     test_temp_load_matrix:
       low: 3.0           # Wide limits for characterization
@@ -135,15 +136,16 @@ test_temp_load_matrix:
 
 # =============================================================================
 # Pattern 6: Range Expansion (SCPI-style)
+# Creates 11 test vectors (4.5 to 5.5V in 0.1V steps)
 # =============================================================================
 test_line_regulation:
-  description: "Sweep input voltage from 4.5V to 6V"
+  description: "Sweep input voltage from 4.5V to 5.5V"
   vectors:
     expand: range
     name: vin
     start: 4.5
-    stop: 6.0
-    step: 0.5
+    stop: 5.5
+    step: 0.1
   limits:
     test_line_regulation:
       low: 3.2
@@ -324,3 +326,30 @@ test_efficiency_with_context:
       nominal: 60
       units: "%"
       spec_ref: "efficiency across line/load"
+
+# =============================================================================
+# Pattern 14: Large Data Observation (Waveform → _ref/)
+# Demonstrates storing large data structures via context.observe()
+# Creates 3 x 3 = 9 vectors, each with a waveform stored in _ref/
+# =============================================================================
+test_ripple_waveform_capture:
+  description: "Capture and store raw waveform data for post-analysis"
+  vectors:
+    expand: product
+    vin: [4.5, 5.0, 5.5]
+    load_current: [0.2, 0.5, 0.8]
+  _mock:
+    # Longer waveform sample for realistic capture
+    # Simulates 3.3V DC with ~20mV ripple noise
+    scope.fetch_waveform:
+      - [3.290, 3.295, 3.305, 3.310, 3.308, 3.302, 3.295, 3.288, 3.292, 3.298,
+         3.305, 3.312, 3.310, 3.303, 3.296, 3.290, 3.288, 3.293, 3.300, 3.308]
+      - 0.00001  # dt: 10µs sample interval
+  limits:
+    test_ripple_waveform_capture:
+      low: 0
+      high: 50      # Max 50mV peak-to-peak ripple
+      nominal: 25
+      units: mV
+      comparator: LE
+      spec_ref: "output ripple with waveform capture"
