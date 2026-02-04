@@ -113,7 +113,6 @@ def load_station_instance(path: Path) -> StationInstance:
         station_type=station_data["station_type"],
         location=station_data.get("location"),
         instruments=instruments,
-        active_fixture=station_data.get("active_fixture"),
     )
 
 
