@@ -87,6 +87,54 @@ def _get_git_commit() -> str | None:
     return None
 
 
+def _detect_test_phase() -> str:
+    """Auto-detect test phase based on git status.
+
+    Returns "development" if:
+    - Git is not installed
+    - Not in a git repository
+    - There are uncommitted changes (dirty working tree)
+
+    Otherwise returns "production".
+    """
+    import subprocess
+
+    try:
+        # Check if we're in a git repo
+        result = subprocess.run(
+            ["git", "rev-parse", "--git-dir"],
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+        if result.returncode != 0:
+            # Not a git repo
+            return "development"
+
+        # Check for uncommitted changes (staged or unstaged)
+        result = subprocess.run(
+            ["git", "status", "--porcelain"],
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+        if result.returncode != 0:
+            return "development"
+
+        # If there's any output, the repo is dirty
+        if result.stdout.strip():
+            return "development"
+
+        return "production"
+
+    except FileNotFoundError:
+        # Git not installed
+        return "development"
+    except subprocess.TimeoutExpired:
+        # Git command timed out - treat as development
+        return "development"
+
+
 def _serialize_config(config: dict | None) -> str | None:
     """Serialize config dict to YAML string for storage."""
     if config is None:
@@ -174,6 +222,9 @@ def litmus_logger(request) -> TestRunLogger:
     # Get results directory for journal streaming
     results_dir = request.config.getoption("--results-dir")
 
+    # Auto-detect test phase based on git status
+    test_phase = _detect_test_phase()
+
     logger = TestRunLogger(
         dut_serial=request.config.getoption("--dut-serial"),
         station_id=station_id,
@@ -190,6 +241,7 @@ def litmus_logger(request) -> TestRunLogger:
         fixture_config_yaml=fixture_yaml,
         git_commit=_get_git_commit(),
         results_dir=results_dir,  # Enable journal streaming
+        test_phase=test_phase,  # Auto-detected from git status
     )
     set_current_logger(logger)
     yield logger
