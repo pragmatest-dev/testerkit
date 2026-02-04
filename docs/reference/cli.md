@@ -117,6 +117,97 @@ Measurements:
   efficiency: 87.2 % [pass]
 ```
 
+## Journal Commands
+
+During test execution, measurements are streamed to JSONL journal files. On successful completion, journals are converted to Parquet and deleted. These commands help manage orphaned journals from crashed or interrupted runs.
+
+### litmus journals
+
+List orphaned journals (from crashed or interrupted runs).
+
+```bash
+litmus journals [OPTIONS]
+```
+
+**Options:**
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| `--results-dir` | `results` | Path to results directory |
+
+**Example output:**
+
+```
+$ litmus journals
+Orphaned journals (from crashed/interrupted runs):
+
+  results/.journals/2026-02-03/20260203T143025Z_SN001/
+    Run ID: a1b2c3d4-5678-9abc-def0-1234567890ab
+    DUT: SN001
+    Station: bench_1
+    Started: 2026-02-03T14:30:25
+    Measurements: 47
+
+To recover: litmus recover <journal_dir>
+To recover all: litmus recover --all
+```
+
+### litmus recover
+
+Convert orphaned journal(s) to Parquet.
+
+```bash
+litmus recover [JOURNAL_DIR] [OPTIONS]
+```
+
+**Arguments:**
+
+| Argument | Description |
+|----------|-------------|
+| `JOURNAL_DIR` | Path to journal directory (optional if using --all) |
+
+**Options:**
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| `--results-dir` | `results` | Path to results directory |
+| `--all` | `false` | Recover all orphaned journals |
+
+**Examples:**
+
+```bash
+# Recover specific journal
+litmus recover results/.journals/2026-02-03/20260203T143025Z_SN001/
+
+# Recover all orphaned journals
+litmus recover --all
+```
+
+### litmus cleanup-journals
+
+Delete journals that have corresponding Parquet files (already converted).
+
+```bash
+litmus cleanup-journals [OPTIONS]
+```
+
+**Options:**
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| `--results-dir` | `results` | Path to results directory |
+| `--dry-run` | `false` | Show what would be deleted without deleting |
+
+**Examples:**
+
+```bash
+# Preview what would be deleted
+litmus cleanup-journals --dry-run
+
+# Actually delete
+litmus cleanup-journals
+```
+
 ## MCP Commands
 
 ### litmus mcp serve

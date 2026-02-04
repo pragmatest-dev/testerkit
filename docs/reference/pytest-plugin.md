@@ -377,6 +377,39 @@ Run all tests with mock instruments:
 pytest tests/ --mock-instruments --dut-serial=TEST001
 ```
 
+## Test Phase Auto-Detection
+
+Litmus automatically detects whether you're running in development or production mode based on git status:
+
+| Condition | `test_phase` |
+|-----------|--------------|
+| Git not installed | `development` |
+| Not a git repository | `development` |
+| Uncommitted changes (dirty) | `development` |
+| Clean git repository | `production` |
+
+This prevents development/debugging runs from polluting production data. The `test_phase` is recorded in the Parquet output and can be used to filter results.
+
+```bash
+# During development (uncommitted changes)
+pytest tests/  # test_phase = "development"
+
+# After committing
+git add . && git commit -m "Ready for production"
+pytest tests/  # test_phase = "production"
+```
+
+Query by test phase:
+```python
+import duckdb
+
+# Only production runs
+duckdb.sql("""
+    SELECT * FROM read_parquet('results/runs/**/*.parquet')
+    WHERE test_phase = 'production'
+""")
+```
+
 ## CLI Options
 
 ```bash
@@ -460,6 +493,26 @@ results/runs/{date}/{timestamp}.parquet            # Without serial (dev/debug)
 - Self-describing filename (timestamp + serial)
 - Chronological sorting in file listings
 - Portable (copy the file anywhere and you know what it is)
+
+### Streaming Journal
+
+During test execution, measurements are streamed to a JSONL journal file for:
+- **Live observability** — UI updates in real-time as measurements are captured
+- **Crash recovery** — No data lost if test is interrupted (power failure, crash, abort)
+
+```
+results/.journals/{date}/{timestamp}_{serial}/
+├── measurements.jsonl     # One line per measurement (streamed)
+└── _ref/                  # Large data files (waveforms, images)
+```
+
+On successful completion, the journal is converted to Parquet and deleted. If a test crashes, the journal survives and can be recovered:
+
+```bash
+litmus journals              # List orphaned journals
+litmus recover <journal>     # Convert journal to parquet
+litmus recover --all         # Recover all orphaned journals
+```
 
 Query with the CLI:
 
