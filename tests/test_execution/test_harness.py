@@ -381,7 +381,7 @@ class TestHarnessMockConfiguration:
         """Test that mocks are not configured when mock_instruments=False."""
         from litmus.instruments import DMM, Mock
 
-        dmm = Mock(DMM,voltage=0.0)
+        dmm = Mock(DMM, measure_voltage=0.0)
         instruments = {"dmm": dmm}
 
         config = {

@@ -27,7 +27,7 @@ test_output_voltage_no_load:
     - vin: 5.0
   # Test-level _mock: constant for all vectors (single vector here)
   _mock:
-    dmm.measure_voltage: 3.3
+    dmm.measure_dc_voltage: 3.3
     psu.measure_current: 0.005  # 5mA quiescent current
   limits:
     test_output_voltage_no_load:
@@ -47,7 +47,7 @@ test_output_voltage_full_load:
     - vin: 5.0
       load_current: 0.8
   _mock:
-    dmm.measure_voltage: 3.28   # Voltage drops slightly under full load
+    dmm.measure_dc_voltage: 3.28   # Voltage drops slightly under full load
     psu.measure_current: 0.85   # Input current at full load
   retry:
     max_attempts: 3
@@ -71,19 +71,19 @@ test_load_regulation:
       load_current: 0.1
       expected_dropout: 0
       _mock:
-        dmm.measure_voltage: 3.32   # Slight increase at light load
+        dmm.measure_dc_voltage: 3.32   # Slight increase at light load
         psu.measure_current: 0.15
     - vin: 5.0
       load_current: 0.4
       expected_dropout: 2
       _mock:
-        dmm.measure_voltage: 3.30   # Nominal at medium load
+        dmm.measure_dc_voltage: 3.30   # Nominal at medium load
         psu.measure_current: 0.45
     - vin: 5.0
       load_current: 0.8
       expected_dropout: 5
       _mock:
-        dmm.measure_voltage: 3.28   # Drops at full load
+        dmm.measure_dc_voltage: 3.28   # Drops at full load
         psu.measure_current: 0.85
   limits:
     test_load_regulation:
@@ -167,7 +167,7 @@ test_power_analysis:
     # P_in = 5.0V * 0.5A = 2.5W
     # P_out = 3.3V * 0.5A = 1.65W
     # Efficiency = 1.65/2.5 * 100 = 66%
-    dmm.measure_voltage: 3.3    # Output voltage
+    dmm.measure_dc_voltage: 3.3    # Output voltage
     psu.measure_current: 0.5    # Input current
   limits:
     # Each key in the returned dict gets its own limit
@@ -216,7 +216,7 @@ test_stability_over_time:
       load_current: 0.5
       sample_count: 5
   _mock:
-    dmm.measure_voltage: 3.3    # Stable output for all samples
+    dmm.measure_dc_voltage: 3.3    # Stable output for all samples
   limits:
     voltage:
       low: 3.25
@@ -237,7 +237,7 @@ test_thermal_shutdown:
     - vin: 5.0
       load_current: 0.5
   _mock:
-    dmm.measure_voltage: 0.05   # Output collapsed after thermal shutdown
+    dmm.measure_dc_voltage: 0.05   # Output collapsed after thermal shutdown
   limits:
     test_thermal_shutdown:
       low: 0
@@ -280,7 +280,7 @@ test_output_voltage_temp:
     temperature: [-40, 25, 85]
     vin: [5.0]
   _mock:
-    dmm.measure_voltage: 3.3
+    dmm.measure_dc_voltage: 3.3
   limits:
     # Callable limit: adjusts based on temperature condition
     # Inline Python has access to: ctx, Limit
@@ -310,7 +310,7 @@ test_efficiency_with_context:
       _mock:
         psu.measure_voltage: 5.0
         psu.measure_current: 0.55    # Input current slightly higher than output
-        dmm.measure_voltage: 3.3
+        dmm.measure_dc_voltage: 3.3
   limits:
     input_power:
       low: 0
