@@ -123,6 +123,7 @@ def litmus_logger(request) -> TestRunLogger:
     @litmus_test decorated functions to log measurements.
 
     Captures config snapshots at run start for full traceability.
+    Streams measurements to a JSONL journal for live observability.
     """
     # Safely access optional session-scoped fixtures
     # (avoids ScopeMismatch from test-defined fixtures with same name)
@@ -170,6 +171,9 @@ def litmus_logger(request) -> TestRunLogger:
         station_type = station_config.get("station_type") or station_config.get("type")
         station_location = station_config.get("location")
 
+    # Get results directory for journal streaming
+    results_dir = request.config.getoption("--results-dir")
+
     logger = TestRunLogger(
         dut_serial=request.config.getoption("--dut-serial"),
         station_id=station_id,
@@ -185,15 +189,19 @@ def litmus_logger(request) -> TestRunLogger:
         product_spec_yaml=product_yaml,
         fixture_config_yaml=fixture_yaml,
         git_commit=_get_git_commit(),
+        results_dir=results_dir,  # Enable journal streaming
     )
     set_current_logger(logger)
     yield logger
 
     # Finalize and save
     test_run = logger.finalize()
-    results_dir = request.config.getoption("--results-dir")
     backend = ParquetBackend(results_dir=results_dir)
-    backend.save_test_run(test_run)
+
+    # Convert journal to parquet if journaling was enabled
+    journal_dir = logger.journal_dir
+    backend.save_test_run(test_run, journal_dir=journal_dir)
+
     set_current_logger(None)
 
 
@@ -367,8 +375,6 @@ def fixture_config(request):
             data = yaml.safe_load(f)
             return FixtureConfig.model_validate(data.get("fixture", data))
     return None
-
-
 
 
 def _get_driver_class(instrument_type: str):

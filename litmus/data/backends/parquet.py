@@ -48,8 +48,15 @@ class ParquetBackend:
         self.results_dir = Path(results_dir)
         self.results_dir.mkdir(parents=True, exist_ok=True)
 
-    def save_test_run(self, test_run: TestRun) -> Path:
+    def save_test_run(self, test_run: TestRun, journal_dir: Path | None = None) -> Path:
         """Save test run to Parquet with analysis-ready schema.
+
+        If journal_dir is provided, converts the journal to parquet and moves
+        ref files instead of building rows from TestRun. This is the preferred
+        path when journaling is enabled, as it:
+        1. Uses the already-captured measurements
+        2. Handles crash recovery scenarios
+        3. Moves ref files atomically
 
         Creates files:
             results/runs/{date}/{timestamp}_{serial}.parquet  (with serial)
@@ -59,10 +66,15 @@ class ParquetBackend:
 
         Args:
             test_run: Complete TestRun with steps, vectors, and measurements.
+            journal_dir: Optional path to journal directory to convert.
 
         Returns:
             Path to the Parquet file.
         """
+        # If journal exists, convert it instead of using in-memory data
+        if journal_dir is not None and journal_dir.exists():
+            return self.convert_journal(journal_dir, test_run)
+
         # UTC timestamp for filename (compact ISO 8601 basic format)
         timestamp = test_run.started_at.strftime("%Y%m%dT%H%M%SZ")
         date_str = test_run.started_at.strftime("%Y-%m-%d")
@@ -97,6 +109,119 @@ class ParquetBackend:
 
         # Write to Parquet
         pq.write_table(table, parquet_path)
+
+        return parquet_path
+
+    def convert_journal(self, journal_dir: Path, test_run: TestRun | None = None) -> Path:
+        """Convert a JSONL journal to Parquet format.
+
+        Reads the journal file, converts to parquet, moves ref files,
+        and deletes the journal directory on success.
+
+        If the journal is empty but test_run is provided, falls back to
+        building parquet from the TestRun (standard behavior without journaling).
+
+        Args:
+            journal_dir: Path to journal directory containing measurements.jsonl
+            test_run: Optional TestRun for metadata (used for filename if provided)
+
+        Returns:
+            Path to the created Parquet file.
+
+        Raises:
+            FileNotFoundError: If journal file doesn't exist
+            ValueError: If journal is empty and no test_run provided
+        """
+        import duckdb
+
+        journal_path = journal_dir / "measurements.jsonl"
+        journal_ref_dir = journal_dir / "_ref"
+
+        if not journal_path.exists():
+            raise FileNotFoundError(f"Journal not found: {journal_path}")
+
+        # Check if journal has content
+        journal_content = journal_path.read_text().strip()
+        if not journal_content:
+            # Journal is empty - fall back to TestRun if available
+            if test_run is not None:
+                # Clean up empty journal directory
+                shutil.rmtree(journal_dir)
+                # Use standard save path (without journal)
+                return self.save_test_run(test_run, journal_dir=None)
+            raise ValueError(f"Journal is empty: {journal_path}")
+
+        # Read journal to get metadata for filename
+        conn = duckdb.connect()
+        result = conn.execute(f"SELECT * FROM read_json_auto('{journal_path}') LIMIT 1").fetchone()
+
+        if result is None:
+            # DuckDB couldn't parse - fall back to TestRun if available
+            if test_run is not None:
+                shutil.rmtree(journal_dir)
+                return self.save_test_run(test_run, journal_dir=None)
+            raise ValueError(f"Journal is empty or invalid: {journal_path}")
+
+        # Get column names and first row as dict
+        columns = [desc[0] for desc in conn.description]
+        first_row = dict(zip(columns, result))
+
+        # Determine output path from metadata
+        run_started_at = first_row.get("run_started_at", "")
+        dut_serial = first_row.get("dut_serial", "")
+
+        # Parse timestamp - handle ISO format
+        from datetime import datetime
+
+        if isinstance(run_started_at, str):
+            # Parse ISO format timestamp
+            try:
+                started_dt = datetime.fromisoformat(run_started_at.replace("Z", "+00:00"))
+            except ValueError:
+                started_dt = datetime.now()
+        else:
+            started_dt = run_started_at
+
+        timestamp = started_dt.strftime("%Y%m%dT%H%M%SZ")
+        date_str = started_dt.strftime("%Y-%m-%d")
+
+        # Create output directory
+        date_dir = self.results_dir / "runs" / date_str
+        date_dir.mkdir(parents=True, exist_ok=True)
+
+        # Filename: timestamp first, serial if present
+        if dut_serial:
+            filename = f"{timestamp}_{dut_serial}.parquet"
+        else:
+            filename = f"{timestamp}.parquet"
+
+        parquet_path = date_dir / filename
+
+        # Convert JSONL to Parquet using DuckDB
+        conn.execute(
+            f"""
+            COPY (SELECT * FROM read_json_auto('{journal_path}'))
+            TO '{parquet_path}' (FORMAT PARQUET)
+            """
+        )
+        conn.close()
+
+        # Move ref files if they exist
+        if journal_ref_dir.exists() and any(journal_ref_dir.iterdir()):
+            parquet_ref_dir = date_dir / (parquet_path.stem + "_ref")
+            if parquet_ref_dir.exists():
+                shutil.rmtree(parquet_ref_dir)
+            shutil.move(str(journal_ref_dir), str(parquet_ref_dir))
+
+        # Add file-level metadata if test_run provided
+        if test_run is not None:
+            table = pq.read_table(parquet_path)
+            metadata = self._build_file_metadata(test_run)
+            table = table.replace_schema_metadata(metadata)
+            pq.write_table(table, parquet_path)
+
+        # Delete journal directory on successful conversion
+        shutil.rmtree(journal_dir)
 
         return parquet_path
 
@@ -308,9 +433,7 @@ class ParquetBackend:
         ref_dir.mkdir(parents=True, exist_ok=True)
         return ref_dir
 
-    def _save_file(
-        self, parquet_path: Path, vector_id: str, key: str, value: Any
-    ) -> str:
+    def _save_file(self, parquet_path: Path, vector_id: str, key: str, value: Any) -> str:
         """Save file in format appropriate for the data type.
 
         Returns:
@@ -639,11 +762,142 @@ class ParquetBackend:
                         raw_metadata = pf.schema_arrow.metadata or {}
                         # Decode bytes to strings
                         return {
-                            k.decode("utf-8"): v.decode("utf-8")
-                            for k, v in raw_metadata.items()
+                            k.decode("utf-8"): v.decode("utf-8") for k, v in raw_metadata.items()
                         }
 
         return None
+
+    # =========================================================================
+    # Journal Management
+    # =========================================================================
+
+    def list_journals(self) -> list[dict]:
+        """List all journal directories with metadata.
+
+        Returns:
+            List of journal info dicts with run_id, dut_serial, measurement_count, etc.
+        """
+        from litmus.data.backends.journal import get_journal_info
+
+        journals = []
+        journals_dir = self.results_dir / ".journals"
+
+        if not journals_dir.exists():
+            return journals
+
+        for date_dir in journals_dir.iterdir():
+            if not date_dir.is_dir():
+                continue
+            for journal_dir in date_dir.iterdir():
+                if not journal_dir.is_dir():
+                    continue
+                info = get_journal_info(journal_dir)
+                if info:
+                    journals.append(info)
+
+        # Sort by started_at descending
+        journals.sort(key=lambda x: x.get("started_at") or "", reverse=True)
+        return journals
+
+    def get_journal_measurements(self, journal_dir: Path | str) -> list[dict]:
+        """Read measurements from a journal file.
+
+        Args:
+            journal_dir: Path to journal directory or its path as string
+
+        Returns:
+            List of measurement row dicts
+        """
+        from litmus.data.backends.journal import read_journal
+
+        journal_dir = Path(journal_dir)
+        journal_path = journal_dir / "measurements.jsonl"
+        return read_journal(journal_path)
+
+    def recover_journal(self, journal_dir: Path | str) -> Path:
+        """Convert an orphaned journal to parquet.
+
+        Use this to recover data from crashed or interrupted test runs.
+
+        Args:
+            journal_dir: Path to journal directory
+
+        Returns:
+            Path to the created parquet file
+        """
+        journal_dir = Path(journal_dir)
+        return self.convert_journal(journal_dir)
+
+    def cleanup_journals(self) -> int:
+        """Delete journals that have corresponding parquet files.
+
+        Returns:
+            Number of journals deleted
+        """
+        deleted = 0
+        journals_dir = self.results_dir / ".journals"
+
+        if not journals_dir.exists():
+            return deleted
+
+        for date_dir in journals_dir.iterdir():
+            if not date_dir.is_dir():
+                continue
+            for journal_dir in date_dir.iterdir():
+                if not journal_dir.is_dir():
+                    continue
+
+                # Check if corresponding parquet exists
+                parquet_path = (
+                    self.results_dir / "runs" / date_dir.name / f"{journal_dir.name}.parquet"
+                )
+                if parquet_path.exists():
+                    shutil.rmtree(journal_dir)
+                    deleted += 1
+
+            # Clean up empty date directories
+            if date_dir.exists() and not any(date_dir.iterdir()):
+                date_dir.rmdir()
+
+        # Clean up empty .journals directory
+        if journals_dir.exists() and not any(journals_dir.iterdir()):
+            journals_dir.rmdir()
+
+        return deleted
+
+    def get_orphaned_journals(self) -> list[dict]:
+        """List journals that don't have corresponding parquet files.
+
+        These are likely from crashed or interrupted test runs.
+
+        Returns:
+            List of journal info dicts
+        """
+        from litmus.data.backends.journal import get_journal_info
+
+        orphaned = []
+        journals_dir = self.results_dir / ".journals"
+
+        if not journals_dir.exists():
+            return orphaned
+
+        for date_dir in journals_dir.iterdir():
+            if not date_dir.is_dir():
+                continue
+            for journal_dir in date_dir.iterdir():
+                if not journal_dir.is_dir():
+                    continue
+
+                # Check if corresponding parquet exists
+                parquet_path = (
+                    self.results_dir / "runs" / date_dir.name / f"{journal_dir.name}.parquet"
+                )
+                if not parquet_path.exists():
+                    info = get_journal_info(journal_dir)
+                    if info:
+                        orphaned.append(info)
+
+        return orphaned
 
 
 def load_file(parquet_path: Path, ref: str) -> Any:

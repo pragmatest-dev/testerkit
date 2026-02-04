@@ -1,11 +1,17 @@
 """Test run logging for accumulating measurements."""
 
+from __future__ import annotations
+
 import os
 from datetime import UTC, datetime
-from typing import Any
+from pathlib import Path
+from typing import TYPE_CHECKING, Any
 from uuid import UUID
 
 from litmus.data.models import DUT, Measurement, Outcome, TestRun, TestStep
+
+if TYPE_CHECKING:
+    from litmus.data.backends.journal import JournalWriter
 
 
 def _utcnow() -> datetime:
@@ -139,7 +145,12 @@ class RunContext:
 
 
 class TestRunLogger:
-    """Accumulates measurements during test run, produces TestRun."""
+    """Accumulates measurements during test run, produces TestRun.
+
+    Optionally streams measurements to a JSONL journal for live observability
+    and crash recovery. When results_dir is provided, measurements are written
+    to the journal as they happen.
+    """
 
     __test__ = False  # Prevent pytest collection
 
@@ -171,6 +182,8 @@ class TestRunLogger:
         test_config_yaml: str | None = None,
         # Code traceability
         git_commit: str | None = None,
+        # Journal streaming
+        results_dir: str | Path | None = None,
     ):
         # Use provided run_id, environment variable, or generate new
         if run_id is not None:
@@ -211,19 +224,36 @@ class TestRunLogger:
             test_config_yaml=test_config_yaml,
         )
         self._current_step: TestStep | None = None
+        self._current_step_index: int = -1
         self._current_vector = None  # For simple logging without harness
         self._run_context = RunContext(self.test_run)
+
+        # Journal streaming for live observability
+        self._journal: JournalWriter | None = None
+        if results_dir is not None:
+            from litmus.data.backends.journal import JournalWriter
+
+            self._journal = JournalWriter(results_dir, self.test_run)
+            self._journal.__enter__()
 
     @property
     def run_context(self) -> RunContext:
         """Get the run context for adding custom metadata."""
         return self._run_context
 
+    @property
+    def journal_dir(self) -> Path | None:
+        """Get the journal directory path, if journaling is enabled."""
+        if self._journal is not None:
+            return self._journal.journal_dir
+        return None
+
     def start_step(self, name: str, description: str | None = None):
         """Begin a new test step."""
         from litmus.data.models import TestVector
 
         self._current_step = TestStep(name=name, description=description)
+        self._current_step_index += 1
         self.test_run.steps.append(self._current_step)
         # Create a default vector for this step (for simple logging without harness)
         self._current_vector = TestVector()
@@ -264,6 +294,15 @@ class TestRunLogger:
                 self._current_step.outcome = Outcome.ERROR
             if self.test_run.outcome != Outcome.FAIL:
                 self.test_run.outcome = Outcome.ERROR
+
+        # Stream to journal for live observability
+        if self._journal is not None:
+            self._journal.append(
+                measurement,
+                self._current_step.name,
+                self._current_step_index,
+                self._current_vector,
+            )
 
     def end_step(self):
         """Finalize current step."""
@@ -362,6 +401,14 @@ class TestRunLogger:
         return measurement
 
     def finalize(self) -> TestRun:
-        """Complete test run and return result."""
+        """Complete test run and return result.
+
+        Closes the journal writer if journaling is enabled.
+        """
         self.test_run.ended_at = _utcnow()
+
+        # Close journal writer
+        if self._journal is not None:
+            self._journal.close()
+
         return self.test_run
