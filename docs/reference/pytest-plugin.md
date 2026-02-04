@@ -411,7 +411,11 @@ sequence:
 steps:
   - name: power_on
     test: test_power.test_power_on
+  - name: full_test
+    sequence: detailed_power_tests  # Nested sequence inherits parent's phase
 ```
+
+**Note:** When sequences call other sequences, the **root sequence** determines `test_phase` for the entire execution. Nested sequences' `test_phase` fields are ignored to ensure consistent phase across the call stack.
 
 ### Git Status Enforcement
 
