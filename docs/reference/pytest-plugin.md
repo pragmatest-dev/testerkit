@@ -377,29 +377,60 @@ Run all tests with mock instruments:
 pytest tests/ --mock-instruments --dut-serial=TEST001
 ```
 
-## Test Phase Auto-Detection
+## Test Phase
 
-Litmus automatically detects whether you're running in development or production mode based on git status:
+The `test_phase` field categorizes test runs (e.g., `development`, `validation`, `characterization`, `production`). It's recorded in the Parquet output for filtering results.
 
-| Condition | `test_phase` |
-|-----------|--------------|
-| Git not installed | `development` |
-| Not a git repository | `development` |
-| Uncommitted changes (dirty) | `development` |
-| Clean git repository | `production` |
+### Setting Test Phase
 
-This prevents development/debugging runs from polluting production data. The `test_phase` is recorded in the Parquet output and can be used to filter results.
+You can set test phase in multiple ways (priority order):
+
+1. **CLI option:** `--test-phase=validation`
+2. **Environment variable:** `LITMUS_TEST_PHASE=validation`
+3. **Sequence YAML:** `test_phase: validation` (when run via UI/runner)
+4. **Auto-detect:** `production` if git clean, `development` if dirty
 
 ```bash
-# During development (uncommitted changes)
-pytest tests/  # test_phase = "development"
+# Request validation phase
+pytest tests/ --test-phase=validation
 
-# After committing
-git add . && git commit -m "Ready for production"
-pytest tests/  # test_phase = "production"
+# Via environment variable
+LITMUS_TEST_PHASE=characterization pytest tests/
+
+# Auto-detect (default) - production if clean, development if dirty
+pytest tests/
 ```
 
-Query by test phase:
+**Sequence YAML example:**
+```yaml
+sequence:
+  id: power_board_validation
+  name: "Power Board Validation"
+  test_phase: validation  # Applied when run through UI/runner
+
+steps:
+  - name: power_on
+    test: test_power.test_power_on
+```
+
+### Git Status Enforcement
+
+**Important:** Non-development phases require a clean git repository. If git is unavailable or there are uncommitted changes, the phase is **always** `development` regardless of what's requested.
+
+| Git Status | Requested Phase | Actual Phase |
+|------------|-----------------|--------------|
+| Clean | `validation` | `validation` |
+| Clean | `production` | `production` |
+| Clean | (none) | `production` |
+| Dirty | `validation` | `development` |
+| Dirty | `production` | `development` |
+| Dirty | (none) | `development` |
+| No git | (any) | `development` |
+
+This ensures non-development runs can only be created from committed, reproducible code.
+
+### Query by Phase
+
 ```python
 import duckdb
 
@@ -407,6 +438,12 @@ import duckdb
 duckdb.sql("""
     SELECT * FROM read_parquet('results/runs/**/*.parquet')
     WHERE test_phase = 'production'
+""")
+
+# Exclude development runs
+duckdb.sql("""
+    SELECT * FROM read_parquet('results/runs/**/*.parquet')
+    WHERE test_phase != 'development'
 """)
 ```
 
@@ -423,6 +460,7 @@ pytest tests/ \
   --guardband=10 \               # Default guardband percentage (default: 0)
   --station-config=stations/bench_1.yaml \  # Station config file
   --fixture-config=fixtures/x.yaml \        # Fixture config file
+  --test-phase=validation \      # Test phase (default: auto-detect from git)
   -v
 ```
 
@@ -437,6 +475,7 @@ pytest tests/ \
 | `--guardband` | `0` | Default guardband percentage |
 | `--station-config` | `None` | Path to station configuration YAML |
 | `--fixture-config` | `None` | Path to fixture configuration YAML |
+| `--test-phase` | auto | Test phase (development, validation, characterization, production) |
 
 ## Markers
 

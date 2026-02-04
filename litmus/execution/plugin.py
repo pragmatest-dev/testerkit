@@ -67,6 +67,12 @@ def pytest_addoption(parser):
         default=None,
         help="Path to station configuration YAML file",
     )
+    group.addoption(
+        "--test-phase",
+        default=None,
+        help="Test phase (development, validation, characterization, production). "
+        "If not specified, auto-detects from git status.",
+    )
 
 
 def _get_git_commit() -> str | None:
@@ -87,15 +93,15 @@ def _get_git_commit() -> str | None:
     return None
 
 
-def _detect_test_phase() -> str:
-    """Auto-detect test phase based on git status.
+def _is_git_clean() -> bool:
+    """Check if we're in a clean git repository.
 
-    Returns "development" if:
-    - Git is not installed
-    - Not in a git repository
-    - There are uncommitted changes (dirty working tree)
+    Returns True only if:
+    - Git is installed
+    - We're in a git repository
+    - There are no uncommitted changes
 
-    Otherwise returns "production".
+    Returns False otherwise.
     """
     import subprocess
 
@@ -108,8 +114,7 @@ def _detect_test_phase() -> str:
             timeout=5,
         )
         if result.returncode != 0:
-            # Not a git repo
-            return "development"
+            return False
 
         # Check for uncommitted changes (staged or unstaged)
         result = subprocess.run(
@@ -119,20 +124,37 @@ def _detect_test_phase() -> str:
             timeout=5,
         )
         if result.returncode != 0:
-            return "development"
+            return False
 
         # If there's any output, the repo is dirty
         if result.stdout.strip():
-            return "development"
+            return False
 
-        return "production"
+        return True
 
-    except FileNotFoundError:
-        # Git not installed
+    except (FileNotFoundError, subprocess.TimeoutExpired):
+        return False
+
+
+def _resolve_test_phase(requested_phase: str | None) -> str:
+    """Resolve test phase, enforcing development for dirty/non-git repos.
+
+    If git is unavailable or repo has uncommitted changes, always returns
+    "development" regardless of requested phase. This prevents non-development
+    runs from being created in untracked environments.
+
+    Args:
+        requested_phase: Explicitly requested phase, or None for auto-detect
+
+    Returns:
+        Resolved test phase string
+    """
+    if not _is_git_clean():
+        # Can't run anything other than development without clean git
         return "development"
-    except subprocess.TimeoutExpired:
-        # Git command timed out - treat as development
-        return "development"
+
+    # Clean repo - use requested phase or default to production
+    return requested_phase or "production"
 
 
 def _serialize_config(config: dict | None) -> str | None:
@@ -222,8 +244,13 @@ def litmus_logger(request) -> TestRunLogger:
     # Get results directory for journal streaming
     results_dir = request.config.getoption("--results-dir")
 
-    # Auto-detect test phase based on git status
-    test_phase = _detect_test_phase()
+    # Determine test phase: requested phase is validated against git status
+    # If repo is dirty or git unavailable, always "development"
+    requested_phase = (
+        request.config.getoption("--test-phase")
+        or os.environ.get("LITMUS_TEST_PHASE")
+    )
+    test_phase = _resolve_test_phase(requested_phase)
 
     logger = TestRunLogger(
         dut_serial=request.config.getoption("--dut-serial"),

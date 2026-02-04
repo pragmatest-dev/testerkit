@@ -129,12 +129,14 @@ class TestRunner:
         test_targets: list[str] = []
         extra_args: list[str] = []
 
+        sequence_test_phase: str | None = None
         if req.sequence_id:
             # Mode 1: Sequence-driven - expand steps to pytest node IDs
             test_targets = self._expand_sequence(req.sequence_id)
             seq = self._load_sequence(req.sequence_id)
             if seq:
                 extra_args.extend(seq.get("pytest_args", []))
+                sequence_test_phase = seq.get("test_phase")
         else:
             # Mode 2: Discovery fallback - pytest discovers tests in path
             test_targets = [req.test_path]
@@ -159,6 +161,10 @@ class TestRunner:
 
         if req.operator:
             cmd.append(f"--operator={req.operator}")
+
+        # Pass test phase from sequence if specified
+        if sequence_test_phase:
+            cmd.append(f"--test-phase={sequence_test_phase}")
 
         # Set up environment for subprocess
         import os
