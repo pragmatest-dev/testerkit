@@ -162,24 +162,32 @@ station:
 
 instruments:
   psu:
-    type: psu
+    driver: myproject.instruments.PSU  # or pymeasure.instruments.keithley.Keithley2220
     resource: "TCPIP::192.168.1.100::INSTR"
+    simulate: true
     mock_config:
-      voltage: 12.0
-      current: 1.0
+      measure_voltage: 12.0
+      measure_current: 1.0
   dmm:
-    type: dmm
+    driver: myproject.instruments.DMM  # or pymeasure.instruments.keithley.Keithley2000
     resource: "TCPIP::192.168.1.101::INSTR"
+    simulate: true
     mock_config:
-      voltage: 3.3
+      measure_voltage: 3.3
+      measure_dc_voltage: 3.3
   eload:
-    type: eload
+    driver: myproject.instruments.ELoad
     resource: "TCPIP::192.168.1.102::INSTR"
+    simulate: true
     mock_config:
-      current: 1.0
+      measure_current: 1.0
 ```
 
-**Valid instrument types:** `psu`, `dmm`, `eload`, `scope` (use exactly these)
+**Station config fields:**
+- `driver`: Python import path to instrument class (required)
+- `resource`: VISA address for real hardware
+- `simulate`: If true, uses Mock with mock_config values
+- `mock_config`: Return values for mocked methods (keys = method names)
 
 **Present to user:**
 ```
@@ -188,13 +196,13 @@ I'll create a station config for testing:
 **Station:** test_bench
 
 **Instruments:**
-| Name  | Type  | Resource                      | Mock Values      |
-|-------|-------|-------------------------------|------------------|
-| psu   | psu   | TCPIP::192.168.1.100::INSTR   | 12V, 1A          |
-| dmm   | dmm   | TCPIP::192.168.1.101::INSTR   | 3.3V             |
-| eload | eload | TCPIP::192.168.1.102::INSTR   | 1A               |
+| Name  | Driver                        | Resource                      | Mock Config               |
+|-------|-------------------------------|-------------------------------|---------------------------|
+| psu   | myproject.instruments.PSU     | TCPIP::192.168.1.100::INSTR   | measure_voltage: 12.0     |
+| dmm   | myproject.instruments.DMM     | TCPIP::192.168.1.101::INSTR   | measure_voltage: 3.3      |
+| eload | myproject.instruments.ELoad   | TCPIP::192.168.1.102::INSTR   | measure_current: 1.0      |
 
-**Mock values** are used when running with `--mock-instruments` (no hardware needed).
+**Mock config** values are returned by methods when `simulate: true` or `--mock-instruments`.
 
 Want me to:
 - [A]pprove and save
@@ -207,6 +215,45 @@ Want me to:
 ```python
 litmus(action="save", type="station", id="test_bench", content={...}, project=project_root)
 ```
+
+**Also create instrument classes** (if not using PyMeasure):
+
+```python
+# myproject/instruments/psu.py
+class PSU:
+    def __init__(self, resource: str = ""):
+        self.resource = resource
+
+    def connect(self): pass
+    def disconnect(self): pass
+    def set_voltage(self, voltage: float): pass
+    def set_current(self, current: float): pass
+    def enable_output(self): pass
+    def disable_output(self): pass
+    def measure_voltage(self) -> float: pass
+    def measure_current(self) -> float: pass
+```
+
+**And conftest.py fixtures:**
+
+```python
+# tests/conftest.py
+import pytest
+
+@pytest.fixture(scope="session")
+def psu(instruments):
+    return instruments.get("psu")
+
+@pytest.fixture(scope="session")
+def dmm(instruments):
+    return instruments.get("dmm")
+
+@pytest.fixture(scope="session")
+def eload(instruments):
+    return instruments.get("eload")
+```
+
+The `instruments` dict is provided by the Litmus plugin and loads drivers from station config.
 
 ---
 
@@ -385,11 +432,12 @@ Want me to:
 
 1. **STOP and ASK** before each step - never proceed without approval
 2. **Pass `project=`** to ALL calls after init
-3. **Station instrument types:** `psu`, `dmm`, `eload`, `scope` (exactly)
-4. **Station format:** `type` + `resource` + `mock_config`
+3. **Station format:** `driver` (import path) + `resource` + `simulate` + `mock_config`
+4. **mock_config keys** are method names (e.g., `measure_voltage`, `measure_current`)
 5. **Create BOTH test files:** `.py` AND `config.yaml`
 6. **`_mock` in config.yaml:** Per-test/per-vector mock values
 7. **Standard Python math:** Instruments return `float`. Use standard Python arithmetic
+8. **Instrument fixtures:** Define in conftest.py pulling from `instruments` dict
 
 ---
 
