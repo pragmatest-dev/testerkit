@@ -72,16 +72,27 @@ def test_output_voltage(pins):
 3. **Traceability** — Measurements link to DUT pins
 4. **Portability** — Move tests between stations easily
 
-## Fixture Without Pins
+## Without Pin Mapping
 
-You don't always need pin mapping. For simple setups, access instruments directly:
+You don't always need pin mapping. For simple setups, instrument roles from the station config are auto-registered as pytest fixtures:
 
 ```python
 @litmus_test
-def test_voltage(context, instruments):
-    """Direct instrument access."""
-    psu = instruments["psu"]
-    dmm = instruments["dmm"]
+def test_voltage(context, psu, dmm):
+    """Direct access by role -- auto-registered from station config."""
+    psu.set_voltage(5.0)
+    psu.enable_output()
+    return dmm.measure_voltage()
+```
+
+Or use the `instrument` accessor for programmatic access:
+
+```python
+@litmus_test
+def test_voltage(context, instrument):
+    """Accessor with grouping support."""
+    psu = instrument("psu")
+    dmm = instrument("dmm")
 
     psu.set_voltage(5.0)
     psu.enable_output()

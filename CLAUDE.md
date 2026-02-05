@@ -177,6 +177,65 @@ spec.to_limit(guardband_pct=10.0)
 - Test configuration is separate from test code
 - Support for retry logic, skip conditions, and operator prompts
 
+## Instrument Fixture Auto-Registration
+
+The Litmus pytest plugin **automatically registers a session-scoped fixture for each instrument role** defined in the station config. This eliminates conftest boilerplate — users write tests that directly use role names as fixture parameters.
+
+### How It Works
+
+1. At `pytest_configure` time, the plugin calls `_find_station_file()` to locate the station YAML
+2. Parses the `instruments:` section to get role names (e.g., `dmm`, `psu`, `eload`, `scope`)
+3. For each role, creates a `@pytest.fixture(scope="session")` that delegates to `instruments[role]`
+4. Registers them as a pytest plugin via `config.pluginmanager.register()`
+
+Because plugin-registered fixtures have the lowest precedence, a user-defined fixture with the same name in `conftest.py` naturally takes precedence — standard pytest override behavior.
+
+### Implementation Location
+
+- `litmus/execution/plugin.py`: `_find_station_file()`, `pytest_configure()` (auto-registration), `InstrumentAccessor` class, `instrument` fixture
+- Station config: `stations/{station_id}.yaml` with `instruments:` section mapping role → driver + resource
+
+### User Experience
+
+**Zero-boilerplate tests** — role names from station config are directly available as fixtures:
+
+```python
+# No conftest.py fixture definitions needed
+def test_voltage(dmm, psu):
+    psu.set_voltage(5.0)
+    psu.enable_output()
+    assert dmm.measure_dc_voltage() > 3.0
+```
+
+**Override pattern** — define a fixture with the same name in conftest to customize:
+
+```python
+# conftest.py — only needed for custom setup/teardown
+@pytest.fixture(scope="session")
+def psu(instruments):
+    inst = instruments.get("psu")
+    inst.set_voltage(5.0)  # project-specific default
+    return inst
+```
+
+**InstrumentAccessor** — the `instrument` fixture provides programmatic access:
+
+```python
+def test_dynamic(instrument):
+    dmm = instrument("dmm")           # Get by role
+    roles = instrument.roles()         # List all roles
+    dmms = instrument.by_type("drivers.Keithley2000")  # Group by driver
+```
+
+### conftest.py Guidelines
+
+With auto-registration, conftest.py should only contain fixtures that add **semantic value** beyond simple role access:
+- Pin-based fixtures (`output_dmm`, `input_psu`) that use the `pins` fixture for DUT traceability
+- Custom instrument setup/teardown that differs from the default
+- Project-specific test utilities
+
+Do NOT add boilerplate like `def dmm(instruments): return instruments.get("dmm")` — the plugin handles this automatically.
+
 ## Operator UI Architecture
 
 The UI combines NiceGUI (for browser UI) with FastAPI (for JSON API):

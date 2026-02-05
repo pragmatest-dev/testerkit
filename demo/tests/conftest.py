@@ -1,14 +1,23 @@
 """pytest configuration for demo tests.
 
-This conftest demonstrates TWO approaches to instrument access:
+Instrument role fixtures (psu, dmm, eload, scope) are AUTO-REGISTERED by the
+Litmus plugin from your station config — no boilerplate needed.  Tests can
+use them directly:
 
-1. INSTRUMENTS DICT (simple): Direct access by station config name
-   - psu = instruments["psu"]
-   - Good for: Quick tests, prototyping
+    def test_voltage(dmm):
+        assert dmm.measure_dc_voltage() > 3.0
 
-2. PINS FIXTURE (recommended): Access by DUT pin name with full traceability
-   - dmm = pins["TP_VOUT"]  # Returns instrument configured for that pin
-   - Good for: Production tests, traceability, spec-driven testing
+To override an auto-registered fixture (e.g. custom setup/teardown), define
+a fixture with the same name here — standard pytest override behavior:
+
+    @pytest.fixture(scope="session")
+    def psu(instruments):
+        inst = instruments.get("psu")
+        inst.set_voltage(5.0)       # custom default
+        return inst
+
+Pin-based fixtures below add SEMANTIC VALUE beyond role access: they resolve
+DUT pin names via the fixture configuration for full traceability.
 
 Run tests with:
     cd demo
@@ -16,49 +25,6 @@ Run tests with:
 """
 
 import pytest
-
-
-# =============================================================================
-# Simple Instrument Fixtures (from station config)
-# =============================================================================
-
-
-@pytest.fixture(scope="session")
-def psu(instruments):
-    """Power supply fixture.
-
-    Resolves 'psu' from the instruments dictionary loaded from station config.
-    This is the SIMPLE approach - direct access by config name.
-    """
-    return instruments.get("psu")
-
-
-@pytest.fixture(scope="session")
-def dmm(instruments):
-    """Digital multimeter fixture.
-
-    Resolves 'dmm' from the instruments dictionary loaded from station config.
-    """
-    return instruments.get("dmm")
-
-
-@pytest.fixture(scope="session")
-def eload(instruments):
-    """Electronic load fixture.
-
-    Resolves 'eload' from the instruments dictionary loaded from station config.
-    """
-    return instruments.get("eload")
-
-
-@pytest.fixture(scope="session")
-def scope(instruments):
-    """Oscilloscope fixture.
-
-    Resolves 'scope' from the instruments dictionary loaded from station config.
-    Used for waveform capture patterns (Pattern 11: Ripple measurement).
-    """
-    return instruments.get("scope")
 
 
 # =============================================================================

@@ -112,20 +112,26 @@ v = dmm.measure_voltage()  # Returns 5.0
 
 ### With pytest
 
+When using the Litmus plugin with a station config, instrument role fixtures are auto-registered. No conftest boilerplate needed:
+
+```python
+# Station config defines dmm with driver path → fixture is auto-available
+def test_voltage(dmm):
+    voltage = dmm.measure_voltage()
+    assert float(voltage) > 3.0
+```
+
+For custom lifecycle management, override in conftest:
+
 ```python
 import pytest
-from litmus.instruments import DMM
 
-@pytest.fixture
-def dmm(request):
-    """DMM fixture with simulation option."""
-    simulate = request.config.getoption("--mock-instruments", False)
-    with DMM(
-        "TCPIP::192.168.1.100::INSTR",
-        simulate=simulate,
-        sim_config={"voltage": 3.31}
-    ) as d:
-        yield d
+@pytest.fixture(scope="session")
+def dmm(instruments):
+    """Custom DMM with range configuration."""
+    inst = instruments["dmm"]
+    inst.configure_voltage_range("AUTO")
+    return inst
 
 def test_voltage(dmm):
     voltage = dmm.measure_voltage()

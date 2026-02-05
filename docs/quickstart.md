@@ -34,7 +34,7 @@ my_project/
 ├── sequences/                   # Test execution order
 │   └── full_validation.yaml     # Ordered test list
 ├── tests/                       # Test code
-│   ├── conftest.py              # Fixture definitions
+│   ├── conftest.py              # Custom fixtures (optional — roles auto-register)
 │   ├── config.yaml              # CONDITIONS + LIMITS
 │   └── test_my_product.py       # Test functions
 ├── results/                     # Output (gitignored)
@@ -86,24 +86,7 @@ instruments:
       voltage: 3.31  # Value returned in mock mode
 ```
 
-### 3. Create conftest.py
-
-```python
-# tests/conftest.py
-import pytest
-
-@pytest.fixture(scope="session")
-def psu(instruments):
-    """Power supply from station config."""
-    return instruments.get("psu")
-
-@pytest.fixture(scope="session")
-def dmm(instruments):
-    """DMM from station config."""
-    return instruments.get("dmm")
-```
-
-### 4. Configure Test Conditions and Limits
+### 3. Configure Test Conditions and Limits
 
 **Both conditions (vectors) AND limits go in config.yaml:**
 
@@ -121,7 +104,7 @@ test_output_voltage:
       spec_ref: "output_voltage @ tolerance_pct=5"
 ```
 
-### 5. Write the Test
+### 4. Write the Test
 
 ```python
 # tests/test_my_product.py
@@ -149,7 +132,7 @@ def test_output_voltage(context, psu, dmm):
     return dmm.measure_dc_voltage()
 ```
 
-### 6. Run the Test
+### 5. Run the Test
 
 ```bash
 # With mock instruments (no hardware required)

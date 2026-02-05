@@ -25,8 +25,40 @@ _ACTIVE_INSTRUMENTS: dict[str, Any] = {}
 _INSTRUMENT_RECORDS: dict[str, InstrumentRecord] = {}
 
 
+def _find_station_file(config) -> Path | None:
+    """Find station config file from pytest config options.
+
+    Extracts station file resolution logic so both the station_config fixture
+    and the auto-registration hook can reuse it.
+
+    Args:
+        config: pytest Config object
+
+    Returns:
+        Path to station config file, or None if not found.
+    """
+    config_path = config.getoption("--station-config")
+    if config_path:
+        return Path(config_path)
+
+    # Try auto-discover from stations/ directory
+    station_id = config.getoption("--station")
+    search_roots = [
+        config.rootpath,
+        Path(config.invocation_params.dir),
+    ]
+    for root in search_roots:
+        stations_dir = root / "stations"
+        if stations_dir.exists():
+            station_file = stations_dir / f"{station_id}.yaml"
+            if station_file.exists():
+                return station_file
+
+    return None
+
+
 def pytest_configure(config):
-    """Register Litmus markers."""
+    """Register Litmus markers and auto-register instrument role fixtures."""
     config.addinivalue_line(
         "markers",
         "litmus_retry(max_attempts, delay): Retry test on failure",
@@ -34,6 +66,44 @@ def pytest_configure(config):
     config.addinivalue_line(
         "markers",
         "litmus_skip_on(dependencies): Skip if dependencies failed",
+    )
+
+    # Auto-register instrument role fixtures from station config
+    station_path = _find_station_file(config)
+    if station_path is None:
+        return
+
+    try:
+        with open(station_path) as f:
+            station_data = yaml.safe_load(f)
+    except Exception:
+        return
+
+    if not station_data:
+        return
+
+    instruments_map = station_data.get("instruments", {})
+    if not instruments_map:
+        return
+
+    # Build a plugin class with fixture functions per role.
+    # Wrap each fixture in staticmethod to prevent Python's descriptor
+    # protocol from injecting self as the first argument.
+    class _InstrumentFixtures:
+        pass
+
+    for role in instruments_map:
+        def _make(r=role):
+            @pytest.fixture(scope="session")
+            def _fix(instruments):
+                return instruments.get(r)
+            _fix.__name__ = r
+            _fix.__qualname__ = r
+            return _fix
+        setattr(_InstrumentFixtures, role, staticmethod(_make()))
+
+    config.pluginmanager.register(
+        _InstrumentFixtures(), "litmus_instrument_fixtures"
     )
 
 
@@ -421,25 +491,9 @@ def station_config(request) -> dict[str, Any] | None:
     Returns:
         Station configuration dict, or None if not specified.
     """
-    config_path = request.config.getoption("--station-config")
-    if not config_path:
-        # Try auto-discover from stations/ directory
-        # Check both rootpath and invocation directory (for nested projects like demo/)
-        station_id = request.config.getoption("--station")
-        search_roots = [
-            request.config.rootpath,
-            Path(request.config.invocation_params.dir),  # Where pytest was invoked
-        ]
-        for root in search_roots:
-            stations_dir = root / "stations"
-            if stations_dir.exists():
-                station_file = stations_dir / f"{station_id}.yaml"
-                if station_file.exists():
-                    config_path = str(station_file)
-                    break
-
-    if config_path:
-        with open(config_path) as f:
+    station_path = _find_station_file(request.config)
+    if station_path:
+        with open(station_path) as f:
             return yaml.safe_load(f)
     return None
 
@@ -704,6 +758,49 @@ def instruments(
         except Exception:
             pass
     _ACTIVE_INSTRUMENTS.clear()
+
+
+class InstrumentAccessor:
+    """Callable accessor for instruments by role, with type-based grouping."""
+
+    def __init__(self, instruments: dict[str, Any], records: dict[str, InstrumentRecord]):
+        self._instruments = instruments
+        self._records = records
+
+    def __call__(self, role: str) -> Any:
+        """Get instrument by role name. Raises KeyError with available roles."""
+        if role not in self._instruments:
+            available = ", ".join(sorted(self._instruments)) or "(none)"
+            raise KeyError(
+                f"No instrument with role '{role}'. Available: {available}"
+            )
+        return self._instruments[role]
+
+    def by_type(self, driver_path: str) -> dict[str, Any]:
+        """Get all instruments matching a driver class import path."""
+        return {
+            role: self._instruments[role]
+            for role, record in self._records.items()
+            if record.driver == driver_path and role in self._instruments
+        }
+
+    def roles(self) -> list[str]:
+        """List available instrument role names."""
+        return sorted(self._instruments)
+
+
+@pytest.fixture
+def instrument(instruments, instrument_records):
+    """Accessor for instruments by role with grouping support.
+
+    Usage:
+        def test_voltage(instrument):
+            dmm = instrument("dmm")
+
+        def test_all_dmms(instrument):
+            dmms = instrument.by_type("pymeasure.instruments.keithley.Keithley2000")
+    """
+    return InstrumentAccessor(instruments, instrument_records)
 
 
 def _get_instrument_info(inst: Any, protocol: str = "visa") -> InstrumentInfo | None:

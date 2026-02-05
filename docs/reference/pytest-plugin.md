@@ -229,41 +229,72 @@ def test_characterize(context, dmm):
 
 ## Instrument Fixtures
 
-Create pytest fixtures for your instruments:
+### Auto-Registered Role Fixtures
+
+When a station config is loaded, the Litmus plugin **automatically registers a session-scoped fixture for each instrument role**. If your station config defines `dmm`, `psu`, `eload`, and `scope`, you can use them directly in tests with zero conftest boilerplate:
 
 ```python
-import pytest
-from litmus.instruments import DMM, PSU
-
-@pytest.fixture
-def dmm():
-    with DMM("TCPIP::192.168.1.100::INSTR") as d:
-        yield d
-
-@pytest.fixture
-def psu():
-    with PSU("GPIB0::5::INSTR") as p:
-        yield p
-
-# For mock mode, use --mock-instruments with station config
-# Mock values come from station mock_config or test _mock config
+@litmus_test
+def test_voltage(context, dmm, psu):
+    """dmm and psu are auto-registered from station config."""
+    psu.set_voltage(5.0)
+    psu.enable_output()
+    return dmm.measure_dc_voltage()
 ```
 
-### Station-Based Fixtures
+No `conftest.py` fixture definitions needed -- the plugin reads your station config at startup and creates the fixtures for you.
 
-When using `--station-config`, the plugin provides automatic instrument management:
+**Override behavior:** To customize an auto-registered fixture (e.g. add setup/teardown), define a fixture with the same name in your `conftest.py`. Standard pytest override rules apply -- conftest fixtures take precedence over plugin fixtures:
 
-**`instruments` fixture (session-scoped):**
+```python
+# conftest.py
+@pytest.fixture(scope="session")
+def psu(instruments):
+    """Custom PSU with default voltage."""
+    inst = instruments.get("psu")
+    inst.set_voltage(5.0)
+    return inst
+```
+
+### `instrument` Accessor Fixture
+
+For programmatic access with grouping support, use the `instrument` fixture:
+
+```python
+def test_voltage(instrument):
+    dmm = instrument("dmm")       # Get by role name
+    voltage = dmm.measure_dc_voltage()
+
+def test_all_dmms(instrument):
+    # Get all instruments with a specific driver class
+    dmms = instrument.by_type("pymeasure.instruments.keithley.Keithley2000")
+    for role, dmm in dmms.items():
+        print(f"{role}: {dmm.measure_dc_voltage()}")
+
+def test_list_roles(instrument):
+    roles = instrument.roles()     # ["dmm", "eload", "psu", "scope"]
+```
+
+| Method | Returns | Description |
+|--------|---------|-------------|
+| `instrument(role)` | instrument instance | Get by role name, KeyError if missing |
+| `instrument.by_type(driver_path)` | `dict[str, Any]` | All instruments matching a driver import path |
+| `instrument.roles()` | `list[str]` | Sorted list of available role names |
+
+### `instruments` Dict Fixture (session-scoped)
+
+The underlying dict of all instrument instances, keyed by role name:
+
 ```python
 @litmus_test
 def test_voltage(context, instruments):
-    dmm = instruments["dmm"]       # Access by station config name
+    dmm = instruments["dmm"]
     psu = instruments["psu"]
     psu.set_voltage(5.0)
     return dmm.measure_dc_voltage()
 ```
 
-**`pins` fixture (session-scoped):**
+### `pins` Fixture (session-scoped)
 
 For UUT-centric tests, access instruments via DUT pin names:
 
@@ -277,7 +308,7 @@ def test_output_voltage(pins):
 
 Requires `--fixture-config` to map pins to instruments.
 
-**`fixture_manager` fixture (session-scoped):**
+### `fixture_manager` Fixture (session-scoped)
 
 For advanced routing needs:
 
@@ -287,7 +318,7 @@ def test_with_net_lookup(fixture_manager):
     instrument = fixture_manager.get_instrument_for_point(point.name)
 ```
 
-**`spec_context` fixture (session-scoped):**
+### `spec_context` Fixture (session-scoped)
 
 For spec-driven limit derivation:
 
@@ -301,7 +332,7 @@ def test_voltage(spec_context, dmm):
 
 Auto-discovers from `products/` directory or use `--spec` option.
 
-**`run_context` fixture (session-scoped):**
+### `run_context` Fixture (session-scoped)
 
 Add custom metadata that becomes queryable Parquet columns:
 
@@ -349,25 +380,13 @@ with harness.step():
         # tv.params includes: operator, fixture.id, temp
 ```
 
-**`litmus_logger` fixture (session-scoped, autouse):**
+### `litmus_logger` Fixture (session-scoped, autouse)
 
-The underlying logger that captures all measurements. Automatically active for all tests. You rarely need to access it directly—use `run_context` for custom metadata or `@litmus_test` for measurement capture.
+The underlying logger that captures all measurements. Automatically active for all tests. You rarely need to access it directly -- use `run_context` for custom metadata or `@litmus_test` for measurement capture.
 
-**`mock_instruments` fixture (session-scoped):**
+### `mock_instruments` Fixture (session-scoped)
 
-Returns `True` if `--mock-instruments` flag or `LITMUS_MOCK_INSTRUMENTS=1` environment variable is set:
-
-```python
-@pytest.fixture
-def dmm(mock_instruments):
-    if mock_instruments:
-        from litmus.instruments import Mock
-        with Mock(DMM, voltage=5.0) as d:
-            yield d
-    else:
-        with DMM("TCPIP::192.168.1.100::INSTR") as d:
-            yield d
-```
+Returns `True` if `--mock-instruments` flag or `LITMUS_MOCK_INSTRUMENTS=1` environment variable is set. Rarely needed directly since auto-registered fixtures handle mock resolution automatically.
 
 ### CLI Options for Mock Mode
 
@@ -622,13 +641,9 @@ test_output_sweep:
 
 **tests/test_power.py:**
 ```python
-import pytest
 from litmus.execution import litmus_test
-from litmus.instruments import DMM
 
-@pytest.fixture
-def dmm(instruments):
-    return instruments["dmm"]
+# No conftest boilerplate needed -- dmm is auto-registered from station config
 
 @litmus_test
 def test_input_voltage(context, dmm):

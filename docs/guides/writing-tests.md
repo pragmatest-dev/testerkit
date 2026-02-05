@@ -131,7 +131,46 @@ test_flaky:
 
 ## Instrument Fixtures
 
-### Station Instruments
+### Auto-Registered Role Fixtures (Recommended)
+
+Instrument roles from your station config are auto-registered as pytest fixtures. Use them directly — no conftest boilerplate:
+
+```python
+@litmus_test
+def test_voltage(context, dmm, psu):
+    """dmm and psu are auto-registered from station config."""
+    psu.set_voltage(context.get_in("vin", 5.0))
+    psu.enable_output()
+    return dmm.measure_dc_voltage()
+```
+
+To override with custom setup/teardown, define a fixture with the same name in `conftest.py`:
+
+```python
+# conftest.py
+@pytest.fixture(scope="session")
+def psu(instruments):
+    """Custom PSU with default voltage."""
+    inst = instruments.get("psu")
+    inst.set_voltage(5.0)
+    return inst
+```
+
+### Instrument Accessor
+
+For programmatic or dynamic access:
+
+```python
+@litmus_test
+def test_voltage(context, instrument):
+    dmm = instrument("dmm")        # Get by role name
+    roles = instrument.roles()      # List all roles
+    ...
+```
+
+### Station Instruments Dict
+
+The underlying dict of all instances, keyed by role:
 
 ```python
 @litmus_test
@@ -142,6 +181,8 @@ def test_voltage(context, instruments):
 ```
 
 ### Pin-Based Access
+
+For production tests with DUT traceability:
 
 ```python
 @litmus_test

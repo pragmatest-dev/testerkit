@@ -51,16 +51,15 @@ The **same test code** works with real hardware or mocks.
 
 ## A Simple Test
 
+Instrument roles from the station config are auto-registered as pytest fixtures. Use them directly -- no conftest boilerplate:
+
 ```python
 # tests/test_voltage.py
 from litmus.execution import litmus_test
 
 @litmus_test
-def test_output_voltage(context, instruments):
-    """Measure output voltage."""
-    dmm = instruments["dmm"]
-    psu = instruments["psu"]
-
+def test_output_voltage(context, dmm, psu):
+    """Measure output voltage. dmm and psu are auto-registered from station config."""
     psu.set_voltage(5.0)
     psu.enable_output()
 

@@ -7,8 +7,10 @@ Migrate existing OpenHTF test suites to Litmus while preserving your test logic.
 OpenHTF and Litmus share similar concepts:
 - Test phases ↔ Test steps
 - Measurements ↔ Measurements
-- Plugs ↔ Instruments
+- Plugs ↔ User's driver classes
 - Station configs ↔ Station configs
+
+Litmus does not provide instrument drivers — you bring your own (PyMeasure, PyVISA, vendor SDKs, or even your existing OpenHTF plugs refactored as plain classes). Litmus provides the infrastructure around them: discovery, identity verification, calibration tracking, and a Mock factory for simulation.
 
 This guide shows how to migrate incrementally.
 
@@ -18,7 +20,7 @@ This guide shows how to migrate incrementally.
 |---------|--------|-------|
 | `@measures` decorator | `@litmus_test` | Return values become measurements |
 | `Measurement` | `Measurement` | Similar API |
-| `Plug` | Instrument driver | Litmus uses capability interfaces |
+| `Plug` | User's driver class | Any Python class — PyMeasure, custom, or refactored plug |
 | `PhaseResult` | `Outcome` | PASS, FAIL, SKIP, ERROR |
 | `test_record` | `TestRun` | Results storage |
 | `Test` class | pytest test file | Litmus uses pytest natively |
@@ -27,34 +29,36 @@ This guide shows how to migrate incrementally.
 
 ### Strategy 1: Results Bridge
 
-Keep OpenHTF tests, send results to Litmus:
+Keep OpenHTF tests, send results to Litmus via HTTP API:
 
 ```python
 # openhtf_bridge.py
-from litmus import LitmusClient
+import requests
+
+LITMUS_API = "http://localhost:8000/api"
 
 def on_test_complete(test_record):
-    """OpenHTF callback to send results to Litmus."""
-    client = LitmusClient()
-
-    run = client.start_run(
-        dut_serial=test_record.dut_id,
-        station_id=test_record.station_id,
-        test_sequence_id="openhtf_import",
-    )
+    """OpenHTF output callback to send results to Litmus."""
+    run_data = {
+        "dut_serial": test_record.dut_id,
+        "station_id": test_record.station_id,
+        "test_sequence_id": "openhtf_import",
+        "steps": [],
+    }
 
     for phase in test_record.phases:
-        with run.step(phase.name) as step:
-            for m in phase.measurements.values():
-                step.measure(
-                    name=m.name,
-                    value=m.measured_value,
-                    units=m.units,
-                    low=m.validators[0].minimum if m.validators else None,
-                    high=m.validators[0].maximum if m.validators else None,
-                )
+        step = {"name": phase.name, "measurements": []}
+        for m in phase.measurements.values():
+            step["measurements"].append({
+                "name": m.name,
+                "value": m.measured_value,
+                "units": m.units,
+                "low": m.validators[0].minimum if m.validators else None,
+                "high": m.validators[0].maximum if m.validators else None,
+            })
+        run_data["steps"].append(step)
 
-    run.finish()
+    requests.post(f"{LITMUS_API}/runs", json=run_data)
 ```
 
 ### Strategy 2: Parallel Tests
@@ -68,7 +72,7 @@ from litmus.execution import litmus_test
 @litmus_test
 def test_voltage(context, instruments):
     """Litmus version of voltage test."""
-    return instruments["dmm"].measure_voltage()
+    return instruments["dmm"].measure_dc_voltage()
 ```
 
 ```python
@@ -144,7 +148,9 @@ test_power:
       units: V
 ```
 
-## Plug to Instrument Migration
+## Plug to Driver Class Migration
+
+OpenHTF plugs can be migrated in two ways: reuse an existing driver library (e.g., PyMeasure) or refactor your plug into a standalone class.
 
 ### OpenHTF Plug
 
@@ -169,20 +175,84 @@ class DmmPlug(plugs.BasePlug):
         return float(self._inst.query("MEAS:VOLT:DC?"))
 ```
 
-### Litmus Instrument
+### Option A: Use an existing driver library
+
+If a library like PyMeasure already supports your instrument, use it directly:
 
 ```python
-from litmus.instruments import DMM
+# drivers/dmm.py — no code needed, just reference in station config
+# PyMeasure already provides Keithley2000, Agilent34401A, etc.
+```
 
-# Direct use (no custom class needed for SCPI instruments)
-dmm = DMM("TCPIP::192.168.1.100::INSTR")
-dmm.connect()
-voltage = dmm.measure_voltage()  # Returns float
-dmm.disconnect()
+```yaml
+# stations/bench_1.yaml
+instruments:
+  dmm:
+    driver: pymeasure.instruments.keithley.Keithley2000
+    resource: "TCPIP::192.168.1.100::INSTR"
+```
 
-# Or with context manager
-with DMM("TCPIP::192.168.1.100::INSTR") as dmm:
-    voltage = dmm.measure_voltage()
+### Option B: Refactor your plug into a plain class
+
+Strip the OpenHTF base class and keep the instrument logic:
+
+```python
+# drivers/dmm.py
+import pyvisa
+
+class MyDMM:
+    """Refactored from DmmPlug — no framework dependency."""
+
+    def __init__(self, resource: str):
+        self.resource = resource
+        self._inst = None
+
+    def connect(self):
+        rm = pyvisa.ResourceManager()
+        self._inst = rm.open_resource(self.resource)
+
+    def disconnect(self):
+        if self._inst:
+            self._inst.close()
+
+    def measure_voltage(self) -> float:
+        return float(self._inst.query("MEAS:VOLT:DC?"))
+
+    def __enter__(self):
+        self.connect()
+        return self
+
+    def __exit__(self, *args):
+        self.disconnect()
+```
+
+```yaml
+# stations/bench_1.yaml
+instruments:
+  dmm:
+    driver: drivers.dmm.MyDMM
+    resource: "TCPIP::192.168.1.100::INSTR"
+```
+
+### Simulation with Mock factory
+
+Litmus provides a generic Mock factory that works with any driver class — no simulation code required in your driver:
+
+```python
+from litmus.instruments import Mock
+from drivers.dmm import MyDMM
+
+# Mock wraps any class — all methods become no-ops unless configured
+dmm = Mock(MyDMM, measure_voltage=3.3)
+dmm.measure_voltage()  # → 3.3
+dmm.connect()           # → None (no-op)
+
+# Dict values for command-response patterns
+dmm = Mock(MyDMM, query={"MEAS:VOLT:DC?": "3.300", "*IDN?": "Keithley,2000,..."})
+
+# Callable values for dynamic behavior
+import random
+dmm = Mock(MyDMM, measure_voltage=lambda: 3.3 + random.gauss(0, 0.01))
 ```
 
 ## Station Config Migration
@@ -211,11 +281,32 @@ station:
 
 instruments:
   dmm:
-    type: dmm
+    driver: pymeasure.instruments.keithley.Keithley2000
     resource: "TCPIP::192.168.1.100::INSTR"
   psu:
-    type: power_supply
+    driver: drivers.psu.MyPSU
     resource: "GPIB0::5::INSTR"
+```
+
+Litmus also supports instrument asset files for identity verification and calibration tracking:
+
+```yaml
+# instruments/keithley_dmm_001.yaml
+id: keithley_dmm_001
+protocol: visa
+driver: pymeasure.instruments.keithley.Keithley2000
+
+info:
+  manufacturer: Keithley
+  model: "2000"
+  serial: "1234567"
+  firmware: "A02"
+
+calibration:
+  due_date: 2026-06-15
+  last_cal: 2025-06-15
+  certificate: CAL-2025-042
+  lab: Acme Calibration
 ```
 
 ## Measurement Migration
@@ -278,29 +369,29 @@ pytest tests/test_power.py --station=bench_1 --dut-serial=SN12345
 
 ## Gradual Migration Plan
 
-### Week 1-2: Results Bridge
+### Phase 1: Results Bridge
 
 1. Install Litmus alongside OpenHTF
-2. Add results bridge callback
+2. Add results bridge callback (Strategy 1 above)
 3. Verify results appear in Litmus UI
 4. Continue running OpenHTF tests
 
-### Week 3-4: Instrument Drivers
+### Phase 2: Station Setup
 
-1. Create station configs for existing benches
-2. Test Litmus drivers with simulation
-3. Replace OpenHTF plugs with Litmus instruments
-4. Verify measurements match
+1. Run `litmus discover` to scan connected instruments
+2. Create station configs with `litmus station init`
+3. Create instrument asset files for calibration tracking
+4. Test Mock factory with your driver classes
 
-### Week 5-8: Test Migration
+### Phase 3: Test Migration
 
 1. Start with simple tests
 2. Migrate one test file at a time
-3. Run both versions in parallel
+3. Run both versions in parallel (Strategy 2)
 4. Validate results match
 5. Deprecate OpenHTF versions
 
-### Week 9+: Full Cutover
+### Phase 4: Full Cutover
 
 1. Run Litmus tests in production
 2. Monitor for issues
@@ -311,15 +402,15 @@ pytest tests/test_power.py --station=bench_1 --dut-serial=SN12345
 
 | Aspect | OpenHTF | Litmus |
 |--------|---------|--------|
-| Framework | Custom | pytest (familiar) |
-| Simulation | Custom plugs | Built-in |
-| Configuration | Python | YAML |
-| AI Integration | None | MCP server |
-| Capability matching | None | Automatic |
-| Community | Small | Large (pytest) |
+| Framework | Custom executor | pytest (familiar) |
+| Simulation | DIY per plug | Generic Mock factory (any class) |
+| Configuration | Python dicts | YAML with Pydantic validation |
+| AI Integration | None | MCP server + HTTP API |
+| Instrument discovery | Manual | Multi-protocol (VISA/NI/serial) |
+| Calibration tracking | Not supported | Built-in with expiration warnings |
+| Identity verification | Not supported | Auto-verify *IDN? at runtime |
 
 ## Next Steps
 
 - [Results API](results-api.md) — Bridge results during migration
-- [Instrument Drivers](instruments.md) — Replace plugs
 - [Tutorial](../tutorial/index.md) — Learn Litmus patterns

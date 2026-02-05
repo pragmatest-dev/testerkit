@@ -419,25 +419,7 @@ class TestMyDMM:
 
 ## Registering Custom Drivers
 
-To use custom drivers with the pytest fixtures:
-
-```python
-# conftest.py
-import pytest
-from my_drivers import MyDMM, MyPSU
-
-@pytest.fixture
-def dmm(mock_instruments):
-    """Custom DMM fixture."""
-    with MyDMM(
-        "TCPIP::192.168.1.100::INSTR",
-        simulate=mock_instruments,
-        mock_config={"voltage": 5.0}
-    ) as dmm:
-        yield dmm
-```
-
-Or register via station config:
+Register drivers via station config. The Litmus plugin auto-registers a pytest fixture for each role -- no conftest boilerplate needed:
 
 ```yaml
 # stations/my_station.yaml
@@ -447,11 +429,33 @@ station:
 
 instruments:
   dmm:
-    type: my_drivers.MyDMM  # Full module path
+    driver: my_drivers.MyDMM  # Full import path
     resource: "TCPIP::192.168.1.100::INSTR"
     simulate: true
     mock_config:
       voltage: 5.0
+```
+
+Tests can use the role name directly:
+
+```python
+def test_voltage(dmm):
+    """dmm is auto-registered from station config."""
+    assert dmm.measure_voltage() > 3.0
+```
+
+To override the auto-registered fixture with custom lifecycle logic, define it in `conftest.py`:
+
+```python
+# conftest.py
+import pytest
+
+@pytest.fixture(scope="session")
+def dmm(instruments):
+    """Custom DMM with additional setup."""
+    inst = instruments["dmm"]
+    inst.configure_voltage_range("AUTO")
+    return inst
 ```
 
 ## Next Steps

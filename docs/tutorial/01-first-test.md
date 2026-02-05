@@ -69,25 +69,14 @@ Hardware testing can get complex fast. Starting with the simplest possible test 
 
 Once this works, we'll add actual measurements.
 
-## Add conftest.py
+## About conftest.py
 
-For most test suites, you'll want a `conftest.py` to configure pytest:
+You may not need a `conftest.py` at all. The Litmus plugin auto-registers instrument role fixtures from your station config (e.g., `dmm`, `psu`, `eload`) — no boilerplate needed.
 
-```python
-# tests/conftest.py
-
-import pytest
-
-def pytest_configure(config):
-    """Configure pytest for Litmus tests."""
-    # We'll add configuration here later
-    pass
-```
-
-This file is optional for now but will be important later for:
-- Registering fixtures
-- Configuring the Litmus plugin
-- Adding command-line options
+You only need `conftest.py` when you want to:
+- Override an auto-registered fixture with custom setup/teardown
+- Add pin-based fixtures for DUT traceability
+- Define project-specific test utilities
 
 ## Verify the Setup
 
