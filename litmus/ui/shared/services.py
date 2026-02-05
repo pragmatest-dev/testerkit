@@ -4,6 +4,10 @@ from pathlib import Path
 
 import yaml
 
+from litmus.instruments.loader import (
+    load_instrument_files,
+    resolve_station_instruments,
+)
 from litmus.matching import service as matching_service
 from litmus.products.folder import ProductFolder
 
@@ -453,6 +457,95 @@ def save_instrument_definition(instrument_type: str, data: dict) -> bool:
         yaml.dump(data, f, default_flow_style=False, sort_keys=False)
 
     return True
+
+
+def discover_instrument_assets() -> list[dict]:
+    """Discover per-device instrument asset files (identity + calibration).
+
+    Asset files have an 'id' key at top level (not 'instrument' which is library).
+    """
+    assets = []
+    seen_ids: set[str] = set()
+
+    search_paths = [
+        Path.cwd() / "instruments",
+        Path.cwd() / "demo" / "instruments",
+    ]
+
+    for instruments_dir in search_paths:
+        if not instruments_dir.exists():
+            continue
+        for yaml_file in instruments_dir.glob("*.yaml"):
+            with open(yaml_file) as f:
+                data = yaml.safe_load(f)
+            if not data or "id" not in data or "instrument" in data:
+                continue
+            asset_id = data["id"]
+            if asset_id in seen_ids:
+                continue
+            seen_ids.add(asset_id)
+
+            info = data.get("info", {})
+            cal = data.get("calibration", {})
+            assets.append({
+                "id": asset_id,
+                "driver": data.get("driver", ""),
+                "protocol": data.get("protocol", ""),
+                "resource": data.get("resource", ""),
+                "manufacturer": info.get("manufacturer", ""),
+                "model": str(info.get("model", "")) if info.get("model") is not None else "",
+                "serial": str(info.get("serial", "")) if info.get("serial") is not None else "",
+                "firmware": (
+                    str(info.get("firmware", "")) if info.get("firmware") is not None else ""
+                ),
+                "cal_due": cal.get("due_date"),
+                "cal_last": cal.get("last_cal"),
+                "cal_certificate": cal.get("certificate", ""),
+                "cal_lab": cal.get("lab", ""),
+                "file": str(yaml_file),
+            })
+
+    return assets
+
+
+def load_instrument_asset(instrument_id: str) -> dict | None:
+    """Load a single instrument asset file by ID."""
+    search_paths = [
+        Path.cwd() / "instruments",
+        Path.cwd() / "demo" / "instruments",
+    ]
+
+    for instruments_dir in search_paths:
+        if not instruments_dir.exists():
+            continue
+        for yaml_file in instruments_dir.glob("*.yaml"):
+            with open(yaml_file) as f:
+                data = yaml.safe_load(f)
+            if data and data.get("id") == instrument_id and "instrument" not in data:
+                return data
+
+    return None
+
+
+def resolve_station_instrument_records(station_id: str) -> dict:
+    """Resolve a station's instruments to InstrumentRecord objects.
+
+    Returns dict mapping role name to InstrumentRecord.
+    """
+    config = load_station_config(station_id)
+    if not config:
+        return {}
+
+    # Load all instrument asset files from both search paths
+    all_instrument_files: dict = {}
+    search_paths = [
+        Path.cwd() / "instruments",
+        Path.cwd() / "demo" / "instruments",
+    ]
+    for instruments_dir in search_paths:
+        all_instrument_files.update(load_instrument_files(instruments_dir))
+
+    return resolve_station_instruments(config, all_instrument_files)
 
 
 def create_instrument_definition(

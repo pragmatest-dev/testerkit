@@ -10,6 +10,7 @@ from litmus.ui.shared.services import (
     get_station_capabilities,
     load_product_model,
     load_station_config,
+    resolve_station_instrument_records,
     station_compatible_with_product,
 )
 
@@ -87,7 +88,7 @@ def _render_station_detail(station_id: str, config: dict):
 
     with ui.tab_panels(tabs, value=instruments_tab).classes("w-full"):
         with ui.tab_panel(instruments_tab):
-            _render_instruments_tab(instruments)
+            _render_instruments_tab(station_id, instruments)
 
         with ui.tab_panel(sequences_tab):
             _render_sequences_tab(station_id, config)
@@ -114,18 +115,20 @@ def _info_field(label: str, value: str):
         ui.label(value).classes("font-semibold")
 
 
-def _render_instruments_tab(instruments: dict):
+def _render_instruments_tab(station_id: str, instruments: dict):
     """Render the instruments tab."""
     if instruments:
+        # Resolve instrument records for identity/calibration info
+        records = resolve_station_instrument_records(station_id)
         with ui.row().classes("gap-4 flex-wrap"):
             for name, inst in instruments.items():
-                _instrument_card(name, inst)
+                _instrument_card(name, inst, record=records.get(name))
     else:
         ui.label("No instruments configured.").classes("text-slate-500 italic")
 
 
-def _instrument_card(name: str, inst: dict):
-    """Render an instrument card."""
+def _instrument_card(name: str, inst: dict, record=None):
+    """Render an instrument card with optional identity/calibration from record."""
     simulated = inst.get("simulate", False)
     with ui.card().classes("w-80"):
         with ui.card_section():
@@ -140,15 +143,63 @@ def _instrument_card(name: str, inst: dict):
 
         with ui.card_section():
             with ui.column().classes("gap-2"):
+                driver = inst.get("driver", "")
                 with ui.row().classes("items-center gap-2"):
-                    ui.label("Type:").classes("text-sm text-slate-500")
-                    ui.link(
-                        inst.get("type", "unknown"),
-                        "/instruments",
-                    ).classes("text-sm font-medium text-blue-600 hover:underline")
+                    ui.label("Driver:").classes("text-sm text-slate-500")
+                    ui.label(driver or "N/A").classes("text-sm font-mono")
                 with ui.row().classes("items-center gap-2"):
                     ui.label("Resource:").classes("text-sm text-slate-500")
                     ui.label(inst.get("resource", "N/A")).classes("text-sm font-mono")
+
+                # Identity info from resolved record
+                if record and record.info:
+                    ui.separator().classes("my-1")
+                    mfr = record.info.manufacturer or ""
+                    model = record.info.model or ""
+                    if mfr or model:
+                        ui.label(f"{mfr} {model}".strip()).classes(
+                            "text-sm font-semibold text-slate-700"
+                        )
+                    if record.info.serial:
+                        with ui.row().classes("items-center gap-2"):
+                            ui.label("Serial:").classes("text-xs text-slate-500")
+                            ui.label(record.info.serial).classes("text-xs font-mono")
+                    if record.info.firmware:
+                        with ui.row().classes("items-center gap-2"):
+                            ui.label("Firmware:").classes("text-xs text-slate-500")
+                            ui.label(record.info.firmware).classes("text-xs font-mono")
+
+                # Calibration info from resolved record
+                if record and record.calibration:
+                    cal = record.calibration
+                    if cal.due_date:
+                        ui.separator().classes("my-1")
+                        days = cal.days_until_due()
+                        if days is not None:
+                            if days < 0:
+                                cal_color = "text-red-600"
+                                cal_label = "OVERDUE"
+                            elif days < 90:
+                                cal_color = "text-amber-600"
+                                cal_label = f"Due {cal.due_date.isoformat()}"
+                            else:
+                                cal_color = "text-green-600"
+                                cal_label = f"Due {cal.due_date.isoformat()}"
+                        else:
+                            cal_color = "text-slate-500"
+                            cal_label = str(cal.due_date)
+                        with ui.row().classes("items-center gap-2"):
+                            ui.icon("event").classes(f"text-sm {cal_color}")
+                            ui.label(cal_label).classes(f"text-xs {cal_color}")
+                    if cal.lab:
+                        with ui.row().classes("items-center gap-2"):
+                            ui.label("Cal Lab:").classes("text-xs text-slate-500")
+                            ui.label(cal.lab).classes("text-xs")
+                    if cal.certificate:
+                        with ui.row().classes("items-center gap-2"):
+                            ui.label("Cert:").classes("text-xs text-slate-500")
+                            ui.label(cal.certificate).classes("text-xs font-mono")
+
                 if inst.get("description"):
                     ui.label(inst["description"]).classes("text-sm text-slate-600 mt-2")
 

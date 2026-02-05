@@ -1,9 +1,11 @@
 """Instrument library list page."""
 
+from datetime import date
+
 from nicegui import ui
 
 from litmus.ui.shared.layout import create_layout
-from litmus.ui.shared.services import discover_instrument_types
+from litmus.ui.shared.services import discover_instrument_assets, discover_instrument_types
 
 
 @ui.page("/instruments")
@@ -57,6 +59,9 @@ def instruments_page():
                     on_click=lambda: ui.navigate.to("/instruments/new"),
                 ).classes("mt-4")
 
+        # --- Instrument Inventory (asset files) ---
+        _render_instrument_inventory()
+
 
 def _instrument_card(inst: dict):
     """Render an instrument card."""
@@ -98,3 +103,73 @@ def _instrument_card(inst: dict):
                 icon="edit",
                 on_click=lambda i=inst: ui.navigate.to(f"/instruments/{i['type']}/edit"),
             ).props("flat")
+
+
+def _render_instrument_inventory():
+    """Render the instrument inventory section for physical asset files."""
+    assets = discover_instrument_assets()
+
+    ui.separator().classes("my-4")
+
+    with ui.row().classes("items-center gap-2"):
+        ui.icon("inventory_2").classes("text-slate-600")
+        ui.label("Instrument Inventory").classes("text-lg font-semibold text-slate-700")
+        ui.badge(str(len(assets))).props("outline")
+
+    if assets:
+        columns = [
+            {"name": "id", "label": "ID", "field": "id", "align": "left", "sortable": True},
+            {"name": "driver", "label": "Driver", "field": "driver", "align": "left"},
+            {
+                "name": "identity",
+                "label": "Manufacturer / Model",
+                "field": "identity",
+                "align": "left",
+            },
+            {"name": "serial", "label": "Serial", "field": "serial", "align": "left"},
+            {"name": "cal_due", "label": "Cal Due", "field": "cal_due", "align": "left"},
+            {"name": "cal_lab", "label": "Cal Lab", "field": "cal_lab", "align": "left"},
+        ]
+
+        rows = []
+        for asset in assets:
+            cal_due = asset.get("cal_due")
+            if cal_due:
+                if isinstance(cal_due, date):
+                    cal_str = cal_due.isoformat()
+                else:
+                    cal_str = str(cal_due)
+            else:
+                cal_str = ""
+
+            mfr = asset.get("manufacturer", "")
+            model = asset.get("model", "")
+            identity = f"{mfr} {model}".strip() if (mfr or model) else ""
+
+            rows.append({
+                "id": asset["id"],
+                "driver": asset.get("driver", ""),
+                "identity": identity,
+                "serial": asset.get("serial", ""),
+                "cal_due": cal_str,
+                "cal_lab": asset.get("cal_lab", ""),
+            })
+
+        table = ui.table(columns=columns, rows=rows, row_key="id").classes("w-full")
+        table.on(
+            "row-click",
+            lambda e: ui.navigate.to(f"/instruments/{e.args[1]['id']}"),
+        )
+    else:
+        with ui.card().classes("w-full bg-blue-50 border-blue-200"):
+            with ui.card_section():
+                with ui.row().classes("items-start gap-3"):
+                    ui.icon("info", color="blue").classes("mt-1")
+                    with ui.column().classes("gap-1"):
+                        ui.label("No instrument asset files found.").classes(
+                            "font-semibold text-blue-900"
+                        )
+                        ui.label(
+                            "Use `litmus station init` to discover instruments "
+                            "and create asset files."
+                        ).classes("text-sm text-blue-800")

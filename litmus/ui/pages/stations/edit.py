@@ -158,7 +158,11 @@ def _render_instrument_expansion(inst_name: str, inst_data: dict):
     with ui.expansion(inst_name, icon="cable").classes("w-full"):
         with ui.column().classes("gap-4 p-2"):
             with ui.row().classes("gap-4 items-end"):
-                _labeled_input("Type", inst_data.get("type", ""), readonly=True)
+                _labeled_input(
+                    "Driver",
+                    inst_data.get("driver", ""),
+                    on_change=lambda e, d=inst_data: d.update({"driver": e.value}),
+                )
                 with ui.column().classes("gap-1 flex-1"):
                     ui.label("Resource (VISA)").classes("text-sm font-medium text-slate-700")
                     ui.input(value=inst_data.get("resource", "")).props("outlined dense").classes(
@@ -201,7 +205,7 @@ def _show_add_instrument_dialog(type_options: dict, on_add: callable):
     """Show dialog to add a new instrument."""
     inst_form = {
         "name": "",
-        "type": list(type_options.keys())[0] if type_options else "",
+        "driver": "",
         "resource": "",
         "simulate": False,
     }
@@ -213,16 +217,32 @@ def _show_add_instrument_dialog(type_options: dict, on_add: callable):
             with ui.column().classes("gap-1"):
                 ui.label("Name").classes("text-sm font-medium text-slate-700")
                 ui.input(
-                    placeholder="e.g., dmm1, psu1",
+                    placeholder="e.g., dmm, psu",
                     on_change=lambda e: inst_form.update({"name": e.value}),
                 ).props("outlined dense").classes("w-full")
             with ui.column().classes("gap-1"):
-                ui.label("Type").classes("text-sm font-medium text-slate-700")
-                ui.select(
-                    options=type_options,
-                    value=inst_form["type"],
-                    on_change=lambda e: inst_form.update({"type": e.value}),
+                ui.label("Driver (Python import path)").classes(
+                    "text-sm font-medium text-slate-700"
+                )
+                driver_input = ui.input(
+                    placeholder="e.g., demo.drivers.DMM",
+                    on_change=lambda e: inst_form.update({"driver": e.value}),
                 ).props("outlined dense").classes("w-full")
+            if type_options:
+                with ui.column().classes("gap-1"):
+                    ui.label("Or select from library").classes(
+                        "text-xs text-slate-500"
+                    )
+
+                    def on_library_select(e, di=driver_input):
+                        if e.value:
+                            inst_form["driver"] = e.value
+                            di.set_value(e.value)
+
+                    ui.select(
+                        options=type_options,
+                        on_change=on_library_select,
+                    ).props("outlined dense clearable").classes("w-full")
             with ui.column().classes("gap-1"):
                 ui.label("Resource (VISA address)").classes("text-sm font-medium text-slate-700")
                 ui.input(
