@@ -1,14 +1,25 @@
-"""Instrument base classes and Mock factory.
+"""Instrument base classes, discovery, and Mock factory.
 
 Litmus does NOT provide instrument drivers. Use:
 - PyMeasure (100+ drivers): https://pymeasure.readthedocs.io/
 - PyVISA for raw SCPI: https://pyvisa.readthedocs.io/
 - Vendor-specific libraries
 
-Litmus provides:
-- Base classes for driver patterns (Instrument, VisaInstrument)
-- Mock factory for testing without hardware
-- Discovery utilities (see litmus.instruments.discovery)
+Litmus provides utilities for:
+- Discovery: Scan for available instruments at setup time
+- Identification: Query instrument identity (manufacturer, model, serial)
+- Validation: Verify expected instruments are present at runtime
+- Traceability: Log instrument identity and calibration with measurements
+
+Discovery example:
+    from litmus.instruments import discover_visa, get_info_visa
+
+    # Setup time: scan for instruments
+    resources = discover_visa()  # ["GPIB::16::INSTR", "USB::0x1234::INSTR"]
+
+    # Runtime: query specific instrument
+    info = get_info_visa("GPIB::16::INSTR")
+    # InstrumentInfo(manufacturer="Keithley", model="2000", serial="ABC123")
 
 Mock factory for testing:
     from pymeasure.instruments.keithley import Keithley2400
@@ -18,14 +29,47 @@ Mock factory for testing:
     smu = Mock(Keithley2400, voltage=5.0, current=1.5e-6)
     assert isinstance(smu, Keithley2400)
     assert smu.voltage == 5.0
+
+Mock supports:
+- Simple values: measure_voltage=3.3
+- Dict lookup: query={"MEAS:VOLT?": "3.3", "MEAS:CURR?": "0.1"}
+- Callables: query=lambda cmd: "3.3" if "VOLT" in cmd else "0.0"
 """
 
 from litmus.instruments.base import Instrument
+from litmus.instruments.discovery import (
+    discover,
+    discover_and_identify,
+    discover_visa,
+    get_info,
+    get_info_visa,
+    parse_idn,
+    register_protocol,
+)
 from litmus.instruments.mocks import Mock
+from litmus.instruments.models import (
+    CalibrationInfo,
+    InstrumentInfo,
+    InstrumentRecord,
+)
 from litmus.instruments.visa import VisaInstrument
 
 __all__ = [
+    # Base classes
     "Instrument",
-    "Mock",
     "VisaInstrument",
+    # Mock factory
+    "Mock",
+    # Models
+    "InstrumentInfo",
+    "CalibrationInfo",
+    "InstrumentRecord",
+    # Discovery
+    "discover",
+    "discover_visa",
+    "discover_and_identify",
+    "get_info",
+    "get_info_visa",
+    "parse_idn",
+    "register_protocol",
 ]
