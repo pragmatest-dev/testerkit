@@ -4,7 +4,47 @@ import pytest
 
 from litmus.config.models import FixtureConfig, FixturePoint
 from litmus.fixtures.manager import FixtureManager, PinAccessor
-from litmus.instruments import DMM, PSU
+from litmus.instruments import Mock
+
+
+class FakeDMM:
+    """Fake DMM class for testing."""
+
+    def __init__(self, resource: str = ""):
+        self.resource = resource
+        self._connected = False
+
+    def connect(self):
+        self._connected = True
+
+    def disconnect(self):
+        self._connected = False
+
+    def measure_voltage(self):
+        pass
+
+
+class FakePSU:
+    """Fake PSU class for testing."""
+
+    def __init__(self, resource: str = ""):
+        self.resource = resource
+        self._connected = False
+
+    def connect(self):
+        self._connected = True
+
+    def disconnect(self):
+        self._connected = False
+
+    def set_voltage(self, voltage: float):
+        pass
+
+    def enable_output(self):
+        pass
+
+    def disable_output(self):
+        pass
 
 
 class TestFixtureManager:
@@ -36,17 +76,9 @@ class TestFixtureManager:
 
     @pytest.fixture
     def instruments(self):
-        """Fixture providing simulated instruments."""
-        dmm = DMM(
-            "TCPIP::192.168.1.100::INSTR",
-            simulate=True,
-            sim_config={"voltage": 3.3},
-        )
-        psu = PSU(
-            "TCPIP::192.168.1.101::INSTR",
-            simulate=True,
-            sim_config={"voltage": 5.0},
-        )
+        """Fixture providing mock instruments."""
+        dmm = Mock(FakeDMM, measure_voltage=3.3)
+        psu = Mock(FakePSU)
         dmm.connect()
         psu.connect()
         yield {"dmm_main": dmm, "psu_main": psu}
@@ -79,12 +111,12 @@ class TestFixtureManager:
     def test_get_instrument_for_point(self, fixture_config, instruments):
         manager = FixtureManager(fixture_config, instruments)
         inst = manager.get_instrument_for_point("vout_measure")
-        assert isinstance(inst, DMM)
+        assert isinstance(inst, FakeDMM)
 
     def test_get_instrument_for_pin(self, fixture_config, instruments):
         manager = FixtureManager(fixture_config, instruments)
         inst = manager.get_instrument_for_pin("VOUT")
-        assert isinstance(inst, DMM)
+        assert isinstance(inst, FakeDMM)
 
     def test_get_channel_for_point(self, fixture_config, instruments):
         manager = FixtureManager(fixture_config, instruments)
@@ -110,7 +142,7 @@ class TestPinAccessor:
 
     @pytest.fixture
     def pin_accessor(self):
-        """Fixture providing a PinAccessor with simulated instruments."""
+        """Fixture providing a PinAccessor with mock instruments."""
         fixture_config = FixtureConfig(
             id="test_fixture",
             product_family="test_product",
@@ -127,15 +159,8 @@ class TestPinAccessor:
                 ),
             },
         )
-        dmm = DMM(
-            "TCPIP::192.168.1.100::INSTR",
-            simulate=True,
-            sim_config={"voltage": 3.3},
-        )
-        psu = PSU(
-            "TCPIP::192.168.1.101::INSTR",
-            simulate=True,
-        )
+        dmm = Mock(FakeDMM, measure_voltage=3.3)
+        psu = Mock(FakePSU)
         dmm.connect()
         psu.connect()
         instruments = {"dmm_main": dmm, "psu_main": psu}
@@ -146,7 +171,7 @@ class TestPinAccessor:
 
     def test_getitem(self, pin_accessor):
         dmm = pin_accessor["VOUT"]
-        assert isinstance(dmm, DMM)
+        assert isinstance(dmm, FakeDMM)
 
     def test_getitem_not_found(self, pin_accessor):
         with pytest.raises(KeyError):
@@ -164,7 +189,7 @@ class TestPinAccessor:
 
     def test_get_with_default(self, pin_accessor):
         dmm = pin_accessor.get("VOUT")
-        assert isinstance(dmm, DMM)
+        assert isinstance(dmm, FakeDMM)
 
         default = pin_accessor.get("NONEXISTENT", "default")
         assert default == "default"
@@ -179,5 +204,5 @@ class TestPinAccessor:
         psu = pin_accessor["VIN"]
         psu.set_voltage(5.0)
         psu.enable_output()
-        # PSU is simulated so just verify no exceptions
+        # PSU is mock so just verify no exceptions
         psu.disable_output()

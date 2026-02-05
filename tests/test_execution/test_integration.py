@@ -3,17 +3,44 @@
 from litmus.config.models import Limit
 from litmus.data.models import Outcome
 from litmus.execution.decorators import measure
-from litmus.instruments import DMM
+from litmus.instruments import Mock
+
+
+class FakeDMM:
+    """Fake DMM class for testing."""
+
+    def __init__(self, resource: str = ""):
+        self.resource = resource
+        self._connected = False
+
+    def connect(self):
+        self._connected = True
+
+    def disconnect(self):
+        self._connected = False
+
+    def __enter__(self):
+        self.connect()
+        return self
+
+    def __exit__(self, *args):
+        self.disconnect()
+
+    def measure_voltage(self):
+        pass
+
+    def measure_current(self):
+        pass
 
 
 class TestFullFlow:
-    """Integration tests using simulated instruments."""
+    """Integration tests using mock instruments."""
 
-    def test_measure_with_simulated_dmm(self, litmus_logger, litmus_step):
+    def test_measure_with_mocked_dmm(self, litmus_logger, litmus_step):
         """Integration test: measure with limit check, log to parquet."""
         limit = Limit(low=4.5, high=5.5, units="V")
 
-        with DMM("TCPIP::192.168.1.100::INSTR", simulate=True, sim_config={"voltage": 5.0}) as dmm:
+        with Mock(FakeDMM, measure_voltage=5.0) as dmm:
 
             @measure(name="rail_5v", limit=limit)
             def measure_voltage():
@@ -28,11 +55,7 @@ class TestFullFlow:
         voltage_limit = Limit(low=4.5, high=5.5, units="V")
         current_limit = Limit(low=0.05, high=0.15, units="A")
 
-        with DMM(
-            "TCPIP::192.168.1.100::INSTR",
-            simulate=True,
-            sim_config={"voltage": 5.0, "current": 0.1},
-        ) as dmm:
+        with Mock(FakeDMM, measure_voltage=5.0, measure_current=0.1) as dmm:
 
             @measure(name="rail_5v", limit=voltage_limit)
             def measure_voltage():
@@ -52,7 +75,7 @@ class TestFullFlow:
         """Test that measurement failure is properly logged."""
         limit = Limit(low=4.5, high=5.5, units="V")
 
-        with DMM("TCPIP::192.168.1.100::INSTR", simulate=True, sim_config={"voltage": 6.0}) as dmm:
+        with Mock(FakeDMM, measure_voltage=6.0) as dmm:
 
             @measure(name="rail_5v", limit=limit, raise_on_fail=False)
             def measure_voltage():

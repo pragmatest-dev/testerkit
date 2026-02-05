@@ -8,6 +8,28 @@ from litmus.execution.harness import Context, TestHarness, VectorContext
 from litmus.execution.vectors import Vector
 
 
+# Fake instrument classes for testing Mock factory
+class FakeDMM:
+    """Fake DMM for testing."""
+    def __init__(self, resource: str = ""):
+        self.resource = resource
+
+    def connect(self): pass
+    def disconnect(self): pass
+    def measure_voltage(self) -> float: pass
+    def query(self, cmd: str) -> str: pass
+
+
+class FakePSU:
+    """Fake PSU for testing."""
+    def __init__(self, resource: str = ""):
+        self.resource = resource
+
+    def connect(self): pass
+    def disconnect(self): pass
+    def measure_current(self) -> float: pass
+
+
 class TestHarnessInit:
     """Tests for TestHarness initialization."""
 
@@ -306,10 +328,10 @@ class TestHarnessMockConfiguration:
 
     def test_configure_mocks_calls_set_mock_value(self):
         """Test that _configure_mocks calls set_mock_value on instruments."""
-        from litmus.instruments import DMM, PSU, Mock
+        from litmus.instruments import Mock
 
-        dmm = Mock(DMM)
-        psu = Mock(PSU)
+        dmm = Mock(FakeDMM)
+        psu = Mock(FakePSU)
         instruments = {"dmm": dmm, "psu": psu}
 
         harness = TestHarness(instruments=instruments, mock_instruments=True)
@@ -320,9 +342,9 @@ class TestHarnessMockConfiguration:
 
     def test_run_vector_configures_mocks_when_simulating(self):
         """Test that run_vector applies _mock config from vector."""
-        from litmus.instruments import DMM, Mock
+        from litmus.instruments import Mock
 
-        dmm = Mock(DMM)
+        dmm = Mock(FakeDMM)
         instruments = {"dmm": dmm}
 
         config = {
@@ -338,9 +360,9 @@ class TestHarnessMockConfiguration:
 
     def test_per_vector_mock_config(self):
         """Test that each vector gets its own mock values."""
-        from litmus.instruments import DMM, Mock
+        from litmus.instruments import Mock
 
-        dmm = Mock(DMM)
+        dmm = Mock(FakeDMM)
         instruments = {"dmm": dmm}
 
         config = {
@@ -362,9 +384,9 @@ class TestHarnessMockConfiguration:
 
     def test_test_level_mock_fallback(self):
         """Test that test-level _mock is used when vector has none."""
-        from litmus.instruments import DMM, Mock
+        from litmus.instruments import Mock
 
-        dmm = Mock(DMM)
+        dmm = Mock(FakeDMM)
         instruments = {"dmm": dmm}
 
         config = {
@@ -379,9 +401,9 @@ class TestHarnessMockConfiguration:
 
     def test_no_mock_config_when_not_mocking(self):
         """Test that mocks are not configured when mock_instruments=False."""
-        from litmus.instruments import DMM, Mock
+        from litmus.instruments import Mock
 
-        dmm = Mock(DMM, measure_voltage=0.0)
+        dmm = Mock(FakeDMM, measure_voltage=0.0)
         instruments = {"dmm": dmm}
 
         config = {
@@ -394,6 +416,61 @@ class TestHarnessMockConfiguration:
             with harness.run_vector(harness.vectors[0]):
                 # Mock should not have been configured
                 assert float(dmm.measure_voltage()) == 0.0
+
+    def test_callable_mock_receives_context(self):
+        """Test that callable mock values receive the current context."""
+        from litmus.instruments import Mock
+
+        dmm = Mock(FakeDMM)
+        instruments = {"dmm": dmm}
+
+        # Callable that uses context to compute return value
+        def dynamic_voltage(*, context=None):
+            load = context.get_in("load", 0) if context else 0
+            return 3.3 - load * 0.1  # Voltage droops with load
+
+        config = {
+            "vectors": [
+                {"load": 0.0, "_mock": {"dmm.measure_voltage": dynamic_voltage}},
+                {"load": 1.0, "_mock": {"dmm.measure_voltage": dynamic_voltage}},
+                {"load": 2.0, "_mock": {"dmm.measure_voltage": dynamic_voltage}},
+            ],
+        }
+        harness = TestHarness(config=config, instruments=instruments, mock_instruments=True)
+
+        measurements = []
+        with harness.step():
+            for vector in harness.vectors:
+                with harness.run_vector(vector):
+                    measurements.append(dmm.measure_voltage())
+
+        assert measurements[0] == pytest.approx(3.3)   # load=0.0
+        assert measurements[1] == pytest.approx(3.2)   # load=1.0
+        assert measurements[2] == pytest.approx(3.1)   # load=2.0
+
+    def test_dict_mock_for_scpi(self):
+        """Test that dict mock values work for SCPI-style mocking."""
+        from litmus.instruments import Mock
+
+        dmm = Mock(FakeDMM)
+        instruments = {"dmm": dmm}
+
+        config = {
+            "vectors": [{"vin": 5.0}],
+            "_mock": {
+                "dmm.query": {
+                    "MEAS:VOLT:DC?": "3.3",
+                    "MEAS:CURR:DC?": "0.1",
+                }
+            },
+        }
+        harness = TestHarness(config=config, instruments=instruments, mock_instruments=True)
+
+        with harness.step():
+            with harness.run_vector(harness.vectors[0]):
+                assert dmm.query("MEAS:VOLT:DC?") == "3.3"
+                assert dmm.query("MEAS:CURR:DC?") == "0.1"
+                assert dmm.query("UNKNOWN?") is None
 
 
 class TestHarnessPrompt:

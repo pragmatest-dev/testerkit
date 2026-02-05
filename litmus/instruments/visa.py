@@ -96,6 +96,18 @@ class VisaInstrument(Instrument):
         self._inst.read_termination = "\n"
         self._connected = True
 
+        # All VISA instruments support *IDN? (IEEE 488.2 mandatory)
+        # Parse and set identity fields automatically
+        try:
+            idn = self.query("*IDN?")
+            parts = idn.split(",")
+            self.manufacturer = parts[0].strip() if len(parts) > 0 else None
+            self.model = parts[1].strip() if len(parts) > 1 else None
+            self.serial = parts[2].strip() if len(parts) > 2 else None
+            self.firmware = parts[3].strip() if len(parts) > 3 else None
+        except Exception:
+            pass  # Identity fields remain None if query fails
+
     def disconnect(self) -> None:
         """Disconnect from instrument and clean up resources."""
         if self._inst:

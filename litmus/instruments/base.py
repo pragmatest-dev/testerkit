@@ -49,6 +49,12 @@ class Instrument(ABC):
         self.sim_config = sim_config or {}
         self._connected = False
 
+        # Identity fields (populated at connect() by each driver)
+        self.manufacturer: str | None = None
+        self.model: str | None = None
+        self.serial: str | None = None
+        self.firmware: str | None = None
+
     @abstractmethod
     def connect(self) -> None:
         """Connect to the instrument.

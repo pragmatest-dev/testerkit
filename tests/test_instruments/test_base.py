@@ -3,7 +3,6 @@
 import pytest
 
 from litmus.instruments.base import Instrument
-from litmus.instruments.dmm import DMM
 from litmus.instruments.visa import VisaInstrument
 
 
@@ -105,59 +104,3 @@ class TestVisaInstrument:
         ) as vi:
             response = vi.query("*IDN?")
             assert response == "Test,Simulated,001,1.0"
-
-
-class TestDMM:
-    """Tests for DMM driver."""
-
-    def test_init(self):
-        dmm = DMM("TCPIP::192.168.1.100::INSTR")
-        assert dmm.resource == "TCPIP::192.168.1.100::INSTR"
-        assert dmm.simulate is False
-
-    def test_simulated_measurement(self):
-        """Test DMM simulation with pyvisa-sim."""
-        dmm = DMM(
-            "TCPIP::192.168.1.100::INSTR",
-            simulate=True,
-            sim_config={"voltage": 3.3},
-        )
-        with dmm:
-            voltage = dmm.measure_voltage()
-            # Should return configured voltage
-            assert float(voltage) == pytest.approx(3.3, abs=0.001)
-
-    def test_simulated_current_measurement(self):
-        """Test DMM current simulation."""
-        dmm = DMM(
-            "TCPIP::192.168.1.100::INSTR",
-            simulate=True,
-            sim_config={"current": 0.5},
-        )
-        with dmm:
-            current = dmm.measure_current()
-            assert float(current) == pytest.approx(0.5, abs=0.001)
-
-    def test_simulated_resistance_measurement(self):
-        """Test DMM resistance simulation."""
-        dmm = DMM(
-            "TCPIP::192.168.1.100::INSTR",
-            simulate=True,
-            sim_config={"resistance": 1000.0},
-        )
-        with dmm:
-            resistance = dmm.measure_resistance()
-            assert float(resistance) == pytest.approx(1000.0, abs=0.1)
-
-    def test_idn_after_connect(self):
-        """Test that IDN is read on connect."""
-        dmm = DMM(
-            "TCPIP::192.168.1.100::INSTR",
-            simulate=True,
-        )
-        dmm.connect()
-        try:
-            assert dmm.idn is not None
-            assert "Litmus,SimDMM" in dmm.idn
-        finally:
-            dmm.disconnect()
