@@ -36,13 +36,13 @@ litmus/
 │   ├── config/                # Configuration service
 │   │   ├── models.py          # Pydantic models (Limit, Specification, StationConfig, etc.)
 │   │   └── loader.py          # YAML loading and resolution
-│   ├── capabilities/          # Instrument capability models
-│   │   ├── models.py          # Capability, Direction, Domain enums
-│   │   └── features.py        # Standard feature vocabulary
-│   ├── instruments/           # Instrument drivers
+│   ├── instruments/           # Instrument utilities (discovery, identity, mocks)
 │   │   ├── base.py            # Base instrument class
-│   │   ├── library/           # Instrument definition YAML files
-│   │   └── drivers/           # Protocol-specific drivers
+│   │   ├── models.py          # InstrumentInfo, CalibrationInfo, InstrumentRecord
+│   │   ├── discovery.py       # discover_visa(), get_info_visa(), register_protocol()
+│   │   ├── loader.py          # Load instrument/station YAML files
+│   │   ├── mocks.py           # Generic Mock factory for any driver class
+│   │   └── visa.py            # VisaInstrument protocol base class
 │   ├── execution/             # Test execution engine
 │   │   ├── plugin.py          # pytest plugin
 │   │   └── fixtures.py        # pytest fixtures
@@ -64,9 +64,11 @@ litmus/
 │       ├── manifest.yaml      # Workflow position
 │       ├── datasheet.md       # Source document
 │       └── spec.yaml          # Product specification
-├── stations/                  # Station configurations
-├── sequences/                 # Test sequences
-├── fixtures/                  # Test fixture definitions
+├── instruments/               # Instrument inventory (YAML: identity + calibration per asset)
+├── stations/                  # Station assignments (YAML: role→instrument, resources)
+├── drivers/                   # User's instrument driver classes (Python)
+├── sequences/                 # Test sequences (YAML)
+├── fixtures/                  # Test fixture definitions (YAML: DUT pin→instrument routing)
 ├── tests/                     # Test suites
 │   ├── conftest.py            # pytest configuration
 │   └── test_*.py              # Test files
@@ -76,14 +78,18 @@ litmus/
 └── litmus-architecture.md     # Architecture specification
 ```
 
-## Key Pydantic Models
+## Key Models
 
 - `Limit` - Test limit with units and spec reference
 - `Specification` - Product specification that limits derive from
+- `InstrumentInfo` - Instrument identity (manufacturer, model, serial, firmware)
+- `CalibrationInfo` - Calibration tracking (due date, certificate, lab)
+- `InstrumentRecord` - Complete instrument record (info + calibration + resource)
 - `InstrumentConfig` / `InstrumentInstance` - Instrument configuration
 - `StationType` / `StationInstance` - Station templates and instances
-- `FixtureConfig` / `FixtureChannel` - Test fixture definitions
-- `DialogConfig` - Operator dialog definitions
+- `FixtureConfig` / `FixturePoint` - Test fixture definitions
+- `PromptConfig` - Operator prompt configuration (YAML-driven)
+- `Dialog` / `DialogManager` - Runtime operator dialogs (confirm, choice, input, image)
 - `TestStepConfig` / `TestSequenceConfig` - Test configuration
 - `Capability` - Instrument capability with direction, domain, performance specs
 
@@ -108,16 +114,36 @@ litmus serve --reload          # Auto-reload for development
 litmus runs                    # List recent test runs
 litmus show <run_id>           # Show details for a test run
 
-# MCP server (planned)
+# Instrument discovery (setup time, slow)
+litmus discover                # Scan all protocols (VISA, NI, serial)
+litmus discover --visa         # VISA only
+litmus discover --no-identify  # Skip *IDN? queries (faster)
+
+# Station management
+litmus station init            # Interactive: discover → assign roles → save
+litmus station validate <id>   # Verify instruments match config
+litmus station update <id>     # Re-discover and update instrument files
+
+# Instrument management
+litmus instrument list         # Show all instrument files
+litmus instrument show <id>    # Show instrument details + calibration
+litmus instrument cal <id>     # Update calibration info
+
+# MCP server
 litmus mcp serve               # Start MCP server
 ```
 
 ## Configuration Patterns
 
-### Station Configuration
-Stations are defined in two layers:
-1. **Station Types** (`stations/_base.yaml`) - Abstract templates with instrument requirements
-2. **Station Instances** (`stations/station_*.yaml`) - Concrete deployments with VISA addresses
+### Folder Convention
+Entity-aligned folders contain YAML configuration files. Code folders contain Python scripts.
+- **YAML config**: `instruments/`, `stations/`, `products/`, `fixtures/`, `sequences/`
+- **Python code**: `drivers/`, `tests/`
+
+### Instrument Configuration
+Instruments are defined in two layers:
+1. **Instrument files** (`instruments/*.yaml`) - Per-asset identity + calibration, travels with the instrument
+2. **Station files** (`stations/*.yaml`) - Role assignments + resource addresses at a specific station
 
 ### Test Configuration
 Tests use YAML configs (`tests/test_*/config.yaml`) that define:
@@ -136,7 +162,8 @@ spec.to_limit(guardband_pct=10.0)
 
 - Use Pydantic models for all configuration and data structures
 - Prefer YAML for human-editable configuration files
-- Keep instrument drivers thin—use PyVISA for SCPI instruments
+- Litmus does NOT provide instrument drivers — users bring their own (PyMeasure, PyVISA, vendor libs)
+- User driver classes live in `drivers/` (Python), instrument assets in `instruments/` (YAML)
 - All MCP tools should have equivalent HTTP API endpoints
 - Results use a consistent schema across all storage backends
 - Operator UI uses NiceGUI for reactive Python-native interfaces
