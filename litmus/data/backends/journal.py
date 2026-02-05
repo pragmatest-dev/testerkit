@@ -59,11 +59,18 @@ class JournalWriter:
         self.test_run = test_run
         self._instrument_arrays = instrument_arrays or {
             "instr_name": [],
-            "instr_type": [],
+            "instr_id": [],
+            "instr_driver": [],
+            "instr_resource": [],
+            "instr_protocol": [],
             "instr_manufacturer": [],
             "instr_model": [],
             "instr_serial": [],
             "instr_firmware": [],
+            "instr_cal_due": [],
+            "instr_cal_last": [],
+            "instr_cal_certificate": [],
+            "instr_cal_lab": [],
         }
         self._file = None
         self._closed = False

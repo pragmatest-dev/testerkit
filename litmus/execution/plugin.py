@@ -327,9 +327,7 @@ def litmus_logger(request) -> TestRunLogger:
     )
     test_phase = _resolve_test_phase(requested_phase)
 
-    # Get instruments if available (may not be connected yet at logger creation)
-    # We pass the global dict reference so logger can access instruments lazily
-    instruments = _safe_get_session_fixture(request, "instruments")
+    # Get instrument records for traceability
     instrument_records = _safe_get_session_fixture(request, "instrument_records")
 
     logger = TestRunLogger(
@@ -349,8 +347,7 @@ def litmus_logger(request) -> TestRunLogger:
         git_commit=_get_git_commit(),
         results_dir=results_dir,  # Enable journal streaming
         test_phase=test_phase,  # Auto-detected from git status
-        instruments=instruments,  # Instrument instances (legacy)
-        instrument_records=instrument_records,  # Full instrument records with calibration
+        instruments=instrument_records,  # Full instrument records with calibration
     )
     set_current_logger(logger)
     yield logger
@@ -359,16 +356,12 @@ def litmus_logger(request) -> TestRunLogger:
     test_run = logger.finalize()
     backend = ParquetBackend(results_dir=results_dir)
 
-    # Build instrument arrays for traceability (if not using journal)
-    # Journal already has this data embedded in each row
-    instrument_arrays = logger.build_instrument_arrays()
-
     # Convert journal to parquet if journaling was enabled
+    # Instrument arrays are per-step (embedded in each step and journal row)
     journal_dir = logger.journal_dir
     backend.save_test_run(
         test_run,
         journal_dir=journal_dir,
-        instrument_arrays=instrument_arrays,
     )
 
     set_current_logger(None)

@@ -236,6 +236,28 @@ With auto-registration, conftest.py should only contain fixtures that add **sema
 
 Do NOT add boilerplate like `def dmm(instruments): return instruments.get("dmm")` — the plugin handles this automatically.
 
+## Per-Step Instrument Identity in Parquet
+
+Each Parquet row includes 13 `instr_*` columns (parallel arrays) identifying the instruments used by that test step. Only the instruments a test actually uses are included — auto-detected from fixture parameters.
+
+### How It Works
+
+1. `@litmus_test` in `litmus/execution/decorators.py` detects which instrument roles appear in kwargs (matched against `_INSTRUMENT_RECORDS`)
+2. Calls `logger.set_step_instruments(roles)` to filter and cache the instrument arrays
+3. The journal writer receives the per-step arrays for each subsequent measurement row
+4. For the non-journal path, `step.instrument_arrays` carries the data through `TestStep`
+
+### Column List
+
+`instr_name`, `instr_id`, `instr_driver`, `instr_resource`, `instr_protocol`, `instr_manufacturer`, `instr_model`, `instr_serial`, `instr_firmware`, `instr_cal_due`, `instr_cal_last`, `instr_cal_certificate`, `instr_cal_lab`
+
+### Key Files
+
+- `litmus/execution/logger.py`: `build_instrument_arrays(roles=)`, `set_step_instruments()`
+- `litmus/execution/decorators.py`: Per-step detection in `@litmus_test` wrapper
+- `litmus/data/models.py`: `TestStep.instrument_arrays` field
+- `litmus/execution/harness.py`: `step()` propagates arrays from logger to TestStep
+
 ## Operator UI Architecture
 
 The UI combines NiceGUI (for browser UI) with FastAPI (for JSON API):

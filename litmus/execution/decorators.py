@@ -269,13 +269,28 @@ def litmus_test(
                 # If still empty, extract individual instrument fixtures from kwargs
                 # This handles cases where tests use psu, dmm, eload fixtures directly
                 if not instruments_fixture:
-                    instrument_names = ["psu", "dmm", "eload", "scope"]
+                    from litmus.execution.plugin import _INSTRUMENT_RECORDS
+
+                    instrument_names = list(_INSTRUMENT_RECORDS.keys())
                     extracted = {}
                     for name in instrument_names:
                         if name in kwargs and kwargs[name] is not None:
                             extracted[name] = kwargs[name]
                     if extracted:
                         instruments_fixture = extracted
+
+                # Set per-step instrument arrays on the logger
+                # Detect which instrument roles are used by this test function
+                if _current_logger is not None:
+                    from litmus.execution.plugin import _INSTRUMENT_RECORDS
+
+                    step_roles = [
+                        name
+                        for name in _INSTRUMENT_RECORDS
+                        if name in kwargs and kwargs[name] is not None
+                    ]
+                    if step_roles:
+                        _current_logger.set_step_instruments(step_roles)
 
                 # Detect mock mode by checking if instruments have set_mock_value
                 using_mocks = False

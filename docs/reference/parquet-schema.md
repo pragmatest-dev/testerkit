@@ -90,6 +90,49 @@ One row per measurement. Every column queryable. All metadata automatic.
 |--------|------|-------------|
 | `fixture_id` | string | Fixture identifier |
 
+### Where — Instruments
+
+Per-step instrument identity. Only the instruments actually used by a test step are included (auto-detected from pytest fixtures). All columns are `list[string]` — parallel arrays in the same order.
+
+| Column | Type | Description |
+|--------|------|-------------|
+| `instr_name` | list[string] | Role names (e.g., `["dmm", "psu"]`) |
+| `instr_id` | list[string] | Instrument file IDs (e.g., `["keithley_dmm_001"]`) |
+| `instr_driver` | list[string] | Driver class paths (e.g., `["drivers.Keithley2000"]`) |
+| `instr_resource` | list[string] | VISA addresses (e.g., `["GPIB::16::INSTR"]`) |
+| `instr_protocol` | list[string] | Protocols (e.g., `["visa"]`) |
+| `instr_manufacturer` | list[string] | Manufacturers from `*IDN?` or config |
+| `instr_model` | list[string] | Model numbers |
+| `instr_serial` | list[string] | Serial numbers |
+| `instr_firmware` | list[string] | Firmware versions |
+| `instr_cal_due` | list[string] | Calibration due dates (ISO 8601) |
+| `instr_cal_last` | list[string] | Last calibration dates (ISO 8601) |
+| `instr_cal_certificate` | list[string] | Calibration certificate numbers |
+| `instr_cal_lab` | list[string] | Calibration lab names |
+
+**Per-step tracking:** Each test step records only the instruments it uses. A test that calls `test_voltage(dmm, psu)` will have `instr_name = ["dmm", "psu"]`, not the full station inventory. This is auto-detected from the fixture parameters passed to `@litmus_test`.
+
+**Identity source:** For real hardware, identity comes from `*IDN?` query at session start. For mock instruments, identity comes from the instrument YAML config files.
+
+**Querying instrument data:**
+```sql
+-- DuckDB: unnest parallel arrays for per-instrument queries
+SELECT
+    step_name,
+    unnest(instr_name) AS instrument,
+    unnest(instr_serial) AS serial,
+    unnest(instr_cal_due) AS cal_due
+FROM read_parquet('results/runs/**/*.parquet');
+
+-- Find measurements taken with instruments past calibration
+SELECT step_name, measurement_name, unnest(instr_name) AS instr,
+       unnest(instr_cal_due) AS cal_due
+FROM read_parquet('results/runs/**/*.parquet')
+WHERE list_has(instr_cal_due, (
+    SELECT d FROM unnest(instr_cal_due) AS t(d) WHERE d < current_date::text
+));
+```
+
 ### What — Test Context
 
 | Column | Type | Description |

@@ -990,6 +990,9 @@ class TestHarness:
         # Add to logger
         if self._logger is not None:
             self._logger.test_run.steps.append(step)
+            step.instrument_arrays = getattr(
+                self._logger, "_step_instrument_arrays", None
+            )
 
         try:
             yield step

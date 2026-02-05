@@ -222,6 +222,7 @@ class TestStep(BaseModel):
     outcome: Outcome = Outcome.PASS
     vectors: list[TestVector] = Field(default_factory=list)
     error_message: str | None = None
+    instrument_arrays: dict[str, list] | None = None
 
     @property
     def total_vectors(self) -> int:

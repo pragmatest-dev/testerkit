@@ -329,9 +329,14 @@ class ParquetBackend:
                     for key, value in test_run.custom_metadata.items():
                         row[key] = value
 
-                    # Add instrument identity arrays (parallel arrays)
-                    if instrument_arrays:
-                        row.update(instrument_arrays)
+                    # Add instrument identity arrays (per-step tracking)
+                    step_arrays = (
+                        step.instrument_arrays
+                        if step.instrument_arrays
+                        else instrument_arrays
+                    )
+                    if step_arrays:
+                        row.update(step_arrays)
 
                     rows.append(row)
 
@@ -567,11 +572,18 @@ class ParquetBackend:
             # Add empty arrays if no instruments
             row.update({
                 "instr_name": [],
-                "instr_type": [],
+                "instr_id": [],
+                "instr_driver": [],
+                "instr_resource": [],
+                "instr_protocol": [],
                 "instr_manufacturer": [],
                 "instr_model": [],
                 "instr_serial": [],
                 "instr_firmware": [],
+                "instr_cal_due": [],
+                "instr_cal_last": [],
+                "instr_cal_certificate": [],
+                "instr_cal_lab": [],
             })
 
         return row
