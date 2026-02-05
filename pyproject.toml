@@ -25,6 +25,15 @@ dev = [
     "pytest-cov>=4.0",
     "ruff>=0.4.0",
 ]
+# Optional instrument library integrations
+# Note: These are optional and not installed by default
+# instrumentkit = ["instrumentkit>=1.0"]  # AGPL license, install manually if needed
+pymeasure = [
+    "pymeasure>=0.14",
+]
+ni = [
+    "nidaqmx>=0.9",
+]
 
 [project.scripts]
 litmus = "litmus.cli:main"
