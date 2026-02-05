@@ -1,0 +1,18 @@
+# Demo Digital Multimeter Configuration
+# Instrument asset file - tracks identity and calibration independently of station
+
+id: demo_dmm_001
+protocol: visa
+driver: demo.drivers.DMM
+
+info:
+  manufacturer: Demo Instruments
+  model: DMM-6500
+  serial: DMM001
+  firmware: "2.0"
+
+calibration:
+  due_date: 2026-08-20
+  last_cal: 2025-08-20
+  certificate: CAL-2025-042
+  lab: Acme Calibration Services

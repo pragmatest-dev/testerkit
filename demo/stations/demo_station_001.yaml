@@ -1,9 +1,10 @@
 # Demo Station Configuration
-# Uses simulated instruments for demonstration without real hardware
+# Uses mock instruments for demonstration without real hardware
 #
-# NOTE: Simulation values are static approximations. Real instruments would
-# show dynamic behavior (e.g., input current increases with load).
-# These values are chosen to pass most tests while demonstrating the framework.
+# Each instrument specifies:
+# - driver: Python import path to the instrument class
+# - resource: VISA address (used for real hardware)
+# - mock_config: Values returned by Mock when simulating
 
 station:
   id: "demo_station_001"
@@ -13,7 +14,7 @@ station:
 
 instruments:
   psu:
-    type: "psu"
+    driver: demo.drivers.PSU
     resource: "TCPIP::192.168.1.101::INSTR"
     simulate: true
     description: "Power supply for DUT input power"
@@ -22,7 +23,7 @@ instruments:
       measure_current: 0.25
 
   dmm:
-    type: "dmm"
+    driver: demo.drivers.DMM
     resource: "TCPIP::192.168.1.102::INSTR"
     simulate: true
     description: "DMM for output voltage measurement"
@@ -34,7 +35,7 @@ instruments:
       measure_resistance: 1000.0
 
   eload:
-    type: "eload"
+    driver: demo.drivers.ELoad
     resource: "TCPIP::192.168.1.103::INSTR"
     simulate: true
     description: "Electronic load for output loading"
@@ -43,15 +44,16 @@ instruments:
       measure_voltage: 3.3
 
   scope:
-    type: "scope"
+    driver: demo.drivers.Scope
     resource: "TCPIP::192.168.1.104::INSTR"
     simulate: true
-    description: "Oscilloscope for waveform capture (Pattern 11)"
+    description: "Oscilloscope for waveform capture"
     mock_config:
-      # Waveform configured per-test via _mock in config.yaml
-      t0: 0.0
-      dt: 0.00001
-      Y: [3.3, 3.3, 3.3, 3.3, 3.3]
+      # fetch_waveform returns [samples, dt] as a list
+      # Default: 5 samples at 3.3V, 10µs interval
+      fetch_waveform:
+        - [3.3, 3.31, 3.29, 3.30, 3.31]
+        - 0.00001
 
 # Test phases this station supports
 supported_phases:
