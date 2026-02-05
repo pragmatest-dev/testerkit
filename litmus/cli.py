@@ -598,5 +598,536 @@ def setup_show():
     click.echo("  - save_test_sequence: Save a new test sequence")
 
 
+# -----------------------------------------------------------------------------
+# Instrument Discovery Commands
+# -----------------------------------------------------------------------------
+
+
+@main.command()
+@click.option("--visa", "visa_only", is_flag=True, help="VISA instruments only")
+@click.option("--ni", "ni_only", is_flag=True, help="NI devices only")
+@click.option("--serial", "serial_only", is_flag=True, help="Serial ports only")
+@click.option("--identify/--no-identify", default=True, help="Query *IDN? for each instrument")
+def discover(visa_only: bool, ni_only: bool, serial_only: bool, identify: bool):
+    """Scan for available instruments.
+
+    This is a SLOW operation that scans all configured backends.
+    Use at setup time, not during test execution.
+
+    Examples:
+        litmus discover              # Scan all protocols
+        litmus discover --visa       # VISA only
+        litmus discover --no-identify  # Skip *IDN? queries (faster)
+    """
+    from litmus.instruments.discovery import discover as do_discover
+    from litmus.instruments.discovery import discover_and_identify
+
+    # Determine which protocols to scan
+    protocols = None
+    if visa_only:
+        protocols = ["visa"]
+    elif ni_only:
+        protocols = ["ni"]
+    elif serial_only:
+        protocols = ["serial"]
+
+    click.echo("Scanning for instruments...")
+
+    if identify:
+        results = discover_and_identify(protocols)
+        for proto, items in results.items():
+            if not items:
+                click.echo(f"\n{proto.upper()}: No instruments found")
+                continue
+
+            click.echo(f"\n{proto.upper()}: Found {len(items)} instrument(s)")
+            click.echo("-" * 60)
+
+            for resource, info in items:
+                if info:
+                    mfr = info.manufacturer or "Unknown"
+                    model = info.model or "Unknown"
+                    serial = info.serial or ""
+                    serial_str = f" (SN: {serial})" if serial else ""
+                    click.echo(f"  {resource}")
+                    click.echo(f"    → {mfr} {model}{serial_str}")
+                else:
+                    click.echo(f"  {resource}")
+                    click.echo("    → Could not query identity")
+    else:
+        results = do_discover(protocols)
+        for proto, resources in results.items():
+            if not resources:
+                click.echo(f"\n{proto.upper()}: No instruments found")
+                continue
+
+            click.echo(f"\n{proto.upper()}: Found {len(resources)} instrument(s)")
+            click.echo("-" * 60)
+
+            for resource in resources:
+                click.echo(f"  {resource}")
+
+
+# -----------------------------------------------------------------------------
+# Station Management Commands
+# -----------------------------------------------------------------------------
+
+
+@main.group()
+def station():
+    """Station management commands."""
+    pass
+
+
+@station.command("init")
+@click.option("--station-id", prompt="Station ID", help="Unique station identifier")
+@click.option("--name", prompt="Station name", help="Human-readable station name")
+@click.option("--location", default=None, help="Physical location")
+def station_init(station_id: str, name: str, location: str | None):
+    """Initialize a new station configuration.
+
+    Interactively discovers instruments and creates station/instrument files.
+
+    Example:
+        litmus station init
+        litmus station init --station-id bench_01 --name "Engineering Bench"
+    """
+    from pathlib import Path
+
+    import yaml
+
+    from litmus.instruments.discovery import discover_and_identify
+
+    # Create directories
+    stations_dir = Path("stations")
+    instruments_dir = Path("instruments")
+    stations_dir.mkdir(exist_ok=True)
+    instruments_dir.mkdir(exist_ok=True)
+
+    # Discover instruments
+    click.echo("\nDiscovering instruments...")
+    results = discover_and_identify(["visa"])
+
+    # Collect instruments for this station
+    station_instruments = {}
+    station_resources = {}
+    instrument_count = 0
+
+    for proto, items in results.items():
+        for resource, info in items:
+            instrument_count += 1
+
+            if info:
+                mfr = info.manufacturer or "Unknown"
+                model = info.model or "Unknown"
+                serial = info.serial or ""
+                click.echo(f"\n[{instrument_count}] {resource}")
+                click.echo(f"    {mfr} {model} (SN: {serial})")
+            else:
+                click.echo(f"\n[{instrument_count}] {resource}")
+                click.echo("    Could not query identity")
+
+            # Ask for role
+            role = click.prompt("  Assign role (e.g., dmm, psu) or 'skip'", default="skip")
+            if role.lower() == "skip":
+                continue
+
+            # Generate instrument ID
+            if info and info.serial:
+                inst_id = f"{role}_{info.serial}".lower().replace(" ", "_")
+            else:
+                inst_id = f"{role}_{instrument_count}".lower()
+
+            inst_id = click.prompt("  Instrument ID", default=inst_id)
+
+            # Ask for driver
+            driver = click.prompt(
+                "  Driver class (e.g., pymeasure.instruments.keithley.Keithley2000)",
+                default="",
+            )
+
+            # Create instrument file
+            inst_data = {
+                "id": inst_id,
+                "protocol": proto,
+            }
+
+            if driver:
+                inst_data["driver"] = driver
+
+            if info:
+                inst_data["info"] = {
+                    "manufacturer": info.manufacturer,
+                    "model": info.model,
+                    "serial": info.serial,
+                    "firmware": info.firmware,
+                }
+
+            # Write instrument file
+            inst_file = instruments_dir / f"{inst_id}.yaml"
+            with open(inst_file, "w") as f:
+                yaml.dump(inst_data, f, default_flow_style=False, sort_keys=False)
+            click.echo(f"  Created {inst_file}")
+
+            station_instruments[role] = inst_id
+            station_resources[inst_id] = resource
+
+    # Create station file
+    station_data = {
+        "station": {
+            "id": station_id,
+            "name": name,
+        },
+        "instruments": station_instruments,
+        "resources": station_resources,
+    }
+
+    if location:
+        station_data["station"]["location"] = location
+
+    station_file = stations_dir / f"{station_id}.yaml"
+    with open(station_file, "w") as f:
+        yaml.dump(station_data, f, default_flow_style=False, sort_keys=False)
+
+    click.echo(f"\nCreated {station_file}")
+    click.echo(f"Created {len(station_instruments)} instrument file(s)")
+    click.echo(f"\nRun tests with: pytest --station={station_id}")
+
+
+@station.command("validate")
+@click.argument("station_id", required=False)
+@click.option("--strict", is_flag=True, help="Fail on any mismatch")
+def station_validate(station_id: str | None, strict: bool):
+    """Validate station instruments against configuration.
+
+    Checks that expected instruments are present and identity matches.
+
+    Example:
+        litmus station validate bench_01
+        litmus station validate --strict
+    """
+    from litmus.instruments.discovery import get_info_visa
+    from litmus.instruments.loader import (
+        find_instruments_dir,
+        find_stations_dir,
+        load_instrument_files,
+        load_station_file,
+        resolve_station_instruments,
+    )
+
+    # Find station file
+    stations_dir = find_stations_dir()
+    if not stations_dir:
+        click.echo("Error: No stations/ directory found", err=True)
+        raise SystemExit(1)
+
+    # If no station_id, list available
+    if not station_id:
+        click.echo("Available stations:")
+        for f in stations_dir.glob("*.yaml"):
+            click.echo(f"  {f.stem}")
+        return
+
+    station_file = stations_dir / f"{station_id}.yaml"
+    if not station_file.exists():
+        click.echo(f"Error: Station file not found: {station_file}", err=True)
+        raise SystemExit(1)
+
+    # Load configs
+    station_config = load_station_file(station_file)
+    instruments_dir = find_instruments_dir()
+    instrument_files = load_instrument_files(instruments_dir) if instruments_dir else {}
+    records = resolve_station_instruments(station_config, instrument_files)
+
+    click.echo(f"Validating station: {station_id}")
+    click.echo("-" * 50)
+
+    errors = []
+    warnings_list = []
+
+    for role, record in records.items():
+        click.echo(f"\n{role}: {record.instrument_id}")
+        click.echo(f"  Resource: {record.resource}")
+
+        # Query actual instrument
+        actual_info = None
+        if record.protocol == "visa":
+            actual_info = get_info_visa(record.resource)
+
+        if actual_info is None:
+            msg = f"  [ERROR] Could not connect to {record.resource}"
+            click.echo(click.style(msg, fg="red"))
+            errors.append(f"{role}: not reachable")
+            continue
+
+        # Compare identity
+        expected = record.info
+        if expected:
+            matches, mismatches = actual_info.matches(expected)
+            if matches:
+                click.echo(click.style("  [OK] Identity matches", fg="green"))
+            else:
+                for m in mismatches:
+                    msg = f"  [WARN] {m}"
+                    click.echo(click.style(msg, fg="yellow"))
+                    warnings_list.append(f"{role}: {m}")
+        else:
+            click.echo("  [INFO] No expected identity configured")
+
+        # Show actual identity
+        click.echo(f"  Actual: {actual_info.manufacturer} {actual_info.model}")
+        if actual_info.serial:
+            click.echo(f"          SN: {actual_info.serial}")
+
+        # Check calibration
+        if record.calibration and record.calibration.due_date:
+            days = record.calibration.days_until_due()
+            if days is not None:
+                if days < 0:
+                    msg = f"  [WARN] Calibration EXPIRED ({-days} days overdue)"
+                    click.echo(click.style(msg, fg="red"))
+                    warnings_list.append(f"{role}: calibration expired")
+                elif days < 30:
+                    msg = f"  [WARN] Calibration due in {days} days"
+                    click.echo(click.style(msg, fg="yellow"))
+                else:
+                    click.echo(f"  [OK] Calibration valid ({days} days remaining)")
+
+    # Summary
+    click.echo("\n" + "-" * 50)
+    if errors:
+        click.echo(click.style(f"Errors: {len(errors)}", fg="red"))
+        for e in errors:
+            click.echo(f"  - {e}")
+    if warnings_list:
+        click.echo(click.style(f"Warnings: {len(warnings_list)}", fg="yellow"))
+
+    if errors and strict:
+        raise SystemExit(1)
+    if not errors and not warnings_list:
+        click.echo(click.style("All instruments validated successfully!", fg="green"))
+
+
+@station.command("update")
+@click.argument("station_id")
+def station_update(station_id: str):
+    """Re-discover and update instrument identity in configuration.
+
+    Queries current instruments and updates info sections in instrument files.
+
+    Example:
+        litmus station update bench_01
+    """
+    import yaml
+
+    from litmus.instruments.discovery import get_info_visa
+    from litmus.instruments.loader import (
+        find_instruments_dir,
+        find_stations_dir,
+        load_instrument_files,
+        load_station_file,
+        resolve_station_instruments,
+    )
+
+    stations_dir = find_stations_dir()
+    instruments_dir = find_instruments_dir()
+
+    if not stations_dir:
+        click.echo("Error: No stations/ directory found", err=True)
+        raise SystemExit(1)
+
+    station_file = stations_dir / f"{station_id}.yaml"
+    if not station_file.exists():
+        click.echo(f"Error: Station file not found: {station_file}", err=True)
+        raise SystemExit(1)
+
+    station_config = load_station_file(station_file)
+    instrument_files = load_instrument_files(instruments_dir) if instruments_dir else {}
+    records = resolve_station_instruments(station_config, instrument_files)
+
+    click.echo(f"Updating station: {station_id}")
+
+    updated = 0
+    for role, record in records.items():
+        if record.protocol != "visa":
+            continue
+
+        actual_info = get_info_visa(record.resource)
+        if actual_info is None:
+            click.echo(f"  {role}: Could not query (skipped)")
+            continue
+
+        # Update instrument file if it exists
+        if instruments_dir:
+            inst_file = instruments_dir / f"{record.instrument_id}.yaml"
+            if inst_file.exists():
+                with open(inst_file) as f:
+                    data = yaml.safe_load(f)
+
+                data["info"] = {
+                    "manufacturer": actual_info.manufacturer,
+                    "model": actual_info.model,
+                    "serial": actual_info.serial,
+                    "firmware": actual_info.firmware,
+                }
+
+                with open(inst_file, "w") as f:
+                    yaml.dump(data, f, default_flow_style=False, sort_keys=False)
+
+                click.echo(f"  {role}: Updated {inst_file}")
+                updated += 1
+
+    click.echo(f"\nUpdated {updated} instrument file(s)")
+
+
+# -----------------------------------------------------------------------------
+# Instrument Management Commands
+# -----------------------------------------------------------------------------
+
+
+@main.group()
+def instrument():
+    """Instrument management commands."""
+    pass
+
+
+@instrument.command("list")
+def instrument_list():
+    """List all instrument configuration files."""
+    from litmus.instruments.loader import find_instruments_dir, load_instrument_files
+
+    instruments_dir = find_instruments_dir()
+    if not instruments_dir:
+        click.echo("No instruments/ directory found")
+        return
+
+    instruments = load_instrument_files(instruments_dir)
+    if not instruments:
+        click.echo("No instrument files found")
+        return
+
+    click.echo(f"Found {len(instruments)} instrument(s):\n")
+    click.echo(f"{'ID':<25} {'Protocol':<10} {'Model':<30}")
+    click.echo("-" * 65)
+
+    for inst_id, data in sorted(instruments.items()):
+        protocol = data.get("protocol", "visa")
+        info = data.get("_info")
+        model = ""
+        if info:
+            mfr = info.manufacturer or ""
+            mdl = info.model or ""
+            model = f"{mfr} {mdl}".strip()
+
+        click.echo(f"{inst_id:<25} {protocol:<10} {model:<30}")
+
+
+@instrument.command("show")
+@click.argument("instrument_id")
+def instrument_show(instrument_id: str):
+    """Show details for a specific instrument."""
+    from litmus.instruments.loader import find_instruments_dir, load_instrument_file
+
+    instruments_dir = find_instruments_dir()
+    if not instruments_dir:
+        click.echo("No instruments/ directory found", err=True)
+        raise SystemExit(1)
+
+    inst_file = instruments_dir / f"{instrument_id}.yaml"
+    if not inst_file.exists():
+        click.echo(f"Instrument not found: {instrument_id}", err=True)
+        raise SystemExit(1)
+
+    data = load_instrument_file(inst_file)
+    info = data.get("_info")
+    cal = data.get("_calibration")
+
+    click.echo(f"Instrument: {instrument_id}")
+    click.echo("-" * 40)
+    click.echo(f"Protocol: {data.get('protocol', 'visa')}")
+    if data.get("driver"):
+        click.echo(f"Driver: {data['driver']}")
+
+    if info:
+        click.echo("\nIdentity:")
+        click.echo(f"  Manufacturer: {info.manufacturer or 'N/A'}")
+        click.echo(f"  Model: {info.model or 'N/A'}")
+        click.echo(f"  Serial: {info.serial or 'N/A'}")
+        click.echo(f"  Firmware: {info.firmware or 'N/A'}")
+
+    if cal and (cal.due_date or cal.last_cal or cal.certificate):
+        click.echo("\nCalibration:")
+        if cal.due_date:
+            days = cal.days_until_due()
+            status = ""
+            if days is not None:
+                if days < 0:
+                    status = click.style(f" (EXPIRED, {-days} days overdue)", fg="red")
+                elif days < 30:
+                    status = click.style(f" (due soon, {days} days)", fg="yellow")
+                else:
+                    status = f" ({days} days remaining)"
+            click.echo(f"  Due date: {cal.due_date}{status}")
+        if cal.last_cal:
+            click.echo(f"  Last cal: {cal.last_cal}")
+        if cal.certificate:
+            click.echo(f"  Certificate: {cal.certificate}")
+        if cal.lab:
+            click.echo(f"  Lab: {cal.lab}")
+
+
+@instrument.command("cal")
+@click.argument("instrument_id")
+@click.option("--due", "due_date", help="Calibration due date (YYYY-MM-DD)")
+@click.option("--last", "last_cal", help="Last calibration date (YYYY-MM-DD)")
+@click.option("--cert", "certificate", help="Certificate number")
+@click.option("--lab", help="Calibration lab name")
+def instrument_cal(
+    instrument_id: str,
+    due_date: str | None,
+    last_cal: str | None,
+    certificate: str | None,
+    lab: str | None,
+):
+    """Update calibration information for an instrument.
+
+    Example:
+        litmus instrument cal keithley_dmm_001 --due 2025-12-15 --cert CAL-2025-001
+    """
+    import yaml
+
+    from litmus.instruments.loader import find_instruments_dir
+
+    instruments_dir = find_instruments_dir()
+    if not instruments_dir:
+        click.echo("No instruments/ directory found", err=True)
+        raise SystemExit(1)
+
+    inst_file = instruments_dir / f"{instrument_id}.yaml"
+    if not inst_file.exists():
+        click.echo(f"Instrument not found: {instrument_id}", err=True)
+        raise SystemExit(1)
+
+    with open(inst_file) as f:
+        data = yaml.safe_load(f)
+
+    if "calibration" not in data:
+        data["calibration"] = {}
+
+    if due_date:
+        data["calibration"]["due_date"] = due_date
+    if last_cal:
+        data["calibration"]["last_cal"] = last_cal
+    if certificate:
+        data["calibration"]["certificate"] = certificate
+    if lab:
+        data["calibration"]["lab"] = lab
+
+    with open(inst_file, "w") as f:
+        yaml.dump(data, f, default_flow_style=False, sort_keys=False)
+
+    click.echo(f"Updated calibration for {instrument_id}")
+
+
 if __name__ == "__main__":
     main()
