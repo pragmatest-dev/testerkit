@@ -1,6 +1,6 @@
 """Tests for product specification models."""
 
-from litmus.capabilities.models import (
+from litmus.config.models import (
     Capability,
     Comparator,
     Direction,

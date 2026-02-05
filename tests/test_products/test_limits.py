@@ -2,7 +2,7 @@
 
 import pytest
 
-from litmus.capabilities.models import Comparator, Direction, Domain, SignalType
+from litmus.config.models import Comparator, Direction, Domain, SignalType
 from litmus.config.models import Limit
 from litmus.products.limits import derive_limit, derive_limits_for_requirement
 from litmus.products.models import Characteristic, ConditionPoint, TestRequirement

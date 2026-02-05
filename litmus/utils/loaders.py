@@ -13,7 +13,7 @@ from typing import TYPE_CHECKING, Any
 import yaml
 
 if TYPE_CHECKING:
-    from litmus.capabilities.models import Direction, Domain, SignalType
+    from litmus.config.models import Direction, Domain, SignalType
 
 
 def find_yaml_files(
@@ -95,7 +95,7 @@ def parse_capability_enums(
         ... )
     """
     # Import here to avoid circular import
-    from litmus.capabilities.models import Direction, Domain, SignalType
+    from litmus.config.models import Direction, Domain, SignalType
 
     direction = Direction(direction_str.lower())
     domain = Domain(domain_str.lower())

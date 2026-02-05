@@ -18,7 +18,7 @@ from typing import Any, Literal, Self
 
 from pydantic import BaseModel, Field, computed_field, model_validator
 
-from litmus.capabilities.models import (
+from litmus.config.models import (
     Capability,
     Comparator,
     Direction,

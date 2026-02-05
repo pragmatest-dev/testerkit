@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from litmus.capabilities.models import Comparator, Direction, Domain, SignalType
+from litmus.config.models import Comparator, Direction, Domain, SignalType
 from litmus.products.limits import derive_limit
 from litmus.products.loader import load_product, load_products_from_directory
 

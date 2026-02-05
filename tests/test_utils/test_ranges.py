@@ -184,7 +184,7 @@ class TestIntegrationWithModels:
 
     def test_characteristic_resolved_pins_with_range(self):
         """Characteristic.resolved_pins expands range syntax."""
-        from litmus.capabilities.models import Direction, Domain
+        from litmus.config.models import Direction, Domain
         from litmus.products.models import Characteristic
 
         char = Characteristic(
@@ -197,7 +197,7 @@ class TestIntegrationWithModels:
 
     def test_characteristic_resolved_pins_with_list(self):
         """Characteristic.resolved_pins works with explicit list."""
-        from litmus.capabilities.models import Direction, Domain
+        from litmus.config.models import Direction, Domain
         from litmus.products.models import Characteristic
 
         char = Characteristic(
@@ -210,7 +210,7 @@ class TestIntegrationWithModels:
 
     def test_characteristic_resolved_pins_with_single(self):
         """Characteristic.resolved_pins works with single pin."""
-        from litmus.capabilities.models import Direction, Domain
+        from litmus.config.models import Direction, Domain
         from litmus.products.models import Characteristic
 
         char = Characteristic(
@@ -223,7 +223,7 @@ class TestIntegrationWithModels:
 
     def test_characteristic_resolved_channels_with_range(self):
         """Characteristic.resolved_channels expands range syntax."""
-        from litmus.capabilities.models import Direction, Domain
+        from litmus.config.models import Direction, Domain
         from litmus.products.models import Characteristic
 
         char = Characteristic(
@@ -236,14 +236,14 @@ class TestIntegrationWithModels:
 
     def test_instrument_channel_spec_with_range(self):
         """InstrumentChannelSpec.channel_names() works with range."""
-        from litmus.capabilities.models import InstrumentChannelSpec
+        from litmus.config.models import InstrumentChannelSpec
 
         spec = InstrumentChannelSpec(range="ai[0:3]")
         assert spec.channel_names() == ["ai0", "ai1", "ai2", "ai3"]
 
     def test_instrument_channel_spec_with_labels(self):
         """InstrumentChannelSpec.channel_names() works with labels."""
-        from litmus.capabilities.models import InstrumentChannelSpec
+        from litmus.config.models import InstrumentChannelSpec
 
         # Note: count limits labels, so must specify count to match
         spec = InstrumentChannelSpec(count=3, labels=["A", "B", "C"])
@@ -251,7 +251,7 @@ class TestIntegrationWithModels:
 
     def test_instrument_channel_spec_with_count_naming(self):
         """InstrumentChannelSpec.channel_names() works with count+naming."""
-        from litmus.capabilities.models import InstrumentChannelSpec
+        from litmus.config.models import InstrumentChannelSpec
 
         spec = InstrumentChannelSpec(count=4, naming="CH{n}")
         assert spec.channel_names() == ["CH1", "CH2", "CH3", "CH4"]

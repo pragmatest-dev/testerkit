@@ -5,7 +5,7 @@ from typing import Any
 
 import yaml
 
-from litmus.capabilities.models import Comparator
+from litmus.config.models import Comparator
 from litmus.products.models import (
     BusSignal,
     Characteristic,

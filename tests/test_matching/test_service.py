@@ -1,6 +1,6 @@
 """Tests for the capability matching service."""
 
-from litmus.capabilities.models import Direction, Domain, SignalType
+from litmus.config.models import Direction, Domain, SignalType
 from litmus.matching.service import (
     CapabilityRequirement,
     StationCapability,
