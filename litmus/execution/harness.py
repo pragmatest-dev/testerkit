@@ -768,6 +768,16 @@ class TestHarness:
         Args:
             mock_config: Dict mapping "instrument.method" to values.
                         Example: {"dmm.measure_voltage": 3.3, "psu.measure_current": 0.5}
+
+        If a value is callable, it will be wrapped to receive the current
+        vector context as a keyword argument:
+
+            def dynamic_voltage(cmd, *, context=None):
+                load = context.get_in("load_current", 0) if context else 0
+                return str(3.3 - load * 0.1)
+
+            _mock:
+              inst.query: !callable dynamic_voltage
         """
         for key, value in mock_config.items():
             if "." not in key:
@@ -776,7 +786,29 @@ class TestHarness:
             if inst_name in self._instruments:
                 inst = self._instruments[inst_name]
                 if hasattr(inst, "set_mock_value"):
+                    # Wrap callables to inject context
+                    if callable(value):
+                        value = self._wrap_mock_callable(value)
                     inst.set_mock_value(measurement, value)
+
+    def _wrap_mock_callable(self, fn: Callable) -> Callable:
+        """Wrap a mock callable to inject the current context.
+
+        Args:
+            fn: Original callable that may accept context kwarg
+
+        Returns:
+            Wrapped callable that passes current vector context
+        """
+        harness = self  # Capture reference for closure
+
+        def wrapper(*args, **kwargs):
+            # Inject context if not already provided
+            if "context" not in kwargs:
+                kwargs["context"] = harness._vector_context
+            return fn(*args, **kwargs)
+
+        return wrapper
 
     def _get_mock_config_for_vector(self, vector: Vector) -> dict[str, Any]:
         """Get mock configuration for a vector.

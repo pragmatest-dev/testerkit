@@ -12,6 +12,8 @@ from litmus.data.models import DUT, Measurement, Outcome, TestRun, TestStep
 
 if TYPE_CHECKING:
     from litmus.data.backends.journal import JournalWriter
+    from litmus.instruments.base import Instrument
+    from litmus.instruments.models import InstrumentRecord
 
 
 def _utcnow() -> datetime:
@@ -184,6 +186,10 @@ class TestRunLogger:
         git_commit: str | None = None,
         # Journal streaming
         results_dir: str | Path | None = None,
+        # Instrument identity for traceability
+        instruments: dict[str, Instrument] | None = None,
+        # Instrument records (new format with calibration)
+        instrument_records: dict[str, InstrumentRecord] | None = None,
     ):
         # Use provided run_id, environment variable, or generate new
         if run_id is not None:
@@ -227,13 +233,19 @@ class TestRunLogger:
         self._current_step_index: int = -1
         self._current_vector = None  # For simple logging without harness
         self._run_context = RunContext(self.test_run)
+        self._instruments = instruments or {}
+        self._instrument_records: dict[str, InstrumentRecord] = instrument_records or {}
 
         # Journal streaming for live observability
         self._journal: JournalWriter | None = None
         if results_dir is not None:
             from litmus.data.backends.journal import JournalWriter
 
-            self._journal = JournalWriter(results_dir, self.test_run)
+            self._journal = JournalWriter(
+                results_dir,
+                self.test_run,
+                instrument_arrays=self.build_instrument_arrays(),
+            )
             self._journal.__enter__()
 
     @property
@@ -247,6 +259,106 @@ class TestRunLogger:
         if self._journal is not None:
             return self._journal.journal_dir
         return None
+
+    @property
+    def instruments(self) -> dict[str, Instrument]:
+        """Get the instruments dict for identity tracking."""
+        return self._instruments
+
+    def build_instrument_arrays(self) -> dict[str, list]:
+        """Build parallel arrays for instrument identity and calibration.
+
+        Returns dict with keys:
+        - instr_name: List of instrument names/roles (e.g., ["dmm", "psu"])
+        - instr_id: List of instrument IDs (e.g., ["keithley_dmm_001", "keysight_psu_001"])
+        - instr_resource: List of resources (e.g., ["GPIB::16::INSTR", "GPIB::17::INSTR"])
+        - instr_protocol: List of protocols (e.g., ["visa", "visa"])
+        - instr_manufacturer: List of manufacturers
+        - instr_model: List of models
+        - instr_serial: List of serial numbers
+        - instr_firmware: List of firmware versions
+        - instr_cal_due: List of calibration due dates (ISO format)
+        - instr_cal_last: List of last calibration dates (ISO format)
+        - instr_cal_certificate: List of certificate numbers
+        - instr_cal_lab: List of calibration labs
+
+        All arrays are the same length and in the same order.
+        """
+        names: list[str] = []
+        ids: list[str | None] = []
+        resources: list[str | None] = []
+        protocols: list[str] = []
+        manufacturers: list[str | None] = []
+        models: list[str | None] = []
+        serials: list[str | None] = []
+        firmwares: list[str | None] = []
+        cal_dues: list[str | None] = []
+        cal_lasts: list[str | None] = []
+        cal_certs: list[str | None] = []
+        cal_labs: list[str | None] = []
+
+        # Prefer instrument records (new format with full info)
+        if self._instrument_records:
+            for role, record in self._instrument_records.items():
+                names.append(role)
+                ids.append(record.instrument_id)
+                resources.append(record.resource)
+                protocols.append(record.protocol)
+                manufacturers.append(record.info.manufacturer if record.info else None)
+                models.append(record.info.model if record.info else None)
+                serials.append(record.info.serial if record.info else None)
+                firmwares.append(record.info.firmware if record.info else None)
+                cal_dues.append(
+                    record.calibration.due_date.isoformat()
+                    if record.calibration and record.calibration.due_date
+                    else None
+                )
+                cal_lasts.append(
+                    record.calibration.last_cal.isoformat()
+                    if record.calibration and record.calibration.last_cal
+                    else None
+                )
+                cal_certs.append(
+                    record.calibration.certificate if record.calibration else None
+                )
+                cal_labs.append(record.calibration.lab if record.calibration else None)
+        else:
+            # Fall back to legacy instruments dict
+            for name, inst in self._instruments.items():
+                names.append(name)
+                ids.append(None)
+                resources.append(getattr(inst, "resource", None))
+                protocols.append("visa")  # Default assumption
+
+                # Get instrument type from class name (e.g., "DMM" -> "dmm")
+                # This is legacy behavior, kept for backwards compatibility
+
+                # Get identity from attributes (set by plugin from station config)
+                manufacturers.append(getattr(inst, "manufacturer", None))
+                models.append(getattr(inst, "model", None))
+                serials.append(getattr(inst, "serial", None))
+                firmwares.append(getattr(inst, "firmware", None))
+
+                # No calibration info in legacy format
+                cal_dues.append(None)
+                cal_lasts.append(None)
+                cal_certs.append(None)
+                cal_labs.append(None)
+
+        return {
+            "instr_name": names,
+            "instr_id": ids,
+            "instr_resource": resources,
+            "instr_protocol": protocols,
+            "instr_manufacturer": manufacturers,
+            "instr_model": models,
+            "instr_serial": serials,
+            "instr_firmware": firmwares,
+            "instr_cal_due": cal_dues,
+            "instr_cal_last": cal_lasts,
+            "instr_cal_certificate": cal_certs,
+            "instr_cal_lab": cal_labs,
+        }
 
     def start_step(self, name: str, description: str | None = None):
         """Begin a new test step."""

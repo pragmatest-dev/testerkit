@@ -48,7 +48,12 @@ class ParquetBackend:
         self.results_dir = Path(results_dir)
         self.results_dir.mkdir(parents=True, exist_ok=True)
 
-    def save_test_run(self, test_run: TestRun, journal_dir: Path | None = None) -> Path:
+    def save_test_run(
+        self,
+        test_run: TestRun,
+        journal_dir: Path | None = None,
+        instrument_arrays: dict[str, list] | None = None,
+    ) -> Path:
         """Save test run to Parquet with analysis-ready schema.
 
         If journal_dir is provided, converts the journal to parquet and moves
@@ -94,11 +99,11 @@ class ParquetBackend:
         parquet_path = date_dir / filename
 
         # Build measurement rows (may create _ref/ directory for large data)
-        rows = self._build_measurement_rows(test_run, parquet_path)
+        rows = self._build_measurement_rows(test_run, parquet_path, instrument_arrays)
 
         if not rows:
             # No measurements - create empty file with minimal schema
-            rows = [self._build_empty_row(test_run)]
+            rows = [self._build_empty_row(test_run, instrument_arrays)]
 
         # Convert to PyArrow table
         table = pa.Table.from_pylist(rows)
@@ -226,7 +231,10 @@ class ParquetBackend:
         return parquet_path
 
     def _build_measurement_rows(
-        self, test_run: TestRun, parquet_path: Path
+        self,
+        test_run: TestRun,
+        parquet_path: Path,
+        instrument_arrays: dict[str, list] | None = None,
     ) -> list[dict[str, Any]]:
         """Build one row per measurement with all metadata denormalized."""
         rows = []
@@ -320,6 +328,10 @@ class ParquetBackend:
                     # Add custom metadata columns
                     for key, value in test_run.custom_metadata.items():
                         row[key] = value
+
+                    # Add instrument identity arrays (parallel arrays)
+                    if instrument_arrays:
+                        row.update(instrument_arrays)
 
                     rows.append(row)
 
@@ -496,9 +508,13 @@ class ParquetBackend:
 
         return f"{REF_PATH_PREFIX}{filename}"
 
-    def _build_empty_row(self, test_run: TestRun) -> dict[str, Any]:
+    def _build_empty_row(
+        self,
+        test_run: TestRun,
+        instrument_arrays: dict[str, list] | None = None,
+    ) -> dict[str, Any]:
         """Build a placeholder row when no measurements exist."""
-        return {
+        row = {
             "run_id": str(test_run.id),
             "run_started_at": test_run.started_at,
             "run_ended_at": test_run.ended_at,
@@ -543,6 +559,22 @@ class ParquetBackend:
             "vector_outcome": None,
             "run_outcome": test_run.outcome.value,
         }
+
+        # Add instrument identity arrays (parallel arrays)
+        if instrument_arrays:
+            row.update(instrument_arrays)
+        else:
+            # Add empty arrays if no instruments
+            row.update({
+                "instr_name": [],
+                "instr_type": [],
+                "instr_manufacturer": [],
+                "instr_model": [],
+                "instr_serial": [],
+                "instr_firmware": [],
+            })
+
+        return row
 
     def _build_file_metadata(self, test_run: TestRun) -> dict[bytes, bytes]:
         """Build Parquet file-level metadata with config snapshots."""

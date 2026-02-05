@@ -42,15 +42,29 @@ class JournalWriter:
     The journal file is flushed after each write for crash safety.
     """
 
-    def __init__(self, results_dir: Path | str, test_run: "TestRun"):
+    def __init__(
+        self,
+        results_dir: Path | str,
+        test_run: "TestRun",
+        instrument_arrays: dict[str, list] | None = None,
+    ):
         """Initialize journal writer.
 
         Args:
             results_dir: Base results directory (e.g., "results")
             test_run: The TestRun object with run metadata
+            instrument_arrays: Pre-built instrument identity arrays (parallel arrays)
         """
         self.results_dir = Path(results_dir)
         self.test_run = test_run
+        self._instrument_arrays = instrument_arrays or {
+            "instr_name": [],
+            "instr_type": [],
+            "instr_manufacturer": [],
+            "instr_model": [],
+            "instr_serial": [],
+            "instr_firmware": [],
+        }
         self._file = None
         self._closed = False
 
@@ -194,6 +208,9 @@ class JournalWriter:
         # Add custom metadata
         for key, value in tr.custom_metadata.items():
             row[key] = value
+
+        # Add instrument identity arrays (parallel arrays)
+        row.update(self._instrument_arrays)
 
         return row
 

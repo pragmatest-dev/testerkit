@@ -2,6 +2,7 @@
 
 import os
 import time
+import warnings
 from pathlib import Path
 from typing import Any
 
@@ -12,12 +13,16 @@ from _pytest.runner import runtestprotocol
 from litmus.data.backends.parquet import ParquetBackend
 from litmus.execution.decorators import set_current_logger
 from litmus.execution.logger import TestRunLogger
+from litmus.instruments.models import CalibrationInfo, InstrumentInfo, InstrumentRecord
 
 # Track test outcomes for skip-on-failure logic
 STEP_OUTCOMES: dict[str, bool] = {}
 
 # Track instrument instances for cleanup
 _ACTIVE_INSTRUMENTS: dict[str, Any] = {}
+
+# Track instrument records for traceability
+_INSTRUMENT_RECORDS: dict[str, InstrumentRecord] = {}
 
 
 def pytest_configure(config):
@@ -252,6 +257,11 @@ def litmus_logger(request) -> TestRunLogger:
     )
     test_phase = _resolve_test_phase(requested_phase)
 
+    # Get instruments if available (may not be connected yet at logger creation)
+    # We pass the global dict reference so logger can access instruments lazily
+    instruments = _safe_get_session_fixture(request, "instruments")
+    instrument_records = _safe_get_session_fixture(request, "instrument_records")
+
     logger = TestRunLogger(
         dut_serial=request.config.getoption("--dut-serial"),
         station_id=station_id,
@@ -269,6 +279,8 @@ def litmus_logger(request) -> TestRunLogger:
         git_commit=_get_git_commit(),
         results_dir=results_dir,  # Enable journal streaming
         test_phase=test_phase,  # Auto-detected from git status
+        instruments=instruments,  # Instrument instances (legacy)
+        instrument_records=instrument_records,  # Full instrument records with calibration
     )
     set_current_logger(logger)
     yield logger
@@ -277,9 +289,17 @@ def litmus_logger(request) -> TestRunLogger:
     test_run = logger.finalize()
     backend = ParquetBackend(results_dir=results_dir)
 
+    # Build instrument arrays for traceability (if not using journal)
+    # Journal already has this data embedded in each row
+    instrument_arrays = logger.build_instrument_arrays()
+
     # Convert journal to parquet if journaling was enabled
     journal_dir = logger.journal_dir
-    backend.save_test_run(test_run, journal_dir=journal_dir)
+    backend.save_test_run(
+        test_run,
+        journal_dir=journal_dir,
+        instrument_arrays=instrument_arrays,
+    )
 
     set_current_logger(None)
 
@@ -456,67 +476,269 @@ def fixture_config(request):
     return None
 
 
-def _get_driver_class(instrument_type: str):
-    """Get driver class for an instrument type."""
-    from litmus.instruments import DMM, PSU, ELoad, Scope
+def _load_driver_class(driver_path: str | None):
+    """Load a driver class from import path.
 
-    drivers = {
-        "dmm": DMM,
-        "psu": PSU,
-        "eload": ELoad,
-        "scope": Scope,
-    }
-    return drivers.get(instrument_type.lower())
+    Args:
+        driver_path: Dotted import path like "pymeasure.instruments.keithley.Keithley2400"
+
+    Returns the class or None if not found.
+    """
+    if not driver_path:
+        return None
+
+    try:
+        import importlib
+
+        module_path, class_name = driver_path.rsplit(".", 1)
+        module = importlib.import_module(module_path)
+        return getattr(module, class_name)
+    except (ImportError, AttributeError, ValueError):
+        return None
+
+
+def _check_calibration(role: str, calibration: CalibrationInfo) -> None:
+    """Check calibration status and emit warnings if needed."""
+    if not calibration or not calibration.due_date:
+        return
+
+    days_until = calibration.days_until_due()
+    if days_until is None:
+        return
+
+    if days_until < 0:
+        warnings.warn(
+            f"{role}: CALIBRATION EXPIRED (due {calibration.due_date}, "
+            f"{-days_until} days overdue)",
+            UserWarning,
+            stacklevel=3,
+        )
+    elif days_until < 30:
+        warnings.warn(
+            f"{role}: calibration due soon ({calibration.due_date}, "
+            f"{days_until} days remaining)",
+            UserWarning,
+            stacklevel=3,
+        )
+
+
+def _verify_instrument_identity(
+    role: str,
+    actual: InstrumentInfo,
+    expected: InstrumentInfo,
+    strict: bool = False,
+) -> None:
+    """Verify instrument identity matches expected configuration.
+
+    Args:
+        role: Instrument role name for error messages
+        actual: InstrumentInfo queried from device
+        expected: InstrumentInfo from configuration
+        strict: If True, raise error on mismatch. If False, warn only.
+
+    Raises:
+        RuntimeError: If strict and identity doesn't match
+    """
+    if not expected:
+        return  # No expected identity configured
+
+    matches, mismatches = actual.matches(expected)
+    if not matches:
+        msg = f"{role}: instrument identity mismatch - {'; '.join(mismatches)}"
+        if strict:
+            raise RuntimeError(msg)
+        warnings.warn(msg, UserWarning, stacklevel=3)
+
+
+class StationError(Exception):
+    """Error during station instrument setup."""
+
+    pass
 
 
 @pytest.fixture(scope="session")
-def instruments(request, station_config, mock_instruments) -> dict[str, Any]:
+def instrument_records(request, station_config, mock_instruments) -> dict[str, InstrumentRecord]:
+    """Load and resolve instrument records from configuration.
+
+    This fixture loads instrument files and station config, resolving
+    all references to produce InstrumentRecord objects with full
+    identity and calibration info.
+
+    Returns:
+        Dict mapping role name to InstrumentRecord
+    """
+    global _INSTRUMENT_RECORDS
+    _INSTRUMENT_RECORDS.clear()
+
+    if not station_config:
+        return _INSTRUMENT_RECORDS
+
+    # Try to find and load instrument files
+    from litmus.instruments.loader import (
+        find_instruments_dir,
+        load_instrument_files,
+        resolve_station_instruments,
+    )
+
+    # Search from pytest invocation directory
+    invocation_dir = Path(request.config.invocation_params.dir)
+    instruments_dir = find_instruments_dir(invocation_dir)
+
+    instrument_files: dict[str, dict[str, Any]] = {}
+    if instruments_dir:
+        instrument_files = load_instrument_files(instruments_dir)
+
+    # Resolve station instruments to records
+    _INSTRUMENT_RECORDS = resolve_station_instruments(station_config, instrument_files)
+
+    return _INSTRUMENT_RECORDS
+
+
+@pytest.fixture(scope="session")
+def instruments(
+    request, station_config, mock_instruments, instrument_records
+) -> dict[str, Any]:
     """Create instrument instances from station configuration.
 
     Instruments are connected at session start and disconnected at end.
+    For real hardware, identity is verified against configuration.
+    Calibration status is checked and warnings issued if due/expired.
 
     When --mock-instruments is passed (or LITMUS_MOCK_INSTRUMENTS=1), uses mock
     instruments instead of real drivers. Mocks are config-driven and instant.
 
+    Station config formats supported:
+
+    Legacy format (inline config):
+        instruments:
+          dmm:
+            driver: pymeasure.instruments.keithley.Keithley2000
+            resource: GPIB::16::INSTR
+            mock_config:
+              measure_voltage: 3.3
+
+    New format (reference to instrument files):
+        instruments:
+          dmm: keithley_dmm_001
+        resources:
+          keithley_dmm_001: GPIB::16::INSTR
+
     Returns:
-        Dictionary mapping instrument names to instances.
+        Dictionary mapping instrument role names to driver instances.
     """
     global _ACTIVE_INSTRUMENTS
     _ACTIVE_INSTRUMENTS.clear()
 
-    if station_config:
-        from litmus.instruments.mocks import Mock
+    if not station_config:
+        yield _ACTIVE_INSTRUMENTS
+        return
 
-        inst_configs = station_config.get("instruments", {})
-        for name, config in inst_configs.items():
-            inst_type = config.get("type", "")
-            mock_config = config.get("mock_config", config.get("sim_config", {}))
-            use_mock = mock_instruments or config.get("mock", config.get("simulate", False))
+    from litmus.instruments.mocks import Mock
 
-            driver_class = _get_driver_class(inst_type)
-            if driver_class is None:
-                continue
+    # Get inline instrument configs (legacy format)
+    inst_configs = station_config.get("instruments", {})
 
-            if use_mock:
-                # Use mock instruments - config-driven, instant
-                inst = Mock(driver_class, **mock_config)
-            else:
-                # Real hardware path
-                resource = config.get("resource", "")
-                inst = driver_class(resource=resource)
+    for role, record in instrument_records.items():
+        # Get config - either from record (new format) or inline (legacy)
+        inline_config = inst_configs.get(role, {})
+        if isinstance(inline_config, str):
+            # New format - role points to instrument ID, config in record
+            inline_config = {}
 
+        mock_config = inline_config.get("mock_config", inline_config.get("sim_config", {}))
+        use_mock = mock_instruments or inline_config.get(
+            "mock", inline_config.get("simulate", False)
+        )
+
+        driver_class = _load_driver_class(record.driver)
+        if driver_class is None:
+            # No driver specified - skip this instrument
+            continue
+
+        if use_mock:
+            # Mock mode - use Mock factory with the driver class
+            inst = Mock(driver_class, **mock_config)
+            # For mocks, identity comes from config (no real device to query)
+            if record.info:
+                inst.manufacturer = record.info.manufacturer
+                inst.model = record.info.model
+                inst.serial = record.info.serial
+                inst.firmware = record.info.firmware
+        else:
+            # Real hardware path
+            inst = driver_class(record.resource)
+
+            if hasattr(inst, "connect"):
+                inst.connect()
+
+            # Query and verify identity
+            actual_info = _get_instrument_info(inst, record.protocol)
+            if actual_info:
+                # Verify against expected (warn on mismatch, don't fail)
+                _verify_instrument_identity(role, actual_info, record.info, strict=False)
+                # Update record with actual info for logging
+                record.info = actual_info
+            elif record.info:
+                # Couldn't query device but have expected info - warn
+                warnings.warn(
+                    f"{role}: could not query instrument identity",
+                    UserWarning,
+                    stacklevel=2,
+                )
+
+        if hasattr(inst, "connect") and use_mock:
             inst.connect()
-            _ACTIVE_INSTRUMENTS[name] = inst
+
+        # Check calibration status
+        _check_calibration(role, record.calibration)
+
+        _ACTIVE_INSTRUMENTS[role] = inst
 
     yield _ACTIVE_INSTRUMENTS
 
     # Cleanup: disconnect all instruments
     for inst in _ACTIVE_INSTRUMENTS.values():
         try:
-            inst.disconnect()
+            if hasattr(inst, "disconnect"):
+                inst.disconnect()
         except Exception:
             pass
     _ACTIVE_INSTRUMENTS.clear()
+
+
+def _get_instrument_info(inst: Any, protocol: str = "visa") -> InstrumentInfo | None:
+    """Get instrument identity from connected instance.
+
+    For VISA instruments, queries *IDN?. For other protocols,
+    uses protocol-specific methods.
+
+    Args:
+        inst: Connected instrument instance
+        protocol: Protocol type ("visa", "ni", etc.)
+
+    Returns:
+        InstrumentInfo or None if query fails
+    """
+    # First check if instrument already has identity attributes
+    if hasattr(inst, "manufacturer") and inst.manufacturer:
+        return InstrumentInfo(
+            manufacturer=getattr(inst, "manufacturer", None),
+            model=getattr(inst, "model", None),
+            serial=getattr(inst, "serial", None),
+            firmware=getattr(inst, "firmware", None),
+        )
+
+    # Try to query via SCPI *IDN?
+    if hasattr(inst, "query"):
+        try:
+            from litmus.instruments.discovery import parse_idn
+
+            idn = inst.query("*IDN?")
+            return parse_idn(idn)
+        except Exception:
+            pass
+
+    return None
 
 
 @pytest.fixture(scope="session")
