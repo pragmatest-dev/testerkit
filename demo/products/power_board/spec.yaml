@@ -20,52 +20,30 @@ pins:
   J1_VIN:
     name: "J1.1"
     net: "VIN_5V"
-    type: power
     description: "5V power input from bench supply"
   J1_GND:
     name: "J1.2"
     net: "GND"
-    type: ground
     description: "Ground return"
   J1_VOUT:
     name: "J1.3"
     net: "VOUT_3V3"
-    type: power
     description: "3.3V regulated output to load"
 
   # Test points for probing
   TP_VIN:
     name: "TP1"
     net: "VIN_5V"
-    type: signal
     description: "Input voltage test point"
   TP_VOUT:
     name: "TP2"
     net: "VOUT_3V3"
-    type: signal
     description: "Output voltage test point"
   TP_GND:
     name: "TP3"
     net: "GND"
-    type: ground
     description: "Ground reference test point"
 
-  # LDO IC pins (TLV1117-33 in SOT-223)
-  U1_VIN:
-    name: "U1.3"
-    net: "VIN_5V"
-    type: power
-    description: "LDO input pin"
-  U1_VOUT:
-    name: "U1.2"
-    net: "VOUT_3V3"
-    type: power
-    description: "LDO output pin"
-  U1_GND:
-    name: "U1.1"
-    net: "GND"
-    type: ground
-    description: "LDO ground pin"
 
 # Electrical characteristics
 characteristics:

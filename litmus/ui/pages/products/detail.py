@@ -97,14 +97,12 @@ def _render_pins_tab(pins: list):
         with ui.card().classes("w-full"):
             columns = [
                 {"name": "name", "label": "Name", "field": "name", "align": "left"},
-                {"name": "type", "label": "Type", "field": "type"},
                 {"name": "net", "label": "Net", "field": "net"},
                 {"name": "description", "label": "Description", "field": "description"},
             ]
             rows = [
                 {
                     "name": pin.get("name", ""),
-                    "type": pin.get("type", ""),
                     "net": pin.get("net", ""),
                     "description": pin.get("description", ""),
                 }

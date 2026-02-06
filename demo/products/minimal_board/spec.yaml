@@ -7,7 +7,6 @@ product:
 pins:
   VOUT:
     name: "TP1"
-    type: signal
 
 characteristics:
   output_voltage:

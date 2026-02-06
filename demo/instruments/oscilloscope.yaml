@@ -1,0 +1,17 @@
+# Oscilloscope — instrument type definition
+# Capabilities based on typical 4-ch digital scope (e.g., Rigol DS1054Z, Keysight DSOX1204G)
+
+instrument:
+  type: oscilloscope
+  name: Digital Oscilloscope
+  description: Multi-channel oscilloscope for time-domain voltage waveform capture
+  icon: timeline
+
+capabilities:
+  - name: voltage_waveform
+    direction: input
+    domain: voltage
+    signal_types: [ac, dc]
+    channels:
+      count: 4
+      naming: "CH{n}"

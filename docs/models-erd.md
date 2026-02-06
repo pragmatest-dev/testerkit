@@ -72,7 +72,6 @@ erDiagram
     Pin {
         string name PK
         string net
-        PinType type
         string description
     }
 

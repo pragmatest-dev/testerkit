@@ -1,0 +1,34 @@
+# Digital Multimeter — instrument type definition
+# Capabilities based on typical bench DMM (e.g., Keithley 2000, Keysight 34461A)
+
+instrument:
+  type: dmm
+  name: Digital Multimeter
+  description: General-purpose DMM for DC/AC voltage, current, and resistance measurement
+  icon: speed
+
+capabilities:
+  - name: dc_voltage_measure
+    direction: input
+    domain: voltage
+    signal_types: [dc]
+
+  - name: ac_voltage_measure
+    direction: input
+    domain: voltage
+    signal_types: [ac]
+
+  - name: dc_current_measure
+    direction: input
+    domain: current
+    signal_types: [dc]
+
+  - name: ac_current_measure
+    direction: input
+    domain: current
+    signal_types: [ac]
+
+  - name: resistance_measure
+    direction: input
+    domain: resistance
+    signal_types: [dc]

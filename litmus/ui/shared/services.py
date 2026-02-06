@@ -20,18 +20,21 @@ def discover_products() -> list[dict]:
     """Discover products from folders.
 
     Checks products/ and demo/products/ folders for product specifications.
+    Supports both manifest-based folders and plain spec.yaml folders.
     """
     products = []
-    seen_ids = set()
+    seen_ids: set[str] = set()
 
-    # 1. Check products/ folders (new workflow structure)
     products_dirs = [
         Path.cwd() / "products",
         Path.cwd() / "demo" / "products",
     ]
+
     for products_dir in products_dirs:
         if not products_dir.exists():
             continue
+
+        # 1. Check manifest-based folders (full workflow)
         for folder in ProductFolder.list_all(products_dir):
             spec = folder.load_spec()
             product_id = folder.product_id
@@ -46,7 +49,7 @@ def discover_products() -> list[dict]:
                     "name": spec.name,
                     "description": spec.description or "",
                     "revision": spec.revision or "",
-                    "pins": None,  # Not in Product model yet
+                    "pins": None,
                     "characteristics": {
                         name: char.model_dump() for name, char in spec.characteristics.items()
                     },
@@ -60,7 +63,6 @@ def discover_products() -> list[dict]:
                     "files": folder.manifest.files.model_dump(),
                 })
             else:
-                # Folder exists but no spec yet (in progress)
                 products.append({
                     "id": product_id,
                     "name": folder.name,
@@ -74,6 +76,61 @@ def discover_products() -> list[dict]:
                     "workflow_step": folder.current_step.value if folder.current_step else None,
                     "completed_steps": [s.value for s in folder.manifest.completed_steps],
                     "files": folder.manifest.files.model_dump(),
+                })
+
+        # 2. Fallback: discover spec.yaml folders without manifest.yaml
+        for item in sorted(products_dir.iterdir()):
+            if not item.is_dir():
+                continue
+            product_id = item.name
+            if product_id in seen_ids:
+                continue
+            spec_file = item / "spec.yaml"
+            if not spec_file.exists():
+                continue
+
+            seen_ids.add(product_id)
+            # Try loading via matching service for full model
+            model = matching_service.load_product_by_id(product_id)
+            if model:
+                products.append({
+                    "id": model.id,
+                    "name": model.name,
+                    "description": model.description or "",
+                    "revision": model.revision or "",
+                    "pins": None,
+                    "characteristics": {
+                        name: char.model_dump()
+                        for name, char in model.characteristics.items()
+                    },
+                    "test_requirements": {
+                        name: req.model_dump()
+                        for name, req in model.test_requirements.items()
+                    },
+                    "file": str(spec_file),
+                    "folder_path": str(item),
+                    "workflow_step": None,
+                    "completed_steps": [],
+                    "files": {},
+                })
+            else:
+                # Raw YAML fallback
+                with open(spec_file) as f:
+                    data = yaml.safe_load(f) or {}
+                prod = data.get("product", {})
+                products.append({
+                    "id": prod.get("id", product_id),
+                    "name": prod.get("name", product_id),
+                    "description": prod.get("description", ""),
+                    "revision": prod.get("revision", ""),
+                    "pins": None,
+                    "characteristics": {},
+                    "test_requirements": {},
+                    "file": str(spec_file),
+                    "folder_path": str(item),
+                    "workflow_step": None,
+                    "completed_steps": [],
+                    "files": {},
                 })
 
     return products
@@ -979,6 +1036,63 @@ def save_fixture(fixture_id: str, fixture_data: dict, points_data: dict) -> bool
         yaml.dump(yaml_data, f, default_flow_style=False, sort_keys=False)
 
     return True
+
+
+# -----------------------------------------------------------------------------
+# Station Type Services
+# -----------------------------------------------------------------------------
+
+
+def save_station_type(type_id: str, data: dict) -> bool:
+    """Save station type YAML to stations/types/{type_id}.yaml."""
+    types_dir = Path.cwd() / "stations" / "types"
+    types_dir.mkdir(parents=True, exist_ok=True)
+
+    target_file = types_dir / f"{type_id}.yaml"
+    with open(target_file, "w") as f:
+        yaml.dump(data, f, default_flow_style=False, sort_keys=False)
+    return True
+
+
+def load_station_type(type_id: str) -> dict | None:
+    """Load station type by ID."""
+    search_paths = [
+        Path.cwd() / "stations" / "types",
+        Path.cwd() / "demo" / "stations" / "types",
+    ]
+    for types_dir in search_paths:
+        yaml_file = types_dir / f"{type_id}.yaml"
+        if yaml_file.exists():
+            with open(yaml_file) as f:
+                return yaml.safe_load(f)
+    return None
+
+
+def get_instrument_channels_from_library(instrument_type: str) -> list[str]:
+    """Get channel names from an instrument library definition.
+
+    Loads the library YAML, finds capabilities with InstrumentChannelSpec,
+    returns channel names. Falls back to ["1"] if no channels defined.
+    """
+    definition = load_instrument_definition(instrument_type)
+    if not definition:
+        return ["1"]
+
+    channels: set[str] = set()
+    for cap in definition.get("capabilities", []):
+        channels_spec = cap.get("channels", {})
+        if isinstance(channels_spec, dict):
+            count = channels_spec.get("count", 1)
+            naming = channels_spec.get("naming")
+            labels = channels_spec.get("labels")
+            if labels:
+                channels.update(labels[:count])
+            elif naming:
+                channels.update(naming.format(n=i + 1) for i in range(count))
+            else:
+                channels.update(str(i + 1) for i in range(count))
+
+    return sorted(channels) if channels else ["1"]
 
 
 def get_fixtures_for_product(product_family: str) -> list[dict]:

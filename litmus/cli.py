@@ -91,20 +91,35 @@ def init(name: str | None, no_git: bool):
 @click.option("--reload", is_flag=True, help="Enable auto-reload for development")
 def serve(host: str, port: int, reload: bool):
     """Start the operator UI server."""
-    from nicegui import ui
+    if reload:
+        # In reload mode we use uvicorn directly with our ASGI entry point.
+        # On each reload cycle uvicorn re-imports litmus.ui._asgi which
+        # re-registers pages and configures NiceGUI from scratch.
+        import uvicorn
 
-    # Import to register pages and API routes
-    from litmus.api.app import create_app
+        uvicorn.run(
+            "litmus.ui._asgi:app",
+            host=host,
+            port=port,
+            reload=True,
+            reload_dirs=["litmus"],
+            reload_includes=["*.py"],
+            log_level="warning",
+        )
+    else:
+        from nicegui import ui
 
-    create_app()
+        from litmus.api.app import create_app
 
-    ui.run(
-        host=host,
-        port=port,
-        reload=reload,
-        title="Litmus",
-        favicon="⚡",
-    )
+        create_app()
+
+        ui.run(
+            host=host,
+            port=port,
+            reload=False,
+            title="Litmus",
+            favicon="⚡",
+        )
 
 
 @main.command()

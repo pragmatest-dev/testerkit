@@ -1,0 +1,19 @@
+# Electronic Load — instrument type definition
+# Capabilities based on typical DC eload (e.g., BK Precision 8500, Rigol DL3021)
+
+instrument:
+  type: electronic_load
+  name: DC Electronic Load
+  description: Programmable DC electronic load for sinking current from DUT outputs
+  icon: downloading
+
+capabilities:
+  - name: current_sink
+    direction: input
+    domain: current
+    signal_types: [dc]
+
+  - name: voltage_sense
+    direction: input
+    domain: voltage
+    signal_types: [dc]

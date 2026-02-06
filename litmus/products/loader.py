@@ -11,7 +11,6 @@ from litmus.products.models import (
     Characteristic,
     ConditionPoint,
     Pin,
-    PinType,
     Product,
     SignalGroup,
     TestRequirement,
@@ -92,14 +91,9 @@ def load_product(path: Path) -> Product:
 
 def _parse_pin(data: dict[str, Any]) -> Pin:
     """Parse a pin from YAML data."""
-    pin_type = PinType.SIGNAL
-    if "type" in data:
-        pin_type = PinType(data["type"].lower())
-
     return Pin(
         name=data["name"],
         net=data.get("net"),
-        type=pin_type,
         description=data.get("description"),
     )
 

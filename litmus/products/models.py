@@ -13,7 +13,6 @@ the same vocabulary (Direction, Domain, SignalType, Comparator). This enables
 trivial capability matching - opposite directions pair.
 """
 
-from enum import StrEnum
 from typing import Any, Literal, Self
 
 from pydantic import BaseModel, Field, computed_field, model_validator
@@ -173,36 +172,28 @@ class ConditionPoint(BaseModel):
         return True
 
 
-class PinType(StrEnum):
-    """Type of physical pin on a DUT."""
-
-    SIGNAL = "signal"
-    POWER = "power"
-    GROUND = "ground"
-    NC = "nc"  # No connect
-
-
 class Pin(BaseModel):
     """Physical pin/pad on the DUT (ATML: Port).
 
     Represents a single connection point that can be routed through
-    a fixture to an instrument.
+    a fixture to an instrument. Pin behaviour (power input, signal output,
+    ground reference, etc.) is described entirely by the characteristics
+    that reference it — not by a separate "type" field.
 
     Example YAML:
         pins:
           VIN:
             name: "J1.1"
             net: "VIN_5V"
-            type: power
+            description: "5V power input from bench supply"
           VOUT:
             name: "J1.3"
             net: "VOUT_3V3"
-            type: signal
+            description: "3.3V regulated output"
     """
 
     name: str  # Pin designator: "J1.1", "TP5", "U3.14"
     net: str | None = None  # Schematic net name
-    type: PinType = PinType.SIGNAL
     description: str | None = None
 
 

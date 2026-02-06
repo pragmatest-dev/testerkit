@@ -1,0 +1,35 @@
+fixture:
+  id: minimal_board_fixture_v1
+  name: Minimal Board Fixture V1
+  product_id: power_board
+points:
+  j1_vin_dmm_ch1:
+    dut_pin: J1_VIN
+    instrument: dmm
+    instrument_channel: '1'
+    net: VIN_5V
+  j1_gnd_eload_ch1:
+    dut_pin: J1_GND
+    instrument: eload
+    instrument_channel: '1'
+    net: GND
+  j1_vout_psu_ch1:
+    dut_pin: J1_VOUT
+    instrument: psu
+    instrument_channel: '1'
+    net: VOUT_3V3
+  tp_vin_psu_ch2:
+    dut_pin: TP_VIN
+    instrument: psu
+    instrument_channel: '2'
+    net: VIN_5V
+  tp_vout_scope_ch1:
+    dut_pin: TP_VOUT
+    instrument: scope
+    instrument_channel: '1'
+    net: VOUT_3V3
+  tp_gnd_scope_ch2:
+    dut_pin: TP_GND
+    instrument: scope
+    instrument_channel: '2'
+    net: GND

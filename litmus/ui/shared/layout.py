@@ -118,6 +118,7 @@ def create_sidebar():
             ui.separator().classes("bg-slate-700 my-2")
             ui.label("CONFIGURATION").classes("text-xs text-slate-500 px-3 pt-2")
 
+            _nav_item("/designer", "design_services", "System Designer")
             _nav_item("/stations", "settings_input_hdmi", "Stations")
             _nav_item("/products", "inventory_2", "Products")
             _nav_item("/fixtures", "hub", "Fixtures")

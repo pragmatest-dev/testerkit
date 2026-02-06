@@ -14,18 +14,22 @@ station:
 
 instruments:
   psu:
+    type: power_supply
     driver: demo.drivers.PSU
     resource: "TCPIP::192.168.1.101::INSTR"
     simulate: true
-    description: "Power supply for DUT input power"
+    channels: ["1", "2"]
+    description: "Dual-output power supply for DUT input power"
     mock_config:
       measure_voltage: 5.0
       measure_current: 0.25
 
   dmm:
+    type: dmm
     driver: demo.drivers.DMM
     resource: "TCPIP::192.168.1.102::INSTR"
     simulate: true
+    channels: ["1"]
     description: "DMM for output voltage measurement"
     mock_config:
       measure_voltage: 3.3
@@ -35,19 +39,23 @@ instruments:
       measure_resistance: 1000.0
 
   eload:
+    type: electronic_load
     driver: demo.drivers.ELoad
     resource: "TCPIP::192.168.1.103::INSTR"
     simulate: true
+    channels: ["1"]
     description: "Electronic load for output loading"
     mock_config:
       measure_current: 0.5
       measure_voltage: 3.3
 
   scope:
+    type: oscilloscope
     driver: demo.drivers.Scope
     resource: "TCPIP::192.168.1.104::INSTR"
     simulate: true
-    description: "Oscilloscope for waveform capture"
+    channels: ["1", "2", "3", "4"]
+    description: "4-channel oscilloscope for waveform capture"
     mock_config:
       # fetch_waveform returns [samples, dt] as a list
       # Default: 5 samples at 3.3V, 10µs interval

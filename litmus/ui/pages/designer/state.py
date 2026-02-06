@@ -1,0 +1,344 @@
+"""Designer state model — all mutable state for the system designer page."""
+
+from __future__ import annotations
+
+from collections.abc import Callable
+from typing import Any
+
+
+class DesignerState:
+    """Holds all mutable state for the system designer.
+
+    Manages product pins, instruments, connections (fixture points),
+    and UI selection state. Provides CRUD methods and serialization
+    to fixture/station-type YAML formats.
+    """
+
+    def __init__(self) -> None:
+        # --- Identifiers ---
+        self.product_id: str | None = None
+        self.system_id: str = ""
+        self.fixture_id: str = ""
+
+        # --- Product side ---
+        self.product: Any = None  # Product model (loaded later)
+        self.dut_pins: dict[str, dict] = {}  # pin_key -> {name, net, type, description}
+        self.char_by_pin: dict[str, list[str]] = {}  # pin_key -> [characteristic names]
+        self.pins_modified: bool = False
+
+        # --- Instrument side ---
+        # role -> {type, driver, capabilities, channels}
+        self.instruments: dict[str, dict] = {}
+
+        # --- Connections (fixture points) ---
+        # point_name -> {dut_pin, instrument, channel, net}
+        self.connections: dict[str, dict] = {}
+
+        # --- UI state ---
+        self.selected_pin: str | None = None
+        self.selected_entity: dict | None = None  # {type, key} for drawer
+        self.compatible_channels: set[str] = set()  # "role:channel" keys
+        self.on_change: Callable | None = None
+
+    def _notify(self) -> None:
+        """Trigger UI rebuild if callback is set."""
+        if self.on_change:
+            self.on_change()
+
+    # -------------------------------------------------------------------------
+    # Pin CRUD
+    # -------------------------------------------------------------------------
+
+    def add_pin(
+        self,
+        key: str,
+        name: str,
+        net: str,
+        description: str | None = None,
+    ) -> None:
+        """Add a new DUT pin."""
+        self.dut_pins[key] = {
+            "name": name,
+            "net": net,
+            "description": description or "",
+        }
+        self.pins_modified = True
+
+    def edit_pin(self, key: str, **updates: Any) -> None:
+        """Update fields on an existing pin."""
+        if key in self.dut_pins:
+            self.dut_pins[key].update(updates)
+            self.pins_modified = True
+
+    def remove_pin(self, key: str) -> None:
+        """Remove a pin and any connections referencing it."""
+        self.dut_pins.pop(key, None)
+        self.char_by_pin.pop(key, None)
+        # Remove connections that reference this pin
+        to_remove = [name for name, conn in self.connections.items() if conn["dut_pin"] == key]
+        for name in to_remove:
+            del self.connections[name]
+        self.pins_modified = True
+
+    # -------------------------------------------------------------------------
+    # Instrument CRUD
+    # -------------------------------------------------------------------------
+
+    def add_instrument(
+        self,
+        role: str,
+        type_name: str,
+        driver: str,
+        capabilities: list[dict] | None = None,
+        channels: list[str] | None = None,
+    ) -> None:
+        """Add an instrument to the system."""
+        self.instruments[role] = {
+            "type": type_name,
+            "driver": driver,
+            "capabilities": capabilities or [],
+            "channels": channels or ["1"],
+        }
+
+    def remove_instrument(self, role: str) -> None:
+        """Remove an instrument and all its connections."""
+        self.instruments.pop(role, None)
+        to_remove = [name for name, conn in self.connections.items() if conn["instrument"] == role]
+        for name in to_remove:
+            del self.connections[name]
+
+    def load_station(self, station_config: dict) -> None:
+        """Bulk-import instruments from an existing station configuration."""
+        instruments = station_config.get("instruments", {})
+        for role, inst in instruments.items():
+            driver = inst.get("driver", "")
+            inst_type = inst.get("type", "")
+            # Use channels from config if available, otherwise default to ["1"]
+            channels = inst.get("channels", ["1"])
+            if not isinstance(channels, list):
+                channels = [str(channels)]
+            self.instruments[role] = {
+                "type": inst_type,
+                "driver": driver,
+                "capabilities": inst.get("capabilities", []),
+                "channels": channels,
+            }
+
+    # -------------------------------------------------------------------------
+    # Connection CRUD
+    # -------------------------------------------------------------------------
+
+    def add_connection(
+        self,
+        point_name: str,
+        dut_pin: str,
+        instrument: str,
+        channel: str,
+        net: str | None = None,
+    ) -> None:
+        """Create a fixture point connection."""
+        if net is None:
+            pin_data = self.dut_pins.get(dut_pin, {})
+            net = pin_data.get("net", "")
+        self.connections[point_name] = {
+            "dut_pin": dut_pin,
+            "instrument": instrument,
+            "channel": channel,
+            "net": net,
+        }
+
+    def remove_connection(self, point_name: str) -> None:
+        """Remove a connection by point name."""
+        self.connections.pop(point_name, None)
+
+    def find_connection_by_link(self, pin_key: str, channel_key: str) -> str | None:
+        """Find connection point name by pin and channel keys."""
+        for name, conn in self.connections.items():
+            conn_channel_key = f"{conn['instrument']}:{conn['channel']}"
+            if conn["dut_pin"] == pin_key and conn_channel_key == channel_key:
+                return name
+        return None
+
+    def find_connection_for_pin(self, pin_key: str) -> dict | None:
+        """Find the connection for a given pin, if any."""
+        for conn in self.connections.values():
+            if conn["dut_pin"] == pin_key:
+                return conn
+        return None
+
+    # -------------------------------------------------------------------------
+    # Selection
+    # -------------------------------------------------------------------------
+
+    def select_pin(self, pin_key: str) -> None:
+        """Select a pin and compute compatible channels."""
+        self.selected_pin = pin_key
+        self.selected_entity = {"type": "pin", "key": pin_key}
+        # compatible_channels is set externally by matching.py
+        # since it needs product + instrument data
+
+    def select_instrument(self, role: str) -> None:
+        """Select an instrument role for property editing."""
+        self.selected_pin = None
+        self.compatible_channels = set()
+        self.selected_entity = {"type": "instrument", "key": role}
+
+    def select_connection(self, point_name: str) -> None:
+        """Select a connection for property editing."""
+        self.selected_pin = None
+        self.compatible_channels = set()
+        self.selected_entity = {"type": "connection", "key": point_name}
+
+    def clear_selection(self) -> None:
+        """Clear all selection state."""
+        self.selected_pin = None
+        self.compatible_channels = set()
+        self.selected_entity = None
+
+    def is_pin_connected(self, pin_key: str) -> bool:
+        """Check if a pin has a connection."""
+        return any(c["dut_pin"] == pin_key for c in self.connections.values())
+
+    def is_channel_used(self, role: str, channel: str) -> bool:
+        """Check if an instrument channel is already wired."""
+        return any(
+            c["instrument"] == role and c["channel"] == channel for c in self.connections.values()
+        )
+
+    # -------------------------------------------------------------------------
+    # Bulk Operations
+    # -------------------------------------------------------------------------
+
+    def clear_all_connections(self) -> None:
+        """Remove all connections."""
+        self.connections.clear()
+
+    # -------------------------------------------------------------------------
+    # Statistics
+    # -------------------------------------------------------------------------
+
+    @property
+    def wired_pin_count(self) -> int:
+        """Number of pins that have connections."""
+        wired = {c["dut_pin"] for c in self.connections.values()}
+        return len(wired)
+
+    @property
+    def total_pin_count(self) -> int:
+        """Total number of DUT pins."""
+        return len(self.dut_pins)
+
+    @property
+    def available_pin_count(self) -> int:
+        """Number of pins without connections."""
+        return self.total_pin_count - self.wired_pin_count
+
+    # -------------------------------------------------------------------------
+    # Serialization
+    # -------------------------------------------------------------------------
+
+    def to_fixture_yaml(self) -> dict:
+        """Serialize to FixtureConfig YAML format."""
+        fixture = {
+            "id": self.fixture_id,
+            "name": self.fixture_id.replace("_", " ").replace("-", " ").title(),
+        }
+        if self.product_id:
+            fixture["product_id"] = self.product_id
+
+        points = {}
+        for point_name, conn in self.connections.items():
+            point: dict[str, Any] = {
+                "dut_pin": conn["dut_pin"],
+                "instrument": conn["instrument"],
+            }
+            if conn.get("channel"):
+                point["instrument_channel"] = conn["channel"]
+            if conn.get("net"):
+                point["net"] = conn["net"]
+            points[point_name] = point
+
+        return {"fixture": fixture, "points": points}
+
+    def to_station_type_yaml(self) -> dict:
+        """Serialize to StationType YAML format."""
+        station_type = {
+            "id": self.system_id,
+            "description": f"Station type for {self.product_id or 'system'}",
+            "instruments": {},
+        }
+
+        for role, inst in self.instruments.items():
+            inst_config: dict[str, str] = {}
+            if inst.get("type"):
+                inst_config["type"] = inst["type"]
+            if inst.get("driver"):
+                inst_config["driver"] = inst["driver"]
+            station_type["instruments"][role] = inst_config
+
+        return {"station_type": station_type}
+
+    def to_product_pins_patch(self) -> dict:
+        """Generate pin updates for product spec YAML."""
+        pins = {}
+        for key, pin in self.dut_pins.items():
+            pin_data: dict[str, str] = {"name": pin["name"]}
+            if pin.get("net"):
+                pin_data["net"] = pin["net"]
+            # type field removed — pin behaviour described by characteristics
+            if pin.get("description"):
+                pin_data["description"] = pin["description"]
+            pins[key] = pin_data
+        return pins
+
+    def load_product(self, product: Any) -> None:
+        """Load product data into state.
+
+        Args:
+            product: Product model with pins and characteristics.
+        """
+        self.product = product
+        self.product_id = product.id
+
+        # Load pins
+        self.dut_pins = {}
+        if hasattr(product, "pins") and product.pins:
+            for key, pin in product.pins.items():
+                self.dut_pins[key] = {
+                    "name": pin.name,
+                    "net": pin.net or "",
+                    "description": pin.description or "",
+                }
+
+        # Build pin -> characteristics reverse map
+        self.char_by_pin = {}
+        if hasattr(product, "characteristics"):
+            for char_name, char in product.characteristics.items():
+                for pin_key in char.resolved_pins:
+                    if pin_key not in self.char_by_pin:
+                        self.char_by_pin[pin_key] = []
+                    self.char_by_pin[pin_key].append(char_name)
+
+        # Default IDs from product
+        if not self.system_id:
+            self.system_id = f"{product.id}_system"
+        if not self.fixture_id:
+            self.fixture_id = f"{product.id}_fixture_v1"
+
+        self.pins_modified = False
+
+    def load_fixture(self, fixture_config: dict) -> None:
+        """Load existing fixture data into connections."""
+        self.connections.clear()
+        fixture_info = fixture_config.get("fixture", {})
+        if fixture_info.get("id"):
+            self.fixture_id = fixture_info["id"]
+
+        points = fixture_config.get("points", {})
+        for point_name, point in points.items():
+            self.connections[point_name] = {
+                "dut_pin": point.get("dut_pin", ""),
+                "instrument": point.get("instrument", ""),
+                "channel": point.get("instrument_channel", "1"),
+                "net": point.get("net", ""),
+            }

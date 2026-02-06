@@ -1,0 +1,25 @@
+# Power Supply — instrument type definition
+# Capabilities based on typical bench DC PSU (e.g., Keysight E36312A, Rigol DP832)
+
+instrument:
+  type: power_supply
+  name: DC Power Supply
+  description: Programmable DC power supply for sourcing voltage and current to DUT
+  icon: bolt
+
+capabilities:
+  - name: voltage_source
+    direction: output
+    domain: voltage
+    signal_types: [dc]
+    channels:
+      count: 2
+      naming: "CH{n}"
+
+  - name: current_source
+    direction: output
+    domain: current
+    signal_types: [dc]
+    channels:
+      count: 2
+      naming: "CH{n}"
