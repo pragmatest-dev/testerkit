@@ -1,53 +1,70 @@
 # Capabilities
 
-**Capabilities** describe what instruments can do and what products need. The capability system enables automatic matching between products and stations.
+**Capabilities** describe what instruments can do and what products need. The capability system enables automatic matching between products and stations using an ATML/IEEE 1641-inspired signal-parameter model.
 
 ## What Is a Capability?
 
-A capability has three core dimensions:
+A capability (`FunctionCapability`) has three core dimensions:
 
-| Dimension | Values | Description |
-|-----------|--------|-------------|
+| Dimension | Examples | Description |
+|-----------|---------|-------------|
+| `function` | dc_voltage, ac_voltage, resistance, waveform | Named measurement function |
 | `direction` | input, output, bidir | Does it measure or source? |
-| `domain` | voltage, current, resistance, frequency, time, digital | Physical quantity |
-| `signal_types` | dc, ac, pulse, sine, square, pwm | Signal characteristics |
+| `parameters` | voltage: {range: 0-1000V}, bandwidth: {value: 50MHz} | Named signal parameters with range/accuracy/resolution |
 
 ### Example: DMM Capabilities
 
 ```yaml
-# litmus/instruments/library/dmm.yaml
-name: Digital Multimeter
-type: dmm
-
+# catalog/keysight_34461a.yaml or demo/instruments/dmm.yaml
 capabilities:
-  - name: voltage_dc
+  - function: dc_voltage
     direction: input      # Instrument measures (receives signal)
-    domain: voltage
-    signal_types: [dc]
+    parameters:
+      voltage:
+        range: {min: 0.0001, max: 1000, units: V}
+        accuracy: {pct_reading: 0.0035, pct_range: 0.0006}
+        resolution: {digits: 6.5}
 
-  - name: current_dc
+  - function: dc_current
     direction: input
-    domain: current
-    signal_types: [dc]
+    parameters:
+      current:
+        range: {min: 0.000001, max: 10, units: A}
+
+  - function: resistance
+    direction: input
+    parameters:
+      resistance:
+        range: {min: 0.01, max: 100000000, units: Ohm}
 ```
 
 ### Example: Power Supply Capabilities
 
 ```yaml
-# litmus/instruments/library/power_supply.yaml
-name: DC Power Supply
-type: power_supply
+# catalog/keysight_e36312a.yaml or demo/instruments/power_supply.yaml
+
+# Top-level structured channels describe physical topology
+channels:
+  "1": {terminals: [hi, lo], connector: binding_post, ground: floating}
+  "2": {terminals: [hi, lo], connector: binding_post, ground: floating}
 
 capabilities:
-  - name: voltage_dc
+  - function: dc_voltage
     direction: output     # Instrument sources (provides signal)
-    domain: voltage
-    signal_types: [dc]
+    parameters:
+      voltage:
+        range: {min: 0, max: 30, units: V}
+      current:
+        range: {min: 0, max: 5, units: A}
+    channels: ["1", "2"]  # References to top-level channel keys
 
-  - name: current_dc
-    direction: output
-    domain: current
-    signal_types: [dc]
+  - function: dc_voltage
+    direction: input      # Built-in readback meter
+    readback: true        # Excluded from auto-matching
+    parameters:
+      voltage:
+        range: {min: 0, max: 30, units: V}
+    channels: ["1", "2"]
 ```
 
 ## Direction Flip
@@ -57,8 +74,8 @@ The key insight is that **directions flip** between products and instruments:
 ```
 Product Characteristic          Required Instrument Capability
 ─────────────────────          ────────────────────────────────
-output_voltage (OUTPUT)   →    voltage_dc (INPUT) — need to measure
-input_voltage (INPUT)     →    voltage_dc (OUTPUT) — need to source
+output_voltage (OUTPUT)   →    dc_voltage (INPUT) — need to measure
+input_voltage (INPUT)     →    dc_voltage (OUTPUT) — need to source
 ```
 
 ### Why This Works
@@ -71,17 +88,21 @@ When a product **inputs** power, the instrument needs to **output** (source) tha
 Product (DUT)                    Instrument
 ────────────                     ──────────
 
-output_voltage ────signal───►    DMM (measures)
+output_voltage ────signal───►    DMM (measures dc_voltage)
    (OUTPUT)                      (INPUT)
 
-                  ◄───power────  PSU (sources)
+                  ◄───power────  PSU (sources dc_voltage)
 input_voltage                    (OUTPUT)
    (INPUT)
 ```
 
 ## Capability Matching
 
-The matcher determines whether a station can test a product:
+The matcher determines whether a station can test a product using 3-tier matching:
+
+1. **Function match** — instrument has same `MeasurementFunction` as requirement
+2. **Direction match** — directions pair correctly (OUTPUT↔INPUT, BIDIR satisfies both)
+3. **Parameter range containment** — instrument's parameter ranges contain required values
 
 ```python
 from litmus.matching.service import find_compatible_stations, load_product_by_id
@@ -95,107 +116,101 @@ for match in matches:
 
 ### Matching Algorithm
 
-1. **Extract requirements** from product characteristics
-2. **Flip directions** (DUT output → instrument input)
-3. **Compare** against station capabilities
-4. **Report** match or list missing capabilities
-
 ```python
 # Product characteristic
 char = product.characteristics["output_voltage"]
-# direction: OUTPUT, domain: VOLTAGE, signal_types: [DC]
+# function: dc_voltage, direction: OUTPUT
 
 # Convert to requirement
 req = char.to_capability_requirement()
-# direction: INPUT, domain: VOLTAGE, signal_types: [DC]
-# (direction flipped!)
+# function: dc_voltage, direction: INPUT (direction flipped!)
+# parameters: {voltage: {value: 3.3, units: V}}
 
-# Check station
-station_caps = station.get_capabilities()
-# Station DMM provides: direction: INPUT, domain: VOLTAGE, signal_types: [DC]
+# Check station — DMM provides:
+# function: dc_voltage, direction: INPUT, parameters: {voltage: {range: 0-1000V}}
+# → Function match ✓, Direction match ✓, Range contains 3.3V ✓
 # → MATCH!
 ```
 
-## Capability Dimensions
+## MeasurementFunction
 
-### Direction
+The `MeasurementFunction` enum provides fine-grained signal identification, aligned with IVI instrument class specifications:
 
-| Value | Instrument Behavior | Example |
-|-------|---------------------|---------|
-| `input` | Measures/receives signal | DMM measuring voltage |
-| `output` | Sources/provides signal | PSU outputting voltage |
-| `bidir` | Both measures and sources | SMU (source-measure unit) |
+| Function | Description | Typical Instrument |
+|----------|-------------|--------------------|
+| `dc_voltage` | DC voltage measurement/sourcing | DMM, PSU |
+| `ac_voltage` | AC voltage measurement | DMM |
+| `dc_current` | DC current measurement/sourcing | DMM, PSU, SMU |
+| `ac_current` | AC current measurement | DMM, clamp meter |
+| `resistance` | 2-wire resistance | DMM |
+| `resistance_4w` | 4-wire resistance | DMM |
+| `frequency` | Frequency measurement | DMM, counter |
+| `waveform` | Time-domain waveform capture | Oscilloscope |
+| `dc_power` | DC power measurement/calculation | SMU, derived |
+| `temperature` | Temperature measurement | DMM (RTD/TC) |
 
-### Domain
+This replaces the old `Domain + SignalType` combination, providing much finer granularity. A DMM measuring `dc_voltage` is now distinct from an oscilloscope capturing `waveform` — they can no longer be confused.
 
-| Value | Physical Quantity |
-|-------|-------------------|
-| `voltage` | Electrical potential (V) |
-| `current` | Electrical current (A) |
-| `resistance` | Resistance (Ω) |
-| `power` | Power (W) |
-| `frequency` | Frequency (Hz) |
-| `time` | Time measurements (s) |
-| `digital` | Logic levels, protocols |
-| `temperature` | Temperature (°C) |
+## SignalParameter
 
-### Signal Types
-
-| Value | Description |
-|-------|-------------|
-| `dc` | Direct current / static |
-| `ac` | Alternating current |
-| `pulse` | Pulsed signals |
-| `sine` | Sinusoidal waveforms |
-| `square` | Square waves |
-| `pwm` | Pulse-width modulation |
-| `transient` | Transient responses |
-
-## Additional Capability Fields
-
-Capabilities can include performance specifications:
+Each capability has named parameters with optional range, accuracy, and resolution:
 
 ```yaml
-capabilities:
-  - name: voltage_dc
-    direction: input
-    domain: voltage
-    signal_types: [dc]
-    channels:
-      count: 4
-      simultaneous: true
-      naming: "CH{n}"
-    range:
-      min: 0.001
-      max: 1000
-      units: V
-    resolution: 0.000001
-    accuracy_pct: 0.02
+parameters:
+  voltage:
+    range: {min: 0.001, max: 1000, units: V}
+    accuracy: {pct_reading: 0.005, offset: 0.001}
+    resolution: {digits: 6.5}
+  bandwidth:
+    value: 300000        # Fixed value (capability parameter)
+    units: Hz
+    role: capability
 ```
 
-### Channel Specification
+### Parameter Roles
 
-For multi-channel instruments:
+| Role | Description |
+|------|-------------|
+| `controllable` | Can be set by the user (default) |
+| `measurable` | Can be read/measured |
+| `capability` | Performance limit (e.g., bandwidth) |
+| `condition` | Operating condition (e.g., temperature) |
+
+## Channel Specification
+
+Channels describe the physical topology of each instrument channel:
 
 ```yaml
+# Structured channel topology (on catalog/instrument library):
 channels:
-  count: 4              # Number of channels
-  simultaneous: true    # Can measure all at once
-  naming: "CH{n}"       # Pattern: CH1, CH2, CH3, CH4
-  # OR
-  labels: ["A", "B"]    # Explicit channel names
+  "1":
+    label: "6V/5A Output"
+    terminals: [hi, lo, sense_hi, sense_lo]  # Physical terminals
+    connector: binding_post                   # Connector type
+    ground: floating                          # Isolated from other channels
+  "2":
+    terminals: [hi, lo]
+    connector: binding_post
+    ground: floating
+
+# On capabilities, channels is a plain list of keys:
+capabilities:
+  - function: dc_voltage
+    direction: output
+    channels: ["1", "2"]  # Which channels support this capability
 ```
 
-### Range and Accuracy
+## 3-Tier Instrument Catalog
 
-```yaml
-range:
-  min: 0.001            # Minimum measurable/sourceable value
-  max: 1000             # Maximum value
-  units: V              # Units
-resolution: 0.000001    # Smallest distinguishable change
-accuracy_pct: 0.02      # Accuracy as percentage
+Capability data lives at three levels:
+
 ```
+catalog/keysight_34461a.yaml       ← Universal: "what can this MODEL do"
+instruments/dmm_bench_001.yaml     ← Unit-specific: serial, calibration, catalog_ref
+stations/bench_01.yaml             ← Project-local: role, driver, resource, catalog_ref
+```
+
+When a station instrument has `catalog_ref: keysight_34461a`, the matching engine resolves capabilities from the catalog entry — providing detailed range/accuracy data without requiring each station config to repeat it.
 
 ## Using the Matcher
 
@@ -223,50 +238,33 @@ curl "http://localhost:8000/api/match?product_id=power_board"
 curl "http://localhost:8000/api/match?product_id=power_board&station_id=bench_1"
 ```
 
-### MCP Tools
-
-```
-find_compatible_stations(product_id="power_board")
-check_station_compatibility(product_id="power_board", station_id="bench_1")
-```
-
-## Instrument Library
-
-Capabilities are defined in the instrument library (`litmus/instruments/library/`):
-
-```
-instruments/library/
-├── dmm.yaml           # Digital multimeter
-├── scope.yaml         # Oscilloscope
-├── power_supply.yaml  # DC power supply
-├── eload.yaml         # Electronic load
-├── funcgen.yaml       # Function generator
-└── smu.yaml           # Source-measure unit
-```
-
-Each file defines the capabilities that instrument type provides.
-
 ## Custom Instruments
 
-When adding custom instruments, define their capabilities:
+When adding custom instruments, define their capabilities using the function-parameter model:
 
 ```yaml
-# my_custom_instrument.yaml
-name: Custom Temperature Logger
-type: temp_logger
+# demo/instruments/temp_logger.yaml
+instrument:
+  type: temp_logger
+  name: Custom Temperature Logger
+
+channels:
+  "T1": {terminals: [signal], connector: terminal_block, ground: shared}
+  "T2": {terminals: [signal], connector: terminal_block, ground: shared}
+  "T3": {terminals: [signal], connector: terminal_block, ground: shared}
+  "T4": {terminals: [signal], connector: terminal_block, ground: shared}
+  "T5": {terminals: [signal], connector: terminal_block, ground: shared}
+  "T6": {terminals: [signal], connector: terminal_block, ground: shared}
+  "T7": {terminals: [signal], connector: terminal_block, ground: shared}
+  "T8": {terminals: [signal], connector: terminal_block, ground: shared}
 
 capabilities:
-  - name: temperature_rtd
+  - function: temperature
     direction: input
-    domain: temperature
-    signal_types: [dc]
-    channels:
-      count: 8
-      naming: "T{n}"
-    range:
-      min: -200
-      max: 850
-      units: "°C"
+    parameters:
+      temperature:
+        range: {min: -200, max: 850, units: "°C"}
+    channels: ["T1", "T2", "T3", "T4", "T5", "T6", "T7", "T8"]
 ```
 
 ## Next Steps

@@ -235,6 +235,8 @@ def resolve_station_instruments(
             info = inst_config.get("_info", InstrumentInfo())
             calibration = inst_config.get("_calibration", CalibrationInfo())
 
+        catalog_ref = inst_config.get("catalog_ref") if isinstance(inst_config, dict) else None
+
         records[role] = InstrumentRecord(
             role=role,
             instrument_id=instrument_id,
@@ -243,6 +245,7 @@ def resolve_station_instruments(
             info=info,
             calibration=calibration,
             driver=driver,
+            catalog_ref=catalog_ref,
         )
 
     return records

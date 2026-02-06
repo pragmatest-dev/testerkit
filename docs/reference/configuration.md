@@ -19,7 +19,7 @@ pins:                     # Physical connection points
   <key>:                  # Pin reference name (used in characteristics)
     name: string          # Physical designator (e.g., "J1.1", "TP5")
     net: string           # Schematic net name (optional)
-    type: signal | power | ground | nc
+    role: signal | power | ground | reference   # Pin role (default: signal)
     description: string   # Optional
 
 signal_groups:            # Bus interfaces
@@ -36,9 +36,8 @@ signal_groups:            # Bus interfaces
 
 characteristics:
   <name>:                 # Characteristic identifier
+    function: dc_voltage | ac_voltage | dc_current | ac_current | resistance | waveform | ...
     direction: input | output | bidir
-    domain: voltage | current | resistance | frequency | time | digital | temperature
-    signal_types: [dc, ac, pulsed, transient]
     units: string         # e.g., "V", "A", "ohm"
 
     # Physical interface (at least one required)
@@ -76,12 +75,12 @@ test_requirements:
 
 ### Pin Types
 
-| Type | Description |
+| Role | Description |
 |------|-------------|
 | `signal` | General signal pin (default) |
 | `power` | Power supply pin |
 | `ground` | Ground reference |
-| `nc` | No connect / reserved |
+| `reference` | Voltage reference (not driven) |
 
 ### Comparator Reference
 
@@ -110,9 +109,13 @@ station:
   description: string
 
 instruments:
-  <name>:                 # Instrument alias (used in tests)
-    type: string          # Instrument type (dmm, scope, psu, eload, etc.)
+  <name>:                 # Instrument alias / role name (used in tests as fixture)
+    type: string          # Instrument type (power_supply, dmm, electronic_load, oscilloscope, smu)
+    driver: string        # Python import path to driver class
     resource: string      # VISA address
+    catalog_ref: string   # Optional: catalog entry ID for capability/topology resolution
+    channels: [string]    # Optional: channel keys (resolved from catalog if omitted)
+    simulate: boolean     # If true, uses Mock with mock_config values
     mock_config:          # Values for --mock-instruments mode
       voltage: float
       current: float
@@ -154,6 +157,7 @@ points:
     net: string           # Or schematic net name
     instrument: string    # Station instrument name
     instrument_channel: string  # Channel on instrument
+    instrument_terminal: string # Terminal on channel (hi, lo, signal, etc.)
 ```
 
 ### Example
@@ -268,45 +272,40 @@ models:                   # Supported models
   - pattern: string       # Regex pattern for *IDN? response
     name: string
 
+channels:                   # Structured channel topology
+  "1":
+    terminals: [hi, lo]     # Physical terminals (hi, lo, signal, sense_hi, etc.)
+    connector: binding_post # Connector type
+    ground: floating        # Ground topology (floating, shared, earth)
+
 capabilities:
-  - name: string
-    direction: input | output | bidir
-    domain: voltage | current | resistance | frequency | time | digital
-    signal_types: [dc, ac, ...]
-    channels:
-      count: integer      # Number of channels
-      simultaneous: boolean   # Can measure all channels at once
-      naming: string      # Pattern: "CH{n}", "ai{n}"
-      labels: [string]    # Explicit: ["CH1", "CH2", "CH3", "CH4"]
-    range:
-      min: float
-      max: float
-      units: string
-    resolution: float
-    accuracy_pct: float
+  - function: dc_voltage    # MeasurementFunction enum
+    direction: input        # input (measure) or output (source)
+    readback: false         # true for built-in meters
+    channels: ["1"]         # Which channels support this capability
+    parameters:
+      voltage:
+        range: {min: 0, max: 1000, units: V}
+        accuracy: {pct_reading: 0.005, pct_range: 0.001}
+        resolution: {digits: 6.5}
 ```
 
-### Channel Naming
+### Channel Topology
 
-Instruments with multiple channels can define naming patterns:
-
-```yaml
-capabilities:
-  - name: voltage_dc
-    direction: input
-    domain: voltage
-    channels:
-      count: 4
-      naming: "CH{n}"     # Generates: CH1, CH2, CH3, CH4
-```
-
-Or explicit labels:
+Channels describe the physical interface of each instrument channel:
 
 ```yaml
 channels:
-  count: 2
-  labels: ["HI", "LO"]
+  "CH1":
+    label: "Input 1"                  # Optional display name
+    terminals: [signal]               # Physical terminal types
+    connector: bnc                    # Connector type
+    ground: shared                    # Ground topology
 ```
+
+Terminal types: `hi`, `lo`, `sense_hi`, `sense_lo`, `guard`, `signal`, `trigger`
+Connector types: `binding_post`, `banana`, `bnc`, `terminal_block`, `probe`, `triax`, `sma`, `smb`, `spring`
+Ground topology: `floating` (isolated), `shared` (common ground), `earth` (referenced to earth)
 
 ## Environment Variables
 

@@ -34,8 +34,11 @@ Litmus is a Python-native hardware test **platform** for the AI-assisted era. It
 litmus/
 ├── litmus/                    # Main package
 │   ├── config/                # Configuration service
-│   │   ├── models.py          # Pydantic models (Limit, Specification, StationConfig, etc.)
+│   │   ├── models.py          # Pydantic models (Limit, Specification, StationConfig, FunctionCapability, etc.)
 │   │   └── loader.py          # YAML loading and resolution
+│   ├── catalog/               # Instrument capability catalog
+│   │   ├── models.py          # InstrumentCatalogEntry
+│   │   └── loader.py          # YAML catalog loading + catalog_ref resolution
 │   ├── instruments/           # Instrument utilities (discovery, identity, mocks)
 │   │   ├── base.py            # Base instrument class
 │   │   ├── models.py          # InstrumentInfo, CalibrationInfo, InstrumentRecord
@@ -64,6 +67,7 @@ litmus/
 │       ├── manifest.yaml      # Workflow position
 │       ├── datasheet.md       # Source document
 │       └── spec.yaml          # Product specification
+├── catalog/                   # Instrument capability catalog (YAML: vendor/model capabilities)
 ├── instruments/               # Instrument inventory (YAML: identity + calibration per asset)
 ├── stations/                  # Station assignments (YAML: role→instrument, resources)
 ├── drivers/                   # User's instrument driver classes (Python)
@@ -91,7 +95,14 @@ litmus/
 - `PromptConfig` - Operator prompt configuration (YAML-driven)
 - `Dialog` / `DialogManager` - Runtime operator dialogs (confirm, choice, input, image)
 - `TestStepConfig` / `TestSequenceConfig` - Test configuration
-- `Capability` - Instrument capability with direction, domain, performance specs
+- `FunctionCapability` - Instrument capability with measurement function, direction, and named signal parameters
+- `MeasurementFunction` - Named signal functions (dc_voltage, ac_voltage, resistance, waveform, etc.)
+- `SignalParameter` - Per-parameter range, accuracy, resolution specs
+- `InstrumentCatalogEntry` - Vendor/model instrument catalog with capabilities and structured channel topology
+- `PinRole` - Pin role enum (signal/ground/power/reference) on product Pin model
+- `ChannelTopology` - Structured channel description (terminals, connector, ground topology)
+- `TerminalRole` - Physical terminal types (hi/lo/sense_hi/sense_lo/guard/signal/trigger)
+- `GroundTopology` - Channel ground mode (floating/shared/earth)
 
 ## Common Commands
 
@@ -137,13 +148,35 @@ litmus mcp serve               # Start MCP server
 
 ### Folder Convention
 Entity-aligned folders contain YAML configuration files. Code folders contain Python scripts.
-- **YAML config**: `instruments/`, `stations/`, `products/`, `fixtures/`, `sequences/`
+- **YAML config**: `catalog/`, `instruments/`, `stations/`, `products/`, `fixtures/`, `sequences/`
 - **Python code**: `drivers/`, `tests/`
 
-### Instrument Configuration
-Instruments are defined in two layers:
-1. **Instrument files** (`instruments/*.yaml`) - Per-asset identity + calibration, travels with the instrument
-2. **Station files** (`stations/*.yaml`) - Role assignments + resource addresses at a specific station
+### Capability Model (ATML/IEEE 1641-inspired)
+
+Capabilities use a **signal-parameter model** where `MeasurementFunction` is the primary discriminator:
+
+```python
+class FunctionCapability(BaseModel):
+    function: MeasurementFunction    # dc_voltage, ac_voltage, resistance, waveform, etc.
+    direction: Direction             # input (measure) or output (source)
+    parameters: dict[str, SignalParameter]  # Named params with range/accuracy/resolution
+    channels: list[str]             # Channel keys (e.g., ["1", "2", "3"])
+    readback: bool = False          # True for built-in meters (PSU voltage readback)
+```
+
+**Matching algorithm** (3-tier):
+1. Function match — same `MeasurementFunction`
+2. Direction match — DUT OUTPUT ↔ instrument INPUT (direction flip)
+3. Parameter range containment — instrument range must contain required value/range
+
+### 3-Tier Instrument Configuration
+
+Instruments are defined in three layers:
+1. **Catalog files** (`catalog/*.yaml`) — Universal: what a MODEL can do (capabilities with ranges/accuracy)
+2. **Instrument files** (`instruments/*.yaml`) — Per-asset: serial, calibration, `catalog_ref`
+3. **Station files** (`stations/*.yaml`) — Project-local: role assignments, driver, resource addresses, `catalog_ref`
+
+Driver lives on station/asset config, NOT catalog. Catalog is shareable across projects.
 
 ### Test Configuration
 Tests use YAML configs (`tests/test_*/config.yaml`) that define:

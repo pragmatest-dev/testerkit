@@ -17,10 +17,26 @@ if TYPE_CHECKING:
 # Layout constants
 LEFT_X = 80
 RIGHT_X = 620
+MID_X = (LEFT_X + RIGHT_X) // 2  # Elbow routing corridor
 GROUP_GAP = 50
 NODE_GAP = 35
 HEADER_SIZE = 20
 NODE_SIZE = 16
+WIRE_SPACING = 4  # Pixels between parallel subway-style wires
+
+# Connection color palette — distinct hues for subway-style routing
+WIRE_COLORS = [
+    "#2563eb",  # blue
+    "#dc2626",  # red
+    "#059669",  # emerald
+    "#d97706",  # amber
+    "#7c3aed",  # violet
+    "#db2777",  # pink
+    "#0891b2",  # cyan
+    "#65a30d",  # lime
+    "#ea580c",  # orange
+    "#4f46e5",  # indigo
+]
 
 # Category indices — visual roles, not pin types.
 # Pin behaviour is described by capabilities, not categories.
@@ -37,7 +53,8 @@ CAT_CONNECTED = 7
 def build_graph_option(state: DesignerState) -> dict:
     """Build complete ECharts option from designer state."""
     nodes = build_nodes(state)
-    links = build_links(state)
+    links, waypoint_nodes = build_links(state, nodes)
+    nodes.extend(waypoint_nodes)
     categories = build_categories()
 
     # Calculate chart height based on node count
@@ -67,7 +84,7 @@ def build_graph_option(state: DesignerState) -> dict:
                 "lineStyle": {
                     "color": "#94a3b8",
                     "width": 2,
-                    "curveness": 0.15,
+                    "curveness": 0,
                 },
                 "emphasis": {
                     "focus": "adjacency",
@@ -268,25 +285,146 @@ def build_nodes(state: DesignerState) -> list[dict]:
     return nodes
 
 
-def build_links(state: DesignerState) -> list[dict]:
-    """Build edges from connections."""
+def build_links(
+    state: DesignerState, nodes: list[dict]
+) -> tuple[list[dict], list[dict]]:
+    """Build edges with orthogonal elbow routing and subway-style coloring.
+
+    Each connection becomes 3 segments via 2 invisible waypoint nodes:
+    pin ─── wp1 (horizontal out)
+             │
+            wp2 (vertical)
+             ─── channel (horizontal in)
+
+    Vertical segments are spread across the corridor so they don't overlap.
+    Horizontal segments sharing the same Y level are offset like subway lines
+    so parallel wires run side-by-side instead of on top of each other.
+    Each connection gets a distinct color from the palette.
+
+    Returns (links, waypoint_nodes).
+    """
+    node_y = {n["name"]: n["y"] for n in nodes}
     links: list[dict] = []
-    for point_name, conn in state.connections.items():
+    waypoints: list[dict] = []
+
+    conn_list = list(state.connections.items())
+    n_conns = len(conn_list)
+    if not n_conns:
+        return links, waypoints
+
+    # Spread verticals evenly across the corridor
+    corridor_left = LEFT_X + 60
+    corridor_right = RIGHT_X - 60
+    corridor_width = corridor_right - corridor_left
+
+    # Pre-compute base Y values and group by shared Y levels to
+    # calculate subway offsets for parallel horizontal segments.
+    source_y_groups: dict[float, list[int]] = {}
+    target_y_groups: dict[float, list[int]] = {}
+
+    for idx, (point_name, conn) in enumerate(conn_list):
         source = conn["dut_pin"]
         target = f"{conn['instrument']}:{conn['channel']}"
-        links.append(
-            {
-                "source": source,
-                "target": target,
-                "lineStyle": {
-                    "color": "#22c55e",
-                    "width": 2.5,
-                    "type": "solid",
-                },
-                "point_name": point_name,
+        sy = node_y.get(source, 0)
+        ty = node_y.get(target, 0)
+        source_y_groups.setdefault(sy, []).append(idx)
+        target_y_groups.setdefault(ty, []).append(idx)
+
+    # Build offset lookup: conn index -> (source_y_offset, target_y_offset)
+    def _offsets_for_group(group: list[int]) -> dict[int, float]:
+        if len(group) <= 1:
+            return {group[0]: 0.0}
+        offsets = {}
+        for rank, idx in enumerate(group):
+            offsets[idx] = (rank - (len(group) - 1) / 2) * WIRE_SPACING
+        return offsets
+
+    source_offsets: dict[int, float] = {}
+    for group in source_y_groups.values():
+        source_offsets.update(_offsets_for_group(group))
+
+    target_offsets: dict[int, float] = {}
+    for group in target_y_groups.values():
+        target_offsets.update(_offsets_for_group(group))
+
+    def _make_wp(name: str, x: float, y: float) -> dict:
+        return {
+            "name": name,
+            "x": x,
+            "y": y,
+            "category": CAT_HEADER,
+            "symbolSize": 0,
+            "symbol": "none",
+            "label": {"show": False},
+            "itemStyle": {"color": "transparent", "borderWidth": 0},
+            "interactive": False,
+            "node_type": "waypoint",
+        }
+
+    for idx, (point_name, conn) in enumerate(conn_list):
+        source = conn["dut_pin"]
+        target = f"{conn['instrument']}:{conn['channel']}"
+        src_orig_y = node_y.get(source, 0)
+        tgt_orig_y = node_y.get(target, 0)
+        src_offset = source_offsets.get(idx, 0)
+        tgt_offset = target_offsets.get(idx, 0)
+        src_y = src_orig_y + src_offset
+        tgt_y = tgt_orig_y + tgt_offset
+
+        # Each connection gets its own X lane in the corridor
+        if n_conns <= 1:
+            lane_x = MID_X
+        else:
+            lane_x = corridor_left + (
+                corridor_width * idx / (n_conns - 1)
+            )
+
+        color = WIRE_COLORS[idx % len(WIRE_COLORS)]
+        line_style = {
+            "color": color,
+            "width": 2.5,
+            "type": "solid",
+        }
+
+        # Build the path as a chain of waypoints.
+        # When there's a Y offset, add stub waypoints at the pin/channel
+        # X position so the wire stays horizontal all the way to the
+        # connector, then drops vertically to meet the node.
+        #
+        # No offset:  pin ─── wp1 │ wp2 ─── channel   (3 segments)
+        # With offset: pin │ stub_L ─── wp1 │ wp2 ─── stub_R │ channel
+        chain: list[str] = [source]
+
+        if src_offset:
+            stub_l = f"__wp_{point_name}_sl"
+            waypoints.append(_make_wp(stub_l, LEFT_X, src_y))
+            chain.append(stub_l)
+
+        wp1 = f"__wp_{point_name}_1"
+        wp2 = f"__wp_{point_name}_2"
+        waypoints.append(_make_wp(wp1, lane_x, src_y))
+        waypoints.append(_make_wp(wp2, lane_x, tgt_y))
+        chain.extend([wp1, wp2])
+
+        if tgt_offset:
+            stub_r = f"__wp_{point_name}_sr"
+            waypoints.append(_make_wp(stub_r, RIGHT_X, tgt_y))
+            chain.append(stub_r)
+
+        chain.append(target)
+
+        # Emit link segments along the chain
+        for i in range(len(chain) - 1):
+            link: dict = {
+                "source": chain[i],
+                "target": chain[i + 1],
+                "lineStyle": line_style,
             }
-        )
-    return links
+            if i == 0:
+                link["point_name"] = point_name
+            links.append(link)
+
+    return links, waypoints
 
 
 def build_categories() -> list[dict]:

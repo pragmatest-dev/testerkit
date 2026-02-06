@@ -116,6 +116,9 @@ class InstrumentRecord:
     # Driver class path (e.g., "pymeasure.instruments.keithley.Keithley2000")
     driver: str | None = None
 
+    # Catalog reference (e.g., "keysight_34461a") for capability lookup
+    catalog_ref: str | None = None
+
     def to_dict(self) -> dict:
         """Convert to dictionary for logging/serialization."""
         return {
@@ -136,4 +139,5 @@ class InstrumentRecord:
             "cal_certificate": self.calibration.certificate,
             "cal_lab": self.calibration.lab,
             "driver": self.driver,
+            "catalog_ref": self.catalog_ref,
         }

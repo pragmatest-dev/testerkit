@@ -63,22 +63,20 @@ def _render_requirements(product_id: str, product: dict):
                             "field": "characteristic",
                             "align": "left",
                         },
-                        {"name": "domain", "label": "Domain", "field": "domain"},
+                        {"name": "function", "label": "Function", "field": "function"},
                         {
                             "name": "direction",
                             "label": "Instrument Direction",
                             "field": "direction",
                         },
-                        {"name": "signals", "label": "Signal Types", "field": "signals"},
+                        {"name": "parameters", "label": "Parameters", "field": "parameters"},
                     ]
                     rows = [
                         {
                             "characteristic": cap["characteristic"],
-                            "domain": cap["domain"],
+                            "function": cap["function"],
                             "direction": cap["direction"],
-                            "signals": (
-                                ", ".join(cap["signal_types"]) if cap["signal_types"] else "—"
-                            ),
+                            "parameters": cap.get("parameters", ""),
                         }
                         for cap in capabilities
                     ]

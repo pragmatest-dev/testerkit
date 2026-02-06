@@ -224,15 +224,15 @@ def _render_sequences_tab(station_id: str, config: dict):
                         "align": "left",
                     },
                     {"name": "capability", "label": "Capability", "field": "capability"},
+                    {"name": "function", "label": "Function", "field": "function"},
                     {"name": "direction", "label": "Direction", "field": "direction"},
-                    {"name": "domain", "label": "Domain", "field": "domain"},
                 ]
                 rows = [
                     {
                         "instrument": cap["instrument"],
                         "capability": cap["name"],
+                        "function": cap["function"],
                         "direction": cap["direction"],
-                        "domain": cap["domain"],
                     }
                     for cap in station_caps
                 ]

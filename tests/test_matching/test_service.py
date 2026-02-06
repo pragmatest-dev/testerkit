@@ -1,6 +1,11 @@
 """Tests for the capability matching service."""
 
-from litmus.config.models import Direction, Domain, SignalType
+from litmus.config.models import (
+    Direction,
+    MeasurementFunction,
+    RangeSpec,
+    SignalParameter,
+)
 from litmus.matching.service import (
     CapabilityRequirement,
     StationCapability,
@@ -15,20 +20,18 @@ from litmus.products.models import Characteristic, ConditionPoint, Product
 class TestCapabilitySatisfies:
     """Tests for the capability_satisfies function."""
 
-    def test_exact_direction_match(self):
-        """Station INPUT satisfies required INPUT."""
+    def test_exact_function_and_direction_match(self):
+        """Station capability matches on function and direction."""
         station = StationCapability(
+            function=MeasurementFunction.DC_VOLTAGE,
             direction=Direction.INPUT,
-            domain=Domain.VOLTAGE,
-            signal_types=[SignalType.DC],
-            name="voltage_dc",
+            name="dc_voltage_input",
             instrument_type="dmm",
             instrument_name="dmm_main",
         )
         required = CapabilityRequirement(
+            function=MeasurementFunction.DC_VOLTAGE,
             direction=Direction.INPUT,
-            domain=Domain.VOLTAGE,
-            signal_types=[SignalType.DC],
             characteristic_name="rail_3v3",
         )
         assert capability_satisfies(station, required) is True
@@ -36,17 +39,15 @@ class TestCapabilitySatisfies:
     def test_bidir_satisfies_input(self):
         """Station BIDIR satisfies required INPUT."""
         station = StationCapability(
+            function=MeasurementFunction.DC_VOLTAGE,
             direction=Direction.BIDIR,
-            domain=Domain.VOLTAGE,
-            signal_types=[SignalType.DC],
             name="voltage",
             instrument_type="smu",
             instrument_name="smu_main",
         )
         required = CapabilityRequirement(
+            function=MeasurementFunction.DC_VOLTAGE,
             direction=Direction.INPUT,
-            domain=Domain.VOLTAGE,
-            signal_types=[SignalType.DC],
             characteristic_name="rail_3v3",
         )
         assert capability_satisfies(station, required) is True
@@ -54,17 +55,15 @@ class TestCapabilitySatisfies:
     def test_bidir_satisfies_output(self):
         """Station BIDIR satisfies required OUTPUT."""
         station = StationCapability(
+            function=MeasurementFunction.DC_VOLTAGE,
             direction=Direction.BIDIR,
-            domain=Domain.VOLTAGE,
-            signal_types=[SignalType.DC],
             name="voltage",
             instrument_type="smu",
             instrument_name="smu_main",
         )
         required = CapabilityRequirement(
+            function=MeasurementFunction.DC_VOLTAGE,
             direction=Direction.OUTPUT,
-            domain=Domain.VOLTAGE,
-            signal_types=[SignalType.DC],
             characteristic_name="input_voltage",
         )
         assert capability_satisfies(station, required) is True
@@ -72,74 +71,186 @@ class TestCapabilitySatisfies:
     def test_direction_mismatch(self):
         """Station INPUT does not satisfy required OUTPUT."""
         station = StationCapability(
+            function=MeasurementFunction.DC_VOLTAGE,
             direction=Direction.INPUT,
-            domain=Domain.VOLTAGE,
-            signal_types=[SignalType.DC],
-            name="voltage_dc",
+            name="dc_voltage_input",
             instrument_type="dmm",
             instrument_name="dmm_main",
         )
         required = CapabilityRequirement(
+            function=MeasurementFunction.DC_VOLTAGE,
             direction=Direction.OUTPUT,
-            domain=Domain.VOLTAGE,
-            signal_types=[SignalType.DC],
             characteristic_name="input_voltage",
         )
         assert capability_satisfies(station, required) is False
 
-    def test_domain_mismatch(self):
-        """Voltage capability does not satisfy current requirement."""
+    def test_function_mismatch(self):
+        """dc_voltage capability does not satisfy dc_current requirement."""
         station = StationCapability(
+            function=MeasurementFunction.DC_VOLTAGE,
             direction=Direction.INPUT,
-            domain=Domain.VOLTAGE,
-            signal_types=[SignalType.DC],
-            name="voltage_dc",
+            name="dc_voltage_input",
             instrument_type="dmm",
             instrument_name="dmm_main",
         )
         required = CapabilityRequirement(
+            function=MeasurementFunction.DC_CURRENT,
             direction=Direction.INPUT,
-            domain=Domain.CURRENT,
-            signal_types=[SignalType.DC],
             characteristic_name="output_current",
         )
         assert capability_satisfies(station, required) is False
 
-    def test_signal_type_overlap(self):
-        """Overlapping signal types satisfy requirement."""
+    def test_dmm_does_not_match_waveform(self):
+        """DMM dc_voltage does not satisfy oscilloscope waveform requirement."""
         station = StationCapability(
+            function=MeasurementFunction.DC_VOLTAGE,
             direction=Direction.INPUT,
-            domain=Domain.VOLTAGE,
-            signal_types=[SignalType.DC, SignalType.AC],
-            name="voltage",
+            name="dc_voltage_input",
             instrument_type="dmm",
             instrument_name="dmm_main",
         )
         required = CapabilityRequirement(
+            function=MeasurementFunction.WAVEFORM,
             direction=Direction.INPUT,
-            domain=Domain.VOLTAGE,
-            signal_types=[SignalType.DC],
+            characteristic_name="output_ripple",
+        )
+        assert capability_satisfies(station, required) is False
+
+    def test_parameter_range_containment_value_within(self):
+        """Required value within instrument range passes."""
+        station = StationCapability(
+            function=MeasurementFunction.DC_VOLTAGE,
+            direction=Direction.INPUT,
+            parameters={
+                "voltage": SignalParameter(
+                    range=RangeSpec(min=0.0001, max=1000, units="V"),
+                )
+            },
+            name="dc_voltage_input",
+            instrument_type="dmm",
+            instrument_name="dmm_main",
+        )
+        required = CapabilityRequirement(
+            function=MeasurementFunction.DC_VOLTAGE,
+            direction=Direction.INPUT,
+            parameters={
+                "voltage": SignalParameter(value=3.3, units="V"),
+            },
             characteristic_name="rail_3v3",
         )
         assert capability_satisfies(station, required) is True
 
-    def test_signal_type_no_overlap(self):
-        """Non-overlapping signal types do not satisfy."""
+    def test_parameter_range_containment_value_outside(self):
+        """Required value outside instrument range fails."""
         station = StationCapability(
+            function=MeasurementFunction.DC_VOLTAGE,
             direction=Direction.INPUT,
-            domain=Domain.VOLTAGE,
-            signal_types=[SignalType.AC],
-            name="voltage_ac",
+            parameters={
+                "voltage": SignalParameter(
+                    range=RangeSpec(min=0, max=10, units="V"),
+                )
+            },
+            name="dc_voltage_input",
             instrument_type="dmm",
             instrument_name="dmm_main",
         )
         required = CapabilityRequirement(
+            function=MeasurementFunction.DC_VOLTAGE,
             direction=Direction.INPUT,
-            domain=Domain.VOLTAGE,
-            signal_types=[SignalType.DC],
+            parameters={
+                "voltage": SignalParameter(value=48.0, units="V"),
+            },
+            characteristic_name="rail_48v",
+        )
+        assert capability_satisfies(station, required) is False
+
+    def test_parameter_range_subset_containment(self):
+        """Required range within instrument range passes."""
+        station = StationCapability(
+            function=MeasurementFunction.DC_VOLTAGE,
+            direction=Direction.INPUT,
+            parameters={
+                "voltage": SignalParameter(
+                    range=RangeSpec(min=0, max=1000, units="V"),
+                )
+            },
+            name="dc_voltage_input",
+            instrument_type="dmm",
+            instrument_name="dmm_main",
+        )
+        required = CapabilityRequirement(
+            function=MeasurementFunction.DC_VOLTAGE,
+            direction=Direction.INPUT,
+            parameters={
+                "voltage": SignalParameter(
+                    range=RangeSpec(min=0, max=50, units="V"),
+                ),
+            },
+            characteristic_name="rail_48v",
+        )
+        assert capability_satisfies(station, required) is True
+
+    def test_parameter_range_not_contained(self):
+        """Required range exceeding instrument range fails."""
+        station = StationCapability(
+            function=MeasurementFunction.DC_VOLTAGE,
+            direction=Direction.INPUT,
+            parameters={
+                "voltage": SignalParameter(
+                    range=RangeSpec(min=0, max=10, units="V"),
+                )
+            },
+            name="dc_voltage_input",
+            instrument_type="dmm",
+            instrument_name="dmm_main",
+        )
+        required = CapabilityRequirement(
+            function=MeasurementFunction.DC_VOLTAGE,
+            direction=Direction.INPUT,
+            parameters={
+                "voltage": SignalParameter(
+                    range=RangeSpec(min=0, max=50, units="V"),
+                ),
+            },
+            characteristic_name="rail_48v",
+        )
+        assert capability_satisfies(station, required) is False
+
+    def test_missing_parameter_with_requirement_fails(self):
+        """Instrument missing a required parameter with range fails."""
+        station = StationCapability(
+            function=MeasurementFunction.DC_VOLTAGE,
+            direction=Direction.INPUT,
+            parameters={},  # No voltage parameter
+            name="dc_voltage_input",
+            instrument_type="dmm",
+            instrument_name="dmm_main",
+        )
+        required = CapabilityRequirement(
+            function=MeasurementFunction.DC_VOLTAGE,
+            direction=Direction.INPUT,
+            parameters={
+                "voltage": SignalParameter(value=3.3, units="V"),
+            },
             characteristic_name="rail_3v3",
         )
         assert capability_satisfies(station, required) is False
+
+    def test_no_parameter_requirements_always_passes(self):
+        """No parameter requirements always satisfied."""
+        station = StationCapability(
+            function=MeasurementFunction.DC_VOLTAGE,
+            direction=Direction.INPUT,
+            name="dc_voltage_input",
+            instrument_type="dmm",
+            instrument_name="dmm_main",
+        )
+        required = CapabilityRequirement(
+            function=MeasurementFunction.DC_VOLTAGE,
+            direction=Direction.INPUT,
+            characteristic_name="rail_3v3",
+        )
+        assert capability_satisfies(station, required) is True
 
 
 class TestMatchCapabilities:
@@ -149,32 +260,28 @@ class TestMatchCapabilities:
         """All requirements satisfied returns compatible=True."""
         required = [
             CapabilityRequirement(
+                function=MeasurementFunction.DC_VOLTAGE,
                 direction=Direction.INPUT,
-                domain=Domain.VOLTAGE,
-                signal_types=[SignalType.DC],
                 characteristic_name="rail_3v3",
             ),
             CapabilityRequirement(
+                function=MeasurementFunction.DC_CURRENT,
                 direction=Direction.INPUT,
-                domain=Domain.CURRENT,
-                signal_types=[SignalType.DC],
                 characteristic_name="output_current",
             ),
         ]
         available = [
             StationCapability(
+                function=MeasurementFunction.DC_VOLTAGE,
                 direction=Direction.INPUT,
-                domain=Domain.VOLTAGE,
-                signal_types=[SignalType.DC],
-                name="voltage_dc",
+                name="dc_voltage_input",
                 instrument_type="dmm",
                 instrument_name="dmm_main",
             ),
             StationCapability(
+                function=MeasurementFunction.DC_CURRENT,
                 direction=Direction.INPUT,
-                domain=Domain.CURRENT,
-                signal_types=[SignalType.DC],
-                name="current_dc",
+                name="dc_current_input",
                 instrument_type="dmm",
                 instrument_name="dmm_main",
             ),
@@ -191,24 +298,21 @@ class TestMatchCapabilities:
         """Missing requirement returns compatible=False."""
         required = [
             CapabilityRequirement(
+                function=MeasurementFunction.DC_VOLTAGE,
                 direction=Direction.INPUT,
-                domain=Domain.VOLTAGE,
-                signal_types=[SignalType.DC],
                 characteristic_name="rail_3v3",
             ),
             CapabilityRequirement(
+                function=MeasurementFunction.DC_CURRENT,
                 direction=Direction.OUTPUT,
-                domain=Domain.CURRENT,
-                signal_types=[SignalType.DC],
                 characteristic_name="input_current",
             ),
         ]
         available = [
             StationCapability(
+                function=MeasurementFunction.DC_VOLTAGE,
                 direction=Direction.INPUT,
-                domain=Domain.VOLTAGE,
-                signal_types=[SignalType.DC],
-                name="voltage_dc",
+                name="dc_voltage_input",
                 instrument_type="dmm",
                 instrument_name="dmm_main",
             ),
@@ -226,34 +330,30 @@ class TestMatchCapabilities:
         """Unused station capabilities are tracked."""
         required = [
             CapabilityRequirement(
+                function=MeasurementFunction.DC_VOLTAGE,
                 direction=Direction.INPUT,
-                domain=Domain.VOLTAGE,
-                signal_types=[SignalType.DC],
                 characteristic_name="rail_3v3",
             ),
         ]
         available = [
             StationCapability(
+                function=MeasurementFunction.DC_VOLTAGE,
                 direction=Direction.INPUT,
-                domain=Domain.VOLTAGE,
-                signal_types=[SignalType.DC],
-                name="voltage_dc",
+                name="dc_voltage_input",
                 instrument_type="dmm",
                 instrument_name="dmm_main",
             ),
             StationCapability(
+                function=MeasurementFunction.DC_CURRENT,
                 direction=Direction.INPUT,
-                domain=Domain.CURRENT,
-                signal_types=[SignalType.DC],
-                name="current_dc",
+                name="dc_current_input",
                 instrument_type="dmm",
                 instrument_name="dmm_main",
             ),
             StationCapability(
+                function=MeasurementFunction.RESISTANCE,
                 direction=Direction.INPUT,
-                domain=Domain.RESISTANCE,
-                signal_types=[],
-                name="resistance",
+                name="resistance_input",
                 instrument_type="dmm",
                 instrument_name="dmm_main",
             ),
@@ -264,8 +364,8 @@ class TestMatchCapabilities:
         assert result.compatible is True
         assert len(result.unused) == 2
         unused_names = [u.name for u in result.unused]
-        assert "current_dc" in unused_names
-        assert "resistance" in unused_names
+        assert "dc_current_input" in unused_names
+        assert "resistance_input" in unused_names
 
 
 class TestGetRequiredCapabilities:
@@ -278,9 +378,8 @@ class TestGetRequiredCapabilities:
             name="Test Product",
             characteristics={
                 "rail_3v3": Characteristic(
-                    direction=Direction.OUTPUT,  # DUT provides this
-                    domain=Domain.VOLTAGE,
-                    signal_types=[SignalType.DC],
+                    function=MeasurementFunction.DC_VOLTAGE,
+                    direction=Direction.OUTPUT,
                     units="V",
                     pin="VOUT",
                     conditions=[
@@ -298,8 +397,7 @@ class TestGetRequiredCapabilities:
         assert len(requirements) == 1
         req = requirements[0]
         assert req.direction == Direction.INPUT  # Flipped to instrument INPUT
-        assert req.domain == Domain.VOLTAGE
-        assert SignalType.DC in req.signal_types
+        assert req.function == MeasurementFunction.DC_VOLTAGE
         assert req.characteristic_name == "rail_3v3"
 
     def test_direction_flipping_input_to_output(self):
@@ -309,9 +407,8 @@ class TestGetRequiredCapabilities:
             name="Test Product",
             characteristics={
                 "input_voltage": Characteristic(
-                    direction=Direction.INPUT,  # DUT consumes this
-                    domain=Domain.VOLTAGE,
-                    signal_types=[SignalType.DC],
+                    function=MeasurementFunction.DC_VOLTAGE,
+                    direction=Direction.INPUT,
                     units="V",
                     pin="VIN",
                     conditions=[
@@ -329,7 +426,7 @@ class TestGetRequiredCapabilities:
         assert len(requirements) == 1
         req = requirements[0]
         assert req.direction == Direction.OUTPUT  # Flipped to instrument OUTPUT
-        assert req.domain == Domain.VOLTAGE
+        assert req.function == MeasurementFunction.DC_VOLTAGE
 
     def test_bidir_stays_bidir(self):
         """DUT BIDIR characteristic requires instrument BIDIR."""
@@ -338,9 +435,8 @@ class TestGetRequiredCapabilities:
             name="Test Product",
             characteristics={
                 "data_line": Characteristic(
+                    function=MeasurementFunction.DC_VOLTAGE,
                     direction=Direction.BIDIR,
-                    domain=Domain.VOLTAGE,
-                    signal_types=[SignalType.DC],
                     units="V",
                     pin="DATA",
                 ),
@@ -359,23 +455,20 @@ class TestGetRequiredCapabilities:
             name="Test Product",
             characteristics={
                 "rail_3v3": Characteristic(
+                    function=MeasurementFunction.DC_VOLTAGE,
                     direction=Direction.OUTPUT,
-                    domain=Domain.VOLTAGE,
-                    signal_types=[SignalType.DC],
                     units="V",
                     pin="VOUT_3V3",
                 ),
                 "rail_5v": Characteristic(
+                    function=MeasurementFunction.DC_VOLTAGE,
                     direction=Direction.OUTPUT,
-                    domain=Domain.VOLTAGE,
-                    signal_types=[SignalType.DC],
                     units="V",
                     pin="VOUT_5V",
                 ),
                 "input_current": Characteristic(
+                    function=MeasurementFunction.DC_CURRENT,
                     direction=Direction.INPUT,
-                    domain=Domain.CURRENT,
-                    signal_types=[SignalType.DC],
                     units="A",
                     pin="VIN",
                 ),
@@ -394,23 +487,24 @@ class TestGetRequiredCapabilities:
 class TestGetStationCapabilities:
     """Tests for the get_station_capabilities function."""
 
-    def test_extracts_capabilities_from_instruments(self, tmp_path, monkeypatch):
+    def test_extracts_capabilities_from_instruments(self, monkeypatch):
         """Capabilities are extracted from station's instruments."""
-        # Mock the instrument library loader
         mock_library = {
             "instrument": {"type": "dmm", "name": "DMM"},
             "capabilities": [
                 {
-                    "name": "voltage_dc",
+                    "function": "dc_voltage",
                     "direction": "input",
-                    "domain": "voltage",
-                    "signal_types": ["dc"],
+                    "parameters": {
+                        "voltage": {"range": {"min": 0, "max": 1000, "units": "V"}},
+                    },
                 },
                 {
-                    "name": "current_dc",
+                    "function": "dc_current",
                     "direction": "input",
-                    "domain": "current",
-                    "signal_types": ["dc"],
+                    "parameters": {
+                        "current": {"range": {"min": 0, "max": 10, "units": "A"}},
+                    },
                 },
             ],
         }
@@ -429,17 +523,17 @@ class TestGetStationCapabilities:
         station_config = {
             "station": {
                 "id": "test_station",
-                "instruments": {
-                    "dmm_main": {"type": "dmm", "resource": "GPIB::1"},
-                },
-            }
+            },
+            "instruments": {
+                "dmm_main": {"type": "dmm", "resource": "GPIB::1"},
+            },
         }
 
         capabilities = get_station_capabilities(station_config)
 
         assert len(capabilities) == 2
-        cap_names = [c.name for c in capabilities]
-        assert "voltage_dc" in cap_names
-        assert "current_dc" in cap_names
+        functions = [c.function for c in capabilities]
+        assert MeasurementFunction.DC_VOLTAGE in functions
+        assert MeasurementFunction.DC_CURRENT in functions
         assert all(c.instrument_name == "dmm_main" for c in capabilities)
         assert all(c.instrument_type == "dmm" for c in capabilities)

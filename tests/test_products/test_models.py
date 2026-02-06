@@ -1,11 +1,10 @@
 """Tests for product specification models."""
 
 from litmus.config.models import (
-    Capability,
     Comparator,
     Direction,
-    Domain,
-    SignalType,
+    FunctionCapability,
+    MeasurementFunction,
 )
 from litmus.products.models import (
     Characteristic,
@@ -95,11 +94,7 @@ class TestConditionPoint:
         assert point.matches({"temperature": 25, "load": 0.5})
 
     def test_matches_subset_query_fails(self):
-        """Test that subset query fails when condition has more params.
-
-        The condition {temperature: 25, load: 0.5} requires BOTH params
-        to be present in the query for a match.
-        """
+        """Test that subset query fails when condition has more params."""
         point = ConditionPoint(
             temperature=25,
             load=0.5,
@@ -109,17 +104,11 @@ class TestConditionPoint:
         assert not point.matches({"temperature": 25})
 
     def test_matches_superset_query_passes(self):
-        """Test that query with extra params still matches.
-
-        Extra params in the query are ignored - only condition params matter.
-        This allows vector {temperature: 25, load: 0.5, vin: 5.0} to match
-        condition {temperature: 25, load: 0.5} even though vin is extra.
-        """
+        """Test that query with extra params still matches."""
         point = ConditionPoint(
             temperature=25,
             nominal=3.3,
         )
-        # Query has extra 'load' param but condition only needs 'temperature'
         assert point.matches({"temperature": 25, "load": 0.5})
 
     def test_matches_extra_query_params_ignored(self):
@@ -128,7 +117,6 @@ class TestConditionPoint:
             temperature=25,
             nominal=3.3,
         )
-        # Query has 'load' but point doesn't care - all condition params satisfied
         assert point.matches({"temperature": 25, "load": 0.5, "vin": 12.0})
 
     def test_matches_wrong_value(self):
@@ -145,7 +133,6 @@ class TestConditionPoint:
             temperature=25,  # int
             nominal=3.3,
         )
-        # Should match with float comparison
         assert point.matches({"temperature": 25.0})
         assert point.matches({"temperature": 25})
 
@@ -154,23 +141,22 @@ class TestCharacteristic:
     """Tests for Characteristic model."""
 
     def test_basic_characteristic(self):
-        """Test creating a basic characteristic."""
+        """Test creating a basic characteristic with function."""
         char = Characteristic(
+            function=MeasurementFunction.DC_VOLTAGE,
             direction=Direction.OUTPUT,
-            domain=Domain.VOLTAGE,
-            signal_types=[SignalType.DC],
             units="V",
             pin="VOUT",
         )
         assert char.direction == Direction.OUTPUT
-        assert char.domain == Domain.VOLTAGE
+        assert char.function == MeasurementFunction.DC_VOLTAGE
         assert char.units == "V"
 
     def test_characteristic_with_conditions(self):
         """Test characteristic with condition points."""
         char = Characteristic(
+            function=MeasurementFunction.DC_VOLTAGE,
             direction=Direction.OUTPUT,
-            domain=Domain.VOLTAGE,
             units="V",
             pin="VOUT",
             conditions=[
@@ -191,8 +177,8 @@ class TestCharacteristic:
     def test_get_at_conditions_match(self):
         """Test finding a condition point by parameters."""
         char = Characteristic(
+            function=MeasurementFunction.DC_VOLTAGE,
             direction=Direction.OUTPUT,
-            domain=Domain.VOLTAGE,
             units="V",
             pin="VOUT",
             conditions=[
@@ -215,8 +201,8 @@ class TestCharacteristic:
     def test_get_at_conditions_no_match(self):
         """Test that no match returns None."""
         char = Characteristic(
+            function=MeasurementFunction.DC_VOLTAGE,
             direction=Direction.OUTPUT,
-            domain=Domain.VOLTAGE,
             units="V",
             pin="VOUT",
             conditions=[
@@ -229,9 +215,8 @@ class TestCharacteristic:
     def test_to_capability_requirement_output(self):
         """Test that DUT OUTPUT maps to instrument INPUT."""
         char = Characteristic(
-            direction=Direction.OUTPUT,  # DUT provides voltage
-            domain=Domain.VOLTAGE,
-            signal_types=[SignalType.DC],
+            function=MeasurementFunction.DC_VOLTAGE,
+            direction=Direction.OUTPUT,
             units="V",
             pin="VOUT",
             conditions=[
@@ -239,17 +224,16 @@ class TestCharacteristic:
             ],
         )
         cap = char.to_capability_requirement()
-        assert isinstance(cap, Capability)
+        assert isinstance(cap, FunctionCapability)
         # DUT OUTPUT -> instrument INPUT (to measure)
         assert cap.direction == Direction.INPUT
-        assert cap.domain == Domain.VOLTAGE
+        assert cap.function == MeasurementFunction.DC_VOLTAGE
 
     def test_to_capability_requirement_input(self):
         """Test that DUT INPUT maps to instrument OUTPUT."""
         char = Characteristic(
-            direction=Direction.INPUT,  # DUT consumes power
-            domain=Domain.VOLTAGE,
-            signal_types=[SignalType.DC],
+            function=MeasurementFunction.DC_VOLTAGE,
+            direction=Direction.INPUT,
             units="V",
             pin="VIN",
             conditions=[
@@ -263,21 +247,20 @@ class TestCharacteristic:
     def test_to_capability_requirement_bidir(self):
         """Test that DUT BIDIR maps to instrument BIDIR."""
         char = Characteristic(
+            function=MeasurementFunction.DC_VOLTAGE,
             direction=Direction.BIDIR,
-            domain=Domain.VOLTAGE,
-            signal_types=[SignalType.DC],
             units="V",
             pin="DATA",
         )
         cap = char.to_capability_requirement()
         assert cap.direction == Direction.BIDIR
 
-    def test_to_capability_requirement_range(self):
-        """Test that capability range is derived from conditions."""
+    def test_to_capability_requirement_derives_parameters(self):
+        """Test that capability derives parameter range from conditions."""
         import pytest
         char = Characteristic(
+            function=MeasurementFunction.DC_VOLTAGE,
             direction=Direction.OUTPUT,
-            domain=Domain.VOLTAGE,
             units="V",
             pin="VOUT",
             conditions=[
@@ -288,9 +271,26 @@ class TestCharacteristic:
         )
         cap = char.to_capability_requirement()
         # Max nominal is 12.0, with 20% headroom = 14.4
-        assert cap.range is not None
-        assert float(cap.range.max) == pytest.approx(14.4)
-        assert cap.range.units == "V"
+        assert "voltage" in cap.parameters
+        voltage_param = cap.parameters["voltage"]
+        assert voltage_param.range is not None
+        assert float(voltage_param.range.max) == pytest.approx(14.4)
+        assert voltage_param.units == "V"
+
+    def test_to_capability_requirement_function_preserved(self):
+        """Test that the MeasurementFunction is preserved in capability."""
+        char = Characteristic(
+            function=MeasurementFunction.DC_CURRENT,
+            direction=Direction.INPUT,
+            units="A",
+            pin="IIN",
+            conditions=[
+                ConditionPoint(nominal=0.015),
+            ],
+        )
+        cap = char.to_capability_requirement()
+        assert cap.function == MeasurementFunction.DC_CURRENT
+        assert "current" in cap.parameters
 
 
 class TestTestRequirement:
@@ -337,8 +337,8 @@ class TestProduct:
             name="Power Board",
             characteristics={
                 "rail_3v3_output": Characteristic(
+                    function=MeasurementFunction.DC_VOLTAGE,
                     direction=Direction.OUTPUT,
-                    domain=Domain.VOLTAGE,
                     units="V",
                     pin="VOUT",
                     datasheet_ref="DS-001 Section 7.3",

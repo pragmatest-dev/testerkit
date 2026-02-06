@@ -29,7 +29,8 @@ def derive_limit(
         char: The product characteristic containing spec values.
         req: The test requirement with conditions and guardband.
         conditions: Optional override for conditions (defaults to req.conditions).
-        char_id: Optional characteristic ID (uses char.id if available, else req.characteristic_ref).
+        char_id: Optional characteristic ID (uses char.id if available,
+            else req.characteristic_ref).
 
     Returns:
         A Limit object with derived low/high bounds and spec_id.

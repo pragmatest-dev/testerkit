@@ -10,8 +10,8 @@ pins:
 
 characteristics:
   output_voltage:
+    function: dc_voltage
     direction: output
-    domain: voltage
     units: V
     pins: [VOUT]
     conditions:

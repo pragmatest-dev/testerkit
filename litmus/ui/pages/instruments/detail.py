@@ -117,13 +117,9 @@ def _render_capability_card(cap: dict):
             if cap.get("description"):
                 ui.label(cap["description"]).classes("text-sm text-slate-600")
 
-            with ui.grid(columns=3).classes("gap-4"):
+            with ui.grid(columns=2).classes("gap-4"):
+                _info_field("Function", cap.get("function", ""))
                 _info_field("Direction", cap.get("direction", ""))
-                _info_field("Domain", cap.get("domain", ""))
-                signal_types = cap.get("signal_types", [])
-                _info_field(
-                    "Signal Types", ", ".join(signal_types) if signal_types else "-"
-                )
 
 
 def _render_scpi_tab(scpi_commands: dict):

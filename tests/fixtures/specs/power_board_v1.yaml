@@ -5,10 +5,8 @@ product:
   revision: B
 characteristics:
   rail_5v_input:
+    function: dc_voltage
     direction: input
-    domain: voltage
-    signal_types:
-    - dc
     units: V
     net: VIN
     datasheet_ref: DS-001 Section 7.2, Table 3
@@ -26,10 +24,8 @@ characteristics:
       nominal: 5.0
       tolerance_pct: 6
   rail_3v3_output:
+    function: dc_voltage
     direction: output
-    domain: voltage
-    signal_types:
-    - dc
     units: V
     net: VOUT_3V3
     datasheet_ref: DS-001 Section 7.3
@@ -55,10 +51,8 @@ characteristics:
       nominal: 3.3
       tolerance_pct: 6
   quiescent_current:
+    function: dc_current
     direction: input
-    domain: current
-    signal_types:
-    - dc
     units: A
     net: IIN
     datasheet_ref: DS-001 Section 7.4
@@ -72,10 +66,8 @@ characteristics:
       comparator: LE
       limit_high: 0.02
   efficiency:
+    function: dc_power
     direction: output
-    domain: power
-    signal_types:
-    - dc
     units: '%'
     pins: [VIN, VOUT]
     datasheet_ref: DS-001 Section 7.5

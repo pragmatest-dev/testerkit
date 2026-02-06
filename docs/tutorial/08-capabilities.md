@@ -15,11 +15,11 @@ How do you know which station can test which product?
 Every product characteristic implies a required capability:
 
 ```
-Product: output_voltage (direction: OUTPUT)
+Product: output_voltage (function: dc_voltage, direction: OUTPUT)
          ↓
-Required: voltage measurement capability (direction: INPUT)
+Required: dc_voltage measurement capability (direction: INPUT)
          ↓
-Station: DMM provides voltage measurement
+Station: DMM provides dc_voltage INPUT
          ↓
 Match!
 ```
@@ -36,8 +36,8 @@ The key insight: **directions flip** between products and instruments.
 ### Example
 
 A power converter:
-- **input_voltage** (direction: INPUT) → DUT receives power → need PSU (OUTPUT)
-- **output_voltage** (direction: OUTPUT) → DUT provides voltage → need DMM (INPUT)
+- **input_voltage** (direction: INPUT) → DUT receives power → need PSU with dc_voltage OUTPUT
+- **output_voltage** (direction: OUTPUT) → DUT provides voltage → need DMM with dc_voltage INPUT
 
 ## How Matching Works
 
@@ -46,14 +46,14 @@ A power converter:
 # products/power_board/spec.yaml
 characteristics:
   input_voltage:
+    function: dc_voltage
     direction: input       # DUT needs input voltage
-    domain: voltage
-    signal_types: [dc]
+    units: V
 
   output_voltage:
+    function: dc_voltage
     direction: output      # DUT outputs voltage
-    domain: voltage
-    signal_types: [dc]
+    units: V
 ```
 
 **Station provides capabilities:**
@@ -61,12 +61,24 @@ characteristics:
 # stations/bench_1.yaml
 instruments:
   psu:
-    type: power_supply    # Provides OUTPUT voltage
+    type: power_supply    # Provides dc_voltage OUTPUT
+    catalog_ref: keysight_e36312a
   dmm:
-    type: dmm             # Provides INPUT voltage
+    type: dmm             # Provides dc_voltage INPUT
+    catalog_ref: keysight_34461a
 ```
 
 **Match result:** bench_1 CAN test power_board ✓
+
+## 3-Tier Matching
+
+The matcher checks three dimensions:
+
+1. **Function match** — Same `MeasurementFunction` (e.g., `dc_voltage`)
+2. **Direction match** — Directions pair (OUTPUT↔INPUT, BIDIR satisfies both)
+3. **Parameter range** — Instrument's range contains the required value
+
+This replaces the old Domain + SignalType matching. Now a DMM (`dc_voltage`, `input`) is distinct from an oscilloscope (`waveform`, `input`) — they can't be confused.
 
 ## Try It: Using the Matcher
 
@@ -92,13 +104,6 @@ for match in matches:
         print(f"✗ {match.station_id} missing: {match.missing_capabilities}")
 ```
 
-### CLI (via MCP)
-
-```bash
-# In a Python session or via MCP
-litmus_match(product_id="power_board")
-```
-
 ### HTTP API
 
 ```bash
@@ -122,26 +127,29 @@ product:
 
 characteristics:
   output_voltage:
+    function: dc_voltage
     direction: output
-    domain: voltage
-    signal_types: [dc]
     units: V
+    conditions:
+      - nominal: 3.3
+        tolerance_pct: 5
 
   output_current:
+    function: dc_current
     direction: output
-    domain: current
-    signal_types: [dc]
     units: A
+    conditions:
+      - nominal: 0.5
+        tolerance_pct: 10
 ```
 
 **2. Create two stations:**
 
 ```yaml
-# stations/station_a.yaml
+# stations/station_a.yaml — DMM only
 station:
   id: station_a
   name: "Station A - DMM only"
-
 instruments:
   dmm:
     type: dmm
@@ -149,11 +157,10 @@ instruments:
 ```
 
 ```yaml
-# stations/station_b.yaml
+# stations/station_b.yaml — DMM + current clamp
 station:
   id: station_b
   name: "Station B - DMM + Clamp meter"
-
 instruments:
   dmm:
     type: dmm
@@ -165,38 +172,26 @@ instruments:
 
 **3. Run the matcher:**
 
-```python
-from litmus.matching.service import find_compatible_stations, load_product_by_id
+Station A can measure dc_voltage but not dc_current → Missing capabilities.
+Station B can measure both → Compatible.
 
-product = load_product_by_id("my_product")
-matches = find_compatible_stations(product)
+## MeasurementFunction vs. Domain+SignalType
 
-for m in matches:
-    print(f"{m.station_id}: compatible={m.compatible}")
-    if not m.compatible:
-        print(f"  Missing: {[c.domain for c in m.missing_capabilities]}")
-```
+The old model used `domain: voltage` + `signal_types: [dc]`. The new model uses `function: dc_voltage`. This matters because:
 
-Expected output:
-```
-station_a: compatible=False
-  Missing: ['current']
-station_b: compatible=True
-```
+| Old Model | Problem |
+|-----------|---------|
+| DMM: `domain: voltage, signal_types: [dc], direction: input` | |
+| Scope: `domain: voltage, signal_types: [dc], direction: input` | Same capability! |
 
-Station A can't test the product because it lacks current measurement.
+Both matched any "dc voltage input" requirement, even though they're fundamentally different instruments.
 
-## Capability Dimensions
+| New Model | No Confusion |
+|-----------|-------------|
+| DMM: `function: dc_voltage, direction: input` | Precision measurement |
+| Scope: `function: waveform, direction: input` | Time-domain capture |
 
-The matcher compares these dimensions:
-
-| Dimension | Values | Example |
-|-----------|--------|---------|
-| Direction | input, output, bidir | DMM is input (measures) |
-| Domain | voltage, current, resistance, frequency, time, digital | DMM measures voltage |
-| Signal Types | dc, ac, pulse, sine, square, pwm | DC voltage measurement |
-
-All dimensions must match for compatibility.
+The oscilloscope's `waveform` function won't match a `dc_voltage` requirement.
 
 ## Handling Missing Capabilities
 
@@ -207,14 +202,12 @@ result = check_station_compatibility("my_product", "station_a")
 
 if not result.compatible:
     for cap in result.missing_capabilities:
-        print(f"Need: {cap.direction} {cap.domain}")
-        print(f"For characteristic: {cap.characteristic_name}")
+        print(f"Need: {cap.direction} {cap.function}")
 ```
 
 Output:
 ```
-Need: INPUT current
-For characteristic: output_current
+Need: INPUT dc_current
 ```
 
 This tells you: add a current measurement instrument to test this product.
@@ -225,12 +218,14 @@ This tells you: add a current measurement instrument to test this product.
 2. **Station flexibility** — Tests portable between compatible stations
 3. **Clear requirements** — Know exactly what instruments you need
 4. **Planning support** — Design stations for new products
+5. **Fine-grained** — DMM vs. scope vs. SMU distinguished automatically
 
 ## What You Learned
 
-- How capabilities enable product-station matching
+- How `MeasurementFunction` provides fine-grained capability identification
 - The direction flip between products and instruments
-- Using the matcher API (Python, CLI, HTTP)
+- 3-tier matching: function → direction → parameter range
+- Using the matcher API (Python, HTTP)
 - Interpreting missing capability results
 
 ## Next Step

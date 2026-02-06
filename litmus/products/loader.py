@@ -5,7 +5,11 @@ from typing import Any
 
 import yaml
 
-from litmus.config.models import Comparator
+from litmus.config.models import (
+    Comparator,
+    MeasurementFunction,
+    SignalParameter,
+)
 from litmus.products.models import (
     BusSignal,
     Characteristic,
@@ -15,7 +19,6 @@ from litmus.products.models import (
     SignalGroup,
     TestRequirement,
 )
-from litmus.utils.loaders import parse_capability_enums
 
 
 def load_product(path: Path) -> Product:
@@ -28,8 +31,8 @@ def load_product(path: Path) -> Product:
           ...
         characteristics:
           rail_3v3_output:
+            function: dc_voltage
             direction: output
-            domain: voltage
             ...
         test_requirements:
           verify_output_voltage:
@@ -91,9 +94,16 @@ def load_product(path: Path) -> Product:
 
 def _parse_pin(data: dict[str, Any]) -> Pin:
     """Parse a pin from YAML data."""
+    from litmus.products.models import PinRole
+
+    role = PinRole.SIGNAL
+    if "role" in data:
+        role = PinRole(data["role"].lower())
+
     return Pin(
         name=data["name"],
         net=data.get("net"),
+        role=role,
         description=data.get("description"),
     )
 
@@ -119,13 +129,26 @@ def _parse_signal_group(data: dict[str, Any]) -> SignalGroup:
 
 
 def _parse_characteristic(data: dict[str, Any]) -> Characteristic:
-    """Parse a characteristic from YAML data."""
-    # Parse capability enums (direction, domain, signal_types)
-    direction, domain, signal_types = parse_capability_enums(
-        data["direction"],
-        data["domain"],
-        data.get("signal_types", ["dc"]),
-    )
+    """Parse a characteristic from YAML data.
+
+    Supports the function-based format:
+        function: dc_voltage
+        direction: output
+        units: V
+        parameters:
+          voltage:
+            value: 3.3
+            units: V
+    """
+    from litmus.config.models import Direction
+
+    direction = Direction(data["direction"].lower())
+    function = MeasurementFunction(data.get("function", "dc_voltage").lower())
+
+    # Parse signal parameters
+    parameters: dict[str, SignalParameter] = {}
+    for param_name, param_data in data.get("parameters", {}).items():
+        parameters[param_name] = _parse_signal_parameter(param_data)
 
     # Parse conditions
     conditions = []
@@ -133,19 +156,63 @@ def _parse_characteristic(data: dict[str, Any]) -> Characteristic:
         conditions.append(_parse_condition_point(cond_data))
 
     return Characteristic(
+        function=function,
         direction=direction,
-        domain=domain,
-        signal_types=signal_types,
+        parameters=parameters,
         units=data["units"],
         # Physical interface fields
-        pin=data.get("pin"),  # Single pin reference
-        pins=data.get("pins", []),  # Multiple pins
-        net=data.get("net"),  # Schematic net name
+        pin=data.get("pin"),
+        pins=data.get("pins", []),
+        net=data.get("net"),
         signal_group=data.get("signal_group"),
         channel=data.get("channel"),
         # Traceability
         datasheet_ref=data.get("datasheet_ref"),
         conditions=conditions,
+    )
+
+
+def _parse_signal_parameter(data: dict[str, Any]) -> SignalParameter:
+    """Parse a SignalParameter from YAML data."""
+    from litmus.config.models import (
+        AccuracySpec,
+        ParameterRole,
+        RangeSpec,
+        ResolutionSpec,
+    )
+
+    range_spec = None
+    if "range" in data:
+        r = data["range"]
+        range_spec = RangeSpec(min=r.get("min"), max=r.get("max"), units=r.get("units", ""))
+
+    accuracy_spec = None
+    if "accuracy" in data:
+        a = data["accuracy"]
+        accuracy_spec = AccuracySpec(
+            pct_reading=a.get("pct_reading"),
+            pct_range=a.get("pct_range"),
+            absolute=a.get("absolute"),
+        )
+
+    resolution_spec = None
+    if "resolution" in data:
+        r = data["resolution"]
+        resolution_spec = ResolutionSpec(
+            bits=r.get("bits"), digits=r.get("digits"), value=r.get("value"), units=r.get("units")
+        )
+
+    role = ParameterRole.CONTROLLABLE
+    if "role" in data:
+        role = ParameterRole(data["role"])
+
+    return SignalParameter(
+        range=range_spec,
+        accuracy=accuracy_spec,
+        resolution=resolution_spec,
+        value=data.get("value"),
+        units=data.get("units"),
+        role=role,
     )
 
 

@@ -16,22 +16,24 @@ erDiagram
         string BIDIR
     }
 
-    Domain {
-        string VOLTAGE
-        string CURRENT
-        string RESISTANCE
-        string POWER
-        string FREQUENCY
-        string TIME
-        string LOGIC
-        string TEMPERATURE
+    MeasurementFunction {
+        string dc_voltage
+        string ac_voltage
+        string dc_current
+        string ac_current
+        string resistance
+        string resistance_4w
+        string frequency
+        string waveform
+        string dc_power
+        string temperature
     }
 
-    SignalType {
-        string DC
-        string AC
-        string PULSED
-        string TRANSIENT
+    ParameterRole {
+        string controllable
+        string measurable
+        string capability
+        string condition
     }
 
     Comparator {
@@ -41,20 +43,39 @@ erDiagram
         string GELE_etc
     }
 
-    Capability {
-        Direction direction
-        Domain domain
-        list signal_types
-        InstrumentChannelSpec channels
+    SignalParameter {
         RangeSpec range
         AccuracySpec accuracy
+        ResolutionSpec resolution
+        float value
+        string units
+        ParameterRole role
     }
 
-    InstrumentChannelSpec {
-        int count
-        int simultaneous
-        string coupling
-        string naming
+    FunctionCapability {
+        MeasurementFunction function
+        Direction direction
+        dict parameters
+        list channels
+        list modes
+        bool readback
+    }
+
+    InstrumentCatalogEntry {
+        string id
+        string manufacturer
+        string model
+        string name
+        string instrument_class
+        dict channels
+        list capabilities
+    }
+
+    ChannelTopology {
+        string label
+        list terminals
+        string connector
+        string ground
     }
 
     %% ============================================
@@ -72,7 +93,15 @@ erDiagram
     Pin {
         string name PK
         string net
+        PinRole role
         string description
+    }
+
+    PinRole {
+        string signal
+        string ground
+        string power
+        string reference
     }
 
     SignalGroup {
@@ -82,9 +111,9 @@ erDiagram
     }
 
     Characteristic {
+        MeasurementFunction function
         Direction direction
-        Domain domain
-        list signal_types
+        dict parameters
         string units
         list pins_refs FK
         string datasheet_ref
@@ -156,6 +185,7 @@ erDiagram
         string net
         string instrument FK
         string instrument_channel
+        string instrument_terminal
     }
 
     %% ============================================
@@ -344,17 +374,19 @@ erDiagram
     TestRequirement }o--|| Characteristic : "tests"
 
     %% Capability relationships
-    Capability }o--|| Direction : "has"
-    Capability }o--|| Domain : "has"
-    Capability ||--o| InstrumentChannelSpec : "has"
+    FunctionCapability }o--|| Direction : "has"
+    FunctionCapability }o--|| MeasurementFunction : "has"
+    FunctionCapability ||--o{ SignalParameter : "has"
+    InstrumentCatalogEntry ||--o{ FunctionCapability : "provides"
+    InstrumentCatalogEntry ||--o{ ChannelTopology : "has channels"
     Characteristic }o--|| Direction : "has"
-    Characteristic }o--|| Domain : "has"
+    Characteristic }o--|| MeasurementFunction : "has"
 
     %% Station structure
     StationType ||--o{ InstrumentConfig : "requires"
     StationInstance }o--|| StationType : "based on"
     StationInstance ||--o{ InstrumentInstance : "has"
-    InstrumentInstance ||--o{ Capability : "provides"
+    InstrumentInstance ||--o{ FunctionCapability : "provides"
 
     %% Fixture structure
     FixtureConfig }o--o| Product : "for"
@@ -397,7 +429,8 @@ erDiagram
 
 | Module | Purpose | Key Models |
 |--------|---------|------------|
-| `litmus/capabilities/models.py` | Shared enums & capability specs | Direction, Domain, SignalType, Capability |
+| `litmus/config/models.py` | Shared enums & capability specs | Direction, MeasurementFunction, FunctionCapability, SignalParameter, ChannelTopology, TerminalRole |
+| `litmus/catalog/models.py` | Instrument catalog | InstrumentCatalogEntry |
 | `litmus/products/models.py` | Product specifications | Product, Pin, Characteristic, ConditionPoint |
 | `litmus/config/models.py` | Configuration definitions | StationType, FixtureConfig, TestSequenceConfig, Limit |
 | `litmus/data/models.py` | Test execution results | TestRun, TestStep, TestVector, Measurement |
@@ -469,12 +502,12 @@ erDiagram
          │
          │ to_capability_requirement()
          ▼
-    ┌──────────┐                                    TEST EXECUTION
-    │Capability│                                    ──────────────
-    │ ─ domain │                                   ┌──────────────┐
-    │ ─ direct │                                   │   TestRun    │
-    └──────────┘                                   │ ─ id: uuid   │
-                                                   │ ─ dut        │
+    ┌──────────────┐                                TEST EXECUTION
+    │Function      │                                ──────────────
+    │Capability    │                               ┌──────────────┐
+    │ ─ function   │                               │   TestRun    │
+    │ ─ direction  │                               │ ─ id: uuid   │
+    └──────────────┘                               │ ─ dut        │
                                                    │ ─ outcome    │
     TestSequence.yaml                              └──────┬───────┘
     ─────────────────                                     │
@@ -510,23 +543,23 @@ The system uses capability matching to ensure stations can test products:
 ```python
 # Product defines what it needs tested
 product.characteristics["output_voltage"]
+    → function: dc_voltage
     → direction: OUTPUT (DUT provides voltage)
-    → domain: VOLTAGE
-    → signal_types: [DC]
 
 # Characteristic converts to capability requirement
 cap_req = char.to_capability_requirement()
+    → function: dc_voltage
     → direction: INPUT (flip! instrument must MEASURE)
-    → domain: VOLTAGE
-    → signal_types: [DC]
+    → parameters: {voltage: SignalParameter(value=3.3, units="V")}
 
 # Station instruments provide capabilities
 station.instruments["dmm_main"]
     → capabilities: [
-        Capability(direction=INPUT, domain=VOLTAGE, signal_types=[DC])
+        FunctionCapability(function=dc_voltage, direction=INPUT,
+            parameters={voltage: SignalParameter(range=RangeSpec(min=0, max=1000))})
       ]
 
-# Match: DMM can measure DC voltage ✓
+# Match: function ✓, direction ✓, range contains 3.3V ✓
 ```
 
 ---

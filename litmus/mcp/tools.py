@@ -776,12 +776,17 @@ INSTRUMENT_YAML_TEMPLATE = '''instrument:
   type: {instrument_type}
   name: {instrument_name}
   description: {description}
+  channels:
+    "1":
+      terminals: [hi, lo]
+      connector: binding_post
 
 capabilities:
-  - name: voltage_dc
+  - function: dc_voltage
     direction: input
-    domain: voltage
-    signal_types: [dc]
+    parameters:
+      voltage:
+        range: {{min: 0, max: 1000, units: V}}
 
 scpi_commands:
   identify: "*IDN?"
@@ -792,21 +797,37 @@ CAPABILITY_INTERFACES = """
 Available capability interfaces:
 
 MEASUREMENT (direction: input):
-  VoltageInput      - measure_voltage()
-  CurrentInput      - measure_current()
-  ResistanceInput   - measure_resistance()
-  FrequencyInput    - measure_frequency()
-  WaveformInput     - fetch_waveform()
+  dc_voltage   - Measure DC voltage
+  ac_voltage   - Measure AC voltage
+  dc_current   - Measure DC current
+  ac_current   - Measure AC current
+  resistance   - 2-wire resistance
+  resistance_4w - 4-wire resistance
+  frequency    - Measure frequency
+  waveform     - Capture waveform (oscilloscope)
+  temperature  - Measure temperature (RTD/thermocouple)
 
 STIMULUS (direction: output):
-  VoltageOutput     - set_voltage(), enable_output()
-  CurrentOutput     - set_current(), enable_output()
-  WaveformOutput    - configure_waveform()
+  dc_voltage   - Source DC voltage (PSU, SMU)
+  dc_current   - Source DC current (current source, SMU)
 
-ELECTRONIC LOAD:
-  ConstantCurrentLoad     - set_load_current(), enable_load()
-  ConstantPowerLoad       - set_load_power()
-  ConstantResistanceLoad  - set_load_resistance()
+ELECTRONIC LOAD (direction: input):
+  dc_current   - Sink current (constant current mode)
+  dc_power     - Sink power (constant power mode)
+  resistance   - Constant resistance mode
+
+READBACK (readback: true):
+  dc_voltage/input with readback: true  - Built-in voltage readback (PSU, eload)
+  dc_current/input with readback: true  - Built-in current readback (PSU, eload)
+  Readback capabilities are excluded from auto-matching to prevent competition with DMMs.
+
+TERMINAL TOPOLOGY:
+  terminals: [hi, lo]                 - Standard 2-wire (binding posts)
+  terminals: [hi, lo, sense_hi, sense_lo] - 4-wire Kelvin (PSU remote sense)
+  terminals: [signal]                 - Single-ended (BNC, probe)
+  terminals: [hi, lo, guard]          - Guarded (triax, SMU)
+  ground: floating | shared | earth   - Channel ground topology
+  connector: binding_post | bnc | banana | triax | terminal_block | probe
 """
 
 

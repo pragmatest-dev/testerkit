@@ -31,7 +31,7 @@ class DesignerState:
         self.instruments: dict[str, dict] = {}
 
         # --- Connections (fixture points) ---
-        # point_name -> {dut_pin, instrument, channel, net}
+        # point_name -> {dut_pin, instrument, channel, terminal, net}
         self.connections: dict[str, dict] = {}
 
         # --- UI state ---
@@ -115,7 +115,10 @@ class DesignerState:
             inst_type = inst.get("type", "")
             # Use channels from config if available, otherwise default to ["1"]
             channels = inst.get("channels", ["1"])
-            if not isinstance(channels, list):
+            if isinstance(channels, dict):
+                # Structured channel dict — extract keys as channel names
+                channels = list(channels.keys())
+            elif not isinstance(channels, list):
                 channels = [str(channels)]
             self.instruments[role] = {
                 "type": inst_type,
@@ -135,6 +138,7 @@ class DesignerState:
         instrument: str,
         channel: str,
         net: str | None = None,
+        terminal: str | None = None,
     ) -> None:
         """Create a fixture point connection."""
         if net is None:
@@ -144,6 +148,7 @@ class DesignerState:
             "dut_pin": dut_pin,
             "instrument": instrument,
             "channel": channel,
+            "terminal": terminal,
             "net": net,
         }
 
@@ -160,11 +165,15 @@ class DesignerState:
         return None
 
     def find_connection_for_pin(self, pin_key: str) -> dict | None:
-        """Find the connection for a given pin, if any."""
+        """Find the first connection for a given pin, if any."""
         for conn in self.connections.values():
             if conn["dut_pin"] == pin_key:
                 return conn
         return None
+
+    def find_connections_for_pin(self, pin_key: str) -> list[dict]:
+        """Find all connections for a given pin (GND pins may have multiple)."""
+        return [conn for conn in self.connections.values() if conn["dut_pin"] == pin_key]
 
     # -------------------------------------------------------------------------
     # Selection
@@ -254,6 +263,8 @@ class DesignerState:
             }
             if conn.get("channel"):
                 point["instrument_channel"] = conn["channel"]
+            if conn.get("terminal"):
+                point["instrument_terminal"] = conn["terminal"]
             if conn.get("net"):
                 point["net"] = conn["net"]
             points[point_name] = point
@@ -285,7 +296,8 @@ class DesignerState:
             pin_data: dict[str, str] = {"name": pin["name"]}
             if pin.get("net"):
                 pin_data["net"] = pin["net"]
-            # type field removed — pin behaviour described by characteristics
+            if pin.get("role") and pin["role"] != "signal":
+                pin_data["role"] = pin["role"]
             if pin.get("description"):
                 pin_data["description"] = pin["description"]
             pins[key] = pin_data
@@ -307,6 +319,7 @@ class DesignerState:
                 self.dut_pins[key] = {
                     "name": pin.name,
                     "net": pin.net or "",
+                    "role": pin.role.value if hasattr(pin, "role") else "signal",
                     "description": pin.description or "",
                 }
 
@@ -340,5 +353,6 @@ class DesignerState:
                 "dut_pin": point.get("dut_pin", ""),
                 "instrument": point.get("instrument", ""),
                 "channel": point.get("instrument_channel", "1"),
+                "terminal": point.get("instrument_terminal"),
                 "net": point.get("net", ""),
             }

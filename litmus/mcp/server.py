@@ -48,6 +48,35 @@ Before EVERY action, show what you'll do and ask for approval. Never proceed wit
 
 ## Critical Formats
 
+### Product Spec (pins with roles):
+```yaml
+product:
+  id: power_board
+  name: "Power Board Rev A"
+pins:
+  J1_VIN:
+    name: "J1.1"
+    net: "VIN_5V"
+    role: power          # power/ground/signal/reference
+  J1_GND:
+    name: "J1.2"
+    net: "GND"
+    role: ground
+  TP_VOUT:
+    name: "TP2"
+    net: "VOUT_3V3"
+    # role: signal (default, can omit)
+characteristics:
+  output_voltage:
+    function: dc_voltage    # MeasurementFunction enum
+    direction: output       # DUT provides this signal
+    units: V
+    pin: TP_VOUT
+    conditions:
+      - nominal: 3.3
+        tolerance_pct: 2
+```
+
 ### Station Config (use EXACTLY):
 ```yaml
 station:
@@ -55,17 +84,24 @@ station:
   name: "Test Bench"
 instruments:
   psu:
-    type: psu              # Valid: psu, dmm, eload, scope
+    type: power_supply
+    driver: drivers.PSU
     resource: "TCPIP::192.168.1.100::INSTR"
-    mock_config:           # Values for --mock-instruments mode
+    catalog_ref: keysight_e36312a  # Resolves capabilities + channel topology from catalog
+    channels: ["1", "2"]
+    mock_config:
       voltage: 5.0
       current: 0.5
   dmm:
     type: dmm
+    driver: drivers.DMM
     resource: "TCPIP::192.168.1.101::INSTR"
+    catalog_ref: keysight_34461a
     mock_config:
       voltage: 3.3
 ```
+Catalog entries define structured channel topology (terminals, connector, ground mode)
+and capabilities with optional `readback: true` for built-in meters (PSU/eload voltage readback).
 
 ### Test Files (MUST create both):
 
@@ -107,10 +143,12 @@ test_output_voltage:
 
 1. **STOP at each step** - Show plan, ask approval, wait for response
 2. **Pass project=** to all calls after init
-3. **Station types:** psu, dmm, eload, scope (exactly)
+3. **Station types:** power_supply, dmm, electronic_load, oscilloscope, smu
 4. **mock_config** in station for default mock values
 5. **Create BOTH test files** - .py AND config.yaml
 6. **_mock in config.yaml** - Per-test/per-vector mock values
+7. **Pin roles:** power, ground, signal (default), reference
+8. **catalog_ref** on instruments resolves capabilities from catalog/
 """,
     )
 

@@ -16,7 +16,7 @@ fixture:
   product_revision: "A"
 
 # Fixture points map DUT pins to instrument channels
-# Each point defines: what pin → which instrument → which channel
+# Each point defines: what pin → which instrument → which channel → which terminal
 points:
   # Input power routing
   vin_supply:
@@ -24,14 +24,24 @@ points:
     net: VIN_5V
     instrument: psu
     instrument_channel: "1"
+    instrument_terminal: hi
     description: "5V input from PSU channel 1"
 
-  gnd_return:
+  gnd_psu:
     dut_pin: J1_GND
     net: GND
     instrument: psu
-    instrument_channel: "GND"
-    description: "Ground return to PSU"
+    instrument_channel: "1"
+    instrument_terminal: lo
+    description: "Ground return to PSU CH1 LO terminal"
+
+  gnd_eload:
+    dut_pin: J1_GND
+    net: GND
+    instrument: eload
+    instrument_channel: "1"
+    instrument_terminal: lo
+    description: "Ground return to eload LO terminal"
 
   # Output measurement routing
   vout_measure:
@@ -39,6 +49,7 @@ points:
     net: VOUT_3V3
     instrument: dmm
     instrument_channel: "1"
+    instrument_terminal: hi
     description: "Output voltage measurement via DMM"
 
   # Input measurement routing (for current measurement)
@@ -47,6 +58,7 @@ points:
     net: VIN_5V
     instrument: dmm
     instrument_channel: "2"
+    instrument_terminal: hi
     description: "Input voltage sense via DMM ch2"
 
   # Load connection routing
@@ -55,4 +67,14 @@ points:
     net: VOUT_3V3
     instrument: eload
     instrument_channel: "1"
+    instrument_terminal: hi
     description: "Electronic load on output"
+
+  # Ground reference for DMM
+  gnd_dmm:
+    dut_pin: TP_GND
+    net: GND
+    instrument: dmm
+    instrument_channel: "1"
+    instrument_terminal: lo
+    description: "Ground reference to DMM LO terminal"

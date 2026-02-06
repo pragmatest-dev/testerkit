@@ -2,8 +2,7 @@
 
 import pytest
 
-from litmus.config.models import Comparator, Direction, Domain, SignalType
-from litmus.config.models import Limit
+from litmus.config.models import Comparator, Direction, Limit, MeasurementFunction
 from litmus.products.limits import derive_limit, derive_limits_for_requirement
 from litmus.products.models import Characteristic, ConditionPoint, TestRequirement
 
@@ -15,9 +14,8 @@ class TestDeriveLimit:
     def voltage_characteristic(self):
         """Create a voltage output characteristic with multiple conditions."""
         return Characteristic(
+            function=MeasurementFunction.DC_VOLTAGE,
             direction=Direction.OUTPUT,
-            domain=Domain.VOLTAGE,
-            signal_types=[SignalType.DC],
             units="V",
             pin="VOUT",  # Physical interface required
             datasheet_ref="DS-001 Section 7.3",
@@ -104,8 +102,8 @@ class TestDeriveLimit:
     def test_limit_preserves_comparator(self):
         """Test that comparator is preserved from spec."""
         char = Characteristic(
+            function=MeasurementFunction.DC_CURRENT,
             direction=Direction.INPUT,
-            domain=Domain.CURRENT,
             units="A",
             pin="VIN",
             conditions=[
@@ -127,8 +125,8 @@ class TestDeriveLimit:
     def test_limit_with_explicit_limits(self):
         """Test deriving limit from explicit limit_low/high values."""
         char = Characteristic(
+            function=MeasurementFunction.DC_VOLTAGE,
             direction=Direction.OUTPUT,
-            domain=Domain.VOLTAGE,
             units="V",
             pin="VOUT",
             conditions=[
@@ -196,8 +194,8 @@ class TestDeriveLimit:
     def test_guardband_le_comparator(self):
         """Test guardband with single-sided LE comparator."""
         char = Characteristic(
+            function=MeasurementFunction.DC_CURRENT,
             direction=Direction.INPUT,
-            domain=Domain.CURRENT,
             units="A",
             pin="VIN",
             conditions=[
@@ -222,8 +220,8 @@ class TestDeriveLimit:
     def test_guardband_ge_comparator(self):
         """Test guardband with single-sided GE comparator."""
         char = Characteristic(
+            function=MeasurementFunction.DC_VOLTAGE,
             direction=Direction.OUTPUT,
-            domain=Domain.VOLTAGE,
             units="V",
             pin="VOUT",
             conditions=[
@@ -252,8 +250,8 @@ class TestDeriveLimitsForRequirement:
     def test_single_match(self):
         """Test deriving limits with single matching condition."""
         char = Characteristic(
+            function=MeasurementFunction.DC_VOLTAGE,
             direction=Direction.OUTPUT,
-            domain=Domain.VOLTAGE,
             units="V",
             pin="VOUT",
             conditions=[
@@ -279,8 +277,8 @@ class TestDeriveLimitsForRequirement:
     def test_partial_condition_match(self):
         """Test deriving limits with partial condition match."""
         char = Characteristic(
+            function=MeasurementFunction.DC_VOLTAGE,
             direction=Direction.OUTPUT,
-            domain=Domain.VOLTAGE,
             units="V",
             pin="VOUT",
             conditions=[
@@ -320,8 +318,8 @@ class TestDeriveLimitsForRequirement:
     def test_no_matches(self):
         """Test that no matches returns empty list."""
         char = Characteristic(
+            function=MeasurementFunction.DC_VOLTAGE,
             direction=Direction.OUTPUT,
-            domain=Domain.VOLTAGE,
             units="V",
             pin="VOUT",
             conditions=[
@@ -346,8 +344,8 @@ class TestGuardbandEdgeCases:
     def test_zero_guardband(self):
         """Test that zero guardband returns original limits."""
         char = Characteristic(
+            function=MeasurementFunction.DC_VOLTAGE,
             direction=Direction.OUTPUT,
-            domain=Domain.VOLTAGE,
             units="V",
             pin="VOUT",
             conditions=[
@@ -371,8 +369,8 @@ class TestGuardbandEdgeCases:
     def test_large_guardband(self):
         """Test that large guardband significantly tightens limits."""
         char = Characteristic(
+            function=MeasurementFunction.DC_VOLTAGE,
             direction=Direction.OUTPUT,
-            domain=Domain.VOLTAGE,
             units="V",
             pin="VOUT",
             conditions=[
@@ -397,8 +395,8 @@ class TestGuardbandEdgeCases:
     def test_eq_comparator_no_guardband(self):
         """Test that EQ comparator ignores guardband."""
         char = Characteristic(
+            function=MeasurementFunction.DC_VOLTAGE,
             direction=Direction.OUTPUT,
-            domain=Domain.VOLTAGE,
             units="V",
             pin="VOUT",
             conditions=[

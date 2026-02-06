@@ -183,10 +183,8 @@ def get_required_capabilities(product) -> list[dict]:
         capabilities.append({
             "characteristic": char_name,
             "direction": cap_req.direction.value,
-            "domain": cap_req.domain.value,
-            "signal_types": (
-                [st.value for st in cap_req.signal_types] if cap_req.signal_types else []
-            ),
+            "function": cap_req.function.value,
+            "parameters": ", ".join(cap_req.parameters.keys()) if cap_req.parameters else "",
         })
     return capabilities
 
@@ -415,7 +413,7 @@ def get_station_capabilities(config: dict) -> list[dict]:
                 "instrument": inst_name,
                 "name": cap.get("name", ""),
                 "direction": cap.get("direction", ""),
-                "domain": cap.get("domain", ""),
+                "function": cap.get("function", ""),
             })
 
     return capabilities
@@ -1071,26 +1069,31 @@ def load_station_type(type_id: str) -> dict | None:
 def get_instrument_channels_from_library(instrument_type: str) -> list[str]:
     """Get channel names from an instrument library definition.
 
-    Loads the library YAML, finds capabilities with InstrumentChannelSpec,
+    Loads the library YAML, finds capabilities with channels field,
     returns channel names. Falls back to ["1"] if no channels defined.
     """
+    from litmus.utils.ranges import expand_range
+
     definition = load_instrument_definition(instrument_type)
     if not definition:
         return ["1"]
 
+    # Check for top-level channels on instrument definition
+    top_channels = definition.get("instrument", {}).get("channels")
+    if top_channels:
+        if isinstance(top_channels, dict):
+            # Structured channel dict — extract keys
+            return list(top_channels.keys())
+        return expand_range(top_channels)
+
     channels: set[str] = set()
     for cap in definition.get("capabilities", []):
-        channels_spec = cap.get("channels", {})
-        if isinstance(channels_spec, dict):
-            count = channels_spec.get("count", 1)
-            naming = channels_spec.get("naming")
-            labels = channels_spec.get("labels")
-            if labels:
-                channels.update(labels[:count])
-            elif naming:
-                channels.update(naming.format(n=i + 1) for i in range(count))
-            else:
-                channels.update(str(i + 1) for i in range(count))
+        raw_channels = cap.get("channels")
+        if raw_channels is not None:
+            if isinstance(raw_channels, list):
+                channels.update(str(ch) for ch in raw_channels)
+            elif isinstance(raw_channels, str):
+                channels.update(expand_range(raw_channels))
 
     return sorted(channels) if channels else ["1"]
 

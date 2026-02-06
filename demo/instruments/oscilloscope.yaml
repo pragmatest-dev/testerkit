@@ -6,12 +6,24 @@ instrument:
   name: Digital Oscilloscope
   description: Multi-channel oscilloscope for time-domain voltage waveform capture
   icon: timeline
+  channels:
+    "CH1": {terminals: [signal], connector: bnc, ground: shared}
+    "CH2": {terminals: [signal], connector: bnc, ground: shared}
+    "CH3": {terminals: [signal], connector: bnc, ground: shared}
+    "CH4": {terminals: [signal], connector: bnc, ground: shared}
 
 capabilities:
-  - name: voltage_waveform
+  - function: waveform
     direction: input
-    domain: voltage
-    signal_types: [ac, dc]
-    channels:
-      count: 4
-      naming: "CH{n}"
+    parameters:
+      voltage:
+        range: {min: 0.001, max: 400, units: V}
+      bandwidth:
+        value: 50000000
+        units: Hz
+        role: capability
+      sample_rate:
+        value: 1000000000
+        units: Sa/s
+        role: capability
+    channels: "CH[1:4]"

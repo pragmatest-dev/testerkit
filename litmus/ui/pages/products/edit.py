@@ -175,8 +175,8 @@ def _render_characteristics_tab(form_data: dict):
                     with ui.expansion(char_name, icon="tune").classes("w-full"):
                         with ui.grid(columns=3).classes("gap-4 p-2"):
                             direction = char_data.get("direction", "")
+                            _labeled_input("Function", char_data.get("function", ""), readonly=True)
                             _labeled_input("Direction", direction, readonly=True)
-                            _labeled_input("Domain", char_data.get("domain", ""), readonly=True)
                             _labeled_input("Units", char_data.get("units", ""), readonly=True)
 
                         conditions = char_data.get("conditions", [])
@@ -330,7 +330,12 @@ def _show_add_pin_dialog(on_add: callable):
 
 def _show_add_char_dialog(on_add: callable):
     """Show dialog to add a new characteristic."""
-    char_form = {"name": "", "direction": "OUTPUT", "domain": "voltage", "units": "V"}
+    function_options = [
+        "dc_voltage", "ac_voltage", "dc_current", "ac_current",
+        "resistance", "resistance_4w", "capacitance", "inductance",
+        "frequency", "temperature", "dc_power", "ac_power", "waveform",
+    ]
+    char_form = {"name": "", "function": "dc_voltage", "direction": "output", "units": "V"}
 
     with ui.dialog() as dialog, ui.card().classes("w-96"):
         with ui.card_section():
@@ -338,16 +343,16 @@ def _show_add_char_dialog(on_add: callable):
         with ui.card_section().classes("flex flex-col gap-4"):
             _labeled_input("Name", on_change=lambda e: char_form.update({"name": e.value}))
             _labeled_select(
-                "Direction",
-                options=["INPUT", "OUTPUT", "BIDIR"],
-                value="OUTPUT",
-                on_change=lambda e: char_form.update({"direction": e.value}),
+                "Function",
+                options=function_options,
+                value="dc_voltage",
+                on_change=lambda e: char_form.update({"function": e.value}),
             )
             _labeled_select(
-                "Domain",
-                options=["voltage", "current", "power", "resistance", "frequency", "time"],
-                value="voltage",
-                on_change=lambda e: char_form.update({"domain": e.value}),
+                "Direction",
+                options=["input", "output", "bidir"],
+                value="output",
+                on_change=lambda e: char_form.update({"direction": e.value}),
             )
             _labeled_input(
                 "Units", value="V", on_change=lambda e: char_form.update({"units": e.value})

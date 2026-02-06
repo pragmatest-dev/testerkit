@@ -55,21 +55,25 @@ I've analyzed the datasheet and extracted:
 **Product:** TPS54302 - 3A Buck Converter
 
 **Pins (5):**
-| Name | Type   | Description |
-|------|--------|-------------|
-| VIN  | power  | Input voltage |
-| SW   | power  | Switch node |
-| VOUT | power  | Output voltage |
-| GND  | power  | Ground |
-| EN   | signal | Enable |
+| Name | Role      | Net    | Description |
+|------|-----------|--------|-------------|
+| VIN  | power     | VIN    | Input voltage |
+| SW   | signal    | SW     | Switch node |
+| VOUT | power     | VOUT   | Output voltage |
+| GND  | ground    | GND    | Ground |
+| EN   | signal    | EN     | Enable |
+
+Pin roles: `power` (supply/output rails), `ground` (return/reference),
+`signal` (measured/stimulated, default), `reference` (voltage ref, not driven).
+Ground pins wire to instrument LO terminals via bus routing in the designer.
 
 **Characteristics (7):**
-| Name           | Direction | Value      | Conditions        |
-|----------------|-----------|------------|-------------------|
-| input_voltage  | input     | 4.5-18V    | -                 |
-| output_voltage | output    | 3.3V ±1%   | Vin=5V, Iout=1A   |
-| efficiency     | output    | ≥90%       | Vin=5V, Iout=1A   |
-| ...            |           |            |                   |
+| Name           | Function   | Direction | Value      | Conditions        |
+|----------------|------------|-----------|------------|-------------------|
+| input_voltage  | dc_voltage | input     | 4.5-18V    | -                 |
+| output_voltage | dc_voltage | output    | 3.3V ±1%   | Vin=5V, Iout=1A   |
+| efficiency     | dc_power   | output    | ≥90%       | Vin=5V, Iout=1A   |
+| ...            |            |           |            |                   |
 
 **Confidence:** 94% (some thermal specs unclear)
 
@@ -113,17 +117,27 @@ product:
 pins:
   VIN:
     name: "VIN"
-    type: power
+    net: "VIN"
+    role: power          # Power input rail
   VOUT:
     name: "VOUT"
-    type: power
+    net: "VOUT"
+    role: power          # Power output rail
+  GND:
+    name: "GND"
+    net: "GND"
+    role: ground         # Current return / reference
+  EN:
+    name: "EN"
+    net: "EN"
+    # role: signal (default - measured/stimulated)
 
 characteristics:
   output_voltage:
-    direction: output
-    domain: voltage
+    function: dc_voltage   # MeasurementFunction enum
+    direction: output      # DUT provides this signal
     units: V
-    pins: [VOUT]
+    pin: VOUT
     conditions:
       - nominal: 3.3
         tolerance_pct: 1
@@ -162,32 +176,48 @@ station:
 
 instruments:
   psu:
-    driver: myproject.instruments.PSU  # or pymeasure.instruments.keithley.Keithley2220
+    type: power_supply
+    driver: myproject.instruments.PSU
     resource: "TCPIP::192.168.1.100::INSTR"
+    catalog_ref: keysight_e36312a   # Resolves capabilities + channel topology from catalog/
+    channels: ["1", "2"]
     simulate: true
     mock_config:
       measure_voltage: 12.0
       measure_current: 1.0
   dmm:
-    driver: myproject.instruments.DMM  # or pymeasure.instruments.keithley.Keithley2000
+    type: dmm
+    driver: myproject.instruments.DMM
     resource: "TCPIP::192.168.1.101::INSTR"
+    catalog_ref: keysight_34461a
     simulate: true
     mock_config:
       measure_voltage: 3.3
       measure_dc_voltage: 3.3
   eload:
+    type: electronic_load
     driver: myproject.instruments.ELoad
     resource: "TCPIP::192.168.1.102::INSTR"
+    catalog_ref: siglent_sdl1020x
     simulate: true
     mock_config:
       measure_current: 1.0
 ```
 
 **Station config fields:**
+- `type`: Instrument type (power_supply, dmm, electronic_load, oscilloscope, smu)
 - `driver`: Python import path to instrument class (required)
 - `resource`: VISA address for real hardware
+- `catalog_ref`: Reference to catalog entry for capability/topology resolution
+- `channels`: Channel keys (from catalog or explicit list)
 - `simulate`: If true, uses Mock with mock_config values
 - `mock_config`: Return values for mocked methods (keys = method names)
+
+**Catalog entries** (in `catalog/`) define structured channel topology:
+- Terminals: `[hi, lo]`, `[hi, lo, sense_hi, sense_lo]`, `[signal]`
+- Ground topology: `floating` (PSU), `shared` (DMM, scope), `earth`
+- Connector type: `binding_post`, `bnc`, `banana`, `triax`
+- Readback: `readback: true` on PSU/eload input caps (excluded from auto-matching)
 
 **Present to user:**
 ```
@@ -234,26 +264,10 @@ class PSU:
     def measure_current(self) -> float: pass
 ```
 
-**And conftest.py fixtures:**
-
-```python
-# tests/conftest.py
-import pytest
-
-@pytest.fixture(scope="session")
-def psu(instruments):
-    return instruments.get("psu")
-
-@pytest.fixture(scope="session")
-def dmm(instruments):
-    return instruments.get("dmm")
-
-@pytest.fixture(scope="session")
-def eload(instruments):
-    return instruments.get("eload")
-```
-
-The `instruments` dict is provided by the Litmus plugin and loads drivers from station config.
+**conftest.py fixtures are auto-registered** — the Litmus pytest plugin automatically
+creates session-scoped fixtures for each instrument role in the station config. No
+conftest.py boilerplate needed. Tests can directly use `psu`, `dmm`, `eload` as fixture
+parameters.
 
 ---
 
@@ -432,12 +446,13 @@ Want me to:
 
 1. **STOP and ASK** before each step - never proceed without approval
 2. **Pass `project=`** to ALL calls after init
-3. **Station format:** `driver` (import path) + `resource` + `simulate` + `mock_config`
+3. **Station format:** `type` + `driver` + `resource` + `catalog_ref` + `mock_config`
 4. **mock_config keys** are method names (e.g., `measure_voltage`, `measure_current`)
 5. **Create BOTH test files:** `.py` AND `config.yaml`
 6. **`_mock` in config.yaml:** Per-test/per-vector mock values
 7. **Standard Python math:** Instruments return `float`. Use standard Python arithmetic
-8. **Instrument fixtures:** Define in conftest.py pulling from `instruments` dict
+8. **Pin roles:** `power` (supply rails), `ground` (return), `signal` (default), `reference`
+9. **Characteristics:** Use `function:` (dc_voltage, dc_current, etc.) + `direction:` (input/output)
 
 ---
 

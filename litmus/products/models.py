@@ -9,21 +9,23 @@ flow down to:
 5. Results (full traceability back to specs)
 
 Key design principle: Product characteristics and instrument capabilities share
-the same vocabulary (Direction, Domain, SignalType, Comparator). This enables
-trivial capability matching - opposite directions pair.
+the same vocabulary (MeasurementFunction, Direction, SignalParameter, Comparator).
+This enables capability matching - opposite directions pair with parameter
+range containment.
 """
 
+from enum import StrEnum
 from typing import Any, Literal, Self
 
 from pydantic import BaseModel, Field, computed_field, model_validator
 
 from litmus.config.models import (
-    Capability,
     Comparator,
     Direction,
-    Domain,
+    FunctionCapability,
+    MeasurementFunction,
     RangeSpec,
-    SignalType,
+    SignalParameter,
 )
 from litmus.utils.ranges import expand_range
 
@@ -172,28 +174,48 @@ class ConditionPoint(BaseModel):
         return True
 
 
+class PinRole(StrEnum):
+    """Role of a physical DUT pin in the test system.
+
+    Distinguishes signal, ground, power, and reference pins so the
+    auto-match algorithm can route them correctly (e.g., ground pins
+    fan out to instrument LO terminals instead of competing for
+    measurement channels).
+    """
+
+    SIGNAL = "signal"       # Measured/stimulated signal
+    GROUND = "ground"       # Current return / reference
+    POWER = "power"         # Power input/output (VIN, VOUT)
+    REFERENCE = "reference" # Voltage reference, not driven
+
+
 class Pin(BaseModel):
     """Physical pin/pad on the DUT (ATML: Port).
 
     Represents a single connection point that can be routed through
-    a fixture to an instrument. Pin behaviour (power input, signal output,
-    ground reference, etc.) is described entirely by the characteristics
-    that reference it — not by a separate "type" field.
+    a fixture to an instrument. The ``role`` field classifies the pin's
+    purpose (signal, ground, power, reference) for fixture routing.
 
     Example YAML:
         pins:
           VIN:
             name: "J1.1"
             net: "VIN_5V"
+            role: power
             description: "5V power input from bench supply"
           VOUT:
             name: "J1.3"
             net: "VOUT_3V3"
             description: "3.3V regulated output"
+          GND:
+            name: "J1.2"
+            net: "GND"
+            role: ground
     """
 
     name: str  # Pin designator: "J1.1", "TP5", "U3.14"
     net: str | None = None  # Schematic net name
+    role: PinRole = PinRole.SIGNAL  # Pin role for routing
     description: str | None = None
 
 
@@ -241,8 +263,8 @@ class SignalGroup(BaseModel):
 class Characteristic(BaseModel):
     """A product characteristic tied to physical DUT interface (ATML: UUT Characteristic).
 
-    REUSES Direction, Domain, SignalType from the capabilities module.
-    This is the product-side mirror of instrument Capability.
+    Uses MeasurementFunction + Direction + parameters to describe what the DUT does
+    at a connection point. This is the product-side mirror of instrument FunctionCapability.
 
     The direction indicates whether the DUT provides (OUTPUT) or consumes (INPUT)
     this signal. Capability matching pairs OPPOSITE directions:
@@ -251,19 +273,20 @@ class Characteristic(BaseModel):
 
     REQUIRES physical interface: Every characteristic must be tied to at least one
     physical connection point (pin, net, or signal_group). This enables:
-    - Fixture mapping (characteristic → pin → fixture point → instrument channel)
+    - Fixture mapping (characteristic -> pin -> fixture point -> instrument channel)
     - Traceability from measurement back to schematic
     - Clear routing for test execution
 
     Example YAML:
         rail_3v3_output:
-          pin: VOUT               # Physical connection point (REQUIRED)
-          direction: output       # DUT provides this voltage
-          domain: voltage
-          signal_types: [dc]
+          function: dc_voltage
+          direction: output
           units: V
-          channel: "1"            # For multi-output DUTs (like instrument channels)
-          datasheet_ref: "DS-001 Section 7.3"
+          pin: VOUT
+          parameters:
+            voltage:
+              value: 3.3
+              units: V
           conditions:
             - temperature: 25
               load: 0.1
@@ -271,10 +294,10 @@ class Characteristic(BaseModel):
               tolerance_pct: 3
     """
 
-    # Shared vocabulary with instrument capabilities
+    # Signal identification (shared vocabulary with FunctionCapability)
+    function: MeasurementFunction = MeasurementFunction.DC_VOLTAGE
     direction: Direction
-    domain: Domain
-    signal_types: list[SignalType] = Field(default_factory=lambda: [SignalType.DC])
+    parameters: dict[str, SignalParameter] = Field(default_factory=dict)
     units: str
 
     # Physical interface - AT LEAST ONE REQUIRED
@@ -374,7 +397,7 @@ class Characteristic(BaseModel):
                 return point
         return None
 
-    def to_capability_requirement(self) -> Capability:
+    def to_capability_requirement(self) -> FunctionCapability:
         """Derive instrument capability requirement from this characteristic.
 
         Pairs OPPOSITE directions:
@@ -383,7 +406,7 @@ class Characteristic(BaseModel):
         - DUT BIDIR -> instrument BIDIR (need both)
 
         Returns:
-            A Capability describing what instrument capability is needed.
+            A FunctionCapability describing what instrument capability is needed.
         """
         # Direction pairing: opposite directions match
         if self.direction == Direction.OUTPUT:
@@ -393,21 +416,53 @@ class Characteristic(BaseModel):
         else:  # BIDIR
             inst_direction = Direction.BIDIR
 
-        # Derive range from conditions (with headroom)
+        # Build required parameters from conditions and explicit parameters
+        req_params: dict[str, SignalParameter] = dict(self.parameters)
+
+        # Derive range from conditions (with headroom) if not already in parameters
         all_nominals = [c.nominal for c in self.conditions if c.nominal is not None]
-        range_spec = None
         if all_nominals:
             max_nominal = max(all_nominals)
-            # Include 20% headroom for range coverage
-            range_max = max_nominal * 1.2
-            range_spec = RangeSpec(max=range_max, units=self.units)
+            range_max = max_nominal * 1.2  # 20% headroom
+            # Determine primary parameter name from function
+            primary_param = _primary_parameter_for_function(self.function)
+            if primary_param not in req_params:
+                req_params[primary_param] = SignalParameter(
+                    range=RangeSpec(max=range_max, units=self.units),
+                    units=self.units,
+                )
 
-        return Capability(
+        return FunctionCapability(
+            function=self.function,
             direction=inst_direction,
-            domain=self.domain,
-            signal_types=self.signal_types,
-            range=range_spec,
+            parameters=req_params,
         )
+
+
+def _primary_parameter_for_function(func: MeasurementFunction) -> str:
+    """Return the primary parameter name for a measurement function.
+
+    This maps each function to the main physical quantity it measures/sources.
+    Used when deriving parameter requirements from condition nominals.
+    """
+    _map = {
+        MeasurementFunction.DC_VOLTAGE: "voltage",
+        MeasurementFunction.AC_VOLTAGE: "voltage",
+        MeasurementFunction.DC_CURRENT: "current",
+        MeasurementFunction.AC_CURRENT: "current",
+        MeasurementFunction.RESISTANCE: "resistance",
+        MeasurementFunction.RESISTANCE_4W: "resistance",
+        MeasurementFunction.CAPACITANCE: "capacitance",
+        MeasurementFunction.INDUCTANCE: "inductance",
+        MeasurementFunction.IMPEDANCE: "impedance",
+        MeasurementFunction.FREQUENCY: "frequency",
+        MeasurementFunction.PERIOD: "period",
+        MeasurementFunction.TEMPERATURE: "temperature",
+        MeasurementFunction.WAVEFORM: "voltage",
+        MeasurementFunction.DC_POWER: "power",
+        MeasurementFunction.AC_POWER: "power",
+    }
+    return _map.get(func, "value")
 
 
 class TestRequirement(BaseModel):

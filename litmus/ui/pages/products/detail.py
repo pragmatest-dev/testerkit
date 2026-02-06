@@ -119,16 +119,16 @@ def _render_characteristics_tab(characteristics: dict):
         with ui.card().classes("w-full"):
             columns = [
                 {"name": "name", "label": "Name", "field": "name", "align": "left"},
+                {"name": "function", "label": "Function", "field": "function"},
                 {"name": "direction", "label": "Direction", "field": "direction"},
-                {"name": "domain", "label": "Domain", "field": "domain"},
                 {"name": "units", "label": "Units", "field": "units"},
                 {"name": "conditions", "label": "Conditions", "field": "conditions"},
             ]
             rows = [
                 {
                     "name": name,
+                    "function": char.get("function", ""),
                     "direction": char.get("direction", ""),
-                    "domain": char.get("domain", ""),
                     "units": char.get("units", ""),
                     "conditions": len(char.get("conditions", [])),
                 }
@@ -186,16 +186,16 @@ def _render_sequences_tab(product_id: str):
                             "field": "char",
                             "align": "left",
                         },
+                        {"name": "function", "label": "Function", "field": "function"},
                         {"name": "direction", "label": "Inst. Direction", "field": "direction"},
-                        {"name": "domain", "label": "Domain", "field": "domain"},
-                        {"name": "signals", "label": "Signals", "field": "signals"},
+                        {"name": "parameters", "label": "Parameters", "field": "parameters"},
                     ]
                     rows = [
                         {
                             "char": cap["characteristic"],
+                            "function": cap["function"],
                             "direction": cap["direction"],
-                            "domain": cap["domain"],
-                            "signals": ", ".join(cap["signal_types"]),
+                            "parameters": cap.get("parameters", ""),
                         }
                         for cap in required_caps
                     ]

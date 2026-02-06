@@ -6,14 +6,19 @@ instrument:
   name: DC Electronic Load
   description: Programmable DC electronic load for sinking current from DUT outputs
   icon: downloading
+  channels:
+    "1": {terminals: [hi, lo], connector: binding_post, ground: shared}
 
 capabilities:
-  - name: current_sink
+  - function: dc_current
     direction: input
-    domain: current
-    signal_types: [dc]
+    parameters:
+      current:
+        range: {min: 0, max: 30, units: A}
+    modes: [constant_current]
 
-  - name: voltage_sense
+  - function: dc_voltage
     direction: input
-    domain: voltage
-    signal_types: [dc]
+    parameters:
+      voltage:
+        range: {min: 0, max: 150, units: V}

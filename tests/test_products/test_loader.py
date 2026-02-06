@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from litmus.config.models import Comparator, Direction, Domain, SignalType
+from litmus.config.models import Comparator, Direction, MeasurementFunction
 from litmus.products.limits import derive_limit
 from litmus.products.loader import load_product, load_products_from_directory
 
@@ -42,8 +42,7 @@ class TestLoadProduct:
         char = product.characteristics["rail_3v3_output"]
 
         assert char.direction == Direction.OUTPUT
-        assert char.domain == Domain.VOLTAGE
-        assert SignalType.DC in char.signal_types
+        assert char.function == MeasurementFunction.DC_VOLTAGE
         assert char.units == "V"
 
     def test_characteristic_direction_input(self, power_board_path):
@@ -143,10 +142,10 @@ class TestIntegration:
 
         # DUT OUTPUT -> instrument INPUT
         assert cap.direction == Direction.INPUT
-        assert cap.domain == Domain.VOLTAGE
-        assert cap.range is not None
+        assert cap.function == MeasurementFunction.DC_VOLTAGE
+        assert "voltage" in cap.parameters
         # Max nominal is 3.3V, with 20% headroom = 3.96V
-        assert float(cap.range.max) == pytest.approx(3.96)
+        assert float(cap.parameters["voltage"].range.max) == pytest.approx(3.96)
 
 
 class TestLoadProductsFromDirectory:

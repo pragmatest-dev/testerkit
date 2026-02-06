@@ -7,7 +7,6 @@ from pydantic import BaseModel, Field, computed_field
 
 from litmus.utils.ranges import expand_numeric_range, expand_range
 
-
 # =============================================================================
 # Capability Enums (shared vocabulary for products and instruments)
 # =============================================================================
@@ -21,35 +20,105 @@ class Direction(StrEnum):
     BIDIR = "bidir"  # Both (SMU, VNA)
 
 
-class Domain(StrEnum):
-    """Physical domain of measurement or stimulus."""
+class MeasurementFunction(StrEnum):
+    """Named signal measurement/stimulus functions (ATML/IEEE 1641 inspired).
 
-    # Electrical - basic
-    VOLTAGE = "voltage"
-    CURRENT = "current"
+    Replaces the Domain + SignalType pair with a single enum that describes
+    what an instrument *does*. Grouped by IVI instrument class for clarity.
+    """
+
+    # DMM functions (IVI-DMM)
+    DC_VOLTAGE = "dc_voltage"
+    AC_VOLTAGE = "ac_voltage"
+    DC_CURRENT = "dc_current"
+    AC_CURRENT = "ac_current"
     RESISTANCE = "resistance"
-    POWER = "power"
-    # Electrical - reactive
+    RESISTANCE_4W = "resistance_4w"
     CAPACITANCE = "capacitance"
     INDUCTANCE = "inductance"
     IMPEDANCE = "impedance"
-    # Electrical - frequency
     FREQUENCY = "frequency"
-    PHASE = "phase"
-    # Time domain
-    TIME = "time"
-    LOGIC = "logic"
-    # Physical
+    PERIOD = "period"
     TEMPERATURE = "temperature"
 
+    # Oscilloscope functions (IVI-Scope)
+    WAVEFORM = "waveform"
 
-class SignalType(StrEnum):
-    """Type of signal being measured or sourced."""
+    # Power supply functions (IVI-DCPwr)
+    DC_POWER = "dc_power"
+    AC_POWER = "ac_power"
 
-    DC = "dc"
-    AC = "ac"
-    PULSED = "pulsed"
+    # Function generator (IVI-FGen)
+    SINE = "sine"
+    SQUARE = "square"
+    RAMP = "ramp"
+    TRIANGLE = "triangle"
+    PULSE = "pulse"
+    ARBITRARY = "arbitrary"
+
+    # SMU functions (combined source-measure)
+    # Use DC_VOLTAGE/DC_CURRENT with direction=bidir for SMU
+
+    # RF functions
+    RF_POWER = "rf_power"
+    RF_CW = "rf_cw"
+
+    # Digital / logic
+    LOGIC = "logic"
+    COUNTER = "counter"
+
+    # Electronic load modes
     TRANSIENT = "transient"
+
+
+class TerminalRole(StrEnum):
+    """Physical terminal on an instrument channel (ATE/IVI standard names)."""
+
+    HI = "hi"              # High-side force terminal (positive)
+    LO = "lo"              # Low-side / return terminal (negative/ground)
+    SENSE_HI = "sense_hi"  # Remote sense high (Kelvin connection)
+    SENSE_LO = "sense_lo"  # Remote sense low
+    GUARD = "guard"        # Guard terminal (triax center)
+    SIGNAL = "signal"      # Single-ended signal (BNC center, probe tip)
+    TRIGGER = "trigger"    # Trigger I/O
+
+
+class GroundTopology(StrEnum):
+    """How channel grounds relate to each other and earth."""
+
+    FLOATING = "floating"  # Channels isolated from each other (typical PSU)
+    SHARED = "shared"      # All channels share common ground (typical scope, DMM)
+    EARTH = "earth"        # Referenced to earth ground
+
+
+class ConnectorType(StrEnum):
+    """Physical connector type on instrument."""
+
+    BINDING_POST = "binding_post"
+    BANANA = "banana"
+    BNC = "bnc"
+    TERMINAL_BLOCK = "terminal_block"
+    PROBE = "probe"
+    TRIAX = "triax"
+    SMA = "sma"
+    SMB = "smb"
+    SPRING = "spring"
+
+
+class ParameterRole(StrEnum):
+    """Role of a signal parameter in a capability.
+
+    Describes how a parameter functions within a measurement or stimulus:
+    - CONTROLLABLE: Instrument can set this value (e.g., output voltage)
+    - MEASURABLE: Instrument can read this value (e.g., measured voltage)
+    - CAPABILITY: Performance limit of the instrument (e.g., bandwidth)
+    - CONDITION: Operating condition that affects other parameters (e.g., temperature)
+    """
+
+    CONTROLLABLE = "controllable"
+    MEASURABLE = "measurable"
+    CAPABILITY = "capability"
+    CONDITION = "condition"
 
 
 class Comparator(StrEnum):
@@ -156,22 +225,119 @@ class InstrumentChannelSpec(BaseModel):
         return [str(i + 1) for i in range(self.count)]
 
 
-class Capability(BaseModel):
-    """A single capability of an instrument.
+class ChannelTopology(BaseModel):
+    """Physical topology of a single instrument channel.
 
-    Describes what an instrument can measure or source, including
-    the physical domain, signal type, range, accuracy, and features.
+    Describes the physical terminals, connector type, and ground topology
+    for a channel. Used in catalog and instrument library entries to model
+    how instruments physically connect to the DUT.
+
+    Example YAML:
+        "1":
+          label: "6V/5A Output"
+          terminals: [hi, lo, sense_hi, sense_lo]
+          connector: binding_post
+          ground: floating
     """
 
-    direction: Direction
-    domain: Domain
-    signal_types: list[SignalType] = Field(default_factory=list)
-    channels: InstrumentChannelSpec = Field(default_factory=InstrumentChannelSpec)
+    label: str | None = None  # Display name, e.g., "6V/5A Output"
+    terminals: list[TerminalRole] = Field(
+        default_factory=lambda: [TerminalRole.HI, TerminalRole.LO]
+    )
+    connector: ConnectorType | None = None
+    ground: GroundTopology = GroundTopology.SHARED
+
+
+class SignalParameter(BaseModel):
+    """A named parameter within a measurement function's capability.
+
+    Each parameter describes a dimension of an instrument's capability
+    (range, accuracy, resolution) or a fixed performance characteristic
+    (bandwidth, sample rate).
+
+    Example YAML:
+        voltage:
+          range: {min: 0.0001, max: 1000, units: V}
+          accuracy: {pct_reading: 0.0035, pct_range: 0.0006}
+          resolution: {digits: 6.5}
+        bandwidth:
+          value: 300000
+          units: Hz
+          role: capability
+    """
+
     range: RangeSpec | None = None
     accuracy: AccuracySpec | None = None
     resolution: ResolutionSpec | None = None
-    features: list[str] = Field(default_factory=list)
+    value: float | None = None  # Fixed value (for capability params like bandwidth)
+    units: str | None = None
+    role: ParameterRole = ParameterRole.CONTROLLABLE
+
+
+class ConditionSpec(BaseModel):
+    """Specification for matching against a condition value.
+
+    Used in ParameterCondition to specify when a conditional override applies.
+
+    Example: accuracy changes when voltage range exceeds 100V
+        condition: {above: 100}
+    """
+
+    above: float | None = None
+    below: float | None = None
+    min: float | None = None
+    max: float | None = None
+    value: float | None = None  # Exact match
+
+
+class ParameterCondition(BaseModel):
+    """Conditional parameter override (accuracy varies with range, etc.).
+
+    Describes how one parameter's specs change based on another parameter's value.
+    Used for datasheet derating curves and range-dependent accuracy specs.
+
+    Example YAML:
+        conditions:
+          - when:
+              voltage: {above: 100}
+            accuracy: {pct_reading: 0.015, pct_range: 0.001}
+    """
+
+    when: dict[str, ConditionSpec] = Field(default_factory=dict)
+    accuracy: AccuracySpec | None = None
+    range: RangeSpec | None = None
+    resolution: ResolutionSpec | None = None
+
+
+class FunctionCapability(BaseModel):
+    """A single capability of an instrument (replaces old Capability).
+
+    Describes what an instrument can measure or source using the ATML/IEEE 1641
+    signal-parameter model: a measurement function with named parameters.
+
+    The function field identifies *what kind of measurement or stimulus* this is.
+    Parameters describe the ranges, accuracy, and resolution for each dimension.
+    Direction indicates whether this measures (input) or sources (output).
+
+    Example YAML:
+        - function: dc_voltage
+          direction: input
+          parameters:
+            voltage:
+              range: {min: 0.0001, max: 1000, units: V}
+              accuracy: {pct_reading: 0.0035, pct_range: 0.0006}
+              resolution: {digits: 6.5}
+          channels: ["1"]
+          readback: false
+    """
+
+    function: MeasurementFunction
+    direction: Direction
+    parameters: dict[str, SignalParameter] = Field(default_factory=dict)
+    channels: list[str] = Field(default_factory=list)
     modes: list[str] = Field(default_factory=list)
+    conditions: list[ParameterCondition] | None = None
+    readback: bool = False  # Built-in meter, not primary measurement
 
 
 class Limit(BaseModel):
@@ -293,21 +459,23 @@ class StationInstance(BaseModel):
 class FixturePoint(BaseModel):
     """A named routing junction on a test fixture.
 
-    Maps a DUT connection point to an instrument channel, enabling
-    complete signal routing traceability. Called "Point" rather than
-    "Channel" to avoid confusion with instrument channels.
+    Maps a DUT connection point to an instrument channel and terminal,
+    enabling complete signal routing traceability. Called "Point" rather
+    than "Channel" to avoid confusion with instrument channels.
 
     Terminology:
     - Pin: Physical DUT connection point (J1.1, TP5)
     - Net: Schematic signal name (VOUT_3V3)
     - FixturePoint: Named routing junction (vout_measure)
     - InstrumentChannel: Physical channel on instrument (CH1, ai0)
+    - InstrumentTerminal: Physical terminal (hi, lo, signal)
 
     Example YAML:
         vout_measure:
           name: vout_measure
           instrument: dmm
           instrument_channel: "1"
+          instrument_terminal: hi
           dut_pin: VOUT
           net: "VOUT_3V3"
     """
@@ -315,6 +483,7 @@ class FixturePoint(BaseModel):
     name: str
     instrument: str  # Reference to instrument config
     instrument_channel: str | None = None
+    instrument_terminal: str | None = None  # "hi", "lo", "signal", etc.
     description: str | None = None
 
     # DUT-side mapping (ATML: signal routing)

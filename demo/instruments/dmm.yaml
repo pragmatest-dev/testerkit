@@ -6,29 +6,39 @@ instrument:
   name: Digital Multimeter
   description: General-purpose DMM for DC/AC voltage, current, and resistance measurement
   icon: speed
+  channels:
+    "1": {terminals: [hi, lo], connector: binding_post, ground: shared}
 
 capabilities:
-  - name: dc_voltage_measure
+  - function: dc_voltage
     direction: input
-    domain: voltage
-    signal_types: [dc]
+    parameters:
+      voltage:
+        range: {min: 0.001, max: 1000, units: V}
 
-  - name: ac_voltage_measure
+  - function: ac_voltage
     direction: input
-    domain: voltage
-    signal_types: [ac]
+    parameters:
+      voltage:
+        range: {min: 0.001, max: 750, units: V}
+      bandwidth:
+        range: {min: 3, max: 300000, units: Hz}
+        role: capability
 
-  - name: dc_current_measure
+  - function: dc_current
     direction: input
-    domain: current
-    signal_types: [dc]
+    parameters:
+      current:
+        range: {min: 0.0000001, max: 10, units: A}
 
-  - name: ac_current_measure
+  - function: ac_current
     direction: input
-    domain: current
-    signal_types: [ac]
+    parameters:
+      current:
+        range: {min: 0.000001, max: 10, units: A}
 
-  - name: resistance_measure
+  - function: resistance
     direction: input
-    domain: resistance
-    signal_types: [dc]
+    parameters:
+      resistance:
+        range: {min: 0.01, max: 100000000, units: ohm}

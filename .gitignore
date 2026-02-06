@@ -10,3 +10,4 @@ results/
 .claude/settings.local.json
 demo/uv.lock
 dist/
+.playwright-mcp/

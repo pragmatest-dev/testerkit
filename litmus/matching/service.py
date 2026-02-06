@@ -4,12 +4,12 @@ Provides deterministic matching between product requirements and station capabil
 This is the core service layer that the UI, API, and MCP tools all use.
 
 Key concepts:
-- Products define characteristics (what the DUT does: OUTPUT voltage, INPUT current)
+- Products define characteristics with MeasurementFunction + Direction + parameters
 - Characteristics derive capability requirements via direction pairing:
   - DUT OUTPUT -> Instrument INPUT (measure what DUT provides)
   - DUT INPUT -> Instrument OUTPUT (source what DUT needs)
-- Stations have instruments with capabilities (what they can measure/source)
-- Matching finds stations that satisfy all product requirements
+- Stations have instruments with FunctionCapability entries
+- Matching is 3-tier: function match -> direction match -> parameter range containment
 """
 
 from pathlib import Path
@@ -17,32 +17,38 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
-from litmus.config.models import Direction, Domain, SignalType
+from litmus.config.models import (
+    Direction,
+    MeasurementFunction,
+    SignalParameter,
+)
 from litmus.products.loader import load_product
 from litmus.products.models import Product
-from litmus.utils.loaders import find_yaml_files, load_yaml_file, parse_capability_enums
+from litmus.utils.loaders import find_yaml_files, load_yaml_file
 from litmus.utils.paths import get_instrument_paths, get_station_paths
 
 
 class CapabilityRequirement(BaseModel):
     """A required instrument capability derived from a product characteristic."""
 
+    function: MeasurementFunction
     direction: Direction
-    domain: Domain
-    signal_types: list[SignalType] = Field(default_factory=list)
+    parameters: dict[str, SignalParameter] = Field(default_factory=dict)
     characteristic_name: str  # Which product characteristic this came from
-    range_max: str | None = None  # Max range needed (with units)
+    pins: list[str] = Field(default_factory=list)  # DUT pins for traceability
 
 
 class StationCapability(BaseModel):
     """A capability provided by a station instrument."""
 
+    function: MeasurementFunction
     direction: Direction
-    domain: Domain
-    signal_types: list[SignalType] = Field(default_factory=list)
-    name: str  # Capability name (e.g., "voltage_dc")
-    instrument_type: str  # Which instrument provides this
+    parameters: dict[str, SignalParameter] = Field(default_factory=dict)
+    name: str  # Capability name
+    instrument_type: str  # Which instrument type provides this
     instrument_name: str  # Instance name in station config
+    channel: str | None = None  # Specific channel this capability is on
+    readback: bool = False  # Built-in meter, not primary measurement
 
 
 class CapabilityMatch(BaseModel):
@@ -233,17 +239,14 @@ def get_required_capabilities(product: Product) -> list[CapabilityRequirement]:
 
     for char_name, char in product.characteristics.items():
         cap = char.to_capability_requirement()
-        range_max = None
-        if cap.range:
-            range_max = f"{cap.range.max} {cap.range.units}" if cap.range.max else None
 
         requirements.append(
             CapabilityRequirement(
+                function=cap.function,
                 direction=cap.direction,
-                domain=cap.domain,
-                signal_types=cap.signal_types,
+                parameters=cap.parameters,
                 characteristic_name=char_name,
-                range_max=range_max,
+                pins=char.resolved_pins,
             )
         )
 
@@ -254,8 +257,12 @@ def get_station_capabilities(station_config: dict) -> list[StationCapability]:
     """Extract all capabilities from a station's instruments.
 
     Iterates through the station's instruments, loads each instrument's
-    library definition, and extracts capabilities.
+    library definition, and extracts capabilities. Each capability is
+    expanded into per-channel entries so matching can allocate individual
+    channels.
     """
+    from litmus.catalog.loader import _normalize_channels
+
     capabilities = []
     # Instruments can be at root level or inside station block
     instruments = station_config.get("instruments", {})
@@ -267,31 +274,148 @@ def get_station_capabilities(station_config: dict) -> list[StationCapability]:
         if not inst_type:
             continue
 
+        # catalog_ref takes priority (model-specific data > generic library)
+        catalog_ref = inst_config.get("catalog_ref")
+        if catalog_ref:
+            _add_catalog_capabilities(catalog_ref, inst_type, inst_name, capabilities)
+            continue
+
+        # Fall back to generic instrument library
         library = load_instrument_library(inst_type)
         if library and "capabilities" in library:
             for cap in library["capabilities"]:
                 try:
-                    direction, domain, signal_types = parse_capability_enums(
-                        cap.get("direction", "input"),
-                        cap.get("domain", "voltage"),
-                        cap.get("signal_types", []),
-                    )
-                except ValueError:
-                    # Skip capabilities with unknown enum values
+                    function = MeasurementFunction(cap["function"])
+                    direction = Direction(cap["direction"])
+                except (ValueError, KeyError):
                     continue
 
+                # Parse parameters
+                params: dict[str, SignalParameter] = {}
+                for param_name, param_data in cap.get("parameters", {}).items():
+                    params[param_name] = _parse_signal_parameter(param_data)
+
+                cap_name = cap.get("name", f"{function.value}_{direction.value}")
+                readback = bool(cap.get("readback", False))
+
+                # Expand per-channel
+                channels = _normalize_channels(cap.get("channels"))
+
+                if channels:
+                    for ch in channels:
+                        capabilities.append(
+                            StationCapability(
+                                function=function,
+                                direction=direction,
+                                parameters=params,
+                                name=cap_name,
+                                instrument_type=inst_type,
+                                instrument_name=inst_name,
+                                channel=ch,
+                                readback=readback,
+                            )
+                        )
+                else:
+                    capabilities.append(
+                        StationCapability(
+                            function=function,
+                            direction=direction,
+                            parameters=params,
+                            name=cap_name,
+                            instrument_type=inst_type,
+                            instrument_name=inst_name,
+                            readback=readback,
+                        )
+                    )
+
+    return capabilities
+
+
+def _add_catalog_capabilities(
+    catalog_ref: str,
+    inst_type: str,
+    inst_name: str,
+    capabilities: list[StationCapability],
+) -> None:
+    """Add capabilities from a catalog reference, expanded per-channel."""
+    from litmus.catalog.loader import resolve_catalog_ref
+
+    entry = resolve_catalog_ref(catalog_ref)
+    if entry:
+        for cap in entry.capabilities:
+            cap_name = f"{cap.function.value}_{cap.direction.value}"
+            channels = cap.channels
+
+            if channels:
+                for ch in channels:
+                    capabilities.append(
+                        StationCapability(
+                            function=cap.function,
+                            direction=cap.direction,
+                            parameters=cap.parameters,
+                            name=cap_name,
+                            instrument_type=inst_type,
+                            instrument_name=inst_name,
+                            channel=ch,
+                            readback=cap.readback,
+                        )
+                    )
+            else:
                 capabilities.append(
                     StationCapability(
-                        direction=direction,
-                        domain=domain,
-                        signal_types=signal_types,
-                        name=cap.get("name", ""),
+                        function=cap.function,
+                        direction=cap.direction,
+                        parameters=cap.parameters,
+                        name=cap_name,
                         instrument_type=inst_type,
                         instrument_name=inst_name,
+                        readback=cap.readback,
                     )
                 )
 
-    return capabilities
+
+def _parse_signal_parameter(data: dict[str, Any]) -> SignalParameter:
+    """Parse a SignalParameter from dict data."""
+    from litmus.config.models import (
+        AccuracySpec,
+        ParameterRole,
+        RangeSpec,
+        ResolutionSpec,
+    )
+
+    range_spec = None
+    if "range" in data:
+        r = data["range"]
+        range_spec = RangeSpec(min=r.get("min"), max=r.get("max"), units=r.get("units", ""))
+
+    accuracy_spec = None
+    if "accuracy" in data:
+        a = data["accuracy"]
+        accuracy_spec = AccuracySpec(
+            pct_reading=a.get("pct_reading"),
+            pct_range=a.get("pct_range"),
+            absolute=a.get("absolute"),
+        )
+
+    resolution_spec = None
+    if "resolution" in data:
+        r = data["resolution"]
+        resolution_spec = ResolutionSpec(
+            bits=r.get("bits"), digits=r.get("digits"), value=r.get("value"), units=r.get("units")
+        )
+
+    role = ParameterRole.CONTROLLABLE
+    if "role" in data:
+        role = ParameterRole(data["role"])
+
+    return SignalParameter(
+        range=range_spec,
+        accuracy=accuracy_spec,
+        resolution=resolution_spec,
+        value=data.get("value"),
+        units=data.get("units"),
+        role=role,
+    )
 
 
 # -----------------------------------------------------------------------------
@@ -304,27 +428,67 @@ def capability_satisfies(
 ) -> bool:
     """Check if a station capability satisfies a requirement.
 
-    Match criteria:
-    - Direction must match (or station capability is BIDIR)
-    - Domain must match
-    - Signal types must overlap (at least one common type)
+    3-tier matching:
+    1. Function must match
+    2. Direction must match (or station capability is BIDIR)
+    3. Parameter ranges must contain required values/ranges
     """
-    # Direction must match (or station cap is bidir)
+    # Tier 1: Function must match
+    if station_cap.function != required.function:
+        return False
+
+    # Tier 2: Direction must match (or station cap is bidir)
     if station_cap.direction != required.direction:
         if station_cap.direction != Direction.BIDIR:
             return False
 
-    # Domain must match
-    if station_cap.domain != required.domain:
-        return False
-
-    # Signal types must overlap (if both specify types)
-    if required.signal_types and station_cap.signal_types:
-        station_signals = set(station_cap.signal_types)
-        required_signals = set(required.signal_types)
-        if not station_signals.intersection(required_signals):
+    # Tier 3: Parameter range containment
+    for param_name, req_param in required.parameters.items():
+        inst_param = station_cap.parameters.get(param_name)
+        if inst_param is None:
+            # Instrument doesn't have this parameter
+            if req_param.range is not None or req_param.value is not None:
+                return False
+            continue
+        if not _range_contains(inst_param, req_param):
             return False
 
+    return True
+
+
+def _range_contains(inst_param: SignalParameter, req_param: SignalParameter) -> bool:
+    """Check if instrument parameter range contains the required value/range.
+
+    Handles both point values and range subsets:
+    - req has value: inst range must contain that value
+    - req has range: inst range must contain the entire required range
+    - req has neither: always satisfied (no constraint)
+    """
+    # If requirement has a fixed value, check it's within instrument range
+    if req_param.value is not None and inst_param.range is not None:
+        if inst_param.range.min is not None and req_param.value < inst_param.range.min:
+            return False
+        if inst_param.range.max is not None and req_param.value > inst_param.range.max:
+            return False
+        return True
+
+    # If requirement has a range, check containment
+    if req_param.range is not None and inst_param.range is not None:
+        if (
+            req_param.range.min is not None
+            and inst_param.range.min is not None
+            and req_param.range.min < inst_param.range.min
+        ):
+            return False
+        if (
+            req_param.range.max is not None
+            and inst_param.range.max is not None
+            and req_param.range.max > inst_param.range.max
+        ):
+            return False
+        return True
+
+    # No range constraint on requirement — always satisfied
     return True
 
 
@@ -342,8 +506,10 @@ def match_capabilities(
     for req in required:
         match = CapabilityMatch(requirement=req)
 
-        # Find a capability that satisfies this requirement
+        # Find an unused capability that satisfies this requirement
         for i, avail in enumerate(available):
+            if i in used_capabilities:
+                continue
             if capability_satisfies(avail, req):
                 match.matched_by = avail
                 match.satisfied = True
@@ -428,20 +594,20 @@ def check_station_compatibility(
         "missing": [
             {
                 "characteristic": m.characteristic_name,
+                "function": m.function.value,
                 "direction": m.direction.value,
-                "domain": m.domain.value,
-                "signal_types": [st.value for st in m.signal_types],
             }
             for m in match_result.missing
         ],
         "matches": [
             {
                 "characteristic": m.requirement.characteristic_name,
+                "function": m.requirement.function.value,
                 "direction": m.requirement.direction.value,
-                "domain": m.requirement.domain.value,
                 "matched_by": {
                     "instrument": m.matched_by.instrument_name,
                     "capability": m.matched_by.name,
+                    "channel": m.matched_by.channel,
                 }
                 if m.matched_by
                 else None,
@@ -456,13 +622,6 @@ def find_partial_stations(product: Product) -> list[PartialStationMatch]:
 
     Returns stations that have some but not all required capabilities.
     Useful for procurement planning - shows what's available and what to order.
-
-    Args:
-        product: Product to match against
-
-    Returns:
-        List of PartialStationMatch objects, sorted by coverage (highest first).
-        Only includes stations with 0 < coverage < 100%.
     """
     required = get_required_capabilities(product)
     if not required:
@@ -487,10 +646,9 @@ def find_partial_stations(product: Product) -> list[PartialStationMatch]:
 
         # Only include partial matches (not 0% and not 100%)
         if 0 < coverage_pct < 100:
-            # Build human-readable missing list
             missing_readable = []
             for req in match_result.missing:
-                missing_readable.append(f"{req.domain.value} {req.direction.value}")
+                missing_readable.append(f"{req.function.value} {req.direction.value}")
 
             results.append(
                 PartialStationMatch(
@@ -548,7 +706,9 @@ def find_all_station_matches(product: Product) -> dict[str, list]:
             "coverage": coverage_pct,
             "satisfied": satisfied_count,
             "total": total_count,
-            "missing": [f"{r.domain.value} {r.direction.value}" for r in match_result.missing],
+            "missing": [
+                f"{r.function.value} {r.direction.value}" for r in match_result.missing
+            ],
         }
 
         if coverage_pct == 100:

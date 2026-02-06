@@ -45,10 +45,14 @@ def instrument_edit_page(instrument_type: str):
         "simulation": dict(data.get("simulation", {})),
     }
 
-    # Domain and direction options
+    # Function and direction options
     direction_options = ["input", "output", "bidir"]
-    domain_options = ["voltage", "current", "power", "resistance", "frequency", "time"]
-    signal_type_options = ["dc", "ac", "pulse", "pwm", "square", "sine", "ramp"]
+    function_options = [
+        "dc_voltage", "ac_voltage", "dc_current", "ac_current",
+        "resistance", "resistance_4w", "capacitance", "inductance",
+        "impedance", "frequency", "period", "temperature",
+        "waveform", "dc_power", "ac_power",
+    ]
 
     with ui.column().classes("w-full p-6 gap-6"):
         # Header
@@ -101,7 +105,7 @@ def instrument_edit_page(instrument_type: str):
 
             with ui.tab_panel(caps_tab):
                 _render_capabilities_tab(
-                    form_data, direction_options, domain_options, signal_type_options
+                    form_data, direction_options, function_options
                 )
 
             with ui.tab_panel(scpi_tab):
@@ -156,8 +160,7 @@ def _render_info_tab(form_data: dict):
 def _render_capabilities_tab(
     form_data: dict,
     direction_options: list,
-    domain_options: list,
-    signal_type_options: list,
+    function_options: list,
 ):
     """Render the capabilities edit tab."""
     capabilities = form_data["capabilities"]
@@ -175,8 +178,7 @@ def _render_capabilities_tab(
                     on_click=lambda: _show_add_capability_dialog(
                         form_data,
                         direction_options,
-                        domain_options,
-                        signal_type_options,
+                        function_options,
                         caps_container,
                     ),
                 ).props("flat color=primary dense")
@@ -193,8 +195,7 @@ def _render_capabilities_tab(
                             cap,
                             form_data,
                             direction_options,
-                            domain_options,
-                            signal_type_options,
+                            function_options,
                             refresh_caps,
                         )
                 else:
@@ -210,8 +211,7 @@ def _render_capability_card(
     cap: dict,
     form_data: dict,
     direction_options: list,
-    domain_options: list,
-    signal_type_options: list,
+    function_options: list,
     refresh_callback,
 ):
     """Render a capability card with edit/delete options."""
@@ -222,7 +222,7 @@ def _render_capability_card(
                     ui.icon("tune").classes("text-slate-500")
                     ui.label(cap.get("name", "")).classes("font-semibold font-mono")
                     ui.badge(cap.get("direction", "")).props("outline")
-                    ui.badge(cap.get("domain", "")).props("outline color=blue")
+                    ui.badge(cap.get("function", "")).props("outline color=blue")
                 ui.button(
                     icon="delete",
                     on_click=lambda i=index: _delete_capability(
@@ -245,6 +245,16 @@ def _render_capability_card(
 
                 with ui.row().classes("gap-4 w-full"):
                     with ui.column().classes("gap-1 flex-1"):
+                        ui.label("Function").classes(
+                            "text-sm font-medium text-slate-700"
+                        )
+                        ui.select(
+                            options=function_options,
+                            value=cap.get("function", "dc_voltage"),
+                            on_change=lambda e, c=cap: c.update({"function": e.value}),
+                        ).props("outlined dense").classes("w-full")
+
+                    with ui.column().classes("gap-1 flex-1"):
                         ui.label("Direction").classes(
                             "text-sm font-medium text-slate-700"
                         )
@@ -253,27 +263,6 @@ def _render_capability_card(
                             value=cap.get("direction", "input"),
                             on_change=lambda e, c=cap: c.update({"direction": e.value}),
                         ).props("outlined dense").classes("w-full")
-
-                    with ui.column().classes("gap-1 flex-1"):
-                        ui.label("Domain").classes(
-                            "text-sm font-medium text-slate-700"
-                        )
-                        ui.select(
-                            options=domain_options,
-                            value=cap.get("domain", "voltage"),
-                            on_change=lambda e, c=cap: c.update({"domain": e.value}),
-                        ).props("outlined dense").classes("w-full")
-
-                with ui.column().classes("gap-1 w-full"):
-                    ui.label("Signal Types").classes(
-                        "text-sm font-medium text-slate-700"
-                    )
-                    ui.select(
-                        options=signal_type_options,
-                        value=cap.get("signal_types", []),
-                        multiple=True,
-                        on_change=lambda e, c=cap: c.update({"signal_types": e.value}),
-                    ).props("outlined dense").classes("w-full")
 
 
 def _render_scpi_tab(form_data: dict):
@@ -402,17 +391,15 @@ def _delete_capability(capabilities: list, index: int, refresh_callback):
 def _show_add_capability_dialog(
     form_data: dict,
     direction_options: list,
-    domain_options: list,
-    signal_type_options: list,
+    function_options: list,
     container,
 ):
     """Show dialog to add a new capability."""
     cap_form = {
         "name": "",
         "description": "",
+        "function": "dc_voltage",
         "direction": "input",
-        "domain": "voltage",
-        "signal_types": [],
     }
 
     with ui.dialog() as dialog, ui.card().classes("w-96"):
@@ -428,26 +415,18 @@ def _show_add_capability_dialog(
                 on_change=lambda e: cap_form.update({"description": e.value}),
             )
             with ui.column().classes("gap-1"):
+                ui.label("Function").classes("text-sm font-medium text-slate-700")
+                ui.select(
+                    options=function_options,
+                    value="dc_voltage",
+                    on_change=lambda e: cap_form.update({"function": e.value}),
+                ).props("outlined dense").classes("w-full")
+            with ui.column().classes("gap-1"):
                 ui.label("Direction").classes("text-sm font-medium text-slate-700")
                 ui.select(
                     options=direction_options,
                     value="input",
                     on_change=lambda e: cap_form.update({"direction": e.value}),
-                ).props("outlined dense").classes("w-full")
-            with ui.column().classes("gap-1"):
-                ui.label("Domain").classes("text-sm font-medium text-slate-700")
-                ui.select(
-                    options=domain_options,
-                    value="voltage",
-                    on_change=lambda e: cap_form.update({"domain": e.value}),
-                ).props("outlined dense").classes("w-full")
-            with ui.column().classes("gap-1"):
-                ui.label("Signal Types").classes("text-sm font-medium text-slate-700")
-                ui.select(
-                    options=signal_type_options,
-                    value=[],
-                    multiple=True,
-                    on_change=lambda e: cap_form.update({"signal_types": e.value}),
                 ).props("outlined dense").classes("w-full")
         with ui.card_actions().classes("justify-end"):
             ui.button("Cancel", on_click=dialog.close).props("flat")
@@ -459,13 +438,11 @@ def _show_add_capability_dialog(
 
                 new_cap = {
                     "name": cap_form["name"],
+                    "function": cap_form["function"],
                     "direction": cap_form["direction"],
-                    "domain": cap_form["domain"],
                 }
                 if cap_form["description"]:
                     new_cap["description"] = cap_form["description"]
-                if cap_form["signal_types"]:
-                    new_cap["signal_types"] = cap_form["signal_types"]
 
                 form_data["capabilities"].append(new_cap)
                 dialog.close()

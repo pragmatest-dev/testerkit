@@ -11,7 +11,7 @@ from litmus.utils.loaders import (
     find_or_create_path,
     find_yaml_files,
     load_yaml_file,
-    parse_capability_enums,
+    parse_function_direction,
 )
 from litmus.utils.paths import (
     ResourceType,
@@ -36,7 +36,7 @@ __all__ = [
     # loaders
     "find_yaml_files",
     "load_yaml_file",
-    "parse_capability_enums",
+    "parse_function_direction",
     "find_or_create_path",
     # paths
     "ResourceType",

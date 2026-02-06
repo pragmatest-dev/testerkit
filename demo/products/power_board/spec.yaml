@@ -20,14 +20,17 @@ pins:
   J1_VIN:
     name: "J1.1"
     net: "VIN_5V"
+    role: power
     description: "5V power input from bench supply"
   J1_GND:
     name: "J1.2"
     net: "GND"
+    role: ground
     description: "Ground return"
   J1_VOUT:
     name: "J1.3"
     net: "VOUT_3V3"
+    role: power
     description: "3.3V regulated output to load"
 
   # Test points for probing
@@ -42,6 +45,7 @@ pins:
   TP_GND:
     name: "TP3"
     net: "GND"
+    role: ground
     description: "Ground reference test point"
 
 
@@ -49,9 +53,8 @@ pins:
 characteristics:
   # Input voltage range (measured at TP_VIN)
   input_voltage:
+    function: dc_voltage
     direction: input
-    domain: voltage
-    signal_types: [dc]
     units: V
     pin: TP_VIN
     datasheet_ref: "TLV1117-33 Table 6.3"
@@ -63,9 +66,8 @@ characteristics:
 
   # Quiescent current (measured at J1_VIN with no load)
   quiescent_current:
+    function: dc_current
     direction: input
-    domain: current
-    signal_types: [dc]
     units: mA
     pin: J1_VIN
     datasheet_ref: "TLV1117-33 Table 6.5"
@@ -78,9 +80,8 @@ characteristics:
 
   # Output voltage (measured at TP_VOUT)
   output_voltage:
+    function: dc_voltage
     direction: output
-    domain: voltage
-    signal_types: [dc]
     units: V
     pin: TP_VOUT
     datasheet_ref: "TLV1117-33 Table 6.5"
@@ -108,9 +109,8 @@ characteristics:
 
   # Load regulation (output change over load range)
   load_regulation:
+    function: dc_voltage
     direction: output
-    domain: voltage
-    signal_types: [dc]
     units: mV
     pin: TP_VOUT
     datasheet_ref: "TLV1117-33 Table 6.5"
@@ -124,9 +124,8 @@ characteristics:
 
   # Line regulation (output change over input range)
   line_regulation:
+    function: dc_voltage
     direction: output
-    domain: voltage
-    signal_types: [dc]
     units: mV
     pin: TP_VOUT
     datasheet_ref: "TLV1117-33 Table 6.5"
@@ -140,24 +139,26 @@ characteristics:
 
   # Output ripple/noise
   output_ripple:
+    function: ac_voltage
     direction: output
-    domain: voltage
-    signal_types: [ac]
     units: mV
     pin: TP_VOUT
     datasheet_ref: "Application note"
+    parameters:
+      bandwidth:
+        value: 10000000
+        units: Hz
+        role: condition
     conditions:
       - load: 0.5
-        bandwidth: 10000000  # 10MHz
         comparator: LE
         limit_high: 50
         description: "Output noise, 10Hz-10MHz"
 
   # Dropout voltage (VIN - VOUT at regulation limit)
   dropout_voltage:
+    function: dc_voltage
     direction: output
-    domain: voltage
-    signal_types: [dc]
     units: V
     pins: [TP_VIN, TP_VOUT]
     datasheet_ref: "TLV1117-33 Table 6.5"
@@ -170,9 +171,8 @@ characteristics:
 
   # Efficiency (calculated)
   efficiency:
+    function: dc_power
     direction: output
-    domain: power
-    signal_types: [dc]
     units: "%"
     pins: [J1_VIN, J1_VOUT]
     datasheet_ref: "Calculated: (VOUT*IOUT)/(VIN*IIN)"

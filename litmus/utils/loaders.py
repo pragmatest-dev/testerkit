@@ -8,12 +8,9 @@ from __future__ import annotations
 
 from collections.abc import Iterator
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 import yaml
-
-if TYPE_CHECKING:
-    from litmus.config.models import Direction, Domain, SignalType
 
 
 def find_yaml_files(
@@ -71,38 +68,27 @@ def load_yaml_file(path: Path) -> dict[str, Any] | None:
         return None
 
 
-def parse_capability_enums(
+def parse_function_direction(
+    function_str: str,
     direction_str: str,
-    domain_str: str,
-    signal_types_raw: list[str] | None = None,
-) -> tuple[Direction, Domain, list[SignalType]]:
-    """Parse capability enum values from YAML strings.
+) -> tuple:
+    """Parse measurement function and direction from YAML strings.
 
     Args:
+        function_str: MeasurementFunction string (e.g., "dc_voltage", "resistance").
         direction_str: Direction string (e.g., "input", "output", "bidir").
-        domain_str: Domain string (e.g., "voltage", "current").
-        signal_types_raw: List of signal type strings (e.g., ["dc", "ac"]).
 
     Returns:
-        Tuple of (Direction, Domain, list[SignalType]).
+        Tuple of (MeasurementFunction, Direction).
 
     Raises:
         ValueError: If any enum value is invalid.
-
-    Example:
-        >>> direction, domain, signal_types = parse_capability_enums(
-        ...     "output", "voltage", ["dc"]
-        ... )
     """
-    # Import here to avoid circular import
-    from litmus.config.models import Direction, Domain, SignalType
+    from litmus.config.models import Direction, MeasurementFunction
 
+    function = MeasurementFunction(function_str.lower())
     direction = Direction(direction_str.lower())
-    domain = Domain(domain_str.lower())
-    signal_types = [
-        SignalType(st.lower()) for st in (signal_types_raw or [])
-    ]
-    return direction, domain, signal_types
+    return function, direction
 
 
 def find_or_create_path(

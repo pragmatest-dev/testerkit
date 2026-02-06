@@ -3,14 +3,18 @@
 Wraps litmus.matching.service to provide UI-specific matching:
 - Pin -> characteristic reverse map
 - Compatible channels for a selected pin
-- Auto-suggest connections for bulk wiring
+- Auto-suggest connections for bulk wiring (3-phase algorithm)
+
+Phase 1: Signal/power pins via capability matching (exclusive channels, readback excluded)
+Phase 2: Ground pins via bus wiring (fan-out to LO terminals of allocated channels)
+Phase 3: Report unmatched pins
 """
 
 from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
-from litmus.config.models import Direction, Domain
+from litmus.config.models import Direction, MeasurementFunction, SignalParameter
 
 if TYPE_CHECKING:
     from litmus.products.models import Product
@@ -36,22 +40,35 @@ def get_compatible_channels_for_pin(
     char_by_pin: dict[str, list[str]],
     product: Product | None,
     instruments: dict[str, dict],
+    dut_pins: dict[str, dict] | None = None,
 ) -> set[str]:
     """Get instrument channels compatible with a selected pin.
 
     Returns a set of "role:channel" keys that can handle this pin's
-    characteristics. When no characteristic data is available, all
-    channels are returned as compatible (manual wiring mode).
+    characteristics. Only channels whose capability parameters actually
+    satisfy the requirement are included (not all channels on the instrument).
+
+    For ground pins (role == "ground"), returns LO terminals of all channels
+    instead of signal-matching channels.
+
+    When no characteristic data is available, all channels are returned
+    as compatible (manual wiring mode).
 
     Args:
         pin_key: The selected pin key.
         char_by_pin: Reverse map from build_pin_characteristic_map().
         product: Product model (may be None).
         instruments: Dict of role -> {type, driver, capabilities, channels}.
+        dut_pins: Dict of pin_key -> pin data (with role field).
 
     Returns:
         Set of "role:channel" strings for compatible channels.
     """
+    # Check if this is a ground pin
+    pin_role = _get_pin_role(pin_key, dut_pins)
+    if pin_role == "ground":
+        return _get_lo_channels(instruments)
+
     # Get all channels across all instruments
     all_channels: set[str] = set()
     for role, inst in instruments.items():
@@ -72,9 +89,9 @@ def get_compatible_channels_for_pin(
         cap = char.to_capability_requirement()
         requirements.append(
             {
+                "function": cap.function,
                 "direction": cap.direction,
-                "domain": cap.domain,
-                "signal_types": cap.signal_types,
+                "parameters": cap.parameters,
             }
         )
 
@@ -91,56 +108,212 @@ def get_compatible_channels_for_pin(
                 compatible.add(f"{role}:{ch}")
             continue
 
-        # Check if any instrument capability satisfies any requirement
+        # Check each requirement against each capability
         for req in requirements:
-            if _instrument_satisfies(caps, req):
-                for ch in inst.get("channels", ["1"]):
-                    compatible.add(f"{role}:{ch}")
-                break
+            matching_channels = _get_channels_satisfying(caps, req)
+            for ch in matching_channels:
+                compatible.add(f"{role}:{ch}")
 
     return compatible
 
 
-def _instrument_satisfies(capabilities: list[dict], requirement: dict[str, Any]) -> bool:
-    """Check if any instrument capability satisfies a requirement.
+def _get_lo_channels(instruments: dict[str, dict]) -> set[str]:
+    """Get all instrument channels that have LO terminals.
 
-    Matches on direction (with bidir support) and domain.
-    Signal types must overlap if both sides specify them.
+    For ground pin wiring — returns channels where we can wire to the LO terminal.
     """
+    compatible: set[str] = set()
+    for role, inst in instruments.items():
+        for ch in inst.get("channels", ["1"]):
+            # All channels have implicit LO terminals
+            compatible.add(f"{role}:{ch}")
+    return compatible
+
+
+def _get_pin_role(pin_key: str, dut_pins: dict[str, dict] | None) -> str:
+    """Get the role of a pin from the dut_pins dict."""
+    if dut_pins and pin_key in dut_pins:
+        return dut_pins[pin_key].get("role", "signal")
+    return "signal"
+
+
+def _get_channels_satisfying(
+    capabilities: list[dict], requirement: dict[str, Any]
+) -> list[str]:
+    """Get channels from capabilities that satisfy a requirement.
+
+    Returns only the channels on capabilities that match function, direction,
+    AND parameter ranges. Readback capabilities are excluded.
+    If a matching capability has no channels field, returns ["1"] as default.
+    """
+    req_function = requirement["function"]
     req_direction = requirement["direction"]
-    req_domain = requirement["domain"]
-    req_signals = set(requirement.get("signal_types", []))
+    req_params = requirement.get("parameters", {})
+
+    matching_channels: list[str] = []
 
     for cap in capabilities:
+        # Skip readback capabilities — not primary measurement
+        if cap.get("readback", False):
+            continue
+
+        cap_function = cap.get("function", "")
         cap_direction = cap.get("direction", "")
-        cap_domain = cap.get("domain", "")
 
         # Parse enums if they're strings
         try:
+            if isinstance(cap_function, str):
+                cap_function = MeasurementFunction(cap_function)
             if isinstance(cap_direction, str):
                 cap_direction = Direction(cap_direction)
-            if isinstance(cap_domain, str):
-                cap_domain = Domain(cap_domain)
         except ValueError:
+            continue
+
+        # Function must match
+        if cap_function != req_function:
             continue
 
         # Direction must match (or instrument is bidir)
         if cap_direction != req_direction and cap_direction != Direction.BIDIR:
             continue
 
-        # Domain must match
-        if cap_domain != req_domain:
+        # Parameter range check
+        if not _params_satisfy(cap.get("parameters", {}), req_params):
             continue
 
-        # Signal types must overlap if both specify
-        if req_signals:
-            cap_signals = set(cap.get("signal_types", []))
-            if cap_signals and not cap_signals.intersection(req_signals):
-                continue
+        # This capability matches — extract its channels
+        raw_channels = cap.get("channels")
+        if raw_channels and isinstance(raw_channels, list):
+            matching_channels.extend(raw_channels)
+        elif raw_channels and isinstance(raw_channels, str):
+            from litmus.utils.ranges import expand_range
+            matching_channels.extend(expand_range(raw_channels))
+        else:
+            matching_channels.append("1")
 
-        return True
+    return matching_channels
 
-    return False
+
+def _params_satisfy(
+    cap_params: dict[str, Any], req_params: dict[str, SignalParameter]
+) -> bool:
+    """Check if capability parameters satisfy required parameters.
+
+    Numeric comparisons are normalised to SI base units so that e.g.
+    a 6 mA requirement is correctly compared against a 5 A capability.
+    """
+    for param_name, req_param in req_params.items():
+        cap_param_data = cap_params.get(param_name)
+        if cap_param_data is None:
+            if req_param.range is not None or req_param.value is not None:
+                return False
+            continue
+
+        # Parse cap_param into SignalParameter-like data for comparison
+        cap_range = cap_param_data.get("range") if isinstance(cap_param_data, dict) else None
+
+        # Determine unit scale factor: convert requirement values into
+        # the capability's unit scale so numbers are directly comparable.
+        req_units = req_param.units
+        cap_units = None
+        if isinstance(cap_param_data, dict):
+            cap_units = cap_param_data.get("units")
+            if not cap_units and cap_range:
+                cap_units = cap_range.get("units")
+        scale = _unit_scale_factor(req_units, cap_units)
+
+        # Check value containment (scale requirement value to cap units)
+        if req_param.value is not None and cap_range:
+            scaled_val = req_param.value * scale
+            if cap_range.get("min") is not None and scaled_val < cap_range["min"]:
+                return False
+            if cap_range.get("max") is not None and scaled_val > cap_range["max"]:
+                return False
+
+        # Check range containment (scale requirement range to cap units)
+        if req_param.range is not None and cap_range:
+            if (
+                req_param.range.min is not None
+                and cap_range.get("min") is not None
+                and req_param.range.min * scale < cap_range["min"]
+            ):
+                return False
+            if (
+                req_param.range.max is not None
+                and cap_range.get("max") is not None
+                and req_param.range.max * scale > cap_range["max"]
+            ):
+                return False
+
+    return True
+
+
+# SI prefix multipliers relative to the base unit
+_SI_PREFIXES: dict[str, float] = {
+    "p": 1e-12, "n": 1e-9, "u": 1e-6, "µ": 1e-6,
+    "m": 1e-3, "": 1e0, "k": 1e3, "K": 1e3,
+    "M": 1e6, "G": 1e9, "T": 1e12,
+}
+
+# Base unit symbols recognised for prefix stripping
+_BASE_UNITS: set[str] = {
+    "V", "A", "W", "Hz", "F", "H", "s", "S",
+    "ohm", "Ohm", "dB", "dBm", "K", "C",
+}
+
+
+def _parse_si_unit(unit_str: str | None) -> tuple[float, str]:
+    """Parse a unit string into (multiplier, base_unit).
+
+    Examples:
+        "mA"  -> (1e-3, "A")
+        "kHz" -> (1e3, "Hz")
+        "V"   -> (1.0, "V")
+        "%"   -> (1.0, "%")
+        None  -> (1.0, "")
+    """
+    if not unit_str:
+        return 1.0, ""
+
+    # Try exact match first (e.g. "Hz", "ohm", "dBm", "%")
+    if unit_str in _BASE_UNITS or unit_str == "%":
+        return 1.0, unit_str
+
+    # Try stripping a single-char prefix
+    if len(unit_str) >= 2:
+        prefix, rest = unit_str[0], unit_str[1:]
+        if rest in _BASE_UNITS and prefix in _SI_PREFIXES:
+            return _SI_PREFIXES[prefix], rest
+
+    # Two-char base units with prefix (e.g. "kHz", "MHz")
+    if len(unit_str) >= 3:
+        prefix, rest = unit_str[0], unit_str[1:]
+        if rest in _BASE_UNITS and prefix in _SI_PREFIXES:
+            return _SI_PREFIXES[prefix], rest
+
+    # Unrecognised — treat as base unit with scale 1
+    return 1.0, unit_str
+
+
+def _unit_scale_factor(req_units: str | None, cap_units: str | None) -> float:
+    """Return the multiplier to convert a requirement value into capability units.
+
+    If both units share the same base (e.g. mA and A), returns the ratio
+    so that ``req_value * scale`` is in cap_units.  If units are absent or
+    incompatible (different base), returns 1.0 (no scaling).
+    """
+    if not req_units or not cap_units:
+        return 1.0
+    if req_units == cap_units:
+        return 1.0
+
+    req_mult, req_base = _parse_si_unit(req_units)
+    cap_mult, cap_base = _parse_si_unit(cap_units)
+
+    if req_base != cap_base or not req_base:
+        return 1.0  # Different physical quantities — no conversion
+
+    return req_mult / cap_mult
 
 
 def resolve_instrument_capabilities(station_config: dict) -> dict:
@@ -148,6 +321,7 @@ def resolve_instrument_capabilities(station_config: dict) -> dict:
 
     For each instrument that has a ``type`` field but no ``capabilities``,
     looks up the instrument library YAML and copies capabilities in.
+    Also populates ``channels`` from the library if not already present.
     Modifies the config dict in-place and returns it for convenience.
     """
     from litmus.matching import service as matching_service
@@ -161,9 +335,45 @@ def resolve_instrument_capabilities(station_config: dict) -> dict:
         existing_caps = inst.get("capabilities")
         if existing_caps:
             continue
+
+        # catalog_ref takes priority (model-specific > generic library)
+        catalog_ref = inst.get("catalog_ref")
+        if catalog_ref:
+            from litmus.catalog.loader import resolve_catalog_ref
+
+            entry = resolve_catalog_ref(catalog_ref)
+            if entry:
+                inst["capabilities"] = [
+                    {
+                        "function": cap.function.value,
+                        "direction": cap.direction.value,
+                        "channels": cap.channels,
+                        "readback": cap.readback,
+                        "parameters": {
+                            name: param.model_dump(exclude_none=True)
+                            for name, param in cap.parameters.items()
+                        },
+                    }
+                    for cap in entry.capabilities
+                ]
+                if not inst.get("channels"):
+                    inst["channels"] = entry.channel_names
+                continue
+
+        # Fall back to generic instrument library
         library = matching_service.load_instrument_library(inst_type)
         if library and "capabilities" in library:
             inst["capabilities"] = library["capabilities"]
+            if not inst.get("channels"):
+                lib_instrument = library.get("instrument", {})
+                lib_channels = lib_instrument.get("channels")
+                if lib_channels:
+                    if isinstance(lib_channels, dict):
+                        inst["channels"] = list(lib_channels.keys())
+                    else:
+                        from litmus.utils.ranges import expand_range
+                        inst["channels"] = expand_range(lib_channels)
+
     return station_config
 
 
@@ -174,20 +384,21 @@ def auto_suggest_connections(
     instruments: dict[str, dict],
     existing: dict[str, dict],
 ) -> list[dict]:
-    """Suggest connections for unconnected pins.
+    """Suggest connections for unconnected pins using 3-phase algorithm.
 
-    For each unconnected pin that has characteristics, finds the best
-    available (unused) channel. Returns a list of suggested connections.
+    Phase 1: Signal/power pins via capability matching (exclusive channels, readback excluded)
+    Phase 2: Ground pins via bus wiring (fan-out to LO terminals of allocated channels)
+    Phase 3: Remaining pins reported as unmatched (no silent allocation)
 
     Args:
-        dut_pins: Pin key -> pin data dict.
+        dut_pins: Pin key -> pin data dict (includes 'role' field).
         char_by_pin: Pin key -> characteristic names.
         product: Product model.
         instruments: Role -> instrument data dict.
         existing: Existing connections (point_name -> connection dict).
 
     Returns:
-        List of dicts with keys: point_name, dut_pin, instrument, channel, net.
+        List of dicts with keys: point_name, dut_pin, instrument, channel, terminal, net.
     """
     # Track which channels are already used
     used_channels: set[str] = set()
@@ -198,55 +409,34 @@ def auto_suggest_connections(
 
     suggestions: list[dict] = []
 
-    # Phase 1: Match signal pins (those with characteristics) — exclusive channels
+    # Phase 1: Signal + Power pins — capability matching, exclusive channels.
+    # Use "most constrained first" heuristic: assign pins with fewest
+    # compatible channels first so they don't get starved by pins with
+    # many options.
+    pin_candidates: list[tuple[str, dict, set[str]]] = []
     for pin_key, pin_data in dut_pins.items():
         if pin_key in connected_pins:
             continue
+        pin_role = pin_data.get("role", "signal")
+        if pin_role == "ground":
+            continue  # Handled in phase 2
+
+        # Must have characteristics to match
         if not char_by_pin.get(pin_key):
-            continue  # Ground/characterless pins handled in phase 2
-
-        compatible = get_compatible_channels_for_pin(pin_key, char_by_pin, product, instruments)
-
-        for channel_key in sorted(compatible):
-            if channel_key not in used_channels:
-                role, channel = channel_key.split(":", 1)
-                point_name = _generate_point_name(pin_key, role, channel)
-                suggestions.append(
-                    {
-                        "point_name": point_name,
-                        "dut_pin": pin_key,
-                        "instrument": role,
-                        "channel": channel,
-                        "net": pin_data.get("net", ""),
-                    }
-                )
-                used_channels.add(channel_key)
-                break
-
-    # Phase 2: Match ground pins — share channel with related signal pin.
-    # A ground pin's current return pairs with the signal pin on the same
-    # connector (e.g., J1_GND shares PSU CH1 with J1_VIN).
-    # Build lookup: connector prefix -> (instrument, channel) from phase 1 + existing
-    prefix_to_channel: dict[str, tuple[str, str]] = {}
-    for conn in existing.values():
-        pfx = _connector_prefix(conn["dut_pin"])
-        if pfx:
-            prefix_to_channel.setdefault(pfx, (conn["instrument"], conn["channel"]))
-    for s in suggestions:
-        pfx = _connector_prefix(s["dut_pin"])
-        if pfx:
-            prefix_to_channel.setdefault(pfx, (s["instrument"], s["channel"]))
-
-    for pin_key, pin_data in dut_pins.items():
-        if pin_key in connected_pins:
             continue
-        if char_by_pin.get(pin_key):
-            continue  # Has characteristics — already handled in phase 1
 
-        pfx = _connector_prefix(pin_key)
-        target = prefix_to_channel.get(pfx) if pfx else None
-        if target:
-            role, channel = target
+        compatible = get_compatible_channels_for_pin(
+            pin_key, char_by_pin, product, instruments, dut_pins
+        )
+        if compatible:
+            pin_candidates.append((pin_key, pin_data, compatible))
+
+    # Sort: fewest compatible channels first (most constrained)
+    pin_candidates.sort(key=lambda t: len(t[2]))
+
+    for pin_key, pin_data, compatible in pin_candidates:
+        for channel_key in sorted(compatible - used_channels):
+            role, channel = channel_key.split(":", 1)
             point_name = _generate_point_name(pin_key, role, channel)
             suggestions.append(
                 {
@@ -254,11 +444,104 @@ def auto_suggest_connections(
                     "dut_pin": pin_key,
                     "instrument": role,
                     "channel": channel,
+                    "terminal": "hi",
+                    "net": pin_data.get("net", ""),
+                }
+            )
+            used_channels.add(channel_key)
+            break
+
+    # Phase 2: Ground pins — bus wiring to LO terminals
+    # For each ground pin, wire to the LO terminal of every instrument channel
+    # that was allocated to a signal/power pin on the same net or same connector.
+    allocated_channels: list[dict] = []
+    for conn in existing.values():
+        allocated_channels.append(conn)
+    for s in suggestions:
+        allocated_channels.append(s)
+
+    for pin_key, pin_data in dut_pins.items():
+        if pin_key in connected_pins:
+            continue
+        pin_role = pin_data.get("role", "signal")
+        if pin_role != "ground":
+            continue
+
+        # Find instrument channels to wire GND to.
+        # Strategy: wire to the LO terminal of each unique instrument
+        # that has allocated channels (from phase 1 + existing connections).
+        gnd_targets = _find_ground_targets(pin_key, pin_data, allocated_channels, dut_pins)
+
+        for role, channel in gnd_targets:
+            point_name = _generate_point_name(pin_key, role, channel, terminal="lo")
+            suggestions.append(
+                {
+                    "point_name": point_name,
+                    "dut_pin": pin_key,
+                    "instrument": role,
+                    "channel": channel,
+                    "terminal": "lo",
                     "net": pin_data.get("net", ""),
                 }
             )
 
     return suggestions
+
+
+def _find_ground_targets(
+    gnd_pin_key: str,
+    gnd_pin_data: dict,
+    allocated_channels: list[dict],
+    dut_pins: dict[str, dict],
+) -> list[tuple[str, str]]:
+    """Find instrument channels that a ground pin should wire to.
+
+    A ground pin wires to the LO terminal of instruments that serve
+    signal/power pins on the same connector or the same net group.
+    Returns a list of (role, channel) tuples.
+    """
+    gnd_net = gnd_pin_data.get("net", "")
+    gnd_prefix = _connector_prefix(gnd_pin_key)
+
+    # Collect unique instrument:channel pairs from allocated channels
+    # that share the same connector prefix or serve the same net group
+    targets: list[tuple[str, str]] = []
+    seen: set[str] = set()
+
+    for conn in allocated_channels:
+        conn_pin = conn.get("dut_pin", "")
+        conn_pin_data = dut_pins.get(conn_pin, {})
+        conn_role = conn.get("instrument", "")
+        conn_channel = conn.get("channel", "")
+        key = f"{conn_role}:{conn_channel}"
+
+        if key in seen:
+            continue
+
+        # Match by connector prefix (J1_GND -> J1_VIN's instrument)
+        conn_prefix = _connector_prefix(conn_pin)
+        if gnd_prefix and conn_prefix and gnd_prefix == conn_prefix:
+            targets.append((conn_role, conn_channel))
+            seen.add(key)
+            continue
+
+        # Match by net group (GND net -> same net group instruments)
+        conn_net = conn_pin_data.get("net", conn.get("net", ""))
+        if gnd_net and conn_net and gnd_net == conn_net:
+            targets.append((conn_role, conn_channel))
+            seen.add(key)
+
+    # If no targets found by prefix/net matching, wire to all allocated instruments
+    if not targets:
+        for conn in allocated_channels:
+            conn_role = conn.get("instrument", "")
+            conn_channel = conn.get("channel", "")
+            key = f"{conn_role}:{conn_channel}"
+            if key not in seen:
+                targets.append((conn_role, conn_channel))
+                seen.add(key)
+
+    return targets
 
 
 def _connector_prefix(pin_key: str) -> str | None:
@@ -270,7 +553,10 @@ def _connector_prefix(pin_key: str) -> str | None:
     return parts[0] if len(parts) > 1 else None
 
 
-def _generate_point_name(pin_key: str, role: str, channel: str = "1") -> str:
+def _generate_point_name(
+    pin_key: str, role: str, channel: str = "1", terminal: str | None = None
+) -> str:
     """Generate a fixture point name from pin key, role, and channel."""
     clean_pin = pin_key.lower().replace(" ", "_")
-    return f"{clean_pin}_{role}_ch{channel}"
+    suffix = f"_{terminal}" if terminal else ""
+    return f"{clean_pin}_{role}_ch{channel}{suffix}"

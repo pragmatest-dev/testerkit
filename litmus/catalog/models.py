@@ -1,0 +1,63 @@
+"""Instrument catalog entry model.
+
+Defines the schema for structured capability data for real instruments.
+Catalog entries describe what a specific make/model of instrument can do,
+independent of any particular project, driver, or station configuration.
+
+3-tier architecture:
+    catalog/keysight_34461a.yaml       <- Universal: "what can this MODEL do"
+    instruments/dmm_bench_001.yaml     <- Unit-specific: serial, calibration, catalog_ref
+    stations/bench_01.yaml             <- Project-local: role, driver, resource
+"""
+
+from pydantic import BaseModel, Field
+
+from litmus.config.models import ChannelTopology, FunctionCapability
+
+
+class InstrumentCatalogEntry(BaseModel):
+    """Structured capability data for a specific instrument make/model.
+
+    This is the universal tier — it describes what an instrument MODEL can do,
+    not what a specific unit is or where it lives. Driver information is
+    deliberately excluded because drivers are project-local (station config).
+
+    Channels use structured ``ChannelTopology`` dicts describing physical
+    terminals, connector types, and ground topology.
+
+    Example YAML:
+        catalog_entry:
+          id: keysight_34461a
+          manufacturer: Keysight
+          model: "34461A"
+          name: "Keysight 34461A Digital Multimeter"
+          instrument_class: dmm
+          channels:
+            "1":
+              terminals: [hi, lo]
+              connector: binding_post
+              ground: shared
+
+        capabilities:
+          - function: dc_voltage
+            direction: input
+            parameters:
+              voltage:
+                range: {min: 0.0001, max: 1000, units: V}
+                accuracy: {pct_reading: 0.0035, pct_range: 0.0006}
+                resolution: {digits: 6.5}
+    """
+
+    id: str
+    manufacturer: str
+    model: str
+    name: str
+    description: str | None = None
+    instrument_class: str  # IVI class: "dmm", "dc_power", "scope", "fgen", "smu"
+    channels: dict[str, ChannelTopology] = Field(default_factory=dict)
+    capabilities: list[FunctionCapability] = Field(default_factory=list)
+
+    @property
+    def channel_names(self) -> list[str]:
+        """Channel key names."""
+        return list(self.channels.keys())

@@ -184,12 +184,12 @@ class TestIntegrationWithModels:
 
     def test_characteristic_resolved_pins_with_range(self):
         """Characteristic.resolved_pins expands range syntax."""
-        from litmus.config.models import Direction, Domain
+        from litmus.config.models import Direction, MeasurementFunction
         from litmus.products.models import Characteristic
 
         char = Characteristic(
+            function=MeasurementFunction.DC_VOLTAGE,
             direction=Direction.OUTPUT,
-            domain=Domain.VOLTAGE,
             units="V",
             pins="GPIO[0:3]",
         )
@@ -197,12 +197,12 @@ class TestIntegrationWithModels:
 
     def test_characteristic_resolved_pins_with_list(self):
         """Characteristic.resolved_pins works with explicit list."""
-        from litmus.config.models import Direction, Domain
+        from litmus.config.models import Direction, MeasurementFunction
         from litmus.products.models import Characteristic
 
         char = Characteristic(
+            function=MeasurementFunction.DC_VOLTAGE,
             direction=Direction.OUTPUT,
-            domain=Domain.VOLTAGE,
             units="V",
             pins=["TP1", "TP2", "TP3"],
         )
@@ -210,12 +210,12 @@ class TestIntegrationWithModels:
 
     def test_characteristic_resolved_pins_with_single(self):
         """Characteristic.resolved_pins works with single pin."""
-        from litmus.config.models import Direction, Domain
+        from litmus.config.models import Direction, MeasurementFunction
         from litmus.products.models import Characteristic
 
         char = Characteristic(
+            function=MeasurementFunction.DC_VOLTAGE,
             direction=Direction.OUTPUT,
-            domain=Domain.VOLTAGE,
             units="V",
             pin="TP_VOUT",
         )
@@ -223,12 +223,12 @@ class TestIntegrationWithModels:
 
     def test_characteristic_resolved_channels_with_range(self):
         """Characteristic.resolved_channels expands range syntax."""
-        from litmus.config.models import Direction, Domain
+        from litmus.config.models import Direction, MeasurementFunction
         from litmus.products.models import Characteristic
 
         char = Characteristic(
+            function=MeasurementFunction.DC_VOLTAGE,
             direction=Direction.OUTPUT,
-            domain=Domain.VOLTAGE,
             units="V",
             channels="CH[1:4]",
         )

@@ -215,7 +215,7 @@ def show_instrument_properties(
                 for cap in caps:
                     name = cap.get(
                         "name",
-                        f"{cap.get('direction', '')} {cap.get('domain', '')}",
+                        f"{cap.get('direction', '')} {cap.get('function', '')}",
                     )
                     ui.label(name).classes("text-sm text-slate-500")
             else:
