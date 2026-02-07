@@ -11,3 +11,7 @@ results/
 demo/uv.lock
 dist/
 .playwright-mcp/
+
+# Datasheets and research PDFs (large files, managed separately)
+agent-os/specs/*/research/pdfs/
+research/pdfs/

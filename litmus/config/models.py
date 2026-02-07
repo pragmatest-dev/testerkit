@@ -67,6 +67,10 @@ class MeasurementFunction(StrEnum):
     LOGIC = "logic"
     COUNTER = "counter"
 
+    # DMM specialty functions
+    DIODE = "diode"
+    CONTINUITY = "continuity"
+
     # Electronic load modes
     TRANSIENT = "transient"
 
@@ -103,6 +107,8 @@ class ConnectorType(StrEnum):
     SMA = "sma"
     SMB = "smb"
     SPRING = "spring"
+    PXI = "pxi"
+    SCREW_TERMINAL = "screw_terminal"
 
 
 class ParameterRole(StrEnum):

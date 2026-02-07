@@ -54,6 +54,7 @@ class InstrumentCatalogEntry(BaseModel):
     name: str
     description: str | None = None
     instrument_class: str  # IVI class: "dmm", "dc_power", "scope", "fgen", "smu"
+    base: str | None = None  # Variant inheritance: ID of base catalog entry
     channels: dict[str, ChannelTopology] = Field(default_factory=dict)
     capabilities: list[FunctionCapability] = Field(default_factory=list)
 

@@ -461,6 +461,8 @@ def _primary_parameter_for_function(func: MeasurementFunction) -> str:
         MeasurementFunction.WAVEFORM: "voltage",
         MeasurementFunction.DC_POWER: "power",
         MeasurementFunction.AC_POWER: "power",
+        MeasurementFunction.DIODE: "voltage",
+        MeasurementFunction.CONTINUITY: "resistance",
     }
     return _map.get(func, "value")
 

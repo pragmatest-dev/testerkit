@@ -98,7 +98,7 @@ litmus/
 - `FunctionCapability` - Instrument capability with measurement function, direction, and named signal parameters
 - `MeasurementFunction` - Named signal functions (dc_voltage, ac_voltage, resistance, waveform, etc.)
 - `SignalParameter` - Per-parameter range, accuracy, resolution specs
-- `InstrumentCatalogEntry` - Vendor/model instrument catalog with capabilities and structured channel topology
+- `InstrumentCatalogEntry` - Vendor/model instrument catalog with capabilities, structured channel topology, and optional `base` for variant inheritance
 - `PinRole` - Pin role enum (signal/ground/power/reference) on product Pin model
 - `ChannelTopology` - Structured channel description (terminals, connector, ground topology)
 - `TerminalRole` - Physical terminal types (hi/lo/sense_hi/sense_lo/guard/signal/trigger)
@@ -177,6 +177,32 @@ Instruments are defined in three layers:
 3. **Station files** (`stations/*.yaml`) — Project-local: role assignments, driver, resource addresses, `catalog_ref`
 
 Driver lives on station/asset config, NOT catalog. Catalog is shareable across projects.
+
+**Variant inheritance** (`base` field): Catalog entries can inherit from a base entry to avoid YAML duplication. Set `base: <base_id>` on the variant's `catalog_entry`. Merge is section-level: variant `capabilities:` or `channels:` fully replace base's; header fields (`manufacturer`, `instrument_class`) are inherited when absent. Supports chains (A→B→C, max depth 5) with cycle detection.
+
+### Catalog Scope: All Testable Instruments
+
+The catalog includes **all testable instruments with documented capabilities**, not just those with dedicated Python drivers:
+
+**Included instruments:**
+- Instruments with dedicated Python drivers (PyMeasure, InstrumentKit, vendor SDKs)
+- Generic SCPI instruments (controlled via PyVISA raw commands)
+- Vendor SDK instruments (NI-DAQmx, Keysight IO Libraries, etc.)
+
+**Key principle:** Capabilities are the source of truth. The catalog `driver` field is **informational** (indicates available automation level), while the station `driver` field is **operational** (required for actual control).
+
+**Catalog driver field semantics:**
+- `"pymeasure.instruments.Foo"` — Dedicated driver available
+- `null` or omitted — SCPI or SDK control (user provides wrapper)
+- `"nidaqmx"` — Vendor SDK required
+
+**Why SCPI instruments matter:**
+- Thousands of SCPI-compliant instruments exist with documented capabilities
+- SCPI is actually **easier for AI code generation** (standardized commands)
+- Enables capability-based matching and purchase recommendations regardless of driver availability
+- Users can mock SCPI instruments immediately, then swap to real hardware later
+
+See `agent-os/specs/2026-02-06-scpi-catalog-architecture/spec.md` for complete architecture documentation.
 
 ### Test Configuration
 Tests use YAML configs (`tests/test_*/config.yaml`) that define:

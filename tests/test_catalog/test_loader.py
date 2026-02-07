@@ -1,6 +1,10 @@
 """Tests for the instrument catalog loader."""
 
 from pathlib import Path
+from textwrap import dedent
+
+import pytest
+import yaml
 
 from litmus.catalog.loader import load_catalog_entry, load_catalog_from_directory
 from litmus.config.models import Direction, MeasurementFunction
@@ -117,3 +121,236 @@ class TestCatalogModels:
         assert Direction.INPUT == "input"
         assert Direction.OUTPUT == "output"
         assert Direction.BIDIR == "bidir"
+
+    def test_new_measurement_functions(self):
+        """New enum values exist."""
+        assert MeasurementFunction.DIODE == "diode"
+        assert MeasurementFunction.CONTINUITY == "continuity"
+
+
+# ---------------------------------------------------------------------------
+# Helper to write YAML fixture files
+# ---------------------------------------------------------------------------
+
+def _write_yaml(path: Path, text: str) -> Path:
+    path.write_text(dedent(text))
+    return path
+
+
+# ---------------------------------------------------------------------------
+# Variant inheritance tests
+# ---------------------------------------------------------------------------
+
+
+class TestCatalogInheritance:
+    """Tests for variant inheritance via the ``base`` field."""
+
+    def _base_yaml(self) -> str:
+        return """\
+            catalog_entry:
+              id: base_dmm
+              manufacturer: Acme
+              model: "1000"
+              name: "Acme 1000 DMM"
+              instrument_class: dmm
+              channels:
+                "1":
+                  terminals: [hi, lo]
+                  connector: binding_post
+                  ground: shared
+
+            capabilities:
+              - function: dc_voltage
+                direction: input
+                parameters:
+                  voltage:
+                    range: {min: 0.001, max: 100, units: V}
+                    accuracy: {pct_reading: 0.01}
+                channels: ["1"]
+        """
+
+    def test_variant_inherits_capabilities(self, tmp_path):
+        """Variant without capabilities: gets base's."""
+        _write_yaml(tmp_path / "base_dmm.yaml", self._base_yaml())
+        _write_yaml(tmp_path / "variant.yaml", """\
+            catalog_entry:
+              id: variant_dmm
+              model: "1001"
+              name: "Acme 1001 DMM"
+              base: base_dmm
+              channels:
+                "1":
+                  terminals: [hi, lo]
+                  connector: bnc
+                  ground: shared
+        """)
+        entry = load_catalog_entry(tmp_path / "variant.yaml", catalog_dir=tmp_path)
+        assert entry.id == "variant_dmm"
+        assert len(entry.capabilities) == 1
+        assert entry.capabilities[0].function == MeasurementFunction.DC_VOLTAGE
+
+    def test_variant_overrides_channels(self, tmp_path):
+        """Variant with channels: replaces base's."""
+        _write_yaml(tmp_path / "base_dmm.yaml", self._base_yaml())
+        _write_yaml(tmp_path / "variant.yaml", """\
+            catalog_entry:
+              id: variant_dmm
+              model: "1001"
+              base: base_dmm
+              channels:
+                "A":
+                  terminals: [signal]
+                  connector: bnc
+                  ground: earth
+        """)
+        entry = load_catalog_entry(tmp_path / "variant.yaml", catalog_dir=tmp_path)
+        assert list(entry.channels.keys()) == ["A"]
+
+    def test_variant_overrides_capabilities(self, tmp_path):
+        """Variant with capabilities: replaces base's."""
+        _write_yaml(tmp_path / "base_dmm.yaml", self._base_yaml())
+        _write_yaml(tmp_path / "variant.yaml", """\
+            catalog_entry:
+              id: variant_dmm
+              model: "2000"
+              base: base_dmm
+
+            capabilities:
+              - function: ac_voltage
+                direction: input
+                parameters:
+                  voltage:
+                    range: {min: 0.01, max: 750, units: V}
+                channels: ["1"]
+        """)
+        entry = load_catalog_entry(tmp_path / "variant.yaml", catalog_dir=tmp_path)
+        assert len(entry.capabilities) == 1
+        assert entry.capabilities[0].function == MeasurementFunction.AC_VOLTAGE
+
+    def test_variant_inherits_header_fields(self, tmp_path):
+        """manufacturer, instrument_class inherited from base."""
+        _write_yaml(tmp_path / "base_dmm.yaml", self._base_yaml())
+        _write_yaml(tmp_path / "variant.yaml", """\
+            catalog_entry:
+              id: variant_dmm
+              model: "1001"
+              base: base_dmm
+        """)
+        entry = load_catalog_entry(tmp_path / "variant.yaml", catalog_dir=tmp_path)
+        assert entry.manufacturer == "Acme"
+        assert entry.instrument_class == "dmm"
+
+    def test_circular_inheritance_raises(self, tmp_path):
+        """Circular base references raise ValueError."""
+        _write_yaml(tmp_path / "a.yaml", """\
+            catalog_entry:
+              id: a
+              manufacturer: X
+              model: "A"
+              name: A
+              instrument_class: dmm
+              base: b
+        """)
+        _write_yaml(tmp_path / "b.yaml", """\
+            catalog_entry:
+              id: b
+              manufacturer: X
+              model: "B"
+              name: B
+              instrument_class: dmm
+              base: a
+        """)
+        with pytest.raises(ValueError, match="[Cc]ircular"):
+            load_catalog_entry(tmp_path / "a.yaml", catalog_dir=tmp_path)
+
+    def test_missing_base_raises(self, tmp_path):
+        """Non-existent base raises ValueError."""
+        _write_yaml(tmp_path / "orphan.yaml", """\
+            catalog_entry:
+              id: orphan
+              manufacturer: X
+              model: "O"
+              name: Orphan
+              instrument_class: dmm
+              base: does_not_exist
+        """)
+        with pytest.raises(ValueError, match="not found"):
+            load_catalog_entry(tmp_path / "orphan.yaml", catalog_dir=tmp_path)
+
+    def test_recursive_inheritance(self, tmp_path):
+        """A → B → C chain merges correctly."""
+        _write_yaml(tmp_path / "c.yaml", """\
+            catalog_entry:
+              id: c
+              manufacturer: Acme
+              model: "C"
+              name: "Acme C"
+              instrument_class: dmm
+              channels:
+                "1":
+                  terminals: [hi, lo]
+                  connector: binding_post
+                  ground: shared
+
+            capabilities:
+              - function: dc_voltage
+                direction: input
+                parameters:
+                  voltage:
+                    range: {min: 0.001, max: 100, units: V}
+                channels: ["1"]
+        """)
+        _write_yaml(tmp_path / "b.yaml", """\
+            catalog_entry:
+              id: b
+              model: "B"
+              name: "Acme B"
+              base: c
+              channels:
+                "1":
+                  terminals: [hi, lo, sense_hi, sense_lo]
+                  connector: binding_post
+                  ground: shared
+        """)
+        _write_yaml(tmp_path / "a.yaml", """\
+            catalog_entry:
+              id: a
+              model: "A"
+              name: "Acme A"
+              base: b
+        """)
+        entry = load_catalog_entry(tmp_path / "a.yaml", catalog_dir=tmp_path)
+        assert entry.id == "a"
+        assert entry.manufacturer == "Acme"  # from C
+        assert entry.instrument_class == "dmm"  # from C
+        # Channels from B (overrode C), inherited by A
+        assert len(entry.channels["1"].terminals) == 4
+        # Capabilities from C, inherited through B to A
+        assert len(entry.capabilities) == 1
+
+
+# ---------------------------------------------------------------------------
+# Parametrized: load every catalog/*.yaml
+# ---------------------------------------------------------------------------
+
+
+def _catalog_yaml_files():
+    """Collect all catalog YAML files for parametrized test."""
+    if not CATALOG_DIR.exists():
+        return []
+    return sorted(CATALOG_DIR.glob("*.yaml"))
+
+
+@pytest.mark.parametrize(
+    "yaml_path",
+    _catalog_yaml_files(),
+    ids=lambda p: p.stem,
+)
+class TestLoadAllCatalogEntries:
+    """Every catalog YAML file must load without error."""
+
+    def test_loads_successfully(self, yaml_path):
+        entry = load_catalog_entry(yaml_path, catalog_dir=CATALOG_DIR)
+        assert entry.id
+        assert entry.manufacturer
+        assert entry.instrument_class

@@ -304,8 +304,42 @@ channels:
 ```
 
 Terminal types: `hi`, `lo`, `sense_hi`, `sense_lo`, `guard`, `signal`, `trigger`
-Connector types: `binding_post`, `banana`, `bnc`, `terminal_block`, `probe`, `triax`, `sma`, `smb`, `spring`
+Connector types: `binding_post`, `banana`, `bnc`, `terminal_block`, `probe`, `triax`, `sma`, `smb`, `spring`, `pxi`, `screw_terminal`
 Ground topology: `floating` (isolated), `shared` (common ground), `earth` (referenced to earth)
+
+### Catalog Variant Inheritance (`base`)
+
+Catalog entries can inherit from a base entry using the `base` field to avoid YAML duplication. The variant only needs to specify what differs from the base.
+
+```yaml
+# catalog/keysight_34465a.yaml — inherits from 34461A, overrides capabilities
+catalog_entry:
+  id: keysight_34465a
+  model: "34465A"
+  name: "Keysight 34465A Digital Multimeter"
+  base: keysight_34461a    # Inherits manufacturer, instrument_class, channels
+
+capabilities:              # Replaces base capabilities entirely
+  - function: dc_voltage
+    direction: input
+    parameters:
+      voltage:
+        range: {min: 0.0001, max: 1000, units: V}
+        accuracy: {pct_reading: 0.0015, pct_range: 0.0003}
+        resolution: {digits: 6.5}
+```
+
+**Merge rules** (section-level override, not deep merge):
+
+| Section | Variant provides it | Variant omits it |
+|---------|-------------------|------------------|
+| `capabilities:` | Replaces base entirely | Inherits from base |
+| `channels:` | Replaces base entirely | Inherits from base |
+| `manufacturer` | Uses variant's | Inherits from base |
+| `instrument_class` | Uses variant's | Inherits from base |
+| `id`, `model`, `name` | Always from variant | — |
+
+Chains are supported (A → B → C) up to depth 5. Circular references raise `ValueError`.
 
 ## Environment Variables
 
