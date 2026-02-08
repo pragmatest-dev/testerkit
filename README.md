@@ -211,4 +211,4 @@ litmus setup <tool>             # AI tool integration
 
 ## License
 
-MIT
+Apache 2.0

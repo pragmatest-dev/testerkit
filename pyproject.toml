@@ -2,6 +2,7 @@
 name = "litmus"
 version = "0.1.0"
 description = "Hardware test platform for the AI-assisted era"
+license = "Apache-2.0"
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
