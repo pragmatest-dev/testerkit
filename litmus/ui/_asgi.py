@@ -16,14 +16,12 @@ The exported ``app`` is the NiceGUI ASGI application ready for uvicorn.
 from __future__ import annotations
 
 from fastapi.middleware.gzip import GZipMiddleware
-
 from nicegui import core
 from nicegui.middlewares import RedirectWithPrefixMiddleware, SetCacheControlMiddleware
 
-from litmus.api.app import create_api_router
-
 # Register UI pages on core.app (side-effect imports)
 import litmus.ui.app  # noqa: F401, E402
+from litmus.api.app import create_api_router
 
 # Add API routes
 core.app.include_router(create_api_router())

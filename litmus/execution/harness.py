@@ -588,8 +588,10 @@ class TestHarness:
         """Resolve a callable limit from a dotted module path or inline Python.
 
         Args:
-            callable_str: Either a dotted module path (e.g., "myproject.limits.output_voltage")
-                         or inline Python code (e.g., "Limit(high=ctx.get_in('vin') * 0.01, units='V')")
+            callable_str: Either a dotted module path
+                (e.g., "myproject.limits.output_voltage") or inline
+                Python code (e.g., "Limit(high=ctx.get_in('vin') * 0.01,
+                units='V')")
 
         Returns:
             Resolved Limit object.
@@ -644,7 +646,7 @@ class TestHarness:
         # Handle multi-line code (need exec + return capture)
         if "\n" in code or code.strip().startswith("if "):
             # Wrap in function to capture return
-            wrapped = f"def __limit_fn__():\n"
+            wrapped = "def __limit_fn__():\n"
             for line in code.strip().split("\n"):
                 wrapped += f"    {line}\n"
             wrapped += "__result__ = __limit_fn__()"

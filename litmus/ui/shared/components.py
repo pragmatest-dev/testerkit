@@ -78,7 +78,8 @@ def create_hash_tabs(
                     // Find and click the matching tab
                     const tabElements = document.querySelectorAll('.q-tab');
                     tabElements.forEach(el => {{
-                        if (el.textContent.trim().toLowerCase().includes(matchedTab.toLowerCase())) {{
+                        if (el.textContent.trim().toLowerCase()
+                            .includes(matchedTab.toLowerCase())) {{
                             el.click();
                         }}
                     }});
@@ -127,7 +128,8 @@ def setup_hash_sync_for_tabs(tabs, tab_names: list[str]):
                         const tabElements = document.querySelectorAll('.q-tab');
                         tabElements.forEach(el => {{
                             const label = el.querySelector('.q-tab__label');
-                            if (label && label.textContent.trim().toLowerCase() === matchedTab.toLowerCase()) {{
+                            if (label && label.textContent.trim()
+                                .toLowerCase() === matchedTab.toLowerCase()) {{
                                 el.click();
                             }}
                         }});

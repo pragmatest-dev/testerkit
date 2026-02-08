@@ -62,7 +62,10 @@ def litmus_tool(
 
     # All other actions require project parameter
     if not project:
-        return {"error": f"action='{action}' requires 'project' parameter - use the path from litmus(action='init')"}
+        return {
+            "error": f"action='{action}' requires 'project' parameter"
+            " - use the path from litmus(action='init')"
+        }
 
     if action == "list":
         if not type:
@@ -121,7 +124,10 @@ def _init_project(
         return {
             "project_root": str(root),
             "contents": contents,
-            "message": f"Current directory: {root}. Use action='init' with path to initialize a project.",
+            "message": (
+                f"Current directory: {root}."
+                " Use action='init' with path to initialize a project."
+            ),
         }
 
     project_path = Path(path).expanduser().resolve()
@@ -469,7 +475,9 @@ def _get_run(run_id: str, project: str) -> dict[str, Any]:
 # =============================================================================
 
 
-def _save_entity(entity_type: str, id: str, content: dict[str, Any], project: str) -> dict[str, Any]:
+def _save_entity(
+    entity_type: str, id: str, content: dict[str, Any], project: str,
+) -> dict[str, Any]:
     """Validate and save an entity."""
     valid_types = ["station", "product", "fixture", "sequence", "instrument", "test"]
     if entity_type not in valid_types:
@@ -543,9 +551,12 @@ def _save_station(station_id: str, content: dict[str, Any], project: str) -> dic
         return {
             "success": False,
             "errors": errors,
-            "hint": "Station format example: {'station': {'id': 'x', 'name': 'X'}, "
-                    "'instruments': {'psu': {'type': 'psu', 'resource': 'TCPIP::192.168.1.100::INSTR', "
-                    "'mock_config': {'voltage': 5.0}}}}"
+            "hint": (
+                "Station format example: {'station': {'id': 'x',"
+                " 'name': 'X'}, 'instruments': {'psu': {'type': 'psu',"
+                " 'resource': 'TCPIP::192.168.1.100::INSTR',"
+                " 'mock_config': {'voltage': 5.0}}}}"
+            )
         }
 
     stations_dir = get_project_root(project) / "stations"
@@ -1114,7 +1125,10 @@ def run_tool(test: str, station: str, serial: str, project: str | None = None) -
     from datetime import datetime
 
     if not project:
-        return {"error": "project parameter is required - pass the path returned from litmus(action='init')"}
+        return {
+            "error": "project parameter is required"
+            " - pass the path returned from litmus(action='init')"
+        }
 
     # Determine test target
     root = get_project_root(project)
@@ -1136,7 +1150,10 @@ def run_tool(test: str, station: str, serial: str, project: str | None = None) -
                 break
 
         if not test_targets:
-            return {"error": f"Test not found for: {test}", "searched": [str(p) for p in possible_paths]}
+            return {
+                "error": f"Test not found for: {test}",
+                "searched": [str(p) for p in possible_paths],
+            }
 
     # Build pytest command
     pytest_path = Path(sys.executable).parent / "pytest"

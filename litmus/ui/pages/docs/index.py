@@ -22,7 +22,8 @@ def docs_index():
                 "tutorial",
                 "school",
                 "Tutorial",
-                "Engineer's First Project - progressive learning path from first test to production",
+                "Engineer's First Project - progressive learning path"
+                " from first test to production",
             ),
             (
                 "integration",

@@ -72,7 +72,8 @@ def _create_docs_layout(section: str | None = None, page: str | None = None):
             document.addEventListener('DOMContentLoaded', () => {
                 setTimeout(() => {
                     // Find code blocks with language-mermaid class
-                    document.querySelectorAll('pre code.language-mermaid').forEach((block, index) => {
+                    document.querySelectorAll('pre code.language-mermaid')
+                        .forEach((block, index) => {
                         const pre = block.parentElement;
                         const container = document.createElement('div');
                         container.className = 'mermaid';

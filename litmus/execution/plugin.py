@@ -3,6 +3,7 @@
 import os
 import time
 import warnings
+from collections.abc import Generator
 from pathlib import Path
 from typing import Any
 
@@ -370,7 +371,7 @@ def _safe_get_session_fixture(request, name):
 
 
 @pytest.fixture(scope="session", autouse=True)
-def litmus_logger(request) -> TestRunLogger:
+def litmus_logger(request) -> Generator[TestRunLogger]:
     """Provide test run logger for the session.
 
     This fixture is autouse=True so it's always active, enabling
@@ -753,7 +754,7 @@ def instrument_records(request, station_config, mock_instruments) -> dict[str, I
 @pytest.fixture(scope="session")
 def instruments(
     request, station_config, mock_instruments, instrument_records
-) -> dict[str, Any]:
+) -> Generator[dict[str, Any]]:
     """Create instrument instances from station configuration.
 
     Instruments are connected at session start and disconnected at end.

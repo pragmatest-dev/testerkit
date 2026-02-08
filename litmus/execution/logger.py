@@ -381,6 +381,7 @@ class TestRunLogger:
         if self._current_step is None:
             # Auto-create step if none exists
             self.start_step(measurement.name)
+        assert self._current_step is not None  # set by start_step above
 
         # Ensure we have a current vector
         if not hasattr(self, "_current_vector") or self._current_vector is None:

@@ -183,7 +183,7 @@ def get_info_visa(
 
     try:
         rm = pyvisa.ResourceManager()
-        inst = rm.open_resource(resource)
+        inst: pyvisa.resources.MessageBasedResource = rm.open_resource(resource)  # type: ignore[assignment]
         inst.timeout = timeout_ms
         inst.write_termination = "\n"
         inst.read_termination = "\n"

@@ -113,7 +113,12 @@ class VectorBuilder:
         )
 
         # Evaluate limits
-        if m.value is not None and (m.low_limit is not None or m.high_limit is not None or m.nominal is not None):
+        has_limits = (
+            m.low_limit is not None
+            or m.high_limit is not None
+            or m.nominal is not None
+        )
+        if m.value is not None and has_limits:
             m.check_limit()
         elif m.value is not None:
             m.outcome = Outcome.PASS
@@ -178,7 +183,10 @@ class StepBuilder:
             # Update step outcome based on vector
             if builder._vector.outcome == Outcome.FAIL:
                 self._test_step.outcome = Outcome.FAIL
-            elif builder._vector.outcome == Outcome.ERROR and self._test_step.outcome != Outcome.FAIL:
+            elif (
+                builder._vector.outcome == Outcome.ERROR
+                and self._test_step.outcome != Outcome.FAIL
+            ):
                 self._test_step.outcome = Outcome.ERROR
 
     def measure(
@@ -307,7 +315,10 @@ class RunBuilder:
             # Update run outcome based on step
             if builder._test_step.outcome == Outcome.FAIL:
                 self._test_run.outcome = Outcome.FAIL
-            elif builder._test_step.outcome == Outcome.ERROR and self._test_run.outcome != Outcome.FAIL:
+            elif (
+                builder._test_step.outcome == Outcome.ERROR
+                and self._test_run.outcome != Outcome.FAIL
+            ):
                 self._test_run.outcome = Outcome.ERROR
 
     def finish(self) -> TestRun:

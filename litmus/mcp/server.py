@@ -32,7 +32,8 @@ def create_mcp_server() -> FastMCP:
 
 ## MANDATORY: Stop and Ask at Each Step
 
-Before EVERY action, show what you'll do and ask for approval. Never proceed without user confirmation.
+Before EVERY action, show what you'll do and ask for approval.
+Never proceed without user confirmation.
 
 ## Workflow (All Steps Required)
 
@@ -189,7 +190,8 @@ test_output_voltage:
           litmus(action="get", type="product", id="tps54302", project="/path/to/project")
 
         - save: Create/update entity
-          litmus(action="save", type="product", id="tps54302", content={...}, project="/path/to/project")
+          litmus(action="save", type="product", id="tps54302",
+                 content={...}, project="/path/to/project")
 
         - read: Read project file or template
           litmus(action="read", path="products/x/spec.yaml", project="/path/to/project")
@@ -197,13 +199,15 @@ test_output_voltage:
 
         Args:
             action: One of: init, list, get, save, read
-            type: Entity type for list/get/save (product, station, fixture, sequence, instrument, run, test)
+            type: Entity type for list/get/save
+                (product, station, fixture, sequence, instrument, run, test)
             id: Entity ID for get/save
             path: Path for init/read actions
             content: Content dict for save action
             create: For init - create directory if missing (default True)
             scaffold: For init - create folder structure (default True)
-            project: Project root path (required for list/get/save/read - use path from init response)
+            project: Project root path (required for list/get/save/read
+                - use path from init response)
 
         Returns:
             Action-specific results.
@@ -312,7 +316,8 @@ test_output_voltage:
         """
         return '''# Datasheet to Test Workflow
 
-You are helping create hardware tests from a product datasheet. This is COLLABORATIVE - propose and wait for approval at each step.
+You are helping create hardware tests from a product datasheet.
+This is COLLABORATIVE - propose and wait for approval at each step.
 
 ## Workflow Steps
 
