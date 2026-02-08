@@ -159,12 +159,55 @@ litmus(action="save", type="product", id="tps54302", content={...}, project=proj
 
 ---
 
+## Step 2b: Recommend Instruments
+
+**Goal:** Find catalog instruments that can measure/source the extracted characteristics.
+
+**Your actions:**
+1. Build a requirements list from the product characteristics (function + direction + range)
+2. Call `litmus_match(requirements=[...], project=project_root)` to search the catalog
+3. Present recommendations with coverage info
+4. **Check for existing drivers:** For each recommended instrument, check if PyMeasure, InstrumentKit, or vendor SDKs have a driver (use your knowledge of these libraries). If a driver exists, note it — e.g., "PyMeasure has `pymeasure.instruments.keysight.Keysight34461A`". If not, note that a custom SCPI wrapper or stub driver will be needed.
+5. Let the user pick instruments before generating station config
+
+**Example call:**
+```python
+litmus_match(requirements=[
+    {"function": "dc_voltage", "direction": "input", "range_max": 50, "units": "V"},
+    {"function": "dc_voltage", "direction": "output", "range_max": 12, "units": "V"},
+    {"function": "dc_current", "direction": "input", "range_max": 3, "units": "A"},
+], project=project_root)
+```
+
+**Present to user:**
+```
+Based on your product specs, here are recommended instruments from the catalog:
+
+**Full coverage (all requirements):**
+| Instrument | Class | Covers | Driver Available? |
+|------------|-------|--------|-------------------|
+| Keysight 34461A | DMM | voltage input, current input | ✓ PyMeasure |
+| Keysight E36312A | PSU | voltage output | ✓ PyMeasure |
+
+**Coverage summary:**
+- dc_voltage input: 34461A, MSO44, ...
+- dc_voltage output: E36312A, ...
+- dc_current input: 34461A, ...
+
+Want me to:
+- [A]pprove these selections and create station config
+- [C]hange instrument selection
+- [?] See more options for a specific requirement
+```
+
+---
+
 ## Step 3: Create Station Config
 
 **Goal:** Configure the test station with instruments and mock values.
 
 **Your actions:**
-1. Ask about available instruments or use `litmus_discover()`
+1. Use the instruments selected in Step 2b, or ask about available instruments / use `litmus_discover()`
 2. Create station config with realistic mock values
 3. Show config for approval
 

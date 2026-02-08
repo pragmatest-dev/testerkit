@@ -1009,6 +1009,7 @@ def match_tool(
     product_id: str | None = None,
     station_id: str | None = None,
     fixture_id: str | None = None,
+    requirements: list[dict[str, Any]] | None = None,
     project: str | None = None,
 ) -> dict[str, Any]:
     """Check compatibility between products, stations, and fixtures.
@@ -1017,7 +1018,8 @@ def match_tool(
         product_id: Product ID to check compatibility for
         station_id: Station ID for detailed check
         fixture_id: Fixture ID to find compatible stations
-        project: Project root path (required for fixture matching)
+        requirements: Ad-hoc capability requirements for catalog recommendations
+        project: Project root path (required for fixture/requirements matching)
     """
     from litmus.matching.service import (
         check_station_compatibility,
@@ -1025,6 +1027,13 @@ def match_tool(
         get_required_capabilities,
         load_product_by_id,
     )
+
+    # Requirements mode: recommend catalog instruments
+    if requirements is not None:
+        from litmus.matching.service import recommend_from_catalog
+
+        project_path = get_project_root(project) if project else None
+        return recommend_from_catalog(requirements, project_path)
 
     # Just product_id: find compatible stations
     if product_id and not station_id and not fixture_id:

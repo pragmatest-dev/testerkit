@@ -239,25 +239,38 @@ test_output_voltage:
         product_id: str | None = None,
         station_id: str | None = None,
         fixture_id: str | None = None,
+        requirements: list[dict[str, Any]] | None = None,
         project: str | None = None,
     ) -> dict[str, Any]:
         """Check compatibility between products, stations, and fixtures.
 
         Usage patterns:
+        - match(requirements=[...], project="...") → Recommend catalog instruments
         - match(product_id="...") → Find compatible stations, derive requirements
         - match(product_id="...", station_id="...") → Detailed compatibility check
         - match(fixture_id="...", project="...") → Find stations with required instruments
+
+        Requirements format (for catalog recommendations):
+        ```python
+        litmus_match(requirements=[
+            {"function": "dc_voltage", "direction": "input", "range_max": 50, "units": "V"},
+            {"function": "dc_voltage", "direction": "output", "range_max": 12, "units": "V"},
+        ], project=".")
+        ```
 
         Args:
             product_id: Product ID to check compatibility for
             station_id: Station ID for detailed check (requires product_id)
             fixture_id: Fixture ID to find compatible stations
-            project: Project root path (required for fixture matching)
+            requirements: Ad-hoc capability requirements for catalog instrument
+                recommendations. Each dict: function (required), direction (required),
+                range_max, range_min, units (optional).
+            project: Project root path (required for fixture/requirements matching)
 
         Returns:
             Compatibility results with requirements and matches.
         """
-        return match_tool(product_id, station_id, fixture_id, project)
+        return match_tool(product_id, station_id, fixture_id, requirements, project)
 
     # -------------------------------------------------------------------------
     # Tool 4: litmus_run

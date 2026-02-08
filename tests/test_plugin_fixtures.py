@@ -114,6 +114,10 @@ class TestInstrumentAccessor:
 class TestAutoRegistration:
     """Tests for auto-registration of instrument role fixtures."""
 
+    @pytest.fixture(autouse=True)
+    def _asyncio_config(self, pytester):
+        pytester.makeini("[pytest]\nasyncio_default_fixture_loop_scope = function")
+
     def test_auto_registered_fixtures_available(self, pytester):
         """Station config roles become available as pytest fixtures."""
         # Create station config

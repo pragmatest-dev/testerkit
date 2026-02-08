@@ -667,6 +667,152 @@ def find_partial_stations(product: Product) -> list[PartialStationMatch]:
     return results
 
 
+def recommend_from_catalog(
+    requirements: list[dict[str, Any]],
+    project: Path | None = None,
+) -> dict[str, Any]:
+    """Recommend catalog instruments that satisfy ad-hoc capability requirements.
+
+    Takes simplified requirement dicts (as an AI agent would construct) and
+    searches the catalog for instruments that can satisfy them.
+
+    Args:
+        requirements: List of dicts with keys: function, direction,
+            range_max, range_min, units (all optional except function/direction).
+        project: Project root for locating catalog dirs. Defaults to cwd.
+
+    Returns:
+        Dict with requirements, recommendations (sorted by coverage), and
+        coverage summary.
+    """
+    from litmus.catalog.loader import find_catalog_dirs, load_catalog_from_directory
+
+    if project:
+        import os
+
+        old_cwd = os.getcwd()
+        os.chdir(project)
+
+    try:
+        # Load all catalog entries
+        all_entries: dict[str, Any] = {}
+        for cat_dir in find_catalog_dirs():
+            all_entries.update(load_catalog_from_directory(cat_dir))
+    finally:
+        if project:
+            os.chdir(old_cwd)
+
+    # Convert simplified dicts to CapabilityRequirement objects
+    cap_reqs = _parse_requirements(requirements)
+
+    # For each catalog entry, check which requirements it satisfies
+    recommendations = []
+    coverage: dict[str, list[str]] = {}
+
+    for req_idx, req in enumerate(cap_reqs):
+        key = f"{req_idx}:{req.function.value}:{req.direction.value}"
+        coverage[key] = []
+
+    for entry_id, entry in all_entries.items():
+        # Expand capabilities per-channel into StationCapability objects
+        caps = _catalog_entry_to_capabilities(entry)
+        satisfied_indices: list[int] = []
+
+        for req_idx, req in enumerate(cap_reqs):
+            for cap in caps:
+                if capability_satisfies(cap, req):
+                    satisfied_indices.append(req_idx)
+                    break
+
+        if satisfied_indices:
+            recommendations.append({
+                "catalog_id": entry.id,
+                "manufacturer": entry.manufacturer,
+                "model": entry.model,
+                "name": entry.name,
+                "instrument_class": entry.instrument_class,
+                "satisfies": satisfied_indices,
+                "channels": len(entry.channels) or 1,
+            })
+
+            for idx in satisfied_indices:
+                req = cap_reqs[idx]
+                key = f"{idx}:{req.function.value}:{req.direction.value}"
+                coverage[key].append(entry.id)
+
+    # Sort by coverage (most requirements satisfied first), then alphabetically
+    recommendations.sort(key=lambda r: (-len(r["satisfies"]), r["catalog_id"]))
+
+    return {
+        "requirements": requirements,
+        "recommendations": recommendations,
+        "coverage": coverage,
+    }
+
+
+def _parse_requirements(raw: list[dict[str, Any]]) -> list[CapabilityRequirement]:
+    """Convert simplified requirement dicts to CapabilityRequirement objects."""
+    from litmus.config.models import RangeSpec
+
+    reqs = []
+    for i, r in enumerate(raw):
+        function = MeasurementFunction(r["function"])
+        direction = Direction(r["direction"])
+
+        parameters: dict[str, SignalParameter] = {}
+
+        # Build a range parameter from range_min/range_max if provided
+        range_min = r.get("range_min")
+        range_max = r.get("range_max")
+        units = r.get("units", "")
+
+        if range_min is not None or range_max is not None:
+            # Derive parameter name from function (e.g., dc_voltage -> voltage)
+            param_name = function.value.replace("dc_", "").replace("ac_", "")
+            parameters[param_name] = SignalParameter(
+                range=RangeSpec(min=range_min, max=range_max, units=units),
+            )
+
+        reqs.append(CapabilityRequirement(
+            function=function,
+            direction=direction,
+            parameters=parameters,
+            characteristic_name=f"req_{i}",
+        ))
+    return reqs
+
+
+def _catalog_entry_to_capabilities(entry: Any) -> list[StationCapability]:
+    """Convert a catalog entry's capabilities to StationCapability objects."""
+    caps = []
+    for cap in entry.capabilities:
+        cap_name = f"{cap.function.value}_{cap.direction.value}"
+        channels = cap.channels
+        if channels:
+            for ch in channels:
+                caps.append(StationCapability(
+                    function=cap.function,
+                    direction=cap.direction,
+                    parameters=cap.parameters,
+                    name=cap_name,
+                    instrument_type=entry.instrument_class,
+                    instrument_name=entry.id,
+                    channel=ch,
+                    readback=cap.readback,
+                ))
+        else:
+            caps.append(StationCapability(
+                function=cap.function,
+                direction=cap.direction,
+                parameters=cap.parameters,
+                name=cap_name,
+                instrument_type=entry.instrument_class,
+                instrument_name=entry.id,
+                readback=cap.readback,
+            ))
+    return caps
+
+
 def find_all_station_matches(product: Product) -> dict[str, list]:
     """Find all stations categorized by compatibility level.
 

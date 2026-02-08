@@ -55,6 +55,7 @@ select = ["E", "F", "I", "UP"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
 filterwarnings = [
     # @litmus_test returns TestStep for programmatic use, pytest can ignore it
     "ignore::pytest.PytestReturnNotNoneWarning",
