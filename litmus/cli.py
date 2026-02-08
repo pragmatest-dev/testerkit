@@ -479,14 +479,15 @@ def setup_claude_code(print_only: bool):
 
 
 @setup.command("claude-desktop")
-@click.argument("project_path", required=False, type=click.Path(exists=True))
 @click.option("--print-only", is_flag=True, help="Print config instead of installing")
-def setup_claude_desktop(project_path: str | None, print_only: bool):
+def setup_claude_desktop(print_only: bool):
     """Configure Litmus MCP server for Claude Desktop.
 
-    Examples:
-        litmus setup claude-desktop /path/to/project
-        litmus setup claude-desktop  # uses current directory
+    The MCP server is project-agnostic. Claude can work with any project
+    by specifying the project path in each tool call.
+
+    Example:
+        litmus setup claude-desktop
     """
     import json
     import os
@@ -494,7 +495,6 @@ def setup_claude_desktop(project_path: str | None, print_only: bool):
     from pathlib import Path
 
     litmus_path = Path(sys.executable).parent / "litmus"
-    project_dir = Path(project_path).resolve() if project_path else Path.cwd()
 
     # Determine config location by platform
     if sys.platform == "win32":
@@ -507,7 +507,6 @@ def setup_claude_desktop(project_path: str | None, print_only: bool):
     server_config = {
         "command": str(litmus_path),
         "args": ["mcp", "serve"],
-        "cwd": str(project_dir),
     }
 
     if print_only:
@@ -531,7 +530,6 @@ def setup_claude_desktop(project_path: str | None, print_only: bool):
 
     config_file.write_text(json.dumps(config, indent=2) + "\n")
     click.echo(f"✓ Wrote {config_file}")
-    click.echo(f"✓ Project: {project_dir}")
     click.echo()
     click.echo("Restart Claude Desktop to use Litmus tools.")
 
