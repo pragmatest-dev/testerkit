@@ -14,9 +14,18 @@ Datasheet → Product Spec → Station → Tests → Results
    1           2            3         4        5
 ```
 
-**Key principle:** Never proceed to the next step without user approval. At each step:
-1. Show what you found/created
-2. Ask if they want to approve, edit, or regenerate
+**Key principles:**
+
+1. Never proceed to the next step without user approval.
+2. **Be a guide, not a form.** At each step, use what you know about the
+   specific product, datasheet, and context to offer *relevant* choices —
+   not generic "approve/modify" boilerplate. For example, if the datasheet
+   shows multiple output voltage options, ask which one they're testing.
+   If you detected instruments via `litmus_discover`, offer to use those
+   specific addresses. The options should feel like a knowledgeable
+   colleague walking them through setup.
+3. Present choices as a **numbered list** at the end of your message.
+   Never use inline `[A] [B] [C]` letter codes.
 
 ## MCP Tools Available
 
@@ -77,11 +86,11 @@ Ground pins wire to instrument LO terminals via bus routing in the designer.
 
 **Confidence:** 94% (some thermal specs unclear)
 
-Want me to:
-- [A]pprove and continue
-- [E]dit - I'll open the editor
-- [R]egenerate with different focus
-- [?] Ask me questions about specific values
+What would you like to do?
+1. Approve and continue
+2. Edit — I'll open the editor
+3. Regenerate with different focus
+4. Ask me questions about specific values
 ```
 
 ---
@@ -145,11 +154,11 @@ characteristics:
         load: 1.0
 ```
 
-Want me to:
-- [A]pprove and save
-- [E]dit in UI: http://localhost:8000/products/tps54302
-- [S]uggest guardbands (I'll add 5-10% margins)
-- [?] Explain any characteristic
+What would you like to do?
+1. Approve and save
+2. Edit in UI: http://localhost:8000/products/tps54302
+3. Suggest guardbands (I'll add 5-10% margins)
+4. Explain any characteristic
 ```
 
 **After approval:**
@@ -199,10 +208,10 @@ Based on your product specs, here are recommended instruments from the catalog:
 - dc_voltage output: E36312A, ...
 - dc_current input: 34461A, ...
 
-Want me to:
-- [A]pprove these selections and create station config
-- [C]hange instrument selection
-- [?] See more options for a specific requirement
+What would you like to do?
+1. Approve these selections and create station config
+2. Change instrument selection
+3. See more options for a specific requirement
 ```
 
 ---
@@ -282,11 +291,11 @@ I'll create a station config for testing:
 
 **Mock config** values are returned by methods when `mock: true` or `--mock-instruments`.
 
-Want me to:
-- [A]pprove and save
-- [M]odify instruments
-- [D]iscover connected instruments
-- [?] Explain mock configuration
+What would you like to do?
+1. Approve and save
+2. Modify instruments
+3. Discover connected instruments
+4. Explain mock configuration
 ```
 
 **After approval:**
@@ -420,11 +429,11 @@ I've generated test code for TPS54302:
 - tests/test_tps54302.py (test code)
 - tests/config.yaml (limits + mocks)
 
-Want me to:
-- [A]pprove and save both files
-- [E]dit - I'll show full code
-- [M]odify test coverage (add/remove tests)
-- [?] Explain any test
+What would you like to do?
+1. Approve and save both files
+2. Edit — I'll show full code
+3. Modify test coverage (add/remove tests)
+4. Explain any test
 ```
 
 **After approval:**
@@ -481,11 +490,11 @@ litmus_run(
 
 **Summary:** 5/5 passed (100%)
 
-Want me to:
-- [V]iew detailed results in browser
-- [R]e-run with different parameters
-- [E]xport results to report
-- [?] Investigate specific measurement
+What would you like to do?
+1. View detailed results in browser
+2. Re-run with different parameters
+3. Export results to report
+4. Investigate specific measurement
 ```
 
 ---

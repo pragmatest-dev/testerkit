@@ -37,6 +37,11 @@ def create_mcp_server() -> FastMCP:
 Before EVERY action, show what you'll do and ask for approval.
 Never proceed without user confirmation.
 
+### Presenting Choices
+When asking the user to choose, present options as a **numbered list**
+at the end of your message. Keep any explanation ABOVE the list.
+Never bury choices mid-paragraph or use inline `[A] [B] [C]` codes.
+
 ## Workflow (All Steps Required)
 
 ```
