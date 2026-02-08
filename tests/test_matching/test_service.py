@@ -1,6 +1,7 @@
 """Tests for the capability matching service."""
 
 from litmus.config.models import (
+    AccuracySpec,
     Direction,
     MeasurementFunction,
     RangeSpec,
@@ -14,7 +15,8 @@ from litmus.matching.service import (
     get_station_capabilities,
     match_capabilities,
 )
-from litmus.products.models import Characteristic, ConditionPoint, Product
+from litmus.config.models import SpecBand
+from litmus.products.models import Characteristic, Product
 
 
 class TestCapabilitySatisfies:
@@ -382,10 +384,10 @@ class TestGetRequiredCapabilities:
                     direction=Direction.OUTPUT,
                     units="V",
                     pin="VOUT",
-                    conditions=[
-                        ConditionPoint(
-                            nominal=3.3,
-                            tolerance_pct=3.0,
+                    specs=[
+                        SpecBand(
+                            value=3.3,
+                            accuracy=AccuracySpec(pct_reading=3.0),
                         )
                     ],
                 ),
@@ -411,10 +413,10 @@ class TestGetRequiredCapabilities:
                     direction=Direction.INPUT,
                     units="V",
                     pin="VIN",
-                    conditions=[
-                        ConditionPoint(
-                            nominal=12.0,
-                            tolerance_pct=5.0,
+                    specs=[
+                        SpecBand(
+                            value=12.0,
+                            accuracy=AccuracySpec(pct_reading=5.0),
                         )
                     ],
                 ),

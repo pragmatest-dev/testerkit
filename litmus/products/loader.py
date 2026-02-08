@@ -6,18 +6,18 @@ from typing import Any
 import yaml
 
 from litmus.config.models import (
-    Comparator,
+    AccuracySpec,
     MeasurementFunction,
+    RangeSpec,
     SignalParameter,
+    SpecBand,
 )
 from litmus.products.models import (
     BusSignal,
     Characteristic,
-    ConditionPoint,
     Pin,
     Product,
     SignalGroup,
-    TestRequirement,
 )
 
 _MAX_INHERIT_DEPTH = 5
@@ -75,11 +75,6 @@ def load_product(path: Path, products_dir: Path | None = None) -> Product:
     for char_key, char_data in data.get("characteristics", {}).items():
         characteristics[char_key] = _parse_characteristic(char_data)
 
-    # Parse test requirements
-    test_requirements = {}
-    for req_key, req_data in data.get("test_requirements", {}).items():
-        test_requirements[req_key] = _parse_test_requirement(req_data)
-
     return Product(
         id=product_id,
         name=product_name,
@@ -92,7 +87,6 @@ def load_product(path: Path, products_dir: Path | None = None) -> Product:
         pins=pins,
         signal_groups=signal_groups,
         characteristics=characteristics,
-        test_requirements=test_requirements,
     )
 
 
@@ -176,7 +170,7 @@ def _merge_product_data(
     merged: dict[str, Any] = {"product": merged_product}
 
     # Section-level: variant replaces if present, else inherit base
-    for section in ("pins", "signal_groups", "characteristics", "test_requirements"):
+    for section in ("pins", "signal_groups", "characteristics"):
         if section in variant:
             merged[section] = variant[section]
         elif section in base:
@@ -243,10 +237,10 @@ def _parse_characteristic(data: dict[str, Any]) -> Characteristic:
     for param_name, param_data in data.get("parameters", {}).items():
         parameters[param_name] = _parse_signal_parameter(param_data)
 
-    # Parse conditions
-    conditions = []
-    for cond_data in data.get("conditions", []):
-        conditions.append(_parse_condition_point(cond_data))
+    # Parse specs (SpecBand list)
+    specs = []
+    for spec_data in data.get("specs", []):
+        specs.append(_parse_product_spec_band(spec_data))
 
     return Characteristic(
         function=function,
@@ -261,7 +255,7 @@ def _parse_characteristic(data: dict[str, Any]) -> Characteristic:
         channel=data.get("channel"),
         # Traceability
         datasheet_ref=data.get("datasheet_ref"),
-        conditions=conditions,
+        specs=specs,
     )
 
 
@@ -309,32 +303,39 @@ def _parse_signal_parameter(data: dict[str, Any]) -> SignalParameter:
     )
 
 
-def _parse_condition_point(data: dict[str, Any]) -> ConditionPoint:
-    """Parse a condition point from YAML data.
+def _parse_product_spec_band(data: dict[str, Any]) -> SpecBand:
+    """Parse a product SpecBand from YAML data.
 
-    Known spec fields are extracted, everything else goes to condition_params
-    via Pydantic's extra="allow".
+    Expected format:
+        conditions:
+          temperature: {min: 25, max: 25, units: degC}
+          load: {min: 0.1, max: 0.1, units: A}
+        value: 3.3
+        accuracy: {pct_reading: 2.0}
     """
-    # Copy data for parsing
-    parsed = dict(data)
+    conditions: dict[str, RangeSpec] = {}
+    for key, val in data.get("conditions", {}).items():
+        if isinstance(val, dict):
+            conditions[key] = RangeSpec(
+                min=val.get("min"), max=val.get("max"), units=val.get("units", "")
+            )
+        else:
+            # Scalar shorthand: temperature: 25 → {min: 25, max: 25}
+            conditions[key] = RangeSpec(min=float(val), max=float(val), units="")
 
-    # Handle comparator enum separately
-    if "comparator" in parsed:
-        parsed["comparator"] = Comparator(parsed["comparator"].upper())
+    accuracy = None
+    if "accuracy" in data:
+        a = data["accuracy"]
+        accuracy = AccuracySpec(
+            pct_reading=a.get("pct_reading"),
+            pct_range=a.get("pct_range"),
+            absolute=a.get("absolute"),
+        )
 
-    return ConditionPoint.model_validate(parsed)
-
-
-def _parse_test_requirement(data: dict[str, Any]) -> TestRequirement:
-    """Parse a test requirement from YAML data."""
-    parsed = dict(data)
-
-    return TestRequirement(
-        characteristic_ref=parsed.get("characteristic_ref"),
-        conditions=parsed.get("conditions", {}),
-        guardband_pct=parsed.get("guardband_pct", 0.0),
-        priority=parsed.get("priority", "standard"),
-        description=parsed.get("description"),
+    return SpecBand(
+        conditions=conditions,
+        value=data.get("value"),
+        accuracy=accuracy,
     )
 
 

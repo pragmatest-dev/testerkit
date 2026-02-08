@@ -13,11 +13,11 @@ def test_parse_parameter_with_specs():
         "accuracy": {"pct_reading": 0.07, "pct_range": 0.02},
         "specs": [
             {
-                "when": {"frequency": {"min": 3, "max": 5, "units": "Hz"}},
+                "conditions": {"frequency": {"min": 3, "max": 5, "units": "Hz"}},
                 "accuracy": {"pct_reading": 0.35, "pct_range": 0.03},
             },
             {
-                "when": {"frequency": {"min": 5, "max": 300, "units": "Hz"}},
+                "conditions": {"frequency": {"min": 5, "max": 300, "units": "Hz"}},
                 "accuracy": {"pct_reading": 0.07, "pct_range": 0.02},
             },
         ],
@@ -25,9 +25,9 @@ def test_parse_parameter_with_specs():
     param = _parse_signal_parameter(data)
     assert param.specs is not None
     assert len(param.specs) == 2
-    assert param.specs[0].when["frequency"].min == 3
+    assert param.specs[0].conditions["frequency"].min == 3
     assert param.specs[0].accuracy.pct_reading == 0.35
-    assert param.specs[1].when["frequency"].max == 300
+    assert param.specs[1].conditions["frequency"].max == 300
 
 
 def test_parse_parameter_without_specs():
@@ -77,8 +77,8 @@ def test_parse_34461a_ac_voltage_bands():
 
     # First band: 3-5 Hz, worst accuracy
     band0 = voltage_param.specs[0]
-    assert band0.when["frequency"].min == 3
-    assert band0.when["frequency"].max == 5
+    assert band0.conditions["frequency"].min == 3
+    assert band0.conditions["frequency"].max == 5
     assert band0.accuracy.pct_reading == 0.35
 
     # Frequency parameter should have role=condition

@@ -27,29 +27,23 @@ pins:
 characteristics:
   input_voltage:
     direction: input       # DUT receives this
-    domain: voltage
-    signal_types: [dc]
+    function: dc_voltage
     units: V
     pins: [VIN]
-    conditions:
-      - nominal: 5.0
-        tolerance_pct: 10
+    specs:
+      - value: 5.0
+        accuracy:
+          pct_reading: 10  # ±10% tolerance
 
   output_voltage:
     direction: output      # DUT provides this
-    domain: voltage
-    signal_types: [dc]
+    function: dc_voltage
     units: V
     pins: [VOUT]
-    conditions:
-      - nominal: 3.3
-        tolerance_pct: 5
-
-test_requirements:
-  verify_output:
-    characteristic_ref: output_voltage
-    guardband_pct: 10      # Tighten limits by 10%
-    priority: 1
+    specs:
+      - value: 3.3
+        accuracy:
+          pct_reading: 5   # ±5% tolerance
 ```
 
 ## Pins
@@ -114,49 +108,60 @@ characteristics:
   output_voltage:
     pins: [VOUT]
     direction: output
-    domain: voltage
-    signal_types: [dc]
+    function: dc_voltage
     units: V
+    specs:
+      - value: 3.3
+        accuracy:
+          pct_reading: 5
 
   output_ripple:
     pins: [VOUT]           # Same pin, different measurement
     direction: output
-    domain: voltage
-    signal_types: [ac]
+    function: ac_voltage
     units: mV
+    specs:
+      - value: 0
+        accuracy:
+          absolute: 50
 ```
 
-## Conditions
+## Specifications with Conditions
 
-Conditions define expected values at specific operating points:
+Each characteristic has one or more **specs** (SpecBands) that define expected values at specific operating conditions:
 
 ```yaml
 characteristics:
   output_voltage:
     direction: output
-    domain: voltage
+    function: dc_voltage
     units: V
     pins: [VOUT]
-    conditions:
-      - nominal: 3.3
-        tolerance_pct: 5
-        temperature: 25
-        load: 0.5
+    specs:
+      - conditions:
+          temperature: {min: 0, max: 50}
+          load: {min: 0.1, max: 0.5}
+        value: 3.3
+        accuracy:
+          pct_reading: 5     # ±5% tolerance
 
-      - nominal: 3.3
-        tolerance_pct: 7      # Wider tolerance at high temp
-        temperature: 85
-        load: 1.0
+      - conditions:
+          temperature: {min: 50, max: 85}
+          load: {min: 0.5, max: 1.0}
+        value: 3.3
+        accuracy:
+          pct_reading: 7     # Wider tolerance at high temp
 ```
 
-### Tolerance Options
+### Accuracy Options
 
 | Field | Description |
 |-------|-------------|
-| `nominal` | Expected value |
-| `tolerance_pct` | Percentage tolerance (e.g., 5 = ±5%) |
-| `tolerance_abs` | Absolute tolerance |
-| `limit_low` / `limit_high` | Explicit limits |
+| `pct_reading` | Percentage of the measured value |
+| `pct_range` | Percentage of the full range |
+| `absolute` | Fixed absolute tolerance value |
+
+Multiple accuracy components can be combined (e.g., `pct_reading: 1.0, absolute: 0.01` means ±(1% of reading + 0.01)).
 
 ## Signal Groups (Buses)
 
@@ -183,39 +188,6 @@ signal_groups:
       frequency: 400000
 ```
 
-## Test Requirements
-
-**Test requirements** specify which characteristics to test, with optional guardbanding:
-
-```yaml
-test_requirements:
-  verify_output:
-    characteristic_ref: output_voltage
-    conditions:
-      temperature: 25
-      load: 0.5
-    guardband_pct: 10      # Tighten limits by 10% for manufacturing
-    priority: 1
-
-  verify_output_hot:
-    characteristic_ref: output_voltage
-    conditions:
-      temperature: 85
-    priority: 2
-```
-
-### Guardband
-
-Guardbanding tightens limits to provide manufacturing margin:
-
-```
-Spec: 3.3V ± 5% = 3.135V to 3.465V
-With 10% guardband:
-  Range: 0.33V
-  Guardband: 0.033V
-  New limits: 3.168V to 3.432V
-```
-
 ## Minimal Spec
 
 The simplest spec that works:
@@ -232,12 +204,13 @@ pins:
 characteristics:
   output_voltage:
     direction: output
-    domain: voltage
+    function: dc_voltage
     units: V
     pins: [VOUT]
-    conditions:
-      - nominal: 5.0
-        tolerance_pct: 10
+    specs:
+      - value: 5.0
+        accuracy:
+          pct_reading: 10
 ```
 
 ## Part Numbers
@@ -268,17 +241,18 @@ product:
 characteristics:
   output_voltage:
     direction: output
-    domain: voltage
+    function: dc_voltage
     units: V
     pins: [VOUT]
-    conditions:
-      - nominal: 3.3
-        tolerance_pct: 3          # Tighter tolerance for industrial
+    specs:
+      - value: 3.3
+        accuracy:
+          pct_reading: 3          # Tighter tolerance for industrial
 ```
 
 Inheritance rules:
 - **Header fields** (`name`, `description`, `revision`, `part_number`, `datasheet`, `schematic`) — inherited when absent in variant
-- **Sections** (`pins`, `characteristics`, `test_requirements`, `signal_groups`) — variant replaces entirely if present, otherwise inherited
+- **Sections** (`pins`, `characteristics`, `signal_groups`) — variant replaces entirely if present, otherwise inherited
 - `id` and `base` always come from the variant
 - Max inheritance depth: 5 levels. Circular references raise an error.
 

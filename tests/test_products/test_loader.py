@@ -5,7 +5,7 @@ from pathlib import Path
 import pytest
 
 from litmus.config.models import Comparator, Direction, MeasurementFunction
-from litmus.products.limits import derive_limit
+from litmus.execution.limits import derive_limit
 from litmus.products.loader import load_product, load_products_from_directory
 
 
@@ -30,7 +30,6 @@ class TestLoadProduct:
         """Test loading product characteristics."""
         product = load_product(power_board_path)
 
-        # Check we loaded all characteristics
         assert "rail_5v_input" in product.characteristics
         assert "rail_3v3_output" in product.characteristics
         assert "quiescent_current" in product.characteristics
@@ -52,50 +51,26 @@ class TestLoadProduct:
 
         assert char.direction == Direction.INPUT
 
-    def test_characteristic_conditions(self, power_board_path):
-        """Test that conditions are parsed with extra params."""
+    def test_characteristic_specs(self, power_board_path):
+        """Test that specs are parsed as SpecBand list."""
         product = load_product(power_board_path)
         char = product.characteristics["rail_3v3_output"]
 
-        # Should have multiple conditions
-        assert len(char.conditions) >= 3
+        assert len(char.specs) >= 3
 
-        # Find the room temp, light load condition
-        point = char.get_at_conditions(
-            {"temperature": 25, "load": 0.1, "input_voltage": 5.0}
-        )
-        assert point is not None
-        assert point.nominal == 3.3
-        assert point.tolerance_pct == 3.0
+        band = char.get_spec_at({"temperature": 25, "load": 0.1, "input_voltage": 5.0})
+        assert band is not None
+        assert band.value == 3.3
+        assert band.accuracy.pct_reading == 3.0
 
-    def test_characteristic_comparator(self, power_board_path):
-        """Test that non-default comparators are parsed."""
+    def test_quiescent_current_specs(self, power_board_path):
+        """Test quiescent current spec bands."""
         product = load_product(power_board_path)
         char = product.characteristics["quiescent_current"]
 
-        point = char.get_at_conditions({"temperature": 25, "load": 0})
-        assert point is not None
-        assert point.comparator == Comparator.LE
-        assert point.high == 0.015
-
-    def test_test_requirements(self, power_board_path):
-        """Test loading test requirements."""
-        product = load_product(power_board_path)
-
-        assert "verify_output_voltage_room_light" in product.test_requirements
-        req = product.test_requirements["verify_output_voltage_room_light"]
-
-        assert req.characteristic_ref == "rail_3v3_output"
-        assert req.guardband_pct == 5.0
-        assert req.priority == "critical"
-
-    def test_test_requirement_no_characteristic(self, power_board_path):
-        """Test loading test requirement with no characteristic (data collection)."""
-        product = load_product(power_board_path)
-
-        req = product.test_requirements["characterize_line_regulation"]
-        assert req.characteristic_ref is None
-        assert req.priority == "optional"
+        band = char.get_spec_at({"temperature": 25, "load": 0})
+        assert band is not None
+        assert band.value == 0.010
 
 
 class TestIntegration:
@@ -111,27 +86,32 @@ class TestIntegration:
         product = load_product(power_board_path)
 
         char = product.characteristics["rail_3v3_output"]
-        req = product.test_requirements["verify_output_voltage_room_light"]
 
-        limit = derive_limit(char, req)
+        limit = derive_limit(
+            char,
+            conditions={"temperature": 25, "load": 0.1, "input_voltage": 5.0},
+            guardband_pct=5.0,
+            char_id="rail_3v3_output",
+        )
 
-        # Check limit was derived correctly
         assert limit.nominal == 3.3
         assert limit.units == "V"
         assert limit.comparator == Comparator.GELE
 
-        # With 3% tolerance: 3.201 to 3.399
-        # With 5% guardband on that range
-        spec_low = 3.3 * (1 - 0.03)
-        spec_high = 3.3 * (1 + 0.03)
+        # 3% pct_reading accuracy: uncertainty = 3.3 * 0.03 = 0.099
+        # Spec range: 3.201 to 3.399
+        # With 5% guardband on that range (0.198 * 0.05 / 2 = 0.00495)
+        uncertainty = 3.3 * 0.03
+        spec_low = 3.3 - uncertainty
+        spec_high = 3.3 + uncertainty
         range_size = spec_high - spec_low
         guardband = range_size * 0.05 / 2
 
         expected_low = spec_low + guardband
         expected_high = spec_high - guardband
 
-        assert limit.low == expected_low
-        assert limit.high == expected_high
+        assert limit.low == pytest.approx(expected_low)
+        assert limit.high == pytest.approx(expected_high)
 
     def test_capability_requirement_from_loaded_characteristic(self, power_board_path):
         """Test deriving capability requirement from loaded characteristic."""
@@ -140,11 +120,9 @@ class TestIntegration:
 
         cap = char.to_capability_requirement()
 
-        # DUT OUTPUT -> instrument INPUT
         assert cap.direction == Direction.INPUT
         assert cap.function == MeasurementFunction.DC_VOLTAGE
         assert "voltage" in cap.parameters
-        # Max nominal is 3.3V, with 20% headroom = 3.96V
         assert float(cap.parameters["voltage"].range.max) == pytest.approx(3.96)
 
 
@@ -174,37 +152,28 @@ class TestProductInheritance:
     def test_variant_inherits_base_fields(self, specs_dir):
         """Test that variant inherits header fields from base."""
         product = load_product(specs_dir / "variant_inherit_all.yaml", products_dir=specs_dir)
-        # Overridden
         assert product.id == "variant_inherit_all"
         assert product.name == "Inherited Board"
-        # Inherited from base
         assert product.part_number == "BASE-001"
         assert product.description == "Base board for testing inheritance"
         assert product.revision == "A"
         assert product.datasheet == "docs/DS-BASE.pdf"
 
     def test_variant_inherits_sections(self, specs_dir):
-        """Test that variant inherits pins, characteristics, test_requirements from base."""
+        """Test that variant inherits pins, characteristics from base."""
         product = load_product(specs_dir / "variant_inherit_all.yaml", products_dir=specs_dir)
-        # Pins inherited from base
         assert "VIN" in product.pins
         assert "GND" in product.pins
         assert "VOUT" in product.pins
-        # Characteristics inherited
         assert "output_voltage" in product.characteristics
-        # Test requirements inherited
-        assert "verify_output" in product.test_requirements
 
     def test_variant_overrides_sections(self, specs_dir):
         """Test that variant replaces sections it provides."""
         product = load_product(specs_dir / "variant_board.yaml", products_dir=specs_dir)
-        # Part number overridden
         assert product.part_number == "VAR-002"
         assert product.revision == "B"
-        # Characteristics overridden (tighter tolerance)
         char = product.characteristics["output_voltage"]
-        assert char.conditions[0].tolerance_pct == 2
-        # Pins inherited (variant doesn't provide pins section)
+        assert char.specs[0].accuracy.pct_reading == 2.0
         assert "VIN" in product.pins
 
     def test_variant_base_field_set(self, specs_dir):

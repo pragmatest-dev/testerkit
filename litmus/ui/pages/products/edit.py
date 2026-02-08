@@ -28,7 +28,7 @@ def product_edit_page(product_id: str):
         "revision": product.get("revision", ""),
         "pins": list(product.get("pins") or []),
         "characteristics": dict(product.get("characteristics") or {}),
-        "test_requirements": dict(product.get("test_requirements") or {}),
+        "test_requirements": {},
     }
 
     with ui.column().classes("w-full p-6 gap-6"):

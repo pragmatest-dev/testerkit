@@ -15,163 +15,19 @@ range containment.
 """
 
 from enum import StrEnum
-from typing import Any, Literal, Self
+from typing import Any, Self
 
 from pydantic import BaseModel, Field, computed_field, model_validator
 
 from litmus.config.models import (
-    Comparator,
     Direction,
     FunctionCapability,
     MeasurementFunction,
     RangeSpec,
     SignalParameter,
+    SpecBand,
 )
 from litmus.utils.ranges import expand_range
-
-
-class ConditionPoint(BaseModel):
-    """Spec values at a specific operating condition (ATML-style).
-
-    Uses a pure key-value model: condition parameters (temperature, load, etc.)
-    are stored as extra fields alongside spec values (nominal, tolerance).
-
-    Example YAML:
-        - temperature: 25
-          load: 0.5
-          nominal: 3.3
-          tolerance_pct: 5
-          description: "Room temp, light load"
-
-    The condition parameters (temperature, load) go into __pydantic_extra__,
-    while the spec values and metadata are explicit fields.
-    """
-
-    # Spec values (what we're specifying)
-    nominal: float | None = None
-    tolerance_pct: float | None = None
-    tolerance_abs: float | None = None
-    limit_low: float | None = None
-    limit_high: float | None = None
-    comparator: Comparator = Comparator.GELE
-
-    # Metadata (not used for condition matching)
-    description: str | None = None
-
-    # Condition parameters via extra="allow"
-    model_config = {"extra": "allow"}
-
-    @property
-    def condition_params(self) -> dict[str, Any]:
-        """Extract condition parameters (non-spec fields like temperature, load)."""
-        return dict(self.__pydantic_extra__) if self.__pydantic_extra__ else {}
-
-    @property
-    def low(self) -> float | None:
-        """Calculate lower bound from nominal - tolerance or explicit limit_low.
-
-        Handles single-sided specs:
-        - If limit_low is set → use it
-        - If limit_high is set without limit_low → return None (one-sided: <= only)
-        - Otherwise derive from nominal ± tolerance
-        """
-        if self.limit_low is not None:
-            return self.limit_low
-        if self.nominal is None:
-            return None
-        # If only limit_high is set, this is a one-sided spec (<=)
-        if self.limit_high is not None:
-            return None
-        if self.tolerance_pct is not None:
-            return self.nominal * (1.0 - self.tolerance_pct / 100.0)
-        if self.tolerance_abs is not None:
-            return self.nominal - self.tolerance_abs
-        return self.nominal
-
-    @property
-    def high(self) -> float | None:
-        """Calculate upper bound from nominal + tolerance or explicit limit_high.
-
-        Handles single-sided specs:
-        - If limit_high is set → use it
-        - If limit_low is set without limit_high → return None (one-sided: >= only)
-        - Otherwise derive from nominal ± tolerance
-        """
-        if self.limit_high is not None:
-            return self.limit_high
-        if self.nominal is None:
-            return None
-        # If only limit_low is set, this is a one-sided spec (>=)
-        if self.limit_low is not None:
-            return None
-        if self.tolerance_pct is not None:
-            return self.nominal * (1.0 + self.tolerance_pct / 100.0)
-        if self.tolerance_abs is not None:
-            return self.nominal + self.tolerance_abs
-        return self.nominal
-
-    def matches(self, params: dict[str, Any]) -> bool:
-        """Check if this condition point matches the given parameters.
-
-        Returns True if all keys in THIS CONDITION exist in params with matching
-        values. Extra keys in params are ignored. This allows flexible matching:
-        - Query {temperature: 25, load: 1.0, vin: 5.0}
-        - Condition {temperature: 25, load: 1.0}
-        - Result: MATCH (condition params satisfied, vin ignored)
-
-        If this condition has no parameters, it matches any query (universal default).
-        """
-        my_params = self.condition_params
-
-        # No condition params means this is a universal/default condition
-        if not my_params:
-            return True
-
-        for key, point_value in my_params.items():
-            if key not in params:
-                return False
-            query_value = params[key]
-            # Compare with type coercion for numeric values
-            if isinstance(query_value, (int, float)) or isinstance(point_value, (int, float)):
-                try:
-                    if float(query_value) != float(point_value):
-                        return False
-                except (ValueError, TypeError):
-                    return False
-            elif query_value != point_value:
-                return False
-        return True
-
-    def satisfies(self, requirement: dict[str, Any]) -> bool:
-        """Check if this condition point satisfies a requirement.
-
-        Use this for test planning: finding which conditions match a partial
-        requirement. All REQUIREMENT params must exist in this condition.
-
-        Example:
-        - Condition: {temperature: 25, load: 1.0}
-        - Requirement: {temperature: 25}
-        - Result: MATCH (requirement param satisfied, extra load is fine)
-
-        Note: This is the inverse of matches(). Use matches() for vector
-        execution, use satisfies() for test planning.
-        """
-        my_params = self.condition_params
-
-        for key, req_value in requirement.items():
-            if key not in my_params:
-                return False
-            point_value = my_params[key]
-            # Compare with type coercion for numeric values
-            if isinstance(req_value, (int, float)) or isinstance(point_value, (int, float)):
-                try:
-                    if float(req_value) != float(point_value):
-                        return False
-                except (ValueError, TypeError):
-                    return False
-            elif req_value != point_value:
-                return False
-        return True
 
 
 class PinRole(StrEnum):
@@ -287,11 +143,12 @@ class Characteristic(BaseModel):
             voltage:
               value: 3.3
               units: V
-          conditions:
-            - temperature: 25
-              load: 0.1
-              nominal: 3.3
-              tolerance_pct: 3
+          specs:
+            - conditions:
+                temperature: {min: 25, max: 25, units: degC}
+                load: {min: 0.1, max: 0.1, units: A}
+              value: 3.3
+              accuracy: {pct_reading: 3.0}
     """
 
     # Signal identification (shared vocabulary with FunctionCapability)
@@ -315,8 +172,8 @@ class Characteristic(BaseModel):
     # Traceability
     datasheet_ref: str | None = None
 
-    # Spec values at conditions (ATML-style key-value)
-    conditions: list[ConditionPoint] = Field(default_factory=list)
+    # Spec values at conditions (SpecBand model)
+    specs: list[SpecBand] = Field(default_factory=list)
 
     @computed_field
     @property
@@ -383,18 +240,19 @@ class Characteristic(BaseModel):
             )
         return self
 
-    def get_at_conditions(self, params: dict[str, Any]) -> ConditionPoint | None:
-        """Find the condition point matching the given parameters.
+    def get_spec_at(self, params: dict[str, float]) -> SpecBand | None:
+        """Find the SpecBand matching the given operating point.
 
         Args:
-            params: Dictionary of condition parameters (e.g., temperature=25, load=0.5)
+            params: Dictionary of condition parameters (e.g., {"temperature": 25}).
+                Each value is checked against the RangeSpec in the band's conditions.
 
         Returns:
-            The matching ConditionPoint, or None if no match found.
+            The matching SpecBand, or None if no match found.
         """
-        for point in self.conditions:
-            if point.matches(params):
-                return point
+        for band in self.specs:
+            if _band_matches_product(band, params):
+                return band
         return None
 
     def to_capability_requirement(self) -> FunctionCapability:
@@ -419,8 +277,8 @@ class Characteristic(BaseModel):
         # Build required parameters from conditions and explicit parameters
         req_params: dict[str, SignalParameter] = dict(self.parameters)
 
-        # Derive range from conditions (with headroom) if not already in parameters
-        all_nominals = [c.nominal for c in self.conditions if c.nominal is not None]
+        # Derive range from specs (with headroom) if not already in parameters
+        all_nominals = [s.value for s in self.specs if s.value is not None]
         if all_nominals:
             max_nominal = max(all_nominals)
             range_max = max_nominal * 1.2  # 20% headroom
@@ -437,6 +295,25 @@ class Characteristic(BaseModel):
             direction=inst_direction,
             parameters=req_params,
         )
+
+
+def _band_matches_product(band: SpecBand, params: dict[str, float]) -> bool:
+    """Check if all conditions in a product SpecBand match the given params.
+
+    For product specs, condition values can be exact points (min==max) or ranges.
+    An empty conditions dict matches any query (unconditional spec).
+    """
+    if not band.conditions:
+        return True
+    for key, range_spec in band.conditions.items():
+        val = params.get(key)
+        if val is None:
+            return False
+        if range_spec.min is not None and val < range_spec.min:
+            return False
+        if range_spec.max is not None and val > range_spec.max:
+            return False
+    return True
 
 
 def _primary_parameter_for_function(func: MeasurementFunction) -> str:
@@ -467,34 +344,6 @@ def _primary_parameter_for_function(func: MeasurementFunction) -> str:
     return _map.get(func, "value")
 
 
-class TestRequirement(BaseModel):
-    """A requirement to verify a characteristic (ATML: TestRequirement).
-
-    Links a characteristic to test execution by specifying:
-    - Which characteristic to test (characteristic_ref)
-    - Which operating conditions to use
-    - Manufacturing margin via guardband (guardband_pct)
-    - Test priority for coverage planning
-
-    Example YAML:
-        verify_output_voltage_room:
-          characteristic_ref: rail_3v3_output
-          conditions:
-            temperature: 25
-            load: 0.1
-          guardband_pct: 5
-          priority: critical
-    """
-
-    __test__ = False  # Prevent pytest collection
-
-    characteristic_ref: str | None = None
-    conditions: dict[str, Any] = Field(default_factory=dict)
-    guardband_pct: float = 0.0
-    priority: Literal["critical", "standard", "optional"] = "standard"
-    description: str | None = None
-
-
 class Product(BaseModel):
     """Product definition (ATML: UUT Description).
 
@@ -502,7 +351,6 @@ class Product(BaseModel):
     - Product identification (id, name, revision)
     - Documentation references (datasheet, schematic)
     - Characteristics with condition matrices
-    - Test requirements linking characteristics to tests
 
     Example YAML:
         product:
@@ -515,11 +363,6 @@ class Product(BaseModel):
           rail_3v3_output:
             direction: output
             domain: voltage
-            ...
-
-        test_requirements:
-          verify_output_voltage:
-            characteristic_ref: rail_3v3_output
             ...
     """
 
@@ -536,6 +379,5 @@ class Product(BaseModel):
     pins: dict[str, Pin] = Field(default_factory=dict)
     signal_groups: dict[str, SignalGroup] = Field(default_factory=dict)
 
-    # Electrical characteristics and test requirements
+    # Electrical characteristics
     characteristics: dict[str, Characteristic] = Field(default_factory=dict)
-    test_requirements: dict[str, TestRequirement] = Field(default_factory=dict)

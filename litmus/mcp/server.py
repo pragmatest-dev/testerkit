@@ -86,8 +86,8 @@ characteristics:
 ```
 
 ### Station Config:
-**IMPORTANT:** Run `litmus_discover` FIRST to find real instrument addresses.
-Use `mock: true` with `mock_config` when no physical instruments are available.
+**IMPORTANT:** Run `litmus_discover()` FIRST. Use real addresses if instruments
+are found, otherwise use `mock: true` with `mock_config`.
 ```yaml
 station:
   id: my_station
@@ -96,17 +96,17 @@ instruments:
   psu:
     type: psu
     driver: drivers.PSU
-    resource: "<from litmus_discover or use mock: true>"
+    resource: ""           # Fill from litmus_discover() results
     catalog_ref: keysight_e36312a
     channels: ["1", "2"]
-    mock: true          # Set false when using real instruments
+    mock: true             # Set false when using real instruments
     mock_config:
       voltage: 5.0
       current: 0.5
   dmm:
     type: dmm
     driver: drivers.DMM
-    resource: "<from litmus_discover or use mock: true>"
+    resource: ""           # Fill from litmus_discover() results
     catalog_ref: keysight_34461a
     mock: true
     mock_config:
@@ -380,19 +380,9 @@ This is COLLABORATIVE - propose and wait for approval at each step.
    }, project=project_root)
    ```
 
-3. **Create Station Config**: Run `litmus_discover` first for real addresses,
-   or use `mock: true` with `mock_config`. Show config, ask approval, save.
-   ```python
-   litmus(action="save", type="station", id="test_bench", content={
-       "station": {"id": "test_bench", "name": "Test Bench"},
-       "instruments": {
-           "psu": {"type": "psu", "mock": True,
-                   "mock_config": {"voltage": 12.0, "current": 1.0}},
-           "dmm": {"type": "dmm", "mock": True,
-                   "mock_config": {"voltage": 5.0}}
-       }
-   }, project=project_root)
-   ```
+3. **Create Station Config**: Run `litmus_discover()` first. If instruments are
+   found, use their real addresses. If not, use `mock: true` with `mock_config`.
+   Show config, ask approval, save.
 
 ### Optional: Sequence with Per-Step Aliases
 
@@ -456,7 +446,8 @@ def test_output_voltage(context, psu, dmm):
 
 1. **STOP and ASK** before each step - never proceed without approval
 2. **Pass project=** to ALL calls after init
-3. **Instrument types**: use short names (e.g. psu, dmm, eload, scope, fgen, smu)
+3. **Call `litmus_schema()`** before ANY save — match the schema exactly, no invented fields
+4. **Instrument types**: use short names (e.g. psu, dmm, eload, scope, fgen, smu)
 4. **mock_config** in station for default mock values
 5. **Create BOTH test files**: .py AND config.yaml
 6. **_mock in config.yaml**: Per-test/per-vector mock values

@@ -59,7 +59,7 @@ erDiagram
     }
 
     SpecBand {
-        dict when
+        dict conditions
         float value
         AccuracySpec accuracy
         ResolutionSpec resolution
@@ -72,7 +72,6 @@ erDiagram
         float value
         string units
         ParameterRole role
-        list specs
         CompareMode compare
     }
 
@@ -143,21 +142,7 @@ erDiagram
         string units
         list pins_refs FK
         string datasheet_ref
-    }
-
-    ConditionPoint {
-        float nominal
-        float tolerance_pct
-        float limit_low
-        float limit_high
-        Comparator comparator
-    }
-
-    TestRequirement {
-        string characteristic_ref FK
-        dict conditions
-        float guardband_pct
-        string priority
+        list specs FK
     }
 
     %% ============================================
@@ -394,10 +379,8 @@ erDiagram
     Product ||--o{ Pin : "has"
     Product ||--o{ SignalGroup : "has"
     Product ||--o{ Characteristic : "has"
-    Product ||--o{ TestRequirement : "has"
-    Characteristic ||--o{ ConditionPoint : "at"
+    Characteristic ||--o{ SpecBand : "has specs"
     Characteristic }o--o{ Pin : "applies to"
-    TestRequirement }o--|| Characteristic : "tests"
 
     %% Capability relationships
     FunctionCapability }o--|| Direction : "has"
@@ -458,7 +441,7 @@ erDiagram
 |--------|---------|------------|
 | `litmus/config/models.py` | Shared enums & capability specs | Direction, MeasurementFunction, FunctionCapability, SignalParameter, SpecBand, CompareMode, MatchDepth, ChannelTopology, TerminalRole |
 | `litmus/catalog/models.py` | Instrument catalog | InstrumentCatalogEntry |
-| `litmus/products/models.py` | Product specifications | Product, Pin, Characteristic, ConditionPoint |
+| `litmus/products/models.py` | Product specifications | Product, Pin, Characteristic, SignalGroup |
 | `litmus/config/models.py` | Configuration definitions | StationType, FixtureConfig, TestSequenceConfig, Limit |
 | `litmus/data/models.py` | Test execution results | TestRun, TestStep, TestVector, Measurement |
 | `litmus/dialogs/models.py` | Operator dialogs | Dialog, DialogResponse |

@@ -75,7 +75,7 @@
       "type": "object"
     },
     "Characteristic": {
-      "description": "A product characteristic tied to physical DUT interface (ATML: UUT Characteristic).\n\nUses MeasurementFunction + Direction + parameters to describe what the DUT does\nat a connection point. This is the product-side mirror of instrument FunctionCapability.\n\nThe direction indicates whether the DUT provides (OUTPUT) or consumes (INPUT)\nthis signal. Capability matching pairs OPPOSITE directions:\n- DUT OUTPUT -> Instrument INPUT (measure what DUT provides)\n- DUT INPUT -> Instrument OUTPUT (source what DUT needs)\n\nREQUIRES physical interface: Every characteristic must be tied to at least one\nphysical connection point (pin, net, or signal_group). This enables:\n- Fixture mapping (characteristic -> pin -> fixture point -> instrument channel)\n- Traceability from measurement back to schematic\n- Clear routing for test execution\n\nExample YAML:\n    rail_3v3_output:\n      function: dc_voltage\n      direction: output\n      units: V\n      pin: VOUT\n      parameters:\n        voltage:\n          value: 3.3\n          units: V\n      conditions:\n        - temperature: 25\n          load: 0.1\n          nominal: 3.3\n          tolerance_pct: 3",
+      "description": "A product characteristic tied to physical DUT interface (ATML: UUT Characteristic).\n\nUses MeasurementFunction + Direction + parameters to describe what the DUT does\nat a connection point. This is the product-side mirror of instrument FunctionCapability.\n\nThe direction indicates whether the DUT provides (OUTPUT) or consumes (INPUT)\nthis signal. Capability matching pairs OPPOSITE directions:\n- DUT OUTPUT -> Instrument INPUT (measure what DUT provides)\n- DUT INPUT -> Instrument OUTPUT (source what DUT needs)\n\nREQUIRES physical interface: Every characteristic must be tied to at least one\nphysical connection point (pin, net, or signal_group). This enables:\n- Fixture mapping (characteristic -> pin -> fixture point -> instrument channel)\n- Traceability from measurement back to schematic\n- Clear routing for test execution\n\nExample YAML:\n    rail_3v3_output:\n      function: dc_voltage\n      direction: output\n      units: V\n      pin: VOUT\n      parameters:\n        voltage:\n          value: 3.3\n          units: V\n      specs:\n        - conditions:\n            temperature: {min: 25, max: 25, units: degC}\n            load: {min: 0.1, max: 0.1, units: A}\n          value: 3.3\n          accuracy: {pct_reading: 3.0}",
       "properties": {
         "function": {
           "$ref": "#/$defs/MeasurementFunction",
@@ -183,11 +183,11 @@
           "default": null,
           "title": "Datasheet Ref"
         },
-        "conditions": {
+        "specs": {
           "items": {
-            "$ref": "#/$defs/ConditionPoint"
+            "$ref": "#/$defs/SpecBand"
           },
-          "title": "Conditions",
+          "title": "Specs",
           "type": "array"
         }
       },
@@ -198,23 +198,6 @@
       "title": "Characteristic",
       "type": "object"
     },
-    "Comparator": {
-      "description": "Limit comparators per ATML/IEEE 1671.\n\nUsed for limit checking in both instrument capabilities and product specs.\nThe comparator defines how a measured value is compared against limits.\n\nSingle-bound comparators:\n    EQ: value == nominal (exact match)\n    NE: value != nominal (not equal)\n    LT: value < high (less than)\n    LE: value <= high (less than or equal)\n    GT: value > low (greater than)\n    GE: value >= low (greater than or equal)\n\nRange comparators (two bounds):\n    GELE: low <= value <= high (inclusive range, most common)\n    GELT: low <= value < high (inclusive low, exclusive high)\n    GTLE: low < value <= high (exclusive low, inclusive high)\n    GTLT: low < value < high (exclusive range)",
-      "enum": [
-        "EQ",
-        "NE",
-        "LT",
-        "LE",
-        "GT",
-        "GE",
-        "GELE",
-        "GELT",
-        "GTLE",
-        "GTLT"
-      ],
-      "title": "Comparator",
-      "type": "string"
-    },
     "CompareMode": {
       "description": "Comparison direction for capability parameters.\n\nDetermines how instrument and requirement values are compared:\n- CONTAINS: Instrument range must contain required range (default)\n- HIGHER_BETTER: Instrument value must be >= required (gain, bandwidth)\n- LOWER_BETTER: Instrument value must be <= required (noise, THD)",
       "enum": [
@@ -224,90 +207,6 @@
       ],
       "title": "CompareMode",
       "type": "string"
-    },
-    "ConditionPoint": {
-      "additionalProperties": true,
-      "description": "Spec values at a specific operating condition (ATML-style).\n\nUses a pure key-value model: condition parameters (temperature, load, etc.)\nare stored as extra fields alongside spec values (nominal, tolerance).\n\nExample YAML:\n    - temperature: 25\n      load: 0.5\n      nominal: 3.3\n      tolerance_pct: 5\n      description: \"Room temp, light load\"\n\nThe condition parameters (temperature, load) go into __pydantic_extra__,\nwhile the spec values and metadata are explicit fields.",
-      "properties": {
-        "nominal": {
-          "anyOf": [
-            {
-              "type": "number"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Nominal"
-        },
-        "tolerance_pct": {
-          "anyOf": [
-            {
-              "type": "number"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Tolerance Pct"
-        },
-        "tolerance_abs": {
-          "anyOf": [
-            {
-              "type": "number"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Tolerance Abs"
-        },
-        "limit_low": {
-          "anyOf": [
-            {
-              "type": "number"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Limit Low"
-        },
-        "limit_high": {
-          "anyOf": [
-            {
-              "type": "number"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Limit High"
-        },
-        "comparator": {
-          "$ref": "#/$defs/Comparator",
-          "default": "GELE"
-        },
-        "description": {
-          "anyOf": [
-            {
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Description"
-        }
-      },
-      "title": "ConditionPoint",
-      "type": "object"
     },
     "Direction": {
       "description": "Direction of signal flow for a capability.",
@@ -433,7 +332,7 @@
       "type": "string"
     },
     "Product": {
-      "description": "Product definition (ATML: UUT Description).\n\nTop-level model that ties together:\n- Product identification (id, name, revision)\n- Documentation references (datasheet, schematic)\n- Characteristics with condition matrices\n- Test requirements linking characteristics to tests\n\nExample YAML:\n    product:\n      id: power_board_v1\n      name: \"DC-DC Power Board Rev A\"\n      revision: \"A\"\n      datasheet: \"docs/DS-001.pdf\"\n\n    characteristics:\n      rail_3v3_output:\n        direction: output\n        domain: voltage\n        ...\n\n    test_requirements:\n      verify_output_voltage:\n        characteristic_ref: rail_3v3_output\n        ...",
+      "description": "Product definition (ATML: UUT Description).\n\nTop-level model that ties together:\n- Product identification (id, name, revision)\n- Documentation references (datasheet, schematic)\n- Characteristics with condition matrices\n\nExample YAML:\n    product:\n      id: power_board_v1\n      name: \"DC-DC Power Board Rev A\"\n      revision: \"A\"\n      datasheet: \"docs/DS-001.pdf\"\n\n    characteristics:\n      rail_3v3_output:\n        direction: output\n        domain: voltage\n        ...",
       "properties": {
         "id": {
           "title": "Id",
@@ -535,13 +434,6 @@
           },
           "title": "Characteristics",
           "type": "object"
-        },
-        "test_requirements": {
-          "additionalProperties": {
-            "$ref": "#/$defs/TestRequirement"
-          },
-          "title": "Test Requirements",
-          "type": "object"
         }
       },
       "required": [
@@ -579,13 +471,11 @@
           "title": "Max"
         },
         "units": {
+          "default": "",
           "title": "Units",
           "type": "string"
         }
       },
-      "required": [
-        "units"
-      ],
       "title": "RangeSpec",
       "type": "object"
     },
@@ -683,7 +573,7 @@
       "type": "object"
     },
     "SignalParameter": {
-      "description": "A named parameter within a measurement function's capability.\n\nEach parameter describes a dimension of an instrument's capability\n(range, accuracy, resolution) or a fixed performance characteristic\n(bandwidth, sample rate).\n\nTop-level accuracy/resolution are defaults when no SpecBand matches.\nThe ``specs`` list holds condition-dependent overrides.\n\nExample YAML:\n    voltage:\n      range: {min: 0.1, max: 750, units: V}\n      accuracy: {pct_reading: 0.07, pct_range: 0.02}\n      resolution: {digits: 6.5}\n      specs:\n        - when:\n            frequency: {min: 3, max: 5, units: Hz}\n          accuracy: {pct_reading: 0.35, pct_range: 0.03}",
+      "description": "A named parameter within a measurement function's capability.\n\nEach parameter describes a dimension of an instrument's capability\n(range, accuracy, resolution) or a fixed performance characteristic\n(bandwidth, sample rate).\n\nTop-level accuracy/resolution are defaults when no SpecBand matches.\nThe ``specs`` list holds condition-dependent overrides.\n\nExample YAML:\n    voltage:\n      range: {min: 0.1, max: 750, units: V}\n      accuracy: {pct_reading: 0.07, pct_range: 0.02}\n      resolution: {digits: 6.5}\n      specs:\n        - conditions:\n            frequency: {min: 3, max: 5, units: Hz}\n          accuracy: {pct_reading: 0.35, pct_range: 0.03}",
       "properties": {
         "range": {
           "anyOf": [
@@ -777,13 +667,13 @@
       "type": "object"
     },
     "SpecBand": {
-      "description": "Condition-dependent specification override for a parameter.\n\nEach band says \"at this operating point, here are the specs.\"\nThe ``when`` keys reference sibling parameter names; multiple keys\nare ANDed (all must match).\n\nExample YAML:\n    specs:\n      - when:\n          frequency: {min: 3, max: 5, units: Hz}\n        accuracy: {pct_reading: 0.35, pct_range: 0.03}\n      - when:\n          frequency: {min: 5, max: 300, units: Hz}\n        accuracy: {pct_reading: 0.07, pct_range: 0.02}",
+      "description": "Condition-dependent specification override for a parameter.\n\nEach band says \"at this operating point, here are the specs.\"\nThe ``conditions`` keys reference sibling parameter names; multiple keys\nare ANDed (all must match).  Empty dict means unconditional (always applies).\n\nExample YAML:\n    specs:\n      - conditions:\n          frequency: {min: 3, max: 5, units: Hz}\n        accuracy: {pct_reading: 0.35, pct_range: 0.03}\n      - conditions:\n          frequency: {min: 5, max: 300, units: Hz}\n        accuracy: {pct_reading: 0.07, pct_range: 0.02}",
       "properties": {
-        "when": {
+        "conditions": {
           "additionalProperties": {
             "$ref": "#/$defs/RangeSpec"
           },
-          "title": "When",
+          "title": "Conditions",
           "type": "object"
         },
         "value": {
@@ -821,61 +711,7 @@
           "default": null
         }
       },
-      "required": [
-        "when"
-      ],
       "title": "SpecBand",
-      "type": "object"
-    },
-    "TestRequirement": {
-      "description": "A requirement to verify a characteristic (ATML: TestRequirement).\n\nLinks a characteristic to test execution by specifying:\n- Which characteristic to test (characteristic_ref)\n- Which operating conditions to use\n- Manufacturing margin via guardband (guardband_pct)\n- Test priority for coverage planning\n\nExample YAML:\n    verify_output_voltage_room:\n      characteristic_ref: rail_3v3_output\n      conditions:\n        temperature: 25\n        load: 0.1\n      guardband_pct: 5\n      priority: critical",
-      "properties": {
-        "characteristic_ref": {
-          "anyOf": [
-            {
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Characteristic Ref"
-        },
-        "conditions": {
-          "additionalProperties": true,
-          "title": "Conditions",
-          "type": "object"
-        },
-        "guardband_pct": {
-          "default": 0.0,
-          "title": "Guardband Pct",
-          "type": "number"
-        },
-        "priority": {
-          "default": "standard",
-          "enum": [
-            "critical",
-            "standard",
-            "optional"
-          ],
-          "title": "Priority",
-          "type": "string"
-        },
-        "description": {
-          "anyOf": [
-            {
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Description"
-        }
-      },
-      "title": "TestRequirement",
       "type": "object"
     }
   },
@@ -903,13 +739,6 @@
         "$ref": "#/$defs/SignalGroup"
       },
       "title": "Signal Groups",
-      "type": "object"
-    },
-    "test_requirements": {
-      "additionalProperties": {
-        "$ref": "#/$defs/TestRequirement"
-      },
-      "title": "Test Requirements",
       "type": "object"
     }
   },

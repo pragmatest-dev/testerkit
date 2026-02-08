@@ -480,6 +480,49 @@ def _get_run(run_id: str, project: str) -> dict[str, Any]:
 # =============================================================================
 
 
+def _validate_against_schema(
+    entity_type: str, content: dict[str, Any],
+) -> list[str]:
+    """Validate content against the Pydantic model for this entity type.
+
+    Returns a list of validation error strings (empty if valid).
+    """
+    from pydantic import ValidationError
+
+    from litmus.schemas import SCHEMA_MAP
+
+    model = SCHEMA_MAP.get(entity_type)
+    if model is None:
+        return []  # No schema for this type (e.g. test, instrument)
+
+    try:
+        # Create a strict copy that rejects extra top-level fields
+        from pydantic import ConfigDict
+
+        strict = type(
+            model.__name__ + "Strict",
+            (model,),
+            {"model_config": ConfigDict(extra="forbid")},
+        )
+        strict.model_validate(content)
+        return []
+    except ValidationError as e:
+        return [
+            f"{'.'.join(str(loc) for loc in err['loc'])}: {err['msg']}"
+            for err in e.errors()
+        ]
+
+
+def _schema_for_error(entity_type: str) -> dict[str, Any] | None:
+    """Return the JSON Schema for an entity type, or None."""
+    from litmus.schemas import SCHEMA_MAP
+
+    model = SCHEMA_MAP.get(entity_type)
+    if model is None:
+        return None
+    return model.model_json_schema()
+
+
 def _save_entity(
     entity_type: str, id: str, content: dict[str, Any], project: str,
 ) -> dict[str, Any]:
@@ -487,6 +530,22 @@ def _save_entity(
     valid_types = ["station", "product", "fixture", "sequence", "instrument", "test"]
     if entity_type not in valid_types:
         return {"error": f"Unknown type '{entity_type}'. Valid: {valid_types}"}
+
+    # Validate content against schema before saving
+    schema_errors = _validate_against_schema(entity_type, content)
+    if schema_errors:
+        result: dict[str, Any] = {
+            "success": False,
+            "errors": schema_errors,
+            "message": (
+                f"Content does not match the {entity_type} schema. "
+                "Fix the errors above and retry."
+            ),
+        }
+        schema = _schema_for_error(entity_type)
+        if schema:
+            result["schema"] = schema
+        return result
 
     if entity_type == "station":
         return _save_station(id, content, project)
@@ -549,8 +608,7 @@ def _save_station(station_id: str, content: dict[str, Any], project: str) -> dic
             "hint": (
                 "Station format example: {'station': {'id': 'x',"
                 " 'name': 'X'}, 'instruments': {'psu': {'type': 'psu',"
-                " 'resource': 'TCPIP::192.168.1.100::INSTR',"
-                " 'mock_config': {'voltage': 5.0}}}}"
+                " 'mock': True, 'mock_config': {'voltage': 5.0}}}}"
             )
         }
 

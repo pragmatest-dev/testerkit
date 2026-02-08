@@ -59,10 +59,9 @@ characteristics:
     units: V
     pin: TP_VIN
     datasheet_ref: "TLV1117-33 Table 6.3"
-    conditions:
-      - nominal: 5.0
-        limit_low: 4.75
-        limit_high: 10
+    specs:
+      - value: 5.0
+        accuracy: {absolute: 0.25}
         description: "Operating input range (VOUT+1.4V to 15V)"
 
   # Quiescent current (measured at J1_VIN with no load)
@@ -72,11 +71,10 @@ characteristics:
     units: mA
     pin: J1_VIN
     datasheet_ref: "TLV1117-33 Table 6.5"
-    conditions:
-      - load: 0
-        comparator: LE
-        nominal: 5
-        limit_high: 10
+    specs:
+      - conditions:
+          load: {min: 0, max: 0}
+        value: 5
         description: "Ground current, no load"
 
   # Output voltage (measured at TP_VOUT)
@@ -86,26 +84,30 @@ characteristics:
     units: V
     pin: TP_VOUT
     datasheet_ref: "TLV1117-33 Table 6.5"
-    conditions:
-      - temperature: 25
-        load: 0.1
-        nominal: 3.3
-        tolerance_pct: 2
+    specs:
+      - conditions:
+          temperature: {min: 25, max: 25}
+          load: {min: 0.1, max: 0.1}
+        value: 3.3
+        accuracy: {pct_reading: 2.0}
         description: "Light load, room temp"
-      - temperature: 25
-        load: 0.5
-        nominal: 3.3
-        tolerance_pct: 2
+      - conditions:
+          temperature: {min: 25, max: 25}
+          load: {min: 0.5, max: 0.5}
+        value: 3.3
+        accuracy: {pct_reading: 2.0}
         description: "Half load"
-      - temperature: 25
-        load: 0.8
-        nominal: 3.3
-        tolerance_pct: 3
+      - conditions:
+          temperature: {min: 25, max: 25}
+          load: {min: 0.8, max: 0.8}
+        value: 3.3
+        accuracy: {pct_reading: 3.0}
         description: "Full load (800mA)"
-      - temperature: 85
-        load: 0.8
-        nominal: 3.3
-        tolerance_pct: 4
+      - conditions:
+          temperature: {min: 85, max: 85}
+          load: {min: 0.8, max: 0.8}
+        value: 3.3
+        accuracy: {pct_reading: 4.0}
         description: "Full load, hot"
 
   # Load regulation (output change over load range)
@@ -115,12 +117,11 @@ characteristics:
     units: mV
     pin: TP_VOUT
     datasheet_ref: "TLV1117-33 Table 6.5"
-    conditions:
-      - load_min: 0.01
-        load_max: 0.8
-        comparator: LE
-        nominal: 5
-        limit_high: 15
+    specs:
+      - conditions:
+          load_min: {min: 0.01, max: 0.01}
+          load_max: {min: 0.8, max: 0.8}
+        value: 5
         description: "VOUT change from 10mA to 800mA"
 
   # Line regulation (output change over input range)
@@ -130,12 +131,11 @@ characteristics:
     units: mV
     pin: TP_VOUT
     datasheet_ref: "TLV1117-33 Table 6.5"
-    conditions:
-      - vin_min: 4.75
-        vin_max: 10
-        comparator: LE
-        nominal: 3
-        limit_high: 10
+    specs:
+      - conditions:
+          vin_min: {min: 4.75, max: 4.75}
+          vin_max: {min: 10, max: 10}
+        value: 3
         description: "VOUT change from 4.75V to 10V input"
 
   # Output ripple/noise
@@ -150,10 +150,10 @@ characteristics:
         value: 10000000
         units: Hz
         role: condition
-    conditions:
-      - load: 0.5
-        comparator: LE
-        limit_high: 50
+    specs:
+      - conditions:
+          load: {min: 0.5, max: 0.5}
+        value: 25
         description: "Output noise, 10Hz-10MHz"
 
   # Dropout voltage (VIN - VOUT at regulation limit)
@@ -163,11 +163,10 @@ characteristics:
     units: V
     pins: [TP_VIN, TP_VOUT]
     datasheet_ref: "TLV1117-33 Table 6.5"
-    conditions:
-      - load: 0.8
-        comparator: LE
-        nominal: 1.1
-        limit_high: 1.4
+    specs:
+      - conditions:
+          load: {min: 0.8, max: 0.8}
+        value: 1.1
         description: "Dropout at full load"
 
   # Efficiency (calculated)
@@ -177,52 +176,9 @@ characteristics:
     units: "%"
     pins: [J1_VIN, J1_VOUT]
     datasheet_ref: "Calculated: (VOUT*IOUT)/(VIN*IIN)"
-    conditions:
-      - vin: 5.0
-        load: 0.5
-        comparator: GE
-        nominal: 66
-        limit_low: 60
+    specs:
+      - conditions:
+          vin: {min: 5.0, max: 5.0}
+          load: {min: 0.5, max: 0.5}
+        value: 66
         description: "Efficiency at 5V in, 500mA out"
-
-# Test requirements
-test_requirements:
-  verify_output_voltage_light:
-    characteristic_ref: output_voltage
-    conditions:
-      temperature: 25
-      load: 0.1
-    guardband_pct: 10
-    priority: critical
-    description: "Verify 3.3V output at light load"
-
-  verify_output_voltage_full:
-    characteristic_ref: output_voltage
-    conditions:
-      temperature: 25
-      load: 0.8
-    guardband_pct: 10
-    priority: critical
-    description: "Verify 3.3V output at full load"
-
-  verify_quiescent:
-    characteristic_ref: quiescent_current
-    conditions:
-      load: 0
-    guardband_pct: 20
-    priority: standard
-    description: "Verify low quiescent current"
-
-  verify_load_regulation:
-    characteristic_ref: load_regulation
-    guardband_pct: 0
-    priority: standard
-    description: "Verify output stability over load"
-
-  verify_dropout:
-    characteristic_ref: dropout_voltage
-    conditions:
-      load: 0.8
-    guardband_pct: 0
-    priority: standard
-    description: "Verify dropout voltage"

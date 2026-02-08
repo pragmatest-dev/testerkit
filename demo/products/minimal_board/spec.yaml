@@ -14,6 +14,6 @@ characteristics:
     direction: output
     units: V
     pins: [VOUT]
-    conditions:
-      - nominal: 3.3
-        tolerance_pct: 5
+    specs:
+      - value: 3.3
+        accuracy: {pct_reading: 5.0}

@@ -28,7 +28,6 @@ from litmus.products.models import (
     Pin,
     Product,
     SignalGroup,
-    TestRequirement,
 )
 
 # ---------------------------------------------------------------------------
@@ -50,7 +49,6 @@ class ProductFile(BaseModel):
     pins: dict[str, Pin] = Field(default_factory=dict)
     characteristics: dict[str, Characteristic] = Field(default_factory=dict)
     signal_groups: dict[str, SignalGroup] = Field(default_factory=dict)
-    test_requirements: dict[str, TestRequirement] = Field(default_factory=dict)
 
 
 class StationInstrumentConfig(BaseModel):

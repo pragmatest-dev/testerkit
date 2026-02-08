@@ -40,17 +40,8 @@ class TestSpecContext:
         """Derive limit from characteristic - verify structure."""
         spec = SpecContext.from_file(SPEC_PATH)
 
-        # Get first characteristic that has conditions
-        char_id = None
-        conditions = {}
-        for cid, char in spec.product.characteristics.items():
-            if char.conditions:
-                char_id = cid
-                # Use condition params from first condition
-                conditions = char.conditions[0].condition_params
-                break
-
-        assert char_id is not None, "Spec should have at least one characteristic with conditions"
+        char_id, conditions = _find_testable_characteristic(spec)
+        assert char_id is not None, "Spec should have at least one characteristic with specs"
 
         limit = spec.get_limit(char_id, **conditions)
 
@@ -65,17 +56,8 @@ class TestSpecContext:
         spec_no_gb = SpecContext.from_file(SPEC_PATH, guardband_pct=0.0)
         spec_with_gb = SpecContext.from_file(SPEC_PATH, guardband_pct=10.0)
 
-        # Find a characteristic with tolerance-based limits (has both low and high)
-        char_id = None
-        conditions = {}
-        for cid, char in spec_no_gb.product.characteristics.items():
-            if char.conditions:
-                cond = char.conditions[0]
-                # Look for condition with nominal and tolerance (produces range)
-                if cond.nominal and (cond.tolerance_pct or cond.tolerance_abs):
-                    char_id = cid
-                    conditions = cond.condition_params
-                    break
+        # Find a characteristic with specs that produce a range (value + accuracy)
+        char_id, conditions = _find_testable_characteristic(spec_no_gb)
 
         if char_id is None:
             pytest.skip("No characteristic with tolerance-based limits found")
@@ -454,15 +436,15 @@ class TestMinimalSpec:
 
 
 def _find_testable_characteristic(spec: SpecContext) -> tuple[str | None, dict]:
-    """Find a characteristic with conditions suitable for testing.
+    """Find a characteristic with specs suitable for testing.
 
     Returns:
         Tuple of (characteristic_id, conditions_dict) or (None, {}) if not found.
     """
     for char_id, char in spec.product.characteristics.items():
-        if char.conditions:
-            # Use first condition's parameters
-            cond = char.conditions[0]
-            conditions = cond.condition_params
+        if char.specs:
+            # Use first SpecBand's conditions, converting RangeSpec to scalar values
+            band = char.specs[0]
+            conditions = {k: v.min for k, v in band.conditions.items()} if band.conditions else {}
             return char_id, conditions
     return None, {}

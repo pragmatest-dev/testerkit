@@ -165,7 +165,7 @@ def list_products() -> list[dict[str, Any]]:
                     "description": product.description,
                     "revision": product.revision,
                     "characteristics_count": len(product.characteristics),
-                    "test_requirements_count": len(product.test_requirements),
+                    "characteristics_count_total": len(product.characteristics),
                 })
             except Exception:
                 continue
@@ -538,7 +538,7 @@ def get_spec_at(
 
 def _band_matches(band: SpecBand, operating_point: dict[str, float]) -> bool:
     """Check if all conditions in a SpecBand match the operating point."""
-    for key, range_spec in band.when.items():
+    for key, range_spec in band.conditions.items():
         val = operating_point.get(key)
         if val is None:
             return False

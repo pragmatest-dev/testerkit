@@ -402,9 +402,9 @@ def _parse_signal_parameter(data: dict[str, Any]) -> SignalParameter:
 
 def _parse_spec_band(data: dict[str, Any]) -> SpecBand:
     """Parse a single SpecBand from YAML data."""
-    when: dict[str, RangeSpec] = {}
-    for key, val in data.get("when", {}).items():
-        when[key] = RangeSpec(
+    conditions: dict[str, RangeSpec] = {}
+    for key, val in data.get("conditions", {}).items():
+        conditions[key] = RangeSpec(
             min=val.get("min"), max=val.get("max"), units=val.get("units", "")
         )
 
@@ -428,7 +428,7 @@ def _parse_spec_band(data: dict[str, Any]) -> SpecBand:
         )
 
     return SpecBand(
-        when=when,
+        conditions=conditions,
         value=data.get("value"),
         accuracy=accuracy,
         resolution=resolution,

@@ -31,11 +31,11 @@ def test_spec_band_lookup_finds_matching_band():
         accuracy=AccuracySpec(pct_reading=0.07, pct_range=0.02),
         specs=[
             SpecBand(
-                when={"frequency": RangeSpec(min=3, max=5, units="Hz")},
+                conditions={"frequency": RangeSpec(min=3, max=5, units="Hz")},
                 accuracy=AccuracySpec(pct_reading=0.35, pct_range=0.03),
             ),
             SpecBand(
-                when={"frequency": RangeSpec(min=5, max=300, units="Hz")},
+                conditions={"frequency": RangeSpec(min=5, max=300, units="Hz")},
                 accuracy=AccuracySpec(pct_reading=0.07, pct_range=0.02),
             ),
         ],
@@ -50,7 +50,7 @@ def test_spec_band_lookup_multi_key_and():
     param = SignalParameter(
         specs=[
             SpecBand(
-                when={
+                conditions={
                     "frequency": RangeSpec(min=1e9, max=2e9, units="Hz"),
                     "offset": RangeSpec(min=1000, max=1000, units="Hz"),
                 },
@@ -72,7 +72,7 @@ def test_spec_band_lookup_falls_back_to_default():
         accuracy=AccuracySpec(pct_reading=0.07),
         specs=[
             SpecBand(
-                when={"frequency": RangeSpec(min=3, max=5, units="Hz")},
+                conditions={"frequency": RangeSpec(min=3, max=5, units="Hz")},
                 accuracy=AccuracySpec(pct_reading=0.35),
             ),
         ],

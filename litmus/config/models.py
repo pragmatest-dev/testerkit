@@ -220,7 +220,7 @@ class RangeSpec(BaseModel):
 
     min: float | None = None
     max: float | None = None
-    units: str
+    units: str = ""
 
 
 class AccuracySpec(BaseModel):
@@ -229,6 +229,25 @@ class AccuracySpec(BaseModel):
     pct_reading: float | None = None  # % of reading
     pct_range: float | None = None  # % of range
     absolute: float | None = None  # Fixed offset
+
+    def total_uncertainty(self, value: float, range_max: float) -> float:
+        """Calculate total uncertainty at a given value and range.
+
+        Combines all applicable uncertainty components:
+        - pct_reading: percentage of the measured value
+        - pct_range: percentage of the full-scale range
+        - absolute: fixed offset
+
+        Returns the total uncertainty as an absolute value.
+        """
+        u = 0.0
+        if self.pct_reading is not None:
+            u += (self.pct_reading / 100) * abs(value)
+        if self.pct_range is not None:
+            u += (self.pct_range / 100) * abs(range_max)
+        if self.absolute is not None:
+            u += self.absolute
+        return u
 
 
 class ResolutionSpec(BaseModel):
@@ -308,20 +327,20 @@ class SpecBand(BaseModel):
     """Condition-dependent specification override for a parameter.
 
     Each band says "at this operating point, here are the specs."
-    The ``when`` keys reference sibling parameter names; multiple keys
-    are ANDed (all must match).
+    The ``conditions`` keys reference sibling parameter names; multiple keys
+    are ANDed (all must match).  Empty dict means unconditional (always applies).
 
     Example YAML:
         specs:
-          - when:
+          - conditions:
               frequency: {min: 3, max: 5, units: Hz}
             accuracy: {pct_reading: 0.35, pct_range: 0.03}
-          - when:
+          - conditions:
               frequency: {min: 5, max: 300, units: Hz}
             accuracy: {pct_reading: 0.07, pct_range: 0.02}
     """
 
-    when: dict[str, RangeSpec]  # param_name -> range where this band applies
+    conditions: dict[str, RangeSpec] = Field(default_factory=dict)
     value: float | None = None  # Nominal/typical at this operating point
     accuracy: AccuracySpec | None = None
     resolution: ResolutionSpec | None = None
@@ -343,7 +362,7 @@ class SignalParameter(BaseModel):
           accuracy: {pct_reading: 0.07, pct_range: 0.02}
           resolution: {digits: 6.5}
           specs:
-            - when:
+            - conditions:
                 frequency: {min: 3, max: 5, units: Hz}
               accuracy: {pct_reading: 0.35, pct_range: 0.03}
     """
@@ -824,6 +843,7 @@ class MeasurementLimitConfig(BaseModel):
     # Spec reference
     ref: str | None = None
     guardband_pct: float | None = None
+    comparator: Comparator | None = None
 
     # Expression
     expr: str | None = None

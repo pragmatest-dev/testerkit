@@ -524,10 +524,11 @@ class TestHarness:
         """Resolve limit for a measurement name.
 
         Resolution order:
-        1. Direct Limit object in self._limits
-        2. MeasurementLimitConfig with direct values
-        3. MeasurementLimitConfig with spec ref (uses SpecContext)
-        4. SpecContext characteristic lookup (name matches char_id)
+        1. Per-vector _limits (if current vector has _limits.{name})
+        2. Direct Limit object in self._limits
+        3. MeasurementLimitConfig with direct values
+        4. MeasurementLimitConfig with spec ref (uses SpecContext)
+        5. SpecContext characteristic lookup (name matches char_id)
 
         Args:
             name: Measurement name.
@@ -535,7 +536,21 @@ class TestHarness:
         Returns:
             Resolved Limit or None if no limit configured.
         """
-        # First check explicit limits
+        # Check per-vector _limits first
+        if self._current_vector:
+            vector_limits = self._current_vector.get("_limits", {})
+            if name in vector_limits:
+                vl = vector_limits[name]
+                if isinstance(vl, Limit):
+                    return vl
+                if isinstance(vl, dict):
+                    # Try as MeasurementLimitConfig first, then direct Limit
+                    config = MeasurementLimitConfig.model_validate(vl)
+                    return self._resolve_limit_config(config, name)
+                if isinstance(vl, MeasurementLimitConfig):
+                    return self._resolve_limit_config(vl, name)
+
+        # Check test-level explicit limits
         if name in self._limits:
             limit_config = self._limits[name]
 
@@ -545,31 +560,9 @@ class TestHarness:
 
             # MeasurementLimitConfig - resolve based on type
             if isinstance(limit_config, MeasurementLimitConfig):
-                # Direct limit values
-                direct = limit_config.to_limit()
-                if direct is not None:
-                    return direct
-
-                # Spec ref resolution
-                if limit_config.ref and self._spec_context:
-                    try:
-                        # Get current vector params for conditions
-                        conditions = {}
-                        if self._current_vector:
-                            conditions = self._current_vector.params()
-
-                        guardband = limit_config.guardband_pct or 0.0
-                        return self._spec_context.get_limit(
-                            limit_config.ref,
-                            guardband_pct=guardband,
-                            **conditions,
-                        )
-                    except (KeyError, ValueError):
-                        pass  # Fall through
-
-                # Callable resolution
-                if limit_config.callable:
-                    return self._resolve_callable_limit(limit_config.callable)
+                result = self._resolve_limit_config(limit_config, name)
+                if result is not None:
+                    return result
 
         # Try SpecContext direct lookup (measurement name = characteristic ID)
         if self._spec_context:
@@ -581,6 +574,49 @@ class TestHarness:
                 return self._spec_context.get_limit(name, **conditions)
             except (KeyError, ValueError):
                 pass  # No matching characteristic
+
+        return None
+
+    def _resolve_limit_config(self, config: MeasurementLimitConfig, name: str) -> Limit | None:
+        """Resolve a MeasurementLimitConfig to a Limit.
+
+        Args:
+            config: The limit configuration to resolve.
+            name: Measurement name (for spec context fallback).
+
+        Returns:
+            Resolved Limit or None.
+        """
+        # Direct limit values
+        direct = config.to_limit()
+        if direct is not None:
+            # Apply comparator from config if set
+            if config.comparator and direct.comparator != config.comparator:
+                direct = direct.model_copy(update={"comparator": config.comparator})
+            return direct
+
+        # Spec ref resolution
+        if config.ref and self._spec_context:
+            try:
+                conditions = {}
+                if self._current_vector:
+                    conditions = self._current_vector.params()
+
+                guardband = config.guardband_pct or 0.0
+                return self._spec_context.get_limit(
+                    config.ref,
+                    guardband_pct=guardband,
+                    comparator=config.comparator,
+                    limit_low=config.low,
+                    limit_high=config.high,
+                    **conditions,
+                )
+            except (KeyError, ValueError):
+                pass  # Fall through
+
+        # Callable resolution
+        if config.callable:
+            return self._resolve_callable_limit(config.callable)
 
         return None
 
