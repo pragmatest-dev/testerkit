@@ -46,6 +46,7 @@ Entity-aligned folders contain YAML configuration files. Code folders contain Py
 - Litmus does NOT provide instrument drivers — users bring their own (PyMeasure, PyVISA, vendor libs)
 - All MCP tools should have equivalent HTTP API endpoints
 - Operator UI uses NiceGUI with Tailwind CSS classes via `.classes()`
+- **UI inputs:** Use dropdowns/autocomplete for fields with known value sets, even if dynamically populated from data
 - API routes use FastAPI for JSON endpoints
 
 ## Documentation Updates

@@ -525,6 +525,8 @@ class Product(BaseModel):
 
     id: str
     name: str
+    part_number: str | None = None
+    base: str | None = None
     description: str | None = None
     revision: str | None = None
     datasheet: str | None = None

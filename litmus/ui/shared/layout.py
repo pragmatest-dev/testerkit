@@ -114,6 +114,7 @@ def create_sidebar():
             _nav_item("/", "dashboard", "Dashboard")
             _nav_item("/launch", "play_arrow", "Launch Test")
             _nav_item("/results", "history", "Results")
+            _nav_item("/yield", "analytics", "Yield Analytics")
 
             ui.separator().classes("bg-slate-700 my-2")
             ui.label("CONFIGURATION").classes("text-xs text-slate-500 px-3 pt-2")

@@ -109,6 +109,8 @@ erDiagram
     Product {
         string id PK
         string name
+        string part_number
+        string base
         string description
         string revision
         string datasheet

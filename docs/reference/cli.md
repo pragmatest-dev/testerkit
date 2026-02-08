@@ -140,6 +140,70 @@ litmus show a1b2c3d4 -f csv
 
 **Template resolution:** project `reports/templates/{name}.html` → built-in `litmus/reports/templates/{name}.html`. Create custom templates to match your organization's report format.
 
+## Yield / Manufacturing Metrics
+
+### litmus yield summary
+
+Show yield summary (FPY, final yield, RTY).
+
+```bash
+litmus yield summary [OPTIONS]
+```
+
+**Options:**
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| `--results-dir` | from `litmus.yaml` or `results` | Results directory |
+| `--phase` | exclude `development` | Test phase filter (or `all`) |
+| `--since` | *(none)* | Start date (ISO format) |
+| `--until` | *(none)* | End date (ISO format) |
+| `--product` | *(none)* | Product ID filter |
+| `--station` | *(none)* | Station ID filter |
+| `--lot` | *(none)* | Lot number filter |
+| `--group-by` | *(none)* | Group by `product`, `station`, or `lot` |
+
+**Example:**
+
+```
+$ litmus yield summary --results-dir results
+Runs: 150  |  Unique serials: 120
+First-pass yield:  85.0%
+Final yield:       95.8%
+```
+
+### litmus yield pareto
+
+Top failure modes (Pareto analysis).
+
+```bash
+litmus yield pareto [--top N] [filter options...]
+```
+
+### litmus yield cpk STEP_NAME
+
+Process capability (Cpk/Cp) for a measurement step.
+
+```bash
+litmus yield cpk STEP_NAME [--measurement NAME] [--min-samples N] [filter options...]
+```
+
+### litmus yield trend
+
+Yield trend over time.
+
+```bash
+litmus yield trend [--period day|week|month] [filter options...]
+```
+
+### litmus yield time
+
+Test time analysis (run or step durations).
+
+```bash
+litmus yield time [--by run|step] [filter options...]
+```
+
 ## Journal Commands
 
 During test execution, measurements are streamed to JSONL journal files. On successful completion, journals are converted to Parquet and deleted. These commands help manage orphaned journals from crashed or interrupted runs.

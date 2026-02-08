@@ -11,6 +11,7 @@ Product specs are defined in YAML files, in `products/{product_id}/spec.yaml`:
 product:
   id: power_board
   name: "5V to 3.3V Converter"
+  part_number: "DPB-001"
   revision: "A"
 
 pins:
@@ -238,6 +239,48 @@ characteristics:
       - nominal: 5.0
         tolerance_pct: 10
 ```
+
+## Part Numbers
+
+The `part_number` field maps a product to its manufacturing part number. When present, it automatically populates `dut_part_number` in test results (unless overridden by `--dut-part-number` on the CLI). This enables yield analytics filtering by part number.
+
+```yaml
+product:
+  id: power_board
+  part_number: "DPB-001"
+  name: "5V to 3.3V Converter"
+```
+
+## Variant Inheritance
+
+Product families can share specs using the `base` field. A variant inherits all fields from its base product and overrides specific sections:
+
+```yaml
+# products/power_board_industrial/spec.yaml
+product:
+  id: power_board_industrial
+  base: power_board              # Inherits from products/power_board/spec.yaml
+  part_number: "DPB-001-IND"
+  name: "5V to 3.3V Converter (Industrial)"
+
+# Omitted sections (pins, signal_groups) are inherited from base.
+# Sections that ARE present replace the base entirely:
+characteristics:
+  output_voltage:
+    direction: output
+    domain: voltage
+    units: V
+    pins: [VOUT]
+    conditions:
+      - nominal: 3.3
+        tolerance_pct: 3          # Tighter tolerance for industrial
+```
+
+Inheritance rules:
+- **Header fields** (`name`, `description`, `revision`, `part_number`, `datasheet`, `schematic`) — inherited when absent in variant
+- **Sections** (`pins`, `characteristics`, `test_requirements`, `signal_groups`) — variant replaces entirely if present, otherwise inherited
+- `id` and `base` always come from the variant
+- Max inheritance depth: 5 levels. Circular references raise an error.
 
 ## Loading Products
 

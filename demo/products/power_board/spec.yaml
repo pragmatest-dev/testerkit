@@ -8,6 +8,7 @@
 
 product:
   id: power_board
+  part_number: "DPB-001"
   name: "Demo Power Board Rev A"
   revision: "A"
   description: "5V to 3.3V LDO regulator board, 800mA max"

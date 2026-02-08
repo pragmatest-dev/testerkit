@@ -1,0 +1,36 @@
+# Base product for inheritance testing
+product:
+  id: base_board
+  part_number: "BASE-001"
+  name: "Base Board"
+  description: "Base board for testing inheritance"
+  revision: "A"
+  datasheet: "docs/DS-BASE.pdf"
+
+pins:
+  VIN:
+    name: "J1.1"
+    net: "VIN_5V"
+    role: power
+  GND:
+    name: "J1.2"
+    net: "GND"
+    role: ground
+  VOUT:
+    name: "J1.3"
+    net: "VOUT_3V3"
+
+characteristics:
+  output_voltage:
+    function: dc_voltage
+    direction: output
+    units: V
+    pin: VOUT
+    conditions:
+      - nominal: 3.3
+        tolerance_pct: 5
+
+test_requirements:
+  verify_output:
+    characteristic_ref: output_voltage
+    priority: critical

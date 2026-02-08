@@ -358,16 +358,9 @@ def _safe_get_session_fixture(request, name):
     Only attempts to access fixtures that exist at session scope to avoid
     ScopeMismatch errors from test-defined fixtures with the same name.
     """
-    # Check if the fixture exists and is session-scoped before accessing
     try:
-        # Look up the fixture definition
-        fixturedefs = request._fixturemanager.getfixturedefs(name, request._pyfuncitem.nodeid)
-        if not fixturedefs:
-            return None
-        # Check if any fixture with this name is session-scoped
-        for fixturedef in fixturedefs:
-            if fixturedef.scope == "session":
-                return request.getfixturevalue(name)
+        return request.getfixturevalue(name)
+    except pytest.FixtureLookupError:
         return None
     except Exception:
         return None
@@ -445,9 +438,12 @@ def litmus_logger(request) -> Generator[TestRunLogger]:
 
     # Get station info
     station_id = request.config.getoption("--station")
+    station_name = None
     station_type = None
     station_location = None
     if station_config:
+        station_data = station_config.get("station", {})
+        station_name = station_data.get("name") if isinstance(station_data, dict) else None
         station_type = station_config.get("station_type") or station_config.get("type")
         station_location = station_config.get("location")
 
@@ -465,12 +461,23 @@ def litmus_logger(request) -> Generator[TestRunLogger]:
     # Get instrument records for traceability
     instrument_records = _safe_get_session_fixture(request, "instrument_records")
 
+    # Auto-populate DUT part_number/revision from product spec when CLI flags absent
+    cli_part_number = request.config.getoption("--dut-part-number")
+    dut_part_number = cli_part_number or (
+        spec_context.product.part_number if spec_context else None
+    )
+    cli_revision = request.config.getoption("--dut-revision")
+    dut_revision = cli_revision or (
+        spec_context.product.revision if spec_context else None
+    )
+
     logger = TestRunLogger(
         dut_serial=request.config.getoption("--dut-serial"),
-        dut_part_number=request.config.getoption("--dut-part-number"),
-        dut_revision=request.config.getoption("--dut-revision"),
+        dut_part_number=dut_part_number,
+        dut_revision=dut_revision,
         dut_lot_number=request.config.getoption("--dut-lot"),
         station_id=station_id,
+        station_name=station_name,
         station_type=station_type,
         station_location=station_location,
         operator_id=request.config.getoption("--operator"),

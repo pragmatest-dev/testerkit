@@ -1,0 +1,15 @@
+# Circular inheritance test - A references B
+product:
+  id: circular_a
+  base: circular_b
+  name: "Circular A"
+
+characteristics:
+  output_voltage:
+    function: dc_voltage
+    direction: output
+    units: V
+    pin: VOUT
+    conditions:
+      - nominal: 3.3
+        tolerance_pct: 5

@@ -81,6 +81,7 @@ One row per measurement. Every column queryable. All metadata automatic.
 | Column | Type | Description |
 |--------|------|-------------|
 | `station_id` | string | Station ID (from `--station`) |
+| `station_name` | string | Human-readable station name (from station config) |
 | `station_type` | string | Station type/template |
 | `station_location` | string | Physical location |
 

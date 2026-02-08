@@ -268,6 +268,7 @@ class TestRun(BaseModel):
 
     # Station traceability
     station_id: str
+    station_name: str | None = None
     station_type: str | None = None
     station_location: str | None = None
 

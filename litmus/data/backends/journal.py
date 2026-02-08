@@ -22,6 +22,8 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 from uuid import UUID
 
+from litmus.data.backends._row_helpers import build_measurement_fields, build_run_metadata
+
 if TYPE_CHECKING:
     from litmus.data.models import Measurement, TestRun, TestVector
 
@@ -148,63 +150,25 @@ class JournalWriter:
         """Build a row dict matching the parquet schema."""
         tr = self.test_run
 
-        row = {
-            # IDENTITY & TIMING
-            "run_id": str(tr.id),
-            "run_started_at": tr.started_at.isoformat(),
-            "run_ended_at": tr.ended_at.isoformat() if tr.ended_at else None,
+        row = build_run_metadata(tr)
+        row.update({
             "step_name": step_name,
             "step_index": step_index,
             "vector_index": vector.index,
             "attempt": vector.attempt,
-            "vector_started_at": vector.started_at.isoformat(),
-            "vector_ended_at": vector.ended_at.isoformat() if vector.ended_at else None,
-            # WHO - Operator
-            "operator_id": tr.operator_id,
-            "operator_name": tr.operator_name,
-            # WHAT - DUT
-            "dut_serial": tr.dut.serial,
-            "dut_part_number": tr.dut.part_number,
-            "dut_revision": tr.dut.revision,
-            "dut_lot_number": tr.dut.lot_number,
-            # WHAT - Product
-            "product_id": tr.product_id,
-            "product_name": tr.product_name,
-            "product_revision": tr.product_revision,
-            # WHERE - Station
-            "station_id": tr.station_id,
-            "station_type": tr.station_type,
-            "station_location": tr.station_location,
-            # WHERE - Fixture
-            "fixture_id": tr.fixture_id,
-            # WHAT - Test Context
-            "sequence_id": tr.test_sequence_id,
-            "test_phase": tr.test_phase,
-            "git_commit": tr.git_commit,
-            # MEASUREMENT - Core
-            "measurement_name": measurement.name,
-            "measurement_timestamp": measurement.timestamp.isoformat(),
-            "value": measurement.value,
-            "units": measurement.units,
-            "outcome": measurement.outcome.value if measurement.outcome else None,
-            # Limits
-            "low_limit": measurement.low_limit,
-            "high_limit": measurement.high_limit,
-            "nominal": measurement.nominal,
-            "comparator": measurement.comparator,
-            # Spec traceability
-            "spec_id": measurement.spec_id,
-            "spec_ref": measurement.spec_ref,
-            # MEASUREMENT SIGNAL PATH
-            "meas_dut_pin": measurement.dut_pin,
-            "meas_fixture_point": measurement.fixture_point,
-            "meas_instrument": measurement.instrument_name,
-            "meas_instrument_resource": measurement.instrument_resource,
-            "meas_instrument_channel": measurement.instrument_channel,
-            # ROLLUP OUTCOMES
+            "vector_started_at": vector.started_at,
+            "vector_ended_at": vector.ended_at,
+        })
+        row.update(build_measurement_fields(measurement))
+        row.update({
             "vector_outcome": vector.outcome.value if vector.outcome else None,
             "run_outcome": tr.outcome.value,
-        }
+        })
+
+        # Convert datetimes to ISO strings for JSON serialisation
+        for key, value in row.items():
+            if isinstance(value, datetime):
+                row[key] = value.isoformat()
 
         # Add stimulus columns (in_* columns)
         row.update(self._build_stimulus_columns(vector))

@@ -1,0 +1,17 @@
+# Variant product inheriting from base_board
+product:
+  id: variant_board
+  base: base_board
+  part_number: "VAR-002"
+  revision: "B"
+
+# Override characteristics with tighter tolerance
+characteristics:
+  output_voltage:
+    function: dc_voltage
+    direction: output
+    units: V
+    pin: VOUT
+    conditions:
+      - nominal: 3.3
+        tolerance_pct: 2

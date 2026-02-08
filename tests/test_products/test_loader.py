@@ -148,6 +148,91 @@ class TestIntegration:
         assert float(cap.parameters["voltage"].range.max) == pytest.approx(3.96)
 
 
+class TestPartNumber:
+    """Tests for part_number field."""
+
+    def test_load_product_with_part_number(self):
+        """Test that part_number is loaded from YAML."""
+        spec_path = Path(__file__).parent.parent / "fixtures" / "specs" / "base_board.yaml"
+        product = load_product(spec_path)
+        assert product.part_number == "BASE-001"
+
+    def test_load_product_without_part_number(self):
+        """Test that part_number is None when not specified."""
+        spec_path = Path(__file__).parent.parent / "fixtures" / "specs" / "power_board.yaml"
+        product = load_product(spec_path)
+        assert product.part_number is None
+
+
+class TestProductInheritance:
+    """Tests for product variant inheritance via base field."""
+
+    @pytest.fixture
+    def specs_dir(self) -> Path:
+        return Path(__file__).parent.parent / "fixtures" / "specs"
+
+    def test_variant_inherits_base_fields(self, specs_dir):
+        """Test that variant inherits header fields from base."""
+        product = load_product(specs_dir / "variant_inherit_all.yaml", products_dir=specs_dir)
+        # Overridden
+        assert product.id == "variant_inherit_all"
+        assert product.name == "Inherited Board"
+        # Inherited from base
+        assert product.part_number == "BASE-001"
+        assert product.description == "Base board for testing inheritance"
+        assert product.revision == "A"
+        assert product.datasheet == "docs/DS-BASE.pdf"
+
+    def test_variant_inherits_sections(self, specs_dir):
+        """Test that variant inherits pins, characteristics, test_requirements from base."""
+        product = load_product(specs_dir / "variant_inherit_all.yaml", products_dir=specs_dir)
+        # Pins inherited from base
+        assert "VIN" in product.pins
+        assert "GND" in product.pins
+        assert "VOUT" in product.pins
+        # Characteristics inherited
+        assert "output_voltage" in product.characteristics
+        # Test requirements inherited
+        assert "verify_output" in product.test_requirements
+
+    def test_variant_overrides_sections(self, specs_dir):
+        """Test that variant replaces sections it provides."""
+        product = load_product(specs_dir / "variant_board.yaml", products_dir=specs_dir)
+        # Part number overridden
+        assert product.part_number == "VAR-002"
+        assert product.revision == "B"
+        # Characteristics overridden (tighter tolerance)
+        char = product.characteristics["output_voltage"]
+        assert char.conditions[0].tolerance_pct == 2
+        # Pins inherited (variant doesn't provide pins section)
+        assert "VIN" in product.pins
+
+    def test_variant_base_field_set(self, specs_dir):
+        """Test that base field is set on the variant product."""
+        product = load_product(specs_dir / "variant_board.yaml", products_dir=specs_dir)
+        assert product.base == "base_board"
+
+    def test_circular_inheritance_raises(self, specs_dir):
+        """Test that circular inheritance raises ValueError."""
+        with pytest.raises(ValueError, match="[Cc]ircular"):
+            load_product(specs_dir / "circular_a.yaml", products_dir=specs_dir)
+
+    def test_missing_base_raises(self, specs_dir):
+        """Test that missing base raises ValueError."""
+        import tempfile
+
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", dir=specs_dir, delete=False) as f:
+            f.write("product:\n  id: bad_variant\n  base: nonexistent_base\n  name: Bad\n")
+            f.flush()
+            tmp_path = Path(f.name)
+
+        try:
+            with pytest.raises(ValueError, match="not found"):
+                load_product(tmp_path, products_dir=specs_dir)
+        finally:
+            tmp_path.unlink()
+
+
 class TestLoadProductsFromDirectory:
     """Tests for loading multiple products from a directory."""
 

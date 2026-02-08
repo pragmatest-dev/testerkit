@@ -20,27 +20,21 @@ from litmus.products.models import (
     TestRequirement,
 )
 
+_MAX_INHERIT_DEPTH = 5
 
-def load_product(path: Path) -> Product:
-    """Load a product specification from YAML.
 
-    Expected YAML format:
-        product:
-          id: power_board_v1
-          name: "DC-DC Power Board"
-          ...
-        characteristics:
-          rail_3v3_output:
-            function: dc_voltage
-            direction: output
-            ...
-        test_requirements:
-          verify_output_voltage:
-            characteristic_ref: rail_3v3_output
-            ...
+def load_product(path: Path, products_dir: Path | None = None) -> Product:
+    """Load a product specification from YAML, resolving inheritance.
+
+    If the product has a ``base`` field, the base product's YAML is loaded and
+    merged at section level before parsing.  Sections present in the variant
+    completely replace the base's version (no deep merge).
 
     Args:
         path: Path to the product YAML file.
+        products_dir: Directory to search for base products.  Defaults to
+            the grandparent of *path* (assumes products/{id}/spec.yaml layout),
+            falling back to *path*.parent.
 
     Returns:
         Product object with characteristics and test requirements.
@@ -49,9 +43,17 @@ def load_product(path: Path) -> Product:
         FileNotFoundError: If the YAML file doesn't exist.
         yaml.YAMLError: If the YAML is malformed.
         pydantic.ValidationError: If the data doesn't match the model.
+        ValueError: On circular or missing base inheritance.
     """
-    with open(path) as f:
-        data = yaml.safe_load(f)
+    if products_dir is None:
+        # Assume products/{id}/spec.yaml → products_dir is grandparent
+        candidate = path.parent.parent
+        if candidate.name == "products" or any(candidate.iterdir()):
+            products_dir = candidate
+        else:
+            products_dir = path.parent
+
+    data = _load_with_inheritance(path, products_dir, seen=set(), depth=0)
 
     # Parse product metadata
     product_data = data.get("product", {})
@@ -81,6 +83,8 @@ def load_product(path: Path) -> Product:
     return Product(
         id=product_id,
         name=product_name,
+        part_number=product_data.get("part_number"),
+        base=product_data.get("base"),
         description=product_data.get("description"),
         revision=product_data.get("revision"),
         datasheet=product_data.get("datasheet"),
@@ -90,6 +94,95 @@ def load_product(path: Path) -> Product:
         characteristics=characteristics,
         test_requirements=test_requirements,
     )
+
+
+def _load_with_inheritance(
+    path: Path,
+    products_dir: Path,
+    seen: set[str],
+    depth: int,
+) -> dict[str, Any]:
+    """Load raw YAML and recursively merge base products.
+
+    Merge semantics are section-level override: if the variant provides
+    ``characteristics:``, ``pins:``, etc., those replace the base's version
+    entirely.  Header fields (name, description, revision, part_number,
+    datasheet, schematic) are inherited when absent in the variant.
+
+    Raises:
+        ValueError: On circular inheritance or missing base.
+    """
+    if depth > _MAX_INHERIT_DEPTH:
+        raise ValueError(
+            f"Product inheritance depth exceeds {_MAX_INHERIT_DEPTH} for {path}"
+        )
+
+    with open(path) as f:
+        data = yaml.safe_load(f)
+
+    product_data = data.get("product", {})
+    product_id = product_data.get("id", path.stem)
+    base_ref = product_data.get("base")
+
+    if not base_ref:
+        return data
+
+    # Cycle detection
+    if product_id in seen:
+        raise ValueError(
+            f"Circular product inheritance: {product_id!r} already in chain {seen}"
+        )
+    seen.add(product_id)
+
+    # Locate base file: try {base_ref}/spec.yaml then {base_ref}.yaml
+    base_path = products_dir / base_ref / "spec.yaml"
+    if not base_path.exists():
+        base_path = products_dir / f"{base_ref}.yaml"
+    if not base_path.exists():
+        raise ValueError(
+            f"Base product {base_ref!r} not found "
+            f"(referenced by {product_id!r} in {path})"
+        )
+
+    base_data = _load_with_inheritance(base_path, products_dir, seen, depth + 1)
+    return _merge_product_data(base_data, data)
+
+
+def _merge_product_data(
+    base: dict[str, Any], variant: dict[str, Any]
+) -> dict[str, Any]:
+    """Merge base and variant product YAML with section-level override.
+
+    Rules:
+    - Header fields inherited from base when absent in variant:
+      name, description, revision, part_number, datasheet, schematic
+    - id and base always come from variant
+    - pins, signal_groups, characteristics, test_requirements:
+      variant replaces entirely if present, else inherited from base
+    """
+    base_product = dict(base.get("product", {}))
+    variant_product = dict(variant.get("product", {}))
+
+    merged_product: dict[str, Any] = {}
+
+    # Inherit header fields from base
+    for key in ("name", "description", "revision", "part_number", "datasheet", "schematic"):
+        if key in base_product:
+            merged_product[key] = base_product[key]
+
+    # Variant overrides everything it provides
+    merged_product.update(variant_product)
+
+    merged: dict[str, Any] = {"product": merged_product}
+
+    # Section-level: variant replaces if present, else inherit base
+    for section in ("pins", "signal_groups", "characteristics", "test_requirements"):
+        if section in variant:
+            merged[section] = variant[section]
+        elif section in base:
+            merged[section] = base[section]
+
+    return merged
 
 
 def _parse_pin(data: dict[str, Any]) -> Pin:

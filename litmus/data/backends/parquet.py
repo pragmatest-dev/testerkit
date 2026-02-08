@@ -22,16 +22,169 @@ Schema design:
 import json
 import pickle
 import shutil
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
 import pyarrow as pa
 import pyarrow.parquet as pq
 
+from litmus.data.backends._row_helpers import build_measurement_fields, build_run_metadata
 from litmus.data.models import TestRun, Waveform
 
 # Prefix for path references in columns
 REF_PATH_PREFIX = "_ref/"
+
+# Canonical schema for fixed columns. Dynamic columns (in_*, out_*, instr_*, custom)
+# are NOT listed here — they pass through with inferred types.
+MEASUREMENT_SCHEMA = pa.schema([
+    # Identity & timing
+    ("run_id", pa.string()),
+    ("run_started_at", pa.timestamp("us", tz="UTC")),
+    ("run_ended_at", pa.timestamp("us", tz="UTC")),
+    ("step_name", pa.string()),
+    ("step_index", pa.int64()),
+    ("step_started_at", pa.timestamp("us", tz="UTC")),
+    ("step_ended_at", pa.timestamp("us", tz="UTC")),
+    ("vector_index", pa.int64()),
+    ("attempt", pa.int64()),
+    ("vector_started_at", pa.timestamp("us", tz="UTC")),
+    ("vector_ended_at", pa.timestamp("us", tz="UTC")),
+    # Who
+    ("operator_id", pa.string()),
+    ("operator_name", pa.string()),
+    # DUT
+    ("dut_serial", pa.string()),
+    ("dut_part_number", pa.string()),
+    ("dut_revision", pa.string()),
+    ("dut_lot_number", pa.string()),
+    # Product
+    ("product_id", pa.string()),
+    ("product_name", pa.string()),
+    ("product_revision", pa.string()),
+    # Station
+    ("station_id", pa.string()),
+    ("station_name", pa.string()),
+    ("station_type", pa.string()),
+    ("station_location", pa.string()),
+    # Fixture
+    ("fixture_id", pa.string()),
+    # Test context
+    ("sequence_id", pa.string()),
+    ("test_phase", pa.string()),
+    ("git_commit", pa.string()),
+    # Measurement core
+    ("measurement_name", pa.string()),
+    ("measurement_timestamp", pa.timestamp("us", tz="UTC")),
+    ("value", pa.float64()),
+    ("units", pa.string()),
+    ("outcome", pa.string()),
+    # Limits
+    ("low_limit", pa.float64()),
+    ("high_limit", pa.float64()),
+    ("nominal", pa.float64()),
+    ("comparator", pa.string()),
+    # Spec traceability
+    ("spec_id", pa.string()),
+    ("spec_ref", pa.string()),
+    # Signal path
+    ("meas_dut_pin", pa.string()),
+    ("meas_fixture_point", pa.string()),
+    ("meas_instrument", pa.string()),
+    ("meas_instrument_resource", pa.string()),
+    ("meas_instrument_channel", pa.string()),
+    # Rollup
+    ("vector_outcome", pa.string()),
+    ("run_outcome", pa.string()),
+])
+
+_SCHEMA_DICT = {f.name: f.type for f in MEASUREMENT_SCHEMA}
+
+_TIMESTAMP_COLS = {
+    "run_started_at", "run_ended_at", "vector_started_at", "vector_ended_at",
+    "measurement_timestamp", "step_started_at", "step_ended_at",
+}
+
+
+def _enforce_schema(table: pa.Table) -> pa.Table:
+    """Normalize column types to match MEASUREMENT_SCHEMA.
+
+    For each column in the table that appears in the canonical schema:
+    - If the type already matches, no-op.
+    - If the column is null-typed, cast to the target type.
+    - If the column is an extension type (uuid, json) or string where timestamp
+      expected, rebuild via to_pylist() round-trip.
+
+    Dynamic columns not in the schema pass through unchanged.
+    """
+    columns = []
+    names = []
+
+    for i, field in enumerate(table.schema):
+        col = table.column(i)
+        target_type = _SCHEMA_DICT.get(field.name)
+
+        if target_type is None or field.type == target_type:
+            # Dynamic column or already correct
+            columns.append(col)
+            names.append(field.name)
+            continue
+
+        if pa.types.is_null(field.type):
+            # All nulls — cast to target
+            columns.append(col.cast(target_type))
+            names.append(field.name)
+            continue
+
+        # Extension types or type mismatches — rebuild via pylist
+        values = col.to_pylist()
+
+        if pa.types.is_timestamp(target_type):
+            # Parse string timestamps
+            parsed = []
+            for v in values:
+                if isinstance(v, str):
+                    parsed.append(datetime.fromisoformat(v.replace("Z", "+00:00")))
+                else:
+                    parsed.append(v)
+            columns.append(pa.array(parsed, type=target_type))
+        elif target_type == pa.float64():
+            # Coerce to float (handles json extension → float)
+            parsed = []
+            for v in values:
+                if v is None:
+                    parsed.append(None)
+                else:
+                    try:
+                        parsed.append(float(v))
+                    except (TypeError, ValueError):
+                        parsed.append(None)
+            columns.append(pa.array(parsed, type=target_type))
+        elif target_type == pa.string():
+            # Coerce to string (handles uuid extension, json extension)
+            parsed = [str(v) if v is not None else None for v in values]
+            columns.append(pa.array(parsed, type=target_type))
+        elif target_type == pa.int64():
+            parsed = []
+            for v in values:
+                if v is None:
+                    parsed.append(None)
+                else:
+                    try:
+                        parsed.append(int(v))
+                    except (TypeError, ValueError):
+                        parsed.append(None)
+            columns.append(pa.array(parsed, type=target_type))
+        else:
+            # Fallback: try direct cast
+            try:
+                columns.append(col.cast(target_type))
+            except (pa.ArrowInvalid, pa.ArrowNotImplementedError):
+                columns.append(col)  # keep as-is
+
+        names.append(field.name)
+
+    return pa.table(columns, names=names)
 
 
 class ParquetBackend:
@@ -105,8 +258,9 @@ class ParquetBackend:
             # No measurements - create empty file with minimal schema
             rows = [self._build_empty_row(test_run, instrument_arrays)]
 
-        # Convert to PyArrow table
+        # Convert to PyArrow table with canonical types
         table = pa.Table.from_pylist(rows)
+        table = _enforce_schema(table)
 
         # Add file-level metadata (config snapshots)
         metadata = self._build_file_metadata(test_run)
@@ -174,8 +328,6 @@ class ParquetBackend:
         dut_serial = first_row.get("dut_serial", "")
 
         # Parse timestamp - handle ISO format
-        from datetime import datetime
-
         if isinstance(run_started_at, str):
             try:
                 started_dt = datetime.fromisoformat(run_started_at.replace("Z", "+00:00"))
@@ -199,8 +351,35 @@ class ParquetBackend:
 
         parquet_path = date_dir / filename
 
-        # Convert JSONL rows to Parquet using pyarrow
+        # Backfill run_ended_at and step timestamps from TestRun
+        # (journal rows are written mid-run, so these are null at write time)
+        if test_run is not None:
+            # Build step timing lookup: step_name → (started_at, ended_at)
+            step_timing: dict[str, tuple] = {}
+            for step in test_run.steps:
+                step_timing[step.name] = (step.started_at, step.ended_at)
+
+            for row in rows:
+                if row.get("run_ended_at") is None:
+                    row["run_ended_at"] = test_run.ended_at
+                step_name = row.get("step_name")
+                if step_name and step_name in step_timing:
+                    s_start, s_end = step_timing[step_name]
+                    if row.get("step_started_at") is None:
+                        row["step_started_at"] = s_start
+                    if row.get("step_ended_at") is None:
+                        row["step_ended_at"] = s_end
+
+        # Parse timestamp strings back to datetime objects before table construction
+        for row in rows:
+            for col in _TIMESTAMP_COLS:
+                val = row.get(col)
+                if isinstance(val, str):
+                    row[col] = datetime.fromisoformat(val.replace("Z", "+00:00"))
+
+        # Convert JSONL rows to Parquet with canonical types
         table = pa.Table.from_pylist(rows)
+        table = _enforce_schema(table)
 
         # Add file-level metadata now if test_run provided (avoid re-read later)
         if test_run is not None:
@@ -242,73 +421,22 @@ class ParquetBackend:
                 )
 
                 for measurement in vector.measurements:
-                    # Limit values are already float, no conversion needed
-                    low = measurement.low_limit
-                    high = measurement.high_limit
-                    nom = measurement.nominal
-                    val = measurement.value
-
-                    row = {
-                        # IDENTITY & TIMING
-                        "run_id": str(test_run.id),
-                        "run_started_at": test_run.started_at,
-                        "run_ended_at": test_run.ended_at,
+                    row = build_run_metadata(test_run)
+                    row.update({
                         "step_name": step.name,
                         "step_index": step_idx,
+                        "step_started_at": step.started_at,
+                        "step_ended_at": step.ended_at,
                         "vector_index": vector.index,
                         "attempt": vector.attempt,
                         "vector_started_at": vector.started_at,
                         "vector_ended_at": vector.ended_at,
-                        # WHO - Operator
-                        "operator_id": test_run.operator_id,
-                        "operator_name": test_run.operator_name,
-                        # WHAT - DUT
-                        "dut_serial": test_run.dut.serial,
-                        "dut_part_number": test_run.dut.part_number,
-                        "dut_revision": test_run.dut.revision,
-                        "dut_lot_number": test_run.dut.lot_number,
-                        # WHAT - Product
-                        "product_id": test_run.product_id,
-                        "product_name": test_run.product_name,
-                        "product_revision": test_run.product_revision,
-                        # WHERE - Station
-                        "station_id": test_run.station_id,
-                        "station_type": test_run.station_type,
-                        "station_location": test_run.station_location,
-                        # WHERE - Fixture
-                        "fixture_id": test_run.fixture_id,
-                        # WHAT - Test Context
-                        "sequence_id": test_run.test_sequence_id,
-                        "test_phase": test_run.test_phase,
-                        "git_commit": test_run.git_commit,
-                        # MEASUREMENT - Core
-                        "measurement_name": measurement.name,
-                        "measurement_timestamp": measurement.timestamp,
-                        "value": val,
-                        "units": measurement.units,
-                        "outcome": measurement.outcome.value if measurement.outcome else None,
-                        # Limits
-                        "low_limit": low,
-                        "high_limit": high,
-                        "nominal": nom,
-                        "comparator": measurement.comparator,
-                        # Spec traceability
-                        "spec_id": measurement.spec_id,
-                        "spec_ref": measurement.spec_ref,
-                        # ═══════════════════════════════════════════════════════════════
-                        # MEASUREMENT SIGNAL PATH - How value was captured
-                        # ═══════════════════════════════════════════════════════════════
-                        "meas_dut_pin": measurement.dut_pin,
-                        "meas_fixture_point": measurement.fixture_point,
-                        "meas_instrument": measurement.instrument_name,
-                        "meas_instrument_resource": measurement.instrument_resource,
-                        "meas_instrument_channel": measurement.instrument_channel,
-                        # ═══════════════════════════════════════════════════════════════
-                        # ROLLUP OUTCOMES
-                        # ═══════════════════════════════════════════════════════════════
+                    })
+                    row.update(build_measurement_fields(measurement))
+                    row.update({
                         "vector_outcome": vector_outcome,
                         "run_outcome": run_outcome,
-                    }
+                    })
 
                     # Add stimulus columns (dynamic in_* columns)
                     row.update(stimulus_cols)
@@ -510,32 +638,16 @@ class ParquetBackend:
         instrument_arrays: dict[str, list] | None = None,
     ) -> dict[str, Any]:
         """Build a placeholder row when no measurements exist."""
-        row = {
-            "run_id": str(test_run.id),
-            "run_started_at": test_run.started_at,
-            "run_ended_at": test_run.ended_at,
+        row = build_run_metadata(test_run)
+        row.update({
             "step_name": None,
             "step_index": None,
+            "step_started_at": None,
+            "step_ended_at": None,
             "vector_index": None,
             "attempt": None,
             "vector_started_at": None,
             "vector_ended_at": None,
-            "operator_id": test_run.operator_id,
-            "operator_name": test_run.operator_name,
-            "dut_serial": test_run.dut.serial,
-            "dut_part_number": test_run.dut.part_number,
-            "dut_revision": test_run.dut.revision,
-            "dut_lot_number": test_run.dut.lot_number,
-            "product_id": test_run.product_id,
-            "product_name": test_run.product_name,
-            "product_revision": test_run.product_revision,
-            "station_id": test_run.station_id,
-            "station_type": test_run.station_type,
-            "station_location": test_run.station_location,
-            "fixture_id": test_run.fixture_id,
-            "sequence_id": test_run.test_sequence_id,
-            "test_phase": test_run.test_phase,
-            "git_commit": test_run.git_commit,
             "measurement_name": None,
             "measurement_timestamp": None,
             "value": None,
@@ -554,7 +666,7 @@ class ParquetBackend:
             "meas_instrument_channel": None,
             "vector_outcome": None,
             "run_outcome": test_run.outcome.value,
-        }
+        })
 
         # Add instrument identity arrays (parallel arrays)
         if instrument_arrays:

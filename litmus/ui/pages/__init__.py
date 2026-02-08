@@ -16,4 +16,5 @@ from litmus.ui.pages import (
     sequences,  # noqa: F401
     stations,  # noqa: F401
     tests,  # noqa: F401
+    yield_page,  # noqa: F401
 )
