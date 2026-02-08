@@ -66,6 +66,7 @@ Skills follow this pattern:
 4. **Examples** - Sample inputs/outputs for each step
 
 Key principles:
+- **Always use `ask_user_input_v0` for approval gates** — never print text menus like `[A]pprove [E]dit`. This ensures Claude Desktop renders interactive buttons instead of confusing text options
 - Always pause for human approval before major actions
 - Show confidence levels when extracting information
 - Offer the UI editor for complex changes

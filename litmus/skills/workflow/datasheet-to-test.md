@@ -42,7 +42,52 @@ Datasheet → Product Spec → Station → Tests → Results
 
 ---
 
-## Asking for Decisions (Numbered List Format)
+## CRITICAL: User Prompting — ALWAYS Use `ask_user_input_v0`
+
+**At EVERY approval gate, you MUST use the `ask_user_input_v0` tool** to present choices as interactive widgets.
+NEVER present options as text like `[A]pprove [E]dit [R]egenerate` — always use the tool.
+
+### When to Use `ask_user_input_v0`
+
+**Required approval gates:**
+1. After Step 1 (datasheet parsing) — approve extracted characteristics
+2. After Step 2 (product spec) — approve before saving
+3. After Step 2b (instrument recommendations) — choose which instruments to use
+4. After Step 3 (station config) — approve instruments and mock values
+5. After Step 4 (test generation) — approve test code and config
+6. Before Step 5 (execution) — confirm test run parameters
+
+**Additional prompts that REQUIRE this tool:**
+- Any time you need the user's target voltage, input range, design parameters
+- When multiple valid approaches exist
+- Before any destructive or irreversible action
+
+### Example Usage
+
+After presenting extracted specs:
+
+```json
+{
+  "questions": [
+    {
+      "question": "Does the extracted spec look correct?",
+      "type": "single_select",
+      "options": [
+        "Approve and continue to station setup",
+        "Edit — I need to adjust the characteristics",
+        "Regenerate — focus on different specs",
+        "Ask — I have questions about the extraction"
+      ]
+    }
+  ]
+}
+```
+
+**Do NOT proceed without a response.** Always wait for the user to click a button, never assume approval.
+
+---
+
+## Decision Questions (Contextual, Not Boilerplate)
 
 **DO NOT use generic boilerplate.** Ask contextual, knowledgeable questions specific
 to what you found. You're a colleague with expertise in hardware testing.
