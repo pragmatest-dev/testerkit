@@ -1,78 +1,74 @@
-"""Tests for instrument discovery scanner."""
+"""Tests for instrument discovery functions."""
 
-from litmus.discovery import DiscoveredInstrument, InstrumentScanner
-from litmus.instruments.simulated import get_sim_resource_manager, get_simulated_resource
-
-
-class TestInstrumentScanner:
-    """Tests for InstrumentScanner using simulated backend."""
-
-    def test_init(self):
-        scanner = InstrumentScanner()
-        assert scanner.visa_library == ""
-
-    def test_init_with_visa_library(self):
-        scanner = InstrumentScanner(visa_library="/path/to/visa.so")
-        assert scanner.visa_library == "/path/to/visa.so"
-
-    def test_scan_all_simulated(self):
-        visa_lib = get_sim_resource_manager()
-        scanner = InstrumentScanner(visa_library=visa_lib)
-
-        instruments = scanner.scan_all()
-
-        assert len(instruments) >= 1
-        # Find our simulated DMM - resource names are normalized by pyvisa
-        # TCPIP::192.168.1.100::INSTR -> TCPIP0::192.168.1.100::inst0::INSTR
-        dmm = next(
-            (i for i in instruments if "192.168.1.100" in i.resource),
-            None,
-        )
-        assert dmm is not None
-        assert dmm.reachable is True
-        assert dmm.manufacturer == "Litmus"
-        assert dmm.model == "SimDMM"
-
-    def test_probe_resource_simulated(self):
-        visa_lib = get_sim_resource_manager()
-        scanner = InstrumentScanner(visa_library=visa_lib)
-        resource = get_simulated_resource()
-
-        inst = scanner.probe_resource(resource)
-
-        assert isinstance(inst, DiscoveredInstrument)
-        assert inst.resource == resource
-        assert inst.reachable is True
-        assert inst.idn == "Litmus,SimDMM,SN001,1.0"
-        assert inst.manufacturer == "Litmus"
-        assert inst.model == "SimDMM"
-        assert inst.serial == "SN001"
-        assert inst.firmware == "1.0"
-
-    def test_probe_resource_unreachable(self):
-        # Use default VISA library which won't have our simulated resource
-        scanner = InstrumentScanner()
-
-        # Probe a non-existent resource
-        inst = scanner.probe_resource("TCPIP::192.168.255.255::INSTR")
-
-        assert inst.reachable is False
-        assert inst.error is not None
-        assert inst.idn is None
+from litmus.instruments.discovery import (
+    get_protocol,
+    list_protocols,
+    parse_idn,
+    register_protocol,
+)
+from litmus.instruments.models import InstrumentInfo
 
 
-class TestIDNParsing:
+class TestParseIDN:
     """Tests for IDN response parsing."""
 
-    def test_full_idn_parsed(self):
-        visa_lib = get_sim_resource_manager()
-        scanner = InstrumentScanner(visa_library=visa_lib)
-        resource = get_simulated_resource()
+    def test_full_idn(self):
+        info = parse_idn("Keysight,34465A,MY12345678,A.02.14")
+        assert info.manufacturer == "Keysight"
+        assert info.model == "34465A"
+        assert info.serial == "MY12345678"
+        assert info.firmware == "A.02.14"
 
-        inst = scanner.probe_resource(resource)
+    def test_empty_string(self):
+        info = parse_idn("")
+        assert not info
 
-        # IDN: "Litmus,SimDMM,SN001,1.0"
-        assert inst.manufacturer == "Litmus"
-        assert inst.model == "SimDMM"
-        assert inst.serial == "SN001"
-        assert inst.firmware == "1.0"
+    def test_partial_idn(self):
+        info = parse_idn("Rigol,DS1054Z")
+        assert info.manufacturer == "Rigol"
+        assert info.model == "DS1054Z"
+        assert info.serial is None
+        assert info.firmware is None
+
+    def test_extra_whitespace(self):
+        info = parse_idn(" Keysight , 34461A , SN001 , 1.0 ")
+        assert info.manufacturer == "Keysight"
+        assert info.model == "34461A"
+        assert info.serial == "SN001"
+        assert info.firmware == "1.0"
+
+
+class TestProtocolRegistry:
+    """Tests for pluggable protocol registry."""
+
+    def test_builtin_protocols_registered(self):
+        protocols = list_protocols()
+        assert "visa" in protocols
+        assert "ni" in protocols
+        assert "serial" in protocols
+
+    def test_get_registered_protocol(self):
+        handler = get_protocol("visa")
+        assert handler is not None
+        discover_fn, get_info_fn = handler
+        assert callable(discover_fn)
+        assert callable(get_info_fn)
+
+    def test_get_unregistered_protocol(self):
+        assert get_protocol("nonexistent") is None
+
+    def test_register_custom_protocol(self):
+        def my_discover():
+            return ["CUSTOM::1"]
+
+        def my_get_info(resource):
+            return InstrumentInfo(manufacturer="Custom")
+
+        register_protocol("test_custom", my_discover, my_get_info)
+        assert "test_custom" in list_protocols()
+
+        handler = get_protocol("test_custom")
+        assert handler is not None
+        discover_fn, get_info_fn = handler
+        assert discover_fn() == ["CUSTOM::1"]
+        assert get_info_fn("CUSTOM::1").manufacturer == "Custom"

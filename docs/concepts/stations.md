@@ -117,6 +117,10 @@ instruments:
     resource: "GPIB0::5::INSTR"
 ```
 
+### Aliases and Sequences
+
+Station configs define the physical instrument inventory. Sequence steps can optionally remap fixture names to different station instruments using `aliases`. See [Writing Sequences](../guides/writing-sequences.md#step-with-instrument-aliases) for details.
+
 ## Using Stations in Tests
 
 ### Via pytest

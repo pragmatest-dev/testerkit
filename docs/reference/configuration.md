@@ -127,6 +127,29 @@ supported_phases:         # Optional: which test phases this station supports
   - debug
 ```
 
+## Test Sequence
+
+**Location:** `sequences/<sequence_id>.yaml`
+
+```yaml
+sequence:
+  id: string
+  name: string
+  description: string
+
+steps:
+  - id: string
+    test: string              # Pytest test path
+    description: string
+    aliases:                  # Optional: remap fixture names to station roles
+      <fixture_name>: <station_role>
+    skip_on: [string]
+    retry:
+      max_attempts: integer
+      delay_seconds: float
+    limit_ref: string
+```
+
 ### Common Instrument Types
 
 | Type | Description | Capabilities |

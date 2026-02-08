@@ -295,6 +295,10 @@ With auto-registration, conftest.py should only contain fixtures that add **sema
 
 Do NOT add boilerplate like `def dmm(instruments): return instruments.get("dmm")` — the plugin handles this automatically.
 
+### Per-Step Instrument Aliases
+
+Sequence steps can define `aliases: {dmm: precision_dmm}` to remap fixture names to different station instruments per step. Without aliases, fixture names fall through to station role names (zero overhead). The `--sequence` pytest option passes sequence context to the plugin. See `docs/guides/writing-sequences.md`.
+
 ## Per-Step Instrument Identity in Parquet
 
 Each Parquet row includes 13 `instr_*` columns (parallel arrays) identifying the instruments used by that test step. Only the instruments a test actually uses are included — auto-detected from fixture parameters.

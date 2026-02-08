@@ -453,6 +453,7 @@ Want me to:
 7. **Standard Python math:** Instruments return `float`. Use standard Python arithmetic
 8. **Pin roles:** `power` (supply rails), `ground` (return), `signal` (default), `reference`
 9. **Characteristics:** Use `function:` (dc_voltage, dc_current, etc.) + `direction:` (input/output)
+10. **Per-step aliases:** When station has multiple instruments of same type, use `aliases:` in sequence steps to select which instrument each step uses
 
 ---
 

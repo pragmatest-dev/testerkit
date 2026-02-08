@@ -18,15 +18,20 @@ sequence:
 
 steps:
   # Step 1: Basic power-up (must pass for others to run)
+  # Uses precision DMM (default) for this critical measurement
   - id: basic_power
     test: tests/test_power_board.py::test_output_voltage_no_load
     description: "Verify 3.3V output at no load"
+    aliases:
+      dmm: dmm                       # Precision DMM for critical measurement
     pre_dialog: confirm_dut_inserted
 
   # Step 2: Load test (skip if basic fails)
   - id: load_test
     test: tests/test_power_board.py::test_output_voltage_full_load
     description: "Verify 3.3V output under 800mA load"
+    aliases:
+      dmm: fast_dmm                  # Fast DMM is sufficient here
     skip_on: [basic_power]
 
   # Step 3: Quiescent current (independent)
@@ -38,6 +43,8 @@ steps:
   - id: regulation_sweep
     test: tests/test_power_board.py::test_load_sweep
     description: "Sweep load from 100mA to 800mA"
+    aliases:
+      dmm: fast_dmm                  # Fast DMM for rapid sweep
     skip_on: [load_test]
 
 dialogs:

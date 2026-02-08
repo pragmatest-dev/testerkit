@@ -149,6 +149,15 @@ test_output_voltage:
 6. **_mock in config.yaml** - Per-test/per-vector mock values
 7. **Pin roles:** power, ground, signal (default), reference
 8. **catalog_ref** on instruments resolves capabilities from catalog/
+9. **Per-step aliases** in sequences remap fixture names to station instruments:
+   ```yaml
+   steps:
+     - id: precision_cal
+       test: tests/test_cal.py::test_voltage
+       aliases:
+         dmm: precision_dmm
+   ```
+   Without aliases, fixture name = station role name (default, zero config).
 """,
     )
 
@@ -330,6 +339,27 @@ You are helping create hardware tests from a product datasheet. This is COLLABOR
        }
    }, project=project_root)
    ```
+
+### Optional: Sequence with Per-Step Aliases
+
+If the station has multiple instruments of the same type, create a sequence with per-step aliases:
+
+```yaml
+sequence:
+  id: full_test
+  description: "Full test with instrument selection"
+  steps:
+    - id: precision_cal
+      test: tests/test_partnum.py::test_output_voltage
+      aliases:
+        dmm: precision_dmm
+    - id: quick_check
+      test: tests/test_partnum.py::test_output_voltage
+      aliases:
+        dmm: fast_dmm
+```
+
+Only needed when different steps need different instruments for the same fixture name.
 
 4. **Create Test Files**: MUST create BOTH files
    ```python

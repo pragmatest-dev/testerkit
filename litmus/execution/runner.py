@@ -156,6 +156,10 @@ class TestRunner:
             "--tb=short",
         ]
 
+        # Pass sequence ID so plugin can load per-step aliases
+        if req.sequence_id:
+            cmd.append(f"--sequence={req.sequence_id}")
+
         # Add extra pytest args from sequence
         cmd.extend(extra_args)
 

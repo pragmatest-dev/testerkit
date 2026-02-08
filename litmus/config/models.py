@@ -902,6 +902,10 @@ class TestStepConfig(BaseModel):
     limit_ref: str | None = None  # Reference to spec -> derived limit
     pre_dialog: str | None = None  # Reference to DialogConfig
     post_dialog: str | None = None
+    aliases: dict[str, str] = Field(
+        default_factory=dict,
+        description="Maps alias names (test fixture params) to station instrument roles",
+    )
     retry: RetryConfig | None = None
     skip_on: list[str] | None = None  # Skip if these tests failed
 

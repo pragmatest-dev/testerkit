@@ -99,6 +99,25 @@ def test_voltage(context, instrument):
     return dmm.measure_voltage()
 ```
 
+### Instrument Aliases
+
+When a sequence defines per-step aliases, fixture names can resolve to different station instruments depending on which step is running:
+
+```yaml
+# sequences/full_test.yaml
+steps:
+  - id: precision_cal
+    test: tests/test_cal.py::test_voltage
+    aliases:
+      dmm: precision_dmm
+  - id: quick_screen
+    test: tests/test_screen.py::test_voltage
+    aliases:
+      dmm: fast_dmm
+```
+
+Both tests use `dmm` as a fixture parameter, but each step gets a different physical instrument. Multiple aliases pointing to the same station role return the same instance (N:1 deduplication).
+
 ## Multi-Channel Routing
 
 For complex fixtures with switching or routing:

@@ -160,6 +160,23 @@ steps:
     skip_on: [measure_5v_rail]    # Skip if 5V failed
 ```
 
+### Step with Instrument Aliases
+
+```yaml
+steps:
+  - id: precision_cal
+    test: tests/test_cal.py::test_voltage
+    aliases:
+      dmm: precision_dmm       # This step uses the 6.5-digit DMM
+
+  - id: quick_screen
+    test: tests/test_screen.py::test_voltage
+    aliases:
+      dmm: fast_dmm            # This step uses the 4.5-digit DMM
+```
+
+Aliases remap fixture names to station instrument roles per step. Without `aliases`, fixture names map directly to station role names. Alias targets must exist in the station's `instruments:` section.
+
 ## Sequence Composition
 
 Sequences can include other sequences as steps.

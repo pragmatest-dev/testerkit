@@ -24,6 +24,60 @@ _ACTIVE_INSTRUMENTS: dict[str, Any] = {}
 # Track instrument records for traceability
 _INSTRUMENT_RECORDS: dict[str, InstrumentRecord] = {}
 
+# Per-step alias state (set in pytest_runtest_setup, read by alias fixtures)
+_CURRENT_STEP_ALIASES: dict[str, str] = {}
+
+# Mapping: test node ID → step aliases (built from --sequence)
+_TEST_NODE_ALIASES: dict[str, dict[str, str]] = {}
+
+
+def _load_step_aliases(config) -> dict[str, dict[str, str]]:
+    """Load per-step aliases from a sequence file.
+
+    Returns mapping of test node ID → {alias_name: station_role}.
+    """
+    seq_option = config.getoption("--sequence", default=None)
+    if not seq_option:
+        return {}
+
+    # Find the sequence file
+    seq_path = Path(seq_option)
+    if not seq_path.exists():
+        # Try sequences/ directories
+        search_roots = [
+            config.rootpath,
+            Path(config.invocation_params.dir),
+        ]
+        for root in search_roots:
+            candidate = root / "sequences" / f"{seq_option}.yaml"
+            if candidate.exists():
+                seq_path = candidate
+                break
+        else:
+            return {}
+
+    try:
+        with open(seq_path) as f:
+            data = yaml.safe_load(f)
+    except Exception:
+        return {}
+
+    if not data:
+        return {}
+
+    # Handle both top-level 'steps' and nested 'sequence.steps'
+    seq = data.get("sequence", data)
+    steps = data.get("steps", seq.get("steps", []))
+
+    result: dict[str, dict[str, str]] = {}
+    for step in steps:
+        test_node = step.get("test")
+        aliases = step.get("aliases", {})
+        if test_node and aliases:
+            result[test_node] = aliases
+
+    return result
+
 
 def _find_station_file(config) -> Path | None:
     """Find station config file from pytest config options.
@@ -86,21 +140,71 @@ def pytest_configure(config):
     if not instruments_map:
         return
 
+    # Load per-step aliases from sequence (if --sequence provided)
+    global _TEST_NODE_ALIASES
+    _TEST_NODE_ALIASES = _load_step_aliases(config)
+
+    # Collect all alias names used across all steps
+    all_alias_names: set[str] = set()
+    for step_aliases in _TEST_NODE_ALIASES.values():
+        all_alias_names.update(step_aliases.keys())
+
     # Build a plugin class with fixture functions per role.
     # Wrap each fixture in staticmethod to prevent Python's descriptor
     # protocol from injecting self as the first argument.
     class _InstrumentFixtures:
         pass
 
+    # Determine which station roles need to become function-scoped
+    # (because an alias in some step overrides that name)
+    aliased_role_names = all_alias_names & set(instruments_map.keys())
+
     for role in instruments_map:
-        def _make(r=role):
-            @pytest.fixture(scope="session")
+        if role in aliased_role_names:
+            # This role name is also used as an alias target — make it
+            # function-scoped so it can resolve differently per step
+            def _make_aliased(r=role):
+                @pytest.fixture
+                def _fix(instruments):
+                    target = _CURRENT_STEP_ALIASES.get(r, r)
+                    if target not in instruments:
+                        available = ", ".join(sorted(instruments)) or "(none)"
+                        raise KeyError(
+                            f"Alias '{r}' targets '{target}' which is not in "
+                            f"station instruments. Available: {available}"
+                        )
+                    return instruments[target]
+                _fix.__name__ = r
+                _fix.__qualname__ = r
+                return _fix
+            setattr(_InstrumentFixtures, role, staticmethod(_make_aliased()))
+        else:
+            def _make(r=role):
+                @pytest.fixture(scope="session")
+                def _fix(instruments):
+                    return instruments.get(r)
+                _fix.__name__ = r
+                _fix.__qualname__ = r
+                return _fix
+            setattr(_InstrumentFixtures, role, staticmethod(_make()))
+
+    # Register function-scoped fixtures for alias names that aren't station roles
+    for alias in all_alias_names - set(instruments_map.keys()):
+        def _make_alias(a=alias):
+            @pytest.fixture
             def _fix(instruments):
-                return instruments.get(r)
-            _fix.__name__ = r
-            _fix.__qualname__ = r
+                target = _CURRENT_STEP_ALIASES.get(a, a)
+                if target not in instruments:
+                    available = ", ".join(sorted(instruments)) or "(none)"
+                    raise KeyError(
+                        f"Alias '{a}' targets '{target}' which is not in "
+                        f"station instruments. Available: {available}"
+                    )
+                return instruments[target]
+            _fix.__name__ = a
+            _fix.__qualname__ = a
             return _fix
-        setattr(_InstrumentFixtures, role, staticmethod(_make()))
+        setattr(_InstrumentFixtures, alias, staticmethod(_make_alias()))
 
     config.pluginmanager.register(
         _InstrumentFixtures(), "litmus_instrument_fixtures"
@@ -141,6 +245,11 @@ def pytest_addoption(parser):
         "--station-config",
         default=None,
         help="Path to station configuration YAML file",
+    )
+    group.addoption(
+        "--sequence",
+        default=None,
+        help="Sequence ID or path to sequence YAML (enables per-step aliases)",
     )
     group.addoption(
         "--test-phase",
@@ -761,13 +870,20 @@ class InstrumentAccessor:
         self._records = records
 
     def __call__(self, role: str) -> Any:
-        """Get instrument by role name. Raises KeyError with available roles."""
-        if role not in self._instruments:
+        """Get instrument by role name, resolving aliases. Raises KeyError with available roles."""
+        # Resolve through per-step aliases first
+        resolved = _CURRENT_STEP_ALIASES.get(role, role)
+        if resolved not in self._instruments:
             available = ", ".join(sorted(self._instruments)) or "(none)"
+            if resolved != role:
+                raise KeyError(
+                    f"Alias '{role}' targets '{resolved}' which is not in "
+                    f"station instruments. Available: {available}"
+                )
             raise KeyError(
                 f"No instrument with role '{role}'. Available: {available}"
             )
-        return self._instruments[role]
+        return self._instruments[resolved]
 
     def by_type(self, driver_path: str) -> dict[str, Any]:
         """Get all instruments matching a driver class import path."""
@@ -778,8 +894,10 @@ class InstrumentAccessor:
         }
 
     def roles(self) -> list[str]:
-        """List available instrument role names."""
-        return sorted(self._instruments)
+        """List available instrument role names, including active aliases."""
+        names = set(self._instruments.keys())
+        names.update(_CURRENT_STEP_ALIASES.keys())
+        return sorted(names)
 
 
 @pytest.fixture
@@ -887,7 +1005,15 @@ def pytest_runtest_makereport(item, call):
 
 @pytest.hookimpl(tryfirst=True)
 def pytest_runtest_setup(item):
-    """Reset mock state and skip tests if their dependencies failed."""
+    """Reset mock state, set per-step aliases, and skip tests if dependencies failed."""
+    # Set per-step aliases from sequence config
+    global _CURRENT_STEP_ALIASES
+    _CURRENT_STEP_ALIASES = {}
+    for node_id, aliases in _TEST_NODE_ALIASES.items():
+        if item.nodeid.endswith(node_id) or node_id in item.nodeid:
+            _CURRENT_STEP_ALIASES = aliases
+            break
+
     # Reset mock state for clean test isolation
     for inst in _ACTIVE_INSTRUMENTS.values():
         if hasattr(inst, "reset_mock_state"):
