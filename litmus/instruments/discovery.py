@@ -353,6 +353,18 @@ register_protocol("serial", discover_serial, get_info_serial)
 
 
 # =============================================================================
+# LXI Protocol (zeroconf mDNS)
+# =============================================================================
+
+try:
+    from litmus.instruments.lxi import discover_lxi, get_info_lxi
+
+    register_protocol("lxi", discover_lxi, get_info_lxi)
+except Exception:
+    pass
+
+
+# =============================================================================
 # Unified Discovery Interface
 # =============================================================================
 

@@ -652,8 +652,9 @@ def setup_show():
 @click.option("--visa", "visa_only", is_flag=True, help="VISA instruments only")
 @click.option("--ni", "ni_only", is_flag=True, help="NI devices only")
 @click.option("--serial", "serial_only", is_flag=True, help="Serial ports only")
+@click.option("--lxi", "lxi_only", is_flag=True, help="LXI network instruments only")
 @click.option("--identify/--no-identify", default=True, help="Query *IDN? for each instrument")
-def discover(visa_only: bool, ni_only: bool, serial_only: bool, identify: bool):
+def discover(visa_only: bool, ni_only: bool, serial_only: bool, lxi_only: bool, identify: bool):
     """Scan for available instruments.
 
     This is a SLOW operation that scans all configured backends.
@@ -675,6 +676,8 @@ def discover(visa_only: bool, ni_only: bool, serial_only: bool, identify: bool):
         protocols = ["ni"]
     elif serial_only:
         protocols = ["serial"]
+    elif lxi_only:
+        protocols = ["lxi"]
 
     click.echo("Scanning for instruments...")
 

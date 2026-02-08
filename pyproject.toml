@@ -35,6 +35,9 @@ pymeasure = [
 ni = [
     "nidaqmx>=0.9",
 ]
+lxi = [
+    "zeroconf>=0.80",
+]
 
 [project.scripts]
 litmus = "litmus.cli:main"
