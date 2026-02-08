@@ -96,8 +96,11 @@ litmus/
 - `Dialog` / `DialogManager` - Runtime operator dialogs (confirm, choice, input, image)
 - `TestStepConfig` / `TestSequenceConfig` - Test configuration
 - `FunctionCapability` - Instrument capability with measurement function, direction, and named signal parameters
-- `MeasurementFunction` - Named signal functions (dc_voltage, ac_voltage, resistance, waveform, etc.)
-- `SignalParameter` - Per-parameter range, accuracy, resolution specs
+- `MeasurementFunction` - Named signal functions (dc_voltage, ac_voltage, resistance, waveform, RF, digital, etc.)
+- `SignalParameter` - Per-parameter range, accuracy, resolution specs with optional `specs` (condition-dependent overrides) and `compare` (comparison direction)
+- `SpecBand` - Condition-dependent accuracy/resolution/value override on SignalParameter (e.g., accuracy by frequency band)
+- `CompareMode` - Parameter comparison direction: contains (default), higher_better (gain), lower_better (noise)
+- `MatchDepth` - How deep to check when matching: function → direction → range → accuracy → resolution
 - `InstrumentCatalogEntry` - Vendor/model instrument catalog with capabilities, structured channel topology, and optional `base` for variant inheritance
 - `PinRole` - Pin role enum (signal/ground/power/reference) on product Pin model
 - `ChannelTopology` - Structured channel description (terminals, connector, ground topology)
@@ -164,10 +167,14 @@ class FunctionCapability(BaseModel):
     readback: bool = False          # True for built-in meters (PSU voltage readback)
 ```
 
-**Matching algorithm** (3-tier):
+**Matching algorithm** (tiered, controlled by `MatchDepth`):
 1. Function match — same `MeasurementFunction`
 2. Direction match — DUT OUTPUT ↔ instrument INPUT (direction flip)
 3. Parameter range containment — instrument range must contain required value/range
+4. Accuracy — instrument accuracy must be better than required (condition-aware via `SpecBand`)
+5. Resolution — instrument resolution must meet or exceed required
+
+`SpecBand` on `SignalParameter.specs` provides condition-dependent accuracy/resolution overrides (e.g., DMM accuracy by frequency band). `CompareMode` on `SignalParameter.compare` controls comparison direction for capability params (`higher_better` for gain, `lower_better` for noise).
 
 ### 3-Tier Instrument Configuration
 

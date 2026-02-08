@@ -18,6 +18,7 @@ class Direction(StrEnum):
     INPUT = "input"  # Measure/sense from DUT
     OUTPUT = "output"  # Source/drive to DUT
     BIDIR = "bidir"  # Both (SMU, VNA)
+    TRANSFORM = "transform"  # Signal-path component (amplifier, filter, mixer)
 
 
 class MeasurementFunction(StrEnum):
@@ -66,6 +67,8 @@ class MeasurementFunction(StrEnum):
     # Digital / logic
     LOGIC = "logic"
     COUNTER = "counter"
+    DIGITAL_PATTERN = "digital_pattern"
+    SERIAL_DECODE = "serial_decode"
 
     # DMM specialty functions
     DIODE = "diode"
@@ -73,6 +76,21 @@ class MeasurementFunction(StrEnum):
 
     # Electronic load modes
     TRANSIENT = "transient"
+
+    # RF analysis
+    S_PARAMETERS = "s_parameters"
+    SPECTRUM = "spectrum"
+    PHASE_NOISE = "phase_noise"
+    NOISE_FIGURE = "noise_figure"
+    MODULATION_ANALYSIS = "modulation_analysis"
+    RF_MODULATED = "rf_modulated"
+    NOISE = "noise"
+    HARMONICS = "harmonics"
+
+    # Signal integrity
+    POWER_QUALITY = "power_quality"
+    JITTER = "jitter"
+    EYE_DIAGRAM = "eye_diagram"
 
 
 class TerminalRole(StrEnum):
@@ -109,6 +127,38 @@ class ConnectorType(StrEnum):
     SPRING = "spring"
     PXI = "pxi"
     SCREW_TERMINAL = "screw_terminal"
+
+
+class CompareMode(StrEnum):
+    """Comparison direction for capability parameters.
+
+    Determines how instrument and requirement values are compared:
+    - CONTAINS: Instrument range must contain required range (default)
+    - HIGHER_BETTER: Instrument value must be >= required (gain, bandwidth)
+    - LOWER_BETTER: Instrument value must be <= required (noise, THD)
+    """
+
+    CONTAINS = "contains"
+    HIGHER_BETTER = "higher_better"
+    LOWER_BETTER = "lower_better"
+
+
+class MatchDepth(StrEnum):
+    """How deep to check when matching capabilities.
+
+    Each level includes all checks from previous levels:
+    - FUNCTION: MeasurementFunction match only
+    - DIRECTION: + direction match
+    - RANGE: + parameter range containment (current default)
+    - ACCURACY: + accuracy comparison
+    - RESOLUTION: + resolution comparison
+    """
+
+    FUNCTION = "function"
+    DIRECTION = "direction"
+    RANGE = "range"
+    ACCURACY = "accuracy"
+    RESOLUTION = "resolution"
 
 
 class ParameterRole(StrEnum):
@@ -254,6 +304,29 @@ class ChannelTopology(BaseModel):
     ground: GroundTopology = GroundTopology.SHARED
 
 
+class SpecBand(BaseModel):
+    """Condition-dependent specification override for a parameter.
+
+    Each band says "at this operating point, here are the specs."
+    The ``when`` keys reference sibling parameter names; multiple keys
+    are ANDed (all must match).
+
+    Example YAML:
+        specs:
+          - when:
+              frequency: {min: 3, max: 5, units: Hz}
+            accuracy: {pct_reading: 0.35, pct_range: 0.03}
+          - when:
+              frequency: {min: 5, max: 300, units: Hz}
+            accuracy: {pct_reading: 0.07, pct_range: 0.02}
+    """
+
+    when: dict[str, RangeSpec]  # param_name -> range where this band applies
+    value: float | None = None  # Nominal/typical at this operating point
+    accuracy: AccuracySpec | None = None
+    resolution: ResolutionSpec | None = None
+
+
 class SignalParameter(BaseModel):
     """A named parameter within a measurement function's capability.
 
@@ -261,15 +334,18 @@ class SignalParameter(BaseModel):
     (range, accuracy, resolution) or a fixed performance characteristic
     (bandwidth, sample rate).
 
+    Top-level accuracy/resolution are defaults when no SpecBand matches.
+    The ``specs`` list holds condition-dependent overrides.
+
     Example YAML:
         voltage:
-          range: {min: 0.0001, max: 1000, units: V}
-          accuracy: {pct_reading: 0.0035, pct_range: 0.0006}
+          range: {min: 0.1, max: 750, units: V}
+          accuracy: {pct_reading: 0.07, pct_range: 0.02}
           resolution: {digits: 6.5}
-        bandwidth:
-          value: 300000
-          units: Hz
-          role: capability
+          specs:
+            - when:
+                frequency: {min: 3, max: 5, units: Hz}
+              accuracy: {pct_reading: 0.35, pct_range: 0.03}
     """
 
     range: RangeSpec | None = None
@@ -278,41 +354,8 @@ class SignalParameter(BaseModel):
     value: float | None = None  # Fixed value (for capability params like bandwidth)
     units: str | None = None
     role: ParameterRole = ParameterRole.CONTROLLABLE
-
-
-class ConditionSpec(BaseModel):
-    """Specification for matching against a condition value.
-
-    Used in ParameterCondition to specify when a conditional override applies.
-
-    Example: accuracy changes when voltage range exceeds 100V
-        condition: {above: 100}
-    """
-
-    above: float | None = None
-    below: float | None = None
-    min: float | None = None
-    max: float | None = None
-    value: float | None = None  # Exact match
-
-
-class ParameterCondition(BaseModel):
-    """Conditional parameter override (accuracy varies with range, etc.).
-
-    Describes how one parameter's specs change based on another parameter's value.
-    Used for datasheet derating curves and range-dependent accuracy specs.
-
-    Example YAML:
-        conditions:
-          - when:
-              voltage: {above: 100}
-            accuracy: {pct_reading: 0.015, pct_range: 0.001}
-    """
-
-    when: dict[str, ConditionSpec] = Field(default_factory=dict)
-    accuracy: AccuracySpec | None = None
-    range: RangeSpec | None = None
-    resolution: ResolutionSpec | None = None
+    specs: list[SpecBand] | None = None  # Condition-dependent overrides
+    compare: CompareMode | None = None  # Comparison direction for capability params
 
 
 class FunctionCapability(BaseModel):
@@ -342,7 +385,6 @@ class FunctionCapability(BaseModel):
     parameters: dict[str, SignalParameter] = Field(default_factory=dict)
     channels: list[str] = Field(default_factory=list)
     modes: list[str] = Field(default_factory=list)
-    conditions: list[ParameterCondition] | None = None
     readback: bool = False  # Built-in meter, not primary measurement
 
 

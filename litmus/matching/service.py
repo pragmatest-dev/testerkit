@@ -18,9 +18,14 @@ from typing import Any
 from pydantic import BaseModel, Field
 
 from litmus.config.models import (
+    AccuracySpec,
+    CompareMode,
     Direction,
+    MatchDepth,
     MeasurementFunction,
+    ResolutionSpec,
     SignalParameter,
+    SpecBand,
 )
 from litmus.products.loader import load_product
 from litmus.products.models import Product
@@ -424,23 +429,31 @@ def _parse_signal_parameter(data: dict[str, Any]) -> SignalParameter:
 
 
 def capability_satisfies(
-    station_cap: StationCapability, required: CapabilityRequirement
+    station_cap: StationCapability,
+    required: CapabilityRequirement,
+    depth: MatchDepth = MatchDepth.RANGE,
 ) -> bool:
     """Check if a station capability satisfies a requirement.
 
-    3-tier matching:
-    1. Function must match
-    2. Direction must match (or station capability is BIDIR)
-    3. Parameter ranges must contain required values/ranges
+    Matching tiers (controlled by depth):
+    1. FUNCTION: MeasurementFunction must match
+    2. DIRECTION: Direction must match (or station capability is BIDIR)
+    3. RANGE: Parameter ranges must contain required values/ranges
+    4. ACCURACY: Instrument accuracy must be better than required
+    5. RESOLUTION: Instrument resolution must be at least required
     """
     # Tier 1: Function must match
     if station_cap.function != required.function:
         return False
+    if depth == MatchDepth.FUNCTION:
+        return True
 
     # Tier 2: Direction must match (or station cap is bidir)
     if station_cap.direction != required.direction:
         if station_cap.direction != Direction.BIDIR:
             return False
+    if depth == MatchDepth.DIRECTION:
+        return True
 
     # Tier 3: Parameter range containment
     for param_name, req_param in required.parameters.items():
@@ -452,7 +465,179 @@ def capability_satisfies(
             continue
         if not _range_contains(inst_param, req_param):
             return False
+    if depth == MatchDepth.RANGE:
+        return True
 
+    # Build operating point from required parameters for spec band lookup
+    operating_point = _build_operating_point(required.parameters)
+
+    # Tier 4: Accuracy check
+    for param_name, req_param in required.parameters.items():
+        inst_param = station_cap.parameters.get(param_name)
+        if inst_param is None:
+            continue
+
+        # Check capability value comparison (higher_better / lower_better)
+        if not _capability_value_sufficient(inst_param, req_param, operating_point):
+            return False
+
+        req_acc = _get_accuracy_at(req_param, operating_point)
+        inst_acc = _get_accuracy_at(inst_param, operating_point)
+        if req_acc is not None and inst_acc is not None:
+            if not _accuracy_sufficient(inst_acc, req_acc):
+                return False
+    if depth == MatchDepth.ACCURACY:
+        return True
+
+    # Tier 5: Resolution check
+    for param_name, req_param in required.parameters.items():
+        inst_param = station_cap.parameters.get(param_name)
+        if inst_param is None:
+            continue
+        req_res = _get_resolution_at(req_param, operating_point)
+        inst_res = _get_resolution_at(inst_param, operating_point)
+        if req_res is not None and inst_res is not None:
+            if not _resolution_sufficient(inst_res, req_res):
+                return False
+
+    return True
+
+
+def _build_operating_point(parameters: dict[str, SignalParameter]) -> dict[str, float]:
+    """Extract operating point values from requirement parameters."""
+    point: dict[str, float] = {}
+    for name, param in parameters.items():
+        if param.value is not None:
+            point[name] = param.value
+        elif param.range is not None:
+            # Use midpoint of range as operating point
+            if param.range.min is not None and param.range.max is not None:
+                point[name] = (param.range.min + param.range.max) / 2
+            elif param.range.min is not None:
+                point[name] = param.range.min
+            elif param.range.max is not None:
+                point[name] = param.range.max
+    return point
+
+
+def get_spec_at(
+    param: SignalParameter, operating_point: dict[str, float]
+) -> SpecBand | None:
+    """Find the SpecBand that applies at the given operating point.
+
+    Returns None if no band matches (caller should use top-level defaults).
+    Multiple ``when`` keys are ANDed — all must match.
+    """
+    if not param.specs:
+        return None
+    for band in param.specs:
+        if _band_matches(band, operating_point):
+            return band
+    return None
+
+
+def _band_matches(band: SpecBand, operating_point: dict[str, float]) -> bool:
+    """Check if all conditions in a SpecBand match the operating point."""
+    for key, range_spec in band.when.items():
+        val = operating_point.get(key)
+        if val is None:
+            return False
+        if range_spec.min is not None and val < range_spec.min:
+            return False
+        if range_spec.max is not None and val > range_spec.max:
+            return False
+    return True
+
+
+def _get_accuracy_at(
+    param: SignalParameter, operating_point: dict[str, float]
+) -> AccuracySpec | None:
+    """Get the applicable accuracy for a parameter at an operating point."""
+    band = get_spec_at(param, operating_point)
+    if band is not None and band.accuracy is not None:
+        return band.accuracy
+    return param.accuracy
+
+
+def _get_resolution_at(
+    param: SignalParameter, operating_point: dict[str, float]
+) -> ResolutionSpec | None:
+    """Get the applicable resolution for a parameter at an operating point."""
+    band = get_spec_at(param, operating_point)
+    if band is not None and band.resolution is not None:
+        return band.resolution
+    return param.resolution
+
+
+def _get_value_at(
+    param: SignalParameter, operating_point: dict[str, float]
+) -> float | None:
+    """Get the applicable value for a parameter at an operating point."""
+    band = get_spec_at(param, operating_point)
+    if band is not None and band.value is not None:
+        return band.value
+    return param.value
+
+
+def _accuracy_sufficient(inst: AccuracySpec, req: AccuracySpec) -> bool:
+    """Check if instrument accuracy is better than (<=) required.
+
+    Lower values = better accuracy. Each component checked independently;
+    instrument must be better on every specified component.
+    """
+    if req.pct_reading is not None and inst.pct_reading is not None:
+        if inst.pct_reading > req.pct_reading:
+            return False
+    if req.pct_range is not None and inst.pct_range is not None:
+        if inst.pct_range > req.pct_range:
+            return False
+    if req.absolute is not None and inst.absolute is not None:
+        if inst.absolute > req.absolute:
+            return False
+    return True
+
+
+def _resolution_sufficient(inst: ResolutionSpec, req: ResolutionSpec) -> bool:
+    """Check if instrument resolution meets or exceeds required.
+
+    Higher bits/digits = better. Lower absolute value = better.
+    """
+    if req.bits is not None and inst.bits is not None:
+        if inst.bits < req.bits:
+            return False
+    if req.digits is not None and inst.digits is not None:
+        if inst.digits < req.digits:
+            return False
+    if req.value is not None and inst.value is not None:
+        # Lower absolute resolution value = finer resolution = better
+        if inst.value > req.value:
+            return False
+    return True
+
+
+def _capability_value_sufficient(
+    inst_param: SignalParameter,
+    req_param: SignalParameter,
+    operating_point: dict[str, float],
+) -> bool:
+    """Check capability value using compare mode (higher_better / lower_better).
+
+    Only applies to parameters with a compare mode set. For CONTAINS mode
+    (default), range containment already handles it.
+    """
+    compare = inst_param.compare or req_param.compare
+    if compare is None or compare == CompareMode.CONTAINS:
+        return True
+
+    inst_val = _get_value_at(inst_param, operating_point)
+    req_val = _get_value_at(req_param, operating_point)
+    if inst_val is None or req_val is None:
+        return True  # Can't compare without values
+
+    if compare == CompareMode.HIGHER_BETTER:
+        return inst_val >= req_val
+    if compare == CompareMode.LOWER_BETTER:
+        return inst_val <= req_val
     return True
 
 

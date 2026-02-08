@@ -11,6 +11,7 @@ from litmus.catalog.models import InstrumentCatalogEntry
 from litmus.config.models import (
     AccuracySpec,
     ChannelTopology,
+    CompareMode,
     ConnectorType,
     Direction,
     FunctionCapability,
@@ -20,6 +21,7 @@ from litmus.config.models import (
     RangeSpec,
     ResolutionSpec,
     SignalParameter,
+    SpecBand,
     TerminalRole,
 )
 
@@ -378,6 +380,14 @@ def _parse_signal_parameter(data: dict[str, Any]) -> SignalParameter:
     if "role" in data:
         role = ParameterRole(data["role"])
 
+    specs = None
+    if "specs" in data:
+        specs = [_parse_spec_band(s) for s in data["specs"]]
+
+    compare = None
+    if "compare" in data:
+        compare = CompareMode(data["compare"])
+
     return SignalParameter(
         range=range_spec,
         accuracy=accuracy_spec,
@@ -385,4 +395,41 @@ def _parse_signal_parameter(data: dict[str, Any]) -> SignalParameter:
         value=data.get("value"),
         units=data.get("units"),
         role=role,
+        specs=specs,
+        compare=compare,
+    )
+
+
+def _parse_spec_band(data: dict[str, Any]) -> SpecBand:
+    """Parse a single SpecBand from YAML data."""
+    when: dict[str, RangeSpec] = {}
+    for key, val in data.get("when", {}).items():
+        when[key] = RangeSpec(
+            min=val.get("min"), max=val.get("max"), units=val.get("units", "")
+        )
+
+    accuracy = None
+    if "accuracy" in data:
+        a = data["accuracy"]
+        accuracy = AccuracySpec(
+            pct_reading=a.get("pct_reading"),
+            pct_range=a.get("pct_range"),
+            absolute=a.get("absolute"),
+        )
+
+    resolution = None
+    if "resolution" in data:
+        r = data["resolution"]
+        resolution = ResolutionSpec(
+            bits=r.get("bits"),
+            digits=r.get("digits"),
+            value=r.get("value"),
+            units=r.get("units"),
+        )
+
+    return SpecBand(
+        when=when,
+        value=data.get("value"),
+        accuracy=accuracy,
+        resolution=resolution,
     )

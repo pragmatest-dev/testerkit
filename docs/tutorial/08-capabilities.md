@@ -70,15 +70,17 @@ instruments:
 
 **Match result:** bench_1 CAN test power_board ✓
 
-## 3-Tier Matching
+## Tiered Matching
 
-The matcher checks three dimensions:
+The matcher checks up to five tiers, controlled by `MatchDepth`:
 
 1. **Function match** — Same `MeasurementFunction` (e.g., `dc_voltage`)
 2. **Direction match** — Directions pair (OUTPUT↔INPUT, BIDIR satisfies both)
-3. **Parameter range** — Instrument's range contains the required value
+3. **Parameter range** — Instrument's range contains the required value (default depth)
+4. **Accuracy** — Instrument accuracy ≤ required (condition-aware via `SpecBand`)
+5. **Resolution** — Instrument resolution ≥ required
 
-This replaces the old Domain + SignalType matching. Now a DMM (`dc_voltage`, `input`) is distinct from an oscilloscope (`waveform`, `input`) — they can't be confused.
+Most use cases stop at range (tier 3). Use `MatchDepth.ACCURACY` or `MatchDepth.RESOLUTION` when you need tighter validation — for example, checking that a DMM's accuracy at a specific frequency band meets your product's requirements.
 
 ## Try It: Using the Matcher
 
@@ -224,7 +226,7 @@ This tells you: add a current measurement instrument to test this product.
 
 - How `MeasurementFunction` provides fine-grained capability identification
 - The direction flip between products and instruments
-- 3-tier matching: function → direction → parameter range
+- Tiered matching: function → direction → range → accuracy → resolution
 - Using the matcher API (Python, HTTP)
 - Interpreting missing capability results
 

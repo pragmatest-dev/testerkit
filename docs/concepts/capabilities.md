@@ -8,8 +8,8 @@ A capability (`FunctionCapability`) has three core dimensions:
 
 | Dimension | Examples | Description |
 |-----------|---------|-------------|
-| `function` | dc_voltage, ac_voltage, resistance, waveform | Named measurement function |
-| `direction` | input, output, bidir | Does it measure or source? |
+| `function` | dc_voltage, ac_voltage, resistance, waveform, s_parameters, phase_noise, ... | Named measurement function |
+| `direction` | input, output, bidir, transform | Does it measure, source, or transform? |
 | `parameters` | voltage: {range: 0-1000V}, bandwidth: {value: 50MHz} | Named signal parameters with range/accuracy/resolution |
 
 ### Example: DMM Capabilities
@@ -98,11 +98,13 @@ input_voltage                    (OUTPUT)
 
 ## Capability Matching
 
-The matcher determines whether a station can test a product using 3-tier matching:
+The matcher determines whether a station can test a product using tiered matching controlled by `MatchDepth`:
 
 1. **Function match** — instrument has same `MeasurementFunction` as requirement
 2. **Direction match** — directions pair correctly (OUTPUT↔INPUT, BIDIR satisfies both)
 3. **Parameter range containment** — instrument's parameter ranges contain required values
+4. **Accuracy** — instrument accuracy must be better than required (condition-aware via SpecBand)
+5. **Resolution** — instrument resolution must meet or exceed required
 
 ```python
 from litmus.matching.service import find_compatible_stations, load_product_by_id
@@ -148,6 +150,15 @@ The `MeasurementFunction` enum provides fine-grained signal identification, alig
 | `waveform` | Time-domain waveform capture | Oscilloscope |
 | `dc_power` | DC power measurement/calculation | SMU, derived |
 | `temperature` | Temperature measurement | DMM (RTD/TC) |
+| `s_parameters` | S-parameter measurement | VNA |
+| `spectrum` | Frequency-domain analysis | Spectrum analyzer |
+| `phase_noise` | Phase noise measurement | Signal/spectrum analyzer |
+| `noise_figure` | Noise figure measurement | NF analyzer |
+| `digital_pattern` | Digital pattern generation/capture | Logic analyzer |
+| `jitter` | Jitter measurement | Oscilloscope, TIA |
+| `eye_diagram` | Eye diagram analysis | Oscilloscope |
+
+The `transform` direction is used for signal-path components (amplifiers, filters, mixers) that modify signals rather than measuring or sourcing them.
 
 This replaces the old `Domain + SignalType` combination, providing much finer granularity. A DMM measuring `dc_voltage` is now distinct from an oscilloscope capturing `waveform` — they can no longer be confused.
 
@@ -175,6 +186,61 @@ parameters:
 | `measurable` | Can be read/measured |
 | `capability` | Performance limit (e.g., bandwidth) |
 | `condition` | Operating condition (e.g., temperature) |
+
+### Condition-Dependent Specs (SpecBand)
+
+Instrument accuracy often varies with operating conditions. A DMM's AC voltage accuracy depends on the input frequency. A `SpecBand` captures this:
+
+```yaml
+parameters:
+  voltage:
+    range: {min: 0.1, max: 750, units: V}
+    accuracy: {pct_reading: 0.07, pct_range: 0.02}  # default
+    specs:
+      - when:
+          frequency: {min: 3, max: 5, units: Hz}
+        accuracy: {pct_reading: 0.35, pct_range: 0.03}
+      - when:
+          frequency: {min: 5, max: 300, units: Hz}
+        accuracy: {pct_reading: 0.07, pct_range: 0.02}
+      - when:
+          frequency: {min: 300, max: 300000, units: Hz}
+        accuracy: {pct_reading: 0.14, pct_range: 0.05}
+  frequency:
+    range: {min: 3, max: 300000, units: Hz}
+    role: condition
+```
+
+The `when` keys reference sibling parameter names. Multiple keys are ANDed — all must match. When no band matches, the top-level accuracy/resolution applies as a default.
+
+### Comparison Direction (CompareMode)
+
+Different parameters need different comparison semantics when matching:
+
+| CompareMode | Meaning | Example |
+|-------------|---------|---------|
+| `contains` (default) | Instrument range must contain required range | Voltage, frequency |
+| `higher_better` | Instrument value must be ≥ required | Gain, bandwidth, resolution |
+| `lower_better` | Instrument value must be ≤ required | Phase noise, noise figure, THD |
+
+```yaml
+# RF amplifier gain — higher is better
+gain:
+  value: 16.5
+  units: dB
+  role: capability
+  compare: higher_better
+
+# PLL phase noise — lower is better
+phase_noise:
+  units: dBc/Hz
+  role: capability
+  compare: lower_better
+  specs:
+    - when:
+        offset: {min: 1000, max: 1000, units: Hz}
+      value: -121
+```
 
 ## Channel Specification
 

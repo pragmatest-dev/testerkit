@@ -14,6 +14,7 @@ erDiagram
         string INPUT
         string OUTPUT
         string BIDIR
+        string TRANSFORM
     }
 
     MeasurementFunction {
@@ -43,6 +44,27 @@ erDiagram
         string GELE_etc
     }
 
+    CompareMode {
+        string contains
+        string higher_better
+        string lower_better
+    }
+
+    MatchDepth {
+        string function
+        string direction
+        string range
+        string accuracy
+        string resolution
+    }
+
+    SpecBand {
+        dict when
+        float value
+        AccuracySpec accuracy
+        ResolutionSpec resolution
+    }
+
     SignalParameter {
         RangeSpec range
         AccuracySpec accuracy
@@ -50,6 +72,8 @@ erDiagram
         float value
         string units
         ParameterRole role
+        list specs
+        CompareMode compare
     }
 
     FunctionCapability {
@@ -376,6 +400,7 @@ erDiagram
     %% Capability relationships
     FunctionCapability }o--|| Direction : "has"
     FunctionCapability }o--|| MeasurementFunction : "has"
+    SignalParameter ||--o{ SpecBand : "has specs"
     FunctionCapability ||--o{ SignalParameter : "has"
     InstrumentCatalogEntry ||--o{ FunctionCapability : "provides"
     InstrumentCatalogEntry ||--o{ ChannelTopology : "has channels"
@@ -429,7 +454,7 @@ erDiagram
 
 | Module | Purpose | Key Models |
 |--------|---------|------------|
-| `litmus/config/models.py` | Shared enums & capability specs | Direction, MeasurementFunction, FunctionCapability, SignalParameter, ChannelTopology, TerminalRole |
+| `litmus/config/models.py` | Shared enums & capability specs | Direction, MeasurementFunction, FunctionCapability, SignalParameter, SpecBand, CompareMode, MatchDepth, ChannelTopology, TerminalRole |
 | `litmus/catalog/models.py` | Instrument catalog | InstrumentCatalogEntry |
 | `litmus/products/models.py` | Product specifications | Product, Pin, Characteristic, ConditionPoint |
 | `litmus/config/models.py` | Configuration definitions | StationType, FixtureConfig, TestSequenceConfig, Limit |
