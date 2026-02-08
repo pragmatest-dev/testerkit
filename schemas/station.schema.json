@@ -1,0 +1,144 @@
+{
+  "$defs": {
+    "StationHeader": {
+      "description": "Station identification block.",
+      "properties": {
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "location": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Location"
+        },
+        "description": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Description"
+        }
+      },
+      "required": [
+        "id",
+        "name"
+      ],
+      "title": "StationHeader",
+      "type": "object"
+    },
+    "StationInstrumentConfig": {
+      "description": "Single instrument entry in a station file.",
+      "properties": {
+        "type": {
+          "title": "Type",
+          "type": "string"
+        },
+        "driver": {
+          "title": "Driver",
+          "type": "string"
+        },
+        "resource": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Resource"
+        },
+        "catalog_ref": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Catalog Ref"
+        },
+        "simulate": {
+          "default": false,
+          "title": "Simulate",
+          "type": "boolean"
+        },
+        "channels": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Channels",
+          "type": "array"
+        },
+        "description": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Description"
+        },
+        "mock_config": {
+          "additionalProperties": true,
+          "title": "Mock Config",
+          "type": "object"
+        }
+      },
+      "required": [
+        "type",
+        "driver"
+      ],
+      "title": "StationInstrumentConfig",
+      "type": "object"
+    }
+  },
+  "description": "Schema for stations/*.yaml files.",
+  "properties": {
+    "station": {
+      "$ref": "#/$defs/StationHeader"
+    },
+    "instruments": {
+      "additionalProperties": {
+        "$ref": "#/$defs/StationInstrumentConfig"
+      },
+      "title": "Instruments",
+      "type": "object"
+    },
+    "supported_phases": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Supported Phases",
+      "type": "array"
+    }
+  },
+  "required": [
+    "station"
+  ],
+  "title": "StationFile",
+  "type": "object"
+}

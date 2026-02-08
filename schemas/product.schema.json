@@ -1,0 +1,897 @@
+{
+  "$defs": {
+    "AccuracySpec": {
+      "description": "Specification for measurement accuracy.",
+      "properties": {
+        "pct_reading": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Pct Reading"
+        },
+        "pct_range": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Pct Range"
+        },
+        "absolute": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Absolute"
+        }
+      },
+      "title": "AccuracySpec",
+      "type": "object"
+    },
+    "BusSignal": {
+      "description": "A signal within a bus group.\n\nExample YAML:\n    signals:\n      - pin: SDA\n        role: data\n      - pin: SCL\n        role: clock",
+      "properties": {
+        "pin": {
+          "title": "Pin",
+          "type": "string"
+        },
+        "role": {
+          "title": "Role",
+          "type": "string"
+        },
+        "index": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Index"
+        }
+      },
+      "required": [
+        "pin",
+        "role"
+      ],
+      "title": "BusSignal",
+      "type": "object"
+    },
+    "Characteristic": {
+      "description": "A product characteristic tied to physical DUT interface (ATML: UUT Characteristic).\n\nUses MeasurementFunction + Direction + parameters to describe what the DUT does\nat a connection point. This is the product-side mirror of instrument FunctionCapability.\n\nThe direction indicates whether the DUT provides (OUTPUT) or consumes (INPUT)\nthis signal. Capability matching pairs OPPOSITE directions:\n- DUT OUTPUT -> Instrument INPUT (measure what DUT provides)\n- DUT INPUT -> Instrument OUTPUT (source what DUT needs)\n\nREQUIRES physical interface: Every characteristic must be tied to at least one\nphysical connection point (pin, net, or signal_group). This enables:\n- Fixture mapping (characteristic -> pin -> fixture point -> instrument channel)\n- Traceability from measurement back to schematic\n- Clear routing for test execution\n\nExample YAML:\n    rail_3v3_output:\n      function: dc_voltage\n      direction: output\n      units: V\n      pin: VOUT\n      parameters:\n        voltage:\n          value: 3.3\n          units: V\n      conditions:\n        - temperature: 25\n          load: 0.1\n          nominal: 3.3\n          tolerance_pct: 3",
+      "properties": {
+        "function": {
+          "$ref": "#/$defs/MeasurementFunction",
+          "default": "dc_voltage"
+        },
+        "direction": {
+          "$ref": "#/$defs/Direction"
+        },
+        "parameters": {
+          "additionalProperties": {
+            "$ref": "#/$defs/SignalParameter"
+          },
+          "title": "Parameters",
+          "type": "object"
+        },
+        "units": {
+          "title": "Units",
+          "type": "string"
+        },
+        "pin": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Pin"
+        },
+        "pins": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            }
+          ],
+          "title": "Pins"
+        },
+        "net": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Net"
+        },
+        "signal_group": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Signal Group"
+        },
+        "channel": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Channel"
+        },
+        "channels": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            }
+          ],
+          "title": "Channels"
+        },
+        "datasheet_ref": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Datasheet Ref"
+        },
+        "conditions": {
+          "items": {
+            "$ref": "#/$defs/ConditionPoint"
+          },
+          "title": "Conditions",
+          "type": "array"
+        }
+      },
+      "required": [
+        "direction",
+        "units"
+      ],
+      "title": "Characteristic",
+      "type": "object"
+    },
+    "Comparator": {
+      "description": "Limit comparators per ATML/IEEE 1671.\n\nUsed for limit checking in both instrument capabilities and product specs.\nThe comparator defines how a measured value is compared against limits.\n\nSingle-bound comparators:\n    EQ: value == nominal (exact match)\n    NE: value != nominal (not equal)\n    LT: value < high (less than)\n    LE: value <= high (less than or equal)\n    GT: value > low (greater than)\n    GE: value >= low (greater than or equal)\n\nRange comparators (two bounds):\n    GELE: low <= value <= high (inclusive range, most common)\n    GELT: low <= value < high (inclusive low, exclusive high)\n    GTLE: low < value <= high (exclusive low, inclusive high)\n    GTLT: low < value < high (exclusive range)",
+      "enum": [
+        "EQ",
+        "NE",
+        "LT",
+        "LE",
+        "GT",
+        "GE",
+        "GELE",
+        "GELT",
+        "GTLE",
+        "GTLT"
+      ],
+      "title": "Comparator",
+      "type": "string"
+    },
+    "CompareMode": {
+      "description": "Comparison direction for capability parameters.\n\nDetermines how instrument and requirement values are compared:\n- CONTAINS: Instrument range must contain required range (default)\n- HIGHER_BETTER: Instrument value must be >= required (gain, bandwidth)\n- LOWER_BETTER: Instrument value must be <= required (noise, THD)",
+      "enum": [
+        "contains",
+        "higher_better",
+        "lower_better"
+      ],
+      "title": "CompareMode",
+      "type": "string"
+    },
+    "ConditionPoint": {
+      "additionalProperties": true,
+      "description": "Spec values at a specific operating condition (ATML-style).\n\nUses a pure key-value model: condition parameters (temperature, load, etc.)\nare stored as extra fields alongside spec values (nominal, tolerance).\n\nExample YAML:\n    - temperature: 25\n      load: 0.5\n      nominal: 3.3\n      tolerance_pct: 5\n      description: \"Room temp, light load\"\n\nThe condition parameters (temperature, load) go into __pydantic_extra__,\nwhile the spec values and metadata are explicit fields.",
+      "properties": {
+        "nominal": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Nominal"
+        },
+        "tolerance_pct": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Tolerance Pct"
+        },
+        "tolerance_abs": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Tolerance Abs"
+        },
+        "limit_low": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Limit Low"
+        },
+        "limit_high": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Limit High"
+        },
+        "comparator": {
+          "$ref": "#/$defs/Comparator",
+          "default": "GELE"
+        },
+        "description": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Description"
+        }
+      },
+      "title": "ConditionPoint",
+      "type": "object"
+    },
+    "Direction": {
+      "description": "Direction of signal flow for a capability.",
+      "enum": [
+        "input",
+        "output",
+        "bidir",
+        "transform"
+      ],
+      "title": "Direction",
+      "type": "string"
+    },
+    "MeasurementFunction": {
+      "description": "Named signal measurement/stimulus functions (ATML/IEEE 1641 inspired).\n\nReplaces the Domain + SignalType pair with a single enum that describes\nwhat an instrument *does*. Grouped by IVI instrument class for clarity.",
+      "enum": [
+        "dc_voltage",
+        "ac_voltage",
+        "dc_current",
+        "ac_current",
+        "resistance",
+        "resistance_4w",
+        "capacitance",
+        "inductance",
+        "impedance",
+        "frequency",
+        "period",
+        "temperature",
+        "waveform",
+        "dc_power",
+        "ac_power",
+        "sine",
+        "square",
+        "ramp",
+        "triangle",
+        "pulse",
+        "arbitrary",
+        "rf_power",
+        "rf_cw",
+        "logic",
+        "counter",
+        "digital_pattern",
+        "serial_decode",
+        "diode",
+        "continuity",
+        "transient",
+        "s_parameters",
+        "spectrum",
+        "phase_noise",
+        "noise_figure",
+        "modulation_analysis",
+        "rf_modulated",
+        "noise",
+        "harmonics",
+        "power_quality",
+        "jitter",
+        "eye_diagram"
+      ],
+      "title": "MeasurementFunction",
+      "type": "string"
+    },
+    "ParameterRole": {
+      "description": "Role of a signal parameter in a capability.\n\nDescribes how a parameter functions within a measurement or stimulus:\n- CONTROLLABLE: Instrument can set this value (e.g., output voltage)\n- MEASURABLE: Instrument can read this value (e.g., measured voltage)\n- CAPABILITY: Performance limit of the instrument (e.g., bandwidth)\n- CONDITION: Operating condition that affects other parameters (e.g., temperature)",
+      "enum": [
+        "controllable",
+        "measurable",
+        "capability",
+        "condition"
+      ],
+      "title": "ParameterRole",
+      "type": "string"
+    },
+    "Pin": {
+      "description": "Physical pin/pad on the DUT (ATML: Port).\n\nRepresents a single connection point that can be routed through\na fixture to an instrument. The ``role`` field classifies the pin's\npurpose (signal, ground, power, reference) for fixture routing.\n\nExample YAML:\n    pins:\n      VIN:\n        name: \"J1.1\"\n        net: \"VIN_5V\"\n        role: power\n        description: \"5V power input from bench supply\"\n      VOUT:\n        name: \"J1.3\"\n        net: \"VOUT_3V3\"\n        description: \"3.3V regulated output\"\n      GND:\n        name: \"J1.2\"\n        net: \"GND\"\n        role: ground",
+      "properties": {
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "net": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Net"
+        },
+        "role": {
+          "$ref": "#/$defs/PinRole",
+          "default": "signal"
+        },
+        "description": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Description"
+        }
+      },
+      "required": [
+        "name"
+      ],
+      "title": "Pin",
+      "type": "object"
+    },
+    "PinRole": {
+      "description": "Role of a physical DUT pin in the test system.\n\nDistinguishes signal, ground, power, and reference pins so the\nauto-match algorithm can route them correctly (e.g., ground pins\nfan out to instrument LO terminals instead of competing for\nmeasurement channels).",
+      "enum": [
+        "signal",
+        "ground",
+        "power",
+        "reference"
+      ],
+      "title": "PinRole",
+      "type": "string"
+    },
+    "Product": {
+      "description": "Product definition (ATML: UUT Description).\n\nTop-level model that ties together:\n- Product identification (id, name, revision)\n- Documentation references (datasheet, schematic)\n- Characteristics with condition matrices\n- Test requirements linking characteristics to tests\n\nExample YAML:\n    product:\n      id: power_board_v1\n      name: \"DC-DC Power Board Rev A\"\n      revision: \"A\"\n      datasheet: \"docs/DS-001.pdf\"\n\n    characteristics:\n      rail_3v3_output:\n        direction: output\n        domain: voltage\n        ...\n\n    test_requirements:\n      verify_output_voltage:\n        characteristic_ref: rail_3v3_output\n        ...",
+      "properties": {
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "description": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Description"
+        },
+        "revision": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Revision"
+        },
+        "datasheet": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Datasheet"
+        },
+        "schematic": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Schematic"
+        },
+        "pins": {
+          "additionalProperties": {
+            "$ref": "#/$defs/Pin"
+          },
+          "title": "Pins",
+          "type": "object"
+        },
+        "signal_groups": {
+          "additionalProperties": {
+            "$ref": "#/$defs/SignalGroup"
+          },
+          "title": "Signal Groups",
+          "type": "object"
+        },
+        "characteristics": {
+          "additionalProperties": {
+            "$ref": "#/$defs/Characteristic"
+          },
+          "title": "Characteristics",
+          "type": "object"
+        },
+        "test_requirements": {
+          "additionalProperties": {
+            "$ref": "#/$defs/TestRequirement"
+          },
+          "title": "Test Requirements",
+          "type": "object"
+        }
+      },
+      "required": [
+        "id",
+        "name"
+      ],
+      "title": "Product",
+      "type": "object"
+    },
+    "RangeSpec": {
+      "description": "Specification for measurement or output range.",
+      "properties": {
+        "min": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Min"
+        },
+        "max": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Max"
+        },
+        "units": {
+          "title": "Units",
+          "type": "string"
+        }
+      },
+      "required": [
+        "units"
+      ],
+      "title": "RangeSpec",
+      "type": "object"
+    },
+    "ResolutionSpec": {
+      "description": "Specification for measurement resolution.",
+      "properties": {
+        "bits": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Bits"
+        },
+        "digits": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Digits"
+        },
+        "value": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Value"
+        },
+        "units": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Units"
+        }
+      },
+      "title": "ResolutionSpec",
+      "type": "object"
+    },
+    "SignalGroup": {
+      "description": "Grouped signals forming a bus interface (ATML: Bus).\n\nUsed for protocols like I2C, SPI, UART where multiple signals\nmust be treated as a unit for routing and testing.\n\nExample YAML:\n    signal_groups:\n      i2c_main:\n        protocol: i2c\n        signals:\n          - pin: SDA\n            role: data\n          - pin: SCL\n            role: clock\n        parameters:\n          frequency: 400000",
+      "properties": {
+        "protocol": {
+          "title": "Protocol",
+          "type": "string"
+        },
+        "signals": {
+          "items": {
+            "$ref": "#/$defs/BusSignal"
+          },
+          "title": "Signals",
+          "type": "array"
+        },
+        "parameters": {
+          "additionalProperties": true,
+          "title": "Parameters",
+          "type": "object"
+        },
+        "description": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Description"
+        }
+      },
+      "required": [
+        "protocol"
+      ],
+      "title": "SignalGroup",
+      "type": "object"
+    },
+    "SignalParameter": {
+      "description": "A named parameter within a measurement function's capability.\n\nEach parameter describes a dimension of an instrument's capability\n(range, accuracy, resolution) or a fixed performance characteristic\n(bandwidth, sample rate).\n\nTop-level accuracy/resolution are defaults when no SpecBand matches.\nThe ``specs`` list holds condition-dependent overrides.\n\nExample YAML:\n    voltage:\n      range: {min: 0.1, max: 750, units: V}\n      accuracy: {pct_reading: 0.07, pct_range: 0.02}\n      resolution: {digits: 6.5}\n      specs:\n        - when:\n            frequency: {min: 3, max: 5, units: Hz}\n          accuracy: {pct_reading: 0.35, pct_range: 0.03}",
+      "properties": {
+        "range": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/RangeSpec"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "accuracy": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/AccuracySpec"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "resolution": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ResolutionSpec"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "value": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Value"
+        },
+        "units": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Units"
+        },
+        "role": {
+          "$ref": "#/$defs/ParameterRole",
+          "default": "controllable"
+        },
+        "specs": {
+          "anyOf": [
+            {
+              "items": {
+                "$ref": "#/$defs/SpecBand"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Specs"
+        },
+        "compare": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/CompareMode"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        }
+      },
+      "title": "SignalParameter",
+      "type": "object"
+    },
+    "SpecBand": {
+      "description": "Condition-dependent specification override for a parameter.\n\nEach band says \"at this operating point, here are the specs.\"\nThe ``when`` keys reference sibling parameter names; multiple keys\nare ANDed (all must match).\n\nExample YAML:\n    specs:\n      - when:\n          frequency: {min: 3, max: 5, units: Hz}\n        accuracy: {pct_reading: 0.35, pct_range: 0.03}\n      - when:\n          frequency: {min: 5, max: 300, units: Hz}\n        accuracy: {pct_reading: 0.07, pct_range: 0.02}",
+      "properties": {
+        "when": {
+          "additionalProperties": {
+            "$ref": "#/$defs/RangeSpec"
+          },
+          "title": "When",
+          "type": "object"
+        },
+        "value": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Value"
+        },
+        "accuracy": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/AccuracySpec"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "resolution": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ResolutionSpec"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        }
+      },
+      "required": [
+        "when"
+      ],
+      "title": "SpecBand",
+      "type": "object"
+    },
+    "TestRequirement": {
+      "description": "A requirement to verify a characteristic (ATML: TestRequirement).\n\nLinks a characteristic to test execution by specifying:\n- Which characteristic to test (characteristic_ref)\n- Which operating conditions to use\n- Manufacturing margin via guardband (guardband_pct)\n- Test priority for coverage planning\n\nExample YAML:\n    verify_output_voltage_room:\n      characteristic_ref: rail_3v3_output\n      conditions:\n        temperature: 25\n        load: 0.1\n      guardband_pct: 5\n      priority: critical",
+      "properties": {
+        "characteristic_ref": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Characteristic Ref"
+        },
+        "conditions": {
+          "additionalProperties": true,
+          "title": "Conditions",
+          "type": "object"
+        },
+        "guardband_pct": {
+          "default": 0.0,
+          "title": "Guardband Pct",
+          "type": "number"
+        },
+        "priority": {
+          "default": "standard",
+          "enum": [
+            "critical",
+            "standard",
+            "optional"
+          ],
+          "title": "Priority",
+          "type": "string"
+        },
+        "description": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Description"
+        }
+      },
+      "title": "TestRequirement",
+      "type": "object"
+    }
+  },
+  "description": "Schema for products/*/spec.yaml files.",
+  "properties": {
+    "product": {
+      "$ref": "#/$defs/Product"
+    },
+    "pins": {
+      "additionalProperties": {
+        "$ref": "#/$defs/Pin"
+      },
+      "title": "Pins",
+      "type": "object"
+    },
+    "characteristics": {
+      "additionalProperties": {
+        "$ref": "#/$defs/Characteristic"
+      },
+      "title": "Characteristics",
+      "type": "object"
+    },
+    "signal_groups": {
+      "additionalProperties": {
+        "$ref": "#/$defs/SignalGroup"
+      },
+      "title": "Signal Groups",
+      "type": "object"
+    },
+    "test_requirements": {
+      "additionalProperties": {
+        "$ref": "#/$defs/TestRequirement"
+      },
+      "title": "Test Requirements",
+      "type": "object"
+    }
+  },
+  "required": [
+    "product"
+  ],
+  "title": "ProductFile",
+  "type": "object"
+}

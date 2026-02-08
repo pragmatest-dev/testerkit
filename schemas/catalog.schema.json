@@ -1,0 +1,581 @@
+{
+  "$defs": {
+    "AccuracySpec": {
+      "description": "Specification for measurement accuracy.",
+      "properties": {
+        "pct_reading": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Pct Reading"
+        },
+        "pct_range": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Pct Range"
+        },
+        "absolute": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Absolute"
+        }
+      },
+      "title": "AccuracySpec",
+      "type": "object"
+    },
+    "ChannelTopology": {
+      "description": "Physical topology of a single instrument channel.\n\nDescribes the physical terminals, connector type, and ground topology\nfor a channel. Used in catalog and instrument library entries to model\nhow instruments physically connect to the DUT.\n\nExample YAML:\n    \"1\":\n      label: \"6V/5A Output\"\n      terminals: [hi, lo, sense_hi, sense_lo]\n      connector: binding_post\n      ground: floating",
+      "properties": {
+        "label": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Label"
+        },
+        "terminals": {
+          "items": {
+            "$ref": "#/$defs/TerminalRole"
+          },
+          "title": "Terminals",
+          "type": "array"
+        },
+        "connector": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ConnectorType"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "ground": {
+          "$ref": "#/$defs/GroundTopology",
+          "default": "shared"
+        }
+      },
+      "title": "ChannelTopology",
+      "type": "object"
+    },
+    "CompareMode": {
+      "description": "Comparison direction for capability parameters.\n\nDetermines how instrument and requirement values are compared:\n- CONTAINS: Instrument range must contain required range (default)\n- HIGHER_BETTER: Instrument value must be >= required (gain, bandwidth)\n- LOWER_BETTER: Instrument value must be <= required (noise, THD)",
+      "enum": [
+        "contains",
+        "higher_better",
+        "lower_better"
+      ],
+      "title": "CompareMode",
+      "type": "string"
+    },
+    "ConnectorType": {
+      "description": "Physical connector type on instrument.",
+      "enum": [
+        "binding_post",
+        "banana",
+        "bnc",
+        "terminal_block",
+        "probe",
+        "triax",
+        "sma",
+        "smb",
+        "spring",
+        "pxi",
+        "screw_terminal"
+      ],
+      "title": "ConnectorType",
+      "type": "string"
+    },
+    "Direction": {
+      "description": "Direction of signal flow for a capability.",
+      "enum": [
+        "input",
+        "output",
+        "bidir",
+        "transform"
+      ],
+      "title": "Direction",
+      "type": "string"
+    },
+    "FunctionCapability": {
+      "description": "A single capability of an instrument (replaces old Capability).\n\nDescribes what an instrument can measure or source using the ATML/IEEE 1641\nsignal-parameter model: a measurement function with named parameters.\n\nThe function field identifies *what kind of measurement or stimulus* this is.\nParameters describe the ranges, accuracy, and resolution for each dimension.\nDirection indicates whether this measures (input) or sources (output).\n\nExample YAML:\n    - function: dc_voltage\n      direction: input\n      parameters:\n        voltage:\n          range: {min: 0.0001, max: 1000, units: V}\n          accuracy: {pct_reading: 0.0035, pct_range: 0.0006}\n          resolution: {digits: 6.5}\n      channels: [\"1\"]\n      readback: false",
+      "properties": {
+        "function": {
+          "$ref": "#/$defs/MeasurementFunction"
+        },
+        "direction": {
+          "$ref": "#/$defs/Direction"
+        },
+        "parameters": {
+          "additionalProperties": {
+            "$ref": "#/$defs/SignalParameter"
+          },
+          "title": "Parameters",
+          "type": "object"
+        },
+        "channels": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Channels",
+          "type": "array"
+        },
+        "modes": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Modes",
+          "type": "array"
+        },
+        "readback": {
+          "default": false,
+          "title": "Readback",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "function",
+        "direction"
+      ],
+      "title": "FunctionCapability",
+      "type": "object"
+    },
+    "GroundTopology": {
+      "description": "How channel grounds relate to each other and earth.",
+      "enum": [
+        "floating",
+        "shared",
+        "earth"
+      ],
+      "title": "GroundTopology",
+      "type": "string"
+    },
+    "InstrumentCatalogEntry": {
+      "description": "Structured capability data for a specific instrument make/model.\n\nThis is the universal tier \u2014 it describes what an instrument MODEL can do,\nnot what a specific unit is or where it lives. Driver information is\ndeliberately excluded because drivers are project-local (station config).\n\nChannels use structured ``ChannelTopology`` dicts describing physical\nterminals, connector types, and ground topology.\n\nExample YAML:\n    catalog_entry:\n      id: keysight_34461a\n      manufacturer: Keysight\n      model: \"34461A\"\n      name: \"Keysight 34461A Digital Multimeter\"\n      instrument_class: dmm\n      channels:\n        \"1\":\n          terminals: [hi, lo]\n          connector: binding_post\n          ground: shared\n\n    capabilities:\n      - function: dc_voltage\n        direction: input\n        parameters:\n          voltage:\n            range: {min: 0.0001, max: 1000, units: V}\n            accuracy: {pct_reading: 0.0035, pct_range: 0.0006}\n            resolution: {digits: 6.5}",
+      "properties": {
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "manufacturer": {
+          "title": "Manufacturer",
+          "type": "string"
+        },
+        "model": {
+          "title": "Model",
+          "type": "string"
+        },
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "description": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Description"
+        },
+        "instrument_class": {
+          "title": "Instrument Class",
+          "type": "string"
+        },
+        "base": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Base"
+        },
+        "channels": {
+          "additionalProperties": {
+            "$ref": "#/$defs/ChannelTopology"
+          },
+          "title": "Channels",
+          "type": "object"
+        },
+        "capabilities": {
+          "items": {
+            "$ref": "#/$defs/FunctionCapability"
+          },
+          "title": "Capabilities",
+          "type": "array"
+        }
+      },
+      "required": [
+        "id",
+        "manufacturer",
+        "model",
+        "name",
+        "instrument_class"
+      ],
+      "title": "InstrumentCatalogEntry",
+      "type": "object"
+    },
+    "MeasurementFunction": {
+      "description": "Named signal measurement/stimulus functions (ATML/IEEE 1641 inspired).\n\nReplaces the Domain + SignalType pair with a single enum that describes\nwhat an instrument *does*. Grouped by IVI instrument class for clarity.",
+      "enum": [
+        "dc_voltage",
+        "ac_voltage",
+        "dc_current",
+        "ac_current",
+        "resistance",
+        "resistance_4w",
+        "capacitance",
+        "inductance",
+        "impedance",
+        "frequency",
+        "period",
+        "temperature",
+        "waveform",
+        "dc_power",
+        "ac_power",
+        "sine",
+        "square",
+        "ramp",
+        "triangle",
+        "pulse",
+        "arbitrary",
+        "rf_power",
+        "rf_cw",
+        "logic",
+        "counter",
+        "digital_pattern",
+        "serial_decode",
+        "diode",
+        "continuity",
+        "transient",
+        "s_parameters",
+        "spectrum",
+        "phase_noise",
+        "noise_figure",
+        "modulation_analysis",
+        "rf_modulated",
+        "noise",
+        "harmonics",
+        "power_quality",
+        "jitter",
+        "eye_diagram"
+      ],
+      "title": "MeasurementFunction",
+      "type": "string"
+    },
+    "ParameterRole": {
+      "description": "Role of a signal parameter in a capability.\n\nDescribes how a parameter functions within a measurement or stimulus:\n- CONTROLLABLE: Instrument can set this value (e.g., output voltage)\n- MEASURABLE: Instrument can read this value (e.g., measured voltage)\n- CAPABILITY: Performance limit of the instrument (e.g., bandwidth)\n- CONDITION: Operating condition that affects other parameters (e.g., temperature)",
+      "enum": [
+        "controllable",
+        "measurable",
+        "capability",
+        "condition"
+      ],
+      "title": "ParameterRole",
+      "type": "string"
+    },
+    "RangeSpec": {
+      "description": "Specification for measurement or output range.",
+      "properties": {
+        "min": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Min"
+        },
+        "max": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Max"
+        },
+        "units": {
+          "title": "Units",
+          "type": "string"
+        }
+      },
+      "required": [
+        "units"
+      ],
+      "title": "RangeSpec",
+      "type": "object"
+    },
+    "ResolutionSpec": {
+      "description": "Specification for measurement resolution.",
+      "properties": {
+        "bits": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Bits"
+        },
+        "digits": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Digits"
+        },
+        "value": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Value"
+        },
+        "units": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Units"
+        }
+      },
+      "title": "ResolutionSpec",
+      "type": "object"
+    },
+    "SignalParameter": {
+      "description": "A named parameter within a measurement function's capability.\n\nEach parameter describes a dimension of an instrument's capability\n(range, accuracy, resolution) or a fixed performance characteristic\n(bandwidth, sample rate).\n\nTop-level accuracy/resolution are defaults when no SpecBand matches.\nThe ``specs`` list holds condition-dependent overrides.\n\nExample YAML:\n    voltage:\n      range: {min: 0.1, max: 750, units: V}\n      accuracy: {pct_reading: 0.07, pct_range: 0.02}\n      resolution: {digits: 6.5}\n      specs:\n        - when:\n            frequency: {min: 3, max: 5, units: Hz}\n          accuracy: {pct_reading: 0.35, pct_range: 0.03}",
+      "properties": {
+        "range": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/RangeSpec"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "accuracy": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/AccuracySpec"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "resolution": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ResolutionSpec"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "value": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Value"
+        },
+        "units": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Units"
+        },
+        "role": {
+          "$ref": "#/$defs/ParameterRole",
+          "default": "controllable"
+        },
+        "specs": {
+          "anyOf": [
+            {
+              "items": {
+                "$ref": "#/$defs/SpecBand"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Specs"
+        },
+        "compare": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/CompareMode"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        }
+      },
+      "title": "SignalParameter",
+      "type": "object"
+    },
+    "SpecBand": {
+      "description": "Condition-dependent specification override for a parameter.\n\nEach band says \"at this operating point, here are the specs.\"\nThe ``when`` keys reference sibling parameter names; multiple keys\nare ANDed (all must match).\n\nExample YAML:\n    specs:\n      - when:\n          frequency: {min: 3, max: 5, units: Hz}\n        accuracy: {pct_reading: 0.35, pct_range: 0.03}\n      - when:\n          frequency: {min: 5, max: 300, units: Hz}\n        accuracy: {pct_reading: 0.07, pct_range: 0.02}",
+      "properties": {
+        "when": {
+          "additionalProperties": {
+            "$ref": "#/$defs/RangeSpec"
+          },
+          "title": "When",
+          "type": "object"
+        },
+        "value": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Value"
+        },
+        "accuracy": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/AccuracySpec"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "resolution": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ResolutionSpec"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        }
+      },
+      "required": [
+        "when"
+      ],
+      "title": "SpecBand",
+      "type": "object"
+    },
+    "TerminalRole": {
+      "description": "Physical terminal on an instrument channel (ATE/IVI standard names).",
+      "enum": [
+        "hi",
+        "lo",
+        "sense_hi",
+        "sense_lo",
+        "guard",
+        "signal",
+        "trigger"
+      ],
+      "title": "TerminalRole",
+      "type": "string"
+    }
+  },
+  "description": "Schema for catalog/*.yaml files.",
+  "properties": {
+    "catalog_entry": {
+      "$ref": "#/$defs/InstrumentCatalogEntry"
+    },
+    "capabilities": {
+      "items": {
+        "$ref": "#/$defs/FunctionCapability"
+      },
+      "title": "Capabilities",
+      "type": "array"
+    }
+  },
+  "required": [
+    "catalog_entry"
+  ],
+  "title": "CatalogFile",
+  "type": "object"
+}

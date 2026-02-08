@@ -928,76 +928,67 @@ def _read_file(path: str, project: str) -> dict[str, Any]:
 # =============================================================================
 
 
-def discover_tool() -> dict[str, Any]:
-    """Scan for connected VISA instruments."""
-    try:
-        import pyvisa
+def discover_tool(protocols: list[str] | None = None) -> dict[str, Any]:
+    """Scan for connected instruments using the pluggable discovery system.
 
-        rm = pyvisa.ResourceManager()
-        resources = rm.list_resources()
+    Args:
+        protocols: Protocol names to scan (e.g. ["visa", "ni", "serial"]).
+            None scans all registered protocols.
+
+    Returns:
+        Discovered instruments grouped by protocol with identity info.
+    """
+    try:
+        from litmus.instruments.discovery import discover_and_identify, list_protocols
+
+        results = discover_and_identify(protocols)
+
+        from litmus.catalog.loader import find_catalog_dirs, load_catalog_from_directory
+
+        # Load catalog once for instrument_class lookups
+        catalog = {}
+        for cat_dir in find_catalog_dirs():
+            catalog.update(load_catalog_from_directory(cat_dir))
 
         discovered = []
-        for resource in resources:
-            info = {
-                "address": resource,
-                "type": _classify_visa_resource(resource),
-                "idn": None,
-            }
-
-            try:
-                inst = rm.open_resource(resource)
-                inst.timeout = 2000
-                idn = inst.query("*IDN?").strip()
-                inst.close()
-                info["idn"] = idn
-                info["suggested_type"] = _suggest_instrument_type(idn)
-            except Exception:
-                pass
-
-            discovered.append(info)
-
-        rm.close()
+        for proto, items in results.items():
+            for resource, info in items:
+                entry: dict[str, Any] = {
+                    "address": resource,
+                    "protocol": proto,
+                    "manufacturer": None,
+                    "model": None,
+                    "serial": None,
+                    "instrument_class": None,
+                    "catalog_ref": None,
+                }
+                if info:
+                    entry["manufacturer"] = info.manufacturer
+                    entry["model"] = info.model
+                    entry["serial"] = info.serial
+                    # Look up instrument_class from catalog by model match
+                    for cat_id, cat_entry in catalog.items():
+                        if (
+                            info.model
+                            and cat_entry.model
+                            and info.model.lower() == cat_entry.model.lower()
+                        ):
+                            entry["instrument_class"] = cat_entry.instrument_class
+                            entry["catalog_ref"] = cat_id
+                            break
+                discovered.append(entry)
 
         return {
             "success": True,
             "count": len(discovered),
+            "protocols_scanned": list(results.keys()),
+            "available_protocols": list_protocols(),
             "resources": discovered,
         }
 
-    except ImportError:
-        return {"error": "PyVISA not installed"}
     except Exception as e:
         return {"error": f"Discovery failed: {e}"}
 
-
-def _classify_visa_resource(resource: str) -> str:
-    """Classify a VISA resource string by connection type."""
-    resource_upper = resource.upper()
-    if resource_upper.startswith("TCPIP"):
-        return "tcp"
-    elif resource_upper.startswith("USB"):
-        return "usb"
-    elif resource_upper.startswith("GPIB"):
-        return "gpib"
-    elif resource_upper.startswith("ASRL"):
-        return "serial"
-    return "unknown"
-
-
-def _suggest_instrument_type(idn: str) -> str | None:
-    """Suggest an instrument type based on *IDN? response."""
-    idn_lower = idn.lower()
-
-    if any(x in idn_lower for x in ["34401", "34461", "dmm", "multimeter"]):
-        return "dmm"
-    if any(x in idn_lower for x in ["e36", "n67", "power supply", "psu"]):
-        return "psu"
-    if any(x in idn_lower for x in ["dso", "mso", "scope", "oscilloscope"]):
-        return "scope"
-    if any(x in idn_lower for x in ["load", "n33", "el3"]):
-        return "eload"
-
-    return None
 
 
 # =============================================================================
@@ -1250,4 +1241,39 @@ def open_tool(
         "success": True,
         "url": url,
         "message": f"Open {url} to view/edit {entity_type} '{id}'",
+    }
+
+
+def schema_tool(yaml_type: str | None = None) -> dict[str, Any]:
+    """Get JSON Schema for Litmus YAML file types.
+
+    Returns the JSON Schema so AI agents can validate generated YAML
+    before saving it.
+
+    Args:
+        yaml_type: One of: catalog, product, station, sequence, fixture.
+            If None, returns the list of available types.
+
+    Returns:
+        The JSON Schema dict, or list of available types.
+    """
+    from litmus.schemas import SCHEMA_MAP
+
+    if yaml_type is None:
+        return {
+            "success": True,
+            "available_types": list(SCHEMA_MAP.keys()),
+            "message": "Pass yaml_type to get the schema for a specific type.",
+        }
+
+    if yaml_type not in SCHEMA_MAP:
+        return {
+            "error": f"Unknown type '{yaml_type}'. Valid: {list(SCHEMA_MAP.keys())}"
+        }
+
+    model = SCHEMA_MAP[yaml_type]
+    return {
+        "success": True,
+        "type": yaml_type,
+        "schema": model.model_json_schema(),
     }

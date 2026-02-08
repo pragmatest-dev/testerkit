@@ -316,6 +316,36 @@ def cleanup_journals(results_dir: str, dry_run: bool):
 
 
 @main.group()
+def schema():
+    """JSON Schema generation for YAML validation."""
+    pass
+
+
+@schema.command("export")
+@click.option(
+    "--output-dir", "-o", default="schemas", help="Directory for .schema.json files"
+)
+def schema_export(output_dir: str):
+    """Export JSON Schema files for all Litmus YAML types.
+
+    Generates .schema.json files that enable editor validation and
+    autocomplete for catalog, product, station, sequence, and fixture YAML.
+
+    Example:
+        litmus schema export
+        litmus schema export -o litmus/schemas
+    """
+    from pathlib import Path
+
+    from litmus.schemas import export_schemas
+
+    paths = export_schemas(Path(output_dir))
+    for p in paths:
+        click.echo(f"  {p}")
+    click.echo(f"\nExported {len(paths)} schema(s) to {output_dir}/")
+
+
+@main.group()
 def mcp():
     """MCP server commands for AI-assisted workflows."""
     pass

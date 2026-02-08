@@ -1,11 +1,12 @@
 """MCP server for AI-assisted test generation workflows.
 
-This server exposes 5 tools:
+This server exposes 6 tools:
 - litmus: Unified CRUD operations (init, list, get, save, read)
 - litmus_discover: Scan for VISA instruments
 - litmus_match: Check compatibility between products/stations/fixtures
 - litmus_run: Execute tests and return results
 - litmus_open: Get URL to view/edit in browser
+- litmus_schema: Get JSON Schema for YAML validation/generation
 
 The platform does NOT call LLMs - it exposes these tools so that AI agents
 (Claude Code, etc.) can orchestrate the full datasheet-to-test workflow.
@@ -21,6 +22,7 @@ from litmus.mcp.tools import (
     match_tool,
     open_tool,
     run_tool,
+    schema_tool,
 )
 
 
@@ -219,16 +221,20 @@ test_output_voltage:
     # -------------------------------------------------------------------------
 
     @mcp.tool(name="litmus_discover")
-    def discover() -> dict[str, Any]:
-        """Scan for connected VISA instruments.
+    def discover(protocols: list[str] | None = None) -> dict[str, Any]:
+        """Scan for connected instruments across all protocols.
 
-        Discovers available VISA resources on this computer. Returns a list of
-        instruments with their addresses, connection types, and identification.
+        Discovers instruments using the pluggable discovery system
+        (VISA, NI, serial, and any registered custom protocols).
+
+        Args:
+            protocols: Protocol names to scan (e.g. ["visa", "ni", "serial"]).
+                Omit to scan all registered protocols.
 
         Returns:
-            List of discovered resources with addresses and suggested types.
+            List of discovered resources with addresses, identity, and protocol.
         """
-        return discover_tool()
+        return discover_tool(protocols)
 
     # -------------------------------------------------------------------------
     # Tool 3: litmus_match
@@ -315,6 +321,26 @@ test_output_voltage:
             URL to open in browser.
         """
         return open_tool(type, id, base_url)
+
+    # -------------------------------------------------------------------------
+    # Tool 6: litmus_schema
+    # -------------------------------------------------------------------------
+
+    @mcp.tool(name="litmus_schema")
+    def schema(yaml_type: str | None = None) -> dict[str, Any]:
+        """Get JSON Schema for a Litmus YAML file type.
+
+        Use this before generating YAML to get the exact structure, required
+        fields, and enum values for validation.
+
+        Args:
+            yaml_type: One of: catalog, product, station, sequence, fixture.
+                Omit to list available types.
+
+        Returns:
+            JSON Schema for the requested YAML type.
+        """
+        return schema_tool(yaml_type)
 
     # -------------------------------------------------------------------------
     # Prompt: datasheet-to-test workflow
