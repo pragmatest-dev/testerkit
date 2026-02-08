@@ -164,11 +164,16 @@ litmus(action="save", type="product", id="tps54302", content={...}, project=proj
 **Goal:** Find catalog instruments that can measure/source the extracted characteristics.
 
 **Your actions:**
-1. Build a requirements list from the product characteristics (function + direction + range)
-2. Call `litmus_match(requirements=[...], project=project_root)` to search the catalog
-3. Present recommendations with coverage info
-4. **Check for existing drivers:** For each recommended instrument, check if PyMeasure, InstrumentKit, or vendor SDKs have a driver (use your knowledge of these libraries). If a driver exists, note it — e.g., "PyMeasure has `pymeasure.instruments.keysight.Keysight34461A`". If not, note that a custom SCPI wrapper or stub driver will be needed.
-5. Let the user pick instruments before generating station config
+1. **Consider passive components first:** Not every DUT pin needs a programmable instrument. Before reaching for an electronic load or SMU, ask whether a passive component would suffice:
+   - **Resistive load** — A power resistor (R = VOUT/IOUT) is often enough for fixed operating point tests. Cheaper, simpler, no driver needed. Trade-off: can't sweep load current in software.
+   - **Voltage divider** — For level shifting or attenuation to bring signals into DMM/scope range.
+   - **Capacitive load** — Some outputs spec a capacitive load for stability testing.
+   - Only recommend a programmable instrument (eload, SMU) when the test actually needs dynamic control — load regulation sweeps, transient response, or many operating points.
+2. Build a requirements list from the product characteristics (function + direction + range) — only for signals that need programmable instruments
+3. Call `litmus_match(requirements=[...], project=project_root)` to search the catalog
+4. Present recommendations with coverage info, noting where passive components can replace instruments
+5. **Check for existing drivers:** For each recommended instrument, check if PyMeasure, InstrumentKit, or vendor SDKs have a driver (use your knowledge of these libraries). If a driver exists, note it — e.g., "PyMeasure has `pymeasure.instruments.keysight.Keysight34461A`". If not, note that a custom SCPI wrapper or stub driver will be needed.
+6. Let the user pick instruments before generating station config
 
 **Example call:**
 ```python
