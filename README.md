@@ -175,6 +175,8 @@ litmus mcp serve            # Any MCP client
 
 An agent can read a datasheet, extract specs, recommend instruments, generate configs, write tests, and run them — all through tool calls.
 
+Convention-driven frameworks also produce better LLM output. When the pattern is always "return a measurement, limits come from config, instruments are fixtures," there's less room for the model to improvise poorly.
+
 ## Compared to alternatives
 
 | | **TestStand** | **OpenHTF** | **In-house scripts** | **Litmus** |
