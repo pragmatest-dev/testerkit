@@ -530,8 +530,9 @@ def setup_claude_desktop(project_path: str | None, print_only: bool):
     config["mcpServers"]["litmus"] = server_config
 
     config_file.write_text(json.dumps(config, indent=2) + "\n")
-    click.echo(f"Wrote {config_file}")
-    click.echo(f"Project: {project_dir}")
+    click.echo(f"✓ Wrote {config_file}")
+    click.echo(f"✓ Project: {project_dir}")
+    click.echo()
     click.echo("Restart Claude Desktop to use Litmus tools.")
 
 
