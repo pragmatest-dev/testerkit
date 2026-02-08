@@ -53,7 +53,6 @@ def discover_products() -> list[dict]:
                     "characteristics": {
                         name: char.model_dump() for name, char in spec.characteristics.items()
                     },
-                    "test_requirements": {},
                     "file": str(folder.path / "spec.yaml"),
                     "folder_path": str(folder.path),
                     "workflow_step": folder.current_step.value if folder.current_step else None,
@@ -68,7 +67,6 @@ def discover_products() -> list[dict]:
                     "revision": "",
                     "pins": None,
                     "characteristics": {},
-                    "test_requirements": {},
                     "file": None,
                     "folder_path": str(folder.path),
                     "workflow_step": folder.current_step.value if folder.current_step else None,
@@ -101,7 +99,6 @@ def discover_products() -> list[dict]:
                         name: char.model_dump()
                         for name, char in model.characteristics.items()
                     },
-                    "test_requirements": {},
                     "file": str(spec_file),
                     "folder_path": str(item),
                     "workflow_step": None,
@@ -120,7 +117,6 @@ def discover_products() -> list[dict]:
                     "revision": prod.get("revision", ""),
                     "pins": None,
                     "characteristics": {},
-                    "test_requirements": {},
                     "file": str(spec_file),
                     "folder_path": str(item),
                     "workflow_step": None,

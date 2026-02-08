@@ -1,18 +1,22 @@
-# AI-Assisted Test Development
+# AI-Assisted Test Development with Litmus V2
 
-Use Litmus with Claude Code, Cursor, Cline, or other AI tools via the MCP server.
+Use Litmus with Claude Desktop, Cursor, Cline, or other AI tools via the MCP server.
 
 ## Overview
 
-Litmus exposes an MCP (Model Context Protocol) server with **5 tools** that let AI assistants orchestrate the complete datasheet-to-test workflow. The platform does NOT call LLMs itself — it exposes tools so that AI agents can drive the process.
+Litmus exposes an MCP (Model Context Protocol) server with **6 tools** that let AI assistants orchestrate the complete datasheet-to-test workflow. The platform does NOT call LLMs itself — it exposes tools so that AI agents can drive the process.
+
+**Architecture:** Spec-driven testing with SpecBands, vector-based test parameters, and automated limit derivation.
 
 ## Setup
 
-### Claude Code
+### Claude Desktop (Recommended)
 
 ```bash
-litmus setup claude-code
+litmus setup claude-desktop
 ```
+
+Detects WSL and configures Claude Desktop to connect to Litmus MCP server. Restart Claude Desktop to connect.
 
 ### Cursor
 
@@ -32,309 +36,472 @@ litmus setup cline
 litmus mcp serve
 ```
 
-## The 5 MCP Tools
+## The 6 MCP Tools
 
-| Tool | Description |
-|------|-------------|
-| `litmus` | Unified CRUD: init, list, get, save, read |
-| `litmus_discover` | Scan for connected VISA instruments |
-| `litmus_match` | Check product/station/fixture compatibility |
-| `litmus_run` | Execute tests and return results |
-| `litmus_open` | Get browser URL for an entity |
+| Tool | Purpose |
+|------|---------|
+| `litmus(action=...)` | Unified CRUD: init, list, get, save, read |
+| `litmus_discover()` | Scan for connected VISA instruments |
+| `litmus_match()` | Find compatible instruments and stations |
+| `litmus_run()` | Execute tests and return results |
+| `litmus_open()` | Get browser URL for viewing/editing |
+| `litmus_schema()` | Get JSON Schema for YAML types |
 
-### litmus — Unified CRUD
-
-One tool for all data operations:
+### litmus — Unified CRUD Operations
 
 ```python
 # Initialize project (CALL FIRST!)
-litmus(action="init", path="~/my-project")
+result = litmus(action="init", path="~/my-project")
+project = result["project_root"]  # Use in all subsequent calls
 
 # List entities
-litmus(action="list", type="product")
-litmus(action="list", type="station")
+litmus(action="list", type="product", project=project)
+litmus(action="list", type="station", project=project)
 
 # Get entity details
-litmus(action="get", type="product", id="tps54302")
+litmus(action="get", type="product", id="tps54302", project=project)
 
-# Save entity
-litmus(action="save", type="product", id="tps54302", content={...})
+# Save entity (content validated against schema)
+litmus(action="save", type="product", id="tps54302", content={...}, project=project)
 
 # Read file or template
-litmus(action="read", path="products/x/spec.yaml")
-litmus(action="read", path="template:test")  # Get test template!
+litmus(action="read", path="products/tps54302/spec.yaml", project=project)
+litmus(action="read", path="template:test", project=project)  # Get test template
 ```
 
-**Entity types:** product, station, fixture, sequence, instrument, run, test
+**Entity types:** product, station, fixture, sequence, test
 
 ### litmus_discover — Find Instruments
 
 ```python
-litmus_discover()
-# Returns: list of VISA resources with addresses, types, IDN strings
+# Scan for VISA instruments on all protocols
+instruments = litmus_discover()
+# Returns: [{"resource": "GPIB0::5::INSTR", "type": "dmm", "idn": "Keysight 34461A"}]
 ```
 
-### litmus_match — Check Compatibility
+### litmus_match — Find Compatible Instruments
 
 ```python
-# Find compatible stations for a product
-litmus_match(product_id="tps54302")
-
-# Detailed compatibility check
-litmus_match(product_id="tps54302", station_id="bench_1")
-
-# Find stations for a fixture
-litmus_match(fixture_id="dc_converter_fixture")
+# Recommend catalog instruments for capability requirements
+matches = litmus_match(
+    requirements=[
+        {"function": "dc_voltage", "direction": "output", "range_max": 50, "units": "V"},
+        {"function": "dc_current", "direction": "output", "range_max": 10, "units": "A"}
+    ],
+    project=project
+)
+# Returns: [{"model": "keysight_e36312a", "coverage": 0.95, "accuracy": "..."}]
 ```
 
 ### litmus_run — Execute Tests
 
 ```python
-litmus_run(test="products/x/tests/test_x.py", station="bench_1", serial="SN001")
-# Returns: run_id, status, summary, output
+result = litmus_run(
+    test="tests/test_tps54302.py",
+    station="bench_1",
+    serial="SN001",
+    project=project
+)
+# Returns: run_id, status (PASS/FAIL), measurements, errors
 ```
 
 ### litmus_open — Browser URL
 
 ```python
-litmus_open(type="product", id="tps54302")
+info = litmus_open(type="product", id="tps54302")
 # Returns: {"url": "http://localhost:8000/products/tps54302"}
 ```
 
-## Mandatory 6-Step Workflow
+### litmus_schema — Get JSON Schema
+
+```python
+schema = litmus_schema(yaml_type="product")
+# Returns: JSON Schema for product spec validation
+```
+
+## The 5-Step Workflow (V2)
 
 ### Step 0: Initialize Project
 
 ```python
-litmus(action="init", path="~/my-hardware-tests")
+result = litmus(action="init", path="~/my-hardware-tests")
+project = result["project_root"]
 ```
 
-Creates `pyproject.toml`, `conftest.py`, directory structure. Run `uv sync` after.
+Creates `pyproject.toml`, `conftest.py`, directories. Run `uv sync` after.
 
-### Step 1: PARSE_DATASHEET
+### Step 1: Create Product Spec from Datasheet
 
-**Input:** `datasheet.md` → **Output:** `spec.yaml`
+**Goal:** Extract electrical characteristics and specifications from datasheet.
+
+**Key concepts:**
+- **Characteristic:** A measurable property (output_voltage, quiescent_current, etc.)
+- **SpecBand:** One specification with test conditions, nominal value, and accuracy
+- **Conditions:** Test parameters (temperature, load, frequency, etc.) that determine which SpecBand applies
 
 ```python
-litmus(action="read", path="products/{id}/datasheet.md")
-litmus(action="save", type="product", id="{id}", content={...})
+litmus(action="save", type="product", id="tps54302", content={
+    "product": {
+        "id": "tps54302",
+        "name": "TPS54302 3A Synchronous Buck Converter",
+        "manufacturer": "Texas Instruments",
+        "part_number": "TPS54302DSGR"
+    },
+    "pins": {
+        "VIN": {"name": "Pin 1", "net": "VIN", "role": "power"},
+        "VOUT": {"name": "Pin 5", "net": "VOUT_3V3", "role": "power"},
+        "FB": {"name": "Pin 3", "net": "FB", "role": "signal"}
+    },
+    "characteristics": {
+        "output_voltage": {
+            "function": "dc_voltage",
+            "direction": "output",
+            "units": "V",
+            "pin": "VOUT",
+            "specs": [
+                {
+                    "conditions": {"temperature": 25, "load": 0.5},
+                    "value": 3.3,
+                    "accuracy": {"pct_reading": 1.5}
+                },
+                {
+                    "conditions": {"temperature": 25, "load": 3.0},
+                    "value": 3.3,
+                    "accuracy": {"pct_reading": 2.0}
+                },
+                {
+                    "conditions": {"temperature": 85, "load": 3.0},
+                    "value": 3.3,
+                    "accuracy": {"pct_reading": 3.0}
+                }
+            ]
+        },
+        "quiescent_current": {
+            "function": "dc_current",
+            "direction": "input",
+            "units": "mA",
+            "pin": "VIN",
+            "specs": [
+                {
+                    "conditions": {"temperature": 25, "load": 0},
+                    "value": 5,
+                    "accuracy": {"absolute": 0.5}
+                }
+            ]
+        }
+    }
+}, project=project)
 ```
 
-### Step 2: REVIEW_SPEC
+### Step 2: Setup Test Station
 
-**Input:** `spec.yaml` → **Output:** Approved spec
+**Goal:** Select instruments and create station configuration.
 
 ```python
-litmus(action="get", type="product", id="{id}")
-litmus_open(type="product", id="{id}")  # Human reviews
+# Find compatible instruments for your characteristics
+matches = litmus_match(
+    requirements=[
+        {"function": "dc_voltage", "direction": "output", "range_max": 20, "units": "V"},
+        {"function": "dc_voltage", "direction": "input", "range_max": 50, "units": "V"}
+    ],
+    project=project
+)
+
+# Save station configuration
+litmus(action="save", type="station", id="bench_1", content={
+    "station": {
+        "id": "bench_1",
+        "name": "Development Bench"
+    },
+    "instruments": {
+        "psu": {
+            "type": "psu",
+            "driver": "drivers.PSU",
+            "resource": "GPIB0::1::INSTR",
+            "catalog_ref": "keysight_e36312a",
+            "mock": True,
+            "mock_config": {
+                "set_voltage": None,
+                "measure_voltage": 12.0
+            }
+        },
+        "dmm": {
+            "type": "dmm",
+            "driver": "drivers.DMM",
+            "resource": "GPIB0::5::INSTR",
+            "catalog_ref": "keysight_34461a",
+            "mock": True,
+            "mock_config": {
+                "measure_dc_voltage": 3.3
+            }
+        }
+    }
+}, project=project)
 ```
 
-### Step 3: DERIVE_REQUIREMENTS
+### Step 3: Generate Test Files
 
-**Input:** Approved spec → **Output:** `test_requirements` added
+**Goal:** Create pytest tests and configuration with vector sweep and limits.
+
+Always read the template first:
 
 ```python
-litmus(action="save", type="product", id="{id}", content={...})  # Add test_requirements
+template = litmus(action="read", path="template:test", project=project)
 ```
 
-### Step 4: SELECT_STATION
-
-**Input:** test_requirements → **Output:** station selection
+**Test code** (`tests/test_tps54302.py`):
 
 ```python
-litmus_match(product_id="{id}")  # Find compatible stations
+litmus(action="save", type="test", id="tests/test_tps54302.py", content={
+    "code": '''
+from litmus.execution import litmus_test
+
+@litmus_test
+def test_output_voltage(context, psu, dmm):
+    """Verify output voltage across temperature and load conditions."""
+    # Get test parameters from vector
+    temperature = context.get_in("temperature", 25)
+    load = context.get_in("load", 0.5)
+
+    # Set up stimulus
+    vin = context.get_in("vin", 12.0)
+    psu.set_voltage(vin)
+    psu.enable_output()
+
+    # Measure and return - framework checks limits
+    return dmm.measure_dc_voltage()
+
+@litmus_test
+def test_quiescent_current(context, psu, dmm):
+    """Verify quiescent current with no load."""
+    psu.set_voltage(context.get_in("vin", 12.0))
+    psu.enable_output()
+    return dmm.measure_dc_current()
+'''
+}, project=project)
 ```
 
-### Step 5: GENERATE_TESTS
-
-**Input:** spec + station → **Output:** test files
+**Test configuration** (`tests/config.yaml`):
 
 ```python
-# ALWAYS read the template first!
-litmus(action="read", path="template:test")
-litmus(action="get", type="product", id="{id}")
+litmus(action="save", type="test", id="tests/config.yaml", content={
+    "code": '''
+test_output_voltage:
+  vectors:
+    expand: product              # Use product characteristics
+    temperature: [25, 85]        # Sweep conditions
+    load: [0.1, 0.5, 0.8, 3.0]
+    vin: [10.5, 12.0, 15.0]
+  limits:
+    output_voltage:
+      ref: "output_voltage"      # Auto-derive from SpecBand at vector conditions
+      guardband_pct: 10          # Manufacturing margin
+      comparator: GELE           # Greater-or-equal AND less-or-equal
 
-# Save test
-litmus(action="save", type="test", id="products/{id}/tests/test_{id}.py", content={"code": "..."})
+test_quiescent_current:
+  vectors:
+    - temperature: 25
+      load: 0
+      vin: 12.0
+  limits:
+    quiescent_current:
+      ref: "quiescent_current"
+      guardband_pct: 15
+      comparator: LE             # Less-or-equal
+'''
+}, project=project)
 ```
 
-### Step 6: EXECUTE_ANALYZE
+**What happens at runtime:**
+1. For each vector (e.g., temperature=25, load=0.5), the framework:
+   - Finds matching SpecBand using conditions
+   - Calls `derive_limit(characteristic, conditions)` to get nominal ± accuracy
+   - Applies guardband to get production limits
+   - Runs test and checks against limits
+   - Records pass/fail
 
-**Input:** test files + station → **Output:** results
+### Step 4: Execute and Analyze
 
 ```python
-litmus_run(test="products/{id}/tests/", station="{station}", serial="{serial}")
+result = litmus_run(
+    test="tests/test_tps54302.py",
+    station="bench_1",
+    serial="SN001",
+    project=project
+)
+
+# Results include measurements, pass/fail status, and traceability
+print(result["status"])  # "PASS" or "FAIL"
+print(result["summary"])  # Test statistics
 ```
 
-## Critical: Test Code Pattern
+## Key Concepts
 
-**Always call `litmus(action="read", path="template:test")` BEFORE writing tests!**
+### Characteristics vs Conditions vs Specs
 
-### Rule 1: NO HARDCODED VALUES
+**Characteristic** — What you're testing (output_voltage, quiescent_current)
+```yaml
+output_voltage:          # Characteristic name
+  function: dc_voltage   # What measurement function to use
+  direction: output      # DUT outputs this signal
+  units: V
+  pin: VOUT
+```
 
+**Conditions** — Test parameters that determine which SpecBand applies (NOT specification values)
+```yaml
+conditions:
+  temperature: 25        # Temperature in °C
+  load: 0.5              # Load in Amps
+  frequency: 1000        # Frequency in Hz
+```
+
+**SpecBand** — One specification: conditions + nominal value + accuracy
+```yaml
+specs:
+  - conditions: {temperature: 25, load: 0.5}
+    value: 3.3                               # Nominal
+    accuracy: {pct_reading: 2.0}             # ±2% of reading
+```
+
+**Limit** — Derived from SpecBand at runtime
+```
+SpecBand value: 3.3V
+Accuracy: ±2.0% of 3.3 = ±0.066V
+Production limit: 3.3 ± 0.066 = [3.234, 3.366]V
+With 10% guardband: [3.2539, 3.3461]V
+```
+
+### Vectors and Test Parameters
+
+Vectors define what to sweep:
+
+```yaml
+vectors:
+  expand: product                    # Use product characteristics
+  temperature: [25, 85]              # Sweep values
+  load: [0.1, 0.5, 3.0]              # Multiple values
+```
+
+This creates **2 × 3 = 6 test vectors** (combinations).
+
+Each vector is passed to the test function via `context`:
 ```python
-# ❌ WRONG - where did 3.3 and 5.0 come from?
-Mock(DMM, voltage=3.3)
-Mock(PSU, voltage=5.0)
-
-# ✅ CORRECT - values from spec
-# spec.test_conditions.default_vin = 12
-# spec.test_conditions.default_vout = 5
-psu.set_voltage(12.0)  # From spec!
+temperature = context.get_in("temperature", 25)  # From vector
+load = context.get_in("load", 0.5)               # From vector
 ```
 
-### Rule 2: Tests SET UP then MEASURE
+### Limit Types (All 6 Patterns)
+
+| Type | Example | When to use |
+|------|---------|------------|
+| **Direct** | `{low: 3.2, high: 3.4, units: V}` | Static limits |
+| **Ref** | `{ref: "output_voltage", guardband_pct: 10}` | Spec-derived, auto-updated |
+| **Expression** | `{expr: "nominal * 1.05", tolerance_pct: 3}` | Calculated from inputs |
+| **Lookup** | `{lookup: {key: temperature, table: {25: {...}, 85: {...}}}}` | Condition-dependent |
+| **Step** | `{steps: {param: load, ranges: [{below: 1.0, limit: ...}]}}` | Range-dependent |
+| **Callable** | `{callable: "myproject.limits.custom_limit"}` | Complex logic |
+
+Most common: **Ref** (spec-derived) and **Direct** (static).
+
+## Test Code Pattern
+
+### ✅ Correct Pattern
 
 ```python
 from litmus.execution import litmus_test
 
 @litmus_test
 def test_output_voltage(context, psu, dmm):
-    # 1. Get conditions from spec/vector
-    vin = context.get("vin", 12.0)  # From spec.test_conditions.default_vin
+    """Measure output voltage at specified conditions."""
+    # 1. Get test parameters from vector (context)
+    temperature = context.get_in("temperature", 25)
+    load = context.get_in("load", 0.5)
+    vin = context.get_in("vin", 12.0)
 
-    # 2. Set up stimulus
+    # 2. Set up stimulus (instrument methods don't return anything)
     psu.set_voltage(vin)
     psu.enable_output()
 
-    # 3. Measure and return - framework checks limits
-    return dmm.measure_voltage()
+    # 3. Measure and RETURN value
+    # Framework automatically checks against spec-derived limits
+    return dmm.measure_dc_voltage()
 ```
 
-### Wrong Pattern
+### ❌ Wrong Patterns
 
 ```python
-# DON'T create standalone simulation!
-class MyDeviceModel:
-    def calculate_output(self, vin): ...
+# WRONG: Hardcoded values
+def test_output():
+    psu.set_voltage(12.0)  # Where does 12.0 come from?
+    return dmm.measure_voltage()
+
+# WRONG: Assertions instead of returns
+def test_output():
+    value = dmm.measure_voltage()
+    assert value == 3.3  # Hardcoded!
+
+# WRONG: Standalone calculation
+class Converter:
+    def calculate_vout(self, vin):
+        return vin * (1000 / (1000 + 2000))
 
 def test_output():
-    assert model.calculate_output(5.0) == 3.3  # Hardcoded!
+    assert Converter().calculate_vout(12.0) == 4.0  # No instrument connection!
 ```
 
-### Key Principles
+## Workflow Example: Full End-to-End
 
-1. **Read the spec first** — Get default_vin, default_vout from spec.yaml
-2. **Tests SET UP conditions** — `psu.set_voltage()`, `eload.set_current()`
-3. **Tests MEASURE results** — `dmm.measure_voltage()`
-4. **Tests RETURN values** — Framework checks against spec limits
-5. **NO hardcoded values** — Every number should trace to the spec
+**Scenario:** Test a TPS54302 buck converter
 
-## Product Folder Structure
-
-```
-products/{product_id}/
-    manifest.yaml       # Workflow position
-    datasheet.md        # Source document
-    spec.yaml           # Extracted specification
-    tests/              # Generated tests
-```
-
-## Available Templates
-
-Access via `litmus(action="read", path="template:...")`:
-
-| Template | Description |
-|----------|-------------|
-| `template:test` | Test file with `@litmus_test` |
-| `template:instrument` | Python driver template |
-| `template:instrument_yaml` | YAML instrument definition |
-| `template:capabilities` | Capability interfaces reference |
-
-## Workflow Example
-
-**User:** I need to test a DC-DC converter. 5V input, 3.3V output.
-
-**AI:**
-
+**Step 0: Init**
 ```python
-# Step 0: Init project
-litmus(action="init", path="~/dc-converter-test")
-
-# Step 1: Create spec
-litmus(action="save", type="product", id="dc_converter", content={
-    "product": {"id": "dc_converter", "name": "5V to 3.3V Converter"},
-    "characteristics": {
-        "output_voltage": {
-            "direction": "output",
-            "domain": "voltage",
-            "signal_types": ["dc"],
-            "units": "V",
-            "conditions": [{"nominal": 3.3, "tolerance_pct": 5}]
-        }
-    },
-    "test_requirements": {
-        "verify_output": {
-            "characteristic_ref": "output_voltage",
-            "guardband_pct": 10
-        }
-    }
-})
+result = litmus(action="init", path="~/tps54302-test")
+project = result["project_root"]
 ```
 
-**User:** What stations can test this?
-
-**AI:**
-
+**Step 1: Create spec**
 ```python
-litmus_match(product_id="dc_converter")
-# Returns: compatible_stations: [bench_1, dev_bench]
+# (Use example from Step 1 above)
+litmus(action="save", type="product", id="tps54302", content={...}, project=project)
 ```
 
-**User:** Generate tests
-
-**AI:**
-
+**Step 2: Setup station**
 ```python
-# Get the pattern first!
-litmus(action="read", path="template:test")
+# (Use example from Step 2 above)
+litmus(action="save", type="station", id="bench_1", content={...}, project=project)
+```
 
-# Save test file
-litmus(action="save", type="test", id="products/dc_converter/tests/test_dc_converter.py", content={
-    "code": '''
-from litmus.execution import litmus_test
+**Step 3: Generate tests**
+```python
+# (Use examples from Step 3 above)
+litmus(action="save", type="test", id="tests/test_tps54302.py", content={...}, project=project)
+litmus(action="save", type="test", id="tests/config.yaml", content={...}, project=project)
+```
 
-@litmus_test
-def test_output_voltage(context, dmm, psu):
-    psu.set_voltage(5.0)
-    psu.enable_output()
-    return dmm.measure_dc_voltage()
-'''
-})
+**Step 4: Run tests**
+```python
+result = litmus_run(test="tests/test_tps54302.py", station="bench_1", serial="SN001", project=project)
+print(result["status"])  # "PASS" or "FAIL"
 ```
 
 ## Checklist Before Generating Tests
 
-- [ ] Product has `spec.yaml` (Step 1)
-- [ ] Spec has `test_requirements` (Step 3)
-- [ ] Station selected (Step 4)
-- [ ] Called `litmus(action="read", path="template:test")` — see pattern
-- [ ] Called `litmus(action="get", type="product", id="...")` — get spec values
-- [ ] Test values come FROM THE SPEC:
-  - [ ] Input voltage from `spec.test_conditions.default_vin`
-  - [ ] Load current from `spec.specs.continuous_output_current`
+- [ ] Product spec created with `specs` (not `test_requirements`)
+- [ ] Characteristics have proper `specs` list with `conditions`, `value`, `accuracy`
+- [ ] Station configured with real or mock instruments
+- [ ] Called `litmus(action="read", path="template:test")` to see current pattern
 - [ ] Test uses `@litmus_test` decorator
-- [ ] Test uses instrument fixtures (psu, dmm, eload)
-- [ ] Test returns values (no assertions)
-- [ ] **NO hardcoded magic numbers** like `3.3` or `5.0`
-
-## HTTP API Alternative
-
-All tools available via HTTP when server is running:
-
-```bash
-litmus serve
-
-curl http://localhost:8000/api/products
-curl "http://localhost:8000/api/match?product_id=dc_converter"
-```
-
-## Platform Note
-
-Litmus exposes tools for AI agents but **never calls LLMs itself**. The platform is AI-ready but AI-independent.
+- [ ] Test accepts `context` and instrument fixtures
+- [ ] Test gets parameters via `context.get_in("key", default)`
+- [ ] Test RETURNS measured values (no assertions)
+- [ ] Test config uses `expand: product` and `ref` limits
+- [ ] Guardbands applied for manufacturing margin
+- [ ] No hardcoded specification values in test code
 
 ## Next Steps
 
-- [Writing Tests](writing-tests.md) — Test patterns
+- [Writing Tests](writing-tests.md) — Detailed test patterns
 - [Simulation Mode](simulation-mode.md) — Testing without hardware
-- [Configuration Reference](../reference/configuration.md) — YAML schemas
+- [Architecture](../concepts/architecture.md) — System design
+- [Specification Format](../guides/spec-driven-testing.md) — SpecBand structure

@@ -28,7 +28,6 @@ def product_edit_page(product_id: str):
         "revision": product.get("revision", ""),
         "pins": list(product.get("pins") or []),
         "characteristics": dict(product.get("characteristics") or {}),
-        "test_requirements": {},
     }
 
     with ui.column().classes("w-full p-6 gap-6"):
@@ -54,7 +53,6 @@ def product_edit_page(product_id: str):
                         "description": form_data["description"],
                         "revision": form_data["revision"],
                         "characteristics": form_data["characteristics"],
-                        "test_requirements": form_data["test_requirements"],
                         "pins": form_data["pins"],
                     }
                     if save_product(product_id, updated):
@@ -70,9 +68,8 @@ def product_edit_page(product_id: str):
             info_tab = ui.tab("Info", icon="info")
             pins_tab = ui.tab("Pins", icon="memory")
             chars_tab = ui.tab("Characteristics", icon="tune")
-            reqs_tab = ui.tab("Requirements", icon="checklist")
 
-        setup_hash_sync_for_tabs(tabs, ["Info", "Pins", "Characteristics", "Requirements"])
+        setup_hash_sync_for_tabs(tabs, ["Info", "Pins", "Characteristics"])
 
         with ui.tab_panels(tabs, value=info_tab).classes("w-full"):
             with ui.tab_panel(info_tab):
@@ -83,9 +80,6 @@ def product_edit_page(product_id: str):
 
             with ui.tab_panel(chars_tab):
                 _render_characteristics_tab(form_data)
-
-            with ui.tab_panel(reqs_tab):
-                _render_requirements_tab(form_data)
 
         ui.link("← Back to Product", f"/products/{product_id}").classes(
             "text-blue-600 hover:underline mt-4"
@@ -211,48 +205,6 @@ def _render_condition(index: int, cond: dict):
                     ui.chip(f"±{cond['tolerance_pct']}%").props("outline color=blue")
 
 
-def _render_requirements_tab(form_data: dict):
-    """Render the requirements edit tab."""
-    with ui.card().classes("w-full"):
-        with ui.card_section():
-            with ui.row().classes("items-center justify-between w-full mb-4"):
-                ui.label("Test Requirements").classes("font-semibold")
-
-                def on_add_req(name, data):
-                    form_data["test_requirements"][name] = data
-                    ui.notify(f"Added requirement: {name}. Click Save to persist.", type="positive")
-
-                char_names = list(form_data["characteristics"].keys())
-                ui.button(
-                    "Add Requirement",
-                    icon="add",
-                    on_click=lambda: _show_add_req_dialog(char_names, on_add_req),
-                ).props("flat color=primary dense")
-
-            requirements = form_data["test_requirements"]
-            if requirements:
-                columns = [
-                    {"name": "name", "label": "Name", "field": "name", "align": "left"},
-                    {"name": "char_ref", "label": "Characteristic", "field": "char_ref"},
-                    {"name": "priority", "label": "Priority", "field": "priority"},
-                    {"name": "guardband", "label": "Guardband", "field": "guardband"},
-                ]
-                rows = [
-                    {
-                        "name": name,
-                        "char_ref": req.get("characteristic_ref", "-"),
-                        "priority": req.get("priority", "standard"),
-                        "guardband": f"{req.get('guardband_pct', 0)}%",
-                    }
-                    for name, req in requirements.items()
-                ]
-                ui.table(columns=columns, rows=rows, row_key="name").classes("w-full")
-            else:
-                ui.label(
-                    "No test requirements defined. Click 'Add Requirement' to add one."
-                ).classes("text-slate-500 italic")
-
-
 # -----------------------------------------------------------------------------
 # Form Components (local to this page)
 # -----------------------------------------------------------------------------
@@ -372,52 +324,3 @@ def _show_add_char_dialog(on_add: callable):
     dialog.open()
 
 
-def _show_add_req_dialog(char_names: list, on_add: callable):
-    """Show dialog to add a new requirement."""
-    req_form = {
-        "name": "",
-        "characteristic_ref": char_names[0] if char_names else "",
-        "priority": "standard",
-        "guardband_pct": 0,
-    }
-
-    with ui.dialog() as dialog, ui.card().classes("w-96"):
-        with ui.card_section():
-            ui.label("Add Test Requirement").classes("text-lg font-semibold")
-        with ui.card_section().classes("flex flex-col gap-4"):
-            _labeled_input("Name", on_change=lambda e: req_form.update({"name": e.value}))
-            if char_names:
-                _labeled_select(
-                    "Characteristic",
-                    options=char_names,
-                    value=char_names[0],
-                    on_change=lambda e: req_form.update({"characteristic_ref": e.value}),
-                )
-            else:
-                ui.label("No characteristics defined yet").classes("text-slate-500 italic")
-            _labeled_select(
-                "Priority",
-                options=["critical", "standard", "informational"],
-                value="standard",
-                on_change=lambda e: req_form.update({"priority": e.value}),
-            )
-            _labeled_number(
-                "Guardband %",
-                value=0,
-                min_val=0,
-                max_val=50,
-                on_change=lambda e: req_form.update({"guardband_pct": e.value or 0}),
-            )
-        with ui.card_actions().classes("justify-end"):
-            ui.button("Cancel", on_click=dialog.close).props("flat")
-
-            def add():
-                if not req_form["name"]:
-                    ui.notify("Requirement name is required", type="warning")
-                    return
-                name = req_form.pop("name")
-                on_add(name, dict(req_form))
-                dialog.close()
-
-            ui.button("Add", on_click=add).props("color=primary")
-    dialog.open()

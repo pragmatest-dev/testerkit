@@ -47,7 +47,7 @@ characteristics:
       - nominal: 3.3
         tolerance_pct: 5
 
-test_requirements:
+specs
   verify_output:
     characteristic_ref: output_voltage
     guardband_pct: 10      # Tighten limits by 10%

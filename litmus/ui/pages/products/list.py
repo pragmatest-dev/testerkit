@@ -41,7 +41,6 @@ def products_page():
 def _product_card(product: dict):
     """Render a product card."""
     char_count = len(product.get("characteristics", {}) or {})
-    req_count = len(product.get("test_requirements", {}) or {})
 
     with ui.card().classes("w-96"):
         with ui.card_section():
@@ -61,9 +60,6 @@ def _product_card(product: dict):
                 with ui.row().classes("items-center gap-1"):
                     ui.icon("tune", size="xs").classes("text-slate-400")
                     ui.label(f"{char_count} characteristics").classes("text-sm text-slate-600")
-                with ui.row().classes("items-center gap-1"):
-                    ui.icon("checklist", size="xs").classes("text-slate-400")
-                    ui.label(f"{req_count} test requirements").classes("text-sm text-slate-600")
 
         with ui.card_actions():
             ui.button(

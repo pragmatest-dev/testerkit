@@ -57,16 +57,14 @@ def _render_product_detail(product_id: str, product: dict):
 
     # Tabbed content
     characteristics = product.get("characteristics", {}) or {}
-    requirements = product.get("test_requirements", {}) or {}
     pins = product.get("pins", []) or []
 
     with ui.tabs().classes("w-full") as tabs:
         pins_tab = ui.tab("Pins", icon="memory")
         char_tab = ui.tab("Characteristics", icon="tune")
-        req_tab = ui.tab("Requirements", icon="checklist")
         seq_tab = ui.tab("Sequences", icon="list_alt")
 
-    setup_hash_sync_for_tabs(tabs, ["Pins", "Characteristics", "Requirements", "Sequences"])
+    setup_hash_sync_for_tabs(tabs, ["Pins", "Characteristics", "Sequences"])
 
     with ui.tab_panels(tabs, value=pins_tab).classes("w-full"):
         with ui.tab_panel(pins_tab):
@@ -74,9 +72,6 @@ def _render_product_detail(product_id: str, product: dict):
 
         with ui.tab_panel(char_tab):
             _render_characteristics_tab(characteristics)
-
-        with ui.tab_panel(req_tab):
-            _render_requirements_tab(requirements)
 
         with ui.tab_panel(seq_tab):
             _render_sequences_tab(product_id)
@@ -122,7 +117,7 @@ def _render_characteristics_tab(characteristics: dict):
                 {"name": "function", "label": "Function", "field": "function"},
                 {"name": "direction", "label": "Direction", "field": "direction"},
                 {"name": "units", "label": "Units", "field": "units"},
-                {"name": "conditions", "label": "Conditions", "field": "conditions"},
+                {"name": "specs", "label": "SpecBands", "field": "specs"},
             ]
             rows = [
                 {
@@ -130,39 +125,13 @@ def _render_characteristics_tab(characteristics: dict):
                     "function": char.get("function", ""),
                     "direction": char.get("direction", ""),
                     "units": char.get("units", ""),
-                    "conditions": len(char.get("conditions", [])),
+                    "specs": len(char.get("specs", [])),
                 }
                 for name, char in characteristics.items()
             ]
             ui.table(columns=columns, rows=rows, row_key="name").classes("w-full")
     else:
         ui.label("No characteristics defined.").classes("text-slate-500 italic")
-
-
-def _render_requirements_tab(requirements: dict):
-    """Render the requirements tab."""
-    if requirements:
-        with ui.card().classes("w-full"):
-            columns = [
-                {"name": "name", "label": "Name", "field": "name", "align": "left"},
-                {"name": "char_ref", "label": "Characteristic", "field": "char_ref"},
-                {"name": "priority", "label": "Priority", "field": "priority"},
-                {"name": "guardband", "label": "Guardband", "field": "guardband"},
-                {"name": "description", "label": "Description", "field": "description"},
-            ]
-            rows = [
-                {
-                    "name": name,
-                    "char_ref": req.get("characteristic_ref", "-"),
-                    "priority": req.get("priority", "standard"),
-                    "guardband": f"{req.get('guardband_pct', 0)}%",
-                    "description": req.get("description", "")[:50],
-                }
-                for name, req in requirements.items()
-            ]
-            ui.table(columns=columns, rows=rows, row_key="name").classes("w-full")
-    else:
-        ui.label("No test requirements defined.").classes("text-slate-500 italic")
 
 
 def _render_sequences_tab(product_id: str):

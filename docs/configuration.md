@@ -55,7 +55,7 @@ characteristics:
         # Additional condition parameters (e.g., temperature, load)
         <param>: value
 
-test_requirements:
+specs
   <name>:
     characteristic_ref: string   # Reference to characteristic
     conditions: dict            # Which conditions to test

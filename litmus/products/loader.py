@@ -37,7 +37,7 @@ def load_product(path: Path, products_dir: Path | None = None) -> Product:
             falling back to *path*.parent.
 
     Returns:
-        Product object with characteristics and test requirements.
+        Product object with characteristics and SpecBands.
 
     Raises:
         FileNotFoundError: If the YAML file doesn't exist.

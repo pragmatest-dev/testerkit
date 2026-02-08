@@ -758,43 +758,41 @@ FILE 2: tests/config.yaml  (REQUIRED! Limits MUST be here, not in code)
 # _mock configures what mock instruments return when running with --mock-instruments
 
 test_output_voltage:
+  vectors:
+    expand: product              # Use characteristics from product spec
+    temperature: [25, 85]        # Sweep conditions from SpecBand
+    load: [0.1, 0.5, 3.0]
   _mock:
-    dmm.measure_voltage: 5.0      # Mock returns nominal value
-    psu.measure_current: 0.1
+    dmm.measure_dc_voltage: 5.0  # Mock returns nominal value
   limits:
-    test_output_voltage:
-      low: 4.75       # From spec: nominal - tolerance
-      high: 5.25      # From spec: nominal + tolerance
-      nominal: 5.0    # From spec.test_conditions.default_vout
-      units: V
-      spec_ref: "output_voltage @ no load"
+    output_voltage:
+      ref: "output_voltage"      # Auto-derive from SpecBand at vector conditions
+      guardband_pct: 10          # Manufacturing margin
+      comparator: GELE           # Greater-or-equal AND less-or-equal
 
 test_load_regulation:
   vectors:
     # Per-vector _mock: different outputs for each load condition
-    - load_current: 0.5
+    - temperature: 25
+      load: 0.5
       _mock:
-        dmm.measure_voltage: 5.02
-        psu.measure_current: 0.55
-    - load_current: 1.0
+        dmm.measure_dc_voltage: 5.02
+    - temperature: 25
+      load: 1.0
       _mock:
-        dmm.measure_voltage: 5.00
-        psu.measure_current: 1.05
-    - load_current: 2.0
+        dmm.measure_dc_voltage: 5.00
+    - temperature: 25
+      load: 2.0
       _mock:
-        dmm.measure_voltage: 4.95
-        psu.measure_current: 2.10
-    - load_current: 3.0
+        dmm.measure_dc_voltage: 4.95
+    - temperature: 25
+      load: 3.0
       _mock:
-        dmm.measure_voltage: 4.90
-        psu.measure_current: 3.15
+        dmm.measure_dc_voltage: 4.90
   limits:
-    test_load_regulation:
-      low: 4.7
-      high: 5.3
-      nominal: 5.0
-      units: V
-      spec_ref: "output_voltage @ load"
+    output_voltage:
+      ref: "output_voltage"      # Auto-derived from spec
+      guardband_pct: 10
 
 
 ================================================================================
@@ -804,13 +802,15 @@ CRITICAL: You MUST create BOTH files. The test file alone will NOT work.
 The @litmus_test decorator auto-discovers config.yaml in the same directory.
 Without config.yaml, there are NO LIMITS and tests will fail or be meaningless.
 
-Values in config.yaml come from the product spec.yaml:
-- nominal: spec.test_conditions.default_vout
-- low/high: Calculate from spec tolerance (e.g., 5.0V ± 5% = 4.75 to 5.25)
-- vectors: From spec ranges (e.g., load_current up to spec.specs.continuous_output_current.max)
-- _mock: Configure mock instrument return values for --mock-instruments mode
+Values in config.yaml:
+- vectors: From product characteristics (expand: product) or explicit lists
+- limits with ref: Auto-derived from SpecBand using vector conditions
+  - Nominal value ± accuracy from matching SpecBand
+  - Guardband applied for manufacturing margin
+- _mock: Configure mock instrument return values
   - Test-level _mock: constant for all vectors
-  - Per-vector _mock: different values per test condition
+  - Per-vector _mock: different values per condition
+- conditions in vectors: Matched against SpecBand.conditions to find correct spec
 '''
 
 INSTRUMENT_TEMPLATE = '''"""{instrument_name} driver.

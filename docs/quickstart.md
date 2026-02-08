@@ -54,13 +54,13 @@ product:
 
 characteristics:
   output_voltage:
-    nominal: 3.3
-    tolerance_pct: 5
-    unit: V
-
-test_conditions:
-  default_vin: 5.0
-  default_vout: 3.3
+    function: dc_voltage
+    direction: output
+    units: V
+    specs:
+      - conditions: {temperature: 25}
+        value: 3.3
+        accuracy: {pct_reading: 2.0}
 ```
 
 ### 2. Configure the Station
@@ -88,20 +88,18 @@ instruments:
 
 ### 3. Configure Test Conditions and Limits
 
-**Both conditions (vectors) AND limits go in config.yaml:**
+**Both vectors AND limits go in config.yaml:**
 
 ```yaml
 # tests/config.yaml
 test_output_voltage:
   vectors:
-    - vin: 5.0  # Test condition from spec.test_conditions.default_vin
+    expand: product              # Use product characteristics
+    temperature: [25, 85]        # Sweep conditions
   limits:
-    test_output_voltage:
-      low: 3.135      # 3.3V - 5% (from spec)
-      high: 3.465     # 3.3V + 5% (from spec)
-      nominal: 3.3
-      units: V
-      spec_ref: "output_voltage @ tolerance_pct=5"
+    output_voltage:
+      ref: "output_voltage"      # Auto-derive from SpecBand
+      guardband_pct: 10          # Manufacturing margin
 ```
 
 ### 4. Write the Test

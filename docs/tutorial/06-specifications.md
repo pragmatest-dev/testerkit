@@ -146,7 +146,7 @@ Document this in the spec:
 
 ```yaml
 # products/power_board/spec.yaml
-test_requirements:
+specs
   verify_output:
     characteristic_ref: output_voltage
     guardband_pct: 10
@@ -242,7 +242,7 @@ characteristics:
       - nominal: 3.3
         tolerance_pct: 5
 
-test_requirements:
+specs
   verify_output:
     characteristic_ref: output_voltage
     guardband_pct: 10
