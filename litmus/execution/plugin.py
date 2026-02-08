@@ -226,6 +226,9 @@ def pytest_addoption(parser):
     """Add Litmus command-line options."""
     group = parser.getgroup("litmus")
     group.addoption("--dut-serial", default="DUT001", help="DUT serial number")
+    group.addoption("--dut-part-number", default=None, help="DUT part number")
+    group.addoption("--dut-revision", default=None, help="DUT revision")
+    group.addoption("--dut-lot", default=None, help="DUT lot/batch number")
     group.addoption("--station", default="station_001", help="Station ID")
     group.addoption("--operator", default=None, help="Operator name")
     group.addoption("--results-dir", default="results", help="Directory for Parquet results")
@@ -370,6 +373,28 @@ def _safe_get_session_fixture(request, name):
         return None
 
 
+def _maybe_auto_report(run_id: str, results_dir: str) -> None:
+    """Generate a report after test run if configured in litmus.yaml."""
+    try:
+        from litmus.config.project import load_project_config
+
+        config = load_project_config()
+        reports_config = config.get("reports", {})
+        if not reports_config.get("auto", False):
+            return
+
+        from litmus.reports import generate_report, load_run_data
+
+        fmt = reports_config.get("format", "html")
+        template = reports_config.get("template", "default")
+        output_dir = reports_config.get("output_dir", "reports")
+
+        data = load_run_data(run_id, results_dir)
+        generate_report(data, output_dir, fmt=fmt, template=template)
+    except Exception:
+        pass  # Auto-report is best-effort; don't fail the test run
+
+
 @pytest.fixture(scope="session", autouse=True)
 def litmus_logger(request) -> Generator[TestRunLogger]:
     """Provide test run logger for the session.
@@ -442,6 +467,9 @@ def litmus_logger(request) -> Generator[TestRunLogger]:
 
     logger = TestRunLogger(
         dut_serial=request.config.getoption("--dut-serial"),
+        dut_part_number=request.config.getoption("--dut-part-number"),
+        dut_revision=request.config.getoption("--dut-revision"),
+        dut_lot_number=request.config.getoption("--dut-lot"),
         station_id=station_id,
         station_type=station_type,
         station_location=station_location,
@@ -474,6 +502,7 @@ def litmus_logger(request) -> Generator[TestRunLogger]:
         journal_dir=journal_dir,
     )
 
+    _maybe_auto_report(str(test_run.id), results_dir)
     set_current_logger(None)
 
 

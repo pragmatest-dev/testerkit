@@ -137,8 +137,6 @@ class ParquetBackend:
             FileNotFoundError: If journal file doesn't exist
             ValueError: If journal is empty and no test_run provided
         """
-        import duckdb
-
         journal_path = journal_dir / "measurements.jsonl"
         journal_ref_dir = journal_dir / "_ref"
 
@@ -156,20 +154,20 @@ class ParquetBackend:
                 return self.save_test_run(test_run, journal_dir=None)
             raise ValueError(f"Journal is empty: {journal_path}")
 
-        # Read journal to get metadata for filename
-        conn = duckdb.connect()
-        result = conn.execute(f"SELECT * FROM read_json_auto('{journal_path}') LIMIT 1").fetchone()
+        # Parse JSONL lines
+        rows = []
+        for line in journal_content.splitlines():
+            line = line.strip()
+            if line:
+                rows.append(json.loads(line))
 
-        if result is None:
-            # DuckDB couldn't parse - fall back to TestRun if available
+        if not rows:
             if test_run is not None:
                 shutil.rmtree(journal_dir)
                 return self.save_test_run(test_run, journal_dir=None)
             raise ValueError(f"Journal is empty or invalid: {journal_path}")
 
-        # Get column names and first row as dict
-        columns = [desc[0] for desc in conn.description]
-        first_row = dict(zip(columns, result))
+        first_row = rows[0]
 
         # Determine output path from metadata
         run_started_at = first_row.get("run_started_at", "")
@@ -179,7 +177,6 @@ class ParquetBackend:
         from datetime import datetime
 
         if isinstance(run_started_at, str):
-            # Parse ISO format timestamp
             try:
                 started_dt = datetime.fromisoformat(run_started_at.replace("Z", "+00:00"))
             except ValueError:
@@ -202,14 +199,15 @@ class ParquetBackend:
 
         parquet_path = date_dir / filename
 
-        # Convert JSONL to Parquet using DuckDB
-        conn.execute(
-            f"""
-            COPY (SELECT * FROM read_json_auto('{journal_path}'))
-            TO '{parquet_path}' (FORMAT PARQUET)
-            """
-        )
-        conn.close()
+        # Convert JSONL rows to Parquet using pyarrow
+        table = pa.Table.from_pylist(rows)
+
+        # Add file-level metadata now if test_run provided (avoid re-read later)
+        if test_run is not None:
+            metadata = self._build_file_metadata(test_run)
+            table = table.replace_schema_metadata(metadata)
+
+        pq.write_table(table, parquet_path)
 
         # Move ref files if they exist
         if journal_ref_dir.exists() and any(journal_ref_dir.iterdir()):
@@ -217,13 +215,6 @@ class ParquetBackend:
             if parquet_ref_dir.exists():
                 shutil.rmtree(parquet_ref_dir)
             shutil.move(str(journal_ref_dir), str(parquet_ref_dir))
-
-        # Add file-level metadata if test_run provided
-        if test_run is not None:
-            table = pq.read_table(parquet_path)
-            metadata = self._build_file_metadata(test_run)
-            table = table.replace_schema_metadata(metadata)
-            pq.write_table(table, parquet_path)
 
         # Delete journal directory on successful conversion
         shutil.rmtree(journal_dir)

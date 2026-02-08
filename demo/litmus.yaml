@@ -1,0 +1,11 @@
+# Litmus project configuration
+project:
+  name: demo
+
+results_dir: results
+
+reports:
+  auto: false          # Set to true to auto-generate after each test run
+  format: html         # Default format: html, pdf, json, csv
+  template: default    # Jinja2 template name
+  output_dir: reports  # Where to save generated reports

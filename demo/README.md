@@ -28,7 +28,9 @@ demo/
 │   ├── config.yaml             # Test configuration (vectors, limits)
 │   ├── test_power_board.py     # @litmus_test decorator examples
 │   └── test_pure_pytest.py     # Pure pytest with litmus_logger
-└── results/                    # Output (Parquet files, gitignored)
+├── reports/                    # Generated reports (gitignored)
+├── results/                    # Output (Parquet files, gitignored)
+└── litmus.yaml                 # Project configuration
 ```
 
 ## The 7 Project Folders
@@ -334,6 +336,29 @@ pytest tests/ --results-dir=./my_results --mock-instruments -v
 pytest tests/test_pure_pytest.py --station=demo_station_001 --mock-instruments -v
 ```
 
+## Generating Reports
+
+After running tests, generate formatted reports from any run:
+
+```bash
+# List recent runs to find a run ID
+litmus runs --results-dir results
+
+# Generate HTML report (self-contained, print-friendly)
+litmus show <run_id> -f html --results-dir results
+
+# Generate PDF report (requires: pip install 'litmus[pdf]')
+litmus show <run_id> -f pdf -o reports/ --results-dir results
+
+# JSON or CSV for programmatic use
+litmus show <run_id> -f json -o report.json --results-dir results
+litmus show <run_id> -f csv --results-dir results
+```
+
+Auto-generate reports after every test run by setting `reports.auto: true` in `litmus.yaml`.
+
+Custom templates: create `reports/templates/my_template.html` (Jinja2) and use `-t my_template`.
+
 ## Querying Results
 
 Results are saved with self-describing filenames using UTC timestamps:
@@ -423,6 +448,7 @@ table = dataset.to_table(filter=ds.field("step_name") == "test_load_sweep")
 | @litmus_step | `test_architect.py` | Non-measurement step tracking |
 | TestHarness direct | `test_architect.py` | Explicit vector control |
 | Spec-driven limits | `test_architect.py` | SpecContext integration |
+| Report generation | `litmus.yaml` | HTML/PDF/JSON/CSV via `litmus show -f` |
 
 ## Simulation Mode
 

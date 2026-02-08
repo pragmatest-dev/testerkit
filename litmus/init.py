@@ -32,7 +32,10 @@ def init_project(
     warnings: list[str] = []
 
     # Create directories
-    subdirs = ["products", "stations", "sequences", "fixtures", "instruments", "tests", "results"]
+    subdirs = [
+        "products", "stations", "sequences", "fixtures",
+        "instruments", "tests", "results", "reports",
+    ]
     for subdir in subdirs:
         dir_path = path / subdir
         if not dir_path.exists():
@@ -112,11 +115,13 @@ def eload(instruments):
 project:
   name: "{project_name}"
 
-default_station: null
+results_dir: results
 
-results:
-  backend: parquet
-  path: results/
+reports:
+  auto: false          # Auto-generate reports after each test run
+  format: html         # Default format: html, pdf, json, csv
+  template: default    # Jinja2 template name
+  output_dir: reports  # Where to save generated reports
 '''
         litmus_yaml_path.write_text(litmus_yaml_content)
         created_files.append("litmus.yaml")
@@ -133,6 +138,7 @@ venv/
 
 # Litmus
 results/
+reports/
 
 # IDE
 .idea/

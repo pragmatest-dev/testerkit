@@ -123,11 +123,16 @@ def serve(host: str, port: int, reload: bool):
 
 
 @main.command()
-@click.option("--results-dir", default="results", help="Results directory")
+@click.option("--results-dir", default=None, help="Results directory")
 @click.option("--limit", default=20, help="Number of runs to show")
-def runs(results_dir: str, limit: int):
+def runs(results_dir: str | None, limit: int):
     """List recent test runs."""
+    from litmus.config.project import load_project_config
     from litmus.data.backends.parquet import ParquetBackend
+
+    if results_dir is None:
+        project = load_project_config()
+        results_dir = project.get("results_dir", "results")
 
     backend = ParquetBackend(results_dir=results_dir)
     test_runs = backend.list_runs(limit=limit)
@@ -149,32 +154,68 @@ def runs(results_dir: str, limit: int):
 
 @main.command()
 @click.argument("run_id")
-@click.option("--results-dir", default="results", help="Results directory")
-def show(run_id: str, results_dir: str):
-    """Show details for a specific test run."""
-    from litmus.data.backends.parquet import ParquetBackend
+@click.option("--results-dir", default=None, help="Results directory")
+@click.option(
+    "-f", "--format", "fmt",
+    type=click.Choice(["html", "pdf", "json", "csv"]),
+    default=None, help="Generate report in format",
+)
+@click.option("-o", "--output", default=None, help="Output file or directory")
+@click.option("-t", "--template", default="default", help="Report template name")
+def show(run_id: str, results_dir: str | None, fmt: str | None, output: str | None, template: str):
+    """Show details for a specific test run.
 
-    backend = ParquetBackend(results_dir=results_dir)
-    run = backend.get_run(run_id)
+    Without -f, prints a summary to the terminal.
+    With -f, generates a report file (html, pdf, json, csv).
 
-    if not run:
+    Examples:
+        litmus show abc123
+        litmus show abc123 -f html
+        litmus show abc123 -f pdf -o reports/
+        litmus show abc123 -f json -o result.json
+    """
+    from litmus.config.project import load_project_config
+
+    project = load_project_config()
+    if results_dir is None:
+        results_dir = project.get("results_dir", "results")
+
+    if fmt:
+        # Report generation mode
+        from litmus.reports import generate_report, load_run_data
+
+        try:
+            data = load_run_data(run_id, results_dir)
+        except FileNotFoundError as e:
+            click.echo(str(e), err=True)
+            raise SystemExit(1)
+
+        out_path = output or "."
+        result = generate_report(data, out_path, fmt=fmt, template=template)
+        click.echo(f"Report generated: {result}")
+        return
+
+    # Terminal display mode
+    from litmus.reports import load_run_data
+
+    try:
+        data = load_run_data(run_id, results_dir)
+    except FileNotFoundError:
         click.echo(f"Run {run_id} not found.")
         return
 
-    click.echo(f"Test Run: {run.get('test_run_id', '')}")
-    click.echo(f"  DUT Serial: {run.get('dut_serial', '')}")
-    click.echo(f"  Station: {run.get('station_id', '')}")
-    click.echo(f"  Outcome: {run.get('outcome', '')}")
-    click.echo(f"  Started: {run.get('started_at', '')}")
-    click.echo(f"  Ended: {run.get('ended_at', '')}")
-    click.echo(f"  Steps: {run.get('total_steps', 0)} ({run.get('failed_steps', 0)} failed)")
-    click.echo(f"  Vectors: {run.get('total_vectors', 0)} ({run.get('failed_vectors', 0)} failed)")
+    click.echo(f"Test Run: {data.run_id}")
+    click.echo(f"  DUT Serial: {data.dut_serial}")
+    click.echo(f"  Station: {data.station_id}")
+    click.echo(f"  Outcome: {data.outcome}")
+    click.echo(f"  Started: {data.started_at}")
+    click.echo(f"  Ended: {data.ended_at}")
+    click.echo(f"  Steps: {len(data.step_names)}")
+    click.echo(f"  Measurements: {data.total_measurements} ({data.failed_measurements} failed)")
 
-    # Show measurements
-    measurements = backend.get_measurements(run_id)
-    if measurements:
+    if data.measurements:
         click.echo("\nMeasurements:")
-        for m in measurements:
+        for m in data.measurements:
             name = m.get("measurement_name", "")
             value = m.get("value", "")
             units = m.get("units", "")

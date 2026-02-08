@@ -96,9 +96,14 @@ litmus show <RUN_ID> [OPTIONS]
 
 | Option | Default | Description |
 |--------|---------|-------------|
-| `--results-dir` | `results` | Path to results directory |
+| `--results-dir` | from `litmus.yaml` or `results` | Path to results directory |
+| `-f`, `--format` | *(none)* | Generate report: `html`, `pdf`, `json`, `csv` |
+| `-o`, `--output` | `.` (current dir) | Output file or directory |
+| `-t`, `--template` | `default` | Jinja2 template name |
 
-**Example output:**
+Without `-f`, prints a terminal summary. With `-f`, generates a report file.
+
+**Terminal output:**
 
 ```
 $ litmus show a1b2c3d4
@@ -108,14 +113,32 @@ Test Run: a1b2c3d4-5678-9abc-def0-1234567890ab
   Outcome: pass
   Started: 2025-01-15T10:30:00
   Ended: 2025-01-15T10:32:15
-  Steps: 5 (0 failed)
-  Vectors: 27 (0 failed)
+  Steps: 3
+  Measurements: 27 (0 failed)
 
 Measurements:
   output_voltage: 3.31 V [pass]
   input_current: 0.45 A [pass]
   efficiency: 87.2 % [pass]
 ```
+
+**Report generation:**
+
+```bash
+# HTML report (self-contained, print-friendly)
+litmus show a1b2c3d4 -f html
+
+# PDF report (requires weasyprint: pip install 'litmus[pdf]')
+litmus show a1b2c3d4 -f pdf -o reports/
+
+# JSON report
+litmus show a1b2c3d4 -f json -o result.json
+
+# CSV report (one row per measurement)
+litmus show a1b2c3d4 -f csv
+```
+
+**Template resolution:** project `reports/templates/{name}.html` → built-in `litmus/reports/templates/{name}.html`. Create custom templates to match your organization's report format.
 
 ## Journal Commands
 
