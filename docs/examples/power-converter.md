@@ -71,68 +71,50 @@ pins:
 characteristics:
   input_voltage:
     direction: input
-    domain: voltage
-    signal_types: [dc]
+    function: dc_voltage
     units: V
     pins: [VIN]
     datasheet_ref: "Section 4.1"
-    conditions:
-      - nominal: 5.0
-        tolerance_pct: 10
+    specs:
+      - value: 5.0
+        accuracy:
+          pct_reading: 10
 
   output_voltage:
     direction: output
-    domain: voltage
-    signal_types: [dc]
+    function: dc_voltage
     units: V
     pins: [VOUT]
     datasheet_ref: "Section 4.2"
-    conditions:
-      - nominal: 3.3
-        tolerance_pct: 5
-        load_ma: 0
+    specs:
+      - conditions:
+          load_ma: {min: 0, max: 100}
+        value: 3.3
+        accuracy:
+          pct_reading: 5
 
-      - nominal: 3.3
-        tolerance_pct: 5
-        load_ma: 500
+      - conditions:
+          load_ma: {min: 100, max: 600}
+        value: 3.3
+        accuracy:
+          pct_reading: 5
 
-      - nominal: 3.3
-        tolerance_pct: 6
-        load_ma: 1000
+      - conditions:
+          load_ma: {min: 600, max: 1000}
+        value: 3.3
+        accuracy:
+          pct_reading: 6
 
   output_current:
     direction: output
-    domain: current
-    signal_types: [dc]
+    function: dc_current
     units: A
     pins: [VOUT]
     datasheet_ref: "Section 4.3"
-    conditions:
-      - nominal: 0
-        limit_low: 0
-        limit_high: 1.0
-
-test_requirements:
-  verify_output_no_load:
-    characteristic_ref: output_voltage
-    conditions:
-      load_ma: 0
-    guardband_pct: 10
-    priority: 1
-
-  verify_output_half_load:
-    characteristic_ref: output_voltage
-    conditions:
-      load_ma: 500
-    guardband_pct: 10
-    priority: 2
-
-  verify_output_full_load:
-    characteristic_ref: output_voltage
-    conditions:
-      load_ma: 1000
-    guardband_pct: 10
-    priority: 3
+    specs:
+      - value: 0
+        accuracy:
+          absolute: 1.0
 ```
 
 ## Station Configuration

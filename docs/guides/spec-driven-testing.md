@@ -35,7 +35,7 @@ limit = spec.get_limit("output_voltage", temperature=25, load=0.1)
 
 ## Product Specification
 
-Define characteristics with conditions:
+Define characteristics with specs at different operating conditions:
 
 ```yaml
 # products/power_board/spec.yaml
@@ -43,29 +43,32 @@ product:
   id: power_board
   name: "5V to 3.3V Converter"
 
+pins:
+  VOUT:
+    name: "J1.3"
+    net: "VOUT_3V3"
+
 characteristics:
   output_voltage:
     direction: output
-    domain: voltage
+    function: dc_voltage
     units: V
     pins: [VOUT]
     datasheet_ref: "Section 7.2"
-    conditions:
-      - nominal: 3.3
-        tolerance_pct: 5
-        temperature: 25
-        load: 0.5
+    specs:
+      - conditions:
+          temperature: {min: 0, max: 50}
+          load: {min: 0.1, max: 0.5}
+        value: 3.3
+        accuracy:
+          pct_reading: 5    # ±5% tolerance
 
-      - nominal: 3.3
-        tolerance_pct: 7
-        temperature: 85
-        load: 1.0
-
-test_requirements:
-  verify_output:
-    characteristic_ref: output_voltage
-    guardband_pct: 10
-    priority: 1
+      - conditions:
+          temperature: {min: 50, max: 85}
+          load: {min: 0.5, max: 1.0}
+        value: 3.3
+        accuracy:
+          pct_reading: 7    # Wider tolerance at high temp
 ```
 
 ## Using SpecContext
@@ -130,16 +133,15 @@ with harness.step():
 
 ## With @litmus_test
 
-Configure spec reference in YAML:
+Configure spec-based limit in YAML:
 
 ```yaml
 # tests/config.yaml
 test_output_voltage:
-  spec: products/power_board/spec.yaml
-  guardband_pct: 10
   limits:
     output_voltage:
-      ref: output_voltage  # Reference to characteristic
+      ref: output_voltage    # Reference to characteristic in product spec
+      guardband_pct: 10
 ```
 
 ```python
@@ -217,42 +219,40 @@ product:
   id: power_board
   name: "5V to 3.3V Converter"
 
+pins:
+  VOUT:
+    name: "J1.3"
+    net: "VOUT_3V3"
+
 characteristics:
   output_voltage:
     direction: output
-    domain: voltage
+    function: dc_voltage
     units: V
     pins: [VOUT]
-    conditions:
-      - nominal: 3.3
-        tolerance_pct: 5
+    specs:
+      - value: 3.3
+        accuracy:
+          pct_reading: 5
 ```
 
-### 2. Define Test Requirements
-
-```yaml
-# In same file or separate
-test_requirements:
-  verify_output_voltage:
-    characteristic_ref: output_voltage
-    guardband_pct: 10
-    priority: 1
-```
-
-### 3. Configure Test
+### 2. Configure Test
 
 ```yaml
 # tests/config.yaml
 test_output_voltage:
-  spec: products/power_board/spec.yaml
-  guardband_pct: 10
   vectors:
     expand: product
     temperature: [25, 85]
     load: [0.5, 1.0]
+  limits:
+    output_voltage:
+      ref: output_voltage          # Reference to characteristic in spec
+      guardband_pct: 10            # Tighten limits by 10%
+      comparator: GELE
 ```
 
-### 4. Write Test
+### 3. Write Test
 
 ```python
 @litmus_test
@@ -273,13 +273,13 @@ def test_output_voltage(context, instruments, spec):
     # Limits resolved from spec at context conditions
 ```
 
-### 5. Run
+### 4. Run
 
 ```bash
 pytest tests/ --station=bench_1 --dut-serial=SN12345
 ```
 
-### 6. Results
+### 5. Results
 
 ```
 test_output_voltage[25-0.5] PASSED
