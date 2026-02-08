@@ -61,7 +61,7 @@ characteristics:
 # stations/bench_1.yaml
 instruments:
   psu:
-    type: power_supply    # Provides dc_voltage OUTPUT
+    type: psu    # Provides dc_voltage OUTPUT
     catalog_ref: keysight_e36312a
   dmm:
     type: dmm             # Provides dc_voltage INPUT
@@ -193,7 +193,7 @@ Both matched any "dc voltage input" requirement, even though they're fundamental
 | DMM: `function: dc_voltage, direction: input` | Precision measurement |
 | Scope: `function: waveform, direction: input` | Time-domain capture |
 
-The oscilloscope's `waveform` function won't match a `dc_voltage` requirement.
+The scope's `waveform` function won't match a `dc_voltage` requirement.
 
 ## Handling Missing Capabilities
 

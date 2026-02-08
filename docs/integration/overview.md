@@ -76,7 +76,7 @@ Use Litmus **instrument drivers** standalone:
 from litmus.instruments import DMM
 
 # Real or simulated based on flag
-dmm = DMM("TCPIP::192.168.1.100::INSTR", simulate=True)
+dmm = DMM("TCPIP::192.168.1.100::INSTR", mock=True)
 dmm.connect()
 voltage = dmm.measure_voltage()
 dmm.disconnect()
@@ -131,7 +131,7 @@ Each integration level has trade-offs:
 ### Phase 2: Instrument Drivers
 
 1. Create station configs for existing benches
-2. Use Litmus drivers with `simulate=True` for CI
+2. Use Litmus drivers with `mock=True` for CI
 3. Gradually adopt capability matching
 
 ### Phase 3: Test Harness

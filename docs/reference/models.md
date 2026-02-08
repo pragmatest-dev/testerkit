@@ -90,7 +90,7 @@ erDiagram
         string manufacturer
         string model
         string name
-        string instrument_class
+        string type
         dict channels
         list capabilities
     }

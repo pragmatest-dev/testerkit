@@ -687,6 +687,7 @@ class ParquetBackend:
                 "instr_cal_last": [],
                 "instr_cal_certificate": [],
                 "instr_cal_lab": [],
+                "instr_mocked": [],
             })
 
         return row

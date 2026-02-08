@@ -26,7 +26,7 @@ instruments:
       current: 0.1
 
   psu:
-    type: power_supply
+    type: psu
     resource: "GPIB0::5::INSTR"
     mock_config:
       voltage: 5.0
@@ -159,7 +159,7 @@ instruments:
     mock_config:
       voltage: 3.31
   psu:
-    type: power_supply
+    type: psu
     resource: "GPIB0::5::INSTR"
     mock_config:
       voltage: 5.0

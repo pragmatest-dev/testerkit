@@ -73,6 +73,7 @@ class JournalWriter:
             "instr_cal_last": [],
             "instr_cal_certificate": [],
             "instr_cal_lab": [],
+            "instr_mocked": [],
         }
         self._file = None
         self._closed = False

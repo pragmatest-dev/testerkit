@@ -78,9 +78,9 @@
           "default": null,
           "title": "Catalog Ref"
         },
-        "simulate": {
+        "mock": {
           "default": false,
-          "title": "Simulate",
+          "title": "Mock",
           "type": "boolean"
         },
         "channels": {

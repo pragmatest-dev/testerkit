@@ -150,7 +150,7 @@ supported_phases:
 
 instruments:
   psu:
-    type: power_supply
+    type: psu
     resource: "TCPIP::192.168.1.101::INSTR"
 
   dmm:
@@ -158,7 +158,7 @@ instruments:
     resource: "TCPIP::192.168.1.102::INSTR"
 
   eload:
-    type: electronic_load
+    type: eload
     resource: "TCPIP::192.168.1.103::INSTR"
 ```
 

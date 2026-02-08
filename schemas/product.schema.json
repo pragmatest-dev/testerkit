@@ -443,6 +443,30 @@
           "title": "Name",
           "type": "string"
         },
+        "part_number": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Part Number"
+        },
+        "base": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Base"
+        },
         "description": {
           "anyOf": [
             {

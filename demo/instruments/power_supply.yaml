@@ -2,7 +2,7 @@
 # Capabilities based on typical bench DC PSU (e.g., Keysight E36312A, Rigol DP832)
 
 instrument:
-  type: power_supply
+  type: psu
   name: DC Power Supply
   description: Programmable DC power supply for sourcing voltage and current to DUT
   icon: bolt

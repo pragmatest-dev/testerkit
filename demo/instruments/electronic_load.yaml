@@ -2,7 +2,7 @@
 # Capabilities based on typical DC eload (e.g., BK Precision 8500, Rigol DL3021)
 
 instrument:
-  type: electronic_load
+  type: eload
   name: DC Electronic Load
   description: Programmable DC electronic load for sinking current from DUT outputs
   icon: downloading

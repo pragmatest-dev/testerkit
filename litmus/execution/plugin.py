@@ -838,10 +838,9 @@ def instruments(
             # New format - role points to instrument ID, config in record
             inline_config = {}
 
-        mock_config = inline_config.get("mock_config", inline_config.get("sim_config", {}))
-        use_mock = mock_instruments or inline_config.get(
-            "mock", inline_config.get("simulate", False)
-        )
+        mock_config = inline_config.get("mock_config", {})
+        use_mock = mock_instruments or inline_config.get("mock", False)
+        record.mocked = use_mock
 
         driver_class = _load_driver_class(record.driver)
         if driver_class is None:

@@ -180,20 +180,20 @@ def _list_entities(entity_type: str, project: str) -> list[dict[str, Any]] | dic
     if entity_type not in ENTITY_TYPES:
         return {"error": f"Unknown type '{entity_type}'. Valid: {ENTITY_TYPES}"}
 
-    if entity_type == "station":
-        return _list_stations(project)
-    elif entity_type == "product":
-        return _list_products(project)
-    elif entity_type == "fixture":
-        return _list_fixtures(project)
-    elif entity_type == "sequence":
-        return _list_sequences(project)
-    elif entity_type == "instrument":
-        return _list_instruments(project)
-    elif entity_type == "run":
-        return _list_runs(project)
-
-    return []
+    handlers = {
+        "station": _list_stations,
+        "product": _list_products,
+        "fixture": _list_fixtures,
+        "sequence": _list_sequences,
+        "instrument": _list_instruments,
+        "run": _list_runs,
+    }
+    items = handlers[entity_type](project)
+    return {
+        "type": entity_type,
+        "count": len(items),
+        "items": items,
+    }
 
 
 def _list_stations(project: str) -> list[dict[str, Any]]:
@@ -367,20 +367,25 @@ def _get_entity(entity_type: str, id: str, project: str) -> dict[str, Any]:
     if entity_type not in ENTITY_TYPES:
         return {"error": f"Unknown type '{entity_type}'. Valid: {ENTITY_TYPES}"}
 
-    if entity_type == "station":
-        return _get_station(id, project)
-    elif entity_type == "product":
-        return _get_product(id, project)
-    elif entity_type == "fixture":
-        return _get_fixture(id, project)
-    elif entity_type == "sequence":
-        return _get_sequence(id, project)
-    elif entity_type == "instrument":
-        return _get_instrument(id, project)
-    elif entity_type == "run":
-        return _get_run(id, project)
+    handlers = {
+        "station": _get_station,
+        "product": _get_product,
+        "fixture": _get_fixture,
+        "sequence": _get_sequence,
+        "instrument": _get_instrument,
+        "run": _get_run,
+    }
+    result = handlers[entity_type](id, project)
 
-    return {"error": "Not implemented"}
+    # Pass through errors unwrapped
+    if "error" in result:
+        return result
+
+    return {
+        "type": entity_type,
+        "id": id,
+        "data": result,
+    }
 
 
 def _get_station(station_id: str, project: str) -> dict[str, Any]:
@@ -499,7 +504,10 @@ def _save_entity(
     return {"error": "Not implemented"}
 
 
-VALID_INSTRUMENT_TYPES = {"psu", "dmm", "eload", "scope"}
+VALID_INSTRUMENT_TYPES = {
+    "psu", "dmm", "eload", "scope", "fgen", "smu",
+    "counter", "current_source", "lcr",
+}
 
 
 def _save_station(station_id: str, content: dict[str, Any], project: str) -> dict[str, Any]:
@@ -778,6 +786,7 @@ class {class_name}(VisaInstrument):
     ):
         super().__init__(resource=resource, simulate=simulate, sim_config=mock_config)
 
+
     # Implement capability methods here
     # def measure_voltage(self) -> float:
     #     return float(self.query("MEAS:VOLT:DC?"))
@@ -945,7 +954,7 @@ def discover_tool(protocols: list[str] | None = None) -> dict[str, Any]:
 
         from litmus.catalog.loader import find_catalog_dirs, load_catalog_from_directory
 
-        # Load catalog once for instrument_class lookups
+        # Load catalog once for type lookups
         catalog = {}
         for cat_dir in find_catalog_dirs():
             catalog.update(load_catalog_from_directory(cat_dir))
@@ -959,21 +968,21 @@ def discover_tool(protocols: list[str] | None = None) -> dict[str, Any]:
                     "manufacturer": None,
                     "model": None,
                     "serial": None,
-                    "instrument_class": None,
+                    "type": None,
                     "catalog_ref": None,
                 }
                 if info:
                     entry["manufacturer"] = info.manufacturer
                     entry["model"] = info.model
                     entry["serial"] = info.serial
-                    # Look up instrument_class from catalog by model match
+                    # Look up type from catalog by model match
                     for cat_id, cat_entry in catalog.items():
                         if (
                             info.model
                             and cat_entry.model
                             and info.model.lower() == cat_entry.model.lower()
                         ):
-                            entry["instrument_class"] = cat_entry.instrument_class
+                            entry["type"] = cat_entry.type
                             entry["catalog_ref"] = cat_id
                             break
                 discovered.append(entry)

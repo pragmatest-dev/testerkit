@@ -146,7 +146,7 @@ erDiagram
         string name PK
         string type
         string resource
-        bool simulate
+        bool mock
     }
 
     Capability {

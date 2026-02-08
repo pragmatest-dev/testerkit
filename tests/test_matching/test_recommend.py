@@ -18,7 +18,7 @@ def _make_entry(
     entry_id: str,
     manufacturer: str,
     model: str,
-    instrument_class: str,
+    type: str,
     capabilities: list[FunctionCapability],
 ) -> InstrumentCatalogEntry:
     return InstrumentCatalogEntry(
@@ -26,7 +26,7 @@ def _make_entry(
         manufacturer=manufacturer,
         model=model,
         name=f"{manufacturer} {model}",
-        instrument_class=instrument_class,
+        type=type,
         capabilities=capabilities,
     )
 
@@ -63,7 +63,7 @@ FAKE_DMM = _make_entry(
 )
 
 FAKE_PSU = _make_entry(
-    "keysight_e36312a", "Keysight", "E36312A", "dc_power",
+    "keysight_e36312a", "Keysight", "E36312A", "psu",
     [
         _make_cap("dc_voltage", "output", range_max=25),
         _make_cap("dc_current", "output", range_max=1, units="A"),

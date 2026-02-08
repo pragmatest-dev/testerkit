@@ -67,8 +67,8 @@ def _station_card(station: dict):
                 ui.label("Instruments").classes("text-xs text-slate-500 uppercase mt-4")
                 for name, inst in instruments.items():
                     with ui.row().classes("items-center gap-2 mt-1"):
-                        simulated = inst.get("simulate", False)
-                        ui.icon("sim_card" if simulated else "cable", size="xs").classes(
+                        mocked = inst.get("mock", False)
+                        ui.icon("sim_card" if mocked else "cable", size="xs").classes(
                             "text-slate-400"
                         )
                         ui.label(name).classes("text-sm")

@@ -31,7 +31,7 @@ class InstrumentCatalogEntry(BaseModel):
           manufacturer: Keysight
           model: "34461A"
           name: "Keysight 34461A Digital Multimeter"
-          instrument_class: dmm
+          type: dmm
           channels:
             "1":
               terminals: [hi, lo]
@@ -53,7 +53,7 @@ class InstrumentCatalogEntry(BaseModel):
     model: str
     name: str
     description: str | None = None
-    instrument_class: str  # IVI class: "dmm", "dc_power", "scope", "fgen", "smu"
+    type: str  # e.g. "dmm", "psu", "scope", "fgen", "smu", "eload"
     base: str | None = None  # Variant inheritance: ID of base catalog entry
     channels: dict[str, ChannelTopology] = Field(default_factory=dict)
     capabilities: list[FunctionCapability] = Field(default_factory=list)

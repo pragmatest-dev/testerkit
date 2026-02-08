@@ -80,26 +80,30 @@ characteristics:
         tolerance_pct: 2
 ```
 
-### Station Config (use EXACTLY):
+### Station Config:
+**IMPORTANT:** Run `litmus_discover` FIRST to find real instrument addresses.
+Use `mock: true` with `mock_config` when no physical instruments are available.
 ```yaml
 station:
   id: my_station
   name: "Test Bench"
 instruments:
   psu:
-    type: power_supply
+    type: psu
     driver: drivers.PSU
-    resource: "TCPIP::192.168.1.100::INSTR"
-    catalog_ref: keysight_e36312a  # Resolves capabilities + channel topology from catalog
+    resource: "<from litmus_discover or use mock: true>"
+    catalog_ref: keysight_e36312a
     channels: ["1", "2"]
+    mock: true          # Set false when using real instruments
     mock_config:
       voltage: 5.0
       current: 0.5
   dmm:
     type: dmm
     driver: drivers.DMM
-    resource: "TCPIP::192.168.1.101::INSTR"
+    resource: "<from litmus_discover or use mock: true>"
     catalog_ref: keysight_34461a
+    mock: true
     mock_config:
       voltage: 3.3
 ```
@@ -146,7 +150,7 @@ test_output_voltage:
 
 1. **STOP at each step** - Show plan, ask approval, wait for response
 2. **Pass project=** to all calls after init
-3. **Station types:** power_supply, dmm, electronic_load, oscilloscope, smu
+3. **Station instrument `type`** — use short names: psu, dmm, scope, eload, fgen, smu
 4. **mock_config** in station for default mock values
 5. **Create BOTH test files** - .py AND config.yaml
 6. **_mock in config.yaml** - Per-test/per-vector mock values
@@ -371,14 +375,15 @@ This is COLLABORATIVE - propose and wait for approval at each step.
    }, project=project_root)
    ```
 
-3. **Create Station Config**: Show config, ask approval, save
+3. **Create Station Config**: Run `litmus_discover` first for real addresses,
+   or use `mock: true` with `mock_config`. Show config, ask approval, save.
    ```python
    litmus(action="save", type="station", id="test_bench", content={
        "station": {"id": "test_bench", "name": "Test Bench"},
        "instruments": {
-           "psu": {"type": "psu", "resource": "TCPIP::192.168.1.100::INSTR",
+           "psu": {"type": "psu", "mock": True,
                    "mock_config": {"voltage": 12.0, "current": 1.0}},
-           "dmm": {"type": "dmm", "resource": "TCPIP::192.168.1.101::INSTR",
+           "dmm": {"type": "dmm", "mock": True,
                    "mock_config": {"voltage": 5.0}}
        }
    }, project=project_root)

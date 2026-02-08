@@ -16,7 +16,7 @@ instruments:
     type: dmm
     resource: "TCPIP::192.168.1.100::INSTR"
   psu:
-    type: power_supply
+    type: psu
     resource: "GPIB0::5::INSTR"
 ```
 
@@ -34,7 +34,7 @@ instruments:
 
 | Field | Required | Description |
 |-------|----------|-------------|
-| `type` | Yes | Instrument type (dmm, power_supply, etc.) |
+| `type` | Yes | Instrument type (dmm, psu, etc.) |
 | `resource` | Yes | VISA address or connection string |
 | `mock_config` | No | Values for `--mock-instruments` mode |
 | `mock` | No | Always mock this instrument (even without `--mock-instruments`) |
@@ -123,7 +123,7 @@ station_types:
         type: dmm
         required: true
       psu:
-        type: power_supply
+        type: psu
         required: true
 
   full_test:
@@ -133,10 +133,10 @@ station_types:
         type: dmm
         required: true
       psu:
-        type: power_supply
+        type: psu
         required: true
       scope:
-        type: oscilloscope
+        type: scope
         required: false
 ```
 
@@ -154,7 +154,7 @@ instruments:
     type: dmm
     resource: "TCPIP::192.168.1.100::INSTR"
   psu:
-    type: power_supply
+    type: psu
     resource: "GPIB0::5::INSTR"
 ```
 
@@ -177,7 +177,7 @@ instruments:
     type: dmm
     resource: "TCPIP::192.168.10.101::INSTR"
   psu:
-    type: power_supply
+    type: psu
     resource: "TCPIP::192.168.10.102::INSTR"
 ```
 
@@ -199,10 +199,10 @@ instruments:
     type: dmm
     resource: "USB0::0x2A8D::0x0101::MY12345::INSTR"
   psu:
-    type: power_supply
+    type: psu
     resource: "GPIB0::5::INSTR"
   scope:
-    type: oscilloscope
+    type: scope
     resource: "TCPIP::192.168.1.200::INSTR"
 ```
 
@@ -223,7 +223,7 @@ instruments:
       voltage: 3.31
       current: 0.1
   psu:
-    type: power_supply
+    type: psu
     resource: "GPIB0::5::INSTR"
     mock_config:
       voltage: 5.0
@@ -325,13 +325,13 @@ instruments:
     type: dmm
     resource: "TCPIP::192.168.1.102::INSTR"
   psu:
-    type: power_supply
+    type: psu
     resource: "TCPIP::192.168.1.103::INSTR"
   eload:
-    type: electronic_load
+    type: eload
     resource: "TCPIP::192.168.1.104::INSTR"
   scope:
-    type: oscilloscope
+    type: scope
     resource: "TCPIP::192.168.1.105::INSTR"
 ```
 

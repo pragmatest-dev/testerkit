@@ -849,7 +849,7 @@ class TestHarness:
         Handles:
         - Creating TestVector record
         - Setting up vector context as child of step/run context
-        - Configuring mocks for this vector (when simulate=True)
+        - Configuring mocks for this vector (when mock=True)
         - Retry logic on failure
         - Finalizing vector timing
 

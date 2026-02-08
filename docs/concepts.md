@@ -185,7 +185,7 @@ instruments:
     resource: "TCPIP::192.168.1.100::INSTR"
 
   psu:
-    type: power_supply
+    type: psu
     resource: "GPIB0::5::INSTR"
 ```
 

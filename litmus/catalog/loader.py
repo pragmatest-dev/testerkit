@@ -62,7 +62,7 @@ def _load_with_inheritance(
 
     Merge semantics are *section-level override*: if the variant provides
     ``capabilities:`` or ``catalog_entry.channels:``, those replace the
-    base's version entirely.  Header fields (manufacturer, instrument_class,
+    base's version entirely.  Header fields (manufacturer, type,
     name, description) are inherited when absent in the variant.
 
     Args:
@@ -119,7 +119,7 @@ def _merge_catalog_data(
     Rules:
     - ``capabilities:`` in variant replaces base's entirely.
     - ``catalog_entry.channels:`` in variant replaces base's entirely.
-    - Header fields (manufacturer, instrument_class, name, description)
+    - Header fields (manufacturer, type, name, description)
       are inherited from base when absent in variant.
     - ``id``, ``model``, ``base`` always come from the variant.
     """
@@ -129,7 +129,7 @@ def _merge_catalog_data(
     merged_entry: dict[str, Any] = {}
 
     # Inherit header fields from base
-    for key in ("manufacturer", "instrument_class", "name", "description"):
+    for key in ("manufacturer", "type", "name", "description"):
         if key in base_entry:
             merged_entry[key] = base_entry[key]
 
@@ -163,7 +163,7 @@ def _build_entry(data: dict[str, Any], path: Path) -> InstrumentCatalogEntry:
         model=str(entry_data.get("model", "")),
         name=entry_data.get("name", path.stem),
         description=entry_data.get("description"),
-        instrument_class=entry_data.get("instrument_class", ""),
+        type=entry_data.get("type", ""),
         base=entry_data.get("base"),
         channels=channels,
         capabilities=capabilities,

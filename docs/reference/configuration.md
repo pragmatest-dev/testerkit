@@ -110,12 +110,12 @@ station:
 
 instruments:
   <name>:                 # Instrument alias / role name (used in tests as fixture)
-    type: string          # Instrument type (power_supply, dmm, electronic_load, oscilloscope, smu)
+    type: string          # Instrument type (psu, dmm, eload, scope, smu)
     driver: string        # Python import path to driver class
     resource: string      # VISA address
     catalog_ref: string   # Optional: catalog entry ID for capability/topology resolution
     channels: [string]    # Optional: channel keys (resolved from catalog if omitted)
-    simulate: boolean     # If true, uses Mock with mock_config values
+    mock: boolean         # If true, uses Mock with mock_config values
     mock_config:          # Values for --mock-instruments mode
       voltage: float
       current: float
@@ -156,7 +156,7 @@ steps:
 |------|-------------|--------------|
 | `dmm` | Digital Multimeter | voltage, current, resistance |
 | `scope` | Oscilloscope | voltage (AC), frequency, time |
-| `power_supply` | DC Power Supply | voltage output, current output |
+| `psu` | DC Power Supply | voltage output, current output |
 | `eload` | Electronic Load | current sink |
 | `funcgen` | Function Generator | waveform output |
 
@@ -340,7 +340,7 @@ catalog_entry:
   id: keysight_34465a
   model: "34465A"
   name: "Keysight 34465A Digital Multimeter"
-  base: keysight_34461a    # Inherits manufacturer, instrument_class, channels
+  base: keysight_34461a    # Inherits manufacturer, type, channels
 
 capabilities:              # Replaces base capabilities entirely
   - function: dc_voltage
@@ -359,7 +359,7 @@ capabilities:              # Replaces base capabilities entirely
 | `capabilities:` | Replaces base entirely | Inherits from base |
 | `channels:` | Replaces base entirely | Inherits from base |
 | `manufacturer` | Uses variant's | Inherits from base |
-| `instrument_class` | Uses variant's | Inherits from base |
+| `type` | Uses variant's | Inherits from base |
 | `id`, `model`, `name` | Always from variant | — |
 
 Chains are supported (A → B → C) up to depth 5. Circular references raise `ValueError`.

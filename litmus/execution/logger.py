@@ -298,11 +298,13 @@ class TestRunLogger:
         cal_lasts: list[str | None] = []
         cal_certs: list[str | None] = []
         cal_labs: list[str | None] = []
+        mocked: list[bool] = []
 
         for role, record in self._instruments.items():
             if roles is not None and role not in roles:
                 continue
             names.append(role)
+            mocked.append(record.mocked)
             ids.append(record.instrument_id)
             drivers.append(record.driver)
             resources.append(record.resource)
@@ -340,6 +342,7 @@ class TestRunLogger:
             "instr_cal_last": cal_lasts,
             "instr_cal_certificate": cal_certs,
             "instr_cal_lab": cal_labs,
+            "instr_mocked": mocked,
         }
 
     def set_step_instruments(self, roles: list[str]) -> dict[str, list]:

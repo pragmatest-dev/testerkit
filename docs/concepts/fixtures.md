@@ -251,7 +251,7 @@ station:
 
 instruments:
   psu:
-    type: power_supply
+    type: psu
     resource: "GPIB0::5::INSTR"
   dmm:
     type: dmm

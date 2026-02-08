@@ -34,7 +34,7 @@ instruments:
       resistance: 1000
 
   psu:
-    type: power_supply
+    type: psu
     resource: "GPIB0::5::INSTR"
     mock_config:
       voltage: 5.0

@@ -207,8 +207,8 @@
           "default": null,
           "title": "Description"
         },
-        "instrument_class": {
-          "title": "Instrument Class",
+        "type": {
+          "title": "Type",
           "type": "string"
         },
         "base": {
@@ -243,7 +243,7 @@
         "manufacturer",
         "model",
         "name",
-        "instrument_class"
+        "type"
       ],
       "title": "InstrumentCatalogEntry",
       "type": "object"

@@ -56,14 +56,15 @@ EXPECTED_KEYS = [
     "instr_cal_last",
     "instr_cal_certificate",
     "instr_cal_lab",
+    "instr_mocked",
 ]
 
 
 class TestBuildInstrumentArrays:
     """Tests for TestRunLogger.build_instrument_arrays()."""
 
-    def test_build_instrument_arrays_13_keys(self):
-        """Verify build_instrument_arrays returns all 13 expected keys."""
+    def test_build_instrument_arrays_14_keys(self):
+        """Verify build_instrument_arrays returns all 14 expected keys."""
         from litmus.execution.logger import TestRunLogger
 
         dmm = _make_record("dmm", instrument_id="keithley_001", serial="SN-DMM")
@@ -112,7 +113,7 @@ class TestBuildInstrumentArrays:
         assert arrays["instr_serial"] == ["SN-DMM", "SN-PSU"]
 
     def test_build_instrument_arrays_empty(self):
-        """No instruments produces empty lists for all 13 keys."""
+        """No instruments produces empty lists for all 14 keys."""
         from litmus.execution.logger import TestRunLogger
 
         logger = TestRunLogger(
@@ -243,6 +244,7 @@ class TestParquetRoundTrip:
             "instr_cal_last": ["2025-12-31"],
             "instr_cal_certificate": ["CERT-001"],
             "instr_cal_lab": ["NIST"],
+            "instr_mocked": [False],
         }
         test_run.steps.append(step)
 

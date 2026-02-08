@@ -25,7 +25,7 @@ class TestLoadCatalogEntry:
         assert entry.id == "keysight_34461a"
         assert entry.manufacturer == "Keysight"
         assert entry.model == "34461A"
-        assert entry.instrument_class == "dmm"
+        assert entry.type == "dmm"
         assert len(entry.capabilities) > 0
 
         # Should have dc_voltage input capability
@@ -48,7 +48,7 @@ class TestLoadCatalogEntry:
         entry = load_catalog_entry(path)
 
         assert entry.id == "keysight_e36312a"
-        assert entry.instrument_class == "dc_power"
+        assert entry.type == "psu"
         assert len(entry.capabilities) > 0
 
         # Should have dc_voltage output capability
@@ -67,7 +67,7 @@ class TestLoadCatalogEntry:
         entry = load_catalog_entry(path)
 
         assert entry.id == "rigol_ds1054z"
-        assert entry.instrument_class == "scope"
+        assert entry.type == "scope"
 
         # Should have waveform input capability
         waveform_caps = [
@@ -152,7 +152,7 @@ class TestCatalogInheritance:
               manufacturer: Acme
               model: "1000"
               name: "Acme 1000 DMM"
-              instrument_class: dmm
+              type: dmm
               channels:
                 "1":
                   terminals: [hi, lo]
@@ -228,7 +228,7 @@ class TestCatalogInheritance:
         assert entry.capabilities[0].function == MeasurementFunction.AC_VOLTAGE
 
     def test_variant_inherits_header_fields(self, tmp_path):
-        """manufacturer, instrument_class inherited from base."""
+        """manufacturer, type inherited from base."""
         _write_yaml(tmp_path / "base_dmm.yaml", self._base_yaml())
         _write_yaml(tmp_path / "variant.yaml", """\
             catalog_entry:
@@ -238,7 +238,7 @@ class TestCatalogInheritance:
         """)
         entry = load_catalog_entry(tmp_path / "variant.yaml", catalog_dir=tmp_path)
         assert entry.manufacturer == "Acme"
-        assert entry.instrument_class == "dmm"
+        assert entry.type == "dmm"
 
     def test_circular_inheritance_raises(self, tmp_path):
         """Circular base references raise ValueError."""
@@ -248,7 +248,7 @@ class TestCatalogInheritance:
               manufacturer: X
               model: "A"
               name: A
-              instrument_class: dmm
+              type: dmm
               base: b
         """)
         _write_yaml(tmp_path / "b.yaml", """\
@@ -257,7 +257,7 @@ class TestCatalogInheritance:
               manufacturer: X
               model: "B"
               name: B
-              instrument_class: dmm
+              type: dmm
               base: a
         """)
         with pytest.raises(ValueError, match="[Cc]ircular"):
@@ -271,7 +271,7 @@ class TestCatalogInheritance:
               manufacturer: X
               model: "O"
               name: Orphan
-              instrument_class: dmm
+              type: dmm
               base: does_not_exist
         """)
         with pytest.raises(ValueError, match="not found"):
@@ -285,7 +285,7 @@ class TestCatalogInheritance:
               manufacturer: Acme
               model: "C"
               name: "Acme C"
-              instrument_class: dmm
+              type: dmm
               channels:
                 "1":
                   terminals: [hi, lo]
@@ -322,7 +322,7 @@ class TestCatalogInheritance:
         entry = load_catalog_entry(tmp_path / "a.yaml", catalog_dir=tmp_path)
         assert entry.id == "a"
         assert entry.manufacturer == "Acme"  # from C
-        assert entry.instrument_class == "dmm"  # from C
+        assert entry.type == "dmm"  # from C
         # Channels from B (overrode C), inherited by A
         assert len(entry.channels["1"].terminals) == 4
         # Capabilities from C, inherited through B to A
@@ -353,4 +353,4 @@ class TestLoadAllCatalogEntries:
         entry = load_catalog_entry(yaml_path, catalog_dir=CATALOG_DIR)
         assert entry.id
         assert entry.manufacturer
-        assert entry.instrument_class
+        assert entry.type

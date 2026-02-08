@@ -154,7 +154,7 @@ def _render_instruments_tab(form_data: dict, type_options: dict):
 
 def _render_instrument_expansion(inst_name: str, inst_data: dict):
     """Render an instrument expansion panel."""
-    simulated = inst_data.get("simulate", False)
+    mocked = inst_data.get("mock", False)
     with ui.expansion(inst_name, icon="cable").classes("w-full"):
         with ui.column().classes("gap-4 p-2"):
             with ui.row().classes("gap-4 items-end"):
@@ -168,8 +168,8 @@ def _render_instrument_expansion(inst_name: str, inst_data: dict):
                     ui.input(value=inst_data.get("resource", "")).props("outlined dense").classes(
                         "w-full"
                     )
-            if simulated:
-                ui.chip("Simulated", icon="sim_card").props("color=blue outline")
+            if mocked:
+                ui.chip("Mocked", icon="sim_card").props("color=blue outline")
             if inst_data.get("description"):
                 ui.label(inst_data["description"]).classes("text-sm text-slate-500")
 
@@ -207,7 +207,7 @@ def _show_add_instrument_dialog(type_options: dict, on_add: callable):
         "name": "",
         "driver": "",
         "resource": "",
-        "simulate": False,
+        "mock": False,
     }
 
     with ui.dialog() as dialog, ui.card().classes("w-96"):
@@ -250,8 +250,8 @@ def _show_add_instrument_dialog(type_options: dict, on_add: callable):
                     on_change=lambda e: inst_form.update({"resource": e.value}),
                 ).props("outlined dense").classes("w-full")
             ui.checkbox(
-                "Simulated",
-                on_change=lambda e: inst_form.update({"simulate": e.value}),
+                "Mocked",
+                on_change=lambda e: inst_form.update({"mock": e.value}),
             )
         with ui.card_actions().classes("justify-end"):
             ui.button("Cancel", on_click=dialog.close).props("flat")

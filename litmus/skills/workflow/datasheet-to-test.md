@@ -224,12 +224,12 @@ station:
 
 instruments:
   psu:
-    type: power_supply
+    type: psu
     driver: myproject.instruments.PSU
     resource: "TCPIP::192.168.1.100::INSTR"
     catalog_ref: keysight_e36312a   # Resolves capabilities + channel topology from catalog/
     channels: ["1", "2"]
-    simulate: true
+    mock: true
     mock_config:
       measure_voltage: 12.0
       measure_current: 1.0
@@ -238,27 +238,27 @@ instruments:
     driver: myproject.instruments.DMM
     resource: "TCPIP::192.168.1.101::INSTR"
     catalog_ref: keysight_34461a
-    simulate: true
+    mock: true
     mock_config:
       measure_voltage: 3.3
       measure_dc_voltage: 3.3
   eload:
-    type: electronic_load
+    type: eload
     driver: myproject.instruments.ELoad
     resource: "TCPIP::192.168.1.102::INSTR"
     catalog_ref: siglent_sdl1020x
-    simulate: true
+    mock: true
     mock_config:
       measure_current: 1.0
 ```
 
 **Station config fields:**
-- `type`: Instrument type (power_supply, dmm, electronic_load, oscilloscope, smu)
+- `type`: Instrument type (psu, dmm, eload, scope, smu, fgen, counter, current_source, lcr)
 - `driver`: Python import path to instrument class (required)
 - `resource`: VISA address for real hardware
 - `catalog_ref`: Reference to catalog entry for capability/topology resolution
 - `channels`: Channel keys (from catalog or explicit list)
-- `simulate`: If true, uses Mock with mock_config values
+- `mock`: If true, uses Mock with mock_config values
 - `mock_config`: Return values for mocked methods (keys = method names)
 
 **Catalog entries** (in `catalog/`) define structured channel topology:
@@ -280,7 +280,7 @@ I'll create a station config for testing:
 | dmm   | myproject.instruments.DMM     | TCPIP::192.168.1.101::INSTR   | measure_voltage: 3.3      |
 | eload | myproject.instruments.ELoad   | TCPIP::192.168.1.102::INSTR   | measure_current: 1.0      |
 
-**Mock config** values are returned by methods when `simulate: true` or `--mock-instruments`.
+**Mock config** values are returned by methods when `mock: true` or `--mock-instruments`.
 
 Want me to:
 - [A]pprove and save

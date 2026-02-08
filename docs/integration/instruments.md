@@ -22,7 +22,7 @@ voltage = dmm.measure_voltage()
 dmm.disconnect()
 
 # Simulated (same interface)
-dmm = DMM("TCPIP::192.168.1.100::INSTR", simulate=True, sim_config={"voltage": 3.3})
+dmm = DMM("TCPIP::192.168.1.100::INSTR", mock=True, sim_config={"voltage": 3.3})
 dmm.connect()
 voltage = dmm.measure_voltage()  # Returns 3.3
 dmm.disconnect()
@@ -98,9 +98,9 @@ dmm.set_value("voltage", 5.0)
 v = dmm.measure_voltage()  # Returns 5.0
 ```
 
-### Mock vs simulate=True
+### Mock vs mock=True
 
-| Feature | Mock(DMM) | DMM(simulate=True) |
+| Feature | Mock(DMM) | DMM(mock=True) |
 |---------|---------|-------------------|
 | I/O overhead | None | pyvisa-sim |
 | Realistic timing | No | Yes |
@@ -166,7 +166,7 @@ Library    litmus_keywords.LitmusKeywords
 
 *** Test Cases ***
 Test Voltage
-    Connect DMM    TCPIP::192.168.1.100::INSTR    simulate=True
+    Connect DMM    TCPIP::192.168.1.100::INSTR    mock=True
     ${voltage}=    Measure Voltage
     Should Be True    ${voltage} > 3.0
     [Teardown]    Disconnect All
@@ -266,7 +266,7 @@ instruments:
     type: dmm
     resource: "TCPIP::192.168.1.100::INSTR"
   psu:
-    type: power_supply
+    type: psu
     resource: "GPIB0::5::INSTR"
 ```
 

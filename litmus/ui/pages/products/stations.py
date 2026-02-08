@@ -153,9 +153,9 @@ def _render_station_compatibility(product_id: str, product: dict):
             ).props("color=primary")
         else:
             ui.button(
-                "Launch with Simulation",
+                "Launch with Mocks",
                 icon="play_arrow",
-                on_click=lambda: ui.navigate.to(f"/launch?product={product_id}&simulate=1"),
+                on_click=lambda: ui.navigate.to(f"/launch?product={product_id}&mock=1"),
             ).props("color=primary")
 
 
@@ -200,10 +200,10 @@ def _render_partial_station(product_id: str, station: dict):
         with ui.row().classes("items-center gap-3"):
             ui.badge(f"{station['coverage']}%", color="amber").props("dense")
             ui.button(
-                "Simulate",
+                "Mock",
                 icon="play_arrow",
                 on_click=lambda s=station: ui.navigate.to(
-                    f"/launch?product={product_id}&station={s['id']}&simulate=1"
+                    f"/launch?product={product_id}&station={s['id']}&mock=1"
                 ),
             ).props("flat dense outline")
 

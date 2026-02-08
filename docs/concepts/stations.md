@@ -19,7 +19,7 @@ instruments:
     resource: "TCPIP::192.168.1.100::INSTR"
 
   psu:
-    type: power_supply
+    type: psu
     resource: "GPIB0::5::INSTR"
 ```
 
@@ -39,7 +39,7 @@ Each instrument has:
 |------|-------------|---------------------|
 | `dmm` | Digital Multimeter | voltage (DC/AC), current, resistance |
 | `scope` | Oscilloscope | voltage (AC), frequency, time |
-| `power_supply` | DC Power Supply | voltage output, current output |
+| `psu` | DC Power Supply | voltage output, current output |
 | `eload` | Electronic Load | current sink |
 | `funcgen` | Function Generator | waveform output |
 
@@ -88,7 +88,7 @@ station_types:
         type: dmm
         required: true
       psu:
-        type: power_supply
+        type: psu
         required: true
     capabilities:
       - direction: input
@@ -113,7 +113,7 @@ instruments:
     type: dmm
     resource: "TCPIP::192.168.1.100::INSTR"
   psu:
-    type: power_supply
+    type: psu
     resource: "GPIB0::5::INSTR"
 ```
 
@@ -211,7 +211,7 @@ instruments:
       voltage: 3.3
       current: 0.1
   psu:
-    type: power_supply
+    type: psu
     resource: "GPIB0::5::INSTR"
     mock_config:
       voltage: 5.0

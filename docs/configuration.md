@@ -120,7 +120,7 @@ supported_phases:         # Optional: which test phases this station supports
 |------|-------------|--------------|
 | `dmm` | Digital Multimeter | voltage, current, resistance |
 | `scope` | Oscilloscope | voltage (AC), frequency, time |
-| `power_supply` | DC Power Supply | voltage output, current output |
+| `psu` | DC Power Supply | voltage output, current output |
 | `eload` | Electronic Load | current sink |
 | `funcgen` | Function Generator | waveform output |
 

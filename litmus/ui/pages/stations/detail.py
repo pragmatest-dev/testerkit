@@ -129,15 +129,15 @@ def _render_instruments_tab(station_id: str, instruments: dict):
 
 def _instrument_card(name: str, inst: dict, record=None):
     """Render an instrument card with optional identity/calibration from record."""
-    simulated = inst.get("simulate", False)
+    mocked = inst.get("mock", False)
     with ui.card().classes("w-80"):
         with ui.card_section():
             with ui.row().classes("items-center justify-between"):
                 with ui.row().classes("items-center gap-2"):
-                    ui.icon("sim_card" if simulated else "cable").classes("text-slate-600")
+                    ui.icon("sim_card" if mocked else "cable").classes("text-slate-600")
                     ui.label(name).classes("text-lg font-semibold")
-                if simulated:
-                    ui.badge("Simulated", color="blue").props("outline")
+                if mocked:
+                    ui.badge("Mocked", color="blue").props("outline")
                 else:
                     ui.badge("Ready", color="green").props("outline")
 

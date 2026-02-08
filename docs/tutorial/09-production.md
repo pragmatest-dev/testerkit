@@ -195,7 +195,7 @@ station:
 
 instruments:
   psu:
-    type: power_supply
+    type: psu
     resource: "GPIB0::5::INSTR"
     mock_config: {voltage: 5.0}
   dmm:

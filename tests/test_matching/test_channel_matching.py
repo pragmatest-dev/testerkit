@@ -447,7 +447,7 @@ class TestChannelTopology:
             manufacturer="Test",
             model="PSU-1",
             name="Test PSU",
-            instrument_class="dc_power",
+            type="psu",
             channels={
                 "1": ChannelTopology(
                     terminals=[TerminalRole.HI, TerminalRole.LO],
@@ -471,7 +471,7 @@ class TestChannelTopology:
             manufacturer="Test",
             model="DMM-1",
             name="Test DMM",
-            instrument_class="dmm",
+            type="dmm",
         )
         assert entry.channel_names == []
 

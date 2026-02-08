@@ -260,8 +260,8 @@ def _render_instrument_row(
                 ui.label(inst_name).classes("font-medium")
                 ui.label(inst_data.get("type", "")).classes("text-xs text-slate-500")
         with ui.row().classes("items-center gap-2"):
-            if inst_data.get("simulate"):
-                ui.badge("Simulated", color="blue").props("outline dense")
+            if inst_data.get("mock"):
+                ui.badge("Mocked", color="blue").props("outline dense")
             if inst_data.get("resource"):
                 ui.badge(inst_data["resource"], color="grey").props("outline dense")
 
@@ -278,7 +278,7 @@ def _show_add_instrument_dialog(type_options: dict, on_add: callable):
         "name": "",
         "type": list(type_options.keys())[0] if type_options else "",
         "resource": "",
-        "simulate": False,
+        "mock": False,
     }
 
     with ui.dialog() as dialog, ui.card().classes("w-96"):
@@ -307,8 +307,8 @@ def _show_add_instrument_dialog(type_options: dict, on_add: callable):
                     on_change=lambda e: inst_form.update({"resource": e.value}),
                 ).props("outlined dense").classes("w-full")
             ui.checkbox(
-                "Simulated",
-                on_change=lambda e: inst_form.update({"simulate": e.value}),
+                "Mocked",
+                on_change=lambda e: inst_form.update({"mock": e.value}),
             )
         with ui.card_actions().classes("justify-end"):
             ui.button("Cancel", on_click=dialog.close).props("flat")

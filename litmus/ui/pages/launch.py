@@ -14,7 +14,7 @@ from litmus.ui.shared.services import (
 
 @ui.page("/launch")
 def launch_page(
-    product: str = "", station: str = "", sequence: str = "", simulate: str = ""
+    product: str = "", station: str = "", sequence: str = "", mock: str = ""
 ):
     """Test launch page.
 
@@ -22,7 +22,7 @@ def launch_page(
         product: Pre-fill product ID from query param
         station: Pre-fill station ID from query param
         sequence: Pre-fill sequence ID from query param
-        simulate: Pre-fill simulate checkbox ("1" = checked)
+        mock: Pre-fill mock checkbox ("1" = checked)
     """
     create_layout("Launch Test")
 
@@ -40,7 +40,7 @@ def launch_page(
         "test_path": "",
         "station_id": station,
         "operator": "",
-        "simulate": simulate == "1",
+        "mock": mock == "1",
     }
 
     # Reactive state for filtered stations
@@ -74,7 +74,7 @@ def launch_page(
                     station_hint.text = f"{len(compatible)} compatible station(s)"
                     station_hint.classes(replace="text-xs text-emerald-600")
                 else:
-                    station_hint.text = "No compatible stations - consider simulation"
+                    station_hint.text = "No compatible stations - consider mock mode"
                     station_hint.classes(replace="text-xs text-amber-600")
             else:
                 station_hint.text = "Select a product to filter compatible stations"
@@ -102,7 +102,7 @@ def launch_page(
             sequence_id=form["sequence_id"] or None,
             test_path=form["test_path"] or "tests",
             operator=form["operator"] or None,
-            simulate=form["simulate"],
+            mock_instruments=form["mock"],
         )
         runner = get_runner()
         run_id = await runner.start(request)
@@ -176,7 +176,7 @@ def launch_page(
 
                 # 5. Simulate checkbox
                 with ui.row().classes("items-center gap-2 mt-2"):
-                    ui.checkbox("Simulate Hardware").bind_value(form, "simulate")
+                    ui.checkbox("Mock Hardware").bind_value(form, "mock")
                     ui.label("Run without real instruments").classes("text-xs text-slate-500")
 
                 ui.separator().classes("my-2")

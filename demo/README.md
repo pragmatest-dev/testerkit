@@ -202,7 +202,7 @@ def test_burn_in(context, dmm):
 
 ### Waveform Capture (Pattern 11)
 
-Capture and analyze oscilloscope waveforms:
+Capture and analyze scope waveforms:
 
 ```python
 @litmus_test
@@ -460,7 +460,7 @@ instruments:
   dmm:
     type: "dmm"
     resource: "TCPIP::192.168.1.102::INSTR"
-    simulate: true
+    mock: true
     sim_config:
       voltage: 3.3
 ```

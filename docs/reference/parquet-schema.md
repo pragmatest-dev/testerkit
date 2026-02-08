@@ -517,7 +517,7 @@ The `Waveform` model captures time-series data with efficient storage:
 ```python
 from litmus.data.models import Waveform
 
-# Create waveform from oscilloscope data
+# Create waveform from scope data
 waveform = Waveform(
     t0=0.0,           # Start time (seconds from trigger)
     dt=1e-6,          # Sample interval (1 µs)

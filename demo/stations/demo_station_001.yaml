@@ -11,15 +11,15 @@ station:
   id: "demo_station_001"
   name: "Demo Test Station"
   location: "Virtual Lab"
-  description: "Simulated station for demonstrating Litmus capabilities"
+  description: "Mock station for demonstrating Litmus capabilities"
 
 instruments:
   psu:
-    type: power_supply
+    type: psu
     driver: demo.drivers.PSU
     resource: "TCPIP::192.168.1.101::INSTR"
     catalog_ref: keysight_e36312a
-    simulate: true
+    mock: true
     channels: ["1", "2"]
     description: "Dual-output power supply for DUT input power"
     mock_config:
@@ -31,7 +31,7 @@ instruments:
     driver: demo.drivers.DMM
     resource: "TCPIP::192.168.1.102::INSTR"
     catalog_ref: keysight_34461a
-    simulate: true
+    mock: true
     channels: ["1"]
     description: "DMM for output voltage measurement"
     mock_config:
@@ -42,11 +42,11 @@ instruments:
       measure_resistance: 1000.0
 
   eload:
-    type: electronic_load
+    type: eload
     driver: demo.drivers.ELoad
     resource: "TCPIP::192.168.1.103::INSTR"
     catalog_ref: siglent_sdl1020x
-    simulate: true
+    mock: true
     channels: ["1"]
     description: "Electronic load for output loading"
     mock_config:
@@ -57,7 +57,7 @@ instruments:
     type: dmm
     driver: demo.drivers.DMM
     resource: "TCPIP::192.168.1.105::INSTR"
-    simulate: true
+    mock: true
     description: "Fast 4.5-digit DMM for quick screening"
     mock_config:
       measure_voltage: 3.28
@@ -67,11 +67,11 @@ instruments:
       measure_resistance: 1000.0
 
   scope:
-    type: oscilloscope
+    type: scope
     driver: demo.drivers.Scope
     resource: "TCPIP::192.168.1.104::INSTR"
     catalog_ref: rigol_ds1054z
-    simulate: true
+    mock: true
     channels: ["1", "2", "3", "4"]
     description: "4-channel oscilloscope for waveform capture"
     mock_config:

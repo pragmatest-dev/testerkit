@@ -108,7 +108,7 @@ Returns: {product_id, station_id, compatible, requirements_count, satisfied_coun
 List available instrument types in the library.
 
 ```
-Returns: ["dmm", "scope", "power_supply", ...]
+Returns: ["dmm", "scope", "psu", ...]
 ```
 
 **get_instrument_library**

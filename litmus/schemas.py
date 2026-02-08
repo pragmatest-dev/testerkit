@@ -31,7 +31,6 @@ from litmus.products.models import (
     TestRequirement,
 )
 
-
 # ---------------------------------------------------------------------------
 # Wrapper models matching YAML file structure
 # ---------------------------------------------------------------------------
@@ -61,7 +60,7 @@ class StationInstrumentConfig(BaseModel):
     driver: str
     resource: str | None = None
     catalog_ref: str | None = None
-    simulate: bool = False
+    mock: bool = False
     channels: list[str] = Field(default_factory=list)
     description: str | None = None
     mock_config: dict[str, Any] = Field(default_factory=dict)

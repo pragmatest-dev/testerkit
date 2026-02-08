@@ -16,7 +16,7 @@ def requirements_page(product_id: str):
     """View required instruments for testing this product.
 
     This helps with procurement - know what to order early,
-    simulate tests while waiting for hardware.
+    mock tests while waiting for hardware.
     """
     products = discover_products()
     product = next((p for p in products if p["id"] == product_id), None)
@@ -49,7 +49,7 @@ def _render_requirements(product_id: str, product: dict):
             ui.label("Required Instrument Capabilities").classes("text-lg font-semibold")
             ui.label(
                 "These capabilities are needed to test this product. "
-                "Order missing instruments early - you can simulate in the meantime."
+                "Order missing instruments early - you can mock in the meantime."
             ).classes("text-sm text-slate-500")
 
         with ui.card_section():
@@ -145,9 +145,9 @@ def _render_requirements(product_id: str, product: dict):
             on_click=lambda: ui.navigate.to(f"/products/{product_id}/stations"),
         ).props("outline")
         ui.button(
-            "Launch with Simulation",
+            "Launch with Mocks",
             icon="play_arrow",
-            on_click=lambda: ui.navigate.to(f"/launch?product={product_id}&simulate=1"),
+            on_click=lambda: ui.navigate.to(f"/launch?product={product_id}&mock=1"),
         ).props("color=primary")
 
 

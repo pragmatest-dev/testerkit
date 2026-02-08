@@ -119,6 +119,9 @@ class InstrumentRecord:
     # Catalog reference (e.g., "keysight_34461a") for capability lookup
     catalog_ref: str | None = None
 
+    # Whether this instrument is running in mock mode
+    mocked: bool = False
+
     def to_dict(self) -> dict:
         """Convert to dictionary for logging/serialization."""
         return {
@@ -140,4 +143,5 @@ class InstrumentRecord:
             "cal_lab": self.calibration.lab,
             "driver": self.driver,
             "catalog_ref": self.catalog_ref,
+            "mocked": self.mocked,
         }

@@ -317,7 +317,7 @@ test_output_voltage:
       spec_ref: "output_voltage @ tolerance_pct=5"
 
 # Multiple measurements
-test_power_supply:
+test_psu:
   vectors:
     expand: product
     load: [0.1, 0.5, 1.0]
@@ -353,7 +353,7 @@ def test_output_voltage(context, psu, dmm):
     return dmm.measure_dc_voltage()
 
 @litmus_test
-def test_power_supply(context, psu, dmm):
+def test_psu(context, psu, dmm):
     load = context["load"]
     # ... setup load ...
     return {

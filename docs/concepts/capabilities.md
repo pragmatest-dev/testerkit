@@ -41,7 +41,7 @@ capabilities:
 ### Example: Power Supply Capabilities
 
 ```yaml
-# catalog/keysight_e36312a.yaml or demo/instruments/power_supply.yaml
+# catalog/keysight_e36312a.yaml or demo/instruments/psu.yaml
 
 # Top-level structured channels describe physical topology
 channels:
@@ -160,7 +160,7 @@ The `MeasurementFunction` enum provides fine-grained signal identification, alig
 
 The `transform` direction is used for signal-path components (amplifiers, filters, mixers) that modify signals rather than measuring or sourcing them.
 
-This replaces the old `Domain + SignalType` combination, providing much finer granularity. A DMM measuring `dc_voltage` is now distinct from an oscilloscope capturing `waveform` — they can no longer be confused.
+This replaces the old `Domain + SignalType` combination, providing much finer granularity. A DMM measuring `dc_voltage` is now distinct from an scope capturing `waveform` — they can no longer be confused.
 
 ## SignalParameter
 

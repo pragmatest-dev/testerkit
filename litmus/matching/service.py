@@ -915,7 +915,7 @@ def recommend_from_catalog(
                 "manufacturer": entry.manufacturer,
                 "model": entry.model,
                 "name": entry.name,
-                "instrument_class": entry.instrument_class,
+                "type": entry.type,
                 "satisfies": satisfied_indices,
                 "channels": len(entry.channels) or 1,
             })
@@ -980,7 +980,7 @@ def _catalog_entry_to_capabilities(entry: Any) -> list[StationCapability]:
                     direction=cap.direction,
                     parameters=cap.parameters,
                     name=cap_name,
-                    instrument_type=entry.instrument_class,
+                    instrument_type=entry.type,
                     instrument_name=entry.id,
                     channel=ch,
                     readback=cap.readback,
@@ -991,7 +991,7 @@ def _catalog_entry_to_capabilities(entry: Any) -> list[StationCapability]:
                 direction=cap.direction,
                 parameters=cap.parameters,
                 name=cap_name,
-                instrument_type=entry.instrument_class,
+                instrument_type=entry.type,
                 instrument_name=entry.id,
                 readback=cap.readback,
             ))

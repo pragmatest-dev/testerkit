@@ -19,7 +19,7 @@ Concrete Drivers (DMM, PSU, YourCustomInstrument)
 **Key principles:**
 - Capabilities are interchangeable (any `VoltageInput` can replace another)
 - Drivers are NOT interchangeable (embrace vendor weirdness)
-- `simulate=True` is the universal simulation interface
+- `mock=True` is the universal simulation interface
 
 ## VISA Instruments (Recommended Path)
 
@@ -67,7 +67,7 @@ dmm = MyDMM("TCPIP::192.168.1.100::INSTR")
 # Simulation (no hardware needed)
 dmm = MyDMM(
     "TCPIP::192.168.1.100::INSTR",
-    simulate=True,
+    mock=True,
     sim_config={"voltage": 5.0, "current": 0.1}
 )
 ```
@@ -179,7 +179,7 @@ class DaqmxAnalogInput(Instrument, VoltageInput):
             return
 
         if not HAS_DAQMX:
-            raise RuntimeError("nidaqmx not installed. Use simulate=True for testing.")
+            raise RuntimeError("nidaqmx not installed. Use mock=True for testing.")
 
         self._task = nidaqmx.Task()
         self._task.ai_channels.add_ai_voltage_chan(
@@ -246,7 +246,7 @@ class USBPowerSupply(Instrument, VoltageOutput):
             return
 
         if not HAS_USB:
-            raise RuntimeError("pyusb not installed. Use simulate=True for testing.")
+            raise RuntimeError("pyusb not installed. Use mock=True for testing.")
 
         self._device = usb.core.find(
             idVendor=self.VENDOR_ID,
@@ -343,7 +343,7 @@ class MockTempLogger(Instrument, TemperatureInput):
         **kwargs,
     ):
         # Mocks always simulate
-        super().__init__(simulate=True, sim_config={})
+        super().__init__(mock=True, sim_config={})
         self._values = {"temperature": float(temperature)}
         self._values.update({k: float(v) for k, v in kwargs.items()})
 
@@ -376,7 +376,7 @@ class TestMyDMM:
         """Should work in simulation mode."""
         dmm = MyDMM(
             "TCPIP::192.168.1.100::INSTR",
-            simulate=True,
+            mock=True,
             sim_config={"voltage": 3.3}
         )
         dmm.connect()
@@ -388,7 +388,7 @@ class TestMyDMM:
         """Should work as context manager."""
         with MyDMM(
             "TCPIP::192.168.1.100::INSTR",
-            simulate=True,
+            mock=True,
             sim_config={"voltage": 5.0}
         ) as dmm:
             assert dmm.measure_voltage() == 5.0
@@ -406,7 +406,7 @@ class TestMyDMM:
 
 ## Best Practices
 
-1. **Always implement `simulate=True`** - Tests should run without hardware
+1. **Always implement `mock=True`** - Tests should run without hardware
 2. **Use `_sim_*` methods for simulation logic** - Keep it separate from real I/O
 3. **Implement capability interfaces** - Enable protocol-based testing
 4. **Handle missing dependencies gracefully** - Check for optional imports
@@ -446,7 +446,7 @@ instruments:
   dmm:
     type: my_drivers.MyDMM  # Full module path
     resource: "TCPIP::192.168.1.100::INSTR"
-    simulate: true
+    mock: true
     sim_config:
       voltage: 5.0
 ```
