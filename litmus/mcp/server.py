@@ -155,7 +155,7 @@ test_output_voltage:
 
 1. **STOP at each step** - Show plan, ask approval, wait for response
 2. **Pass project=** to all calls after init
-3. **Station instrument `type`** — use short names: psu, dmm, scope, eload, fgen, smu
+3. **Instrument `type`** — use short names (e.g. psu, dmm, scope, eload, fgen, smu)
 4. **mock_config** in station for default mock values
 5. **Create BOTH test files** - .py AND config.yaml
 6. **_mock in config.yaml** - Per-test/per-vector mock values
@@ -456,10 +456,18 @@ def test_output_voltage(context, psu, dmm):
 
 1. **STOP and ASK** before each step - never proceed without approval
 2. **Pass project=** to ALL calls after init
-3. **Station instrument types**: psu, dmm, eload, scope (exactly these)
+3. **Instrument types**: use short names (e.g. psu, dmm, eload, scope, fgen, smu)
 4. **mock_config** in station for default mock values
 5. **Create BOTH test files**: .py AND config.yaml
 6. **_mock in config.yaml**: Per-test/per-vector mock values
+7. **Choice format**: ALWAYS use numbered lists for choices. Example:
+   ```
+   What would you like to do?
+   1. Save as-is
+   2. Adjust the output voltage target
+   3. Add thermal testing
+   ```
+   NEVER use `[A]`, `[B]`, `[?]` letter codes. NEVER.
 '''
 
     return mcp

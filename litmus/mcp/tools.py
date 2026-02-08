@@ -504,15 +504,12 @@ def _save_entity(
     return {"error": "Not implemented"}
 
 
-VALID_INSTRUMENT_TYPES = {
-    "psu", "dmm", "eload", "scope", "fgen", "smu",
-    "counter", "current_source", "lcr",
-}
-
-
 def _save_station(station_id: str, content: dict[str, Any], project: str) -> dict[str, Any]:
     """Save station configuration with validation."""
+    from litmus.config.normalize import check_instrument_types
+
     errors = []
+    warnings: list[str] = []
 
     # Validate station section
     if "station" not in content:
@@ -535,25 +532,15 @@ def _save_station(station_id: str, content: dict[str, Any], project: str) -> dic
                 if not isinstance(config, dict):
                     errors.append(f"instruments.{name} must be a dict")
                     continue
-
-                # Check for common mistakes
-                if "driver" in config:
-                    errors.append(
-                        f"instruments.{name}: Use 'type' not 'driver'. "
-                        f"Valid types: {', '.join(sorted(VALID_INSTRUMENT_TYPES))}"
-                    )
-
-                # Validate type
                 if "type" not in config:
                     errors.append(
-                        f"instruments.{name}: Missing 'type'. "
-                        f"Valid types: {', '.join(sorted(VALID_INSTRUMENT_TYPES))}"
+                        f"instruments.{name}: Missing 'type' field. "
+                        "Use a short name like psu, dmm, scope, vna, etc."
                     )
-                elif config["type"] not in VALID_INSTRUMENT_TYPES:
-                    errors.append(
-                        f"instruments.{name}: Invalid type '{config['type']}'. "
-                        f"Valid types: {', '.join(sorted(VALID_INSTRUMENT_TYPES))}"
-                    )
+
+            # Normalize types and soft-warn against catalog
+            _, type_warnings = check_instrument_types(instruments)
+            warnings.extend(type_warnings)
 
     if errors:
         return {
@@ -574,7 +561,10 @@ def _save_station(station_id: str, content: dict[str, Any], project: str) -> dic
     with open(filepath, "w") as f:
         yaml.dump(content, f, default_flow_style=False, sort_keys=False)
 
-    return {"success": True, "path": str(filepath)}
+    result: dict[str, Any] = {"success": True, "path": str(filepath)}
+    if warnings:
+        result["warnings"] = warnings
+    return result
 
 
 def _save_product(product_id: str, content: dict[str, Any], project: str) -> dict[str, Any]:

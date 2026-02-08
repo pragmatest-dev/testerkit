@@ -380,6 +380,11 @@ def save_station(station_id: str, station_data: dict, instruments_data: dict) ->
     if target_file is None:
         return False
 
+    from litmus.config.normalize import check_instrument_types
+
+    # Normalize instrument types before saving
+    check_instrument_types(instruments_data)
+
     yaml_data = {
         "station": station_data,
         "instruments": instruments_data,
