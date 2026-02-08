@@ -32,15 +32,38 @@ def create_mcp_server() -> FastMCP:
         "Litmus",
         instructions="""Litmus: Hardware test platform. Creates tests from datasheets.
 
-## MANDATORY: Stop and Ask at Each Step
+## CRITICAL: User Prompting with ask_user_input_v0
 
-Before EVERY action, show what you'll do and ask for approval.
-Never proceed without user confirmation.
+**At EVERY approval gate, you MUST use the `ask_user_input_v0` tool** to present
+choices as interactive widgets. NEVER present options as text like `[A]pprove [E]dit`.
 
-### Presenting Choices
-When asking the user to choose, present options as a **numbered list**
-at the end of your message. Keep any explanation ABOVE the list.
-Never bury choices mid-paragraph or use inline `[A] [B] [C]` codes.
+Approval gates that REQUIRE ask_user_input_v0:
+1. After datasheet parsing — approve extracted characteristics
+2. After product spec — approve before saving
+3. After instrument recommendations — choose instruments
+4. After station config — approve instruments and mock values
+5. After test generation — approve test code and config
+6. Before execution — confirm test run parameters
+
+Example (after presenting extracted specs):
+```json
+{
+  "questions": [
+    {
+      "question": "Does the extracted spec look correct?",
+      "type": "single_select",
+      "options": [
+        "Approve and continue to station setup",
+        "Edit — I need to adjust the characteristics",
+        "Regenerate — focus on different specs",
+        "Ask — I have questions about the extraction"
+      ]
+    }
+  ]
+}
+```
+
+**Do NOT proceed without receiving a response from ask_user_input_v0.**
 
 ## Workflow (All Steps Required)
 
