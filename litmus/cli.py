@@ -497,17 +497,33 @@ def setup_claude_desktop(print_only: bool):
     litmus_path = Path(sys.executable).parent / "litmus"
 
     # Determine config location by platform
+    # Handle WSL (Linux running Windows Claude Desktop)
+    is_wsl = os.environ.get("WSL_DISTRO_NAME") is not None or (
+        Path("/proc/version").exists() and "microsoft" in Path("/proc/version").read_text().lower()
+    )
+
     if sys.platform == "win32":
         config_dir = Path(os.environ.get("APPDATA", "")) / "Claude"
+    elif is_wsl:
+        # WSL: use Windows AppData via /mnt/c
+        username = os.environ.get("USERNAME") or os.environ.get("USER", "").split("@")[-1]
+        config_dir = Path(f"/mnt/c/Users/{username}/AppData/Roaming/Claude")
     elif sys.platform == "darwin":
         config_dir = Path.home() / "Library" / "Application Support" / "Claude"
     else:
         config_dir = Path.home() / ".config" / "Claude"
 
-    server_config = {
-        "command": str(litmus_path),
-        "args": ["mcp", "serve"],
-    }
+    # For WSL, use wsl.exe to run litmus in WSL from Windows
+    if is_wsl:
+        server_config = {
+            "command": "wsl.exe",
+            "args": [str(litmus_path), "mcp", "serve"],
+        }
+    else:
+        server_config = {
+            "command": str(litmus_path),
+            "args": ["mcp", "serve"],
+        }
 
     if print_only:
         click.echo("claude_desktop_config.json:\n")
