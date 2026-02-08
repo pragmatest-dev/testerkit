@@ -109,22 +109,15 @@ erDiagram
     Characteristic {
         string name PK
         enum direction
-        enum domain
-        list signal_types
+        enum function
         string units
+        list specs FK
     }
 
-    Condition {
-        float nominal
-        float tolerance_pct
-        float min
-        float max
-    }
-
-    TestRequirement {
-        string name PK
-        string characteristic_ref FK
-        float guardband_pct
+    SpecBand {
+        dict conditions
+        float value
+        AccuracySpec accuracy
     }
 
     %% ============================================
@@ -230,9 +223,7 @@ erDiagram
     %% Product structure
     Product ||--o{ Pin : has
     Product ||--o{ Characteristic : has
-    Product ||--o{ TestRequirement : has
-    Characteristic ||--o{ Condition : "at conditions"
-    TestRequirement }o--|| Characteristic : tests
+    Characteristic ||--o{ SpecBand : "has specs"
 
     %% Station structure
     StationType ||--o{ Station : "deployed as"

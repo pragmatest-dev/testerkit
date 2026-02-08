@@ -40,7 +40,7 @@ litmus serve
 List all available product specifications.
 
 ```
-Returns: [{id, name, description, revision, characteristics_count, test_requirements_count}]
+Returns: [{id, name, description, revision, characteristics_count}]
 ```
 
 **get_product_spec**
@@ -48,7 +48,7 @@ Get full product specification by ID.
 
 ```
 Params: product_id (string)
-Returns: {product, characteristics, test_requirements}
+Returns: {product, pins, characteristics, signal_groups}
 ```
 
 **derive_required_capabilities**
