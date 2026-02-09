@@ -2,7 +2,7 @@
 
 from litmus.config.models import (
     Direction,
-    FunctionCapability,
+    InstrumentCapability,
     MeasurementFunction,
     RangeSpec,
     SignalParameter,
@@ -13,14 +13,61 @@ from litmus.matching.service import (
     capability_satisfies,
     match_capabilities,
 )
+from litmus.products.models import ProductCharacteristic
 
 
-class TestFunctionCapabilityChannels:
-    """Tests for FunctionCapability.channels field (list[str])."""
+def _make_station_cap(
+    function=MeasurementFunction.DC_VOLTAGE,
+    direction=Direction.INPUT,
+    parameters=None,
+    instrument_type="dmm",
+    instrument_name="dmm_main",
+    channel=None,
+    readback=False,
+    modes=None,
+) -> StationCapability:
+    return StationCapability(
+        capability=InstrumentCapability(
+            function=function,
+            direction=direction,
+            parameters=parameters or {},
+            channels=[channel] if channel else [],
+            modes=modes or [],
+            readback=readback,
+        ),
+        instrument_type=instrument_type,
+        instrument_name=instrument_name,
+        channel=channel,
+    )
+
+
+def _make_req(
+    function=MeasurementFunction.DC_VOLTAGE,
+    direction=Direction.OUTPUT,
+    parameters=None,
+    characteristic_name="test_char",
+    pins=None,
+    units="V",
+) -> CapabilityRequirement:
+    return CapabilityRequirement(
+        capability=ProductCharacteristic(
+            function=function,
+            direction=direction,
+            parameters=parameters or {},
+            units=units,
+            net=characteristic_name,
+        ),
+        characteristic_name=characteristic_name,
+        pins=pins or [],
+    )
+
+
+class TestInstrumentCapabilityChannels:
+    """Tests for InstrumentCapability.channels field (list[str])."""
 
     def test_list_channels(self):
         """Explicit list of channels is returned as-is."""
-        cap = FunctionCapability(
+        cap = InstrumentCapability(
             function=MeasurementFunction.DC_VOLTAGE,
             direction=Direction.OUTPUT,
             channels=["1", "2", "3"],
@@ -29,7 +76,7 @@ class TestFunctionCapabilityChannels:
 
     def test_empty_channels(self):
         """Empty channels returns empty list."""
-        cap = FunctionCapability(
+        cap = InstrumentCapability(
             function=MeasurementFunction.DC_VOLTAGE,
             direction=Direction.INPUT,
         )
@@ -47,7 +94,7 @@ class TestPerChannelExpansion:
         caps = []
         # CH1: 6V
         caps.append(
-            StationCapability(
+            _make_station_cap(
                 function=MeasurementFunction.DC_VOLTAGE,
                 direction=Direction.OUTPUT,
                 parameters={
@@ -55,7 +102,6 @@ class TestPerChannelExpansion:
                         range=RangeSpec(min=0, max=6.18, units="V"),
                     ),
                 },
-                name="dc_voltage_output",
                 instrument_type="power_supply",
                 instrument_name="psu",
                 channel="1",
@@ -63,7 +109,7 @@ class TestPerChannelExpansion:
         )
         # CH2: 25V
         caps.append(
-            StationCapability(
+            _make_station_cap(
                 function=MeasurementFunction.DC_VOLTAGE,
                 direction=Direction.OUTPUT,
                 parameters={
@@ -71,7 +117,6 @@ class TestPerChannelExpansion:
                         range=RangeSpec(min=0, max=25.75, units="V"),
                     ),
                 },
-                name="dc_voltage_output",
                 instrument_type="power_supply",
                 instrument_name="psu",
                 channel="2",
@@ -79,7 +124,7 @@ class TestPerChannelExpansion:
         )
         # CH3: 25V
         caps.append(
-            StationCapability(
+            _make_station_cap(
                 function=MeasurementFunction.DC_VOLTAGE,
                 direction=Direction.OUTPUT,
                 parameters={
@@ -87,7 +132,6 @@ class TestPerChannelExpansion:
                         range=RangeSpec(min=0, max=25.75, units="V"),
                     ),
                 },
-                name="dc_voltage_output",
                 instrument_type="power_supply",
                 instrument_name="psu",
                 channel="3",
@@ -99,9 +143,9 @@ class TestPerChannelExpansion:
         """12V requirement matches CH2/CH3 (25V max) but NOT CH1 (6V max)."""
         caps = self._make_e36312a_caps()
 
-        req_12v = CapabilityRequirement(
+        req_12v = _make_req(
             function=MeasurementFunction.DC_VOLTAGE,
-            direction=Direction.OUTPUT,
+            direction=Direction.INPUT,
             parameters={
                 "voltage": SignalParameter(
                     range=RangeSpec(min=0, max=12, units="V"),
@@ -123,9 +167,9 @@ class TestPerChannelExpansion:
         """5V requirement matches all channels (6V, 25V, 25V)."""
         caps = self._make_e36312a_caps()
 
-        req_5v = CapabilityRequirement(
+        req_5v = _make_req(
             function=MeasurementFunction.DC_VOLTAGE,
-            direction=Direction.OUTPUT,
+            direction=Direction.INPUT,
             parameters={
                 "voltage": SignalParameter(
                     range=RangeSpec(min=0, max=5, units="V"),
@@ -141,9 +185,9 @@ class TestPerChannelExpansion:
         """Two 12V requirements allocate different channels (CH2 and CH3)."""
         caps = self._make_e36312a_caps()
 
-        req_12v_a = CapabilityRequirement(
+        req_12v_a = _make_req(
             function=MeasurementFunction.DC_VOLTAGE,
-            direction=Direction.OUTPUT,
+            direction=Direction.INPUT,
             parameters={
                 "voltage": SignalParameter(
                     range=RangeSpec(min=0, max=12, units="V"),
@@ -151,9 +195,9 @@ class TestPerChannelExpansion:
             },
             characteristic_name="input_12v_a",
         )
-        req_12v_b = CapabilityRequirement(
+        req_12v_b = _make_req(
             function=MeasurementFunction.DC_VOLTAGE,
-            direction=Direction.OUTPUT,
+            direction=Direction.INPUT,
             parameters={
                 "voltage": SignalParameter(
                     range=RangeSpec(min=0, max=12, units="V"),
@@ -174,13 +218,13 @@ class TestPerChannelExpansion:
         assert "1" not in channels  # CH1 (6V) should not be used
 
     def test_channel_exhaustion_three_12v_requirements(self):
-        """Three 12V requirements → third unmatched (only CH2 and CH3 qualify)."""
+        """Three 12V requirements -> third unmatched (only CH2 and CH3 qualify)."""
         caps = self._make_e36312a_caps()
 
         reqs = [
-            CapabilityRequirement(
+            _make_req(
                 function=MeasurementFunction.DC_VOLTAGE,
-                direction=Direction.OUTPUT,
+                direction=Direction.INPUT,
                 parameters={
                     "voltage": SignalParameter(
                         range=RangeSpec(min=0, max=12, units="V"),
@@ -202,9 +246,9 @@ class TestPerChannelExpansion:
         """5V + 12V requirements: 5V gets CH1, 12V gets CH2."""
         caps = self._make_e36312a_caps()
 
-        req_5v = CapabilityRequirement(
+        req_5v = _make_req(
             function=MeasurementFunction.DC_VOLTAGE,
-            direction=Direction.OUTPUT,
+            direction=Direction.INPUT,
             parameters={
                 "voltage": SignalParameter(
                     range=RangeSpec(min=0, max=5, units="V"),
@@ -212,9 +256,9 @@ class TestPerChannelExpansion:
             },
             characteristic_name="input_5v",
         )
-        req_12v = CapabilityRequirement(
+        req_12v = _make_req(
             function=MeasurementFunction.DC_VOLTAGE,
-            direction=Direction.OUTPUT,
+            direction=Direction.INPUT,
             parameters={
                 "voltage": SignalParameter(
                     range=RangeSpec(min=0, max=12, units="V"),
@@ -239,19 +283,18 @@ class TestStationCapabilityChannel:
     def test_channel_is_preserved_in_match(self):
         """Channel info is preserved through matching."""
         available = [
-            StationCapability(
+            _make_station_cap(
                 function=MeasurementFunction.DC_VOLTAGE,
                 direction=Direction.INPUT,
-                name="dc_voltage_input",
                 instrument_type="dmm",
                 instrument_name="dmm_main",
                 channel="1",
             ),
         ]
         required = [
-            CapabilityRequirement(
+            _make_req(
                 function=MeasurementFunction.DC_VOLTAGE,
-                direction=Direction.INPUT,
+                direction=Direction.OUTPUT,
                 characteristic_name="rail_3v3",
             ),
         ]
@@ -263,10 +306,9 @@ class TestStationCapabilityChannel:
 
     def test_none_channel_default(self):
         """Channel defaults to None when not specified."""
-        cap = StationCapability(
+        cap = _make_station_cap(
             function=MeasurementFunction.DC_VOLTAGE,
             direction=Direction.INPUT,
-            name="dc_voltage_input",
             instrument_type="dmm",
             instrument_name="dmm_main",
         )
@@ -278,18 +320,18 @@ class TestCapabilityRequirementPins:
 
     def test_pins_default_empty(self):
         """Pins defaults to empty list."""
-        req = CapabilityRequirement(
+        req = _make_req(
             function=MeasurementFunction.DC_VOLTAGE,
-            direction=Direction.INPUT,
+            direction=Direction.OUTPUT,
             characteristic_name="rail_3v3",
         )
         assert req.pins == []
 
     def test_pins_populated(self):
         """Pins can be populated."""
-        req = CapabilityRequirement(
+        req = _make_req(
             function=MeasurementFunction.DC_VOLTAGE,
-            direction=Direction.INPUT,
+            direction=Direction.OUTPUT,
             characteristic_name="rail_3v3",
             pins=["VOUT", "GND"],
         )
@@ -317,8 +359,8 @@ class TestCatalogChannelParsing:
             c for c in entry.capabilities
             if c.function == MeasurementFunction.DC_VOLTAGE
             and c.direction == Direction.OUTPUT
-            and "1" in c.channels
-            and "2" not in c.channels
+            and "1" in c.resolved_channels
+            and "2" not in c.resolved_channels
         ]
         assert len(ch1_caps) == 1
         assert ch1_caps[0].parameters["voltage"].range.max == 6.18
@@ -328,7 +370,7 @@ class TestCatalogChannelParsing:
             c for c in entry.capabilities
             if c.function == MeasurementFunction.DC_VOLTAGE
             and c.direction == Direction.OUTPUT
-            and "2" in c.channels
+            and "2" in c.resolved_channels
         ]
         assert len(ch2_caps) == 1
         assert ch2_caps[0].parameters["voltage"].range.max == 25.75
@@ -339,7 +381,7 @@ class TestReadbackFiltering:
 
     def test_readback_default_false(self):
         """Readback defaults to False."""
-        cap = FunctionCapability(
+        cap = InstrumentCapability(
             function=MeasurementFunction.DC_VOLTAGE,
             direction=Direction.OUTPUT,
             channels=["1", "2"],
@@ -348,7 +390,7 @@ class TestReadbackFiltering:
 
     def test_readback_set_true(self):
         """Readback can be set to True."""
-        cap = FunctionCapability(
+        cap = InstrumentCapability(
             function=MeasurementFunction.DC_VOLTAGE,
             direction=Direction.INPUT,
             channels=["1"],
@@ -358,10 +400,9 @@ class TestReadbackFiltering:
 
     def test_readback_on_station_capability(self):
         """StationCapability has readback field."""
-        cap = StationCapability(
+        cap = _make_station_cap(
             function=MeasurementFunction.DC_VOLTAGE,
             direction=Direction.INPUT,
-            name="dc_voltage_readback",
             instrument_type="power_supply",
             instrument_name="psu",
             channel="1",
@@ -371,19 +412,17 @@ class TestReadbackFiltering:
 
     def test_readback_capability_not_used_in_match(self):
         """Readback capability should still match in capability_satisfies (filtering is at auto-suggest level)."""
-        # Readback caps still satisfy requirements - filtering happens at the designer level
-        available = StationCapability(
+        available = _make_station_cap(
             function=MeasurementFunction.DC_VOLTAGE,
             direction=Direction.INPUT,
-            name="dc_voltage_readback",
             instrument_type="power_supply",
             instrument_name="psu",
             channel="1",
             readback=True,
         )
-        required = CapabilityRequirement(
+        required = _make_req(
             function=MeasurementFunction.DC_VOLTAGE,
-            direction=Direction.INPUT,
+            direction=Direction.OUTPUT,
             characteristic_name="rail_3v3",
         )
         assert capability_satisfies(available, required) is True
@@ -550,13 +589,9 @@ class TestDesignerAutoSuggest:
         from litmus.ui.pages.designer.matching import get_compatible_channels_for_pin
         instruments = self._make_instruments()
 
-        # Pin with dc_voltage output characteristic -> needs dc_voltage input
-        # The PSU has dc_voltage input but with readback=True
-        # The function currently doesn't filter readback at the hint level
-        # (readback filtering is in _get_channels_satisfying which is used by auto_suggest)
         compatible = get_compatible_channels_for_pin(
             pin_key="TP_VOUT",
-            char_by_pin={},  # No characteristics -> all channels compatible
+            char_by_pin={},
             product=None,
             instruments=instruments,
             dut_pins={"TP_VOUT": {"name": "TP2", "net": "VOUT", "role": "signal"}},

@@ -113,17 +113,14 @@ class TestIntegration:
         assert limit.low == pytest.approx(expected_low)
         assert limit.high == pytest.approx(expected_high)
 
-    def test_capability_requirement_from_loaded_characteristic(self, power_board_path):
-        """Test deriving capability requirement from loaded characteristic."""
+    def test_loaded_characteristic_has_correct_fields(self, power_board_path):
+        """Test that loaded characteristic has expected function and direction."""
         product = load_product(power_board_path)
         char = product.characteristics["rail_3v3_output"]
 
-        cap = char.to_capability_requirement()
-
-        assert cap.direction == Direction.INPUT
-        assert cap.function == MeasurementFunction.DC_VOLTAGE
-        assert "voltage" in cap.parameters
-        assert float(cap.parameters["voltage"].range.max) == pytest.approx(3.96)
+        assert char.direction == Direction.OUTPUT
+        assert char.function == MeasurementFunction.DC_VOLTAGE
+        assert char.units == "V"
 
 
 class TestPartNumber:

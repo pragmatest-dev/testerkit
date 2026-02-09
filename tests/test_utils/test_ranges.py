@@ -185,9 +185,9 @@ class TestIntegrationWithModels:
     def test_characteristic_resolved_pins_with_range(self):
         """Characteristic.resolved_pins expands range syntax."""
         from litmus.config.models import Direction, MeasurementFunction
-        from litmus.products.models import Characteristic
+        from litmus.products.models import ProductCharacteristic
 
-        char = Characteristic(
+        char = ProductCharacteristic(
             function=MeasurementFunction.DC_VOLTAGE,
             direction=Direction.OUTPUT,
             units="V",
@@ -198,9 +198,9 @@ class TestIntegrationWithModels:
     def test_characteristic_resolved_pins_with_list(self):
         """Characteristic.resolved_pins works with explicit list."""
         from litmus.config.models import Direction, MeasurementFunction
-        from litmus.products.models import Characteristic
+        from litmus.products.models import ProductCharacteristic
 
-        char = Characteristic(
+        char = ProductCharacteristic(
             function=MeasurementFunction.DC_VOLTAGE,
             direction=Direction.OUTPUT,
             units="V",
@@ -211,50 +211,15 @@ class TestIntegrationWithModels:
     def test_characteristic_resolved_pins_with_single(self):
         """Characteristic.resolved_pins works with single pin."""
         from litmus.config.models import Direction, MeasurementFunction
-        from litmus.products.models import Characteristic
+        from litmus.products.models import ProductCharacteristic
 
-        char = Characteristic(
+        char = ProductCharacteristic(
             function=MeasurementFunction.DC_VOLTAGE,
             direction=Direction.OUTPUT,
             units="V",
             pin="TP_VOUT",
         )
         assert char.resolved_pins == ["TP_VOUT"]
-
-    def test_characteristic_resolved_channels_with_range(self):
-        """Characteristic.resolved_channels expands range syntax."""
-        from litmus.config.models import Direction, MeasurementFunction
-        from litmus.products.models import Characteristic
-
-        char = Characteristic(
-            function=MeasurementFunction.DC_VOLTAGE,
-            direction=Direction.OUTPUT,
-            units="V",
-            channels="CH[1:4]",
-        )
-        assert char.resolved_channels == ["CH1", "CH2", "CH3", "CH4"]
-
-    def test_instrument_channel_spec_with_range(self):
-        """InstrumentChannelSpec.channel_names() works with range."""
-        from litmus.config.models import InstrumentChannelSpec
-
-        spec = InstrumentChannelSpec(range="ai[0:3]")
-        assert spec.channel_names() == ["ai0", "ai1", "ai2", "ai3"]
-
-    def test_instrument_channel_spec_with_labels(self):
-        """InstrumentChannelSpec.channel_names() works with labels."""
-        from litmus.config.models import InstrumentChannelSpec
-
-        # Note: count limits labels, so must specify count to match
-        spec = InstrumentChannelSpec(count=3, labels=["A", "B", "C"])
-        assert spec.channel_names() == ["A", "B", "C"]
-
-    def test_instrument_channel_spec_with_count_naming(self):
-        """InstrumentChannelSpec.channel_names() works with count+naming."""
-        from litmus.config.models import InstrumentChannelSpec
-
-        spec = InstrumentChannelSpec(count=4, naming="CH{n}")
-        assert spec.channel_names() == ["CH1", "CH2", "CH3", "CH4"]
 
     def test_loop_variable_config_with_range_string(self):
         """LoopVariableConfig.resolved_values expands range string."""

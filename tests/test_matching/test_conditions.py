@@ -4,6 +4,7 @@ from litmus.config.models import (
     AccuracySpec,
     CompareMode,
     Direction,
+    InstrumentCapability,
     MatchDepth,
     MeasurementFunction,
     RangeSpec,
@@ -19,6 +20,7 @@ from litmus.matching.service import (
     capability_satisfies,
     get_spec_at,
 )
+from litmus.products.models import ProductCharacteristic
 
 # ---------------------------------------------------------------------------
 # SpecBand lookup
@@ -124,12 +126,13 @@ def test_resolution_sufficient_digits():
 
 def _make_cap(value, compare, function=MeasurementFunction.DC_VOLTAGE):
     return StationCapability(
-        function=function,
-        direction=Direction.TRANSFORM,
-        parameters={
-            "gain": SignalParameter(value=value, units="dB", compare=compare),
-        },
-        name="test",
+        capability=InstrumentCapability(
+            function=function,
+            direction=Direction.TRANSFORM,
+            parameters={
+                "gain": SignalParameter(value=value, units="dB", compare=compare),
+            },
+        ),
         instrument_type="amp",
         instrument_name="amp1",
     )
@@ -137,11 +140,14 @@ def _make_cap(value, compare, function=MeasurementFunction.DC_VOLTAGE):
 
 def _make_req(value, compare, function=MeasurementFunction.DC_VOLTAGE):
     return CapabilityRequirement(
-        function=function,
-        direction=Direction.TRANSFORM,
-        parameters={
-            "gain": SignalParameter(value=value, units="dB", compare=compare),
-        },
+        capability=ProductCharacteristic(
+            function=function,
+            direction=Direction.TRANSFORM,
+            parameters={
+                "gain": SignalParameter(value=value, units="dB", compare=compare),
+            },
+            net="test",
+        ),
         characteristic_name="test",
     )
 
@@ -172,29 +178,34 @@ def test_compare_lower_better_fails():
 def test_capability_satisfies_with_accuracy_depth():
     """Full tier-4 match: function + direction + range + accuracy."""
     cap = StationCapability(
-        function=MeasurementFunction.DC_VOLTAGE,
-        direction=Direction.INPUT,
-        parameters={
-            "voltage": SignalParameter(
-                range=RangeSpec(min=0, max=100, units="V"),
-                accuracy=AccuracySpec(pct_reading=0.003, pct_range=0.0005),
-                resolution=ResolutionSpec(digits=6.5),
-            ),
-        },
-        name="dc_voltage_input",
+        capability=InstrumentCapability(
+            function=MeasurementFunction.DC_VOLTAGE,
+            direction=Direction.INPUT,
+            parameters={
+                "voltage": SignalParameter(
+                    range=RangeSpec(min=0, max=100, units="V"),
+                    accuracy=AccuracySpec(pct_reading=0.003, pct_range=0.0005),
+                    resolution=ResolutionSpec(digits=6.5),
+                ),
+            },
+        ),
         instrument_type="dmm",
         instrument_name="dmm1",
     )
     req = CapabilityRequirement(
-        function=MeasurementFunction.DC_VOLTAGE,
-        direction=Direction.INPUT,
-        parameters={
-            "voltage": SignalParameter(
-                range=RangeSpec(min=0, max=50, units="V"),
-                accuracy=AccuracySpec(pct_reading=0.01, pct_range=0.001),
-                resolution=ResolutionSpec(digits=5.5),
-            ),
-        },
+        capability=ProductCharacteristic(
+            function=MeasurementFunction.DC_VOLTAGE,
+            direction=Direction.OUTPUT,
+            parameters={
+                "voltage": SignalParameter(
+                    range=RangeSpec(min=0, max=50, units="V"),
+                    accuracy=AccuracySpec(pct_reading=0.01, pct_range=0.001),
+                    resolution=ResolutionSpec(digits=5.5),
+                ),
+            },
+            units="V",
+            net="output_voltage",
+        ),
         characteristic_name="output_voltage",
     )
     assert capability_satisfies(cap, req, MatchDepth.ACCURACY) is True
@@ -204,25 +215,30 @@ def test_capability_satisfies_with_accuracy_depth():
 def test_backward_compat_no_specs():
     """Existing catalog entries without specs still match at range depth."""
     cap = StationCapability(
-        function=MeasurementFunction.DC_VOLTAGE,
-        direction=Direction.INPUT,
-        parameters={
-            "voltage": SignalParameter(
-                range=RangeSpec(min=0, max=1000, units="V"),
-            ),
-        },
-        name="dc_voltage_input",
+        capability=InstrumentCapability(
+            function=MeasurementFunction.DC_VOLTAGE,
+            direction=Direction.INPUT,
+            parameters={
+                "voltage": SignalParameter(
+                    range=RangeSpec(min=0, max=1000, units="V"),
+                ),
+            },
+        ),
         instrument_type="dmm",
         instrument_name="dmm1",
     )
     req = CapabilityRequirement(
-        function=MeasurementFunction.DC_VOLTAGE,
-        direction=Direction.INPUT,
-        parameters={
-            "voltage": SignalParameter(
-                range=RangeSpec(min=0, max=50, units="V"),
-            ),
-        },
+        capability=ProductCharacteristic(
+            function=MeasurementFunction.DC_VOLTAGE,
+            direction=Direction.OUTPUT,
+            parameters={
+                "voltage": SignalParameter(
+                    range=RangeSpec(min=0, max=50, units="V"),
+                ),
+            },
+            units="V",
+            net="output_voltage",
+        ),
         characteristic_name="output_voltage",
     )
     assert capability_satisfies(cap, req) is True

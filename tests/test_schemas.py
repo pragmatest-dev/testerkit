@@ -56,6 +56,6 @@ def test_product_schema_has_characteristics(exported: list[Path], schema_dir: Pa
 def test_existing_catalog_validates(exported: list[Path], schema_dir: Path):
     """Smoke test: catalog schema can be loaded and has expected structure."""
     schema = json.loads((schema_dir / "catalog.schema.json").read_text())
-    # Check that FunctionCapability refs are resolved in $defs
+    # Check that InstrumentCapability refs are resolved in $defs
     defs = schema.get("$defs", {})
-    assert "FunctionCapability" in defs or "capabilities" in schema.get("properties", {})
+    assert "InstrumentCapability" in defs or "capabilities" in schema.get("properties", {})

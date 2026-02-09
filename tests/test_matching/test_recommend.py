@@ -6,7 +6,7 @@ from unittest.mock import patch
 from litmus.catalog.models import InstrumentCatalogEntry
 from litmus.config.models import (
     Direction,
-    FunctionCapability,
+    InstrumentCapability,
     MeasurementFunction,
     RangeSpec,
     SignalParameter,
@@ -19,7 +19,7 @@ def _make_entry(
     manufacturer: str,
     model: str,
     type: str,
-    capabilities: list[FunctionCapability],
+    capabilities: list[InstrumentCapability],
 ) -> InstrumentCatalogEntry:
     return InstrumentCatalogEntry(
         id=entry_id,
@@ -38,14 +38,14 @@ def _make_cap(
     range_min: float | None = None,
     units: str = "V",
     channels: list[str] | None = None,
-) -> FunctionCapability:
+) -> InstrumentCapability:
     params = {}
     param_name = function.replace("dc_", "").replace("ac_", "")
     if range_max is not None or range_min is not None:
         params[param_name] = SignalParameter(
             range=RangeSpec(min=range_min or 0, max=range_max, units=units),
         )
-    return FunctionCapability(
+    return InstrumentCapability(
         function=MeasurementFunction(function),
         direction=Direction(direction),
         parameters=params,

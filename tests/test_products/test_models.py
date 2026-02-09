@@ -3,23 +3,22 @@
 from litmus.config.models import (
     AccuracySpec,
     Direction,
-    FunctionCapability,
     MeasurementFunction,
     RangeSpec,
     SpecBand,
 )
 from litmus.products.models import (
-    Characteristic,
     Product,
+    ProductCharacteristic,
 )
 
 
-class TestCharacteristic:
-    """Tests for Characteristic model."""
+class TestProductCharacteristic:
+    """Tests for ProductCharacteristic model."""
 
     def test_basic_characteristic(self):
         """Test creating a basic characteristic with function."""
-        char = Characteristic(
+        char = ProductCharacteristic(
             function=MeasurementFunction.DC_VOLTAGE,
             direction=Direction.OUTPUT,
             units="V",
@@ -31,7 +30,7 @@ class TestCharacteristic:
 
     def test_characteristic_with_specs(self):
         """Test characteristic with SpecBand list."""
-        char = Characteristic(
+        char = ProductCharacteristic(
             function=MeasurementFunction.DC_VOLTAGE,
             direction=Direction.OUTPUT,
             units="V",
@@ -53,7 +52,7 @@ class TestCharacteristic:
 
     def test_get_spec_at_match(self):
         """Test finding a spec band by parameters."""
-        char = Characteristic(
+        char = ProductCharacteristic(
             function=MeasurementFunction.DC_VOLTAGE,
             direction=Direction.OUTPUT,
             units="V",
@@ -77,7 +76,7 @@ class TestCharacteristic:
 
     def test_get_spec_at_no_match(self):
         """Test that no match returns None."""
-        char = Characteristic(
+        char = ProductCharacteristic(
             function=MeasurementFunction.DC_VOLTAGE,
             direction=Direction.OUTPUT,
             units="V",
@@ -94,7 +93,7 @@ class TestCharacteristic:
 
     def test_get_spec_at_unconditional(self):
         """Test that empty conditions matches anything."""
-        char = Characteristic(
+        char = ProductCharacteristic(
             function=MeasurementFunction.DC_VOLTAGE,
             direction=Direction.OUTPUT,
             units="V",
@@ -107,82 +106,36 @@ class TestCharacteristic:
         assert band is not None
         assert band.value == 3.3
 
-    def test_to_capability_requirement_output(self):
-        """Test that DUT OUTPUT maps to instrument INPUT."""
-        char = Characteristic(
+    def test_physical_interface_required(self):
+        """Test that characteristic requires physical interface."""
+        import pytest
+
+        with pytest.raises(ValueError, match="physical interface"):
+            ProductCharacteristic(
+                function=MeasurementFunction.DC_VOLTAGE,
+                direction=Direction.OUTPUT,
+                units="V",
+            )
+
+    def test_net_satisfies_physical_interface(self):
+        """Test that net alone satisfies physical interface requirement."""
+        char = ProductCharacteristic(
             function=MeasurementFunction.DC_VOLTAGE,
             direction=Direction.OUTPUT,
             units="V",
-            pin="VOUT",
-            specs=[
-                SpecBand(value=3.3),
-            ],
+            net="VOUT_3V3",
         )
-        cap = char.to_capability_requirement()
-        assert isinstance(cap, FunctionCapability)
-        assert cap.direction == Direction.INPUT
-        assert cap.function == MeasurementFunction.DC_VOLTAGE
+        assert char.net == "VOUT_3V3"
 
-    def test_to_capability_requirement_input(self):
-        """Test that DUT INPUT maps to instrument OUTPUT."""
-        char = Characteristic(
-            function=MeasurementFunction.DC_VOLTAGE,
-            direction=Direction.INPUT,
-            units="V",
-            pin="VIN",
-            specs=[
-                SpecBand(value=5.0),
-            ],
-        )
-        cap = char.to_capability_requirement()
-        assert cap.direction == Direction.OUTPUT
-
-    def test_to_capability_requirement_bidir(self):
-        """Test that DUT BIDIR maps to instrument BIDIR."""
-        char = Characteristic(
-            function=MeasurementFunction.DC_VOLTAGE,
+    def test_signal_group_satisfies_physical_interface(self):
+        """Test that signal_group alone satisfies physical interface requirement."""
+        char = ProductCharacteristic(
+            function=MeasurementFunction.DIGITAL_IO,
             direction=Direction.BIDIR,
             units="V",
-            pin="DATA",
+            signal_group="i2c_main",
         )
-        cap = char.to_capability_requirement()
-        assert cap.direction == Direction.BIDIR
-
-    def test_to_capability_requirement_derives_parameters(self):
-        """Test that capability derives parameter range from specs."""
-        import pytest
-        char = Characteristic(
-            function=MeasurementFunction.DC_VOLTAGE,
-            direction=Direction.OUTPUT,
-            units="V",
-            pin="VOUT",
-            specs=[
-                SpecBand(value=3.3),
-                SpecBand(value=5.0),
-                SpecBand(value=12.0),
-            ],
-        )
-        cap = char.to_capability_requirement()
-        assert "voltage" in cap.parameters
-        voltage_param = cap.parameters["voltage"]
-        assert voltage_param.range is not None
-        assert float(voltage_param.range.max) == pytest.approx(14.4)
-        assert voltage_param.units == "V"
-
-    def test_to_capability_requirement_function_preserved(self):
-        """Test that the MeasurementFunction is preserved in capability."""
-        char = Characteristic(
-            function=MeasurementFunction.DC_CURRENT,
-            direction=Direction.INPUT,
-            units="A",
-            pin="IIN",
-            specs=[
-                SpecBand(value=0.015),
-            ],
-        )
-        cap = char.to_capability_requirement()
-        assert cap.function == MeasurementFunction.DC_CURRENT
-        assert "current" in cap.parameters
+        assert char.signal_group == "i2c_main"
 
 
 class TestProduct:
@@ -205,7 +158,7 @@ class TestProduct:
             id="power_board_v1",
             name="Power Board",
             characteristics={
-                "rail_3v3_output": Characteristic(
+                "rail_3v3_output": ProductCharacteristic(
                     function=MeasurementFunction.DC_VOLTAGE,
                     direction=Direction.OUTPUT,
                     units="V",
