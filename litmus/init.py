@@ -156,98 +156,19 @@ uv.lock
     if not readme_path.exists():
         readme_content = f"""# {project_name}
 
-A Litmus hardware test project.
-
-## Getting Started
-
-1. Install dependencies:
-   ```bash
-   uv sync
-   ```
-
-2. Define your test station in `stations/`:
-   ```yaml
-   # stations/my_station.yaml
-   station:
-     id: my_station
-     name: My Test Station
-
-   instruments:
-     dmm:
-       type: dmm
-       resource: TCPIP::192.168.1.100::INSTR
-       mock_config:
-         voltage: 5.0
-     psu:
-       type: psu
-       resource: TCPIP::192.168.1.101::INSTR
-       mock_config:
-         voltage: 12.0
-         current: 0.1
-   ```
-
-3. Create a product spec in `products/`:
-   ```yaml
-   # products/my_product/spec.yaml
-   product:
-     id: my_product
-     name: My Product
-     revision: "1.0"
-
-   characteristics:
-     output_voltage:
-       function: dc_voltage
-       direction: output
-       units: V
-       pin: VOUT
-       specs:
-         - value: 5.0
-           accuracy: {{pct_reading: 5}}
-   ```
-
-4. Write your first test in `tests/`:
-   ```python
-   # tests/test_basic.py
-   from litmus.execution import litmus_test
-
-   @litmus_test
-   def test_voltage(psu, dmm):
-       psu.set_voltage(5.0)
-       psu.enable_output()
-       return dmm.measure_dc_voltage()
-   ```
-
-5. Create a test config in `tests/config.yaml`:
-   ```yaml
-   test_voltage:
-     _mock:
-       dmm.measure_dc_voltage: 5.0
-     limits:
-       test_voltage:
-         low: 4.75
-         high: 5.25
-         nominal: 5.0
-         units: V
-   ```
-
-6. Run tests:
-   ```bash
-   pytest tests/ --station=my_station --mock-instruments --dut-serial=TEST001
-   ```
+A [Litmus](https://github.com/anthropics/litmus) hardware test project.
 
 ## Project Structure
 
-- `products/` - Product specifications
-- `stations/` - Station configurations
-- `fixtures/` - Test fixture definitions
-- `sequences/` - Test sequences
-- `tests/` - Test code
-- `results/` - Test output (gitignored)
-- `instruments/` - Custom instrument definitions
-
-## Documentation
-
-See [Litmus Documentation](https://github.com/your-org/litmus) for full details.
+| Folder | Contents |
+|--------|----------|
+| `products/` | Product specifications (YAML) |
+| `stations/` | Station configurations (YAML) |
+| `fixtures/` | Test fixture definitions (YAML) |
+| `sequences/` | Test sequences (YAML) |
+| `tests/` | Test code (Python) |
+| `instruments/` | Custom instrument definitions (YAML) |
+| `results/` | Test output (gitignored) |
 """
         readme_path.write_text(readme_content)
         created_files.append("README.md")
