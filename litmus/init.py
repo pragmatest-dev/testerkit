@@ -202,7 +202,7 @@ A Litmus hardware test project.
        pin: VOUT
        specs:
          - value: 5.0
-           accuracy: {pct_reading: 5}
+           accuracy: {{pct_reading: 5}}
    ```
 
 4. Write your first test in `tests/`:
