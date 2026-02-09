@@ -194,11 +194,15 @@ A Litmus hardware test project.
      name: My Product
      revision: "1.0"
 
-   specs:
+   characteristics:
      output_voltage:
-       nominal: 5.0
-       tolerance_pct: 5
+       function: dc_voltage
+       direction: output
        units: V
+       pin: VOUT
+       specs:
+         - value: 5.0
+           accuracy: {pct_reading: 5}
    ```
 
 4. Write your first test in `tests/`:

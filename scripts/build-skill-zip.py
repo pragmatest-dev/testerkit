@@ -13,10 +13,12 @@ def main():
     OUTPUT_DIR.mkdir(exist_ok=True)
     output_path = OUTPUT_DIR / "litmus-skills.zip"
 
+    skill_name = "litmus-skills"
     with zipfile.ZipFile(output_path, "w", zipfile.ZIP_DEFLATED) as zf:
         for file in SKILLS_DIR.rglob("*"):
             if file.is_file() and "__pycache__" not in str(file):
-                arcname = file.relative_to(SKILLS_DIR)
+                # Wrap in skill_name/ directory as Claude Desktop expects
+                arcname = Path(skill_name) / file.relative_to(SKILLS_DIR)
                 zf.write(file, arcname)
                 print(f"  Added: {arcname}")
 

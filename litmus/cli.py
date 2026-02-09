@@ -545,9 +545,41 @@ def setup_claude_desktop(print_only: bool):
     config["mcpServers"]["litmus"] = server_config
 
     config_file.write_text(json.dumps(config, indent=2) + "\n")
-    click.echo(f"✓ Wrote {config_file}")
-    click.echo()
-    click.echo("Restart Claude Desktop to use Litmus tools.")
+    click.echo(f"✓ Wrote MCP config: {config_file}")
+
+    # Build skills zip and place it where the user can access it
+    import zipfile
+
+    skills_dir = Path(__file__).parent / "skills"
+    if skills_dir.exists():
+        # Place zip on Windows desktop (WSL) or in config dir
+        if is_wsl:
+            desktop = Path(f"/mnt/c/Users/{username}/Desktop")
+            if desktop.exists():
+                zip_path = desktop / "litmus-skills.zip"
+            else:
+                zip_path = config_dir / "litmus-skills.zip"
+        else:
+            zip_path = config_dir / "litmus-skills.zip"
+
+        # Skill name from SKILL.md frontmatter (or default)
+        skill_name = "litmus-skills"
+        with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zf:
+            for file in skills_dir.rglob("*"):
+                if file.is_file() and "__pycache__" not in str(file):
+                    # Wrap in skill_name/ directory as Claude Desktop expects
+                    arcname = Path(skill_name) / file.relative_to(skills_dir)
+                    zf.write(file, arcname)
+
+        click.echo(f"✓ Built skills zip: {zip_path}")
+        click.echo()
+        click.echo("Next steps:")
+        click.echo("  1. Restart Claude Desktop (picks up new MCP server code)")
+        click.echo("  2. Upload skills: Settings > Capabilities > Upload skill")
+        click.echo(f"     File: {zip_path}")
+    else:
+        click.echo()
+        click.echo("Restart Claude Desktop to use Litmus tools.")
 
 
 @setup.command("cursor")
