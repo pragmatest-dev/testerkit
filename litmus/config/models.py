@@ -1048,6 +1048,9 @@ class TestStepConfig(BaseModel):
         default_factory=dict,
         description="Maps alias names (test fixture params) to station instrument roles",
     )
+    vectors: list[dict[str, Any]] | dict[str, Any] | None = None
+    limits: dict[str, Any] | None = None
+    mocks: dict[str, Any] | None = None
     retry: RetryConfig | None = None
     skip_on: list[str] | None = None  # Skip if these tests failed
 

@@ -281,9 +281,11 @@ def load_test_config(path: Path) -> dict[str, dict[str, Any]]:
         if "retry" in test_data:
             config["retry"] = RetryConfig.model_validate(test_data["retry"])
 
-        # Parse test-level _mock (for per-vector mock configuration)
-        if "_mock" in test_data:
-            config["_mock"] = test_data["_mock"]
+        # Parse test-level mocks (new) or _mock (legacy)
+        if "mocks" in test_data:
+            config["mocks"] = test_data["mocks"]
+        elif "_mock" in test_data:
+            config["mocks"] = test_data["_mock"]
 
         configs[test_name] = config
 

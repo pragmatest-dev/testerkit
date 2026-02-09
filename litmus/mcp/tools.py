@@ -757,20 +757,29 @@ TEST_TEMPLATE = '''
 FILE 1: tests/test_{product_id}.py
 ================================================================================
 
-"""Tests for {product_name}."""
+"""Tests for {product_name}.
+
+Inline decorator config is used for ad-hoc pytest runs.
+When running with --sequence, sequence step config overrides decorator config.
+"""
 
 from litmus.execution import litmus_test
 
 
-@litmus_test
+@litmus_test(
+    config={{"vectors": {{"expand": "product", "temperature": [25, 85], "load": [0.1, 0.5, 3.0]}}}},
+    limits={{"output_voltage": {{"ref": "output_voltage", "guardband_pct": 10, "comparator": "GELE"}}}},
+)
 def test_output_voltage(context, psu, dmm):
-    """Measure output voltage. Limits in config.yaml."""
+    """Measure output voltage under various conditions."""
     psu.set_voltage(context.get_in("vin", 12.0))
     psu.enable_output()
     return dmm.measure_dc_voltage()
 
 
-@litmus_test
+@litmus_test(
+    limits={{"quiescent_current": {{"high": 100, "comparator": "LE", "units": "uA"}}}},
+)
 def test_quiescent_current(context, psu):
     """Measure quiescent current in uA."""
     psu.set_voltage(context.get_in("vin", 12.0))
@@ -780,9 +789,16 @@ def test_quiescent_current(context, psu):
     return current_ua
 
 
-@litmus_test
+@litmus_test(
+    config={{"vectors": [
+        {{"load_current": 0.5, "_mocks": {{"dmm.measure_dc_voltage": 5.02}}}},
+        {{"load_current": 1.0, "_mocks": {{"dmm.measure_dc_voltage": 5.00}}}},
+        {{"load_current": 2.0, "_mocks": {{"dmm.measure_dc_voltage": 4.95}}}},
+    ]}},
+    limits={{"output_voltage": {{"ref": "output_voltage", "guardband_pct": 10}}}},
+)
 def test_load_regulation(context, psu, dmm, eload):
-    """Output voltage under load. Vectors/limits in config.yaml."""
+    """Output voltage under load."""
     psu.set_voltage(context.get_in("vin", 12.0))
     psu.enable_output()
     eload.set_current(context.inputs["load_current"])
@@ -793,66 +809,26 @@ def test_load_regulation(context, psu, dmm, eload):
 
 
 ================================================================================
-FILE 2: tests/config.yaml  (REQUIRED! Limits MUST be here, not in code)
+NOTES
 ================================================================================
 
-# Limits for each test function - MUST match function names exactly
-# _mock configures what mock instruments return when running with --mock-instruments
+Test config (vectors, limits, mocks, retry) comes from two sources:
+1. Sequence steps (primary) — when running with --sequence
+2. Inline decorator (fallback) — for ad-hoc pytest runs
 
-test_output_voltage:
-  vectors:
-    expand: product              # Use characteristics from product spec
-    temperature: [25, 85]        # Sweep conditions from SpecBand
-    load: [0.1, 0.5, 3.0]
-  _mock:
-    dmm.measure_dc_voltage: 5.0  # Mock returns nominal value
-  limits:
-    output_voltage:
-      ref: "output_voltage"      # Auto-derive from SpecBand at vector conditions
-      guardband_pct: 10          # Manufacturing margin
-      comparator: GELE           # Greater-or-equal AND less-or-equal
+Sequence step config REPLACES inline decorator config entirely.
 
-test_load_regulation:
-  vectors:
-    # Per-vector _mock: different outputs for each load condition
-    - temperature: 25
-      load: 0.5
-      _mock:
-        dmm.measure_dc_voltage: 5.02
-    - temperature: 25
-      load: 1.0
-      _mock:
-        dmm.measure_dc_voltage: 5.00
-    - temperature: 25
-      load: 2.0
-      _mock:
-        dmm.measure_dc_voltage: 4.95
-    - temperature: 25
-      load: 3.0
-      _mock:
-        dmm.measure_dc_voltage: 4.90
-  limits:
-    output_voltage:
-      ref: "output_voltage"      # Auto-derived from spec
-      guardband_pct: 10
+Naming convention:
+- Test/step level: vectors, limits, mocks, retry
+- Inside vector dicts: _limits, _mocks (underscore = metadata)
 
+Mock values:
+- Test-level mocks: constant for all vectors
+- Per-vector _mocks: different values per condition
 
-================================================================================
-CRITICAL: You MUST create BOTH files. The test file alone will NOT work.
-================================================================================
-
-The @litmus_test decorator auto-discovers config.yaml in the same directory.
-Without config.yaml, there are NO LIMITS and tests will fail or be meaningless.
-
-Values in config.yaml:
-- vectors: From product characteristics (expand: product) or explicit lists
-- limits with ref: Auto-derived from SpecBand using vector conditions
-  - Nominal value ± accuracy from matching SpecBand
-  - Guardband applied for manufacturing margin
-- _mock: Configure mock instrument return values
-  - Test-level _mock: constant for all vectors
-  - Per-vector _mock: different values per condition
-- conditions in vectors: Matched against SpecBand.conditions to find correct spec
+Limits with ref: Auto-derived from SpecBand using vector conditions
+- Nominal value ± accuracy from matching SpecBand
+- Guardband applied for manufacturing margin
 '''
 
 INSTRUMENT_TEMPLATE = '''"""{instrument_name} driver.

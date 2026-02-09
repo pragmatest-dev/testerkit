@@ -4,15 +4,20 @@ Demo Test Suite: Power Board Validation
 
 This is the GOLDEN EXAMPLE demonstrating Litmus best practices:
 
-1. CONDITIONS (stimulus) come from vectors in config.yaml
-2. LIMITS (pass/fail) come from config.yaml (derived from spec)
-3. Tests SET UP conditions, MEASURE results, RETURN values
-4. Framework handles limit checking, retry, logging, traceability
+1. Test config (vectors, limits, mocks) lives in TWO places:
+   - **Sequence steps** — primary source for orchestrated runs (--sequence)
+   - **Inline decorator** — fallback for dev/ad-hoc pytest runs
+2. Tests SET UP conditions, MEASURE results, RETURN values
+3. Framework handles limit checking, retry, logging, traceability
 
 NO HARDCODED VALUES - everything is configurable.
 
+Config resolution: sequence step > inline decorator
+When --sequence is active, the step config replaces decorator config entirely.
+Without --sequence, inline decorator config is used.
+
 PATTERNS DEMONSTRATED:
-- Pattern 1: Simple single measurement
+- Pattern 1: Simple single measurement (inline + sequence)
 - Pattern 2: Multiple vectors with retry
 - Pattern 3: Explicit vector list
 - Pattern 4: Product expansion (Cartesian product)
@@ -29,7 +34,10 @@ PATTERNS DEMONSTRATED:
 
 Run with:
     cd demo
-    pytest tests/test_power_board.py --station=demo_station_001 --mock-instruments -v
+    # Ad-hoc (uses inline decorator config):
+    pytest tests/test_power_board.py::test_output_voltage_no_load --station=demo_station_001 --mock-instruments -v
+    # Orchestrated (uses sequence step config):
+    pytest tests/test_power_board.py --sequence=power_board_smoke --station=demo_station_001 --mock-instruments -v
 """
 
 import random
@@ -43,17 +51,23 @@ from litmus.execution import litmus_test
 # =============================================================================
 # Pattern 1: Simple Single Measurement
 # =============================================================================
-@litmus_test
+@litmus_test(
+    config={
+        "vectors": [{"vin": 5.0}],
+        "mocks": {"dmm.measure_dc_voltage": 3.3, "psu.measure_current": 0.005},
+        "limits": {
+            "test_output_voltage_no_load": {
+                "low": 3.234, "high": 3.366, "nominal": 3.3,
+                "units": "V", "spec_ref": "output_voltage @ load=0.1A, temp=25C",
+            }
+        },
+    }
+)
 def test_output_voltage_no_load(context, psu, dmm):
     """Verify output voltage at no load.
 
-    Vector params: vin=5.0 (from config.yaml)
-    Limit: 3.234V to 3.366V (from config.yaml, derived from spec ±2% + guardband)
-
-    This is the simplest pattern:
-    - Get conditions from context (vector params)
-    - Set up stimulus
-    - Measure and return
+    Inline config provides dev defaults. When run with --sequence,
+    the sequence step config overrides these values entirely.
     """
     vin = context.get_in("vin", 5.0)
 
@@ -67,15 +81,23 @@ def test_output_voltage_no_load(context, psu, dmm):
 # =============================================================================
 # Pattern 2: Single Vector with Retry (configured in config.yaml)
 # =============================================================================
-@litmus_test
+@litmus_test(
+    config={
+        "vectors": [{"vin": 5.0, "load_current": 0.8}],
+        "mocks": {"dmm.measure_dc_voltage": 3.28, "psu.measure_current": 0.85},
+        "retry": {"max_attempts": 3, "delay_seconds": 0.5},
+        "limits": {
+            "test_output_voltage_full_load": {
+                "low": 3.201, "high": 3.399, "nominal": 3.3,
+                "units": "V", "spec_ref": "output_voltage @ load=0.8A, temp=25C",
+            }
+        },
+    }
+)
 def test_output_voltage_full_load(context, psu, dmm, eload):
     """Verify output voltage at full load.
 
-    Vector params: vin=5.0, load_current=0.8 (from config.yaml)
-    Limit: 3.201V to 3.399V (spec ±3% for full load)
-    Retry: max_attempts=3, delay=0.5s (from config.yaml)
-
-    If measurement fails, framework automatically retries.
+    Inline config provides dev defaults. Retry: max_attempts=3, delay=0.5s.
     """
     vin = context.get_in("vin", 5.0)
     load = context.get_in("load_current", 0.8)
@@ -96,16 +118,28 @@ def test_output_voltage_full_load(context, psu, dmm, eload):
 # =============================================================================
 # Pattern 3: Explicit Vector List
 # =============================================================================
-@litmus_test
+@litmus_test(
+    config={
+        "vectors": [
+            {"vin": 5.0, "load_current": 0.1, "expected_dropout": 0,
+             "_mocks": {"dmm.measure_dc_voltage": 3.32, "psu.measure_current": 0.15}},
+            {"vin": 5.0, "load_current": 0.4, "expected_dropout": 2,
+             "_mocks": {"dmm.measure_dc_voltage": 3.30, "psu.measure_current": 0.45}},
+            {"vin": 5.0, "load_current": 0.8, "expected_dropout": 5,
+             "_mocks": {"dmm.measure_dc_voltage": 3.28, "psu.measure_current": 0.85}},
+        ],
+        "limits": {
+            "test_load_regulation": {
+                "low": 3.2, "high": 3.4, "nominal": 3.3,
+                "units": "V", "spec_ref": "output_voltage over load range",
+            }
+        },
+    }
+)
 def test_load_regulation(context, psu, dmm, eload):
     """Measure output at multiple load points.
 
-    Vectors defined explicitly in config.yaml:
-    - {vin: 5.0, load_current: 0.1}
-    - {vin: 5.0, load_current: 0.4}
-    - {vin: 5.0, load_current: 0.8}
-
-    Test runs 3 times, once per vector.
+    3 vectors with per-vector mock values, one limit for all.
     """
     vin = context.get_in("vin", 5.0)
     load = context.inputs["load_current"]
@@ -126,14 +160,25 @@ def test_load_regulation(context, psu, dmm, eload):
 # =============================================================================
 # Pattern 4: Product Expansion (Cartesian Product)
 # =============================================================================
-@litmus_test
+@litmus_test(
+    config={
+        "vectors": {
+            "expand": "product",
+            "vin": [4.5, 4.75, 5.0, 5.25, 5.5],
+            "load_current": [0.1, 0.25, 0.4, 0.6, 0.8],
+        },
+        "limits": {
+            "test_load_sweep": {
+                "low": 3.1, "high": 3.5, "nominal": 3.3,
+                "units": "V", "spec_ref": "output_voltage - line/load regulation",
+            }
+        },
+    }
+)
 def test_load_sweep(context, psu, dmm, eload):
     """Sweep VIN and load using product expansion.
 
-    Config specifies: expand=product, vin=[4.75, 5.0, 5.5], load_current=[0.1, 0.4, 0.8]
-    Results in 3×3 = 9 vectors.
-
-    Uses context.changed() to detect when parameters change.
+    5×5 = 25 vectors. Uses context.changed() to detect when parameters change.
     """
     vin = context.inputs["vin"]
     load = context.inputs["load_current"]
@@ -157,16 +202,27 @@ def test_load_sweep(context, psu, dmm, eload):
 # =============================================================================
 # Pattern 5: Nested Loops with Change Detection
 # =============================================================================
-@litmus_test
+@litmus_test(
+    config={
+        "vectors": {
+            "expand": "nested",
+            "loops": [
+                {"name": "temperature", "values": [-20, 25, 55, 85]},
+                {"name": "load_current", "values": [0.1, 0.3, 0.5, 0.7, 0.8]},
+            ],
+        },
+        "limits": {
+            "test_temp_load_matrix": {
+                "low": 3.0, "high": 3.6, "nominal": 3.3,
+                "units": "V", "spec_ref": "output_voltage - characterization",
+            }
+        },
+    }
+)
 def test_temp_load_matrix(context, psu, dmm, eload):
     """Full characterization matrix with nested loops.
 
-    Config specifies nested expansion:
-    - Outer loop: temperature=[25, 85]
-    - Inner loop: load_current=[0.1, 0.5, 0.8]
-
-    Uses context.changed() to detect when outer parameter changes.
-    In real test, you'd adjust thermal chamber when temperature changes.
+    4×5 = 20 vectors. Uses context.changed() for outer parameter changes.
     """
     temp = context.inputs["temperature"]
     load = context.inputs["load_current"]
@@ -193,13 +249,23 @@ def test_temp_load_matrix(context, psu, dmm, eload):
 # =============================================================================
 # Pattern 6: Range Expansion
 # =============================================================================
-@litmus_test
+@litmus_test(
+    config={
+        "vectors": {
+            "expand": "range",
+            "name": "vin",
+            "start": 4.5, "stop": 5.5, "step": 0.1,
+        },
+        "limits": {
+            "test_line_regulation": {
+                "low": 3.2, "high": 3.4, "nominal": 3.3,
+                "units": "V", "spec_ref": "line regulation",
+            }
+        },
+    }
+)
 def test_line_regulation(context, psu, dmm, eload):
-    """Sweep input voltage using range expansion.
-
-    Config specifies: expand=range, start=4.5, stop=6.0, step=0.5
-    Results in vectors: vin=[4.5, 5.0, 5.5, 6.0]
-    """
+    """Sweep input voltage using range expansion (4.5V to 5.5V, 0.1V steps)."""
     vin = context.inputs["vin"]
 
     psu.set_voltage(vin)
@@ -219,14 +285,28 @@ def test_line_regulation(context, psu, dmm, eload):
 # =============================================================================
 # Pattern 7: Multiple Measurements (Dict Return)
 # =============================================================================
-@litmus_test
+@litmus_test(
+    config={
+        "vectors": [{"vin": 5.0, "load_current": 0.5}],
+        "mocks": {
+            "dmm.measure_dc_voltage": 3.3,
+            "psu.measure_current": 0.5,
+        },
+        "limits": {
+            "input_power": {"low": 0, "high": 5.0, "nominal": 2.0, "units": "W"},
+            "output_power": {"low": 0, "high": 3.0, "nominal": 1.65, "units": "W"},
+            "efficiency": {
+                "low": 60, "high": 100, "nominal": 66, "units": "%",
+                "spec_ref": "efficiency @ vin=5V, load=0.5A",
+            },
+        },
+    }
+)
 def test_power_analysis(context, psu, dmm, eload):
     """Measure multiple values and return as dict.
 
     Returns: {"input_power": W, "output_power": W, "efficiency": %}
-
-    Each key gets checked against its own limit in config.yaml.
-    This is the pattern for calculated values and multi-point measurements.
+    Each key gets checked against its own limit.
     """
     vin = context.get_in("vin", 5.0)
     load = context.get_in("load_current", 0.5)
@@ -264,13 +344,20 @@ def test_power_analysis(context, psu, dmm, eload):
 # =============================================================================
 # Pattern 8: One-Sided Limit (Max Only)
 # =============================================================================
-@litmus_test
+@litmus_test(
+    config={
+        "vectors": [{"vin": 5.0}],
+        "mocks": {"psu.measure_current": 0.005},
+        "limits": {
+            "test_quiescent_current": {
+                "low": 0, "high": 10, "nominal": 5, "units": "mA",
+                "comparator": "LE", "spec_ref": "quiescent_current @ no load",
+            }
+        },
+    }
+)
 def test_quiescent_current(context, psu):
-    """Verify quiescent current (no load).
-
-    Limit uses comparator=LE (less than or equal) for upper-bound-only check.
-    Spec: max 10mA quiescent current.
-    """
+    """Verify quiescent current (no load). Comparator=LE for upper-bound-only."""
     vin = context.get_in("vin", 5.0)
 
     psu.set_voltage(vin)
@@ -285,18 +372,20 @@ def test_quiescent_current(context, psu):
 # =============================================================================
 # Pattern 9: Streaming Measurements (Yield)
 # =============================================================================
-@litmus_test
+@litmus_test(
+    config={
+        "vectors": [{"vin": 5.0, "load_current": 0.5, "sample_count": 5}],
+        "mocks": {"dmm.measure_dc_voltage": 3.3},
+        "limits": {
+            "voltage": {
+                "low": 3.25, "high": 3.35, "nominal": 3.3,
+                "units": "V", "spec_ref": "output stability",
+            }
+        },
+    }
+)
 def test_stability_over_time(context, psu, dmm, eload):
-    """Monitor output stability over time using yield.
-
-    Yield pattern allows streaming multiple measurements from a single test.
-    Each yielded value is logged and checked against limits.
-
-    This is the pattern for:
-    - Time-series data (burn-in, soak tests)
-    - Progress reporting during long tests
-    - Data arrays (waveform capture)
-    """
+    """Monitor output stability over time using yield (streaming measurements)."""
     vin = context.get_in("vin", 5.0)
     load = context.get_in("load_current", 0.5)
     sample_count = context.get_in("sample_count", 5)
@@ -320,16 +409,20 @@ def test_stability_over_time(context, psu, dmm, eload):
 # =============================================================================
 # Pattern 10: Manual Test (Requires Operator Action)
 # =============================================================================
-@litmus_test
+@litmus_test(
+    config={
+        "vectors": [{"vin": 5.0, "load_current": 0.5}],
+        "mocks": {"dmm.measure_dc_voltage": 0.05},
+        "limits": {
+            "test_thermal_shutdown": {
+                "low": 0, "high": 0.1, "nominal": 0, "units": "V",
+                "spec_ref": "thermal shutdown - output should collapse",
+            }
+        },
+    }
+)
 def test_thermal_shutdown(context, psu, dmm, eload):
-    """Verify thermal protection (manual test).
-
-    Config includes prompt_before to instruct operator.
-    This test is typically skipped in automated runs.
-
-    In production, this would verify the LDO shuts down
-    when overheated, protecting the circuit.
-    """
+    """Verify thermal protection (manual test). Output should collapse."""
     vin = context.get_in("vin", 5.0)
     load = context.get_in("load_current", 0.5)
 
@@ -350,24 +443,25 @@ def test_thermal_shutdown(context, psu, dmm, eload):
 # =============================================================================
 # Pattern 11: Waveform Capture (Oscilloscope)
 # =============================================================================
-@litmus_test
+@litmus_test(
+    config={
+        "vectors": [{"vin": 5.0, "load_current": 0.5}],
+        "mocks": {
+            "scope.fetch_waveform": [
+                [3.285, 3.290, 3.300, 3.310, 3.315, 3.310, 3.300, 3.290, 3.285, 3.290],
+                0.00001,
+            ],
+        },
+        "limits": {
+            "test_output_ripple": {
+                "low": 0, "high": 50, "nominal": 30, "units": "mV",
+                "comparator": "LE", "spec_ref": "output ripple @ 500mA load",
+            }
+        },
+    }
+)
 def test_output_ripple(context, psu, eload, scope):
-    """Measure output ripple using oscilloscope waveform capture.
-
-    Captures a waveform from the scope, calculates peak-to-peak ripple.
-
-    This pattern demonstrates:
-    - Waveform capture from oscilloscope
-    - Analysis of time-series data
-    - Scope mock configuration with sample data
-
-    The scope.fetch_waveform() returns (samples, dt):
-    - samples: list of voltage values
-    - dt: time between samples (seconds)
-
-    For the Waveform model (with t0, dt, Y, attrs), see:
-    litmus.data.models.Waveform
-    """
+    """Measure output ripple using oscilloscope waveform capture."""
     vin = context.get_in("vin", 5.0)
     load = context.get_in("load_current", 0.5)
 
@@ -391,23 +485,31 @@ def test_output_ripple(context, psu, eload, scope):
 # =============================================================================
 # Pattern 12: Callable Limits (Temperature-Dependent)
 # =============================================================================
-@litmus_test
+@litmus_test(
+    config={
+        "vectors": {
+            "expand": "product",
+            "temperature": [-40, 25, 85],
+            "vin": [5.0],
+        },
+        "mocks": {"dmm.measure_dc_voltage": 3.3},
+        "limits": {
+            "test_output_voltage_temp": {
+                "callable": (
+                    'temp = ctx.get_in("temperature")\n'
+                    "if temp < 0:\n"
+                    "  return Limit(low=3.15, high=3.45, units='V')\n"
+                    "elif temp < 50:\n"
+                    "  return Limit(low=3.25, high=3.35, units='V')\n"
+                    "else:\n"
+                    "  return Limit(low=3.10, high=3.50, units='V')\n"
+                ),
+            }
+        },
+    }
+)
 def test_output_voltage_temp(context, psu, dmm):
-    """Verify output voltage with temperature-dependent limits.
-
-    Uses a callable limit (defined in config.yaml) that adjusts
-    based on the temperature condition from the test vector.
-
-    This pattern demonstrates:
-    - Dynamic limits via inline Python in config.yaml
-    - context.configure() to record test conditions
-    - Limits that access ctx.get_in() for condition-dependent checks
-
-    Callable limits have access to:
-    - ctx.get_in(key) - Input parameters from vectors
-    - ctx.get_out(key) - Observations from context.observe()
-    - Limit class - For constructing return limits
-    """
+    """Verify output voltage with temperature-dependent callable limits."""
     temp = context.inputs["temperature"]
     vin = context.get_in("vin", 5.0)
 
@@ -426,26 +528,28 @@ def test_output_voltage_temp(context, psu, dmm):
 # =============================================================================
 # Pattern 13: Context Traceability (Configure/Observe)
 # =============================================================================
-@litmus_test
+@litmus_test(
+    config={
+        "vectors": [
+            {"vin": 5.0, "load_current": 0.5,
+             "_mocks": {
+                 "psu.measure_voltage": 5.0,
+                 "psu.measure_current": 0.55,
+                 "dmm.measure_dc_voltage": 3.3,
+             }},
+        ],
+        "limits": {
+            "input_power": {"low": 0, "high": 6.0, "units": "W"},
+            "output_power": {"low": 0, "high": 4.0, "units": "W"},
+            "efficiency": {
+                "low": 55, "high": 100, "nominal": 60, "units": "%",
+                "spec_ref": "efficiency across line/load",
+            },
+        },
+    }
+)
 def test_efficiency_with_context(context, psu, dmm, eload):
-    """Full efficiency test with context traceability.
-
-    Uses context.configure() for commanded stimulus and context.observe()
-    for environmental observations that aren't formal measurements.
-
-    This pattern demonstrates:
-    - context.configure() - Records inputs (→ in_* columns in Parquet)
-    - context.observe() - Records observations (→ out_* columns in Parquet)
-    - Separation of stimulus, environment, and measurements
-
-    Use context for:
-    - Commanded setpoints (PSU voltage, load current)
-    - Environmental data (temperature probes, humidity)
-    - Debug data (timestamps, instrument status)
-
-    Use return values for:
-    - Measurements with pass/fail limits
-    """
+    """Full efficiency test with context traceability (configure/observe)."""
     vin = context.inputs["vin"]
     load = context.inputs["load_current"]
 
@@ -494,23 +598,30 @@ def test_efficiency_with_context(context, psu, dmm, eload):
 # =============================================================================
 # Pattern 14: Large Data Observation (Waveform → _ref/)
 # =============================================================================
-@litmus_test
+@litmus_test(
+    config={
+        "vectors": {
+            "expand": "product",
+            "vin": [4.5, 5.0, 5.5],
+            "load_current": [0.2, 0.5, 0.8],
+        },
+        "mocks": {
+            "scope.fetch_waveform": [
+                [3.290, 3.295, 3.305, 3.310, 3.308, 3.302, 3.295, 3.288, 3.292, 3.298,
+                 3.305, 3.312, 3.310, 3.303, 3.296, 3.290, 3.288, 3.293, 3.300, 3.308],
+                0.00001,
+            ],
+        },
+        "limits": {
+            "test_ripple_waveform_capture": {
+                "low": 0, "high": 50, "nominal": 25, "units": "mV",
+                "comparator": "LE", "spec_ref": "output ripple with waveform capture",
+            }
+        },
+    }
+)
 def test_ripple_waveform_capture(context, psu, eload, scope):
-    """Capture and observe raw waveform data.
-
-    This pattern demonstrates storing large data structures via context.observe().
-    Waveform objects (and numpy arrays, large byte strings) are automatically
-    stored in the _ref/ directory alongside the Parquet file, with a path
-    reference in the Parquet column.
-
-    The waveform has semi-random noise added to demonstrate realistic data.
-
-    Use this pattern for:
-    - Oscilloscope waveforms for post-test analysis
-    - FFT data for frequency domain analysis
-    - Image captures (e.g., thermal camera)
-    - Large sensor arrays
-    """
+    """Capture and observe raw waveform data (stored in _ref/ directory)."""
     from litmus.data.models import Waveform
 
     vin = context.get_in("vin", 5.0)

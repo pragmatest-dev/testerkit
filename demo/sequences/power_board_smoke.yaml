@@ -1,12 +1,10 @@
 # Test Sequence: Power Board Smoke Test
 #
-# Sequences define the ORDER of test execution and can include:
-# - Pre/post-test operator dialogs
-# - Skip conditions based on previous failures
-# - Retry policies at the sequence level
-# - Grouping for reporting
+# Sequences are the SINGLE SOURCE OF TRUTH for test config in orchestrated runs.
+# Each step carries its own vectors, limits, and mocks — no separate config.yaml needed.
 #
-# This is the "quick check" sequence that runs during production.
+# For ad-hoc pytest runs (without --sequence), tests fall back to inline
+# decorator defaults defined in the test file itself.
 
 sequence:
   id: power_board_smoke
@@ -18,34 +16,85 @@ sequence:
 
 steps:
   # Step 1: Basic power-up (must pass for others to run)
-  # Uses precision DMM (default) for this critical measurement
   - id: basic_power
     test: tests/test_power_board.py::test_output_voltage_no_load
     description: "Verify 3.3V output at no load"
     aliases:
-      dmm: dmm                       # Precision DMM for critical measurement
+      dmm: dmm
     pre_dialog: confirm_dut_inserted
+    vectors:
+      - vin: 5.0
+    mocks:
+      dmm.measure_dc_voltage: 3.3
+      psu.measure_current: 0.005
+    limits:
+      test_output_voltage_no_load:
+        low: 3.234
+        high: 3.366
+        nominal: 3.3
+        units: V
+        spec_ref: "output_voltage @ load=0.1A, temp=25C"
+        comparator: GELE
 
   # Step 2: Load test (skip if basic fails)
   - id: load_test
     test: tests/test_power_board.py::test_output_voltage_full_load
     description: "Verify 3.3V output under 800mA load"
     aliases:
-      dmm: fast_dmm                  # Fast DMM is sufficient here
+      dmm: fast_dmm
     skip_on: [basic_power]
+    vectors:
+      - vin: 5.0
+        load_current: 0.8
+    mocks:
+      dmm.measure_dc_voltage: 3.28
+      psu.measure_current: 0.85
+    retry:
+      max_attempts: 3
+      delay_seconds: 0.5
+    limits:
+      test_output_voltage_full_load:
+        low: 3.201
+        high: 3.399
+        nominal: 3.3
+        units: V
+        spec_ref: "output_voltage @ load=0.8A, temp=25C"
 
   # Step 3: Quiescent current (independent)
   - id: quiescent
     test: tests/test_power_board.py::test_quiescent_current
     description: "Verify low standby current"
+    vectors:
+      - vin: 5.0
+    mocks:
+      psu.measure_current: 0.005
+    limits:
+      test_quiescent_current:
+        low: 0
+        high: 10
+        nominal: 5
+        units: mA
+        comparator: LE
+        spec_ref: "quiescent_current @ no load"
 
   # Step 4: Full sweep (optional for smoke)
   - id: regulation_sweep
     test: tests/test_power_board.py::test_load_sweep
     description: "Sweep load from 100mA to 800mA"
     aliases:
-      dmm: fast_dmm                  # Fast DMM for rapid sweep
+      dmm: fast_dmm
     skip_on: [load_test]
+    vectors:
+      expand: product
+      vin: [4.5, 4.75, 5.0, 5.25, 5.5]
+      load_current: [0.1, 0.25, 0.4, 0.6, 0.8]
+    limits:
+      test_load_sweep:
+        low: 3.1
+        high: 3.5
+        nominal: 3.3
+        units: V
+        spec_ref: "output_voltage - line/load regulation"
 
 dialogs:
   confirm_dut_inserted:

@@ -1,67 +1,54 @@
 # Test Limits
 
-Limits define pass/fail criteria for measurements. Litmus automatically loads limits from config.yaml and checks them against test return values.
+Limits define pass/fail criteria for measurements. Litmus checks return values against configured limits and records the outcome.
 
 ## Where Limits Are Specified
 
-Limits are defined in **config.yaml** in the tests/ directory:
+Limits can come from two sources (in order of precedence):
+
+1. **Sequence steps** — Primary source for orchestrated runs
+2. **Inline decorator** — Fallback for ad-hoc pytest runs
+
+### In a Sequence Step
 
 ```yaml
-# tests/config.yaml
-test_output_voltage:                  # Test function name
-  limits:
-    test_output_voltage:              # Measurement name (usually same as test)
-      low: 3.135                      # Lower limit
-      high: 3.465                     # Upper limit
-      nominal: 3.3                    # Expected value
-      units: V                        # Unit of measure
-      spec_ref: "output_voltage @ 5%" # Reference to spec
+# sequences/power_board_smoke.yaml
+steps:
+  - id: output_voltage
+    test: tests/test_power.py::test_output_voltage
+    limits:
+      test_output_voltage:              # Measurement name
+        low: 3.135
+        high: 3.465
+        nominal: 3.3
+        units: V
+        spec_ref: "output_voltage @ 5%"
 ```
 
-**Key naming rule:** The outer key (`test_output_voltage:`) must match your test function name.
+### In the Inline Decorator
+
+```python
+from litmus.execution import litmus_test
+
+@litmus_test(
+    limits={"test_output_voltage": {"low": 3.135, "high": 3.465, "nominal": 3.3, "units": "V"}},
+)
+def test_output_voltage(context, psu, dmm):
+    psu.set_voltage(context.get_in("vin", 5.0))
+    psu.enable_output()
+    return dmm.measure_dc_voltage()
+```
 
 ## How Limits Are Automatically Used
 
 When you use `@litmus_test`, the framework:
 
-1. **Discovers config** — Finds `config.yaml` in the same directory as your test file
-2. **Loads test config** — Gets the section matching your function name
-3. **Expands vectors** — Creates test iterations from vectors config
-4. **Runs your test** — Executes your function for each vector
-5. **Captures return value** — Your return value becomes a measurement
-6. **Applies limits** — Checks the measurement against configured limits
-7. **Records result** — Saves measurement with outcome to Parquet
-
-```python
-# tests/test_power.py
-from litmus.execution import litmus_test
-
-@litmus_test
-def test_output_voltage(context, psu, dmm):
-    """Framework finds limits in config.yaml for 'test_output_voltage'"""
-    vin = context.get("vin", 5.0)
-    psu.set_voltage(vin)
-    psu.enable_output()
-
-    # Return value is automatically:
-    # 1. Wrapped in a Measurement
-    # 2. Checked against limits from config.yaml
-    # 3. Saved to results
-    return dmm.measure_dc_voltage()
-```
-
-```yaml
-# tests/config.yaml
-test_output_voltage:              # Must match function name!
-  vectors:
-    - vin: 5.0
-  limits:
-    test_output_voltage:          # Measurement name
-      low: 3.135
-      high: 3.465
-      nominal: 3.3
-      units: V
-```
+1. **Resolves config** — From sequence step (if active) or inline decorator
+2. **Expands vectors** — Creates test iterations from vectors config
+3. **Runs your test** — Executes your function for each vector
+4. **Captures return value** — Your return value becomes a measurement
+5. **Applies limits** — Checks the measurement against configured limits
+6. **Records result** — Saves measurement with outcome to Parquet
 
 ## Limit Structure
 
@@ -125,14 +112,14 @@ test_power:
 
 ### 1. Direct Values (Most Common)
 
-Specify limits directly in config.yaml:
+Specify limits directly in a sequence step or inline decorator:
 
 ```yaml
-test_output_voltage:
-  limits:
-    test_output_voltage:
-      low: 3.135
-      high: 3.465
+# In a sequence step
+limits:
+  test_output_voltage:
+    low: 3.135
+    high: 3.465
 ```
 
 ### 2. Derived from Product Spec
@@ -140,11 +127,11 @@ test_output_voltage:
 Reference the product spec and apply guardbanding:
 
 ```yaml
-test_output_voltage:
-  limits:
-    test_output_voltage:
-      ref: specs.power_board.characteristics.output_voltage
-      guardband_pct: 10  # Tighten by 10%
+# In a sequence step or inline config
+limits:
+  test_output_voltage:
+    ref: specs.power_board.characteristics.output_voltage
+    guardband_pct: 10  # Tighten by 10%
 ```
 
 This:
@@ -157,29 +144,21 @@ This:
 For limits that depend on test conditions or require complex logic, use callable limits:
 
 ```yaml
-# tests/config.yaml
-test_output_voltage:
-  limits:
-    test_output_voltage:
-      # Module function reference
-      callable: myproject.limits.output_voltage
+# In a sequence step or inline config
+limits:
+  test_output_voltage:
+    callable: myproject.limits.output_voltage
 
-test_efficiency:
-  limits:
-    test_efficiency:
-      # Inline Python expression
-      callable: "Limit(low=80 if ctx.get_in('load') > 0.5 else 85, units='%')"
+  test_efficiency:
+    callable: "Limit(low=80 if ctx.get_in('load') > 0.5 else 85, units='%')"
 
-test_ripple:
-  limits:
-    test_ripple:
-      # Multi-line inline Python
-      callable: |
-        vin = ctx.get_in('vin')
-        if vin < 5.0:
-          return Limit(high=vin * 0.01, units='V')
-        else:
-          return Limit(high=0.05, units='V')
+  test_ripple:
+    callable: |
+      vin = ctx.get_in('vin')
+      if vin < 5.0:
+        return Limit(high=vin * 0.01, units='V')
+      else:
+        return Limit(high=0.05, units='V')
 ```
 
 **Module function example:**
@@ -207,9 +186,9 @@ Callable limits have access to:
 - `ctx.outputs` — All observations as dict
 - `Limit` — The Limit class for creating limits
 
-### 4. Inline in Test (Not Recommended)
+### 4. Inline Decorator (Dev Fallback)
 
-You can specify limits in the decorator, but this defeats configuration-driven testing:
+For ad-hoc runs without a sequence, pass limits in the decorator:
 
 ```python
 @litmus_test(
@@ -218,6 +197,8 @@ You can specify limits in the decorator, but this defeats configuration-driven t
 def test_voltage(context, dmm):
     return dmm.measure_dc_voltage()
 ```
+
+When running with `--sequence`, the sequence step limits override these.
 
 ## Comparators
 
@@ -285,86 +266,69 @@ def test_characterize(context, dmm):
 
 To prevent accidental test runs without limits, use `raise_on_fail=True` (default) and ensure limits exist.
 
-## Config Discovery
+## Config Resolution
 
-The framework finds config.yaml by searching:
+Limits are resolved in this order:
 
-1. Same directory as test file (`tests/config.yaml`)
-2. Test directory parent (`tests/product_a/config.yaml` for `tests/product_a/test_x.py`)
-3. Explicit `config_file` parameter in decorator
-
-```python
-@litmus_test(config_file="custom_limits.yaml")
-def test_special(context, dmm):
-    return dmm.measure_dc_voltage()
-```
+1. **Sequence step** `limits:` — When running with `--sequence`
+2. **Inline decorator** `limits=` — For ad-hoc pytest runs
+3. **Product spec** `ref:` — Derived from spec characteristics
+4. **No limits** — Characterization mode (always passes)
 
 ## Complete Example
 
+**Sequence:**
 ```yaml
-# tests/config.yaml
+# sequences/power_board_smoke.yaml
+steps:
+  - id: output_voltage
+    test: tests/test_power.py::test_output_voltage
+    vectors:
+      - vin: 5.0
+    limits:
+      test_output_voltage:
+        low: 3.135
+        high: 3.465
+        nominal: 3.3
+        units: V
+        spec_ref: "output_voltage @ tolerance_pct=5"
 
-# Basic test with limits
-test_output_voltage:
-  vectors:
-    - vin: 5.0
-  limits:
-    test_output_voltage:
-      low: 3.135
-      high: 3.465
-      nominal: 3.3
-      units: V
-      spec_ref: "output_voltage @ tolerance_pct=5"
-
-# Multiple measurements
-test_psu:
-  vectors:
-    expand: product
-    load: [0.1, 0.5, 1.0]
-  limits:
-    voltage:
-      low: 4.9
-      high: 5.1
-      units: V
-    current:
-      low: 0
-      high: 1.5
-      units: A
-
-# Efficiency with minimum only
-test_efficiency:
-  limits:
-    test_efficiency:
-      low: 60
-      comparator: GE
-      units: "%"
-      spec_ref: "efficiency @ load=0.5A"
+  - id: psu_check
+    test: tests/test_power.py::test_psu
+    vectors:
+      expand: product
+      load: [0.1, 0.5, 1.0]
+    limits:
+      voltage:
+        low: 4.9
+        high: 5.1
+        units: V
+      current:
+        low: 0
+        high: 1.5
+        units: A
 ```
 
+**Test code:**
 ```python
-# tests/test_power.py
 from litmus.execution import litmus_test
 
-@litmus_test
+@litmus_test(
+    limits={"test_output_voltage": {"low": 3.135, "high": 3.465, "nominal": 3.3, "units": "V"}},
+)
 def test_output_voltage(context, psu, dmm):
-    vin = context.get("vin", 5.0)
-    psu.set_voltage(vin)
+    """Inline limits for dev; sequence overrides in production."""
+    psu.set_voltage(context.get_in("vin", 5.0))
     psu.enable_output()
     return dmm.measure_dc_voltage()
 
 @litmus_test
 def test_psu(context, psu, dmm):
-    load = context["load"]
-    # ... setup load ...
+    load = context.inputs["load"]
     return {
         "voltage": psu.measure_voltage(),
         "current": psu.measure_current(),
     }
-
-@litmus_test
-def test_efficiency(context, psu, dmm, eload):
-    # ... measure efficiency ...
-    return efficiency_percent
 ```
 
 ## Best Practices
@@ -377,6 +341,6 @@ def test_efficiency(context, psu, dmm, eload):
 
 4. **Derive from specs** — Use `ref` and `guardband_pct` when possible
 
-5. **Match names** — Test function name must match config key
+5. **Match names** — Measurement name in limits must match what the test returns
 
-6. **One config per test directory** — Keep limits close to tests
+6. **Use sequences for production** — Inline decorator for dev, sequence steps for production

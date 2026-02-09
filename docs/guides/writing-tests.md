@@ -18,7 +18,7 @@ def test_voltage(context, instruments):
 
 The decorator transforms your function into a hardware test:
 
-1. **Loads configuration** from `config.yaml`
+1. **Resolves config** from sequence step (if active) or inline decorator
 2. **Expands vectors** (runs test multiple times if configured)
 3. **Captures return values** as measurements
 4. **Checks limits** against configured limits
@@ -28,12 +28,15 @@ The decorator transforms your function into a hardware test:
 
 ```python
 @litmus_test(
+    config={"vectors": [{"vin": 5.0}]},  # Inline vectors
+    limits={"test_voltage": {"low": 3.0, "high": 3.6}},  # Inline limits
     raise_on_fail=True,       # Raise if limit fails (default: True)
-    config_file="custom.yaml", # Custom config file
 )
-def test_example(context):
-    ...
+def test_example(context, dmm):
+    return dmm.measure_dc_voltage()
 ```
+
+When running with `--sequence`, the sequence step config overrides inline config.
 
 ## Return Values
 
@@ -96,37 +99,40 @@ if context.changed("temperature"):
 
 ## Test Configuration
 
-### Limits
+Config comes from **sequence steps** (primary) or **inline decorator** (fallback).
 
-```yaml
-# tests/config.yaml
-test_voltage:
-  limits:
-    test_voltage:
-      low: 3.0
-      high: 3.6
-      nominal: 3.3
-      units: V
-      spec_ref: "Section 7.2"
+### Inline Decorator (Dev/Ad-Hoc)
+
+```python
+@litmus_test(
+    config={"vectors": {"expand": "product", "voltage": [3.3, 5.0, 12.0], "load": [0, 50, 100]}},
+    limits={"test_sweep": {"low": 3.0, "high": 3.6, "nominal": 3.3, "units": "V"}},
+    retry=RetryConfig(max_attempts=3, delay_seconds=0.5),
+)
+def test_sweep(context, dmm):
+    return dmm.measure_dc_voltage()
 ```
 
-### Vectors
+### Sequence Step (Production)
 
 ```yaml
-test_sweep:
-  vectors:
-    expand: product
-    voltage: [3.3, 5.0, 12.0]
-    load: [0, 50, 100]
-```
-
-### Retry
-
-```yaml
-test_flaky:
-  retry:
-    max_attempts: 3
-    delay_seconds: 0.5
+# sequences/my_sequence.yaml
+steps:
+  - id: sweep
+    test: tests/test_power.py::test_sweep
+    vectors:
+      expand: product
+      voltage: [3.3, 5.0, 12.0]
+      load: [0, 50, 100]
+    limits:
+      test_sweep:
+        low: 3.0
+        high: 3.6
+        nominal: 3.3
+        units: V
+    retry:
+      max_attempts: 3
+      delay_seconds: 0.5
 ```
 
 ## Instrument Fixtures
@@ -326,13 +332,11 @@ def test_voltage(context, dmm):
 
 ### Do: Use Configuration
 
-```yaml
-# config.yaml
-test_voltage:
-  limits:
-    test_voltage:
-      low: 3.0
-      high: 3.6
+```python
+# Good — limits in decorator (dev) or sequence step (production)
+@litmus_test(limits={"test_voltage": {"low": 3.0, "high": 3.6}})
+def test_voltage(context, dmm):
+    return dmm.measure_voltage()
 ```
 
 ## Next Steps

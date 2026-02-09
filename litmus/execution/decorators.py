@@ -224,38 +224,49 @@ def litmus_test(
             if harness is None:
                 harness = _current_harness
             if harness is None:
-                # Resolve config: inline > config_file > auto-discover
+                # Resolve config: sequence step > inline decorator > config_file > auto-discover
+                from litmus.execution.plugin import _CURRENT_STEP_CONFIG
+
                 resolved_config: dict[str, Any] = {}
                 resolved_limits = limits
                 resolved_retry = retry
 
-                # Try to load from file
-                test_file = Path(inspect.getfile(fn))
-                file_config = None
-
-                if config_file:
-                    # Explicit config file path
-                    from litmus.config.loader import load_test_config
-
-                    config_path = test_file.parent / config_file
-                    if config_path.exists():
-                        all_configs = load_test_config(config_path)
-                        file_config = all_configs.get(fn.__name__)
+                if _CURRENT_STEP_CONFIG:
+                    # Sequence step config replaces all other config sources
+                    resolved_config = dict(_CURRENT_STEP_CONFIG)
+                    if "limits" in _CURRENT_STEP_CONFIG:
+                        resolved_limits = _CURRENT_STEP_CONFIG["limits"]
+                    if "retry" in _CURRENT_STEP_CONFIG:
+                        from litmus.config.models import RetryConfig as _RC
+                        r = _CURRENT_STEP_CONFIG["retry"]
+                        resolved_retry = r if isinstance(r, _RC) else _RC.model_validate(r)
                 else:
-                    # Auto-discover config.yaml
-                    file_config = get_test_config(fn.__name__, test_file)
+                    # No sequence — use inline decorator or file config
+                    test_file = Path(inspect.getfile(fn))
+                    file_config = None
 
-                # Merge file config (lower precedence)
-                if file_config:
-                    resolved_config = dict(file_config)
-                    if "limits" in file_config and resolved_limits is None:
-                        resolved_limits = file_config["limits"]
-                    if "retry" in file_config and resolved_retry is None:
-                        resolved_retry = file_config["retry"]
+                    if config_file:
+                        from litmus.config.loader import load_test_config
 
-                # Merge inline config (higher precedence)
-                if config:
-                    resolved_config.update(config)
+                        config_path = test_file.parent / config_file
+                        if config_path.exists():
+                            all_configs = load_test_config(config_path)
+                            file_config = all_configs.get(fn.__name__)
+                    else:
+                        # Auto-discover config.yaml
+                        file_config = get_test_config(fn.__name__, test_file)
+
+                    # Merge file config (lower precedence)
+                    if file_config:
+                        resolved_config = dict(file_config)
+                        if "limits" in file_config and resolved_limits is None:
+                            resolved_limits = file_config["limits"]
+                        if "retry" in file_config and resolved_retry is None:
+                            resolved_retry = file_config["retry"]
+
+                    # Merge inline config (higher precedence)
+                    if config:
+                        resolved_config.update(config)
 
                 # Extract instruments for mock configuration per vector
                 # First try kwargs (if test explicitly includes these fixtures)
@@ -300,6 +311,11 @@ def litmus_test(
                             using_mocks = True
                             break
 
+                # Get spec_context for spec-driven limit resolution (ref:)
+                from litmus.execution.plugin import _ACTIVE_SPEC_CONTEXT
+
+                spec_ctx = kwargs.get("spec_context") or _ACTIVE_SPEC_CONTEXT
+
                 # Create harness from resolved config
                 harness = TestHarness(
                     config=resolved_config,
@@ -309,6 +325,7 @@ def litmus_test(
                     logger=_current_logger,
                     instruments=instruments_fixture,
                     mock_instruments=using_mocks,
+                    spec_context=spec_ctx,
                 )
 
             # Strip context sentinel from args/kwargs - we inject the real context

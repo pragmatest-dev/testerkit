@@ -149,30 +149,22 @@ def test_current(harness):
 
 ### With Configuration
 
-Load limits from YAML:
-
-```yaml
-# tests/config.yaml
-test_voltage:
-  limits:
-    voltage:
-      low: 3.0
-      high: 3.6
-      units: V
-```
+Pass limits directly when creating a harness:
 
 ```python
 from litmus.execution.harness import TestHarness
 
 harness = TestHarness(
     step_name="test_voltage",
-    config_file="tests/config.yaml",
+    limits={"voltage": {"low": 3.0, "high": 3.6, "units": "V"}},
 )
 
 v = measure_voltage()
-harness.measure("voltage", v)  # Limits loaded from config
+harness.measure("voltage", v)  # Limits from config
 harness.finish()
 ```
+
+When using `@litmus_test`, limits come from sequence steps (primary) or inline decorator config (fallback).
 
 ### With Spec-Driven Limits
 

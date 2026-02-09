@@ -391,7 +391,7 @@ class TestHarnessMockConfiguration:
 
         config = {
             "vectors": [{"vin": 5.0}],
-            "_mock": {"dmm.measure_voltage": 3.3},  # Test-level mock
+            "mocks": {"dmm.measure_voltage": 3.3},  # Test-level mock
         }
         harness = TestHarness(config=config, instruments=instruments, mock_instruments=True)
 
@@ -457,7 +457,7 @@ class TestHarnessMockConfiguration:
 
         config = {
             "vectors": [{"vin": 5.0}],
-            "_mock": {
+            "mocks": {
                 "dmm.query": {
                     "MEAS:VOLT:DC?": "3.3",
                     "MEAS:CURR:DC?": "0.1",

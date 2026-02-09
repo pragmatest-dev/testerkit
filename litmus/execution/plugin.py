@@ -28,18 +28,27 @@ _INSTRUMENT_RECORDS: dict[str, InstrumentRecord] = {}
 # Per-step alias state (set in pytest_runtest_setup, read by alias fixtures)
 _CURRENT_STEP_ALIASES: dict[str, str] = {}
 
+# Per-step config (vectors, limits, mocks, retry) from sequence
+_CURRENT_STEP_CONFIG: dict[str, Any] = {}
+
+# Track active spec context for use by @litmus_test decorator
+_ACTIVE_SPEC_CONTEXT: Any = None
+
 # Mapping: test node ID → step aliases (built from --sequence)
 _TEST_NODE_ALIASES: dict[str, dict[str, str]] = {}
 
+# Mapping: test node ID → full step config (built from --sequence)
+_TEST_NODE_CONFIGS: dict[str, dict[str, Any]] = {}
 
-def _load_step_aliases(config) -> dict[str, dict[str, str]]:
-    """Load per-step aliases from a sequence file.
 
-    Returns mapping of test node ID → {alias_name: station_role}.
+def _load_sequence_data(config) -> list[dict[str, Any]]:
+    """Load steps from a sequence file.
+
+    Returns the raw list of step dicts from the sequence YAML.
     """
     seq_option = config.getoption("--sequence", default=None)
     if not seq_option:
-        return {}
+        return []
 
     # Find the sequence file
     seq_path = Path(seq_option)
@@ -55,28 +64,55 @@ def _load_step_aliases(config) -> dict[str, dict[str, str]]:
                 seq_path = candidate
                 break
         else:
-            return {}
+            return []
 
     try:
         with open(seq_path) as f:
             data = yaml.safe_load(f)
     except Exception:
-        return {}
+        return []
 
     if not data:
-        return {}
+        return []
 
     # Handle both top-level 'steps' and nested 'sequence.steps'
     seq = data.get("sequence", data)
-    steps = data.get("steps", seq.get("steps", []))
+    return data.get("steps", seq.get("steps", []))
 
+
+def _load_step_aliases(config) -> dict[str, dict[str, str]]:
+    """Load per-step aliases from a sequence file.
+
+    Returns mapping of test node ID → {alias_name: station_role}.
+    """
+    steps = _load_sequence_data(config)
     result: dict[str, dict[str, str]] = {}
     for step in steps:
         test_node = step.get("test")
         aliases = step.get("aliases", {})
         if test_node and aliases:
             result[test_node] = aliases
+    return result
 
+
+def _load_step_configs(config) -> dict[str, dict[str, Any]]:
+    """Load per-step configs (vectors, limits, mocks, retry) from sequence.
+
+    Returns mapping of test node ID → config dict with keys:
+    vectors, limits, mocks, retry (only present if specified in sequence).
+    """
+    steps = _load_sequence_data(config)
+    result: dict[str, dict[str, Any]] = {}
+    for step in steps:
+        test_node = step.get("test")
+        if not test_node:
+            continue
+        step_config: dict[str, Any] = {}
+        for key in ("vectors", "limits", "mocks", "retry"):
+            if key in step:
+                step_config[key] = step[key]
+        if step_config:
+            result[test_node] = step_config
     return result
 
 
@@ -141,9 +177,10 @@ def pytest_configure(config):
     if not instruments_map:
         return
 
-    # Load per-step aliases from sequence (if --sequence provided)
-    global _TEST_NODE_ALIASES
+    # Load per-step aliases and configs from sequence (if --sequence provided)
+    global _TEST_NODE_ALIASES, _TEST_NODE_CONFIGS
     _TEST_NODE_ALIASES = _load_step_aliases(config)
+    _TEST_NODE_CONFIGS = _load_step_configs(config)
 
     # Collect all alias names used across all steps
     all_alias_names: set[str] = set()
@@ -584,29 +621,37 @@ def spec_context(request):
     spec_path = request.config.getoption("--spec")
     guardband = float(request.config.getoption("--guardband"))
 
+    global _ACTIVE_SPEC_CONTEXT
+
+    ctx = None
+
     if spec_path:
-        return SpecContext.from_file(spec_path, guardband_pct=guardband)
+        ctx = SpecContext.from_file(spec_path, guardband_pct=guardband)
+    else:
+        # Try auto-discover from products/ directory
+        # Check both rootpath and invocation directory (cwd) for nested project support
+        from pathlib import Path
 
-    # Try auto-discover from products/ directory
-    # Check both rootpath and invocation directory (cwd) for nested project support
-    from pathlib import Path
+        search_roots = [
+            request.config.rootpath,
+            Path(request.config.invocation_params.dir),  # Where pytest was invoked
+        ]
 
-    search_roots = [
-        request.config.rootpath,
-        Path(request.config.invocation_params.dir),  # Where pytest was invoked
-    ]
+        for root in search_roots:
+            products_dir = root / "products"
+            if products_dir.exists():
+                # Find first product folder with spec.yaml
+                for product_folder in products_dir.iterdir():
+                    if product_folder.is_dir() and not product_folder.name.startswith("_"):
+                        spec_file = product_folder / "spec.yaml"
+                        if spec_file.exists():
+                            ctx = SpecContext.from_file(spec_file, guardband_pct=guardband)
+                            break
+            if ctx:
+                break
 
-    for root in search_roots:
-        products_dir = root / "products"
-        if products_dir.exists():
-            # Find first product folder with spec.yaml
-            for product_folder in products_dir.iterdir():
-                if product_folder.is_dir() and not product_folder.name.startswith("_"):
-                    spec_file = product_folder / "spec.yaml"
-                    if spec_file.exists():
-                        return SpecContext.from_file(spec_file, guardband_pct=guardband)
-
-    return None
+    _ACTIVE_SPEC_CONTEXT = ctx
+    return ctx
 
 
 @pytest.fixture(scope="session")
@@ -1041,13 +1086,18 @@ def pytest_runtest_makereport(item, call):
 
 @pytest.hookimpl(tryfirst=True)
 def pytest_runtest_setup(item):
-    """Reset mock state, set per-step aliases, and skip tests if dependencies failed."""
-    # Set per-step aliases from sequence config
-    global _CURRENT_STEP_ALIASES
+    """Reset mock state, set per-step aliases/config, and skip tests if dependencies failed."""
+    # Set per-step aliases and config from sequence
+    global _CURRENT_STEP_ALIASES, _CURRENT_STEP_CONFIG
     _CURRENT_STEP_ALIASES = {}
+    _CURRENT_STEP_CONFIG = {}
     for node_id, aliases in _TEST_NODE_ALIASES.items():
         if item.nodeid.endswith(node_id) or node_id in item.nodeid:
             _CURRENT_STEP_ALIASES = aliases
+            break
+    for node_id, step_config in _TEST_NODE_CONFIGS.items():
+        if item.nodeid.endswith(node_id) or node_id in item.nodeid:
+            _CURRENT_STEP_CONFIG = step_config
             break
 
     # Reset mock state for clean test isolation

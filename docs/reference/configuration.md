@@ -146,10 +146,35 @@ steps:
     aliases:                  # Optional: remap fixture names to station roles
       <fixture_name>: <station_role>
     skip_on: [string]
+
+    # Test config (overrides inline decorator config)
+    vectors:                  # Parameter combinations (same syntax as inline)
+      expand: product | zip | range | nested
+      <param>: [values]
+    limits:                   # Measurement limits
+      <measurement_name>:
+        low: float
+        high: float
+        nominal: float
+        units: string
+        comparator: string
+        spec_ref: string
+    mocks:                    # Mock instrument return values
+      <instrument.method>: value
     retry:
       max_attempts: integer
       delay_seconds: float
-    limit_ref: string
+      strategy: string
+    limit_ref: string         # Derive limits from spec
+```
+
+Per-vector mocks use `_mocks` inside vector dicts:
+
+```yaml
+vectors:
+  - vin: 5.0
+    _mocks:
+      dmm.measure_dc_voltage: 3.31
 ```
 
 ### Common Instrument Types
@@ -217,29 +242,36 @@ points:
 
 ## Test Configuration
 
-**Location:** `tests/config.yaml` (in same directory as tests)
+Test config (vectors, limits, mocks, retry) is resolved from two sources:
 
-```yaml
-<test_function_name>:
-  vectors:                # Parameter combinations
-    expand: product | zip | range | nested
-    <param>: [values]     # For product/zip expansion
-    loops:                # For nested expansion
-      - name: string
-        values: [...]
+1. **Sequence steps** (primary) — When running with `--sequence`
+2. **Inline decorator** (fallback) — For ad-hoc pytest runs
 
-  limits:
-    <measurement_name>:
-      low: float
-      high: float
-      nominal: float
-      units: string
-      spec_ref: string
-      comparator: string  # Default: GELE
+Sequence step config **replaces** inline decorator config entirely (not merged).
 
-  retry:
-    max_attempts: integer # Default: 1
-    delay_seconds: float  # Delay between retries
+### Inline Decorator Config
+
+```python
+@litmus_test(
+    config={
+        "vectors": {
+            "expand": "product",
+            "<param>": ["values"],
+        },
+    },
+    limits={
+        "<measurement_name>": {
+            "low": 3.0,
+            "high": 3.6,
+            "nominal": 3.3,
+            "units": "V",
+            "comparator": "GELE",
+        },
+    },
+    retry=RetryConfig(max_attempts=3, delay_seconds=0.5),
+)
+def test_example(context, dmm):
+    return dmm.measure_dc_voltage()
 ```
 
 ### Vector Expansion Modes

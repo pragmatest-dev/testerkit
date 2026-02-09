@@ -1,37 +1,45 @@
 # Vector Expansion
 
-Vectors define the test conditions your tests run against. Litmus expands vectors from config.yaml and iterates over them, calling your test function for each combination.
+Vectors define the test conditions your tests run against. Litmus expands vectors and iterates over them, calling your test function for each combination.
+
+Vectors can be defined in **sequence steps** (primary) or **inline decorator config** (fallback for ad-hoc runs).
 
 ## The Basics
 
 A **Vector** is a dict of parameters for a single test iteration:
 
 ```python
-@litmus_test
+@litmus_test(
+    config={"vectors": [{"vin": 5.0, "load": 0.1}, {"vin": 5.0, "load": 0.5}, {"vin": 5.0, "load": 1.0}]},
+    limits={"test_output_voltage": {"low": 3.135, "high": 3.465}},
+)
 def test_output_voltage(context, psu, dmm):
-    vin = context.get_in("vin", 5.0)      # Get parameter from context
-    load = context.get_in("load", 0.1)    # With default fallback
+    vin = context.get_in("vin", 5.0)
+    load = context.get_in("load", 0.1)
 
     psu.set_voltage(vin)
     psu.enable_output()
     return dmm.measure_dc_voltage()
 ```
 
-Vectors are defined in `config.yaml`:
+Or in a sequence step:
 
 ```yaml
-test_output_voltage:
-  vectors:
-    - vin: 5.0
-      load: 0.1
-    - vin: 5.0
-      load: 0.5
-    - vin: 5.0
-      load: 1.0
-  limits:
-    test_output_voltage:
-      low: 3.135
-      high: 3.465
+# sequences/power_board_smoke.yaml
+steps:
+  - id: output_voltage
+    test: tests/test_power.py::test_output_voltage
+    vectors:
+      - vin: 5.0
+        load: 0.1
+      - vin: 5.0
+        load: 0.5
+      - vin: 5.0
+        load: 1.0
+    limits:
+      test_output_voltage:
+        low: 3.135
+        high: 3.465
 ```
 
 This runs the test 3 times—once for each vector.
@@ -251,29 +259,33 @@ This generates 9 vectors where `vin` and `vout_expected` are always paired.
 
 ## Complete Example
 
+**Sequence step:**
 ```yaml
-# tests/config.yaml
-test_load_regulation:
-  vectors:
-    expand: nested
-    loops:
-      - name: temperature
-        values: [-40, 25, 85]
-      - name: vin
-        range:
-          start: 4.5
-          stop: 5.5
-          step: 0.5
-      - name: load_current
-        values: "0.1:1.0:0.1"  # Range string: 0.1, 0.2, ... 1.0
-  limits:
-    test_load_regulation:
-      low: 3.135
-      high: 3.465
-      nominal: 3.3
-      units: V
+# sequences/characterization.yaml
+steps:
+  - id: load_regulation
+    test: tests/test_power.py::test_load_regulation
+    vectors:
+      expand: nested
+      loops:
+        - name: temperature
+          values: [-40, 25, 85]
+        - name: vin
+          range:
+            start: 4.5
+            stop: 5.5
+            step: 0.5
+        - name: load_current
+          values: "0.1:1.0:0.1"  # Range string: 0.1, 0.2, ... 1.0
+    limits:
+      test_load_regulation:
+        low: 3.135
+        high: 3.465
+        nominal: 3.3
+        units: V
 ```
 
+**Test code:**
 ```python
 # tests/test_power.py
 @litmus_test

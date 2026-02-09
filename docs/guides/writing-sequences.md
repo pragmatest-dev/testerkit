@@ -34,8 +34,7 @@ my_project/
 │   ├── power_board_full.yaml
 │   └── characterization.yaml
 ├── tests/
-│   ├── test_power_board.py
-│   └── config.yaml
+│   └── test_power_board.py
 └── ...
 ```
 
@@ -93,17 +92,48 @@ steps:
     description: "Verify 5V rail present"
 ```
 
-### Step with Limit Override
+### Step with Vectors, Limits, and Mocks
+
+Steps carry their own test configuration — vectors, limits, mocks, and retry:
 
 ```yaml
 steps:
-  - id: measure_5v_rail
-    test: tests/test_power_board.py::test_measure_5v_rail
-    measurement_name: output_voltage
-    limit:
-      low: 4.75
-      high: 5.25
-      units: V
+  - id: output_voltage
+    test: tests/test_power.py::test_output_voltage
+    vectors:
+      expand: product
+      vin: [4.5, 5.0, 5.5]
+      load: [0.1, 0.5, 1.0]
+    limits:
+      output_voltage:
+        low: 3.135
+        high: 3.465
+        nominal: 3.3
+        units: V
+    mocks:
+      dmm.measure_dc_voltage: 3.31
+    retry:
+      max_attempts: 2
+      delay_seconds: 0.5
+```
+
+Per-vector mocks use `_mocks` (underscore prefix inside vector dicts):
+
+```yaml
+steps:
+  - id: load_regulation
+    test: tests/test_power.py::test_load_regulation
+    vectors:
+      - load: 0.1
+        _mocks:
+          dmm.measure_dc_voltage: 3.32
+      - load: 0.5
+        _mocks:
+          dmm.measure_dc_voltage: 3.30
+    limits:
+      output_voltage:
+        low: 3.2
+        high: 3.4
 ```
 
 ### Step with Limit Reference
@@ -340,10 +370,10 @@ sequence:
 ### From CLI (via pytest)
 
 ```bash
-# Run all tests in a sequence (future feature)
-# For now, run the underlying pytest tests
-pytest tests/test_power_board.py -v
+pytest tests/ --sequence=power_board_production --station=bench_1 --dut-serial=SN001 -v
 ```
+
+When `--sequence` is active, step config (vectors, limits, mocks, retry) overrides any inline decorator config.
 
 ### From MCP/AI
 

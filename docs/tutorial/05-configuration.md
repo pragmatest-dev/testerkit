@@ -1,94 +1,100 @@
 # Step 5: Test Configuration
 
-**Goal:** Move limits and test parameters into YAML files.
+**Goal:** Configure limits, vectors, and mocks for your tests.
 
-## What You'll Build
+## Where Test Config Lives
 
-A test suite where limits and vectors come from configuration, not code.
+Test configuration (vectors, limits, mocks, retry) can come from two places:
 
-## The config.yaml File
+1. **Sequence steps** (primary) — When running with `--sequence`, step config is the source of truth
+2. **Inline decorator** (fallback) — For ad-hoc `pytest` runs without a sequence
 
-Create a config file in your tests directory:
+### Config Resolution
 
-```yaml
-# tests/config.yaml
-test_output_voltage:
-  limits:
-    test_output_voltage:
-      low: 3.135
-      high: 3.465
-      nominal: 3.3
-      units: V
+When both exist, sequence step config **replaces** (not merges) inline decorator config:
+
+```
+sequence step > inline decorator
 ```
 
-Now simplify your test:
+## Inline Decorator Config
+
+For development and ad-hoc runs, pass config directly to `@litmus_test`:
 
 ```python
-# tests/test_power.py
 from litmus.execution import litmus_test
 
-@litmus_test
-def test_output_voltage(context, dmm):
-    """Limits come from config.yaml automatically."""
-    return dmm.measure_voltage()
+@litmus_test(
+    config={"vectors": {"expand": "product", "vin": [4.5, 5.0, 5.5]}},
+    limits={"output_voltage": {"low": 3.135, "high": 3.465, "nominal": 3.3, "units": "V"}},
+)
+def test_output_voltage(context, psu, dmm):
+    psu.set_voltage(context.get_in("vin", 5.0))
+    psu.enable_output()
+    return dmm.measure_dc_voltage()
 ```
 
-The decorator auto-discovers `config.yaml` in the same directory as the test file.
+Run directly with pytest:
 
-## How Config Discovery Works
-
-```
-tests/
-├── config.yaml         # ← Discovered automatically
-└── test_power.py       # ← @litmus_test looks for config.yaml here
+```bash
+pytest tests/test_power.py::test_output_voltage -v --dut-serial=TEST001
 ```
 
-The decorator:
-1. Finds the test file's directory
-2. Looks for `config.yaml`
-3. Loads configuration for the function name (`test_output_voltage`)
+## Sequence Step Config
 
-## Config Structure
+For orchestrated runs (production, validation), config lives in the sequence:
 
 ```yaml
-# tests/config.yaml
+# sequences/power_board_smoke.yaml
+sequence:
+  id: power_board_smoke
+  name: "Power Board - Smoke Test"
 
-# Section name = function name
-test_output_voltage:
-  # Limits for measurements
-  limits:
-    test_output_voltage:      # measurement name
-      low: 3.135
-      high: 3.465
-      nominal: 3.3
-      units: V
-      spec_ref: "Section 7.2"  # Optional reference
+  steps:
+    - id: output_voltage
+      test: tests/test_power.py::test_output_voltage
+      vectors:
+        expand: product
+        vin: [4.5, 5.0, 5.5]
+        load_percent: [0, 50, 100]
+      limits:
+        output_voltage:
+          low: 3.135
+          high: 3.465
+          nominal: 3.3
+          units: V
+          spec_ref: "Section 7.2"
+      mocks:
+        dmm.measure_dc_voltage: 3.31
+      retry:
+        max_attempts: 2
+        delay_seconds: 0.5
 ```
+
+Run with sequence:
+
+```bash
+pytest tests/ --sequence=power_board_smoke --station=bench_1 -v
+```
+
+The test code is the same either way — only the config source changes.
 
 ## Vector Expansion
 
-The real power of config is parametrized testing. Define test vectors:
+Vectors define the test conditions. They work identically whether in a sequence step or inline decorator.
 
 ```yaml
-# tests/config.yaml
-test_voltage_sweep:
-  vectors:
-    expand: product
-    input_voltage: [4.5, 5.0, 5.5]
-    load_percent: [0, 50, 100]
-  limits:
-    test_voltage_sweep:
-      low: 3.135
-      high: 3.465
-      units: V
+vectors:
+  expand: product
+  input_voltage: [4.5, 5.0, 5.5]
+  load_percent: [0, 50, 100]
 ```
 
-This runs the test 9 times (3 voltages x 3 loads):
+This runs the test 9 times (3 voltages × 3 loads):
 
 ```python
 @litmus_test
 def test_voltage_sweep(context, dmm):
-    """Run at multiple conditions."""
     vin = context.inputs["input_voltage"]
     load = context.inputs["load_percent"]
     print(f"Testing at {vin}V, {load}% load")
@@ -96,8 +102,6 @@ def test_voltage_sweep(context, dmm):
 ```
 
 ## Accessing Vector Parameters via Context
-
-Test vectors are accessed through the `context` parameter:
 
 ```python
 @litmus_test
@@ -206,85 +210,86 @@ def test_temp_sweep(context, chamber, dmm):
 Handle flaky measurements:
 
 ```yaml
-test_output_voltage:
-  limits:
-    test_output_voltage:
-      low: 3.135
-      high: 3.465
-  retry:
-    max_attempts: 3
-    delay_seconds: 0.5
+# In sequence step or inline config
+retry:
+  max_attempts: 3
+  delay_seconds: 0.5
 ```
 
 If the test fails, it retries up to 3 times with 0.5s delay between attempts.
 
 ## Complete Example
 
-**tests/config.yaml:**
+**Sequence (production):**
 ```yaml
-test_input_voltage:
-  limits:
-    test_input_voltage:
-      low: 4.5
-      high: 5.5
-      nominal: 5.0
-      units: V
+# sequences/power_board_smoke.yaml
+sequence:
+  id: power_board_smoke
+  steps:
+    - id: input_voltage
+      test: tests/test_power.py::test_input_voltage
+      limits:
+        test_input_voltage:
+          low: 4.5
+          high: 5.5
+          nominal: 5.0
+          units: V
 
-test_load_sweep:
-  vectors:
-    expand: product
-    load_percent: [0, 50, 100]
-  limits:
-    test_load_sweep:
-      low: 3.135
-      high: 3.465
-      units: V
-  retry:
-    max_attempts: 2
+    - id: load_sweep
+      test: tests/test_power.py::test_load_sweep
+      vectors:
+        expand: product
+        load_percent: [0, 50, 100]
+      limits:
+        test_load_sweep:
+          low: 3.135
+          high: 3.465
+          units: V
+      retry:
+        max_attempts: 2
 ```
 
-**tests/test_power.py:**
+**Test code (same for both modes):**
 ```python
 from litmus.execution import litmus_test
 
-@litmus_test
+@litmus_test(
+    limits={"test_input_voltage": {"low": 4.5, "high": 5.5, "nominal": 5.0, "units": "V"}},
+)
 def test_input_voltage(context, psu):
-    """Single vector, limits from config."""
+    """Inline limits used for ad-hoc runs; sequence overrides in production."""
     psu.set_voltage(5.0)
     psu.enable_output()
     return psu.measure_voltage()
 
-@litmus_test
+@litmus_test(
+    config={"vectors": {"expand": "product", "load_percent": [0, 50, 100]}},
+    limits={"test_load_sweep": {"low": 3.135, "high": 3.465, "units": "V"}},
+)
 def test_load_sweep(context, psu, dmm, eload):
-    """Multiple vectors from config."""
+    """Multiple vectors with limits."""
     psu.set_voltage(5.0)
     psu.enable_output()
-
     eload.set_current(context.inputs["load_percent"] / 100.0)
     eload.enable()
-
     voltage = dmm.measure_voltage()
-
     eload.disable()
     return voltage
 ```
 
 **Run:**
 ```bash
+# Ad-hoc (uses inline decorator config)
 pytest tests/test_power.py -v --dut-serial=TEST001
+
+# Production (sequence overrides decorator config)
+pytest tests/ --sequence=power_board_smoke --station=bench_1 -v
 ```
-
-## Benefits of YAML Configuration
-
-1. **Separation of concerns** — Engineers change limits, not code
-2. **Non-developer access** — Technicians can adjust parameters
-3. **Version control** — Track limit changes over time
-4. **Environment-specific** — Different configs for debug vs production
 
 ## What You Learned
 
-- How @litmus_test auto-discovers config.yaml
-- Configuring limits in YAML
+- Config lives in sequence steps (primary) or inline decorators (fallback)
+- Sequence step config replaces decorator config entirely
 - Vector expansion modes (product, zip, range, nested)
 - Accessing vector parameters via context.inputs and context.get_in()
 - Using context.changed() for nested loops

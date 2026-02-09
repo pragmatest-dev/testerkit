@@ -43,59 +43,78 @@ instruments:
 
 ### Test-Level (Override for Specific Tests)
 
-Override mock values for a specific test:
+Override mock values for a specific test in a sequence step:
 
 ```yaml
-# tests/config.yaml
-test_output_voltage:
-  _mock:
-    dmm.measure_voltage: 3.31
-    psu.measure_current: 0.5
-  limits:
-    test_output_voltage:
-      low: 3.2
-      high: 3.4
-      nominal: 3.3
-      units: V
+# sequences/power_board_smoke.yaml
+steps:
+  - id: output_voltage
+    test: tests/test_power.py::test_output_voltage
+    mocks:
+      dmm.measure_voltage: 3.31
+      psu.measure_current: 0.5
+    limits:
+      test_output_voltage:
+        low: 3.2
+        high: 3.4
+        nominal: 3.3
+        units: V
 ```
 
-The `_mock` key maps `instrument.method` to return values.
+Or in the inline decorator:
+
+```python
+@litmus_test(
+    config={"mocks": {"dmm.measure_voltage": 3.31}},
+    limits={"test_output_voltage": {"low": 3.2, "high": 3.4}},
+)
+def test_output_voltage(context, dmm):
+    return dmm.measure_dc_voltage()
+```
+
+The `mocks` key maps `instrument.method` to return values.
 
 ### Vector-Level (Different Values per Condition)
 
 For parametrized tests with different outputs per condition:
 
 ```yaml
-# tests/config.yaml
-test_load_regulation:
-  vectors:
-    - load: 0.1
-      _mock:
-        dmm.measure_voltage: 3.32
-        psu.measure_current: 0.15
-    - load: 0.5
-      _mock:
-        dmm.measure_voltage: 3.30
-        psu.measure_current: 0.55
-    - load: 0.8
-      _mock:
-        dmm.measure_voltage: 3.28
-        psu.measure_current: 0.85
-  limits:
-    test_load_regulation:
-      low: 3.2
-      high: 3.4
-      units: V
+# In a sequence step
+steps:
+  - id: load_regulation
+    test: tests/test_power.py::test_load_regulation
+    vectors:
+      - load: 0.1
+        _mocks:
+          dmm.measure_voltage: 3.32
+          psu.measure_current: 0.15
+      - load: 0.5
+        _mocks:
+          dmm.measure_voltage: 3.30
+          psu.measure_current: 0.55
+      - load: 0.8
+        _mocks:
+          dmm.measure_voltage: 3.28
+          psu.measure_current: 0.85
+    limits:
+      test_load_regulation:
+        low: 3.2
+        high: 3.4
+        units: V
 ```
 
 Each vector gets its own mock values, simulating realistic output changes.
+
+**Naming convention:**
+- Test/step level: `mocks` (no underscore)
+- Inside vector dicts: `_mocks` (underscore prefix = metadata, not a test parameter)
 
 ## Mock Value Priority
 
 When running with `--mock-instruments`, values are resolved in order:
 
-1. **Vector-level `_mock`** — Specific to this test vector
-2. **Test-level `_mock`** — Constant for all vectors in this test
+1. **Vector-level `_mocks`** — Specific to this test vector
+2. **Test-level `mocks`** — Constant for all vectors in this test
 3. **Limit `nominal`** — From the measurement's limit config
 4. **Station `mock_config`** — Default for this instrument
 5. **Zero** — Default if nothing else configured
@@ -205,17 +224,16 @@ mock_config:
 
 ### 2. Test Edge Cases
 
-Use vector-level `_mock` to simulate failure conditions:
+Use vector-level `_mocks` to simulate failure conditions:
 
 ```yaml
-test_out_of_range_handling:
-  vectors:
-    - condition: normal
-      _mock:
-        dmm.measure_voltage: 3.3
-    - condition: high
-      _mock:
-        dmm.measure_voltage: 99.99  # Way out of spec
+vectors:
+  - condition: normal
+    _mocks:
+      dmm.measure_voltage: 3.3
+  - condition: high
+    _mocks:
+      dmm.measure_voltage: 99.99  # Way out of spec
 ```
 
 ### 3. Match Limit Nominals
@@ -223,15 +241,14 @@ test_out_of_range_handling:
 For simple tests, configure mock values to match limit nominals:
 
 ```yaml
-test_voltage:
-  _mock:
-    dmm.measure_voltage: 3.3  # Matches nominal
-  limits:
-    test_voltage:
-      low: 3.135
-      high: 3.465
-      nominal: 3.3
-      units: V
+mocks:
+  dmm.measure_voltage: 3.3  # Matches nominal
+limits:
+  test_voltage:
+    low: 3.135
+    high: 3.465
+    nominal: 3.3
+    units: V
 ```
 
 ## Hardware Tests

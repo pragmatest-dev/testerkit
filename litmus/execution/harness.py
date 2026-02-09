@@ -378,7 +378,7 @@ class TestHarness:
         self._spec_context = spec_context
         self._instruments = instruments or {}
         self._mock_instruments = mock_instruments
-        self._test_level_mock = self._config.get("_mock", {})
+        self._test_level_mock = self._config.get("mocks", self._config.get("_mock", {}))
 
         # Parse retry config
         if retry is not None:
@@ -856,8 +856,8 @@ class TestHarness:
         2. Test-level _mock (constant for all vectors)
         3. Limit nominal values (fallback)
         """
-        # Check for vector-level _mock
-        vector_mock = vector.get("_mock", {})
+        # Check for vector-level _mocks (new) or _mock (legacy)
+        vector_mock = vector.get("_mocks", vector.get("_mock", {}))
         if vector_mock:
             return vector_mock
 
