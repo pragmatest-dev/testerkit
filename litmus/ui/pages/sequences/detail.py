@@ -209,6 +209,34 @@ def _render_step_expansion(index: int, step: dict, sequence_id: str):
                 retry = step["retry"]
                 config_items.append(("Retry", f"{retry.get('max_attempts', 1)} attempts"))
 
+            # Vectors summary
+            vectors = step.get("vectors")
+            if vectors:
+                if isinstance(vectors, list):
+                    config_items.append(("Vectors", f"{len(vectors)} vectors"))
+                elif isinstance(vectors, dict):
+                    config_items.append(
+                        ("Vectors", f"expand: {vectors.get('expand', 'product')}")
+                    )
+
+            # Limits summary
+            limits = step.get("limits")
+            if limits:
+                limit_parts = []
+                for name, lim in limits.items():
+                    low = lim.get("low")
+                    high = lim.get("high")
+                    if low is not None and high is not None:
+                        limit_parts.append(f"{name}: [{low}, {high}]")
+                    else:
+                        limit_parts.append(name)
+                config_items.append(("Limits", ", ".join(limit_parts)))
+
+            # Mocks summary
+            mocks = step.get("mocks")
+            if mocks:
+                config_items.append(("Mocks", f"{len(mocks)} mock values"))
+
             if config_items:
                 ui.separator().classes("my-2")
                 with ui.grid(columns=2).classes("gap-2"):

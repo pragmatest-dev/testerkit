@@ -667,67 +667,6 @@ def discover_tests() -> list[dict]:
     return tests
 
 
-def load_test_config(test_path: str) -> dict | None:
-    """Load test configuration for a test directory.
-
-    Args:
-        test_path: Path to test directory (e.g., 'demo/tests')
-
-    Returns:
-        Dict with test config or None if not found
-    """
-    config_file = Path.cwd() / test_path / "config.yaml"
-    if config_file.exists():
-        with open(config_file) as f:
-            return yaml.safe_load(f) or {}
-    return None
-
-
-def save_test_config(test_path: str, config: dict) -> bool:
-    """Save test configuration to YAML file.
-
-    Args:
-        test_path: Path to test directory
-        config: Configuration dict
-
-    Returns:
-        True if successful
-    """
-    test_dir = Path.cwd() / test_path
-    if not test_dir.exists():
-        return False
-
-    config_file = test_dir / "config.yaml"
-    with open(config_file, "w") as f:
-        yaml.dump(config, f, default_flow_style=False, sort_keys=False)
-    return True
-
-
-def get_test_functions(test_path: str) -> list[str]:
-    """Get list of test function names from a test directory.
-
-    Args:
-        test_path: Path to test directory
-
-    Returns:
-        List of test function names
-    """
-    test_dir = Path.cwd() / test_path
-    if not test_dir.exists():
-        return []
-
-    functions = []
-    for test_file in test_dir.glob("test_*.py"):
-        with open(test_file) as f:
-            content = f.read()
-            # Simple regex to find test functions
-            import re
-            matches = re.findall(r"def (test_\w+)\s*\(", content)
-            functions.extend(matches)
-
-    return sorted(set(functions))
-
-
 def discover_sequences() -> list[dict]:
     """Discover test sequences from YAML files."""
     sequences = []
