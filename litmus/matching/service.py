@@ -130,17 +130,20 @@ class PartialStationMatch(BaseModel):
 # -----------------------------------------------------------------------------
 
 
-def _get_product_paths() -> list[Path]:
+def _get_product_paths(project: str | Path | None = None) -> list[Path]:
     """Get search paths for product folders."""
-    return [Path.cwd() / "products", Path.cwd() / "demo" / "products"]
+    root = Path(project) if project else Path.cwd()
+    return [root / "products", root / "demo" / "products"]
 
 
-def load_product_by_id(product_id: str) -> Product | None:
+def load_product_by_id(
+    product_id: str, project: str | Path | None = None,
+) -> Product | None:
     """Load a Product model by ID from products directory.
 
     Products are stored in folder structure: products/{product_id}/spec.yaml
     """
-    for products_dir in _get_product_paths():
+    for products_dir in _get_product_paths(project):
         if not products_dir.exists():
             continue
         # Direct lookup by folder name
@@ -775,13 +778,13 @@ def find_compatible_stations(product: Product) -> list[StationMatch]:
 
 
 def check_station_compatibility(
-    product_id: str, station_id: str
+    product_id: str, station_id: str, project: str | Path | None = None,
 ) -> dict[str, Any] | None:
     """Check if a specific station can test a specific product.
 
     Returns detailed match report or None if product/station not found.
     """
-    product = load_product_by_id(product_id)
+    product = load_product_by_id(product_id, project)
     if not product:
         return None
 

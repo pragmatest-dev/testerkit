@@ -1127,7 +1127,8 @@ def match_tool(
 
     # Just product_id: find compatible stations
     if product_id and not station_id and not fixture_id:
-        product = load_product_by_id(product_id)
+        project_root = get_project_root(project) if project else None
+        product = load_product_by_id(product_id, project_root)
         if not product:
             return {"error": f"Product '{product_id}' not found"}
 
@@ -1159,7 +1160,8 @@ def match_tool(
 
     # Product + station: detailed check
     if product_id and station_id:
-        result = check_station_compatibility(product_id, station_id)
+        project_root = get_project_root(project) if project else None
+        result = check_station_compatibility(product_id, station_id, project_root)
         if not result:
             return {"error": "Product or station not found"}
         return result
