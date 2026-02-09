@@ -13,8 +13,9 @@ my_project/
 ├── products/
 │   └── power_board/
 │       └── spec.yaml       # Product specification
+├── sequences/
+│   └── power_board.yaml    # Test steps with limits derived from spec
 ├── tests/
-│   ├── config.yaml         # Test configuration (references spec)
 │   └── test_power.py       # Test code
 └── pyproject.toml
 ```
@@ -114,18 +115,20 @@ Calculate limits:
 - Low: 3.3 × (1 - 0.05) = 3.135V
 - High: 3.3 × (1 + 0.05) = 3.465V
 
-Put these in your test config:
+Put these in your sequence step:
 
 ```yaml
-# tests/config.yaml
-test_output_voltage:
-  limits:
-    test_output_voltage:
-      low: 3.135
-      high: 3.465
-      nominal: 3.3
-      units: V
-      spec_ref: "output_voltage @ tolerance_pct=5"  # Traceability!
+# sequences/power_board.yaml
+steps:
+  - id: output_voltage
+    test: tests/test_power.py::test_output_voltage
+    limits:
+      test_output_voltage:
+        low: 3.135
+        high: 3.465
+        nominal: 3.3
+        units: V
+        spec_ref: "output_voltage @ tolerance_pct=5"  # Traceability!
 ```
 
 The `spec_ref` field provides traceability back to the specification.
@@ -151,16 +154,18 @@ specs:
     priority: 1
 ```
 
-Then calculate guardbanded limits for your test config:
+Then calculate guardbanded limits for your sequence step:
 
 ```yaml
-# tests/config.yaml
-test_output_voltage:
-  limits:
-    test_output_voltage:
-      low: 3.152      # With 10% guardband
-      high: 3.449
-      spec_ref: "output_voltage @ guardband=10%"
+# sequences/power_board.yaml
+steps:
+  - id: output_voltage
+    test: tests/test_power.py::test_output_voltage
+    limits:
+      test_output_voltage:
+        low: 3.152      # With 10% guardband
+        high: 3.449
+        spec_ref: "output_voltage @ guardband=10%"
 ```
 
 ## Conditions
@@ -187,27 +192,29 @@ characteristics:
           load: 0.5
 ```
 
-Your test vectors should sweep these conditions:
+Your sequence step vectors should sweep these conditions:
 
 ```yaml
-# tests/config.yaml
-test_output_voltage:
-  vectors:
-    expand: product
-    temperature: [25, 85]
-    load: [0.5]
-  limits:
-    # Different limits for each condition...
+# sequences/power_board_char.yaml
+steps:
+  - id: output_voltage_sweep
+    test: tests/test_power.py::test_output_voltage
+    vectors:
+      expand: product
+      temperature: [25, 85]
+      load: [0.5]
+    limits:
+      # Different limits for each condition...
 ```
 
-## Why Separate Spec from Config?
+## Why Separate Spec from Sequence?
 
-| Spec (products/*/spec.yaml) | Config (tests/config.yaml) |
+| Spec (products/*/spec.yaml) | Sequence (sequences/*.yaml) |
 |-------|--------|
 | What the product SHOULD do | How we TEST it |
 | From datasheet/requirements | Test-specific parameters |
 | Rarely changes | May change per environment |
-| Shared across test suites | Specific to test file |
+| Shared across test suites | Specific to test phase |
 
 ## Complete Example
 
@@ -248,16 +255,24 @@ specs:
     guardband_pct: 10
 ```
 
-**tests/config.yaml:**
+**sequences/power_board.yaml:**
 ```yaml
-test_output_voltage:
-  limits:
-    test_output_voltage:
-      low: 3.152
-      high: 3.449
-      nominal: 3.3
-      units: V
-      spec_ref: "output_voltage @ guardband=10%"
+sequence:
+  id: power_board
+  product_family: power_board
+
+steps:
+  - id: output_voltage
+    test: tests/test_power.py::test_output_voltage
+    limits:
+      test_output_voltage:
+        low: 3.152
+        high: 3.449
+        nominal: 3.3
+        units: V
+        spec_ref: "output_voltage @ guardband=10%"
+    mocks:
+      dmm.measure_voltage: 3.31
 ```
 
 **tests/test_power.py:**

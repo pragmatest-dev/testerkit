@@ -7,21 +7,21 @@
 │                           TEST EXECUTION FLOW                                │
 └─────────────────────────────────────────────────────────────────────────────┘
 
-  1. SPEC                 2. CONFIG                3. CODE               4. RUN
-  ───────                 ────────                 ──────                ──────
+  1. SPEC                 2. SEQUENCE              3. CODE               4. RUN
+  ───────                 ──────────               ──────                ──────
 
-  products/*/spec.yaml            tests/config.yaml        tests/test_*.py       pytest
+  products/*/spec.yaml    sequences/*.yaml         tests/test_*.py       pytest
   ┌───────────┐          ┌────────────┐           ┌────────────┐       ┌───────┐
-  │ Product   │          │ vectors    │           │ @litmus_   │       │ CLI   │
-  │ - pins    │          │ - sweep    │           │   test     │       │  or   │
-  │ - chars   │          │ - params   │           │            │       │  UI   │
-  │ - limits  │          │ limits     │           │ measure()  │       │       │
-  └───────────┘          │ - per-test │           │ return val │       └───────┘
-                         │ retry      │           └────────────┘
-  stations/*.yaml        │ - attempts │
-  ┌───────────┐          │ dialogs    │
-  │ Station   │          │ - prompts  │
-  │ - instrs  │          └────────────┘
+  │ Product   │          │ steps:     │           │ @litmus_   │       │ CLI   │
+  │ - pins    │          │ - vectors  │           │   test     │       │  or   │
+  │ - chars   │          │ - limits   │           │            │       │  UI   │
+  │ - limits  │          │ - mocks    │           │ measure()  │       │       │
+  └───────────┘          │ - retry    │           │ return val │       └───────┘
+                         │ - dialogs  │           └────────────┘
+  stations/*.yaml        └────────────┘
+  ┌───────────┐
+  │ Station   │
+  │ - instrs  │
   │ - resource│
   └───────────┘
 
@@ -283,19 +283,19 @@ erDiagram
 │                        WHERE DO LIMITS COME FROM?                            │
 └─────────────────────────────────────────────────────────────────────────────┘
 
-  OPTION A: Product Spec                OPTION B: Test Config        OPTION C: Inline
-  (Derived from datasheet)              (Per-test overrides)         (In test code)
+  OPTION A: Product Spec                OPTION B: Sequence Step      OPTION C: Inline
+  (Derived from datasheet)              (Per-step overrides)         (In decorator)
 
-  products/product/spec.yaml                    tests/config.yaml            test_*.py
+  products/product/spec.yaml            sequences/*.yaml             test_*.py
   ┌─────────────────────┐              ┌─────────────────────┐      ┌─────────────┐
-  │ characteristics:    │              │ test_output:        │      │ harness.    │
-  │   output_voltage:   │              │   limits:           │      │   measure(  │
-  │     conditions:     │              │     output_voltage: │      │     "vout", │
-  │       - nominal: 3.3│              │       low: 3.2      │      │     value,  │
-  │         tolerance: 5%              │       high: 3.4     │      │     low=3.2,│
-  │         temp: 25    │              │       units: V      │      │     high=3.4│
-  │         load: 1.0   │              └─────────────────────┘      │   )         │
-  │                     │                                           └─────────────┘
+  │ characteristics:    │              │ steps:              │      │ @litmus_test│
+  │   output_voltage:   │              │   - id: output      │      │ (limits={   │
+  │     conditions:     │              │     limits:         │      │   "vout":   │
+  │       - nominal: 3.3│              │       output_voltage│      │   Limit(    │
+  │         tolerance: 5%              │         low: 3.2    │      │     low=3.2,│
+  │         temp: 25    │              │         high: 3.4   │      │     high=3.4│
+  │         load: 1.0   │              │         units: V    │      │   )})       │
+  │                     │              └─────────────────────┘      └─────────────┘
   │ specs
   │   verify_output:    │
   │     characteristic: │
@@ -318,21 +318,21 @@ erDiagram
 **Full flow with conditions:**
 
 ```
-Product Spec (YAML)              Test Config (YAML)           Test Code (Python)
-────────────────────             ──────────────────           ──────────────────
+Product Spec (YAML)              Sequence Step (YAML)         Test Code (Python)
+────────────────────             ────────────────────         ──────────────────
 
-products/tps54302/spec.yaml              tests/config.yaml            tests/test_*.py
+products/tps54302/spec.yaml     sequences/production.yaml    tests/test_*.py
 ┌────────────────────┐           ┌────────────────────┐       ┌────────────────┐
-│ characteristics:   │           │ test_output:       │       │ @litmus_test   │
-│   output_voltage:  │           │   vectors:         │       │ def test_output│
-│     conditions:    │           │     expand: product│       │  (vector, dmm):│
-│       - temp: 25   │──────────►│     temp: [25, 85] │──────►│                │
-│         load: 0.5  │  lookup   │     load: [0.5,3.0]│ sweep │  # vector has  │
-│         nominal:3.3│  limit    │                    │       │  # temp & load │
-│         tol: 1%    │  for      │   limits:          │       │                │
-│       - temp: 25   │  condition│     ref: specs.    │       │  return dmm.   │
-│         load: 3.0  │           │       output_volt  │       │    measure()   │
-│         nominal:3.3│           │     guardband: 10% │       └────────────────┘
+│ characteristics:   │           │ steps:             │       │ @litmus_test   │
+│   output_voltage:  │           │   - id: output     │       │ def test_output│
+│     conditions:    │           │     vectors:       │       │  (context,dmm):│
+│       - temp: 25   │──────────►│       expand: prod │──────►│                │
+│         load: 0.5  │  lookup   │       temp:[25,85] │ sweep │  # context has │
+│         nominal:3.3│  limit    │       load:[0.5,3] │       │  # temp & load │
+│         tol: 1%    │  for      │     limits:        │       │                │
+│       - temp: 25   │  condition│       output_volt: │       │  return dmm.   │
+│         load: 3.0  │           │         low: 3.15  │       │    measure()   │
+│         nominal:3.3│           │         high: 3.45 │       └────────────────┘
 │         tol: 1%    │           └────────────────────┘
 │       - temp: 85   │
 │         load: 1.0  │

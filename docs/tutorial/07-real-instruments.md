@@ -82,27 +82,29 @@ When `--mock-instruments` is set:
 
 ## Per-Test Mock Values
 
-For tests that need specific mock values, use `_mock` in your test config:
+For tests that need specific mock values, use `mocks` in the sequence step:
 
 ```yaml
-# tests/config.yaml
-test_output_voltage:
-  _mock:
-    dmm.measure_voltage: 3.31
-    psu.measure_current: 0.5
-  limits:
-    test_output_voltage:
-      low: 3.2
-      high: 3.4
-      units: V
+# sequences/my_sequence.yaml
+steps:
+  - id: output_voltage
+    test: tests/test_voltage.py::test_output_voltage
+    mocks:
+      dmm.measure_voltage: 3.31
+      psu.measure_current: 0.5
+    limits:
+      test_output_voltage:
+        low: 3.2
+        high: 3.4
+        units: V
 ```
 
 ## Mock Value Priority
 
 When running with `--mock-instruments`, values are resolved in order:
 
-1. **Vector-level `_mock`** — Specific to this test vector
-2. **Test-level `_mock`** — Constant for all vectors in this test
+1. **Vector-level `_mocks`** — Specific to this test vector
+2. **Step-level `mocks`** — Constant for all vectors in this step
 3. **Station `mock_config`** — Default for this instrument
 4. **Zero** — If nothing else configured
 
@@ -165,15 +167,23 @@ instruments:
       voltage: 5.0
 ```
 
-**tests/config.yaml:**
+**sequences/smoke.yaml:**
 ```yaml
-test_output_voltage:
-  limits:
-    test_output_voltage:
-      low: 3.135
-      high: 3.465
-      nominal: 3.3
-      units: V
+sequence:
+  id: smoke
+  name: "Smoke Test"
+
+steps:
+  - id: output_voltage
+    test: tests/test_power.py::test_output_voltage
+    limits:
+      test_output_voltage:
+        low: 3.135
+        high: 3.465
+        nominal: 3.3
+        units: V
+    mocks:
+      dmm.measure_voltage: 3.31
 ```
 
 **tests/test_power.py:**
@@ -211,7 +221,7 @@ pytest tests/ --station-config=stations/bench_1.yaml --mock-instruments --dut-se
 - Station configuration with instruments and `mock_config`
 - The `instruments` fixture from station config
 - `--mock-instruments` flag for hardware-free testing
-- Per-test mock values with `_mock` in test config
+- Per-test mock values with `mocks` in sequence steps
 - VISA address formats
 
 ## Next Step

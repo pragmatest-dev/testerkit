@@ -20,10 +20,9 @@ my_project/
 │   └── bench_1.yaml
 ├── fixtures/                       # HOW pins connect to instruments
 │   └── power_board_fixture.yaml
-├── sequences/                      # Test execution order
-│   └── production_test.yaml
-├── tests/                          # Test code + configuration
-│   ├── config.yaml
+├── sequences/                      # Test config + execution order
+│   └── production_test.yaml        # Steps with vectors, limits, mocks
+├── tests/                          # Test code
 │   ├── conftest.py
 │   └── test_power_board.py
 └── results/                        # Output (gitignored)
@@ -98,7 +97,7 @@ The `pins` approach provides:
 
 ## Test Sequences
 
-Define test execution order:
+Sequences are the **single source of truth** for test configuration. Each step carries its own vectors, limits, and mocks:
 
 ```yaml
 # sequences/production_test.yaml
@@ -110,19 +109,42 @@ sequence:
   required_fixture: power_board_fixture
 
 steps:
-  - name: verify_input
-    test: test_power_board.test_input_voltage
+  - id: verify_input
+    test: tests/test_power_board.py::test_input_voltage
     description: "Verify input power"
+    limits:
+      test_input_voltage:
+        low: 4.5
+        high: 5.5
+        nominal: 5.0
+        units: V
+    mocks:
+      psu.measure_voltage: 5.0
 
-  - name: output_no_load
-    test: test_power_board.test_output_voltage
+  - id: output_no_load
+    test: tests/test_power_board.py::test_output_voltage
     description: "Output at no load"
     skip_on: [verify_input]     # Skip if verify_input failed
+    limits:
+      test_output_voltage:
+        low: 3.135
+        high: 3.465
+        units: V
+    mocks:
+      dmm.measure_voltage: 3.31
 
-  - name: output_loaded
-    test: test_power_board.test_load_sweep
+  - id: output_loaded
+    test: tests/test_power_board.py::test_load_sweep
     description: "Output under load"
     skip_on: [output_no_load]
+    vectors:
+      expand: product
+      load_percent: [0, 50, 100]
+    limits:
+      test_load_sweep:
+        low: 3.135
+        high: 3.465
+        units: V
     retry:
       max_attempts: 2
 ```
@@ -219,20 +241,6 @@ points:
     instrument: dmm
 ```
 
-**tests/config.yaml:**
-```yaml
-test_output_voltage:
-  vectors:
-    expand: product
-    load_percent: [0, 50, 100]
-  limits:
-    test_output_voltage:
-      low: 3.135
-      high: 3.465
-      units: V
-      spec_ref: "output_voltage @ tolerance=5%"
-```
-
 **tests/test_power_board.py:**
 ```python
 from litmus.execution import litmus_test
@@ -325,8 +333,7 @@ Spec: output_voltage @ tolerance=5%
 | Product spec | `products/power_board/spec.yaml` | What to test |
 | Station | `stations/bench_1.yaml` | Where to test |
 | Fixture | `fixtures/power_board_fixture.yaml` | Pin-to-instrument mapping |
-| Sequence | `sequences/production_test.yaml` | Test order |
-| Config | `tests/config.yaml` | Vectors and limits |
+| Sequence | `sequences/production_test.yaml` | Test order + vectors, limits, mocks |
 | Tests | `tests/test_power_board.py` | Test code |
 
 ## What You Learned

@@ -85,24 +85,26 @@ If the measurement is outside limits, the test fails with an `AssertionError`.
 
 ## What If It Fails?
 
-Configure a mock value outside the limit range in your test config:
+Configure a mock value outside the limit range in a sequence step:
 
 ```yaml
-# tests/config.yaml
-test_output_voltage:
-  _mock:
-    dmm.measure_voltage: 2.5  # Below limit - will fail!
-  limits:
-    test_output_voltage:
-      low: 3.135
-      high: 3.465
-      units: V
+# sequences/debug.yaml
+steps:
+  - id: output_voltage_fail
+    test: tests/test_voltage.py::test_output_voltage
+    mocks:
+      dmm.measure_voltage: 2.5  # Below limit - will fail!
+    limits:
+      test_output_voltage:
+        low: 3.135
+        high: 3.465
+        units: V
 ```
 
 Run the test:
 
 ```bash
-pytest tests/test_voltage.py --station-config=stations/my_station.yaml --mock-instruments -v
+pytest tests/test_voltage.py --sequence=debug --station=my_station --mock-instruments -v
 ```
 
 Output:
@@ -173,7 +175,7 @@ Problems:
 - No link to product specifications
 - Different limits for different conditions (temperature, load) are awkward
 
-Solution: **YAML configuration** (next step).
+Solution: **sequence step configuration** (next step).
 
 ## Dynamic Limits (Callable)
 
@@ -188,24 +190,26 @@ Sometimes limits depend on test conditions:
 
 ### Inline Python (Simple)
 
-Define limits as Python expressions in YAML:
+Define limits as Python expressions in a sequence step:
 
 ```yaml
-# tests/config.yaml
-test_output_voltage_temp:
-  vectors:
-    expand: product
-    temperature: [-40, 25, 85]
-  limits:
-    test_output_voltage_temp:
-      callable: |
-        temp = ctx.get_in("temperature")
-        if temp < 0:
-          return Limit(low=3.15, high=3.45, units="V")
-        elif temp < 50:
-          return Limit(low=3.25, high=3.35, units="V")
-        else:
-          return Limit(low=3.10, high=3.50, units="V")
+# sequences/temp_sweep.yaml
+steps:
+  - id: output_voltage_temp
+    test: tests/test_voltage.py::test_output_voltage_temp
+    vectors:
+      expand: product
+      temperature: [-40, 25, 85]
+    limits:
+      test_output_voltage_temp:
+        callable: |
+          temp = ctx.get_in("temperature")
+          if temp < 0:
+            return Limit(low=3.15, high=3.45, units="V")
+          elif temp < 50:
+            return Limit(low=3.25, high=3.35, units="V")
+          else:
+            return Limit(low=3.10, high=3.50, units="V")
 ```
 
 The callable has access to:
@@ -283,15 +287,23 @@ instruments:
       voltage: 3.31
 ```
 
-**tests/config.yaml:**
+**sequences/smoke.yaml:**
 ```yaml
-test_output_voltage:
-  limits:
-    test_output_voltage:
-      low: 3.135
-      high: 3.465
-      nominal: 3.3
-      units: V
+sequence:
+  id: smoke
+  name: "Smoke Test"
+
+steps:
+  - id: output_voltage
+    test: tests/test_limits.py::test_output_voltage
+    limits:
+      test_output_voltage:
+        low: 3.135
+        high: 3.465
+        nominal: 3.3
+        units: V
+    mocks:
+      dmm.measure_voltage: 3.31
 ```
 
 **tests/test_limits.py:**
@@ -299,14 +311,14 @@ test_output_voltage:
 from litmus.execution import litmus_test
 
 @litmus_test
-def test_output_voltage(context, instruments):
+def test_output_voltage(context, dmm):
     """Verify output voltage is within spec."""
-    return instruments["dmm"].measure_voltage()
+    return dmm.measure_voltage()
 ```
 
 **Run:**
 ```bash
-pytest tests/test_limits.py --station-config=stations/my_station.yaml --mock-instruments -v
+pytest tests/test_limits.py --sequence=smoke --station=my_station --mock-instruments -v
 ```
 
 ## What You Learned

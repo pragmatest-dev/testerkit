@@ -78,57 +78,61 @@ pytest tests/test_voltage.py --station-config=stations/my_station.yaml -v
 
 ## Per-Test Mock Values
 
-For tests that need specific mock values, use `_mock` in your test config:
+For tests that need specific mock values, define `mocks` on the sequence step:
 
 ```yaml
-# tests/config.yaml
-test_output_voltage:
-  _mock:
-    dmm.measure_voltage: 3.31
-    psu.measure_current: 0.5
-  limits:
-    test_output_voltage:
-      low: 3.2
-      high: 3.4
-      units: V
+# sequences/my_sequence.yaml
+steps:
+  - id: output_voltage
+    test: tests/test_voltage.py::test_output_voltage
+    mocks:
+      dmm.measure_voltage: 3.31
+      psu.measure_current: 0.5
+    limits:
+      test_output_voltage:
+        low: 3.2
+        high: 3.4
+        units: V
 ```
 
-The `_mock` key maps `instrument.method` to return values.
+The `mocks` key maps `instrument.method` to return values. We'll cover sequences fully in [Step 5](05-configuration.md).
 
 ## Per-Vector Mock Values
 
 For sweeps with different outputs per condition:
 
 ```yaml
-# tests/config.yaml
-test_load_sweep:
-  vectors:
-    - load: 0.1
-      _mock:
-        dmm.measure_voltage: 3.32
-    - load: 0.5
-      _mock:
-        dmm.measure_voltage: 3.30
-    - load: 0.8
-      _mock:
-        dmm.measure_voltage: 3.28
-  limits:
-    test_load_sweep:
-      low: 3.2
-      high: 3.4
-      units: V
+# sequences/my_sequence.yaml
+steps:
+  - id: load_sweep
+    test: tests/test_voltage.py::test_load_sweep
+    vectors:
+      - load: 0.1
+        _mocks:
+          dmm.measure_voltage: 3.32
+      - load: 0.5
+        _mocks:
+          dmm.measure_voltage: 3.30
+      - load: 0.8
+        _mocks:
+          dmm.measure_voltage: 3.28
+    limits:
+      test_load_sweep:
+        low: 3.2
+        high: 3.4
+        units: V
 ```
 
-Each vector gets its own mock values, simulating realistic output changes.
+Each vector gets its own mock values, simulating realistic output changes. Note the `_mocks` key (underscore prefix) inside vector dicts.
 
 ## Mock Value Priority
 
 When running with `--mock-instruments`, values are resolved in order:
 
-1. **Vector-level `_mock`** - Specific to this test vector
-2. **Test-level `_mock`** - Constant for all vectors in this test
-3. **Station `mock_config`** - Default for this instrument
-4. **Zero** - If nothing else configured
+1. **Vector-level `_mocks`** — Specific to this test vector
+2. **Step-level `mocks`** — Constant for all vectors in this step
+3. **Station `mock_config`** — Default for this instrument
+4. **Zero** — If nothing else configured
 
 ## CI/CD Configuration
 
@@ -147,7 +151,7 @@ When running with `--mock-instruments`, values are resolved in order:
 
 - `--mock-instruments` flag for hardware-free testing
 - Station `mock_config` for default mock values
-- Test config `_mock` for per-test/per-vector values
+- Sequence step `mocks` for per-test/per-vector values
 - Same test code works with real hardware or mocks
 
 ## Next Step

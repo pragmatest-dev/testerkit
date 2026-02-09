@@ -31,11 +31,10 @@ my_project/
 │   └── my_fixture.yaml          # Pin-to-channel mappings
 ├── instruments/                 # Custom instrument drivers
 │   └── custom_dmm.yaml          # Driver definitions
-├── sequences/                   # Test execution order
-│   └── full_validation.yaml     # Ordered test list
+├── sequences/                   # Test config + execution order
+│   └── full_validation.yaml     # Steps with vectors, limits, mocks
 ├── tests/                       # Test code
 │   ├── conftest.py              # Custom fixtures (optional — roles auto-register)
-│   ├── config.yaml              # CONDITIONS + LIMITS
 │   └── test_my_product.py       # Test functions
 ├── results/                     # Output (gitignored)
 │   └── measurements/            # Parquet files
@@ -86,23 +85,7 @@ instruments:
       voltage: 3.31  # Value returned in mock mode
 ```
 
-### 3. Configure Test Conditions and Limits
-
-**Both vectors AND limits go in config.yaml:**
-
-```yaml
-# tests/config.yaml
-test_output_voltage:
-  vectors:
-    expand: product              # Use product characteristics
-    temperature: [25, 85]        # Sweep conditions
-  limits:
-    output_voltage:
-      ref: "output_voltage"      # Auto-derive from SpecBand
-      guardband_pct: 10          # Manufacturing margin
-```
-
-### 4. Write the Test
+### 3. Write the Test
 
 ```python
 # tests/test_my_product.py
@@ -113,11 +96,10 @@ def test_output_voltage(context, psu, dmm):
     """Verify output voltage is within spec.
 
     The @litmus_test decorator:
-    1. Loads vectors from config.yaml
-    2. Loads limits from config.yaml
-    3. Captures the return value as a measurement
-    4. Checks against limits
-    5. Records results to Parquet
+    1. Loads vectors and limits from the active sequence step
+    2. Captures the return value as a measurement
+    3. Checks against limits
+    4. Records results to Parquet
     """
     # Get conditions from context (not hardcoded!)
     vin = context.get_in("vin", 5.0)
@@ -130,14 +112,43 @@ def test_output_voltage(context, psu, dmm):
     return dmm.measure_dc_voltage()
 ```
 
+### 4. Create a Sequence
+
+Sequences are the **single source of truth** for test configuration. Each step carries its own vectors, limits, and mocks:
+
+```yaml
+# sequences/my_product_smoke.yaml
+sequence:
+  id: my_product_smoke
+  name: "My Product - Smoke Test"
+  product_family: my_product
+
+steps:
+  - id: output_voltage
+    test: tests/test_my_product.py::test_output_voltage
+    vectors:
+      - vin: 5.0
+    limits:
+      output_voltage:
+        low: 3.234
+        high: 3.366
+        nominal: 3.3
+        units: V
+    mocks:
+      dmm.measure_dc_voltage: 3.31
+```
+
 ### 5. Run the Test
 
 ```bash
-# With mock instruments (no hardware required)
+# With a sequence (production pattern)
+pytest tests/ --sequence=my_product_smoke --station=my_station --mock-instruments --dut-serial=TEST001 -v
+
+# Ad-hoc run without sequence (uses inline decorator defaults)
 pytest tests/ --station-config=stations/my_station.yaml --mock-instruments --dut-serial=TEST001 -v
 
 # With real hardware
-pytest tests/ --station-config=stations/my_station.yaml --dut-serial=SN001 -v
+pytest tests/ --sequence=my_product_smoke --station=my_station --dut-serial=SN001 -v
 ```
 
 ## The Pattern
@@ -147,7 +158,7 @@ Every Litmus test follows this pattern:
 1. **GET CONDITIONS** from context (not hardcoded)
 2. **SET UP** stimulus (PSU voltage, load current)
 3. **MEASURE** the result
-4. **RETURN** the value (framework checks limits from config.yaml)
+4. **RETURN** the value (framework checks limits from the active sequence step)
 
 ```python
 @litmus_test
@@ -158,7 +169,7 @@ def test_something(context, psu, dmm):
     return dmm.measure_dc_voltage()   # MEASURE and RETURN
 ```
 
-**No hardcoded values in code.** Conditions come from context (populated by test vectors), limits from config.yaml.
+**No hardcoded values in code.** Conditions come from context (populated by test vectors), limits from sequence steps.
 
 ## View Results
 
@@ -193,8 +204,8 @@ print(table.to_pandas())
 | `stations/` | Station configs (instruments + addresses) | /stations |
 | `fixtures/` | Pin-to-instrument mappings | /fixtures |
 | `instruments/` | Custom instrument drivers | /instruments |
-| `sequences/` | Test execution order | /sequences |
-| `tests/` | Test code + config.yaml | - |
+| `sequences/` | Test config + execution order | /sequences |
+| `tests/` | Test code | - |
 | `results/` | Parquet output (gitignored) | /runs |
 
 ## Next Steps

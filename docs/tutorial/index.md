@@ -7,10 +7,10 @@ Welcome to Litmus! This tutorial takes you from your first test to a production-
 | Step | Goal | What You'll Learn |
 |------|------|-------------------|
 | [1. First Test](01-first-test.md) | Run something | pytest, project structure |
-| [2. Running Without Hardware](02-mock-instruments.md) | Use mock mode | `--mock-instruments`, `mock_config`, `_mock` |
+| [2. Running Without Hardware](02-mock-instruments.md) | Use mock mode | `--mock-instruments`, `mock_config` |
 | [3. The @litmus_test Decorator](03-decorator.md) | Log measurements | @litmus_test, vector, return values |
 | [4. Add Limits](04-limits.md) | Pass/fail criteria | Limit, Measurement, Outcome |
-| [5. Test Configuration](05-configuration.md) | Configure in YAML | config.yaml, vectors, limits |
+| [5. Test Configuration](05-configuration.md) | Configure in YAML | sequences, vectors, limits |
 | [6. Product Specifications](06-specifications.md) | Define products | products/*/spec.yaml, characteristics |
 | [7. Real Instruments](07-real-instruments.md) | Talk to hardware | stations/*.yaml, VISA, simulation |
 | [8. Capability Matching](08-capabilities.md) | Find compatible stations | direction flip, matching API |
