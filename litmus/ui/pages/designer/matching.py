@@ -86,12 +86,11 @@ def get_compatible_channels_for_pin(
         char = product.characteristics.get(char_name)
         if not char:
             continue
-        cap = char.to_capability_requirement()
         requirements.append(
             {
-                "function": cap.function,
-                "direction": cap.direction,
-                "parameters": cap.parameters,
+                "function": char.function,
+                "direction": char.direction,
+                "parameters": char.parameters,
             }
         )
 
@@ -347,7 +346,7 @@ def resolve_instrument_capabilities(station_config: dict) -> dict:
                     {
                         "function": cap.function.value,
                         "direction": cap.direction.value,
-                        "channels": cap.channels,
+                        "channels": cap.resolved_channels,
                         "readback": cap.readback,
                         "parameters": {
                             name: param.model_dump(exclude_none=True)

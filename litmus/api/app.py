@@ -320,12 +320,11 @@ def create_api_router() -> APIRouter:
             "station_id": station_id,
             "capabilities": [
                 {
-                    "name": cap.name,
+                    "function": cap.function.value,
                     "direction": cap.direction.value,
-                    "domain": cap.domain.value,
-                    "signal_types": [st.value for st in cap.signal_types],
                     "instrument_type": cap.instrument_type,
                     "instrument_name": cap.instrument_name,
+                    "channel": cap.channel,
                 }
                 for cap in capabilities
             ],

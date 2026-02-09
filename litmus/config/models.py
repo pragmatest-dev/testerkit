@@ -5,7 +5,7 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, Field, computed_field
 
-from litmus.utils.ranges import expand_numeric_range, expand_range
+from litmus.utils.ranges import expand_numeric_range
 
 # =============================================================================
 # Capability Enums (shared vocabulary for products and instruments)
@@ -22,10 +22,18 @@ class Direction(StrEnum):
 
 
 class MeasurementFunction(StrEnum):
-    """Named signal measurement/stimulus functions (ATML/IEEE 1641 inspired).
+    """Named signal measurement/stimulus functions.
 
-    Replaces the Domain + SignalType pair with a single enum that describes
-    what an instrument *does*. Grouped by IVI instrument class for clarity.
+    Standards-grounded taxonomy derived from IVI Foundation instrument classes,
+    IEEE 1641 signal primitives, and SCPI naming conventions. Designed for ALL
+    electronics hardware test: DC, AC, RF, mixed-signal, digital, optical, thermal.
+
+    Design principles:
+    - One enum for instruments AND products (direction distinguishes measure vs source)
+    - Functions describe WHAT, not HOW (dc_voltage not dmm_dc_volts)
+    - Flat enum (grouped by comment only, no hierarchy)
+    - Waveform shapes are parameters, not functions (use WaveformShape enum)
+    - Instrument-class-neutral (both DMM and scope can measure dc_voltage)
     """
 
     # DMM functions (IVI-DMM)
@@ -42,55 +50,97 @@ class MeasurementFunction(StrEnum):
     PERIOD = "period"
     TEMPERATURE = "temperature"
 
-    # Oscilloscope functions (IVI-Scope)
+    # Oscilloscope / waveform capture (IVI-Scope)
     WAVEFORM = "waveform"
 
-    # Power supply functions (IVI-DCPwr)
+    # Power supply / load functions (IVI-DCPwr)
     DC_POWER = "dc_power"
     AC_POWER = "ac_power"
-
-    # Function generator (IVI-FGen)
-    SINE = "sine"
-    SQUARE = "square"
-    RAMP = "ramp"
-    TRIANGLE = "triangle"
-    PULSE = "pulse"
-    ARBITRARY = "arbitrary"
 
     # SMU functions (combined source-measure)
     # Use DC_VOLTAGE/DC_CURRENT with direction=bidir for SMU
 
-    # RF functions
+    # RF functions (IVI-RFSigGen, IVI-PwrMeter, IVI-SpecAn)
     RF_POWER = "rf_power"
     RF_CW = "rf_cw"
+    S_PARAMETERS = "s_parameters"
+    SPECTRUM = "spectrum"
+    PHASE_NOISE = "phase_noise"
+    NOISE_FIGURE = "noise_figure"
+    HARMONICS = "harmonics"
 
-    # Digital / logic
-    LOGIC = "logic"
-    COUNTER = "counter"
+    # Digital / logic (IVI-Counter, digital I/O)
     DIGITAL_PATTERN = "digital_pattern"
-    SERIAL_DECODE = "serial_decode"
+    DIGITAL_IO = "digital_io"
+    SERIAL_DATA = "serial_data"
 
     # DMM specialty functions
     DIODE = "diode"
     CONTINUITY = "continuity"
 
-    # Electronic load modes
-    TRANSIENT = "transient"
+    # RLC meter functions (IVI-LCR)
+    QUALITY_FACTOR = "quality_factor"
+    DISSIPATION_FACTOR = "dissipation_factor"
 
-    # RF analysis
-    S_PARAMETERS = "s_parameters"
-    SPECTRUM = "spectrum"
-    PHASE_NOISE = "phase_noise"
-    NOISE_FIGURE = "noise_figure"
-    MODULATION_ANALYSIS = "modulation_analysis"
-    RF_MODULATED = "rf_modulated"
-    NOISE = "noise"
-    HARMONICS = "harmonics"
+    # Time/edge measurements (IVI-Counter, IVI-Scope)
+    TIME_INTERVAL = "time_interval"
+    PULSE_WIDTH = "pulse_width"
+    DUTY_CYCLE = "duty_cycle"
+    RISE_TIME = "rise_time"
+    FALL_TIME = "fall_time"
+
+    # Phase measurement
+    PHASE = "phase"
 
     # Signal integrity
     POWER_QUALITY = "power_quality"
     JITTER = "jitter"
     EYE_DIAGRAM = "eye_diagram"
+
+    # Signal quality metrics (product datasheet specs)
+    THD = "thd"  # Total harmonic distortion
+    SNR = "snr"  # Signal-to-noise ratio
+    GAIN = "gain"  # Signal transfer ratio (RF amps, lock-in, signal chain)
+
+    # RF network measurements (VNA-derived, but named product specs)
+    RETURN_LOSS = "return_loss"  # S11 magnitude — "return loss > 20 dB"
+    INSERTION_LOSS = "insertion_loss"  # S21 magnitude — "insertion loss < 0.5 dB"
+    VSWR = "vswr"  # Voltage standing wave ratio — "VSWR < 1.5:1"
+    GROUP_DELAY = "group_delay"  # Phase derivative — "group delay < 2 ns"
+
+    # Optical (IVI-OpticalAttenuator, IVI-OpticalPowerMeter)
+    OPTICAL_POWER = "optical_power"
+    WAVELENGTH = "wavelength"
+
+    # Environmental
+    HUMIDITY = "humidity"  # Relative humidity measurement
+
+    # Electrometer / charge measurement
+    CHARGE = "charge"  # Accumulated charge (fC to µC)
+
+    # Magnetic field (Gaussmeter)
+    MAGNETIC_FIELD = "magnetic_field"
+
+    # Position/motion (encoder, stage)
+    POSITION = "position"
+
+
+class WaveformShape(StrEnum):
+    """Waveform shapes for function generator outputs.
+
+    Used as a parameter value for capabilities with function=WAVEFORM,
+    not as separate MeasurementFunction values. Per IEEE 1641, waveform
+    shapes are characteristics of the signal, not distinct signal types.
+    """
+
+    SINE = "sine"
+    SQUARE = "square"
+    TRIANGLE = "triangle"
+    RAMP = "ramp"
+    PULSE = "pulse"
+    ARBITRARY = "arbitrary"
+    NOISE = "noise"
+    DC = "dc"
 
 
 class TerminalRole(StrEnum):
@@ -259,47 +309,6 @@ class ResolutionSpec(BaseModel):
     units: str | None = None
 
 
-class InstrumentChannelSpec(BaseModel):
-    """Specification for instrument channels.
-
-    This describes the physical channels on an instrument (CH1, ai0, Output1),
-    NOT fixture routing points or DUT pins.
-
-    Supports multiple ways to specify channels:
-    - count + naming: Generate names from pattern (count=4, naming="CH{n}" → CH1, CH2, CH3, CH4)
-    - labels: Explicit list of names (["CH1", "CH2", "TRIG"])
-    - range: Range syntax string ("CH[1:4]" → CH1, CH2, CH3, CH4)
-    """
-
-    count: int = 1
-    simultaneous: bool = False  # Can measure/source all channels at once
-    coupling: str | None = None  # single_ended, differential
-
-    # Channel identity - multiple options
-    naming: str | None = None  # Pattern: "CH{n}", "ai{n}", "{n}"
-    labels: list[str] | None = None  # Explicit: ["CH1", "CH2", "CH3", "CH4"]
-    range: str | None = None  # Range syntax: "CH[1:4]", "ai[0:15]", "1:4"
-
-    def channel_names(self) -> list[str]:
-        """Generate channel names.
-
-        Priority: range > labels > count+naming
-
-        Examples:
-            range="CH[1:4]" → ["CH1", "CH2", "CH3", "CH4"]
-            labels=["A", "B"] → ["A", "B"]
-            count=4, naming="CH{n}" → ["CH1", "CH2", "CH3", "CH4"]
-            count=4, no naming → ["1", "2", "3", "4"]
-        """
-        if self.range:
-            return expand_range(self.range)
-        if self.labels:
-            return self.labels[: self.count]
-        if self.naming:
-            return [self.naming.format(n=i + 1) for i in range(self.count)]
-        return [str(i + 1) for i in range(self.count)]
-
-
 class ChannelTopology(BaseModel):
     """Physical topology of a single instrument channel.
 
@@ -377,15 +386,72 @@ class SignalParameter(BaseModel):
     compare: CompareMode | None = None  # Comparison direction for capability params
 
 
-class FunctionCapability(BaseModel):
-    """A single capability of an instrument (replaces old Capability).
+class ConditionKey(StrEnum):
+    """Canonical condition keys for SpecBand.conditions.
 
-    Describes what an instrument can measure or source using the ATML/IEEE 1641
-    signal-parameter model: a measurement function with named parameters.
+    Not enforced at model level (SpecBand.conditions stays dict[str, RangeSpec]).
+    Used as a shared vocabulary so products and instruments use the same keys.
 
-    The function field identifies *what kind of measurement or stimulus* this is.
-    Parameters describe the ranges, accuracy, and resolution for each dimension.
-    Direction indicates whether this measures (input) or sources (output).
+    Derived from audit of 150+ instrument datasheets across 19 vendors and IVI
+    Foundation class specifications (IVI-DMM, IVI-Scope, IVI-FGen, IVI-DCPwr).
+    """
+
+    # Universal operating conditions
+    FREQUENCY = "frequency"  # AC measurement frequency band
+    TEMPERATURE = "temperature"  # Ambient/operating temperature
+    HUMIDITY = "humidity"  # Relative humidity (specs valid at < 80% RH)
+    CALIBRATION_INTERVAL = "calibration_interval"  # Time since last cal (days)
+
+    # Measurement configuration
+    NPLC = "nplc"  # Integration time in power line cycles
+    AUTO_ZERO = "auto_zero"  # Auto-zero ON/OFF state
+    COUPLING = "coupling"  # AC/DC coupling mode
+    IMPEDANCE = "impedance"  # Input impedance (50Ω vs 1MΩ)
+    SENSE_MODE = "sense_mode"  # Local (2-wire) vs remote (4-wire) sense
+    SAMPLE_RATE = "sample_rate"  # Digitizing sample rate
+    BANDWIDTH = "bandwidth"  # Measurement bandwidth limit
+    FILTER = "filter"  # Digital filter type/order (affects noise/accuracy)
+    GATE_TIME = "gate_time"  # Counter/integrator gate period
+    ACQUISITION_MODE = "acquisition_mode"  # Normal/average/peak-detect/hi-res
+    TIME_CONSTANT = "time_constant"  # Lock-in amplifier tau, controller response
+
+    # Signal characteristics
+    SIGNAL_LEVEL = "signal_level"  # Signal amplitude relative to range
+    CREST_FACTOR = "crest_factor"  # AC waveform peak-to-RMS ratio
+
+    # Source/load conditions
+    LOAD = "load"  # Output load current
+    INPUT_VOLTAGE = "input_voltage"  # Input/line voltage
+    VOLTAGE = "voltage"  # Operating voltage (derating)
+    CURRENT = "current"  # Operating current (derating)
+    DUTY_CYCLE = "duty_cycle"  # Pulsed operation duty cycle
+    SLEW_RATE = "slew_rate"  # Programmable rise/fall rate
+    SETTLING_TIME = "settling_time"  # Transient recovery time
+
+    # Sensor/detector type
+    SENSOR = "sensor"  # Sensor type (RTD/TC/diode, Si/InGaAs detector)
+    WAVELENGTH = "wavelength"  # Optical wavelength (accuracy varies by λ)
+
+    # RF/signal analysis
+    OFFSET = "offset"  # Offset frequency (phase noise)
+
+
+class Capability(BaseModel):
+    """What a signal endpoint can do — shared by products and instruments.
+
+    Base class for both product characteristics and instrument capabilities.
+    Describes a measurement function with direction, parameters, and specs.
+    """
+
+    function: MeasurementFunction
+    direction: Direction
+    parameters: dict[str, SignalParameter] = Field(default_factory=dict)
+    units: str | None = None
+    specs: list[SpecBand] = Field(default_factory=list)
+
+
+class InstrumentCapability(Capability):
+    """Instrument capability + channels + operational metadata.
 
     Example YAML:
         - function: dc_voltage
@@ -399,12 +465,26 @@ class FunctionCapability(BaseModel):
           readback: false
     """
 
-    function: MeasurementFunction
-    direction: Direction
-    parameters: dict[str, SignalParameter] = Field(default_factory=dict)
-    channels: list[str] = Field(default_factory=list)
+    channels: str | list[str] = Field(default_factory=list)  # Range: "1:4", list, or int
     modes: list[str] = Field(default_factory=list)
     readback: bool = False  # Built-in meter, not primary measurement
+
+    @computed_field
+    @property
+    def resolved_channels(self) -> list[str]:
+        """Expand channels to list, handling range syntax.
+
+        Supports:
+        - Explicit list: ["1", "2", "3"] → ["1", "2", "3"]
+        - Range string: "CH[1:4]" → ["CH1", "CH2", "CH3", "CH4"]
+        - Numeric range: "1:4" → ["1", "2", "3", "4"]
+        - Single string: "1" → ["1"]
+        """
+        from litmus.utils.ranges import expand_range
+
+        if isinstance(self.channels, list):
+            return [str(ch) for ch in self.channels]
+        return expand_range(self.channels)
 
 
 class Limit(BaseModel):

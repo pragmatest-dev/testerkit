@@ -14,9 +14,9 @@ from litmus.config.models import (
 )
 from litmus.products.models import (
     BusSignal,
-    Characteristic,
     Pin,
     Product,
+    ProductCharacteristic,
     SignalGroup,
 )
 
@@ -215,7 +215,7 @@ def _parse_signal_group(data: dict[str, Any]) -> SignalGroup:
     )
 
 
-def _parse_characteristic(data: dict[str, Any]) -> Characteristic:
+def _parse_characteristic(data: dict[str, Any]) -> ProductCharacteristic:
     """Parse a characteristic from YAML data.
 
     Supports the function-based format:
@@ -242,7 +242,7 @@ def _parse_characteristic(data: dict[str, Any]) -> Characteristic:
     for spec_data in data.get("specs", []):
         specs.append(_parse_product_spec_band(spec_data))
 
-    return Characteristic(
+    return ProductCharacteristic(
         function=function,
         direction=direction,
         parameters=parameters,
@@ -252,7 +252,6 @@ def _parse_characteristic(data: dict[str, Any]) -> Characteristic:
         pins=data.get("pins", []),
         net=data.get("net"),
         signal_group=data.get("signal_group"),
-        channel=data.get("channel"),
         # Traceability
         datasheet_ref=data.get("datasheet_ref"),
         specs=specs,

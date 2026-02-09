@@ -74,130 +74,6 @@
       "title": "BusSignal",
       "type": "object"
     },
-    "Characteristic": {
-      "description": "A product characteristic tied to physical DUT interface (ATML: UUT Characteristic).\n\nUses MeasurementFunction + Direction + parameters to describe what the DUT does\nat a connection point. This is the product-side mirror of instrument FunctionCapability.\n\nThe direction indicates whether the DUT provides (OUTPUT) or consumes (INPUT)\nthis signal. Capability matching pairs OPPOSITE directions:\n- DUT OUTPUT -> Instrument INPUT (measure what DUT provides)\n- DUT INPUT -> Instrument OUTPUT (source what DUT needs)\n\nREQUIRES physical interface: Every characteristic must be tied to at least one\nphysical connection point (pin, net, or signal_group). This enables:\n- Fixture mapping (characteristic -> pin -> fixture point -> instrument channel)\n- Traceability from measurement back to schematic\n- Clear routing for test execution\n\nExample YAML:\n    rail_3v3_output:\n      function: dc_voltage\n      direction: output\n      units: V\n      pin: VOUT\n      parameters:\n        voltage:\n          value: 3.3\n          units: V\n      specs:\n        - conditions:\n            temperature: {min: 25, max: 25, units: degC}\n            load: {min: 0.1, max: 0.1, units: A}\n          value: 3.3\n          accuracy: {pct_reading: 3.0}",
-      "properties": {
-        "function": {
-          "$ref": "#/$defs/MeasurementFunction",
-          "default": "dc_voltage"
-        },
-        "direction": {
-          "$ref": "#/$defs/Direction"
-        },
-        "parameters": {
-          "additionalProperties": {
-            "$ref": "#/$defs/SignalParameter"
-          },
-          "title": "Parameters",
-          "type": "object"
-        },
-        "units": {
-          "title": "Units",
-          "type": "string"
-        },
-        "pin": {
-          "anyOf": [
-            {
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Pin"
-        },
-        "pins": {
-          "anyOf": [
-            {
-              "type": "string"
-            },
-            {
-              "items": {
-                "type": "string"
-              },
-              "type": "array"
-            }
-          ],
-          "title": "Pins"
-        },
-        "net": {
-          "anyOf": [
-            {
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Net"
-        },
-        "signal_group": {
-          "anyOf": [
-            {
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Signal Group"
-        },
-        "channel": {
-          "anyOf": [
-            {
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Channel"
-        },
-        "channels": {
-          "anyOf": [
-            {
-              "type": "string"
-            },
-            {
-              "items": {
-                "type": "string"
-              },
-              "type": "array"
-            }
-          ],
-          "title": "Channels"
-        },
-        "datasheet_ref": {
-          "anyOf": [
-            {
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Datasheet Ref"
-        },
-        "specs": {
-          "items": {
-            "$ref": "#/$defs/SpecBand"
-          },
-          "title": "Specs",
-          "type": "array"
-        }
-      },
-      "required": [
-        "direction",
-        "units"
-      ],
-      "title": "Characteristic",
-      "type": "object"
-    },
     "CompareMode": {
       "description": "Comparison direction for capability parameters.\n\nDetermines how instrument and requirement values are compared:\n- CONTAINS: Instrument range must contain required range (default)\n- HIGHER_BETTER: Instrument value must be >= required (gain, bandwidth)\n- LOWER_BETTER: Instrument value must be <= required (noise, THD)",
       "enum": [
@@ -220,7 +96,7 @@
       "type": "string"
     },
     "MeasurementFunction": {
-      "description": "Named signal measurement/stimulus functions (ATML/IEEE 1641 inspired).\n\nReplaces the Domain + SignalType pair with a single enum that describes\nwhat an instrument *does*. Grouped by IVI instrument class for clarity.",
+      "description": "Named signal measurement/stimulus functions.\n\nStandards-grounded taxonomy derived from IVI Foundation instrument classes,\nIEEE 1641 signal primitives, and SCPI naming conventions. Designed for ALL\nelectronics hardware test: DC, AC, RF, mixed-signal, digital, optical, thermal.\n\nDesign principles:\n- One enum for instruments AND products (direction distinguishes measure vs source)\n- Functions describe WHAT, not HOW (dc_voltage not dmm_dc_volts)\n- Flat enum (grouped by comment only, no hierarchy)\n- Waveform shapes are parameters, not functions (use WaveformShape enum)\n- Instrument-class-neutral (both DMM and scope can measure dc_voltage)",
       "enum": [
         "dc_voltage",
         "ac_voltage",
@@ -237,32 +113,42 @@
         "waveform",
         "dc_power",
         "ac_power",
-        "sine",
-        "square",
-        "ramp",
-        "triangle",
-        "pulse",
-        "arbitrary",
         "rf_power",
         "rf_cw",
-        "logic",
-        "counter",
-        "digital_pattern",
-        "serial_decode",
-        "diode",
-        "continuity",
-        "transient",
         "s_parameters",
         "spectrum",
         "phase_noise",
         "noise_figure",
-        "modulation_analysis",
-        "rf_modulated",
-        "noise",
         "harmonics",
+        "digital_pattern",
+        "digital_io",
+        "serial_data",
+        "diode",
+        "continuity",
+        "quality_factor",
+        "dissipation_factor",
+        "time_interval",
+        "pulse_width",
+        "duty_cycle",
+        "rise_time",
+        "fall_time",
+        "phase",
         "power_quality",
         "jitter",
-        "eye_diagram"
+        "eye_diagram",
+        "thd",
+        "snr",
+        "gain",
+        "return_loss",
+        "insertion_loss",
+        "vswr",
+        "group_delay",
+        "optical_power",
+        "wavelength",
+        "humidity",
+        "charge",
+        "magnetic_field",
+        "position"
       ],
       "title": "MeasurementFunction",
       "type": "string"
@@ -332,7 +218,7 @@
       "type": "string"
     },
     "Product": {
-      "description": "Product definition (ATML: UUT Description).\n\nTop-level model that ties together:\n- Product identification (id, name, revision)\n- Documentation references (datasheet, schematic)\n- Characteristics with condition matrices\n\nExample YAML:\n    product:\n      id: power_board_v1\n      name: \"DC-DC Power Board Rev A\"\n      revision: \"A\"\n      datasheet: \"docs/DS-001.pdf\"\n\n    characteristics:\n      rail_3v3_output:\n        direction: output\n        domain: voltage\n        ...",
+      "description": "Product definition (ATML: UUT Description).\n\nTop-level model that ties together:\n- Product identification (id, name, revision)\n- Documentation references (datasheet, schematic)\n- Characteristics with condition matrices\n\nExample YAML:\n    product:\n      id: power_board_v1\n      name: \"DC-DC Power Board Rev A\"\n      revision: \"A\"\n      datasheet: \"docs/DS-001.pdf\"\n\n    characteristics:\n      rail_3v3_output:\n        function: dc_voltage\n        direction: output\n        units: V\n        pin: VOUT\n        specs:\n          - value: 3.3\n            accuracy: {pct_reading: 3.0}",
       "properties": {
         "id": {
           "title": "Id",
@@ -430,7 +316,7 @@
         },
         "characteristics": {
           "additionalProperties": {
-            "$ref": "#/$defs/Characteristic"
+            "$ref": "#/$defs/ProductCharacteristic"
           },
           "title": "Characteristics",
           "type": "object"
@@ -441,6 +327,111 @@
         "name"
       ],
       "title": "Product",
+      "type": "object"
+    },
+    "ProductCharacteristic": {
+      "description": "Product capability + physical interface + traceability (ATML: UUT Characteristic).\n\nExtends Capability with product-specific fields: physical pin mapping,\nnet names, signal groups, and datasheet references.\n\nThe direction indicates whether the DUT provides (OUTPUT) or consumes (INPUT)\nthis signal. Direction pairing for matching (DUT OUTPUT \u2192 instrument INPUT)\nlives in the matching service, not here.\n\nREQUIRES physical interface: Every characteristic must be tied to at least one\nphysical connection point (pin, net, or signal_group).\n\nExample YAML:\n    rail_3v3_output:\n      function: dc_voltage\n      direction: output\n      units: V\n      pin: VOUT\n      parameters:\n        voltage:\n          value: 3.3\n          units: V\n      specs:\n        - conditions:\n            temperature: {min: 25, max: 25, units: degC}\n            load: {min: 0.1, max: 0.1, units: A}\n          value: 3.3\n          accuracy: {pct_reading: 3.0}",
+      "properties": {
+        "function": {
+          "$ref": "#/$defs/MeasurementFunction"
+        },
+        "direction": {
+          "$ref": "#/$defs/Direction"
+        },
+        "parameters": {
+          "additionalProperties": {
+            "$ref": "#/$defs/SignalParameter"
+          },
+          "title": "Parameters",
+          "type": "object"
+        },
+        "units": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Units"
+        },
+        "specs": {
+          "items": {
+            "$ref": "#/$defs/SpecBand"
+          },
+          "title": "Specs",
+          "type": "array"
+        },
+        "pin": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Pin"
+        },
+        "pins": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            }
+          ],
+          "title": "Pins"
+        },
+        "net": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Net"
+        },
+        "signal_group": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Signal Group"
+        },
+        "datasheet_ref": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Datasheet Ref"
+        }
+      },
+      "required": [
+        "function",
+        "direction"
+      ],
+      "title": "ProductCharacteristic",
       "type": "object"
     },
     "RangeSpec": {
@@ -729,7 +720,7 @@
     },
     "characteristics": {
       "additionalProperties": {
-        "$ref": "#/$defs/Characteristic"
+        "$ref": "#/$defs/ProductCharacteristic"
       },
       "title": "Characteristics",
       "type": "object"

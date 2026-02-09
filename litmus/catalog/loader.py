@@ -14,7 +14,7 @@ from litmus.config.models import (
     CompareMode,
     ConnectorType,
     Direction,
-    FunctionCapability,
+    InstrumentCapability,
     GroundTopology,
     MeasurementFunction,
     ParameterRole,
@@ -298,7 +298,7 @@ def _parse_channel_topology(data: dict[str, Any]) -> ChannelTopology:
     )
 
 
-def _parse_capabilities(caps_data: list[dict[str, Any]]) -> list[FunctionCapability]:
+def _parse_capabilities(caps_data: list[dict[str, Any]]) -> list[InstrumentCapability]:
     """Parse capabilities list from YAML data."""
     capabilities = []
     for cap_data in caps_data:
@@ -310,8 +310,8 @@ def _parse_capabilities(caps_data: list[dict[str, Any]]) -> list[FunctionCapabil
     return capabilities
 
 
-def _parse_capability(data: dict[str, Any]) -> FunctionCapability:
-    """Parse a single FunctionCapability from YAML data."""
+def _parse_capability(data: dict[str, Any]) -> InstrumentCapability:
+    """Parse a single InstrumentCapability from YAML data."""
     function = MeasurementFunction(data["function"])
     direction = Direction(data["direction"])
 
@@ -322,7 +322,7 @@ def _parse_capability(data: dict[str, Any]) -> FunctionCapability:
     channels = _normalize_channels(data.get("channels"))
     readback = bool(data.get("readback", False))
 
-    return FunctionCapability(
+    return InstrumentCapability(
         function=function,
         direction=direction,
         parameters=parameters,

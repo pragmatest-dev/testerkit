@@ -170,12 +170,11 @@ def get_required_capabilities(product) -> list[dict]:
 
     capabilities = []
     for char_name, char in product.characteristics.items():
-        cap_req = char.to_capability_requirement()
         capabilities.append({
             "characteristic": char_name,
-            "direction": cap_req.direction.value,
-            "function": cap_req.function.value,
-            "parameters": ", ".join(cap_req.parameters.keys()) if cap_req.parameters else "",
+            "direction": char.direction.value,
+            "function": char.function.value,
+            "parameters": ", ".join(char.parameters.keys()) if char.parameters else "",
         })
     return capabilities
 

@@ -13,7 +13,7 @@ from typing import TYPE_CHECKING, Any
 
 from litmus.config.models import Comparator, Limit
 from litmus.products.loader import load_product
-from litmus.products.models import Characteristic, Product
+from litmus.products.models import Product, ProductCharacteristic
 
 if TYPE_CHECKING:
     from litmus.config.models import FixtureConfig
@@ -65,7 +65,7 @@ class SpecContext:
                     self._char_by_pin[pin] = []
                 self._char_by_pin[pin].append(char_id)
 
-    def _get_char_pins(self, char: Characteristic) -> list[str]:
+    def _get_char_pins(self, char: ProductCharacteristic) -> list[str]:
         """Get all pin references for a characteristic."""
         pins = list(char.resolved_pins)
 
@@ -89,7 +89,7 @@ class SpecContext:
         product = load_product(Path(spec_path))
         return cls(product, fixture, guardband_pct)
 
-    def get_characteristic(self, char_id: str) -> Characteristic | None:
+    def get_characteristic(self, char_id: str) -> ProductCharacteristic | None:
         """Get a characteristic by ID."""
         return self.product.characteristics.get(char_id)
 
@@ -105,7 +105,7 @@ class SpecContext:
         """Derive test limit from a characteristic.
 
         Args:
-            char_id: Characteristic ID (e.g., "output_voltage").
+            char_id: ProductCharacteristic ID (e.g., "output_voltage").
             guardband_pct: Override guardband (uses default if None).
             comparator: Override comparator (defaults to GELE).
             limit_low: Explicit low limit override.
@@ -121,7 +121,7 @@ class SpecContext:
         """
         char = self.product.characteristics.get(char_id)
         if char is None:
-            raise KeyError(f"Characteristic '{char_id}' not found in product '{self.product.id}'")
+            raise KeyError(f"ProductCharacteristic '{char_id}' not found in product '{self.product.id}'")
 
         from litmus.execution.limits import derive_limit
 

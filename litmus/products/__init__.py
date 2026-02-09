@@ -14,14 +14,14 @@ from litmus.products.manifest import (
     WorkflowStep,
 )
 from litmus.products.models import (
-    Characteristic,
     Product,
+    ProductCharacteristic,
 )
 
 __all__ = [
-    "Characteristic",
     "FileReferences",
     "Product",
+    "ProductCharacteristic",
     "ProductFolder",
     "ProductManifest",
     "SpecContext",

@@ -4,12 +4,11 @@ Provides deterministic matching between product requirements and station capabil
 This is the core service layer that the UI, API, and MCP tools all use.
 
 Key concepts:
-- Products define characteristics with MeasurementFunction + Direction + parameters
-- Characteristics derive capability requirements via direction pairing:
-  - DUT OUTPUT -> Instrument INPUT (measure what DUT provides)
-  - DUT INPUT -> Instrument OUTPUT (source what DUT needs)
-- Stations have instruments with FunctionCapability entries
-- Matching is 3-tier: function match -> direction match -> parameter range containment
+- Products define characteristics (ProductCharacteristic extends Capability)
+- Instruments define capabilities (InstrumentCapability extends Capability)
+- Both share the same base: function + direction + parameters + specs
+- Direction pairing happens here: DUT OUTPUT ↔ Instrument INPUT
+- Matching is multi-tier: function → direction → range → accuracy → resolution
 """
 
 from pathlib import Path
@@ -21,6 +20,7 @@ from litmus.config.models import (
     AccuracySpec,
     CompareMode,
     Direction,
+    InstrumentCapability,
     MatchDepth,
     MeasurementFunction,
     ResolutionSpec,
@@ -28,7 +28,7 @@ from litmus.config.models import (
     SpecBand,
 )
 from litmus.products.loader import load_product
-from litmus.products.models import Product
+from litmus.products.models import Product, ProductCharacteristic
 from litmus.utils.loaders import find_yaml_files, load_yaml_file
 from litmus.utils.paths import get_instrument_paths, get_station_paths
 
@@ -36,24 +36,52 @@ from litmus.utils.paths import get_instrument_paths, get_station_paths
 class CapabilityRequirement(BaseModel):
     """A required instrument capability derived from a product characteristic."""
 
-    function: MeasurementFunction
-    direction: Direction
-    parameters: dict[str, SignalParameter] = Field(default_factory=dict)
+    capability: ProductCharacteristic
     characteristic_name: str  # Which product characteristic this came from
     pins: list[str] = Field(default_factory=list)  # DUT pins for traceability
+
+    # Convenience accessors
+    @property
+    def function(self) -> MeasurementFunction:
+        return self.capability.function
+
+    @property
+    def direction(self) -> Direction:
+        return self.capability.direction
+
+    @property
+    def parameters(self) -> dict[str, SignalParameter]:
+        return self.capability.parameters
 
 
 class StationCapability(BaseModel):
     """A capability provided by a station instrument."""
 
-    function: MeasurementFunction
-    direction: Direction
-    parameters: dict[str, SignalParameter] = Field(default_factory=dict)
-    name: str  # Capability name
+    capability: InstrumentCapability
     instrument_type: str  # Which instrument type provides this
     instrument_name: str  # Instance name in station config
     channel: str | None = None  # Specific channel this capability is on
-    readback: bool = False  # Built-in meter, not primary measurement
+
+    # Convenience accessors
+    @property
+    def function(self) -> MeasurementFunction:
+        return self.capability.function
+
+    @property
+    def direction(self) -> Direction:
+        return self.capability.direction
+
+    @property
+    def parameters(self) -> dict[str, SignalParameter]:
+        return self.capability.parameters
+
+    @property
+    def name(self) -> str:
+        return f"{self.capability.function.value}_{self.capability.direction.value}"
+
+    @property
+    def readback(self) -> bool:
+        return self.capability.readback
 
 
 class CapabilityMatch(BaseModel):
@@ -233,23 +261,40 @@ def list_stations() -> list[dict[str, Any]]:
 # -----------------------------------------------------------------------------
 
 
+def _directions_compatible(product_dir: Direction, instrument_dir: Direction) -> bool:
+    """Check if product and instrument directions are compatible for matching.
+
+    Direction pairing rules:
+    - DUT OUTPUT → Instrument INPUT (measure what DUT provides)
+    - DUT INPUT → Instrument OUTPUT (source what DUT needs)
+    - DUT BIDIR → Instrument BIDIR only
+    - Instrument BIDIR satisfies any product direction
+    """
+    if instrument_dir == Direction.BIDIR:
+        return True
+    if product_dir == Direction.OUTPUT:
+        return instrument_dir == Direction.INPUT
+    if product_dir == Direction.INPUT:
+        return instrument_dir == Direction.OUTPUT
+    if product_dir == Direction.BIDIR:
+        return instrument_dir == Direction.BIDIR
+    if product_dir == Direction.TRANSFORM:
+        return instrument_dir == Direction.TRANSFORM
+    return False
+
+
 def get_required_capabilities(product: Product) -> list[CapabilityRequirement]:
     """Derive required instrument capabilities from product characteristics.
 
-    Uses Characteristic.to_capability_requirement() for direction flipping:
-    - DUT OUTPUT -> Instrument INPUT (measure what DUT provides)
-    - DUT INPUT -> Instrument OUTPUT (source what DUT needs)
+    Wraps each ProductCharacteristic directly — no lossy conversion.
+    Direction pairing happens in capability_satisfies() via _directions_compatible().
     """
     requirements = []
 
     for char_name, char in product.characteristics.items():
-        cap = char.to_capability_requirement()
-
         requirements.append(
             CapabilityRequirement(
-                function=cap.function,
-                direction=cap.direction,
-                parameters=cap.parameters,
+                capability=char,
                 characteristic_name=char_name,
                 pins=char.resolved_pins,
             )
@@ -288,52 +333,60 @@ def get_station_capabilities(station_config: dict) -> list[StationCapability]:
         # Fall back to generic instrument library
         library = load_instrument_library(inst_type)
         if library and "capabilities" in library:
-            for cap in library["capabilities"]:
+            for cap_data in library["capabilities"]:
                 try:
-                    function = MeasurementFunction(cap["function"])
-                    direction = Direction(cap["direction"])
+                    function = MeasurementFunction(cap_data["function"])
+                    direction = Direction(cap_data["direction"])
                 except (ValueError, KeyError):
                     continue
 
                 # Parse parameters
                 params: dict[str, SignalParameter] = {}
-                for param_name, param_data in cap.get("parameters", {}).items():
+                for param_name, param_data in cap_data.get("parameters", {}).items():
                     params[param_name] = _parse_signal_parameter(param_data)
 
-                cap_name = cap.get("name", f"{function.value}_{direction.value}")
-                readback = bool(cap.get("readback", False))
+                readback = bool(cap_data.get("readback", False))
+                channels = _normalize_channels(cap_data.get("channels"))
 
-                # Expand per-channel
-                channels = _normalize_channels(cap.get("channels"))
+                inst_cap = InstrumentCapability(
+                    function=function,
+                    direction=direction,
+                    parameters=params,
+                    channels=channels,
+                    modes=cap_data.get("modes", []),
+                    readback=readback,
+                )
 
-                if channels:
-                    for ch in channels:
-                        capabilities.append(
-                            StationCapability(
-                                function=function,
-                                direction=direction,
-                                parameters=params,
-                                name=cap_name,
-                                instrument_type=inst_type,
-                                instrument_name=inst_name,
-                                channel=ch,
-                                readback=readback,
-                            )
-                        )
-                else:
-                    capabilities.append(
-                        StationCapability(
-                            function=function,
-                            direction=direction,
-                            parameters=params,
-                            name=cap_name,
-                            instrument_type=inst_type,
-                            instrument_name=inst_name,
-                            readback=readback,
-                        )
-                    )
+                _expand_capability(inst_cap, inst_type, inst_name, capabilities)
 
     return capabilities
+
+
+def _expand_capability(
+    cap: InstrumentCapability,
+    inst_type: str,
+    inst_name: str,
+    capabilities: list[StationCapability],
+) -> None:
+    """Expand an InstrumentCapability into per-channel StationCapability entries."""
+    if cap.resolved_channels:
+        for ch in cap.resolved_channels:
+            capabilities.append(
+                StationCapability(
+                    capability=cap,
+                    instrument_type=inst_type,
+                    instrument_name=inst_name,
+                    channel=ch,
+                )
+            )
+    else:
+        capabilities.append(
+            StationCapability(
+                capability=cap,
+                instrument_type=inst_type,
+                instrument_name=inst_name,
+            )
+        )
 
 
 def _add_catalog_capabilities(
@@ -348,35 +401,7 @@ def _add_catalog_capabilities(
     entry = resolve_catalog_ref(catalog_ref)
     if entry:
         for cap in entry.capabilities:
-            cap_name = f"{cap.function.value}_{cap.direction.value}"
-            channels = cap.channels
-
-            if channels:
-                for ch in channels:
-                    capabilities.append(
-                        StationCapability(
-                            function=cap.function,
-                            direction=cap.direction,
-                            parameters=cap.parameters,
-                            name=cap_name,
-                            instrument_type=inst_type,
-                            instrument_name=inst_name,
-                            channel=ch,
-                            readback=cap.readback,
-                        )
-                    )
-            else:
-                capabilities.append(
-                    StationCapability(
-                        function=cap.function,
-                        direction=cap.direction,
-                        parameters=cap.parameters,
-                        name=cap_name,
-                        instrument_type=inst_type,
-                        instrument_name=inst_name,
-                        readback=cap.readback,
-                    )
-                )
+            _expand_capability(cap, inst_type, inst_name, capabilities)
 
 
 def _parse_signal_parameter(data: dict[str, Any]) -> SignalParameter:
@@ -448,10 +473,9 @@ def capability_satisfies(
     if depth == MatchDepth.FUNCTION:
         return True
 
-    # Tier 2: Direction must match (or station cap is bidir)
-    if station_cap.direction != required.direction:
-        if station_cap.direction != Direction.BIDIR:
-            return False
+    # Tier 2: Direction compatibility (product OUTPUT ↔ instrument INPUT, etc.)
+    if not _directions_compatible(required.direction, station_cap.direction):
+        return False
     if depth == MatchDepth.DIRECTION:
         return True
 
@@ -852,6 +876,34 @@ def find_partial_stations(product: Product) -> list[PartialStationMatch]:
     return results
 
 
+def _catalog_cap_matches(
+    cap: StationCapability,
+    req: CapabilityRequirement,
+) -> bool:
+    """Direct capability matching for catalog search (no direction pairing).
+
+    Unlike capability_satisfies() which pairs product↔instrument directions
+    (OUTPUT↔INPUT), this does direct matching: the requirement specifies the
+    instrument capability needed, so directions must match directly.
+    """
+    if cap.function != req.function:
+        return False
+    # Direct direction match (not paired)
+    if req.direction != Direction.BIDIR and cap.direction != req.direction:
+        if cap.direction != Direction.BIDIR:
+            return False
+    # Range containment
+    for param_name, req_param in req.parameters.items():
+        inst_param = cap.parameters.get(param_name)
+        if inst_param is None:
+            if req_param.range is not None or req_param.value is not None:
+                return False
+            continue
+        if not _range_contains(inst_param, req_param):
+            return False
+    return True
+
+
 def recommend_from_catalog(
     requirements: list[dict[str, Any]],
     project: Path | None = None,
@@ -905,7 +957,7 @@ def recommend_from_catalog(
 
         for req_idx, req in enumerate(cap_reqs):
             for cap in caps:
-                if capability_satisfies(cap, req):
+                if _catalog_cap_matches(cap, req):
                     satisfied_indices.append(req_idx)
                     break
 
@@ -958,10 +1010,17 @@ def _parse_requirements(raw: list[dict[str, Any]]) -> list[CapabilityRequirement
                 range=RangeSpec(min=range_min, max=range_max, units=units),
             )
 
-        reqs.append(CapabilityRequirement(
+        # Build a synthetic ProductCharacteristic for the wrapper
+        char = ProductCharacteristic(
             function=function,
             direction=direction,
             parameters=parameters,
+            units=units or None,
+            net=f"req_{i}",  # Synthetic physical interface
+        )
+
+        reqs.append(CapabilityRequirement(
+            capability=char,
             characteristic_name=f"req_{i}",
         ))
     return reqs
@@ -969,32 +1028,9 @@ def _parse_requirements(raw: list[dict[str, Any]]) -> list[CapabilityRequirement
 
 def _catalog_entry_to_capabilities(entry: Any) -> list[StationCapability]:
     """Convert a catalog entry's capabilities to StationCapability objects."""
-    caps = []
+    caps: list[StationCapability] = []
     for cap in entry.capabilities:
-        cap_name = f"{cap.function.value}_{cap.direction.value}"
-        channels = cap.channels
-        if channels:
-            for ch in channels:
-                caps.append(StationCapability(
-                    function=cap.function,
-                    direction=cap.direction,
-                    parameters=cap.parameters,
-                    name=cap_name,
-                    instrument_type=entry.type,
-                    instrument_name=entry.id,
-                    channel=ch,
-                    readback=cap.readback,
-                ))
-        else:
-            caps.append(StationCapability(
-                function=cap.function,
-                direction=cap.direction,
-                parameters=cap.parameters,
-                name=cap_name,
-                instrument_type=entry.type,
-                instrument_name=entry.id,
-                readback=cap.readback,
-            ))
+        _expand_capability(cap, entry.type, entry.id, caps)
     return caps
 
 

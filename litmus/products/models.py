@@ -9,9 +9,9 @@ flow down to:
 5. Results (full traceability back to specs)
 
 Key design principle: Product characteristics and instrument capabilities share
-the same vocabulary (MeasurementFunction, Direction, SignalParameter, Comparator).
-This enables capability matching - opposite directions pair with parameter
-range containment.
+the same base model (Capability) with MeasurementFunction, Direction,
+SignalParameter. This enables direct capability matching without lossy
+conversion — direction pairing lives in the matching service.
 """
 
 from enum import StrEnum
@@ -20,8 +20,8 @@ from typing import Any, Self
 from pydantic import BaseModel, Field, computed_field, model_validator
 
 from litmus.config.models import (
+    Capability,
     Direction,
-    FunctionCapability,
     MeasurementFunction,
     RangeSpec,
     SignalParameter,
@@ -116,22 +116,18 @@ class SignalGroup(BaseModel):
     description: str | None = None
 
 
-class Characteristic(BaseModel):
-    """A product characteristic tied to physical DUT interface (ATML: UUT Characteristic).
+class ProductCharacteristic(Capability):
+    """Product capability + physical interface + traceability (ATML: UUT Characteristic).
 
-    Uses MeasurementFunction + Direction + parameters to describe what the DUT does
-    at a connection point. This is the product-side mirror of instrument FunctionCapability.
+    Extends Capability with product-specific fields: physical pin mapping,
+    net names, signal groups, and datasheet references.
 
     The direction indicates whether the DUT provides (OUTPUT) or consumes (INPUT)
-    this signal. Capability matching pairs OPPOSITE directions:
-    - DUT OUTPUT -> Instrument INPUT (measure what DUT provides)
-    - DUT INPUT -> Instrument OUTPUT (source what DUT needs)
+    this signal. Direction pairing for matching (DUT OUTPUT → instrument INPUT)
+    lives in the matching service, not here.
 
     REQUIRES physical interface: Every characteristic must be tied to at least one
-    physical connection point (pin, net, or signal_group). This enables:
-    - Fixture mapping (characteristic -> pin -> fixture point -> instrument channel)
-    - Traceability from measurement back to schematic
-    - Clear routing for test execution
+    physical connection point (pin, net, or signal_group).
 
     Example YAML:
         rail_3v3_output:
@@ -151,29 +147,14 @@ class Characteristic(BaseModel):
               accuracy: {pct_reading: 3.0}
     """
 
-    # Signal identification (shared vocabulary with FunctionCapability)
-    function: MeasurementFunction = MeasurementFunction.DC_VOLTAGE
-    direction: Direction
-    parameters: dict[str, SignalParameter] = Field(default_factory=dict)
-    units: str
-
     # Physical interface - AT LEAST ONE REQUIRED
-    # These mirror how instruments have `channels` - characteristics need connection points
     pin: str | None = None  # Single pin reference (Product.pins key)
     pins: str | list[str] = Field(default_factory=list)  # Multiple pins (range: "GPIO[0:7]")
     net: str | None = None  # Schematic net name (matches fixture routing)
     signal_group: str | None = None  # Reference to Product.signal_groups key
 
-    # For multi-channel DUT outputs (like instrument's `channels`)
-    # E.g., a 4-channel power supply has characteristics for CH1, CH2, CH3, CH4
-    channel: str | None = None  # Single channel
-    channels: str | list[str] = Field(default_factory=list)  # Multiple channels (range: "CH[1:4]")
-
     # Traceability
     datasheet_ref: str | None = None
-
-    # Spec values at conditions (SpecBand model)
-    specs: list[SpecBand] = Field(default_factory=list)
 
     @computed_field
     @property
@@ -192,51 +173,23 @@ class Characteristic(BaseModel):
             return expand_range(self.pins)
         return []
 
-    @computed_field
-    @property
-    def resolved_channels(self) -> list[str]:
-        """Expand channels to list, handling range syntax.
-
-        Supports:
-        - Single channel: channel="1" → ["1"]
-        - Explicit list: channels=["CH1", "CH2"] → ["CH1", "CH2"]
-        - Range string: channels="CH[1:4]" → ["CH1", "CH2", "CH3", "CH4"]
-        - Numeric range: channels="1:4" → ["1", "2", "3", "4"]
-        """
-        if self.channel:
-            return [self.channel]
-        if self.channels:
-            return expand_range(self.channels)
-        return []
-
     @model_validator(mode="after")
     def validate_physical_interface(self) -> Self:
         """Ensure characteristic is tied to physical interface.
 
         Every characteristic must specify WHERE on the DUT it applies.
         This enables fixture mapping and signal routing.
-
-        Accepts:
-        - pin/pins: Reference to Product.pins keys (pins supports range syntax)
-        - channel/channels: For multi-channel DUTs (channels supports range syntax)
-        - net: Schematic net name
-        - signal_group: Reference to Product.signal_groups key
-
-        For calculated characteristics (efficiency, regulation) that involve
-        multiple measurement points, list all involved pins in `pins`.
         """
         has_interface = any([
             self.pin,
             self.pins,
-            self.channel,
-            self.channels,
             self.net,
             self.signal_group,
         ])
         if not has_interface:
             raise ValueError(
                 "Characteristic must specify physical interface: "
-                "pin, pins, channel, channels, net, or signal_group"
+                "pin, pins, net, or signal_group"
             )
         return self
 
@@ -254,47 +207,6 @@ class Characteristic(BaseModel):
             if _band_matches_product(band, params):
                 return band
         return None
-
-    def to_capability_requirement(self) -> FunctionCapability:
-        """Derive instrument capability requirement from this characteristic.
-
-        Pairs OPPOSITE directions:
-        - DUT OUTPUT -> instrument INPUT (measure what DUT provides)
-        - DUT INPUT -> instrument OUTPUT (source what DUT needs)
-        - DUT BIDIR -> instrument BIDIR (need both)
-
-        Returns:
-            A FunctionCapability describing what instrument capability is needed.
-        """
-        # Direction pairing: opposite directions match
-        if self.direction == Direction.OUTPUT:
-            inst_direction = Direction.INPUT
-        elif self.direction == Direction.INPUT:
-            inst_direction = Direction.OUTPUT
-        else:  # BIDIR
-            inst_direction = Direction.BIDIR
-
-        # Build required parameters from conditions and explicit parameters
-        req_params: dict[str, SignalParameter] = dict(self.parameters)
-
-        # Derive range from specs (with headroom) if not already in parameters
-        all_nominals = [s.value for s in self.specs if s.value is not None]
-        if all_nominals:
-            max_nominal = max(all_nominals)
-            range_max = max_nominal * 1.2  # 20% headroom
-            # Determine primary parameter name from function
-            primary_param = _primary_parameter_for_function(self.function)
-            if primary_param not in req_params:
-                req_params[primary_param] = SignalParameter(
-                    range=RangeSpec(max=range_max, units=self.units),
-                    units=self.units,
-                )
-
-        return FunctionCapability(
-            function=self.function,
-            direction=inst_direction,
-            parameters=req_params,
-        )
 
 
 def _band_matches_product(band: SpecBand, params: dict[str, float]) -> bool:
@@ -316,34 +228,6 @@ def _band_matches_product(band: SpecBand, params: dict[str, float]) -> bool:
     return True
 
 
-def _primary_parameter_for_function(func: MeasurementFunction) -> str:
-    """Return the primary parameter name for a measurement function.
-
-    This maps each function to the main physical quantity it measures/sources.
-    Used when deriving parameter requirements from condition nominals.
-    """
-    _map = {
-        MeasurementFunction.DC_VOLTAGE: "voltage",
-        MeasurementFunction.AC_VOLTAGE: "voltage",
-        MeasurementFunction.DC_CURRENT: "current",
-        MeasurementFunction.AC_CURRENT: "current",
-        MeasurementFunction.RESISTANCE: "resistance",
-        MeasurementFunction.RESISTANCE_4W: "resistance",
-        MeasurementFunction.CAPACITANCE: "capacitance",
-        MeasurementFunction.INDUCTANCE: "inductance",
-        MeasurementFunction.IMPEDANCE: "impedance",
-        MeasurementFunction.FREQUENCY: "frequency",
-        MeasurementFunction.PERIOD: "period",
-        MeasurementFunction.TEMPERATURE: "temperature",
-        MeasurementFunction.WAVEFORM: "voltage",
-        MeasurementFunction.DC_POWER: "power",
-        MeasurementFunction.AC_POWER: "power",
-        MeasurementFunction.DIODE: "voltage",
-        MeasurementFunction.CONTINUITY: "resistance",
-    }
-    return _map.get(func, "value")
-
-
 class Product(BaseModel):
     """Product definition (ATML: UUT Description).
 
@@ -361,9 +245,13 @@ class Product(BaseModel):
 
         characteristics:
           rail_3v3_output:
+            function: dc_voltage
             direction: output
-            domain: voltage
-            ...
+            units: V
+            pin: VOUT
+            specs:
+              - value: 3.3
+                accuracy: {pct_reading: 3.0}
     """
 
     id: str
@@ -380,4 +268,4 @@ class Product(BaseModel):
     signal_groups: dict[str, SignalGroup] = Field(default_factory=dict)
 
     # Electrical characteristics
-    characteristics: dict[str, Characteristic] = Field(default_factory=dict)
+    characteristics: dict[str, ProductCharacteristic] = Field(default_factory=dict)

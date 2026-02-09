@@ -123,8 +123,18 @@
       "title": "Direction",
       "type": "string"
     },
-    "FunctionCapability": {
-      "description": "A single capability of an instrument (replaces old Capability).\n\nDescribes what an instrument can measure or source using the ATML/IEEE 1641\nsignal-parameter model: a measurement function with named parameters.\n\nThe function field identifies *what kind of measurement or stimulus* this is.\nParameters describe the ranges, accuracy, and resolution for each dimension.\nDirection indicates whether this measures (input) or sources (output).\n\nExample YAML:\n    - function: dc_voltage\n      direction: input\n      parameters:\n        voltage:\n          range: {min: 0.0001, max: 1000, units: V}\n          accuracy: {pct_reading: 0.0035, pct_range: 0.0006}\n          resolution: {digits: 6.5}\n      channels: [\"1\"]\n      readback: false",
+    "GroundTopology": {
+      "description": "How channel grounds relate to each other and earth.",
+      "enum": [
+        "floating",
+        "shared",
+        "earth"
+      ],
+      "title": "GroundTopology",
+      "type": "string"
+    },
+    "InstrumentCapability": {
+      "description": "Instrument capability + channels + operational metadata.\n\nExample YAML:\n    - function: dc_voltage\n      direction: input\n      parameters:\n        voltage:\n          range: {min: 0.0001, max: 1000, units: V}\n          accuracy: {pct_reading: 0.0035, pct_range: 0.0006}\n          resolution: {digits: 6.5}\n      channels: [\"1\"]\n      readback: false",
       "properties": {
         "function": {
           "$ref": "#/$defs/MeasurementFunction"
@@ -139,12 +149,38 @@
           "title": "Parameters",
           "type": "object"
         },
-        "channels": {
+        "units": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Units"
+        },
+        "specs": {
           "items": {
-            "type": "string"
+            "$ref": "#/$defs/SpecBand"
           },
-          "title": "Channels",
+          "title": "Specs",
           "type": "array"
+        },
+        "channels": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            }
+          ],
+          "title": "Channels"
         },
         "modes": {
           "items": {
@@ -163,18 +199,8 @@
         "function",
         "direction"
       ],
-      "title": "FunctionCapability",
+      "title": "InstrumentCapability",
       "type": "object"
-    },
-    "GroundTopology": {
-      "description": "How channel grounds relate to each other and earth.",
-      "enum": [
-        "floating",
-        "shared",
-        "earth"
-      ],
-      "title": "GroundTopology",
-      "type": "string"
     },
     "InstrumentCatalogEntry": {
       "description": "Structured capability data for a specific instrument make/model.\n\nThis is the universal tier \u2014 it describes what an instrument MODEL can do,\nnot what a specific unit is or where it lives. Driver information is\ndeliberately excluded because drivers are project-local (station config).\n\nChannels use structured ``ChannelTopology`` dicts describing physical\nterminals, connector types, and ground topology.\n\nExample YAML:\n    catalog_entry:\n      id: keysight_34461a\n      manufacturer: Keysight\n      model: \"34461A\"\n      name: \"Keysight 34461A Digital Multimeter\"\n      type: dmm\n      channels:\n        \"1\":\n          terminals: [hi, lo]\n          connector: binding_post\n          ground: shared\n\n    capabilities:\n      - function: dc_voltage\n        direction: input\n        parameters:\n          voltage:\n            range: {min: 0.0001, max: 1000, units: V}\n            accuracy: {pct_reading: 0.0035, pct_range: 0.0006}\n            resolution: {digits: 6.5}",
@@ -232,7 +258,7 @@
         },
         "capabilities": {
           "items": {
-            "$ref": "#/$defs/FunctionCapability"
+            "$ref": "#/$defs/InstrumentCapability"
           },
           "title": "Capabilities",
           "type": "array"
@@ -249,7 +275,7 @@
       "type": "object"
     },
     "MeasurementFunction": {
-      "description": "Named signal measurement/stimulus functions (ATML/IEEE 1641 inspired).\n\nReplaces the Domain + SignalType pair with a single enum that describes\nwhat an instrument *does*. Grouped by IVI instrument class for clarity.",
+      "description": "Named signal measurement/stimulus functions.\n\nStandards-grounded taxonomy derived from IVI Foundation instrument classes,\nIEEE 1641 signal primitives, and SCPI naming conventions. Designed for ALL\nelectronics hardware test: DC, AC, RF, mixed-signal, digital, optical, thermal.\n\nDesign principles:\n- One enum for instruments AND products (direction distinguishes measure vs source)\n- Functions describe WHAT, not HOW (dc_voltage not dmm_dc_volts)\n- Flat enum (grouped by comment only, no hierarchy)\n- Waveform shapes are parameters, not functions (use WaveformShape enum)\n- Instrument-class-neutral (both DMM and scope can measure dc_voltage)",
       "enum": [
         "dc_voltage",
         "ac_voltage",
@@ -266,32 +292,42 @@
         "waveform",
         "dc_power",
         "ac_power",
-        "sine",
-        "square",
-        "ramp",
-        "triangle",
-        "pulse",
-        "arbitrary",
         "rf_power",
         "rf_cw",
-        "logic",
-        "counter",
-        "digital_pattern",
-        "serial_decode",
-        "diode",
-        "continuity",
-        "transient",
         "s_parameters",
         "spectrum",
         "phase_noise",
         "noise_figure",
-        "modulation_analysis",
-        "rf_modulated",
-        "noise",
         "harmonics",
+        "digital_pattern",
+        "digital_io",
+        "serial_data",
+        "diode",
+        "continuity",
+        "quality_factor",
+        "dissipation_factor",
+        "time_interval",
+        "pulse_width",
+        "duty_cycle",
+        "rise_time",
+        "fall_time",
+        "phase",
         "power_quality",
         "jitter",
-        "eye_diagram"
+        "eye_diagram",
+        "thd",
+        "snr",
+        "gain",
+        "return_loss",
+        "insertion_loss",
+        "vswr",
+        "group_delay",
+        "optical_power",
+        "wavelength",
+        "humidity",
+        "charge",
+        "magnetic_field",
+        "position"
       ],
       "title": "MeasurementFunction",
       "type": "string"
@@ -562,7 +598,7 @@
     },
     "capabilities": {
       "items": {
-        "$ref": "#/$defs/FunctionCapability"
+        "$ref": "#/$defs/InstrumentCapability"
       },
       "title": "Capabilities",
       "type": "array"

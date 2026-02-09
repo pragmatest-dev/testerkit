@@ -19,14 +19,14 @@ from litmus.catalog.models import InstrumentCatalogEntry
 from litmus.config.models import (
     FixtureConfig,
     FixturePoint,
-    FunctionCapability,
+    InstrumentCapability,
     TestSequenceConfig,
     TestStepConfig,
 )
 from litmus.products.models import (
-    Characteristic,
     Pin,
     Product,
+    ProductCharacteristic,
     SignalGroup,
 )
 
@@ -39,7 +39,7 @@ class CatalogFile(BaseModel):
     """Schema for catalog/*.yaml files."""
 
     catalog_entry: InstrumentCatalogEntry
-    capabilities: list[FunctionCapability] = Field(default_factory=list)
+    capabilities: list[InstrumentCapability] = Field(default_factory=list)
 
 
 class ProductFile(BaseModel):
@@ -47,7 +47,7 @@ class ProductFile(BaseModel):
 
     product: Product
     pins: dict[str, Pin] = Field(default_factory=dict)
-    characteristics: dict[str, Characteristic] = Field(default_factory=dict)
+    characteristics: dict[str, ProductCharacteristic] = Field(default_factory=dict)
     signal_groups: dict[str, SignalGroup] = Field(default_factory=dict)
 
 

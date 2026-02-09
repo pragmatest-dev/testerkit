@@ -7,11 +7,11 @@ characteristics and spec bands, including guardband application.
 from typing import Any
 
 from litmus.config.models import Comparator, Limit, SpecBand
-from litmus.products.models import Characteristic
+from litmus.products.models import ProductCharacteristic
 
 
 def derive_limit(
-    char: Characteristic,
+    char: ProductCharacteristic,
     conditions: dict[str, Any] | None = None,
     guardband_pct: float = 0.0,
     comparator: Comparator = Comparator.GELE,
@@ -144,7 +144,7 @@ def _apply_guardband(
     return spec_low, spec_high
 
 
-def _build_spec_ref(char: Characteristic, conditions: dict[str, Any]) -> str:
+def _build_spec_ref(char: ProductCharacteristic, conditions: dict[str, Any]) -> str:
     """Build a spec reference string for traceability."""
     base_ref = char.datasheet_ref or "spec"
     if conditions:
