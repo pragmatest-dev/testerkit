@@ -29,25 +29,23 @@ pins:
 characteristics:
   input_voltage:
     direction: input       # DUT receives this
-    domain: voltage
-    signal_types: [dc]
+    function: dc_voltage
     units: V
     pins: [VIN]            # Which pin this characteristic applies to
-    conditions:
-      - nominal: 5.0
-        tolerance_pct: 10
+    specs:
+      - value: 5.0
+        accuracy: {pct_reading: 10}
 
   output_voltage:
     direction: output      # DUT provides this
-    domain: voltage
-    signal_types: [dc]
+    function: dc_voltage
     units: V
     pins: [VOUT]
-    conditions:
-      - nominal: 3.3
-        tolerance_pct: 5
+    specs:
+      - value: 3.3
+        accuracy: {pct_reading: 5}
 
-specs
+specs:
   verify_output:
     characteristic_ref: output_voltage
     guardband_pct: 10      # Tighten limits by 10%
@@ -104,15 +102,13 @@ characteristics:
   output_voltage:
     pins: [VOUT]
     direction: output
-    domain: voltage
-    signal_types: [dc]
+    function: dc_voltage
     units: V
 
   output_ripple:
     pins: [VOUT]           # Same pin, different measurement
     direction: output
-    domain: voltage
-    signal_types: [ac]
+    function: ac_voltage
     units: mV
 ```
 
@@ -157,12 +153,12 @@ pins:
 characteristics:
   output_voltage:
     direction: output
-    domain: voltage
+    function: dc_voltage
     units: V
     pins: [VOUT]
-    conditions:
-      - nominal: 5.0
-        tolerance_pct: 10
+    specs:
+      - value: 5.0
+        accuracy: {pct_reading: 10}
 ```
 
 ## Stations
@@ -265,13 +261,11 @@ type: dmm
 capabilities:
   - name: voltage_dc
     direction: input      # Instrument measures (receives signal)
-    domain: voltage
-    signal_types: [dc]
+    function: dc_voltage
 
   - name: current_dc
     direction: input
-    domain: current
-    signal_types: [dc]
+    function: dc_current
 ```
 
 ### Capability Dimensions
@@ -279,8 +273,7 @@ capabilities:
 | Dimension | Values | Description |
 |-----------|--------|-------------|
 | `direction` | input, output, bidir | Does it measure or source? |
-| `domain` | voltage, current, resistance, frequency, time, digital | Physical quantity |
-| `signal_types` | dc, ac, pulse, sine, square, pwm | Signal characteristics |
+| `function` | dc_voltage, ac_voltage, dc_current, ac_current, resistance, frequency, ... | Measurement function |
 
 ## Matching
 

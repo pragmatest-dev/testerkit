@@ -37,25 +37,26 @@ signal_groups:            # Bus interfaces
 characteristics:
   <name>:                 # Characteristic identifier
     direction: input | output | bidir
-    domain: voltage | current | resistance | frequency | time | digital
-    signal_types: [dc, ac, pulse, sine, square, pwm]
+    function: dc_voltage | ac_voltage | dc_current | ac_current | resistance | frequency | ...
     units: string         # e.g., "V", "A", "ohm"
     pins: [string]        # References to pins.<key>
     channel: string       # For multi-channel DUT outputs (optional)
     signal_group: string  # Reference to signal_groups.<key> (optional)
     datasheet_ref: string # Optional reference
     schematic_ref: string # Optional reference
-    conditions:
-      - nominal: float  # Expected value
-        tolerance_pct: float    # Percentage tolerance
-        tolerance_abs: float    # Or absolute tolerance
-        limit_low: float        # Or explicit limits
-        limit_high: float
+    specs:
+      - value: float            # Nominal/expected value
+        accuracy:               # Accuracy specification
+          pct_reading: float    # Percentage of reading
+          pct_range: float      # Percentage of range
+          absolute: float       # Absolute accuracy
+        conditions:             # Operating conditions (optional)
+          temperature: {min: float, max: float}
+          load: {min: float, max: float}
+          <param>: value
         comparator: GELE | EQ | NE | LT | LE | GT | GE | GELT | GTLE | GTLT
-        # Additional condition parameters (e.g., temperature, load)
-        <param>: value
 
-specs
+specs:
   <name>:
     characteristic_ref: string   # Reference to characteristic
     conditions: dict            # Which conditions to test
@@ -294,8 +295,7 @@ models:                   # Supported models
 capabilities:
   - name: string
     direction: input | output | bidir
-    domain: voltage | current | resistance | frequency | time | digital
-    signal_types: [dc, ac, ...]
+    function: dc_voltage | ac_voltage | dc_current | ac_current | resistance | frequency | ...
     channels:
       count: integer      # Number of channels
       simultaneous: boolean   # Can measure all channels at once
@@ -317,7 +317,7 @@ Instruments with multiple channels can define naming patterns:
 capabilities:
   - name: voltage_dc
     direction: input
-    domain: voltage
+    function: dc_voltage
     channels:
       count: 4
       naming: "CH{n}"     # Generates: CH1, CH2, CH3, CH4

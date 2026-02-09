@@ -28,6 +28,11 @@ erDiagram
         string waveform
         string dc_power
         string temperature
+        string rf_power
+        string rf_cw
+        string digital_io
+        string optical_power
+        string etc
     }
 
     ParameterRole {
@@ -75,7 +80,7 @@ erDiagram
         CompareMode compare
     }
 
-    FunctionCapability {
+    InstrumentCapability {
         MeasurementFunction function
         Direction direction
         dict parameters
@@ -135,12 +140,14 @@ erDiagram
         dict parameters
     }
 
-    Characteristic {
+    ProductCharacteristic {
         MeasurementFunction function
         Direction direction
         dict parameters
         string units
-        list pins_refs FK
+        string pin
+        string net
+        string signal_group
         string datasheet_ref
         list specs FK
     }
@@ -378,25 +385,25 @@ erDiagram
     %% Product structure
     Product ||--o{ Pin : "has"
     Product ||--o{ SignalGroup : "has"
-    Product ||--o{ Characteristic : "has"
-    Characteristic ||--o{ SpecBand : "has specs"
-    Characteristic }o--o{ Pin : "applies to"
+    Product ||--o{ ProductCharacteristic : "has"
+    ProductCharacteristic ||--o{ SpecBand : "has specs"
+    ProductCharacteristic }o--o{ Pin : "applies to"
 
     %% Capability relationships
-    FunctionCapability }o--|| Direction : "has"
-    FunctionCapability }o--|| MeasurementFunction : "has"
+    InstrumentCapability }o--|| Direction : "has"
+    InstrumentCapability }o--|| MeasurementFunction : "has"
     SignalParameter ||--o{ SpecBand : "has specs"
-    FunctionCapability ||--o{ SignalParameter : "has"
-    InstrumentCatalogEntry ||--o{ FunctionCapability : "provides"
+    InstrumentCapability ||--o{ SignalParameter : "has"
+    InstrumentCatalogEntry ||--o{ InstrumentCapability : "provides"
     InstrumentCatalogEntry ||--o{ ChannelTopology : "has channels"
-    Characteristic }o--|| Direction : "has"
-    Characteristic }o--|| MeasurementFunction : "has"
+    ProductCharacteristic }o--|| Direction : "has"
+    ProductCharacteristic }o--|| MeasurementFunction : "has"
 
     %% Station structure
     StationType ||--o{ InstrumentConfig : "requires"
     StationInstance }o--|| StationType : "based on"
     StationInstance ||--o{ InstrumentInstance : "has"
-    InstrumentInstance ||--o{ FunctionCapability : "provides"
+    InstrumentInstance ||--o{ InstrumentCapability : "provides"
 
     %% Fixture structure
     FixtureConfig }o--o| Product : "for"
@@ -439,9 +446,9 @@ erDiagram
 
 | Module | Purpose | Key Models |
 |--------|---------|------------|
-| `litmus/config/models.py` | Shared enums & capability specs | Direction, MeasurementFunction, FunctionCapability, SignalParameter, SpecBand, CompareMode, MatchDepth, ChannelTopology, TerminalRole |
+| `litmus/config/models.py` | Shared enums & capability specs | Direction, MeasurementFunction, InstrumentCapability, SignalParameter, SpecBand, CompareMode, MatchDepth, ChannelTopology, TerminalRole |
 | `litmus/catalog/models.py` | Instrument catalog | InstrumentCatalogEntry |
-| `litmus/products/models.py` | Product specifications | Product, Pin, Characteristic, SignalGroup |
+| `litmus/products/models.py` | Product specifications | Product, Pin, ProductCharacteristic, SignalGroup |
 | `litmus/config/models.py` | Configuration definitions | StationType, FixtureConfig, TestSequenceConfig, Limit |
 | `litmus/data/models.py` | Test execution results | TestRun, TestStep, TestVector, Measurement |
 | `litmus/dialogs/models.py` | Operator dialogs | Dialog, DialogResponse |
@@ -505,15 +512,15 @@ erDiagram
          │ defines                       │ has                      │ connects
          ▼                               ▼                          ▼
     ┌──────────┐                   ┌──────────────┐          ┌──────────────┐
-    │Charactr- │                   │InstrumentInst│          │ FixturePoint │
-    │ istics   │───────────────────│ ─ type       │◄─────────│ ─ dut_pin    │
-    │ ─ limits │  requires caps    │ ─ resource   │  maps to │ ─ instrument │
+    │Product   │                   │InstrumentInst│          │ FixturePoint │
+    │Charact-  │───────────────────│ ─ type       │◄─────────│ ─ dut_pin    │
+    │ istics   │  requires caps    │ ─ resource   │  maps to │ ─ instrument │
     └──────────┘                   └──────────────┘          └──────────────┘
          │
-         │ to_capability_requirement()
+         │ direction pairing in matching service
          ▼
     ┌──────────────┐                                TEST EXECUTION
-    │Function      │                                ──────────────
+    │Instrument    │                                ──────────────
     │Capability    │                               ┌──────────────┐
     │ ─ function   │                               │   TestRun    │
     │ ─ direction  │                               │ ─ id: uuid   │
@@ -556,20 +563,17 @@ product.characteristics["output_voltage"]
     → function: dc_voltage
     → direction: OUTPUT (DUT provides voltage)
 
-# Characteristic converts to capability requirement
-cap_req = char.to_capability_requirement()
-    → function: dc_voltage
-    → direction: INPUT (flip! instrument must MEASURE)
-    → parameters: {voltage: SignalParameter(value=3.3, units="V")}
+# Matching wraps characteristics into CapabilityRequirement
+# Direction stays as-is (OUTPUT) — pairing happens in capability_satisfies()
 
 # Station instruments provide capabilities
 station.instruments["dmm_main"]
     → capabilities: [
-        FunctionCapability(function=dc_voltage, direction=INPUT,
+        InstrumentCapability(function=dc_voltage, direction=INPUT,
             parameters={voltage: SignalParameter(range=RangeSpec(min=0, max=1000))})
       ]
 
-# Match: function ✓, direction ✓, range contains 3.3V ✓
+# Match: function ✓, direction pair (OUTPUT↔INPUT) ✓, range contains 3.3V ✓
 ```
 
 ---

@@ -92,9 +92,9 @@ station_types:
         required: true
     capabilities:
       - direction: input
-        domain: voltage
+        function: dc_voltage
       - direction: output
-        domain: voltage
+        function: dc_voltage
 ```
 
 ### Station Instances (Deployments)

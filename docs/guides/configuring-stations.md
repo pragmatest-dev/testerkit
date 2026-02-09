@@ -258,14 +258,17 @@ station:
   id: bench_1
   capabilities:
     - direction: input
-      domain: voltage
-      signal_types: [dc, ac]
+      function: dc_voltage
+      range:
+        min: 0.001
+        max: 1000
+    - direction: input
+      function: ac_voltage
       range:
         min: 0.001
         max: 1000
     - direction: output
-      domain: voltage
-      signal_types: [dc]
+      function: dc_voltage
       range:
         max: 60
 ```

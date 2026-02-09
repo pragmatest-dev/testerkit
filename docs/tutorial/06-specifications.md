@@ -48,23 +48,21 @@ pins:
 characteristics:
   input_voltage:
     direction: input
-    domain: voltage
-    signal_types: [dc]
+    function: dc_voltage
     units: V
     pins: [VIN]
-    conditions:
-      - nominal: 5.0
-        tolerance_pct: 10
+    specs:
+      - value: 5.0
+        accuracy: {pct_reading: 10}
 
   output_voltage:
     direction: output
-    domain: voltage
-    signal_types: [dc]
+    function: dc_voltage
     units: V
     pins: [VOUT]
-    conditions:
-      - nominal: 3.3
-        tolerance_pct: 5
+    specs:
+      - value: 3.3
+        accuracy: {pct_reading: 5}
 ```
 
 ## What the Spec Defines
@@ -99,13 +97,13 @@ Measurable properties with expected values:
 characteristics:
   output_voltage:
     direction: output      # DUT outputs this
-    domain: voltage        # It's a voltage
-    signal_types: [dc]     # DC voltage
+    function: dc_voltage   # DC voltage measurement
     units: V
     pins: [VOUT]           # Measured at this pin
-    conditions:
-      - nominal: 3.3       # Expected value
-        tolerance_pct: 5   # ±5% tolerance
+    specs:
+      - value: 3.3         # Expected value
+        accuracy:
+          pct_reading: 5   # ±5% tolerance
 ```
 
 ## Deriving Limits from Specs
@@ -146,7 +144,7 @@ Document this in the spec:
 
 ```yaml
 # products/power_board/spec.yaml
-specs
+specs:
   verify_output:
     characteristic_ref: output_voltage
     guardband_pct: 10
@@ -173,18 +171,20 @@ Characteristics can have different values at different operating conditions:
 characteristics:
   output_voltage:
     direction: output
-    domain: voltage
+    function: dc_voltage
     units: V
-    conditions:
-      - nominal: 3.3
-        tolerance_pct: 5
-        temperature: 25    # At room temperature
-        load: 0.5
+    specs:
+      - value: 3.3
+        accuracy: {pct_reading: 5}
+        conditions:
+          temperature: 25    # At room temperature
+          load: 0.5
 
-      - nominal: 3.3
-        tolerance_pct: 7   # Wider tolerance at high temp
-        temperature: 85
-        load: 0.5
+      - value: 3.3
+        accuracy: {pct_reading: 7}   # Wider tolerance at high temp
+        conditions:
+          temperature: 85
+          load: 0.5
 ```
 
 Your test vectors should sweep these conditions:
@@ -228,21 +228,21 @@ pins:
 characteristics:
   input_voltage:
     direction: input
-    domain: voltage
+    function: dc_voltage
     units: V
-    conditions:
-      - nominal: 5.0
-        tolerance_pct: 10
+    specs:
+      - value: 5.0
+        accuracy: {pct_reading: 10}
 
   output_voltage:
     direction: output
-    domain: voltage
+    function: dc_voltage
     units: V
-    conditions:
-      - nominal: 3.3
-        tolerance_pct: 5
+    specs:
+      - value: 3.3
+        accuracy: {pct_reading: 5}
 
-specs
+specs:
   verify_output:
     characteristic_ref: output_voltage
     guardband_pct: 10

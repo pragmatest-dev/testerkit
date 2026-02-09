@@ -222,11 +222,11 @@ instrument:
 capabilities:
   - name: voltage_dc
     direction: input
-    domain: voltage
+    function: dc_voltage
     range_max: 1000
   - name: current_dc
     direction: input
-    domain: current
+    function: dc_current
     range_max: 10
 
 scpi_commands:

@@ -4,13 +4,23 @@
 
 ## What Is a Capability?
 
-A capability (`FunctionCapability`) has three core dimensions:
+A capability has three core dimensions:
 
 | Dimension | Examples | Description |
 |-----------|---------|-------------|
 | `function` | dc_voltage, ac_voltage, resistance, waveform, s_parameters, phase_noise, ... | Named measurement function |
 | `direction` | input, output, bidir, transform | Does it measure, source, or transform? |
 | `parameters` | voltage: {range: 0-1000V}, bandwidth: {value: 50MHz} | Named signal parameters with range/accuracy/resolution |
+
+### Model Hierarchy
+
+```
+Capability (base)
+├── InstrumentCapability    — adds channels, modes, readback
+└── ProductCharacteristic   — adds pin/net, datasheet_ref, specs
+```
+
+Both share the same `function + direction + parameters + specs` core. Direction always describes the hardware it's on: "input" means "this device receives/sinks signal."
 
 ### Example: DMM Capabilities
 
@@ -67,9 +77,9 @@ capabilities:
     channels: ["1", "2"]
 ```
 
-## Direction Flip
+## Direction Pairing
 
-The key insight is that **directions flip** between products and instruments:
+The key insight is that **directions pair** between products and instruments:
 
 ```
 Product Characteristic          Required Instrument Capability
@@ -95,6 +105,8 @@ output_voltage ────signal───►    DMM (measures dc_voltage)
 input_voltage                    (OUTPUT)
    (INPUT)
 ```
+
+Direction pairing happens in the matching service (`_directions_compatible()`), not in the models. Both sides store direction as-is — "input" always means "sink" regardless of whether it's on a product or instrument.
 
 ## Capability Matching
 
@@ -123,14 +135,12 @@ for match in matches:
 char = product.characteristics["output_voltage"]
 # function: dc_voltage, direction: OUTPUT
 
-# Convert to requirement
-req = char.to_capability_requirement()
-# function: dc_voltage, direction: INPUT (direction flipped!)
-# parameters: {voltage: {value: 3.3, units: V}}
+# Matching wraps characteristics into CapabilityRequirement
+# Direction stays as-is (OUTPUT) — pairing happens in capability_satisfies()
 
-# Check station — DMM provides:
+# Station instrument provides:
 # function: dc_voltage, direction: INPUT, parameters: {voltage: {range: 0-1000V}}
-# → Function match ✓, Direction match ✓, Range contains 3.3V ✓
+# → Function match ✓, Direction pair (OUTPUT↔INPUT) ✓, Range contains 3.3V ✓
 # → MATCH!
 ```
 
@@ -140,27 +150,79 @@ The `MeasurementFunction` enum provides fine-grained signal identification, alig
 
 | Function | Description | Typical Instrument |
 |----------|-------------|--------------------|
+| **Basic Electrical** | | |
 | `dc_voltage` | DC voltage measurement/sourcing | DMM, PSU |
 | `ac_voltage` | AC voltage measurement | DMM |
 | `dc_current` | DC current measurement/sourcing | DMM, PSU, SMU |
 | `ac_current` | AC current measurement | DMM, clamp meter |
+| `dc_power` | DC power measurement/calculation | SMU, derived |
+| `ac_power` | AC power measurement | Power meter |
 | `resistance` | 2-wire resistance | DMM |
 | `resistance_4w` | 4-wire resistance | DMM |
+| `capacitance` | Capacitance measurement | LCR meter, DMM |
+| `inductance` | Inductance measurement | LCR meter |
+| `impedance` | Impedance measurement | Impedance analyzer |
+| **RLC Parameters** | | |
+| `quality_factor` | Quality factor (Q) | LCR meter |
+| `dissipation_factor` | Dissipation factor (D) | LCR meter |
+| **Time/Frequency** | | |
 | `frequency` | Frequency measurement | DMM, counter |
-| `waveform` | Time-domain waveform capture | Oscilloscope |
-| `dc_power` | DC power measurement/calculation | SMU, derived |
-| `temperature` | Temperature measurement | DMM (RTD/TC) |
+| `period` | Period measurement | Counter |
+| `time_interval` | Time interval between events | Counter |
+| `pulse_width` | Pulse width measurement | Counter, scope |
+| `duty_cycle` | Duty cycle measurement | Counter, scope |
+| `phase` | Phase measurement | Counter, scope |
+| **Waveform** | | |
+| `waveform` | Time-domain waveform capture/generation | Oscilloscope, FGen |
+| **Edge Timing** | | |
+| `rise_time` | Rise time measurement | Oscilloscope |
+| `fall_time` | Fall time measurement | Oscilloscope |
+| **RF Measurements** | | |
+| `rf_power` | RF power measurement | Power meter |
+| `rf_cw` | CW signal generation | RF signal generator |
 | `s_parameters` | S-parameter measurement | VNA |
 | `spectrum` | Frequency-domain analysis | Spectrum analyzer |
 | `phase_noise` | Phase noise measurement | Signal/spectrum analyzer |
 | `noise_figure` | Noise figure measurement | NF analyzer |
-| `digital_pattern` | Digital pattern generation/capture | Logic analyzer |
+| `harmonics` | Harmonic distortion | Spectrum analyzer |
+| **Digital/Logic** | | |
+| `digital_pattern` | Digital pattern generation/capture | Logic analyzer, pattern gen |
+| `digital_io` | Digital I/O, GPIO | Digital I/O card |
+| `serial_data` | Serial protocol decode | Logic analyzer |
+| **Signal Integrity** | | |
 | `jitter` | Jitter measurement | Oscilloscope, TIA |
 | `eye_diagram` | Eye diagram analysis | Oscilloscope |
+| `power_quality` | Power quality analysis | Power analyzer |
+| **Miscellaneous** | | |
+| `temperature` | Temperature measurement | DMM (RTD/TC), chamber |
+| `diode` | Diode test | DMM |
+| `continuity` | Continuity test | DMM |
+| `optical_power` | Optical power measurement | Optical power meter |
+| `wavelength` | Wavelength measurement | Optical spectrum analyzer |
+| `magnetic_field` | Magnetic field measurement | Gaussmeter |
+| `position` | Position/displacement | Encoder, stage controller |
 
 The `transform` direction is used for signal-path components (amplifiers, filters, mixers) that modify signals rather than measuring or sourcing them.
 
 This replaces the old `Domain + SignalType` combination, providing much finer granularity. A DMM measuring `dc_voltage` is now distinct from an scope capturing `waveform` — they can no longer be confused.
+
+### Waveform Shapes
+
+For function generators and waveform sources, the `MeasurementFunction.WAVEFORM` is used with a `WaveformShape` parameter to specify supported shapes:
+
+```yaml
+# Function generator waveform shapes
+- sine
+- square
+- triangle
+- ramp
+- pulse
+- arbitrary
+- noise
+- dc
+```
+
+Per IEEE 1641, waveform shapes are **characteristics of the signal**, not distinct signal types. Function generators should have a single `function: waveform` capability rather than separate capabilities for each shape.
 
 ## SignalParameter
 

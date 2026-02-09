@@ -179,12 +179,12 @@ pins:
 characteristics:
   output_voltage:
     direction: output
-    domain: voltage
+    function: dc_voltage
     units: V
     pins: [VOUT]
-    conditions:
-      - nominal: 3.3
-        tolerance_pct: 5
+    specs:
+      - value: 3.3
+        accuracy: {pct_reading: 5}
 ```
 
 **stations/bench_1.yaml:**

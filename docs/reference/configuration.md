@@ -54,17 +54,19 @@ characteristics:
     datasheet_ref: string # Optional reference
     schematic_ref: string # Deprecated: use net instead
 
-    conditions:
-      - nominal: float  # Expected value
-        tolerance_pct: float    # Percentage tolerance
-        tolerance_abs: float    # Or absolute tolerance
-        limit_low: float        # Or explicit limits
-        limit_high: float
+    specs:
+      - value: float            # Nominal/expected value
+        accuracy:               # Accuracy specification
+          pct_reading: float    # Percentage of reading
+          pct_range: float      # Percentage of range
+          absolute: float       # Absolute accuracy
+        conditions:             # Operating conditions (optional)
+          temperature: {min: float, max: float}
+          load: {min: float, max: float}
+          <param>: value
         comparator: GELE | EQ | NE | LT | LE | GT | GE | GELT | GTLE | GTLT
-        # Additional condition parameters (e.g., temperature, load)
-        <param>: value
 
-specs
+specs:
   <name>:
     characteristic_ref: string   # Reference to characteristic
     conditions: dict            # Which conditions to test

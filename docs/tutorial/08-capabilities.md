@@ -132,17 +132,17 @@ characteristics:
     function: dc_voltage
     direction: output
     units: V
-    conditions:
-      - nominal: 3.3
-        tolerance_pct: 5
+    specs:
+      - value: 3.3
+        accuracy: {pct_reading: 5}
 
   output_current:
     function: dc_current
     direction: output
     units: A
-    conditions:
-      - nominal: 0.5
-        tolerance_pct: 10
+    specs:
+      - value: 0.5
+        accuracy: {pct_reading: 10}
 ```
 
 **2. Create two stations:**
