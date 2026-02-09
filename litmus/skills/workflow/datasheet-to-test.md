@@ -36,6 +36,8 @@ Datasheet → Product Spec → Station → Tests → Results
 | `litmus_match(product_id, station_id, project)` | Check compatibility |
 | `litmus_run(test="...", station="...", serial="...", project=...)` | Execute tests |
 | `litmus_open(type="...", id="...")` | Get browser URL for viewing/editing |
+| `litmus(action="lookup_enum", id="FRES")` | Resolve datasheet abbreviation to enum value |
+| `litmus(action="enum_reference")` | Full enum abbreviation table (markdown) |
 | `litmus_discover()` | Scan for VISA instruments |
 
 **IMPORTANT:** Pass `project=<project_root>` to ALL calls after init.
@@ -110,14 +112,17 @@ Never inline `[A]`, `(A)`, or `→` styles.
 **Goal:** Extract electrical characteristics, pins, and test conditions from the datasheet.
 
 **Your actions:**
-1. Read the datasheet file the user provides
-2. Extract key information:
+1. **Ask the user where to create the project** — suggest `~/litmus-<part_number>` but let them choose
+2. Initialize project with `litmus(action="init", path="<user's chosen path>")`
+3. Read the datasheet file the user provides
+4. Use `litmus(action="lookup_enum", id="...")` to resolve datasheet abbreviations
+   (e.g. "FRES" → resistance_4w, "DCV" → dc_voltage) to the correct MeasurementFunction enum values
+5. Extract key information:
    - Product ID, name, description
    - Pin definitions (name, type, net)
    - Electrical characteristics (voltage, current, power, timing)
    - Test conditions (temperature, load, input voltage)
    - Performance specs with limits (nominal, min, max, tolerance)
-3. Initialize project with `litmus(action="init", path="...")`
 
 **Show the user:**
 1. Product summary with part number, name, datasheet info
@@ -163,9 +168,9 @@ characteristics:
     direction: output      # input/output/bidir
     units: V
     pin: PIN_NAME
-    conditions:
-      - nominal: 3.3
-        tolerance_pct: 1
+    specs:
+      - value: 3.3
+        accuracy: { pct_reading: 1 }
 ```
 
 End with specific observations about the spec — missing guardbands, additional
@@ -184,11 +189,10 @@ testable specs you noticed, anything that looks off.
 
 **Your actions:**
 1. **Consider passive components first:** Not every DUT pin needs a programmable instrument. A power resistor or voltage divider may suffice for fixed operating points. Only recommend programmable instruments (eload, SMU) when the test needs dynamic control.
-2. Build a requirements list from the product characteristics (function + direction + range)
-3. Call `litmus_match(requirements=[...], project=project_root)` to search the catalog
-4. Present recommendations with coverage info
-5. **Check for existing drivers:** PyMeasure, InstrumentKit, or vendor SDKs. Note availability.
-6. Let the user pick instruments before generating station config
+2. Call `litmus_match(product_id="<product_id>", project=project_root)` — the platform derives requirements from the saved product characteristics automatically. Do NOT build requirements manually.
+3. Present recommendations with coverage info
+4. **Check for existing drivers:** PyMeasure, InstrumentKit, or vendor SDKs. Note availability.
+5. Let the user pick instruments before generating station config
 
 **Then ask about instrument selection**, e.g.:
 - "I found [X] and [Y] can measure the output voltage. [X] is more accurate but slower. Which fits your test tempo better?"

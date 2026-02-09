@@ -26,11 +26,63 @@ from litmus.mcp.tools import (
 )
 
 
-def create_mcp_server() -> FastMCP:
-    """Create and configure the Litmus MCP server."""
-    mcp = FastMCP(
-        "Litmus",
-        instructions="""Litmus: Hardware test platform. Creates tests from datasheets.
+def _load_demo_snippet(relative_path: str, max_lines: int = 40) -> str:
+    """Load a demo file as an example snippet.
+
+    Reads from the installed package's demo/ directory so examples
+    always match the current code version.
+    """
+    from pathlib import Path
+
+    # demo/ is at repo root, same level as litmus/
+    demo_dir = Path(__file__).parent.parent.parent / "demo"
+    path = demo_dir / relative_path
+    if not path.exists():
+        return f"(example file {relative_path} not found)"
+    lines = path.read_text().splitlines()
+    # Skip comment header, take first max_lines of content
+    content_lines = []
+    for line in lines:
+        if not content_lines and line.startswith("#"):
+            continue  # skip leading comments
+        content_lines.append(line)
+        if len(content_lines) >= max_lines:
+            content_lines.append("# ... (truncated, see demo/ for full file)")
+            break
+    return "\n".join(content_lines)
+
+
+def _build_instructions() -> str:
+    """Build MCP instructions dynamically.
+
+    - Enum values come from the schema (single source of truth for structure)
+    - Examples come from demo/ files (single source of truth for usage)
+    - Behavioral rules are literal strings
+    """
+    # Get enum values from the schema so instructions stay current
+    from litmus.schemas import SCHEMA_MAP
+
+    product_schema = SCHEMA_MAP["product"].model_json_schema()
+    defs = product_schema.get("$defs", {})
+
+    # Extract MeasurementFunction enum values
+    mf = defs.get("MeasurementFunction", {})
+    mf_values = mf.get("enum", [])
+
+    # Extract Direction enum values
+    direction = defs.get("Direction", {})
+    dir_values = direction.get("enum", [])
+
+    # Extract Pin role enum
+    pin_role = defs.get("PinRole", {})
+    role_values = pin_role.get("enum", [])
+
+    # Load examples from demo/ files (single source of truth)
+    product_example = _load_demo_snippet("products/power_board/spec.yaml", max_lines=50)
+    station_example = _load_demo_snippet("stations/demo_station_001.yaml", max_lines=30)
+
+    return f"""\
+Litmus: Hardware test platform. Creates tests from datasheets.
 
 ## MANDATORY: Stop and Ask at Each Step
 
@@ -41,6 +93,7 @@ Use the most interactive/clear method available in your client:
 - **Claude Code CLI:** Ask clear yes/no or multiple choice questions
 
 Approval gates (stop at each):
+0. Before init — ask user where to create the project
 1. After datasheet parsing — approve extracted characteristics
 2. After product spec — approve before saving
 3. After instrument recommendations — choose instruments
@@ -53,132 +106,136 @@ Approval gates (stop at each):
 ## Workflow (All Steps Required)
 
 ```
-1. litmus(action="init", path="...") → Get project path
-2. Show extracted specs → Ask approval → Save product
-3. Show station config → Ask approval → Save station
-4. Show test plan → Ask approval → Save BOTH test files
-5. Confirm ready → Run tests → Show results
+1. Ask user where to create the project → litmus(action="init", path="...")
+2. litmus_schema(yaml_type="product") → Get exact product schema
+3. Extract specs from datasheet → Show to user → Ask approval → Save product
+4. litmus_schema(yaml_type="station") → Get exact station schema
+5. litmus_discover() → Show station config → Ask approval → Save station
+6. litmus_schema(yaml_type="sequence") → Get sequence schema (if needed)
+7. Show test plan → Ask approval → Save BOTH test .py AND config.yaml
+8. Confirm ready → litmus_run() → Show results
 ```
 
 **Pass `project=<path>` to ALL calls after init.**
 
-## Critical Formats
+## Schema-First Rule
 
-### Product Spec (pins with roles):
+**ALWAYS call `litmus_schema(yaml_type=...)` before generating ANY YAML.**
+The schema defines all valid field names, types, and structure.
+Do NOT guess field names — if the schema doesn't have it, don't use it.
+
+## Key Values (from schema)
+
+- **MeasurementFunction** enum: `{', '.join(mf_values[:10])}`, ...
+  (call `litmus_schema(yaml_type="product")` for full list)
+- **Direction** enum: `{', '.join(dir_values)}`
+- **Pin roles**: `{', '.join(role_values) if role_values else 'power, ground, signal, reference'}`
+
+## Examples (from demo/)
+
+### Product Spec:
 ```yaml
-product:
-  id: power_board
-  name: "Power Board Rev A"
-pins:
-  J1_VIN:
-    name: "J1.1"
-    net: "VIN_5V"
-    role: power          # power/ground/signal/reference
-  J1_GND:
-    name: "J1.2"
-    net: "GND"
-    role: ground
-  TP_VOUT:
-    name: "TP2"
-    net: "VOUT_3V3"
-    # role: signal (default, can omit)
-characteristics:
-  output_voltage:
-    function: dc_voltage    # MeasurementFunction enum
-    direction: output       # DUT provides this signal
-    units: V
-    pin: TP_VOUT
-    conditions:
-      - nominal: 3.3
-        tolerance_pct: 2
+{product_example}
 ```
 
 ### Station Config:
-**IMPORTANT:** Run `litmus_discover()` FIRST. Use real addresses if instruments
-are found, otherwise use `mock: true` with `mock_config`.
 ```yaml
-station:
-  id: my_station
-  name: "Test Bench"
-instruments:
-  psu:
-    type: psu
-    driver: drivers.PSU
-    resource: ""           # Fill from litmus_discover() results
-    catalog_ref: keysight_e36312a
-    channels: ["1", "2"]
-    mock: true             # Set false when using real instruments
-    mock_config:
-      voltage: 5.0
-      current: 0.5
-  dmm:
-    type: dmm
-    driver: drivers.DMM
-    resource: ""           # Fill from litmus_discover() results
-    catalog_ref: keysight_34461a
-    mock: true
-    mock_config:
-      voltage: 3.3
-```
-Catalog entries define structured channel topology (terminals, connector, ground mode)
-and capabilities with optional `readback: true` for built-in meters (PSU/eload voltage readback).
-
-### Test Files (MUST create both):
-
-**tests/test_xxx.py:**
-```python
-from litmus.execution import litmus_test
-
-@litmus_test
-def test_output_voltage(context, psu, dmm):
-    psu.set_voltage(context.get_in("vin", 5.0))
-    psu.enable_output()
-    return dmm.measure_dc_voltage()
-```
-
-**tests/config.yaml:**
-```yaml
-test_output_voltage:
-  vectors:
-    - vin: 5.0
-  _mock:
-    dmm.measure_voltage: 3.3
-  limits:
-    test_output_voltage:
-      low: 3.1
-      high: 3.5
-      nominal: 3.3
-      units: V
+{station_example}
 ```
 
 ## Tools
 
-- `litmus(action="init", path="~/project")` - Initialize, returns project_root
-- `litmus(action="save", type="product|station|test", id="...", content={...}, project=project)`
-- `litmus(action="read", path="template:test", project=project)` - Get templates
-- `litmus_run(test="tests/test_x.py", station="...", serial="...", project=project)`
-- `litmus_open(type="product|station|run", id="...")` - Get UI URL
+- `litmus(action="init", path="~/project")` — Initialize, returns project_root
+- `litmus(action="save", type="product|station|test", id="...", content={{...}}, project=...)`
+- `litmus(action="read", path="template:test", project=...)` — Get templates
+- `litmus_schema(yaml_type="product|station|catalog|sequence|fixture")` — **Call FIRST**
+- `litmus_discover()` — Scan for connected instruments
+- `litmus_match(requirements=[...], project=...)` — Recommend catalog instruments
+- `litmus_run(test="tests/test_x.py", station="...", serial="...", project=...)`
+- `litmus(action="lookup_enum", id="FRES")` — Resolve datasheet abbreviation
+- `litmus(action="enum_reference")` — Full enum abbreviation table
+- `litmus_open(type="product|station|run", id="...")` — Get UI URL
 
 ## Key Rules
 
-1. **STOP at each step** - Show plan, ask approval, wait for response
+1. **STOP at each step** — Show plan, ask approval, wait for response
 2. **Pass project=** to all calls after init
-3. **Instrument `type`** — use short names (e.g. psu, dmm, scope, eload, fgen, smu)
-4. **mock_config** in station for default mock values
-5. **Create BOTH test files** - .py AND config.yaml
-6. **_mock in config.yaml** - Per-test/per-vector mock values
-7. **Pin roles:** power, ground, signal (default), reference
+3. **litmus_schema() before ANY save** — match the schema exactly
+4. **Instrument `type`** — use short names (psu, dmm, scope, eload, fgen, smu)
+5. **mock_config** in station for default mock values
+6. **Create BOTH test files** — .py AND config.yaml
+7. **_mock in config.yaml** — Per-test/per-vector mock values
 8. **catalog_ref** on instruments resolves capabilities from catalog/
-9. **Per-step aliases** in sequences remap fixture names to station instruments:
-   ```yaml
-   steps:
-     - id: precision_cal
-       test: tests/test_cal.py::test_voltage
-       aliases:
-         dmm: precision_dmm
+9. **Per-step aliases** in sequences remap fixture names to station instruments
+10. **Choice format**: ALWAYS use numbered lists (1, 2, 3). NEVER use `[A]`, `[B]`, `[?]` letter codes.
+"""
+
+
+def _build_workflow_prompt() -> str:
+    """Build the datasheet-to-test workflow prompt.
+
+    References litmus_schema() instead of hardcoding YAML examples.
+    """
+    return """\
+# Datasheet to Test Workflow
+
+You are helping create hardware tests from a product datasheet.
+This is COLLABORATIVE — propose and wait for approval at each step.
+
+## Workflow Steps
+
+1. **Ask where to create the project** — suggest `~/litmus-<part_number>` but let the user choose.
+   Then: `litmus(action="init", path="<user's chosen path>")`
+   - Returns `project_root` — USE THIS in all subsequent calls
+
+2. **Get Product Schema**: `litmus_schema(yaml_type="product")`
+   - Read the schema carefully. Product YAML has three top-level keys:
+     `product:` (header), `pins:` (physical interface), `characteristics:` (specs)
+   - Characteristics use `function` (MeasurementFunction enum), `direction`,
+     `units`, `pin`/`pins`, and `specs` (list of SpecBand)
+   - SpecBand has: `value`, `accuracy` (pct_reading/pct_range/absolute), `conditions` (dict of RangeSpec)
+
+3. **Extract & Save Product Spec**: Parse datasheet, propose characteristics,
+   ask approval, save with `litmus(action="save", type="product", ...)`
+
+4. **Get Station Schema**: `litmus_schema(yaml_type="station")`
+   - Run `litmus_discover()` first. Use real addresses if instruments found,
+     otherwise use `mock: true` with `mock_config`.
+
+5. **Create Station Config**: Show config, ask approval, save.
+
+6. **Create Test Files**: MUST create BOTH files
+   - `tests/test_<part>.py` — Python test using `@litmus_test` decorator
+   - `tests/config.yaml` — vectors, limits, and _mock values
+   ```python
+   litmus(action="save", type="test", id="tests/test_part.py", content={
+       "code": "from litmus.execution import litmus_test\\n\\n@litmus_test\\ndef test_output(context, psu, dmm):\\n    ..."
+   }, project=project_root)
    ```
-   Without aliases, fixture name = station role name (default, zero config).
-""",
+
+7. **Run Tests**:
+   ```python
+   litmus_run(test="tests/test_part.py", station="test_bench",
+              serial="TEST001", project=project_root)
+   ```
+
+## CRITICAL Rules
+
+1. **STOP and ASK** before each step — never proceed without approval
+2. **Pass project=** to ALL calls after init
+3. **litmus_schema() before ANY save** — the schema is the ONLY source of truth
+4. **Instrument types**: use short names (psu, dmm, eload, scope, fgen, smu)
+5. **Create BOTH test files**: .py AND config.yaml
+6. **_mock in config.yaml**: Per-test/per-vector mock values
+7. **Choice format**: ALWAYS use numbered lists for choices. NEVER use [A], [B] letter codes.
+"""
+
+
+def create_mcp_server() -> FastMCP:
+    """Create and configure the Litmus MCP server."""
+    mcp = FastMCP(
+        "Litmus",
+        instructions=_build_instructions(),
     )
 
     # -------------------------------------------------------------------------
@@ -215,6 +272,13 @@ test_output_voltage:
         - read: Read project file or template
           litmus(action="read", path="products/x/spec.yaml", project="/path/to/project")
           litmus(action="read", path="template:test", project="/path/to/project")
+
+        - lookup_enum: Resolve datasheet abbreviations to enum values
+          litmus(action="lookup_enum", id="FRES") → resistance_4w
+          litmus(action="lookup_enum", id="Q") → [quality_factor, charge]
+
+        - enum_reference: Get full abbreviation table as markdown
+          litmus(action="enum_reference")
 
         Args:
             action: One of: init, list, get, save, read
@@ -347,8 +411,8 @@ test_output_voltage:
     def schema(yaml_type: str | None = None) -> dict[str, Any]:
         """Get JSON Schema for a Litmus YAML file type.
 
-        Use this before generating YAML to get the exact structure, required
-        fields, and enum values for validation.
+        CALL THIS BEFORE generating any YAML. The schema is the single
+        source of truth for field names, types, enums, and structure.
 
         Args:
             yaml_type: One of: catalog, product, station, sequence, fixture.
@@ -370,104 +434,7 @@ test_output_voltage:
         Use this prompt when starting a new test creation workflow from a datasheet.
         It provides step-by-step instructions for the complete workflow.
         """
-        return '''# Datasheet to Test Workflow
-
-You are helping create hardware tests from a product datasheet.
-This is COLLABORATIVE - propose and wait for approval at each step.
-
-## Workflow Steps
-
-1. **Init Project**: `litmus(action="init", path="~/project-name")`
-   - Returns `project_root` - USE THIS in all subsequent calls
-
-2. **Extract & Save Product Spec**: Read datasheet, extract specs, ask approval
-   ```python
-   litmus(action="save", type="product", id="part_number", content={
-       "product": {"id": "part_number", "name": "Full Name", ...},
-       "specs": {"input_voltage": {"min": 4.5, "max": 28, "unit": "V"}, ...}
-   }, project=project_root)
-   ```
-
-3. **Create Station Config**: Run `litmus_discover()` first. If instruments are
-   found, use their real addresses. If not, use `mock: true` with `mock_config`.
-   Show config, ask approval, save.
-
-### Optional: Sequence with Per-Step Aliases
-
-If the station has multiple instruments of the same type, create a sequence with per-step aliases:
-
-```yaml
-sequence:
-  id: full_test
-  description: "Full test with instrument selection"
-  steps:
-    - id: precision_cal
-      test: tests/test_partnum.py::test_output_voltage
-      aliases:
-        dmm: precision_dmm
-    - id: quick_check
-      test: tests/test_partnum.py::test_output_voltage
-      aliases:
-        dmm: fast_dmm
-```
-
-Only needed when different steps need different instruments for the same fixture name.
-
-4. **Create Test Files**: MUST create BOTH files
-   ```python
-   # File 1: test code
-   litmus(action="save", type="test", id="tests/test_partnum.py", content={
-       "code": """from litmus.execution import litmus_test
-
-@litmus_test
-def test_output_voltage(context, psu, dmm):
-    psu.set_voltage(context.get_in("vin", 12.0))
-    psu.enable_output()
-    return dmm.measure_dc_voltage()
-"""
-   }, project=project_root)
-
-   # File 2: config with limits and mocks
-   litmus(action="save", type="test", id="tests/config.yaml", content={
-       "code": """test_output_voltage:
-  vectors:
-    - vin: 12.0
-  _mock:
-    dmm.measure_voltage: 5.0
-  limits:
-    test_output_voltage:
-      low: 4.75
-      high: 5.25
-      nominal: 5.0
-      units: V
-"""
-   }, project=project_root)
-   ```
-
-5. **Run Tests**:
-   ```python
-   litmus_run(test="tests/test_partnum.py", station="test_bench",
-              serial="TEST001", project=project_root)
-   ```
-
-## CRITICAL Rules
-
-1. **STOP and ASK** before each step - never proceed without approval
-2. **Pass project=** to ALL calls after init
-3. **Call `litmus_schema()`** before ANY save — match the schema exactly, no invented fields
-4. **Instrument types**: use short names (e.g. psu, dmm, eload, scope, fgen, smu)
-4. **mock_config** in station for default mock values
-5. **Create BOTH test files**: .py AND config.yaml
-6. **_mock in config.yaml**: Per-test/per-vector mock values
-7. **Choice format**: ALWAYS use numbered lists for choices. Example:
-   ```
-   What would you like to do?
-   1. Save as-is
-   2. Adjust the output voltage target
-   3. Add thermal testing
-   ```
-   NEVER use `[A]`, `[B]`, `[?]` letter codes. NEVER.
-'''
+        return _build_workflow_prompt()
 
     return mcp
 

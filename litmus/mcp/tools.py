@@ -37,6 +37,42 @@ def get_project_root(project: str | None = None) -> Path:
 # =============================================================================
 
 
+def _lookup_enum(term: str) -> dict[str, Any]:
+    """Look up enum value by abbreviation."""
+    from litmus.config.enum_meta import lookup_enum
+
+    if not term:
+        return {
+            "error": "Provide a term via 'id' parameter, "
+            "e.g. litmus(action='lookup_enum', id='FRES')"
+        }
+
+    results = lookup_enum(term)
+    if not results:
+        return {"term": term, "candidates": [], "message": f"No matches for '{term}'"}
+
+    return {
+        "term": term,
+        "candidates": [
+            {
+                "enum_value": r.enum_value,
+                "enum_type": r.enum_type,
+                "name": r.name,
+                "instrument_classes": r.instrument_classes,
+                "matched_on": r.matched_on,
+            }
+            for r in results
+        ],
+    }
+
+
+def _enum_reference() -> dict[str, Any]:
+    """Return full enum reference as markdown."""
+    from litmus.config.enum_meta import render_enum_reference
+
+    return {"markdown": render_enum_reference()}
+
+
 def litmus_tool(
     action: str,
     type: str | None = None,
@@ -53,9 +89,15 @@ def litmus_tool(
         project: Project root path. Required for list/get/save/read actions.
                  For init action, use 'path' parameter instead.
     """
-    valid_actions = ["init", "list", "get", "save", "read"]
+    valid_actions = ["init", "list", "get", "save", "read", "lookup_enum", "enum_reference"]
     if action not in valid_actions:
         return {"error": f"Unknown action '{action}'. Valid: {valid_actions}"}
+
+    if action == "lookup_enum":
+        return _lookup_enum(id or path or "")
+
+    if action == "enum_reference":
+        return _enum_reference()
 
     if action == "init":
         return _init_project(path, create, scaffold)
@@ -1093,8 +1135,8 @@ def match_tool(
         req_list = [
             {
                 "characteristic": req.characteristic_name,
+                "function": req.function.value,
                 "direction": req.direction.value,
-                "domain": req.domain.value,
             }
             for req in requirements
         ]

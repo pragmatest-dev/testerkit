@@ -11,6 +11,11 @@ from litmus.config.loader import (
     resolve_all_limit_refs,
     resolve_limit_ref,
 )
+from litmus.config.enum_meta import (
+    LookupResult,
+    lookup_enum,
+    render_enum_reference,
+)
 from litmus.config.models import (
     FixtureConfig,
     FixturePoint,
@@ -62,6 +67,10 @@ __all__ = [
     "TestStepConfig",
     "VectorConfig",
     "ZippedLoopConfig",
+    # Enum metadata
+    "LookupResult",
+    "lookup_enum",
+    "render_enum_reference",
     # Loader functions
     "find_test_config",
     "get_test_config",
