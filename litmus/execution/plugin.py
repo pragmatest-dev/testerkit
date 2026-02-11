@@ -888,13 +888,14 @@ def instruments(
         record.mocked = use_mock
 
         driver_class = _load_driver_class(record.driver)
-        if driver_class is None:
-            # No driver specified - skip this instrument
+        if driver_class is None and not use_mock:
+            # No driver and not in mock mode - can't connect to real hardware
             continue
 
         if use_mock:
-            # Mock mode - use Mock factory with the driver class
-            inst = Mock(driver_class, **mock_config)
+            # Mock mode - use Mock factory
+            # If driver specified, mock that class; otherwise create generic mock
+            inst = Mock(driver_class, **mock_config) if driver_class else Mock(**mock_config)
             # For mocks, identity comes from config (no real device to query)
             if record.info:
                 inst.manufacturer = record.info.manufacturer
