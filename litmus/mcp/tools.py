@@ -734,6 +734,10 @@ def _save_test(path: str, content: dict[str, Any], project: str) -> dict[str, An
     if "code" not in content:
         return {"success": False, "errors": ["content.code is required"]}
 
+    # Ensure .py extension for pytest discovery
+    if not path.endswith(".py"):
+        path = f"{path}.py"
+
     # Support both absolute-ish paths and relative paths
     if path.startswith("products/") or path.startswith("tests/"):
         filepath = get_project_root(project) / path

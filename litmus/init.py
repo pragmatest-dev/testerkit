@@ -74,39 +74,31 @@ python_functions = ["test_*"]
         created_files.append("pyproject.toml")
 
     # Create conftest.py
-    conftest_path = path / "conftest.py"
+    conftest_path = path / "tests" / "conftest.py"
     if not conftest_path.exists():
         conftest_content = '''"""Pytest configuration for Litmus tests.
 
-Instruments come from station config via the `instruments` fixture.
-Run with --mock-instruments for hardware-free testing.
+The litmus pytest plugin auto-registers fixtures for each instrument role
+defined in your station config. For example, if your station has:
 
-Example:
-    pytest tests/ --station=test_bench --mock-instruments --dut-serial=TEST001
+    instruments:
+      dmm: keithley_2000
+      psu: keysight_e36313a
+
+Then `dmm` and `psu` fixtures are automatically available in your tests.
+No manual fixture definitions needed here.
+
+Run with --mock-instruments for hardware-free testing:
+
+    pytest tests/ --station=stations/my_bench.yaml --mock-instruments --dut-serial=TEST001
 """
 
-import pytest
-
-
-@pytest.fixture
-def dmm(instruments):
-    """DMM from station config."""
-    return instruments.get("dmm")
-
-
-@pytest.fixture
-def psu(instruments):
-    """PSU from station config."""
-    return instruments.get("psu")
-
-
-@pytest.fixture
-def eload(instruments):
-    """Electronic load from station config."""
-    return instruments.get("eload")
+# Add project-specific fixtures below if needed.
+# Do NOT define fixtures for instrument roles (dmm, psu, etc.) —
+# they are auto-registered by the litmus plugin from station config.
 '''
         conftest_path.write_text(conftest_content)
-        created_files.append("conftest.py")
+        created_files.append("tests/conftest.py")
 
     # Create litmus.yaml
     litmus_yaml_path = path / "litmus.yaml"
