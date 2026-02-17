@@ -89,7 +89,7 @@ class PSU:
 
     # Readback
     def measure_voltage(self) -> float:
-        """Measure actual output voltage.
+        """Signal actual output voltage.
 
         Returns:
             Voltage in Volts.
@@ -97,7 +97,7 @@ class PSU:
         pass
 
     def measure_current(self) -> float:
-        """Measure actual output current.
+        """Signal actual output current.
 
         Returns:
             Current in Amps.

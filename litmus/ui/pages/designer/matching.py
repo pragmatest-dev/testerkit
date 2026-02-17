@@ -14,7 +14,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
-from litmus.config.models import Direction, MeasurementFunction, SignalParameter
+from litmus.config.models import Direction, Signal, MeasurementFunction
 
 if TYPE_CHECKING:
     from litmus.products.models import Product
@@ -90,7 +90,7 @@ def get_compatible_channels_for_pin(
             {
                 "function": char.function,
                 "direction": char.direction,
-                "parameters": char.parameters,
+                "signals": char.signals,
             }
         )
 
@@ -147,7 +147,7 @@ def _get_channels_satisfying(
     """
     req_function = requirement["function"]
     req_direction = requirement["direction"]
-    req_params = requirement.get("parameters", {})
+    req_measures = requirement.get("signals", {})
 
     matching_channels: list[str] = []
 
@@ -176,8 +176,8 @@ def _get_channels_satisfying(
         if cap_direction != req_direction and cap_direction != Direction.BIDIR:
             continue
 
-        # Parameter range check
-        if not _params_satisfy(cap.get("parameters", {}), req_params):
+        # Signal range check
+        if not _signals_satisfy(cap.get("signals", {}), req_measures):
             continue
 
         # This capability matches — extract its channels
@@ -193,54 +193,54 @@ def _get_channels_satisfying(
     return matching_channels
 
 
-def _params_satisfy(
-    cap_params: dict[str, Any], req_params: dict[str, SignalParameter]
+def _signals_satisfy(
+    cap_measures: dict[str, Any], req_measures: dict[str, Signal]
 ) -> bool:
-    """Check if capability parameters satisfy required parameters.
+    """Check if capability signals satisfy required signals.
 
     Numeric comparisons are normalised to SI base units so that e.g.
     a 6 mA requirement is correctly compared against a 5 A capability.
     """
-    for param_name, req_param in req_params.items():
-        cap_param_data = cap_params.get(param_name)
-        if cap_param_data is None:
-            if req_param.range is not None or req_param.value is not None:
+    for measure_name, req_measure in req_measures.items():
+        cap_measure_data = cap_measures.get(measure_name)
+        if cap_measure_data is None:
+            if req_measure.range is not None or req_measure.value is not None:
                 return False
             continue
 
-        # Parse cap_param into SignalParameter-like data for comparison
-        cap_range = cap_param_data.get("range") if isinstance(cap_param_data, dict) else None
+        # Parse cap_measure into range data for comparison
+        cap_range = cap_measure_data.get("range") if isinstance(cap_measure_data, dict) else None
 
         # Determine unit scale factor: convert requirement values into
         # the capability's unit scale so numbers are directly comparable.
-        req_units = req_param.units
+        req_units = req_measure.units
         cap_units = None
-        if isinstance(cap_param_data, dict):
-            cap_units = cap_param_data.get("units")
+        if isinstance(cap_measure_data, dict):
+            cap_units = cap_measure_data.get("units")
             if not cap_units and cap_range:
                 cap_units = cap_range.get("units")
         scale = _unit_scale_factor(req_units, cap_units)
 
         # Check value containment (scale requirement value to cap units)
-        if req_param.value is not None and cap_range:
-            scaled_val = req_param.value * scale
+        if req_measure.value is not None and cap_range:
+            scaled_val = req_measure.value * scale
             if cap_range.get("min") is not None and scaled_val < cap_range["min"]:
                 return False
             if cap_range.get("max") is not None and scaled_val > cap_range["max"]:
                 return False
 
         # Check range containment (scale requirement range to cap units)
-        if req_param.range is not None and cap_range:
+        if req_measure.range is not None and cap_range:
             if (
-                req_param.range.min is not None
+                req_measure.range.min is not None
                 and cap_range.get("min") is not None
-                and req_param.range.min * scale < cap_range["min"]
+                and req_measure.range.min * scale < cap_range["min"]
             ):
                 return False
             if (
-                req_param.range.max is not None
+                req_measure.range.max is not None
                 and cap_range.get("max") is not None
-                and req_param.range.max * scale > cap_range["max"]
+                and req_measure.range.max * scale > cap_range["max"]
             ):
                 return False
 
@@ -348,9 +348,9 @@ def resolve_instrument_capabilities(station_config: dict) -> dict:
                         "direction": cap.direction.value,
                         "channels": cap.resolved_channels,
                         "readback": cap.readback,
-                        "parameters": {
-                            name: param.model_dump(exclude_none=True)
-                            for name, param in cap.parameters.items()
+                        "signals": {
+                            name: m.model_dump(exclude_none=True)
+                            for name, m in cap.signals.items()
                         },
                     }
                     for cap in entry.capabilities

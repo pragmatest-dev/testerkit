@@ -10,8 +10,9 @@ flow down to:
 
 Key design principle: Product characteristics and instrument capabilities share
 the same base model (Capability) with MeasurementFunction, Direction,
-SignalParameter. This enables direct capability matching without lossy
-conversion — direction pairing lives in the matching service.
+and typed parameter dicts (signals, conditions, controls, attributes).
+This enables direct capability matching without lossy conversion — direction
+pairing lives in the matching service.
 """
 
 from enum import StrEnum
@@ -24,7 +25,6 @@ from litmus.config.models import (
     Direction,
     MeasurementFunction,
     RangeSpec,
-    SignalParameter,
     SpecBand,
 )
 from litmus.utils.ranges import expand_range

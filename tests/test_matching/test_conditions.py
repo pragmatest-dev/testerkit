@@ -2,14 +2,13 @@
 
 from litmus.config.models import (
     AccuracySpec,
-    CompareMode,
     Direction,
     InstrumentCapability,
     MatchDepth,
     MeasurementFunction,
     RangeSpec,
     ResolutionSpec,
-    SignalParameter,
+    Signal,
     SpecBand,
 )
 from litmus.matching.service import (
@@ -28,7 +27,7 @@ from litmus.products.models import ProductCharacteristic
 
 
 def test_spec_band_lookup_finds_matching_band():
-    param = SignalParameter(
+    param = Signal(
         range=RangeSpec(min=0.1, max=750, units="V"),
         accuracy=AccuracySpec(pct_reading=0.07, pct_range=0.02),
         specs=[
@@ -49,7 +48,7 @@ def test_spec_band_lookup_finds_matching_band():
 
 def test_spec_band_lookup_multi_key_and():
     """Both condition keys must match for a band to apply."""
-    param = SignalParameter(
+    param = Signal(
         specs=[
             SpecBand(
                 conditions={
@@ -70,7 +69,7 @@ def test_spec_band_lookup_multi_key_and():
 
 def test_spec_band_lookup_falls_back_to_default():
     """No matching band → get_spec_at returns None, caller uses top-level."""
-    param = SignalParameter(
+    param = Signal(
         accuracy=AccuracySpec(pct_reading=0.07),
         specs=[
             SpecBand(
@@ -120,57 +119,6 @@ def test_resolution_sufficient_digits():
 
 
 # ---------------------------------------------------------------------------
-# CompareMode (higher_better / lower_better)
-# ---------------------------------------------------------------------------
-
-
-def _make_cap(value, compare, function=MeasurementFunction.DC_VOLTAGE):
-    return StationCapability(
-        capability=InstrumentCapability(
-            function=function,
-            direction=Direction.TRANSFORM,
-            parameters={
-                "gain": SignalParameter(value=value, units="dB", compare=compare),
-            },
-        ),
-        instrument_type="amp",
-        instrument_name="amp1",
-    )
-
-
-def _make_req(value, compare, function=MeasurementFunction.DC_VOLTAGE):
-    return CapabilityRequirement(
-        capability=ProductCharacteristic(
-            function=function,
-            direction=Direction.TRANSFORM,
-            parameters={
-                "gain": SignalParameter(value=value, units="dB", compare=compare),
-            },
-            net="test",
-        ),
-        characteristic_name="test",
-    )
-
-
-def test_compare_higher_better():
-    cap = _make_cap(16.5, CompareMode.HIGHER_BETTER)
-    req = _make_req(12.0, CompareMode.HIGHER_BETTER)
-    assert capability_satisfies(cap, req, MatchDepth.ACCURACY) is True
-
-
-def test_compare_lower_better():
-    cap = _make_cap(-121, CompareMode.LOWER_BETTER)
-    req = _make_req(-110, CompareMode.LOWER_BETTER)
-    assert capability_satisfies(cap, req, MatchDepth.ACCURACY) is True
-
-
-def test_compare_lower_better_fails():
-    cap = _make_cap(-90, CompareMode.LOWER_BETTER)
-    req = _make_req(-110, CompareMode.LOWER_BETTER)
-    assert capability_satisfies(cap, req, MatchDepth.ACCURACY) is False
-
-
-# ---------------------------------------------------------------------------
 # Full capability_satisfies with depth
 # ---------------------------------------------------------------------------
 
@@ -181,8 +129,8 @@ def test_capability_satisfies_with_accuracy_depth():
         capability=InstrumentCapability(
             function=MeasurementFunction.DC_VOLTAGE,
             direction=Direction.INPUT,
-            parameters={
-                "voltage": SignalParameter(
+            signals={
+                "voltage": Signal(
                     range=RangeSpec(min=0, max=100, units="V"),
                     accuracy=AccuracySpec(pct_reading=0.003, pct_range=0.0005),
                     resolution=ResolutionSpec(digits=6.5),
@@ -196,8 +144,8 @@ def test_capability_satisfies_with_accuracy_depth():
         capability=ProductCharacteristic(
             function=MeasurementFunction.DC_VOLTAGE,
             direction=Direction.OUTPUT,
-            parameters={
-                "voltage": SignalParameter(
+            signals={
+                "voltage": Signal(
                     range=RangeSpec(min=0, max=50, units="V"),
                     accuracy=AccuracySpec(pct_reading=0.01, pct_range=0.001),
                     resolution=ResolutionSpec(digits=5.5),
@@ -218,8 +166,8 @@ def test_backward_compat_no_specs():
         capability=InstrumentCapability(
             function=MeasurementFunction.DC_VOLTAGE,
             direction=Direction.INPUT,
-            parameters={
-                "voltage": SignalParameter(
+            signals={
+                "voltage": Signal(
                     range=RangeSpec(min=0, max=1000, units="V"),
                 ),
             },
@@ -231,8 +179,8 @@ def test_backward_compat_no_specs():
         capability=ProductCharacteristic(
             function=MeasurementFunction.DC_VOLTAGE,
             direction=Direction.OUTPUT,
-            parameters={
-                "voltage": SignalParameter(
+            signals={
+                "voltage": Signal(
                     range=RangeSpec(min=0, max=50, units="V"),
                 ),
             },

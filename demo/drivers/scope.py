@@ -117,7 +117,7 @@ class Scope:
 
     # Measurements
     def measure_frequency(self, channel: str) -> float:
-        """Measure frequency on a channel.
+        """Signal frequency on a channel.
 
         Args:
             channel: Channel name
@@ -128,7 +128,7 @@ class Scope:
         pass
 
     def measure_vpp(self, channel: str) -> float:
-        """Measure peak-to-peak voltage on a channel.
+        """Signal peak-to-peak voltage on a channel.
 
         Args:
             channel: Channel name
@@ -139,7 +139,7 @@ class Scope:
         pass
 
     def measure_vrms(self, channel: str) -> float:
-        """Measure RMS voltage on a channel.
+        """Signal RMS voltage on a channel.
 
         Args:
             channel: Channel name

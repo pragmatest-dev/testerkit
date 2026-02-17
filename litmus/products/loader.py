@@ -7,9 +7,14 @@ import yaml
 
 from litmus.config.models import (
     AccuracySpec,
+    Attribute,
+    CompareMode,
+    Condition,
+    Control,
+    Signal,
     MeasurementFunction,
     RangeSpec,
-    SignalParameter,
+    ResolutionSpec,
     SpecBand,
 )
 from litmus.products.models import (
@@ -218,24 +223,30 @@ def _parse_signal_group(data: dict[str, Any]) -> SignalGroup:
 def _parse_characteristic(data: dict[str, Any]) -> ProductCharacteristic:
     """Parse a characteristic from YAML data.
 
-    Supports the function-based format:
-        function: dc_voltage
-        direction: output
-        units: V
-        parameters:
-          voltage:
-            value: 3.3
-            units: V
+    Supports both new format (signals/conditions/controls/attributes)
+    and legacy format (parameters with role tags).
     """
     from litmus.config.models import Direction
 
     direction = Direction(data["direction"].lower())
     function = MeasurementFunction(data.get("function", "dc_voltage").lower())
 
-    # Parse signal parameters
-    parameters: dict[str, SignalParameter] = {}
-    for param_name, param_data in data.get("parameters", {}).items():
-        parameters[param_name] = _parse_signal_parameter(param_data)
+    # Parse typed parameter dicts
+    signals: dict[str, Signal] = {}
+    conditions: dict[str, Condition] = {}
+    controls: dict[str, Control] = {}
+    attributes: dict[str, Attribute] = {}
+
+    for name, d in (data.get("signals") or {}).items():
+        signals[name] = _parse_signal(d or {})
+    conds_raw = data.get("conditions")
+    if isinstance(conds_raw, dict):
+        for name, d in conds_raw.items():
+            conditions[name] = _parse_condition(d or {})
+    for name, d in (data.get("controls") or {}).items():
+        controls[name] = _parse_control(d or {})
+    for name, d in (data.get("attributes") or {}).items():
+        attributes[name] = _parse_attribute(d or {})
 
     # Parse specs (SpecBand list)
     specs = []
@@ -245,7 +256,10 @@ def _parse_characteristic(data: dict[str, Any]) -> ProductCharacteristic:
     return ProductCharacteristic(
         function=function,
         direction=direction,
-        parameters=parameters,
+        signals=signals,
+        conditions=conditions,
+        controls=controls,
+        attributes=attributes,
         units=data["units"],
         # Physical interface fields
         pin=data.get("pin"),
@@ -258,15 +272,8 @@ def _parse_characteristic(data: dict[str, Any]) -> ProductCharacteristic:
     )
 
 
-def _parse_signal_parameter(data: dict[str, Any]) -> SignalParameter:
-    """Parse a SignalParameter from YAML data."""
-    from litmus.config.models import (
-        AccuracySpec,
-        ParameterRole,
-        RangeSpec,
-        ResolutionSpec,
-    )
-
+def _parse_signal(data: dict[str, Any]) -> Signal:
+    """Parse a Signal from YAML data."""
     range_spec = None
     if "range" in data:
         r = data["range"]
@@ -288,17 +295,52 @@ def _parse_signal_parameter(data: dict[str, Any]) -> SignalParameter:
             bits=r.get("bits"), digits=r.get("digits"), value=r.get("value"), units=r.get("units")
         )
 
-    role = ParameterRole.CONTROLLABLE
-    if "role" in data:
-        role = ParameterRole(data["role"])
+    specs = None
+    if "specs" in data:
+        specs = [_parse_product_spec_band(s) for s in data["specs"]]
 
-    return SignalParameter(
+    return Signal(
         range=range_spec,
         accuracy=accuracy_spec,
         resolution=resolution_spec,
         value=data.get("value"),
         units=data.get("units"),
-        role=role,
+        specs=specs,
+    )
+
+
+def _parse_condition(data: dict[str, Any]) -> Condition:
+    """Parse a Condition from YAML data."""
+    range_spec = None
+    if "range" in data:
+        r = data["range"]
+        range_spec = RangeSpec(min=r.get("min"), max=r.get("max"), units=r.get("units", ""))
+    return Condition(range=range_spec)
+
+
+def _parse_control(data: dict[str, Any]) -> Control:
+    """Parse a Control from YAML data."""
+    range_spec = None
+    if "range" in data:
+        r = data["range"]
+        range_spec = RangeSpec(min=r.get("min"), max=r.get("max"), units=r.get("units", ""))
+    return Control(
+        range=range_spec,
+        options=data.get("options"),
+        units=data.get("units"),
+        default=data.get("default"),
+    )
+
+
+def _parse_attribute(data: dict[str, Any]) -> Attribute:
+    """Parse an Attribute from YAML data."""
+    compare = None
+    if "compare" in data:
+        compare = CompareMode(data["compare"])
+    return Attribute(
+        value=data.get("value", 0),
+        units=data.get("units"),
+        compare=compare,
     )
 
 

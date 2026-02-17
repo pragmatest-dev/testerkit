@@ -775,7 +775,7 @@ from litmus.execution import litmus_test
     limits={{"output_voltage": {{"ref": "output_voltage", "guardband_pct": 10, "comparator": "GELE"}}}},
 )
 def test_output_voltage(context, psu, dmm):
-    """Measure output voltage under various conditions."""
+    """Signal output voltage under various conditions."""
     psu.set_voltage(context.get_in("vin", 12.0))
     psu.enable_output()
     return dmm.measure_dc_voltage()
@@ -785,7 +785,7 @@ def test_output_voltage(context, psu, dmm):
     limits={{"quiescent_current": {{"high": 100, "comparator": "LE", "units": "uA"}}}},
 )
 def test_quiescent_current(context, psu):
-    """Measure quiescent current in uA."""
+    """Signal quiescent current in uA."""
     psu.set_voltage(context.get_in("vin", 12.0))
     psu.enable_output()
     current_a = psu.measure_current()  # Returns float in Amps
@@ -887,15 +887,15 @@ CAPABILITY_INTERFACES = """
 Available capability interfaces:
 
 MEASUREMENT (direction: input):
-  dc_voltage   - Measure DC voltage
-  ac_voltage   - Measure AC voltage
-  dc_current   - Measure DC current
-  ac_current   - Measure AC current
+  dc_voltage   - Signal DC voltage
+  ac_voltage   - Signal AC voltage
+  dc_current   - Signal DC current
+  ac_current   - Signal AC current
   resistance   - 2-wire resistance
   resistance_4w - 4-wire resistance
-  frequency    - Measure frequency
+  frequency    - Signal frequency
   waveform     - Capture waveform (oscilloscope)
-  temperature  - Measure temperature (RTD/thermocouple)
+  temperature  - Signal temperature (RTD/thermocouple)
 
 STIMULUS (direction: output):
   dc_voltage   - Source DC voltage (PSU, SMU)

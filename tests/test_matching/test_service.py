@@ -6,7 +6,7 @@ from litmus.config.models import (
     InstrumentCapability,
     MeasurementFunction,
     RangeSpec,
-    SignalParameter,
+    Signal,
     SpecBand,
 )
 from litmus.matching.service import (
@@ -28,7 +28,7 @@ from litmus.products.models import Product, ProductCharacteristic
 def _make_station_cap(
     function=MeasurementFunction.DC_VOLTAGE,
     direction=Direction.INPUT,
-    parameters=None,
+    signals=None,
     instrument_type="dmm",
     instrument_name="dmm_main",
     channel=None,
@@ -39,7 +39,7 @@ def _make_station_cap(
         capability=InstrumentCapability(
             function=function,
             direction=direction,
-            parameters=parameters or {},
+            signals=signals or {},
             channels=[channel] if channel else [],
             modes=modes or [],
             readback=readback,
@@ -53,7 +53,7 @@ def _make_station_cap(
 def _make_req(
     function=MeasurementFunction.DC_VOLTAGE,
     direction=Direction.OUTPUT,
-    parameters=None,
+    signals=None,
     characteristic_name="test_char",
     pins=None,
     units="V",
@@ -62,7 +62,7 @@ def _make_req(
         capability=ProductCharacteristic(
             function=function,
             direction=direction,
-            parameters=parameters or {},
+            signals=signals or {},
             units=units,
             net=characteristic_name,  # Use net as synthetic physical interface
         ),
@@ -190,8 +190,8 @@ class TestCapabilitySatisfies:
         station = _make_station_cap(
             function=MeasurementFunction.DC_VOLTAGE,
             direction=Direction.INPUT,
-            parameters={
-                "voltage": SignalParameter(
+            signals={
+                "voltage": Signal(
                     range=RangeSpec(min=0.0001, max=1000, units="V"),
                 )
             },
@@ -199,8 +199,8 @@ class TestCapabilitySatisfies:
         required = _make_req(
             function=MeasurementFunction.DC_VOLTAGE,
             direction=Direction.OUTPUT,
-            parameters={
-                "voltage": SignalParameter(value=3.3, units="V"),
+            signals={
+                "voltage": Signal(value=3.3, units="V"),
             },
             characteristic_name="rail_3v3",
         )
@@ -211,8 +211,8 @@ class TestCapabilitySatisfies:
         station = _make_station_cap(
             function=MeasurementFunction.DC_VOLTAGE,
             direction=Direction.INPUT,
-            parameters={
-                "voltage": SignalParameter(
+            signals={
+                "voltage": Signal(
                     range=RangeSpec(min=0, max=10, units="V"),
                 )
             },
@@ -220,8 +220,8 @@ class TestCapabilitySatisfies:
         required = _make_req(
             function=MeasurementFunction.DC_VOLTAGE,
             direction=Direction.OUTPUT,
-            parameters={
-                "voltage": SignalParameter(value=48.0, units="V"),
+            signals={
+                "voltage": Signal(value=48.0, units="V"),
             },
             characteristic_name="rail_48v",
         )
@@ -232,8 +232,8 @@ class TestCapabilitySatisfies:
         station = _make_station_cap(
             function=MeasurementFunction.DC_VOLTAGE,
             direction=Direction.INPUT,
-            parameters={
-                "voltage": SignalParameter(
+            signals={
+                "voltage": Signal(
                     range=RangeSpec(min=0, max=1000, units="V"),
                 )
             },
@@ -241,8 +241,8 @@ class TestCapabilitySatisfies:
         required = _make_req(
             function=MeasurementFunction.DC_VOLTAGE,
             direction=Direction.OUTPUT,
-            parameters={
-                "voltage": SignalParameter(
+            signals={
+                "voltage": Signal(
                     range=RangeSpec(min=0, max=50, units="V"),
                 ),
             },
@@ -255,8 +255,8 @@ class TestCapabilitySatisfies:
         station = _make_station_cap(
             function=MeasurementFunction.DC_VOLTAGE,
             direction=Direction.INPUT,
-            parameters={
-                "voltage": SignalParameter(
+            signals={
+                "voltage": Signal(
                     range=RangeSpec(min=0, max=10, units="V"),
                 )
             },
@@ -264,8 +264,8 @@ class TestCapabilitySatisfies:
         required = _make_req(
             function=MeasurementFunction.DC_VOLTAGE,
             direction=Direction.OUTPUT,
-            parameters={
-                "voltage": SignalParameter(
+            signals={
+                "voltage": Signal(
                     range=RangeSpec(min=0, max=50, units="V"),
                 ),
             },
@@ -278,13 +278,13 @@ class TestCapabilitySatisfies:
         station = _make_station_cap(
             function=MeasurementFunction.DC_VOLTAGE,
             direction=Direction.INPUT,
-            parameters={},
+            signals={},
         )
         required = _make_req(
             function=MeasurementFunction.DC_VOLTAGE,
             direction=Direction.OUTPUT,
-            parameters={
-                "voltage": SignalParameter(value=3.3, units="V"),
+            signals={
+                "voltage": Signal(value=3.3, units="V"),
             },
             characteristic_name="rail_3v3",
         )
@@ -483,14 +483,14 @@ class TestGetStationCapabilities:
                 {
                     "function": "dc_voltage",
                     "direction": "input",
-                    "parameters": {
+                    "signals": {
                         "voltage": {"range": {"min": 0, "max": 1000, "units": "V"}},
                     },
                 },
                 {
                     "function": "dc_current",
                     "direction": "input",
-                    "parameters": {
+                    "signals": {
                         "current": {"range": {"min": 0, "max": 10, "units": "A"}},
                     },
                 },

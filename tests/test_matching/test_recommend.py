@@ -8,8 +8,8 @@ from litmus.config.models import (
     Direction,
     InstrumentCapability,
     MeasurementFunction,
+    Signal,
     RangeSpec,
-    SignalParameter,
 )
 from litmus.matching.service import recommend_from_catalog
 
@@ -42,13 +42,13 @@ def _make_cap(
     params = {}
     param_name = function.replace("dc_", "").replace("ac_", "")
     if range_max is not None or range_min is not None:
-        params[param_name] = SignalParameter(
+        params[param_name] = Signal(
             range=RangeSpec(min=range_min or 0, max=range_max, units=units),
         )
     return InstrumentCapability(
         function=MeasurementFunction(function),
         direction=Direction(direction),
-        parameters=params,
+        signals=params,
         channels=channels or [],
     )
 

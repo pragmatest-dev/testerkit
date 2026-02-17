@@ -232,7 +232,7 @@ class TestTestStepConfig:
         step = TestStepConfig(
             id="test_5v_rail",
             test="tests/test_power.py::test_5v_rail",
-            description="Measure 5V rail voltage",
+            description="Signal 5V rail voltage",
         )
         assert step.id == "test_5v_rail"
         assert step.test == "tests/test_power.py::test_5v_rail"
@@ -253,7 +253,7 @@ class TestTestStepConfig:
         step = TestStepConfig(
             id="test_5v_rail",
             test="tests/test_power.py::test_5v_rail",
-            description="Measure 5V rail voltage",
+            description="Signal 5V rail voltage",
             measurement_name="rail_5v_voltage",
             limit=Limit(low=4.75, high=5.25, units="V"),
         )
@@ -263,7 +263,7 @@ class TestTestStepConfig:
         step = TestStepConfig(
             id="test_5v_rail",
             test="tests/test_power.py::test_5v_rail",
-            description="Measure 5V rail voltage",
+            description="Signal 5V rail voltage",
             limit_ref="specs.product_a.rail_5v",
             pre_dialog="connect_dut",
             retry=RetryConfig(max_attempts=3, strategy="on_fail"),
@@ -301,13 +301,13 @@ class TestTestSequenceConfigModel:
                 TestStepConfig(
                     id="test_5v_rail",
                     test="tests/test_power.py::test_5v_rail",
-                    description="Measure 5V rail",
+                    description="Signal 5V rail",
                     limit_ref="specs.product_a.rail_5v",
                 ),
                 TestStepConfig(
                     id="test_3v3_rail",
                     test="tests/test_power.py::test_3v3_rail",
-                    description="Measure 3.3V rail",
+                    description="Signal 3.3V rail",
                     skip_on=["test_5v_rail"],
                 ),
             ],

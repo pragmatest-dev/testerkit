@@ -12,33 +12,29 @@ instrument:
 capabilities:
   - function: dc_voltage
     direction: input
-    parameters:
+    signals:
       voltage:
         range: {min: 0.001, max: 1000, units: V}
-
   - function: ac_voltage
     direction: input
-    parameters:
+    signals:
       voltage:
         range: {min: 0.001, max: 750, units: V}
+    attributes:
       bandwidth:
         range: {min: 3, max: 300000, units: Hz}
-        role: capability
-
   - function: dc_current
     direction: input
-    parameters:
+    signals:
       current:
         range: {min: 0.0000001, max: 10, units: A}
-
   - function: ac_current
     direction: input
-    parameters:
+    signals:
       current:
         range: {min: 0.000001, max: 10, units: A}
-
   - function: resistance
     direction: input
-    parameters:
+    signals:
       resistance:
         range: {min: 0.01, max: 100000000, units: ohm}

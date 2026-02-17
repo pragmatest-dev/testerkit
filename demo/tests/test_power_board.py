@@ -137,7 +137,7 @@ def test_output_voltage_full_load(context, psu, dmm, eload):
     }
 )
 def test_load_regulation(context, psu, dmm, eload):
-    """Measure output at multiple load points.
+    """Signal output at multiple load points.
 
     3 vectors with per-vector mock values, one limit for all.
     """
@@ -303,7 +303,7 @@ def test_line_regulation(context, psu, dmm, eload):
     }
 )
 def test_power_analysis(context, psu, dmm, eload):
-    """Measure multiple values and return as dict.
+    """Signal multiple values and return as dict.
 
     Returns: {"input_power": W, "output_power": W, "efficiency": %}
     Each key gets checked against its own limit.
@@ -318,11 +318,11 @@ def test_power_analysis(context, psu, dmm, eload):
     eload.set_current(load)
     eload.enable()
 
-    # Measure input
+    # Signal input
     v_in = float(psu.measure_voltage())
     i_in = float(psu.measure_current())
 
-    # Measure output
+    # Signal output
     v_out = float(dmm.measure_dc_voltage())
     i_out = load  # Load current we commanded
 
@@ -364,7 +364,7 @@ def test_quiescent_current(context, psu):
     psu.set_current_limit(0.05)  # Low limit - no load
     psu.enable_output()
 
-    # Measure input current (no load attached)
+    # Signal input current (no load attached)
     current_ma = float(psu.measure_current()) * 1000
     return current_ma
 
@@ -461,7 +461,7 @@ def test_thermal_shutdown(context, psu, dmm, eload):
     }
 )
 def test_output_ripple(context, psu, eload, scope):
-    """Measure output ripple using oscilloscope waveform capture."""
+    """Signal output ripple using oscilloscope waveform capture."""
     vin = context.get_in("vin", 5.0)
     load = context.get_in("load_current", 0.5)
 

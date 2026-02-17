@@ -45,7 +45,7 @@ class DMM:
 
     # Voltage measurements
     def measure_dc_voltage(self) -> float:
-        """Measure DC voltage.
+        """Signal DC voltage.
 
         Returns:
             Voltage in Volts.
@@ -53,7 +53,7 @@ class DMM:
         pass
 
     def measure_ac_voltage(self) -> float:
-        """Measure AC voltage (RMS).
+        """Signal AC voltage (RMS).
 
         Returns:
             Voltage in Volts RMS.
@@ -61,7 +61,7 @@ class DMM:
         pass
 
     def measure_voltage(self) -> float:
-        """Measure voltage (alias for measure_dc_voltage).
+        """Signal voltage (alias for measure_dc_voltage).
 
         Returns:
             Voltage in Volts.
@@ -70,7 +70,7 @@ class DMM:
 
     # Current measurements
     def measure_dc_current(self) -> float:
-        """Measure DC current.
+        """Signal DC current.
 
         Returns:
             Current in Amps.
@@ -78,7 +78,7 @@ class DMM:
         pass
 
     def measure_ac_current(self) -> float:
-        """Measure AC current (RMS).
+        """Signal AC current (RMS).
 
         Returns:
             Current in Amps RMS.
@@ -86,7 +86,7 @@ class DMM:
         pass
 
     def measure_current(self) -> float:
-        """Measure current (alias for measure_dc_current).
+        """Signal current (alias for measure_dc_current).
 
         Returns:
             Current in Amps.
@@ -95,7 +95,7 @@ class DMM:
 
     # Resistance measurements
     def measure_resistance(self) -> float:
-        """Measure 2-wire resistance.
+        """Signal 2-wire resistance.
 
         Returns:
             Resistance in Ohms.
@@ -103,7 +103,7 @@ class DMM:
         pass
 
     def measure_4wire_resistance(self) -> float:
-        """Measure 4-wire (Kelvin) resistance.
+        """Signal 4-wire (Kelvin) resistance.
 
         Returns:
             Resistance in Ohms.

@@ -304,7 +304,7 @@ class RunBuilder:
         """Create a test step.
 
         Example:
-            with run.step("measure_voltages", "Measure all power rails") as step:
+            with run.step("measure_voltages", "Signal all power rails") as step:
                 step.measure("5v_rail", 5.02, units="V", low=4.75, high=5.25)
         """
         builder = StepBuilder(self, name, description)

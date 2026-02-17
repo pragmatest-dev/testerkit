@@ -38,7 +38,7 @@ class TestPurePytest:
 
         Shows the explicit pattern:
         1. Set up stimulus
-        2. Measure
+        2. Signal
         3. Log with litmus_logger.measure()
         4. Assert manually
         """
@@ -56,7 +56,7 @@ class TestPurePytest:
         psu.set_current_limit(0.5)
         psu.enable_output()
 
-        # Measure
+        # Signal
         vout = float(dmm.measure_dc_voltage())
 
         # Log measurement (this is what @litmus_test does automatically)

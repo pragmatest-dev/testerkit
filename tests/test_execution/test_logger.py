@@ -37,11 +37,11 @@ class TestTestRunLogger:
             station_id="station_001",
             test_sequence_id="test",
         )
-        logger.start_step("measure_voltage", description="Measure 5V rail")
+        logger.start_step("measure_voltage", description="Signal 5V rail")
 
         assert len(logger.test_run.steps) == 1
         assert logger.test_run.steps[0].name == "measure_voltage"
-        assert logger.test_run.steps[0].description == "Measure 5V rail"
+        assert logger.test_run.steps[0].description == "Signal 5V rail"
         assert logger._current_step is not None
 
     def test_log_measurement(self):

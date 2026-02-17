@@ -174,7 +174,7 @@ def get_required_capabilities(product) -> list[dict]:
             "characteristic": char_name,
             "direction": char.direction.value,
             "function": char.function.value,
-            "parameters": ", ".join(char.parameters.keys()) if char.parameters else "",
+            "signals": ", ".join(char.signals.keys()) if char.signals else "",
         })
     return capabilities
 

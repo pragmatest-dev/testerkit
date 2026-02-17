@@ -2,8 +2,7 @@
 
 from pathlib import Path
 
-from litmus.catalog.loader import _parse_signal_parameter, load_catalog_entry
-from litmus.config.models import CompareMode
+from litmus.catalog.loader import _parse_signal, load_catalog_entry
 
 
 def test_parse_parameter_with_specs():
@@ -22,7 +21,7 @@ def test_parse_parameter_with_specs():
             },
         ],
     }
-    param = _parse_signal_parameter(data)
+    param = _parse_signal(data)
     assert param.specs is not None
     assert len(param.specs) == 2
     assert param.specs[0].conditions["frequency"].min == 3
@@ -36,21 +35,8 @@ def test_parse_parameter_without_specs():
         "range": {"min": 0, "max": 100, "units": "V"},
         "accuracy": {"pct_reading": 0.01},
     }
-    param = _parse_signal_parameter(data)
+    param = _parse_signal(data)
     assert param.specs is None
-    assert param.compare is None
-
-
-def test_parse_parameter_with_compare():
-    """CompareMode parsed from YAML."""
-    data = {
-        "value": -121,
-        "units": "dBc/Hz",
-        "role": "capability",
-        "compare": "lower_better",
-    }
-    param = _parse_signal_parameter(data)
-    assert param.compare == CompareMode.LOWER_BETTER
 
 
 def test_parse_34461a_ac_voltage_bands():
@@ -70,7 +56,7 @@ def test_parse_34461a_ac_voltage_bands():
             break
 
     assert ac_cap is not None, "ac_voltage capability not found"
-    voltage_param = ac_cap.parameters.get("voltage")
+    voltage_param = ac_cap.signals.get("voltage")
     assert voltage_param is not None
     assert voltage_param.specs is not None
     assert len(voltage_param.specs) == 4
@@ -81,7 +67,6 @@ def test_parse_34461a_ac_voltage_bands():
     assert band0.conditions["frequency"].max == 5
     assert band0.accuracy.pct_reading == 0.35
 
-    # Frequency parameter should have role=condition
-    freq_param = ac_cap.parameters.get("frequency")
-    assert freq_param is not None
-    assert freq_param.role.value == "condition"
+    # Frequency should be in conditions dict
+    freq_cond = ac_cap.conditions.get("frequency")
+    assert freq_cond is not None

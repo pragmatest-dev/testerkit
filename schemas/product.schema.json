@@ -43,6 +43,32 @@
       "title": "AccuracySpec",
       "type": "object"
     },
+    "Attribute": {
+      "description": "A fixed hardware fact or performance characteristic.\n\nAttributes are not adjustable \u2014 they describe inherent instrument\ncapabilities like bandwidth, sample rate, or input impedance.\nThe ``compare`` field controls matching: higher_better for bandwidth,\nlower_better for noise floor, etc.\n\nExample YAML:\n    attributes:\n      bandwidth:\n        value: 200000000\n        units: Hz\n        compare: higher_better\n      sample_rate:\n        value: 2000000000\n        units: Sa/s\n        compare: higher_better",
+      "properties": {
+        "value": {
+          "title": "Value",
+          "type": "number"
+        },
+        "units": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Units"
+        }
+      },
+      "required": [
+        "value"
+      ],
+      "title": "Attribute",
+      "type": "object"
+    },
     "BusSignal": {
       "description": "A signal within a bus group.\n\nExample YAML:\n    signals:\n      - pin: SDA\n        role: data\n      - pin: SCL\n        role: clock",
       "properties": {
@@ -74,15 +100,90 @@
       "title": "BusSignal",
       "type": "object"
     },
-    "CompareMode": {
-      "description": "Comparison direction for capability parameters.\n\nDetermines how instrument and requirement values are compared:\n- CONTAINS: Instrument range must contain required range (default)\n- HIGHER_BETTER: Instrument value must be >= required (gain, bandwidth)\n- LOWER_BETTER: Instrument value must be <= required (noise, THD)",
-      "enum": [
-        "contains",
-        "higher_better",
-        "lower_better"
-      ],
-      "title": "CompareMode",
-      "type": "string"
+    "Condition": {
+      "description": "An operating condition that affects accuracy of other parameters.\n\nConditions don't have their own accuracy \u2014 they define the operating\npoint used to look up SpecBand overrides on sibling signals.\n\nExample YAML:\n    conditions:\n      frequency:\n        range: {min: 3, max: 300000, units: Hz}",
+      "properties": {
+        "range": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/RangeSpec"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        }
+      },
+      "title": "Condition",
+      "type": "object"
+    },
+    "Control": {
+      "description": "A user-configurable knob or setting.\n\nControls are instrument settings the user can adjust, like motor position,\ntemperature setpoint, or compliance limit. They have a range of valid\nvalues or a set of discrete options.\n\nExample YAML:\n    controls:\n      position:\n        range: {min: 0, max: 300, units: mm}\n      coupling:\n        options: [\"AC\", \"DC\"]\n        default: \"DC\"",
+      "properties": {
+        "range": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/RangeSpec"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "options": {
+          "anyOf": [
+            {
+              "items": {
+                "anyOf": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "string"
+                  }
+                ]
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Options"
+        },
+        "units": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Units"
+        },
+        "default": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Default"
+        }
+      },
+      "title": "Control",
+      "type": "object"
     },
     "Direction": {
       "description": "Direction of signal flow for a capability.",
@@ -153,17 +254,6 @@
       "title": "MeasurementFunction",
       "type": "string"
     },
-    "ParameterRole": {
-      "description": "Role of a signal parameter in a capability.\n\nDescribes how a parameter functions within a measurement or stimulus:\n- CONTROLLABLE: Instrument can set this value (e.g., output voltage)\n- MEASURABLE: Instrument can read this value (e.g., measured voltage)\n- CAPABILITY: Performance limit of the instrument (e.g., bandwidth)\n- CONDITION: Operating condition that affects other parameters (e.g., temperature)",
-      "enum": [
-        "controllable",
-        "measurable",
-        "capability",
-        "condition"
-      ],
-      "title": "ParameterRole",
-      "type": "string"
-    },
     "Pin": {
       "description": "Physical pin/pad on the DUT (ATML: Port).\n\nRepresents a single connection point that can be routed through\na fixture to an instrument. The ``role`` field classifies the pin's\npurpose (signal, ground, power, reference) for fixture routing.\n\nExample YAML:\n    pins:\n      VIN:\n        name: \"J1.1\"\n        net: \"VIN_5V\"\n        role: power\n        description: \"5V power input from bench supply\"\n      VOUT:\n        name: \"J1.3\"\n        net: \"VOUT_3V3\"\n        description: \"3.3V regulated output\"\n      GND:\n        name: \"J1.2\"\n        net: \"GND\"\n        role: ground",
       "properties": {
@@ -217,118 +307,6 @@
       "title": "PinRole",
       "type": "string"
     },
-    "Product": {
-      "description": "Product definition (ATML: UUT Description).\n\nTop-level model that ties together:\n- Product identification (id, name, revision)\n- Documentation references (datasheet, schematic)\n- Characteristics with condition matrices\n\nExample YAML:\n    product:\n      id: power_board_v1\n      name: \"DC-DC Power Board Rev A\"\n      revision: \"A\"\n      datasheet: \"docs/DS-001.pdf\"\n\n    characteristics:\n      rail_3v3_output:\n        function: dc_voltage\n        direction: output\n        units: V\n        pin: VOUT\n        specs:\n          - value: 3.3\n            accuracy: {pct_reading: 3.0}",
-      "properties": {
-        "id": {
-          "title": "Id",
-          "type": "string"
-        },
-        "name": {
-          "title": "Name",
-          "type": "string"
-        },
-        "part_number": {
-          "anyOf": [
-            {
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Part Number"
-        },
-        "base": {
-          "anyOf": [
-            {
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Base"
-        },
-        "description": {
-          "anyOf": [
-            {
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Description"
-        },
-        "revision": {
-          "anyOf": [
-            {
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Revision"
-        },
-        "datasheet": {
-          "anyOf": [
-            {
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Datasheet"
-        },
-        "schematic": {
-          "anyOf": [
-            {
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Schematic"
-        },
-        "pins": {
-          "additionalProperties": {
-            "$ref": "#/$defs/Pin"
-          },
-          "title": "Pins",
-          "type": "object"
-        },
-        "signal_groups": {
-          "additionalProperties": {
-            "$ref": "#/$defs/SignalGroup"
-          },
-          "title": "Signal Groups",
-          "type": "object"
-        },
-        "characteristics": {
-          "additionalProperties": {
-            "$ref": "#/$defs/ProductCharacteristic"
-          },
-          "title": "Characteristics",
-          "type": "object"
-        }
-      },
-      "required": [
-        "id",
-        "name"
-      ],
-      "title": "Product",
-      "type": "object"
-    },
     "ProductCharacteristic": {
       "description": "Product capability + physical interface + traceability (ATML: UUT Characteristic).\n\nExtends Capability with product-specific fields: physical pin mapping,\nnet names, signal groups, and datasheet references.\n\nThe direction indicates whether the DUT provides (OUTPUT) or consumes (INPUT)\nthis signal. Direction pairing for matching (DUT OUTPUT \u2192 instrument INPUT)\nlives in the matching service, not here.\n\nREQUIRES physical interface: Every characteristic must be tied to at least one\nphysical connection point (pin, net, or signal_group).\n\nExample YAML:\n    rail_3v3_output:\n      function: dc_voltage\n      direction: output\n      units: V\n      pin: VOUT\n      parameters:\n        voltage:\n          value: 3.3\n          units: V\n      specs:\n        - conditions:\n            temperature: {min: 25, max: 25, units: degC}\n            load: {min: 0.1, max: 0.1, units: A}\n          value: 3.3\n          accuracy: {pct_reading: 3.0}",
       "properties": {
@@ -338,11 +316,32 @@
         "direction": {
           "$ref": "#/$defs/Direction"
         },
-        "parameters": {
+        "signals": {
           "additionalProperties": {
-            "$ref": "#/$defs/SignalParameter"
+            "$ref": "#/$defs/Signal"
           },
-          "title": "Parameters",
+          "title": "Signals",
+          "type": "object"
+        },
+        "conditions": {
+          "additionalProperties": {
+            "$ref": "#/$defs/Condition"
+          },
+          "title": "Conditions",
+          "type": "object"
+        },
+        "controls": {
+          "additionalProperties": {
+            "$ref": "#/$defs/Control"
+          },
+          "title": "Controls",
+          "type": "object"
+        },
+        "attributes": {
+          "additionalProperties": {
+            "$ref": "#/$defs/Attribute"
+          },
+          "title": "Attributes",
           "type": "object"
         },
         "units": {
@@ -525,46 +524,8 @@
       "title": "ResolutionSpec",
       "type": "object"
     },
-    "SignalGroup": {
-      "description": "Grouped signals forming a bus interface (ATML: Bus).\n\nUsed for protocols like I2C, SPI, UART where multiple signals\nmust be treated as a unit for routing and testing.\n\nExample YAML:\n    signal_groups:\n      i2c_main:\n        protocol: i2c\n        signals:\n          - pin: SDA\n            role: data\n          - pin: SCL\n            role: clock\n        parameters:\n          frequency: 400000",
-      "properties": {
-        "protocol": {
-          "title": "Protocol",
-          "type": "string"
-        },
-        "signals": {
-          "items": {
-            "$ref": "#/$defs/BusSignal"
-          },
-          "title": "Signals",
-          "type": "array"
-        },
-        "parameters": {
-          "additionalProperties": true,
-          "title": "Parameters",
-          "type": "object"
-        },
-        "description": {
-          "anyOf": [
-            {
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Description"
-        }
-      },
-      "required": [
-        "protocol"
-      ],
-      "title": "SignalGroup",
-      "type": "object"
-    },
-    "SignalParameter": {
-      "description": "A named parameter within a measurement function's capability.\n\nEach parameter describes a dimension of an instrument's capability\n(range, accuracy, resolution) or a fixed performance characteristic\n(bandwidth, sample rate).\n\nTop-level accuracy/resolution are defaults when no SpecBand matches.\nThe ``specs`` list holds condition-dependent overrides.\n\nExample YAML:\n    voltage:\n      range: {min: 0.1, max: 750, units: V}\n      accuracy: {pct_reading: 0.07, pct_range: 0.02}\n      resolution: {digits: 6.5}\n      specs:\n        - conditions:\n            frequency: {min: 3, max: 5, units: Hz}\n          accuracy: {pct_reading: 0.35, pct_range: 0.03}",
+    "Signal": {
+      "description": "A measurable/sourceable parameter \u2014 the primary signal dimension.\n\nUsed for what's being measured or sourced: range defines the operating\nenvelope, accuracy/resolution define the quality of measurement.\nTop-level accuracy/resolution are defaults; ``specs`` holds condition-dependent\noverrides (e.g., accuracy varies with frequency).\n\nExample YAML (instrument):\n    signals:\n      voltage:\n        range: {min: 0.1, max: 1000, units: V}\n        accuracy: {pct_reading: 0.0035, pct_range: 0.0006}\n        resolution: {digits: 6.5}\n        specs:\n          - conditions:\n              frequency: {min: 3, max: 5, units: Hz}\n            accuracy: {pct_reading: 0.35, pct_range: 0.03}\n\nExample YAML (product):\n    signals:\n      voltage:\n        value: 3.3\n        units: V",
       "properties": {
         "range": {
           "anyOf": [
@@ -623,10 +584,6 @@
           "default": null,
           "title": "Units"
         },
-        "role": {
-          "$ref": "#/$defs/ParameterRole",
-          "default": "controllable"
-        },
         "specs": {
           "anyOf": [
             {
@@ -641,20 +598,47 @@
           ],
           "default": null,
           "title": "Specs"
+        }
+      },
+      "title": "Signal",
+      "type": "object"
+    },
+    "SignalGroup": {
+      "description": "Grouped signals forming a bus interface (ATML: Bus).\n\nUsed for protocols like I2C, SPI, UART where multiple signals\nmust be treated as a unit for routing and testing.\n\nExample YAML:\n    signal_groups:\n      i2c_main:\n        protocol: i2c\n        signals:\n          - pin: SDA\n            role: data\n          - pin: SCL\n            role: clock\n        parameters:\n          frequency: 400000",
+      "properties": {
+        "protocol": {
+          "title": "Protocol",
+          "type": "string"
         },
-        "compare": {
+        "signals": {
+          "items": {
+            "$ref": "#/$defs/BusSignal"
+          },
+          "title": "Signals",
+          "type": "array"
+        },
+        "parameters": {
+          "additionalProperties": true,
+          "title": "Parameters",
+          "type": "object"
+        },
+        "description": {
           "anyOf": [
             {
-              "$ref": "#/$defs/CompareMode"
+              "type": "string"
             },
             {
               "type": "null"
             }
           ],
-          "default": null
+          "default": null,
+          "title": "Description"
         }
       },
-      "title": "SignalParameter",
+      "required": [
+        "protocol"
+      ],
+      "title": "SignalGroup",
       "type": "object"
     },
     "SpecBand": {
@@ -706,10 +690,87 @@
       "type": "object"
     }
   },
-  "description": "Schema for products/*/spec.yaml files.",
+  "description": "Product definition (ATML: UUT Description).\n\nTop-level model that ties together:\n- Product identification (id, name, revision)\n- Documentation references (datasheet, schematic)\n- Characteristics with condition matrices\n\nExample YAML:\n    product:\n      id: power_board_v1\n      name: \"DC-DC Power Board Rev A\"\n      revision: \"A\"\n      datasheet: \"docs/DS-001.pdf\"\n\n    characteristics:\n      rail_3v3_output:\n        function: dc_voltage\n        direction: output\n        units: V\n        pin: VOUT\n        specs:\n          - value: 3.3\n            accuracy: {pct_reading: 3.0}",
   "properties": {
-    "product": {
-      "$ref": "#/$defs/Product"
+    "id": {
+      "title": "Id",
+      "type": "string"
+    },
+    "name": {
+      "title": "Name",
+      "type": "string"
+    },
+    "part_number": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Part Number"
+    },
+    "base": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Base"
+    },
+    "description": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Description"
+    },
+    "revision": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Revision"
+    },
+    "datasheet": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Datasheet"
+    },
+    "schematic": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Schematic"
     },
     "pins": {
       "additionalProperties": {
@@ -718,24 +779,25 @@
       "title": "Pins",
       "type": "object"
     },
-    "characteristics": {
-      "additionalProperties": {
-        "$ref": "#/$defs/ProductCharacteristic"
-      },
-      "title": "Characteristics",
-      "type": "object"
-    },
     "signal_groups": {
       "additionalProperties": {
         "$ref": "#/$defs/SignalGroup"
       },
       "title": "Signal Groups",
       "type": "object"
+    },
+    "characteristics": {
+      "additionalProperties": {
+        "$ref": "#/$defs/ProductCharacteristic"
+      },
+      "title": "Characteristics",
+      "type": "object"
     }
   },
   "required": [
-    "product"
+    "id",
+    "name"
   ],
-  "title": "ProductFile",
+  "title": "Product",
   "type": "object"
 }

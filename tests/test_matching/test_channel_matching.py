@@ -3,9 +3,9 @@
 from litmus.config.models import (
     Direction,
     InstrumentCapability,
+    Signal,
     MeasurementFunction,
     RangeSpec,
-    SignalParameter,
 )
 from litmus.matching.service import (
     CapabilityRequirement,
@@ -19,7 +19,7 @@ from litmus.products.models import ProductCharacteristic
 def _make_station_cap(
     function=MeasurementFunction.DC_VOLTAGE,
     direction=Direction.INPUT,
-    parameters=None,
+    signals=None,
     instrument_type="dmm",
     instrument_name="dmm_main",
     channel=None,
@@ -30,7 +30,7 @@ def _make_station_cap(
         capability=InstrumentCapability(
             function=function,
             direction=direction,
-            parameters=parameters or {},
+            signals=signals or {},
             channels=[channel] if channel else [],
             modes=modes or [],
             readback=readback,
@@ -44,7 +44,7 @@ def _make_station_cap(
 def _make_req(
     function=MeasurementFunction.DC_VOLTAGE,
     direction=Direction.OUTPUT,
-    parameters=None,
+    signals=None,
     characteristic_name="test_char",
     pins=None,
     units="V",
@@ -53,7 +53,7 @@ def _make_req(
         capability=ProductCharacteristic(
             function=function,
             direction=direction,
-            parameters=parameters or {},
+            signals=signals or {},
             units=units,
             net=characteristic_name,
         ),
@@ -97,8 +97,8 @@ class TestPerChannelExpansion:
             _make_station_cap(
                 function=MeasurementFunction.DC_VOLTAGE,
                 direction=Direction.OUTPUT,
-                parameters={
-                    "voltage": SignalParameter(
+                signals={
+                    "voltage": Signal(
                         range=RangeSpec(min=0, max=6.18, units="V"),
                     ),
                 },
@@ -112,8 +112,8 @@ class TestPerChannelExpansion:
             _make_station_cap(
                 function=MeasurementFunction.DC_VOLTAGE,
                 direction=Direction.OUTPUT,
-                parameters={
-                    "voltage": SignalParameter(
+                signals={
+                    "voltage": Signal(
                         range=RangeSpec(min=0, max=25.75, units="V"),
                     ),
                 },
@@ -127,8 +127,8 @@ class TestPerChannelExpansion:
             _make_station_cap(
                 function=MeasurementFunction.DC_VOLTAGE,
                 direction=Direction.OUTPUT,
-                parameters={
-                    "voltage": SignalParameter(
+                signals={
+                    "voltage": Signal(
                         range=RangeSpec(min=0, max=25.75, units="V"),
                     ),
                 },
@@ -146,8 +146,8 @@ class TestPerChannelExpansion:
         req_12v = _make_req(
             function=MeasurementFunction.DC_VOLTAGE,
             direction=Direction.INPUT,
-            parameters={
-                "voltage": SignalParameter(
+            signals={
+                "voltage": Signal(
                     range=RangeSpec(min=0, max=12, units="V"),
                 ),
             },
@@ -170,8 +170,8 @@ class TestPerChannelExpansion:
         req_5v = _make_req(
             function=MeasurementFunction.DC_VOLTAGE,
             direction=Direction.INPUT,
-            parameters={
-                "voltage": SignalParameter(
+            signals={
+                "voltage": Signal(
                     range=RangeSpec(min=0, max=5, units="V"),
                 ),
             },
@@ -188,8 +188,8 @@ class TestPerChannelExpansion:
         req_12v_a = _make_req(
             function=MeasurementFunction.DC_VOLTAGE,
             direction=Direction.INPUT,
-            parameters={
-                "voltage": SignalParameter(
+            signals={
+                "voltage": Signal(
                     range=RangeSpec(min=0, max=12, units="V"),
                 ),
             },
@@ -198,8 +198,8 @@ class TestPerChannelExpansion:
         req_12v_b = _make_req(
             function=MeasurementFunction.DC_VOLTAGE,
             direction=Direction.INPUT,
-            parameters={
-                "voltage": SignalParameter(
+            signals={
+                "voltage": Signal(
                     range=RangeSpec(min=0, max=12, units="V"),
                 ),
             },
@@ -225,8 +225,8 @@ class TestPerChannelExpansion:
             _make_req(
                 function=MeasurementFunction.DC_VOLTAGE,
                 direction=Direction.INPUT,
-                parameters={
-                    "voltage": SignalParameter(
+                signals={
+                    "voltage": Signal(
                         range=RangeSpec(min=0, max=12, units="V"),
                     ),
                 },
@@ -249,8 +249,8 @@ class TestPerChannelExpansion:
         req_5v = _make_req(
             function=MeasurementFunction.DC_VOLTAGE,
             direction=Direction.INPUT,
-            parameters={
-                "voltage": SignalParameter(
+            signals={
+                "voltage": Signal(
                     range=RangeSpec(min=0, max=5, units="V"),
                 ),
             },
@@ -259,8 +259,8 @@ class TestPerChannelExpansion:
         req_12v = _make_req(
             function=MeasurementFunction.DC_VOLTAGE,
             direction=Direction.INPUT,
-            parameters={
-                "voltage": SignalParameter(
+            signals={
+                "voltage": Signal(
                     range=RangeSpec(min=0, max=12, units="V"),
                 ),
             },
@@ -352,7 +352,7 @@ class TestCatalogChannelParsing:
 
         entry = load_catalog_entry(catalog_path)
 
-        assert entry.channel_names == ["1", "2", "3"]
+        assert entry.channel_names == ["1", "2"]
 
         # Find the CH1 dc_voltage output capability
         ch1_caps = [
@@ -363,7 +363,7 @@ class TestCatalogChannelParsing:
             and "2" not in c.resolved_channels
         ]
         assert len(ch1_caps) == 1
-        assert ch1_caps[0].parameters["voltage"].range.max == 6.18
+        assert ch1_caps[0].signals["voltage"].range.max == 6
 
         # Find the CH2 dc_voltage output capability
         ch2_caps = [
@@ -373,7 +373,7 @@ class TestCatalogChannelParsing:
             and "2" in c.resolved_channels
         ]
         assert len(ch2_caps) == 1
-        assert ch2_caps[0].parameters["voltage"].range.max == 25.75
+        assert ch2_caps[0].signals["voltage"].range.max == 25
 
 
 class TestReadbackFiltering:
@@ -551,7 +551,7 @@ class TestDesignerAutoSuggest:
                         "function": "dc_voltage",
                         "direction": "output",
                         "channels": ["1"],
-                        "parameters": {
+                        "signals": {
                             "voltage": {"range": {"min": 0, "max": 30, "units": "V"}},
                         },
                     },
@@ -560,7 +560,7 @@ class TestDesignerAutoSuggest:
                         "direction": "input",
                         "readback": True,  # PSU readback
                         "channels": ["1"],
-                        "parameters": {
+                        "signals": {
                             "voltage": {"range": {"min": 0, "max": 30, "units": "V"}},
                         },
                     },
@@ -575,7 +575,7 @@ class TestDesignerAutoSuggest:
                         "function": "dc_voltage",
                         "direction": "input",
                         "channels": ["1"],
-                        "parameters": {
+                        "signals": {
                             "voltage": {"range": {"min": 0, "max": 1000, "units": "V"}},
                         },
                     },

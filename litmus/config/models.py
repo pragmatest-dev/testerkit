@@ -15,7 +15,7 @@ from litmus.utils.ranges import expand_numeric_range
 class Direction(StrEnum):
     """Direction of signal flow for a capability."""
 
-    INPUT = "input"  # Measure/sense from DUT
+    INPUT = "input"  # Signal/sense from DUT
     OUTPUT = "output"  # Source/drive to DUT
     BIDIR = "bidir"  # Both (SMU, VNA)
     TRANSFORM = "transform"  # Signal-path component (amplifier, filter, mixer)
@@ -358,6 +358,11 @@ class SpecBand(BaseModel):
 class SignalParameter(BaseModel):
     """A named parameter within a measurement function's capability.
 
+    .. deprecated::
+        Use ``Signal``, ``Condition``, ``Control``, or ``Attribute`` instead.
+        SignalParameter is kept temporarily for backward compatibility with
+        instrument library YAML files and existing code.
+
     Each parameter describes a dimension of an instrument's capability
     (range, accuracy, resolution) or a fixed performance characteristic
     (bandwidth, sample rate).
@@ -384,6 +389,101 @@ class SignalParameter(BaseModel):
     role: ParameterRole = ParameterRole.CONTROLLABLE
     specs: list[SpecBand] | None = None  # Condition-dependent overrides
     compare: CompareMode | None = None  # Comparison direction for capability params
+
+
+class Signal(BaseModel):
+    """A measurable/sourceable parameter — the primary signal dimension.
+
+    Used for what's being measured or sourced: range defines the operating
+    envelope, accuracy/resolution define the quality of measurement.
+    Top-level accuracy/resolution are defaults; ``specs`` holds condition-dependent
+    overrides (e.g., accuracy varies with frequency).
+
+    Example YAML (instrument):
+        signals:
+          voltage:
+            range: {min: 0.1, max: 1000, units: V}
+            accuracy: {pct_reading: 0.0035, pct_range: 0.0006}
+            resolution: {digits: 6.5}
+            specs:
+              - conditions:
+                  frequency: {min: 3, max: 5, units: Hz}
+                accuracy: {pct_reading: 0.35, pct_range: 0.03}
+
+    Example YAML (product):
+        signals:
+          voltage:
+            value: 3.3
+            units: V
+    """
+
+    range: RangeSpec | None = None
+    accuracy: AccuracySpec | None = None
+    resolution: ResolutionSpec | None = None
+    value: float | None = None
+    units: str | None = None
+    specs: list[SpecBand] | None = None
+
+
+class Condition(BaseModel):
+    """An operating condition that affects accuracy of other parameters.
+
+    Conditions don't have their own accuracy — they define the operating
+    point used to look up SpecBand overrides on sibling signals.
+
+    Example YAML:
+        conditions:
+          frequency:
+            range: {min: 3, max: 300000, units: Hz}
+    """
+
+    range: RangeSpec | None = None
+
+
+class Control(BaseModel):
+    """A user-configurable knob or setting.
+
+    Controls are instrument settings the user can adjust, like motor position,
+    temperature setpoint, or compliance limit. They have a range of valid
+    values or a set of discrete options.
+
+    Example YAML:
+        controls:
+          position:
+            range: {min: 0, max: 300, units: mm}
+          coupling:
+            options: ["AC", "DC"]
+            default: "DC"
+    """
+
+    range: RangeSpec | None = None
+    options: list[float | str] | None = None
+    units: str | None = None
+    default: float | str | None = None
+
+
+class Attribute(BaseModel):
+    """A fixed hardware fact or performance characteristic.
+
+    Attributes are not adjustable — they describe inherent instrument
+    capabilities like bandwidth, sample rate, or input impedance.
+    The ``compare`` field controls matching: higher_better for bandwidth,
+    lower_better for noise floor, etc.
+
+    Example YAML:
+        attributes:
+          bandwidth:
+            value: 200000000
+            units: Hz
+            compare: higher_better
+          sample_rate:
+            value: 2000000000
+            units: Sa/s
+            compare: higher_better
+    """
+
+    value: float
+    units: str | None = None
 
 
 class ConditionKey(StrEnum):
@@ -440,12 +540,21 @@ class Capability(BaseModel):
     """What a signal endpoint can do — shared by products and instruments.
 
     Base class for both product characteristics and instrument capabilities.
-    Describes a measurement function with direction, parameters, and specs.
+    Describes a measurement function with direction and typed parameter dicts.
+
+    Parameter categories (ATML/IVI/IEEE 1641 lineage):
+    - ``signals``: What's being measured/sourced (range + accuracy + resolution + specs)
+    - ``conditions``: What affects accuracy (range only, feeds SpecBand lookup)
+    - ``controls``: User-configurable knobs (range or options)
+    - ``attributes``: Fixed hardware facts (value + units + compare)
     """
 
     function: MeasurementFunction
     direction: Direction
-    parameters: dict[str, SignalParameter] = Field(default_factory=dict)
+    signals: dict[str, Signal] = Field(default_factory=dict)
+    conditions: dict[str, Condition] = Field(default_factory=dict)
+    controls: dict[str, Control] = Field(default_factory=dict)
+    attributes: dict[str, Attribute] = Field(default_factory=dict)
     units: str | None = None
     specs: list[SpecBand] = Field(default_factory=list)
 
@@ -456,11 +565,14 @@ class InstrumentCapability(Capability):
     Example YAML:
         - function: dc_voltage
           direction: input
-          parameters:
+          signals:
             voltage:
               range: {min: 0.0001, max: 1000, units: V}
               accuracy: {pct_reading: 0.0035, pct_range: 0.0006}
               resolution: {digits: 6.5}
+          conditions:
+            frequency:
+              range: {min: 3, max: 300000, units: Hz}
           channels: ["1"]
           readback: false
     """

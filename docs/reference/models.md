@@ -35,24 +35,11 @@ erDiagram
         string etc
     }
 
-    ParameterRole {
-        string controllable
-        string measurable
-        string capability
-        string condition
-    }
-
     Comparator {
         string EQ
         string NE
         string LT_LE_GT_GE
         string GELE_etc
-    }
-
-    CompareMode {
-        string contains
-        string higher_better
-        string lower_better
     }
 
     MatchDepth {
@@ -70,20 +57,38 @@ erDiagram
         ResolutionSpec resolution
     }
 
-    SignalParameter {
+    Signal {
         RangeSpec range
         AccuracySpec accuracy
         ResolutionSpec resolution
         float value
         string units
-        ParameterRole role
-        CompareMode compare
+        list specs
+    }
+
+    Condition {
+        RangeSpec range
+    }
+
+    Control {
+        RangeSpec range
+        list options
+        string units
+        string default
+    }
+
+    Attribute {
+        string value
+        string units
     }
 
     InstrumentCapability {
         MeasurementFunction function
         Direction direction
-        dict parameters
+        dict signals
+        dict conditions
+        dict controls
+        dict attributes
         list channels
         list modes
         bool readback
@@ -392,8 +397,11 @@ erDiagram
     %% Capability relationships
     InstrumentCapability }o--|| Direction : "has"
     InstrumentCapability }o--|| MeasurementFunction : "has"
-    SignalParameter ||--o{ SpecBand : "has specs"
-    InstrumentCapability ||--o{ SignalParameter : "has"
+    Signal ||--o{ SpecBand : "has specs"
+    InstrumentCapability ||--o{ Signal : "has"
+    InstrumentCapability ||--o{ Condition : "has"
+    InstrumentCapability ||--o{ Control : "has"
+    InstrumentCapability ||--o{ Attribute : "has"
     InstrumentCatalogEntry ||--o{ InstrumentCapability : "provides"
     InstrumentCatalogEntry ||--o{ ChannelTopology : "has channels"
     ProductCharacteristic }o--|| Direction : "has"
@@ -446,7 +454,7 @@ erDiagram
 
 | Module | Purpose | Key Models |
 |--------|---------|------------|
-| `litmus/config/models.py` | Shared enums & capability specs | Direction, MeasurementFunction, InstrumentCapability, SignalParameter, SpecBand, CompareMode, MatchDepth, ChannelTopology, TerminalRole |
+| `litmus/config/models.py` | Shared enums & capability specs | Direction, MeasurementFunction, InstrumentCapability, Signal, Condition, Control, Attribute, SpecBand, MatchDepth, ChannelTopology, TerminalRole |
 | `litmus/catalog/models.py` | Instrument catalog | InstrumentCatalogEntry |
 | `litmus/products/models.py` | Product specifications | Product, Pin, ProductCharacteristic, SignalGroup |
 | `litmus/config/models.py` | Configuration definitions | StationType, FixtureConfig, TestSequenceConfig, Limit |
@@ -570,7 +578,7 @@ product.characteristics["output_voltage"]
 station.instruments["dmm_main"]
     → capabilities: [
         InstrumentCapability(function=dc_voltage, direction=INPUT,
-            parameters={voltage: SignalParameter(range=RangeSpec(min=0, max=1000))})
+            signals={voltage: Signal(range=RangeSpec(min=0, max=1000))})
       ]
 
 # Match: function ✓, direction pair (OUTPUT↔INPUT) ✓, range contains 3.3V ✓

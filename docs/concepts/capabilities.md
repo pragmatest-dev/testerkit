@@ -10,7 +10,7 @@ A capability has three core dimensions:
 |-----------|---------|-------------|
 | `function` | dc_voltage, ac_voltage, resistance, waveform, s_parameters, phase_noise, ... | Named measurement function |
 | `direction` | input, output, bidir, transform | Does it measure, source, or transform? |
-| `parameters` | voltage: {range: 0-1000V}, bandwidth: {value: 50MHz} | Named signal parameters with range/accuracy/resolution |
+| `signals/conditions/controls/attributes` | voltage: {range: 0-1000V}, bandwidth: {value: 50MHz} | Named signal parameters organized by semantic role |
 
 ### Model Hierarchy
 
@@ -20,7 +20,7 @@ Capability (base)
 └── ProductCharacteristic   — adds pin/net, datasheet_ref, specs
 ```
 
-Both share the same `function + direction + parameters + specs` core. Direction always describes the hardware it's on: "input" means "this device receives/sinks signal."
+Both share the same `function + direction + signals/conditions/controls/attributes` core. Direction always describes the hardware it's on: "input" means "this device receives/sinks signal."
 
 ### Example: DMM Capabilities
 
@@ -29,7 +29,7 @@ Both share the same `function + direction + parameters + specs` core. Direction 
 capabilities:
   - function: dc_voltage
     direction: input      # Instrument measures (receives signal)
-    parameters:
+    signals:
       voltage:
         range: {min: 0.0001, max: 1000, units: V}
         accuracy: {pct_reading: 0.0035, pct_range: 0.0006}
@@ -37,13 +37,13 @@ capabilities:
 
   - function: dc_current
     direction: input
-    parameters:
+    signals:
       current:
         range: {min: 0.000001, max: 10, units: A}
 
   - function: resistance
     direction: input
-    parameters:
+    signals:
       resistance:
         range: {min: 0.01, max: 100000000, units: Ohm}
 ```
@@ -61,7 +61,7 @@ channels:
 capabilities:
   - function: dc_voltage
     direction: output     # Instrument sources (provides signal)
-    parameters:
+    signals:
       voltage:
         range: {min: 0, max: 30, units: V}
       current:
@@ -71,7 +71,7 @@ capabilities:
   - function: dc_voltage
     direction: input      # Built-in readback meter
     readback: true        # Excluded from auto-matching
-    parameters:
+    signals:
       voltage:
         range: {min: 0, max: 30, units: V}
     channels: ["1", "2"]
@@ -139,7 +139,7 @@ char = product.characteristics["output_voltage"]
 # Direction stays as-is (OUTPUT) — pairing happens in capability_satisfies()
 
 # Station instrument provides:
-# function: dc_voltage, direction: INPUT, parameters: {voltage: {range: 0-1000V}}
+# function: dc_voltage, direction: INPUT, signals: {voltage: {range: 0-1000V}}
 # → Function match ✓, Direction pair (OUTPUT↔INPUT) ✓, Range contains 3.3V ✓
 # → MATCH!
 ```
@@ -224,85 +224,42 @@ For function generators and waveform sources, the `MeasurementFunction.WAVEFORM`
 
 Per IEEE 1641, waveform shapes are **characteristics of the signal**, not distinct signal types. Function generators should have a single `function: waveform` capability rather than separate capabilities for each shape.
 
-## SignalParameter
+## Typed Collections
 
-Each capability has named parameters with optional range, accuracy, and resolution:
+Each capability organizes parameters into four semantic categories:
 
-```yaml
-parameters:
-  voltage:
-    range: {min: 0.001, max: 1000, units: V}
-    accuracy: {pct_reading: 0.005, offset: 0.001}
-    resolution: {digits: 6.5}
-  bandwidth:
-    value: 300000        # Fixed value (capability parameter)
-    units: Hz
-    role: capability
-```
-
-### Parameter Roles
-
-| Role | Description |
-|------|-------------|
-| `controllable` | Can be set by the user (default) |
-| `measurable` | Can be read/measured |
-| `capability` | Performance limit (e.g., bandwidth) |
-| `condition` | Operating condition (e.g., temperature) |
+| Collection | Purpose | Examples |
+|-----------|---------|----------|
+| `signals` | What's being measured/sourced | voltage, current, resistance — has range, accuracy, resolution |
+| `conditions` | Operating conditions affecting accuracy | frequency, temperature, load — range only, used for SpecBand matching |
+| `controls` | User knobs that can be configured | attenuation, filter_type, range_select — range or options |
+| `attributes` | Fixed facts about the capability | bandwidth, max_frequency — fixed value, no comparison needed |
 
 ### Condition-Dependent Specs (SpecBand)
 
 Instrument accuracy often varies with operating conditions. A DMM's AC voltage accuracy depends on the input frequency. A `SpecBand` captures this:
 
 ```yaml
-parameters:
+signals:
   voltage:
     range: {min: 0.1, max: 750, units: V}
     accuracy: {pct_reading: 0.07, pct_range: 0.02}  # default
     specs:
-      - when:
+      - conditions:
           frequency: {min: 3, max: 5, units: Hz}
         accuracy: {pct_reading: 0.35, pct_range: 0.03}
-      - when:
+      - conditions:
           frequency: {min: 5, max: 300, units: Hz}
         accuracy: {pct_reading: 0.07, pct_range: 0.02}
-      - when:
+      - conditions:
           frequency: {min: 300, max: 300000, units: Hz}
         accuracy: {pct_reading: 0.14, pct_range: 0.05}
+conditions:
   frequency:
     range: {min: 3, max: 300000, units: Hz}
-    role: condition
 ```
 
-The `when` keys reference sibling parameter names. Multiple keys are ANDed — all must match. When no band matches, the top-level accuracy/resolution applies as a default.
-
-### Comparison Direction (CompareMode)
-
-Different parameters need different comparison semantics when matching:
-
-| CompareMode | Meaning | Example |
-|-------------|---------|---------|
-| `contains` (default) | Instrument range must contain required range | Voltage, frequency |
-| `higher_better` | Instrument value must be ≥ required | Gain, bandwidth, resolution |
-| `lower_better` | Instrument value must be ≤ required | Phase noise, noise figure, THD |
-
-```yaml
-# RF amplifier gain — higher is better
-gain:
-  value: 16.5
-  units: dB
-  role: capability
-  compare: higher_better
-
-# PLL phase noise — lower is better
-phase_noise:
-  units: dBc/Hz
-  role: capability
-  compare: lower_better
-  specs:
-    - when:
-        offset: {min: 1000, max: 1000, units: Hz}
-      value: -121
-```
+The `conditions` keys in SpecBand reference sibling condition names. Multiple keys are ANDed — all must match. When no band matches, the top-level accuracy/resolution applies as a default.
 
 ## Channel Specification
 
@@ -389,7 +346,7 @@ channels:
 capabilities:
   - function: temperature
     direction: input
-    parameters:
+    signals:
       temperature:
         range: {min: -200, max: 850, units: "°C"}
     channels: ["T1", "T2", "T3", "T4", "T5", "T6", "T7", "T8"]

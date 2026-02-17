@@ -145,11 +145,8 @@ characteristics:
     units: mV
     pin: TP_VOUT
     datasheet_ref: "Application note"
-    parameters:
+    conditions:
       bandwidth:
-        value: 10000000
-        units: Hz
-        role: condition
     specs:
       - conditions:
           load: {min: 0.5, max: 0.5}

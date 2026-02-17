@@ -91,7 +91,7 @@ class ELoad:
 
     # Readback
     def measure_voltage(self) -> float:
-        """Measure input voltage.
+        """Signal input voltage.
 
         Returns:
             Voltage in Volts.
@@ -99,7 +99,7 @@ class ELoad:
         pass
 
     def measure_current(self) -> float:
-        """Measure actual load current.
+        """Signal actual load current.
 
         Returns:
             Current in Amps.
@@ -107,7 +107,7 @@ class ELoad:
         pass
 
     def measure_power(self) -> float:
-        """Measure actual power dissipation.
+        """Signal actual power dissipation.
 
         Returns:
             Power in Watts.

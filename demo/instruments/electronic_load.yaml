@@ -12,13 +12,13 @@ instrument:
 capabilities:
   - function: dc_current
     direction: input
-    parameters:
+    signals:
       current:
         range: {min: 0, max: 30, units: A}
     modes: [constant_current]
 
   - function: dc_voltage
     direction: input
-    parameters:
+    signals:
       voltage:
         range: {min: 0, max: 150, units: V}

@@ -169,7 +169,7 @@ class TestLitmusStep:
         # Step 2: Configure (tracked as step)
         configure_for_full_load(psu, eload)
 
-        # Step 3: Measure (logged with limit)
+        # Step 3: Signal (logged with limit)
         result = measure_output_voltage(dmm)
 
         # Cleanup

@@ -135,7 +135,7 @@ class TestHarnessSpecIntegration:
         with harness.step():
             for vector in harness.vectors:
                 with harness.run_vector(vector):
-                    # Measure with a value inside limits
+                    # Signal with a value inside limits
                     test_value = expected_limit.nominal or expected_limit.low or expected_limit.high
                     m = harness.measure(char_id, test_value)
 
@@ -281,7 +281,7 @@ class TestEndToEndWorkflow:
         with harness.step() as step:
             for vector in harness.vectors:
                 with harness.run_vector(vector):
-                    # Measure with passing value
+                    # Signal with passing value
                     test_value = limit.nominal or limit.low or limit.high
                     harness.measure(char_id, test_value)
 
@@ -348,7 +348,7 @@ class TestEndToEndWorkflow:
                     harness.context.observe("temp_probe.temperature", 24.8)
                     harness.context.observe("temp_probe.humidity", 45.2)
 
-                    # Measure
+                    # Signal
                     test_value = limit.nominal or limit.low or limit.high
                     harness.measure(char_id, test_value)
 
@@ -427,7 +427,7 @@ class TestMinimalSpec:
         with harness.step() as step:
             for vector in harness.vectors:
                 with harness.run_vector(vector):
-                    # Measure with in-spec value
+                    # Signal with in-spec value
                     test_value = limit.nominal or limit.low or limit.high
                     m = harness.measure(char_id, test_value)
                     assert m.outcome == Outcome.PASS

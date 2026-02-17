@@ -36,9 +36,9 @@ class TestLoadCatalogEntry:
         ]
         assert len(dc_v_caps) >= 1
         cap = dc_v_caps[0]
-        assert "voltage" in cap.parameters
-        assert cap.parameters["voltage"].range is not None
-        assert cap.parameters["voltage"].range.max >= 1000
+        assert "voltage" in cap.signals
+        assert cap.signals["voltage"].range is not None
+        assert cap.signals["voltage"].range.max >= 1000
 
     def test_load_keysight_e36312a(self):
         """Load the Keysight E36312A PSU catalog entry."""
@@ -48,7 +48,7 @@ class TestLoadCatalogEntry:
         entry = load_catalog_entry(path)
 
         assert entry.id == "keysight_e36312a"
-        assert entry.type == "psu"
+        assert entry.type == "dc_power"
         assert len(entry.capabilities) > 0
 
         # Should have dc_voltage output capability
@@ -162,7 +162,7 @@ class TestCatalogInheritance:
             capabilities:
               - function: dc_voltage
                 direction: input
-                parameters:
+                signals:
                   voltage:
                     range: {min: 0.001, max: 100, units: V}
                     accuracy: {pct_reading: 0.01}
@@ -218,7 +218,7 @@ class TestCatalogInheritance:
             capabilities:
               - function: ac_voltage
                 direction: input
-                parameters:
+                signals:
                   voltage:
                     range: {min: 0.01, max: 750, units: V}
                 channels: ["1"]
@@ -295,7 +295,7 @@ class TestCatalogInheritance:
             capabilities:
               - function: dc_voltage
                 direction: input
-                parameters:
+                signals:
                   voltage:
                     range: {min: 0.001, max: 100, units: V}
                 channels: ["1"]

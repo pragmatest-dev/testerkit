@@ -18,13 +18,15 @@ from pydantic import BaseModel, Field
 
 from litmus.config.models import (
     AccuracySpec,
-    CompareMode,
+    Attribute,
+    Condition,
+    Control,
     Direction,
     InstrumentCapability,
     MatchDepth,
+    Signal,
     MeasurementFunction,
     ResolutionSpec,
-    SignalParameter,
     SpecBand,
 )
 from litmus.products.loader import load_product
@@ -50,8 +52,16 @@ class CapabilityRequirement(BaseModel):
         return self.capability.direction
 
     @property
-    def parameters(self) -> dict[str, SignalParameter]:
-        return self.capability.parameters
+    def signals(self) -> dict[str, Signal]:
+        return self.capability.signals
+
+    @property
+    def conditions(self) -> dict[str, Condition]:
+        return self.capability.conditions
+
+    @property
+    def attributes(self) -> dict[str, Attribute]:
+        return self.capability.attributes
 
 
 class StationCapability(BaseModel):
@@ -72,8 +82,16 @@ class StationCapability(BaseModel):
         return self.capability.direction
 
     @property
-    def parameters(self) -> dict[str, SignalParameter]:
-        return self.capability.parameters
+    def signals(self) -> dict[str, Signal]:
+        return self.capability.signals
+
+    @property
+    def conditions(self) -> dict[str, Condition]:
+        return self.capability.conditions
+
+    @property
+    def attributes(self) -> dict[str, Attribute]:
+        return self.capability.attributes
 
     @property
     def name(self) -> str:
@@ -336,30 +354,13 @@ def get_station_capabilities(station_config: dict) -> list[StationCapability]:
         # Fall back to generic instrument library
         library = load_instrument_library(inst_type)
         if library and "capabilities" in library:
+            from litmus.catalog.loader import _parse_capability
+
             for cap_data in library["capabilities"]:
                 try:
-                    function = MeasurementFunction(cap_data["function"])
-                    direction = Direction(cap_data["direction"])
+                    inst_cap = _parse_capability(cap_data)
                 except (ValueError, KeyError):
                     continue
-
-                # Parse parameters
-                params: dict[str, SignalParameter] = {}
-                for param_name, param_data in cap_data.get("parameters", {}).items():
-                    params[param_name] = _parse_signal_parameter(param_data)
-
-                readback = bool(cap_data.get("readback", False))
-                channels = _normalize_channels(cap_data.get("channels"))
-
-                inst_cap = InstrumentCapability(
-                    function=function,
-                    direction=direction,
-                    parameters=params,
-                    channels=channels,
-                    modes=cap_data.get("modes", []),
-                    readback=readback,
-                )
-
                 _expand_capability(inst_cap, inst_type, inst_name, capabilities)
 
     return capabilities
@@ -407,48 +408,6 @@ def _add_catalog_capabilities(
             _expand_capability(cap, inst_type, inst_name, capabilities)
 
 
-def _parse_signal_parameter(data: dict[str, Any]) -> SignalParameter:
-    """Parse a SignalParameter from dict data."""
-    from litmus.config.models import (
-        AccuracySpec,
-        ParameterRole,
-        RangeSpec,
-        ResolutionSpec,
-    )
-
-    range_spec = None
-    if "range" in data:
-        r = data["range"]
-        range_spec = RangeSpec(min=r.get("min"), max=r.get("max"), units=r.get("units", ""))
-
-    accuracy_spec = None
-    if "accuracy" in data:
-        a = data["accuracy"]
-        accuracy_spec = AccuracySpec(
-            pct_reading=a.get("pct_reading"),
-            pct_range=a.get("pct_range"),
-            absolute=a.get("absolute"),
-        )
-
-    resolution_spec = None
-    if "resolution" in data:
-        r = data["resolution"]
-        resolution_spec = ResolutionSpec(
-            bits=r.get("bits"), digits=r.get("digits"), value=r.get("value"), units=r.get("units")
-        )
-
-    role = ParameterRole.CONTROLLABLE
-    if "role" in data:
-        role = ParameterRole(data["role"])
-
-    return SignalParameter(
-        range=range_spec,
-        accuracy=accuracy_spec,
-        resolution=resolution_spec,
-        value=data.get("value"),
-        units=data.get("units"),
-        role=role,
-    )
 
 
 # -----------------------------------------------------------------------------
@@ -482,34 +441,31 @@ def capability_satisfies(
     if depth == MatchDepth.DIRECTION:
         return True
 
-    # Tier 3: Parameter range containment
-    for param_name, req_param in required.parameters.items():
-        inst_param = station_cap.parameters.get(param_name)
-        if inst_param is None:
-            # Instrument doesn't have this parameter
-            if req_param.range is not None or req_param.value is not None:
+    # Tier 3: Signal range containment
+    for measure_name, req_measure in required.signals.items():
+        inst_measure = station_cap.signals.get(measure_name)
+        if inst_measure is None:
+            # Instrument doesn't have this measure
+            if req_measure.range is not None or req_measure.value is not None:
                 return False
             continue
-        if not _range_contains(inst_param, req_param):
+        if not _signal_range_contains(inst_measure, req_measure):
             return False
+
     if depth == MatchDepth.RANGE:
         return True
 
-    # Build operating point from required parameters for spec band lookup
-    operating_point = _build_operating_point(required.parameters)
+    # Build operating point from required conditions + signals for spec band lookup
+    operating_point = _build_operating_point(required.signals, required.conditions)
 
     # Tier 4: Accuracy check
-    for param_name, req_param in required.parameters.items():
-        inst_param = station_cap.parameters.get(param_name)
-        if inst_param is None:
+    for measure_name, req_measure in required.signals.items():
+        inst_measure = station_cap.signals.get(measure_name)
+        if inst_measure is None:
             continue
 
-        # Check capability value comparison (higher_better / lower_better)
-        if not _capability_value_sufficient(inst_param, req_param, operating_point):
-            return False
-
-        req_acc = _get_accuracy_at(req_param, operating_point)
-        inst_acc = _get_accuracy_at(inst_param, operating_point)
+        req_acc = _get_accuracy_at(req_measure, operating_point)
+        inst_acc = _get_accuracy_at(inst_measure, operating_point)
         if req_acc is not None and inst_acc is not None:
             if not _accuracy_sufficient(inst_acc, req_acc):
                 return False
@@ -517,12 +473,12 @@ def capability_satisfies(
         return True
 
     # Tier 5: Resolution check
-    for param_name, req_param in required.parameters.items():
-        inst_param = station_cap.parameters.get(param_name)
-        if inst_param is None:
+    for measure_name, req_measure in required.signals.items():
+        inst_measure = station_cap.signals.get(measure_name)
+        if inst_measure is None:
             continue
-        req_res = _get_resolution_at(req_param, operating_point)
-        inst_res = _get_resolution_at(inst_param, operating_point)
+        req_res = _get_resolution_at(req_measure, operating_point)
+        inst_res = _get_resolution_at(inst_measure, operating_point)
         if req_res is not None and inst_res is not None:
             if not _resolution_sufficient(inst_res, req_res):
                 return False
@@ -530,34 +486,45 @@ def capability_satisfies(
     return True
 
 
-def _build_operating_point(parameters: dict[str, SignalParameter]) -> dict[str, float]:
-    """Extract operating point values from requirement parameters."""
+def _build_operating_point(
+    signals: dict[str, Signal],
+    conditions: dict[str, Condition] | None = None,
+) -> dict[str, float]:
+    """Extract operating point values from requirement signals and conditions."""
     point: dict[str, float] = {}
-    for name, param in parameters.items():
-        if param.value is not None:
-            point[name] = param.value
-        elif param.range is not None:
-            # Use midpoint of range as operating point
-            if param.range.min is not None and param.range.max is not None:
-                point[name] = (param.range.min + param.range.max) / 2
-            elif param.range.min is not None:
-                point[name] = param.range.min
-            elif param.range.max is not None:
-                point[name] = param.range.max
+    for name, m in signals.items():
+        if m.value is not None:
+            point[name] = m.value
+        elif m.range is not None:
+            if m.range.min is not None and m.range.max is not None:
+                point[name] = (m.range.min + m.range.max) / 2
+            elif m.range.min is not None:
+                point[name] = m.range.min
+            elif m.range.max is not None:
+                point[name] = m.range.max
+    if conditions:
+        for name, c in conditions.items():
+            if c.range is not None:
+                if c.range.min is not None and c.range.max is not None:
+                    point[name] = (c.range.min + c.range.max) / 2
+                elif c.range.min is not None:
+                    point[name] = c.range.min
+                elif c.range.max is not None:
+                    point[name] = c.range.max
     return point
 
 
 def get_spec_at(
-    param: SignalParameter, operating_point: dict[str, float]
+    measure: Signal, operating_point: dict[str, float]
 ) -> SpecBand | None:
     """Find the SpecBand that applies at the given operating point.
 
     Returns None if no band matches (caller should use top-level defaults).
     Multiple ``when`` keys are ANDed — all must match.
     """
-    if not param.specs:
+    if not measure.specs:
         return None
-    for band in param.specs:
+    for band in measure.specs:
         if _band_matches(band, operating_point):
             return band
     return None
@@ -577,33 +544,33 @@ def _band_matches(band: SpecBand, operating_point: dict[str, float]) -> bool:
 
 
 def _get_accuracy_at(
-    param: SignalParameter, operating_point: dict[str, float]
+    measure: Signal, operating_point: dict[str, float]
 ) -> AccuracySpec | None:
-    """Get the applicable accuracy for a parameter at an operating point."""
-    band = get_spec_at(param, operating_point)
+    """Get the applicable accuracy for a measure at an operating point."""
+    band = get_spec_at(measure, operating_point)
     if band is not None and band.accuracy is not None:
         return band.accuracy
-    return param.accuracy
+    return measure.accuracy
 
 
 def _get_resolution_at(
-    param: SignalParameter, operating_point: dict[str, float]
+    measure: Signal, operating_point: dict[str, float]
 ) -> ResolutionSpec | None:
-    """Get the applicable resolution for a parameter at an operating point."""
-    band = get_spec_at(param, operating_point)
+    """Get the applicable resolution for a measure at an operating point."""
+    band = get_spec_at(measure, operating_point)
     if band is not None and band.resolution is not None:
         return band.resolution
-    return param.resolution
+    return measure.resolution
 
 
 def _get_value_at(
-    param: SignalParameter, operating_point: dict[str, float]
+    measure: Signal, operating_point: dict[str, float]
 ) -> float | None:
-    """Get the applicable value for a parameter at an operating point."""
-    band = get_spec_at(param, operating_point)
+    """Get the applicable value for a measure at an operating point."""
+    band = get_spec_at(measure, operating_point)
     if band is not None and band.value is not None:
         return band.value
-    return param.value
+    return measure.value
 
 
 def _accuracy_sufficient(inst: AccuracySpec, req: AccuracySpec) -> bool:
@@ -642,34 +609,8 @@ def _resolution_sufficient(inst: ResolutionSpec, req: ResolutionSpec) -> bool:
     return True
 
 
-def _capability_value_sufficient(
-    inst_param: SignalParameter,
-    req_param: SignalParameter,
-    operating_point: dict[str, float],
-) -> bool:
-    """Check capability value using compare mode (higher_better / lower_better).
-
-    Only applies to parameters with a compare mode set. For CONTAINS mode
-    (default), range containment already handles it.
-    """
-    compare = inst_param.compare or req_param.compare
-    if compare is None or compare == CompareMode.CONTAINS:
-        return True
-
-    inst_val = _get_value_at(inst_param, operating_point)
-    req_val = _get_value_at(req_param, operating_point)
-    if inst_val is None or req_val is None:
-        return True  # Can't compare without values
-
-    if compare == CompareMode.HIGHER_BETTER:
-        return inst_val >= req_val
-    if compare == CompareMode.LOWER_BETTER:
-        return inst_val <= req_val
-    return True
-
-
-def _range_contains(inst_param: SignalParameter, req_param: SignalParameter) -> bool:
-    """Check if instrument parameter range contains the required value/range.
+def _signal_range_contains(inst_measure: Signal, req_measure: Signal) -> bool:
+    """Check if instrument measure range contains the required value/range.
 
     Handles both point values and range subsets:
     - req has value: inst range must contain that value
@@ -677,25 +618,25 @@ def _range_contains(inst_param: SignalParameter, req_param: SignalParameter) -> 
     - req has neither: always satisfied (no constraint)
     """
     # If requirement has a fixed value, check it's within instrument range
-    if req_param.value is not None and inst_param.range is not None:
-        if inst_param.range.min is not None and req_param.value < inst_param.range.min:
+    if req_measure.value is not None and inst_measure.range is not None:
+        if inst_measure.range.min is not None and req_measure.value < inst_measure.range.min:
             return False
-        if inst_param.range.max is not None and req_param.value > inst_param.range.max:
+        if inst_measure.range.max is not None and req_measure.value > inst_measure.range.max:
             return False
         return True
 
     # If requirement has a range, check containment
-    if req_param.range is not None and inst_param.range is not None:
+    if req_measure.range is not None and inst_measure.range is not None:
         if (
-            req_param.range.min is not None
-            and inst_param.range.min is not None
-            and req_param.range.min < inst_param.range.min
+            req_measure.range.min is not None
+            and inst_measure.range.min is not None
+            and req_measure.range.min < inst_measure.range.min
         ):
             return False
         if (
-            req_param.range.max is not None
-            and inst_param.range.max is not None
-            and req_param.range.max > inst_param.range.max
+            req_measure.range.max is not None
+            and inst_measure.range.max is not None
+            and req_measure.range.max > inst_measure.range.max
         ):
             return False
         return True
@@ -895,14 +836,14 @@ def _catalog_cap_matches(
     if req.direction != Direction.BIDIR and cap.direction != req.direction:
         if cap.direction != Direction.BIDIR:
             return False
-    # Range containment
-    for param_name, req_param in req.parameters.items():
-        inst_param = cap.parameters.get(param_name)
-        if inst_param is None:
-            if req_param.range is not None or req_param.value is not None:
+    # Range containment on signals
+    for measure_name, req_measure in req.signals.items():
+        inst_measure = cap.signals.get(measure_name)
+        if inst_measure is None:
+            if req_measure.range is not None or req_measure.value is not None:
                 return False
             continue
-        if not _range_contains(inst_param, req_param):
+        if not _signal_range_contains(inst_measure, req_measure):
             return False
     return True
 
@@ -999,17 +940,17 @@ def _parse_requirements(raw: list[dict[str, Any]]) -> list[CapabilityRequirement
         function = MeasurementFunction(r["function"])
         direction = Direction(r["direction"])
 
-        parameters: dict[str, SignalParameter] = {}
+        signals: dict[str, Signal] = {}
 
-        # Build a range parameter from range_min/range_max if provided
+        # Build a range measure from range_min/range_max if provided
         range_min = r.get("range_min")
         range_max = r.get("range_max")
         units = r.get("units", "")
 
         if range_min is not None or range_max is not None:
-            # Derive parameter name from function (e.g., dc_voltage -> voltage)
-            param_name = function.value.replace("dc_", "").replace("ac_", "")
-            parameters[param_name] = SignalParameter(
+            # Derive measure name from function (e.g., dc_voltage -> voltage)
+            measure_name = function.value.replace("dc_", "").replace("ac_", "")
+            signals[measure_name] = Signal(
                 range=RangeSpec(min=range_min, max=range_max, units=units),
             )
 
@@ -1017,7 +958,7 @@ def _parse_requirements(raw: list[dict[str, Any]]) -> list[CapabilityRequirement
         char = ProductCharacteristic(
             function=function,
             direction=direction,
-            parameters=parameters,
+            signals=signals,
             units=units or None,
             net=f"req_{i}",  # Synthetic physical interface
         )
