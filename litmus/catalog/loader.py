@@ -452,9 +452,9 @@ def _parse_attribute(data: dict[str, Any]) -> Attribute:
 
 def _parse_spec_band(data: dict[str, Any]) -> SpecBand:
     """Parse a single SpecBand from YAML data."""
-    conditions: dict[str, RangeSpec] = {}
-    for key, val in data.get("conditions", {}).items():
-        conditions[key] = RangeSpec(
+    when: dict[str, RangeSpec] = {}
+    for key, val in data.get("when", {}).items():
+        when[key] = RangeSpec(
             min=val.get("min"), max=val.get("max"), units=val.get("units", "")
         )
 
@@ -477,8 +477,16 @@ def _parse_spec_band(data: dict[str, Any]) -> SpecBand:
             units=r.get("units"),
         )
 
+    range_spec = None
+    if "range" in data:
+        rng = data["range"]
+        range_spec = RangeSpec(
+            min=rng.get("min"), max=rng.get("max"), units=rng.get("units", "")
+        )
+
     return SpecBand(
-        conditions=conditions,
+        when=when,
+        range=range_spec,
         value=data.get("value"),
         accuracy=accuracy,
         resolution=resolution,

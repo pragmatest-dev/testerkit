@@ -202,6 +202,7 @@ class TestProductInheritance:
 class TestLoadProductsFromDirectory:
     """Tests for loading multiple products from a directory."""
 
+    @pytest.mark.filterwarnings("ignore:Failed to load product.*circular:UserWarning")
     def test_load_products_directory(self):
         """Test loading all products from specs directory."""
         specs_dir = Path(__file__).parent.parent / "fixtures" / "specs"

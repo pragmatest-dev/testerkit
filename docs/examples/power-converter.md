@@ -87,19 +87,19 @@ characteristics:
     pins: [VOUT]
     datasheet_ref: "Section 4.2"
     specs:
-      - conditions:
+      - when:
           load_ma: {min: 0, max: 100}
         value: 3.3
         accuracy:
           pct_reading: 5
 
-      - conditions:
+      - when:
           load_ma: {min: 100, max: 600}
         value: 3.3
         accuracy:
           pct_reading: 5
 
-      - conditions:
+      - when:
           load_ma: {min: 600, max: 1000}
         value: 3.3
         accuracy:

@@ -198,7 +198,7 @@ class ProductCharacteristic(Capability):
 
         Args:
             params: Dictionary of condition parameters (e.g., {"temperature": 25}).
-                Each value is checked against the RangeSpec in the band's conditions.
+                Each value is checked against the RangeSpec in the band's ``when`` clause.
 
         Returns:
             The matching SpecBand, or None if no match found.
@@ -210,14 +210,14 @@ class ProductCharacteristic(Capability):
 
 
 def _band_matches_product(band: SpecBand, params: dict[str, float]) -> bool:
-    """Check if all conditions in a product SpecBand match the given params.
+    """Check if all ``when`` clauses in a product SpecBand match the given params.
 
     For product specs, condition values can be exact points (min==max) or ranges.
-    An empty conditions dict matches any query (unconditional spec).
+    An empty ``when`` dict matches any query (unconditional spec).
     """
-    if not band.conditions:
+    if not band.when:
         return True
-    for key, range_spec in band.conditions.items():
+    for key, range_spec in band.when.items():
         val = params.get(key)
         if val is None:
             return False

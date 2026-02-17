@@ -138,14 +138,14 @@ characteristics:
     units: V
     pins: [VOUT]
     specs:
-      - conditions:
+      - when:
           temperature: {min: 0, max: 50}
           load: {min: 0.1, max: 0.5}
         value: 3.3
         accuracy:
           pct_reading: 5     # ±5% tolerance
 
-      - conditions:
+      - when:
           temperature: {min: 50, max: 85}
           load: {min: 0.5, max: 1.0}
         value: 3.3

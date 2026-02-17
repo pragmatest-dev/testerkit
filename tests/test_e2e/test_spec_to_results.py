@@ -443,8 +443,8 @@ def _find_testable_characteristic(spec: SpecContext) -> tuple[str | None, dict]:
     """
     for char_id, char in spec.product.characteristics.items():
         if char.specs:
-            # Use first SpecBand's conditions, converting RangeSpec to scalar values
+            # Use first SpecBand's when clause, converting RangeSpec to scalar values
             band = char.specs[0]
-            conditions = {k: v.min for k, v in band.conditions.items()} if band.conditions else {}
+            conditions = {k: v.min for k, v in band.when.items()} if band.when else {}
             return char_id, conditions
     return None, {}

@@ -136,8 +136,8 @@ Creates `pyproject.toml`, `conftest.py`, directories. Run `uv sync` after.
 
 **Key concepts:**
 - **Characteristic:** A measurable property (output_voltage, quiescent_current, etc.)
-- **SpecBand:** One specification with test conditions, nominal value, and accuracy
-- **Conditions:** Test parameters (temperature, load, frequency, etc.) that determine which SpecBand applies
+- **SpecBand:** One specification with `when` clause, nominal value, and accuracy
+- **When clause:** Operating-point parameters (temperature, load, frequency, etc.) that determine which SpecBand applies
 
 ```python
 litmus(action="save", type="product", id="tps54302", content={

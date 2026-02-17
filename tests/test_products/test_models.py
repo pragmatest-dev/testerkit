@@ -37,12 +37,12 @@ class TestProductCharacteristic:
             pin="VOUT",
             specs=[
                 SpecBand(
-                    conditions={"temperature": RangeSpec(min=25, max=25)},
+                    when={"temperature": RangeSpec(min=25, max=25)},
                     value=3.3,
                     accuracy=AccuracySpec(pct_reading=3.0),
                 ),
                 SpecBand(
-                    conditions={"temperature": RangeSpec(min=85, max=85)},
+                    when={"temperature": RangeSpec(min=85, max=85)},
                     value=3.3,
                     accuracy=AccuracySpec(pct_reading=5.0),
                 ),
@@ -59,12 +59,12 @@ class TestProductCharacteristic:
             pin="VOUT",
             specs=[
                 SpecBand(
-                    conditions={"temperature": RangeSpec(min=25, max=25)},
+                    when={"temperature": RangeSpec(min=25, max=25)},
                     value=3.3,
                     accuracy=AccuracySpec(pct_reading=3.0),
                 ),
                 SpecBand(
-                    conditions={"temperature": RangeSpec(min=85, max=85)},
+                    when={"temperature": RangeSpec(min=85, max=85)},
                     value=3.35,
                     accuracy=AccuracySpec(pct_reading=5.0),
                 ),
@@ -83,7 +83,7 @@ class TestProductCharacteristic:
             pin="VOUT",
             specs=[
                 SpecBand(
-                    conditions={"temperature": RangeSpec(min=25, max=25)},
+                    when={"temperature": RangeSpec(min=25, max=25)},
                     value=3.3,
                 ),
             ],
@@ -166,7 +166,7 @@ class TestProduct:
                     datasheet_ref="DS-001 Section 7.3",
                     specs=[
                         SpecBand(
-                            conditions={
+                            when={
                                 "temperature": RangeSpec(min=25, max=25),
                                 "load": RangeSpec(min=0.1, max=0.1),
                             },

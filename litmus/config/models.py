@@ -3,7 +3,9 @@
 from enum import StrEnum
 from typing import Any, Literal
 
-from pydantic import BaseModel, Field, computed_field
+import warnings
+
+from pydantic import BaseModel, Field, computed_field, model_validator
 
 from litmus.utils.ranges import expand_numeric_range
 
@@ -336,20 +338,28 @@ class SpecBand(BaseModel):
     """Condition-dependent specification override for a parameter.
 
     Each band says "at this operating point, here are the specs."
-    The ``conditions`` keys reference sibling parameter names; multiple keys
-    are ANDed (all must match).  Empty dict means unconditional (always applies).
+    The ``when`` keys reference sibling parameter names (signals,
+    conditions, or controls); multiple keys are ANDed (all must match).
+    Empty dict means unconditional (always applies).
 
-    Example YAML:
+    Any field that is ``None`` means "no override — use the top-level default."
+
+    Example YAML (accuracy varies with frequency):
         specs:
-          - conditions:
+          - when:
               frequency: {min: 3, max: 5, units: Hz}
             accuracy: {pct_reading: 0.35, pct_range: 0.03}
-          - conditions:
-              frequency: {min: 5, max: 300, units: Hz}
-            accuracy: {pct_reading: 0.07, pct_range: 0.02}
+
+    Example YAML (range derated at high frequency):
+        specs:
+          - when:
+              frequency: {min: 3e9, max: 6e9, units: Hz}
+            range: {min: -130, max: 5, units: dBm}
+            accuracy: {absolute: 0.8}
     """
 
-    conditions: dict[str, RangeSpec] = Field(default_factory=dict)
+    when: dict[str, RangeSpec] = Field(default_factory=dict)
+    range: RangeSpec | None = None  # Derated range at this operating point
     value: float | None = None  # Nominal/typical at this operating point
     accuracy: AccuracySpec | None = None
     resolution: ResolutionSpec | None = None
@@ -376,7 +386,7 @@ class SignalParameter(BaseModel):
           accuracy: {pct_reading: 0.07, pct_range: 0.02}
           resolution: {digits: 6.5}
           specs:
-            - conditions:
+            - when:
                 frequency: {min: 3, max: 5, units: Hz}
               accuracy: {pct_reading: 0.35, pct_range: 0.03}
     """
@@ -406,7 +416,7 @@ class Signal(BaseModel):
             accuracy: {pct_reading: 0.0035, pct_range: 0.0006}
             resolution: {digits: 6.5}
             specs:
-              - conditions:
+              - when:
                   frequency: {min: 3, max: 5, units: Hz}
                 accuracy: {pct_reading: 0.35, pct_range: 0.03}
 
@@ -487,10 +497,10 @@ class Attribute(BaseModel):
 
 
 class ConditionKey(StrEnum):
-    """Canonical condition keys for SpecBand.conditions.
+    """Canonical keys for the ``conditions`` dict on a Capability.
 
-    Not enforced at model level (SpecBand.conditions stays dict[str, RangeSpec]).
-    Used as a shared vocabulary so products and instruments use the same keys.
+    Not enforced at model level; used as a shared vocabulary so products
+    and instruments use the same names.
 
     Derived from audit of 150+ instrument datasheets across 19 vendors and IVI
     Foundation class specifications (IVI-DMM, IVI-Scope, IVI-FGen, IVI-DCPwr).
@@ -557,6 +567,45 @@ class Capability(BaseModel):
     attributes: dict[str, Attribute] = Field(default_factory=dict)
     units: str | None = None
     specs: list[SpecBand] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def _validate_spec_band_keys(self) -> "Capability":
+        """Warn when SpecBand ``when`` keys don't reference known siblings.
+
+        Every key in ``signal.specs[].when`` should match a name in
+        either ``signals``, ``conditions``, or ``controls`` on the parent
+        capability. Unknown keys indicate a typo or missing declaration.
+        """
+        # Enforce disjoint namespaces across signals/conditions/controls
+        for a_name, a_keys, b_name, b_keys in [
+            ("signals", set(self.signals), "conditions", set(self.conditions)),
+            ("signals", set(self.signals), "controls", set(self.controls)),
+            ("conditions", set(self.conditions), "controls", set(self.controls)),
+        ]:
+            overlap = a_keys & b_keys
+            if overlap:
+                raise ValueError(
+                    f"{self.function.value}: keys {sorted(overlap)} appear in "
+                    f"both {a_name} and {b_name} — each dimension must appear "
+                    f"in exactly one"
+                )
+
+        known = set(self.signals) | set(self.conditions) | set(self.controls)
+        if not known:
+            return self
+        for sig_name, sig in self.signals.items():
+            if not sig.specs:
+                continue
+            for i, band in enumerate(sig.specs):
+                for key in band.when:
+                    if key not in known:
+                        warnings.warn(
+                            f"{self.function.value}: signal '{sig_name}' "
+                            f"specs[{i}] references unknown condition key "
+                            f"'{key}' (known: {sorted(known)})",
+                            stacklevel=2,
+                        )
+        return self
 
 
 class InstrumentCapability(Capability):

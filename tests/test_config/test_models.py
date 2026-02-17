@@ -1,12 +1,23 @@
 """Tests for Litmus configuration models."""
 
+import pytest
+
+import pytest
+
 from litmus.config.models import (
+    Capability,
+    Condition,
+    Control,
+    Direction,
     FixtureConfig,
     FixturePoint,
     InstrumentConfig,
     InstrumentInstance,
     Limit,
+    MeasurementFunction,
+    RangeSpec,
     RetryConfig,
+    Signal,
     Specification,
     StationInstance,
     StationType,
@@ -353,3 +364,45 @@ class TestTestSequenceConfigModel:
         )
         assert sequence.product_family is None
         assert sequence.test_phase is None
+
+
+class TestCapabilityDisjointNamespaces:
+    """Capability must reject overlapping keys across signals/conditions/controls."""
+
+    def _make(self, signals=None, conditions=None, controls=None):
+        return Capability(
+            function=MeasurementFunction.DC_VOLTAGE,
+            direction=Direction.INPUT,
+            signals=signals or {},
+            conditions=conditions or {},
+            controls=controls or {},
+        )
+
+    def test_disjoint_keys_ok(self):
+        cap = self._make(
+            signals={"voltage": Signal(range=RangeSpec(min=0, max=10, units="V"))},
+            conditions={"frequency": Condition(range=RangeSpec(min=1, max=1000, units="Hz"))},
+            controls={"coupling": Control(options=["AC", "DC"])},
+        )
+        assert cap.function == MeasurementFunction.DC_VOLTAGE
+
+    def test_signals_conditions_overlap_rejected(self):
+        with pytest.raises(ValueError, match="signals.*conditions"):
+            self._make(
+                signals={"frequency": Signal(range=RangeSpec(min=0, max=10, units="Hz"))},
+                conditions={"frequency": Condition(range=RangeSpec(min=1, max=1000, units="Hz"))},
+            )
+
+    def test_signals_controls_overlap_rejected(self):
+        with pytest.raises(ValueError, match="signals.*controls"):
+            self._make(
+                signals={"voltage": Signal(range=RangeSpec(min=0, max=10, units="V"))},
+                controls={"voltage": Control(range=RangeSpec(min=0, max=5, units="V"))},
+            )
+
+    def test_conditions_controls_overlap_rejected(self):
+        with pytest.raises(ValueError, match="conditions.*controls"):
+            self._make(
+                conditions={"frequency": Condition(range=RangeSpec(min=1, max=1000, units="Hz"))},
+                controls={"frequency": Control(options=["50", "60"])},
+            )

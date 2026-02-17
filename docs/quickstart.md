@@ -57,7 +57,7 @@ characteristics:
     direction: output
     units: V
     specs:
-      - conditions: {temperature: 25}
+      - when: {temperature: 25}
         value: 3.3
         accuracy: {pct_reading: 2.0}
 ```

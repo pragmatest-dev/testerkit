@@ -11,17 +11,17 @@ characteristics:
     net: VIN
     datasheet_ref: DS-001 Section 7.2, Table 3
     specs:
-    - conditions:
+    - when:
         temperature: 25
         load: 0.5
       value: 5.0
       accuracy: {pct_reading: 5.0}
-    - conditions:
+    - when:
         temperature: -40
         load: 0.5
       value: 5.0
       accuracy: {pct_reading: 7.0}
-    - conditions:
+    - when:
         temperature: 85
         load: 0.5
       value: 5.0
@@ -33,25 +33,25 @@ characteristics:
     net: VOUT_3V3
     datasheet_ref: DS-001 Section 7.3
     specs:
-    - conditions:
+    - when:
         temperature: 25
         load: 0.1
         input_voltage: 5.0
       value: 3.3
       accuracy: {pct_reading: 3.0}
-    - conditions:
+    - when:
         temperature: 25
         load: 1.0
         input_voltage: 5.0
       value: 3.3
       accuracy: {pct_reading: 4.0}
-    - conditions:
+    - when:
         temperature: -40
         load: 0.5
         input_voltage: 4.5
       value: 3.3
       accuracy: {pct_reading: 5.0}
-    - conditions:
+    - when:
         temperature: 85
         load: 1.0
         input_voltage: 5.5
@@ -64,11 +64,11 @@ characteristics:
     net: IIN
     datasheet_ref: DS-001 Section 7.4
     specs:
-    - conditions:
+    - when:
         temperature: 25
         load: 0
       value: 0.010
-    - conditions:
+    - when:
         temperature: 85
         load: 0
       value: 0.015
@@ -79,11 +79,11 @@ characteristics:
     pins: [VIN, VOUT]
     datasheet_ref: DS-001 Section 7.5
     specs:
-    - conditions:
+    - when:
         temperature: 25
         load: 0.5
       value: 85
-    - conditions:
+    - when:
         temperature: 25
         load: 1.0
       value: 80

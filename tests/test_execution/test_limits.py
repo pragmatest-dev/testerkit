@@ -29,7 +29,7 @@ class TestDeriveLimit:
             datasheet_ref="DS-001 Section 7.3",
             specs=[
                 SpecBand(
-                    conditions={
+                    when={
                         "temperature": RangeSpec(min=25, max=25),
                         "load": RangeSpec(min=0.1, max=0.1),
                     },
@@ -37,7 +37,7 @@ class TestDeriveLimit:
                     accuracy=AccuracySpec(pct_reading=3.0),
                 ),
                 SpecBand(
-                    conditions={
+                    when={
                         "temperature": RangeSpec(min=25, max=25),
                         "load": RangeSpec(min=1.0, max=1.0),
                     },
@@ -45,7 +45,7 @@ class TestDeriveLimit:
                     accuracy=AccuracySpec(pct_reading=5.0),
                 ),
                 SpecBand(
-                    conditions={
+                    when={
                         "temperature": RangeSpec(min=85, max=85),
                         "load": RangeSpec(min=1.0, max=1.0),
                     },
@@ -113,7 +113,7 @@ class TestDeriveLimit:
             pin="VOUT",
             specs=[
                 SpecBand(
-                    conditions={"temperature": RangeSpec(min=25, max=25)},
+                    when={"temperature": RangeSpec(min=25, max=25)},
                     value=3.3,
                 ),
             ],
@@ -139,7 +139,7 @@ class TestDeriveLimit:
             pin="VIN",
             specs=[
                 SpecBand(
-                    conditions={"temperature": RangeSpec(min=25, max=25)},
+                    when={"temperature": RangeSpec(min=25, max=25)},
                     value=0.010,
                 ),
             ],
@@ -195,7 +195,7 @@ class TestDeriveLimit:
             pin="VIN",
             specs=[
                 SpecBand(
-                    conditions={"temperature": RangeSpec(min=25, max=25)},
+                    when={"temperature": RangeSpec(min=25, max=25)},
                     value=0.5,
                 ),
             ],
@@ -222,7 +222,7 @@ class TestDeriveLimit:
             pin="VOUT",
             specs=[
                 SpecBand(
-                    conditions={"temperature": RangeSpec(min=25, max=25)},
+                    when={"temperature": RangeSpec(min=25, max=25)},
                     value=5.0,
                 ),
             ],
@@ -249,7 +249,7 @@ class TestDeriveLimit:
             pin="VOUT",
             specs=[
                 SpecBand(
-                    conditions={"temperature": RangeSpec(min=25, max=25)},
+                    when={"temperature": RangeSpec(min=25, max=25)},
                     value=3.3,
                 ),
             ],
@@ -278,7 +278,7 @@ class TestGuardbandEdgeCases:
             pin="VOUT",
             specs=[
                 SpecBand(
-                    conditions={"temperature": RangeSpec(min=25, max=25)},
+                    when={"temperature": RangeSpec(min=25, max=25)},
                     value=3.3,
                 ),
             ],
@@ -303,7 +303,7 @@ class TestGuardbandEdgeCases:
             pin="VOUT",
             specs=[
                 SpecBand(
-                    conditions={"temperature": RangeSpec(min=25, max=25)},
+                    when={"temperature": RangeSpec(min=25, max=25)},
                     value=3.5,
                 ),
             ],

@@ -441,7 +441,10 @@ def capability_satisfies(
     if depth == MatchDepth.DIRECTION:
         return True
 
-    # Tier 3: Signal range containment
+    # Build operating point early — needed for condition-dependent range checks
+    operating_point = _build_operating_point(required.signals, required.conditions)
+
+    # Tier 3: Signal range containment (condition-aware via SpecBand.range)
     for measure_name, req_measure in required.signals.items():
         inst_measure = station_cap.signals.get(measure_name)
         if inst_measure is None:
@@ -449,14 +452,11 @@ def capability_satisfies(
             if req_measure.range is not None or req_measure.value is not None:
                 return False
             continue
-        if not _signal_range_contains(inst_measure, req_measure):
+        if not _signal_range_contains(inst_measure, req_measure, operating_point):
             return False
 
     if depth == MatchDepth.RANGE:
         return True
-
-    # Build operating point from required conditions + signals for spec band lookup
-    operating_point = _build_operating_point(required.signals, required.conditions)
 
     # Tier 4: Accuracy check
     for measure_name, req_measure in required.signals.items():
@@ -531,8 +531,8 @@ def get_spec_at(
 
 
 def _band_matches(band: SpecBand, operating_point: dict[str, float]) -> bool:
-    """Check if all conditions in a SpecBand match the operating point."""
-    for key, range_spec in band.conditions.items():
+    """Check if all ``when`` clauses in a SpecBand match the operating point."""
+    for key, range_spec in band.when.items():
         val = operating_point.get(key)
         if val is None:
             return False
@@ -561,6 +561,20 @@ def _get_resolution_at(
     if band is not None and band.resolution is not None:
         return band.resolution
     return measure.resolution
+
+
+def _get_range_at(
+    measure: Signal, operating_point: dict[str, float]
+) -> "RangeSpec | None":
+    """Get the applicable range for a measure at an operating point.
+
+    If a matching SpecBand has a range override, use that (derated range).
+    Otherwise fall back to the top-level range.
+    """
+    band = get_spec_at(measure, operating_point)
+    if band is not None and band.range is not None:
+        return band.range
+    return measure.range
 
 
 def _get_value_at(
@@ -609,34 +623,48 @@ def _resolution_sufficient(inst: ResolutionSpec, req: ResolutionSpec) -> bool:
     return True
 
 
-def _signal_range_contains(inst_measure: Signal, req_measure: Signal) -> bool:
+def _signal_range_contains(
+    inst_measure: Signal,
+    req_measure: Signal,
+    operating_point: dict[str, float] | None = None,
+) -> bool:
     """Check if instrument measure range contains the required value/range.
+
+    When *operating_point* is provided, the instrument's effective range may
+    come from a SpecBand override (derating).  Otherwise the top-level range
+    is used.
 
     Handles both point values and range subsets:
     - req has value: inst range must contain that value
     - req has range: inst range must contain the entire required range
     - req has neither: always satisfied (no constraint)
     """
+    inst_range = (
+        _get_range_at(inst_measure, operating_point)
+        if operating_point
+        else inst_measure.range
+    )
+
     # If requirement has a fixed value, check it's within instrument range
-    if req_measure.value is not None and inst_measure.range is not None:
-        if inst_measure.range.min is not None and req_measure.value < inst_measure.range.min:
+    if req_measure.value is not None and inst_range is not None:
+        if inst_range.min is not None and req_measure.value < inst_range.min:
             return False
-        if inst_measure.range.max is not None and req_measure.value > inst_measure.range.max:
+        if inst_range.max is not None and req_measure.value > inst_range.max:
             return False
         return True
 
     # If requirement has a range, check containment
-    if req_measure.range is not None and inst_measure.range is not None:
+    if req_measure.range is not None and inst_range is not None:
         if (
             req_measure.range.min is not None
-            and inst_measure.range.min is not None
-            and req_measure.range.min < inst_measure.range.min
+            and inst_range.min is not None
+            and req_measure.range.min < inst_range.min
         ):
             return False
         if (
             req_measure.range.max is not None
-            and inst_measure.range.max is not None
-            and req_measure.range.max > inst_measure.range.max
+            and inst_range.max is not None
+            and req_measure.range.max > inst_range.max
         ):
             return False
         return True

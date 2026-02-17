@@ -394,14 +394,25 @@
       "type": "object"
     },
     "SpecBand": {
-      "description": "Condition-dependent specification override for a parameter.\n\nEach band says \"at this operating point, here are the specs.\"\nThe ``conditions`` keys reference sibling parameter names; multiple keys\nare ANDed (all must match).  Empty dict means unconditional (always applies).\n\nExample YAML:\n    specs:\n      - conditions:\n          frequency: {min: 3, max: 5, units: Hz}\n        accuracy: {pct_reading: 0.35, pct_range: 0.03}\n      - conditions:\n          frequency: {min: 5, max: 300, units: Hz}\n        accuracy: {pct_reading: 0.07, pct_range: 0.02}",
+      "description": "Condition-dependent specification override for a parameter.\n\nEach band says \"at this operating point, here are the specs.\"\nThe ``when`` keys reference sibling parameter names (signals,\nconditions, or controls); multiple keys are ANDed (all must match).\nEmpty dict means unconditional (always applies).\n\nAny field that is ``None`` means \"no override \u2014 use the top-level default.\"\n\nExample YAML (accuracy varies with frequency):\n    specs:\n      - when:\n          frequency: {min: 3, max: 5, units: Hz}\n        accuracy: {pct_reading: 0.35, pct_range: 0.03}\n\nExample YAML (range derated at high frequency):\n    specs:\n      - when:\n          frequency: {min: 3e9, max: 6e9, units: Hz}\n        range: {min: -130, max: 5, units: dBm}\n        accuracy: {absolute: 0.8}",
       "properties": {
-        "conditions": {
+        "when": {
           "additionalProperties": {
             "$ref": "#/$defs/RangeSpec"
           },
-          "title": "Conditions",
+          "title": "When",
           "type": "object"
+        },
+        "range": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/RangeSpec"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
         },
         "value": {
           "anyOf": [

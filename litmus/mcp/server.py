@@ -193,7 +193,7 @@ This is COLLABORATIVE — propose and wait for approval at each step.
      `product:` (header), `pins:` (physical interface), `characteristics:` (specs)
    - Characteristics use `function` (MeasurementFunction enum), `direction`,
      `units`, `pin`/`pins`, and `specs` (list of SpecBand)
-   - SpecBand has: `value`, `accuracy` (pct_reading/pct_range/absolute), `conditions` (dict of RangeSpec)
+   - SpecBand has: `value`, `accuracy` (pct_reading/pct_range/absolute), `when` (dict of RangeSpec)
 
 3. **Extract & Save Product Spec**: Parse datasheet, propose characteristics,
    ask approval, save with `litmus(action="save", type="product", ...)`

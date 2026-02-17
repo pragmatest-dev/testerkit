@@ -245,13 +245,13 @@ signals:
     range: {min: 0.1, max: 750, units: V}
     accuracy: {pct_reading: 0.07, pct_range: 0.02}  # default
     specs:
-      - conditions:
+      - when:
           frequency: {min: 3, max: 5, units: Hz}
         accuracy: {pct_reading: 0.35, pct_range: 0.03}
-      - conditions:
+      - when:
           frequency: {min: 5, max: 300, units: Hz}
         accuracy: {pct_reading: 0.07, pct_range: 0.02}
-      - conditions:
+      - when:
           frequency: {min: 300, max: 300000, units: Hz}
         accuracy: {pct_reading: 0.14, pct_range: 0.05}
 conditions:

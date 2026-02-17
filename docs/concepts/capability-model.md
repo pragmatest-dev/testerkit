@@ -187,13 +187,13 @@ Real instruments don't have a single accuracy — it varies with operating condi
       range: {min: 0.1, max: 750, units: V}
       accuracy: {pct_reading: 0.07, pct_range: 0.02}  # default/best-case
       specs:                                            # condition-dependent overrides
-        - conditions:
+        - when:
             frequency: {min: 3, max: 5, units: Hz}
           accuracy: {pct_reading: 0.35, pct_range: 0.03}
-        - conditions:
+        - when:
             frequency: {min: 5, max: 300, units: Hz}
           accuracy: {pct_reading: 0.07, pct_range: 0.02}
-        - conditions:
+        - when:
             frequency: {min: 300, max: 300000, units: Hz}
           accuracy: {pct_reading: 0.14, pct_range: 0.05}
   conditions:
@@ -201,11 +201,13 @@ Real instruments don't have a single accuracy — it varies with operating condi
       range: {min: 3, max: 300000, units: Hz}
 ```
 
-Each SpecBand says: "when these conditions are met, use this accuracy instead of the default."
+Each SpecBand says: "when these conditions are met, use these specs instead of the defaults." A SpecBand can override `range`, `value`, `accuracy`, and `resolution` for the parent signal at a specific operating point.
+
+The `when` keys reference the flat union of `signals`, `conditions`, and `controls` on the parent capability — any sibling dimension name is valid. Multiple keys are ANDed (all must match). Within a capability, dimension names must be disjoint across the three dicts.
 
 ### Condition Keys (ConditionKey enum)
 
-The keys in `SpecBand.conditions` are strings. We provide a `ConditionKey` enum as a **shared vocabulary** (30 canonical keys), but it's not enforced at the model level — you can use any string. The canonical keys were derived from auditing 150+ instrument datasheets:
+`ConditionKey` is a shared vocabulary for the `conditions` dict (30 canonical keys), not enforced at the model level. These keys were derived from auditing 150+ instrument datasheets:
 
 | Category | Keys |
 |----------|------|
@@ -232,12 +234,12 @@ characteristics:
         value: 3.3
         units: V
     specs:
-      - conditions:
+      - when:
           load: {min: 0, max: 0.5, units: A}
           temperature: {min: 25, max: 25, units: degC}
         value: 3.3
         accuracy: {pct_reading: 3.0}    # +/-3% = 3.201V to 3.399V
-      - conditions:
+      - when:
           load: {min: 0, max: 1.0, units: A}
           temperature: {min: -40, max: 85, units: degC}
         value: 3.3
@@ -302,7 +304,7 @@ characteristics:
         value: 3.3               │
         units: V                 │
     specs:                       │
-      - conditions:              │
+      - when:              │
           load: {min: 0, max: 1} │
         accuracy: {pct_reading: 5.0}
 

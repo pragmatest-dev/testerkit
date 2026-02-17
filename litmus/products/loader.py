@@ -348,21 +348,21 @@ def _parse_product_spec_band(data: dict[str, Any]) -> SpecBand:
     """Parse a product SpecBand from YAML data.
 
     Expected format:
-        conditions:
+        when:
           temperature: {min: 25, max: 25, units: degC}
           load: {min: 0.1, max: 0.1, units: A}
         value: 3.3
         accuracy: {pct_reading: 2.0}
     """
-    conditions: dict[str, RangeSpec] = {}
-    for key, val in data.get("conditions", {}).items():
+    when: dict[str, RangeSpec] = {}
+    for key, val in data.get("when", {}).items():
         if isinstance(val, dict):
-            conditions[key] = RangeSpec(
+            when[key] = RangeSpec(
                 min=val.get("min"), max=val.get("max"), units=val.get("units", "")
             )
         else:
             # Scalar shorthand: temperature: 25 → {min: 25, max: 25}
-            conditions[key] = RangeSpec(min=float(val), max=float(val), units="")
+            when[key] = RangeSpec(min=float(val), max=float(val), units="")
 
     accuracy = None
     if "accuracy" in data:
@@ -373,8 +373,16 @@ def _parse_product_spec_band(data: dict[str, Any]) -> SpecBand:
             absolute=a.get("absolute"),
         )
 
+    range_spec = None
+    if "range" in data:
+        rng = data["range"]
+        range_spec = RangeSpec(
+            min=rng.get("min"), max=rng.get("max"), units=rng.get("units", "")
+        )
+
     return SpecBand(
-        conditions=conditions,
+        when=when,
+        range=range_spec,
         value=data.get("value"),
         accuracy=accuracy,
     )
@@ -394,7 +402,7 @@ def load_products_from_directory(specs_dir: Path) -> dict[str, Product]:
         if path.name.startswith("_"):
             continue  # Skip files starting with underscore
         try:
-            product = load_product(path)
+            product = load_product(path, products_dir=specs_dir)
             products[product.id] = product
         except Exception as e:
             # Log warning but continue loading other products
