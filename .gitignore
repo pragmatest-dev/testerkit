@@ -15,3 +15,7 @@ dist/
 # Datasheets and research PDFs (large files, managed separately)
 agent-os/specs/*/research/pdfs/
 research/pdfs/
+catalog_fixed/*/pdfs/
+
+# Generated skill refs (built from docs/ and models.py)
+litmus/skills/refs/
