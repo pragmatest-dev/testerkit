@@ -22,9 +22,6 @@ Datasheet → Product Spec → Station → Tests → Results
    not generic "approve/modify" boilerplate. The options should feel like a
    knowledgeable colleague walking them through setup.
 3. **PRESENT CHOICES AS A NUMBERED LIST** at the end of your message.
-   - ✅ CORRECT: "What would you like to do?\n\n1. Approve and save\n2. Edit..."
-   - ❌ NEVER: Inline `[A] [B] [C]` or `(A) (B) (C)` letter codes
-   - ❌ NEVER: Embed choices mid-paragraph or in narrative text
 
 ## MCP Tools Available
 
@@ -59,32 +56,6 @@ NEVER present options as text like `[A]pprove [E]dit [R]egenerate` — always us
 5. After Step 4 (test generation) — approve test code and config
 6. Before Step 5 (execution) — confirm test run parameters
 
-**Additional prompts that REQUIRE this tool:**
-- Any time you need the user's target voltage, input range, design parameters
-- When multiple valid approaches exist
-- Before any destructive or irreversible action
-
-### Example Usage
-
-After presenting extracted specs:
-
-```json
-{
-  "questions": [
-    {
-      "question": "Does the extracted spec look correct?",
-      "type": "single_select",
-      "options": [
-        "Approve and continue to station setup",
-        "Edit — I need to adjust the characteristics",
-        "Regenerate — focus on different specs",
-        "Ask — I have questions about the extraction"
-      ]
-    }
-  ]
-}
-```
-
 **Do NOT proceed without a response.** Always wait for the user to click a button, never assume approval.
 
 ---
@@ -93,14 +64,6 @@ After presenting extracted specs:
 
 **DO NOT use generic boilerplate.** Ask contextual, knowledgeable questions specific
 to what you found. You're a colleague with expertise in hardware testing.
-
-✅ **GOOD:** "I see three output voltage specs at different loads. Should we test all three conditions, or focus on the worst-case scenario at full load?"
-
-✅ **GOOD:** "The datasheet doesn't specify accuracy requirements for the quiescent current. Do you have an internal requirement, or should we measure it and use your production baseline as limits?"
-
-❌ **BAD:** "Would you like to: (1) Approve (2) Edit (3) Continue?"
-
-❌ **BAD:** "Should we test all characteristics or a subset? [A] All [B] Subset [C] Ask"
 
 **Format:** Always present numbered choices at the END of your message, after explanation.
 Never inline `[A]`, `(A)`, or `→` styles.
@@ -131,10 +94,6 @@ Never inline `[A]`, `(A)`, or `→` styles.
 4. Confidence assessment (0-100%, list any ambiguities or uncertain specs)
 5. **Ask a contextual follow-up** — a knowledgeable colleague question specific to what you found
 
-**Example (good):** If datasheet shows multiple output voltages, ask: "I see three output options (3.3V, 5V, 12V). Are you designing for a specific configuration, or should we test all three?"
-
-**Example (good):** If specs are incomplete: "The protection threshold specs are vague. Do you have internal thresholds, or should we use the typical values from Figure 7 with reasonable margin?"
-
 Pin roles: `power` (supply/output rails), `ground` (return/reference),
 `signal` (measured/stimulated, default), `reference` (voltage ref, not driven).
 
@@ -149,29 +108,7 @@ Pin roles: `power` (supply/output rails), `ground` (return/reference),
 2. Highlight any uncertainties or missing fields
 3. Save with `litmus(action="save", type="product", ...)` — schema is validated server-side
 
-**Spec structure:**
-```yaml
-product:
-  id: part_number
-  name: "Full Name"
-  manufacturer: "Vendor"
-
-pins:
-  PIN_NAME:
-    name: "Pin label"
-    net: "Net name"
-    role: power          # power/ground/signal/reference
-
-characteristics:
-  char_name:
-    function: dc_voltage   # MeasurementFunction enum
-    direction: output      # input/output/bidir
-    units: V
-    pin: PIN_NAME
-    specs:
-      - value: 3.3
-        accuracy: { pct_reading: 1 }
-```
+Refer to `refs/product-schema.md` for the full product spec structure.
 
 End with specific observations about the spec — missing guardbands, additional
 testable specs you noticed, anything that looks off.
@@ -179,7 +116,6 @@ testable specs you noticed, anything that looks off.
 **Then ask a contextual question**, e.g.:
 - "I notice the efficiency spec varies with load. Should we test at all three load points, or focus on the worst-case?"
 - "The thermal limits assume natural convection. Are you adding a heatsink in your design?"
-- "Some parametric specs have 'typical' but no min/max. Should I use these as nominal with a reasonable tolerance, or get those limits from you?"
 
 ---
 
@@ -194,11 +130,6 @@ testable specs you noticed, anything that looks off.
 4. **Check for existing drivers:** PyMeasure, InstrumentKit, or vendor SDKs. Note availability.
 5. Let the user pick instruments before generating station config
 
-**Then ask about instrument selection**, e.g.:
-- "I found [X] and [Y] can measure the output voltage. [X] is more accurate but slower. Which fits your test tempo better?"
-- "For the load testing, an electronic load (Keysight [model]) can sweep 0-3A. Does your bench have one, or should I mock it?"
-- "The enable threshold test needs a precision voltage source. Do you have access to the [model] in your lab?"
-
 ---
 
 ## Step 3: Create Station Config
@@ -210,32 +141,7 @@ testable specs you noticed, anything that looks off.
 2. Build station config with realistic mock values — schema is validated server-side
 3. Show config for approval
 
-**Station config structure:**
-```yaml
-station:
-  id: test_bench
-  name: "Test Bench"
-
-instruments:
-  role_name:
-    type: psu              # Short name (e.g. psu, dmm, scope, eload, fgen, smu)
-    driver: pkg.module.Class
-    resource: ""           # Use litmus_discover() for real addresses
-    catalog_ref: catalog_id
-    channels: ["1", "2"]   # Optional
-    mock: true             # Start mocked, switch to real hardware later
-    mock_config:
-      method_name: return_value
-```
-
-**Station config fields:**
-- `type`: Instrument type — freeform short name
-- `driver`: Python import path to instrument class (required)
-- `resource`: VISA address for real hardware
-- `catalog_ref`: Reference to catalog entry for capability/topology resolution
-- `channels`: Channel keys (from catalog or explicit list)
-- `mock`: If true, uses Mock with mock_config values
-- `mock_config`: Return values for mocked methods (keys = method names)
+Refer to `refs/station-schema.md` for the full station config structure.
 
 ---
 
@@ -248,34 +154,9 @@ instruments:
 2. Create config.yaml with limits and mock values
 3. Show the code for review
 
-**MUST create BOTH files:**
+**MUST create BOTH files** (test .py AND config.yaml).
 
-**Test code pattern:**
-```python
-from litmus.execution import litmus_test
-
-@litmus_test
-def test_characteristic(context, psu, dmm):
-    """What this test measures."""
-    psu.set_voltage(context.get_in("vin", 12.0))
-    psu.enable_output()
-    return dmm.measure_dc_voltage()
-```
-
-**Config pattern:**
-```yaml
-test_characteristic:
-  vectors:
-    - vin: 12.0
-  _mock:
-    dmm.measure_voltage: 3.3
-  limits:
-    test_characteristic:
-      low: 3.267
-      high: 3.333
-      nominal: 3.3
-      units: V
-```
+Refer to `refs/test-writing.md` for test code patterns and `refs/limits.md` for config/limits structure.
 
 ---
 
@@ -299,12 +180,12 @@ litmus_run(test="tests/test_x.py", station="station_id",
 
 1. **STOP and ASK** before each step - never proceed without approval
 2. **Pass `project=`** to ALL calls after init
-3. **Station format:** `type` + `driver` + `resource` + `catalog_ref` + `mock_config`
+3. **Station format:** Refer to `refs/station-schema.md` for field definitions
 4. **mock_config keys** are method names (e.g., `measure_voltage`, `measure_current`)
 5. **Create BOTH test files:** `.py` AND `config.yaml`
 6. **`_mock` in config.yaml:** Per-test/per-vector mock values
 7. **Standard Python math:** Instruments return `float`. Use standard Python arithmetic
 8. **Pin roles:** `power` (supply rails), `ground` (return), `signal` (default), `reference`
-9. **Characteristics:** Use `function:` (dc_voltage, dc_current, etc.) + `direction:` (input/output)
+9. **Characteristics:** Refer to `refs/enums.md` for valid MeasurementFunction values. Use `function:` + `direction:` (input/output)
 10. **Per-step aliases:** When station has multiple instruments of same type, use `aliases:` in sequence steps to select which instrument each step uses
 11. **conftest.py fixtures are auto-registered** — no boilerplate needed. Tests use instrument role names directly as fixture parameters.

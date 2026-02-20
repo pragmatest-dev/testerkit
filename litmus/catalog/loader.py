@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import warnings
 from pathlib import Path
 from typing import Any
 
@@ -155,7 +156,7 @@ def _merge_catalog_data(
 def _build_entry(data: dict[str, Any], path: Path) -> InstrumentCatalogEntry:
     """Build an InstrumentCatalogEntry from merged raw YAML data."""
     entry_data = data.get("catalog_entry", {})
-    capabilities = _parse_capabilities(data.get("capabilities", []))
+    capabilities = _parse_capabilities(data.get("capabilities") or [], source=path.name)
     channels = _parse_channels(entry_data.get("channels", {}))
 
     return InstrumentCatalogEntry(
@@ -184,13 +185,17 @@ def load_catalog_from_directory(catalog_dir: Path) -> dict[str, InstrumentCatalo
         return {}
 
     entries: dict[str, InstrumentCatalogEntry] = {}
-    for path in sorted(catalog_dir.glob("*.yaml")):
+    for path in sorted(catalog_dir.rglob("*.yaml")):
         if path.name.startswith("_"):
             continue
         try:
             entry = load_catalog_entry(path, catalog_dir=catalog_dir)
             entries[entry.id] = entry
-        except Exception:
+        except Exception as exc:
+            warnings.warn(
+                f"catalog: failed to load {path.name}: {exc}",
+                stacklevel=2,
+            )
             continue
 
     return entries
@@ -222,8 +227,12 @@ def resolve_catalog_ref(catalog_ref: str) -> InstrumentCatalogEntry | None:
         if direct_path.exists():
             try:
                 return load_catalog_entry(direct_path, catalog_dir=cat_dir)
-            except Exception:
-                pass
+            except Exception as exc:
+                warnings.warn(
+                    f"catalog: failed to load {direct_path.name}: {exc}",
+                    stacklevel=2,
+                )
+                return None
 
         # Fallback: search all files for matching ID
         for path in cat_dir.glob("*.yaml"):
@@ -231,7 +240,11 @@ def resolve_catalog_ref(catalog_ref: str) -> InstrumentCatalogEntry | None:
                 entry = load_catalog_entry(path, catalog_dir=cat_dir)
                 if entry.id == catalog_ref:
                     return entry
-            except Exception:
+            except Exception as exc:
+                warnings.warn(
+                    f"catalog: failed to load {path.name}: {exc}",
+                    stacklevel=2,
+                )
                 continue
 
     return None
@@ -271,7 +284,7 @@ def _parse_channels(raw: Any) -> dict[str, ChannelTopology]:
 def _parse_channel_topology(data: dict[str, Any]) -> ChannelTopology:
     """Parse a single ChannelTopology from dict data."""
     terminals = []
-    for t in data.get("terminals", ["hi", "lo"]):
+    for t in data.get("terminals", []):
         try:
             terminals.append(TerminalRole(t))
         except ValueError:
@@ -293,20 +306,29 @@ def _parse_channel_topology(data: dict[str, Any]) -> ChannelTopology:
 
     return ChannelTopology(
         label=data.get("label"),
-        terminals=terminals or [TerminalRole.HI, TerminalRole.LO],
+        terminals=terminals,
         connector=connector,
+        connector_pin=data.get("connector_pin"),
         ground=ground,
     )
 
 
-def _parse_capabilities(caps_data: list[dict[str, Any]]) -> list[InstrumentCapability]:
+def _parse_capabilities(
+    caps_data: list[dict[str, Any]],
+    source: str = "<unknown>",
+) -> list[InstrumentCapability]:
     """Parse capabilities list from YAML data."""
     capabilities = []
-    for cap_data in caps_data:
+    for i, cap_data in enumerate(caps_data):
         try:
             cap = _parse_capability(cap_data)
             capabilities.append(cap)
-        except (ValueError, KeyError):
+        except (ValueError, KeyError, TypeError) as exc:
+            func = cap_data.get("function", "???") if isinstance(cap_data, dict) else "???"
+            warnings.warn(
+                f"{source}: capability[{i}] function={func!r} skipped: {exc}",
+                stacklevel=2,
+            )
             continue
     return capabilities
 

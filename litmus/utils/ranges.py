@@ -62,7 +62,7 @@ def expand_range(spec: str | list | int) -> list[str]:
         return [str(spec)]
 
     # Check for prefix[range] pattern: GPIO[0:7], CH[1:4], ai[0:15]
-    prefix_match = re.match(r'^([A-Za-z_][A-Za-z0-9_]*)\[(.+)\]$', spec)
+    prefix_match = re.match(r'^([A-Za-z_][A-Za-z0-9_.]*)\[(.+)\]$', spec)
     if prefix_match:
         prefix = prefix_match.group(1)
         range_part = prefix_match.group(2)

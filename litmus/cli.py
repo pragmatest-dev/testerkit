@@ -81,6 +81,70 @@ def init(name: str | None, no_git: bool):
 
 
 # -----------------------------------------------------------------------------
+# Validation
+# -----------------------------------------------------------------------------
+
+
+@main.command()
+@click.argument("paths", nargs=-1, type=click.Path(exists=True))
+def validate(paths):
+    """Validate YAML configuration files.
+
+    Checks catalog, product, station, sequence, and fixture YAML files
+    against their Pydantic schemas and reports errors with field paths.
+
+    If no paths given, scans standard directories in the current project.
+
+    Examples:
+        litmus validate catalog/keysight_34461a.yaml
+        litmus validate catalog/ stations/
+        litmus validate
+    """
+    from pathlib import Path
+
+    from litmus.validation import validate_yaml
+
+    # Collect files
+    files: list[Path] = []
+    if paths:
+        for p in paths:
+            p = Path(p)
+            if p.is_dir():
+                files.extend(sorted(p.rglob("*.yaml")))
+            else:
+                files.append(p)
+    else:
+        # Auto-scan standard directories
+        for dirname in ("catalog", "catalog_fixed", "products", "stations", "sequences", "fixtures"):
+            d = Path.cwd() / dirname
+            if d.is_dir():
+                files.extend(sorted(d.rglob("*.yaml")))
+
+    if not files:
+        click.echo("No YAML files found.")
+        return
+
+    passed = 0
+    failed = 0
+
+    for f in files:
+        rel = f.relative_to(Path.cwd()) if f.is_relative_to(Path.cwd()) else f
+        errors = validate_yaml(f, catalog_dir=f.parent)
+        if errors:
+            click.echo(click.style(f"{rel} FAIL", fg="red"))
+            for err in errors:
+                click.echo(err)
+            failed += 1
+        else:
+            click.echo(click.style(f"{rel} OK", fg="green"))
+            passed += 1
+
+    click.echo(f"\n{passed} passed, {failed} failed")
+    if failed:
+        raise SystemExit(1)
+
+
+# -----------------------------------------------------------------------------
 # Server Commands
 # -----------------------------------------------------------------------------
 

@@ -65,6 +65,12 @@ class MeasurementFunction(StrEnum):
     # RF functions (IVI-RFSigGen, IVI-PwrMeter, IVI-SpecAn)
     RF_POWER = "rf_power"
     RF_CW = "rf_cw"
+    RF_AM = "rf_am"  # Amplitude modulation of RF carrier
+    RF_FM = "rf_fm"  # Frequency modulation of RF carrier
+    RF_PM = "rf_pm"  # Phase modulation of RF carrier
+    RF_SWEEP = "rf_sweep"  # RF frequency/power sweep
+    RF_IQ = "rf_iq"  # IQ vector modulation
+    RF_PULSE = "rf_pulse"  # Pulse on/off modulation of RF carrier
     S_PARAMETERS = "s_parameters"
     SPECTRUM = "spectrum"
     PHASE_NOISE = "phase_noise"
@@ -126,6 +132,26 @@ class MeasurementFunction(StrEnum):
     # Position/motion (encoder, stage)
     POSITION = "position"
 
+    # Lock-in amplifier
+    LOCK_IN_DETECTION = "lock_in_detection"  # Phase-sensitive AC demodulation
+
+    # Cryogenic/thermal control
+    HEATER_POWER = "heater_power"  # Heater output for cryogenic/furnace controllers
+    EXCITATION_CURRENT = "excitation_current"  # Precision current for bridge/RTD excitation
+
+    # Pulse/trigger
+    PULSE_GENERATION = "pulse_generation"  # Precision delay/pulse generator output
+    TRIGGER = "trigger"  # Trigger signal input/output
+    REFERENCE_CLOCK = "reference_clock"  # 10 MHz reference oscillator I/O
+
+    # Impedance components (LCR meter)
+    CONDUCTANCE = "conductance"  # DC conductance (G = 1/R, siemens)
+    REACTANCE = "reactance"  # Reactive impedance component (Ω)
+    SUSCEPTANCE = "susceptance"  # Imaginary admittance (siemens)
+
+    # Electronic load
+    DYNAMIC_LOAD = "dynamic_load"  # AC/transient electronic load mode
+
 
 class WaveformShape(StrEnum):
     """Waveform shapes for function generator outputs.
@@ -179,6 +205,11 @@ class ConnectorType(StrEnum):
     SPRING = "spring"
     PXI = "pxi"
     SCREW_TERMINAL = "screw_terminal"
+    VHDCI = "vhdci"
+    APC_35 = "apc_3.5"
+    TYPE_N = "type_n"
+    K_24MM = "k_2.4mm"
+    V_185MM = "v_1.85mm"
 
 
 class CompareMode(StrEnum):
@@ -328,9 +359,10 @@ class ChannelTopology(BaseModel):
 
     label: str | None = None  # Display name, e.g., "6V/5A Output"
     terminals: list[TerminalRole] = Field(
-        default_factory=lambda: [TerminalRole.HI, TerminalRole.LO]
+        default_factory=list
     )
     connector: ConnectorType | None = None
+    connector_pin: dict[str, int | str] | None = None  # Terminal role → pin number/name
     ground: GroundTopology = GroundTopology.SHARED
 
 

@@ -11,6 +11,12 @@ Skills are markdown prompts that guide AI assistants (Claude, Copilot, etc.) thr
 
 ### Workflows
 - **[datasheet-to-test](workflow/datasheet-to-test.md)** - Full 6-step workflow from datasheet to test results
+- **[datasheet-to-catalog](workflow/datasheet-to-catalog.md)** - Generate catalog YAML from instrument datasheet PDF
+
+### Agents
+Subagent prompt templates spawned by workflows via the Task tool. Not invoked directly.
+- **[section-processor](agents/section-processor.md)** - Sonnet agent: extracts capabilities from one PDF section into catalog YAML
+- **[catalog-reviewer](agents/catalog-reviewer.md)** - Opus agent: audits catalog YAML against PDF, reports gaps and schema violations (does not fix)
 
 ## How Skills Work
 
