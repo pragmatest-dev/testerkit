@@ -419,6 +419,7 @@ def capability_satisfies(
     station_cap: StationCapability,
     required: CapabilityRequirement,
     depth: MatchDepth = MatchDepth.RANGE,
+    direct_direction: bool = False,
 ) -> bool:
     """Check if a station capability satisfies a requirement.
 
@@ -428,6 +429,12 @@ def capability_satisfies(
     3. RANGE: Parameter ranges must contain required values/ranges
     4. ACCURACY: Instrument accuracy must be better than required
     5. RESOLUTION: Instrument resolution must be at least required
+
+    Args:
+        direct_direction: If True, requirement specifies the instrument
+            capability directly (e.g. "I need an input instrument" matches
+            input instruments). If False (default), uses product↔instrument
+            pairing (OUTPUT↔INPUT, etc.).
     """
     # Tier 1: Function must match
     if station_cap.function != required.function:
@@ -435,9 +442,16 @@ def capability_satisfies(
     if depth == MatchDepth.FUNCTION:
         return True
 
-    # Tier 2: Direction compatibility (product OUTPUT ↔ instrument INPUT, etc.)
-    if not _directions_compatible(required.direction, station_cap.direction):
-        return False
+    # Tier 2: Direction compatibility
+    if direct_direction:
+        # Direct: requirement specifies what the instrument must be
+        if required.direction != Direction.BIDIR and station_cap.direction != required.direction:
+            if station_cap.direction != Direction.BIDIR:
+                return False
+    else:
+        # Product↔instrument pairing (OUTPUT↔INPUT, etc.)
+        if not _directions_compatible(required.direction, station_cap.direction):
+            return False
     if depth == MatchDepth.DIRECTION:
         return True
 
@@ -848,34 +862,6 @@ def find_partial_stations(product: Product) -> list[PartialStationMatch]:
     return results
 
 
-def _catalog_cap_matches(
-    cap: StationCapability,
-    req: CapabilityRequirement,
-) -> bool:
-    """Direct capability matching for catalog search (no direction pairing).
-
-    Unlike capability_satisfies() which pairs product↔instrument directions
-    (OUTPUT↔INPUT), this does direct matching: the requirement specifies the
-    instrument capability needed, so directions must match directly.
-    """
-    if cap.function != req.function:
-        return False
-    # Direct direction match (not paired)
-    if req.direction != Direction.BIDIR and cap.direction != req.direction:
-        if cap.direction != Direction.BIDIR:
-            return False
-    # Range containment on signals
-    for measure_name, req_measure in req.signals.items():
-        inst_measure = cap.signals.get(measure_name)
-        if inst_measure is None:
-            if req_measure.range is not None or req_measure.value is not None:
-                return False
-            continue
-        if not _signal_range_contains(inst_measure, req_measure):
-            return False
-    return True
-
-
 def recommend_from_catalog(
     requirements: list[dict[str, Any]],
     project: Path | None = None,
@@ -912,7 +898,7 @@ def recommend_from_catalog(
             os.chdir(old_cwd)
 
     # Convert simplified dicts to CapabilityRequirement objects
-    cap_reqs = _parse_requirements(requirements)
+    cap_reqs, depths = _parse_requirements(requirements)
 
     # For each catalog entry, check which requirements it satisfies
     recommendations = []
@@ -929,7 +915,7 @@ def recommend_from_catalog(
 
         for req_idx, req in enumerate(cap_reqs):
             for cap in caps:
-                if _catalog_cap_matches(cap, req):
+                if capability_satisfies(cap, req, depth=depths[req_idx], direct_direction=True):
                     satisfied_indices.append(req_idx)
                     break
 
@@ -959,11 +945,30 @@ def recommend_from_catalog(
     }
 
 
-def _parse_requirements(raw: list[dict[str, Any]]) -> list[CapabilityRequirement]:
-    """Convert simplified requirement dicts to CapabilityRequirement objects."""
+def _infer_depth(req_dict: dict) -> MatchDepth:
+    """Determine the deepest match tier from provided fields."""
+    if "resolution" in req_dict:
+        return MatchDepth.RESOLUTION
+    if "accuracy" in req_dict:
+        return MatchDepth.ACCURACY
+    if "range_min" in req_dict or "range_max" in req_dict:
+        return MatchDepth.RANGE
+    return MatchDepth.DIRECTION
+
+
+def _parse_requirements(
+    raw: list[dict[str, Any]],
+) -> tuple[list[CapabilityRequirement], list[MatchDepth]]:
+    """Convert simplified requirement dicts to CapabilityRequirement objects.
+
+    Returns:
+        Tuple of (requirements, depths) where depths[i] is the auto-inferred
+        match depth for requirements[i].
+    """
     from litmus.config.models import RangeSpec
 
     reqs = []
+    depths = []
     for i, r in enumerate(raw):
         function = MeasurementFunction(r["function"])
         direction = Direction(r["direction"])
@@ -975,18 +980,38 @@ def _parse_requirements(raw: list[dict[str, Any]]) -> list[CapabilityRequirement
         range_max = r.get("range_max")
         units = r.get("units", "")
 
+        measure_name = function.value.replace("dc_", "").replace("ac_", "")
+
         if range_min is not None or range_max is not None:
-            # Derive measure name from function (e.g., dc_voltage -> voltage)
-            measure_name = function.value.replace("dc_", "").replace("ac_", "")
             signals[measure_name] = Signal(
                 range=RangeSpec(min=range_min, max=range_max, units=units),
             )
+
+        # Apply accuracy to the signal if provided
+        if "accuracy" in r:
+            if measure_name not in signals:
+                signals[measure_name] = Signal()
+            signals[measure_name].accuracy = AccuracySpec(**r["accuracy"])
+
+        # Apply resolution to the signal if provided
+        if "resolution" in r:
+            if measure_name not in signals:
+                signals[measure_name] = Signal()
+            signals[measure_name].resolution = ResolutionSpec(**r["resolution"])
+
+        # Parse conditions
+        conditions: dict[str, Condition] = {}
+        if "conditions" in r:
+            from litmus.config.models import RangeSpec as RS
+            for cond_name, cond_spec in r["conditions"].items():
+                conditions[cond_name] = Condition(range=RS(**cond_spec))
 
         # Build a synthetic ProductCharacteristic for the wrapper
         char = ProductCharacteristic(
             function=function,
             direction=direction,
             signals=signals,
+            conditions=conditions,
             units=units or None,
             net=f"req_{i}",  # Synthetic physical interface
         )
@@ -995,7 +1020,8 @@ def _parse_requirements(raw: list[dict[str, Any]]) -> list[CapabilityRequirement
             capability=char,
             characteristic_name=f"req_{i}",
         ))
-    return reqs
+        depths.append(_infer_depth(r))
+    return reqs, depths
 
 
 def _catalog_entry_to_capabilities(entry: Any) -> list[StationCapability]:

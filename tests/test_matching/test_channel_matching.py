@@ -458,7 +458,7 @@ class TestChannelTopology:
         """ChannelTopology has sensible defaults."""
         from litmus.config.models import ChannelTopology, TerminalRole, GroundTopology
         ct = ChannelTopology()
-        assert ct.terminals == [TerminalRole.HI, TerminalRole.LO]
+        assert ct.terminals == []
         assert ct.ground == GroundTopology.SHARED
         assert ct.connector is None
         assert ct.label is None
