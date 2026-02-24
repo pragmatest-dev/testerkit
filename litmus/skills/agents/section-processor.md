@@ -2,7 +2,7 @@
 name: section-processor
 description: Sonnet subagent that extracts capabilities from one section of an instrument datasheet PDF into catalog YAML.
 variables: PDF_PATH, PAGES, SECTION_NAME, YAML_PATH, CHANNELS_YAML, SCHEMA_REF, ENUM_REF
-model: sonnet
+model: opus
 ---
 
 # Section Processor Agent
@@ -98,6 +98,37 @@ The same physical quantity (frequency, voltage, current, temperature, etc.) can 
 If you're unsure, ask: **"If I remove this quantity, does the capability still make sense?"**
 - If NO → it's a **signal** (the capability exists to measure/source this)
 - If YES → it's a condition, control, or attribute (supporting role)
+
+## Audit Fix Mode
+
+If audit findings are included below your assignment, you are in **fix mode**. You MUST:
+
+1. **Read the PDF pages** again to verify each finding against the actual datasheet
+2. **Attempt to address EVERY finding** — do not skip any regardless of severity (LOW, MEDIUM, HIGH all get fixed). Never skip a finding because it seems minor or optional.
+3. If a finding is correct per the PDF, fix the YAML accordingly
+4. If a finding is wrong (the YAML already matches the PDF), leave the YAML as-is — but you must still check
+5. The iteration budget is limited (3 rounds max), so **fix everything you can in one pass**
+
+## Common Mistakes to Avoid
+
+These are the most frequent audit failures. Check each one before returning:
+
+1. **Wrong channel assignment** — Triggers and backplane signals use PXI trigger lines, NOT measurement channels. Only assign channels that physically carry the signal.
+2. **Wrong function enum** — Sample rate, update rate, and timing metadata are ATTRIBUTES on the measurement capability, not a separate `time_interval` capability. Use `time_interval` only for actual time interval measurements.
+3. **Device-level specs on a capability** — Calibration interval, operating temp, weight, warmup time, max altitude, pollution degree, power consumption, and similar device-wide specs go on `catalog_entry.attributes`, NOT on any capability's attributes dict.
+4. **Missing range splits** — If the PDF has separate rows for different ranges (e.g., 30 mA vs 50 mA with different chassis requirements), each needs its own SpecBand. Don't collapse them.
+5. **Wrong top-level resolution** — The top-level resolution should match the widest/default range. Per-range resolution goes in SpecBands.
+6. **Missing temperature coefficients** — If the PDF has a "Tempco" column, those values MUST be captured (as attributes with pct/degC and absolute/degC).
+7. **Trigger types as controls** — User-selectable trigger types/sources/destinations are CONTROLS, not attributes.
+8. **Percentage units on voltage/current signals** — If the PDF says "±50% of amplitude range", convert to absolute values (e.g., ±2.75 V). Signal ranges must be in physical units, not percentages.
+9. **Missing test conditions on accuracy** — If the PDF footnotes say accuracy is measured "at 50 kHz sine, high-impedance load", capture those as SpecBand `when` conditions.
+10. **Missing AC vs DC accuracy** — Many instruments specify separate DC accuracy and AC accuracy. Capture BOTH.
+11. **Missing footnote conditions** — Footnotes often specify critical measurement conditions (bandwidth, offset, normalization frequency, temperature thresholds). Read ALL footnotes on your pages and encode them as conditions, SpecBand `when` clauses, or attributes.
+12. **Missing warranted vs measured distinction** — If a table header says "Measured" or "Typical", add an attribute `spec_type_measured: 1`. If "Warranted", that's the default — no attribute needed.
+
+## Scope Rule
+
+**ONLY extract capabilities for YOUR assigned section.** If your pages contain specs for other sections that will be handled by a different agent, IGNORE them. Stick to the section name and topic you were given. If the section only covers half a page, extract only that half page — do NOT expand into neighboring content.
 
 ## Extraction Rules
 

@@ -142,6 +142,10 @@ def _merge_catalog_data(
     if "channels" not in variant_entry and "channels" in base_entry:
         merged_entry["channels"] = base_entry["channels"]
 
+    # Attributes: variant replaces if present, else inherit base
+    if "attributes" not in variant_entry and "attributes" in base_entry:
+        merged_entry["attributes"] = base_entry["attributes"]
+
     merged: dict[str, Any] = {"catalog_entry": merged_entry}
 
     # Capabilities: variant replaces if present, else inherit base
@@ -159,6 +163,11 @@ def _build_entry(data: dict[str, Any], path: Path) -> InstrumentCatalogEntry:
     capabilities = _parse_capabilities(data.get("capabilities") or [], source=path.name)
     channels = _parse_channels(entry_data.get("channels", {}))
 
+    # Board-level attributes on catalog_entry
+    board_attrs: dict[str, Attribute] = {}
+    for name, d in (entry_data.get("attributes") or {}).items():
+        board_attrs[name] = _parse_attribute(d or {})
+
     return InstrumentCatalogEntry(
         id=entry_data.get("id", path.stem),
         manufacturer=entry_data.get("manufacturer", ""),
@@ -168,6 +177,7 @@ def _build_entry(data: dict[str, Any], path: Path) -> InstrumentCatalogEntry:
         type=entry_data.get("type", ""),
         base=entry_data.get("base"),
         channels=channels,
+        attributes=board_attrs,
         capabilities=capabilities,
     )
 

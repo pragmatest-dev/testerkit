@@ -205,6 +205,7 @@ class ConnectorType(StrEnum):
     SPRING = "spring"
     PXI = "pxi"
     SCREW_TERMINAL = "screw_terminal"
+    DSUB = "dsub"
     VHDCI = "vhdci"
     APC_35 = "apc_3.5"
     TYPE_N = "type_n"

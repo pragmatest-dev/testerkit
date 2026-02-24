@@ -115,7 +115,7 @@ def validate(paths):
                 files.append(p)
     else:
         # Auto-scan standard directories
-        for dirname in ("catalog", "catalog_fixed", "products", "stations", "sequences", "fixtures"):
+        for dirname in ("catalog", "catalog", "products", "stations", "sequences", "fixtures"):
             d = Path.cwd() / dirname
             if d.is_dir():
                 files.extend(sorted(d.rglob("*.yaml")))

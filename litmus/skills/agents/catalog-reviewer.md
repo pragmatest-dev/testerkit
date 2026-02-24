@@ -54,6 +54,7 @@ Refer to the "Same quantity, different roles" table in the schema reference belo
 - Spec data left in comments instead of schema fields
 - Display digits / ADC bits / resolution value → `signals.X.resolution` (NOT attributes)
 - Connector type, terminal layout → `channels` topology (NOT attributes)
+- Device-level facts (operating temp, weight, warmup time, cal interval, power consumption, max altitude, pollution degree) → `catalog_entry.attributes` (NOT on any capability's attributes)
 
 List every misplaced element: what it is, where it IS, where it SHOULD be.
 
@@ -64,7 +65,7 @@ Every signal SHOULD have `resolution:` if the datasheet specifies it. Do NOT cou
 Every multi-row spec table in the PDF (accuracy by frequency, range by mode, etc.) MUST have matching SpecBands with correct `when` conditions. List any tables with missing or incomplete bands.
 
 ### 5. Enum Specificity
-Most specific MeasurementFunction used? Check against enum reference. Examples:
+Most specific MeasurementFunction used? Check against the **enum reference provided below** — do NOT guess whether an enum value exists. If the YAML uses a function name that appears in the enum reference, it is VALID. Only flag enums that are NOT in the reference list or where a MORE SPECIFIC enum exists. Examples:
 - `excitation_current` not `dc_current` for sensor excitation
 - `heater_power` not `dc_voltage` for heaters
 - `trigger` not `dc_voltage` for trigger I/O

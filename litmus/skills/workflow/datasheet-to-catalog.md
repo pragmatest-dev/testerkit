@@ -10,17 +10,18 @@ Generate a catalog YAML entry from an instrument datasheet PDF. Each PDF section
 ## Architecture
 
 ```
-Main Agent (orchestrator)
+Main Agent (orchestrator) — NEVER reads the PDF directly
   ├── Phase 1: Load schema + enum refs as text
-  ├── Phase 2: Skim PDF, build section map
-  ├── Phase 3: Write scaffold YAML (header, channels, empty capabilities)
+  ├── Phase 2+3: Spawn section-mapper (sonnet) — skims PDF, builds section map, writes scaffold YAML
   ├── Phase 4: For each section:
   │     ├── 4a: Spawn section-processor (sonnet) — extract
   │     ├── 4b: Spawn catalog-reviewer (opus) — audit that section only
-  │     └── 4c: Fix audit findings
+  │     └── 4c: Fix audit findings (orchestrator reads YAML + audit report only, never the PDF)
   ├── Phase 5: Final verify via load_catalog_entry()
   └── Phase 6: Report final stats
 ```
+
+**Key principle:** The orchestrator's context window never contains PDF content. All PDF reading happens inside subagents. The orchestrator only sees: section maps, YAML files, audit reports, and validation output.
 
 ## MCP Tools Available
 
@@ -48,29 +49,29 @@ Main Agent (orchestrator)
 
 ---
 
-## Phase 2: Build Section Map
+## Phase 2+3: Section Map + Scaffold (section-mapper agent)
 
-Skim the entire PDF to identify section boundaries. Read page 1 (often has TOC), then skim headers on each page (read 4-6 pages at a time, focusing only on headings — don't extract specs yet).
+Spawn a **section-mapper agent** to skim the PDF, build the section map, and write the scaffold YAML. This keeps the PDF out of the orchestrator's context.
 
-Build a section map:
-```
-1. Introduction / Overview — pages 1-4 (skip, no specs)
-2. Analog Input — pages 10-14
-3. Analog Output — pages 14-15
-...
-```
+1. Construct the section-mapper prompt directly (do NOT read the agent template file). The prompt MUST contain:
 
-Each entry becomes one extract+audit cycle in Phase 4. Mark sections without specs as "skip". Print the section map before proceeding.
+   | Input | Description | Source |
+   |-------|-------------|--------|
+   | `PDF_PATH` | Full path to the datasheet PDF | User input |
+   | `YAML_PATH` | Output YAML file path (e.g., `catalog/ni/ni_pxie_4163.yaml`) | User input |
+   | `INSTRUMENT_ID` | e.g., `ni_pxie_4163` | User input |
+   | `SCHEMA_REF` | Full capability schema text — channel topology, signal/condition/control/attribute definitions | `docs/capability-schema.md` |
+   | `ENUM_REF` | Full enum text — MeasurementFunction, ConnectorType, TerminalRole, GroundTopology | `litmus/config/models.py` lines 1-580 |
+   | Instructions | Skim PDF, build section map (with critical rules), write scaffold YAML, validate | See `litmus/skills/agents/section-mapper.md` for reference |
 
----
+2. Spawn: `Task(model="sonnet", prompt=<constructed prompt>)`
 
-## Phase 3: Write Scaffold to Disk
+4. Parse the agent's return for:
+   - **SECTION MAP** — each entry becomes one extract+audit cycle in Phase 4
+   - **CHANNELS YAML** — store as `CHANNELS_YAML` for section-processor prompts
+   - **Skip reason** — if the PDF is wrong/brochure, mark in QUEUE.md and stop
 
-1. Using what you learned from the skim, **write the initial YAML NOW**: header comment (3 lines max), `catalog_entry`, `channels` dict, `capabilities: []`
-2. Include ALL channels — front panel AND rear panel connectors. Every physical connector with documented electrical specs is a channel.
-3. Use compact range syntax: `"ai[0:7]"` not arrays of individual names
-4. The file MUST exist on disk before moving to Phase 4
-5. Extract the channels YAML text and store as `CHANNELS_YAML` for subagent prompts
+5. If the agent reports `SKIP:*`, update QUEUE.md and move to the next entry. Do NOT proceed to Phase 4.
 
 ---
 
@@ -78,22 +79,23 @@ Each entry becomes one extract+audit cycle in Phase 4. Mark sections without spe
 
 For each non-skipped section, run three steps before moving to the next section:
 
-### Step 4a: Extract — Spawn section-processor (sonnet)
+### Step 4a: Extract — Spawn section-processor (opus)
 
-1. Read the agent template:
-   - **Claude Code:** Read `litmus/skills/agents/section-processor.md`
-   - **MCP:** `litmus(action="read", path="agents/section-processor.md")`
+1. Construct the section-processor prompt directly (do NOT read the agent template file). The prompt MUST contain:
 
-2. Replace all `{{variables}}` in the template:
-   - `{{PDF_PATH}}` → the PDF file path
-   - `{{PAGES}}` → e.g., "10-14"
-   - `{{SECTION_NAME}}` → e.g., "Analog Input"
-   - `{{YAML_PATH}}` → the output YAML file path
-   - `{{CHANNELS_YAML}}` → the channels dict from Phase 3
-   - `{{SCHEMA_REF}}` → the full schema text from Phase 1
-   - `{{ENUM_REF}}` → the full enum text from Phase 1
+   | Input | Description | Source |
+   |-------|-------------|--------|
+   | `PDF_PATH` | Full path to the datasheet PDF | Same as Phase 1 |
+   | `PAGES` | Page range for this section (e.g., `3-5`) | Section map |
+   | `SECTION_NAME` | Topic description (e.g., "DC Voltage Output") | Section map |
+   | `YAML_PATH` | Output YAML file path | Same as Phase 1 |
+   | `CHANNELS_YAML` | The channels dict from the scaffold | Section mapper output |
+   | `SCHEMA_REF` | Full capability schema text | Phase 1 |
+   | `ENUM_REF` | Full enum text — so the agent uses valid MeasurementFunction values | Phase 1 |
+   | Instructions | Extraction rules, parameter placement guide, scope rule, common mistakes | See `litmus/skills/agents/section-processor.md` for reference |
+   | Audit findings | **Only in fix mode (step 4c):** paste the ENTIRE audit report verbatim | Previous audit output |
 
-3. Spawn: `Task(model="sonnet", prompt=<populated template>)`
+2. Spawn: `Task(model="opus", prompt=<constructed prompt>)`
 
 4. Wait for completion. Verify the YAML loads:
    ```python
@@ -104,28 +106,35 @@ For each non-skipped section, run three steps before moving to the next section:
 
 The reviewer audits **only this section's pages**, not the whole PDF.
 
-1. Read the agent template:
-   - **Claude Code:** Read `litmus/skills/agents/catalog-reviewer.md`
-   - **MCP:** `litmus(action="read", path="agents/catalog-reviewer.md")`
+1. Construct the catalog-reviewer prompt directly (do NOT read the agent template file). The prompt MUST contain:
 
-2. Replace all `{{variables}}`:
-   - `{{PDF_PATH}}` → the PDF file path
-   - `{{YAML_PATH}}` → the output YAML file path
-   - `{{SECTION_MAP}}` → **only the current section** (e.g., "Analog Input — pages 10-14")
-   - `{{SCHEMA_REF}}` → the full schema text from Phase 1
-   - `{{ENUM_REF}}` → the full enum text from Phase 1
+   | Input | Description | Source |
+   |-------|-------------|--------|
+   | `PDF_PATH` | Full path to the datasheet PDF | Same as Phase 1 |
+   | `YAML_PATH` | Output YAML file path | Same as Phase 1 |
+   | `SECTION_MAP` | **Only the current section** (e.g., "DC Voltage Output — pages 3-5") | Section map |
+   | `SCHEMA_REF` | Full capability schema text — so the auditor knows valid field placements | Phase 1 |
+   | `ENUM_REF` | Full enum text — so the auditor knows which MeasurementFunction values are VALID. **Without this, the auditor will guess and produce false positives on enum checks.** | Phase 1 |
+   | Instructions | The 8 audit checks and return format | See `litmus/skills/agents/catalog-reviewer.md` for reference |
 
-3. Spawn: `Task(model="opus", prompt=<populated template>)`
+2. Spawn: `Task(model="opus", prompt=<constructed prompt>)`
 
 4. Wait for completion. The reviewer returns a structured audit report.
 
-### Step 4c: Fix Findings
+### Step 4c: Fix Findings — LOOP until clean
 
-Parse the reviewer's audit report. For each finding:
-1. Apply the fix to the YAML (Edit tool)
-2. Run `load_catalog_entry()` after all fixes to verify
+The orchestrator NEVER reads the PDF and NEVER edits YAML values directly. It only spawns agents.
 
-Then proceed to the next section.
+**If the audit has ANY findings (MISSING, MISPLACED, WRONG_VALUE, or WRONG_ENUM):**
+
+1. Spawn a new **section-processor agent** with the same PDF/pages/section/YAML as step 4a, PLUS the **ENTIRE audit report pasted verbatim** into the prompt. Do NOT filter, prioritize, summarize, editorialize on severity, add skip instructions, or omit any findings — paste the full audit output exactly as returned. The orchestrator does not judge which findings matter; the fix agent reads the PDF and decides.
+2. The agent re-reads the PDF pages, reads the YAML, applies fixes, and validates.
+3. After the fix agent completes, go back to **step 4b** — spawn a new catalog-reviewer to re-audit this section.
+4. Repeat until the audit comes back with all 8 checks passing.
+
+**If the audit is clean (8/8 passing):** proceed to the next section.
+
+**Max iterations:** 3 rounds per section. If still failing after 3 rounds, note the remaining findings and move on.
 
 ---
 

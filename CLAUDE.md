@@ -91,3 +91,11 @@ When planning a new feature or significant change for Litmus, always follow this
 4. **Exit plan mode** — Present the plan for user approval
 
 IMPORTANT: Always invoke `/agent-os:shape-spec` before finalizing the plan.
+
+## Compaction Recovery
+
+After compaction, if the conversation summary mentions catalog processing, `/process-catalog`, or `/catalog-from-datasheet`:
+1. **Re-read `catalog/QUEUE.md`** to find the current pending entry
+2. **Re-invoke `/catalog-from-datasheet` via the Skill tool** — NEVER write catalog YAML manually
+3. **Re-read `litmus/skills/workflow/datasheet-to-catalog.md`** for the full extraction workflow
+4. The skill spawns section-processor (sonnet) and catalog-reviewer (opus) subagents — follow that workflow exactly

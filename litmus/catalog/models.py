@@ -12,7 +12,7 @@ independent of any particular project, driver, or station configuration.
 
 from pydantic import BaseModel, Field
 
-from litmus.config.models import ChannelTopology, InstrumentCapability
+from litmus.config.models import Attribute, ChannelTopology, InstrumentCapability
 
 
 class InstrumentCatalogEntry(BaseModel):
@@ -56,6 +56,7 @@ class InstrumentCatalogEntry(BaseModel):
     type: str  # e.g. "dmm", "psu", "scope", "fgen", "smu", "eload"
     base: str | None = None  # Variant inheritance: ID of base catalog entry
     channels: dict[str, ChannelTopology] = Field(default_factory=dict)
+    attributes: dict[str, Attribute] = Field(default_factory=dict)
     capabilities: list[InstrumentCapability] = Field(default_factory=list)
 
     @property

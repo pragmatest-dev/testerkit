@@ -101,6 +101,32 @@ Common mistakes to avoid:
 
 Full enum list: read `MeasurementFunction` in `litmus/config/models.py`
 
+## Board-Level Attributes (`catalog_entry.attributes`)
+
+Device-wide facts that don't belong to any single capability go on `catalog_entry.attributes`:
+
+```yaml
+catalog_entry:
+  id: ni_pxie_6341
+  # ... other fields ...
+  attributes:
+    operating_temp_min: {value: 0, units: degC}
+    operating_temp_max: {value: 55, units: degC}
+    storage_temp_min: {value: -40, units: degC}
+    storage_temp_max: {value: 71, units: degC}
+    weight: {value: 157, units: g}
+    warmup_time: {value: 15, units: min}
+    calibration_interval: {value: 2, units: yr}
+    max_working_voltage: {value: 11, units: V}
+    power_3v3: {value: 1.6, units: W}
+    pollution_degree: {value: 2}
+    max_altitude: {value: 2000, units: m}
+```
+
+Common board-level attributes: `operating_temp_min/max`, `storage_temp_min/max`, `operating_humidity_min/max`, `storage_humidity_min/max`, `weight`, `dimension_*`, `warmup_time`, `calibration_interval`, `pollution_degree`, `max_altitude`, `power_*`, `usb_bus_speed`, `max_working_voltage`.
+
+**Do NOT put these on a single capability's attributes** — they describe the whole device.
+
 ## Channel Topology
 
 Every channel referenced in capabilities MUST exist in `catalog_entry.channels`:
@@ -124,7 +150,8 @@ channels:
 | Display digits, ADC bits, resolution value | `signals.X.resolution` |
 | Frequency range, bandwidth, temperature range | `conditions.X.range` |
 | Coupling, impedance, NPLC, sensitivity, filter | `controls.X` |
-| Sample rate, memory depth, input noise | `attributes.X` |
+| Sample rate, memory depth, input noise | `attributes.X` (on the capability) |
+| Weight, operating temp, warmup, cal interval | `catalog_entry.attributes.X` (board-level) |
 | Connector type, terminal layout | `channels.X` (ChannelTopology) |
 
 ## Same quantity, different roles
