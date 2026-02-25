@@ -57,29 +57,9 @@ Entity-aligned folders contain YAML configuration files. Code folders contain Py
 
 Do NOT bloat CLAUDE.md with implementation details — the AI can discover those from code.
 
-## Capability Schema
+## Catalog YAML
 
-**Read `docs/capability-schema.md` before writing ANY catalog YAML.** It defines the full capability model: signals (range + accuracy + resolution + SpecBands), conditions, controls, attributes, channel topology. Every datasheet spec must map to a schema field — no spec data in comments.
-
-Key models: `litmus/config/models.py` (Capability, Signal, SpecBand, Condition, Control, Attribute, ResolutionSpec, AccuracySpec)
-Key enums: `litmus/config/models.py` (MeasurementFunction, ConnectorType, TerminalRole, GroundTopology)
-
-## Catalog YAML Processing Rules
-
-When writing or rewriting catalog YAML files from datasheets:
-
-1. **PDF is the ONLY source of truth** — never copy from existing catalog/ YAMLs or guess
-2. **Read EVERY page of the PDF, 2-4 pages at a time** — NO SKIPPING
-3. **Every datasheet spec → structured schema field** — use signals, conditions, controls, attributes, SpecBands. NO spec data left as comments. See `docs/capability-schema.md` for the decision tree
-4. **Use ALL applicable MeasurementFunction values** — scopes need `waveform` + `dc_voltage` + `ac_voltage` + `frequency` + `rise_time` + `fall_time` + `pulse_width` + `duty_cycle` + `phase`. Use `heater_power` not `dc_voltage` for heaters. Use `excitation_current`, `trigger`, `reference_clock` where they apply
-5. **Resolution on every signal** — `resolution: {digits: 6.5}` or `{bits: 16}` or `{value: 0.001, units: V}`
-6. **SpecBands for condition-dependent accuracy** — if accuracy varies by frequency, range, V/div, NPLC, or any control/condition, encode it as `specs:` entries
-7. **Compute accuracy from full equations** — e.g. NI GainError = ResidualGain + GainTempco×ΔT + RefTempco×ΔT
-8. **Use compact channel range syntax** — `"ai[0:7]"` not `["ai0", "ai1", ...]`
-9. **All channels in topology dict** — every channel in capabilities MUST exist in `catalog_entry.channels`
-10. **Comments: 3-line header max** (instrument name, PDF source, model variants). No spec data in comments
-11. **Verify each file loads clean** via `load_catalog_entry()` before moving on
-12. **No instrument features** — no UI, math, FFT, protocol decode, mask test
+Use `/catalog-from-datasheet` skill for all catalog work. Schema reference: `docs/capability-schema.md`. Models: `litmus/config/models.py`.
 
 ## Planning Workflow
 
@@ -94,8 +74,4 @@ IMPORTANT: Always invoke `/agent-os:shape-spec` before finalizing the plan.
 
 ## Compaction Recovery
 
-After compaction, if the conversation summary mentions catalog processing, `/process-catalog`, or `/catalog-from-datasheet`:
-1. **Re-read `catalog/QUEUE.md`** to find the current pending entry
-2. **Re-invoke `/catalog-from-datasheet` via the Skill tool** — NEVER write catalog YAML manually
-3. **Re-read `litmus/skills/workflow/datasheet-to-catalog.md`** for the full extraction workflow
-4. The skill spawns section-processor (sonnet) and catalog-reviewer (opus) subagents — follow that workflow exactly
+After compaction, if the conversation mentions catalog processing: re-read `catalog/QUEUE.md`, then re-invoke `/catalog-from-datasheet` via the Skill tool.
