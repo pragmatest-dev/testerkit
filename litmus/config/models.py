@@ -106,8 +106,8 @@ class MeasurementFunction(StrEnum):
     EYE_DIAGRAM = "eye_diagram"
 
     # Signal quality metrics (product datasheet specs)
-    THD = "thd"  # Total harmonic distortion
-    SNR = "snr"  # Signal-to-noise ratio
+    THD = "thd"  # Total harmonic distortion (also THD+N)
+    SNR = "snr"  # Signal-to-noise ratio (also SINAD)
     GAIN = "gain"  # Signal transfer ratio (RF amps, lock-in, signal chain)
 
     # RF network measurements (VNA-derived, but named product specs)
@@ -302,6 +302,8 @@ class Comparator(StrEnum):
 class RangeSpec(BaseModel):
     """Specification for measurement or output range."""
 
+    model_config = {"extra": "forbid"}
+
     min: float | None = None
     max: float | None = None
     units: str = ""
@@ -310,9 +312,12 @@ class RangeSpec(BaseModel):
 class AccuracySpec(BaseModel):
     """Specification for measurement accuracy."""
 
+    model_config = {"extra": "forbid"}
+
     pct_reading: float | None = None  # % of reading
     pct_range: float | None = None  # % of range
     absolute: float | None = None  # Fixed offset
+    units: str | None = None  # Units of absolute value (e.g., "dB") when different from signal
 
     def total_uncertainty(self, value: float, range_max: float) -> float:
         """Calculate total uncertainty at a given value and range.
@@ -337,6 +342,8 @@ class AccuracySpec(BaseModel):
 class ResolutionSpec(BaseModel):
     """Specification for measurement resolution."""
 
+    model_config = {"extra": "forbid"}
+
     bits: int | None = None  # ADC resolution
     digits: float | None = None  # Display digits (e.g., 6.5)
     value: float | None = None  # Absolute resolution
@@ -357,6 +364,8 @@ class ChannelTopology(BaseModel):
           connector: binding_post
           ground: floating
     """
+
+    model_config = {"extra": "forbid"}
 
     label: str | None = None  # Display name, e.g., "6V/5A Output"
     terminals: list[TerminalRole] = Field(
@@ -391,7 +400,9 @@ class SpecBand(BaseModel):
             accuracy: {absolute: 0.8}
     """
 
-    when: dict[str, RangeSpec] = Field(default_factory=dict)
+    model_config = {"extra": "forbid"}
+
+    when: dict[str, "RangeSpec | str | float | bool | list[str | float | bool]"] = Field(default_factory=dict)
     range: RangeSpec | None = None  # Derated range at this operating point
     value: float | None = None  # Nominal/typical at this operating point
     accuracy: AccuracySpec | None = None
@@ -460,6 +471,8 @@ class Signal(BaseModel):
             units: V
     """
 
+    model_config = {"extra": "forbid"}
+
     range: RangeSpec | None = None
     accuracy: AccuracySpec | None = None
     resolution: ResolutionSpec | None = None
@@ -480,6 +493,8 @@ class Condition(BaseModel):
             range: {min: 3, max: 300000, units: Hz}
     """
 
+    model_config = {"extra": "forbid"}
+
     range: RangeSpec | None = None
 
 
@@ -498,6 +513,8 @@ class Control(BaseModel):
             options: ["AC", "DC"]
             default: "DC"
     """
+
+    model_config = {"extra": "forbid"}
 
     range: RangeSpec | None = None
     options: list[float | str] | None = None
@@ -524,6 +541,8 @@ class Attribute(BaseModel):
             units: Sa/s
             compare: higher_better
     """
+
+    model_config = {"extra": "forbid"}
 
     value: float
     units: str | None = None

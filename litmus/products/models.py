@@ -209,22 +209,31 @@ class ProductCharacteristic(Capability):
         return None
 
 
-def _band_matches_product(band: SpecBand, params: dict[str, float]) -> bool:
+def _band_matches_product(band: SpecBand, params: dict[str, float | str | bool]) -> bool:
     """Check if all ``when`` clauses in a product SpecBand match the given params.
 
     For product specs, condition values can be exact points (min==max) or ranges.
+    Scalar values (str, float, bool) are matched by equality.
+    List values are matched by membership (val in list).
     An empty ``when`` dict matches any query (unconditional spec).
     """
     if not band.when:
         return True
-    for key, range_spec in band.when.items():
+    for key, spec in band.when.items():
         val = params.get(key)
         if val is None:
             return False
-        if range_spec.min is not None and val < range_spec.min:
-            return False
-        if range_spec.max is not None and val > range_spec.max:
-            return False
+        if isinstance(spec, RangeSpec):
+            if spec.min is not None and val < spec.min:
+                return False
+            if spec.max is not None and val > spec.max:
+                return False
+        elif isinstance(spec, list):
+            if val not in spec:
+                return False
+        else:  # str, float, bool — equality
+            if val != spec:
+                return False
     return True
 
 

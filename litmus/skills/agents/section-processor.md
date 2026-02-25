@@ -1,155 +1,228 @@
 ---
 name: section-processor
-description: Sonnet subagent that extracts capabilities from one section of an instrument datasheet PDF into catalog YAML.
-variables: PDF_PATH, PAGES, SECTION_NAME, YAML_PATH, CHANNELS_YAML, SCHEMA_REF, ENUM_REF
+description: Opus subagent that converts a section inventory into catalog YAML capabilities. Works from structured inventory data — never reads the PDF directly.
+variables: YAML_PATH, SECTION_NAME, CHANNELS_YAML, INVENTORY
 model: opus
 ---
 
 # Section Processor Agent
 
-You are a catalog extraction agent. Your job: read specific pages of an instrument datasheet PDF and produce structured catalog YAML capabilities for that section ONLY.
+You convert a structured inventory of datasheet specs into catalog YAML capabilities. You do NOT read the PDF — the inventory is your source of truth.
 
 ## Your Assignment
 
-- **PDF:** `{{PDF_PATH}}`
-- **Pages to read:** {{PAGES}}
 - **Section:** {{SECTION_NAME}}
 - **Output file:** `{{YAML_PATH}}`
+- **Inventory:** (provided below)
 
-## Instructions
+<rules>
+- The INVENTORY is your ONLY source of truth — do NOT read the PDF
+- Attribute values MUST be numeric, never strings
+- `when` value types — match to the referenced control/condition:
+  - Range band: `{min: 20, max: 300, units: Hz}` (continuous range)
+  - Scalar float: `nplc: 1` (single numeric point — NOT `{min: 1, max: 1}`)
+  - Scalar string: `rate: "SLOW"` (string-options control — NOT index `{min: 0, max: 0}`)
+  - Scalar bool: `autorange: true`
+  - List: `output_impedance: [50, 600]` (multiple values share same spec)
+- When a control has string `options:`, the `when` value MUST use the label, never a numeric index
+- When a control option embeds units (e.g., "50ohm"), prefer numeric value + `units:` on the control
+- No spec data in comments — every inventory row goes into a schema field
+- All channel refs must exist in the channels dict below
+- ONLY produce capabilities for YOUR assigned section
+</rules>
 
-1. **Read your assigned pages** of the PDF (2-4 pages at a time). Focus on spec tables, accuracy tables, and parameter listings.
+## References
 
-2. **Read the current YAML file** at `{{YAML_PATH}}` to see what capabilities already exist. Do NOT duplicate existing capabilities — only ADD new ones from your section.
+Before starting, read these files:
+- `docs/capability-schema.md` — schema structure and placement rules
+- `docs/capability-examples.md` — **CRITICAL: worked examples for every common pattern** (SpecBands, shared controls, dual-unit values, reading rates, comments). Study these before writing any YAML.
+- `litmus/config/models.py` (lines 1-155) — MeasurementFunction enum. Use the MOST SPECIFIC match.
 
-3. **For every spec table row** on your pages, produce a capability entry following the schema below. Map each datasheet spec to the correct schema field using the decision tree.
+## Construction Steps
 
-4. **Append your capabilities** to the `capabilities:` list in `{{YAML_PATH}}` using the Edit tool. Insert before the final line or at the end of the capabilities list.
+Follow these 8 construction rules IN ORDER. Each one mirrors an audit check — if you follow all 8, the audit will pass on the first try.
 
-5. **Validate** by running:
-   ```python
-   python -c "from litmus.catalog.loader import load_catalog_entry; load_catalog_entry('{{YAML_PATH}}')"
-   ```
-   Fix any errors until it loads clean.
+<step id="1" name="Completeness — account for every inventory row">
+Build a mapping table with ONE ROW PER INVENTORY ROW. No row gets skipped.
 
-6. **Return** a summary: capabilities added (list each function + direction), total signals count, total SpecBands count.
+| Inv# | Schema Target | Capability | Notes |
+|------|--------------|------------|-------|
+| 1 | signals.voltage.range | dc_voltage | |
+| 2 | controls.nplc | dc_voltage, ac_voltage | shared control |
+
+Rules:
+- **Dual-unit values → TWO attributes.** See "Dual-unit values" in `docs/capability-examples.md`.
+- **Every row must appear in the mapping table.** If you intentionally exclude a row, write why.
+- **Shared attributes go on ALL capabilities they apply to.** See "Shared attributes" in `docs/capability-examples.md`.
+- **Attribute names must reflect semantics.** If two measurements have different quantities with different signs/meanings (e.g., THD residual distortion floor of −87 dB vs SINAD minimum ratio of +65 dB), use distinct attribute names (e.g., `residual_distortion_dB` vs `minimum_sinad`).
+</step>
+
+<step id="2" name="Schema adherence — place each row in the right role">
+For each mapping row, ask: **"What is this quantity DOING here?"**
+
+| Role | Test | Examples |
+|------|------|---------|
+| **Signal** | Remove it and the capability makes no sense. It's what the capability measures or sources. | Voltage on a DMM, current on a PSU, frequency on a counter, distortion on a THD analyzer |
+| **Condition** | It affects the accuracy/specs of a sibling signal, but the instrument doesn't control it. ANY range that bounds where specs apply. | Frequency band, harmonic range, bandwidth, temperature range, crest factor |
+| **Control** | The user can set this value. Check USER-SELECTABLE SETTINGS in inventory. | NPLC, coupling, filter, impedance, range selection, acquisition mode |
+| **Attribute** | A fixed hardware fact that can't be changed and has a single numeric value. | Input impedance, sample rate, residual distortion floor |
+
+### General placement principles
+
+1. **If a value has min/max bounds → `conditions` or `controls`, NEVER flat attribute pairs.**
+   - WRONG: `attributes: {harmonic_freq_min: {value: 40}, harmonic_freq_max: {value: 50000}}`
+   - RIGHT: `conditions: {harmonic_frequency: {range: {min: 40, max: 50000, units: Hz}}}`
+
+2. **If a value is an accuracy (±X% of reading, ±X% of range, ±X absolute) → `AccuracySpec` on a signal, NEVER a flat attribute.**
+   - WRONG: `attributes: {frequency_accuracy_pct_reading: {value: 0.01, units: pct}}`
+   - RIGHT: `signals: {frequency: {accuracy: {pct_reading: 0.01}}}`
+   - If no dedicated signal exists, the accuracy describes a subsystem — create an attribute but name it clearly.
+
+3. **If a value is a resolution (digits, bits, smallest increment) → `ResolutionSpec` on a signal, NEVER a flat attribute.**
+
+4. **If a value varies by a condition → SpecBand on a signal, NEVER flat per-condition attributes.**
+   - See Step 4 below.
+
+5. **The schema has typed models for a reason.** `AccuracySpec` has `pct_reading`, `pct_range`, `absolute`. `ResolutionSpec` has `bits`, `digits`, `value`, `units`. `RangeSpec` has `min`, `max`, `units`. If the inventory value fits one of these typed models, USE IT — don't flatten it into a generic `Attribute` with just `value` and `units`.
+
+### Common quantity placement
+
+| Quantity | Signal | Condition | Control | Attribute |
+|----------|--------|-----------|---------|-----------|
+| **Frequency** | `function: frequency` (counter), `reference_clock`, `rf_cw` (carrier) | Affects accuracy of AC/distortion measurements | `function: waveform` (user dials freq, output is voltage) | Fixed bandwidth, sample rate |
+| **Voltage** | DMM, PSU, scope waveform | Input voltage affects output accuracy | — | Max input voltage, trigger threshold |
+| **Current** | DMM, SMU, electronic load | Load current derates PSU output | — | Max output current limit |
+| **Temperature** | `function: temperature` (thermometer) | Operating range for guaranteed specs | Setpoint on controller | — |
+| **Power** | `rf_power`, `dc_power`, power meter | — | — | Max dissipation rating |
+| **Impedance** | `function: impedance` (LCR meter) | — | User-selectable (50Ω/1MΩ) | Fixed output impedance |
+
+### Device-level vs capability-level
+
+**Device-level** → `catalog_entry.attributes` (one place, not on capabilities):
+operating temp, weight, warmup time, cal interval, power consumption, frequency temp coefficient
+
+**Capability-level** → `attributes` on each applicable capability:
+input impedance, input capacitance, residual distortion, sample rate, bandwidth
+</step>
+
+<step id="3" name="Resolution — add resolution to every signal that has it">
+If the inventory specifies resolution, add it to every signal where the units are compatible.
+Pick the form that matches the signal's units (pct signal → pct resolution, dB signal → dB resolution).
+Dual-unit resolution (e.g., "0.0001% or 0.00001 dB") is the SAME spec in two unit systems — use
+the one matching the signal, not both. A distortion resolution spec does NOT apply to a voltage
+signal — different subsystems.
+See "Resolution" in `docs/capability-examples.md`.
+</step>
+
+<step id="4" name="SpecBands — every multi-row table becomes specs[]">
+**If the inventory has a table where values vary by some condition, EACH ROW becomes a SpecBand.** This applies to:
+- Accuracy by frequency band
+- Accuracy by range
+- Reading rate by frequency and mode
+- Sweep time by number of points
+
+**NEVER make flat attributes like `reading_rate_single_20hz: {value: 14}`.** If a value varies by a condition, it's a SpecBand.
+
+**NEVER make vacuous SpecBands** — if there's only one accuracy value across the whole range, just use the top-level accuracy. Don't create a SpecBand that duplicates it.
+
+The `when` keys MUST reference a sibling name that exists in signals, conditions, or controls on the same capability.
+
+See examples 1, 2, and 13 in `docs/capability-examples.md`.
+</step>
+
+<step id="5" name="Enum specificity — use the most specific MeasurementFunction">
+Read `litmus/config/models.py` (lines 1-155). Scan the enum list for the most specific match:
+- THD measurement → `thd`
+- SINAD → `snr` (closest available — no `sinad` enum)
+- 4-wire resistance → `resistance_4w` (not `resistance`)
+- Diode test → `diode` (not `dc_voltage`)
+
+If two measurement modes are fundamentally different functions, make them separate capabilities.
+</step>
+
+<step id="6" name="Controls — every user-selectable setting on every applicable capability">
+Read the USER-SELECTABLE SETTINGS section of the inventory. For EACH setting:
+
+1. Create a control entry:
+   - Discrete options → `options: ["opt1", "opt2"]`
+   - Continuous range → `range: {min: X, max: Y, units: Z}`
+2. **Put the control on EVERY capability it applies to.**
+
+See "Shared controls" in `docs/capability-examples.md`.
+
+**Verify:** After writing YAML, for each control, grep/search to confirm it appears N times where N = number of applicable capabilities.
+</step>
+
+<step id="7" name="Comments — zero spec data in comments">
+Every inventory value goes into a schema field. Never write comments containing spec values. See "Comments" in `docs/capability-examples.md`.
+</step>
+
+<step id="8" name="Footnotes — qualifying conditions become YAML conditions">
+Inventory FOOTNOTES describe conditions under which specs apply (e.g., "Vin ≥20% of range",
+"at full scale", "23°C ±5°C"). These are NOT throwaway text — they define the operating envelope.
+
+For each footnote, check: does it describe a condition that bounds when an accuracy/spec applies?
+If yes, add it as a `conditions` entry on the relevant capabilities. Use descriptive keys
+(e.g., `input_level`, `temperature`). If the condition can't be expressed numerically, note it
+in the mapping table as context but do not force it into the schema.
+</step>
+
+<step id="9" name="Channels — all refs must exist">
+Every `channels:` list on a capability must reference names from the channels dict below. Measurement inputs use input channels. Generator outputs use output channels. Triggers use trigger channels.
+</step>
+
+## Writing the YAML
+
+<step id="write" name="Read, Write, Validate">
+1. Read the current YAML at `{{YAML_PATH}}`
+2. Append your capabilities to the `capabilities:` list using Edit
+3. Run: `uv run litmus validate {{YAML_PATH}}`
+4. Fix any validation errors
+</step>
+
+<step id="cross-check" name="Final Cross-Check">
+Re-read the YAML you wrote. Walk your mapping table row by row and verify:
+
+1. **Every inventory row** appears in the YAML somewhere
+2. **Every control** appears on EVERY capability it applies to (count the occurrences)
+3. **Every multi-row table** became SpecBands (not flat attributes)
+4. **Dual-unit values** have both forms captured
+5. **Signal units** are consistent with accuracy units (dB signal → dB accuracy)
+6. **Condition ranges** match the inventory (if accuracy applies to 100 Hz–20 kHz, the condition is 100–20000 not 20–20000)
+7. **No spec data in comments** — if you wrote a comment with a number, move it to a field
+8. **No flattened typed values** — scan every `attributes:` entry: if any has "accuracy", "pct_reading", "resolution", "digits", "bits", or "min/max" semantics, it belongs in a typed model (`AccuracySpec`, `ResolutionSpec`, `RangeSpec`/condition), not a flat attribute
+
+Fix anything missing.
+</step>
+
+<step id="return" name="Return Summary">
+Return:
+- Your mapping table (from step 1)
+- Capabilities added (function + direction)
+- Total: signals, SpecBands, controls, conditions, attributes
+- Any excluded rows and why
+</step>
 
 ## Channels Available
-
-These are the channels defined in the scaffold. All `channels:` refs in your capabilities MUST use one of these names:
 
 ```yaml
 {{CHANNELS_YAML}}
 ```
 
-## Parameter Placement Guide
-
-The same physical quantity (frequency, voltage, current, temperature, etc.) can be a signal, condition, control, or attribute depending on its **role** in the capability. Ask: "What is this quantity DOING here?"
-
-| Role | Test | Examples |
-|------|------|----------|
-| **Signal** | Is this what the capability measures or sources? Is it the *reason this capability exists*? | Voltage on a DMM. Current on an SMU. Frequency on a counter. Phase on a lock-in phase measurement. RF power on a signal generator. |
-| **Condition** | Does this quantity affect the accuracy/specs of a sibling signal, but the instrument doesn't control it? | Frequency band that changes AC voltage accuracy. Temperature range for guaranteed specs. Load current that derates PSU output. |
-| **Control** | Can the user set this value to configure the measurement/output? | Frequency on a function generator (user dials it, output is voltage). Coupling (AC/DC). NPLC. Sensitivity. Impedance (50Ω/1MΩ). |
-| **Attribute** | Is this a fixed hardware fact that can't be changed? | Input impedance. Sample rate. Bandwidth. Input noise floor. Output impedance. |
-
-### Common quantity placement
-
-**Frequency:**
-- **Signal** when `function: frequency` (counter, scope freq measurement) — measuring frequency IS the function
-- **Signal** when `function: reference_clock` — the output IS a frequency reference
-- **Signal** when `function: rf_cw/rf_sweep` — carrier frequency defines the RF output alongside power
-- **Control** when `function: waveform` — user sets frequency; the output is a voltage waveform
-- **Condition** when it affects accuracy of another signal (e.g., AC voltage accuracy varies by frequency band)
-- **Attribute** when it's a fixed hardware fact (bandwidth, sample rate)
-
-**Voltage:**
-- **Signal** when measuring or sourcing voltage (DMM, PSU, scope waveform capture)
-- **Condition** when input voltage affects output accuracy (e.g., PSU line regulation)
-- **Attribute** when it's a fixed rating (max input voltage, trigger threshold)
-
-**Current:**
-- **Signal** when measuring or sourcing current (DMM, SMU, electronic load)
-- **Condition** when load current affects output specs (PSU load regulation)
-- **Attribute** when it's a fixed limit (max output current on an analog output)
-
-**Temperature:**
-- **Signal** when `function: temperature` — thermometer, temperature probe, controller readback
-- **Condition** when it defines the operating range for guaranteed accuracy (almost always)
-- **Control** when it's a setpoint (temperature controller)
-
-**Power:**
-- **Signal** when `function: rf_power/dc_power/ac_power` — power meter, PSU
-- **Condition** when it affects other specs
-- **Attribute** when it's a fixed rating (max dissipation)
-
-**Phase:**
-- **Signal** when `function: phase` — phase measurement capability
-- **Condition** when phase affects accuracy of another measurement
-- **Attribute** when it's a fixed spec (orthogonality error)
-
-**Impedance:**
-- **Control** when user-selectable (50Ω vs 1MΩ input)
-- **Attribute** when fixed (output impedance = 50Ω)
-- **Condition** when it affects accuracy of another signal
-
-### The key test
-
-If you're unsure, ask: **"If I remove this quantity, does the capability still make sense?"**
-- If NO → it's a **signal** (the capability exists to measure/source this)
-- If YES → it's a condition, control, or attribute (supporting role)
-
 ## Audit Fix Mode
 
-If audit findings are included below your assignment, you are in **fix mode**. You MUST:
+If audit findings are included below your assignment, you are in **fix mode**.
 
-1. **Read the PDF pages** again to verify each finding against the actual datasheet
-2. **Attempt to address EVERY finding** — do not skip any regardless of severity (LOW, MEDIUM, HIGH all get fixed). Never skip a finding because it seems minor or optional.
-3. If a finding is correct per the PDF, fix the YAML accordingly
-4. If a finding is wrong (the YAML already matches the PDF), leave the YAML as-is — but you must still check
-5. The iteration budget is limited (3 rounds max), so **fix everything you can in one pass**
-
-## Common Mistakes to Avoid
-
-These are the most frequent audit failures. Check each one before returning:
-
-1. **Wrong channel assignment** — Triggers and backplane signals use PXI trigger lines, NOT measurement channels. Only assign channels that physically carry the signal.
-2. **Wrong function enum** — Sample rate, update rate, and timing metadata are ATTRIBUTES on the measurement capability, not a separate `time_interval` capability. Use `time_interval` only for actual time interval measurements.
-3. **Device-level specs on a capability** — Calibration interval, operating temp, weight, warmup time, max altitude, pollution degree, power consumption, and similar device-wide specs go on `catalog_entry.attributes`, NOT on any capability's attributes dict.
-4. **Missing range splits** — If the PDF has separate rows for different ranges (e.g., 30 mA vs 50 mA with different chassis requirements), each needs its own SpecBand. Don't collapse them.
-5. **Wrong top-level resolution** — The top-level resolution should match the widest/default range. Per-range resolution goes in SpecBands.
-6. **Missing temperature coefficients** — If the PDF has a "Tempco" column, those values MUST be captured (as attributes with pct/degC and absolute/degC).
-7. **Trigger types as controls** — User-selectable trigger types/sources/destinations are CONTROLS, not attributes.
-8. **Percentage units on voltage/current signals** — If the PDF says "±50% of amplitude range", convert to absolute values (e.g., ±2.75 V). Signal ranges must be in physical units, not percentages.
-9. **Missing test conditions on accuracy** — If the PDF footnotes say accuracy is measured "at 50 kHz sine, high-impedance load", capture those as SpecBand `when` conditions.
-10. **Missing AC vs DC accuracy** — Many instruments specify separate DC accuracy and AC accuracy. Capture BOTH.
-11. **Missing footnote conditions** — Footnotes often specify critical measurement conditions (bandwidth, offset, normalization frequency, temperature thresholds). Read ALL footnotes on your pages and encode them as conditions, SpecBand `when` clauses, or attributes.
-12. **Missing warranted vs measured distinction** — If a table header says "Measured" or "Typical", add an attribute `spec_type_measured: 1`. If "Warranted", that's the default — no attribute needed.
+<fix-rules>
+1. Re-read the INVENTORY — it is your source of truth.
+2. Read the CURRENT YAML — it may have changed since the audit.
+3. Address EVERY finding. Do not skip any regardless of severity.
+4. For each finding, either fix the YAML or explicitly state why the YAML is already correct.
+5. After fixing, run the cross-check to catch any issues the fix introduced.
+6. Verify the fix by re-reading the YAML after editing to confirm the edit took effect.
+7. Do NOT claim you fixed something without verifying the YAML actually changed.
+</fix-rules>
 
 ## Scope Rule
 
-**ONLY extract capabilities for YOUR assigned section.** If your pages contain specs for other sections that will be handled by a different agent, IGNORE them. Stick to the section name and topic you were given. If the section only covers half a page, extract only that half page — do NOT expand into neighboring content.
-
-## Extraction Rules
-
-- PDF is the ONLY source of truth — never copy from existing catalog YAMLs or guess
-- Use the MOST SPECIFIC MeasurementFunction from the enum reference below
-- Every signal SHOULD have `resolution:` when the datasheet specifies it — do NOT fabricate resolution
-- SpecBands for ALL condition-dependent accuracy (frequency, range, NPLC, V/div, load, mode)
-- `when` keys MUST reference sibling names from signals/conditions/controls on the same capability
-- `when` values MUST be dicts with `{min, max, units}` — NEVER string values (will crash loader)
-- Compute accuracy from full equations when given (e.g., GainError = ResidualGain + GainTempco*deltaT + RefTempco*deltaT)
-- Attribute values MUST be numeric, never strings
-- All channel refs must exist in the channels dict above
-- No spec data in comments — every datasheet number goes into a schema field
-- No instrument features (UI, math, FFT, protocol decode, mask test)
-- DO include all physical connectors with electrical specs (rear panel, auxiliary I/O, reference outputs, triggers)
-- Use compact channel range syntax: `"ai[0:7]"` not `["ai0", "ai1", ...]`
-
-## Capability Schema Reference
-
-{{SCHEMA_REF}}
-
-## MeasurementFunction Enum Reference
-
-{{ENUM_REF}}
+**ONLY produce capabilities for YOUR assigned section.**

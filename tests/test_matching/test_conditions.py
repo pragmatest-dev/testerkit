@@ -191,3 +191,124 @@ def test_backward_compat_no_specs():
     )
     assert capability_satisfies(cap, req) is True
     assert capability_satisfies(cap, req, MatchDepth.RANGE) is True
+
+
+# ---------------------------------------------------------------------------
+# String when-clause matching
+# ---------------------------------------------------------------------------
+
+
+def test_spec_band_string_match():
+    """String when-clause matches exact string value in operating point."""
+    param = Signal(
+        specs=[
+            SpecBand(
+                when={"rate": "SLOW"},
+                accuracy=AccuracySpec(pct_reading=0.35),
+            ),
+        ],
+    )
+    assert get_spec_at(param, {"rate": "SLOW"}) is not None
+    assert get_spec_at(param, {"rate": "SLOW"}).accuracy.pct_reading == 0.35
+
+
+def test_spec_band_string_no_match():
+    """String when-clause does not match a different string value."""
+    param = Signal(
+        specs=[
+            SpecBand(
+                when={"rate": "SLOW"},
+                accuracy=AccuracySpec(pct_reading=0.35),
+            ),
+        ],
+    )
+    assert get_spec_at(param, {"rate": "FAST"}) is None
+
+
+def test_spec_band_mixed_string_and_range():
+    """Mixed string + range when-clause: both must match."""
+    param = Signal(
+        specs=[
+            SpecBand(
+                when={
+                    "rate": "MED",
+                    "frequency": RangeSpec(min=20, max=300, units="Hz"),
+                },
+                accuracy=AccuracySpec(pct_reading=0.10),
+            ),
+        ],
+    )
+    # Both match
+    assert get_spec_at(param, {"rate": "MED", "frequency": 100}) is not None
+    # String mismatch
+    assert get_spec_at(param, {"rate": "SLOW", "frequency": 100}) is None
+    # Range mismatch
+    assert get_spec_at(param, {"rate": "MED", "frequency": 500}) is None
+
+
+# ---------------------------------------------------------------------------
+# Scalar float and bool when-clause matching
+# ---------------------------------------------------------------------------
+
+
+def test_spec_band_float_match():
+    """Float when-clause matches exact float value."""
+    param = Signal(
+        specs=[
+            SpecBand(
+                when={"impedance": 50.0},
+                accuracy=AccuracySpec(pct_reading=0.05),
+            ),
+        ],
+    )
+    assert get_spec_at(param, {"impedance": 50.0}) is not None
+    assert get_spec_at(param, {"impedance": 75.0}) is None
+
+
+def test_spec_band_bool_match():
+    """Bool when-clause matches exact bool value."""
+    param = Signal(
+        specs=[
+            SpecBand(
+                when={"autorange": True},
+                accuracy=AccuracySpec(pct_reading=0.10),
+            ),
+        ],
+    )
+    assert get_spec_at(param, {"autorange": True}) is not None
+    assert get_spec_at(param, {"autorange": False}) is None
+
+
+# ---------------------------------------------------------------------------
+# List when-clause matching (membership)
+# ---------------------------------------------------------------------------
+
+
+def test_spec_band_list_match():
+    """List when-clause matches if value is a member."""
+    param = Signal(
+        specs=[
+            SpecBand(
+                when={"impedance": [50, 600]},
+                accuracy=AccuracySpec(pct_reading=0.05),
+            ),
+        ],
+    )
+    assert get_spec_at(param, {"impedance": 50}) is not None
+    assert get_spec_at(param, {"impedance": 600}) is not None
+    assert get_spec_at(param, {"impedance": 75}) is None
+
+
+def test_spec_band_list_mixed_types():
+    """List with mixed str/float types."""
+    param = Signal(
+        specs=[
+            SpecBand(
+                when={"impedance": [50, 600, "HiZ"]},
+                accuracy=AccuracySpec(pct_reading=0.10),
+            ),
+        ],
+    )
+    assert get_spec_at(param, {"impedance": 50}) is not None
+    assert get_spec_at(param, {"impedance": "HiZ"}) is not None
+    assert get_spec_at(param, {"impedance": 75}) is None

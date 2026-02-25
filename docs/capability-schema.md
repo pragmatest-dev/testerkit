@@ -35,11 +35,35 @@ signals:
         accuracy: {pct_reading: 0.01, pct_range: 0.005}
 ```
 
-**AccuracySpec fields:** `pct_reading`, `pct_range`, `absolute` (no other fields exist)
+**AccuracySpec fields:** `pct_reading`, `pct_range`, `absolute`, `units` (optional — only needed when absolute accuracy units differ from signal units, e.g., accuracy in dB on a percent-range signal)
 
 **ResolutionSpec fields:** `bits`, `digits`, `value`, `units`
 
 **SpecBand `when` keys** MUST reference a sibling name from signals, conditions, or controls on the same capability. Unknown keys cause warnings; duplicate names across categories cause errors.
+
+**SpecBand `when` values** support several match types:
+
+| YAML value | Type | Match logic |
+|------------|------|-------------|
+| `{min: 20, max: 300, units: Hz}` | RangeSpec | Range containment (`min <= val <= max`) |
+| `"SLOW"` | string | Exact equality |
+| `50` | float | Exact equality |
+| `true` | bool | Exact equality |
+| `[50, 600, "HiZ"]` | list | Membership (`val in list`) |
+
+```yaml
+specs:
+  - when:
+      rate: "SLOW"                              # string match
+      frequency: {min: 20, max: 300, units: Hz} # range match
+    accuracy: {pct_reading: 0.10}
+  - when:
+      output_impedance: 50                      # scalar float match
+    range: {min: 0, max: 2, units: Vrms}
+  - when:
+      output_impedance: [50, 600]               # list membership match
+    accuracy: {pct_reading: 0.3}
+```
 
 ### conditions — operating conditions that affect accuracy
 

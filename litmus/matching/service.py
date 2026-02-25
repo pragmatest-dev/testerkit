@@ -24,6 +24,7 @@ from litmus.config.models import (
     Direction,
     InstrumentCapability,
     MatchDepth,
+    RangeSpec,
     Signal,
     MeasurementFunction,
     ResolutionSpec,
@@ -88,6 +89,10 @@ class StationCapability(BaseModel):
     @property
     def conditions(self) -> dict[str, Condition]:
         return self.capability.conditions
+
+    @property
+    def controls(self) -> dict[str, Control]:
+        return self.capability.controls
 
     @property
     def attributes(self) -> dict[str, Attribute]:
@@ -456,7 +461,9 @@ def capability_satisfies(
         return True
 
     # Build operating point early — needed for condition-dependent range checks
-    operating_point = _build_operating_point(required.signals, required.conditions)
+    operating_point = _build_operating_point(
+        required.signals, required.conditions, station_cap.controls
+    )
 
     # Tier 3: Signal range containment (condition-aware via SpecBand.range)
     for measure_name, req_measure in required.signals.items():
@@ -503,9 +510,10 @@ def capability_satisfies(
 def _build_operating_point(
     signals: dict[str, Signal],
     conditions: dict[str, Condition] | None = None,
-) -> dict[str, float]:
-    """Extract operating point values from requirement signals and conditions."""
-    point: dict[str, float] = {}
+    controls: dict[str, Control] | None = None,
+) -> dict[str, float | str]:
+    """Extract operating point values from requirement signals, conditions, and controls."""
+    point: dict[str, float | str] = {}
     for name, m in signals.items():
         if m.value is not None:
             point[name] = m.value
@@ -525,11 +533,15 @@ def _build_operating_point(
                     point[name] = c.range.min
                 elif c.range.max is not None:
                     point[name] = c.range.max
+    if controls:
+        for name, ctrl in controls.items():
+            if name not in point and ctrl.default is not None:
+                point[name] = ctrl.default
     return point
 
 
 def get_spec_at(
-    measure: Signal, operating_point: dict[str, float]
+    measure: Signal, operating_point: dict[str, float | str | bool]
 ) -> SpecBand | None:
     """Find the SpecBand that applies at the given operating point.
 
@@ -544,21 +556,28 @@ def get_spec_at(
     return None
 
 
-def _band_matches(band: SpecBand, operating_point: dict[str, float]) -> bool:
+def _band_matches(band: SpecBand, operating_point: dict[str, float | str | bool]) -> bool:
     """Check if all ``when`` clauses in a SpecBand match the operating point."""
-    for key, range_spec in band.when.items():
+    for key, spec in band.when.items():
         val = operating_point.get(key)
         if val is None:
             return False
-        if range_spec.min is not None and val < range_spec.min:
-            return False
-        if range_spec.max is not None and val > range_spec.max:
-            return False
+        if isinstance(spec, RangeSpec):
+            if spec.min is not None and val < spec.min:
+                return False
+            if spec.max is not None and val > spec.max:
+                return False
+        elif isinstance(spec, list):
+            if val not in spec:
+                return False
+        else:  # str, float, bool — equality
+            if val != spec:
+                return False
     return True
 
 
 def _get_accuracy_at(
-    measure: Signal, operating_point: dict[str, float]
+    measure: Signal, operating_point: dict[str, float | str]
 ) -> AccuracySpec | None:
     """Get the applicable accuracy for a measure at an operating point."""
     band = get_spec_at(measure, operating_point)
@@ -568,7 +587,7 @@ def _get_accuracy_at(
 
 
 def _get_resolution_at(
-    measure: Signal, operating_point: dict[str, float]
+    measure: Signal, operating_point: dict[str, float | str]
 ) -> ResolutionSpec | None:
     """Get the applicable resolution for a measure at an operating point."""
     band = get_spec_at(measure, operating_point)
@@ -578,7 +597,7 @@ def _get_resolution_at(
 
 
 def _get_range_at(
-    measure: Signal, operating_point: dict[str, float]
+    measure: Signal, operating_point: dict[str, float | str]
 ) -> "RangeSpec | None":
     """Get the applicable range for a measure at an operating point.
 
@@ -592,7 +611,7 @@ def _get_range_at(
 
 
 def _get_value_at(
-    measure: Signal, operating_point: dict[str, float]
+    measure: Signal, operating_point: dict[str, float | str]
 ) -> float | None:
     """Get the applicable value for a measure at an operating point."""
     band = get_spec_at(measure, operating_point)
@@ -640,7 +659,7 @@ def _resolution_sufficient(inst: ResolutionSpec, req: ResolutionSpec) -> bool:
 def _signal_range_contains(
     inst_measure: Signal,
     req_measure: Signal,
-    operating_point: dict[str, float] | None = None,
+    operating_point: dict[str, float | str] | None = None,
 ) -> bool:
     """Check if instrument measure range contains the required value/range.
 

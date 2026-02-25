@@ -354,15 +354,16 @@ def _parse_product_spec_band(data: dict[str, Any]) -> SpecBand:
         value: 3.3
         accuracy: {pct_reading: 2.0}
     """
-    when: dict[str, RangeSpec] = {}
+    when: dict[str, RangeSpec | str | float | bool | list] = {}
     for key, val in data.get("when", {}).items():
         if isinstance(val, dict):
             when[key] = RangeSpec(
                 min=val.get("min"), max=val.get("max"), units=val.get("units", "")
             )
+        elif isinstance(val, list):
+            when[key] = val
         else:
-            # Scalar shorthand: temperature: 25 → {min: 25, max: 25}
-            when[key] = RangeSpec(min=float(val), max=float(val), units="")
+            when[key] = val  # str, float, bool pass-through
 
     accuracy = None
     if "accuracy" in data:
