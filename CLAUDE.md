@@ -61,6 +61,16 @@ Do NOT bloat CLAUDE.md with implementation details — the AI can discover those
 
 Use `/catalog-from-datasheet` skill for all catalog work. Schema reference: `docs/capability-schema.md`. Models: `litmus/config/models.py`.
 
+## Skill Adherence
+
+When executing a skill (invoked via the Skill tool), follow the skill's workflow document **exactly as written, step by step**. Skills are procedures, not guidelines. Specific rules:
+
+1. **Never skip steps** — execute every phase, every sub-step, in order
+2. **Never ad-lib** — do not improvise, reorder, combine, or "optimize" the workflow
+3. **Complete every loop** — if the workflow says "audit → fix → re-audit → repeat until clean", do ALL iterations. Never skip the re-audit after a fix.
+4. **Read the workflow file** — the skill's `.md` file is the source of truth. Re-read it if unsure.
+5. **Do not editorialize** — if the workflow says to spawn an agent, spawn it. Do not inline the work yourself unless the workflow explicitly says to.
+
 ## Planning Workflow
 
 When planning a new feature or significant change for Litmus, always follow this workflow:

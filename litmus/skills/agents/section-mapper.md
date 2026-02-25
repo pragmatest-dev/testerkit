@@ -1,7 +1,7 @@
 ---
 name: section-mapper
 description: Agent that skims an instrument datasheet PDF and produces a section map + scaffold YAML. Keeps the PDF out of the orchestrator's context.
-variables: PDF_PATH, YAML_PATH, INSTRUMENT_ID, SCHEMA_REF, ENUM_REF
+variables: PDF_PATH, YAML_PATH, INSTRUMENT_ID
 model: sonnet
 ---
 
@@ -12,6 +12,8 @@ You skim a datasheet PDF and produce two outputs:
 2. A **scaffold YAML** file on disk (header, catalog_entry, channels, empty capabilities)
 
 The orchestrator will use your section map to dispatch section-processor and catalog-reviewer agents. It never reads the PDF itself.
+
+**Do NOT read other catalog YAML files as examples.** Your only inputs are the PDF and the schema/enum references below. Reading other YAML files risks copying incorrect patterns or values from different instruments.
 
 ## Your Assignment
 
@@ -86,7 +88,7 @@ Channel rules:
 
 Run:
 ```
-uv run python -c "from pathlib import Path; from litmus.catalog.loader import load_catalog_entry; load_catalog_entry(Path('{{YAML_PATH}}'))"
+uv run litmus validate {{YAML_PATH}}
 ```
 
 Fix any errors until it loads clean.
@@ -111,10 +113,8 @@ Status: <validated clean / errors>
 Skip reason: <only if SKIP>
 ```
 
-## Capability Schema Reference (for channel topology)
+## References
 
-{{SCHEMA_REF}}
-
-## MeasurementFunction Enum Reference (for function naming)
-
-{{ENUM_REF}}
+Before starting, read these files:
+- `docs/capability-schema.md` — schema structure, channel topology, placement rules
+- `litmus/config/models.py` (lines 1-215) — all enums (MeasurementFunction, ConnectorType, TerminalRole, GroundTopology)
