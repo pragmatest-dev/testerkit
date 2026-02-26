@@ -263,7 +263,45 @@ conditions:
 #   frequency_resolution, frequency_accuracy (specific to freq subsystem)
 ```
 
-## 10. Comments — never put spec data in comments
+## 10. Conditional attributes — use specs, NOT name-encoded keys
+
+```yaml
+# Inventory: Test current depends on resistance range
+#   100 Ω range: 1 mA
+#   1 kΩ range: 1 mA
+#   10 kΩ range: 100 µA
+#   100 kΩ range: 10 µA
+#   1 MΩ range: 5 µA
+#   10 MΩ range: 500 nA
+#
+# WRONG — name-encoded antipattern:
+#   test_current_100ohm: {value: 0.001, units: A}
+#   test_current_10kohm: {value: 0.0001, units: A}
+#   test_current_1mohm: {value: 0.000005, units: A}
+#
+# RIGHT — conditional attribute with specs:
+attributes:
+  test_current:
+    value: 0.001              # default / best-case
+    units: A
+    specs:
+      - when: {range: 100}
+        value: 0.001
+      - when: {range: 1000}
+        value: 0.001
+      - when: {range: 10000}
+        value: 0.0001
+      - when: {range: 100000}
+        value: 0.00001
+      - when: {range: 1000000}
+        value: 0.000005
+      - when: {range: 10000000}
+        value: 0.0000005
+```
+
+The `when` keys reference siblings (signals, conditions, or controls) on the same capability — same rules as signal SpecBands.
+
+## 11. Comments — never put spec data in comments
 
 ```yaml
 # WRONG — spec value hidden in a comment:
@@ -276,7 +314,7 @@ conditions:
     range: {min: 100, max: 20000, units: Hz}
 ```
 
-## 11. Condition ranges must match the inventory
+## 12. Condition ranges must match the inventory
 
 ```yaml
 # Inventory says THD+N accuracy applies to "100 Hz to 20 kHz"
@@ -291,7 +329,7 @@ conditions:
     range: {min: 100, max: 20000, units: Hz}  # matches inventory
 ```
 
-## 12. Resolution — match signal units
+## 13. Resolution — match signal units
 
 ```yaml
 # Inventory: "Resolution: 0.0001% or 0.00001 dB"
@@ -308,7 +346,7 @@ signals:
     resolution: {value: 0.0001, units: pct}
 ```
 
-## 13. Redundant SpecBands — don't repeat top-level accuracy
+## 14. Redundant SpecBands — don't repeat top-level accuracy
 
 ```yaml
 # If there's only ONE accuracy spec across the whole frequency range,

@@ -98,6 +98,9 @@ controls:
 
 ### attributes — fixed hardware facts (not adjustable)
 
+Attributes can have condition-dependent overrides via `specs`, same pattern as signals.
+Use this when a fixed fact varies by operating condition (e.g., test current by range).
+
 ```yaml
 attributes:
   sample_rate:
@@ -106,9 +109,14 @@ attributes:
   input_noise:
     value: 2.5
     units: nV/rtHz
-  dynamic_range:
-    value: 140
-    units: dB
+  test_current:
+    value: 0.001
+    units: A
+    specs:
+      - when: {range: 100}
+        value: 0.001
+      - when: {range: 10000}
+        value: 0.0001
 ```
 
 ## MeasurementFunction — use the MOST SPECIFIC value

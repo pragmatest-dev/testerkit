@@ -246,6 +246,13 @@ MEASUREMENT_FUNCTION_META: dict[str, dict] = {
         "scpi": ":MEAS:CONT?",
         "instrument_classes": ["dmm"],
     },
+    "dc_ratio": {
+        "abbreviations": ["DCV ratio", "DC ratio", "voltage ratio"],
+        "name": "DC voltage ratio",
+        "ivi_class": "IviDmm",
+        "scpi": ":MEAS:VOLT:DC:RAT?",
+        "instrument_classes": ["dmm"],
+    },
     "quality_factor": {
         "abbreviations": ["Q", "Q factor", "QF"],
         "name": "Quality factor",

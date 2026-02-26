@@ -115,6 +115,18 @@ Skip reason: <only if SKIP>
 
 ## References
 
-Before starting, read these files:
-- `docs/capability-schema.md` — schema structure, channel topology, placement rules
-- `litmus/config/models.py` (lines 1-215) — all enums (MeasurementFunction, ConnectorType, TerminalRole, GroundTopology)
+Read `litmus/config/models.py` (lines 1-215) for all enums before starting. Key enums:
+
+**TerminalRole:** hi, lo, sense_hi, sense_lo, guard, signal, trigger
+
+**GroundTopology:** floating, shared, earth
+
+**ConnectorType:** binding_post, banana, bnc, terminal_block, probe, triax, sma, smb, spring, pxi, screw_terminal, dsub, vhdci, apc_3.5, type_n, k_2.4mm, v_1.85mm
+
+**Channel rules from schema:**
+- Every channel referenced in capabilities MUST exist in `catalog_entry.channels`
+- Use compact range syntax: `"ai[0:7]"` not arrays of individual names
+- Set correct `terminals`, `connector`, and `ground` from the PDF
+
+**Board-level attributes** (on `catalog_entry.attributes`, NOT on capabilities):
+operating_temp_min/max, storage_temp_min/max, weight, warmup_time, calibration_interval, power_*, max_working_voltage, pollution_degree, max_altitude

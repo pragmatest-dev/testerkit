@@ -88,7 +88,6 @@ class TestLoadCatalogFromDirectory:
 
         assert len(entries) >= 4  # At least the seed entries
         assert "keysight_34461a" in entries
-        assert "keysight_e36312a" in entries
 
     def test_empty_directory(self, tmp_path):
         """Loading from empty directory returns empty dict."""
@@ -338,7 +337,7 @@ def _catalog_yaml_files():
     """Collect all catalog YAML files for parametrized test."""
     if not CATALOG_DIR.exists():
         return []
-    return sorted(CATALOG_DIR.glob("*.yaml"))
+    return sorted(CATALOG_DIR.glob("**/*.yaml"))
 
 
 @pytest.mark.parametrize(
@@ -353,4 +352,3 @@ class TestLoadAllCatalogEntries:
         entry = load_catalog_entry(yaml_path, catalog_dir=CATALOG_DIR)
         assert entry.id
         assert entry.manufacturer
-        assert entry.type

@@ -476,9 +476,13 @@ def _parse_control(data: dict[str, Any]) -> Control:
 
 def _parse_attribute(data: dict[str, Any]) -> Attribute:
     """Parse an Attribute from YAML data."""
+    specs = None
+    if "specs" in data:
+        specs = [_parse_spec_band(s) for s in data["specs"]]
     return Attribute(
         value=data.get("value", 0),
         units=data.get("units"),
+        specs=specs,
     )
 
 
