@@ -85,6 +85,7 @@ class MeasurementFunction(StrEnum):
     # DMM specialty functions
     DIODE = "diode"
     CONTINUITY = "continuity"
+    DC_RATIO = "dc_ratio"
 
     # RLC meter functions (IVI-LCR)
     QUALITY_FACTOR = "quality_factor"
@@ -294,6 +295,46 @@ class Comparator(StrEnum):
     GTLT = "GTLT"
 
 
+class InstrumentType(StrEnum):
+    """Instrument classification vocabulary.
+
+    The 13 IVI Foundation instrument classes form the core, extended with
+    additional types common in electronics test (SMU, DAQ, LCR, etc.).
+
+    Advisory, not enforced — InstrumentCatalogEntry.type is str so users
+    can add custom types without modifying litmus. The normalizer warns
+    on unknown types.
+    """
+
+    # IVI Foundation classes (https://www.ivifoundation.org/About-IVI/Instrument-Classes.html)
+    DMM = "dmm"
+    OSCILLOSCOPE = "oscilloscope"
+    FUNCTION_GENERATOR = "function_generator"
+    PSU = "psu"
+    AC_POWER_SUPPLY = "ac_power_supply"
+    SWITCH = "switch"
+    POWER_METER = "power_meter"
+    SPECTRUM_ANALYZER = "spectrum_analyzer"
+    RF_SIGNAL_GENERATOR = "rf_signal_generator"
+    UPCONVERTER = "upconverter"
+    DOWNCONVERTER = "downconverter"
+    DIGITIZER = "digitizer"
+    COUNTER = "counter"
+
+    # Extended types (not in IVI but common in electronics test)
+    SMU = "smu"
+    ELECTRONIC_LOAD = "electronic_load"
+    DAQ = "daq"
+    LCR_METER = "lcr_meter"
+    VNA = "vna"
+    TEMPERATURE_CONTROLLER = "temperature_controller"
+    ELECTROMETER = "electrometer"
+    LOCK_IN_AMPLIFIER = "lock_in_amplifier"
+    CURRENT_SOURCE = "current_source"
+    PULSE_GENERATOR = "pulse_generator"
+    GAUSSMETER = "gaussmeter"
+
+
 # =============================================================================
 # Capability Models (for matching products to stations)
 # =============================================================================
@@ -484,18 +525,27 @@ class Signal(BaseModel):
 class Condition(BaseModel):
     """An operating condition that affects accuracy of other parameters.
 
-    Conditions don't have their own accuracy — they define the operating
-    point used to look up SpecBand overrides on sibling signals.
+    Conditions are NOT user-adjustable — they describe the operating
+    environment or calibration state under which specs were characterized.
+    Use controls for user-settable parameters.
 
-    Example YAML:
+    Example YAML (continuous):
         conditions:
           frequency:
             range: {min: 3, max: 300000, units: Hz}
+
+    Example YAML (discrete):
+        conditions:
+          calibration_interval:
+            options: ["24_hour", "90_day", "1_year", "2_year"]
     """
 
     model_config = {"extra": "forbid"}
 
     range: RangeSpec | None = None
+    options: list[float | str] | None = None
+    units: str | None = None
+    default: float | str | None = None
 
 
 class Control(BaseModel):
@@ -527,25 +577,31 @@ class Attribute(BaseModel):
 
     Attributes are not adjustable — they describe inherent instrument
     capabilities like bandwidth, sample rate, or input impedance.
-    The ``compare`` field controls matching: higher_better for bandwidth,
-    lower_better for noise floor, etc.
+
+    When an attribute varies by operating condition (e.g., test current
+    depends on resistance range), use ``specs`` for condition-dependent
+    overrides — same pattern as Signal.specs.
 
     Example YAML:
         attributes:
           bandwidth:
             value: 200000000
             units: Hz
-            compare: higher_better
-          sample_rate:
-            value: 2000000000
-            units: Sa/s
-            compare: higher_better
+          test_current:
+            value: 0.001
+            units: A
+            specs:
+              - when: {range: 100}
+                value: 0.001
+              - when: {range: 10000}
+                value: 0.0001
     """
 
     model_config = {"extra": "forbid"}
 
     value: float
     units: str | None = None
+    specs: list[SpecBand] | None = None
 
 
 class ConditionKey(StrEnum):
@@ -645,18 +701,23 @@ class Capability(BaseModel):
         known = set(self.signals) | set(self.conditions) | set(self.controls)
         if not known:
             return self
-        for sig_name, sig in self.signals.items():
-            if not sig.specs:
-                continue
-            for i, band in enumerate(sig.specs):
+
+        def _check_specs(owner_label: str, specs: list[SpecBand] | None) -> None:
+            if not specs:
+                return
+            for i, band in enumerate(specs):
                 for key in band.when:
                     if key not in known:
-                        warnings.warn(
-                            f"{self.function.value}: signal '{sig_name}' "
+                        raise ValueError(
+                            f"{self.function.value}: {owner_label} "
                             f"specs[{i}] references unknown condition key "
-                            f"'{key}' (known: {sorted(known)})",
-                            stacklevel=2,
+                            f"'{key}' (known: {sorted(known)})"
                         )
+
+        for sig_name, sig in self.signals.items():
+            _check_specs(f"signal '{sig_name}'", sig.specs)
+        for attr_name, attr in self.attributes.items():
+            _check_specs(f"attribute '{attr_name}'", attr.specs)
         return self
 
 
