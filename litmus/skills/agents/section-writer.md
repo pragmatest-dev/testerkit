@@ -67,13 +67,14 @@ NEVER encode conditions in attribute names. This is the #1 most common error. Ex
 ### SpecBand `when` Value Types
 
 Match the type to the referenced control/condition:
-- Range band: `{min: 20, max: 300, units: Hz}` (continuous range)
-- Scalar float: `nplc: 1` (NOT `{min: 1, max: 1}`)
+- Range band: `{min: 20, max: 300}` (units inherited from the referenced condition/control — do NOT repeat them)
+- Point value: `frequency: 100000000` (scalar, NOT `{min: 100000000, max: 100000000}`)
 - Scalar string: `rate: "SLOW"` (string-options control — NOT numeric index)
 - Scalar bool: `autorange: true`
 - List: `output_impedance: [50, 600]`
 
 When a control has string `options:`, the `when` value MUST use the label string, never a numeric index.
+When min == max, use a scalar value, NEVER a degenerate range.
 
 ### Vacuous SpecBands
 

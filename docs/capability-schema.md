@@ -41,11 +41,11 @@ signals:
 
 **SpecBand `when` keys** MUST reference a sibling name from signals, conditions, or controls on the same capability. Unknown keys cause warnings; duplicate names across categories cause errors.
 
-**SpecBand `when` values** support several match types:
+**SpecBand `when` values** support several match types. Range values inherit units from the referenced condition/control at load time, so units are optional in `when` clauses:
 
 | YAML value | Type | Match logic |
 |------------|------|-------------|
-| `{min: 20, max: 300, units: Hz}` | RangeSpec | Range containment (`min <= val <= max`) |
+| `{min: 20, max: 300}` | RangeSpec | Range containment (`min <= val <= max`) |
 | `"SLOW"` | string | Exact equality |
 | `50` | float | Exact equality |
 | `true` | bool | Exact equality |
@@ -55,7 +55,7 @@ signals:
 specs:
   - when:
       rate: "SLOW"                              # string match
-      frequency: {min: 20, max: 300, units: Hz} # range match
+      frequency: {min: 20, max: 300}             # range match (units inherited from condition)
     accuracy: {pct_reading: 0.10}
   - when:
       output_impedance: 50                      # scalar float match

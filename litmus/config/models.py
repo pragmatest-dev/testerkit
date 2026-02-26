@@ -725,10 +725,32 @@ class Capability(BaseModel):
                             f"'{key}' (known: {sorted(known)})"
                         )
 
+        # Build units lookup from siblings: signal/condition/control name → units
+        units_map: dict[str, str] = {}
+        for name, sig in self.signals.items():
+            if sig.range and sig.range.units:
+                units_map[name] = sig.range.units
+        for name, cond in self.conditions.items():
+            if cond.range and cond.range.units:
+                units_map[name] = cond.range.units
+        for name, ctrl in self.controls.items():
+            if ctrl.range and ctrl.range.units:
+                units_map[name] = ctrl.range.units
+
+        def _resolve_when_units(specs: list[SpecBand] | None) -> None:
+            if not specs:
+                return
+            for band in specs:
+                for key, val in band.when.items():
+                    if isinstance(val, RangeSpec) and not val.units and key in units_map:
+                        val.units = units_map[key]
+
         for sig_name, sig in self.signals.items():
             _check_specs(f"signal '{sig_name}'", sig.specs)
+            _resolve_when_units(sig.specs)
         for attr_name, attr in self.attributes.items():
             _check_specs(f"attribute '{attr_name}'", attr.specs)
+            _resolve_when_units(attr.specs)
         return self
 
 
