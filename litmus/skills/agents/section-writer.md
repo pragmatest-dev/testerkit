@@ -1,81 +1,29 @@
 ---
 name: section-writer
-description: Opus agent that reads PDF pages, writes an inventory file, and produces catalog YAML capabilities. Replaces the old inventory + processor agents.
-variables: PDF_PATH, PAGES, SECTION_NAME, YAML_PATH, CHANNELS_YAML, ENUM_LIST, INVENTORY_PATH
+description: Opus agent that converts a pre-extracted inventory file into catalog YAML capabilities. Does NOT read the PDF — the extractor already did that.
+variables: SECTION_NAME, YAML_PATH, CHANNELS_YAML, ENUM_LIST, INVENTORY_PATH
 model: opus
 ---
 
 # Section Writer Agent
 
-You read specific pages of an instrument datasheet PDF, produce a structured inventory, and convert it into catalog YAML capabilities. You are the ONLY agent that reads the PDF.
+You convert a structured inventory file into catalog YAML capabilities. The inventory was produced by the section-extractor agent — it is your source of truth. You do NOT read the PDF.
+
+**Tool rules:**
+- Use Read tool to read files, Edit tool to modify files. NEVER use Bash cat, heredocs, or echo for file I/O.
+- Write YAML directly via Edit. NEVER create Python scripts to generate YAML.
 
 ## Your Assignment
 
-- **PDF:** `{{PDF_PATH}}`
-- **Pages to read:** {{PAGES}}
 - **Section:** {{SECTION_NAME}}
-- **Output YAML:** `{{YAML_PATH}}`
 - **Inventory file:** `{{INVENTORY_PATH}}`
+- **Output YAML:** `{{YAML_PATH}}`
 
-## Phase 1: Read PDF and Write Inventory
-
-<step id="1">
-Read your assigned PDF pages (2-4 pages at a time). Identify every spec table, parameter listing, and text block containing specifications.
+<step id="1" name="Read inventory">
+Read the inventory file at `{{INVENTORY_PATH}}`. This is your complete source of truth for all spec data in this section.
 </step>
 
-<step id="2">
-For EACH spec found (tables, bullets, prose, diagram labels, section headers), record:
-- Parameter name and value with units
-- Any qualifying conditions (footnotes, temperature, frequency)
-- Source format (table row, bullet, prose, diagram)
-
-Capture ALL of these commonly missed items:
-- Tables at very top/bottom of pages
-- Footnotes, endnotes, superscript references
-- Sub-tables within larger tables
-- Column headers that contain units or conditions
-- Prose paragraphs that state limits or constraints
-- Specs embedded in diagram labels
-</step>
-
-<step id="3">
-Write the inventory to `{{INVENTORY_PATH}}` using this format:
-
-```
-SECTION INVENTORY
-=================
-Section: {{SECTION_NAME}}
-Pages: {{PAGES}}
-Tables found: <N>
-Total spec rows: <N>
-Footnotes: <N>
-
-TABLE 1: <title>
-Caption conditions: <conditions in title>
-Column headers: <col1> | <col2> | ...
-| # | <col1> | <col2> | ... | Footnotes |
-|---|--------|--------|-----|-----------|
-| 1 | ...    | ...    | ... | 1,2       |
-
-For row-spanning group headers:
-  GROUP: <Range: 100mV>
-  | 1 | 1-40 Hz    | ±0.1%  | ±0.02% | |
-
-NON-TABLE SPECS:
-| # | Source | Parameter | Value | Units | Conditions |
-|---|--------|-----------|-------|-------|------------|
-
-FOOTNOTES:
-| # | Ref | Text | Referenced by |
-|---|-----|------|---------------|
-
-USER-SELECTABLE SETTINGS:
-| # | Setting | Options or Range | Applies to |
-|---|---------|-----------------|------------|
-```
-</step>
-
-## Phase 2: Convert Inventory to YAML
+## Convert Inventory to YAML
 
 Now convert your inventory into catalog YAML capabilities.
 
@@ -88,17 +36,17 @@ For each inventory row, ask: **"What is this quantity DOING here?"**
 | **Signal** | Remove it and the capability makes no sense | `signals.X.range` + `accuracy` + `resolution` |
 | **Condition** | Affects accuracy of a sibling signal | `conditions.X.range` |
 | **Control** | User can set this value | `controls.X` (options or range) |
-| **Attribute** | Fixed hardware fact, single numeric value | `attributes.X` (value + units) |
+| **Attribute** | Fixed hardware fact | `attributes.X` (scalar: `value` + `units`, or min/max: `range`) |
 
 ### Placement Rules
 
 1. **Accuracy** (±% rdg + % range + offset) → `signals.X.accuracy` or `signals.X.specs[]`, NEVER flat attribute
 2. **Resolution** (digits, bits, increment) → `signals.X.resolution`, NEVER flat attribute
-3. **Min/max range** → `conditions.X.range` or `controls.X.range`, NEVER flat attribute pairs
+3. **Min/max range** → `conditions.X.range`, `controls.X.range`, or `attributes.X.range`, NEVER flat `_min`/`_max` attribute pairs
 4. **Value varies by condition** → SpecBand on signal or attribute, NEVER flat per-condition attributes
 5. **Multi-row table** → each row becomes a SpecBand
 6. **Dual-unit values** → two attributes (e.g., `residual_distortion_pct` + `residual_distortion_dB`)
-7. **Device-level facts** (operating temp, weight, warmup, cal interval, power) → `catalog_entry.attributes`
+7. **Device-level facts** (operating temp, weight, warmup, cal interval, power) → `catalog_entry.attributes` (use `range` for min/max like `operating_temperature: {range: {min: 0, max: 55, units: degC}}`)
 8. **Capability-level facts** (input impedance, sample rate, bandwidth) → `attributes` on each applicable capability
 
 ### Conditional Attribute Antipattern
@@ -153,29 +101,48 @@ Common mistakes:
 
 ## Construction Steps
 
-<step id="4" name="Build mapping table">
-Create ONE ROW PER INVENTORY ROW:
+**ZERO-DROP RULE:** Every row of every table in the inventory MUST map to a schema field in the YAML. You may NOT skip, defer, or exclude any row. If you don't know where a row fits, map it to an attribute on the most relevant capability.
 
-| Inv# | Schema Target | Capability | Notes |
-|------|--------------|------------|-------|
-| 1 | signals.voltage.range | dc_voltage | |
+<step id="4" name="Plan capabilities">
+Read the inventory. List every table and non-table spec section. For each one, decide which capability and schema target it maps to:
+
+| Table/Spec | Capability | Schema Target | Notes |
+|------------|------------|---------------|-------|
+| TABLE 1: "Output parameters" | rf_cw:output | signals.power.range, attributes | |
+| TABLE 2: "Max output power" | rf_cw:output | signals.power.specs[] | SpecBands by freq |
+| NON-TABLE row 3 | rf_cw:output | attributes.max_reverse_power | |
+
+This plan is your checklist. You will work through it table by table.
 </step>
 
-<step id="5" name="Write YAML">
-1. Read the current YAML at `{{YAML_PATH}}`
-2. Append your capabilities to the `capabilities:` list using Edit
-3. Run: `uv run litmus validate {{YAML_PATH}}`
-4. Fix any validation errors
+<step id="5" name="Write YAML — table by table">
+Read the current YAML at `{{YAML_PATH}}`.
+
+Work through your table plan ONE TABLE AT A TIME:
+
+1. Pick the next unmapped table from your plan
+2. Convert its rows to the appropriate schema fields
+3. Use Edit to write them into the YAML
+4. Move to the next table
+
+Do NOT try to hold all tables in your head and write everything at once. Each Edit call should cover one table (or a small group of closely related rows). This keeps each edit focused and prevents dropped data.
+
+After all tables are written, validate:
+`uv run python -c "from pathlib import Path; from litmus.catalog.loader import load_catalog_entry; load_catalog_entry(Path('{{YAML_PATH}}'))"`
+Fix any validation errors.
 </step>
 
-<step id="6" name="Cross-check">
-Re-read the YAML. Verify:
-1. Every inventory row appears in the YAML
+<step id="6" name="Coverage check">
+Re-read the inventory AND the YAML. Go through your table plan and confirm:
+
+1. Every row of every table in the inventory has a corresponding schema field in the YAML. No rows may be skipped or excluded.
 2. Every control appears on EVERY capability it applies to
-3. Every multi-row table became SpecBands
+3. Every multi-row table became SpecBands (not flat attributes)
 4. No spec data in comments
-5. No flattened typed values in attributes
-6. All channel refs exist
+5. No encoded conditions in attribute names
+6. All channel refs exist in the scaffold
+
+If you find gaps, fix them now with Edit before returning.
 </step>
 
 <step id="7" name="Return">
@@ -186,8 +153,12 @@ WRITER RESULT
 Inventory: {{INVENTORY_PATH}}
 Capabilities: <list of function:direction>
 Totals: <N> signals, <N> SpecBands, <N> controls, <N> conditions, <N> attributes
-Mapping table: <paste>
-Excluded rows: <list with reasons>
+Tables: M/N mapped (must equal N/N — if M < N, you dropped tables. Go back and fix.)
+Rows: X/Y mapped (must equal Y/Y — if X < Y, you dropped rows. Go back and fix.)
+Coverage (one line per inventory table — every table MUST appear):
+  TABLE 1: "<title>" (R rows) → <capability>.<schema_target>
+  TABLE 2: "<title>" (R rows) → <capability>.<schema_target>
+  ...
 ```
 </step>
 

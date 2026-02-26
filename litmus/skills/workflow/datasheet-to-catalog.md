@@ -11,9 +11,11 @@ Generate a catalog YAML entry from an instrument datasheet PDF.
 Architecture:
   Main Agent (orchestrator) — NEVER reads the PDF directly
     Phase 1: Get paths from user input
-    Phase 2+3: Spawn section-mapper (sonnet) — skims PDF, builds section map, writes scaffold YAML
+    Phase 2: Spawn section-splitter (opus) — reads PDF, outputs page ranges only
+    Phase 3: Spawn scaffold-writer (opus) — reads targeted pages, writes device-level YAML
     Phase 4: For each section:
-      writer(opus) reads PDF, writes inventory file, writes YAML
+      extractor(opus) reads PDF, writes inventory file ONLY
+      → writer(opus) reads inventory, writes YAML ONLY (no PDF)
       → reviewer-fixer(opus) reads inventory+YAML, finds issues, fixes them directly
       → audit script validates
       → loop until reviewer-fixer says "fixed nothing" AND audit passes, or max rounds
@@ -21,8 +23,8 @@ Architecture:
     Phase 6: Report
 
 Key principles:
-- PDF is read ONCE per section by the writer agent
-- Inventory file compresses PDF into compact text for the reviewer-fixer
+- PDF is read ONCE per section by the extractor agent — writer never touches the PDF
+- Inventory file is the single source of truth for all downstream agents
 - Reviewer-fixer reads inventory+YAML and makes surgical edits — no telephone game
 - Orchestrator holds only file paths and report text, never PDF/inventory/YAML content
 - Enum list is read ONCE from models.py and injected into agent prompts
@@ -32,7 +34,7 @@ Key principles:
 - Execute every phase, every step, in order. No skipping. No reordering.
 - The orchestrator NEVER reads the PDF. NEVER edits YAML values directly. It ONLY spawns agents and runs scripts.
 - The orchestrator NEVER overrides agent outputs. Section maps, inventories, and audit/review reports are used AS RETURNED.
-- Every agent prompt is constructed inline (do NOT read agent template files at runtime).
+- Every agent prompt is constructed inline (do NOT read agent template files at runtime). Use the model specified in the agent's frontmatter — NEVER override it.
 - Every audit+review result goes through the gate. The gate is arithmetic. No judgment.
 - Paste findings VERBATIM into fix prompts. No filtering. No summarizing.
 </rules>
@@ -57,37 +59,70 @@ Emit: <phase-complete id="1" />
 
 ---
 
-<phase id="2+3" name="Section Map + Scaffold">
+<phase id="2" name="Split">
 
 <step id="2.1">
-Construct the section-mapper prompt. The prompt MUST contain ALL of these inputs:
+Construct the section-splitter prompt. The prompt MUST contain ALL of these inputs:
+
+| Input | Description | Source |
+|-------|-------------|--------|
+| PDF_PATH | Full path to the datasheet PDF | User input |
+| Instructions | Read PDF, build section map, identify scaffold pages, verify page coverage | See litmus/skills/agents/section-splitter.md for reference |
+
+</step>
+
+<step id="2.2">Spawn: Task(model="opus", prompt=constructed_prompt)</step>
+
+<step id="2.3">
+Parse the agent's return for:
+- SECTION MAP — each entry becomes one extraction+writer cycle in Phase 4
+- SCAFFOLD PAGES — overview, connector, and general spec page numbers for Phase 3
+- PAGE COVERAGE — verify "All pages covered: YES". If NO, STOP and report the gaps.
+- Skip reason — if the PDF is wrong/brochure
+</step>
+
+<step id="2.4">
+If the agent reports SKIP:*, update QUEUE.md and STOP. Do NOT proceed to Phase 3.
+</step>
+
+<checkpoint phase="2">
+You MUST have a numbered section map and scaffold page numbers before proceeding.
+Emit: <phase-complete id="2" sections="N" />
+</checkpoint>
+
+</phase>
+
+---
+
+<phase id="3" name="Scaffold">
+
+<step id="3.1">
+Construct the scaffold-writer prompt. The prompt MUST contain ALL of these inputs:
 
 | Input | Description | Source |
 |-------|-------------|--------|
 | PDF_PATH | Full path to the datasheet PDF | User input |
 | YAML_PATH | Output YAML file path | User input |
 | INSTRUMENT_ID | e.g., ni_pxie_4163 | User input |
-| Instructions | Skim PDF, build section map, write scaffold YAML, validate | See litmus/skills/agents/section-mapper.md for reference |
+| OVERVIEW_PAGES | Page range for overview/title | Phase 2 scaffold pages |
+| CONNECTOR_PAGES | Page range for connectors/I/O | Phase 2 scaffold pages |
+| GENERAL_PAGES | Page range for general/environmental specs | Phase 2 scaffold pages |
+| Instructions | Read targeted pages, write device-level YAML, validate | See litmus/skills/agents/scaffold-writer.md for reference |
 
 The agent reads its own schema/enum references from source files.
 </step>
 
-<step id="2.2">Spawn: Task(model="sonnet", prompt=constructed_prompt)</step>
+<step id="3.2">Spawn: Task(model="opus", prompt=constructed_prompt)</step>
 
-<step id="2.3">
+<step id="3.3">
 Parse the agent's return for:
-- SECTION MAP — each entry becomes one writer cycle in Phase 4
 - CHANNELS YAML — store as CHANNELS_YAML for writer prompts
-- Skip reason — if the PDF is wrong/brochure
+- Status — verify scaffold validated clean
 </step>
 
-<step id="2.4">
-If the agent reports SKIP:*, update QUEUE.md and STOP. Do NOT proceed to Phase 4.
-</step>
-
-<checkpoint phase="2+3">
-You MUST have a numbered section map and CHANNELS_YAML before proceeding.
-Emit: <phase-complete id="2+3" sections="N" />
+<checkpoint phase="3">
+You MUST have CHANNELS_YAML and a validated scaffold before proceeding.
+Emit: <phase-complete id="3" />
 </checkpoint>
 
 </phase>
@@ -96,22 +131,36 @@ Emit: <phase-complete id="2+3" sections="N" />
 
 <phase id="4" name="Section Loop">
 
-For EACH non-skipped section in the section map, execute steps 4a → 4b → gate in order.
+For EACH non-skipped section in the section map, execute steps 4a → 4b → 4c → gate in order.
 Do NOT process the next section until the current section's gate emits PASS or MAX_ROUNDS.
 
-<step id="4a" name="Write">
-Construct the section-writer prompt. The prompt MUST contain ALL of these inputs:
+<step id="4a" name="Extract">
+Construct the section-extractor prompt. The prompt MUST contain ALL of these inputs:
 
 | Input | Description | Source |
 |-------|-------------|--------|
 | PDF_PATH | Full path to the datasheet PDF | Phase 1 |
 | PAGES | Page range for this section | Section map |
 | SECTION_NAME | Topic description | Section map |
+| INVENTORY_PATH | `.tmp/inventory/<instrument_id>/inventory_section_N.md` | Generated path (temp dir, auto-cleaned) |
+| Instructions | Read PDF, write inventory | See litmus/skills/agents/section-extractor.md for reference |
+
+Spawn: Task(model="opus", prompt=constructed_prompt)
+</step>
+
+<step id="4b" name="Write">
+Construct the section-writer prompt. The prompt MUST contain ALL of these inputs:
+
+| Input | Description | Source |
+|-------|-------------|--------|
+| SECTION_NAME | Topic description | Section map |
 | YAML_PATH | Output YAML file path | Phase 1 |
-| CHANNELS_YAML | The channels dict from the scaffold | Phase 2+3 |
+| CHANNELS_YAML | The channels dict from the scaffold | Phase 3 |
 | ENUM_LIST | MeasurementFunction enum values | Phase 1 |
-| INVENTORY_PATH | `.claude/tmp/inventory/<instrument_id>/inventory_section_N.md` | Generated path (temp dir, auto-cleaned) |
-| Instructions | Read PDF, write inventory, write YAML | See litmus/skills/agents/section-writer.md for reference |
+| INVENTORY_PATH | `.tmp/inventory/<instrument_id>/inventory_section_N.md` | Step 4a |
+| Instructions | Read inventory, write YAML | See litmus/skills/agents/section-writer.md for reference |
+
+Note: NO PDF_PATH — the writer reads the inventory, not the PDF.
 
 Spawn: Task(model="opus", prompt=constructed_prompt)
 
@@ -121,7 +170,7 @@ uv run litmus validate YAML_PATH
 ```
 </step>
 
-<step id="4b" name="Review-Fix + Audit loop">
+<step id="4c" name="Review-Fix + Audit loop">
 
 This step loops until the reviewer-fixer reports "FIXED NOTHING" and audit passes, or max rounds.
 
@@ -134,8 +183,8 @@ This step loops until the reviewer-fixer reports "FIXED NOTHING" and audit passe
    |-------|-------------|--------|
    | YAML_PATH | Output YAML file path | Phase 1 |
    | SECTION_NAME | Topic description | Section map |
-   | INVENTORY_PATH | `.claude/tmp/inventory/<instrument_id>/inventory_section_N.md` | Step 4a |
-   | CAPABILITIES | Capability function names from this section | Step 4a return |
+   | INVENTORY_PATH | `.tmp/inventory/<instrument_id>/inventory_section_N.md` | Step 4a |
+   | CAPABILITIES | Capability function names from this section | Step 4b return |
    | ENUM_LIST | MeasurementFunction enum values | Phase 1 |
    | Instructions | Review inventory vs YAML, fix issues directly | See litmus/skills/agents/section-reviewer.md for reference |
 
@@ -164,9 +213,9 @@ Round counting: round 0 is the first review-fix after initial write. Each subseq
    <gate-result section="N" round="R" findings="F" action="PASS|FAIL|MAX_ROUNDS" />
 
 3. Decision:
-   - Reviewer said "FIXED NOTHING" AND audit says PASS → action="PASS" → delete inventory file, proceed
-   - R >= 3 → action="MAX_ROUNDS" → log unresolved issues, delete inventory file, proceed
-   - otherwise → action="FAIL" → go back to step 4b for another round
+   - Reviewer said "FIXED NOTHING" AND audit says PASS → action="PASS" → delete inventory file via `uv run python -c "from pathlib import Path; Path('INVENTORY_PATH').unlink()"`, proceed
+   - R >= 3 → action="MAX_ROUNDS" → log unresolved issues, delete inventory file via `uv run python -c "from pathlib import Path; Path('INVENTORY_PATH').unlink()"`, proceed
+   - otherwise → action="FAIL" → go back to step 4c for another round
 
 NOTHING else exits the loop. No exceptions. No judgment calls.
 </gate>

@@ -61,6 +61,12 @@ Do NOT bloat CLAUDE.md with implementation details — the AI can discover those
 
 Use `/catalog-from-datasheet` skill for all catalog work. Schema reference: `docs/capability-schema.md`. Models: `litmus/config/models.py`.
 
+## Tool Usage Rules
+
+- **Use Read/Write/Edit tools** for all file operations — NEVER use Bash `cat`, heredocs, `echo >`, or `sed` for reading or writing file content
+- **No ad-hoc scripts** — NEVER generate throwaway Python/shell scripts to produce YAML or other output files. Write YAML directly via Edit/Write tools. If a script is needed, it must be an official maintained script in the repo.
+- **Delete temp files** with `uv run python -c "from pathlib import Path; Path('...').unlink()"` — NEVER use `rm` (blocked by ask rules).
+
 ## Skill Adherence
 
 When executing a skill (invoked via the Skill tool), follow the skill's workflow document **exactly as written, step by step**. Skills are procedures, not guidelines. Specific rules:

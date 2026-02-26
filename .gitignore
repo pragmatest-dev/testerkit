@@ -8,7 +8,7 @@ results/
 .pytest_cache/
 .coverage
 .claude/settings.local.json
-.claude/tmp/
+.tmp/
 demo/uv.lock
 dist/
 .playwright-mcp/

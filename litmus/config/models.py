@@ -587,6 +587,8 @@ class Attribute(BaseModel):
           bandwidth:
             value: 200000000
             units: Hz
+          operating_temperature:
+            range: {min: 0, max: 55, units: degC}
           test_current:
             value: 0.001
             units: A
@@ -599,9 +601,18 @@ class Attribute(BaseModel):
 
     model_config = {"extra": "forbid"}
 
-    value: float
+    value: float | None = None
+    range: RangeSpec | None = None
     units: str | None = None
     specs: list[SpecBand] | None = None
+
+    @model_validator(mode="after")
+    def _require_value_or_range(self) -> "Attribute":
+        if self.value is None and self.range is None:
+            raise ValueError("Attribute must have either 'value' or 'range'")
+        if self.value is not None and self.range is not None:
+            raise ValueError("Attribute cannot have both 'value' and 'range'")
+        return self
 
 
 class ConditionKey(StrEnum):

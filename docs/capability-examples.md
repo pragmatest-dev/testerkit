@@ -253,14 +253,21 @@ conditions:
 # Device-wide facts → catalog_entry.attributes (ONE place, not on capabilities)
 # Capability-specific facts → capability attributes (repeated on each applicable cap)
 #
-# Board-level (catalog_entry.attributes):
-#   operating_temp, weight, warmup_time, cal_interval, power
-#   frequency_temp_coefficient (device-wide oscillator spec)
+# Board-level (catalog_entry.attributes) — use range for min/max, value for scalars:
+catalog_entry:
+  attributes:
+    operating_temperature: {range: {min: 0, max: 55, units: degC}}
+    storage_temperature: {range: {min: -40, max: 71, units: degC}}
+    weight: {value: 157, units: g}
+    warmup_time: {value: 15, units: min}
+#
+# WRONG — _min/_max suffix pairs:
+#   operating_temp_min: {value: 0, units: degC}
+#   operating_temp_max: {value: 55, units: degC}
 #
 # Capability-level (on each capability):
 #   input_impedance, input_capacitance, sample_rate, bandwidth
 #   residual_distortion (specific to distortion measurement)
-#   frequency_resolution, frequency_accuracy (specific to freq subsystem)
 ```
 
 ## 10. Conditional attributes — use specs, NOT name-encoded keys

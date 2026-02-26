@@ -104,11 +104,10 @@ Use this when a fixed fact varies by operating condition (e.g., test current by 
 ```yaml
 attributes:
   sample_rate:
-    value: 5000000000        # MUST be numeric, never string
+    value: 5000000000        # scalar: use 'value'
     units: Sa/s
-  input_noise:
-    value: 2.5
-    units: nV/rtHz
+  operating_temperature:
+    range: {min: 0, max: 55, units: degC}   # min/max: use 'range'
   test_current:
     value: 0.001
     units: A
@@ -118,6 +117,8 @@ attributes:
       - when: {range: 10000}
         value: 0.0001
 ```
+
+Attributes support either `value` (scalar) or `range` (min/max), never both.
 
 ## MeasurementFunction — use the MOST SPECIFIC value
 
@@ -142,10 +143,8 @@ catalog_entry:
   id: ni_pxie_6341
   # ... other fields ...
   attributes:
-    operating_temp_min: {value: 0, units: degC}
-    operating_temp_max: {value: 55, units: degC}
-    storage_temp_min: {value: -40, units: degC}
-    storage_temp_max: {value: 71, units: degC}
+    operating_temperature: {range: {min: 0, max: 55, units: degC}}
+    storage_temperature: {range: {min: -40, max: 71, units: degC}}
     weight: {value: 157, units: g}
     warmup_time: {value: 15, units: min}
     calibration_interval: {value: 2, units: yr}
@@ -155,7 +154,7 @@ catalog_entry:
     max_altitude: {value: 2000, units: m}
 ```
 
-Common board-level attributes: `operating_temp_min/max`, `storage_temp_min/max`, `operating_humidity_min/max`, `storage_humidity_min/max`, `weight`, `dimension_*`, `warmup_time`, `calibration_interval`, `pollution_degree`, `max_altitude`, `power_*`, `usb_bus_speed`, `max_working_voltage`.
+Common board-level attributes: `operating_temperature`, `storage_temperature`, `operating_humidity`, `storage_humidity` (use `range`), `weight`, `dimension_*`, `warmup_time`, `calibration_interval`, `pollution_degree`, `max_altitude`, `power_*`, `usb_bus_speed`, `max_working_voltage`.
 
 **Do NOT put these on a single capability's attributes** — they describe the whole device.
 
