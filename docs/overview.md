@@ -54,10 +54,12 @@ The `@litmus_test` decorator adds everything hardware tests need on top of stand
 
 ```python
 @litmus_test
-def test_output_voltage(context, dmm):
-    voltage = dmm.measure_voltage()
-    context.measure("output_voltage", voltage, units="V")
+def test_output_voltage(context, psu, dmm):
+    psu.set_voltage(context.get_in("vin"))
+    return dmm.measure_dc_voltage()  # Just return the value
 ```
+
+Tests return values — the framework handles logging, limit checking, and traceability. Return a single value, a dict of named measurements, or yield for streaming.
 
 - **Sweep across conditions** — test at multiple temperatures, loads, and input voltages without code changes
 - **Full traceability** — every measurement records what was measured, on what instrument, through which channel, from which DUT pin (see [What gets logged](#what-gets-logged) below)
