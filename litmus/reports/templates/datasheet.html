@@ -1,0 +1,322 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>{{ data.name }}</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; font-size: 13px; color: #1a1a1a; padding: 24px; max-width: 1200px; margin: 0 auto; }
+  h1 { font-size: 22px; margin-bottom: 2px; }
+  h2 { font-size: 16px; margin: 24px 0 10px; border-bottom: 2px solid #2563eb; padding-bottom: 4px; color: #1e3a5f; }
+  h3 { font-size: 14px; margin: 12px 0 6px; color: #334155; }
+
+  .header { margin-bottom: 16px; }
+  .header .subtitle { color: #6c757d; font-size: 13px; margin-bottom: 4px; }
+  .header .mfr { font-size: 14px; color: #475569; font-weight: 600; }
+  .interfaces { display: inline-flex; gap: 4px; margin-top: 6px; }
+  .interfaces .badge { background: #e2e8f0; color: #475569; padding: 1px 8px; border-radius: 3px; font-size: 11px; text-transform: uppercase; font-weight: 600; }
+
+  .summary-bar { display: flex; gap: 16px; margin-bottom: 20px; padding: 10px 16px; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 6px; }
+  .summary-item { text-align: center; min-width: 80px; }
+  .summary-item .num { font-size: 20px; font-weight: 700; color: #1e3a5f; }
+  .summary-item .label { font-size: 11px; color: #6c757d; text-transform: uppercase; }
+
+  table { width: 100%; border-collapse: collapse; margin-bottom: 12px; font-size: 12px; }
+  th { background: #f1f5f9; text-align: left; padding: 5px 8px; border: 1px solid #cbd5e1; font-weight: 600; color: #334155; }
+  td { padding: 4px 8px; border: 1px solid #e2e8f0; }
+  tr:nth-child(even) { background: #f8fafc; }
+
+  .cap-card { border: 1px solid #e2e8f0; border-radius: 6px; margin-bottom: 16px; overflow: hidden; }
+  .cap-header { background: #1e3a5f; color: white; padding: 8px 12px; display: flex; justify-content: space-between; align-items: center; }
+  .cap-header .fn { font-size: 14px; font-weight: 600; }
+  .cap-header .dir { font-size: 11px; background: rgba(255,255,255,0.2); padding: 1px 8px; border-radius: 3px; text-transform: uppercase; }
+  .cap-header .ch { font-size: 11px; opacity: 0.8; margin-left: 8px; }
+  .cap-body { padding: 10px 12px; }
+  .cap-body h4 { font-size: 12px; color: #475569; text-transform: uppercase; margin: 8px 0 4px; letter-spacing: 0.5px; }
+  .cap-body h4:first-child { margin-top: 0; }
+
+  .matrix-table { margin: 8px 0 12px; }
+  .matrix-table caption { text-align: left; font-size: 11px; font-weight: 600; color: #475569; padding: 4px 0; text-transform: uppercase; letter-spacing: 0.3px; }
+  .matrix-table th { font-size: 11px; white-space: nowrap; }
+  .matrix-table td { font-size: 11px; text-align: center; }
+  .matrix-table td:first-child { text-align: left; font-weight: 500; }
+  .matrix-table .row-header { background: #f8fafc; font-weight: 500; text-align: left; }
+
+  .attr-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 6px; margin-bottom: 12px; }
+  .attr-item { background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 4px; padding: 6px 8px; }
+  .attr-item .aname { font-size: 11px; color: #6c757d; text-transform: uppercase; }
+  .attr-item .aval { font-size: 13px; font-weight: 500; }
+
+  .cap-section { border-left: 3px solid #cbd5e1; padding-left: 10px; margin: 10px 0; }
+  .cap-section.signals { border-left-color: #2563eb; }
+  .cap-section.attributes { border-left-color: #d97706; }
+  .cap-section.controls { border-left-color: #059669; }
+  .cap-section.conditions { border-left-color: #7c3aed; }
+
+  .footer { margin-top: 24px; font-size: 11px; color: #999; border-top: 1px solid #eee; padding-top: 8px; }
+
+  @media print {
+    body { padding: 12px; font-size: 11px; }
+    .cap-card { break-inside: avoid; }
+    h2 { break-after: avoid; }
+  }
+</style>
+</head>
+<body>
+
+{# ── Header ── #}
+<div class="header">
+  <div class="mfr">{{ data.manufacturer }}</div>
+  <h1>{{ data.model }} — {{ data.name }}</h1>
+  {% if data.description %}<div class="subtitle">{{ data.description }}</div>{% endif %}
+  {% if data.interfaces %}
+  <div class="interfaces">
+    {% for iface in data.interfaces %}<span class="badge">{{ iface }}</span>{% endfor %}
+  </div>
+  {% endif %}
+</div>
+
+{# ── Summary Bar ── #}
+<div class="summary-bar">
+  <div class="summary-item"><div class="num">{{ summary.capability_count }}</div><div class="label">Capabilities</div></div>
+  <div class="summary-item"><div class="num">{{ summary.channel_count }}</div><div class="label">Channels</div></div>
+  <div class="summary-item"><div class="num" style="font-size:14px; padding-top:3px;">{{ data.type | replace('_', ' ') | title }}</div><div class="label">Type</div></div>
+</div>
+
+{# ── Channels ── #}
+{% if data.channels %}
+<h2>Channels</h2>
+<table>
+  <thead><tr><th>ID</th><th>Label</th><th>Connector</th><th>Terminals</th><th>Ground</th></tr></thead>
+  <tbody>
+  {% for ch_id, ch in data.channels.items() %}
+  <tr>
+    <td><strong>{{ ch_id }}</strong></td>
+    <td>{{ ch.label or '—' }}</td>
+    <td>{{ ch.connector or '—' }}</td>
+    <td>{{ ch.terminals | join(', ') if ch.terminals else '—' }}</td>
+    <td>{{ ch.ground or '—' }}</td>
+  </tr>
+  {% endfor %}
+  </tbody>
+</table>
+{% endif %}
+
+{# ── Board-Level Attributes ── #}
+{% if data.attributes %}
+<h2>Attributes</h2>
+<div class="attr-grid">
+  {% for name, attr in data.attributes.items() %}
+  <div class="attr-item">
+    <div class="aname">{{ name | replace('_', ' ') }}</div>
+    <div class="aval">{{ attr | fmt_attr }}</div>
+  </div>
+  {% endfor %}
+</div>
+{% endif %}
+
+{# ── Capabilities ── #}
+<h2>Capabilities</h2>
+{% for cap in data.capabilities %}
+<div class="cap-card">
+  <div class="cap-header">
+    <span>
+      <span class="fn">{{ cap.function | replace('_', ' ') | title }}</span>
+      <span class="dir">{{ cap.direction }}</span>
+      {% if cap.channels %}<span class="ch">ch: {{ cap.channels if cap.channels is string else cap.channels | join(', ') }}</span>{% endif %}
+    </span>
+  </div>
+  <div class="cap-body">
+
+    {# ── Signals with smart SpecBand rendering ── #}
+    {% if cap.signals %}
+    <div class="cap-section signals">
+    <h4>Signals</h4>
+    <table>
+      <thead><tr><th>Signal</th><th>Range</th><th>Accuracy</th><th>Resolution</th></tr></thead>
+      <tbody>
+      {% for sig_name, sig in cap.signals.items() %}
+      {% set render = cap.signal_renders[sig_name] %}
+      <tr>
+        <td><strong>{{ sig_name | replace('_', ' ') | title }}</strong></td>
+        <td>{{ render.headline.range }}</td>
+        <td>{{ render.headline.accuracy }}</td>
+        <td>{{ render.headline.resolution }}</td>
+      </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+
+    {# ── Spec Band Tables (1D / 2D / Grouped) ── #}
+    {% for sig_name, sig in cap.signals.items() %}
+    {% set render = cap.signal_renders[sig_name] %}
+    {% for tbl in render.tables %}
+
+    {% if tbl.kind == "1d" %}
+    <table class="matrix-table">
+      <caption>{{ tbl.title }}</caption>
+      <thead><tr><th>{{ tbl.row_key }}</th><th>{{ tbl.value_label }}</th></tr></thead>
+      <tbody>
+      {% for row in tbl.rows %}
+      <tr><td class="row-header">{{ row.label }}</td><td>{{ row.value }}</td></tr>
+      {% endfor %}
+      </tbody>
+    </table>
+
+    {% elif tbl.kind == "2d" %}
+    <table class="matrix-table">
+      <caption>{{ tbl.title }}</caption>
+      <thead>
+        <tr><th>{{ tbl.row_key }} \ {{ tbl.col_key }}</th>{% for ch in tbl.col_headers %}<th>{{ ch }}</th>{% endfor %}</tr>
+      </thead>
+      <tbody>
+      {% for row in tbl.rows %}
+      <tr><td class="row-header">{{ row.label }}</td>{% for cell in row.cells %}<td>{{ cell }}</td>{% endfor %}</tr>
+      {% endfor %}
+      </tbody>
+    </table>
+
+    {% elif tbl.kind == "multi_col" %}
+    <table class="matrix-table">
+      <caption>{{ tbl.title }}</caption>
+      <thead><tr>{% for ck in tbl.col_keys %}<th>{{ ck }}</th>{% endfor %}{% for vc in tbl.value_cols %}<th>{{ vc }}</th>{% endfor %}</tr></thead>
+      <tbody>
+      {% for row in tbl.rows %}
+      <tr>{% for c in row.conditions %}<td class="row-header">{{ c }}</td>{% endfor %}{% for v in row.cells %}<td>{{ v }}</td>{% endfor %}</tr>
+      {% endfor %}
+      </tbody>
+    </table>
+    {% endif %}
+
+    {% endfor %}
+    {% endfor %}
+    </div>
+    {% endif %}
+
+    {# ── Conditions ── #}
+    {% if cap.conditions %}
+    <div class="cap-section conditions">
+    <h4>Conditions</h4>
+    <table>
+      <thead><tr><th>Condition</th><th>Range / Options</th></tr></thead>
+      <tbody>
+      {% for cond_name, cond in cap.conditions.items() %}
+      <tr>
+        <td>{{ cond_name | replace('_', ' ') | title }}</td>
+        <td>{% if cond.range %}{{ cond.range | fmt_range }}{% elif cond.options %}{{ cond.options | join(', ') }}{% else %}—{% endif %}</td>
+      </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+    </div>
+    {% endif %}
+
+    {# ── Controls ── #}
+    {% if cap.controls %}
+    <div class="cap-section controls">
+    <h4>Controls</h4>
+    <table>
+      <thead><tr><th>Control</th><th>Range / Options</th><th>Default</th></tr></thead>
+      <tbody>
+      {% for ctrl_name, ctrl in cap.controls.items() %}
+      <tr>
+        <td>{{ ctrl_name | replace('_', ' ') | title }}</td>
+        <td>{% if ctrl.range %}{{ ctrl.range | fmt_range }}{% elif ctrl.options %}{{ ctrl.options | join(', ') }}{% else %}—{% endif %}</td>
+        <td>{{ ctrl.default if ctrl.default is not none else '—' }}</td>
+      </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+    </div>
+    {% endif %}
+
+    {# ── Capability Attributes ── #}
+    {% if cap.attributes %}
+    <div class="cap-section attributes">
+    <h4>Attributes</h4>
+    {# Constant attributes (no spec bands) in a summary table #}
+    {% set const_attrs = [] %}
+    {% for attr_name, attr in cap.attributes.items() %}
+    {% set render = cap.attr_renders[attr_name] %}
+    {% if not render.tables %}{% if const_attrs.append((attr_name, render.headline)) %}{% endif %}{% endif %}
+    {% endfor %}
+    {% if const_attrs %}
+    <table>
+      <thead><tr><th>Attribute</th><th>Value</th></tr></thead>
+      <tbody>
+      {% for attr_name, headline in const_attrs %}
+      <tr>
+        <td>{{ attr_name | replace('_', ' ') | title }}</td>
+        <td>{{ headline }}</td>
+      </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+    {% endif %}
+
+    {# ── Attribute Spec Band Tables (in distinct section) ── #}
+    {% set has_attr_tables = [] %}
+    {% for attr_name, attr in cap.attributes.items() %}
+    {% set render = cap.attr_renders[attr_name] %}
+    {% if render.tables %}{% if has_attr_tables.append(1) %}{% endif %}{% endif %}
+    {% endfor %}
+    {% if has_attr_tables %}
+    <div class="attr-specs">
+    {% for attr_name, attr in cap.attributes.items() %}
+    {% set render = cap.attr_renders[attr_name] %}
+    {% for tbl in render.tables %}
+
+    {% if tbl.kind == "1d" %}
+    <table class="matrix-table">
+      <caption>{{ tbl.title }}</caption>
+      <thead><tr><th>{{ tbl.row_key }}</th><th>{{ tbl.value_label }}</th></tr></thead>
+      <tbody>
+      {% for row in tbl.rows %}
+      <tr><td class="row-header">{{ row.label }}</td><td>{{ row.value }}</td></tr>
+      {% endfor %}
+      </tbody>
+    </table>
+
+    {% elif tbl.kind == "2d" %}
+    <table class="matrix-table">
+      <caption>{{ tbl.title }}</caption>
+      <thead>
+        <tr><th>{{ tbl.row_key }} \ {{ tbl.col_key }}</th>{% for ch in tbl.col_headers %}<th>{{ ch }}</th>{% endfor %}</tr>
+      </thead>
+      <tbody>
+      {% for row in tbl.rows %}
+      <tr><td class="row-header">{{ row.label }}</td>{% for cell in row.cells %}<td>{{ cell }}</td>{% endfor %}</tr>
+      {% endfor %}
+      </tbody>
+    </table>
+
+    {% elif tbl.kind == "multi_col" %}
+    <table class="matrix-table">
+      <caption>{{ tbl.title }}</caption>
+      <thead><tr>{% for ck in tbl.col_keys %}<th>{{ ck }}</th>{% endfor %}{% for vc in tbl.value_cols %}<th>{{ vc }}</th>{% endfor %}</tr></thead>
+      <tbody>
+      {% for row in tbl.rows %}
+      <tr>{% for c in row.conditions %}<td class="row-header">{{ c }}</td>{% endfor %}{% for v in row.cells %}<td>{{ v }}</td>{% endfor %}</tr>
+      {% endfor %}
+      </tbody>
+    </table>
+    {% endif %}
+
+    {% endfor %}
+    {% endfor %}
+    </div>
+    {% endif %}
+    </div>
+    {% endif %}
+
+  </div>
+</div>
+{% endfor %}
+
+<div class="footer">
+  Generated by Litmus &middot; {{ data.manufacturer }} {{ data.model }}
+</div>
+
+</body>
+</html>
