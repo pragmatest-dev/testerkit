@@ -119,11 +119,13 @@ def _merge_catalog_data(
     """Merge base and variant YAML dicts with section-level override.
 
     Rules:
-    - ``capabilities:`` in variant replaces base's entirely.
-    - ``catalog_entry.channels:`` in variant replaces base's entirely.
+    - ``capabilities`` in variant replaces base's entirely.
+    - ``channels`` in variant replaces base's entirely.
     - Header fields (manufacturer, type, name, description)
       are inherited from base when absent in variant.
     - ``id``, ``model``, ``base`` always come from the variant.
+
+    All fields live under ``catalog_entry:``.
     """
     base_entry = dict(base.get("catalog_entry", {}))
     variant_entry = dict(variant.get("catalog_entry", {}))
@@ -138,48 +140,50 @@ def _merge_catalog_data(
     # Variant overrides everything it provides
     merged_entry.update(variant_entry)
 
-    # Channels: variant replaces if present, else inherit base
-    if "channels" not in variant_entry and "channels" in base_entry:
-        merged_entry["channels"] = base_entry["channels"]
+    # Section-level inherit: variant replaces if present, else inherit base
+    for section in ("channels", "attributes", "capabilities", "interfaces"):
+        if section not in variant_entry and section in base_entry:
+            merged_entry[section] = base_entry[section]
 
-    # Attributes: variant replaces if present, else inherit base
-    if "attributes" not in variant_entry and "attributes" in base_entry:
-        merged_entry["attributes"] = base_entry["attributes"]
-
-    merged: dict[str, Any] = {"catalog_entry": merged_entry}
-
-    # Capabilities: variant replaces if present, else inherit base
-    if "capabilities" in variant:
-        merged["capabilities"] = variant["capabilities"]
-    elif "capabilities" in base:
-        merged["capabilities"] = base["capabilities"]
-
-    return merged
+    return {"catalog_entry": merged_entry}
 
 
 def _build_entry(data: dict[str, Any], path: Path) -> InstrumentCatalogEntry:
-    """Build an InstrumentCatalogEntry from merged raw YAML data."""
+    """Build an InstrumentCatalogEntry from merged raw YAML data.
+
+    All fields must live under ``catalog_entry:``.  A top-level
+    ``capabilities:`` key is rejected to catch un-migrated files.
+    """
+    if "capabilities" in data and data["capabilities"]:
+        raise ValueError(
+            f"{path.name}: top-level 'capabilities:' is no longer supported — "
+            f"move capabilities under 'catalog_entry:'"
+        )
+
     entry_data = data.get("catalog_entry", {})
-    capabilities = _parse_capabilities(data.get("capabilities") or [], source=path.name)
-    channels = _parse_channels(entry_data.get("channels", {}))
 
-    # Board-level attributes on catalog_entry
-    board_attrs: dict[str, Attribute] = {}
-    for name, d in (entry_data.get("attributes") or {}).items():
-        board_attrs[name] = _parse_attribute(d or {})
+    # Pre-parse complex fields
+    parsed: dict[str, Any] = dict(entry_data)
 
-    return InstrumentCatalogEntry(
-        id=entry_data.get("id", path.stem),
-        manufacturer=entry_data.get("manufacturer", ""),
-        model=str(entry_data.get("model", "")),
-        name=entry_data.get("name", path.stem),
-        description=entry_data.get("description"),
-        type=entry_data.get("type", ""),
-        base=entry_data.get("base"),
-        channels=channels,
-        attributes=board_attrs,
-        capabilities=capabilities,
+    # Defaults for required fields
+    parsed.setdefault("id", path.stem)
+    parsed.setdefault("manufacturer", "")
+    parsed.setdefault("name", path.stem)
+    parsed.setdefault("type", "")
+    parsed["model"] = str(parsed.get("model", ""))
+
+    # Parse complex sub-structures
+    parsed["channels"] = _parse_channels(parsed.get("channels", {}))
+    parsed["capabilities"] = _parse_capabilities(
+        parsed.get("capabilities") or [], source=path.name
     )
+
+    board_attrs: dict[str, Attribute] = {}
+    for name, d in (parsed.get("attributes") or {}).items():
+        board_attrs[name] = _parse_attribute(d or {})
+    parsed["attributes"] = board_attrs
+
+    return InstrumentCatalogEntry(**parsed)
 
 
 def load_catalog_from_directory(catalog_dir: Path) -> dict[str, InstrumentCatalogEntry]:

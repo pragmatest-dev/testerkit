@@ -73,7 +73,7 @@ Write the initial YAML to `{{YAML_PATH}}`:
    - interfaces (e.g., pxi, usb, lan, gpib)
    - channels — every physical connector with documented electrical specs
    - attributes — board-level facts (operating temp, weight, power, warmup, cal interval, etc.)
-3. **capabilities: []** (empty — section agents will populate this)
+   - capabilities: [] (empty — section agents will populate this)
 
 **Channel rules:**
 - Include ALL channels from the PDF — every physical connector with documented electrical specs

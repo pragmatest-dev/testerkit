@@ -157,15 +157,14 @@ class TestCatalogInheritance:
                   terminals: [hi, lo]
                   connector: binding_post
                   ground: shared
-
-            capabilities:
-              - function: dc_voltage
-                direction: input
-                signals:
-                  voltage:
-                    range: {min: 0.001, max: 100, units: V}
-                    accuracy: {pct_reading: 0.01}
-                channels: ["1"]
+              capabilities:
+                - function: dc_voltage
+                  direction: input
+                  signals:
+                    voltage:
+                      range: {min: 0.001, max: 100, units: V}
+                      accuracy: {pct_reading: 0.01}
+                  channels: ["1"]
         """
 
     def test_variant_inherits_capabilities(self, tmp_path):
@@ -213,14 +212,13 @@ class TestCatalogInheritance:
               id: variant_dmm
               model: "2000"
               base: base_dmm
-
-            capabilities:
-              - function: ac_voltage
-                direction: input
-                signals:
-                  voltage:
-                    range: {min: 0.01, max: 750, units: V}
-                channels: ["1"]
+              capabilities:
+                - function: ac_voltage
+                  direction: input
+                  signals:
+                    voltage:
+                      range: {min: 0.01, max: 750, units: V}
+                  channels: ["1"]
         """)
         entry = load_catalog_entry(tmp_path / "variant.yaml", catalog_dir=tmp_path)
         assert len(entry.capabilities) == 1
@@ -290,14 +288,13 @@ class TestCatalogInheritance:
                   terminals: [hi, lo]
                   connector: binding_post
                   ground: shared
-
-            capabilities:
-              - function: dc_voltage
-                direction: input
-                signals:
-                  voltage:
-                    range: {min: 0.001, max: 100, units: V}
-                channels: ["1"]
+              capabilities:
+                - function: dc_voltage
+                  direction: input
+                  signals:
+                    voltage:
+                      range: {min: 0.001, max: 100, units: V}
+                  channels: ["1"]
         """)
         _write_yaml(tmp_path / "b.yaml", """\
             catalog_entry:
@@ -352,3 +349,57 @@ class TestLoadAllCatalogEntries:
         entry = load_catalog_entry(yaml_path, catalog_dir=CATALOG_DIR)
         assert entry.id
         assert entry.manufacturer
+
+
+# ---------------------------------------------------------------------------
+# Validation tests
+# ---------------------------------------------------------------------------
+
+
+class TestCatalogValidation:
+    """Tests that Pydantic validation catches bad YAML."""
+
+    def test_top_level_capabilities_raises(self, tmp_path):
+        """Top-level capabilities: key is rejected."""
+        _write_yaml(tmp_path / "bad.yaml", """\
+            catalog_entry:
+              id: bad
+              manufacturer: X
+              model: "1"
+              name: Bad
+              type: dmm
+
+            capabilities:
+              - function: dc_voltage
+                direction: input
+        """)
+        with pytest.raises(ValueError, match="top-level"):
+            load_catalog_entry(tmp_path / "bad.yaml")
+
+    def test_unknown_key_raises(self, tmp_path):
+        """Unknown key under catalog_entry: raises ValidationError."""
+        _write_yaml(tmp_path / "bad.yaml", """\
+            catalog_entry:
+              id: bad
+              manufacturer: X
+              model: "1"
+              name: Bad
+              type: dmm
+              bogus_field: 42
+        """)
+        with pytest.raises(Exception, match="bogus_field"):
+            load_catalog_entry(tmp_path / "bad.yaml")
+
+    def test_interfaces_field_loads(self, tmp_path):
+        """interfaces field is accepted and parsed."""
+        _write_yaml(tmp_path / "iface.yaml", """\
+            catalog_entry:
+              id: iface_test
+              manufacturer: X
+              model: "1"
+              name: Test
+              type: dmm
+              interfaces: [usb, gpib]
+        """)
+        entry = load_catalog_entry(tmp_path / "iface.yaml")
+        assert entry.interfaces == ["usb", "gpib"]

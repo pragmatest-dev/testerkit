@@ -14,6 +14,8 @@ from pydantic import BaseModel, Field
 
 from litmus.config.models import Attribute, ChannelTopology, InstrumentCapability
 
+__all__ = ["InstrumentCatalogEntry"]
+
 
 class InstrumentCatalogEntry(BaseModel):
     """Structured capability data for a specific instrument make/model.
@@ -32,21 +34,23 @@ class InstrumentCatalogEntry(BaseModel):
           model: "34461A"
           name: "Keysight 34461A Digital Multimeter"
           type: dmm
+          interfaces: [usb, lan, gpib]
           channels:
             "1":
               terminals: [hi, lo]
               connector: binding_post
               ground: shared
-
-        capabilities:
-          - function: dc_voltage
-            direction: input
-            parameters:
-              voltage:
-                range: {min: 0.0001, max: 1000, units: V}
-                accuracy: {pct_reading: 0.0035, pct_range: 0.0006}
-                resolution: {digits: 6.5}
+          capabilities:
+            - function: dc_voltage
+              direction: input
+              signals:
+                voltage:
+                  range: {min: 0.0001, max: 1000, units: V}
+                  accuracy: {pct_reading: 0.0035, pct_range: 0.0006}
+                  resolution: {digits: 6.5}
     """
+
+    model_config = {"extra": "forbid"}
 
     id: str
     manufacturer: str
@@ -55,6 +59,8 @@ class InstrumentCatalogEntry(BaseModel):
     description: str | None = None
     type: str  # e.g. "dmm", "psu", "scope", "fgen", "smu", "eload"
     base: str | None = None  # Variant inheritance: ID of base catalog entry
+    interfaces: list[str] = Field(default_factory=list)
+    form_factor: str | None = None
     channels: dict[str, ChannelTopology] = Field(default_factory=dict)
     attributes: dict[str, Attribute] = Field(default_factory=dict)
     capabilities: list[InstrumentCapability] = Field(default_factory=list)
