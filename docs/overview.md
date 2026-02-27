@@ -235,10 +235,9 @@ Everything is organized by what it describes:
 ## Getting Started
 
 ```bash
-git clone <repo-url>
-cd litmus
-uv sync
-pytest                    # Run tests
-litmus serve              # Start UI at localhost:8000
-litmus setup claude-code  # Configure for AI assistant
+pip install litmus                # Install
+litmus init my-project            # Scaffold folders, VS Code schemas, example configs
+cd my-project
+litmus serve                      # Start operator UI at localhost:8000
+litmus setup claude-code          # Optional: configure AI assistant
 ```
