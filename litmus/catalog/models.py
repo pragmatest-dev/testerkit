@@ -52,10 +52,10 @@ class InstrumentCatalogEntry(BaseModel):
 
     model_config = {"extra": "forbid"}
 
-    id: str
+    id: str | None = None  # Defaults to filename stem in loader
     manufacturer: str
     model: str
-    name: str
+    name: str | None = None  # Defaults to "{manufacturer} {model}" in loader
     description: str | None = None
     type: str  # e.g. "dmm", "psu", "scope", "fgen", "smu", "eload"
     base: str | None = None  # Variant inheritance: ID of base catalog entry

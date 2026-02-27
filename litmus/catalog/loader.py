@@ -165,11 +165,12 @@ def _build_entry(data: dict[str, Any], path: Path) -> InstrumentCatalogEntry:
     # Pre-parse complex fields
     parsed: dict[str, Any] = dict(entry_data)
 
-    # Defaults for required fields
+    # Derived defaults for optional identity fields
     parsed.setdefault("id", path.stem)
-    parsed.setdefault("manufacturer", "")
-    parsed.setdefault("name", path.stem)
-    parsed.setdefault("type", "")
+    if not parsed.get("name"):
+        mfr = parsed.get("manufacturer", "")
+        model = parsed.get("model", "")
+        parsed["name"] = f"{mfr} {model}".strip() or path.stem
     parsed["model"] = str(parsed.get("model", ""))
 
     # Parse complex sub-structures
