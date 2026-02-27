@@ -471,7 +471,7 @@ class SpecBand(BaseModel):
 
     when: dict[str, "RangeSpec | PointSpec | ListSpec | str | float | bool | list[str | float | bool]"] = Field(default_factory=dict)
     range: RangeSpec | None = None  # Derated range at this operating point
-    value: float | None = None  # Nominal/typical at this operating point
+    value: float | str | None = None  # Nominal/typical at this operating point
     accuracy: AccuracySpec | None = None
     resolution: ResolutionSpec | None = None
 
@@ -623,21 +623,34 @@ class Attribute(BaseModel):
                 value: 0.001
               - when: {range: 10000}
                 value: 0.0001
+          scpi_version:
+            value: "1997.0"
+          supported_emulations:
+            options: ["8340", "8360", "83700"]
     """
 
     model_config = {"extra": "forbid"}
 
-    value: float | None = None
+    value: float | str | None = None
     range: RangeSpec | None = None
+    options: list[float | str] | None = None
     units: str | None = None
     specs: list[SpecBand] | None = None
 
     @model_validator(mode="after")
-    def _require_value_or_range(self) -> "Attribute":
-        if self.value is None and self.range is None:
-            raise ValueError("Attribute must have either 'value' or 'range'")
-        if self.value is not None and self.range is not None:
-            raise ValueError("Attribute cannot have both 'value' and 'range'")
+    def _require_value_range_or_options(self) -> "Attribute":
+        has_value = self.value is not None
+        has_range = self.range is not None
+        has_options = self.options is not None
+        count = sum([has_value, has_range, has_options])
+        if count == 0:
+            raise ValueError(
+                "Attribute must have exactly one of 'value', 'range', or 'options'"
+            )
+        if count > 1:
+            raise ValueError(
+                "Attribute cannot have more than one of 'value', 'range', and 'options'"
+            )
         return self
 
 

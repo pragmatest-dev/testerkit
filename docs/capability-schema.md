@@ -111,21 +111,25 @@ Use this when a fixed fact varies by operating condition (e.g., test current by 
 ```yaml
 attributes:
   sample_rate:
-    value: 5000000000        # scalar: use 'value'
+    value: 5000000000        # numeric scalar
     units: Sa/s
   operating_temperature:
-    range: {min: 0, max: 55, units: degC}   # min/max: use 'range'
+    range: {min: 0, max: 55, units: degC}   # min/max range
+  scpi_version:
+    value: "1997.0"          # string scalar
+  command_emulation:
+    options: ["8340", "8360", "83700"]   # enumerated list
   test_current:
     value: 0.001
     units: A
-    specs:
+    specs:                   # condition-dependent overrides
       - when: {range: 100}
         value: 0.001
       - when: {range: 10000}
         value: 0.0001
 ```
 
-Attributes support either `value` (scalar) or `range` (min/max), never both.
+Attributes support exactly one of `value` (numeric or string scalar), `range` (min/max), or `options` (enumerated list).
 
 ## MeasurementFunction — use the MOST SPECIFIC value
 
