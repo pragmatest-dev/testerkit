@@ -19,7 +19,7 @@
 | Tribal knowledge matching | **Know instantly if your bench can test your board.** Automated matching compares product specs against instrument capabilities — range, accuracy, resolution — and tells you exactly what's missing. | Capability matching engine, 157-instrument catalog |
 | Changing limits means code | **Test engineers edit YAML, not Python.** Limits, sweep vectors, instrument assignments, and station configs are all plain text files — validated on load, reviewable in PRs. | YAML config with Pydantic validation, VS Code schema support |
 | Scattered unlinked data | **Every measurement traces back to its source.** DUT serial, instrument serial, calibration date, channel, operator, git commit — all in one row, queryable across runs. | Parquet storage, traceability model |
-| AI can't help | **AI agents can read, write, and run every part of your test project.** MCP tools expose config, instruments, matching, and test execution. Works with Claude Code, Cursor, and more. | MCP server, HTTP API |
+| AI can't help | **AI agents can read, write, and run every part of your test project.** MCP tools expose config, instruments, matching, and test execution. MCP tools expose config, instruments, matching, and test execution. Compatible with any MCP-capable tool. | MCP server, HTTP API |
 | Vendor lock-in | **It's pytest, YAML, and Python.** No proprietary runtime, no license server, no binary config files. Everything is open, version-controlled, and built on libraries with massive ecosystems. | pytest integration, open-source stack |
 
 ## Design Principles
@@ -163,7 +163,7 @@ One setup command (`litmus setup claude-code`) gives AI assistants direct access
 | Run tests | Executes pytest, returns structured results |
 | Open results in browser | Launches UI to specific entity |
 
-Works with Claude Code, Claude Desktop, Cursor, and Cline. WSL-aware — auto-detects and configures Windows paths.
+Setup commands for Claude Code, Claude Desktop, Cursor, and Cline. Compatible with any MCP-capable tool. WSL-aware — auto-detects and configures Windows paths.
 
 ---
 
@@ -229,7 +229,7 @@ Everything is organized by what it describes:
 - **157 catalog entries** across 24 instrument vendors
 - **847 passing tests** with full CI coverage
 - **Operator UI** with fixture designer, results browser, analytics
-- **MCP integration** tested with Claude Code, Claude Desktop, Cursor
+- **MCP integration** tested with Claude Code and Claude Desktop; setup commands for Cursor and Cline
 - **VS Code support** — JSON Schema validation for YAML files via `litmus init`
 
 ## Getting Started
