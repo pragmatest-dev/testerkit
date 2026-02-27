@@ -36,15 +36,15 @@ pins:
   VIN:
     name: "J1.1"
     net: "VIN_5V"
-    type: power
+    role: power
   VOUT:
     name: "J1.3"
     net: "VOUT_3V3"
-    type: signal
+    role: signal
   GND:
     name: "J1.2"
     net: "GND"
-    type: ground
+    role: ground
 
 characteristics:
   input_voltage:
@@ -87,7 +87,7 @@ pins:
   VIN:
     name: "J1.1"           # Physical marking
     net: "VIN_5V"          # Schematic net name
-    type: power            # power, signal, ground, control
+    role: power            # power, signal, ground, control
 ```
 
 ### Characteristics
@@ -227,10 +227,10 @@ product:
 pins:
   VIN:
     name: "J1.1"
-    type: power
+    role: power
   VOUT:
     name: "J1.3"
-    type: signal
+    role: signal
 
 characteristics:
   input_voltage:

@@ -69,12 +69,22 @@ NEVER encode conditions in attribute names. This is the #1 most common error. Ex
 Match the type to the referenced control/condition:
 - Range band: `{min: 20, max: 300}` (units inherited from the referenced condition/control — do NOT repeat them)
 - Point value: `frequency: 100000000` (scalar, NOT `{min: 100000000, max: 100000000}`)
+- Point with units: `frequency: {value: 100000000, units: Hz}` (when units differ from parent or need to be explicit)
 - Scalar string: `rate: "SLOW"` (string-options control — NOT numeric index)
 - Scalar bool: `autorange: true`
 - List: `output_impedance: [50, 600]`
+- List with units: `impedance: {values: [50, 600], units: ohm}`
 
 When a control has string `options:`, the `when` value MUST use the label string, never a numeric index.
 When min == max, use a scalar value, NEVER a degenerate range.
+
+### Range vs Value
+
+For signal/condition/attribute/SpecBand-override **declarations**:
+- **Different min/max** → `range: {min: 0.1, max: 10, units: V}`
+- **Single fixed value** → `value: 50, units: ohm` (NEVER `range: {min: 50, max: 50, units: ohm}`)
+
+For SpecBand **`when` clauses**, single points are bare scalars (see above): `frequency: 100000000`, not `value:` syntax.
 
 ### Vacuous SpecBands
 

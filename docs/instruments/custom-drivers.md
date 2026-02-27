@@ -455,4 +455,4 @@ instruments:
 
 - [Capability Interfaces](../capabilities.md) — Full list of capability protocols
 - [Fixture Manager](../fixtures.md) — Pin-to-instrument routing
-- [pytest Plugin](../pytest-plugin.md) — Using instruments in tests
+- [pytest Plugin](../reference/pytest-plugin.md) — Using instruments in tests

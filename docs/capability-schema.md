@@ -46,10 +46,14 @@ signals:
 | YAML value | Type | Match logic |
 |------------|------|-------------|
 | `{min: 20, max: 300}` | RangeSpec | Range containment (`min <= val <= max`) |
+| `{value: 100e6, units: Hz}` | PointSpec | Exact equality (with explicit units) |
+| `{values: [50, 600], units: ohm}` | ListSpec | Membership (with explicit units) |
 | `"SLOW"` | string | Exact equality |
 | `50` | float | Exact equality |
 | `true` | bool | Exact equality |
-| `[50, 600, "HiZ"]` | list | Membership (`val in list`) |
+| `[50, 600, "HiZ"]` | list | Membership |
+
+Bare scalars and lists work when units match the parent. Use PointSpec/ListSpec when you need explicit units.
 
 ```yaml
 specs:
@@ -63,6 +67,9 @@ specs:
   - when:
       output_impedance: [50, 600]               # list membership match
     accuracy: {pct_reading: 0.3}
+  - when:
+      frequency: {value: 100000000, units: Hz}  # point with explicit units
+    accuracy: {pct_reading: 0.05}
 ```
 
 ### conditions — operating conditions that affect accuracy

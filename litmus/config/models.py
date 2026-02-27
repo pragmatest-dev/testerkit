@@ -350,6 +350,32 @@ class RangeSpec(BaseModel):
     units: str = ""
 
 
+class PointSpec(BaseModel):
+    """A single numeric value with optional units.
+
+    Used in SpecBand ``when`` clauses when a point value needs explicit units
+    (e.g., ``frequency: {value: 100000000, units: Hz}``).
+    """
+
+    model_config = {"extra": "forbid"}
+
+    value: float
+    units: str = ""
+
+
+class ListSpec(BaseModel):
+    """A discrete set of allowed values with optional units.
+
+    Used in SpecBand ``when`` clauses for membership matching
+    (e.g., ``impedance: {values: [50, 600], units: ohm}``).
+    """
+
+    model_config = {"extra": "forbid"}
+
+    values: list[str | float | bool]
+    units: str = ""
+
+
 class AccuracySpec(BaseModel):
     """Specification for measurement accuracy."""
 
@@ -443,7 +469,7 @@ class SpecBand(BaseModel):
 
     model_config = {"extra": "forbid"}
 
-    when: dict[str, "RangeSpec | str | float | bool | list[str | float | bool]"] = Field(default_factory=dict)
+    when: dict[str, "RangeSpec | PointSpec | ListSpec | str | float | bool | list[str | float | bool]"] = Field(default_factory=dict)
     range: RangeSpec | None = None  # Derated range at this operating point
     value: float | None = None  # Nominal/typical at this operating point
     accuracy: AccuracySpec | None = None
@@ -743,6 +769,10 @@ class Capability(BaseModel):
             for band in specs:
                 for key, val in band.when.items():
                     if isinstance(val, RangeSpec) and not val.units and key in units_map:
+                        val.units = units_map[key]
+                    elif isinstance(val, PointSpec) and not val.units and key in units_map:
+                        val.units = units_map[key]
+                    elif isinstance(val, ListSpec) and not val.units and key in units_map:
                         val.units = units_map[key]
 
         for sig_name, sig in self.signals.items():

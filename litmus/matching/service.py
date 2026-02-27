@@ -24,6 +24,8 @@ from litmus.config.models import (
     Direction,
     InstrumentCapability,
     MatchDepth,
+    ListSpec,
+    PointSpec,
     RangeSpec,
     Signal,
     MeasurementFunction,
@@ -566,6 +568,12 @@ def _band_matches(band: SpecBand, operating_point: dict[str, float | str | bool]
             if spec.min is not None and val < spec.min:
                 return False
             if spec.max is not None and val > spec.max:
+                return False
+        elif isinstance(spec, PointSpec):
+            if val != spec.value:
+                return False
+        elif isinstance(spec, ListSpec):
+            if val not in spec.values:
                 return False
         elif isinstance(spec, list):
             if val not in spec:

@@ -413,5 +413,5 @@ Parquet Storage
 
 ## Next Steps
 
-- [Configuration Reference](configuration.md) — Detailed YAML schemas
-- [pytest Plugin Guide](pytest-plugin.md) — Writing tests with `@litmus_test`
+- [Configuration Reference](reference/configuration.md) — Detailed YAML schemas
+- [pytest Plugin Guide](reference/pytest-plugin.md) — Writing tests with `@litmus_test`
