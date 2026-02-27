@@ -134,7 +134,6 @@ reports/
 
 # IDE
 .idea/
-.vscode/
 
 # uv
 .python-version
@@ -164,6 +163,31 @@ A [Litmus](https://github.com/anthropics/litmus) hardware test project.
 """
         readme_path.write_text(readme_content)
         created_files.append("README.md")
+
+    # Create .vscode/ with YAML schema validation
+    vscode_dir = path / ".vscode"
+    settings_path = vscode_dir / "settings.json"
+    if not settings_path.exists():
+        import json
+
+        from litmus.schema import generate_schemas
+
+        schemas_dir = vscode_dir / "schemas"
+        try:
+            generate_schemas(schemas_dir)
+            settings = {
+                "yaml.schemas": {
+                    ".vscode/schemas/product.schema.json": "products/*/spec.yaml",
+                    ".vscode/schemas/catalog.schema.json": "catalog/**/*.yaml",
+                },
+            }
+            vscode_dir.mkdir(exist_ok=True)
+            settings_path.write_text(json.dumps(settings, indent=2) + "\n")
+            created_files.append(".vscode/settings.json")
+            created_files.append(".vscode/schemas/product.schema.json")
+            created_files.append(".vscode/schemas/catalog.schema.json")
+        except Exception:
+            warnings.append("Failed to generate VS Code YAML schemas")
 
     # Initialize git repository
     git_initialized = False

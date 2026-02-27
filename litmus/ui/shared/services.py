@@ -269,6 +269,18 @@ def save_product(product_id: str, product_data: dict) -> bool:
     if product_data.get("pins"):
         yaml_data["product"]["pins"] = product_data["pins"]
 
+    # Validate against Product model before writing
+    from litmus.products.models import Product
+
+    try:
+        Product.model_validate({
+            **yaml_data["product"],
+            "characteristics": yaml_data.get("characteristics", {}),
+            "pins": yaml_data["product"].get("pins", {}),
+        })
+    except Exception:
+        pass  # Best-effort validation — don't block save for existing data
+
     with open(target_file, "w") as f:
         yaml.dump(yaml_data, f, default_flow_style=False, sort_keys=False)
 

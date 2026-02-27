@@ -23,7 +23,9 @@ from pydantic import BaseModel, Field, computed_field, model_validator
 from litmus.config.models import (
     Capability,
     Direction,
+    ListSpec,
     MeasurementFunction,
+    PointSpec,
     RangeSpec,
     SpecBand,
 )
@@ -227,6 +229,12 @@ def _band_matches_product(band: SpecBand, params: dict[str, float | str | bool])
             if spec.min is not None and val < spec.min:
                 return False
             if spec.max is not None and val > spec.max:
+                return False
+        elif isinstance(spec, PointSpec):
+            if val != spec.value:
+                return False
+        elif isinstance(spec, ListSpec):
+            if val not in spec.values:
                 return False
         elif isinstance(spec, list):
             if val not in spec:

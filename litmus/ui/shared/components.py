@@ -91,6 +91,110 @@ def create_hash_tabs(
     return tabs, tab_map, panels
 
 
+def render_capability_detail(cap: dict):
+    """Render read-only detail view for a capability's signals, conditions, controls, attributes.
+
+    Args:
+        cap: Capability dict (from model_dump or raw YAML) with optional keys:
+             signals, conditions, controls, attributes, specs, units.
+    """
+    units = cap.get("units", "")
+
+    # Signals
+    signals = cap.get("signals", {})
+    if signals:
+        ui.label("Signals").classes("text-xs text-slate-500 uppercase font-semibold mt-2")
+        for name, sig in signals.items():
+            parts = [name]
+            if isinstance(sig, dict):
+                r = sig.get("range")
+                if r and isinstance(r, dict):
+                    u = r.get("units") or units
+                    rmin, rmax = r.get("min"), r.get("max")
+                    if rmin is not None and rmax is not None:
+                        parts.append(f"{rmin}–{rmax} {u}".strip())
+                    elif rmin is not None:
+                        parts.append(f"≥ {rmin} {u}".strip())
+                    elif rmax is not None:
+                        parts.append(f"≤ {rmax} {u}".strip())
+                v = sig.get("value")
+                if v is not None:
+                    parts.append(f"= {v}")
+                acc = sig.get("accuracy")
+                if acc and isinstance(acc, dict):
+                    acc_parts = []
+                    if acc.get("pct_reading") is not None:
+                        acc_parts.append(f"±{acc['pct_reading']}% rdg")
+                    if acc.get("pct_range") is not None:
+                        acc_parts.append(f"±{acc['pct_range']}% rng")
+                    if acc.get("absolute") is not None:
+                        acc_parts.append(f"±{acc['absolute']}")
+                    if acc_parts:
+                        parts.append(f"({', '.join(acc_parts)})")
+                res = sig.get("resolution")
+                if res and isinstance(res, dict):
+                    if res.get("digits") is not None:
+                        parts.append(f"{res['digits']}½ digits")
+                    elif res.get("bits") is not None:
+                        parts.append(f"{res['bits']}-bit")
+            ui.label(" · ".join(parts)).classes("text-sm font-mono ml-2")
+
+    # Conditions
+    conditions = cap.get("conditions", {})
+    if conditions:
+        ui.label("Conditions").classes("text-xs text-slate-500 uppercase font-semibold mt-2")
+        for name, cond in conditions.items():
+            if isinstance(cond, dict):
+                r = cond.get("range")
+                if r and isinstance(r, dict):
+                    u = r.get("units", "")
+                    rmin, rmax = r.get("min"), r.get("max")
+                    if rmin is not None and rmax is not None:
+                        ui.label(f"  {name}: {rmin}–{rmax} {u}".strip()).classes(
+                            "text-sm font-mono ml-2"
+                        )
+                    elif rmin is not None:
+                        ui.label(f"  {name}: ≥ {rmin} {u}".strip()).classes(
+                            "text-sm font-mono ml-2"
+                        )
+                    elif rmax is not None:
+                        ui.label(f"  {name}: ≤ {rmax} {u}".strip()).classes(
+                            "text-sm font-mono ml-2"
+                        )
+                else:
+                    ui.label(f"  {name}: {cond}").classes("text-sm font-mono ml-2")
+
+    # Controls
+    controls = cap.get("controls", {})
+    if controls:
+        ui.label("Controls").classes("text-xs text-slate-500 uppercase font-semibold mt-2")
+        for name, ctrl in controls.items():
+            if isinstance(ctrl, dict):
+                parts = [name]
+                if ctrl.get("default") is not None:
+                    parts.append(f"default={ctrl['default']}")
+                r = ctrl.get("range")
+                if r and isinstance(r, dict):
+                    u = r.get("units", "")
+                    parts.append(f"{r.get('min', '')}–{r.get('max', '')} {u}".strip())
+                opts = ctrl.get("options")
+                if opts:
+                    parts.append(f"options={opts}")
+                ui.label(" · ".join(parts)).classes("text-sm font-mono ml-2")
+
+    # Attributes
+    attributes = cap.get("attributes", {})
+    if attributes:
+        ui.label("Attributes").classes("text-xs text-slate-500 uppercase font-semibold mt-2")
+        for name, attr in attributes.items():
+            if isinstance(attr, dict):
+                val = attr.get("value", "")
+                u = attr.get("units", "")
+                ui.label(f"  {name}: {val} {u}".strip()).classes("text-sm font-mono ml-2")
+            else:
+                ui.label(f"  {name}: {attr}").classes("text-sm font-mono ml-2")
+
+
 def setup_hash_sync_for_tabs(tabs, tab_names: list[str]):
     """Add hash sync behavior to existing tabs.
 

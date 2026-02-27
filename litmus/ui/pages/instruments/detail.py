@@ -2,7 +2,7 @@
 
 from nicegui import ui
 
-from litmus.ui.shared.components import setup_hash_sync_for_tabs
+from litmus.ui.shared.components import render_capability_detail, setup_hash_sync_for_tabs
 from litmus.ui.shared.layout import create_layout
 from litmus.ui.shared.services import (
     discover_stations,
@@ -120,6 +120,8 @@ def _render_capability_card(cap: dict):
             with ui.grid(columns=2).classes("gap-4"):
                 _info_field("Function", cap.get("function", ""))
                 _info_field("Direction", cap.get("direction", ""))
+
+            render_capability_detail(cap)
 
 
 def _render_scpi_tab(scpi_commands: dict):

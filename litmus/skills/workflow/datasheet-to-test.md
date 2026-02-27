@@ -21,6 +21,7 @@ This is a COLLABORATIVE workflow — the user approves at every gate.
 - Present choices as numbered lists at the END of your message.
 - ALWAYS use ask_user_input_v0 (or AskUserQuestion in Claude Code) at approval gates — never present options as text like [A]pprove [E]dit.
 - Pass project= to ALL MCP calls after init.
+- Product characteristics use the full Capability schema (signals, conditions, controls, attributes). See docs/capability-schema.md.
 </rules>
 
 <tools>
@@ -63,7 +64,7 @@ Use litmus(action="lookup_enum", id="...") to resolve datasheet abbreviations
 <step id="1.5">
 Extract key information:
 - Product ID, name, description
-- Pin definitions (name, type, net)
+- Pin definitions (name, role, net)
 - Electrical characteristics (voltage, current, power, timing)
 - Test conditions (temperature, load, input voltage)
 - Performance specs with limits (nominal, min, max, tolerance)
@@ -98,7 +99,9 @@ Goal: Save the extracted spec and let user refine it.
 <step id="2.1">
 Show the draft spec structure (YAML preview).
 Highlight any uncertainties or missing fields.
-Refer to refs/product-schema.md for the full product spec structure.
+Refer to refs/product-schema.md for product structure and docs/capability-schema.md for the
+four-dict capability schema (signals, conditions, controls, attributes) and SpecBand rules.
+Characteristics use the full Capability schema — all capability-schema rules apply.
 </step>
 
 <step id="2.2">

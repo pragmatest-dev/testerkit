@@ -2,7 +2,7 @@
 
 from nicegui import ui
 
-from litmus.ui.shared.components import setup_hash_sync_for_tabs
+from litmus.ui.shared.components import render_capability_detail, setup_hash_sync_for_tabs
 from litmus.ui.shared.layout import create_layout
 from litmus.ui.shared.services import (
     discover_products,
@@ -112,24 +112,20 @@ def _render_characteristics_tab(characteristics: dict):
     """Render the characteristics tab."""
     if characteristics:
         with ui.card().classes("w-full"):
-            columns = [
-                {"name": "name", "label": "Name", "field": "name", "align": "left"},
-                {"name": "function", "label": "Function", "field": "function"},
-                {"name": "direction", "label": "Direction", "field": "direction"},
-                {"name": "units", "label": "Units", "field": "units"},
-                {"name": "specs", "label": "SpecBands", "field": "specs"},
-            ]
-            rows = [
-                {
-                    "name": name,
-                    "function": char.get("function", ""),
-                    "direction": char.get("direction", ""),
-                    "units": char.get("units", ""),
-                    "specs": len(char.get("specs", [])),
-                }
-                for name, char in characteristics.items()
-            ]
-            ui.table(columns=columns, rows=rows, row_key="name").classes("w-full")
+            for name, char in characteristics.items():
+                with ui.expansion(
+                    f"{name}  —  {char.get('function', '')} ({char.get('direction', '')})",
+                    icon="tune",
+                ).classes("w-full"):
+                    with ui.column().classes("gap-1 p-2"):
+                        with ui.row().classes("gap-4"):
+                            with ui.column().classes("gap-0"):
+                                ui.label("Units").classes("text-xs text-slate-500 uppercase")
+                                ui.label(char.get("units", "—")).classes("font-mono")
+                            with ui.column().classes("gap-0"):
+                                ui.label("SpecBands").classes("text-xs text-slate-500 uppercase")
+                                ui.label(str(len(char.get("specs", [])))).classes("font-mono")
+                        render_capability_detail(char)
     else:
         ui.label("No characteristics defined.").classes("text-slate-500 italic")
 
@@ -157,14 +153,14 @@ def _render_sequences_tab(product_id: str):
                         },
                         {"name": "function", "label": "Function", "field": "function"},
                         {"name": "direction", "label": "Inst. Direction", "field": "direction"},
-                        {"name": "parameters", "label": "Parameters", "field": "parameters"},
+                        {"name": "signals", "label": "Signals", "field": "signals"},
                     ]
                     rows = [
                         {
                             "char": cap["characteristic"],
                             "function": cap["function"],
                             "direction": cap["direction"],
-                            "parameters": cap.get("parameters", ""),
+                            "signals": cap.get("signals", ""),
                         }
                         for cap in required_caps
                     ]

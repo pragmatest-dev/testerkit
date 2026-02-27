@@ -69,14 +69,14 @@ def _render_requirements(product_id: str, product: dict):
                             "label": "Instrument Direction",
                             "field": "direction",
                         },
-                        {"name": "parameters", "label": "Parameters", "field": "parameters"},
+                        {"name": "signals", "label": "Signals", "field": "signals"},
                     ]
                     rows = [
                         {
                             "characteristic": cap["characteristic"],
                             "function": cap["function"],
                             "direction": cap["direction"],
-                            "parameters": cap.get("parameters", ""),
+                            "signals": cap.get("signals", ""),
                         }
                         for cap in capabilities
                     ]

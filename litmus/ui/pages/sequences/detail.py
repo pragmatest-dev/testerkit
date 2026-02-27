@@ -283,14 +283,14 @@ def _render_requirements_tab(sequence_id: str, seq: dict):
                             },
                             {"name": "function", "label": "Function", "field": "function"},
                             {"name": "direction", "label": "Direction", "field": "direction"},
-                            {"name": "parameters", "label": "Parameters", "field": "parameters"},
+                            {"name": "signals", "label": "Signals", "field": "signals"},
                         ]
                         rows = [
                             {
                                 "char": cap["characteristic"],
                                 "function": cap["function"],
                                 "direction": cap["direction"],
-                                "parameters": cap.get("parameters", ""),
+                                "signals": cap.get("signals", ""),
                             }
                             for cap in required_caps
                         ]

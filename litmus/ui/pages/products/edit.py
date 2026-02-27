@@ -185,24 +185,30 @@ def _render_characteristics_tab(form_data: dict):
 
 
 def _render_condition(index: int, cond: dict):
-    """Render a condition card."""
+    """Render a condition card (key → range/value dict)."""
     with ui.card().classes("w-full mt-2"):
         with ui.card_section():
-            cond_params = {
-                k: v
-                for k, v in cond.items()
-                if k not in ["nominal", "limit_low", "limit_high", "tolerance_pct", "description"]
-            }
-            ui.label(f"Condition {index + 1}: {cond_params}").classes("text-xs text-slate-500")
-            with ui.row().classes("gap-4 mt-2"):
-                if cond.get("nominal") is not None:
-                    ui.chip(f"Nominal: {cond['nominal']}").props("outline")
-                if cond.get("limit_low") is not None:
-                    ui.chip(f"Min: {cond['limit_low']}").props("outline color=red")
-                if cond.get("limit_high") is not None:
-                    ui.chip(f"Max: {cond['limit_high']}").props("outline color=red")
-                if cond.get("tolerance_pct") is not None:
-                    ui.chip(f"±{cond['tolerance_pct']}%").props("outline color=blue")
+            ui.label(f"Condition {index + 1}").classes("text-xs text-slate-500 font-semibold")
+            with ui.row().classes("gap-4 mt-2 flex-wrap"):
+                if isinstance(cond, dict):
+                    for key, spec in cond.items():
+                        if isinstance(spec, dict):
+                            parts = [key]
+                            if "min" in spec and "max" in spec:
+                                parts.append(f"{spec['min']}–{spec['max']}")
+                            elif "min" in spec:
+                                parts.append(f"≥ {spec['min']}")
+                            elif "max" in spec:
+                                parts.append(f"≤ {spec['max']}")
+                            elif "value" in spec:
+                                parts.append(str(spec["value"]))
+                            elif "values" in spec:
+                                parts.append(str(spec["values"]))
+                            if spec.get("units"):
+                                parts.append(spec["units"])
+                            ui.chip(" ".join(parts)).props("outline")
+                        else:
+                            ui.chip(f"{key}: {spec}").props("outline")
 
 
 # -----------------------------------------------------------------------------
@@ -282,11 +288,9 @@ def _show_add_pin_dialog(on_add: callable):
 
 def _show_add_char_dialog(on_add: callable):
     """Show dialog to add a new characteristic."""
-    function_options = [
-        "dc_voltage", "ac_voltage", "dc_current", "ac_current",
-        "resistance", "resistance_4w", "capacitance", "inductance",
-        "frequency", "temperature", "dc_power", "ac_power", "waveform",
-    ]
+    from litmus.config.models import Direction, MeasurementFunction
+
+    function_options = [f.value for f in MeasurementFunction]
     char_form = {"name": "", "function": "dc_voltage", "direction": "output", "units": "V"}
 
     with ui.dialog() as dialog, ui.card().classes("w-96"):
@@ -302,7 +306,7 @@ def _show_add_char_dialog(on_add: callable):
             )
             _labeled_select(
                 "Direction",
-                options=["input", "output", "bidir"],
+                options=[d.value for d in Direction],
                 value="output",
                 on_change=lambda e: char_form.update({"direction": e.value}),
             )

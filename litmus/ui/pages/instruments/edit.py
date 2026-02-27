@@ -45,14 +45,11 @@ def instrument_edit_page(instrument_type: str):
         "simulation": dict(data.get("simulation", {})),
     }
 
-    # Function and direction options
-    direction_options = ["input", "output", "bidir"]
-    function_options = [
-        "dc_voltage", "ac_voltage", "dc_current", "ac_current",
-        "resistance", "resistance_4w", "capacitance", "inductance",
-        "impedance", "frequency", "period", "temperature",
-        "waveform", "dc_power", "ac_power",
-    ]
+    from litmus.config.models import Direction, MeasurementFunction
+
+    # Function and direction options — derived from model enums
+    direction_options = [d.value for d in Direction]
+    function_options = [f.value for f in MeasurementFunction]
 
     with ui.column().classes("w-full p-6 gap-6"):
         # Header
