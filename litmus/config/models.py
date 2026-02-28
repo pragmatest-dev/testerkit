@@ -458,6 +458,7 @@ class ChannelTopology(BaseModel):
     connector: ConnectorType | None = None
     connector_pin: dict[str, int | str] | None = None  # Terminal role → pin number/name
     ground: GroundTopology = GroundTopology.SHARED
+    optional: bool = False  # Channel may not be present on all configurations
 
 
 class SpecBand(BaseModel):

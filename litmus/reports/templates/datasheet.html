@@ -139,9 +139,10 @@ document.querySelectorAll('.related-link').forEach(row => {
 
 {# ── Channels ── #}
 {% if data.channels %}
+{% set has_optional = data.channels.values() | selectattr('optional') | list | length > 0 %}
 <h2 id="channels">Channels</h2>
 <table>
-  <thead><tr><th>ID</th><th>Label</th><th>Connector</th><th>Terminals</th><th>Ground</th></tr></thead>
+  <thead><tr><th>ID</th><th>Label</th><th>Connector</th><th>Terminals</th><th>Ground</th>{% if has_optional %}<th>Optional</th>{% endif %}</tr></thead>
   <tbody>
   {% for ch_id, ch in data.channels.items() %}
   <tr>
@@ -150,6 +151,7 @@ document.querySelectorAll('.related-link').forEach(row => {
     <td>{{ ch.connector or '—' }}</td>
     <td>{{ ch.terminals | join(', ') if ch.terminals else '—' }}</td>
     <td>{{ ch.ground or '—' }}</td>
+    {% if has_optional %}<td>{{ 'yes' if ch.optional else '—' }}</td>{% endif %}
   </tr>
   {% endfor %}
   </tbody>
