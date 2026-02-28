@@ -236,8 +236,8 @@ Everything is organized by what it describes:
 
 ```bash
 pip install litmus                # Install
-litmus init my-project            # Scaffold folders, VS Code schemas, example configs
-cd my-project
+litmus init my-project --discover # Scaffold project + auto-detect instruments
+cd my-project && uv sync          # Install dependencies
 litmus serve                      # Start operator UI at localhost:8000
 litmus setup claude-code          # Optional: configure AI assistant
 ```

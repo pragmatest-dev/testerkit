@@ -11,9 +11,9 @@ def pytester_with_test(pytester):
     """Create a minimal test file and station config."""
     pytester.makefile(
         ".yaml",
-        station_001="""
+        station="""
 station:
-  id: station_001
+  id: station
 instruments: {}
 """,
     )
@@ -21,8 +21,8 @@ instruments: {}
     # Move the yaml into stations/
     import shutil
     shutil.move(
-        str(pytester.path / "station_001.yaml"),
-        str(pytester.path / "stations" / "station_001.yaml"),
+        str(pytester.path / "station.yaml"),
+        str(pytester.path / "stations" / "station.yaml"),
     )
 
     pytester.makepyfile("""

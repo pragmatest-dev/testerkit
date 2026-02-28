@@ -18,33 +18,39 @@ def main():
 @main.command()
 @click.argument("name", required=False)
 @click.option("--no-git", is_flag=True, help="Skip git initialization")
-def init(name: str | None, no_git: bool):
+@click.option("--discover", is_flag=True, help="Auto-discover instruments and create station file")
+def init(name: str | None, no_git: bool, discover: bool):
     """Initialize a new Litmus project.
 
-    Creates a new project directory with scaffolding for hardware tests.
+    With NAME: creates a new directory and scaffolds inside it.
+    Without NAME: scaffolds the current directory (like ``uv init``).
 
-    Example:
+    All files are skip-if-exists, so it's safe to run on an existing project.
+
+    Examples:
 
         litmus init my_project
 
-        cd my_project
+        litmus init --discover
 
-        uv sync
+        litmus init my_project --discover
     """
     from pathlib import Path
 
     from litmus.init import check_command, init_project
 
-    # Prompt for name if not provided
-    if not name:
-        name = click.prompt("Project name")
-
-    project_path = Path.cwd() / name
-
-    # Check if directory already exists
-    if project_path.exists():
-        click.echo(f"Error: '{name}' already exists", err=True)
-        raise SystemExit(1)
+    if name:
+        # New-directory mode
+        project_path = Path.cwd() / name
+        if project_path.exists():
+            click.echo(f"Error: '{name}' already exists", err=True)
+            raise SystemExit(1)
+        project_path.mkdir()
+        cwd_mode = False
+    else:
+        # Scaffold CWD mode
+        project_path = Path.cwd()
+        cwd_mode = True
 
     # Check dependencies and warn if missing
     if not check_command("git") and not no_git:
@@ -56,12 +62,21 @@ def init(name: str | None, no_git: bool):
         click.echo("Warning: uv not found")
         click.echo("  Install: curl -LsSf https://astral.sh/uv/install.sh | sh")
 
-    # Create and initialize project
-    project_path.mkdir()
-    result = init_project(project_path, git=not no_git)
+    # Instrument discovery
+    station = None
+
+    if discover:
+        station = _discover_instruments(interactive=False)
+    elif click.confirm("Discover instruments?", default=False):
+        station = _discover_instruments(interactive=True)
+
+    result = init_project(project_path, git=not no_git, station=station)
 
     # Print summary
-    click.echo(f"\nCreated {name}/")
+    if cwd_mode:
+        click.echo(f"\nInitialized litmus project in {project_path.name}/")
+    else:
+        click.echo(f"\nCreated {name}/")
     for d in result["created_dirs"]:
         click.echo(f"  {d}/")
     for f in result["created_files"]:
@@ -74,10 +89,102 @@ def init(name: str | None, no_git: bool):
         click.echo(f"Warning: {warning}")
 
     click.echo("\nNext steps:")
-    click.echo(f"  cd {name}")
-    click.echo("  uv sync")
-    click.echo("  # Edit stations/, products/, tests/")
-    click.echo("  pytest tests/ --station=<station> --mock-instruments --dut-serial=TEST001")
+    if not cwd_mode:
+        click.echo(f"  cd {name}")
+        click.echo("  uv sync")
+    if station:
+        click.echo("  pytest tests/ --mock-instruments --dut-serial=TEST001")
+    else:
+        click.echo("  pytest tests/ --mock-instruments --dut-serial=TEST001")
+
+
+def _discover_instruments(interactive: bool = True) -> dict | None:
+    """Discover instruments and build station data.
+
+    Args:
+        interactive: If True, prompt user for role names.
+            If False, auto-name from catalog type.
+
+    Returns:
+        Station dict with ``instruments`` mapping, or None if nothing found.
+    """
+    from litmus.instruments.discovery import discover_and_identify
+
+    click.echo("\nDiscovering instruments...")
+    results = discover_and_identify(["visa"])
+
+    # Flatten all discovered instruments
+    all_instruments: list[tuple[str, object]] = []
+    for _proto, items in results.items():
+        all_instruments.extend(items)
+
+    if not all_instruments:
+        click.echo("  No instruments found.")
+        return None
+
+    # First pass: determine default role for each instrument
+    pending: list[tuple[str, object, str]] = []  # (resource, info, default_role)
+    for resource, info in all_instruments:
+        if info:
+            mfr = info.manufacturer or "Unknown"
+            model = info.model or "Unknown"
+            click.echo(f"  {mfr} {model} ({resource})")
+        else:
+            click.echo(f"  {resource} (could not identify)")
+
+        # Determine default role from catalog type
+        role = None
+        if info and info.manufacturer and info.model:
+            try:
+                from litmus.catalog.loader import find_by_model
+
+                entry = find_by_model(info.manufacturer, info.model)
+                if entry and entry.type:
+                    role = entry.type.value
+            except Exception:
+                pass
+
+        if not role and info and info.model:
+            role = info.model.lower().replace("-", "_").replace(" ", "_")
+
+        if not role:
+            role = "instrument"
+
+        pending.append((resource, info, role))
+
+    # Second pass: prompt for roles (interactive) or auto-assign
+    assigned: list[tuple[str, str, object]] = []  # (role, resource, info)
+    for resource, info, default_role in pending:
+        if interactive:
+            label = info.model if info and info.model else resource
+            role = click.prompt(f"    {label} role", default=default_role)
+            if role.lower() == "skip":
+                continue
+        else:
+            role = default_role
+        assigned.append((role, resource, info))
+
+    if not assigned:
+        return None
+
+    # Deduplicate roles: if multiple instruments share a role, number them
+    role_counts: dict[str, int] = {}
+    for role, _r, _i in assigned:
+        role_counts[role] = role_counts.get(role, 0) + 1
+
+    role_index: dict[str, int] = {}
+    station_instruments: dict[str, dict] = {}
+    for role, resource, info in assigned:
+        if role_counts[role] > 1:
+            idx = role_index.get(role, 0) + 1
+            role_index[role] = idx
+            final_role = f"{role}{idx}"
+        else:
+            final_role = role
+
+        station_instruments[final_role] = {"resource": resource}
+
+    return {"instruments": station_instruments}
 
 
 # -----------------------------------------------------------------------------

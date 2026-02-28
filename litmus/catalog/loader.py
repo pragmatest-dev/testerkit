@@ -350,6 +350,44 @@ def resolve_catalog_ref(catalog_ref: str) -> InstrumentCatalogEntry | None:
     return None
 
 
+def find_by_model(
+    manufacturer: str, model: str
+) -> InstrumentCatalogEntry | None:
+    """Find a catalog entry by manufacturer and model name.
+
+    Searches all catalog directories for an entry whose manufacturer and
+    model match (case-insensitive).  Used by ``litmus init --discover``
+    to look up instrument type for automatic role naming.
+
+    Args:
+        manufacturer: Manufacturer name (e.g., "Keysight").
+        model: Model number (e.g., "34461A").
+
+    Returns:
+        Matching InstrumentCatalogEntry, or None.
+    """
+    mfr_lower = manufacturer.lower()
+    model_lower = model.lower()
+
+    for cat_dir in find_catalog_dirs():
+        for path in sorted(cat_dir.rglob("*.yaml")):
+            if path.name.startswith("_") or ".variants." in path.name:
+                continue
+            try:
+                entry = load_catalog_entry(path, catalog_dir=cat_dir)
+            except Exception:
+                continue
+            if (
+                entry.manufacturer
+                and entry.manufacturer.lower() == mfr_lower
+                and entry.model
+                and entry.model.lower() == model_lower
+            ):
+                return entry
+
+    return None
+
+
 def _parse_channels(raw: Any) -> dict[str, ChannelTopology]:
     """Parse channels from YAML into structured dict.
 

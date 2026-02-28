@@ -17,12 +17,16 @@ def check_command(cmd: str) -> bool:
 def init_project(
     path: Path,
     git: bool = True,
+    station: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Initialize a new Litmus project.
 
     Args:
         path: Directory path to initialize (must already exist).
         git: Whether to initialize a git repository.
+        station: Optional station data to write.  Dict with
+            ``instruments`` mapping role names to dicts with
+            ``resource`` and optional ``info`` keys.
 
     Returns:
         Dict with created_dirs, created_files, warnings, and git_initialized.
@@ -90,7 +94,7 @@ No manual fixture definitions needed here.
 
 Run with --mock-instruments for hardware-free testing:
 
-    pytest tests/ --station=stations/my_bench.yaml --mock-instruments --dut-serial=TEST001
+    pytest tests/ --mock-instruments --dut-serial=TEST001
 """
 
 # Add project-specific fixtures below if needed.
@@ -131,6 +135,7 @@ venv/
 # Litmus
 results/
 reports/
+stations/
 
 # IDE
 .idea/
@@ -189,9 +194,33 @@ A [Litmus](https://github.com/anthropics/litmus) hardware test project.
         except Exception:
             warnings.append("Failed to generate VS Code YAML schemas")
 
-    # Initialize git repository
+    # Write station file if instruments were discovered
+    if station and station.get("instruments"):
+        import yaml
+
+        stations_dir = path / "stations"
+        stations_dir.mkdir(exist_ok=True)
+        station_file = stations_dir / "station.yaml"
+        if not station_file.exists():
+            instruments = {}
+            resources = {}
+            for role, data in station["instruments"].items():
+                inst_id = role
+                instruments[role] = inst_id
+                resources[inst_id] = data["resource"]
+
+            station_data = {
+                "station": {"id": "station", "name": "Default Station"},
+                "instruments": instruments,
+                "resources": resources,
+            }
+            with open(station_file, "w") as f:
+                yaml.dump(station_data, f, default_flow_style=False, sort_keys=False)
+            created_files.append("stations/station.yaml")
+
+    # Initialize git repository (skip if already in a repo)
     git_initialized = False
-    if git:
+    if git and not (path / ".git").exists():
         if check_command("git"):
             try:
                 subprocess.run(

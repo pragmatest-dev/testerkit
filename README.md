@@ -195,7 +195,7 @@ Closest to OpenHTF in spirit. pytest instead of a custom executor, config files 
 ## CLI
 
 ```bash
-litmus init <name>              # New project
+litmus init <name>              # New project (--discover to auto-detect instruments)
 litmus serve [--reload]         # Operator UI
 litmus runs / show <id>         # Results
 litmus discover [--visa]        # Scan for instruments

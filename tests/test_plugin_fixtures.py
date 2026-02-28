@@ -125,9 +125,9 @@ class TestAutoRegistration:
         pytester.makefile(
             ".yaml",
             **{
-                "stations/station_001": textwrap.dedent("""\
+                "stations/station": textwrap.dedent("""\
                     station:
-                      id: station_001
+                      id: station
                     instruments:
                       dmm:
                         driver: builtins.object
@@ -191,9 +191,9 @@ class TestAutoRegistration:
         pytester.makefile(
             ".yaml",
             **{
-                "stations/station_001": textwrap.dedent("""\
+                "stations/station": textwrap.dedent("""\
                     station:
-                      id: station_001
+                      id: station
                     instruments:
                       psu:
                         driver: builtins.object
@@ -233,9 +233,9 @@ class TestAutoRegistration:
         pytester.makefile(
             ".yaml",
             **{
-                "stations/station_001": textwrap.dedent("""\
+                "stations/station": textwrap.dedent("""\
                     station:
-                      id: station_001
+                      id: station
                     instruments:
                       dmm:
                         driver: builtins.object
@@ -282,9 +282,9 @@ class TestAutoRegistration:
         pytester.makefile(
             ".yaml",
             **{
-                "stations/station_001": textwrap.dedent("""\
+                "stations/station": textwrap.dedent("""\
                     station:
-                      id: station_001
+                      id: station
                     instruments: {}
                 """),
             },

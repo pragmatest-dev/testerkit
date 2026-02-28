@@ -14,6 +14,40 @@ litmus --version   # Show version (0.1.0)
 
 ## Commands
 
+### litmus init
+
+Initialize a new Litmus project with scaffolding for hardware tests.
+
+```bash
+litmus init [NAME] [OPTIONS]
+```
+
+**Options:**
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| `--no-git` | `False` | Skip git initialization |
+| `--discover` | `False` | Auto-discover instruments and create station file |
+
+**Examples:**
+
+```bash
+# Create new project directory
+litmus init my_project                # Create my_project/ with scaffolding
+litmus init my_project --discover     # + auto-detect instruments
+
+# Scaffold current directory (like uv init)
+cd my_project
+litmus init                           # Add litmus files to CWD
+litmus init --discover                # + auto-detect instruments
+```
+
+With `NAME`: creates a new directory and scaffolds inside it. Without `NAME`: scaffolds the current directory. All files are skip-if-exists, so it's safe to run on an existing project.
+
+When `--discover` is used (or the user confirms discovery interactively), Litmus scans for VISA instruments, looks up each in the catalog to determine its type (dmm, smu, psu, etc.), and writes `stations/station.yaml` with auto-assigned roles. Duplicate types are numbered (dmm1, dmm2).
+
+The station file is gitignored since it's bench-specific.
+
 ### litmus serve
 
 Start the operator UI server (NiceGUI + FastAPI).

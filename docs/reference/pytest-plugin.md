@@ -475,7 +475,7 @@ duckdb.sql("""
 ```bash
 pytest tests/ \
   --dut-serial=SN12345 \         # DUT serial number (default: DUT001)
-  --station=bench_1 \            # Station ID (default: station_001)
+  --station=bench_1 \            # Station ID (default: station)
   --operator="Jane Doe" \        # Operator name
   --results-dir=./results \      # Results directory (default: results)
   --mock-instruments \           # Use mock instruments instead of real hardware
@@ -490,7 +490,7 @@ pytest tests/ \
 | Option | Default | Description |
 |--------|---------|-------------|
 | `--dut-serial` | `DUT001` | DUT serial number |
-| `--station` | `station_001` | Station ID |
+| `--station` | `station` | Station ID |
 | `--operator` | `None` | Operator name |
 | `--results-dir` | `results` | Directory for Parquet results |
 | `--mock-instruments` | `False` | Use mock instruments instead of real hardware |

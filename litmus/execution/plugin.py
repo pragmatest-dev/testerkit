@@ -266,7 +266,7 @@ def pytest_addoption(parser):
     group.addoption("--dut-part-number", default=None, help="DUT part number")
     group.addoption("--dut-revision", default=None, help="DUT revision")
     group.addoption("--dut-lot", default=None, help="DUT lot/batch number")
-    group.addoption("--station", default="station_001", help="Station ID")
+    group.addoption("--station", default="station", help="Station ID")
     group.addoption("--operator", default=None, help="Operator name")
     group.addoption("--results-dir", default="results", help="Directory for Parquet results")
     group.addoption("--spec", default=None, help="Path to product spec YAML file")
