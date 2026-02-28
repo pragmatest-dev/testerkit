@@ -355,20 +355,26 @@ def create_api_router() -> APIRouter:
 
     @router.get("/instruments")
     def list_instruments():
-        """List available instrument types in the library."""
-        from litmus.matching.service import list_instrument_types
+        """List available instrument types from catalog."""
+        from litmus.catalog.loader import find_catalog_dirs, load_catalog_from_directory
 
-        types = list_instrument_types()
-        return {"instrument_types": types}
+        seen: set[str] = set()
+        types: list[str] = []
+        for cat_dir in find_catalog_dirs():
+            for entry_id, entry in load_catalog_from_directory(cat_dir).items():
+                if entry.type not in seen:
+                    seen.add(entry.type)
+                    types.append(entry.type)
+        return {"instrument_types": sorted(types)}
 
     @router.get("/instruments/{instrument_type}")
     def get_instrument(instrument_type: str):
-        """Get an instrument definition from the library."""
-        from litmus.mcp.tools import get_instrument_library_tool
+        """Get an instrument definition from the catalog."""
+        from litmus.ui.shared.services import load_instrument_definition
 
-        result = get_instrument_library_tool(instrument_type)
-        if "error" in result:
-            return {"error": result["error"]}, 404
+        result = load_instrument_definition(instrument_type)
+        if not result:
+            return {"error": f"Instrument type '{instrument_type}' not found"}, 404
         return result
 
     @router.get("/sequences")

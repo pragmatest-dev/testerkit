@@ -1,0 +1,43 @@
+# Generic Digital Multimeter
+# Capabilities based on typical bench DMM (e.g., Keithley 2000, Keysight 34461A)
+catalog_entry:
+  id: generic_dmm
+  manufacturer: Generic
+  model: DMM
+  name: Generic Digital Multimeter
+  description: General-purpose DMM for DC/AC voltage, current, and resistance measurement
+  type: dmm
+  channels:
+    "1":
+      terminals: [hi, lo]
+      connector: binding_post
+      ground: shared
+  capabilities:
+    - function: dc_voltage
+      direction: input
+      signals:
+        voltage:
+          range: {min: 0.001, max: 1000, units: V}
+    - function: ac_voltage
+      direction: input
+      signals:
+        voltage:
+          range: {min: 0.001, max: 750, units: V}
+      attributes:
+        bandwidth:
+          range: {min: 3, max: 300000, units: Hz}
+    - function: dc_current
+      direction: input
+      signals:
+        current:
+          range: {min: 0.0000001, max: 10, units: A}
+    - function: ac_current
+      direction: input
+      signals:
+        current:
+          range: {min: 0.000001, max: 10, units: A}
+    - function: resistance
+      direction: input
+      signals:
+        resistance:
+          range: {min: 0.01, max: 100000000, units: ohm}

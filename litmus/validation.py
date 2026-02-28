@@ -2,20 +2,60 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from pathlib import Path
 
 import yaml
 from pydantic import ValidationError
 
+from litmus.loaders import (
+    load_fixture,
+    load_instrument_asset,
+    load_project,
+    load_sequence,
+    load_station,
+)
+from litmus.schemas import FileType
 
-def validate_yaml(path: Path, catalog_dir: Path | None = None) -> list[str]:
+# Maps type names to file-based loader functions.
+_FILE_LOADER_MAP: dict[str, Callable[[Path], object]] = {
+    "station": load_station,
+    "sequence": load_sequence,
+    "fixture": load_fixture,
+    "instrument_asset": load_instrument_asset,
+    "project": load_project,
+}
+
+
+def validate_yaml(
+    path: Path,
+    *,
+    file_type: FileType | None = None,
+    catalog_dir: Path | None = None,
+) -> list[str]:
     """Validate a single YAML file against its Litmus schema.
 
-    Auto-detects the file type from top-level keys.
+    Args:
+        path: Path to the YAML file.
+        file_type: Explicit type to validate as. If None, auto-detects
+            from top-level keys.
+        catalog_dir: Root catalog directory (needed for catalog inheritance).
 
     Returns:
         List of error strings (empty means valid).
     """
+    # Explicit type — skip auto-detection
+    if file_type == "catalog":
+        return _validate_catalog(path, catalog_dir)
+    if file_type == "product":
+        return _validate_with_product_loader(path)
+    if file_type is not None:
+        loader = _FILE_LOADER_MAP.get(file_type)
+        if loader is None:
+            return [f"Unknown file type: {file_type!r}"]
+        return _run_loader(loader, path)
+
+    # Auto-detect from file contents
     try:
         with open(path) as f:
             data = yaml.safe_load(f)
@@ -27,19 +67,50 @@ def validate_yaml(path: Path, catalog_dir: Path | None = None) -> list[str]:
     if not isinstance(data, dict):
         return ["File does not contain a YAML mapping"]
 
-    # Detect type and validate
     if "catalog_entry" in data:
         return _validate_catalog(path, catalog_dir)
     if "product" in data:
-        return _validate_pydantic("ProductFile", data)
-    if "station" in data:
-        return _validate_pydantic("StationFile", data)
-    if "sequence" in data:
-        return _validate_pydantic("SequenceFile", data)
-    if "fixture" in data:
-        return _validate_pydantic("FixtureFile", data)
+        return _validate_with_product_loader(path)
 
-    return [f"Could not determine file type from keys: {', '.join(data.keys())}"]
+    loader = _detect_loader(data)
+    if loader is None:
+        return [f"Could not determine file type from keys: {', '.join(data.keys())}"]
+
+    return _run_loader(loader, path)
+
+
+
+def _run_loader(loader: Callable, path: Path) -> list[str]:
+    """Run a loader and return validation errors."""
+    try:
+        loader(path)
+        return []
+    except ValidationError as exc:
+        return _format_validation_error(exc)
+    except Exception as exc:
+        return [str(exc)]
+
+
+def _detect_loader(data: dict) -> Callable | None:
+    """Return the appropriate loader function for the given YAML data."""
+    if "station" in data:
+        return load_station
+    if "sequence" in data:
+        return load_sequence
+    if "fixture" in data:
+        return load_fixture
+    if "id" in data and ("protocol" in data or "driver" in data):
+        return load_instrument_asset
+    if "project" in data:
+        return load_project
+    return None
+
+
+def _validate_with_product_loader(path: Path) -> list[str]:
+    """Validate a product spec through the product loader (handles inheritance)."""
+    from litmus.products.loader import load_product
+
+    return _run_loader(load_product, path)
 
 
 def _validate_catalog(path: Path, catalog_dir: Path | None) -> list[str]:
@@ -53,28 +124,6 @@ def _validate_catalog(path: Path, catalog_dir: Path | None) -> list[str]:
         return _format_validation_error(exc)
     except Exception as exc:
         return [str(exc)]
-
-
-def _validate_pydantic(model_name: str, data: dict) -> list[str]:
-    """Validate data against a schema wrapper model."""
-    from litmus.schemas import (
-        FixtureFile,
-        ProductFile,
-        SequenceFile,
-        StationFile,
-    )
-
-    models = {
-        "ProductFile": ProductFile,
-        "StationFile": StationFile,
-        "SequenceFile": SequenceFile,
-        "FixtureFile": FixtureFile,
-    }
-    try:
-        models[model_name].model_validate(data)
-        return []
-    except ValidationError as exc:
-        return _format_validation_error(exc)
 
 
 def _format_validation_error(exc: ValidationError) -> list[str]:

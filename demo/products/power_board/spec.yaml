@@ -62,7 +62,7 @@ characteristics:
     specs:
       - value: 5.0
         accuracy: {absolute: 0.25}
-        description: "Operating input range (VOUT+1.4V to 15V)"
+        note: "Operating input range (VOUT+1.4V to 15V)"
 
   # Quiescent current (measured at J1_VIN with no load)
   quiescent_current:
@@ -75,7 +75,7 @@ characteristics:
       - when:
           load: {min: 0, max: 0}
         value: 5
-        description: "Ground current, no load"
+        note: "Ground current, no load"
 
   # Output voltage (measured at TP_VOUT)
   output_voltage:
@@ -90,25 +90,25 @@ characteristics:
           load: {min: 0.1, max: 0.1}
         value: 3.3
         accuracy: {pct_reading: 2.0}
-        description: "Light load, room temp"
+        note: "Light load, room temp"
       - when:
           temperature: {min: 25, max: 25}
           load: {min: 0.5, max: 0.5}
         value: 3.3
         accuracy: {pct_reading: 2.0}
-        description: "Half load"
+        note: "Half load"
       - when:
           temperature: {min: 25, max: 25}
           load: {min: 0.8, max: 0.8}
         value: 3.3
         accuracy: {pct_reading: 3.0}
-        description: "Full load (800mA)"
+        note: "Full load (800mA)"
       - when:
           temperature: {min: 85, max: 85}
           load: {min: 0.8, max: 0.8}
         value: 3.3
         accuracy: {pct_reading: 4.0}
-        description: "Full load, hot"
+        note: "Full load, hot"
 
   # Load regulation (output change over load range)
   load_regulation:
@@ -122,7 +122,7 @@ characteristics:
           load_min: {min: 0.01, max: 0.01}
           load_max: {min: 0.8, max: 0.8}
         value: 5
-        description: "VOUT change from 10mA to 800mA"
+        note: "VOUT change from 10mA to 800mA"
 
   # Line regulation (output change over input range)
   line_regulation:
@@ -136,7 +136,7 @@ characteristics:
           vin_min: {min: 4.75, max: 4.75}
           vin_max: {min: 10, max: 10}
         value: 3
-        description: "VOUT change from 4.75V to 10V input"
+        note: "VOUT change from 4.75V to 10V input"
 
   # Output ripple/noise
   output_ripple:
@@ -147,11 +147,12 @@ characteristics:
     datasheet_ref: "Application note"
     conditions:
       bandwidth:
+        range: {min: 10, max: 10e6, units: Hz}
     specs:
       - when:
           load: {min: 0.5, max: 0.5}
         value: 25
-        description: "Output noise, 10Hz-10MHz"
+        note: "Output noise, 10Hz-10MHz"
 
   # Dropout voltage (VIN - VOUT at regulation limit)
   dropout_voltage:
@@ -164,7 +165,7 @@ characteristics:
       - when:
           load: {min: 0.8, max: 0.8}
         value: 1.1
-        description: "Dropout at full load"
+        note: "Dropout at full load"
 
   # Efficiency (calculated)
   efficiency:
@@ -178,4 +179,4 @@ characteristics:
           vin: {min: 5.0, max: 5.0}
           load: {min: 0.5, max: 0.5}
         value: 66
-        description: "Efficiency at 5V in, 500mA out"
+        note: "Efficiency at 5V in, 500mA out"

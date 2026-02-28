@@ -475,37 +475,39 @@ class TestGetRequiredCapabilities:
 class TestGetStationCapabilities:
     """Tests for the get_station_capabilities function."""
 
-    def test_extracts_capabilities_from_instruments(self, monkeypatch):
-        """Capabilities are extracted from station's instruments."""
-        mock_library = {
-            "instrument": {"type": "dmm", "name": "DMM"},
-            "capabilities": [
-                {
+    def test_extracts_capabilities_from_catalog_ref(self, monkeypatch):
+        """Capabilities are extracted from catalog_ref on station instruments."""
+        from litmus.catalog.models import InstrumentCatalogEntry
+        from litmus.config.models import InstrumentCapability
+
+        mock_entry = InstrumentCatalogEntry(
+            id="test_dmm",
+            manufacturer="Test",
+            model="DMM-1000",
+            type="dmm",
+            capabilities=[
+                InstrumentCapability.model_validate({
                     "function": "dc_voltage",
                     "direction": "input",
                     "signals": {
                         "voltage": {"range": {"min": 0, "max": 1000, "units": "V"}},
                     },
-                },
-                {
+                }),
+                InstrumentCapability.model_validate({
                     "function": "dc_current",
                     "direction": "input",
                     "signals": {
                         "current": {"range": {"min": 0, "max": 10, "units": "A"}},
                     },
-                },
+                }),
             ],
-        }
+        )
 
-        def mock_load_instrument_library(inst_type):
-            if inst_type == "dmm":
-                return mock_library
-            return None
-
-        import litmus.matching.service as service_module
+        import litmus.catalog.loader as catalog_loader
 
         monkeypatch.setattr(
-            service_module, "load_instrument_library", mock_load_instrument_library
+            catalog_loader, "resolve_catalog_ref",
+            lambda ref: mock_entry if ref == "test_dmm" else None,
         )
 
         station_config = {
@@ -513,7 +515,7 @@ class TestGetStationCapabilities:
                 "id": "test_station",
             },
             "instruments": {
-                "dmm_main": {"type": "dmm", "resource": "GPIB::1"},
+                "dmm_main": {"type": "dmm", "catalog_ref": "test_dmm", "resource": "GPIB::1"},
             },
         }
 

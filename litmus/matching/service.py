@@ -23,19 +23,19 @@ from litmus.config.models import (
     Control,
     Direction,
     InstrumentCapability,
-    MatchDepth,
     ListSpec,
+    MatchDepth,
+    MeasurementFunction,
     PointSpec,
     RangeSpec,
-    Signal,
-    MeasurementFunction,
     ResolutionSpec,
+    Signal,
     SpecBand,
 )
 from litmus.products.loader import load_product
 from litmus.products.models import Product, ProductCharacteristic
-from litmus.utils.loaders import find_yaml_files, load_yaml_file
-from litmus.utils.paths import get_instrument_paths, get_station_paths
+from litmus.utils.loaders import find_yaml_files
+from litmus.utils.paths import get_station_paths
 
 
 class CapabilityRequirement(BaseModel):
@@ -228,58 +228,38 @@ def list_products() -> list[dict[str, Any]]:
     return products
 
 
-def load_instrument_library(instrument_type: str) -> dict | None:
-    """Load instrument capabilities from library YAML.
-
-    Searches user's instruments/ first, then falls back to built-in library.
-    """
-    for library_path in get_instrument_paths():
-        yaml_file = library_path / f"{instrument_type}.yaml"
-        data = load_yaml_file(yaml_file)
-        if data is not None:
-            return data
-    return None
-
-
-def list_instrument_types() -> list[str]:
-    """List available instrument types from all library locations.
-
-    User-defined instruments appear alongside built-in ones.
-    """
-    seen = set()
-    types = []
-
-    for yaml_file, _ in find_yaml_files(get_instrument_paths(), prefix_skip=""):
-        if yaml_file.stem not in seen:
-            seen.add(yaml_file.stem)
-            types.append(yaml_file.stem)
-
-    return sorted(types)
-
 
 def load_station_config(station_id: str) -> dict | None:
     """Load station configuration by ID."""
-    for _, data in find_yaml_files(get_station_paths()):
-        if data and "station" in data:
-            station_info = data["station"]
-            if station_info.get("id") == station_id:
-                return data
+    from litmus.loaders import load_station
+
+    for yaml_file, _ in find_yaml_files(get_station_paths()):
+        try:
+            station = load_station(yaml_file)
+            if station.station.id == station_id:
+                return station.model_dump()
+        except Exception:
+            continue
     return None
 
 
 def list_stations() -> list[dict[str, Any]]:
     """List all available stations."""
+    from litmus.loaders import load_station
+
     stations = []
 
-    for yaml_file, data in find_yaml_files(get_station_paths()):
-        if data and "station" in data:
-            station_info = data["station"]
+    for yaml_file, _ in find_yaml_files(get_station_paths()):
+        try:
+            station = load_station(yaml_file)
             stations.append({
-                "id": station_info.get("id", yaml_file.stem),
-                "name": station_info.get("name", yaml_file.stem),
-                "location": station_info.get("location"),
-                "description": station_info.get("description"),
+                "id": station.station.id,
+                "name": station.station.name,
+                "location": station.station.location,
+                "description": station.station.description,
             })
+        except Exception:
+            continue
 
     return stations
 
@@ -350,20 +330,15 @@ def get_station_capabilities(station_config: dict) -> list[StationCapability]:
         if not inst_type:
             continue
 
-        # catalog_ref takes priority (model-specific data > generic library)
         catalog_ref = inst_config.get("catalog_ref")
         if catalog_ref:
             _add_catalog_capabilities(catalog_ref, inst_type, inst_name, capabilities)
-            continue
-
-        # Fall back to generic instrument library
-        library = load_instrument_library(inst_type)
-        if library and "capabilities" in library:
-            from litmus.config.models import InstrumentCapability
-
-            for cap_data in library["capabilities"]:
-                inst_cap = InstrumentCapability.model_validate(cap_data)
-                _expand_capability(inst_cap, inst_type, inst_name, capabilities)
+        else:
+            import logging
+            logging.getLogger(__name__).warning(
+                "Instrument '%s' (type=%s) has no catalog_ref — skipping capability resolution",
+                inst_name, inst_type,
+            )
 
     return capabilities
 

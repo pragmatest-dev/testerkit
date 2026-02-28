@@ -18,7 +18,7 @@ instruments:
     type: psu
     driver: demo.drivers.PSU
     resource: "TCPIP::192.168.1.101::INSTR"
-    catalog_ref: keysight_e36312a
+    catalog_ref: keysight_e36313a
     mock: true
     channels: ["1", "2"]
     description: "Dual-output power supply for DUT input power"
@@ -45,7 +45,7 @@ instruments:
     type: eload
     driver: demo.drivers.ELoad
     resource: "TCPIP::192.168.1.103::INSTR"
-    catalog_ref: siglent_sdl1020x
+    catalog_ref: generic_eload
     mock: true
     channels: ["1"]
     description: "Electronic load for output loading"
@@ -57,6 +57,7 @@ instruments:
     type: dmm
     driver: demo.drivers.DMM
     resource: "TCPIP::192.168.1.105::INSTR"
+    catalog_ref: generic_dmm
     mock: true
     description: "Fast 4.5-digit DMM for quick screening"
     mock_config:
@@ -70,7 +71,7 @@ instruments:
     type: scope
     driver: demo.drivers.Scope
     resource: "TCPIP::192.168.1.104::INSTR"
-    catalog_ref: rigol_ds1054z
+    catalog_ref: rigol_ds1104z
     mock: true
     channels: ["1", "2", "3", "4"]
     description: "4-channel oscilloscope for waveform capture"

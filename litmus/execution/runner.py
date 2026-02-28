@@ -73,7 +73,7 @@ class TestRunner:
 
     def _discover_sequences(self) -> dict[str, dict]:
         """Discover test sequences from YAML configuration files."""
-        import yaml
+        from litmus.loaders import load_sequence
 
         sequences = {}
         search_paths = [
@@ -85,12 +85,13 @@ class TestRunner:
             if not seq_dir.exists():
                 continue
             for yaml_path in seq_dir.glob("*.yaml"):
-                with open(yaml_path) as f:
-                    data = yaml.safe_load(f)
-                    if data and "sequence" in data:
-                        seq = data["sequence"]
-                        seq_id = seq.get("id", yaml_path.stem)
-                        sequences[seq_id] = seq
+                try:
+                    seq_file = load_sequence(yaml_path)
+                    seq = seq_file.sequence
+                    seq_id = seq.id
+                    sequences[seq_id] = seq.model_dump()
+                except Exception:
+                    continue
 
         return sequences
 

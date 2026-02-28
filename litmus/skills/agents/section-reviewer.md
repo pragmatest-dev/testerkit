@@ -27,7 +27,7 @@ The mechanical audit script runs after you and handles: name-encoded attributes,
 - **THOROUGH.** Check every inventory row, every capability, every control. Do not leave things for later rounds.
 - **IN-SCOPE ONLY.** Only check capabilities listed in {{CAPABILITIES}}.
 - **FIX SURGICALLY.** When you find an issue, edit ONLY the affected lines. Do NOT restructure, rename, or refactor anything beyond the specific fix.
-- **VALIDATE AFTER FIXES.** Run `uv run litmus validate {{YAML_PATH}}` after any edits.
+- **VALIDATE AFTER FIXES.** Run `uv run litmus validate --type catalog {{YAML_PATH}}` after any edits.
 </rules>
 
 ## Instructions

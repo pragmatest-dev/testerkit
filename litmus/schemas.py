@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
@@ -23,6 +23,7 @@ from litmus.config.models import (
     TestSequenceConfig,
     TestStepConfig,
 )
+from litmus.instruments.models import CalibrationInfo, InstrumentInfo
 from litmus.products.models import (
     Pin,
     Product,
@@ -33,6 +34,18 @@ from litmus.products.models import (
 # ---------------------------------------------------------------------------
 # Wrapper models matching YAML file structure
 # ---------------------------------------------------------------------------
+
+
+class InstrumentAssetFile(BaseModel):
+    """Schema for instruments/*.yaml asset files (per-device identity + calibration)."""
+
+    id: str
+    protocol: str = "visa"
+    driver: str | None = None
+    resource: str | None = None
+    catalog_ref: str | None = None
+    info: InstrumentInfo = Field(default_factory=InstrumentInfo)
+    calibration: CalibrationInfo = Field(default_factory=CalibrationInfo)
 
 
 class CatalogFile(BaseModel):
@@ -95,16 +108,46 @@ class FixtureFile(BaseModel):
     points: dict[str, FixturePoint] = Field(default_factory=dict)
 
 
+class ProjectInfo(BaseModel):
+    """Project identification block."""
+
+    name: str
+
+
+class ReportsConfig(BaseModel):
+    """Report generation settings."""
+
+    auto: bool = False
+    format: str = "html"
+    template: str = "default"
+    output_dir: str = "reports"
+
+
+class ProjectFile(BaseModel):
+    """Schema for litmus.yaml project config files."""
+
+    project: ProjectInfo
+    results_dir: str = "results"
+    reports: ReportsConfig = Field(default_factory=ReportsConfig)
+
+
 # ---------------------------------------------------------------------------
 # Schema map and export
 # ---------------------------------------------------------------------------
 
-SCHEMA_MAP: dict[str, type[BaseModel]] = {
+FileType = Literal[
+    "catalog", "product", "station", "sequence",
+    "fixture", "instrument_asset", "project",
+]
+
+SCHEMA_MAP: dict[FileType, type[BaseModel]] = {
     "catalog": CatalogFile,
     "product": ProductFile,
     "station": StationFile,
     "sequence": SequenceFile,
     "fixture": FixtureFile,
+    "instrument_asset": InstrumentAssetFile,
+    "project": ProjectFile,
 }
 
 

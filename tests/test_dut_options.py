@@ -14,6 +14,7 @@ def pytester_with_test(pytester):
         station="""
 station:
   id: station
+  name: Test Station
 instruments: {}
 """,
     )

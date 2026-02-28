@@ -167,7 +167,7 @@ Do NOT guess field names — if the schema doesn't have it, don't use it.
 7. **_mock in config.yaml** — Per-test/per-vector mock values
 8. **catalog_ref** on instruments resolves capabilities from catalog/
 9. **Per-step aliases** in sequences remap fixture names to station instruments
-10. **Choice format**: ALWAYS use numbered lists (1, 2, 3). NEVER use `[A]`, `[B]`, `[?]` letter codes.
+10. **Choice format**: ALWAYS use numbered lists (1, 2, 3). NEVER use letter codes.
 """
 
 
@@ -209,7 +209,7 @@ This is COLLABORATIVE — propose and wait for approval at each step.
    - `tests/config.yaml` — vectors, limits, and _mock values
    ```python
    litmus(action="save", type="test", id="tests/test_part.py", content={
-       "code": "from litmus.execution import litmus_test\\n\\n@litmus_test\\ndef test_output(context, psu, dmm):\\n    ..."
+       "code": "from litmus.execution import litmus_test\\n..."
    }, project=project_root)
    ```
 
@@ -424,8 +424,8 @@ def create_mcp_server() -> FastMCP:
         source of truth for field names, types, enums, and structure.
 
         Args:
-            yaml_type: One of: catalog, product, station, sequence, fixture.
-                Omit to list available types.
+            yaml_type: A file type (e.g. catalog, product, station, sequence,
+                fixture, instrument_asset, project). Omit to list available types.
 
         Returns:
             JSON Schema for the requested YAML type.

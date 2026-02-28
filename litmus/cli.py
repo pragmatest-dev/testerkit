@@ -194,16 +194,27 @@ def _discover_instruments(interactive: bool = True) -> dict | None:
 
 @main.command()
 @click.argument("paths", nargs=-1, type=click.Path(exists=True))
-def validate(paths):
+@click.option(
+    "--type", "-t", "file_type",
+    type=click.Choice([
+        "catalog", "product", "station", "sequence",
+        "fixture", "instrument_asset", "project",
+    ]),
+    default=None,
+    help="Explicit file type (skips auto-detection).",
+)
+def validate(paths, file_type):
     """Validate YAML configuration files.
 
-    Checks catalog, product, station, sequence, and fixture YAML files
-    against their Pydantic schemas and reports errors with field paths.
+    Checks catalog, product, station, sequence, fixture, instrument, and
+    project YAML files against their Pydantic schemas and reports errors
+    with field paths.
 
     If no paths given, scans standard directories in the current project.
 
     Examples:
         litmus validate catalog/keysight_34461a.yaml
+        litmus validate instruments/ --type instrument_asset
         litmus validate catalog/ stations/
         litmus validate
     """
@@ -222,10 +233,18 @@ def validate(paths):
                 files.append(p)
     else:
         # Auto-scan standard directories
-        for dirname in ("catalog", "catalog", "products", "stations", "sequences", "fixtures"):
+        scan_dirs = [
+            "catalog", "products", "stations", "sequences",
+            "fixtures", "instruments",
+        ]
+        for dirname in scan_dirs:
             d = Path.cwd() / dirname
             if d.is_dir():
                 files.extend(sorted(d.rglob("*.yaml")))
+        # Also check litmus.yaml in project root
+        project_yaml = Path.cwd() / "litmus.yaml"
+        if project_yaml.exists():
+            files.append(project_yaml)
 
     if not files:
         click.echo("No YAML files found.")
@@ -236,7 +255,7 @@ def validate(paths):
 
     for f in files:
         rel = f.relative_to(Path.cwd()) if f.is_relative_to(Path.cwd()) else f
-        errors = validate_yaml(f, catalog_dir=f.parent)
+        errors = validate_yaml(f, file_type=file_type, catalog_dir=f.parent)
         if errors:
             click.echo(click.style(f"{rel} FAIL", fg="red"))
             for err in errors:
@@ -303,7 +322,7 @@ def runs(results_dir: str | None, limit: int):
 
     if results_dir is None:
         project = load_project_config()
-        results_dir = project.get("results_dir", "results")
+        results_dir = project.results_dir
 
     backend = ParquetBackend(results_dir=results_dir)
     test_runs = backend.list_runs(limit=limit)
@@ -349,7 +368,7 @@ def show(run_id: str, results_dir: str | None, fmt: str | None, output: str | No
 
     project = load_project_config()
     if results_dir is None:
-        results_dir = project.get("results_dir", "results")
+        results_dir = project.results_dir
 
     if fmt:
         # Report generation mode
@@ -1355,13 +1374,12 @@ def instrument_list():
     click.echo(f"{'ID':<25} {'Protocol':<10} {'Model':<30}")
     click.echo("-" * 65)
 
-    for inst_id, data in sorted(instruments.items()):
-        protocol = data.get("protocol", "visa")
-        info = data.get("_info")
+    for inst_id, asset in sorted(instruments.items()):
+        protocol = asset.protocol
         model = ""
-        if info:
-            mfr = info.manufacturer or ""
-            mdl = info.model or ""
+        if asset.info:
+            mfr = asset.info.manufacturer or ""
+            mdl = asset.info.model or ""
             model = f"{mfr} {mdl}".strip()
 
         click.echo(f"{inst_id:<25} {protocol:<10} {model:<30}")
@@ -1383,15 +1401,15 @@ def instrument_show(instrument_id: str):
         click.echo(f"Instrument not found: {instrument_id}", err=True)
         raise SystemExit(1)
 
-    data = load_instrument_file(inst_file)
-    info = data.get("_info")
-    cal = data.get("_calibration")
+    asset = load_instrument_file(inst_file)
+    info = asset.info
+    cal = asset.calibration
 
     click.echo(f"Instrument: {instrument_id}")
     click.echo("-" * 40)
-    click.echo(f"Protocol: {data.get('protocol', 'visa')}")
-    if data.get("driver"):
-        click.echo(f"Driver: {data['driver']}")
+    click.echo(f"Protocol: {asset.protocol}")
+    if asset.driver:
+        click.echo(f"Driver: {asset.driver}")
 
     if info:
         click.echo("\nIdentity:")
@@ -1519,7 +1537,7 @@ def _get_results_dir(results_dir):
         from litmus.config.project import load_project_config
 
         project = load_project_config()
-        results_dir = project.get("results_dir", "results")
+        results_dir = project.results_dir
     return results_dir
 
 

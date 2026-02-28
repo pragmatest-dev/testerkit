@@ -6,7 +6,7 @@ from litmus.ui.shared.components import render_capability_detail, setup_hash_syn
 from litmus.ui.shared.layout import create_layout
 from litmus.ui.shared.services import (
     discover_stations,
-    load_instrument_asset,
+    load_instrument_asset_by_id,
     load_instrument_definition,
     load_station_config,
 )
@@ -22,7 +22,7 @@ def instrument_detail_page(instrument_type: str):
         create_layout(inst.get("name", instrument_type))
     else:
         # Try loading as an instrument asset
-        asset = load_instrument_asset(instrument_type)
+        asset = load_instrument_asset_by_id(instrument_type)
         if asset:
             info = asset.get("info", {})
             mfr = info.get("manufacturer", "")

@@ -20,6 +20,7 @@ fixture:
 points:
   # Input power routing
   vin_supply:
+    name: vin_supply
     dut_pin: J1_VIN
     net: VIN_5V
     instrument: psu
@@ -28,6 +29,7 @@ points:
     description: "5V input from PSU channel 1"
 
   gnd_psu:
+    name: gnd_psu
     dut_pin: J1_GND
     net: GND
     instrument: psu
@@ -36,6 +38,7 @@ points:
     description: "Ground return to PSU CH1 LO terminal"
 
   gnd_eload:
+    name: gnd_eload
     dut_pin: J1_GND
     net: GND
     instrument: eload
@@ -45,6 +48,7 @@ points:
 
   # Output measurement routing
   vout_measure:
+    name: vout_measure
     dut_pin: TP_VOUT
     net: VOUT_3V3
     instrument: dmm
@@ -54,6 +58,7 @@ points:
 
   # Input measurement routing (for current measurement)
   vin_measure:
+    name: vin_measure
     dut_pin: TP_VIN
     net: VIN_5V
     instrument: dmm
@@ -63,6 +68,7 @@ points:
 
   # Load connection routing
   load_output:
+    name: load_output
     dut_pin: J1_VOUT
     net: VOUT_3V3
     instrument: eload
@@ -72,6 +78,7 @@ points:
 
   # Ground reference for DMM
   gnd_dmm:
+    name: gnd_dmm
     dut_pin: TP_GND
     net: GND
     instrument: dmm

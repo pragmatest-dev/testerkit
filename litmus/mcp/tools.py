@@ -240,6 +240,8 @@ def _list_entities(entity_type: str, project: str) -> list[dict[str, Any]] | dic
 
 def _list_stations(project: str) -> list[dict[str, Any]]:
     """List all station configurations."""
+    from litmus.loaders import load_station
+
     stations = []
     stations_dir = get_project_root(project) / "stations"
 
@@ -250,15 +252,12 @@ def _list_stations(project: str) -> list[dict[str, Any]]:
         if yaml_file.name.startswith("_"):
             continue
         try:
-            with open(yaml_file) as f:
-                data = yaml.safe_load(f)
-                if data and "station" in data:
-                    station_info = data["station"]
-                    stations.append({
-                        "id": station_info.get("id", yaml_file.stem),
-                        "name": station_info.get("name", yaml_file.stem),
-                        "location": station_info.get("location"),
-                    })
+            station = load_station(yaml_file)
+            stations.append({
+                "id": station.station.id,
+                "name": station.station.name,
+                "location": station.station.location,
+            })
         except Exception:
             continue
 
@@ -267,6 +266,8 @@ def _list_stations(project: str) -> list[dict[str, Any]]:
 
 def _list_products(project: str) -> list[dict[str, Any]]:
     """List all product specifications from products/ directory."""
+    from litmus.products.loader import load_product
+
     products = []
     products_dir = get_project_root(project) / "products"
 
@@ -281,23 +282,22 @@ def _list_products(project: str) -> list[dict[str, Any]]:
         if not spec_file.exists():
             continue
         try:
-            with open(spec_file) as f:
-                data = yaml.safe_load(f)
-                if data and "product" in data:
-                    product_info = data["product"]
-                    products.append({
-                        "id": product_info.get("id", product_dir.name),
-                        "name": product_info.get("name", product_dir.name),
-                        "description": product_info.get("description"),
-                    })
+            product = load_product(spec_file)
+            products.append({
+                "id": product.id,
+                "name": product.name,
+                "description": product.description,
+            })
         except Exception:
             continue
 
     return products
 
 
-def _list_fixtures(project: str) -> list[dict[str, Any]]:
+def _list_fixtures(project: str) -> list[dict[str, Any]]:  # noqa: C901
     """List all fixture configurations."""
+    from litmus.loaders import load_fixture
+
     fixtures = []
     fixtures_dir = get_project_root(project) / "fixtures"
 
@@ -308,17 +308,13 @@ def _list_fixtures(project: str) -> list[dict[str, Any]]:
         if yaml_file.name.startswith("_"):
             continue
         try:
-            with open(yaml_file) as f:
-                data = yaml.safe_load(f)
-                if data and "fixture" in data:
-                    fixture_info = data["fixture"]
-                    points = data.get("points", {})
-                    fixtures.append({
-                        "id": fixture_info.get("id", yaml_file.stem),
-                        "name": fixture_info.get("name", yaml_file.stem),
-                        "product_id": fixture_info.get("product_id"),
-                        "point_count": len(points),
-                    })
+            fixture_file = load_fixture(yaml_file)
+            fixtures.append({
+                "id": fixture_file.fixture.id,
+                "name": fixture_file.fixture.name or yaml_file.stem,
+                "product_id": fixture_file.fixture.product_id,
+                "point_count": len(fixture_file.points),
+            })
         except Exception:
             continue
 
@@ -327,6 +323,8 @@ def _list_fixtures(project: str) -> list[dict[str, Any]]:
 
 def _list_sequences(project: str) -> list[dict[str, Any]]:
     """List available test sequences."""
+    from litmus.loaders import load_sequence
+
     sequences = []
     seq_dir = get_project_root(project) / "sequences"
 
@@ -337,15 +335,12 @@ def _list_sequences(project: str) -> list[dict[str, Any]]:
         if yaml_file.name.startswith("_"):
             continue
         try:
-            with open(yaml_file) as f:
-                data = yaml.safe_load(f)
-                if data and "sequence" in data:
-                    seq_info = data["sequence"]
-                    sequences.append({
-                        "id": seq_info.get("id", yaml_file.stem),
-                        "name": seq_info.get("name", yaml_file.stem),
-                        "description": seq_info.get("description"),
-                    })
+            seq_file = load_sequence(yaml_file)
+            sequences.append({
+                "id": seq_file.sequence.id,
+                "name": seq_file.sequence.name or yaml_file.stem,
+                "description": seq_file.sequence.description,
+            })
         except Exception:
             continue
 
@@ -353,41 +348,10 @@ def _list_sequences(project: str) -> list[dict[str, Any]]:
 
 
 def _list_instruments(project: str) -> list[dict[str, Any]]:
-    """List available instrument types."""
-    search_paths = [
-        get_project_root(project) / "instruments",
-        Path(__file__).parent.parent / "instruments" / "library",
-    ]
+    """List available instrument types from the catalog."""
+    from litmus.ui.shared.services import discover_instrument_types
 
-    types = []
-    seen_types = set()
-
-    for library_dir in search_paths:
-        if not library_dir.exists():
-            continue
-
-        for yaml_file in sorted(library_dir.glob("*.yaml")):
-            try:
-                with open(yaml_file) as f:
-                    data = yaml.safe_load(f)
-                    if data and "instrument" in data:
-                        inst = data["instrument"]
-                        inst_type = inst.get("type", yaml_file.stem)
-
-                        if inst_type in seen_types:
-                            continue
-                        seen_types.add(inst_type)
-
-                        capabilities = data.get("capabilities", [])
-                        types.append({
-                            "id": inst_type,
-                            "name": inst.get("name", yaml_file.stem),
-                            "capabilities": [c.get("name", "") for c in capabilities],
-                        })
-            except Exception:
-                continue
-
-    return types
+    return discover_instrument_types()
 
 
 def _list_runs(project: str) -> list[dict[str, Any]]:
@@ -432,74 +396,71 @@ def _get_entity(entity_type: str, id: str, project: str) -> dict[str, Any]:
 
 def _get_station(station_id: str, project: str) -> dict[str, Any]:
     """Get station configuration."""
+    from litmus.loaders import load_station
+
     yaml_file = get_project_root(project) / "stations" / f"{station_id}.yaml"
 
     if not yaml_file.exists():
         return {"error": f"Station '{station_id}' not found"}
 
     try:
-        with open(yaml_file) as f:
-            return yaml.safe_load(f)
+        return load_station(yaml_file).model_dump()
     except Exception as e:
         return {"error": f"Failed to load station: {e}"}
 
 
 def _get_product(product_id: str, project: str) -> dict[str, Any]:
     """Get product specification from products/{product_id}/spec.yaml."""
+    from litmus.products.loader import load_product
+
     spec_file = get_project_root(project) / "products" / product_id / "spec.yaml"
 
     if not spec_file.exists():
         return {"error": f"Product '{product_id}' not found in products/"}
 
     try:
-        with open(spec_file) as f:
-            return yaml.safe_load(f)
+        product = load_product(spec_file)
+        return product.model_dump(mode="json")
     except Exception as e:
         return {"error": f"Failed to load product: {e}"}
 
 
 def _get_fixture(fixture_id: str, project: str) -> dict[str, Any]:
     """Get fixture configuration."""
+    from litmus.loaders import load_fixture
+
     yaml_file = get_project_root(project) / "fixtures" / f"{fixture_id}.yaml"
     if yaml_file.exists():
-        with open(yaml_file) as f:
-            data = yaml.safe_load(f)
-            if data:
-                return {
-                    "fixture": data.get("fixture", {}),
-                    "points": data.get("points", {}),
-                }
+        try:
+            return load_fixture(yaml_file).model_dump()
+        except Exception as e:
+            return {"error": f"Failed to load fixture: {e}"}
 
     return {"error": f"Fixture '{fixture_id}' not found"}
 
 
 def _get_sequence(sequence_id: str, project: str) -> dict[str, Any]:
     """Get test sequence."""
+    from litmus.loaders import load_sequence
+
     yaml_file = get_project_root(project) / "sequences" / f"{sequence_id}.yaml"
     if yaml_file.exists():
-        with open(yaml_file) as f:
-            return yaml.safe_load(f)
+        try:
+            return load_sequence(yaml_file).model_dump()
+        except Exception as e:
+            return {"error": f"Failed to load sequence: {e}"}
 
     return {"error": f"Sequence '{sequence_id}' not found"}
 
 
-def _get_instrument(instrument_type: str, project: str) -> dict[str, Any]:
-    """Get instrument library definition."""
-    search_paths = [
-        get_project_root(project) / "instruments",
-        Path(__file__).parent.parent / "instruments" / "library",
-    ]
+def _get_instrument(instrument_id: str, project: str) -> dict[str, Any]:
+    """Get an instrument catalog entry."""
+    from litmus.ui.shared.services import load_instrument_definition
 
-    for library_path in search_paths:
-        yaml_file = library_path / f"{instrument_type}.yaml"
-        if yaml_file.exists():
-            try:
-                with open(yaml_file) as f:
-                    return yaml.safe_load(f)
-            except Exception:
-                continue
-
-    return {"error": f"Instrument type '{instrument_type}' not found"}
+    result = load_instrument_definition(instrument_id)
+    if not result:
+        return {"error": f"Instrument '{instrument_id}' not found"}
+    return result
 
 
 def _get_run(run_id: str, project: str) -> dict[str, Any]:
@@ -538,15 +499,7 @@ def _validate_against_schema(
         return []  # No schema for this type (e.g. test, instrument)
 
     try:
-        # Create a strict copy that rejects extra top-level fields
-        from pydantic import ConfigDict
-
-        strict = type(
-            model.__name__ + "Strict",
-            (model,),
-            {"model_config": ConfigDict(extra="forbid")},
-        )
-        strict.model_validate(content)
+        model.model_validate(content)
         return []
     except ValidationError as e:
         return [
@@ -772,7 +725,9 @@ from litmus.execution import litmus_test
 
 @litmus_test(
     config={{"vectors": {{"expand": "product", "temperature": [25, 85], "load": [0.1, 0.5, 3.0]}}}},
-    limits={{"output_voltage": {{"ref": "output_voltage", "guardband_pct": 10, "comparator": "GELE"}}}},
+    limits={{"output_voltage": {{
+        "ref": "output_voltage", "guardband_pct": 10, "comparator": "GELE"
+    }}}},
 )
 def test_output_voltage(context, psu, dmm):
     """Signal output voltage under various conditions."""
@@ -1332,7 +1287,8 @@ def schema_tool(yaml_type: str | None = None) -> dict[str, Any]:
     before saving it.
 
     Args:
-        yaml_type: One of: catalog, product, station, sequence, fixture.
+        yaml_type: A file type from SCHEMA_MAP (e.g. catalog, product,
+            station, sequence, fixture, instrument_asset, project).
             If None, returns the list of available types.
 
     Returns:

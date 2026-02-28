@@ -90,7 +90,7 @@ Write the initial YAML to `{{YAML_PATH}}`:
 
 Run:
 ```
-uv run litmus validate {{YAML_PATH}}
+uv run litmus validate --type catalog {{YAML_PATH}}
 ```
 
 Fix any errors until it loads clean.

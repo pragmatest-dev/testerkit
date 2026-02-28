@@ -5,12 +5,13 @@ These models capture instrument metadata for traceability:
 - CalibrationInfo: Calibration status from configuration (not queryable)
 """
 
-from dataclasses import dataclass, field
 from datetime import date
+from typing import Any
+
+from pydantic import BaseModel, Field, field_validator
 
 
-@dataclass
-class InstrumentInfo:
+class InstrumentInfo(BaseModel):
     """Instrument identity queried from device.
 
     For VISA instruments, this is parsed from the *IDN? response.
@@ -24,6 +25,14 @@ class InstrumentInfo:
     model: str | None = None
     serial: str | None = None
     firmware: str | None = None
+
+    @field_validator("model", "serial", "firmware", mode="before")
+    @classmethod
+    def _coerce_to_str(cls, v: Any) -> str | None:
+        """Coerce numeric values to string (YAML loads 2400 as int)."""
+        if v is None:
+            return None
+        return str(v)
 
     def __bool__(self) -> bool:
         """Return True if any identity field is populated."""
@@ -56,8 +65,7 @@ class InstrumentInfo:
         return len(mismatches) == 0, mismatches
 
 
-@dataclass
-class CalibrationInfo:
+class CalibrationInfo(BaseModel):
     """Calibration status from configuration.
 
     This information is NOT queryable from the device - it comes from
@@ -87,8 +95,7 @@ class CalibrationInfo:
         return (self.due_date - date.today()).days
 
 
-@dataclass
-class InstrumentRecord:
+class InstrumentRecord(BaseModel):
     """Complete instrument record combining identity and calibration.
 
     Used by the fixture/logger to track everything about an instrument
@@ -108,10 +115,10 @@ class InstrumentRecord:
     protocol: str = "visa"
 
     # Identity from device query
-    info: InstrumentInfo = field(default_factory=InstrumentInfo)
+    info: InstrumentInfo = Field(default_factory=InstrumentInfo)
 
     # Calibration from config
-    calibration: CalibrationInfo = field(default_factory=CalibrationInfo)
+    calibration: CalibrationInfo = Field(default_factory=CalibrationInfo)
 
     # Driver class path (e.g., "pymeasure.instruments.keithley.Keithley2000")
     driver: str | None = None

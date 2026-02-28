@@ -56,17 +56,10 @@ def get_search_paths(
             paths.append(cwd / "demo" / "stations")
 
     elif resource_type == ResourceType.INSTRUMENTS:
-        # User instruments first
+        # Instrument asset/instance files
         paths.append(cwd / "instruments")
         if include_demo:
             paths.append(cwd / "demo" / "instruments")
-        # Catalog directories (model-specific capabilities)
-        paths.append(cwd / "catalog")
-        if include_demo:
-            paths.append(cwd / "demo" / "catalog")
-        # Built-in library as fallback
-        if include_builtin:
-            paths.append(Path(__file__).parent.parent / "instruments" / "library")
 
     elif resource_type == ResourceType.SEQUENCES:
         paths.append(cwd / "sequences")

@@ -1,0 +1,40 @@
+# Generic Digital Oscilloscope
+# Capabilities based on typical 4-ch digital scope (e.g., Rigol DS1054Z, Keysight DSOX1204G)
+catalog_entry:
+  id: generic_oscilloscope
+  manufacturer: Generic
+  model: Oscilloscope
+  name: Generic Digital Oscilloscope
+  description: Multi-channel oscilloscope for time-domain voltage waveform capture
+  type: scope
+  channels:
+    "CH1":
+      terminals: [signal]
+      connector: bnc
+      ground: shared
+    "CH2":
+      terminals: [signal]
+      connector: bnc
+      ground: shared
+    "CH3":
+      terminals: [signal]
+      connector: bnc
+      ground: shared
+    "CH4":
+      terminals: [signal]
+      connector: bnc
+      ground: shared
+  capabilities:
+    - function: waveform
+      direction: input
+      signals:
+        voltage:
+          range: {min: 0.001, max: 400, units: V}
+      attributes:
+        bandwidth:
+          value: 50000000
+          units: Hz
+        sample_rate:
+          value: 1000000000
+          units: Sa/s
+      channels: "CH[1:4]"

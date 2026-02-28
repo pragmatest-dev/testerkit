@@ -215,15 +215,18 @@ class TestProjectConfig:
         from litmus.config.project import load_project_config
 
         config = load_project_config(tmp_path / "litmus.yaml")
-        assert config == {}
+        assert config.results_dir == "results"
+        assert config.reports.auto is False
 
     def test_load_valid(self, tmp_path):
         from litmus.config.project import load_project_config
 
-        (tmp_path / "litmus.yaml").write_text("results_dir: my_results\nreports:\n  auto: true\n")
+        (tmp_path / "litmus.yaml").write_text(
+            "project:\n  name: test\nresults_dir: my_results\nreports:\n  auto: true\n"
+        )
         config = load_project_config(tmp_path / "litmus.yaml")
-        assert config["results_dir"] == "my_results"
-        assert config["reports"]["auto"] is True
+        assert config.results_dir == "my_results"
+        assert config.reports.auto is True
 
 
 class TestCLI:

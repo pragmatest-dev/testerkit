@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import copy
+import warnings
 from pathlib import Path
 from typing import Any
 
@@ -307,8 +308,23 @@ def resolve_catalog_ref(catalog_ref: str) -> InstrumentCatalogEntry | None:
                 )
                 return None
 
-        # Fallback: search all files for matching ID
-        for path in cat_dir.glob("*.yaml"):
+        # Fallback: search subdirectories for direct filename match
+        for path in cat_dir.rglob(f"{catalog_ref}.yaml"):
+            if path.name.startswith("_") or ".variants." in path.name:
+                continue
+            try:
+                return load_catalog_entry(path, catalog_dir=cat_dir)
+            except Exception as exc:
+                warnings.warn(
+                    f"catalog: failed to load {path.name}: {exc}",
+                    stacklevel=2,
+                )
+                return None
+
+        # Last resort: search all files for matching ID
+        for path in cat_dir.rglob("*.yaml"):
+            if path.name.startswith("_") or ".variants." in path.name:
+                continue
             try:
                 entry = load_catalog_entry(path, catalog_dir=cat_dir)
                 if entry.id == catalog_ref:

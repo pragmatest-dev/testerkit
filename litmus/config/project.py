@@ -1,19 +1,18 @@
 """Project-level configuration from litmus.yaml."""
 
 from pathlib import Path
-from typing import Any
 
-import yaml
+from litmus.schemas import ProjectFile
 
 
-def load_project_config(path: Path | str | None = None) -> dict[str, Any]:
+def load_project_config(path: Path | str | None = None) -> ProjectFile:
     """Load project configuration from litmus.yaml.
 
     Args:
         path: Path to litmus.yaml. If None, looks in cwd.
 
     Returns:
-        Parsed config dict, or empty dict if file not found.
+        Validated ProjectFile model, or default if file not found.
     """
     if path is None:
         path = Path.cwd() / "litmus.yaml"
@@ -21,9 +20,8 @@ def load_project_config(path: Path | str | None = None) -> dict[str, Any]:
         path = Path(path)
 
     if not path.exists():
-        return {}
+        return ProjectFile.model_validate({"project": {"name": "litmus"}})
 
-    with open(path) as f:
-        data = yaml.safe_load(f)
+    from litmus.loaders import load_project
 
-    return data if isinstance(data, dict) else {}
+    return load_project(path)

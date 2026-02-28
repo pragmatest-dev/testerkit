@@ -172,7 +172,7 @@ Spawn: Task(model="opus", prompt=constructed_prompt)
 
 After completion, verify the YAML loads:
 ```
-uv run litmus validate YAML_PATH
+uv run litmus validate --type catalog YAML_PATH
 ```
 </step>
 
@@ -235,7 +235,7 @@ NOTHING else exits the loop. No exceptions. No judgment calls.
 After ALL sections are processed, format and validate:
 ```
 uv run python -c "from litmus.config.fmt import format_file_inplace; format_file_inplace(Path('YAML_PATH'))"
-uv run litmus validate YAML_PATH
+uv run litmus validate --type catalog YAML_PATH
 ```
 
 Also run the full audit (no --capabilities scope):

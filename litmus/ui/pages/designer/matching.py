@@ -14,7 +14,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
-from litmus.config.models import Direction, Signal, MeasurementFunction
+from litmus.config.models import Direction, MeasurementFunction, Signal
 
 if TYPE_CHECKING:
     from litmus.products.models import Product
@@ -323,8 +323,6 @@ def resolve_instrument_capabilities(station_config: dict) -> dict:
     Also populates ``channels`` from the library if not already present.
     Modifies the config dict in-place and returns it for convenience.
     """
-    from litmus.matching import service as matching_service
-
     instruments = station_config.get("instruments", {})
     for _role, inst in instruments.items():
         inst_type = inst.get("type", "")
@@ -359,19 +357,12 @@ def resolve_instrument_capabilities(station_config: dict) -> dict:
                     inst["channels"] = entry.channel_names
                 continue
 
-        # Fall back to generic instrument library
-        library = matching_service.load_instrument_library(inst_type)
-        if library and "capabilities" in library:
-            inst["capabilities"] = library["capabilities"]
-            if not inst.get("channels"):
-                lib_instrument = library.get("instrument", {})
-                lib_channels = lib_instrument.get("channels")
-                if lib_channels:
-                    if isinstance(lib_channels, dict):
-                        inst["channels"] = list(lib_channels.keys())
-                    else:
-                        from litmus.utils.ranges import expand_range
-                        inst["channels"] = expand_range(lib_channels)
+        # No catalog_ref — skip with warning
+        import logging
+        logging.getLogger(__name__).warning(
+            "Instrument '%s' (type=%s) has no catalog_ref — skipping capability resolution",
+            _role, inst_type,
+        )
 
     return station_config
 

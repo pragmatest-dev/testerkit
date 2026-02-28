@@ -128,11 +128,14 @@ class TestAutoRegistration:
                 "stations/station": textwrap.dedent("""\
                     station:
                       id: station
+                      name: Test Station
                     instruments:
                       dmm:
+                        type: dmm
                         driver: builtins.object
                         resource: "FAKE::ADDR"
                       psu:
+                        type: psu
                         driver: builtins.object
                         resource: "FAKE::ADDR2"
                 """),
@@ -194,8 +197,10 @@ class TestAutoRegistration:
                 "stations/station": textwrap.dedent("""\
                     station:
                       id: station
+                      name: Test Station
                     instruments:
                       psu:
+                        type: psu
                         driver: builtins.object
                         resource: "FAKE::ADDR"
                 """),
@@ -236,8 +241,10 @@ class TestAutoRegistration:
                 "stations/station": textwrap.dedent("""\
                     station:
                       id: station
+                      name: Test Station
                     instruments:
                       dmm:
+                        type: dmm
                         driver: builtins.object
                         resource: "FAKE::ADDR"
                 """),
@@ -285,6 +292,7 @@ class TestAutoRegistration:
                 "stations/station": textwrap.dedent("""\
                     station:
                       id: station
+                      name: Test Station
                     instruments: {}
                 """),
             },

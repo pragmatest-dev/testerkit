@@ -67,17 +67,18 @@ def _load_sequence_data(config) -> list[dict[str, Any]]:
             return []
 
     try:
-        with open(seq_path) as f:
-            data = yaml.safe_load(f)
+        from litmus.loaders import load_sequence
+
+        seq_file = load_sequence(seq_path)
     except Exception:
         return []
 
-    if not data:
-        return []
-
-    # Handle both top-level 'steps' and nested 'sequence.steps'
-    seq = data.get("sequence", data)
-    return data.get("steps", seq.get("steps", []))
+    # Steps from top-level or inside sequence block
+    if seq_file.steps:
+        return [s.model_dump() for s in seq_file.steps]
+    if seq_file.sequence.steps:
+        return [s.model_dump() for s in seq_file.sequence.steps]
+    return []
 
 
 def _load_step_aliases(config) -> dict[str, dict[str, str]]:
@@ -165,8 +166,10 @@ def pytest_configure(config):
         return
 
     try:
-        with open(station_path) as f:
-            station_data = yaml.safe_load(f)
+        from litmus.loaders import load_station
+
+        station_model = load_station(station_path)
+        station_data = station_model.model_dump()
     except Exception:
         return
 
@@ -409,15 +412,14 @@ def _maybe_auto_report(run_id: str, results_dir: str) -> None:
         from litmus.config.project import load_project_config
 
         config = load_project_config()
-        reports_config = config.get("reports", {})
-        if not reports_config.get("auto", False):
+        if not config.reports.auto:
             return
 
         from litmus.reports import generate_report, load_run_data
 
-        fmt = reports_config.get("format", "html")
-        template = reports_config.get("template", "default")
-        output_dir = reports_config.get("output_dir", "reports")
+        fmt = config.reports.format
+        template = config.reports.template
+        output_dir = config.reports.output_dir
 
         data = load_run_data(run_id, results_dir)
         generate_report(data, output_dir, fmt=fmt, template=template)
@@ -677,8 +679,10 @@ def station_config(request) -> dict[str, Any] | None:
     """
     station_path = _find_station_file(request.config)
     if station_path:
-        with open(station_path) as f:
-            return yaml.safe_load(f)
+        from litmus.loaders import load_station
+
+        station = load_station(station_path)
+        return station.model_dump()
     return None
 
 
@@ -689,8 +693,6 @@ def fixture_config(request):
     Returns:
         FixtureConfig instance, or None if not specified.
     """
-    from litmus.config.models import FixtureConfig
-
     config_path = request.config.getoption("--fixture-config")
     if not config_path:
         # Try auto-discover from fixtures/ directory
@@ -708,9 +710,10 @@ def fixture_config(request):
                     break
 
     if config_path:
-        with open(config_path) as f:
-            data = yaml.safe_load(f)
-            return FixtureConfig.model_validate(data.get("fixture", data))
+        from litmus.loaders import load_fixture
+
+        fixture_file = load_fixture(Path(config_path))
+        return fixture_file.fixture
     return None
 
 
