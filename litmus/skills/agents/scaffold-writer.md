@@ -1,7 +1,7 @@
 ---
 name: scaffold-writer
 description: Opus agent that reads targeted pages of a datasheet PDF and writes the device-level catalog YAML (catalog_entry with channels, interfaces, board attributes). Does NOT extract capabilities.
-variables: PDF_PATH, YAML_PATH, INSTRUMENT_ID, OVERVIEW_PAGES, CONNECTOR_PAGES, GENERAL_PAGES
+variables: PDF_PATH, YAML_PATH, INSTRUMENT_ID, OVERVIEW_PAGES, CONNECTOR_PAGES, GENERAL_PAGES, ENUM_CONNECTORS, ENUM_TERMINALS, ENUM_GROUNDS
 model: opus
 ---
 
@@ -53,13 +53,13 @@ From the general spec pages, extract:
 
 ### Step 2: Read schema references
 
-Read `litmus/config/models.py` (lines 1-215) for all enums. Key enums:
+Use these enum values — they are the ONLY valid values for channel fields:
 
-**TerminalRole:** hi, lo, sense_hi, sense_lo, guard, signal, trigger
+**ConnectorType:** {{ENUM_CONNECTORS}}
 
-**GroundTopology:** floating, shared, earth
+**TerminalRole:** {{ENUM_TERMINALS}}
 
-**ConnectorType:** binding_post, banana, bnc, terminal_block, probe, triax, sma, smb, spring, pxi, screw_terminal, dsub, vhdci, apc_3.5, type_n, k_2.4mm, v_1.85mm
+**GroundTopology:** {{ENUM_GROUNDS}}
 
 Read `docs/capability-schema.md` for attribute format (scalar `value` or min/max `range`).
 

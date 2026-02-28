@@ -3,26 +3,12 @@
 from __future__ import annotations
 
 import copy
-import warnings
 from pathlib import Path
 from typing import Any
 
 import yaml
 
 from litmus.catalog.models import InstrumentCatalogEntry
-from litmus.config.models import (
-    Attribute,
-    ChannelTopology,
-    Condition,
-    ConnectorType,
-    Control,
-    Direction,
-    InstrumentCapability,
-    GroundTopology,
-    Signal,
-    MeasurementFunction,
-    TerminalRole,
-)
 
 
 def load_catalog_entry(
@@ -246,8 +232,6 @@ def _build_entry(data: dict[str, Any], path: Path) -> InstrumentCatalogEntry:
         )
 
     entry_data = data.get("catalog_entry", {})
-
-    # Pre-parse complex fields
     parsed: dict[str, Any] = dict(entry_data)
 
     # Derived defaults for optional identity fields
@@ -258,18 +242,7 @@ def _build_entry(data: dict[str, Any], path: Path) -> InstrumentCatalogEntry:
         parsed["name"] = f"{mfr} {model}".strip() or path.stem
     parsed["model"] = str(parsed.get("model", ""))
 
-    # Parse complex sub-structures
-    parsed["channels"] = _parse_channels(parsed.get("channels", {}))
-    parsed["capabilities"] = _parse_capabilities(
-        parsed.get("capabilities") or [], source=path.name
-    )
-
-    board_attrs: dict[str, Attribute] = {}
-    for name, d in (parsed.get("attributes") or {}).items():
-        board_attrs[name] = Attribute(**(d or {}))
-    parsed["attributes"] = board_attrs
-
-    return InstrumentCatalogEntry(**parsed)
+    return InstrumentCatalogEntry.model_validate(parsed)
 
 
 def load_catalog_from_directory(catalog_dir: Path) -> dict[str, InstrumentCatalogEntry]:
@@ -388,142 +361,5 @@ def find_by_model(
     return None
 
 
-def _parse_channels(raw: Any) -> dict[str, ChannelTopology]:
-    """Parse channels from YAML into structured dict.
-
-    Supports:
-    - Structured dict: {"1": {terminals: [hi, lo], ...}} → pass through
-    - Legacy list: ["1", "2"] → default topology for each
-    - Legacy range string: "1:3" → default topology for each expanded name
-    - None/empty → empty dict
-    """
-    if not raw:
-        return {}
-
-    # Already a structured dict
-    if isinstance(raw, dict):
-        result: dict[str, ChannelTopology] = {}
-        for key, value in raw.items():
-            key_str = str(key)
-            if isinstance(value, dict):
-                result[key_str] = _parse_channel_topology(value)
-            else:
-                # Bare key with no topology data
-                result[key_str] = ChannelTopology()
-        return result
-
-    # Legacy formats: convert to dict with default topology
-    from litmus.utils.ranges import expand_range
-
-    names = expand_range(raw)
-    return {name: ChannelTopology() for name in names}
-
-
-def _parse_channel_topology(data: dict[str, Any]) -> ChannelTopology:
-    """Parse a single ChannelTopology from dict data."""
-    terminals = []
-    for t in data.get("terminals", []):
-        try:
-            terminals.append(TerminalRole(t))
-        except ValueError:
-            pass
-
-    connector = None
-    if "connector" in data:
-        try:
-            connector = ConnectorType(data["connector"])
-        except ValueError:
-            pass
-
-    ground = GroundTopology.SHARED
-    if "ground" in data:
-        try:
-            ground = GroundTopology(data["ground"])
-        except ValueError:
-            pass
-
-    return ChannelTopology(
-        label=data.get("label"),
-        terminals=terminals,
-        connector=connector,
-        connector_pin=data.get("connector_pin"),
-        ground=ground,
-    )
-
-
-def _parse_capabilities(
-    caps_data: list[dict[str, Any]],
-    source: str = "<unknown>",
-) -> list[InstrumentCapability]:
-    """Parse capabilities list from YAML data."""
-    capabilities = []
-    for i, cap_data in enumerate(caps_data):
-        try:
-            cap = _parse_capability(cap_data)
-            capabilities.append(cap)
-        except (ValueError, KeyError, TypeError) as exc:
-            func = cap_data.get("function", "???") if isinstance(cap_data, dict) else "???"
-            warnings.warn(
-                f"{source}: capability[{i}] function={func!r} skipped: {exc}",
-                stacklevel=2,
-            )
-            continue
-    return capabilities
-
-
-def _parse_capability(data: dict[str, Any]) -> InstrumentCapability:
-    """Parse a single InstrumentCapability from YAML data.
-
-    Supports both the new format (signals/conditions/controls/attributes)
-    and the legacy format (parameters with role tags).
-    """
-    function = MeasurementFunction(data["function"])
-    direction = Direction(data["direction"])
-
-    # New format: separate dicts
-    signals: dict[str, Signal] = {}
-    conditions: dict[str, Condition] = {}
-    controls: dict[str, Control] = {}
-    attributes: dict[str, Attribute] = {}
-
-    for name, d in (data.get("signals") or {}).items():
-        signals[name] = Signal(**(d or {}))
-    conds_raw = data.get("conditions")
-    if isinstance(conds_raw, dict):
-        for name, d in conds_raw.items():
-            conditions[name] = Condition(**(d or {}))
-    for name, d in (data.get("controls") or {}).items():
-        controls[name] = Control(**(d or {}))
-    for name, d in (data.get("attributes") or {}).items():
-        attributes[name] = Attribute(**(d or {}))
-
-    channels = _normalize_channels(data.get("channels"))
-    readback = bool(data.get("readback", False))
-
-    return InstrumentCapability(
-        function=function,
-        direction=direction,
-        signals=signals,
-        conditions=conditions,
-        controls=controls,
-        attributes=attributes,
-        channels=channels,
-        modes=data.get("modes", []),
-        readback=readback,
-    )
-
-
-def _normalize_channels(raw: Any) -> list[str]:
-    """Normalize channel data from YAML to list[str]."""
-    if raw is None:
-        return []
-    if isinstance(raw, list):
-        return [str(ch) for ch in raw]
-    if isinstance(raw, str):
-        from litmus.utils.ranges import expand_range
-        return expand_range(raw)
-    if isinstance(raw, int):
-        return [str(i + 1) for i in range(raw)]
-    return []
 
 

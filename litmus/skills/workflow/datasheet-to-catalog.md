@@ -46,12 +46,17 @@ Key principles:
 <step id="1.1">Get PDF path and output YAML path from user input.</step>
 
 <step id="1.2">
-Read the MeasurementFunction enum from `litmus/config/models.py` (lines 1-215).
-Extract ALL enum values into ENUM_LIST. This is read ONCE and injected into all agent prompts.
+Read `litmus/config/models.py` (lines 1-220).
+Extract ALL enum values into these variables (read ONCE, injected into agent prompts):
+- ENUM_FUNCTIONS — MeasurementFunction values
+- ENUM_CONNECTORS — ConnectorType values
+- ENUM_TERMINALS — TerminalRole values
+- ENUM_GROUNDS — GroundTopology values
+- ENUM_DIRECTIONS — Direction values
 </step>
 
 <checkpoint phase="1">
-You MUST have PDF_PATH, YAML_PATH, INSTRUMENT_ID, and ENUM_LIST.
+You MUST have PDF_PATH, YAML_PATH, INSTRUMENT_ID, and all ENUM_* variables.
 Emit: <phase-complete id="1" />
 </checkpoint>
 
@@ -107,9 +112,10 @@ Construct the scaffold-writer prompt. The prompt MUST contain ALL of these input
 | OVERVIEW_PAGES | Page range for overview/title | Phase 2 scaffold pages |
 | CONNECTOR_PAGES | Page range for connectors/I/O | Phase 2 scaffold pages |
 | GENERAL_PAGES | Page range for general/environmental specs | Phase 2 scaffold pages |
+| ENUM_CONNECTORS | ConnectorType enum values | Phase 1 |
+| ENUM_TERMINALS | TerminalRole enum values | Phase 1 |
+| ENUM_GROUNDS | GroundTopology enum values | Phase 1 |
 | Instructions | Read targeted pages, write device-level YAML, validate | See litmus/skills/agents/scaffold-writer.md for reference |
-
-The agent reads its own schema/enum references from source files.
 </step>
 
 <step id="3.2">Spawn: Task(model="opus", prompt=constructed_prompt)</step>

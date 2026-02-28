@@ -339,8 +339,6 @@ def get_station_capabilities(station_config: dict) -> list[StationCapability]:
     expanded into per-channel entries so matching can allocate individual
     channels.
     """
-    from litmus.catalog.loader import _normalize_channels
-
     capabilities = []
     # Instruments can be at root level or inside station block
     instruments = station_config.get("instruments", {})
@@ -361,13 +359,10 @@ def get_station_capabilities(station_config: dict) -> list[StationCapability]:
         # Fall back to generic instrument library
         library = load_instrument_library(inst_type)
         if library and "capabilities" in library:
-            from litmus.catalog.loader import _parse_capability
+            from litmus.config.models import InstrumentCapability
 
             for cap_data in library["capabilities"]:
-                try:
-                    inst_cap = _parse_capability(cap_data)
-                except (ValueError, KeyError):
-                    continue
+                inst_cap = InstrumentCapability.model_validate(cap_data)
                 _expand_capability(inst_cap, inst_type, inst_name, capabilities)
 
     return capabilities

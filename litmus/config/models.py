@@ -180,8 +180,13 @@ class TerminalRole(StrEnum):
     SENSE_HI = "sense_hi"  # Remote sense high (Kelvin connection)
     SENSE_LO = "sense_lo"  # Remote sense low
     GUARD = "guard"        # Guard terminal (triax center)
+    GROUND = "ground"      # Chassis / earth ground terminal
     SIGNAL = "signal"      # Single-ended signal (BNC center, probe tip)
     TRIGGER = "trigger"    # Trigger I/O
+    HCUR = "hcur"          # High current (impedance analyzer)
+    HPOT = "hpot"          # High potential (impedance analyzer)
+    LCUR = "lcur"          # Low current (impedance analyzer)
+    LPOT = "lpot"          # Low potential (impedance analyzer)
 
 
 class GroundTopology(StrEnum):
@@ -212,6 +217,11 @@ class ConnectorType(StrEnum):
     TYPE_N = "type_n"
     K_24MM = "k_2.4mm"
     V_185MM = "v_1.85mm"
+    PHOENIX = "phoenix"
+    TEKVPI = "tekvpi"
+    D_SUB_9 = "d_sub_9"
+    D_SUB_15 = "d_sub_15"
+    PROPRIETARY = "proprietary"
 
 
 class CompareMode(StrEnum):
