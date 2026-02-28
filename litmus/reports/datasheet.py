@@ -520,38 +520,38 @@ def _build_tables_from_bands(
     cell_fn,
 ) -> list[dict[str, Any]]:
     """Generic table builder for spec bands (used by both signals and attrs)."""
-    keys = _when_keys(bands)
-    ndim = len(keys)
     tables = []
 
-    if ndim == 0:
-        # Unconditional — nothing to table
-        pass
-    elif ndim == 1:
-        key = keys[0]
-        rows = []
-        for band in bands:
-            label = fmt_when_value(band["when"].get(key), key)
-            rows.append({"label": label, "value": cell_fn(band)})
-        tables.append({
-            "kind": "1d",
-            "title": fmt_key(name),
-            "row_key": fmt_key(key),
-            "value_label": fmt_key(value_label),
-            "rows": rows,
-        })
-    elif ndim == 2:
-        # Use 2D matrix only if grid is reasonably dense (>50% filled)
-        v0 = _unique_values(bands, keys[0])
-        v1 = _unique_values(bands, keys[1])
-        grid_size = len(v0) * len(v1)
-        if grid_size > 0 and len(bands) / grid_size >= 0.5:
-            tables.append(_build_2d_generic(bands, keys, name, cell_fn))
+    # Cluster bands by when-key overlap so disjoint groups get separate tables
+    for cluster in _cluster_by_key_overlap(bands):
+        keys = _when_keys(cluster)
+        ndim = len(keys)
+
+        if ndim == 0:
+            pass
+        elif ndim == 1:
+            key = keys[0]
+            rows = []
+            for band in cluster:
+                label = fmt_when_value(band["when"].get(key), key)
+                rows.append({"label": label, "value": cell_fn(band)})
+            tables.append({
+                "kind": "1d",
+                "title": fmt_key(name),
+                "row_key": fmt_key(key),
+                "value_label": fmt_key(value_label),
+                "rows": rows,
+            })
+        elif ndim == 2:
+            v0 = _unique_values(cluster, keys[0])
+            v1 = _unique_values(cluster, keys[1])
+            grid_size = len(v0) * len(v1)
+            if grid_size > 0 and len(cluster) / grid_size >= 0.5:
+                tables.append(_build_2d_generic(cluster, keys, name, cell_fn))
+            else:
+                tables.append(_build_multi_col_table(cluster, keys, name, value_label=value_label, cell_fn=cell_fn))
         else:
-            tables.append(_build_multi_col_table(bands, keys, name, value_label=value_label, cell_fn=cell_fn))
-    else:
-        # 3+ keys: flat multi-column table
-        tables.append(_build_multi_col_table(bands, keys, name, value_label=value_label, cell_fn=cell_fn))
+            tables.append(_build_multi_col_table(cluster, keys, name, value_label=value_label, cell_fn=cell_fn))
 
     return tables
 
