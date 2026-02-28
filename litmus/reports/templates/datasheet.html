@@ -123,10 +123,18 @@
   <thead><tr><th>Relation</th><th>Model</th><th>Name</th><th>Datasheet</th></tr></thead>
   <tbody>
   {% for r in related %}
-  <tr><td>{{ r.label }}</td><td>{{ r.model }}</td><td>{{ r.name }}</td><td><a href="{{ r.href }}">{{ r.href }}</a></td></tr>
+  <tr class="related-link" data-href="{{ r.href }}"><td>{{ r.label }}</td><td>{{ r.model }}</td><td>{{ r.name }}</td><td><a href="{{ r.href }}">{{ r.href }}</a></td></tr>
   {% endfor %}
   </tbody>
 </table>
+<script>
+document.querySelectorAll('.related-link').forEach(row => {
+  const href = row.dataset.href;
+  fetch(href, {method: 'HEAD'}).then(r => {
+    if (!r.ok) row.style.display = 'none';
+  }).catch(() => { row.style.display = 'none'; });
+});
+</script>
 {% endif %}
 
 {# ── Channels ── #}

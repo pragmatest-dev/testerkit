@@ -747,11 +747,8 @@ def _render_datasheet(
         output: Output file path.
         fmt: "html" or "pdf".
         related: Optional list of {label, name, model, href} for related links.
-                 Only links whose href resolves to an existing sibling file are rendered.
+                 Links to missing files are hidden client-side via JS.
     """
-    # Link-check: only keep links to files that exist
-    if related:
-        related = [r for r in related if (output.parent / r["href"]).exists()]
     output.parent.mkdir(parents=True, exist_ok=True)
 
     template_path = Path(__file__).parent / "templates" / "datasheet.html"
@@ -830,8 +827,6 @@ def generate_datasheet(
         vdata = load_datasheet_data(vpath)
         ventry = vdata["entry"]
         vout = output.parent / f"{ventry['id']}.{ext}"
-        # Render variant with link back to base
-        _render_datasheet(vdata, vout, fmt, related=[base_link])
         variant_links.append({
             "label": "Variant",
             "name": ventry.get("name", ventry["id"]),
@@ -839,5 +834,14 @@ def generate_datasheet(
             "href": vout.name,
         })
 
-    # Render base (must be last so variant files exist for link-check)
-    return _render_datasheet(data, output, fmt, related=variant_links)
+    # Render base first so variants can link back to it
+    _render_datasheet(data, output, fmt, related=variant_links)
+
+    # Render variants with link back to base
+    for vpath in variant_files:
+        vdata = load_datasheet_data(vpath)
+        ventry = vdata["entry"]
+        vout = output.parent / f"{ventry['id']}.{ext}"
+        _render_datasheet(vdata, vout, fmt, related=[base_link])
+
+    return output

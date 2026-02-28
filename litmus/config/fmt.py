@@ -36,21 +36,14 @@ _BLOCK_KEYS = {
     "instruments", "roles", "pins",
 }
 
-# Strings that YAML 1.1 interprets as booleans — must be quoted.
-_YAML_BOOL_STRINGS = {
-    "on", "off", "yes", "no", "true", "false",
-    "ON", "OFF", "YES", "NO", "TRUE", "FALSE",
-    "On", "Off", "Yes", "No", "True", "False",
-}
-
 
 def _is_scalar(v: Any) -> bool:
     return isinstance(v, (str, int, float, bool, type(None)))
 
 
-def _quote_if_bool(v: Any) -> Any:
-    """Quote string values that YAML would interpret as booleans."""
-    if isinstance(v, str) and v in _YAML_BOOL_STRINGS:
+def _quote_if_needed(v: Any) -> Any:
+    """Quote all string values for safe, unambiguous YAML output."""
+    if isinstance(v, str):
         return DoubleQuotedScalarString(v)
     return v
 
@@ -69,13 +62,13 @@ def _apply_style(data: Any, key: str | None = None) -> Any:
     elif isinstance(data, list):
         cs = CommentedSeq()
         for item in data:
-            cs.append(_apply_style(_quote_if_bool(item)))
+            cs.append(_apply_style(_quote_if_needed(item)))
 
         if all(_is_scalar(v) for v in data) and len(data) <= 8:
             cs.fa.set_flow_style()
         return cs
 
-    return _quote_if_bool(data)
+    return _quote_if_needed(data)
 
 
 def _make_yaml() -> YAML:
