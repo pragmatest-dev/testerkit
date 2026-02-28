@@ -86,14 +86,43 @@ For signal/condition/attribute/SpecBand-override **declarations**:
 
 For SpecBand **`when` clauses**, single points are bare scalars (see above): `frequency: 100000000`, not `value:` syntax.
 
+### Qualifier
+
+Add `qualifier` when the datasheet indicates confidence level:
+- "guaranteed" / "warranted" / "specification" → `qualifier: guaranteed`
+- "typical" / "typ" → `qualifier: typical`
+- "nominal" / "nom" → `qualifier: nominal`
+- "supplemental" / "supplemental characteristic" → `qualifier: supplemental`
+
+Place qualifier on the signal, attribute, or individual SpecBand — whichever matches the datasheet's scope. Qualifier must always be explicit — no implied default.
+
+### Control Resolution and Specs
+
+Controls support `resolution` (step size) and `specs` (condition-dependent overrides):
+
+```yaml
+controls:
+  power:
+    range: {min: -20, max: 25, units: dBm}
+    resolution: {value: 0.01, units: dBm}
+    specs:
+      - when: {frequency: {min: 250000, max: 3200000000}}
+        range: {min: -20, max: 25, units: dBm}
+      - when: {frequency: {min: 3200000001, max: 20000000000}}
+        range: {min: -20, max: 20, units: dBm}
+```
+
 ### Vacuous SpecBands
 
 If there's only ONE accuracy across the whole range, just use top-level accuracy. Do NOT create a single SpecBand that duplicates it.
 
-### Comments Policy
+### Style & Comments Policy
 
-- 3-line header max: instrument name, PDF source, model variants
+- **No comments in YAML** — no header comments, no inline comments
 - No spec data in comments — every inventory row goes into a schema field
+- **No `note` fields** — NEVER add `note:` on any model. Encode data structurally (qualifier, specs, attributes) or omit prose descriptions entirely
+- **Quote YAML boolean strings** — always quote `"on"`, `"off"`, `"yes"`, `"no"`, `"true"`, `"false"` when used as string values (YAML parses bare `on`/`off` as booleans)
+- The orchestrator runs `litmus.config.fmt.format_file_inplace()` after writing to enforce consistent formatting
 
 ### MeasurementFunction Enum
 

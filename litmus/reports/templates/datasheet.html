@@ -48,11 +48,22 @@
   .attr-item .aname { font-size: 11px; color: #6c757d; text-transform: uppercase; }
   .attr-item .aval { font-size: 13px; font-weight: 500; }
 
+  .qual-typical { color: #92400e; }
+  .qual-nominal { color: #3730a3; }
+  .qual-supplemental { color: #6b21a8; }
+  .qual-guaranteed { color: #065f46; }
+
   .cap-section { border-left: 3px solid #cbd5e1; padding-left: 10px; margin: 10px 0; }
   .cap-section.signals { border-left-color: #2563eb; }
   .cap-section.attributes { border-left-color: #d97706; }
   .cap-section.controls { border-left-color: #059669; }
   .cap-section.conditions { border-left-color: #7c3aed; }
+
+  .toc { margin-bottom: 16px; font-size: 12px; line-height: 1.8; }
+  .toc-group { margin-bottom: 4px; }
+  .toc-label { font-weight: 600; color: #334155; margin-right: 6px; }
+  .toc a { color: #2563eb; text-decoration: none; }
+  .toc a:hover { text-decoration: underline; }
 
   .footer { margin-top: 24px; font-size: 11px; color: #999; border-top: 1px solid #eee; padding-top: 8px; }
 
@@ -64,6 +75,9 @@
 </style>
 </head>
 <body>
+
+{# ── Macros ── #}
+{% macro qual_cell(qualifier) %}<td class="qual-{{ qualifier }}">{{ qualifier if qualifier else '—' }}</td>{% endmacro %}
 
 {# ── Header ── #}
 <div class="header">
@@ -84,9 +98,40 @@
   <div class="summary-item"><div class="num" style="font-size:14px; padding-top:3px;">{{ data.type | replace('_', ' ') | title }}</div><div class="label">Type</div></div>
 </div>
 
+{# ── Table of Contents ── #}
+{% if data.capabilities | length > 3 %}
+<h2>Contents</h2>
+<div class="toc">
+  {% if data.channels or data.attributes %}
+  <div class="toc-group">
+    <span class="toc-label">Device:</span>
+    {% if data.channels %}<a href="#channels">Channels</a>{% endif %}
+    {% if data.attributes %}{% if data.channels %} · {% endif %}<a href="#board-attrs">Attributes</a>{% endif %}
+  </div>
+  {% endif %}
+  <div class="toc-group">
+    <span class="toc-label">Capabilities:</span>
+    {% for cap in data.capabilities %}{% if not loop.first %} · {% endif %}<a href="#cap-{{ loop.index }}">{{ cap.function | replace('_', ' ') | title }}</a>{% endfor %}
+  </div>
+</div>
+{% endif %}
+
+{# ── Related Datasheets ── #}
+{% if related %}
+<h2>Related</h2>
+<table>
+  <thead><tr><th>Relation</th><th>Model</th><th>Name</th><th>Datasheet</th></tr></thead>
+  <tbody>
+  {% for r in related %}
+  <tr><td>{{ r.label }}</td><td>{{ r.model }}</td><td>{{ r.name }}</td><td><a href="{{ r.href }}">{{ r.href }}</a></td></tr>
+  {% endfor %}
+  </tbody>
+</table>
+{% endif %}
+
 {# ── Channels ── #}
 {% if data.channels %}
-<h2>Channels</h2>
+<h2 id="channels">Channels</h2>
 <table>
   <thead><tr><th>ID</th><th>Label</th><th>Connector</th><th>Terminals</th><th>Ground</th></tr></thead>
   <tbody>
@@ -105,11 +150,11 @@
 
 {# ── Board-Level Attributes ── #}
 {% if data.attributes %}
-<h2>Attributes</h2>
+<h2 id="board-attrs">Attributes</h2>
 <div class="attr-grid">
   {% for name, attr in data.attributes.items() %}
   <div class="attr-item">
-    <div class="aname">{{ name | replace('_', ' ') }}</div>
+    <div class="aname">{{ name | replace('_', ' ') }}{% if attr.qualifier %} <span class="qual-{{ attr.qualifier }}">({{ attr.qualifier }})</span>{% endif %}</div>
     <div class="aval">{{ attr | fmt_attr }}</div>
   </div>
   {% endfor %}
@@ -119,7 +164,7 @@
 {# ── Capabilities ── #}
 <h2>Capabilities</h2>
 {% for cap in data.capabilities %}
-<div class="cap-card">
+<div class="cap-card" id="cap-{{ loop.index }}">
   <div class="cap-header">
     <span>
       <span class="fn">{{ cap.function | replace('_', ' ') | title }}</span>
@@ -133,8 +178,9 @@
     {% if cap.signals %}
     <div class="cap-section signals">
     <h4>Signals</h4>
+    {% set vs = cap.visible_signals %}
     <table>
-      <thead><tr><th>Signal</th><th>Range</th><th>Accuracy</th><th>Resolution</th></tr></thead>
+      <thead><tr><th>Signal</th><th>Range</th><th>Accuracy</th><th>Resolution</th>{% if vs.qualifier %}<th>Qualifier</th>{% endif %}</tr></thead>
       <tbody>
       {% for sig_name, sig in cap.signals.items() %}
       {% set render = cap.signal_renders[sig_name] %}
@@ -143,6 +189,7 @@
         <td>{{ render.headline.range }}</td>
         <td>{{ render.headline.accuracy }}</td>
         <td>{{ render.headline.resolution }}</td>
+        {% if vs.qualifier %}{{ qual_cell(sig.qualifier) }}{% endif %}
       </tr>
       {% endfor %}
       </tbody>
@@ -204,7 +251,7 @@
       {% for cond_name, cond in cap.conditions.items() %}
       <tr>
         <td>{{ cond_name | replace('_', ' ') | title }}</td>
-        <td>{% if cond.range %}{{ cond.range | fmt_range }}{% elif cond.options %}{{ cond.options | join(', ') }}{% else %}—{% endif %}</td>
+        <td>{% if cond.range %}{{ cond.range | fmt_range }}{% elif cond.options %}{% for o in cond.options %}{% if not loop.first %}, {% endif %}{% if o is number and cond.units %}{{ o|fmt_si(cond.units) }}{% else %}{{ o }}{% endif %}{% endfor %}{% else %}—{% endif %}</td>
       </tr>
       {% endfor %}
       </tbody>
@@ -216,14 +263,16 @@
     {% if cap.controls %}
     <div class="cap-section controls">
     <h4>Controls</h4>
+    {% set vc = cap.visible_controls %}
     <table>
-      <thead><tr><th>Control</th><th>Range / Options</th><th>Default</th></tr></thead>
+      <thead><tr><th>Control</th><th>Range / Options</th>{% if vc.resolution %}<th>Resolution</th>{% endif %}{% if vc.default %}<th>Default</th>{% endif %}</tr></thead>
       <tbody>
       {% for ctrl_name, ctrl in cap.controls.items() %}
       <tr>
         <td>{{ ctrl_name | replace('_', ' ') | title }}</td>
-        <td>{% if ctrl.range %}{{ ctrl.range | fmt_range }}{% elif ctrl.options %}{{ ctrl.options | join(', ') }}{% else %}—{% endif %}</td>
-        <td>{{ ctrl.default if ctrl.default is not none else '—' }}</td>
+        <td>{% if ctrl.range %}{{ ctrl.range | fmt_range }}{% elif ctrl.options %}{% for o in ctrl.options %}{% if not loop.first %}, {% endif %}{% if o is number and ctrl.units %}{{ o|fmt_si(ctrl.units) }}{% else %}{{ o }}{% endif %}{% endfor %}{% else %}—{% endif %}</td>
+        {% if vc.resolution %}<td>{% if ctrl.resolution %}{{ ctrl.resolution | fmt_resolution }}{% else %}—{% endif %}</td>{% endif %}
+        {% if vc.default %}<td>{{ ctrl.default if ctrl.default is not none else '—' }}</td>{% endif %}
       </tr>
       {% endfor %}
       </tbody>
@@ -239,16 +288,18 @@
     {% set const_attrs = [] %}
     {% for attr_name, attr in cap.attributes.items() %}
     {% set render = cap.attr_renders[attr_name] %}
-    {% if not render.tables %}{% if const_attrs.append((attr_name, render.headline)) %}{% endif %}{% endif %}
+    {% if not render.tables %}{% if const_attrs.append((attr_name, render.headline, attr.qualifier)) %}{% endif %}{% endif %}
     {% endfor %}
     {% if const_attrs %}
+    {% set va = cap.visible_attrs %}
     <table>
-      <thead><tr><th>Attribute</th><th>Value</th></tr></thead>
+      <thead><tr><th>Attribute</th><th>Value</th>{% if va.qualifier %}<th>Qualifier</th>{% endif %}</tr></thead>
       <tbody>
-      {% for attr_name, headline in const_attrs %}
+      {% for attr_name, headline, attr_qual in const_attrs %}
       <tr>
         <td>{{ attr_name | replace('_', ' ') | title }}</td>
         <td>{{ headline }}</td>
+        {% if va.qualifier %}{{ qual_cell(attr_qual) }}{% endif %}
       </tr>
       {% endfor %}
       </tbody>

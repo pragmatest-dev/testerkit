@@ -70,6 +70,7 @@ For each inventory spec row, verify the role assignment using these rules ONLY:
 | A resolution spec (digits/bits/increment) is a flat attribute | `resolution_digits: {value: 6.5}` instead of `signals.X.resolution` |
 | A min/max range is flat attribute pairs | `freq_min` + `freq_max` instead of `conditions.frequency.range` |
 | A USER-SELECTABLE SETTING from inventory is missing from controls | Inventory lists "PLL bandwidth: Wide/Narrow" but no control exists |
+| A `note` field exists on any model | `note: "typical"` — use `qualifier: typical` or remove |
 
 Do NOT flag: role choices that are defensible (e.g., fixed impedance as attribute vs condition), option dependencies, or design preferences.
 

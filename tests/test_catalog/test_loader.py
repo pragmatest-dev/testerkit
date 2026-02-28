@@ -204,8 +204,8 @@ class TestCatalogInheritance:
         entry = load_catalog_entry(tmp_path / "variant.yaml", catalog_dir=tmp_path)
         assert list(entry.channels.keys()) == ["A"]
 
-    def test_variant_overrides_capabilities(self, tmp_path):
-        """Variant with capabilities: replaces base's."""
+    def test_variant_merges_capabilities(self, tmp_path):
+        """Variant capabilities merge with base: new functions appended, matching functions merged."""
         _write_yaml(tmp_path / "base_dmm.yaml", self._base_yaml())
         _write_yaml(tmp_path / "variant.yaml", """\
             catalog_entry:
@@ -221,8 +221,10 @@ class TestCatalogInheritance:
                   channels: ["1"]
         """)
         entry = load_catalog_entry(tmp_path / "variant.yaml", catalog_dir=tmp_path)
-        assert len(entry.capabilities) == 1
-        assert entry.capabilities[0].function == MeasurementFunction.AC_VOLTAGE
+        assert len(entry.capabilities) == 2
+        funcs = {c.function for c in entry.capabilities}
+        assert MeasurementFunction.DC_VOLTAGE in funcs  # inherited from base
+        assert MeasurementFunction.AC_VOLTAGE in funcs  # added by variant
 
     def test_variant_inherits_header_fields(self, tmp_path):
         """manufacturer, type inherited from base."""
@@ -334,7 +336,10 @@ def _catalog_yaml_files():
     """Collect all catalog YAML files for parametrized test."""
     if not CATALOG_DIR.exists():
         return []
-    return sorted(CATALOG_DIR.glob("**/*.yaml"))
+    return sorted(
+        p for p in CATALOG_DIR.glob("**/*.yaml")
+        if not p.name.startswith("_") and ".variants." not in p.name
+    )
 
 
 @pytest.mark.parametrize(

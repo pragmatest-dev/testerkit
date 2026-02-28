@@ -5,6 +5,7 @@ from collections import defaultdict
 from pathlib import Path
 from typing import Any
 
+import yaml
 from jinja2 import Environment
 
 from litmus.catalog.loader import load_catalog_entry
@@ -112,12 +113,11 @@ def fmt_range(rng: dict[str, Any] | None, use_si: bool = True) -> str:
         return "—"
 
     if use_si and units:
-        lo_str = fmt_si(lo, units) if lo is not None else "—"
-        hi_str = fmt_si(hi, units) if hi is not None else "—"
         if lo is not None and hi is not None:
-            # Show units only on the high value
             return f"{fmt_si(lo, units)} – {fmt_si(hi, units)}"
-        return f"{lo_str} – {hi_str}"
+        if lo is not None:
+            return f"≥ {fmt_si(lo, units)}"
+        return f"≤ {fmt_si(hi, units)}"
 
     if lo is not None and hi is not None:
         return f"{_fmt_num(lo)} – {_fmt_num(hi)} {units}".strip()
@@ -139,9 +139,32 @@ def fmt_when_value(v: Any, key: str = "") -> str:
 
     If key is provided, infers SI units from the key name for numeric values.
     """
+    if v is None:
+        return "—"
     if isinstance(v, dict):
+        # Point value: {value: X} or {value: X, units: Y}
+        if "value" in v:
+            units = v.get("units") or (_infer_units(key) if key else "")
+            val = v["value"]
+            # Try parsing string-encoded numbers (e.g. "2.4e9" from YAML)
+            if isinstance(val, str):
+                try:
+                    val = float(val)
+                except (ValueError, TypeError):
+                    return f"{val} {units}".strip() if units else str(val)
+            if isinstance(val, (int, float)) and units:
+                return fmt_si(val, units)
+            return _fmt_num(val) if isinstance(val, (int, float)) else str(val)
         # Range dict: {min, max, units}
-        return fmt_range(v)
+        # Also handle string-encoded min/max
+        rng = dict(v)
+        for k in ("min", "max"):
+            if isinstance(rng.get(k), str):
+                try:
+                    rng[k] = float(rng[k])
+                except (ValueError, TypeError):
+                    pass
+        return fmt_range(rng)
     if isinstance(v, list):
         return ", ".join(str(x) for x in v)
     if isinstance(v, (int, float)):
@@ -304,6 +327,86 @@ def _has_output_field(band: dict[str, Any], field: str) -> bool:
     return True
 
 
+def _cluster_by_key_overlap(
+    bands: list[dict[str, Any]],
+) -> list[list[dict[str, Any]]]:
+    """Cluster bands whose when-key sets overlap (subset/superset).
+
+    Bands with disjoint key sets go into separate clusters.
+    """
+    # Sub-group by exact key signature
+    sig_groups: dict[frozenset[str], list[dict[str, Any]]] = defaultdict(list)
+    for band in bands:
+        ks = frozenset(band.get("when", {}).keys())
+        sig_groups[ks].append(band)
+
+    # Merge groups with subset/superset relationships
+    sigs = list(sig_groups.keys())
+    clusters: list[set[int]] = [{i} for i in range(len(sigs))]
+
+    for i in range(len(sigs)):
+        for j in range(i + 1, len(sigs)):
+            if sigs[i] & sigs[j]:  # any key overlap → merge
+                # Find which clusters i and j belong to
+                ci = next(c for c in clusters if i in c)
+                cj = next(c for c in clusters if j in c)
+                if ci is not cj:
+                    ci.update(cj)
+                    clusters.remove(cj)
+
+    result = []
+    for cluster in clusters:
+        merged = []
+        for idx in cluster:
+            merged.extend(sig_groups[sigs[idx]])
+        result.append(merged)
+    return result
+
+
+def _emit_table(
+    tables: list[dict[str, Any]],
+    bands: list[dict[str, Any]],
+    keys: list[str],
+    present_fields: list[str],
+    sig_name: str,
+) -> None:
+    """Build and append the appropriate table type for a band cluster."""
+    # 2D matrix: exactly 2 keys, 1 output field, dense grid
+    if len(keys) == 2 and len(present_fields) == 1:
+        v0 = _unique_values(bands, keys[0])
+        v1 = _unique_values(bands, keys[1])
+        grid_size = len(v0) * len(v1)
+        if grid_size > 0 and len(bands) / grid_size >= 0.5:
+            cell_fn = lambda b, f=present_fields[0]: _format_output_cell(b, f)
+            tbl = _build_2d_generic(bands, keys, sig_name, cell_fn)
+            tbl["title"] = f"{fmt_key(sig_name)} {fmt_key(present_fields[0])}"
+            tables.append(tbl)
+            return
+
+    # Single output field with 1 key → 1D table
+    if len(keys) == 1 and len(present_fields) == 1:
+        key = keys[0]
+        field = present_fields[0]
+        rows = []
+        for band in bands:
+            label = fmt_when_value(band.get("when", {}).get(key), key)
+            rows.append({"label": label, "value": _format_output_cell(band, field)})
+        tables.append({
+            "kind": "1d",
+            "title": _field_title(field, sig_name),
+            "row_key": fmt_key(key),
+            "value_label": fmt_key(field),
+            "rows": rows,
+        })
+        return
+
+    # Multi-column: condition columns + output field columns
+    tables.append(_build_multi_col_table(
+        bands, keys, sig_name,
+        output_fields=present_fields,
+    ))
+
+
 def build_signal_render(
     sig_name: str, sig: dict[str, Any]
 ) -> dict[str, Any]:
@@ -326,69 +429,49 @@ def build_signal_render(
     if not specs:
         return {"headline": headline, "tables": []}
 
-    # Group by when-key signature
-    groups: dict[frozenset[str], list[dict[str, Any]]] = defaultdict(list)
+    # Split unconditional bands (no when) from conditional bands
+    unconditional = []
+    conditional = []
     for band in specs:
-        key_sig = frozenset((band.get("when") or {}).keys())
-        groups[key_sig].append(band)
+        if not band.get("when"):
+            unconditional.append(band)
+        else:
+            conditional.append(band)
+
+    # Unconditional — merge into headline
+    for band in unconditional:
+        for field in ("range", "accuracy", "resolution"):
+            if _has_output_field(band, field):
+                headline[field] = _format_output_cell(band, field)
 
     tables = []
-    for key_sig, bands in groups.items():
-        keys = list(key_sig)
-        # Stabilize key order from first band that has them
-        if bands and bands[0].get("when"):
-            keys = [k for k in bands[0]["when"] if k in key_sig]
+    if not conditional:
+        return {"headline": headline, "tables": tables}
 
-        if not keys:
-            # Unconditional — merge into headline
-            for band in bands:
-                for field in ("range", "accuracy", "resolution"):
-                    if _has_output_field(band, field):
-                        headline[field] = _format_output_cell(band, field)
-            continue
-
-        # Determine which output fields are present across group
-        present_fields = [
+    # Group by output field signature first
+    output_groups: dict[frozenset[str], list[dict[str, Any]]] = defaultdict(list)
+    for band in conditional:
+        out_sig = frozenset(
             f for f in ("range", "accuracy", "resolution")
-            if any(_has_output_field(b, f) for b in bands)
-        ]
+            if _has_output_field(band, f)
+        )
+        output_groups[out_sig].append(band)
+
+    for out_sig, bands in output_groups.items():
+        present_fields = [f for f in ("range", "accuracy", "resolution") if f in out_sig]
         if not present_fields:
             continue
 
-        # 2D matrix: exactly 2 keys, 1 output field, dense grid
-        if len(keys) == 2 and len(present_fields) == 1:
-            v0 = _unique_values(bands, keys[0])
-            v1 = _unique_values(bands, keys[1])
-            grid_size = len(v0) * len(v1)
-            if grid_size > 0 and len(bands) / grid_size >= 0.5:
-                cell_fn = lambda b, f=present_fields[0]: _format_output_cell(b, f)
-                tbl = _build_2d_generic(bands, keys, sig_name, cell_fn)
-                tbl["title"] = f"{fmt_key(sig_name)} {fmt_key(present_fields[0])}"
-                tables.append(tbl)
-                continue
+        # Within each output group, cluster bands by when-key overlap.
+        # Merge groups with subset/superset key relationships; keep disjoint groups separate.
+        for cluster in _cluster_by_key_overlap(bands):
+            all_keys: dict[str, None] = {}
+            for band in cluster:
+                for k in band["when"]:
+                    all_keys.setdefault(k, None)
+            keys = list(all_keys)
 
-        # Single output field with 1 key → 1D table
-        if len(keys) == 1 and len(present_fields) == 1:
-            key = keys[0]
-            field = present_fields[0]
-            rows = []
-            for band in bands:
-                label = fmt_when_value(band.get("when", {}).get(key), key)
-                rows.append({"label": label, "value": _format_output_cell(band, field)})
-            tables.append({
-                "kind": "1d",
-                "title": _field_title(field, sig_name),
-                "row_key": fmt_key(key),
-                "value_label": fmt_key(field),
-                "rows": rows,
-            })
-            continue
-
-        # Multi-column: condition columns + output field columns
-        tables.append(_build_multi_col_table(
-            bands, keys, sig_name,
-            output_fields=present_fields,
-        ))
+            _emit_table(tables, cluster, keys, present_fields, sig_name)
 
     return {"headline": headline, "tables": tables}
 
@@ -566,10 +649,18 @@ def _build_multi_col_table(
         }
 
 
+def _visible_fields(items: dict[str, dict[str, Any]], fields: list[str]) -> dict[str, bool]:
+    """Determine which optional fields have at least one non-None value across items."""
+    return {
+        f: any(item.get(f) is not None for item in items.values())
+        for f in fields
+    }
+
+
 def preprocess_capabilities(caps: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """Preprocess capabilities for template rendering.
 
-    Adds 'signal_renders' and 'attr_renders' dicts to each capability.
+    Adds 'signal_renders', 'attr_renders', and 'visible_*' dicts to each capability.
     """
     for cap in caps:
         sig_renders = {}
@@ -581,6 +672,23 @@ def preprocess_capabilities(caps: list[dict[str, Any]]) -> list[dict[str, Any]]:
         for attr_name, attr in (cap.get("attributes") or {}).items():
             attr_renders[attr_name] = build_attr_render(attr_name, attr)
         cap["attr_renders"] = attr_renders
+
+        # Which optional columns have data?
+        if cap.get("signals"):
+            cap["visible_signals"] = _visible_fields(
+                cap["signals"], ["qualifier"]
+            )
+        if cap.get("controls"):
+            cap["visible_controls"] = _visible_fields(
+                cap["controls"], ["resolution", "default"]
+            )
+        if cap.get("attributes"):
+            # For constant attrs (no spec bands), check qualifier
+            const_attrs = {
+                k: v for k, v in cap["attributes"].items()
+                if not attr_renders.get(k, {}).get("tables")
+            }
+            cap["visible_attrs"] = _visible_fields(const_attrs, ["qualifier"])
     return caps
 
 
@@ -608,33 +716,44 @@ def load_datasheet_data(path: Path) -> dict[str, Any]:
     }
 
 
-def generate_datasheet(
-    path: Path,
-    output: Path | None = None,
-    fmt: str = "html",
+def _find_variant_files(base_path: Path) -> list[Path]:
+    """Find variant YAML files that inherit from this base entry."""
+    base_id = base_path.stem
+    variants = []
+    for candidate in sorted(base_path.parent.glob("*.yaml")):
+        if candidate == base_path or ".variants." in candidate.name:
+            continue
+        try:
+            with open(candidate) as f:
+                raw = yaml.safe_load(f)
+            entry = raw.get("catalog_entry", {})
+            if entry.get("base") == base_id:
+                variants.append(candidate)
+        except Exception:
+            continue
+    return variants
+
+
+def _render_datasheet(
+    data: dict[str, Any],
+    output: Path,
+    fmt: str,
+    related: list[dict[str, str]] | None = None,
 ) -> Path:
-    """Generate a formatted datasheet from a catalog YAML file.
+    """Render a single datasheet to file.
 
     Args:
-        path: Path to catalog YAML file.
-        output: Output file path. Defaults to <model>.html in current dir.
-        fmt: Output format — "html" or "pdf".
-
-    Returns:
-        Path to generated file.
+        data: Output of load_datasheet_data().
+        output: Output file path.
+        fmt: "html" or "pdf".
+        related: Optional list of {label, name, model, href} for related links.
+                 Only links whose href resolves to an existing sibling file are rendered.
     """
-    data = load_datasheet_data(path)
-    entry = data["entry"]
-
-    if output is None:
-        ext = "pdf" if fmt == "pdf" else "html"
-        output = Path(f"{entry['id']}.{ext}")
-    else:
-        output = Path(output)
-
+    # Link-check: only keep links to files that exist
+    if related:
+        related = [r for r in related if (output.parent / r["href"]).exists()]
     output.parent.mkdir(parents=True, exist_ok=True)
 
-    # Load and render template
     template_path = Path(__file__).parent / "templates" / "datasheet.html"
     template_str = template_path.read_text()
 
@@ -648,7 +767,11 @@ def generate_datasheet(
     env.filters["fmt_key"] = fmt_key
 
     tmpl = env.from_string(template_str)
-    html = tmpl.render(data=data["entry"], summary=data["summary"])
+    html = tmpl.render(
+        data=data["entry"],
+        summary=data["summary"],
+        related=related or [],
+    )
 
     if fmt == "pdf":
         try:
@@ -662,3 +785,59 @@ def generate_datasheet(
         output.write_text(html)
 
     return output
+
+
+def generate_datasheet(
+    path: Path,
+    output: Path | None = None,
+    fmt: str = "html",
+) -> Path:
+    """Generate a formatted datasheet from a catalog YAML file.
+
+    If the entry is a base with variants, also generates a datasheet for
+    each variant file and includes links in the base datasheet.
+
+    Args:
+        path: Path to catalog YAML file.
+        output: Output file path. Defaults to <model>.html in current dir.
+        fmt: Output format — "html" or "pdf".
+
+    Returns:
+        Path to generated base file.
+    """
+    data = load_datasheet_data(path)
+    entry = data["entry"]
+    ext = "pdf" if fmt == "pdf" else "html"
+
+    if output is None:
+        output = Path(f"{entry['id']}.{ext}")
+    else:
+        output = Path(output)
+
+    # Check for variants
+    variant_files = _find_variant_files(path)
+    variant_links: list[dict[str, str]] = []
+
+    # Base link for variants (same directory)
+    base_link = {
+        "label": "Base",
+        "name": entry.get("name", entry["id"]),
+        "model": entry.get("model", ""),
+        "href": output.name,
+    }
+
+    for vpath in variant_files:
+        vdata = load_datasheet_data(vpath)
+        ventry = vdata["entry"]
+        vout = output.parent / f"{ventry['id']}.{ext}"
+        # Render variant with link back to base
+        _render_datasheet(vdata, vout, fmt, related=[base_link])
+        variant_links.append({
+            "label": "Variant",
+            "name": ventry.get("name", ventry["id"]),
+            "model": ventry.get("model", ""),
+            "href": vout.name,
+        })
+
+    # Render base (must be last so variant files exist for link-check)
+    return _render_datasheet(data, output, fmt, related=variant_links)

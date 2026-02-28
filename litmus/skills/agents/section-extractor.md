@@ -27,7 +27,7 @@ Read your assigned PDF pages (2-4 pages at a time). For EVERY table on every pag
 - Count rows and columns.
 - Note the table title/caption.
 
-Also identify: non-table specs (bullets, prose, diagram labels), footnotes, and user-selectable settings.
+Also identify: non-table specs (bullets, prose, diagram labels), footnotes, user-selectable settings, and **qualifier indicators** (look for "typical", "nominal", "supplemental", "guaranteed", "warranted", "specification" in table headers, footnotes, or row annotations).
 </step>
 
 <step id="2" name="Write inventory">

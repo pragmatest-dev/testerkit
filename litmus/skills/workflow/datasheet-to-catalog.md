@@ -226,8 +226,9 @@ NOTHING else exits the loop. No exceptions. No judgment calls.
 
 <phase id="5" name="Final Verify">
 
-After ALL sections are processed, run a final validation:
+After ALL sections are processed, format and validate:
 ```
+uv run python -c "from litmus.config.fmt import format_file_inplace; format_file_inplace(Path('YAML_PATH'))"
 uv run litmus validate YAML_PATH
 ```
 

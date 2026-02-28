@@ -2,7 +2,8 @@
 
 from pathlib import Path
 
-from litmus.catalog.loader import _parse_signal, load_catalog_entry
+from litmus.catalog.loader import load_catalog_entry
+from litmus.config.models import Signal
 
 
 def test_parse_parameter_with_specs():
@@ -21,7 +22,7 @@ def test_parse_parameter_with_specs():
             },
         ],
     }
-    param = _parse_signal(data)
+    param = Signal(**data)
     assert param.specs is not None
     assert len(param.specs) == 2
     assert param.specs[0].when["frequency"].min == 3
@@ -35,7 +36,7 @@ def test_parse_parameter_without_specs():
         "range": {"min": 0, "max": 100, "units": "V"},
         "accuracy": {"pct_reading": 0.01},
     }
-    param = _parse_signal(data)
+    param = Signal(**data)
     assert param.specs is None
 
 

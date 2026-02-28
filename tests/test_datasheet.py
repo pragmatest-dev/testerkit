@@ -163,8 +163,8 @@ class TestBuildSignalRender:
         assert len(tbl["rows"]) == 2
         assert len(tbl["col_headers"]) == 2
 
-    def test_unified_multi_col(self):
-        """Bands with different output fields under same when-keys produce one multi_col table."""
+    def test_separate_tables_per_output_field(self):
+        """Bands with different output fields produce separate tables (one per output type)."""
         sig = {
             "range": {"min": 0, "max": 100, "units": "V"},
             "accuracy": {"pct_reading": 1.0},
@@ -175,16 +175,11 @@ class TestBuildSignalRender:
             ],
         }
         render = build_signal_render("voltage", sig)
-        # Same when-key-set ("freq") → one unified table with both range and accuracy columns
-        assert len(render["tables"]) == 1
-        tbl = render["tables"][0]
-        assert tbl["kind"] == "multi_col"
-        assert "Range" in tbl["value_cols"]
-        assert "Accuracy" in tbl["value_cols"]
-        assert len(tbl["rows"]) == 2
+        # Different output fields → separate tables
+        assert len(render["tables"]) == 2
 
-    def test_mixed_when_key_sets(self):
-        """Bands with different when-key-sets produce separate tables."""
+    def test_mixed_when_key_sets_merge_into_superset(self):
+        """Bands with different when-key-sets merge into one superset table."""
         sig = {
             "range": None, "accuracy": None, "resolution": None,
             "specs": [
@@ -193,6 +188,7 @@ class TestBuildSignalRender:
             ],
         }
         render = build_signal_render("voltage", sig)
+        # Different output fields (range vs accuracy) → separate tables
         assert len(render["tables"]) == 2
 
 

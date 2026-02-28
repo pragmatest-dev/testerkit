@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import copy
 import warnings
 from pathlib import Path
 from typing import Any
@@ -10,7 +11,6 @@ import yaml
 
 from litmus.catalog.models import InstrumentCatalogEntry
 from litmus.config.models import (
-    AccuracySpec,
     Attribute,
     ChannelTopology,
     Condition,
@@ -21,9 +21,6 @@ from litmus.config.models import (
     GroundTopology,
     Signal,
     MeasurementFunction,
-    RangeSpec,
-    ResolutionSpec,
-    SpecBand,
     TerminalRole,
 )
 
@@ -101,8 +98,10 @@ def _load_with_inheritance(
         )
     seen.add(entry_id)
 
-    # Locate base file
-    base_path = catalog_dir / f"{base_ref}.yaml"
+    # Locate base file: try sibling of variant first, then catalog_dir
+    base_path = path.parent / f"{base_ref}.yaml"
+    if not base_path.exists():
+        base_path = catalog_dir / f"{base_ref}.yaml"
     if not base_path.exists():
         raise ValueError(
             f"Base catalog entry {base_ref!r} not found "
@@ -116,14 +115,20 @@ def _load_with_inheritance(
 def _merge_catalog_data(
     base: dict[str, Any], variant: dict[str, Any]
 ) -> dict[str, Any]:
-    """Merge base and variant YAML dicts with section-level override.
+    """Merge base and variant YAML dicts.
 
     Rules:
-    - ``capabilities`` in variant replaces base's entirely.
-    - ``channels`` in variant replaces base's entirely.
     - Header fields (manufacturer, type, name, description)
       are inherited from base when absent in variant.
     - ``id``, ``model``, ``base`` always come from the variant.
+    - ``channels``, ``attributes``, ``interfaces`` inherit from base
+      when absent in variant; variant replaces if present.
+    - ``capabilities`` are merged per-capability: matched by
+      ``(function, direction)``.  Variant capability dicts are
+      deep-merged into matching base capabilities (variant specs
+      are appended, variant params override).  Unmatched base
+      capabilities pass through; unmatched variant capabilities
+      are appended.
 
     All fields live under ``catalog_entry:``.
     """
@@ -141,11 +146,91 @@ def _merge_catalog_data(
     merged_entry.update(variant_entry)
 
     # Section-level inherit: variant replaces if present, else inherit base
-    for section in ("channels", "attributes", "capabilities", "interfaces"):
+    for section in ("channels", "attributes", "interfaces"):
         if section not in variant_entry and section in base_entry:
             merged_entry[section] = base_entry[section]
 
+    # Per-capability merge
+    base_caps = base_entry.get("capabilities") or []
+    variant_caps = variant_entry.get("capabilities") or []
+
+    if variant_caps and base_caps:
+        merged_entry["capabilities"] = _merge_capabilities(base_caps, variant_caps)
+    elif not variant_caps and base_caps:
+        merged_entry["capabilities"] = base_caps
+
     return {"catalog_entry": merged_entry}
+
+
+def _cap_key(cap: dict[str, Any]) -> tuple[str, str]:
+    """Identity key for matching capabilities: (function, direction)."""
+    return (cap.get("function", ""), cap.get("direction", ""))
+
+
+def _merge_capabilities(
+    base_caps: list[dict[str, Any]], variant_caps: list[dict[str, Any]]
+) -> list[dict[str, Any]]:
+    """Merge variant capabilities into base capabilities by (function, direction).
+
+    For each variant capability, find the matching base capability and
+    deep-merge param dicts (signals, conditions, controls, attributes):
+    variant specs are appended to base specs, variant params override base.
+    Unmatched base caps pass through; unmatched variant caps are appended.
+    """
+    # Index base caps by key; handle duplicates by keeping list order
+    merged: list[dict[str, Any]] = [copy.deepcopy(c) for c in base_caps]
+    base_index: dict[tuple[str, str], int] = {}
+    for i, cap in enumerate(base_caps):
+        key = _cap_key(cap)
+        if key not in base_index:
+            base_index[key] = i
+
+    for vcap in variant_caps:
+        key = _cap_key(vcap)
+        if key in base_index:
+            _deep_merge_cap(merged[base_index[key]], vcap)
+        else:
+            merged.append(copy.deepcopy(vcap))
+
+    return merged
+
+
+def _deep_merge_cap(base_cap: dict[str, Any], variant_cap: dict[str, Any]) -> None:
+    """Deep-merge a variant capability into a base capability in place.
+
+    For each param dict section (signals, conditions, controls, attributes):
+    - If param exists in both, append variant specs to base specs
+    - If param exists only in variant, add it to base
+    """
+    for section in ("signals", "conditions", "controls", "attributes"):
+        v_section = variant_cap.get(section)
+        if not v_section or not isinstance(v_section, dict):
+            continue
+
+        if section not in base_cap or not isinstance(base_cap.get(section), dict):
+            base_cap[section] = copy.deepcopy(v_section)
+            continue
+
+        b_section = base_cap[section]
+        for param_name, v_param in v_section.items():
+            if param_name not in b_section:
+                b_section[param_name] = copy.deepcopy(v_param)
+                continue
+
+            # Merge specs: append variant specs to base specs
+            if isinstance(v_param, dict) and "specs" in v_param:
+                b_param = b_section[param_name]
+                if not isinstance(b_param, dict):
+                    b_section[param_name] = copy.deepcopy(v_param)
+                    continue
+                b_specs = b_param.get("specs", [])
+                b_param["specs"] = b_specs + copy.deepcopy(v_param["specs"])
+                # Merge non-spec fields from variant (e.g. range, value overrides)
+                for k, v in v_param.items():
+                    if k != "specs":
+                        b_param[k] = copy.deepcopy(v)
+            else:
+                b_section[param_name] = copy.deepcopy(v_param)
 
 
 def _build_entry(data: dict[str, Any], path: Path) -> InstrumentCatalogEntry:
@@ -181,7 +266,7 @@ def _build_entry(data: dict[str, Any], path: Path) -> InstrumentCatalogEntry:
 
     board_attrs: dict[str, Attribute] = {}
     for name, d in (parsed.get("attributes") or {}).items():
-        board_attrs[name] = _parse_attribute(d or {})
+        board_attrs[name] = Attribute(**(d or {}))
     parsed["attributes"] = board_attrs
 
     return InstrumentCatalogEntry(**parsed)
@@ -201,7 +286,7 @@ def load_catalog_from_directory(catalog_dir: Path) -> dict[str, InstrumentCatalo
 
     entries: dict[str, InstrumentCatalogEntry] = {}
     for path in sorted(catalog_dir.rglob("*.yaml")):
-        if path.name.startswith("_"):
+        if path.name.startswith("_") or ".variants." in path.name:
             continue
         try:
             entry = load_catalog_entry(path, catalog_dir=catalog_dir)
@@ -364,15 +449,15 @@ def _parse_capability(data: dict[str, Any]) -> InstrumentCapability:
     attributes: dict[str, Attribute] = {}
 
     for name, d in (data.get("signals") or {}).items():
-        signals[name] = _parse_signal(d or {})
+        signals[name] = Signal(**(d or {}))
     conds_raw = data.get("conditions")
     if isinstance(conds_raw, dict):
         for name, d in conds_raw.items():
-            conditions[name] = _parse_condition(d or {})
+            conditions[name] = Condition(**(d or {}))
     for name, d in (data.get("controls") or {}).items():
-        controls[name] = _parse_control(d or {})
+        controls[name] = Control(**(d or {}))
     for name, d in (data.get("attributes") or {}).items():
-        attributes[name] = _parse_attribute(d or {})
+        attributes[name] = Attribute(**(d or {}))
 
     channels = _normalize_channels(data.get("channels"))
     readback = bool(data.get("readback", False))
@@ -404,136 +489,3 @@ def _normalize_channels(raw: Any) -> list[str]:
     return []
 
 
-def _parse_signal(data: dict[str, Any]) -> Signal:
-    """Parse a Signal from YAML data."""
-    range_spec = None
-    if "range" in data:
-        r = data["range"]
-        range_spec = RangeSpec(
-            min=r.get("min"),
-            max=r.get("max"),
-            units=r.get("units", ""),
-        )
-
-    accuracy_spec = None
-    if "accuracy" in data:
-        a = data["accuracy"]
-        accuracy_spec = AccuracySpec(
-            pct_reading=a.get("pct_reading"),
-            pct_range=a.get("pct_range"),
-            absolute=a.get("absolute"),
-        )
-
-    resolution_spec = None
-    if "resolution" in data:
-        r = data["resolution"]
-        resolution_spec = ResolutionSpec(
-            bits=r.get("bits"),
-            digits=r.get("digits"),
-            value=r.get("value"),
-            units=r.get("units"),
-        )
-
-    specs = None
-    if "specs" in data:
-        specs = [_parse_spec_band(s) for s in data["specs"]]
-
-    return Signal(
-        range=range_spec,
-        accuracy=accuracy_spec,
-        resolution=resolution_spec,
-        value=data.get("value"),
-        units=data.get("units"),
-        specs=specs,
-    )
-
-
-def _parse_condition(data: dict[str, Any]) -> Condition:
-    """Parse a Condition from YAML data."""
-    range_spec = None
-    if "range" in data:
-        r = data["range"]
-        range_spec = RangeSpec(
-            min=r.get("min"),
-            max=r.get("max"),
-            units=r.get("units", ""),
-        )
-    return Condition(range=range_spec)
-
-
-def _parse_control(data: dict[str, Any]) -> Control:
-    """Parse a Control from YAML data."""
-    range_spec = None
-    if "range" in data:
-        r = data["range"]
-        range_spec = RangeSpec(
-            min=r.get("min"),
-            max=r.get("max"),
-            units=r.get("units", ""),
-        )
-    return Control(
-        range=range_spec,
-        options=data.get("options"),
-        units=data.get("units"),
-        default=data.get("default"),
-    )
-
-
-def _parse_attribute(data: dict[str, Any]) -> Attribute:
-    """Parse an Attribute from YAML data."""
-    specs = None
-    if "specs" in data:
-        specs = [_parse_spec_band(s) for s in data["specs"]]
-    return Attribute(
-        value=data.get("value", 0),
-        units=data.get("units"),
-        specs=specs,
-    )
-
-
-def _parse_spec_band(data: dict[str, Any]) -> SpecBand:
-    """Parse a single SpecBand from YAML data."""
-    when: dict[str, RangeSpec | str | float | bool | list] = {}
-    for key, val in data.get("when", {}).items():
-        if isinstance(val, dict):
-            when[key] = RangeSpec(
-                min=val.get("min"), max=val.get("max"), units=val.get("units", "")
-            )
-        elif isinstance(val, list):
-            when[key] = val
-        else:
-            when[key] = val  # str, float, bool pass-through
-
-    accuracy = None
-    if "accuracy" in data:
-        a = data["accuracy"]
-        accuracy = AccuracySpec(
-            pct_reading=a.get("pct_reading"),
-            pct_range=a.get("pct_range"),
-            absolute=a.get("absolute"),
-        )
-
-    resolution = None
-    if "resolution" in data:
-        r = data["resolution"]
-        resolution = ResolutionSpec(
-            bits=r.get("bits"),
-            digits=r.get("digits"),
-            value=r.get("value"),
-            units=r.get("units"),
-        )
-
-    range_spec = None
-    if "range" in data:
-        rng = data["range"]
-        range_spec = RangeSpec(
-            min=rng.get("min"), max=rng.get("max"), units=rng.get("units", "")
-        )
-
-    return SpecBand(
-        when=when,
-        range=range_spec,
-        value=data.get("value"),
-        accuracy=accuracy,
-        resolution=resolution,
-    )

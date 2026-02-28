@@ -340,6 +340,23 @@ class InstrumentType(StrEnum):
 # =============================================================================
 
 
+class SpecQualifier(StrEnum):
+    """Qualification level for a specification value.
+
+    Mirrors industry convention from test equipment manufacturers:
+    - **guaranteed**: Warranted spec — product must meet it, guardbanded for
+      measurement uncertainty and environmental variation.
+    - **typical**: Expected performance measured across multiple units, not warranted.
+    - **nominal**: Design target or expected value, not warranted or tested.
+    - **supplemental**: Informational performance data, not warranted.
+    """
+
+    GUARANTEED = "guaranteed"
+    TYPICAL = "typical"
+    NOMINAL = "nominal"
+    SUPPLEMENTAL = "supplemental"
+
+
 class RangeSpec(BaseModel):
     """Specification for measurement or output range."""
 
@@ -472,8 +489,11 @@ class SpecBand(BaseModel):
     when: dict[str, "RangeSpec | PointSpec | ListSpec | str | float | bool | list[str | float | bool]"] = Field(default_factory=dict)
     range: RangeSpec | None = None  # Derated range at this operating point
     value: float | str | None = None  # Nominal/typical at this operating point
+    units: str | None = None  # Override parent units for this band
     accuracy: AccuracySpec | None = None
     resolution: ResolutionSpec | None = None
+    qualifier: SpecQualifier | None = None
+    note: str | None = None  # Unstructured annotation; will be replaced by structured fields
 
 
 class SignalParameter(BaseModel):
@@ -546,6 +566,8 @@ class Signal(BaseModel):
     value: float | None = None
     units: str | None = None
     specs: list[SpecBand] | None = None
+    qualifier: SpecQualifier | None = None
+    note: str | None = None  # Unstructured annotation; will be replaced by structured fields
 
 
 class Condition(BaseModel):
@@ -572,6 +594,8 @@ class Condition(BaseModel):
     options: list[float | str] | None = None
     units: str | None = None
     default: float | str | None = None
+    specs: list[SpecBand] | None = None
+    note: str | None = None  # Unstructured annotation; will be replaced by structured fields
 
 
 class Control(BaseModel):
@@ -596,6 +620,9 @@ class Control(BaseModel):
     options: list[float | str] | None = None
     units: str | None = None
     default: float | str | None = None
+    resolution: ResolutionSpec | None = None
+    specs: list[SpecBand] | None = None
+    note: str | None = None  # Unstructured annotation; will be replaced by structured fields
 
 
 class Attribute(BaseModel):
@@ -636,16 +663,21 @@ class Attribute(BaseModel):
     options: list[float | str] | None = None
     units: str | None = None
     specs: list[SpecBand] | None = None
+    qualifier: SpecQualifier | None = None
+    note: str | None = None  # Unstructured annotation; will be replaced by structured fields
 
     @model_validator(mode="after")
     def _require_value_range_or_options(self) -> "Attribute":
         has_value = self.value is not None
         has_range = self.range is not None
         has_options = self.options is not None
+        has_specs = self.specs is not None and len(self.specs) > 0
+        has_note = self.note is not None
         count = sum([has_value, has_range, has_options])
-        if count == 0:
+        if count == 0 and not has_specs and not has_note:
             raise ValueError(
                 "Attribute must have exactly one of 'value', 'range', or 'options'"
+                " (or 'specs' for condition-dependent values, or 'note' for unstructured data)"
             )
         if count > 1:
             raise ValueError(

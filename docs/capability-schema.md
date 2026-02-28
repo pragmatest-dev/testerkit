@@ -74,7 +74,7 @@ specs:
 
 ### conditions — operating conditions that affect accuracy
 
-Range only. No accuracy of their own. Feed SpecBand lookup.
+Continuous (`range`) or discrete (`options`), with optional condition-dependent overrides via `specs`. Feed SpecBand lookup.
 
 ```yaml
 conditions:
@@ -82,11 +82,13 @@ conditions:
     range: {min: 3, max: 300000, units: Hz}
   temperature:
     range: {min: 18, max: 28, units: degC}
+  calibration_interval:
+    options: ["24_hour", "90_day", "1_year", "2_year"]
 ```
 
 ### controls — user-configurable knobs
 
-Discrete options OR continuous range. Can be referenced in SpecBand `when`.
+Discrete options OR continuous range. Can be referenced in SpecBand `when`. Supports `resolution` (step size) and condition-dependent overrides via `specs`.
 
 ```yaml
 controls:
@@ -95,12 +97,20 @@ controls:
     default: "DC"
   v_per_div:
     range: {min: 0.001, max: 10, units: V/div}
+    resolution: {value: 0.001, units: V/div}
   nplc:
     range: {min: 0.02, max: 100}
     default: 1
   impedance:
     options: ["50ohm", "1Mohm"]
     default: "1Mohm"
+  power:
+    range: {min: -20, max: 20, units: dBm}
+    specs:
+      - when: {frequency: {min: 250000, max: 3200000000}}
+        range: {min: -20, max: 25, units: dBm}
+      - when: {frequency: {min: 3200000001, max: 20000000000}}
+        range: {min: -20, max: 20, units: dBm}
 ```
 
 ### attributes — fixed hardware facts (not adjustable)
@@ -129,7 +139,31 @@ attributes:
         value: 0.0001
 ```
 
-Attributes support exactly one of `value` (numeric or string scalar), `range` (min/max), or `options` (enumerated list).
+Attributes support exactly one of `value` (numeric or string scalar), `range` (min/max), or `options` (enumerated list). An attribute may also have only `specs` (no base value) when all values are condition-dependent.
+
+## Qualifier
+
+Signals, attributes, and SpecBands support a `qualifier` field indicating the calibration confidence level:
+
+| Value | Meaning |
+|-------|---------|
+| `guaranteed` | Warranted specification, tested and traceable |
+| `typical` | Measured across representative units, not warranted |
+| `nominal` | Design target, not individually tested |
+| `supplemental` | Informational / supplemental characteristic |
+
+```yaml
+signals:
+  voltage:
+    range: {min: -10, max: 10, units: V}
+    qualifier: guaranteed
+    specs:
+      - when: {frequency: {min: 3, max: 5, units: Hz}}
+        accuracy: {pct_reading: 0.35}
+        qualifier: typical
+```
+
+Qualifier must always be explicit — there is no implied default.
 
 ## MeasurementFunction — use the MOST SPECIFIC value
 
@@ -210,8 +244,10 @@ The same physical quantity can be a signal, condition, control, or attribute dep
 | **Phase** | `function: phase` (lock-in, VNA) | — | — | Orthogonality error |
 | **Impedance** | `function: impedance` (LCR meter) | — | User-selectable (50Ω/1MΩ) | Fixed output impedance |
 
+## Instrument Variants (Option Codes)
+
+Hardware option codes (e.g., "Option 521", "Opt. S20") are **different instruments** — different SKU, different hardware. During extraction, model them as normal controls with SpecBand `when` clauses so data stays traceable to the PDF. A post-processing step splits variant-gated specs into separate catalog entries using `base:` inheritance.
+
 ## Comments policy
 
-- **3-line header max**: instrument name, PDF source, model variants
-- **No spec data in comments** — if it's in the datasheet, encode it in the schema
-- Page references go in the header comment only
+- **No comments in catalog YAML** — all metadata belongs in schema fields
