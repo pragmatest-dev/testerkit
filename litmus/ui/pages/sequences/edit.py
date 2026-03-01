@@ -260,7 +260,7 @@ def _render_step_card(
                     if index > 0:
                         ui.button(
                             icon="arrow_upward",
-                            on_click=lambda i=index: _move_step(
+                            on_click=lambda _, i=index: _move_step(
                                 form_data["steps"], i, -1, refresh_callback
                             ),
                         ).props("flat dense round")
@@ -268,14 +268,14 @@ def _render_step_card(
                     if index < len(form_data["steps"]) - 1:
                         ui.button(
                             icon="arrow_downward",
-                            on_click=lambda i=index: _move_step(
+                            on_click=lambda _, i=index: _move_step(
                                 form_data["steps"], i, 1, refresh_callback
                             ),
                         ).props("flat dense round")
                     # Delete
                     ui.button(
                         icon="delete",
-                        on_click=lambda i=index: _delete_step(
+                        on_click=lambda _, i=index: _delete_step(
                             form_data["steps"], i, refresh_callback
                         ),
                     ).props("flat dense round color=red")
@@ -489,7 +489,7 @@ def _render_dialog_card(dialog_id: str, dialog: dict, form_data: dict, refresh_c
                         ui.badge(dialog_type).props("outline")
                 ui.button(
                     icon="delete",
-                    on_click=lambda did=dialog_id: _delete_dialog(
+                    on_click=lambda _, did=dialog_id: _delete_dialog(
                         form_data["dialogs"], did, refresh_callback
                     ),
                 ).props("flat dense round color=red")
@@ -580,7 +580,7 @@ def _render_vectors_editor(step: dict):
                     ).props("outlined dense").classes("flex-1")
                     ui.button(
                         icon="delete",
-                        on_click=lambda s=step, idx=i: s["vectors"].pop(idx),
+                        on_click=lambda _, s=step, idx=i: s["vectors"].pop(idx),
                     ).props("flat dense round color=red")
 
             def add_item(s=step):
@@ -699,7 +699,7 @@ def _render_mocks_editor(step: dict):
 
         for key in list(mocks.keys()):
             with ui.row().classes("items-center gap-2 w-full"):
-                ui.input(value=key, readonly=True).props("outlined dense").classes(
+                ui.input(value=key).props("outlined dense readonly").classes(
                     "flex-1"
                 )
                 ui.input(

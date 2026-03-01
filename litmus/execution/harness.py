@@ -22,8 +22,6 @@ if TYPE_CHECKING:
     from litmus.execution.logger import TestRunLogger
     from litmus.products.context import SpecContext
 
-# Forward reference for type hints
-_TestHarness = "TestHarness"
 
 
 def _utcnow() -> datetime:
@@ -66,7 +64,7 @@ class Context:
         self,
         parent: Context | None = None,
         prev: Context | None = None,
-        harness: _TestHarness | None = None,
+        harness: TestHarness | None = None,
     ):
         """Initialize context with optional parent for inheritance.
 
@@ -267,6 +265,51 @@ class Context:
             return None
         return self._harness._resolve_limit(name)
 
+    def measure(
+        self,
+        name: str,
+        value: float | None,
+        units: str | None = None,
+        limit: Limit | None = None,
+        dut_pin: str | None = None,
+        instrument_channel: str | None = None,
+        fixture_point: str | None = None,
+    ) -> Measurement:
+        """Record an explicit measurement by name.
+
+        Use when the measurement name differs from the step name,
+        or when producing multiple measurements from one test.
+
+        Args:
+            name: Measurement name (e.g., "output_voltage").
+            value: Measured value.
+            units: Units (optional, uses limit.units if available).
+            limit: Explicit limit (optional, overrides config lookup).
+            dut_pin: DUT pin being measured (optional).
+            instrument_channel: Instrument channel used (optional).
+            fixture_point: Fixture channel used (optional).
+
+        Returns:
+            Measurement object with outcome set.
+
+        Example:
+            @litmus_test
+            def test_power_supply(context, dmm, psu):
+                context.measure("output_voltage", dmm.measure_dc_voltage())
+                context.measure("quiescent_current", psu.measure_current())
+        """
+        if self._harness is None:
+            raise RuntimeError("No harness attached to context")
+        return self._harness.measure(
+            name,
+            value,
+            units=units,
+            limit=limit,
+            dut_pin=dut_pin,
+            instrument_channel=instrument_channel,
+            fixture_point=fixture_point,
+        )
+
     # -------------------------------------------------------------------------
     # RunContext compatibility (for metadata at run level)
     # -------------------------------------------------------------------------
@@ -383,7 +426,7 @@ class TestHarness:
         # Parse retry config
         if retry is not None:
             self._retry = retry
-        elif "retry" in self._config:
+        elif self._config.get("retry"):
             retry_data = self._config["retry"]
             if isinstance(retry_data, RetryConfig):
                 self._retry = retry_data
@@ -770,25 +813,63 @@ class TestHarness:
 
         return measurement
 
-    def _record_result(self, result: Any) -> None:
+    def _record_result(
+        self, result: float | dict[str, float] | tuple[str, float] | list[float] | None
+    ) -> None:
         """Record a result from test function (return or yield).
 
         Handles:
         - dict: Multiple named measurements
         - tuple (name, value): Single named measurement
-        - single value: Measurement with step name
+        - list/tuple of values: Use limit keys in order
+        - single value: Measurement name inferred from spec ref, limit key, or step name
         - None: No measurement
+
+        Name resolution order for single values:
+        1. spec ref from limit config (if MeasurementLimitConfig with ref:)
+        2. limit key (if exactly one limit)
+        3. step name (fallback)
         """
         if result is None:
             return
         elif isinstance(result, dict):
             for name, value in result.items():
                 self.measure(name, value)
-        elif isinstance(result, tuple) and len(result) == 2:
+        elif isinstance(result, tuple) and len(result) == 2 and isinstance(result[0], str):
+            # Named tuple: (name, value)
             name, value = result
             self.measure(name, value)
+        elif isinstance(result, (list, tuple)):
+            # Multiple values without names: use limit keys in order
+            limit_keys = list(self._limits.keys())
+            for i, val in enumerate(result):
+                meas_value = float(val) if val is not None else None
+                if i < len(limit_keys):
+                    self.measure(limit_keys[i], meas_value)
+                else:
+                    self.measure(f"{self._step_name}_{i}", meas_value)
         else:
-            self.measure(self._step_name, result)
+            # Single value: infer name from spec ref → limit key → step name
+            name = self._infer_measurement_name()
+            self.measure(name, result)
+
+    def _infer_measurement_name(self) -> str:
+        """Infer measurement name from limits config.
+
+        Resolution order:
+        1. spec ref from limit config (if MeasurementLimitConfig with ref:)
+        2. limit key (if exactly one limit)
+        3. step name (fallback)
+        """
+        if len(self._limits) == 1:
+            limit_key = next(iter(self._limits.keys()))
+            limit_config = self._limits[limit_key]
+            # Check if it's a MeasurementLimitConfig with a ref
+            if isinstance(limit_config, MeasurementLimitConfig) and limit_config.ref:
+                return limit_config.ref
+            # Otherwise use the limit key itself
+            return limit_key
+        return self._step_name
 
     def _reset_mock_state(self) -> None:
         """Reset mock state flags on all instruments.

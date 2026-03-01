@@ -1,5 +1,7 @@
 """Fixture edit page."""
 
+from collections.abc import Callable
+
 from nicegui import ui
 
 from litmus.ui.shared.layout import create_layout
@@ -247,7 +249,7 @@ def _labeled_textarea(label: str, value: str = "", on_change=None):
         )
 
 
-def _show_add_point_dialog(instrument_options: list, on_add: callable):
+def _show_add_point_dialog(instrument_options: list, on_add: Callable):
     """Show dialog to add a new fixture point."""
     point_form = {
         "name": "",

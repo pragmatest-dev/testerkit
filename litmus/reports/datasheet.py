@@ -1,6 +1,7 @@
 """Catalog datasheet generation: structured YAML → formatted HTML/PDF."""
 
 from collections import defaultdict
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
@@ -608,7 +609,7 @@ def _build_multi_col_table(
     name: str,
     output_fields: list[str] | None = None,
     value_label: str | None = None,
-    cell_fn=None,
+    cell_fn: Callable | None = None,
 ) -> dict[str, Any]:
     """Build a multi-column table: condition columns + value columns.
 
@@ -644,13 +645,13 @@ def _build_multi_col_table(
             ]
             rows.append({
                 "conditions": condition_cells,
-                "cells": [cell_fn(band)],
+                "cells": [cell_fn(band) if cell_fn else ""],
             })
         return {
             "kind": "multi_col",
             "title": fmt_key(name),
             "col_keys": col_keys,
-            "value_cols": [fmt_key(value_label)],
+            "value_cols": [fmt_key(value_label or "Value")],
             "rows": rows,
         }
 

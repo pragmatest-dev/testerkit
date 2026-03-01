@@ -104,12 +104,12 @@ def _fixture_card(fixture, product: dict | None):
             ui.button(
                 "View",
                 icon="visibility",
-                on_click=lambda f=fixture: ui.navigate.to(f"/fixtures/{f.id}"),
+                on_click=lambda _, f=fixture: ui.navigate.to(f"/fixtures/{f.id}"),
             ).props("flat")
             ui.button(
                 "Edit",
                 icon="edit",
-                on_click=lambda f=fixture: ui.navigate.to(f"/fixtures/{f.id}/edit"),
+                on_click=lambda _, f=fixture: ui.navigate.to(f"/fixtures/{f.id}/edit"),
             ).props("flat")
 
 

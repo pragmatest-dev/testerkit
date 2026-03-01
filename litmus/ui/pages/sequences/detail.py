@@ -2,6 +2,7 @@
 
 from nicegui import ui
 
+from litmus.config.models import TestSequenceConfig
 from litmus.data.backends.parquet import ParquetBackend
 from litmus.ui.shared.components import setup_hash_sync_for_tabs
 from litmus.ui.shared.layout import create_layout
@@ -21,7 +22,7 @@ def format_datetime(dt):
     return str(dt)[:16] if dt else ""
 
 
-def _load_full_sequence(sequence_id: str) -> dict | None:
+def _load_full_sequence(sequence_id: str):
     """Load full sequence configuration from YAML."""
     from litmus.execution.runner import get_runner
 
@@ -43,7 +44,7 @@ def sequence_detail_page(sequence_id: str):
     seq = _load_full_sequence(sequence_id)
 
     if seq:
-        create_layout(seq.get("name") or sequence_id)
+        create_layout(seq.name or sequence_id)
     else:
         create_layout("Sequence Not Found")
 
@@ -54,7 +55,7 @@ def sequence_detail_page(sequence_id: str):
             _render_not_found()
 
 
-def _render_sequence_detail(sequence_id: str, seq: dict):
+def _render_sequence_detail(sequence_id: str, seq: TestSequenceConfig):
     """Render the sequence detail view."""
     # Sequence info card
     with ui.card().classes("w-full"):
@@ -62,7 +63,7 @@ def _render_sequence_detail(sequence_id: str, seq: dict):
             with ui.row().classes("items-center justify-between w-full"):
                 with ui.row().classes("items-center gap-4"):
                     ui.label("Sequence Information").classes("text-lg font-semibold")
-                    phase = seq.get("test_phase")
+                    phase = seq.test_phase
                     if phase:
                         phase_colors = {
                             "validation": "blue",
@@ -80,16 +81,16 @@ def _render_sequence_detail(sequence_id: str, seq: dict):
 
         with ui.card_section():
             with ui.grid(columns=3).classes("gap-6"):
-                _info_field("Sequence ID", seq.get("id", ""))
-                _info_field_link("Product Family", seq.get("product_family"), "/products")
-                _info_field("Test Phase", seq.get("test_phase") or "-")
+                _info_field("Sequence ID", seq.id)
+                _info_field_link("Product Family", seq.product_family, "/products")
+                _info_field("Test Phase", seq.test_phase or "-")
                 with ui.column().classes("gap-1 col-span-3"):
                     ui.label("Description").classes("text-xs text-slate-500 uppercase")
-                    ui.label(seq.get("description", "")).classes("font-semibold")
+                    ui.label(seq.description or "").classes("font-semibold")
 
     # Tabbed content
-    steps = seq.get("steps", [])
-    dialogs = seq.get("dialogs", {})
+    steps = seq.steps
+    dialogs = seq.dialogs
 
     with ui.tabs().classes("w-full") as tabs:
         steps_tab = ui.tab("Steps", icon="format_list_numbered")
@@ -245,7 +246,7 @@ def _render_step_expansion(index: int, step: dict, sequence_id: str):
                         ui.label(value).classes("text-sm")
 
 
-def _render_requirements_tab(sequence_id: str, seq: dict):
+def _render_requirements_tab(sequence_id: str, seq: TestSequenceConfig):
     """Render the requirements tab."""
     # Station & Fixture requirements
     with ui.card().classes("w-full"):
@@ -253,15 +254,15 @@ def _render_requirements_tab(sequence_id: str, seq: dict):
             ui.label("Station & Fixture Requirements").classes("font-semibold")
         with ui.card_section():
             with ui.grid(columns=2).classes("gap-6"):
-                _info_field("Required Fixture", seq.get("required_fixture") or "-")
-                _info_field("Required Station Type", seq.get("required_station_type") or "-")
-                timeout = seq.get("timeout_seconds")
+                _info_field("Required Fixture", seq.required_fixture or "-")
+                _info_field("Required Station Type", seq.required_station_type or "-")
+                timeout = seq.timeout_seconds
                 _info_field("Timeout", f"{timeout}s" if timeout else "-")
-                args = seq.get("pytest_args", [])
+                args = seq.pytest_args
                 _info_field("pytest Args", " ".join(args) if args else "-")
 
     # Required capabilities from product
-    product_family = seq.get("product_family")
+    product_family = seq.product_family
     if product_family:
         product = load_product_model(product_family)
         if product:
@@ -323,7 +324,7 @@ def _station_card(sequence_id: str, station: dict):
             ui.button(
                 "Run Here",
                 icon="play_arrow",
-                on_click=lambda s=station: ui.navigate.to(
+                on_click=lambda _, s=station: ui.navigate.to(
                     f"/launch?sequence={sequence_id}&station={s['id']}"
                 ),
             ).props("flat dense color=primary")

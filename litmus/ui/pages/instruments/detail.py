@@ -16,6 +16,7 @@ from litmus.ui.shared.services import (
 def instrument_detail_page(instrument_type: str):
     """Instrument definition or asset detail page."""
     entry = load_catalog_entry_by_type(instrument_type)
+    asset = None
 
     if entry:
         create_layout(entry.name or instrument_type)

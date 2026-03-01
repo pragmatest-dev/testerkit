@@ -1,6 +1,7 @@
 """New station creation page."""
 
 import re
+from collections.abc import Callable
 
 from nicegui import ui
 
@@ -272,7 +273,7 @@ def _render_instrument_row(
             ui.button(icon="close", on_click=remove).props("flat dense round")
 
 
-def _show_add_instrument_dialog(type_options: dict, on_add: callable):
+def _show_add_instrument_dialog(type_options: dict, on_add: Callable):
     """Show dialog to add a new instrument."""
     inst_form = {
         "name": "",

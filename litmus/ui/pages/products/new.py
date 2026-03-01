@@ -99,10 +99,12 @@ def new_product_page():
                         desc_input = ui.textarea(
                             placeholder="Brief description of the product...",
                         ).props("outlined dense").classes("w-full")
-                        desc_input.on(
-                            "change",
-                            lambda e: form.update({"description": e.value.strip()}),
-                        )
+
+                        def update_description(e):
+                            value = e.sender.value if hasattr(e.sender, "value") else ""
+                            form["description"] = value.strip() if value else ""
+
+                        desc_input.on("change", update_description)
 
             with ui.card_actions().classes("justify-end"):
                 ui.button(

@@ -83,10 +83,10 @@ def _sequence_card(seq):
             ui.button(
                 "View Details",
                 icon="visibility",
-                on_click=lambda s=seq: ui.navigate.to(f"/sequences/{s.id}"),
+                on_click=lambda _, s=seq: ui.navigate.to(f"/sequences/{s.id}"),
             ).props("flat")
             ui.button(
                 "Run",
                 icon="play_arrow",
-                on_click=lambda s=seq: ui.navigate.to(f"/launch?sequence={s.id}"),
+                on_click=lambda _, s=seq: ui.navigate.to(f"/launch?sequence={s.id}"),
             ).props("flat color=primary")

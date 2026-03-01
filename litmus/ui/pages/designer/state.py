@@ -339,7 +339,7 @@ class DesignerState:
 
         self.pins_modified = False
 
-    def load_fixture(self, fixture_config) -> None:
+    def load_fixture(self, fixture_config: Any) -> None:
         """Load existing fixture data into connections."""
         self.connections.clear()
         if hasattr(fixture_config, "id") and fixture_config.id:
@@ -349,11 +349,8 @@ class DesignerState:
             if fixture_info.get("id"):
                 self.fixture_id = fixture_info["id"]
 
-        points = (
-            fixture_config.points
-            if hasattr(fixture_config, "points")
-            else fixture_config.get("points", {})
-        )
+        points_attr = getattr(fixture_config, "points", None)
+        points = points_attr if points_attr is not None else fixture_config.get("points", {})
         for point_name, point in points.items():
             if hasattr(point, "dut_pin"):
                 self.connections[point_name] = {

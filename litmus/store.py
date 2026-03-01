@@ -18,7 +18,7 @@ import copy
 import warnings
 from collections.abc import Iterator
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 import yaml
 
@@ -356,7 +356,7 @@ def create_sequence(
     sequence_id: str,
     name: str,
     product_family: str = "",
-    test_phase: str = "validation",
+    test_phase: Literal["validation", "characterization", "production"] = "validation",
     description: str = "",
 ) -> TestSequenceConfig | None:
     """Create a new sequence configuration file.
@@ -375,7 +375,7 @@ def create_sequence(
         name=name,
         test_phase=test_phase,
         product_family=product_family or None,
-        description=description or None,
+        description=description or "No description",
     )
     _write_model(sequence_file, seq.model_dump(exclude_none=True))
     return seq
@@ -748,7 +748,8 @@ def load_catalog_from_directory(catalog_dir: Path) -> dict[str, InstrumentCatalo
             continue
         try:
             entry = load_catalog_entry(path, catalog_dir=catalog_dir)
-            entries[entry.id] = entry
+            if entry.id:
+                entries[entry.id] = entry
         except Exception as exc:
             warnings.warn(
                 f"catalog: failed to load {path.name}: {exc}",
@@ -858,7 +859,7 @@ def list_catalog_entries() -> list[InstrumentCatalogEntry]:
     seen_ids: set[str] = set()
     for cat_dir in find_catalog_dirs():
         for entry_id, entry in load_catalog_from_directory(cat_dir).items():
-            if entry.id in seen_ids:
+            if not entry.id or entry.id in seen_ids:
                 continue
             seen_ids.add(entry.id)
             all_entries.append(entry)

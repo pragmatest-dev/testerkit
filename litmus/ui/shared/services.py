@@ -3,6 +3,8 @@
 NO direct yaml.safe_load or Path I/O here — all persistence goes through litmus.store.
 """
 
+from typing import Literal
+
 from litmus.instruments.loader import resolve_station_instruments
 from litmus.matching import service as matching_service
 from litmus.products.folder import ProductFolder
@@ -457,7 +459,7 @@ def create_sequence(
     sequence_id: str,
     name: str,
     product_family: str = "",
-    test_phase: str = "validation",
+    test_phase: Literal["validation", "characterization", "production"] = "validation",
     description: str = "",
 ):
     """Create a new sequence configuration file."""

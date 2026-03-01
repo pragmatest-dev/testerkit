@@ -77,10 +77,10 @@ def _station_card(station):
             ui.button(
                 "View Details",
                 icon="visibility",
-                on_click=lambda s=station: ui.navigate.to(f"/stations/{s.id}"),
+                on_click=lambda _, s=station: ui.navigate.to(f"/stations/{s.id}"),
             ).props("flat")
             ui.button(
                 "Start Test",
                 icon="play_arrow",
-                on_click=lambda s=station: ui.navigate.to(f"/launch?station={s.id}"),
+                on_click=lambda _, s=station: ui.navigate.to(f"/launch?station={s.id}"),
             ).props("flat color=primary")

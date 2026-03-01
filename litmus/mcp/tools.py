@@ -9,7 +9,7 @@ Tools:
 """
 
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 # =============================================================================
 # Project root management
@@ -80,7 +80,7 @@ def litmus_tool(
     create: bool = True,
     scaffold: bool = True,
     project: str | None = None,
-) -> dict[str, Any]:
+) -> list[dict[str, Any]] | dict[str, Any]:
     """Unified CRUD operations dispatcher.
 
     Args:
@@ -467,7 +467,7 @@ def _get_catalog_entry(entry_id: str, project: str) -> dict[str, Any]:
     result = load_catalog_entry_by_type(entry_id)
     if not result:
         return {"error": f"Catalog entry '{entry_id}' not found"}
-    return result
+    return result.model_dump()
 
 
 def _get_instrument_asset(instrument_id: str, project: str) -> dict[str, Any]:
@@ -477,7 +477,7 @@ def _get_instrument_asset(instrument_id: str, project: str) -> dict[str, Any]:
     result = load_instrument_asset_by_id(instrument_id)
     if not result:
         return {"error": f"Instrument asset '{instrument_id}' not found"}
-    return result
+    return result.model_dump()
 
 
 def _get_run(run_id: str, project: str) -> dict[str, Any]:
@@ -509,9 +509,9 @@ def _validate_against_schema(
     """
     from pydantic import ValidationError
 
-    from litmus.schemas import SCHEMA_MAP
+    from litmus.schemas import SCHEMA_MAP, FileType
 
-    model = SCHEMA_MAP.get(entity_type)
+    model = SCHEMA_MAP.get(cast(FileType, entity_type))
     if model is None:
         return []  # No schema for this type (e.g. test, instrument)
 
@@ -527,9 +527,9 @@ def _validate_against_schema(
 
 def _schema_for_error(entity_type: str) -> dict[str, Any] | None:
     """Return the JSON Schema for an entity type, or None."""
-    from litmus.schemas import SCHEMA_MAP
+    from litmus.schemas import SCHEMA_MAP, FileType
 
-    model = SCHEMA_MAP.get(entity_type)
+    model = SCHEMA_MAP.get(cast(FileType, entity_type))
     if model is None:
         return None
     return model.model_json_schema()
@@ -1081,8 +1081,8 @@ def match_tool(
         check_station_compatibility,
         find_compatible_stations,
         get_required_capabilities,
-        load_product_by_id,
     )
+    from litmus.store import get_product
 
     # Requirements mode: recommend catalog instruments
     if requirements is not None:
@@ -1093,19 +1093,18 @@ def match_tool(
 
     # Just product_id: find compatible stations
     if product_id and not station_id and not fixture_id:
-        project_root = get_project_root(project) if project else None
-        product = load_product_by_id(product_id, project_root)
+        product = get_product(product_id)
         if not product:
             return {"error": f"Product '{product_id}' not found"}
 
-        requirements = get_required_capabilities(product)
+        cap_reqs = get_required_capabilities(product)
         req_list = [
             {
                 "characteristic": req.characteristic_name,
                 "function": req.function.value,
                 "direction": req.direction.value,
             }
-            for req in requirements
+            for req in cap_reqs
         ]
 
         matches = find_compatible_stations(product)
@@ -1151,7 +1150,7 @@ def match_tool(
         compatible = []
 
         for station in stations:
-            sid = station.get("id")
+            sid = station.get("id", "")
             station_config = _get_station(sid, project)
 
             if "error" not in station_config:

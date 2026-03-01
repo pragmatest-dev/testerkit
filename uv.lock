@@ -1360,6 +1360,7 @@ dependencies = [
     { name = "httpx" },
     { name = "jinja2" },
     { name = "nicegui" },
+    { name = "numpy" },
     { name = "pyarrow" },
     { name = "pydantic" },
     { name = "python-multipart" },
@@ -1392,9 +1393,13 @@ pymeasure = [
 [package.dev-dependencies]
 dev = [
     { name = "duckdb" },
+    { name = "nisyscfg" },
     { name = "playwright" },
     { name = "pymupdf" },
+    { name = "pyserial" },
     { name = "pytest-asyncio" },
+    { name = "weasyprint" },
+    { name = "zeroconf" },
 ]
 
 [package.metadata]
@@ -1406,6 +1411,7 @@ requires-dist = [
     { name = "jinja2", specifier = ">=3.1" },
     { name = "nicegui", specifier = ">=2.0" },
     { name = "nidaqmx", marker = "extra == 'ni'", specifier = ">=0.9" },
+    { name = "numpy", specifier = ">=1.24" },
     { name = "pyarrow", specifier = ">=14.0" },
     { name = "pydantic", specifier = ">=2.0" },
     { name = "pymeasure", marker = "extra == 'pymeasure'", specifier = ">=0.14" },
@@ -1426,9 +1432,13 @@ provides-extras = ["dev", "pymeasure", "ni", "lxi", "pdf"]
 [package.metadata.requires-dev]
 dev = [
     { name = "duckdb", specifier = ">=1.4.4" },
+    { name = "nisyscfg", specifier = ">=0.2" },
     { name = "playwright", specifier = ">=1.58.0" },
     { name = "pymupdf", specifier = ">=1.26.7" },
+    { name = "pyserial", specifier = ">=3.5" },
     { name = "pytest-asyncio", specifier = ">=1.3.0" },
+    { name = "weasyprint", specifier = ">=62.0" },
+    { name = "zeroconf", specifier = ">=0.80" },
 ]
 
 [[package]]
@@ -1800,6 +1810,18 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/01/e7/bc9ae860975161b3473ce29933a3277ee7574249f80215be3a04985284f1/nidaqmx-1.4.0.tar.gz", hash = "sha256:29e3d2584d4976bce28c71861dc2fcfc76d0ece702fdccf0c7914b4f90976f42", size = 490017, upload-time = "2026-01-07T23:18:53.226Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/87/f9/c4dbbda290ca3f3d6409a748a7bacc2593920d7d73d4df0453b4bf5387a6/nidaqmx-1.4.0-py3-none-any.whl", hash = "sha256:6efdeb099de40194f865dd5b2585f456c38c6d5c2f8d94483a355bcd956804aa", size = 553375, upload-time = "2026-01-07T23:18:51.253Z" },
+]
+
+[[package]]
+name = "nisyscfg"
+version = "0.2.1"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "hightime" },
+    { name = "six" },
+]
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/60/59/8021ac94d9ed8fdfe6f422586cf71a0dad6b2636e602e2e2513866ecfa28/nisyscfg-0.2.1-py3-none-any.whl", hash = "sha256:47e95ae72e4265407a145ede09099e3b1dbbb62be232c2f59d92ff1288a49184", size = 49788, upload-time = "2025-09-24T18:02:22.43Z" },
 ]
 
 [[package]]

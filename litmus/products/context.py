@@ -170,10 +170,10 @@ class SpecContext:
                 result["net"] = pin.net
 
                 if self.fixture:
-                    for ch_name, ch in self.fixture.channels.items():
-                        if ch.dut_pin == primary_pin_id or ch.net == pin.net:
-                            result["fixture_point"] = ch_name
-                            result["instrument_channel"] = ch.instrument_channel
+                    for pt_name, pt in self.fixture.points.items():
+                        if pt.dut_pin == primary_pin_id or pt.net == pin.net:
+                            result["fixture_point"] = pt_name
+                            result["instrument_channel"] = pt.instrument_channel
                             break
 
         return result

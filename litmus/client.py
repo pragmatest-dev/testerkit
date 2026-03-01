@@ -289,7 +289,7 @@ class RunBuilder:
             ),
             station_id=station_id,
             station_type=station_type,
-            operator=operator,
+            operator_id=operator,
             test_sequence_id=test_sequence_id,
             test_phase=test_phase,
         )

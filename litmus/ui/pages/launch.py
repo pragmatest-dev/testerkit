@@ -133,7 +133,7 @@ def launch_page(
                         ui.label("Test Sequence").classes("text-sm font-medium text-slate-700")
                         ui.select(
                             options={
-                                s["id"]: f"{s['name']} ({s['test_phase']})" for s in sequences
+                                s.id: f"{s.name or s.id} ({s.test_phase})" for s in sequences
                             },
                         ).bind_value(form, "sequence_id").classes("w-full").props(
                             "outlined dense clearable"

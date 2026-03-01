@@ -55,10 +55,12 @@ def create_dialog_container(run_id: str | None = None):
                                 ).classes("w-full")
 
                             elif dialog.type == DialogType.IMAGE:
-                                if getattr(dialog, "image_url", None):
-                                    ui.image(dialog.image_url).classes("w-full rounded")
-                                elif getattr(dialog, "image_path", None):
-                                    ui.image(dialog.image_path).classes("w-full rounded")
+                                image_url = getattr(dialog, "image_url", None)
+                                image_path = getattr(dialog, "image_path", None)
+                                if image_url:
+                                    ui.image(image_url).classes("w-full rounded")
+                                elif image_path:
+                                    ui.image(image_path).classes("w-full rounded")
 
                         with ui.card_actions().classes("justify-end gap-2"):
                             # Capture dialog in closure

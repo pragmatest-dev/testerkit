@@ -26,6 +26,7 @@ from pathlib import Path
 from typing import Any
 
 import pyvisa
+from pyvisa.resources import MessageBasedResource
 
 from litmus.instruments.base import Instrument
 
@@ -70,7 +71,7 @@ class VisaInstrument(Instrument):
         self.timeout_ms = timeout_ms
 
         self._rm: pyvisa.ResourceManager | None = None
-        self._inst: pyvisa.resources.Resource | None = None
+        self._inst: MessageBasedResource | None = None
         self._sim_yaml_path: Path | None = None
 
     def connect(self) -> None:
@@ -90,7 +91,11 @@ class VisaInstrument(Instrument):
             # Connect to real hardware
             self._rm = pyvisa.ResourceManager()
 
-        self._inst = self._rm.open_resource(self.resource)
+        assert self._rm is not None
+        # open_resource returns Resource, but VISA/SCPI instruments are MessageBasedResource
+        resource = self._rm.open_resource(self.resource)
+        assert isinstance(resource, MessageBasedResource)
+        self._inst = resource
         self._inst.timeout = self.timeout_ms
         self._inst.write_termination = "\n"
         self._inst.read_termination = "\n"

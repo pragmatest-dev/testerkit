@@ -44,12 +44,12 @@ def discover_lxi(timeout: float = 3.0) -> list[str]:
     _check_zeroconf()
     import threading
 
-    from zeroconf import ServiceBrowser, Zeroconf
+    from zeroconf import ServiceBrowser, ServiceListener, Zeroconf
 
     resources: list[str] = []
     lock = threading.Lock()
 
-    class _Listener:
+    class _Listener(ServiceListener):
         def add_service(self, zc: Zeroconf, type_: str, name: str) -> None:
             info = zc.get_service_info(type_, name)
             if info is None:

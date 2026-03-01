@@ -65,5 +65,5 @@ def _product_card(product: dict):
             ui.button(
                 "View Details",
                 icon="visibility",
-                on_click=lambda p=product: ui.navigate.to(f"/products/{p['id']}"),
+                on_click=lambda _, p=product: ui.navigate.to(f"/products/{p['id']}"),
             ).props("flat")

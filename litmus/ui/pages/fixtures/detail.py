@@ -219,7 +219,7 @@ def _station_card(station, required_instruments: list[str]):
             ui.button(
                 "View Station",
                 icon="visibility",
-                on_click=lambda s=station: ui.navigate.to(f"/stations/{s.id}"),
+                on_click=lambda _, s=station: ui.navigate.to(f"/stations/{s.id}"),
             ).props("flat dense")
 
 

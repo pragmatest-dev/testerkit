@@ -65,11 +65,14 @@ def derive_limit(
     spec_id = char_id
     spec_ref = _build_spec_ref(char, params)
 
+    # band.value can be float | str | None, only use if float
+    nominal = band.value if isinstance(band.value, float) else None
+
     return Limit(
         low=final_low,
         high=final_high,
-        nominal=band.value,
-        units=char.units,
+        nominal=nominal,
+        units=char.units or "",
         comparator=comparator,
         spec_id=spec_id,
         spec_ref=spec_ref,
@@ -95,22 +98,24 @@ def _calculate_bounds(
     if limit_low is not None or limit_high is not None:
         return limit_low, limit_high
 
-    if band.value is None:
+    if band.value is None or not isinstance(band.value, (int, float)):
         return None, None
+
+    val: float = band.value
 
     # Single-sided comparators
     if comparator in (Comparator.LE, Comparator.LT):
-        return None, band.value
+        return None, val
     if comparator in (Comparator.GE, Comparator.GT):
-        return band.value, None
+        return val, None
 
     # Range comparator: derive from accuracy
     if band.accuracy is not None:
-        uncertainty = band.accuracy.total_uncertainty(band.value, band.value)
-        return band.value - uncertainty, band.value + uncertainty
+        uncertainty = band.accuracy.total_uncertainty(val, val)
+        return val - uncertainty, val + uncertainty
 
     # No accuracy — exact value
-    return band.value, band.value
+    return val, val
 
 
 def _apply_guardband(

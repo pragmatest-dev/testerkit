@@ -73,12 +73,8 @@ def _load_sequence_data(config) -> list[dict[str, Any]]:
     except Exception:
         return []
 
-    # Steps from top-level or inside sequence block
-    if seq_file.steps:
-        return [s.model_dump() for s in seq_file.steps]
-    if seq_file.sequence.steps:
-        return [s.model_dump() for s in seq_file.sequence.steps]
-    return []
+    # Return steps from sequence config
+    return [s.model_dump() for s in seq_file.steps]
 
 
 def _load_step_aliases(config) -> dict[str, dict[str, str]]:
@@ -570,7 +566,11 @@ def run_context(litmus_logger):
 
 @pytest.fixture
 def litmus_step(litmus_logger, request):
-    """Auto-create step for each test function."""
+    """Create step for test function (use when NOT using @litmus_test).
+
+    Note: @litmus_test decorated tests already create their own steps.
+    Only use this fixture for tests that need step tracking without @litmus_test.
+    """
     litmus_logger.start_step(request.node.name)
     yield
     litmus_logger.end_step()
@@ -712,8 +712,7 @@ def fixture_config(request):
     if config_path:
         from litmus.store import load_fixture
 
-        fixture_file = load_fixture(Path(config_path))
-        return fixture_file.fixture
+        return load_fixture(Path(config_path))
     return None
 
 
@@ -822,7 +821,7 @@ def instrument_records(request, station_config, mock_instruments) -> dict[str, I
     invocation_dir = Path(request.config.invocation_params.dir)
     instruments_dir = find_instruments_dir(invocation_dir)
 
-    instrument_files: dict[str, dict[str, Any]] = {}
+    instrument_files = {}
     if instruments_dir:
         instrument_files = load_instrument_files(instruments_dir)
 
@@ -904,7 +903,8 @@ def instruments(
                 inst.serial = record.info.serial
                 inst.firmware = record.info.firmware
         else:
-            # Real hardware path
+            # Real hardware path (driver_class guaranteed non-None by guard above)
+            assert driver_class is not None
             inst = driver_class(record.resource)
 
             if hasattr(inst, "connect"):

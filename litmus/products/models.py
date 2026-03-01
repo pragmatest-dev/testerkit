@@ -193,7 +193,7 @@ class ProductCharacteristic(Capability):
             )
         return self
 
-    def get_spec_at(self, params: dict[str, float]) -> SpecBand | None:
+    def get_spec_at(self, params: dict[str, float | str | bool]) -> SpecBand | None:
         """Find the SpecBand matching the given operating point.
 
         Args:
@@ -224,9 +224,9 @@ def _band_matches_product(band: SpecBand, params: dict[str, float | str | bool])
         if val is None:
             return False
         if isinstance(spec, RangeSpec):
-            if spec.min is not None and val < spec.min:
+            if spec.min is not None and isinstance(val, (int, float)) and val < spec.min:
                 return False
-            if spec.max is not None and val > spec.max:
+            if spec.max is not None and isinstance(val, (int, float)) and val > spec.max:
                 return False
         elif isinstance(spec, PointSpec):
             if val != spec.value:

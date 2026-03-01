@@ -286,7 +286,7 @@ def _sequence_card(station_id: str, seq):
             ui.button(
                 "Run",
                 icon="play_arrow",
-                on_click=lambda s=seq: ui.navigate.to(
+                on_click=lambda _, s=seq: ui.navigate.to(
                     f"/launch?sequence={s.id}&station={station_id}"
                 ),
             ).props("flat dense color=primary")

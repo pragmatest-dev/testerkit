@@ -12,6 +12,7 @@ from typing import TYPE_CHECKING
 from nicegui import ui
 
 if TYPE_CHECKING:
+    from litmus.schemas import StationConfig
     from litmus.ui.pages.designer.state import DesignerState
 
 
@@ -180,7 +181,7 @@ def show_instrument_properties(
                             else:
                                 ui.button(
                                     icon="close",
-                                    on_click=lambda c=ch: _remove_channel(
+                                    on_click=lambda _, c=ch: _remove_channel(
                                         state,
                                         role,
                                         c,
@@ -456,7 +457,7 @@ def show_add_instrument_dialog(
 
 def show_load_station_dialog(
     state: DesignerState,
-    stations: list[dict],
+    stations: list[StationConfig],
     load_station_fn: Callable,
     rebuild: Callable,
 ) -> None:

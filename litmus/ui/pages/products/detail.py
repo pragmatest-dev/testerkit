@@ -2,6 +2,7 @@
 
 from nicegui import ui
 
+from litmus.config.models import TestSequenceConfig
 from litmus.ui.shared.components import render_capability_detail, setup_hash_sync_for_tabs
 from litmus.ui.shared.layout import create_layout
 from litmus.ui.shared.services import (
@@ -184,7 +185,7 @@ def _render_sequences_tab(product_id: str):
                             ui.button(
                                 "View",
                                 icon="visibility",
-                                on_click=lambda s=station: ui.navigate.to(f"/stations/{s['id']}"),
+                                on_click=lambda _, s=station: ui.navigate.to(f"/stations/{s['id']}"),
                             ).props("flat dense")
         else:
             ui.label("No compatible stations found.").classes("text-slate-500 italic mb-4")
@@ -195,7 +196,7 @@ def _render_sequences_tab(product_id: str):
         ui.label("Test Sequences").classes("font-semibold text-slate-700")
 
     sequences = discover_sequences()
-    product_sequences = [s for s in sequences if s.get("product_family") == product_id]
+    product_sequences = [s for s in sequences if s.product_family == product_id]
 
     if product_sequences:
         with ui.row().classes("gap-4 flex-wrap"):
@@ -205,30 +206,30 @@ def _render_sequences_tab(product_id: str):
         ui.label("No sequences defined for this product.").classes("text-slate-500 italic")
 
 
-def _sequence_card(seq: dict):
+def _sequence_card(seq: TestSequenceConfig):
     """Render a sequence card."""
     with ui.card().classes("w-72"):
         with ui.card_section():
-            ui.label(seq["name"]).classes("font-semibold")
-            if seq.get("test_phase"):
+            ui.label(seq.name or seq.id).classes("font-semibold")
+            if seq.test_phase:
                 phase_colors = {
                     "validation": "blue",
                     "characterization": "purple",
                     "production": "green",
                 }
-                color = phase_colors.get(seq["test_phase"], "gray")
-                ui.badge(seq["test_phase"], color=color).props("outline")
-            ui.label(seq.get("description", "")[:60]).classes("text-sm text-slate-500 mt-1")
+                color = phase_colors.get(seq.test_phase, "gray")
+                ui.badge(seq.test_phase, color=color).props("outline")
+            ui.label((seq.description or "")[:60]).classes("text-sm text-slate-500 mt-1")
         with ui.card_actions():
             ui.button(
                 "View",
                 icon="visibility",
-                on_click=lambda s=seq: ui.navigate.to(f"/sequences/{s['id']}"),
+                on_click=lambda _, s=seq: ui.navigate.to(f"/sequences/{s.id}"),
             ).props("flat dense")
             ui.button(
                 "Run",
                 icon="play_arrow",
-                on_click=lambda s=seq: ui.navigate.to(f"/launch?sequence={s['id']}"),
+                on_click=lambda _, s=seq: ui.navigate.to(f"/launch?sequence={s.id}"),
             ).props("flat dense color=primary")
 
 

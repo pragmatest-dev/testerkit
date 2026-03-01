@@ -1,5 +1,7 @@
 """Station edit page."""
 
+from collections.abc import Callable
+
 from nicegui import ui
 
 from litmus.ui.shared.components import setup_hash_sync_for_tabs
@@ -201,7 +203,7 @@ def _labeled_textarea(label: str, value: str = "", on_change=None):
 # -----------------------------------------------------------------------------
 
 
-def _show_add_instrument_dialog(type_options: dict, on_add: callable):
+def _show_add_instrument_dialog(type_options: dict, on_add: Callable):
     """Show dialog to add a new instrument."""
     inst_form = {
         "name": "",

@@ -1,6 +1,7 @@
 """New sequence creation page."""
 
 import re
+from typing import Literal, cast
 
 from nicegui import ui
 
@@ -172,11 +173,15 @@ def new_sequence_page():
                         return
 
                     # Create sequence
+                    test_phase = cast(
+                        Literal["validation", "characterization", "production"],
+                        form["test_phase"],
+                    )
                     result = create_sequence(
                         sequence_id=form["sequence_id"],
                         name=form["name"],
                         product_family=form["product_family"],
-                        test_phase=form["test_phase"],
+                        test_phase=test_phase,
                         description=form["description"],
                     )
 

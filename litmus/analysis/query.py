@@ -9,9 +9,14 @@ from __future__ import annotations
 from datetime import datetime
 from pathlib import Path
 
+from typing import Any
+
 import pyarrow as pa
-import pyarrow.compute as pc
+import pyarrow.compute as _pc
 import pyarrow.parquet as pq
+
+# pyarrow.compute has dynamic attributes that pyright can't see
+pc: Any = _pc
 
 from litmus.data.backends.parquet import _enforce_schema
 

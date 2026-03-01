@@ -173,7 +173,7 @@ def _render_compatible_station(product_id: str, station: dict):
             ui.button(
                 "Launch",
                 icon="play_arrow",
-                on_click=lambda s=station: ui.navigate.to(
+                on_click=lambda _, s=station: ui.navigate.to(
                     f"/launch?product={product_id}&station={s['id']}"
                 ),
             ).props("flat dense")
@@ -202,7 +202,7 @@ def _render_partial_station(product_id: str, station: dict):
             ui.button(
                 "Mock",
                 icon="play_arrow",
-                on_click=lambda s=station: ui.navigate.to(
+                on_click=lambda _, s=station: ui.navigate.to(
                     f"/launch?product={product_id}&station={s['id']}&mock=1"
                 ),
             ).props("flat dense outline")

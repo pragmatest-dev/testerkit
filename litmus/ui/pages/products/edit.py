@@ -1,5 +1,7 @@
 """Product edit page."""
 
+from collections.abc import Callable
+
 from nicegui import ui
 
 from litmus.ui.shared.components import setup_hash_sync_for_tabs
@@ -256,7 +258,7 @@ def _labeled_number(label: str, value: float = 0, min_val=None, max_val=None, on
 # -----------------------------------------------------------------------------
 
 
-def _show_add_pin_dialog(on_add: callable):
+def _show_add_pin_dialog(on_add: Callable):
     """Show dialog to add a new pin."""
     pin_form = {"name": "", "type": "signal", "net": ""}
 
@@ -286,7 +288,7 @@ def _show_add_pin_dialog(on_add: callable):
     dialog.open()
 
 
-def _show_add_char_dialog(on_add: callable):
+def _show_add_char_dialog(on_add: Callable):
     """Show dialog to add a new characteristic."""
     from litmus.config.models import Direction, MeasurementFunction
 

@@ -252,7 +252,7 @@ def create_mcp_server() -> FastMCP:
         create: bool = True,
         scaffold: bool = True,
         project: str | None = None,
-    ) -> dict[str, Any]:
+    ) -> list[dict[str, Any]] | dict[str, Any]:
         """Unified Litmus operations: init, list, get, save, read.
 
         Actions:

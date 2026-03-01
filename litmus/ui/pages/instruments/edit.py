@@ -219,7 +219,7 @@ def _render_capability_card(
                     ui.badge(cap.get("function", "")).props("outline color=blue")
                 ui.button(
                     icon="delete",
-                    on_click=lambda i=index: _delete_capability(
+                    on_click=lambda _, i=index: _delete_capability(
                         form_data["capabilities"], i, refresh_callback
                     ),
                 ).props("flat dense round color=red")

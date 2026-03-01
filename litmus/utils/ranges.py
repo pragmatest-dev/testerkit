@@ -212,6 +212,7 @@ def generate_numeric_range(
         return _generate_float_range(start, stop, step)
     else:
         # count is not None - generate evenly spaced values
+        assert count is not None
         if count == 1:
             return [start]
         step_val = (stop - start) / (count - 1)

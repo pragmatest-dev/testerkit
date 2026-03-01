@@ -99,12 +99,12 @@ def _instrument_card(entry):
             ui.button(
                 "View",
                 icon="visibility",
-                on_click=lambda e=entry: ui.navigate.to(f"/instruments/{e.type}"),
+                on_click=lambda _, e=entry: ui.navigate.to(f"/instruments/{e.type}"),
             ).props("flat")
             ui.button(
                 "Edit",
                 icon="edit",
-                on_click=lambda e=entry: ui.navigate.to(f"/instruments/{e.type}/edit"),
+                on_click=lambda _, e=entry: ui.navigate.to(f"/instruments/{e.type}/edit"),
             ).props("flat")
 
 

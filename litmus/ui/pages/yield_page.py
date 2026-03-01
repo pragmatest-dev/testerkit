@@ -137,7 +137,7 @@ def yield_page():
 
 def _refresh_dashboard(
     results_dir: str,
-    phase: str,
+    phase: str | None,
     product_id: str | None,
     station_id: str | None,
     lot: str | None,
@@ -173,7 +173,7 @@ def _refresh_dashboard(
             return
 
         # Apply filters
-        if phase != "all":
+        if phase and phase != "all":
             table = query.filter_by_phase(table, [phase])
 
         if product_id:
@@ -487,8 +487,10 @@ def _get_unique_values(table, column_name: str) -> list[str]:
     if table.num_rows == 0 or column_name not in table.column_names:
         return []
 
-    import pyarrow.compute as pc
+    import pyarrow.compute as _pc
+    from typing import Any
 
+    pc: Any = _pc  # pyarrow.compute has dynamic attributes
     col = table[column_name]
     # Remove nulls and get unique values
     unique = pc.unique(col)

@@ -445,10 +445,11 @@ def _band_matches(band: SpecBand, operating_point: dict[str, float | str | bool]
         if val is None:
             return False
         if isinstance(spec, RangeSpec):
-            if spec.min is not None and val < spec.min:
-                return False
-            if spec.max is not None and val > spec.max:
-                return False
+            if isinstance(val, (int, float)):
+                if spec.min is not None and val < spec.min:
+                    return False
+                if spec.max is not None and val > spec.max:
+                    return False
         elif isinstance(spec, PointSpec):
             if val != spec.value:
                 return False
@@ -503,9 +504,11 @@ def _get_value_at(
 ) -> float | None:
     """Get the applicable value for a measure at an operating point."""
     band = get_spec_at(measure, operating_point)
-    if band is not None and band.value is not None:
+    if band is not None and isinstance(band.value, (int, float)):
         return band.value
-    return measure.value
+    if isinstance(measure.value, (int, float)):
+        return measure.value
+    return None
 
 
 def _accuracy_sufficient(inst: AccuracySpec, req: AccuracySpec) -> bool:
@@ -785,12 +788,12 @@ def recommend_from_catalog(
         Dict with requirements, recommendations (sorted by coverage), and
         coverage summary.
     """
+    import os
+
     from litmus.store import find_catalog_dirs, load_catalog_from_directory  # noqa: F811
 
+    old_cwd = os.getcwd() if project else None
     if project:
-        import os
-
-        old_cwd = os.getcwd()
         os.chdir(project)
 
     try:
@@ -799,7 +802,7 @@ def recommend_from_catalog(
         for cat_dir in find_catalog_dirs():
             all_entries.update(load_catalog_from_directory(cat_dir))
     finally:
-        if project:
+        if project and old_cwd:
             os.chdir(old_cwd)
 
     # Convert simplified dicts to CapabilityRequirement objects

@@ -61,7 +61,7 @@ def _station_card(station):
         ui.button(
             "Start Test",
             icon="play_arrow",
-            on_click=lambda s=station: ui.navigate.to(f"/launch?station={s.id}"),
+            on_click=lambda _, s=station: ui.navigate.to(f"/launch?station={s.id}"),
         ).classes("mt-4 w-full").props("outline")
 
 
