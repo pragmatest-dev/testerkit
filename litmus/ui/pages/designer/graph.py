@@ -449,7 +449,7 @@ def build_links(
         return links, waypoints
 
     # Sort connections by source (DUT pin) Y position so top-to-bottom pins
-    # get left-to-right vertical lanes in the corridor
+    # get right-to-left vertical lanes in the corridor (top pin = rightmost)
     conn_list.sort(key=lambda item: node_y.get(item[1]["dut_pin"], 0))
 
     # Spread verticals evenly across the corridor
@@ -527,10 +527,11 @@ def build_links(
         tgt_y = tgt_orig_y + tgt_offset
 
         # Each connection gets its own X lane in the corridor
+        # Top pins get rightmost lanes, working left as we go down
         if n_conns <= 1:
             lane_x = MID_X
         else:
-            lane_x = corridor_left + (
+            lane_x = corridor_right - (
                 corridor_width * idx / (n_conns - 1)
             )
 

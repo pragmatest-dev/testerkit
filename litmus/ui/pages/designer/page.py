@@ -433,6 +433,19 @@ def _on_product_change(product_id, state, rebuild) -> None:
     product = load_product_model(product_id)
     if product:
         state.load_product(product)
+
+        # Try to load existing fixture with auto-generated ID
+        if state.fixture_id:
+            fixture = load_fixture_config(state.fixture_id)
+            if fixture:
+                state.load_fixture(fixture)
+                ui.notify(
+                    f"Loaded {product.name} + fixture ({len(state.connections)} connections)",
+                    type="info",
+                )
+                rebuild()
+                return
+
         rebuild()
         ui.notify(
             f"Loaded {product.name} ({len(state.dut_pins)} pins)", type="info"
