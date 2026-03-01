@@ -1,7 +1,6 @@
-fixture:
-  id: minimal_board_fixture_v1
-  name: Minimal Board Fixture V1
-  product_id: power_board
+id: minimal_board_fixture_v1
+name: Minimal Board Fixture V1
+product_id: power_board
 points:
   j1_vin_dmm_ch1:
     name: j1_vin_dmm_ch1

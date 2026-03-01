@@ -258,9 +258,9 @@ def create_api_router() -> APIRouter:
     @router.get("/products")
     def list_products():
         """List all available product specifications."""
-        from litmus.matching.service import list_products as service_list_products
+        from litmus.matching.service import list_products_summary
 
-        products = service_list_products()
+        products = list_products_summary()
         return {"products": products}
 
     @router.get("/products/{product_id}")
@@ -286,10 +286,10 @@ def create_api_router() -> APIRouter:
     @router.get("/stations")
     def list_all_stations():
         """List all available test stations."""
-        from litmus.matching.service import list_stations as service_list_stations
+        from litmus.store import list_stations
 
-        stations = service_list_stations()
-        return {"stations": stations}
+        stations = list_stations()
+        return {"stations": [s.model_dump() for s in stations]}
 
     @router.get("/stations/{station_id}")
     def get_station(station_id: str):
@@ -307,11 +307,9 @@ def create_api_router() -> APIRouter:
         from litmus.matching.service import (
             get_station_capabilities as service_get_capabilities,
         )
-        from litmus.matching.service import (
-            load_station_config,
-        )
+        from litmus.store import get_station
 
-        config = load_station_config(station_id)
+        config = get_station(station_id)
         if not config:
             return {"error": f"Station '{station_id}' not found"}, 404
 
@@ -353,10 +351,10 @@ def create_api_router() -> APIRouter:
                 return {"error": stations[0]["error"]}, 404
             return {"product_id": product_id, "stations": stations}
 
-    @router.get("/instruments")
-    def list_instruments():
-        """List available instrument types from catalog."""
-        from litmus.catalog.loader import find_catalog_dirs, load_catalog_from_directory
+    @router.get("/instruments/catalog")
+    def list_catalog_entries():
+        """List available catalog entries (instrument models and capabilities)."""
+        from litmus.store import find_catalog_dirs, load_catalog_from_directory
 
         seen: set[str] = set()
         types: list[str] = []
@@ -367,14 +365,32 @@ def create_api_router() -> APIRouter:
                     types.append(entry.type)
         return {"instrument_types": sorted(types)}
 
-    @router.get("/instruments/{instrument_type}")
-    def get_instrument(instrument_type: str):
-        """Get an instrument definition from the catalog."""
-        from litmus.ui.shared.services import load_instrument_definition
+    @router.get("/instruments/catalog/{entry_id}")
+    def get_catalog_entry(entry_id: str):
+        """Get a catalog entry by type or ID."""
+        from litmus.store import get_catalog_entry as store_get_catalog_entry
 
-        result = load_instrument_definition(instrument_type)
+        result = store_get_catalog_entry(entry_id)
         if not result:
-            return {"error": f"Instrument type '{instrument_type}' not found"}, 404
+            return {"error": f"Catalog entry '{entry_id}' not found"}, 404
+        return result
+
+    @router.get("/instruments/assets")
+    def list_instrument_assets():
+        """List instrument asset files (physical devices you own)."""
+        from litmus.store import list_instrument_assets
+
+        assets = list_instrument_assets()
+        return {"assets": assets, "count": len(assets)}
+
+    @router.get("/instruments/assets/{asset_id}")
+    def get_instrument_asset(asset_id: str):
+        """Get an instrument asset by ID."""
+        from litmus.store import get_instrument_asset
+
+        result = get_instrument_asset(asset_id)
+        if not result:
+            return {"error": f"Instrument asset '{asset_id}' not found"}, 404
         return result
 
     @router.get("/sequences")

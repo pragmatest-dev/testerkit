@@ -6,14 +6,6 @@ from litmus.ui.shared.layout import create_layout
 from litmus.ui.shared.services import discover_sequences
 
 
-def _load_full_sequence(sequence_id: str) -> dict | None:
-    """Load full sequence configuration from YAML."""
-    from litmus.execution.runner import get_runner
-
-    runner = get_runner()
-    return runner._load_sequence(sequence_id)
-
-
 @ui.page("/sequences")
 def sequences_page():
     """Sequences listing page."""
@@ -52,16 +44,15 @@ def sequences_page():
                 ).classes("mt-4")
 
 
-def _sequence_card(seq: dict):
-    """Render a sequence card."""
-    full_seq = _load_full_sequence(seq["id"])
-    step_count = len(full_seq.get("steps", [])) if full_seq else 0
+def _sequence_card(seq):
+    """Render a sequence card for a TestSequenceConfig model."""
+    step_count = len(seq.steps) if seq.steps else 0
 
     with ui.card().classes("w-96"):
         with ui.card_section():
             with ui.row().classes("items-start justify-between"):
-                ui.label(seq["name"]).classes("text-lg font-semibold")
-                phase = seq.get("test_phase")
+                ui.label(seq.name or seq.id).classes("text-lg font-semibold")
+                phase = seq.test_phase
                 if phase:
                     phase_colors = {
                         "validation": "blue",
@@ -71,17 +62,17 @@ def _sequence_card(seq: dict):
                     ui.badge(phase, color=phase_colors.get(phase, "gray")).props("outline")
 
         with ui.card_section():
-            ui.label(seq["description"]).classes("text-sm text-slate-600")
+            ui.label(seq.description or "").classes("text-sm text-slate-600")
             with ui.row().classes("text-xs text-slate-500 gap-4 mt-3"):
                 with ui.row().classes("items-center gap-1"):
                     ui.icon("tag", size="xs")
-                    ui.label(seq["id"])
-                if seq.get("product_family"):
+                    ui.label(seq.id)
+                if seq.product_family:
                     with ui.row().classes("items-center gap-1"):
                         ui.icon("inventory_2", size="xs")
                         ui.link(
-                            seq["product_family"],
-                            f"/products/{seq['product_family']}",
+                            seq.product_family,
+                            f"/products/{seq.product_family}",
                         ).classes("text-blue-600 hover:underline")
 
             with ui.row().classes("items-center gap-1 mt-2"):
@@ -92,10 +83,10 @@ def _sequence_card(seq: dict):
             ui.button(
                 "View Details",
                 icon="visibility",
-                on_click=lambda s=seq: ui.navigate.to(f"/sequences/{s['id']}"),
+                on_click=lambda s=seq: ui.navigate.to(f"/sequences/{s.id}"),
             ).props("flat")
             ui.button(
                 "Run",
                 icon="play_arrow",
-                on_click=lambda s=seq: ui.navigate.to(f"/launch?sequence={s['id']}"),
+                on_click=lambda s=seq: ui.navigate.to(f"/launch?sequence={s.id}"),
             ).props("flat color=primary")

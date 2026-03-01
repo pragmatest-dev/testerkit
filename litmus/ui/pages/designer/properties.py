@@ -469,7 +469,7 @@ def show_load_station_dialog(
             ui.label("No stations found.").classes("text-slate-500")
             ui.button("Close", on_click=dialog.close).props("flat")
         else:
-            station_options = {s["id"]: s["name"] for s in stations}
+            station_options = {s.id: s.name or s.id for s in stations}
             selected = {"station_id": ""}
 
             ui.select(
@@ -491,7 +491,7 @@ def show_load_station_dialog(
                                 resolve_instrument_capabilities,
                             )
 
-                            resolve_instrument_capabilities(config)
+                            config = resolve_instrument_capabilities(config)
                             state.load_station(config)
                             dialog.close()
                             rebuild()

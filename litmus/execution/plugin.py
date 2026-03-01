@@ -67,7 +67,7 @@ def _load_sequence_data(config) -> list[dict[str, Any]]:
             return []
 
     try:
-        from litmus.loaders import load_sequence
+        from litmus.store import load_sequence
 
         seq_file = load_sequence(seq_path)
     except Exception:
@@ -166,17 +166,16 @@ def pytest_configure(config):
         return
 
     try:
-        from litmus.loaders import load_station
+        from litmus.store import load_station
 
         station_model = load_station(station_path)
-        station_data = station_model.model_dump()
     except Exception:
         return
 
-    if not station_data:
+    if not station_model:
         return
 
-    instruments_map = station_data.get("instruments", {})
+    instruments_map = station_model.instruments or {}
     if not instruments_map:
         return
 
@@ -481,10 +480,9 @@ def litmus_logger(request) -> Generator[TestRunLogger]:
     station_type = None
     station_location = None
     if station_config:
-        station_data = station_config.get("station", {})
-        station_name = station_data.get("name") if isinstance(station_data, dict) else None
-        station_type = station_config.get("station_type") or station_config.get("type")
-        station_location = station_config.get("location")
+        station_name = station_config.name
+        station_type = getattr(station_config, "station_type", None) or getattr(station_config, "type", None)
+        station_location = station_config.location
 
     # Get results directory for journal streaming
     results_dir = request.config.getoption("--results-dir")
@@ -671,18 +669,17 @@ def mock_instruments(request) -> bool:
 
 
 @pytest.fixture(scope="session")
-def station_config(request) -> dict[str, Any] | None:
+def station_config(request):
     """Load station configuration from --station-config option.
 
     Returns:
-        Station configuration dict, or None if not specified.
+        StationConfig model, or None if not specified.
     """
     station_path = _find_station_file(request.config)
     if station_path:
-        from litmus.loaders import load_station
+        from litmus.store import load_station
 
-        station = load_station(station_path)
-        return station.model_dump()
+        return load_station(station_path)
     return None
 
 
@@ -710,7 +707,7 @@ def fixture_config(request):
                     break
 
     if config_path:
-        from litmus.loaders import load_fixture
+        from litmus.store import load_fixture
 
         fixture_file = load_fixture(Path(config_path))
         return fixture_file.fixture
@@ -815,11 +812,8 @@ def instrument_records(request, station_config, mock_instruments) -> dict[str, I
         return _INSTRUMENT_RECORDS
 
     # Try to find and load instrument files
-    from litmus.instruments.loader import (
-        find_instruments_dir,
-        load_instrument_files,
-        resolve_station_instruments,
-    )
+    from litmus.instruments.loader import find_instruments_dir, resolve_station_instruments
+    from litmus.store import load_instrument_files
 
     # Search from pytest invocation directory
     invocation_dir = Path(request.config.invocation_params.dir)
@@ -876,18 +870,15 @@ def instruments(
 
     from litmus.instruments.mocks import Mock
 
-    # Get inline instrument configs (legacy format)
-    inst_configs = station_config.get("instruments", {})
+    # Get instrument configs from station
+    inst_configs = station_config.instruments or {}
 
     for role, record in instrument_records.items():
         # Get config - either from record (new format) or inline (legacy)
-        inline_config = inst_configs.get(role, {})
-        if isinstance(inline_config, str):
-            # New format - role points to instrument ID, config in record
-            inline_config = {}
+        inline_config = inst_configs.get(role)
 
-        mock_config = inline_config.get("mock_config", {})
-        use_mock = mock_instruments or inline_config.get("mock", False)
+        mock_config = inline_config.mock_config if inline_config and inline_config.mock_config else {}
+        use_mock = mock_instruments or (inline_config.mock if inline_config else False)
         record.mocked = use_mock
 
         driver_class = _load_driver_class(record.driver)

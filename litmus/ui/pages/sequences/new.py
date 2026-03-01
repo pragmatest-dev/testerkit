@@ -18,7 +18,7 @@ def new_sequence_page():
     create_layout("New Sequence")
 
     # Get existing sequence IDs to check for duplicates
-    existing_ids = {s["id"] for s in discover_sequences()}
+    existing_ids = {s.id for s in discover_sequences()}
 
     # Get available products for product family dropdown
     products = discover_products()
@@ -182,10 +182,10 @@ def new_sequence_page():
 
                     if result:
                         ui.notify(
-                            f"Sequence '{result['name']}' created successfully",
+                            f"Sequence '{result.name}' created successfully",
                             type="positive",
                         )
-                        ui.navigate.to(f"/sequences/{result['id']}")
+                        ui.navigate.to(f"/sequences/{result.id}")
                     else:
                         ui.notify(
                             "Sequence ID already exists",

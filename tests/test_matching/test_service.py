@@ -503,21 +503,27 @@ class TestGetStationCapabilities:
             ],
         )
 
-        import litmus.catalog.loader as catalog_loader
+        import litmus.matching.service as matching_svc
 
         monkeypatch.setattr(
-            catalog_loader, "resolve_catalog_ref",
+            matching_svc, "resolve_catalog_ref",
             lambda ref: mock_entry if ref == "test_dmm" else None,
         )
 
-        station_config = {
-            "station": {
-                "id": "test_station",
+        from litmus.schemas import StationConfig, StationInstrumentConfig
+
+        station_config = StationConfig(
+            id="test_station",
+            name="Test Station",
+            instruments={
+                "dmm_main": StationInstrumentConfig(
+                    type="dmm",
+                    driver="test.driver",
+                    catalog_ref="test_dmm",
+                    resource="GPIB::1",
+                ),
             },
-            "instruments": {
-                "dmm_main": {"type": "dmm", "catalog_ref": "test_dmm", "resource": "GPIB::1"},
-            },
-        }
+        )
 
         capabilities = get_station_capabilities(station_config)
 

@@ -1,5 +1,10 @@
 """Litmus configuration system - Pydantic models and YAML loading."""
 
+from litmus.config.enum_meta import (
+    LookupResult,
+    lookup_enum,
+    render_enum_reference,
+)
 from litmus.config.loader import (
     find_test_config,
     get_test_config,
@@ -10,11 +15,6 @@ from litmus.config.loader import (
     load_yaml,
     resolve_all_limit_refs,
     resolve_limit_ref,
-)
-from litmus.config.enum_meta import (
-    LookupResult,
-    lookup_enum,
-    render_enum_reference,
 )
 from litmus.config.models import (
     FixtureConfig,

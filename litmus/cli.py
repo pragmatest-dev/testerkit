@@ -136,7 +136,7 @@ def _discover_instruments(interactive: bool = True) -> dict | None:
         role = None
         if info and info.manufacturer and info.model:
             try:
-                from litmus.catalog.loader import find_by_model
+                from litmus.store import find_by_model
 
                 entry = find_by_model(info.manufacturer, info.model)
                 if entry and entry.type:
@@ -1174,10 +1174,9 @@ def station_validate(station_id: str | None, strict: bool):
     from litmus.instruments.loader import (
         find_instruments_dir,
         find_stations_dir,
-        load_instrument_files,
-        load_station_file,
         resolve_station_instruments,
     )
+    from litmus.store import load_instrument_files, load_station
 
     # Find station file
     stations_dir = find_stations_dir()
@@ -1198,7 +1197,7 @@ def station_validate(station_id: str | None, strict: bool):
         raise SystemExit(1)
 
     # Load configs
-    station_config = load_station_file(station_file)
+    station_config = load_station(station_file)
     instruments_dir = find_instruments_dir()
     instrument_files = load_instrument_files(instruments_dir) if instruments_dir else {}
     records = resolve_station_instruments(station_config, instrument_files)
@@ -1288,10 +1287,9 @@ def station_update(station_id: str):
     from litmus.instruments.loader import (
         find_instruments_dir,
         find_stations_dir,
-        load_instrument_files,
-        load_station_file,
         resolve_station_instruments,
     )
+    from litmus.store import load_instrument_files, load_station
 
     stations_dir = find_stations_dir()
     instruments_dir = find_instruments_dir()
@@ -1305,7 +1303,7 @@ def station_update(station_id: str):
         click.echo(f"Error: Station file not found: {station_file}", err=True)
         raise SystemExit(1)
 
-    station_config = load_station_file(station_file)
+    station_config = load_station(station_file)
     instrument_files = load_instrument_files(instruments_dir) if instruments_dir else {}
     records = resolve_station_instruments(station_config, instrument_files)
 
@@ -1358,7 +1356,8 @@ def instrument():
 @instrument.command("list")
 def instrument_list():
     """List all instrument configuration files."""
-    from litmus.instruments.loader import find_instruments_dir, load_instrument_files
+    from litmus.instruments.loader import find_instruments_dir
+    from litmus.store import load_instrument_files
 
     instruments_dir = find_instruments_dir()
     if not instruments_dir:
@@ -1389,7 +1388,8 @@ def instrument_list():
 @click.argument("instrument_id")
 def instrument_show(instrument_id: str):
     """Show details for a specific instrument."""
-    from litmus.instruments.loader import find_instruments_dir, load_instrument_file
+    from litmus.instruments.loader import find_instruments_dir
+    from litmus.store import load_instrument_asset
 
     instruments_dir = find_instruments_dir()
     if not instruments_dir:
@@ -1401,7 +1401,7 @@ def instrument_show(instrument_id: str):
         click.echo(f"Instrument not found: {instrument_id}", err=True)
         raise SystemExit(1)
 
-    asset = load_instrument_file(inst_file)
+    asset = load_instrument_asset(inst_file)
     info = asset.info
     cal = asset.calibration
 

@@ -44,27 +44,29 @@ def fixtures_page():
         if fixtures:
             with ui.row().classes("gap-4 flex-wrap"):
                 for fixture in fixtures:
-                    _fixture_card(fixture, products.get(fixture.get("product_family")))
+                    _fixture_card(fixture, products.get(fixture.product_family))
         else:
             _render_empty_state()
 
 
-def _fixture_card(fixture: dict, product: dict | None):
-    """Render a fixture card."""
+def _fixture_card(fixture, product: dict | None):
+    """Render a fixture card for a FixtureConfig model."""
+    points = fixture.points or {}
+
     with ui.card().classes("w-80"):
         with ui.card_section():
             with ui.row().classes("items-center justify-between"):
                 with ui.row().classes("items-center gap-2"):
                     ui.icon("hub").classes("text-slate-600")
-                    ui.label(fixture.get("name", fixture["id"])).classes(
+                    ui.label(fixture.name or fixture.id).classes(
                         "text-lg font-semibold"
                     )
-                ui.badge(f"{fixture.get('point_count', 0)} points").props("outline")
+                ui.badge(f"{len(points)} points").props("outline")
 
         with ui.card_section():
-            # Product link (supports both product_id and product_family)
-            product_id = fixture.get("product_id") or fixture.get("product_family", "")
-            product_revision = fixture.get("product_revision")
+            # Product link
+            product_id = fixture.product_id or fixture.product_family or ""
+            product_revision = fixture.product_revision
             if product_id:
                 with ui.row().classes("items-center gap-2 mb-2"):
                     ui.icon("memory", size="xs").classes("text-slate-400")
@@ -84,16 +86,15 @@ def _fixture_card(fixture: dict, product: dict | None):
                         ui.label(label).classes("text-sm font-mono")
 
             # Description
-            if fixture.get("description"):
-                ui.label(fixture["description"]).classes("text-sm text-slate-600")
+            if fixture.description:
+                ui.label(fixture.description).classes("text-sm text-slate-600")
 
             # Points preview
-            points = fixture.get("points", {})
             if points:
                 ui.label("Pin Mappings").classes("text-xs text-slate-500 uppercase mt-3")
                 with ui.column().classes("gap-1 mt-1"):
-                    for point_name, point_data in list(points.items())[:3]:
-                        _point_row(point_name, point_data)
+                    for point_name, point in list(points.items())[:3]:
+                        _point_row(point_name, point)
                     if len(points) > 3:
                         ui.label(f"... and {len(points) - 3} more").classes(
                             "text-xs text-slate-400 italic"
@@ -103,25 +104,25 @@ def _fixture_card(fixture: dict, product: dict | None):
             ui.button(
                 "View",
                 icon="visibility",
-                on_click=lambda f=fixture: ui.navigate.to(f"/fixtures/{f['id']}"),
+                on_click=lambda f=fixture: ui.navigate.to(f"/fixtures/{f.id}"),
             ).props("flat")
             ui.button(
                 "Edit",
                 icon="edit",
-                on_click=lambda f=fixture: ui.navigate.to(f"/fixtures/{f['id']}/edit"),
+                on_click=lambda f=fixture: ui.navigate.to(f"/fixtures/{f.id}/edit"),
             ).props("flat")
 
 
-def _point_row(point_name: str, point_data: dict):
+def _point_row(point_name: str, point):
     """Render a fixture point row."""
     with ui.row().classes("items-center gap-2 text-sm"):
         # DUT pin
-        dut_pin = point_data.get("dut_pin", point_name)
+        dut_pin = point.dut_pin or point_name
         ui.label(dut_pin).classes("font-mono text-green-700 bg-green-50 px-1 rounded")
         ui.icon("arrow_forward", size="xs").classes("text-slate-400")
         # Instrument
-        instrument = point_data.get("instrument", "?")
-        channel = point_data.get("instrument_channel")
+        instrument = point.instrument or "?"
+        channel = point.instrument_channel
         channel_str = f":{channel}" if channel else ""
         ui.label(f"{instrument}{channel_str}").classes(
             "font-mono text-blue-700 bg-blue-50 px-1 rounded"

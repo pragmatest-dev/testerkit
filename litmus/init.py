@@ -107,19 +107,11 @@ Run with --mock-instruments for hardware-free testing:
     # Create litmus.yaml
     litmus_yaml_path = path / "litmus.yaml"
     if not litmus_yaml_path.exists():
-        litmus_yaml_content = f'''# Litmus project configuration
-project:
-  name: "{project_name}"
+        from litmus.config.fmt import dump_yaml
+        from litmus.schemas import ProjectConfig
 
-results_dir: results
-
-reports:
-  auto: false          # Auto-generate reports after each test run
-  format: html         # Default format: html, pdf, json, csv
-  template: default    # Jinja2 template name
-  output_dir: reports  # Where to save generated reports
-'''
-        litmus_yaml_path.write_text(litmus_yaml_content)
+        proj = ProjectConfig(name=project_name)
+        litmus_yaml_path.write_text(dump_yaml(proj.model_dump()))
         created_files.append("litmus.yaml")
 
     # Create .gitignore
@@ -175,11 +167,11 @@ A [Litmus](https://github.com/anthropics/litmus) hardware test project.
     if not settings_path.exists():
         import json
 
-        from litmus.schema import generate_schemas
+        from litmus.schemas import export_schemas
 
         schemas_dir = vscode_dir / "schemas"
         try:
-            generate_schemas(schemas_dir)
+            export_schemas(schemas_dir)
             settings = {
                 "yaml.schemas": {
                     ".vscode/schemas/product.schema.json": "products/*/spec.yaml",
@@ -196,26 +188,25 @@ A [Litmus](https://github.com/anthropics/litmus) hardware test project.
 
     # Write station file if instruments were discovered
     if station and station.get("instruments"):
-        import yaml
+        from litmus.config.fmt import dump_yaml
+        from litmus.schemas import StationConfig
 
         stations_dir = path / "stations"
         stations_dir.mkdir(exist_ok=True)
         station_file = stations_dir / "station.yaml"
         if not station_file.exists():
             instruments = {}
-            resources = {}
             for role, data in station["instruments"].items():
-                inst_id = role
-                instruments[role] = inst_id
-                resources[inst_id] = data["resource"]
-
-            station_data = {
-                "station": {"id": "station", "name": "Default Station"},
-                "instruments": instruments,
-                "resources": resources,
+                instruments[role] = role
+            resources = {
+                role: data["resource"] for role, data in station["instruments"].items()
             }
-            with open(station_file, "w") as f:
-                yaml.dump(station_data, f, default_flow_style=False, sort_keys=False)
+
+            sc = StationConfig(id="station", name="Default Station")
+            sc_data = sc.model_dump(exclude_none=True)
+            sc_data["instruments"] = instruments
+            sc_data["resources"] = resources
+            station_file.write_text(dump_yaml(sc_data))
             created_files.append("stations/station.yaml")
 
     # Initialize git repository (skip if already in a repo)

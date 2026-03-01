@@ -8,14 +8,14 @@ from pathlib import Path
 import yaml
 from pydantic import ValidationError
 
-from litmus.loaders import (
+from litmus.schemas import FileType
+from litmus.store import (
     load_fixture,
     load_instrument_asset,
     load_project,
     load_sequence,
     load_station,
 )
-from litmus.schemas import FileType
 
 # Maps type names to file-based loader functions.
 _FILE_LOADER_MAP: dict[str, Callable[[Path], object]] = {
@@ -108,14 +108,14 @@ def _detect_loader(data: dict) -> Callable | None:
 
 def _validate_with_product_loader(path: Path) -> list[str]:
     """Validate a product spec through the product loader (handles inheritance)."""
-    from litmus.products.loader import load_product
+    from litmus.store import load_product
 
     return _run_loader(load_product, path)
 
 
 def _validate_catalog(path: Path, catalog_dir: Path | None) -> list[str]:
     """Validate a catalog entry using the full loader (handles inheritance)."""
-    from litmus.catalog.loader import load_catalog_entry
+    from litmus.store import load_catalog_entry
 
     try:
         load_catalog_entry(path, catalog_dir=catalog_dir)

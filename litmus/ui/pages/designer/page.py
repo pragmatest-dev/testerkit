@@ -518,7 +518,7 @@ def _show_load_fixture_dialog(state, rebuild) -> None:
             ui.button("Close", on_click=dialog.close).props("flat")
         else:
             fixture_options = {
-                f["id"]: f.get("name", f["id"]) for f in fixtures
+                f.id: f.name or f.id for f in fixtures
             }
             selected: dict = {"fixture_id": ""}
 

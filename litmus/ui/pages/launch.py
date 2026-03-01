@@ -57,10 +57,10 @@ def launch_page(
                 station_options = {s["id"]: f"{s['name']} ({s['id']})" for s in compatible}
             else:
                 # No compatible stations - show all with warning
-                station_options = {s["id"]: f"{s['name']} ({s['id']})" for s in all_stations}
+                station_options = {s.id: f"{s.name or s.id} ({s.id})" for s in all_stations}
         else:
             # No product selected - show all stations
-            station_options = {s["id"]: f"{s['name']} ({s['id']})" for s in all_stations}
+            station_options = {s.id: f"{s.name or s.id} ({s.id})" for s in all_stations}
 
         if station_select:
             station_select.options = station_options

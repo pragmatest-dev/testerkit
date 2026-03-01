@@ -19,8 +19,7 @@ def sequence_edit_page(sequence_id: str):
     config = load_sequence_config(sequence_id)
 
     if config:
-        seq = config.get("sequence", {})
-        create_layout(f"Edit {seq.get('name', sequence_id)}")
+        create_layout(f"Edit {config.name or sequence_id}")
     else:
         create_layout("Sequence Not Found")
 
@@ -32,15 +31,13 @@ def sequence_edit_page(sequence_id: str):
             )
         return
 
-    seq = config.get("sequence", {})
-
     # Get available options for dropdowns
     products = discover_products()
     product_options = {"": "-- None --"}
     product_options.update({p["id"]: p.get("name", p["id"]) for p in products})
 
     sequences = discover_sequences()
-    sequence_options = {s["id"]: s["name"] for s in sequences if s["id"] != sequence_id}
+    sequence_options = {s.id: s.name or s.id for s in sequences if s.id != sequence_id}
 
     tests = discover_tests()
     test_options = [t["path"] for t in tests]
@@ -54,17 +51,17 @@ def sequence_edit_page(sequence_id: str):
     # Form state
     form_data = {
         "sequence": {
-            "id": seq.get("id", sequence_id),
-            "name": seq.get("name", ""),
-            "description": seq.get("description", ""),
-            "product_family": seq.get("product_family", ""),
-            "test_phase": seq.get("test_phase", "validation"),
-            "required_fixture": seq.get("required_fixture", ""),
-            "required_station_type": seq.get("required_station_type", ""),
-            "timeout_seconds": seq.get("timeout_seconds"),
+            "id": config.id or sequence_id,
+            "name": config.name or "",
+            "description": config.description or "",
+            "product_family": config.product_family or "",
+            "test_phase": config.test_phase or "validation",
+            "required_fixture": config.required_fixture or "",
+            "required_station_type": config.required_station_type or "",
+            "timeout_seconds": config.timeout_seconds,
         },
-        "steps": list(config.get("steps", [])),
-        "dialogs": dict(config.get("dialogs", {})),
+        "steps": [s.model_dump() for s in config.steps] if config.steps else [],
+        "dialogs": {k: v.model_dump() for k, v in config.dialogs.items()} if config.dialogs else {},
     }
 
     with ui.column().classes("w-full p-6 gap-6"):
@@ -72,7 +69,7 @@ def sequence_edit_page(sequence_id: str):
         with ui.row().classes("w-full items-center justify-between"):
             with ui.row().classes("items-center gap-2"):
                 ui.icon("edit").classes("text-slate-600")
-                ui.label(f"Edit Sequence: {seq.get('name', sequence_id)}").classes(
+                ui.label(f"Edit Sequence: {config.name or sequence_id}").classes(
                     "text-lg font-semibold text-slate-700"
                 )
 

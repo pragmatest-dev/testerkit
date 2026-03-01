@@ -168,7 +168,7 @@ Work through your table plan ONE TABLE AT A TIME:
 Do NOT try to hold all tables in your head and write everything at once. Each Edit call should cover one table (or a small group of closely related rows). This keeps each edit focused and prevents dropped data.
 
 After all tables are written, validate:
-`uv run python -c "from pathlib import Path; from litmus.catalog.loader import load_catalog_entry; load_catalog_entry(Path('{{YAML_PATH}}'))"`
+`uv run python -c "from pathlib import Path; from litmus.store import load_catalog_entry; load_catalog_entry(Path('{{YAML_PATH}}'))"`
 Fix any validation errors.
 </step>
 

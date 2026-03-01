@@ -62,18 +62,18 @@ class TestRunner:
             return []
 
         test_nodes = []
-        for step in seq.get("steps", []):
-            if step.get("test"):
-                test_nodes.append(step["test"])
-            elif step.get("sequence"):
+        for step in seq.steps or []:
+            if step.test:
+                test_nodes.append(step.test)
+            elif step.sequence:
                 # Recursively expand nested sequence
-                test_nodes.extend(self._expand_sequence(step["sequence"], visited))
+                test_nodes.extend(self._expand_sequence(step.sequence, visited))
 
         return test_nodes
 
-    def _discover_sequences(self) -> dict[str, dict]:
+    def _discover_sequences(self) -> dict:
         """Discover test sequences from YAML configuration files."""
-        from litmus.loaders import load_sequence
+        from litmus.store import load_sequence
 
         sequences = {}
         search_paths = [
@@ -86,10 +86,8 @@ class TestRunner:
                 continue
             for yaml_path in seq_dir.glob("*.yaml"):
                 try:
-                    seq_file = load_sequence(yaml_path)
-                    seq = seq_file.sequence
-                    seq_id = seq.id
-                    sequences[seq_id] = seq.model_dump()
+                    seq = load_sequence(yaml_path)
+                    sequences[seq.id] = seq
                 except Exception:
                     continue
 
@@ -101,11 +99,11 @@ class TestRunner:
             self._sequences = self._discover_sequences()
         return [
             {
-                "id": s.get("id"),
-                "name": s.get("name") or s.get("id"),
-                "description": s.get("description", ""),
-                "product_family": s.get("product_family", ""),
-                "test_phase": s.get("test_phase", ""),
+                "id": s.id,
+                "name": s.name or s.id,
+                "description": s.description or "",
+                "product_family": s.product_family or "",
+                "test_phase": s.test_phase or "",
             }
             for s in self._sequences.values()
         ]
@@ -136,8 +134,8 @@ class TestRunner:
             test_targets = self._expand_sequence(req.sequence_id)
             seq = self._load_sequence(req.sequence_id)
             if seq:
-                extra_args.extend(seq.get("pytest_args", []))
-                sequence_test_phase = seq.get("test_phase")
+                extra_args.extend(seq.pytest_args or [])
+                sequence_test_phase = seq.test_phase
         else:
             # Mode 2: Discovery fallback - pytest discovers tests in path
             test_targets = [req.test_path]

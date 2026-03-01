@@ -1,8 +1,7 @@
-product:
-  id: power_board_v1
-  name: DC-DC Power Board Rev A
-  description: 5V to 3.3V buck converter with 1A output capability
-  revision: B
+id: power_board_v1
+name: DC-DC Power Board Rev A
+description: 5V to 3.3V buck converter with 1A output capability
+revision: B
 characteristics:
   rail_5v_input:
     function: dc_voltage
@@ -15,17 +14,20 @@ characteristics:
         temperature: 25
         load: 0.5
       value: 5.0
-      accuracy: {pct_reading: 5.0}
+      accuracy:
+        pct_reading: 5.0
     - when:
         temperature: -40
         load: 0.5
       value: 5.0
-      accuracy: {pct_reading: 7.0}
+      accuracy:
+        pct_reading: 7.0
     - when:
         temperature: 85
         load: 0.5
       value: 5.0
-      accuracy: {pct_reading: 6.0}
+      accuracy:
+        pct_reading: 6.0
   rail_3v3_output:
     function: dc_voltage
     direction: output
@@ -38,25 +40,29 @@ characteristics:
         load: 0.1
         input_voltage: 5.0
       value: 3.3
-      accuracy: {pct_reading: 3.0}
+      accuracy:
+        pct_reading: 3.0
     - when:
         temperature: 25
         load: 1.0
         input_voltage: 5.0
       value: 3.3
-      accuracy: {pct_reading: 4.0}
+      accuracy:
+        pct_reading: 4.0
     - when:
         temperature: -40
         load: 0.5
         input_voltage: 4.5
       value: 3.3
-      accuracy: {pct_reading: 5.0}
+      accuracy:
+        pct_reading: 5.0
     - when:
         temperature: 85
         load: 1.0
         input_voltage: 5.5
       value: 3.3
-      accuracy: {pct_reading: 6.0}
+      accuracy:
+        pct_reading: 6.0
   quiescent_current:
     function: dc_current
     direction: input
@@ -67,7 +73,7 @@ characteristics:
     - when:
         temperature: 25
         load: 0
-      value: 0.010
+      value: 0.01
     - when:
         temperature: 85
         load: 0
@@ -76,7 +82,9 @@ characteristics:
     function: dc_power
     direction: output
     units: '%'
-    pins: [VIN, VOUT]
+    pins:
+    - VIN
+    - VOUT
     datasheet_ref: DS-001 Section 7.5
     specs:
     - when:

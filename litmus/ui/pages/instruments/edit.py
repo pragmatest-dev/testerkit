@@ -1,27 +1,26 @@
-"""Instrument library edit page."""
+"""Catalog entry edit page."""
 
 from nicegui import ui
 
 from litmus.ui.shared.components import setup_hash_sync_for_tabs
 from litmus.ui.shared.layout import create_layout
 from litmus.ui.shared.services import (
-    load_instrument_definition,
-    save_instrument_definition,
+    load_catalog_entry_by_type,
+    save_catalog_entry,
 )
 
 
 @ui.page("/instruments/{instrument_type}/edit")
 def instrument_edit_page(instrument_type: str):
     """Instrument definition edit page."""
-    data = load_instrument_definition(instrument_type)
+    entry = load_catalog_entry_by_type(instrument_type)
 
-    if data:
-        inst = data.get("instrument", {})
-        create_layout(f"Edit {inst.get('name', instrument_type)}")
+    if entry:
+        create_layout(f"Edit {entry.name or instrument_type}")
     else:
         create_layout("Instrument Not Found")
 
-    if not data:
+    if not entry:
         with ui.column().classes("w-full p-6"):
             ui.label("Instrument not found.").classes("text-xl text-slate-600")
             ui.link("← Back to Instruments", "/instruments").classes(
@@ -29,20 +28,18 @@ def instrument_edit_page(instrument_type: str):
             )
         return
 
-    inst = data.get("instrument", {})
-
-    # Form state
+    # Form state — convert model to mutable dicts for NiceGUI binding
     form_data = {
         "instrument": {
-            "type": inst.get("type", instrument_type),
-            "name": inst.get("name", ""),
-            "description": inst.get("description", ""),
-            "icon": inst.get("icon", "device_unknown"),
-            "driver_class": inst.get("driver_class", ""),
+            "type": entry.type or instrument_type,
+            "name": entry.name or "",
+            "description": entry.description or "",
+            "icon": "device_unknown",
+            "driver_class": "",
         },
-        "capabilities": list(data.get("capabilities", [])),
-        "scpi_commands": dict(data.get("scpi_commands", {})),
-        "simulation": dict(data.get("simulation", {})),
+        "capabilities": [cap.model_dump() for cap in entry.capabilities],
+        "scpi_commands": {},
+        "simulation": {},
     }
 
     from litmus.config.models import Direction, MeasurementFunction
@@ -56,7 +53,7 @@ def instrument_edit_page(instrument_type: str):
         with ui.row().classes("w-full items-center justify-between"):
             with ui.row().classes("items-center gap-2"):
                 ui.icon("edit").classes("text-slate-600")
-                ui.label(f"Edit Instrument: {inst.get('name', instrument_type)}").classes(
+                ui.label(f"Edit Instrument: {entry.name or instrument_type}").classes(
                     "text-lg font-semibold text-slate-700"
                 )
 
@@ -77,7 +74,7 @@ def instrument_edit_page(instrument_type: str):
                     if form_data["simulation"]:
                         save_data["simulation"] = form_data["simulation"]
 
-                    if save_instrument_definition(instrument_type, save_data):
+                    if save_catalog_entry(instrument_type, save_data):
                         ui.notify("Instrument saved successfully", type="positive")
                         ui.navigate.to(f"/instruments/{instrument_type}")
                     else:

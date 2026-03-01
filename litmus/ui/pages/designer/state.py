@@ -108,12 +108,11 @@ class DesignerState:
             del self.connections[name]
 
     def load_station(self, station_config: dict) -> None:
-        """Bulk-import instruments from an existing station configuration."""
+        """Bulk-import instruments from a station configuration dict."""
         instruments = station_config.get("instruments", {})
         for role, inst in instruments.items():
             driver = inst.get("driver", "")
             inst_type = inst.get("type", "")
-            # Use channels from config if available, otherwise default to ["1"]
             channels = inst.get("channels", ["1"])
             if isinstance(channels, dict):
                 # Structured channel dict — extract keys as channel names
@@ -123,7 +122,7 @@ class DesignerState:
             self.instruments[role] = {
                 "type": inst_type,
                 "driver": driver,
-                "capabilities": inst.get("capabilities", []),
+                "capabilities": [],
                 "channels": channels,
             }
 
@@ -340,19 +339,31 @@ class DesignerState:
 
         self.pins_modified = False
 
-    def load_fixture(self, fixture_config: dict) -> None:
+    def load_fixture(self, fixture_config) -> None:
         """Load existing fixture data into connections."""
         self.connections.clear()
-        fixture_info = fixture_config.get("fixture", {})
-        if fixture_info.get("id"):
-            self.fixture_id = fixture_info["id"]
+        if hasattr(fixture_config, "id") and fixture_config.id:
+            self.fixture_id = fixture_config.id
+        elif isinstance(fixture_config, dict):
+            fixture_info = fixture_config.get("fixture", {})
+            if fixture_info.get("id"):
+                self.fixture_id = fixture_info["id"]
 
-        points = fixture_config.get("points", {})
+        points = fixture_config.points if hasattr(fixture_config, "points") else fixture_config.get("points", {})
         for point_name, point in points.items():
-            self.connections[point_name] = {
-                "dut_pin": point.get("dut_pin", ""),
-                "instrument": point.get("instrument", ""),
-                "channel": point.get("instrument_channel", "1"),
-                "terminal": point.get("instrument_terminal"),
-                "net": point.get("net", ""),
-            }
+            if hasattr(point, "dut_pin"):
+                self.connections[point_name] = {
+                    "dut_pin": point.dut_pin or "",
+                    "instrument": point.instrument or "",
+                    "channel": point.instrument_channel or "1",
+                    "terminal": point.instrument_terminal,
+                    "net": point.net or "",
+                }
+            else:
+                self.connections[point_name] = {
+                    "dut_pin": point.get("dut_pin", ""),
+                    "instrument": point.get("instrument", ""),
+                    "channel": point.get("instrument_channel", "1"),
+                    "terminal": point.get("instrument_terminal"),
+                    "net": point.get("net", ""),
+                }

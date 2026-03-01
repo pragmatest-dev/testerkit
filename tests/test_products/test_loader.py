@@ -6,7 +6,7 @@ import pytest
 
 from litmus.config.models import Comparator, Direction, MeasurementFunction
 from litmus.execution.limits import derive_limit
-from litmus.products.loader import load_product, load_products_from_directory
+from litmus.store import load_product, load_products_from_directory
 
 
 class TestLoadProduct:
@@ -188,7 +188,7 @@ class TestProductInheritance:
         import tempfile
 
         with tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", dir=specs_dir, delete=False) as f:
-            f.write("product:\n  id: bad_variant\n  base: nonexistent_base\n  name: Bad\n")
+            f.write("id: bad_variant\nbase: nonexistent_base\nname: Bad\n")
             f.flush()
             tmp_path = Path(f.name)
 

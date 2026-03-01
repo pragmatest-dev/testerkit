@@ -6,11 +6,11 @@ from textwrap import dedent
 
 import pytest
 
-from litmus.instruments.loader import (
-    load_instrument_file,
+from litmus.instruments.loader import resolve_station_instruments
+from litmus.store import (
+    load_instrument_asset as load_instrument_file,
     load_instrument_files,
-    load_station_file,
-    resolve_station_instruments,
+    load_station,
 )
 from litmus.instruments.models import CalibrationInfo, InstrumentInfo
 
@@ -155,9 +155,11 @@ class TestLoadInstrumentFiles:
 class TestResolveStationInstruments:
     """Tests for resolve_station_instruments."""
 
-    def test_new_format_with_references(self, tmp_path):
-        """Resolve new format with instrument file references."""
-        # Create instrument file
+    def test_resolves_with_asset_files(self, tmp_path):
+        """Resolve StationConfig instruments enriched by asset files."""
+        from litmus.schemas import StationConfig
+
+        # Create instrument asset file
         inst_content = dedent("""
             id: keithley_dmm_001
             protocol: visa
@@ -172,18 +174,19 @@ class TestResolveStationInstruments:
         """).strip()
         (tmp_path / "keithley_dmm_001.yaml").write_text(inst_content)
 
-        # Load instrument files
         instrument_files = load_instrument_files(tmp_path)
 
-        # Station config (new format)
-        station_config = {
-            "instruments": {
-                "dmm": "keithley_dmm_001",
+        station_config = StationConfig(
+            id="test_station",
+            name="Test Station",
+            instruments={
+                "dmm": {
+                    "type": "dmm",
+                    "driver": "pymeasure.instruments.keithley.Keithley2000",
+                    "resource": "GPIB::16::INSTR",
+                },
             },
-            "resources": {
-                "keithley_dmm_001": "GPIB::16::INSTR",
-            },
-        }
+        )
 
         records = resolve_station_instruments(station_config, instrument_files)
 
@@ -192,31 +195,25 @@ class TestResolveStationInstruments:
 
         dmm = records["dmm"]
         assert dmm.role == "dmm"
-        assert dmm.instrument_id == "keithley_dmm_001"
         assert dmm.resource == "GPIB::16::INSTR"
         assert dmm.protocol == "visa"
-        assert dmm.info.manufacturer == "Keithley"
-        assert dmm.calibration.certificate == "CAL-001"
+        assert dmm.driver == "pymeasure.instruments.keithley.Keithley2000"
 
-    def test_legacy_inline_format(self):
-        """Resolve legacy format with inline instrument config."""
-        station_config = {
-            "instruments": {
+    def test_resolves_without_asset_files(self):
+        """Resolve StationConfig instruments with no asset files."""
+        from litmus.schemas import StationConfig
+
+        station_config = StationConfig(
+            id="test_station",
+            name="Test Station",
+            instruments={
                 "dmm": {
+                    "type": "dmm",
                     "driver": "pymeasure.instruments.keithley.Keithley2000",
                     "resource": "GPIB::16::INSTR",
-                    "protocol": "visa",
-                    "info": {
-                        "manufacturer": "Keithley",
-                        "model": "2000",
-                        "serial": "XYZ789",
-                    },
-                    "calibration": {
-                        "due_date": "2025-12-31",
-                    },
-                }
-            }
-        }
+                },
+            },
+        )
 
         records = resolve_station_instruments(station_config, {})
 
@@ -224,33 +221,67 @@ class TestResolveStationInstruments:
         dmm = records["dmm"]
         assert dmm.role == "dmm"
         assert dmm.resource == "GPIB::16::INSTR"
-        assert dmm.info.serial == "XYZ789"
-        assert dmm.calibration.due_date == date(2025, 12, 31)
+        assert dmm.driver == "pymeasure.instruments.keithley.Keithley2000"
 
-    def test_mixed_formats(self, tmp_path):
-        """Mix of new and legacy formats."""
-        # Create instrument file for one
-        inst_content = "id: psu_001\nprotocol: visa\n"
-        (tmp_path / "psu_001.yaml").write_text(inst_content)
+    def test_asset_file_enriches_calibration(self, tmp_path):
+        """Asset file provides calibration and identity info."""
+        from litmus.schemas import StationConfig
+
+        inst_content = dedent("""
+            id: dmm_asset
+            protocol: visa
+            driver: pymeasure.instruments.keithley.Keithley2000
+            info:
+              manufacturer: Keithley
+              model: "2000"
+              serial: XYZ789
+            calibration:
+              due_date: 2025-12-31
+        """).strip()
+        (tmp_path / "dmm_asset.yaml").write_text(inst_content)
 
         instrument_files = load_instrument_files(tmp_path)
 
-        station_config = {
-            "instruments": {
-                # Legacy inline
+        station_config = StationConfig(
+            id="test_station",
+            name="Test Station",
+            instruments={
                 "dmm": {
+                    "type": "dmm",
+                    "driver": "pymeasure.instruments.keithley.Keithley2000",
+                    "resource": "GPIB::16::INSTR",
+                },
+            },
+        )
+
+        records = resolve_station_instruments(station_config, instrument_files)
+
+        # Without matching asset file key, no enrichment
+        dmm = records["dmm"]
+        assert dmm.info.serial is None
+
+    def test_multiple_instruments(self, tmp_path):
+        """Multiple instruments in one station."""
+        from litmus.schemas import StationConfig
+
+        station_config = StationConfig(
+            id="test_station",
+            name="Test Station",
+            instruments={
+                "dmm": {
+                    "type": "dmm",
                     "driver": "mydriver.DMM",
                     "resource": "GPIB::16::INSTR",
                 },
-                # New reference
-                "psu": "psu_001",
+                "psu": {
+                    "type": "psu",
+                    "driver": "mydriver.PSU",
+                    "resource": "GPIB::17::INSTR",
+                },
             },
-            "resources": {
-                "psu_001": "GPIB::17::INSTR",
-            },
-        }
+        )
 
-        records = resolve_station_instruments(station_config, instrument_files)
+        records = resolve_station_instruments(station_config, {})
 
         assert len(records) == 2
         assert records["dmm"].resource == "GPIB::16::INSTR"

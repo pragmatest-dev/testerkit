@@ -22,9 +22,7 @@ from pydantic import BaseModel, Field, computed_field, model_validator
 
 from litmus.config.models import (
     Capability,
-    Direction,
     ListSpec,
-    MeasurementFunction,
     PointSpec,
     RangeSpec,
     SpecBand,

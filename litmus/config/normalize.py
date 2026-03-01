@@ -72,7 +72,7 @@ def check_instrument_types(
 def _known_catalog_types() -> set[str]:
     """Collect instrument types present in loaded catalog entries."""
     try:
-        from litmus.catalog.loader import find_catalog_dirs, load_catalog_from_directory
+        from litmus.store import find_catalog_dirs, load_catalog_from_directory
 
         types: set[str] = set()
         for cat_dir in find_catalog_dirs():

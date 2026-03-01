@@ -126,9 +126,8 @@ class TestAutoRegistration:
             ".yaml",
             **{
                 "stations/station": textwrap.dedent("""\
-                    station:
-                      id: station
-                      name: Test Station
+                    id: station
+                    name: Test Station
                     instruments:
                       dmm:
                         type: dmm
@@ -195,9 +194,8 @@ class TestAutoRegistration:
             ".yaml",
             **{
                 "stations/station": textwrap.dedent("""\
-                    station:
-                      id: station
-                      name: Test Station
+                    id: station
+                    name: Test Station
                     instruments:
                       psu:
                         type: psu
@@ -239,9 +237,8 @@ class TestAutoRegistration:
             ".yaml",
             **{
                 "stations/station": textwrap.dedent("""\
-                    station:
-                      id: station
-                      name: Test Station
+                    id: station
+                    name: Test Station
                     instruments:
                       dmm:
                         type: dmm
@@ -290,9 +287,8 @@ class TestAutoRegistration:
             ".yaml",
             **{
                 "stations/station": textwrap.dedent("""\
-                    station:
-                      id: station
-                      name: Test Station
+                    id: station
+                    name: Test Station
                     instruments: {}
                 """),
             },

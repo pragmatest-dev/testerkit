@@ -343,7 +343,7 @@ class TestCatalogChannelParsing:
 
     def test_e36312a_catalog_channels(self):
         """E36312A catalog entry has correct per-channel capabilities."""
-        from litmus.catalog.loader import load_catalog_entry
+        from litmus.store import load_catalog_entry
         from pathlib import Path
 
         catalog_path = Path("catalog/keysight_e36312a.yaml")

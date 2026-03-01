@@ -1,11 +1,7 @@
-# Variant product inheriting from base_board
-product:
-  id: variant_board
-  base: base_board
-  part_number: "VAR-002"
-  revision: "B"
-
-# Override characteristics with tighter tolerance
+id: variant_board
+base: base_board
+part_number: VAR-002
+revision: B
 characteristics:
   output_voltage:
     function: dc_voltage
@@ -13,5 +9,6 @@ characteristics:
     units: V
     pin: VOUT
     specs:
-      - value: 3.3
-        accuracy: {pct_reading: 2.0}
+    - value: 3.3
+      accuracy:
+        pct_reading: 2.0

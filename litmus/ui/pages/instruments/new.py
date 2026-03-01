@@ -1,4 +1,4 @@
-"""New instrument creation page."""
+"""New catalog entry creation page."""
 
 import re
 
@@ -6,7 +6,7 @@ from nicegui import ui
 
 from litmus.ui.shared.layout import create_layout
 from litmus.ui.shared.services import (
-    create_instrument_definition,
+    create_catalog_entry,
     discover_instrument_types,
 )
 
@@ -17,7 +17,7 @@ def new_instrument_page():
     create_layout("New Instrument")
 
     # Get existing instrument types to check for duplicates
-    existing_types = {i["type"] for i in discover_instrument_types()}
+    existing_types = {i.type for i in discover_instrument_types()}
 
     # Common Material icons for instruments
     icon_options = {
@@ -158,7 +158,7 @@ def new_instrument_page():
                         return
 
                     # Create instrument
-                    result = create_instrument_definition(
+                    result = create_catalog_entry(
                         instrument_type=form["type"],
                         name=form["name"],
                         description=form["description"],
@@ -167,10 +167,10 @@ def new_instrument_page():
 
                     if result:
                         ui.notify(
-                            f"Instrument '{result['name']}' created successfully",
+                            f"Instrument '{result.name}' created successfully",
                             type="positive",
                         )
-                        ui.navigate.to(f"/instruments/{result['type']}/edit")
+                        ui.navigate.to(f"/instruments/{result.type}/edit")
                     else:
                         ui.notify(
                             "Instrument type already exists",
@@ -189,13 +189,12 @@ def new_instrument_page():
                 with ui.row().classes("items-start gap-3"):
                     ui.icon("lightbulb").classes("text-blue-500 mt-0.5")
                     with ui.column().classes("gap-1"):
-                        ui.label("About Instrument Definitions").classes(
+                        ui.label("About Catalog Entries").classes(
                             "font-medium text-blue-700"
                         )
                         ui.label(
-                            "Instrument definitions describe the capabilities, SCPI commands, "
-                            "and simulation defaults for an instrument type. "
-                            "Station configs reference these types."
+                            "Catalog entries describe the capabilities of an instrument model. "
+                            "Station configs reference these via catalog_ref."
                         ).classes("text-sm text-blue-600")
                         ui.label(
                             "After creating, add capabilities and SCPI commands in the editor."

@@ -3,8 +3,6 @@
 from enum import StrEnum
 from typing import Any, Literal
 
-import warnings
-
 from pydantic import BaseModel, Field, computed_field, model_validator
 
 from litmus.utils.ranges import expand_numeric_range

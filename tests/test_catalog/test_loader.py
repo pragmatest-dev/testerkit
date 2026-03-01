@@ -6,7 +6,7 @@ from textwrap import dedent
 import pytest
 import yaml
 
-from litmus.catalog.loader import load_catalog_entry, load_catalog_from_directory
+from litmus.store import load_catalog_entry, load_catalog_from_directory
 from litmus.config.models import Direction, MeasurementFunction
 
 CATALOG_DIR = Path(__file__).parent.parent.parent / "catalog"
@@ -146,41 +146,39 @@ class TestCatalogInheritance:
 
     def _base_yaml(self) -> str:
         return """\
-            catalog_entry:
-              id: base_dmm
-              manufacturer: Acme
-              model: "1000"
-              name: "Acme 1000 DMM"
-              type: dmm
-              channels:
-                "1":
-                  terminals: [hi, lo]
-                  connector: binding_post
-                  ground: shared
-              capabilities:
-                - function: dc_voltage
-                  direction: input
-                  signals:
-                    voltage:
-                      range: {min: 0.001, max: 100, units: V}
-                      accuracy: {pct_reading: 0.01}
-                  channels: ["1"]
+            id: base_dmm
+            manufacturer: Acme
+            model: "1000"
+            name: "Acme 1000 DMM"
+            type: dmm
+            channels:
+              "1":
+                terminals: [hi, lo]
+                connector: binding_post
+                ground: shared
+            capabilities:
+              - function: dc_voltage
+                direction: input
+                signals:
+                  voltage:
+                    range: {min: 0.001, max: 100, units: V}
+                    accuracy: {pct_reading: 0.01}
+                channels: ["1"]
         """
 
     def test_variant_inherits_capabilities(self, tmp_path):
         """Variant without capabilities: gets base's."""
         _write_yaml(tmp_path / "base_dmm.yaml", self._base_yaml())
         _write_yaml(tmp_path / "variant.yaml", """\
-            catalog_entry:
-              id: variant_dmm
-              model: "1001"
-              name: "Acme 1001 DMM"
-              base: base_dmm
-              channels:
-                "1":
-                  terminals: [hi, lo]
-                  connector: bnc
-                  ground: shared
+            id: variant_dmm
+            model: "1001"
+            name: "Acme 1001 DMM"
+            base: base_dmm
+            channels:
+              "1":
+                terminals: [hi, lo]
+                connector: bnc
+                ground: shared
         """)
         entry = load_catalog_entry(tmp_path / "variant.yaml", catalog_dir=tmp_path)
         assert entry.id == "variant_dmm"
@@ -191,15 +189,14 @@ class TestCatalogInheritance:
         """Variant with channels: replaces base's."""
         _write_yaml(tmp_path / "base_dmm.yaml", self._base_yaml())
         _write_yaml(tmp_path / "variant.yaml", """\
-            catalog_entry:
-              id: variant_dmm
-              model: "1001"
-              base: base_dmm
-              channels:
-                "A":
-                  terminals: [signal]
-                  connector: bnc
-                  ground: earth
+            id: variant_dmm
+            model: "1001"
+            base: base_dmm
+            channels:
+              "A":
+                terminals: [signal]
+                connector: bnc
+                ground: earth
         """)
         entry = load_catalog_entry(tmp_path / "variant.yaml", catalog_dir=tmp_path)
         assert list(entry.channels.keys()) == ["A"]
@@ -208,17 +205,16 @@ class TestCatalogInheritance:
         """Variant capabilities merge with base: new functions appended, matching functions merged."""
         _write_yaml(tmp_path / "base_dmm.yaml", self._base_yaml())
         _write_yaml(tmp_path / "variant.yaml", """\
-            catalog_entry:
-              id: variant_dmm
-              model: "2000"
-              base: base_dmm
-              capabilities:
-                - function: ac_voltage
-                  direction: input
-                  signals:
-                    voltage:
-                      range: {min: 0.01, max: 750, units: V}
-                  channels: ["1"]
+            id: variant_dmm
+            model: "2000"
+            base: base_dmm
+            capabilities:
+              - function: ac_voltage
+                direction: input
+                signals:
+                  voltage:
+                    range: {min: 0.01, max: 750, units: V}
+                channels: ["1"]
         """)
         entry = load_catalog_entry(tmp_path / "variant.yaml", catalog_dir=tmp_path)
         assert len(entry.capabilities) == 2
@@ -230,10 +226,9 @@ class TestCatalogInheritance:
         """manufacturer, type inherited from base."""
         _write_yaml(tmp_path / "base_dmm.yaml", self._base_yaml())
         _write_yaml(tmp_path / "variant.yaml", """\
-            catalog_entry:
-              id: variant_dmm
-              model: "1001"
-              base: base_dmm
+            id: variant_dmm
+            model: "1001"
+            base: base_dmm
         """)
         entry = load_catalog_entry(tmp_path / "variant.yaml", catalog_dir=tmp_path)
         assert entry.manufacturer == "Acme"
@@ -242,22 +237,20 @@ class TestCatalogInheritance:
     def test_circular_inheritance_raises(self, tmp_path):
         """Circular base references raise ValueError."""
         _write_yaml(tmp_path / "a.yaml", """\
-            catalog_entry:
-              id: a
-              manufacturer: X
-              model: "A"
-              name: A
-              type: dmm
-              base: b
+            id: a
+            manufacturer: X
+            model: "A"
+            name: A
+            type: dmm
+            base: b
         """)
         _write_yaml(tmp_path / "b.yaml", """\
-            catalog_entry:
-              id: b
-              manufacturer: X
-              model: "B"
-              name: B
-              type: dmm
-              base: a
+            id: b
+            manufacturer: X
+            model: "B"
+            name: B
+            type: dmm
+            base: a
         """)
         with pytest.raises(ValueError, match="[Cc]ircular"):
             load_catalog_entry(tmp_path / "a.yaml", catalog_dir=tmp_path)
@@ -265,13 +258,12 @@ class TestCatalogInheritance:
     def test_missing_base_raises(self, tmp_path):
         """Non-existent base raises ValueError."""
         _write_yaml(tmp_path / "orphan.yaml", """\
-            catalog_entry:
-              id: orphan
-              manufacturer: X
-              model: "O"
-              name: Orphan
-              type: dmm
-              base: does_not_exist
+            id: orphan
+            manufacturer: X
+            model: "O"
+            name: Orphan
+            type: dmm
+            base: does_not_exist
         """)
         with pytest.raises(ValueError, match="not found"):
             load_catalog_entry(tmp_path / "orphan.yaml", catalog_dir=tmp_path)
@@ -279,43 +271,40 @@ class TestCatalogInheritance:
     def test_recursive_inheritance(self, tmp_path):
         """A → B → C chain merges correctly."""
         _write_yaml(tmp_path / "c.yaml", """\
-            catalog_entry:
-              id: c
-              manufacturer: Acme
-              model: "C"
-              name: "Acme C"
-              type: dmm
-              channels:
-                "1":
-                  terminals: [hi, lo]
-                  connector: binding_post
-                  ground: shared
-              capabilities:
-                - function: dc_voltage
-                  direction: input
-                  signals:
-                    voltage:
-                      range: {min: 0.001, max: 100, units: V}
-                  channels: ["1"]
+            id: c
+            manufacturer: Acme
+            model: "C"
+            name: "Acme C"
+            type: dmm
+            channels:
+              "1":
+                terminals: [hi, lo]
+                connector: binding_post
+                ground: shared
+            capabilities:
+              - function: dc_voltage
+                direction: input
+                signals:
+                  voltage:
+                    range: {min: 0.001, max: 100, units: V}
+                channels: ["1"]
         """)
         _write_yaml(tmp_path / "b.yaml", """\
-            catalog_entry:
-              id: b
-              model: "B"
-              name: "Acme B"
-              base: c
-              channels:
-                "1":
-                  terminals: [hi, lo, sense_hi, sense_lo]
-                  connector: binding_post
-                  ground: shared
+            id: b
+            model: "B"
+            name: "Acme B"
+            base: c
+            channels:
+              "1":
+                terminals: [hi, lo, sense_hi, sense_lo]
+                connector: binding_post
+                ground: shared
         """)
         _write_yaml(tmp_path / "a.yaml", """\
-            catalog_entry:
-              id: a
-              model: "A"
-              name: "Acme A"
-              base: b
+            id: a
+            model: "A"
+            name: "Acme A"
+            base: b
         """)
         entry = load_catalog_entry(tmp_path / "a.yaml", catalog_dir=tmp_path)
         assert entry.id == "a"
@@ -364,33 +353,32 @@ class TestLoadAllCatalogEntries:
 class TestCatalogValidation:
     """Tests that Pydantic validation catches bad YAML."""
 
-    def test_top_level_capabilities_raises(self, tmp_path):
-        """Top-level capabilities: key is rejected."""
+    def test_top_level_capabilities_rejected(self, tmp_path):
+        """capabilities as extra key alongside model fields is rejected by Pydantic."""
         _write_yaml(tmp_path / "bad.yaml", """\
-            catalog_entry:
-              id: bad
-              manufacturer: X
-              model: "1"
-              name: Bad
-              type: dmm
-
+            id: bad
+            manufacturer: X
+            model: "1"
+            name: Bad
+            type: dmm
             capabilities:
               - function: dc_voltage
                 direction: input
         """)
-        with pytest.raises(ValueError, match="top-level"):
-            load_catalog_entry(tmp_path / "bad.yaml")
+        # This should load fine — capabilities is a valid field at root
+        entry = load_catalog_entry(tmp_path / "bad.yaml")
+        assert entry.id == "bad"
+        assert len(entry.capabilities) == 1
 
     def test_unknown_key_raises(self, tmp_path):
-        """Unknown key under catalog_entry: raises ValidationError."""
+        """Unknown key raises ValidationError."""
         _write_yaml(tmp_path / "bad.yaml", """\
-            catalog_entry:
-              id: bad
-              manufacturer: X
-              model: "1"
-              name: Bad
-              type: dmm
-              bogus_field: 42
+            id: bad
+            manufacturer: X
+            model: "1"
+            name: Bad
+            type: dmm
+            bogus_field: 42
         """)
         with pytest.raises(Exception, match="bogus_field"):
             load_catalog_entry(tmp_path / "bad.yaml")
@@ -398,13 +386,12 @@ class TestCatalogValidation:
     def test_interfaces_field_loads(self, tmp_path):
         """interfaces field is accepted and parsed."""
         _write_yaml(tmp_path / "iface.yaml", """\
-            catalog_entry:
-              id: iface_test
-              manufacturer: X
-              model: "1"
-              name: Test
-              type: dmm
-              interfaces: [usb, gpib]
+            id: iface_test
+            manufacturer: X
+            model: "1"
+            name: Test
+            type: dmm
+            interfaces: [usb, gpib]
         """)
         entry = load_catalog_entry(tmp_path / "iface.yaml")
         assert entry.interfaces == ["usb", "gpib"]

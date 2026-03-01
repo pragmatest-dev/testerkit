@@ -3,8 +3,7 @@
 Generates JSON Schema files from Pydantic models so that editors (VS Code,
 IntelliJ) can validate and autocomplete Litmus YAML files.
 
-Wrapper models mirror the actual YAML file structure (root-level sibling
-keys) and are used only for schema generation, not for loading.
+Models directly mirror the YAML file structure — fields at root, no wrapping key.
 """
 
 from __future__ import annotations
@@ -18,21 +17,13 @@ from pydantic import BaseModel, Field
 from litmus.catalog.models import InstrumentCatalogEntry
 from litmus.config.models import (
     FixtureConfig,
-    FixturePoint,
-    InstrumentCapability,
     TestSequenceConfig,
-    TestStepConfig,
 )
 from litmus.instruments.models import CalibrationInfo, InstrumentInfo
-from litmus.products.models import (
-    Pin,
-    Product,
-    ProductCharacteristic,
-    SignalGroup,
-)
+from litmus.products.models import Product
 
 # ---------------------------------------------------------------------------
-# Wrapper models matching YAML file structure
+# Instrument asset file schema (unchanged — already flat)
 # ---------------------------------------------------------------------------
 
 
@@ -48,20 +39,9 @@ class InstrumentAssetFile(BaseModel):
     calibration: CalibrationInfo = Field(default_factory=CalibrationInfo)
 
 
-class CatalogFile(BaseModel):
-    """Schema for catalog/*.yaml files."""
-
-    catalog_entry: InstrumentCatalogEntry
-    capabilities: list[InstrumentCapability] = Field(default_factory=list)
-
-
-class ProductFile(BaseModel):
-    """Schema for products/*/spec.yaml files."""
-
-    product: Product
-    pins: dict[str, Pin] = Field(default_factory=dict)
-    characteristics: dict[str, ProductCharacteristic] = Field(default_factory=dict)
-    signal_groups: dict[str, SignalGroup] = Field(default_factory=dict)
+# ---------------------------------------------------------------------------
+# Station schema (flat — all fields at root)
+# ---------------------------------------------------------------------------
 
 
 class StationInstrumentConfig(BaseModel):
@@ -77,41 +57,20 @@ class StationInstrumentConfig(BaseModel):
     mock_config: dict[str, Any] = Field(default_factory=dict)
 
 
-class StationHeader(BaseModel):
-    """Station identification block."""
+class StationConfig(BaseModel):
+    """Schema for stations/*.yaml files — all fields at root."""
 
     id: str
     name: str
     location: str | None = None
     description: str | None = None
-
-
-class StationFile(BaseModel):
-    """Schema for stations/*.yaml files."""
-
-    station: StationHeader
     instruments: dict[str, StationInstrumentConfig] = Field(default_factory=dict)
     supported_phases: list[str] = Field(default_factory=list)
 
 
-class SequenceFile(BaseModel):
-    """Schema for sequences/*.yaml files."""
-
-    sequence: TestSequenceConfig
-    steps: list[TestStepConfig] = Field(default_factory=list)
-
-
-class FixtureFile(BaseModel):
-    """Schema for fixtures/*.yaml files."""
-
-    fixture: FixtureConfig
-    points: dict[str, FixturePoint] = Field(default_factory=dict)
-
-
-class ProjectInfo(BaseModel):
-    """Project identification block."""
-
-    name: str
+# ---------------------------------------------------------------------------
+# Project schema (flat — all fields at root)
+# ---------------------------------------------------------------------------
 
 
 class ReportsConfig(BaseModel):
@@ -123,10 +82,10 @@ class ReportsConfig(BaseModel):
     output_dir: str = "reports"
 
 
-class ProjectFile(BaseModel):
-    """Schema for litmus.yaml project config files."""
+class ProjectConfig(BaseModel):
+    """Schema for litmus.yaml project config files — all fields at root."""
 
-    project: ProjectInfo
+    name: str
     results_dir: str = "results"
     reports: ReportsConfig = Field(default_factory=ReportsConfig)
 
@@ -141,13 +100,13 @@ FileType = Literal[
 ]
 
 SCHEMA_MAP: dict[FileType, type[BaseModel]] = {
-    "catalog": CatalogFile,
-    "product": ProductFile,
-    "station": StationFile,
-    "sequence": SequenceFile,
-    "fixture": FixtureFile,
+    "catalog": InstrumentCatalogEntry,
+    "product": Product,
+    "station": StationConfig,
+    "sequence": TestSequenceConfig,
+    "fixture": FixtureConfig,
     "instrument_asset": InstrumentAssetFile,
-    "project": ProjectFile,
+    "project": ProjectConfig,
 }
 
 

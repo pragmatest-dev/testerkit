@@ -39,27 +39,8 @@ class TestLoadStepAliases:
         seq_file.write_text(
             yaml.dump(
                 {
-                    "sequence": {
-                        "id": "my_seq",
-                        "description": "test",
-                        "steps": [
-                            {
-                                "id": "step1",
-                                "test": "tests/test_a.py::test_one",
-                                "aliases": {"dmm": "precision_dmm"},
-                            },
-                            {
-                                "id": "step2",
-                                "test": "tests/test_a.py::test_two",
-                                # No aliases
-                            },
-                            {
-                                "id": "step3",
-                                "test": "tests/test_b.py::test_three",
-                                "aliases": {"dmm": "fast_dmm", "psu": "bench_psu"},
-                            },
-                        ],
-                    },
+                    "id": "my_seq",
+                    "description": "test",
                     "steps": [
                         {
                             "id": "step1",

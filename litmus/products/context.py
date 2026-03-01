@@ -12,7 +12,6 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from litmus.config.models import Comparator, Limit
-from litmus.products.loader import load_product
 from litmus.products.models import Product, ProductCharacteristic
 
 if TYPE_CHECKING:
@@ -86,6 +85,8 @@ class SpecContext:
         guardband_pct: float = 0.0,
     ) -> SpecContext:
         """Load spec context from YAML file."""
+        from litmus.store import load_product
+
         product = load_product(Path(spec_path))
         return cls(product, fixture, guardband_pct)
 

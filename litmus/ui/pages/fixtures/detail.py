@@ -8,7 +8,6 @@ from litmus.ui.shared.services import (
     discover_products,
     get_compatible_stations_for_fixture,
     load_fixture_config,
-    load_station_config,
 )
 
 
@@ -19,8 +18,7 @@ def fixture_detail_page(fixture_id: str):
     products = {p["id"]: p for p in discover_products()}
 
     if config:
-        fixture = config.get("fixture", {})
-        create_layout(fixture.get("name", fixture_id))
+        create_layout(config.name or fixture_id)
     else:
         create_layout("Fixture Not Found")
 
@@ -31,10 +29,9 @@ def fixture_detail_page(fixture_id: str):
             _render_not_found()
 
 
-def _render_fixture_detail(fixture_id: str, config: dict, products: dict):
+def _render_fixture_detail(fixture_id: str, config, products: dict):
     """Render the fixture detail view."""
-    fixture = config.get("fixture", {})
-    points = config.get("points", {})
+    points = config.points or {}
 
     # Fixture info card
     with ui.card().classes("w-full"):
@@ -42,7 +39,7 @@ def _render_fixture_detail(fixture_id: str, config: dict, products: dict):
             with ui.row().classes("items-center justify-between w-full"):
                 with ui.row().classes("items-center gap-4"):
                     ui.icon("hub").classes("text-2xl text-slate-600")
-                    ui.label(fixture.get("name", fixture_id)).classes(
+                    ui.label(config.name or fixture_id).classes(
                         "text-xl font-semibold"
                     )
                 ui.button(
@@ -53,17 +50,17 @@ def _render_fixture_detail(fixture_id: str, config: dict, products: dict):
 
         with ui.card_section():
             with ui.grid(columns=3).classes("gap-6"):
-                _info_field("Fixture ID", fixture.get("id", fixture_id))
-                _info_field("Product Family", fixture.get("product_family", ""))
+                _info_field("Fixture ID", config.id or fixture_id)
+                _info_field("Product Family", config.product_family or "")
                 _info_field("Points", str(len(points)))
 
-            if fixture.get("description"):
+            if config.description:
                 with ui.column().classes("gap-1 mt-4"):
                     ui.label("Description").classes("text-xs text-slate-500 uppercase")
-                    ui.label(fixture["description"]).classes("text-slate-700")
+                    ui.label(config.description).classes("text-slate-700")
 
             # Product link
-            product_family = fixture.get("product_family")
+            product_family = config.product_family
             if product_family:
                 product = products.get(product_family)
                 with ui.row().classes("items-center gap-2 mt-4"):
@@ -93,7 +90,7 @@ def _render_fixture_detail(fixture_id: str, config: dict, products: dict):
             _render_stations_tab(fixture_id, points)
 
         with ui.tab_panel(diagram_tab):
-            _render_diagram_tab(fixture, points)
+            _render_diagram_tab(config, points)
 
     # Actions
     with ui.row().classes("mt-6 gap-2"):
@@ -142,13 +139,13 @@ def _render_mappings_tab(points: dict):
         rows = [
             {
                 "point": name,
-                "dut_pin": data.get("dut_pin", ""),
-                "net": data.get("net", ""),
-                "instrument": data.get("instrument", ""),
-                "channel": data.get("instrument_channel", ""),
-                "description": data.get("description", ""),
+                "dut_pin": pt.dut_pin or "",
+                "net": pt.net or "",
+                "instrument": pt.instrument or "",
+                "channel": pt.instrument_channel or "",
+                "description": pt.description or "",
             }
-            for name, data in points.items()
+            for name, pt in points.items()
         ]
         ui.table(columns=columns, rows=rows, row_key="point").classes("w-full")
 
@@ -157,7 +154,7 @@ def _render_stations_tab(fixture_id: str, points: dict):
     """Render compatible stations."""
     # Get required instruments
     required_instruments = sorted(
-        {p.get("instrument") for p in points.values() if p.get("instrument")}
+        {p.instrument for p in points.values() if p.instrument}
     )
 
     if required_instruments:
@@ -190,21 +187,20 @@ def _render_stations_tab(fixture_id: str, points: dict):
             ).classes("text-amber-700 text-sm mt-1")
 
 
-def _station_card(station: dict, required_instruments: list[str]):
+def _station_card(station, required_instruments: list[str]):
     """Render a compatible station card."""
-    station_config = load_station_config(station["id"])
     station_instruments = (
-        set(station_config.get("instruments", {}).keys()) if station_config else set()
+        set(station.instruments.keys()) if station.instruments else set()
     )
 
     with ui.card().classes("w-72"):
         with ui.card_section():
             with ui.row().classes("items-center gap-2"):
                 ui.icon("dns").classes("text-slate-600")
-                ui.label(station.get("name", station["id"])).classes("font-semibold")
+                ui.label(station.name or station.id).classes("font-semibold")
 
         with ui.card_section():
-            ui.label(station.get("location", "")).classes("text-sm text-slate-500")
+            ui.label(station.location or "").classes("text-sm text-slate-500")
 
             # Show which instruments are present
             ui.label("Instruments").classes("text-xs text-slate-500 uppercase mt-3")
@@ -223,21 +219,21 @@ def _station_card(station: dict, required_instruments: list[str]):
             ui.button(
                 "View Station",
                 icon="visibility",
-                on_click=lambda s=station: ui.navigate.to(f"/stations/{s['id']}"),
+                on_click=lambda s=station: ui.navigate.to(f"/stations/{s.id}"),
             ).props("flat dense")
 
 
-def _render_diagram_tab(fixture: dict, points: dict):
+def _render_diagram_tab(fixture, points: dict):
     """Render a Mermaid diagram of the fixture connections."""
     # Group points by instrument
     by_instrument: dict[str, list] = {}
-    for name, data in points.items():
-        inst = data.get("instrument", "unknown")
+    for name, pt in points.items():
+        inst = pt.instrument or "unknown"
         if inst not in by_instrument:
             by_instrument[inst] = []
-        by_instrument[inst].append((name, data))
+        by_instrument[inst].append((name, pt))
 
-    product_family = fixture.get("product_family", "DUT")
+    product_family = fixture.product_family or "DUT"
 
     # Build Mermaid diagram
     lines = [
@@ -248,20 +244,20 @@ def _render_diagram_tab(fixture: dict, points: dict):
 
     # Add DUT pins
     pin_ids = []
-    for name, data in points.items():
-        dut_pin = data.get("dut_pin", name)
+    for name, pt in points.items():
+        dut_pin = pt.dut_pin or name
         pin_id = f"pin_{name.replace('-', '_')}"
-        pin_ids.append((pin_id, name, data))
+        pin_ids.append((pin_id, name, pt))
         lines.append(f"        {pin_id}[{dut_pin}]")
     lines.append("    end")
 
     # Add fixture subgraph
     lines.append("    subgraph Fixture")
     fixture_ids = []
-    for pin_id, name, data in pin_ids:
+    for pin_id, name, pt in pin_ids:
         fix_id = f"fix_{name.replace('-', '_')}"
-        inst = data.get("instrument", "?")
-        channel = data.get("instrument_channel", "")
+        inst = pt.instrument or "?"
+        channel = pt.instrument_channel or ""
         channel_str = f".{channel}" if channel else ""
         fixture_ids.append((fix_id, pin_id, inst))
         lines.append(f"        {fix_id}[{name} → {inst}{channel_str}]")

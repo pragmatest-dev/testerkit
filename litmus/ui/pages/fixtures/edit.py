@@ -7,7 +7,6 @@ from litmus.ui.shared.services import (
     discover_products,
     discover_stations,
     load_fixture_config,
-    load_station_config,
     save_fixture,
 )
 
@@ -29,16 +28,15 @@ def fixture_edit_page(fixture_id: str):
         }
         points_data = {}
     elif config:
-        fixture = config.get("fixture", {})
-        create_layout(f"Edit {fixture.get('name', fixture_id)}")
+        create_layout(f"Edit {config.name or fixture_id}")
         fixture_data = {
-            "id": fixture.get("id", fixture_id),
-            "name": fixture.get("name", ""),
-            "description": fixture.get("description", ""),
-            "product_id": fixture.get("product_id") or fixture.get("product_family", ""),
-            "product_revision": fixture.get("product_revision", ""),
+            "id": config.id or fixture_id,
+            "name": config.name or "",
+            "description": config.description or "",
+            "product_id": config.product_id or config.product_family or "",
+            "product_revision": config.product_revision or "",
         }
-        points_data = config.get("points", {})
+        points_data = {k: v.model_dump() for k, v in config.points.items()} if config.points else {}
     else:
         create_layout("Fixture Not Found")
         with ui.column().classes("w-full p-6"):
@@ -56,9 +54,8 @@ def fixture_edit_page(fixture_id: str):
     # Collect all instrument names across all stations
     all_instruments = set()
     for station in stations:
-        station_config = load_station_config(station["id"])
-        if station_config:
-            all_instruments.update(station_config.get("instruments", {}).keys())
+        if station.instruments:
+            all_instruments.update(station.instruments.keys())
     default_instruments = ["dmm", "psu", "eload", "scope"]
     instrument_options = sorted(all_instruments) if all_instruments else default_instruments
 

@@ -1,6 +1,5 @@
 """Catalog datasheet generation: structured YAML → formatted HTML/PDF."""
 
-import math
 from collections import defaultdict
 from pathlib import Path
 from typing import Any
@@ -8,7 +7,7 @@ from typing import Any
 import yaml
 from jinja2 import Environment
 
-from litmus.catalog.loader import load_catalog_entry
+from litmus.store import load_catalog_entry
 
 # SI prefixes for formatting
 _SI_PREFIXES = [

@@ -83,14 +83,14 @@ FAKE_SCOPE = _make_entry(
 def _patch_catalog(entries: dict[str, InstrumentCatalogEntry]):
     """Patch catalog loading to return given entries."""
     return patch(
-        "litmus.catalog.loader.load_catalog_from_directory",
+        "litmus.store.load_catalog_from_directory",
         return_value=entries,
     )
 
 
 def _patch_dirs():
     return patch(
-        "litmus.catalog.loader.find_catalog_dirs",
+        "litmus.store.find_catalog_dirs",
         return_value=[Path("/fake/catalog")],
     )
 

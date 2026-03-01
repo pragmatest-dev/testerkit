@@ -1,9 +1,6 @@
-# Circular inheritance test - B references A
-product:
-  id: circular_b
-  base: circular_a
-  name: "Circular B"
-
+id: circular_b
+base: circular_a
+name: Circular B
 characteristics:
   output_voltage:
     function: dc_voltage
@@ -11,6 +8,6 @@ characteristics:
     units: V
     pin: VOUT
     specs:
-      - value: 3.3
-        accuracy:
-          pct_reading: 5
+    - value: 3.3
+      accuracy:
+        pct_reading: 5

@@ -1,15 +1,85 @@
-"""Data services for UI - loading, saving, and discovery functions."""
+"""Data services for UI - business logic wrappers over litmus.store.
 
-from pathlib import Path
+NO direct yaml.safe_load or Path I/O here — all persistence goes through litmus.store.
+"""
 
-import yaml
-
-from litmus.instruments.loader import (
-    load_instrument_files,
-    resolve_station_instruments,
-)
+from litmus.instruments.loader import resolve_station_instruments
 from litmus.matching import service as matching_service
 from litmus.products.folder import ProductFolder
+from litmus.store import (
+    create_catalog_entry as store_create_catalog_entry,
+)
+from litmus.store import (
+    create_fixture as store_create_fixture,
+)
+from litmus.store import (
+    create_product as store_create_product,
+)
+from litmus.store import (
+    create_sequence as store_create_sequence,
+)
+from litmus.store import (
+    create_station as store_create_station,
+)
+from litmus.store import (
+    find_catalog_dirs,
+    load_catalog_from_directory,
+    load_instrument_files,
+)
+from litmus.store import (
+    get_catalog_entry as store_get_catalog_entry,
+)
+from litmus.store import (
+    get_fixture as store_get_fixture,
+)
+from litmus.store import (
+    get_instrument_asset as store_get_instrument_asset,
+)
+from litmus.store import (
+    get_product as store_get_product,
+)
+from litmus.store import (
+    get_sequence as store_get_sequence,
+)
+from litmus.store import (
+    get_station as store_get_station,
+)
+from litmus.store import (
+    list_fixtures as store_list_fixtures,
+)
+from litmus.store import (
+    list_instrument_assets as store_list_instrument_assets,
+)
+from litmus.store import (
+    list_sequences as store_list_sequences,
+)
+from litmus.store import (
+    list_stations as store_list_stations,
+)
+from litmus.store import (
+    load_station_type as store_load_station_type,
+)
+from litmus.store import (
+    save_catalog_entry as store_save_catalog_entry,
+)
+from litmus.store import (
+    save_fixture as store_save_fixture,
+)
+from litmus.store import (
+    save_product as store_save_product,
+)
+from litmus.store import (
+    save_sequence as store_save_sequence,
+)
+from litmus.store import (
+    save_station as store_save_station,
+)
+from litmus.store import (
+    save_station_type as store_save_station_type,
+)
+
+# Re-export for backwards compatibility with UI pages
+from litmus.utils.paths import get_instrument_paths
 
 # -----------------------------------------------------------------------------
 # Product Services
@@ -22,6 +92,8 @@ def discover_products() -> list[dict]:
     Checks products/ and demo/products/ folders for product specifications.
     Supports both manifest-based folders and plain spec.yaml folders.
     """
+    from pathlib import Path
+
     products = []
     seen_ids: set[str] = set()
 
@@ -86,8 +158,7 @@ def discover_products() -> list[dict]:
                 continue
 
             seen_ids.add(product_id)
-            # Try loading via matching service for full model
-            model = matching_service.load_product_by_id(product_id)
+            model = store_get_product(product_id)
             if model:
                 products.append({
                     "id": model.id,
@@ -106,15 +177,11 @@ def discover_products() -> list[dict]:
                     "files": {},
                 })
             else:
-                # Raw YAML fallback
-                with open(spec_file) as f:
-                    data = yaml.safe_load(f) or {}
-                prod = data.get("product", {})
                 products.append({
-                    "id": prod.get("id", product_id),
-                    "name": prod.get("name", product_id),
-                    "description": prod.get("description", ""),
-                    "revision": prod.get("revision", ""),
+                    "id": product_id,
+                    "name": product_id,
+                    "description": "",
+                    "revision": "",
                     "pins": None,
                     "characteristics": {},
                     "file": str(spec_file),
@@ -129,38 +196,27 @@ def discover_products() -> list[dict]:
 
 def load_product_model(product_id: str):
     """Load a Product model by ID."""
-    return matching_service.load_product_by_id(product_id)
+    return store_get_product(product_id)
 
 
 def create_product(product_id: str, name: str, description: str = "") -> dict | None:
     """Create a new product folder.
 
-    Args:
-        product_id: Unique identifier for the product
-        name: Human-readable product name
-        description: Optional description
-
-    Returns:
-        Dict with product info if successful, None if product already exists
+    Returns dict with product info if successful, None if product already exists.
     """
-    products_dir = Path.cwd() / "products"
-    products_dir.mkdir(exist_ok=True)
-
-    try:
-        folder = ProductFolder.create(
-            base_path=products_dir,
-            product_id=product_id,
-            name=name,
-            description=description or None,
-        )
-        return {
-            "id": product_id,
-            "name": name,
-            "description": description,
-            "folder_path": str(folder.path),
-        }
-    except FileExistsError:
+    product = store_create_product(product_id, name, description)
+    if product is None:
         return None
+    from pathlib import Path
+
+    products_dir = Path.cwd() / "products"
+    folder_path = products_dir / product_id
+    return {
+        "id": product.id,
+        "name": product.name,
+        "description": product.description or "",
+        "folder_path": str(folder_path),
+    }
 
 
 def get_required_capabilities(product) -> list[dict]:
@@ -181,7 +237,7 @@ def get_required_capabilities(product) -> list[dict]:
 
 def get_compatible_stations_for_product(product_id: str) -> list[dict]:
     """Get stations that have instruments satisfying product requirements."""
-    product = matching_service.load_product_by_id(product_id)
+    product = store_get_product(product_id)
     if not product:
         return []
 
@@ -194,12 +250,8 @@ def get_compatible_stations_for_product(product_id: str) -> list[dict]:
 
 
 def get_partial_stations_for_product(product_id: str) -> list[dict]:
-    """Get stations with partial capability coverage for a product.
-
-    Returns stations that have some but not all required capabilities.
-    Useful for procurement planning.
-    """
-    product = matching_service.load_product_by_id(product_id)
+    """Get stations with partial capability coverage for a product."""
+    product = store_get_product(product_id)
     if not product:
         return []
 
@@ -217,11 +269,8 @@ def get_partial_stations_for_product(product_id: str) -> list[dict]:
 
 
 def get_all_station_matches_for_product(product_id: str) -> dict[str, list]:
-    """Get all stations categorized by compatibility level.
-
-    Returns dict with 'compatible', 'partial', and 'incompatible' lists.
-    """
-    product = matching_service.load_product_by_id(product_id)
+    """Get all stations categorized by compatibility level."""
+    product = store_get_product(product_id)
     if not product:
         return {"compatible": [], "partial": [], "incompatible": []}
 
@@ -229,62 +278,22 @@ def get_all_station_matches_for_product(product_id: str) -> dict[str, list]:
 
 
 def save_product(product_id: str, product_data: dict) -> bool:
-    """Save product specification to YAML file.
-
-    Saves to products/{product_id}/spec.yaml, creating the folder if needed.
-    """
-    # Check if product folder already exists
-    search_paths = [
-        Path.cwd() / "products",
-        Path.cwd() / "demo" / "products",
-    ]
-
-    target_file = None
-    for products_dir in search_paths:
-        product_folder = products_dir / product_id
-        if product_folder.exists():
-            target_file = product_folder / "spec.yaml"
-            break
-
-    # Create new product folder if not found
-    if target_file is None:
-        products_dir = Path.cwd() / "products"
-        products_dir.mkdir(exist_ok=True)
-        product_folder = products_dir / product_id
-        product_folder.mkdir(exist_ok=True)
-        target_file = product_folder / "spec.yaml"
-
-    yaml_data = {
-        "product": {
-            "id": product_data.get("id", product_id),
-            "name": product_data.get("name", ""),
-            "description": product_data.get("description", ""),
-        },
-        "characteristics": product_data.get("characteristics", {}),
-    }
-
-    if product_data.get("revision"):
-        yaml_data["product"]["revision"] = product_data["revision"]
-
-    if product_data.get("pins"):
-        yaml_data["product"]["pins"] = product_data["pins"]
-
-    # Validate against Product model before writing
+    """Save product specification to YAML file."""
     from litmus.products.models import Product
 
-    try:
-        Product.model_validate({
-            **yaml_data["product"],
-            "characteristics": yaml_data.get("characteristics", {}),
-            "pins": yaml_data["product"].get("pins", {}),
-        })
-    except Exception:
-        pass  # Best-effort validation — don't block save for existing data
+    product_dict = {
+        "id": product_data.get("id", product_id),
+        "name": product_data.get("name", ""),
+        "description": product_data.get("description", ""),
+        "characteristics": product_data.get("characteristics", {}),
+    }
+    if product_data.get("revision"):
+        product_dict["revision"] = product_data["revision"]
+    if product_data.get("pins"):
+        product_dict["pins"] = product_data["pins"]
 
-    with open(target_file, "w") as f:
-        yaml.dump(yaml_data, f, default_flow_style=False, sort_keys=False)
-
-    return True
+    product = Product.model_validate(product_dict)
+    return store_save_product(product)
 
 
 # -----------------------------------------------------------------------------
@@ -292,135 +301,46 @@ def save_product(product_id: str, product_data: dict) -> bool:
 # -----------------------------------------------------------------------------
 
 
-def discover_stations() -> list[dict]:
+def discover_stations():
     """Discover station configurations from YAML files."""
-    stations = matching_service.list_stations()
-    for s in stations:
-        if s.get("location") is None:
-            s["location"] = "Unknown"
-        if s.get("description") is None:
-            s["description"] = ""
-    return stations
+    return store_list_stations()
 
 
-def load_station_config(station_id: str) -> dict | None:
+def load_station_config(station_id: str):
     """Load station configuration by ID."""
-    return matching_service.load_station_config(station_id)
+    return store_get_station(station_id)
 
 
 def create_station(
-    station_id: str, name: str, location: str = "", description: str = ""
-) -> dict | None:
-    """Create a new station configuration file.
-
-    Args:
-        station_id: Unique identifier for the station
-        name: Human-readable station name
-        location: Physical location
-        description: Optional description
-
-    Returns:
-        Dict with station info if successful, None if station already exists
-    """
-    stations_dir = Path.cwd() / "stations"
-    stations_dir.mkdir(exist_ok=True)
-
-    station_file = stations_dir / f"{station_id}.yaml"
-    if station_file.exists():
-        return None
-
-    station_data = {
-        "id": station_id,
-        "name": name,
-    }
-    if location:
-        station_data["location"] = location
-    if description:
-        station_data["description"] = description
-
-    yaml_data = {
-        "station": station_data,
-        "instruments": {},
-    }
-
-    with open(station_file, "w") as f:
-        yaml.dump(yaml_data, f, default_flow_style=False, sort_keys=False)
-
-    return {
-        "id": station_id,
-        "name": name,
-        "location": location,
-        "description": description,
-        "file": str(station_file),
-    }
+    station_id: str, name: str, location: str = "", description: str = "",
+):
+    """Create a new station configuration file."""
+    return store_create_station(station_id, name, location, description)
 
 
 def save_station(station_id: str, station_data: dict, instruments_data: dict) -> bool:
     """Save station configuration to YAML file."""
-    search_paths = [
-        Path.cwd() / "stations",
-        Path.cwd() / "demo" / "stations",
-    ]
-
-    target_file = None
-    for stations_dir in search_paths:
-        if stations_dir.exists():
-            for f in stations_dir.glob("*.yaml"):
-                if f.stem == station_id or f.stem.endswith(f"_{station_id}"):
-                    target_file = f
-                    break
-            if target_file:
-                break
-
-    if target_file is None:
-        for stations_dir in search_paths:
-            if stations_dir.exists():
-                target_file = stations_dir / f"{station_id}.yaml"
-                break
-
-    if target_file is None:
-        return False
-
     from litmus.config.normalize import check_instrument_types
+    from litmus.schemas import StationConfig
 
-    # Normalize instrument types before saving
     check_instrument_types(instruments_data)
-
-    yaml_data = {
-        "station": station_data,
-        "instruments": instruments_data,
-    }
-
-    with open(target_file, "w") as f:
-        yaml.dump(yaml_data, f, default_flow_style=False, sort_keys=False)
-
-    return True
+    station_dict = {**station_data, "instruments": instruments_data}
+    station = StationConfig.model_validate(station_dict)
+    return store_save_station(station)
 
 
-def get_station_capabilities(config: dict) -> list[dict]:
+def get_station_capabilities(config):
     """Get capabilities from all instruments in a station."""
     if not config:
         return []
-
-    station_caps = matching_service.get_station_capabilities(config)
-    return [
-        {
-            "instrument": cap.instrument_name,
-            "name": cap.name,
-            "direction": cap.direction.value,
-            "function": cap.function.value,
-        }
-        for cap in station_caps
-    ]
+    return matching_service.get_station_capabilities(config)
 
 
-def station_compatible_with_product(station_config: dict, product) -> bool:
+def station_compatible_with_product(station_config, product) -> bool:
     """Check if a station is compatible with a product."""
-    station_id = station_config.get("station", {}).get("id")
-    if not station_id or not product:
+    if not station_config or not product:
         return False
-
-    result = matching_service.check_station_compatibility(product.id, station_id)
+    result = matching_service.check_station_compatibility(product.id, station_config.id)
     return result.get("compatible", False) if result else False
 
 
@@ -429,214 +349,75 @@ def station_compatible_with_product(station_config: dict, product) -> bool:
 # -----------------------------------------------------------------------------
 
 
-def discover_instrument_types() -> list[dict]:
+def discover_instrument_types():
     """Discover available instrument types from catalog entries.
 
-    Scans catalog directories and groups entries by type.
-    Returns one entry per unique type (first seen wins).
+    Returns one InstrumentCatalogEntry per unique type (first seen wins).
     """
-    from litmus.catalog.loader import find_catalog_dirs, load_catalog_from_directory
-
-    instruments = []
+    entries = []
     seen_types: set[str] = set()
-
     for cat_dir in find_catalog_dirs():
         for entry_id, entry in load_catalog_from_directory(cat_dir).items():
             if entry.type in seen_types:
                 continue
             seen_types.add(entry.type)
-
-            cap_names = []
-            for cap in entry.capabilities:
-                name = f"{cap.function.value}_{cap.direction.value}"
-                if name not in cap_names:
-                    cap_names.append(name)
-
-            instruments.append({
-                "type": entry.type,
-                "name": entry.name or entry.type,
-                "description": entry.description or "",
-                "icon": "device_unknown",
-                "capabilities": cap_names,
-                "capability_details": [cap.model_dump() for cap in entry.capabilities],
-                "source": str(cat_dir),
-            })
-
-    return instruments
+            entries.append(entry)
+    return entries
 
 
-def load_instrument_definition(instrument_type: str) -> dict | None:
-    """Load instrument definition by type from catalog.
-
-    Searches catalog entries for the first entry matching the given type.
-    Returns a dict with 'instrument' and 'capabilities' keys for
-    backwards compatibility with UI pages.
-    """
-    from litmus.catalog.loader import find_catalog_dirs, load_catalog_from_directory
-
-    for cat_dir in find_catalog_dirs():
-        for entry_id, entry in load_catalog_from_directory(cat_dir).items():
-            if entry.type == instrument_type or entry.id == instrument_type:
-                return {
-                    "instrument": {
-                        "type": entry.type,
-                        "name": entry.name or entry.type,
-                        "description": entry.description or "",
-                        "icon": "device_unknown",
-                    },
-                    "capabilities": [cap.model_dump() for cap in entry.capabilities],
-                }
-    return None
+def load_catalog_entry_by_type(instrument_type: str):
+    """Load a catalog entry by type or ID."""
+    return store_get_catalog_entry(instrument_type)
 
 
-def save_instrument_definition(instrument_type: str, data: dict) -> bool:
-    """Save instrument definition to YAML file.
+def save_catalog_entry(instrument_type: str, data: dict) -> bool:
+    """Save a catalog entry to catalog/."""
+    from litmus.catalog.models import InstrumentCatalogEntry
 
-    Saves to user's instruments/ directory (creates if needed).
-    """
-    instruments_dir = Path.cwd() / "instruments"
-    instruments_dir.mkdir(exist_ok=True)
-
-    target_file = instruments_dir / f"{instrument_type}.yaml"
-
-    with open(target_file, "w") as f:
-        yaml.dump(data, f, default_flow_style=False, sort_keys=False)
-
-    return True
-
-
-def discover_instrument_assets() -> list[dict]:
-    """Discover per-device instrument asset files (identity + calibration).
-
-    Asset files have an 'id' key at top level (not 'instrument' which is library).
-    """
-    from litmus.loaders import load_instrument_asset
-
-    assets = []
-    seen_ids: set[str] = set()
-
-    search_paths = [
-        Path.cwd() / "instruments",
-        Path.cwd() / "demo" / "instruments",
-    ]
-
-    for instruments_dir in search_paths:
-        if not instruments_dir.exists():
-            continue
-        for yaml_file in instruments_dir.glob("*.yaml"):
-            try:
-                asset = load_instrument_asset(yaml_file)
-            except Exception:
-                continue
-            if asset.id in seen_ids:
-                continue
-            seen_ids.add(asset.id)
-
-            assets.append({
-                "id": asset.id,
-                "driver": asset.driver or "",
-                "protocol": asset.protocol,
-                "resource": asset.resource or "",
-                "manufacturer": asset.info.manufacturer or "",
-                "model": str(asset.info.model) if asset.info.model is not None else "",
-                "serial": str(asset.info.serial) if asset.info.serial is not None else "",
-                "firmware": str(asset.info.firmware) if asset.info.firmware is not None else "",
-                "cal_due": asset.calibration.due_date,
-                "cal_last": asset.calibration.last_cal,
-                "cal_certificate": asset.calibration.certificate or "",
-                "cal_lab": asset.calibration.lab or "",
-                "file": str(yaml_file),
-            })
-
-    return assets
+    inst = data.get("instrument", {})
+    entry = InstrumentCatalogEntry.model_validate({
+        "id": inst.get("type", instrument_type),
+        "type": inst.get("type", instrument_type),
+        "manufacturer": inst.get("manufacturer", "User"),
+        "model": inst.get("name", instrument_type),
+        "name": inst.get("name", ""),
+        "description": inst.get("description"),
+        "capabilities": data.get("capabilities", []),
+    })
+    return store_save_catalog_entry(entry)
 
 
-def load_instrument_asset_by_id(instrument_id: str) -> dict | None:
+def discover_instrument_assets():
+    """Discover per-device instrument asset files."""
+    return store_list_instrument_assets()
+
+
+def load_instrument_asset_by_id(instrument_id: str):
     """Load a single instrument asset file by ID."""
-    from litmus.loaders import load_instrument_asset as _load_asset
-
-    search_paths = [
-        Path.cwd() / "instruments",
-        Path.cwd() / "demo" / "instruments",
-    ]
-
-    for instruments_dir in search_paths:
-        if not instruments_dir.exists():
-            continue
-        for yaml_file in instruments_dir.glob("*.yaml"):
-            try:
-                asset = _load_asset(yaml_file)
-                if asset.id == instrument_id:
-                    return asset.model_dump()
-            except Exception:
-                continue
-
-    return None
+    return store_get_instrument_asset(instrument_id)
 
 
 def resolve_station_instrument_records(station_id: str) -> dict:
-    """Resolve a station's instruments to InstrumentRecord objects.
-
-    Returns dict mapping role name to InstrumentRecord.
-    """
-    config = load_station_config(station_id)
+    """Resolve a station's instruments to InstrumentRecord objects."""
+    config = store_get_station(station_id)
     if not config:
         return {}
 
-    # Load all instrument asset files from both search paths
     all_instrument_files: dict = {}
-    search_paths = [
-        Path.cwd() / "instruments",
-        Path.cwd() / "demo" / "instruments",
-    ]
-    for instruments_dir in search_paths:
+    for instruments_dir in get_instrument_paths():
         all_instrument_files.update(load_instrument_files(instruments_dir))
 
-    return resolve_station_instruments(config, all_instrument_files)
+    return resolve_station_instruments(config.model_dump(), all_instrument_files)
 
 
-def create_instrument_definition(
+def create_catalog_entry(
     instrument_type: str,
     name: str,
     description: str = "",
     icon: str = "device_unknown",
-) -> dict | None:
-    """Create a new instrument definition file.
-
-    Args:
-        instrument_type: Unique type identifier
-        name: Human-readable name
-        description: Optional description
-        icon: Material icon name
-
-    Returns:
-        Dict with instrument info if successful, None if already exists
-    """
-    instruments_dir = Path.cwd() / "instruments"
-    instruments_dir.mkdir(exist_ok=True)
-
-    instrument_file = instruments_dir / f"{instrument_type}.yaml"
-    if instrument_file.exists():
-        return None
-
-    data = {
-        "instrument": {
-            "type": instrument_type,
-            "name": name,
-            "description": description,
-            "icon": icon,
-        },
-        "capabilities": [],
-    }
-
-    with open(instrument_file, "w") as f:
-        yaml.dump(data, f, default_flow_style=False, sort_keys=False)
-
-    return {
-        "type": instrument_type,
-        "name": name,
-        "file": str(instrument_file),
-    }
+):
+    """Create a new catalog entry in catalog/."""
+    return store_create_catalog_entry(instrument_type, name, description)
 
 
 # -----------------------------------------------------------------------------
@@ -646,6 +427,8 @@ def create_instrument_definition(
 
 def discover_tests() -> list[dict]:
     """Discover available test directories."""
+    from pathlib import Path
+
     tests = []
     search_paths = [
         Path.cwd() / "tests",
@@ -665,34 +448,9 @@ def discover_tests() -> list[dict]:
     return tests
 
 
-def discover_sequences() -> list[dict]:
+def discover_sequences():
     """Discover test sequences from YAML files."""
-    from litmus.loaders import load_sequence
-
-    sequences = []
-    search_paths = [
-        Path.cwd() / "sequences",
-        Path.cwd() / "demo" / "sequences",
-    ]
-
-    for seq_dir in search_paths:
-        if not seq_dir.exists():
-            continue
-        for yaml_file in seq_dir.glob("*.yaml"):
-            try:
-                seq_file = load_sequence(yaml_file)
-                seq = seq_file.sequence
-                sequences.append({
-                    "id": seq.id,
-                    "name": seq.name or seq.id,
-                    "description": seq.description or "",
-                    "product_family": seq.product_family,
-                    "test_phase": seq.test_phase or "validation",
-                    "steps": [s.model_dump() for s in seq_file.steps],
-                })
-            except Exception:
-                continue
-    return sequences
+    return store_list_sequences()
 
 
 def create_sequence(
@@ -701,112 +459,25 @@ def create_sequence(
     product_family: str = "",
     test_phase: str = "validation",
     description: str = "",
-) -> dict | None:
-    """Create a new sequence configuration file.
-
-    Args:
-        sequence_id: Unique identifier for the sequence
-        name: Human-readable sequence name
-        product_family: Associated product family
-        test_phase: Test phase (validation, characterization, production)
-        description: Optional description
-
-    Returns:
-        Dict with sequence info if successful, None if sequence already exists
-    """
-    sequences_dir = Path.cwd() / "sequences"
-    sequences_dir.mkdir(exist_ok=True)
-
-    sequence_file = sequences_dir / f"{sequence_id}.yaml"
-    if sequence_file.exists():
-        return None
-
-    sequence_data = {
-        "id": sequence_id,
-        "name": name,
-        "test_phase": test_phase,
-    }
-    if product_family:
-        sequence_data["product_family"] = product_family
-    if description:
-        sequence_data["description"] = description
-
-    yaml_data = {
-        "sequence": sequence_data,
-        "steps": [],
-    }
-
-    with open(sequence_file, "w") as f:
-        yaml.dump(yaml_data, f, default_flow_style=False, sort_keys=False)
-
-    return {
-        "id": sequence_id,
-        "name": name,
-        "product_family": product_family,
-        "test_phase": test_phase,
-        "file": str(sequence_file),
-    }
+):
+    """Create a new sequence configuration file."""
+    return store_create_sequence(sequence_id, name, product_family, test_phase, description)
 
 
-def load_sequence_config(sequence_id: str) -> dict | None:
+def load_sequence_config(sequence_id: str):
     """Load sequence configuration by ID."""
-    from litmus.loaders import load_sequence
-
-    search_paths = [
-        Path.cwd() / "sequences",
-        Path.cwd() / "demo" / "sequences",
-    ]
-
-    for seq_dir in search_paths:
-        if not seq_dir.exists():
-            continue
-        for yaml_file in seq_dir.glob("*.yaml"):
-            try:
-                seq_file = load_sequence(yaml_file)
-                if seq_file.sequence.id == sequence_id or yaml_file.stem == sequence_id:
-                    return seq_file.model_dump()
-            except Exception:
-                continue
-    return None
+    return store_get_sequence(sequence_id)
 
 
 def save_sequence(sequence_id: str, sequence_data: dict, steps: list, dialogs: dict) -> bool:
     """Save sequence configuration to YAML file."""
-    search_paths = [
-        Path.cwd() / "sequences",
-        Path.cwd() / "demo" / "sequences",
-    ]
+    from litmus.config.models import TestSequenceConfig
 
-    target_file = None
-    for seq_dir in search_paths:
-        if seq_dir.exists():
-            existing = seq_dir / f"{sequence_id}.yaml"
-            if existing.exists():
-                target_file = existing
-                break
-
-    if target_file is None:
-        for seq_dir in search_paths:
-            if seq_dir.exists():
-                target_file = seq_dir / f"{sequence_id}.yaml"
-                break
-
-    if target_file is None:
-        sequences_dir = Path.cwd() / "sequences"
-        sequences_dir.mkdir(exist_ok=True)
-        target_file = sequences_dir / f"{sequence_id}.yaml"
-
-    yaml_data = {
-        "sequence": sequence_data,
-        "steps": steps,
-    }
+    seq_dict = {**sequence_data, "steps": steps}
     if dialogs:
-        yaml_data["dialogs"] = dialogs
-
-    with open(target_file, "w") as f:
-        yaml.dump(yaml_data, f, default_flow_style=False, sort_keys=False)
-
-    return True
+        seq_dict["dialogs"] = dialogs
+    seq = TestSequenceConfig.model_validate(seq_dict)
+    return store_save_sequence(seq)
 
 
 # -----------------------------------------------------------------------------
@@ -814,71 +485,14 @@ def save_sequence(sequence_id: str, sequence_data: dict, steps: list, dialogs: d
 # -----------------------------------------------------------------------------
 
 
-def discover_fixtures() -> list[dict]:
-    """Discover fixture configurations from YAML files.
-
-    Searches fixtures/ and demo/fixtures/ directories.
-    """
-    from litmus.loaders import load_fixture
-
-    fixtures = []
-    seen_ids = set()
-
-    search_paths = [
-        Path.cwd() / "fixtures",
-        Path.cwd() / "demo" / "fixtures",
-    ]
-
-    for fixtures_dir in search_paths:
-        if not fixtures_dir.exists():
-            continue
-        for yaml_file in fixtures_dir.glob("*.yaml"):
-            try:
-                fixture_file = load_fixture(yaml_file)
-            except Exception:
-                continue
-
-            fixture_id = fixture_file.fixture.id
-
-            if fixture_id in seen_ids:
-                continue
-            seen_ids.add(fixture_id)
-
-            fixtures.append({
-                "id": fixture_id,
-                "name": fixture_file.fixture.name or yaml_file.stem,
-                "description": fixture_file.fixture.description or "",
-                "product_id": fixture_file.fixture.product_id,
-                "product_family": fixture_file.fixture.product_family or "",
-                "product_revision": fixture_file.fixture.product_revision,
-                "points": {k: v.model_dump() for k, v in fixture_file.points.items()},
-                "point_count": len(fixture_file.points),
-                "file": str(yaml_file),
-            })
-
-    return fixtures
+def discover_fixtures():
+    """Discover fixture configurations from YAML files."""
+    return store_list_fixtures()
 
 
-def load_fixture_config(fixture_id: str) -> dict | None:
+def load_fixture_config(fixture_id: str):
     """Load fixture configuration by ID."""
-    from litmus.loaders import load_fixture
-
-    search_paths = [
-        Path.cwd() / "fixtures",
-        Path.cwd() / "demo" / "fixtures",
-    ]
-
-    for fixtures_dir in search_paths:
-        if not fixtures_dir.exists():
-            continue
-        for yaml_file in fixtures_dir.glob("*.yaml"):
-            try:
-                fixture_file = load_fixture(yaml_file)
-                if fixture_file.fixture.id == fixture_id or yaml_file.stem == fixture_id:
-                    return fixture_file.model_dump()
-            except Exception:
-                continue
-    return None
+    return store_get_fixture(fixture_id)
 
 
 def create_fixture(
@@ -887,88 +501,18 @@ def create_fixture(
     product_id: str = "",
     product_revision: str = "",
     description: str = "",
-) -> dict | None:
-    """Create a new fixture configuration file.
-
-    Args:
-        fixture_id: Unique identifier for the fixture
-        name: Human-readable fixture name
-        product_id: Associated product ID
-        product_revision: Optional product revision
-        description: Optional description
-
-    Returns:
-        Dict with fixture info if successful, None if fixture already exists
-    """
-    fixtures_dir = Path.cwd() / "fixtures"
-    fixtures_dir.mkdir(exist_ok=True)
-
-    fixture_file = fixtures_dir / f"{fixture_id}.yaml"
-    if fixture_file.exists():
-        return None
-
-    fixture_data = {
-        "id": fixture_id,
-        "name": name,
-    }
-    if product_id:
-        fixture_data["product_id"] = product_id
-    if product_revision:
-        fixture_data["product_revision"] = product_revision
-    if description:
-        fixture_data["description"] = description
-
-    yaml_data = {
-        "fixture": fixture_data,
-        "points": {},
-    }
-
-    with open(fixture_file, "w") as f:
-        yaml.dump(yaml_data, f, default_flow_style=False, sort_keys=False)
-
-    return {
-        "id": fixture_id,
-        "name": name,
-        "product_id": product_id,
-        "file": str(fixture_file),
-    }
+):
+    """Create a new fixture configuration file."""
+    return store_create_fixture(fixture_id, name, product_id, product_revision, description)
 
 
 def save_fixture(fixture_id: str, fixture_data: dict, points_data: dict) -> bool:
     """Save fixture configuration to YAML file."""
-    search_paths = [
-        Path.cwd() / "fixtures",
-        Path.cwd() / "demo" / "fixtures",
-    ]
+    from litmus.config.models import FixtureConfig
 
-    target_file = None
-    for fixtures_dir in search_paths:
-        if fixtures_dir.exists():
-            existing = fixtures_dir / f"{fixture_id}.yaml"
-            if existing.exists():
-                target_file = existing
-                break
-
-    if target_file is None:
-        for fixtures_dir in search_paths:
-            if fixtures_dir.exists():
-                target_file = fixtures_dir / f"{fixture_id}.yaml"
-                break
-
-    if target_file is None:
-        fixtures_dir = Path.cwd() / "fixtures"
-        fixtures_dir.mkdir(exist_ok=True)
-        target_file = fixtures_dir / f"{fixture_id}.yaml"
-
-    yaml_data = {
-        "fixture": fixture_data,
-        "points": points_data,
-    }
-
-    with open(target_file, "w") as f:
-        yaml.dump(yaml_data, f, default_flow_style=False, sort_keys=False)
-
-    return True
+    fixture_dict = {**fixture_data, "points": points_data}
+    fixture = FixtureConfig.model_validate(fixture_dict)
+    return store_save_fixture(fixture)
 
 
 # -----------------------------------------------------------------------------
@@ -977,75 +521,46 @@ def save_fixture(fixture_id: str, fixture_data: dict, points_data: dict) -> bool
 
 
 def save_station_type(type_id: str, data: dict) -> bool:
-    """Save station type YAML to stations/types/{type_id}.yaml."""
-    types_dir = Path.cwd() / "stations" / "types"
-    types_dir.mkdir(parents=True, exist_ok=True)
-
-    target_file = types_dir / f"{type_id}.yaml"
-    with open(target_file, "w") as f:
-        yaml.dump(data, f, default_flow_style=False, sort_keys=False)
-    return True
+    """Save station type YAML."""
+    return store_save_station_type(type_id, data)
 
 
 def load_station_type(type_id: str) -> dict | None:
-    """Load station type by ID.
-
-    Station types don't have a Pydantic model yet — pass through raw YAML.
-    """
-    from litmus.utils.loaders import load_yaml_file
-
-    search_paths = [
-        Path.cwd() / "stations" / "types",
-        Path.cwd() / "demo" / "stations" / "types",
-    ]
-    for types_dir in search_paths:
-        yaml_file = types_dir / f"{type_id}.yaml"
-        data = load_yaml_file(yaml_file)
-        if data is not None:
-            return data
-    return None
+    """Load station type by ID."""
+    return store_load_station_type(type_id)
 
 
 def get_instrument_channels_from_library(instrument_type: str) -> list[str]:
-    """Get channel names from a catalog entry matching the given type.
-
-    Falls back to ["1"] if no channels defined.
-    """
-    from litmus.catalog.loader import find_catalog_dirs, load_catalog_from_directory
-
-    for cat_dir in find_catalog_dirs():
-        for entry_id, entry in load_catalog_from_directory(cat_dir).items():
-            if entry.type == instrument_type or entry.id == instrument_type:
-                if entry.channels:
-                    return list(entry.channels.keys())
-                return ["1"]
+    """Get channel names from a catalog entry matching the given type."""
+    entry = store_get_catalog_entry(instrument_type)
+    if entry:
+        if entry.channels:
+            return list(entry.channels.keys())
+        return ["1"]
     return ["1"]
 
 
-def get_fixtures_for_product(product_family: str) -> list[dict]:
+def get_fixtures_for_product(product_family: str):
     """Get all fixtures for a product family."""
     all_fixtures = discover_fixtures()
-    return [f for f in all_fixtures if f.get("product_family") == product_family]
+    return [f for f in all_fixtures if (f.product_family or "") == product_family]
 
 
-def get_compatible_stations_for_fixture(fixture_id: str) -> list[dict]:
+def get_compatible_stations_for_fixture(fixture_id: str):
     """Get stations that have all instruments referenced by a fixture."""
-    fixture_config = load_fixture_config(fixture_id)
-    if not fixture_config:
+    fixture = load_fixture_config(fixture_id)
+    if not fixture:
         return []
 
-    # Get instrument names referenced by fixture points
-    points = fixture_config.get("points", {})
-    required_instruments = {p.get("instrument") for p in points.values() if p.get("instrument")}
+    required_instruments = {
+        p.instrument for p in fixture.points.values() if p.instrument
+    }
 
-    # Check each station
     compatible = []
     for station in discover_stations():
-        station_config = load_station_config(station["id"])
-        if not station_config:
+        if not station.instruments:
             continue
-
-        station_instruments = set(station_config.get("instruments", {}).keys())
+        station_instruments = set(station.instruments.keys())
         if required_instruments <= station_instruments:
             compatible.append(station)
 

@@ -2,17 +2,17 @@
 
 from pathlib import Path
 
-from litmus.schemas import ProjectFile
+from litmus.schemas import ProjectConfig
 
 
-def load_project_config(path: Path | str | None = None) -> ProjectFile:
+def load_project_config(path: Path | str | None = None) -> ProjectConfig:
     """Load project configuration from litmus.yaml.
 
     Args:
         path: Path to litmus.yaml. If None, looks in cwd.
 
     Returns:
-        Validated ProjectFile model, or default if file not found.
+        Validated ProjectConfig model, or default if file not found.
     """
     if path is None:
         path = Path.cwd() / "litmus.yaml"
@@ -20,8 +20,8 @@ def load_project_config(path: Path | str | None = None) -> ProjectFile:
         path = Path(path)
 
     if not path.exists():
-        return ProjectFile.model_validate({"project": {"name": "litmus"}})
+        return ProjectConfig(name="litmus")
 
-    from litmus.loaders import load_project
+    from litmus.store import load_project
 
     return load_project(path)

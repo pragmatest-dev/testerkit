@@ -32,10 +32,13 @@ from litmus.config.models import (
     Signal,
     SpecBand,
 )
-from litmus.products.loader import load_product
 from litmus.products.models import Product, ProductCharacteristic
-from litmus.utils.loaders import find_yaml_files
-from litmus.utils.paths import get_station_paths
+from litmus.store import (
+    get_product,
+    get_station,
+    list_stations,
+    resolve_catalog_ref,
+)
 
 
 class CapabilityRequirement(BaseModel):
@@ -151,117 +154,25 @@ class PartialStationMatch(BaseModel):
 
 
 # -----------------------------------------------------------------------------
-# Loaders
+# Product/Station listing for API (summary dicts)
 # -----------------------------------------------------------------------------
 
 
-def _get_product_paths(project: str | Path | None = None) -> list[Path]:
-    """Get search paths for product folders."""
-    root = Path(project) if project else Path.cwd()
-    return [root / "products", root / "demo" / "products"]
+def list_products_summary() -> list[dict[str, Any]]:
+    """List all available products as summary dicts (for API compatibility)."""
+    from litmus.store import list_products
 
-
-def load_product_by_id(
-    product_id: str, project: str | Path | None = None,
-) -> Product | None:
-    """Load a Product model by ID from products directory.
-
-    Products are stored in folder structure: products/{product_id}/spec.yaml
-    """
-    for products_dir in _get_product_paths(project):
-        if not products_dir.exists():
-            continue
-        # Direct lookup by folder name
-        spec_file = products_dir / product_id / "spec.yaml"
-        if spec_file.exists():
-            try:
-                return load_product(spec_file)
-            except Exception:
-                pass
-        # Fallback: search all folders for matching product ID
-        for product_folder in products_dir.iterdir():
-            if not product_folder.is_dir():
-                continue
-            spec_file = product_folder / "spec.yaml"
-            if spec_file.exists():
-                try:
-                    product = load_product(spec_file)
-                    if product.id == product_id:
-                        return product
-                except Exception:
-                    continue
-    return None
-
-
-def list_products() -> list[dict[str, Any]]:
-    """List all available products.
-
-    Products are stored in folder structure: products/{product_id}/spec.yaml
-    """
-    products = []
-    seen_ids = set()
-
-    for products_dir in _get_product_paths():
-        if not products_dir.exists():
-            continue
-        for product_folder in products_dir.iterdir():
-            if not product_folder.is_dir():
-                continue
-            spec_file = product_folder / "spec.yaml"
-            if not spec_file.exists():
-                continue
-            try:
-                product = load_product(spec_file)
-                if product.id in seen_ids:
-                    continue
-                seen_ids.add(product.id)
-                products.append({
-                    "id": product.id,
-                    "name": product.name,
-                    "description": product.description,
-                    "revision": product.revision,
-                    "characteristics_count": len(product.characteristics),
-                    "characteristics_count_total": len(product.characteristics),
-                })
-            except Exception:
-                continue
-    return products
-
-
-
-def load_station_config(station_id: str) -> dict | None:
-    """Load station configuration by ID."""
-    from litmus.loaders import load_station
-
-    for yaml_file, _ in find_yaml_files(get_station_paths()):
-        try:
-            station = load_station(yaml_file)
-            if station.station.id == station_id:
-                return station.model_dump()
-        except Exception:
-            continue
-    return None
-
-
-def list_stations() -> list[dict[str, Any]]:
-    """List all available stations."""
-    from litmus.loaders import load_station
-
-    stations = []
-
-    for yaml_file, _ in find_yaml_files(get_station_paths()):
-        try:
-            station = load_station(yaml_file)
-            stations.append({
-                "id": station.station.id,
-                "name": station.station.name,
-                "location": station.station.location,
-                "description": station.station.description,
-            })
-        except Exception:
-            continue
-
-    return stations
+    return [
+        {
+            "id": p.id,
+            "name": p.name,
+            "description": p.description,
+            "revision": p.revision,
+            "characteristics_count": len(p.characteristics),
+            "characteristics_count_total": len(p.characteristics),
+        }
+        for p in list_products()
+    ]
 
 
 # -----------------------------------------------------------------------------
@@ -311,26 +222,27 @@ def get_required_capabilities(product: Product) -> list[CapabilityRequirement]:
     return requirements
 
 
-def get_station_capabilities(station_config: dict) -> list[StationCapability]:
+def get_station_capabilities(station_config) -> list[StationCapability]:
     """Extract all capabilities from a station's instruments.
 
     Iterates through the station's instruments, loads each instrument's
     library definition, and extracts capabilities. Each capability is
     expanded into per-channel entries so matching can allocate individual
     channels.
+
+    Args:
+        station_config: StationConfig model.
     """
     capabilities = []
-    # Instruments can be at root level or inside station block
-    instruments = station_config.get("instruments", {})
-    if not instruments and "station" in station_config:
-        instruments = station_config["station"].get("instruments", {})
+    instruments = station_config.instruments or {}
 
     for inst_name, inst_config in instruments.items():
-        inst_type = inst_config.get("type")
+        inst_type = inst_config.type
+        catalog_ref = inst_config.catalog_ref
+
         if not inst_type:
             continue
 
-        catalog_ref = inst_config.get("catalog_ref")
         if catalog_ref:
             _add_catalog_capabilities(catalog_ref, inst_type, inst_name, capabilities)
         else:
@@ -377,8 +289,6 @@ def _add_catalog_capabilities(
     capabilities: list[StationCapability],
 ) -> None:
     """Add capabilities from a catalog reference, expanded per-channel."""
-    from litmus.catalog.loader import resolve_catalog_ref
-
     entry = resolve_catalog_ref(catalog_ref)
     if entry:
         for cap in entry.capabilities:
@@ -735,9 +645,8 @@ def find_compatible_stations(product: Product) -> list[StationMatch]:
     stations_list = list_stations()
     results = []
 
-    for station_info in stations_list:
-        station_id = station_info["id"]
-        station_config = load_station_config(station_id)
+    for station in stations_list:
+        station_config = get_station(station.id)
 
         if not station_config:
             continue
@@ -747,8 +656,8 @@ def find_compatible_stations(product: Product) -> list[StationMatch]:
 
         results.append(
             StationMatch(
-                station_id=station_id,
-                station_name=station_info.get("name", station_id),
+                station_id=station.id,
+                station_name=station.name,
                 compatible=match_result.compatible,
                 match_result=match_result,
             )
@@ -764,11 +673,11 @@ def check_station_compatibility(
 
     Returns detailed match report or None if product/station not found.
     """
-    product = load_product_by_id(product_id, project)
+    product = get_product(product_id)
     if not product:
         return None
 
-    station_config = load_station_config(station_id)
+    station_config = get_station(station_id)
     if not station_config:
         return None
 
@@ -822,9 +731,8 @@ def find_partial_stations(product: Product) -> list[PartialStationMatch]:
     stations_list = list_stations()
     results = []
 
-    for station_info in stations_list:
-        station_id = station_info["id"]
-        station_config = load_station_config(station_id)
+    for station in stations_list:
+        station_config = get_station(station.id)
 
         if not station_config:
             continue
@@ -844,9 +752,9 @@ def find_partial_stations(product: Product) -> list[PartialStationMatch]:
 
             results.append(
                 PartialStationMatch(
-                    station_id=station_id,
-                    station_name=station_info.get("name", station_id),
-                    location=station_info.get("location"),
+                    station_id=station.id,
+                    station_name=station.name,
+                    location=station.location,
                     coverage_pct=coverage_pct,
                     satisfied_count=satisfied_count,
                     total_count=total_count,
@@ -877,7 +785,7 @@ def recommend_from_catalog(
         Dict with requirements, recommendations (sorted by coverage), and
         coverage summary.
     """
-    from litmus.catalog.loader import find_catalog_dirs, load_catalog_from_directory
+    from litmus.store import find_catalog_dirs, load_catalog_from_directory  # noqa: F811
 
     if project:
         import os
@@ -1047,9 +955,8 @@ def find_all_station_matches(product: Product) -> dict[str, list]:
     partial = []
     incompatible = []
 
-    for station_info in stations_list:
-        station_id = station_info["id"]
-        station_config = load_station_config(station_id)
+    for station in stations_list:
+        station_config = get_station(station.id)
 
         if not station_config:
             continue
@@ -1062,9 +969,9 @@ def find_all_station_matches(product: Product) -> dict[str, list]:
         coverage_pct = int((satisfied_count / total_count) * 100) if total_count > 0 else 0
 
         station_data = {
-            "id": station_id,
-            "name": station_info.get("name", station_id),
-            "location": station_info.get("location"),
+            "id": station.id,
+            "name": station.name,
+            "location": station.location,
             "coverage": coverage_pct,
             "satisfied": satisfied_count,
             "total": total_count,

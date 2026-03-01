@@ -289,7 +289,7 @@ Inheritance rules:
 In Python:
 
 ```python
-from litmus.products.loader import load_product
+from litmus.store import load_product
 
 product = load_product("products/power_board/spec.yaml")
 print(product.id)

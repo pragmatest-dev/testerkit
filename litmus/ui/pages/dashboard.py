@@ -44,24 +44,24 @@ def dashboard_page():
         _render_recent_runs()
 
 
-def _station_card(station: dict):
+def _station_card(station):
     """Render a station card."""
     with ui.card().classes("w-80"):
         with ui.row().classes("items-start justify-between"):
-            ui.label(station["name"]).classes("text-lg font-semibold")
+            ui.label(station.name or station.id).classes("text-lg font-semibold")
             ui.badge("Ready", color="green").props("outline")
-        ui.label(station["description"]).classes("text-sm text-slate-600 mt-1")
+        ui.label(station.description or "").classes("text-sm text-slate-600 mt-1")
         with ui.row().classes("text-xs text-slate-500 gap-4 mt-3"):
             with ui.row().classes("items-center gap-1"):
                 ui.icon("tag", size="xs")
-                ui.label(station["id"])
+                ui.label(station.id)
             with ui.row().classes("items-center gap-1"):
                 ui.icon("location_on", size="xs")
-                ui.label(station["location"])
+                ui.label(station.location or "")
         ui.button(
             "Start Test",
             icon="play_arrow",
-            on_click=lambda s=station: ui.navigate.to(f"/launch?station={s['id']}"),
+            on_click=lambda s=station: ui.navigate.to(f"/launch?station={s.id}"),
         ).classes("mt-4 w-full").props("outline")
 
 

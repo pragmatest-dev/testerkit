@@ -1,5 +1,3 @@
-# Variant that inherits everything from base, only overrides header
-product:
-  id: variant_inherit_all
-  base: base_board
-  name: "Inherited Board"
+id: variant_inherit_all
+base: base_board
+name: Inherited Board

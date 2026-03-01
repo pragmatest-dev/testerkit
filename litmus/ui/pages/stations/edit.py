@@ -17,8 +17,7 @@ def station_edit_page(station_id: str):
     config = load_station_config(station_id)
 
     if config:
-        station = config.get("station", {})
-        create_layout(f"Edit {station.get('name', station_id)}")
+        create_layout(f"Edit {config.name or station_id}")
     else:
         create_layout("Edit Station")
 
@@ -28,27 +27,25 @@ def station_edit_page(station_id: str):
             ui.link("← Back to Stations", "/stations").classes("text-blue-600 hover:underline")
         return
 
-    station = config.get("station", {})
-
     # Mutable form data
     form_data = {
-        "id": station.get("id", station_id),
-        "name": station.get("name", ""),
-        "location": station.get("location", ""),
-        "description": station.get("description", ""),
-        "instruments": dict(config.get("instruments", {})),
+        "id": config.id or station_id,
+        "name": config.name or "",
+        "location": config.location or "",
+        "description": config.description or "",
+        "instruments": {k: v.model_dump() for k, v in config.instruments.items()} if config.instruments else {},
     }
 
     # Get available instrument types for the dropdown
     instrument_types = discover_instrument_types()
-    type_options = {t["type"]: t["name"] for t in instrument_types}
+    type_options = {t.type: t.name or t.type for t in instrument_types}
 
     with ui.column().classes("w-full p-6 gap-6"):
         # Header
         with ui.row().classes("w-full items-center justify-between"):
             with ui.row().classes("items-center gap-2"):
                 ui.icon("edit").classes("text-slate-600")
-                ui.label(f"Edit Station: {station.get('name', station_id)}").classes(
+                ui.label(f"Edit Station: {config.name or station_id}").classes(
                     "text-lg font-semibold text-slate-700"
                 )
 
@@ -83,7 +80,7 @@ def station_edit_page(station_id: str):
 
         with ui.tab_panels(tabs, value=info_tab).classes("w-full"):
             with ui.tab_panel(info_tab):
-                _render_info_tab(station, form_data)
+                _render_info_tab(form_data)
 
             with ui.tab_panel(instruments_tab):
                 _render_instruments_tab(form_data, type_options)
@@ -93,7 +90,7 @@ def station_edit_page(station_id: str):
         )
 
 
-def _render_info_tab(station: dict, form_data: dict):
+def _render_info_tab(form_data: dict):
     """Render the info edit tab."""
     with ui.card().classes("w-full"):
         with ui.card_section():
@@ -101,7 +98,7 @@ def _render_info_tab(station: dict, form_data: dict):
             with ui.column().classes("gap-4 w-full max-w-xl"):
                 _labeled_input(
                     "Station ID",
-                    station.get("id", form_data["id"]),
+                    form_data["id"],
                     readonly=True,
                 )
                 _labeled_input(

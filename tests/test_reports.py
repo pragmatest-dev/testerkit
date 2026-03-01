@@ -222,7 +222,7 @@ class TestProjectConfig:
         from litmus.config.project import load_project_config
 
         (tmp_path / "litmus.yaml").write_text(
-            "project:\n  name: test\nresults_dir: my_results\nreports:\n  auto: true\n"
+            "name: test\nresults_dir: my_results\nreports:\n  auto: true\n"
         )
         config = load_project_config(tmp_path / "litmus.yaml")
         assert config.results_dir == "my_results"

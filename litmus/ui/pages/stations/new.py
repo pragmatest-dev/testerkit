@@ -19,11 +19,11 @@ def new_station_page():
     create_layout("New Station")
 
     # Get existing station IDs to check for duplicates
-    existing_ids = {s["id"] for s in discover_stations()}
+    existing_ids = {s.id for s in discover_stations()}
 
     # Get available instrument types
     instrument_types = discover_instrument_types()
-    type_options = {t["type"]: t["name"] for t in instrument_types}
+    type_options = {t.type: t.name or t.type for t in instrument_types}
 
     # Form state
     form = {
@@ -211,10 +211,10 @@ def new_station_page():
                             )
 
                         ui.notify(
-                            f"Station '{result['name']}' created successfully",
+                            f"Station '{result.name}' created successfully",
                             type="positive",
                         )
-                        ui.navigate.to(f"/stations/{result['id']}")
+                        ui.navigate.to(f"/stations/{result.id}")
                     else:
                         ui.notify(
                             "Station ID already exists",

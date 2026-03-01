@@ -19,7 +19,7 @@ def instruments_page():
         with ui.row().classes("items-center justify-between w-full"):
             with ui.row().classes("items-center gap-2"):
                 ui.icon("precision_manufacturing").classes("text-slate-600")
-                ui.label("Instrument Library").classes(
+                ui.label("Instrument Catalog").classes(
                     "text-lg font-semibold text-slate-700"
                 )
             ui.button(
@@ -34,7 +34,7 @@ def instruments_page():
                 with ui.row().classes("items-start gap-3"):
                     ui.icon("info", color="blue").classes("mt-1")
                     with ui.column().classes("gap-1"):
-                        ui.label("Instrument Library").classes(
+                        ui.label("Instrument Catalog").classes(
                             "font-semibold text-blue-900"
                         )
                         ui.label(
@@ -45,8 +45,8 @@ def instruments_page():
 
         if instrument_types:
             with ui.row().classes("gap-4 flex-wrap"):
-                for inst in instrument_types:
-                    _instrument_card(inst)
+                for entry in instrument_types:
+                    _instrument_card(entry)
         else:
             with ui.card().classes("w-full p-6 text-center"):
                 ui.icon("precision_manufacturing").classes("text-4xl text-slate-300")
@@ -63,32 +63,35 @@ def instruments_page():
         _render_instrument_inventory()
 
 
-def _instrument_card(inst: dict):
-    """Render an instrument card."""
-    is_builtin = "library" in inst.get("source", "")
+def _instrument_card(entry):
+    """Render an instrument card for an InstrumentCatalogEntry."""
+    # Build capability summary strings
+    cap_names = []
+    for cap in entry.capabilities:
+        name = f"{cap.function.value}_{cap.direction.value}"
+        if name not in cap_names:
+            cap_names.append(name)
 
     with ui.card().classes("w-80"):
         with ui.card_section():
             with ui.row().classes("items-center justify-between"):
                 with ui.row().classes("items-center gap-3"):
-                    ui.icon(inst["icon"]).classes("text-2xl text-slate-600")
+                    ui.icon("device_unknown").classes("text-2xl text-slate-600")
                     with ui.column().classes("gap-0"):
-                        ui.label(inst["name"]).classes("text-lg font-semibold")
-                        ui.label(inst["type"]).classes(
+                        ui.label(entry.name or entry.type).classes("text-lg font-semibold")
+                        ui.label(entry.type).classes(
                             "text-xs text-slate-500 font-mono"
                         )
-                if is_builtin:
-                    ui.badge("Built-in", color="grey").props("outline dense")
 
         with ui.card_section():
-            ui.label(inst["description"]).classes("text-sm text-slate-600")
+            ui.label(entry.description or "").classes("text-sm text-slate-600")
 
             ui.label("Capabilities").classes("text-xs text-slate-500 uppercase mt-3")
             with ui.row().classes("gap-2 flex-wrap mt-1"):
-                for cap in inst["capabilities"][:5]:
+                for cap in cap_names[:5]:
                     ui.badge(cap).props("outline")
-                if len(inst["capabilities"]) > 5:
-                    ui.badge(f"+{len(inst['capabilities']) - 5} more").props(
+                if len(cap_names) > 5:
+                    ui.badge(f"+{len(cap_names) - 5} more").props(
                         "outline color=grey"
                     )
 
@@ -96,12 +99,12 @@ def _instrument_card(inst: dict):
             ui.button(
                 "View",
                 icon="visibility",
-                on_click=lambda i=inst: ui.navigate.to(f"/instruments/{i['type']}"),
+                on_click=lambda e=entry: ui.navigate.to(f"/instruments/{e.type}"),
             ).props("flat")
             ui.button(
                 "Edit",
                 icon="edit",
-                on_click=lambda i=inst: ui.navigate.to(f"/instruments/{i['type']}/edit"),
+                on_click=lambda e=entry: ui.navigate.to(f"/instruments/{e.type}/edit"),
             ).props("flat")
 
 
@@ -133,7 +136,7 @@ def _render_instrument_inventory():
 
         rows = []
         for asset in assets:
-            cal_due = asset.get("cal_due")
+            cal_due = asset.calibration.due_date
             if cal_due:
                 if isinstance(cal_due, date):
                     cal_str = cal_due.isoformat()
@@ -142,17 +145,17 @@ def _render_instrument_inventory():
             else:
                 cal_str = ""
 
-            mfr = asset.get("manufacturer", "")
-            model = asset.get("model", "")
+            mfr = asset.info.manufacturer or ""
+            model = asset.info.model or ""
             identity = f"{mfr} {model}".strip() if (mfr or model) else ""
 
             rows.append({
-                "id": asset["id"],
-                "driver": asset.get("driver", ""),
+                "id": asset.id,
+                "driver": asset.driver or "",
                 "identity": identity,
-                "serial": asset.get("serial", ""),
+                "serial": str(asset.info.serial or ""),
                 "cal_due": cal_str,
-                "cal_lab": asset.get("cal_lab", ""),
+                "cal_lab": asset.calibration.lab or "",
             })
 
         table = ui.table(columns=columns, rows=rows, row_key="id").classes("w-full")

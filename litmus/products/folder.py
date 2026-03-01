@@ -223,7 +223,7 @@ class ProductFolder:
             data = yaml.safe_load(f)
 
         if "product" in data:
-            from litmus.products.loader import load_product
+            from litmus.store import load_product
 
             return load_product(spec_path)
         return None

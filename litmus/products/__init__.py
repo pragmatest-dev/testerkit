@@ -6,7 +6,6 @@ requirements in a way that shares vocabulary with instrument capabilities.
 
 from litmus.products.context import SpecContext
 from litmus.products.folder import ProductFolder
-from litmus.products.loader import load_product, load_products_from_directory
 from litmus.products.manifest import (
     WORKFLOW_STEP_ORDER,
     FileReferences,
@@ -17,7 +16,6 @@ from litmus.products.models import (
     Product,
     ProductCharacteristic,
 )
-
 __all__ = [
     "FileReferences",
     "Product",
@@ -27,6 +25,4 @@ __all__ = [
     "SpecContext",
     "WORKFLOW_STEP_ORDER",
     "WorkflowStep",
-    "load_product",
-    "load_products_from_directory",
 ]

@@ -3,7 +3,7 @@
 from nicegui import ui
 
 from litmus.ui.shared.layout import create_layout
-from litmus.ui.shared.services import discover_stations, load_station_config
+from litmus.ui.shared.services import discover_stations
 
 
 @ui.page("/stations")
@@ -42,46 +42,45 @@ def stations_page():
                 ).classes("mt-4")
 
 
-def _station_card(station: dict):
-    """Render a station card."""
-    config = load_station_config(station["id"])
-    instruments = config.get("instruments", {}) if config else {}
+def _station_card(station):
+    """Render a station card for a StationConfig model."""
+    instruments = station.instruments or {}
 
     with ui.card().classes("w-96"):
         with ui.card_section():
             with ui.row().classes("items-start justify-between"):
-                ui.label(station["name"]).classes("text-lg font-semibold")
+                ui.label(station.name or station.id).classes("text-lg font-semibold")
                 ui.badge("Online", color="green").props("outline")
 
         with ui.card_section():
-            ui.label(station["description"]).classes("text-sm text-slate-600")
+            ui.label(station.description or "").classes("text-sm text-slate-600")
             with ui.row().classes("text-xs text-slate-500 gap-4 mt-3"):
                 with ui.row().classes("items-center gap-1"):
                     ui.icon("tag", size="xs")
-                    ui.label(station["id"])
+                    ui.label(station.id)
                 with ui.row().classes("items-center gap-1"):
                     ui.icon("location_on", size="xs")
-                    ui.label(station["location"])
+                    ui.label(station.location or "")
 
             if instruments:
                 ui.label("Instruments").classes("text-xs text-slate-500 uppercase mt-4")
                 for name, inst in instruments.items():
                     with ui.row().classes("items-center gap-2 mt-1"):
-                        mocked = inst.get("mock", False)
+                        mocked = inst.mock or False
                         ui.icon("sim_card" if mocked else "cable", size="xs").classes(
                             "text-slate-400"
                         )
                         ui.label(name).classes("text-sm")
-                        ui.label(inst.get("type", "")).classes("text-xs text-slate-500")
+                        ui.label(inst.type or "").classes("text-xs text-slate-500")
 
         with ui.card_actions():
             ui.button(
                 "View Details",
                 icon="visibility",
-                on_click=lambda s=station: ui.navigate.to(f"/stations/{s['id']}"),
+                on_click=lambda s=station: ui.navigate.to(f"/stations/{s.id}"),
             ).props("flat")
             ui.button(
                 "Start Test",
                 icon="play_arrow",
-                on_click=lambda s=station: ui.navigate.to(f"/launch?station={s['id']}"),
+                on_click=lambda s=station: ui.navigate.to(f"/launch?station={s.id}"),
             ).props("flat color=primary")

@@ -30,8 +30,7 @@ def station_detail_page(station_id: str):
     config = load_station_config(station_id)
 
     if config:
-        station = config.get("station", {})
-        create_layout(station.get("name", station_id))
+        create_layout(config.name or station_id)
     else:
         create_layout("Station Not Found")
 
@@ -42,11 +41,10 @@ def station_detail_page(station_id: str):
             _render_not_found()
 
 
-def _render_station_detail(station_id: str, config: dict):
+def _render_station_detail(station_id: str, config):
     """Render the station detail view."""
-    station = config.get("station", {})
-    instruments = config.get("instruments", {})
-    phases = config.get("supported_phases", [])
+    instruments = config.instruments or {}
+    phases = config.supported_phases or []
 
     # Station info card
     with ui.card().classes("w-full"):
@@ -63,12 +61,12 @@ def _render_station_detail(station_id: str, config: dict):
 
         with ui.card_section():
             with ui.grid(columns=3).classes("gap-6"):
-                _info_field("Station ID", station.get("id", ""))
-                _info_field("Name", station.get("name", ""))
-                _info_field("Location", station.get("location", ""))
+                _info_field("Station ID", config.id or "")
+                _info_field("Name", config.name or "")
+                _info_field("Location", config.location or "")
                 with ui.column().classes("gap-1 col-span-3"):
                     ui.label("Description").classes("text-xs text-slate-500 uppercase")
-                    ui.label(station.get("description", "")).classes("font-semibold")
+                    ui.label(config.description or "").classes("font-semibold")
 
             if phases:
                 with ui.row().classes("gap-2 mt-4"):
@@ -127,9 +125,9 @@ def _render_instruments_tab(station_id: str, instruments: dict):
         ui.label("No instruments configured.").classes("text-slate-500 italic")
 
 
-def _instrument_card(name: str, inst: dict, record=None):
+def _instrument_card(name: str, inst, record=None):
     """Render an instrument card with optional identity/calibration from record."""
-    mocked = inst.get("mock", False)
+    mocked = inst.mock or False
     with ui.card().classes("w-80"):
         with ui.card_section():
             with ui.row().classes("items-center justify-between"):
@@ -143,13 +141,13 @@ def _instrument_card(name: str, inst: dict, record=None):
 
         with ui.card_section():
             with ui.column().classes("gap-2"):
-                driver = inst.get("driver", "")
+                driver = inst.driver or ""
                 with ui.row().classes("items-center gap-2"):
                     ui.label("Driver:").classes("text-sm text-slate-500")
                     ui.label(driver or "N/A").classes("text-sm font-mono")
                 with ui.row().classes("items-center gap-2"):
                     ui.label("Resource:").classes("text-sm text-slate-500")
-                    ui.label(inst.get("resource", "N/A")).classes("text-sm font-mono")
+                    ui.label(inst.resource or "N/A").classes("text-sm font-mono")
 
                 # Identity info from resolved record
                 if record and record.info:
@@ -200,8 +198,8 @@ def _instrument_card(name: str, inst: dict, record=None):
                             ui.label("Cert:").classes("text-xs text-slate-500")
                             ui.label(cal.certificate).classes("text-xs font-mono")
 
-                if inst.get("description"):
-                    ui.label(inst["description"]).classes("text-sm text-slate-600 mt-2")
+                if inst.description:
+                    ui.label(inst.description).classes("text-sm text-slate-600 mt-2")
 
 
 def _render_sequences_tab(station_id: str, config: dict):
@@ -229,10 +227,10 @@ def _render_sequences_tab(station_id: str, config: dict):
                 ]
                 rows = [
                     {
-                        "instrument": cap["instrument"],
-                        "capability": cap["name"],
-                        "function": cap["function"],
-                        "direction": cap["direction"],
+                        "instrument": cap.instrument_name,
+                        "capability": cap.name,
+                        "function": cap.function,
+                        "direction": cap.direction,
                     }
                     for cap in station_caps
                 ]
@@ -242,7 +240,7 @@ def _render_sequences_tab(station_id: str, config: dict):
     sequences = discover_sequences()
     compatible_sequences = []
     for seq in sequences:
-        product_family = seq.get("product_family")
+        product_family = seq.product_family
         if product_family:
             product = load_product_model(product_family)
             if product and station_compatible_with_product(config, product):
@@ -264,24 +262,24 @@ def _render_sequences_tab(station_id: str, config: dict):
         ui.label("No compatible sequences found.").classes("text-slate-500 italic")
 
 
-def _sequence_card(station_id: str, seq: dict):
+def _sequence_card(station_id: str, seq):
     """Render a sequence card."""
     with ui.card().classes("w-72"):
         with ui.card_section():
-            ui.label(seq["name"]).classes("font-semibold")
-            if seq.get("test_phase"):
+            ui.label(seq.name or seq.id).classes("font-semibold")
+            if seq.test_phase:
                 phase_colors = {
                     "validation": "blue",
                     "characterization": "purple",
                     "production": "green",
                 }
                 ui.badge(
-                    seq["test_phase"],
-                    color=phase_colors.get(seq["test_phase"], "gray"),
+                    seq.test_phase,
+                    color=phase_colors.get(seq.test_phase, "gray"),
                 ).props("outline")
-            ui.label(seq.get("description", "")[:60]).classes("text-sm text-slate-500 mt-1")
-            if seq.get("product_family"):
-                ui.label(f"Product: {seq['product_family']}").classes(
+            ui.label((seq.description or "")[:60]).classes("text-sm text-slate-500 mt-1")
+            if seq.product_family:
+                ui.label(f"Product: {seq.product_family}").classes(
                     "text-xs text-slate-400 mt-1"
                 )
         with ui.card_actions():
@@ -289,7 +287,7 @@ def _sequence_card(station_id: str, seq: dict):
                 "Run",
                 icon="play_arrow",
                 on_click=lambda s=seq: ui.navigate.to(
-                    f"/launch?sequence={s['id']}&station={station_id}"
+                    f"/launch?sequence={s.id}&station={station_id}"
                 ),
             ).props("flat dense color=primary")
 

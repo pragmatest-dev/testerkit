@@ -18,7 +18,7 @@ def new_fixture_page():
     create_layout("New Fixture")
 
     # Get existing fixture IDs to check for duplicates
-    existing_ids = {f["id"] for f in discover_fixtures()}
+    existing_ids = {f.id for f in discover_fixtures()}
 
     # Get available products
     products = discover_products()
@@ -175,11 +175,11 @@ def new_fixture_page():
 
                     if result:
                         ui.notify(
-                            f"Fixture '{result['name']}' created successfully",
+                            f"Fixture '{result.name}' created successfully",
                             type="positive",
                         )
                         # Redirect to edit page to add pin mappings
-                        ui.navigate.to(f"/fixtures/{result['id']}/edit")
+                        ui.navigate.to(f"/fixtures/{result.id}/edit")
                     else:
                         ui.notify(
                             "Fixture ID already exists",

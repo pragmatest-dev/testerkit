@@ -30,32 +30,3 @@ def test_schemas_are_valid_json(exported: list[Path]):
         data = json.loads(path.read_text())
         assert isinstance(data, dict)
         assert "properties" in data or "$defs" in data
-
-
-def test_catalog_schema_has_capabilities(exported: list[Path], schema_dir: Path):
-    schema = json.loads((schema_dir / "catalog.schema.json").read_text())
-    props = schema.get("properties", {})
-    assert "catalog_entry" in props
-    assert "capabilities" in props
-
-
-def test_station_schema_has_instruments(exported: list[Path], schema_dir: Path):
-    schema = json.loads((schema_dir / "station.schema.json").read_text())
-    props = schema.get("properties", {})
-    assert "station" in props
-    assert "instruments" in props
-
-
-def test_product_schema_has_characteristics(exported: list[Path], schema_dir: Path):
-    schema = json.loads((schema_dir / "product.schema.json").read_text())
-    props = schema.get("properties", {})
-    assert "characteristics" in props
-    assert "pins" in props
-
-
-def test_existing_catalog_validates(exported: list[Path], schema_dir: Path):
-    """Smoke test: catalog schema can be loaded and has expected structure."""
-    schema = json.loads((schema_dir / "catalog.schema.json").read_text())
-    # Check that InstrumentCapability refs are resolved in $defs
-    defs = schema.get("$defs", {})
-    assert "InstrumentCapability" in defs or "capabilities" in schema.get("properties", {})

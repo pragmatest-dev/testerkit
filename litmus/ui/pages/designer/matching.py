@@ -315,14 +315,17 @@ def _unit_scale_factor(req_units: str | None, cap_units: str | None) -> float:
     return req_mult / cap_mult
 
 
-def resolve_instrument_capabilities(station_config: dict) -> dict:
+def resolve_instrument_capabilities(station_config) -> dict:
     """Enrich station config instruments with capabilities from the instrument library.
 
-    For each instrument that has a ``type`` field but no ``capabilities``,
-    looks up the instrument library YAML and copies capabilities in.
-    Also populates ``channels`` from the library if not already present.
-    Modifies the config dict in-place and returns it for convenience.
+    Converts StationConfig model to dict, then enriches each instrument
+    with capabilities from the catalog. This is the designer's model→dict
+    boundary — the designer uses mutable dicts internally for NiceGUI binding.
     """
+    from litmus.schemas import StationConfig
+
+    if isinstance(station_config, StationConfig):
+        station_config = station_config.model_dump()
     instruments = station_config.get("instruments", {})
     for _role, inst in instruments.items():
         inst_type = inst.get("type", "")
@@ -336,7 +339,7 @@ def resolve_instrument_capabilities(station_config: dict) -> dict:
         # catalog_ref takes priority (model-specific > generic library)
         catalog_ref = inst.get("catalog_ref")
         if catalog_ref:
-            from litmus.catalog.loader import resolve_catalog_ref
+            from litmus.store import resolve_catalog_ref
 
             entry = resolve_catalog_ref(catalog_ref)
             if entry:

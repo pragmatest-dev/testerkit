@@ -283,7 +283,7 @@ def create_mcp_server() -> FastMCP:
         Args:
             action: One of: init, list, get, save, read
             type: Entity type for list/get/save
-                (product, station, fixture, sequence, instrument, run, test)
+                (product, station, fixture, sequence, catalog, instrument_asset, run, test)
             id: Entity ID for get/save
             path: Path for init/read actions
             content: Content dict for save action
