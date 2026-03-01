@@ -495,7 +495,10 @@ class SpecBand(BaseModel):
 
     model_config = {"extra": "forbid"}
 
-    when: dict[str, "RangeSpec | PointSpec | ListSpec | str | float | bool | list[str | float | bool]"] = Field(default_factory=dict)
+    when: dict[
+        str,
+        "RangeSpec | PointSpec | ListSpec | str | float | bool | list[str | float | bool]",
+    ] = Field(default_factory=dict)
     range: RangeSpec | None = None  # Derated range at this operating point
     value: float | str | None = None  # Nominal/typical at this operating point
     units: str | None = None  # Override parent units for this band

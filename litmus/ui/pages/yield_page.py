@@ -86,15 +86,23 @@ def yield_page():
 
             with ui.input("Since (optional)").classes("w-40") as since_input:
                 with since_input.add_slot("append"):
-                    ui.icon("event").on("click", lambda: since_menu.open()).classes("cursor-pointer")
+                    ui.icon("event").on(
+                        "click", lambda: since_menu.open(),
+                    ).classes("cursor-pointer")
                 with ui.menu() as since_menu:
-                    since_filter = ui.date(on_change=lambda _: _do_refresh()).bind_value(since_input)
+                    since_filter = ui.date(
+                        on_change=lambda _: _do_refresh(),
+                    ).bind_value(since_input)
 
             with ui.input("Until (optional)").classes("w-40") as until_input:
                 with until_input.add_slot("append"):
-                    ui.icon("event").on("click", lambda: until_menu.open()).classes("cursor-pointer")
+                    ui.icon("event").on(
+                        "click", lambda: until_menu.open(),
+                    ).classes("cursor-pointer")
                 with ui.menu() as until_menu:
-                    until_filter = ui.date(on_change=lambda _: _do_refresh()).bind_value(until_input)
+                    until_filter = ui.date(
+                        on_change=lambda _: _do_refresh(),
+                    ).bind_value(until_input)
 
             ui.button(
                 "Refresh",

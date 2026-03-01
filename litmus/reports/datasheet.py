@@ -376,7 +376,8 @@ def _emit_table(
         v1 = _unique_values(bands, keys[1])
         grid_size = len(v0) * len(v1)
         if grid_size > 0 and len(bands) / grid_size >= 0.5:
-            cell_fn = lambda b, f=present_fields[0]: _format_output_cell(b, f)
+            def cell_fn(b, f=present_fields[0]):
+                return _format_output_cell(b, f)
             tbl = _build_2d_generic(bands, keys, sig_name, cell_fn)
             tbl["title"] = f"{fmt_key(sig_name)} {fmt_key(present_fields[0])}"
             tables.append(tbl)
@@ -548,9 +549,15 @@ def _build_tables_from_bands(
             if grid_size > 0 and len(cluster) / grid_size >= 0.5:
                 tables.append(_build_2d_generic(cluster, keys, name, cell_fn))
             else:
-                tables.append(_build_multi_col_table(cluster, keys, name, value_label=value_label, cell_fn=cell_fn))
+                tables.append(_build_multi_col_table(
+                    cluster, keys, name,
+                    value_label=value_label, cell_fn=cell_fn,
+                ))
         else:
-            tables.append(_build_multi_col_table(cluster, keys, name, value_label=value_label, cell_fn=cell_fn))
+            tables.append(_build_multi_col_table(
+                cluster, keys, name,
+                value_label=value_label, cell_fn=cell_fn,
+            ))
 
     return tables
 

@@ -588,7 +588,10 @@ def _save_station(station_id: str, content: dict[str, Any], project: str) -> dic
     except ValidationError as e:
         return {
             "success": False,
-            "errors": [f"{'.'.join(str(l) for l in err['loc'])}: {err['msg']}" for err in e.errors()],
+            "errors": [
+                f"{'.'.join(str(p) for p in err['loc'])}: {err['msg']}"
+                for err in e.errors()
+            ],
         }
 
     _, type_warnings = check_instrument_types(
@@ -618,7 +621,10 @@ def _save_product(product_id: str, content: dict[str, Any], project: str) -> dic
     except ValidationError as e:
         return {
             "success": False,
-            "errors": [f"{'.'.join(str(l) for l in err['loc'])}: {err['msg']}" for err in e.errors()],
+            "errors": [
+                f"{'.'.join(str(p) for p in err['loc'])}: {err['msg']}"
+                for err in e.errors()
+            ],
         }
 
     product_dir = get_project_root(project) / "products" / product_id
@@ -641,7 +647,10 @@ def _save_fixture(fixture_id: str, content: dict[str, Any], project: str) -> dic
     except ValidationError as e:
         return {
             "success": False,
-            "errors": [f"{'.'.join(str(l) for l in err['loc'])}: {err['msg']}" for err in e.errors()],
+            "errors": [
+                f"{'.'.join(str(p) for p in err['loc'])}: {err['msg']}"
+                for err in e.errors()
+            ],
         }
 
     fixtures_dir = get_project_root(project) / "fixtures"
@@ -664,7 +673,10 @@ def _save_sequence(sequence_id: str, content: dict[str, Any], project: str) -> d
     except ValidationError as e:
         return {
             "success": False,
-            "errors": [f"{'.'.join(str(l) for l in err['loc'])}: {err['msg']}" for err in e.errors()],
+            "errors": [
+                f"{'.'.join(str(p) for p in err['loc'])}: {err['msg']}"
+                for err in e.errors()
+            ],
         }
 
     sequences_dir = get_project_root(project) / "sequences"
@@ -687,7 +699,10 @@ def _save_instrument(instrument_type: str, content: dict[str, Any], project: str
     except ValidationError as e:
         return {
             "success": False,
-            "errors": [f"{'.'.join(str(l) for l in err['loc'])}: {err['msg']}" for err in e.errors()],
+            "errors": [
+                f"{'.'.join(str(p) for p in err['loc'])}: {err['msg']}"
+                for err in e.errors()
+            ],
         }
 
     instruments_dir = get_project_root(project) / "instruments"

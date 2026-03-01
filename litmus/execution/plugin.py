@@ -481,7 +481,10 @@ def litmus_logger(request) -> Generator[TestRunLogger]:
     station_location = None
     if station_config:
         station_name = station_config.name
-        station_type = getattr(station_config, "station_type", None) or getattr(station_config, "type", None)
+        station_type = (
+            getattr(station_config, "station_type", None)
+            or getattr(station_config, "type", None)
+        )
         station_location = station_config.location
 
     # Get results directory for journal streaming
@@ -877,7 +880,11 @@ def instruments(
         # Get config - either from record (new format) or inline (legacy)
         inline_config = inst_configs.get(role)
 
-        mock_config = inline_config.mock_config if inline_config and inline_config.mock_config else {}
+        mock_config = (
+            inline_config.mock_config
+            if inline_config and inline_config.mock_config
+            else {}
+        )
         use_mock = mock_instruments or (inline_config.mock if inline_config else False)
         record.mocked = use_mock
 

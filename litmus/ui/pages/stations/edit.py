@@ -33,7 +33,10 @@ def station_edit_page(station_id: str):
         "name": config.name or "",
         "location": config.location or "",
         "description": config.description or "",
-        "instruments": {k: v.model_dump() for k, v in config.instruments.items()} if config.instruments else {},
+        "instruments": (
+            {k: v.model_dump() for k, v in config.instruments.items()}
+            if config.instruments else {}
+        ),
     }
 
     # Get available instrument types for the dropdown

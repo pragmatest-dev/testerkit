@@ -16,6 +16,7 @@ from litmus.products.models import (
     Product,
     ProductCharacteristic,
 )
+
 __all__ = [
     "FileReferences",
     "Product",

@@ -349,7 +349,11 @@ class DesignerState:
             if fixture_info.get("id"):
                 self.fixture_id = fixture_info["id"]
 
-        points = fixture_config.points if hasattr(fixture_config, "points") else fixture_config.get("points", {})
+        points = (
+            fixture_config.points
+            if hasattr(fixture_config, "points")
+            else fixture_config.get("points", {})
+        )
         for point_name, point in points.items():
             if hasattr(point, "dut_pin"):
                 self.connections[point_name] = {
