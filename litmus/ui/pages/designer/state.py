@@ -108,22 +108,53 @@ class DesignerState:
             del self.connections[name]
 
     def load_station(self, station_config: dict) -> None:
-        """Bulk-import instruments from a station configuration dict."""
+        """Bulk-import instruments from a station configuration dict.
+
+        Resolves channels from catalog entries when catalog_ref is provided,
+        falling back to station-defined channels if no catalog reference.
+        Also loads channel details (terminals, ground type) from catalog.
+        """
+        from litmus.ui.shared.services import load_catalog_entry_by_type
+
         instruments = station_config.get("instruments", {})
         for role, inst in instruments.items():
             driver = inst.get("driver", "")
             inst_type = inst.get("type", "")
-            channels = inst.get("channels", ["1"])
-            if isinstance(channels, dict):
-                # Structured channel dict — extract keys as channel names
-                channels = list(channels.keys())
-            elif not isinstance(channels, list):
-                channels = [str(channels)]
+            catalog_ref = inst.get("catalog_ref")
+
+            # Try to get channels from catalog entry
+            channels: list[str] = []
+            channel_details: dict[str, dict] = {}  # ch -> {terminals, ground, connector}
+            catalog_entry = None
+            if catalog_ref:
+                catalog_entry = load_catalog_entry_by_type(catalog_ref)
+                if catalog_entry and catalog_entry.channels:
+                    channels = list(catalog_entry.channels.keys())
+                    for ch_name, ch_def in catalog_entry.channels.items():
+                        channel_details[ch_name] = {
+                            "terminals": ch_def.terminals or [],
+                            "ground": ch_def.ground or "unknown",
+                            "connector": ch_def.connector or "unknown",
+                            "label": ch_def.label or ch_name,
+                        }
+
+            # Fall back to station-defined channels
+            if not channels:
+                station_channels = inst.get("channels", ["1"])
+                if isinstance(station_channels, dict):
+                    channels = list(station_channels.keys())
+                elif isinstance(station_channels, list):
+                    channels = [str(ch) for ch in station_channels]
+                else:
+                    channels = [str(station_channels)]
+
             self.instruments[role] = {
                 "type": inst_type,
                 "driver": driver,
-                "capabilities": [],
+                "capabilities": catalog_entry.capabilities if catalog_entry else [],
                 "channels": channels,
+                "channel_details": channel_details,
+                "catalog_ref": catalog_ref,
             }
 
     # -------------------------------------------------------------------------
@@ -211,6 +242,15 @@ class DesignerState:
         """Check if an instrument channel is already wired."""
         return any(
             c["instrument"] == role and c["channel"] == channel for c in self.connections.values()
+        )
+
+    def is_terminal_used(self, role: str, channel: str, terminal: str) -> bool:
+        """Check if a specific terminal is already wired."""
+        return any(
+            c["instrument"] == role
+            and c["channel"] == channel
+            and c["terminal"] == terminal
+            for c in self.connections.values()
         )
 
     # -------------------------------------------------------------------------

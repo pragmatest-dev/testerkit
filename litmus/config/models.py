@@ -222,6 +222,23 @@ class ConnectorType(StrEnum):
     PROPRIETARY = "proprietary"
 
 
+# Coaxial connectors that inherently include a shield/ground conductor
+COAXIAL_CONNECTORS: frozenset[ConnectorType] = frozenset({
+    ConnectorType.BNC,
+    ConnectorType.SMA,
+    ConnectorType.SMB,
+    ConnectorType.TYPE_N,
+    ConnectorType.APC_35,
+    ConnectorType.K_24MM,
+    ConnectorType.V_185MM,
+})
+
+# Triax connectors have both shield AND guard
+TRIAX_CONNECTORS: frozenset[ConnectorType] = frozenset({
+    ConnectorType.TRIAX,
+})
+
+
 class CompareMode(StrEnum):
     """Comparison direction for capability parameters.
 

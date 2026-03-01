@@ -7,12 +7,9 @@ instruments:
     type: psu
     driver: demo.drivers.PSU
     resource: TCPIP::192.168.1.101::INSTR
-    catalog_ref: keysight_e36313a
+    catalog_ref: generic_psu
     mock: true
-    channels:
-    - '1'
-    - '2'
-    description: Dual-output power supply for DUT input power
+    description: Generic dual-output power supply
     mock_config:
       measure_voltage: 5.0
       measure_current: 0.25
@@ -20,11 +17,9 @@ instruments:
     type: dmm
     driver: demo.drivers.DMM
     resource: TCPIP::192.168.1.102::INSTR
-    catalog_ref: keysight_34461a
+    catalog_ref: generic_dmm
     mock: true
-    channels:
-    - '1'
-    description: DMM for output voltage measurement
+    description: Generic digital multimeter
     mock_config:
       measure_voltage: 3.3
       measure_dc_voltage: 3.3
@@ -37,9 +32,7 @@ instruments:
     resource: TCPIP::192.168.1.103::INSTR
     catalog_ref: generic_eload
     mock: true
-    channels:
-    - '1'
-    description: Electronic load for output loading
+    description: Generic electronic load
     mock_config:
       measure_current: 0.5
       measure_voltage: 3.3
@@ -60,13 +53,8 @@ instruments:
     type: scope
     driver: demo.drivers.Scope
     resource: TCPIP::192.168.1.104::INSTR
-    catalog_ref: rigol_ds1104z
+    catalog_ref: generic_oscilloscope
     mock: true
-    channels:
-    - '1'
-    - '2'
-    - '3'
-    - '4'
     description: 4-channel oscilloscope for waveform capture
     mock_config:
       fetch_waveform:

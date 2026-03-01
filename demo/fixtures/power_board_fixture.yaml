@@ -9,7 +9,7 @@ points:
     dut_pin: J1_VIN
     net: VIN_5V
     instrument: psu
-    instrument_channel: '1'
+    instrument_channel: CH1
     instrument_terminal: hi
     description: 5V input from PSU channel 1
   gnd_psu:
@@ -17,7 +17,7 @@ points:
     dut_pin: J1_GND
     net: GND
     instrument: psu
-    instrument_channel: '1'
+    instrument_channel: CH1
     instrument_terminal: lo
     description: Ground return to PSU CH1 LO terminal
   gnd_eload:
@@ -36,14 +36,6 @@ points:
     instrument_channel: '1'
     instrument_terminal: hi
     description: Output voltage measurement via DMM
-  vin_measure:
-    name: vin_measure
-    dut_pin: TP_VIN
-    net: VIN_5V
-    instrument: dmm
-    instrument_channel: '2'
-    instrument_terminal: hi
-    description: Input voltage sense via DMM ch2
   load_output:
     name: load_output
     dut_pin: J1_VOUT

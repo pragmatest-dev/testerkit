@@ -87,15 +87,17 @@ def show_pin_properties(
                         ui.label(char_name).classes("text-sm text-slate-600")
 
             # Connection info (read-only)
-            conn = state.find_connection_for_pin(pin_key)
-            if conn:
+            conns = state.find_connections_for_pin(pin_key)
+            if conns:
                 ui.separator()
                 ui.label("Connected to").classes(
                     "text-sm font-semibold text-slate-600"
                 )
-                ui.label(
-                    f"{conn['instrument']}:{conn['channel']}"
-                ).classes("text-sm font-mono text-green-600")
+                for conn in conns:
+                    conn_text = f"{conn['instrument']}:{conn['channel']}"
+                    if conn.get("terminal"):
+                        conn_text += f":{conn['terminal']}"
+                    ui.label(conn_text).classes("text-sm font-mono text-green-600")
 
             # Delete button
             ui.separator()
@@ -153,58 +155,69 @@ def show_instrument_properties(
                 ),
             ).classes("w-full")
 
-            # Channels section
+            # Channels section with catalog details
             ui.separator()
             ui.label("Channels").classes("text-sm font-semibold text-slate-600")
 
-            channels_container = ui.column().classes("w-full gap-1")
+            channel_details = inst.get("channel_details", {})
+            channels_container = ui.column().classes("w-full gap-2")
 
             def _rebuild_channels():
                 channels_container.clear()
                 with channels_container:
                     for ch in inst.get("channels", []):
-                        with ui.row().classes("items-center gap-2"):
-                            ch_label = f"CH{ch}" if ch.isdigit() else ch
-                            is_used = state.is_channel_used(role, ch)
-                            ui.label(ch_label).classes(
-                                "text-sm font-mono "
-                                + (
-                                    "text-green-600"
-                                    if is_used
-                                    else "text-slate-600"
-                                )
-                            )
-                            if is_used:
-                                ui.icon("link").classes(
-                                    "text-green-500 text-sm"
-                                )
-                            else:
-                                ui.button(
-                                    icon="close",
-                                    on_click=lambda _, c=ch: _remove_channel(
-                                        state,
-                                        role,
-                                        c,
-                                        rebuild,
-                                        _rebuild_channels,
-                                    ),
-                                ).props("flat dense round size=xs").classes(
-                                    "text-slate-400"
-                                )
+                        ch_detail = channel_details.get(ch, {})
+                        ch_label = ch_detail.get("label", ch)
+                        if ch.isdigit() and not ch_detail.get("label"):
+                            ch_label = f"CH{ch}"
+                        is_used = state.is_channel_used(role, ch)
+                        ground = ch_detail.get("ground", "unknown")
+                        terminals = ch_detail.get("terminals", [])
+                        connector = ch_detail.get("connector", "")
+
+                        with ui.card().classes("w-full p-2").props("flat bordered"):
+                            with ui.row().classes("items-center justify-between w-full"):
+                                with ui.row().classes("items-center gap-2"):
+                                    ui.label(ch_label).classes(
+                                        "text-sm font-mono font-semibold "
+                                        + ("text-green-600" if is_used else "text-slate-700")
+                                    )
+                                    if is_used:
+                                        ui.icon("link").classes("text-green-500 text-sm")
+                                # Ground indicator - only if there's a wirable ground terminal
+                                gnd_names = {
+                                    "lo", "gnd", "ground", "return", "com", "sense_lo", "shield"
+                                }
+                                has_gnd = any(t.lower() in gnd_names for t in terminals)
+                                if has_gnd:
+                                    if ground == "shared":
+                                        ui.badge("⏚ shared", color="green").props("outline dense")
+                                    elif ground == "floating":
+                                        ui.badge("⏊ floating", color="amber").props("outline dense")
+
+                            # Catalog details (read-only)
+                            if terminals or connector:
+                                with ui.row().classes("gap-3 mt-1"):
+                                    if terminals:
+                                        ui.label(f"Terminals: {', '.join(terminals)}").classes(
+                                            "text-xs text-slate-500"
+                                        )
+                                    if connector:
+                                        ui.label(f"Connector: {connector}").classes(
+                                            "text-xs text-slate-500"
+                                        )
 
             _rebuild_channels()
 
-            # Add channel
-            with ui.row().classes("items-center gap-2 w-full"):
-                new_ch_input = ui.input(placeholder="New channel").classes(
-                    "flex-1"
-                ).props("dense")
-                ui.button(
-                    icon="add",
-                    on_click=lambda: _add_channel(
-                        state, role, new_ch_input, rebuild, _rebuild_channels
-                    ),
-                ).props("flat dense round")
+            # Catalog reference
+            catalog_ref = inst.get("catalog_ref")
+            if catalog_ref:
+                ui.separator()
+                with ui.row().classes("items-center gap-2"):
+                    ui.icon("inventory_2").classes("text-slate-400 text-sm")
+                    ui.label(f"Catalog: {catalog_ref}").classes(
+                        "text-xs text-slate-500 font-mono"
+                    )
 
             # Capabilities (read-only)
             caps = inst.get("capabilities", [])
@@ -237,9 +250,12 @@ def show_instrument_properties(
                     "text-sm font-semibold text-slate-600"
                 )
                 for conn in connected:
-                    ui.label(
-                        f"{conn['dut_pin']} -> CH{conn['channel']}"
-                    ).classes("text-sm text-slate-500 font-mono")
+                    target = f"CH{conn['channel']}"
+                    if conn.get("terminal"):
+                        target += f":{conn['terminal'].upper()}"
+                    ui.label(f"{conn['dut_pin']} -> {target}").classes(
+                        "text-sm text-slate-500 font-mono"
+                    )
 
             # Delete button
             ui.separator()
@@ -296,6 +312,10 @@ def show_connection_properties(
             ui.input("Channel", value=conn.get("channel", "")).classes(
                 "w-full"
             ).props("readonly")
+            if conn.get("terminal"):
+                ui.input("Terminal", value=conn.get("terminal", "")).classes(
+                    "w-full"
+                ).props("readonly")
 
             # Delete button
             ui.separator()
