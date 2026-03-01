@@ -99,10 +99,7 @@ def discover_products() -> list[dict]:
     products = []
     seen_ids: set[str] = set()
 
-    products_dirs = [
-        Path.cwd() / "products",
-        Path.cwd() / "demo" / "products",
-    ]
+    products_dirs = [Path.cwd() / "products"]
 
     for products_dir in products_dirs:
         if not products_dir.exists():
@@ -409,7 +406,7 @@ def resolve_station_instrument_records(station_id: str) -> dict:
     for instruments_dir in get_instrument_paths():
         all_instrument_files.update(load_instrument_files(instruments_dir))
 
-    return resolve_station_instruments(config.model_dump(), all_instrument_files)
+    return resolve_station_instruments(config, all_instrument_files)
 
 
 def create_catalog_entry(
@@ -432,10 +429,7 @@ def discover_tests() -> list[dict]:
     from pathlib import Path
 
     tests = []
-    search_paths = [
-        Path.cwd() / "tests",
-        Path.cwd() / "demo" / "tests",
-    ]
+    search_paths = [Path.cwd() / "tests"]
 
     for tests_dir in search_paths:
         if not tests_dir.exists():

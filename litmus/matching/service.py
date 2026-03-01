@@ -233,6 +233,14 @@ def get_station_capabilities(station_config) -> list[StationCapability]:
     Args:
         station_config: StationConfig model.
     """
+    import sys
+    import time
+    _start = time.perf_counter()
+    def _log(msg: str) -> None:
+        sys.stderr.write(msg + "\n")
+        sys.stderr.flush()
+
+    _log(f"[get_station_caps] START")
     capabilities = []
     instruments = station_config.instruments or {}
 
@@ -244,7 +252,9 @@ def get_station_capabilities(station_config) -> list[StationCapability]:
             continue
 
         if catalog_ref:
+            _log(f"[get_station_caps] +{(time.perf_counter() - _start)*1000:.0f}ms - loading {inst_name} ({catalog_ref})")
             _add_catalog_capabilities(catalog_ref, inst_type, inst_name, capabilities)
+            _log(f"[get_station_caps] +{(time.perf_counter() - _start)*1000:.0f}ms - done {inst_name}")
         else:
             import logging
             logging.getLogger(__name__).warning(
@@ -252,6 +262,7 @@ def get_station_capabilities(station_config) -> list[StationCapability]:
                 inst_name, inst_type,
             )
 
+    _log(f"[get_station_caps] +{(time.perf_counter() - _start)*1000:.0f}ms - DONE ({len(capabilities)} caps)")
     return capabilities
 
 

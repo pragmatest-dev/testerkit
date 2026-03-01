@@ -478,9 +478,11 @@ def load_products_from_directory(specs_dir: Path) -> dict[str, Product]:
 
 
 def _get_product_paths() -> list[Path]:
-    """Get search paths for product folders."""
-    cwd = Path.cwd()
-    return [cwd / "products", cwd / "demo" / "products"]
+    """Get search paths for product folders (relative to project root)."""
+    products_dir = Path.cwd() / "products"
+    if products_dir.is_dir():
+        return [products_dir]
+    return []
 
 
 def get_product(product_id: str) -> Product | None:
@@ -597,10 +599,20 @@ def load_catalog_entry(
     path: Path, catalog_dir: Path | None = None,
 ) -> InstrumentCatalogEntry:
     """Load a single catalog entry from a YAML file, resolving inheritance."""
+    import sys
+    import time
+    _start = time.perf_counter()
+    def _log(msg: str) -> None:
+        sys.stderr.write(msg + "\n")
+        sys.stderr.flush()
+
     if catalog_dir is None:
         catalog_dir = path.parent
     data = _load_catalog_with_inheritance(path, catalog_dir, seen=set(), depth=0)
-    return _build_catalog_entry(data, path)
+    _log(f"[load_entry] +{(time.perf_counter() - _start)*1000:.0f}ms - YAML loaded")
+    result = _build_catalog_entry(data, path)
+    _log(f"[load_entry] +{(time.perf_counter() - _start)*1000:.0f}ms - Pydantic validated")
+    return result
 
 
 def _load_catalog_with_inheritance(
@@ -761,22 +773,37 @@ def load_catalog_from_directory(catalog_dir: Path) -> dict[str, InstrumentCatalo
 
 
 def find_catalog_dirs() -> list[Path]:
-    """Find catalog directories by searching standard locations."""
-    dirs = []
-    for candidate in [Path.cwd() / "catalog", Path.cwd() / "demo" / "catalog"]:
-        if candidate.is_dir():
-            dirs.append(candidate)
-    return dirs
+    """Find catalog directories relative to current working directory.
+
+    Server should be run from the project root (e.g., `cd demo && litmus serve`),
+    so `catalog/` resolves to that project's catalog.
+    """
+    catalog_dir = Path.cwd() / "catalog"
+    if catalog_dir.is_dir():
+        return [catalog_dir]
+    return []
 
 
 def resolve_catalog_ref(catalog_ref: str) -> InstrumentCatalogEntry | None:
     """Resolve a catalog reference ID to a catalog entry."""
+    import sys
+    import time
+    _start = time.perf_counter()
+    def _log(msg: str) -> None:
+        sys.stderr.write(msg + "\n")
+        sys.stderr.flush()
+
+    _log(f"[resolve_catalog] START {catalog_ref}")
     for cat_dir in find_catalog_dirs():
+        _log(f"[resolve_catalog] +{(time.perf_counter() - _start)*1000:.0f}ms - checking {cat_dir}")
         # Try direct filename match first
         direct_path = cat_dir / f"{catalog_ref}.yaml"
         if direct_path.exists():
+            _log(f"[resolve_catalog] +{(time.perf_counter() - _start)*1000:.0f}ms - found")
             try:
-                return load_catalog_entry(direct_path, catalog_dir=cat_dir)
+                entry = load_catalog_entry(direct_path, catalog_dir=cat_dir)
+                _log(f"[resolve_catalog] +{(time.perf_counter() - _start)*1000:.0f}ms - loaded")
+                return entry
             except Exception as exc:
                 warnings.warn(
                     f"catalog: failed to load {direct_path.name}: {exc}",
@@ -797,20 +824,9 @@ def resolve_catalog_ref(catalog_ref: str) -> InstrumentCatalogEntry | None:
                 )
                 return None
 
-        # Last resort: search all files for matching ID
-        for path in cat_dir.rglob("*.yaml"):
-            if path.name.startswith("_") or ".variants." in path.name:
-                continue
-            try:
-                entry = load_catalog_entry(path, catalog_dir=cat_dir)
-                if entry.id == catalog_ref:
-                    return entry
-            except Exception as exc:
-                warnings.warn(
-                    f"catalog: failed to load {path.name}: {exc}",
-                    stacklevel=2,
-                )
-                continue
+        # NOTE: "Last resort" full scan removed - was loading ALL catalog files
+        # to check IDs, causing 100+ file loads per lookup. If direct path and
+        # rglob by filename don't work, the catalog_ref is simply wrong.
 
     return None
 
@@ -1011,11 +1027,10 @@ def save_station_type(type_id: str, data: dict) -> bool:
 
 def load_station_type(type_id: str) -> dict | None:
     """Load station type by ID (raw YAML — no Pydantic model yet)."""
-    search_paths = [
-        Path.cwd() / "stations" / "types",
-        Path.cwd() / "demo" / "stations" / "types",
-    ]
-    for types_dir in search_paths:
+    types_dir = Path.cwd() / "stations" / "types"
+    if not types_dir.is_dir():
+        return None
+    for types_dir in [types_dir]:
         yaml_file = types_dir / f"{type_id}.yaml"
         if not yaml_file.exists():
             continue
