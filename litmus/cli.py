@@ -288,14 +288,17 @@ def serve(host: str, port: int, reload: bool):
         # On each reload cycle uvicorn re-imports litmus.ui._asgi which
         # re-registers pages and configures NiceGUI from scratch.
         import uvicorn
+        from pathlib import Path
 
+        # Watch both litmus package AND current working directory
+        litmus_pkg = Path(__file__).parent
         uvicorn.run(
             "litmus.ui._asgi:app",
             host=host,
             port=port,
             reload=True,
-            reload_dirs=["litmus"],
-            reload_includes=["*.py"],
+            reload_dirs=[str(litmus_pkg), "."],
+            reload_includes=["*.py", "*.yaml"],
             log_level="warning",
         )
     else:

@@ -17,10 +17,8 @@ from litmus.ui.pages.designer.matching import (
 from litmus.ui.pages.designer.properties import (
     create_properties_drawer,
     show_add_instrument_dialog,
-    show_add_pin_dialog,
     show_connection_properties,
     show_instrument_properties,
-    show_load_station_dialog,
 )
 from litmus.ui.pages.designer.state import DesignerState
 from litmus.ui.shared.layout import create_layout
@@ -47,6 +45,9 @@ def designer_page():
     products = discover_products()
     product_options = {p["id"]: p["name"] for p in products}
 
+    stations = discover_stations()
+    station_options = {s.id: s.name or s.id for s in stations}
+
     # Container references — populated inside the layout below
     containers: dict = {}
 
@@ -63,6 +64,22 @@ def designer_page():
         if "status" in containers:
             _rebuild_status(state, containers["status"], rebuild)
 
+    def on_station_change(station_id: str) -> None:
+        """Load station instruments into state."""
+        if not station_id:
+            return
+        config = load_station_config(station_id)
+        if config:
+            state.load_station(config.model_dump())
+            rebuild()
+
+    # Auto-select first station on load
+    initial_station = stations[0].id if stations else None
+    if initial_station:
+        config = load_station_config(initial_station)
+        if config:
+            state.load_station(config.model_dump())
+
     with ui.column().classes("w-full p-6 gap-4"):
         # --- Selection bar ---
         with ui.row().classes("w-full items-end gap-3 flex-wrap"):
@@ -73,13 +90,19 @@ def designer_page():
                 on_change=lambda e: _on_product_change(e.value, state, rebuild),
             ).classes("w-48")
 
+            ui.select(
+                station_options,
+                label="Station",
+                value=initial_station,
+                with_input=True,
+                on_change=lambda e: on_station_change(e.value),
+            ).classes("w-48")
+
             ui.button(
-                "Load Station",
-                icon="download",
-                on_click=lambda: show_load_station_dialog(
-                    state, discover_stations(), load_station_config, rebuild
-                ),
-            ).props("outline")
+                "Load Fixture",
+                icon="upload",
+                on_click=lambda: _show_load_fixture_dialog(state, rebuild),
+            ).props("flat")
 
             ui.button(
                 "Add Instrument",
@@ -87,19 +110,7 @@ def designer_page():
                 on_click=lambda: show_add_instrument_dialog(
                     state, rebuild, discover_instrument_types()
                 ),
-            ).props("outline")
-
-            ui.button(
-                "Add Pin",
-                icon="add",
-                on_click=lambda: show_add_pin_dialog(state, rebuild),
-            ).props("outline")
-
-            ui.button(
-                "Load Fixture",
-                icon="upload",
-                on_click=lambda: _show_load_fixture_dialog(state, rebuild),
-            ).props("outline")
+            ).props("flat")
 
         # --- IDs ---
         with ui.row().classes("w-full items-end gap-3"):
@@ -443,7 +454,8 @@ def _auto_match(state, rebuild) -> None:
 
     for s in suggestions:
         state.add_connection(
-            s["point_name"], s["dut_pin"], s["instrument"], s["channel"], s["net"]
+            s["point_name"], s["dut_pin"], s["instrument"], s["channel"],
+            s.get("net"), s.get("terminal")
         )
     rebuild()
     ui.notify(f"Auto-matched {len(suggestions)} connections", type="positive")

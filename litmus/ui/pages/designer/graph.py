@@ -11,6 +11,8 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+from litmus.config.models import COAXIAL_CONNECTORS, ConnectorType
+
 if TYPE_CHECKING:
     from litmus.ui.pages.designer.state import DesignerState
 
@@ -48,6 +50,7 @@ CAT_HEADER = 4
 CAT_SELECTED = 5
 CAT_COMPATIBLE = 6
 CAT_CONNECTED = 7
+CAT_FLOATING = 8  # Floating/isolated channel
 
 
 def build_graph_option(state: DesignerState) -> dict:
@@ -55,6 +58,7 @@ def build_graph_option(state: DesignerState) -> dict:
     nodes = build_nodes(state)
     links, waypoint_nodes = build_links(state, nodes)
     nodes.extend(waypoint_nodes)
+
     categories = build_categories()
 
     # Calculate chart height based on node count
@@ -197,6 +201,7 @@ def build_nodes(state: DesignerState) -> list[dict]:
 
     # --- Instrument side (right) ---
     y = 20
+
     for role, inst in state.instruments.items():
         # Role header
         type_label = inst.get("type", "")
@@ -227,58 +232,189 @@ def build_nodes(state: DesignerState) -> list[dict]:
         y += NODE_GAP
 
         channels = inst.get("channels", ["1"])
+        channel_details = inst.get("channel_details", {})
+
         for ch in channels:
             channel_key = f"{role}:{ch}"
-            is_used = state.is_channel_used(role, ch)
-            is_compatible = channel_key in state.compatible_channels
-            has_selection = state.selected_pin is not None
+            ch_detail = channel_details.get(ch, {})
+            terminals = list(ch_detail.get("terminals", []))
+            ground_type = ch_detail.get("ground", "unknown")
+            is_floating = ground_type == "floating"
+            connector = ch_detail.get("connector", "")
 
-            # Determine category
-            if is_used:
-                cat = CAT_CONNECTED
-            elif is_compatible and has_selection:
-                cat = CAT_COMPATIBLE
+            # Auto-add shield terminal for coaxial connectors if not explicit
+            if connector:
+                try:
+                    conn_type = ConnectorType(connector)
+                    if conn_type in COAXIAL_CONNECTORS:
+                        # Add shield if no ground-like terminal already present
+                        if not any(t.lower() in {"ground", "shield", "gnd"} for t in terminals):
+                            terminals.append("shield")
+                except ValueError:
+                    pass  # Unknown connector type, skip auto-add
+
+            # Format channel label
+            if ch.isdigit():
+                ch_label = f"CH{ch}"
             else:
-                cat = CAT_INSTRUMENT
+                ch_label = ch
 
-            node = {
-                "name": channel_key,
-                "x": RIGHT_X,
-                "y": y,
-                "category": cat,
-                "symbolSize": NODE_SIZE,
-                "symbol": "circle",
-                "label": {
-                    "show": True,
-                    "position": "right",
-                    "formatter": f"CH{ch}" if ch.isdigit() else ch,
-                    "fontSize": 12,
-                },
-                "side": "instrument",
-                "node_type": "channel",
-                "interactive": True,
-                "role": role,
-                "channel": ch,
-            }
+            # If we have terminals, show them as individual nodes
+            # Otherwise fall back to showing just the channel
+            if terminals:
+                # Check if there's a wirable ground terminal
+                ground_terminals = {"lo", "gnd", "ground", "return", "com", "sense_lo", "shield"}
+                has_ground_terminal = any(t.lower() in ground_terminals for t in terminals)
 
-            if is_compatible and has_selection and not is_used:
-                node["itemStyle"] = {
-                    "borderColor": "#22c55e",
-                    "borderWidth": 3,
-                    "shadowColor": "rgba(34,197,94,0.4)",
-                    "shadowBlur": 8,
+                # Channel subheader
+                subheader_text = ch_label
+                if connector:
+                    subheader_text += f" ({connector})"
+                # Only show ground indicator if there's a terminal to wire to
+                if has_ground_terminal:
+                    if is_floating:
+                        subheader_text += " ⏊"
+                    elif ground_type == "shared":
+                        subheader_text += " ⏚"
+
+                nodes.append({
+                    "name": f"__subheader_{channel_key}",
+                    "x": RIGHT_X,
+                    "y": y,
+                    "category": CAT_HEADER,
+                    "symbolSize": 12,
+                    "symbol": "rect",
+                    "label": {
+                        "show": True,
+                        "position": "right",
+                        "formatter": subheader_text,
+                        "fontSize": 11,
+                        "color": "#64748b",
+                    },
+                    "itemStyle": {"color": "transparent", "borderWidth": 0},
+                    "side": "instrument",
+                    "node_type": "channel_header",
+                    "interactive": False,
+                    "role": role,
+                    "channel": ch,
+                })
+                y += NODE_GAP * 0.7
+
+                # Show each terminal as a connection point
+                for term in terminals:
+                    terminal_key = f"{role}:{ch}:{term}"
+                    is_used = state.is_terminal_used(role, ch, term)
+                    is_compatible = channel_key in state.compatible_channels
+                    has_selection = state.selected_pin is not None
+
+                    # Determine category
+                    if is_used:
+                        cat = CAT_CONNECTED
+                    elif is_compatible and has_selection:
+                        cat = CAT_COMPATIBLE
+                    else:
+                        cat = CAT_INSTRUMENT
+
+                    # Format terminal label (HI, LO, etc.)
+                    term_label = term.upper()
+
+                    node = {
+                        "name": terminal_key,
+                        "x": RIGHT_X + 20,  # Indent terminals slightly
+                        "y": y,
+                        "category": cat,
+                        "symbolSize": NODE_SIZE - 2,
+                        "symbol": "circle",
+                        "label": {
+                            "show": True,
+                            "position": "right",
+                            "formatter": term_label,
+                            "fontSize": 11,
+                        },
+                        "side": "instrument",
+                        "node_type": "terminal",
+                        "interactive": True,
+                        "role": role,
+                        "channel": ch,
+                        "terminal": term,
+                        "ground": ground_type,
+                    }
+
+                    if is_compatible and has_selection and not is_used:
+                        node["itemStyle"] = {
+                            "borderColor": "#22c55e",
+                            "borderWidth": 3,
+                            "shadowColor": "rgba(34,197,94,0.4)",
+                            "shadowBlur": 8,
+                        }
+                    elif has_selection and not is_compatible and not is_used:
+                        node["itemStyle"] = {"opacity": 0.3}
+                    elif is_used:
+                        node["itemStyle"] = {
+                            "color": "#22c55e",
+                            "borderColor": "#16a34a",
+                            "borderWidth": 2,
+                        }
+
+                    nodes.append(node)
+                    y += NODE_GAP * 0.7
+
+            else:
+                # No terminal info - show channel as a single node (legacy/fallback)
+                # Without terminal info, we can't show ground indicators since
+                # we don't know if there's a wirable ground connection
+                is_used = state.is_channel_used(role, ch)
+                is_compatible = channel_key in state.compatible_channels
+                has_selection = state.selected_pin is not None
+
+                if is_used:
+                    cat = CAT_CONNECTED
+                elif is_compatible and has_selection:
+                    cat = CAT_COMPATIBLE
+                else:
+                    cat = CAT_INSTRUMENT
+
+                label_text = ch_label
+
+                node = {
+                    "name": channel_key,
+                    "x": RIGHT_X,
+                    "y": y,
+                    "category": cat,
+                    "symbolSize": NODE_SIZE,
+                    "symbol": "circle",
+                    "label": {
+                        "show": True,
+                        "position": "right",
+                        "formatter": label_text,
+                        "fontSize": 12,
+                    },
+                    "side": "instrument",
+                    "node_type": "channel",
+                    "interactive": True,
+                    "role": role,
+                    "channel": ch,
+                    "ground": ground_type,
                 }
-            elif has_selection and not is_compatible and not is_used:
-                node["itemStyle"] = {"opacity": 0.3}
-            elif is_used:
-                node["itemStyle"] = {
-                    "color": "#22c55e",
-                    "borderColor": "#16a34a",
-                    "borderWidth": 2,
-                }
 
-            nodes.append(node)
-            y += NODE_GAP
+                if is_compatible and has_selection and not is_used:
+                    node["itemStyle"] = {
+                        "borderColor": "#22c55e",
+                        "borderWidth": 3,
+                        "shadowColor": "rgba(34,197,94,0.4)",
+                        "shadowBlur": 8,
+                    }
+                elif has_selection and not is_compatible and not is_used:
+                    node["itemStyle"] = {"opacity": 0.3}
+                elif is_used:
+                    node["itemStyle"] = {
+                        "color": "#22c55e",
+                        "borderColor": "#16a34a",
+                        "borderWidth": 2,
+                    }
+
+                nodes.append(node)
+                y += NODE_GAP
 
         y += GROUP_GAP - NODE_GAP
 
@@ -312,6 +448,10 @@ def build_links(
     if not n_conns:
         return links, waypoints
 
+    # Sort connections by source (DUT pin) Y position so top-to-bottom pins
+    # get left-to-right vertical lanes in the corridor
+    conn_list.sort(key=lambda item: node_y.get(item[1]["dut_pin"], 0))
+
     # Spread verticals evenly across the corridor
     corridor_left = LEFT_X + 60
     corridor_right = RIGHT_X - 60
@@ -322,9 +462,16 @@ def build_links(
     source_y_groups: dict[float, list[int]] = {}
     target_y_groups: dict[float, list[int]] = {}
 
+    def _make_target_key(conn: dict) -> str:
+        """Build target node key from connection, including terminal if present."""
+        base = f"{conn['instrument']}:{conn['channel']}"
+        if conn.get("terminal"):
+            return f"{base}:{conn['terminal']}"
+        return base
+
     for idx, (point_name, conn) in enumerate(conn_list):
         source = conn["dut_pin"]
-        target = f"{conn['instrument']}:{conn['channel']}"
+        target = _make_target_key(conn)
         sy = node_y.get(source, 0)
         ty = node_y.get(target, 0)
         source_y_groups.setdefault(sy, []).append(idx)
@@ -363,7 +510,15 @@ def build_links(
 
     for idx, (point_name, conn) in enumerate(conn_list):
         source = conn["dut_pin"]
-        target = f"{conn['instrument']}:{conn['channel']}"
+        target = _make_target_key(conn)
+
+        # Skip connections to non-existent nodes (orphaned fixture data)
+        if source not in node_y or target not in node_y:
+            continue
+
+        # Determine target X position (terminals are indented)
+        target_x = RIGHT_X + 20 if conn.get("terminal") else RIGHT_X
+
         src_orig_y = node_y.get(source, 0)
         tgt_orig_y = node_y.get(target, 0)
         src_offset = source_offsets.get(idx, 0)
@@ -408,7 +563,7 @@ def build_links(
 
         if tgt_offset:
             stub_r = f"__wp_{point_name}_sr"
-            waypoints.append(_make_wp(stub_r, RIGHT_X, tgt_y))
+            waypoints.append(_make_wp(stub_r, target_x, tgt_y))
             chain.append(stub_r)
 
         chain.append(target)
@@ -436,7 +591,7 @@ def build_categories() -> list[dict]:
         {"name": "Reference", "itemStyle": {"color": "#94a3b8", "borderColor": "#64748b"}},
         # CAT_UNUSED (2)
         {"name": "Unused", "itemStyle": {"color": "#6b7280", "borderColor": "#4b5563"}},
-        # CAT_INSTRUMENT (3)
+        # CAT_INSTRUMENT (3) — shared ground channel
         {"name": "Instrument", "itemStyle": {"color": "#8b5cf6", "borderColor": "#7c3aed"}},
         # CAT_HEADER (4)
         {"name": "Header", "itemStyle": {"color": "transparent", "borderColor": "transparent"}},
@@ -446,6 +601,8 @@ def build_categories() -> list[dict]:
         {"name": "Compatible", "itemStyle": {"color": "#22c55e", "borderColor": "#16a34a"}},
         # CAT_CONNECTED (7)
         {"name": "Connected", "itemStyle": {"color": "#22c55e", "borderColor": "#16a34a"}},
+        # CAT_FLOATING (8) — floating/isolated channel
+        {"name": "Floating", "itemStyle": {"color": "#f59e0b", "borderColor": "#d97706"}},
     ]
 
 

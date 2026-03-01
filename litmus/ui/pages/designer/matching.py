@@ -12,9 +12,15 @@ Phase 3: Report unmatched pins
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
-from litmus.config.models import Direction, MeasurementFunction, Signal
+from litmus.config.models import (
+    Capability,
+    Direction,
+    InstrumentCapability,
+    MeasurementFunction,
+    Signal,
+)
 
 if TYPE_CHECKING:
     from litmus.products.models import Product
@@ -80,19 +86,12 @@ def get_compatible_channels_for_pin(
     if not char_names or not product:
         return all_channels
 
-    # Build required capabilities from characteristics
-    requirements: list[dict[str, Any]] = []
+    # Get required capabilities from characteristics
+    requirements: list[Capability] = []
     for char_name in char_names:
         char = product.characteristics.get(char_name)
-        if not char:
-            continue
-        requirements.append(
-            {
-                "function": char.function,
-                "direction": char.direction,
-                "signals": char.signals,
-            }
-        )
+        if char:
+            requirements.append(char)
 
     if not requirements:
         return all_channels
@@ -137,7 +136,7 @@ def _get_pin_role(pin_key: str, dut_pins: dict[str, dict] | None) -> str:
 
 
 def _get_channels_satisfying(
-    capabilities: list[dict], requirement: dict[str, Any]
+    capabilities: list[InstrumentCapability], requirement: Capability
 ) -> list[str]:
     """Get channels from capabilities that satisfy a requirement.
 
@@ -145,19 +144,19 @@ def _get_channels_satisfying(
     AND parameter ranges. Readback capabilities are excluded.
     If a matching capability has no channels field, returns ["1"] as default.
     """
-    req_function = requirement["function"]
-    req_direction = requirement["direction"]
-    req_measures = requirement.get("signals", {})
+    req_function = requirement.function
+    req_direction = requirement.direction
+    req_signals = requirement.signals or {}
 
     matching_channels: list[str] = []
 
     for cap in capabilities:
         # Skip readback capabilities — not primary measurement
-        if cap.get("readback", False):
+        if cap.readback:
             continue
 
-        cap_function = cap.get("function", "")
-        cap_direction = cap.get("direction", "")
+        cap_function = cap.function
+        cap_direction = cap.direction
 
         # Parse enums if they're strings
         try:
@@ -177,11 +176,11 @@ def _get_channels_satisfying(
             continue
 
         # Signal range check
-        if not _signals_satisfy(cap.get("signals", {}), req_measures):
+        if not _signals_satisfy(cap.signals or {}, req_signals):
             continue
 
         # This capability matches — extract its channels
-        raw_channels = cap.get("channels")
+        raw_channels = cap.channels
         if raw_channels and isinstance(raw_channels, list):
             matching_channels.extend(raw_channels)
         elif raw_channels and isinstance(raw_channels, str):
@@ -194,7 +193,7 @@ def _get_channels_satisfying(
 
 
 def _signals_satisfy(
-    cap_measures: dict[str, Any], req_measures: dict[str, Signal]
+    cap_measures: dict[str, Signal], req_measures: dict[str, Signal]
 ) -> bool:
     """Check if capability signals satisfy required signals.
 
@@ -202,45 +201,40 @@ def _signals_satisfy(
     a 6 mA requirement is correctly compared against a 5 A capability.
     """
     for measure_name, req_measure in req_measures.items():
-        cap_measure_data = cap_measures.get(measure_name)
-        if cap_measure_data is None:
+        cap_signal = cap_measures.get(measure_name)
+        if cap_signal is None:
             if req_measure.range is not None or req_measure.value is not None:
                 return False
             continue
 
-        # Parse cap_measure into range data for comparison
-        cap_range = cap_measure_data.get("range") if isinstance(cap_measure_data, dict) else None
+        cap_range = cap_signal.range
 
         # Determine unit scale factor: convert requirement values into
         # the capability's unit scale so numbers are directly comparable.
         req_units = req_measure.units
-        cap_units = None
-        if isinstance(cap_measure_data, dict):
-            cap_units = cap_measure_data.get("units")
-            if not cap_units and cap_range:
-                cap_units = cap_range.get("units")
+        cap_units = cap_signal.units or (cap_range.units if cap_range else None)
         scale = _unit_scale_factor(req_units, cap_units)
 
         # Check value containment (scale requirement value to cap units)
         if req_measure.value is not None and cap_range:
             scaled_val = req_measure.value * scale
-            if cap_range.get("min") is not None and scaled_val < cap_range["min"]:
+            if cap_range.min is not None and scaled_val < cap_range.min:
                 return False
-            if cap_range.get("max") is not None and scaled_val > cap_range["max"]:
+            if cap_range.max is not None and scaled_val > cap_range.max:
                 return False
 
         # Check range containment (scale requirement range to cap units)
         if req_measure.range is not None and cap_range:
             if (
                 req_measure.range.min is not None
-                and cap_range.get("min") is not None
-                and req_measure.range.min * scale < cap_range["min"]
+                and cap_range.min is not None
+                and req_measure.range.min * scale < cap_range.min
             ):
                 return False
             if (
                 req_measure.range.max is not None
-                and cap_range.get("max") is not None
-                and req_measure.range.max * scale > cap_range["max"]
+                and cap_range.max is not None
+                and req_measure.range.max * scale > cap_range.max
             ):
                 return False
 
@@ -343,19 +337,8 @@ def resolve_instrument_capabilities(station_config) -> dict:
 
             entry = resolve_catalog_ref(catalog_ref)
             if entry:
-                inst["capabilities"] = [
-                    {
-                        "function": cap.function.value,
-                        "direction": cap.direction.value,
-                        "channels": cap.resolved_channels,
-                        "readback": cap.readback,
-                        "signals": {
-                            name: m.model_dump(exclude_none=True)
-                            for name, m in cap.signals.items()
-                        },
-                    }
-                    for cap in entry.capabilities
-                ]
+                # Store InstrumentCapability objects directly (not dicts)
+                inst["capabilities"] = list(entry.capabilities)
                 if not inst.get("channels"):
                     inst["channels"] = entry.channel_names
                 continue
