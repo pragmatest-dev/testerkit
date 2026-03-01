@@ -23,13 +23,11 @@ Run with:
     pytest tests/test_architect.py --station=demo_station_001 --mock-instruments -v
 """
 
-import pytest
 
 from litmus.config.models import Limit
 from litmus.data.models import Outcome
 from litmus.execution.decorators import litmus_step, measure
 from litmus.execution.harness import TestHarness
-
 
 # =============================================================================
 # Pattern A: @measure Decorator
@@ -100,7 +98,7 @@ class TestMeasureDecorator:
         current = measure_input_current(psu)
 
         # Calculate derived value manually
-        power = float(voltage.value) * float(current.value)
+        power = (voltage.value or 0.0) * (current.value or 0.0)
 
         # Log derived value manually (not decorated)
         litmus_logger.measure(

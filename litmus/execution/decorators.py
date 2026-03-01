@@ -210,9 +210,9 @@ def litmus_test(
             return dmm.measure()
     """
 
-    def decorator(fn: Callable[..., Any]) -> Callable[..., None]:
+    def decorator(fn: Callable[..., Any]) -> Callable[..., Any]:
         @wraps(fn)
-        def wrapper(*args: Any, **kwargs: Any) -> None:
+        def wrapper(*args: Any, **kwargs: Any) -> Any:
             # Import here to avoid circular dependency
             from pathlib import Path
 
@@ -236,7 +236,7 @@ def litmus_test(
                     resolved_config = dict(_CURRENT_STEP_CONFIG)
                     if "limits" in _CURRENT_STEP_CONFIG:
                         resolved_limits = _CURRENT_STEP_CONFIG["limits"]
-                    if "retry" in _CURRENT_STEP_CONFIG:
+                    if _CURRENT_STEP_CONFIG.get("retry"):
                         from litmus.config.models import RetryConfig as _RC
                         r = _CURRENT_STEP_CONFIG["retry"]
                         resolved_retry = r if isinstance(r, _RC) else _RC.model_validate(r)

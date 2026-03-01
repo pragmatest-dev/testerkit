@@ -726,8 +726,13 @@ class ParquetBackend:
         if not runs_dir.exists():
             return runs
 
-        # Collect all measurement files across date/run directories
-        parquet_files = sorted(runs_dir.rglob("measurements.parquet"), reverse=True)
+        # Collect all parquet files across date directories
+        # Files are named: {timestamp}_{serial}.parquet or {timestamp}.parquet
+        # Skip _ref directories
+        parquet_files = sorted(
+            (p for p in runs_dir.rglob("*.parquet") if "_ref" not in p.parent.name),
+            reverse=True,
+        )
 
         for pq_file in parquet_files:
             if len(runs) >= limit:
@@ -768,6 +773,35 @@ class ParquetBackend:
         runs.sort(key=lambda x: x.get("started_at") or "", reverse=True)
         return runs[:limit]
 
+    def _find_run_file(self, run_id: str) -> Path | None:
+        """Find parquet file for a run_id (cached)."""
+        runs_dir = self.results_dir / "runs"
+        if not runs_dir.exists():
+            return None
+
+        run_prefix = run_id[:8] if len(run_id) >= 8 else run_id
+
+        # Sort by date folder descending, then by filename descending (most recent first)
+        date_dirs = sorted(runs_dir.iterdir(), reverse=True) if runs_dir.exists() else []
+        for date_dir in date_dirs:
+            if not date_dir.is_dir():
+                continue
+            for pq_file in sorted(date_dir.glob("*.parquet"), reverse=True):
+                if "_ref" in pq_file.parent.name:
+                    continue
+                try:
+                    # Read just first row to check run_id
+                    pf = pq.ParquetFile(pq_file)
+                    table = pf.read_row_group(0, columns=["run_id"])
+                    if table.num_rows == 0:
+                        continue
+                    file_run_id = table.to_pylist()[0].get("run_id", "")
+                    if file_run_id.startswith(run_prefix) or run_prefix in file_run_id:
+                        return pq_file
+                except Exception:
+                    continue
+        return None
+
     def get_run(self, run_id: str) -> dict | None:
         """Get a specific test run by ID.
 
@@ -777,66 +811,57 @@ class ParquetBackend:
         Returns:
             Test run summary record or None if not found.
         """
-        runs_dir = self.results_dir / "runs"
-
-        if not runs_dir.exists():
+        pq_file = self._find_run_file(run_id)
+        if pq_file is None:
             return None
 
-        # Search for matching run directory
-        for date_dir in runs_dir.iterdir():
-            if not date_dir.is_dir():
-                continue
-            for run_dir in date_dir.iterdir():
-                if run_id in run_dir.name:
-                    measurements_file = run_dir / "measurements.parquet"
-                    if measurements_file.exists():
-                        table = pq.read_table(measurements_file)
-                        if table.num_rows > 0:
-                            row = table.to_pylist()[0]
-                            return {
-                                "test_run_id": row.get("run_id"),
-                                "started_at": row.get("run_started_at"),
-                                "ended_at": row.get("run_ended_at"),
-                                "dut_serial": row.get("dut_serial"),
-                                "dut_part_number": row.get("dut_part_number"),
-                                "product_id": row.get("product_id"),
-                                "station_id": row.get("station_id"),
-                                "station_type": row.get("station_type"),
-                                "test_sequence_id": row.get("sequence_id"),
-                                "test_phase": row.get("test_phase"),
-                                "operator": row.get("operator_id"),
-                                "outcome": row.get("run_outcome"),
-                                "total_measurements": table.num_rows,
-                            }
+        try:
+            table = pq.read_table(pq_file)
+            if table.num_rows == 0:
+                return None
+            row = table.to_pylist()[0]
+            return {
+                "test_run_id": row.get("run_id"),
+                "started_at": row.get("run_started_at"),
+                "ended_at": row.get("run_ended_at"),
+                "dut_serial": row.get("dut_serial"),
+                "dut_part_number": row.get("dut_part_number"),
+                "product_id": row.get("product_id"),
+                "station_id": row.get("station_id"),
+                "station_type": row.get("station_type"),
+                "test_sequence_id": row.get("sequence_id"),
+                "test_phase": row.get("test_phase"),
+                "operator": row.get("operator_id"),
+                "outcome": row.get("run_outcome"),
+                "total_measurements": table.num_rows,
+                "_file": str(pq_file),  # Cache file path for get_measurements
+            }
+        except Exception:
+            return None
 
-        return None
-
-    def get_measurements(self, run_id: str) -> list[dict]:
+    def get_measurements(self, run_id: str, *, _file: str | None = None) -> list[dict]:
         """Get all measurements for a specific test run.
 
         Args:
             run_id: The test run ID (can be partial, at least 8 chars).
+            _file: Cached file path from get_run (optimization).
 
         Returns:
             List of measurement records for the run.
         """
-        runs_dir = self.results_dir / "runs"
+        if _file:
+            pq_file = Path(_file)
+        else:
+            pq_file = self._find_run_file(run_id)
 
-        if not runs_dir.exists():
+        if pq_file is None or not pq_file.exists():
             return []
 
-        # Search for matching run directory
-        for date_dir in runs_dir.iterdir():
-            if not date_dir.is_dir():
-                continue
-            for run_dir in date_dir.iterdir():
-                if run_id in run_dir.name:
-                    measurements_file = run_dir / "measurements.parquet"
-                    if measurements_file.exists():
-                        table = pq.read_table(measurements_file)
-                        return table.to_pylist()
-
-        return []
+        try:
+            table = pq.read_table(pq_file)
+            return table.to_pylist()
+        except Exception:
+            return []
 
     def get_vectors(self, run_id: str) -> list[dict]:
         """Get unique test vectors for a specific test run.
@@ -899,19 +924,25 @@ class ParquetBackend:
         if not runs_dir.exists():
             return None
 
-        for date_dir in runs_dir.iterdir():
-            if not date_dir.is_dir():
+        run_prefix = run_id[:8] if len(run_id) >= 8 else run_id
+        for pq_file in runs_dir.rglob("*.parquet"):
+            if "_ref" in pq_file.parent.name:
                 continue
-            for run_dir in date_dir.iterdir():
-                if run_id in run_dir.name:
-                    measurements_file = run_dir / "measurements.parquet"
-                    if measurements_file.exists():
-                        pf = pq.ParquetFile(measurements_file)
-                        raw_metadata = pf.schema_arrow.metadata or {}
-                        # Decode bytes to strings
-                        return {
-                            k.decode("utf-8"): v.decode("utf-8") for k, v in raw_metadata.items()
-                        }
+            try:
+                pf = pq.ParquetFile(pq_file)
+                # Quick check: read first row to get run_id
+                table = pf.read_row_group(0)
+                if table.num_rows == 0:
+                    continue
+                row = table.to_pylist()[0]
+                file_run_id = row.get("run_id", "")
+                if file_run_id.startswith(run_prefix) or run_prefix in file_run_id:
+                    raw_metadata = pf.schema_arrow.metadata or {}
+                    return {
+                        k.decode("utf-8"): v.decode("utf-8") for k, v in raw_metadata.items()
+                    }
+            except Exception:
+                continue
 
         return None
 

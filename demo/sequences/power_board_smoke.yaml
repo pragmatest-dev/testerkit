@@ -17,12 +17,12 @@ steps:
     dmm.measure_dc_voltage: 3.3
     psu.measure_current: 0.005
   limits:
-    test_output_voltage_no_load:
+    output_voltage:
       low: 3.234
       high: 3.366
       nominal: 3.3
       units: V
-      spec_ref: output_voltage @ load=0.1A, temp=25C
+      ref: output_voltage
       comparator: GELE
 - id: load_test
   test: tests/test_power_board.py::test_output_voltage_full_load
@@ -41,12 +41,12 @@ steps:
     max_attempts: 3
     delay_seconds: 0.5
   limits:
-    test_output_voltage_full_load:
+    output_voltage:
       low: 3.201
       high: 3.399
       nominal: 3.3
       units: V
-      spec_ref: output_voltage @ load=0.8A, temp=25C
+      ref: output_voltage
 - id: quiescent
   test: tests/test_power_board.py::test_quiescent_current
   description: Verify low standby current
@@ -55,13 +55,13 @@ steps:
   mocks:
     psu.measure_current: 0.005
   limits:
-    test_quiescent_current:
+    quiescent_current:
       low: 0
       high: 10
       nominal: 5
       units: mA
       comparator: LE
-      spec_ref: quiescent_current @ no load
+      ref: quiescent_current
 - id: regulation_sweep
   test: tests/test_power_board.py::test_load_sweep
   description: Sweep load from 100mA to 800mA
@@ -84,12 +84,12 @@ steps:
     - 0.6
     - 0.8
   limits:
-    test_load_sweep:
+    output_voltage:
       low: 3.1
       high: 3.5
       nominal: 3.3
       units: V
-      spec_ref: output_voltage - line/load regulation
+      ref: output_voltage
 dialogs:
   confirm_dut_inserted:
     id: confirm_dut_inserted

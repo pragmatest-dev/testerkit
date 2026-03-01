@@ -50,7 +50,7 @@ class DMM:
         Returns:
             Voltage in Volts.
         """
-        pass
+        raise NotImplementedError
 
     def measure_ac_voltage(self) -> float:
         """Signal AC voltage (RMS).
@@ -58,7 +58,7 @@ class DMM:
         Returns:
             Voltage in Volts RMS.
         """
-        pass
+        raise NotImplementedError
 
     def measure_voltage(self) -> float:
         """Signal voltage (alias for measure_dc_voltage).
@@ -75,7 +75,7 @@ class DMM:
         Returns:
             Current in Amps.
         """
-        pass
+        raise NotImplementedError
 
     def measure_ac_current(self) -> float:
         """Signal AC current (RMS).
@@ -83,7 +83,7 @@ class DMM:
         Returns:
             Current in Amps RMS.
         """
-        pass
+        raise NotImplementedError
 
     def measure_current(self) -> float:
         """Signal current (alias for measure_dc_current).
@@ -100,7 +100,7 @@ class DMM:
         Returns:
             Resistance in Ohms.
         """
-        pass
+        raise NotImplementedError
 
     def measure_4wire_resistance(self) -> float:
         """Signal 4-wire (Kelvin) resistance.
@@ -108,7 +108,7 @@ class DMM:
         Returns:
             Resistance in Ohms.
         """
-        pass
+        raise NotImplementedError
 
     # Configuration
     def configure_voltage_range(self, range_val: float | str) -> None:
@@ -117,7 +117,7 @@ class DMM:
         Args:
             range_val: Range in Volts, or "AUTO" for autoranging.
         """
-        pass
+        raise NotImplementedError
 
     def configure_current_range(self, range_val: float | str) -> None:
         """Configure current measurement range.
@@ -125,4 +125,4 @@ class DMM:
         Args:
             range_val: Range in Amps, or "AUTO" for autoranging.
         """
-        pass
+        raise NotImplementedError

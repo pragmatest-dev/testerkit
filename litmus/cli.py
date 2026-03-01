@@ -142,7 +142,7 @@ def _discover_instruments(interactive: bool = True) -> dict | None:
 
                 entry = find_by_model(info.manufacturer, info.model)
                 if entry and entry.type:
-                    role = entry.type.value
+                    role = entry.type
             except Exception:
                 pass
 

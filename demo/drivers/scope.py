@@ -57,19 +57,19 @@ class Scope:
             - samples: List of voltage values
             - dt: Time between samples in seconds
         """
-        pass
+        raise NotImplementedError
 
     def run(self) -> None:
         """Start continuous acquisition."""
-        pass
+        raise NotImplementedError
 
     def stop(self) -> None:
         """Stop acquisition."""
-        pass
+        raise NotImplementedError
 
     def single(self) -> None:
         """Arm for single acquisition."""
-        pass
+        raise NotImplementedError
 
     # Configuration
     def configure_channel(
@@ -87,7 +87,7 @@ class Scope:
             offset: Vertical offset in Volts
             coupling: "DC", "AC", or "GND"
         """
-        pass
+        raise NotImplementedError
 
     def configure_timebase(self, scale: float, position: float = 0.0) -> None:
         """Configure horizontal timebase.
@@ -96,7 +96,7 @@ class Scope:
             scale: Seconds per division
             position: Horizontal position in seconds
         """
-        pass
+        raise NotImplementedError
 
     def configure_trigger(
         self,
@@ -113,7 +113,7 @@ class Scope:
             slope: "rising" or "falling"
             mode: Trigger mode (e.g., "edge", "pulse")
         """
-        pass
+        raise NotImplementedError
 
     # Measurements
     def measure_frequency(self, channel: str) -> float:
@@ -125,7 +125,7 @@ class Scope:
         Returns:
             Frequency in Hz.
         """
-        pass
+        raise NotImplementedError
 
     def measure_vpp(self, channel: str) -> float:
         """Signal peak-to-peak voltage on a channel.
@@ -136,7 +136,7 @@ class Scope:
         Returns:
             Peak-to-peak voltage in Volts.
         """
-        pass
+        raise NotImplementedError
 
     def measure_vrms(self, channel: str) -> float:
         """Signal RMS voltage on a channel.
@@ -147,4 +147,4 @@ class Scope:
         Returns:
             RMS voltage in Volts.
         """
-        pass
+        raise NotImplementedError

@@ -35,15 +35,15 @@ PATTERNS DEMONSTRATED:
 Run with:
     cd demo
     # Ad-hoc (uses inline decorator config):
-    pytest tests/test_power_board.py::test_output_voltage_no_load --station=demo_station_001 --mock-instruments -v
+    pytest tests/test_power_board.py::test_output_voltage_no_load \
+        --station=demo_station_001 --mock-instruments -v
     # Orchestrated (uses sequence step config):
-    pytest tests/test_power_board.py --sequence=power_board_smoke --station=demo_station_001 --mock-instruments -v
+    pytest tests/test_power_board.py --sequence=power_board_smoke \
+        --station=demo_station_001 --mock-instruments -v
 """
 
 import random
 import time
-
-import pytest
 
 from litmus.execution import litmus_test
 
@@ -56,15 +56,18 @@ from litmus.execution import litmus_test
         "vectors": [{"vin": 5.0}],
         "mocks": {"dmm.measure_dc_voltage": 3.3, "psu.measure_current": 0.005},
         "limits": {
-            "test_output_voltage_no_load": {
+            "output_voltage": {
                 "low": 3.234, "high": 3.366, "nominal": 3.3,
-                "units": "V", "spec_ref": "output_voltage @ load=0.1A, temp=25C",
+                "units": "V", "ref": "output_voltage",
             }
         },
     }
 )
 def test_output_voltage_no_load(context, psu, dmm):
     """Verify output voltage at no load.
+
+    Naming: The limit key 'output_voltage' names the measurement.
+    You can also return {"output_voltage": value} for explicit naming.
 
     Inline config provides dev defaults. When run with --sequence,
     the sequence step config overrides these values entirely.
@@ -75,6 +78,7 @@ def test_output_voltage_no_load(context, psu, dmm):
     psu.set_current_limit(0.1)
     psu.enable_output()
 
+    # Single return value - measurement name inferred from limit key
     return dmm.measure_dc_voltage()
 
 
@@ -87,9 +91,9 @@ def test_output_voltage_no_load(context, psu, dmm):
         "mocks": {"dmm.measure_dc_voltage": 3.28, "psu.measure_current": 0.85},
         "retry": {"max_attempts": 3, "delay_seconds": 0.5},
         "limits": {
-            "test_output_voltage_full_load": {
+            "output_voltage": {
                 "low": 3.201, "high": 3.399, "nominal": 3.3,
-                "units": "V", "spec_ref": "output_voltage @ load=0.8A, temp=25C",
+                "units": "V", "ref": "output_voltage",
             }
         },
     }
@@ -129,9 +133,9 @@ def test_output_voltage_full_load(context, psu, dmm, eload):
              "_mocks": {"dmm.measure_dc_voltage": 3.28, "psu.measure_current": 0.85}},
         ],
         "limits": {
-            "test_load_regulation": {
+            "output_voltage": {
                 "low": 3.2, "high": 3.4, "nominal": 3.3,
-                "units": "V", "spec_ref": "output_voltage over load range",
+                "units": "V", "ref": "output_voltage",
             }
         },
     }
@@ -168,9 +172,9 @@ def test_load_regulation(context, psu, dmm, eload):
             "load_current": [0.1, 0.25, 0.4, 0.6, 0.8],
         },
         "limits": {
-            "test_load_sweep": {
+            "output_voltage": {
                 "low": 3.1, "high": 3.5, "nominal": 3.3,
-                "units": "V", "spec_ref": "output_voltage - line/load regulation",
+                "units": "V", "ref": "output_voltage",
             }
         },
     }
@@ -212,9 +216,9 @@ def test_load_sweep(context, psu, dmm, eload):
             ],
         },
         "limits": {
-            "test_temp_load_matrix": {
+            "output_voltage": {
                 "low": 3.0, "high": 3.6, "nominal": 3.3,
-                "units": "V", "spec_ref": "output_voltage - characterization",
+                "units": "V", "ref": "output_voltage",
             }
         },
     }
@@ -224,13 +228,12 @@ def test_temp_load_matrix(context, psu, dmm, eload):
 
     4×5 = 20 vectors. Uses context.changed() for outer parameter changes.
     """
-    temp = context.inputs["temperature"]
+    _temp = context.inputs["temperature"]  # Unused in demo; would set chamber temp
     load = context.inputs["load_current"]
 
     # Temperature is outer loop - changes less frequently
     if context.changed("temperature"):
-        # In production: set_chamber_temperature(temp)
-        # Here we just log it
+        # In production: set_chamber_temperature(_temp)
         pass
 
     psu.set_voltage(5.0)
@@ -257,9 +260,9 @@ def test_temp_load_matrix(context, psu, dmm, eload):
             "start": 4.5, "stop": 5.5, "step": 0.1,
         },
         "limits": {
-            "test_line_regulation": {
+            "output_voltage": {
                 "low": 3.2, "high": 3.4, "nominal": 3.3,
-                "units": "V", "spec_ref": "line regulation",
+                "units": "V", "ref": "output_voltage",
             }
         },
     }
@@ -349,9 +352,9 @@ def test_power_analysis(context, psu, dmm, eload):
         "vectors": [{"vin": 5.0}],
         "mocks": {"psu.measure_current": 0.005},
         "limits": {
-            "test_quiescent_current": {
+            "quiescent_current": {
                 "low": 0, "high": 10, "nominal": 5, "units": "mA",
-                "comparator": "LE", "spec_ref": "quiescent_current @ no load",
+                "comparator": "LE", "ref": "quiescent_current",
             }
         },
     }
@@ -414,9 +417,9 @@ def test_stability_over_time(context, psu, dmm, eload):
         "vectors": [{"vin": 5.0, "load_current": 0.5}],
         "mocks": {"dmm.measure_dc_voltage": 0.05},
         "limits": {
-            "test_thermal_shutdown": {
+            "output_voltage": {
                 "low": 0, "high": 0.1, "nominal": 0, "units": "V",
-                "spec_ref": "thermal shutdown - output should collapse",
+                "ref": "output_voltage",
             }
         },
     }
@@ -453,9 +456,9 @@ def test_thermal_shutdown(context, psu, dmm, eload):
             ],
         },
         "limits": {
-            "test_output_ripple": {
+            "output_ripple": {
                 "low": 0, "high": 50, "nominal": 30, "units": "mV",
-                "comparator": "LE", "spec_ref": "output ripple @ 500mA load",
+                "comparator": "LE", "ref": "output_ripple",
             }
         },
     }
@@ -494,7 +497,7 @@ def test_output_ripple(context, psu, eload, scope):
         },
         "mocks": {"dmm.measure_dc_voltage": 3.3},
         "limits": {
-            "test_output_voltage_temp": {
+            "output_voltage": {
                 "callable": (
                     'temp = ctx.get_in("temperature")\n'
                     "if temp < 0:\n"
@@ -613,9 +616,9 @@ def test_efficiency_with_context(context, psu, dmm, eload):
             ],
         },
         "limits": {
-            "test_ripple_waveform_capture": {
+            "output_ripple": {
                 "low": 0, "high": 50, "nominal": 25, "units": "mV",
-                "comparator": "LE", "spec_ref": "output ripple with waveform capture",
+                "comparator": "LE", "ref": "output_ripple",
             }
         },
     }

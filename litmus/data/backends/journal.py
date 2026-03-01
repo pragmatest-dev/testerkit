@@ -284,7 +284,7 @@ class JournalWriter:
         elif isinstance(value, Waveform):
             filename = f"{prefix}.npz"
             try:
-                import numpy as np
+                import numpy as np  # type: ignore[import-not-found]
 
                 np.savez(
                     self.ref_dir / filename,
@@ -308,7 +308,7 @@ class JournalWriter:
         elif hasattr(value, "tolist"):
             filename = f"{prefix}.npy"
             try:
-                import numpy as np
+                import numpy as np  # type: ignore[import-not-found]
 
                 np.save(self.ref_dir / filename, value)
             except ImportError:

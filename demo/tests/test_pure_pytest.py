@@ -68,6 +68,7 @@ class TestPurePytest:
         )
 
         # Assert (you control the assertion)
+        assert limit.low is not None and limit.high is not None
         assert limit.low <= vout <= limit.high, f"Output {vout}V out of range"
 
     def test_multiple_measurements(self, psu, dmm, eload, litmus_logger):

@@ -52,7 +52,7 @@ class ELoad:
         Args:
             current: Current in Amps.
         """
-        pass
+        raise NotImplementedError
 
     # Load control - Constant Power mode
     def set_power(self, power: float) -> None:
@@ -61,7 +61,7 @@ class ELoad:
         Args:
             power: Power in Watts.
         """
-        pass
+        raise NotImplementedError
 
     # Load control - Constant Resistance mode
     def set_resistance(self, resistance: float) -> None:
@@ -70,16 +70,16 @@ class ELoad:
         Args:
             resistance: Resistance in Ohms.
         """
-        pass
+        raise NotImplementedError
 
     # Enable/disable
     def enable(self) -> None:
         """Enable the load."""
-        pass
+        raise NotImplementedError
 
     def disable(self) -> None:
         """Disable the load."""
-        pass
+        raise NotImplementedError
 
     def enable_load(self) -> None:
         """Enable the load (alias for enable)."""
@@ -96,7 +96,7 @@ class ELoad:
         Returns:
             Voltage in Volts.
         """
-        pass
+        raise NotImplementedError
 
     def measure_current(self) -> float:
         """Signal actual load current.
@@ -104,7 +104,7 @@ class ELoad:
         Returns:
             Current in Amps.
         """
-        pass
+        raise NotImplementedError
 
     def measure_power(self) -> float:
         """Signal actual power dissipation.
@@ -112,4 +112,4 @@ class ELoad:
         Returns:
             Power in Watts.
         """
-        pass
+        raise NotImplementedError

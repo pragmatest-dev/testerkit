@@ -7,6 +7,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from litmus.api.models import LaunchRequest, RunStatus
+from litmus.config.models import TestSequenceConfig
 
 
 @dataclass
@@ -31,9 +32,9 @@ class TestRunner:
     def __init__(self, results_dir: Path | str = "results"):
         self.results_dir = Path(results_dir)
         self.runs: dict[str, RunInfo] = {}
-        self._sequences: dict[str, dict] | None = None
+        self._sequences: dict[str, TestSequenceConfig] | None = None
 
-    def _load_sequence(self, sequence_id: str) -> dict | None:
+    def _load_sequence(self, sequence_id: str) -> TestSequenceConfig | None:
         """Load test sequence configuration by ID."""
         if self._sequences is None:
             self._sequences = self._discover_sequences()
@@ -71,7 +72,7 @@ class TestRunner:
 
         return test_nodes
 
-    def _discover_sequences(self) -> dict:
+    def _discover_sequences(self) -> dict[str, TestSequenceConfig]:
         """Discover test sequences from YAML configuration files."""
         from litmus.store import load_sequence
 

@@ -53,7 +53,7 @@ class PSU:
         Args:
             voltage: Voltage in Volts.
         """
-        pass
+        raise NotImplementedError
 
     def set_current(self, current: float) -> None:
         """Set output current (current limit in CV mode).
@@ -61,7 +61,7 @@ class PSU:
         Args:
             current: Current in Amps.
         """
-        pass
+        raise NotImplementedError
 
     def set_current_limit(self, current: float) -> None:
         """Set current limit (alias for set_current in CV mode).
@@ -77,7 +77,7 @@ class PSU:
         Args:
             channel: Channel to enable (e.g., "CH1"), or None for all.
         """
-        pass
+        raise NotImplementedError
 
     def disable_output(self, channel: str | None = None) -> None:
         """Disable output.
@@ -85,7 +85,7 @@ class PSU:
         Args:
             channel: Channel to disable (e.g., "CH1"), or None for all.
         """
-        pass
+        raise NotImplementedError
 
     # Readback
     def measure_voltage(self) -> float:
@@ -94,7 +94,7 @@ class PSU:
         Returns:
             Voltage in Volts.
         """
-        pass
+        raise NotImplementedError
 
     def measure_current(self) -> float:
         """Signal actual output current.
@@ -102,7 +102,7 @@ class PSU:
         Returns:
             Current in Amps.
         """
-        pass
+        raise NotImplementedError
 
     # Protection
     def set_ovp(self, voltage: float) -> None:
@@ -111,7 +111,7 @@ class PSU:
         Args:
             voltage: OVP threshold in Volts.
         """
-        pass
+        raise NotImplementedError
 
     def set_ocp(self, current: float) -> None:
         """Set over-current protection level.
@@ -119,4 +119,4 @@ class PSU:
         Args:
             current: OCP threshold in Amps.
         """
-        pass
+        raise NotImplementedError

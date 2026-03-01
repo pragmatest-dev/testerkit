@@ -16,8 +16,8 @@ DuckDB provides SQL queries over Parquet files with glob patterns,
 making it easy to analyze test results across multiple runs.
 """
 
+
 import duckdb
-from pathlib import Path
 
 # Results directory (relative to demo/)
 RESULTS_GLOB = "results/runs/**/*.parquet"
@@ -216,16 +216,18 @@ def export_to_csv(output_path: str = "results_export.csv"):
 def interactive():
     """Launch interactive DuckDB shell."""
     print("\nLaunching interactive DuckDB shell...")
-    print(f"Results loaded as: results (from {RESULTS_DIR})")
+    print(f"Results loaded as: results (from {RESULTS_GLOB})")
     print("Example: SELECT * FROM results LIMIT 10;")
     print("Type .exit to quit\n")
 
     # Create a view for convenience
-    duckdb.sql(f"CREATE OR REPLACE VIEW results AS SELECT * FROM read_parquet('{RESULTS_GLOB}', union_by_name=true)")
+    query = f"SELECT * FROM read_parquet('{RESULTS_GLOB}', union_by_name=true)"
+    duckdb.sql(f"CREATE OR REPLACE VIEW results AS {query}")
 
     # Start interactive mode
     import subprocess
-    subprocess.run(["duckdb", "-cmd", f"CREATE VIEW results AS SELECT * FROM read_parquet('{RESULTS_GLOB}', union_by_name=true)"])
+
+    subprocess.run(["duckdb", "-cmd", f"CREATE VIEW results AS {query}"])
 
 
 if __name__ == "__main__":
@@ -253,7 +255,8 @@ if __name__ == "__main__":
             interactive()
         else:
             print(f"Unknown command: {cmd}")
-            print("Available: summary, tests, recent, failed, dist <test>, cpk <test>, conditions, export, interactive")
+            print("Available: summary, tests, recent, failed, dist <test>, cpk <test>,")
+            print("           conditions, export, interactive")
     else:
         # Default: run all reports
         summary()
