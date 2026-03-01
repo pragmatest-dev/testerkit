@@ -76,9 +76,7 @@ def _make_yaml() -> YAML:
     ry = YAML()
     ry.default_flow_style = False
     ry.width = 120
-    ry.best_map_indent = 2
-    ry.best_sequence_indent = 2
-    ry.best_sequence_dash_offset = 0
+    ry.indent(mapping=2, sequence=2, offset=0)
     return ry
 
 

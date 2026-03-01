@@ -113,8 +113,10 @@ def _discover_instruments(interactive: bool = True) -> dict | None:
     click.echo("\nDiscovering instruments...")
     results = discover_and_identify(["visa"])
 
+    from litmus.instruments.discovery import InstrumentInfo
+
     # Flatten all discovered instruments
-    all_instruments: list[tuple[str, object]] = []
+    all_instruments: list[tuple[str, InstrumentInfo | None]] = []
     for _proto, items in results.items():
         all_instruments.extend(items)
 
@@ -123,7 +125,7 @@ def _discover_instruments(interactive: bool = True) -> dict | None:
         return None
 
     # First pass: determine default role for each instrument
-    pending: list[tuple[str, object, str]] = []  # (resource, info, default_role)
+    pending: list[tuple[str, InstrumentInfo | None, str]] = []
     for resource, info in all_instruments:
         if info:
             mfr = info.manufacturer or "Unknown"
@@ -153,7 +155,7 @@ def _discover_instruments(interactive: bool = True) -> dict | None:
         pending.append((resource, info, role))
 
     # Second pass: prompt for roles (interactive) or auto-assign
-    assigned: list[tuple[str, str, object]] = []  # (role, resource, info)
+    assigned: list[tuple[str, str, InstrumentInfo | None]] = []
     for resource, info, default_role in pending:
         if interactive:
             label = info.model if info and info.model else resource
@@ -692,11 +694,11 @@ def setup_claude_desktop(print_only: bool):
         Path("/proc/version").exists() and "microsoft" in Path("/proc/version").read_text().lower()
     )
 
+    username = os.environ.get("USERNAME") or os.environ.get("USER", "").split("@")[-1]
+
     if sys.platform == "win32":
         config_dir = Path(os.environ.get("APPDATA", "")) / "Claude"
     elif is_wsl:
-        # WSL: use Windows AppData via /mnt/c
-        username = os.environ.get("USERNAME") or os.environ.get("USER", "").split("@")[-1]
         config_dir = Path(f"/mnt/c/Users/{username}/AppData/Roaming/Claude")
     elif sys.platform == "darwin":
         config_dir = Path.home() / "Library" / "Application Support" / "Claude"
