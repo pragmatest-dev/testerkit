@@ -42,11 +42,17 @@ def _render_fixture_detail(fixture_id: str, config, products: dict):
                     ui.label(config.name or fixture_id).classes(
                         "text-xl font-semibold"
                     )
-                ui.button(
-                    "Edit",
-                    icon="edit",
-                    on_click=lambda: ui.navigate.to(f"/fixtures/{fixture_id}/edit"),
-                ).props("flat color=primary")
+                with ui.row().classes("gap-2"):
+                    ui.button(
+                        "Back",
+                        icon="arrow_back",
+                        on_click=lambda: ui.navigate.to("/fixtures"),
+                    ).props("flat")
+                    ui.button(
+                        "Edit",
+                        icon="edit",
+                        on_click=lambda: ui.navigate.to(f"/fixtures/{fixture_id}/edit"),
+                    ).props("flat color=primary")
 
         with ui.card_section():
             with ui.grid(columns=3).classes("gap-6"):

@@ -58,11 +58,17 @@ def _render_instrument_detail(instrument_type: str, entry):
                         ui.label(entry.type or instrument_type).classes(
                             "text-sm text-slate-500 font-mono"
                         )
-                ui.button(
-                    "Edit",
-                    icon="edit",
-                    on_click=lambda: ui.navigate.to(f"/instruments/{instrument_type}/edit"),
-                ).props("flat")
+                with ui.row().classes("gap-2"):
+                    ui.button(
+                        "Back",
+                        icon="arrow_back",
+                        on_click=lambda: ui.navigate.to("/instruments"),
+                    ).props("flat")
+                    ui.button(
+                        "Edit",
+                        icon="edit",
+                        on_click=lambda: ui.navigate.to(f"/instruments/{instrument_type}/edit"),
+                    ).props("flat")
 
         with ui.card_section():
             ui.label(entry.description or "").classes("text-slate-600")

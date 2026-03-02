@@ -73,11 +73,17 @@ def _render_sequence_detail(sequence_id: str, seq: TestSequenceConfig):
                         ui.badge(phase, color=phase_colors.get(phase, "gray")).props(
                             "outline"
                         )
-                ui.button(
-                    "Edit",
-                    icon="edit",
-                    on_click=lambda: ui.navigate.to(f"/sequences/{sequence_id}/edit"),
-                ).props("flat")
+                with ui.row().classes("gap-2"):
+                    ui.button(
+                        "Back",
+                        icon="arrow_back",
+                        on_click=lambda: ui.navigate.to("/sequences"),
+                    ).props("flat")
+                    ui.button(
+                        "Edit",
+                        icon="edit",
+                        on_click=lambda: ui.navigate.to(f"/sequences/{sequence_id}/edit"),
+                    ).props("flat")
 
         with ui.card_section():
             with ui.grid(columns=3).classes("gap-6"):

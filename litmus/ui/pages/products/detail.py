@@ -42,11 +42,17 @@ def _render_product_detail(product_id: str, product: dict):
                     ui.label("Product Information").classes("text-lg font-semibold")
                     if product.get("revision"):
                         ui.badge(f"Rev {product['revision']}").props("outline")
-                ui.button(
-                    "Edit",
-                    icon="edit",
-                    on_click=lambda: ui.navigate.to(f"/products/{product_id}/edit"),
-                ).props("flat color=primary")
+                with ui.row().classes("gap-2"):
+                    ui.button(
+                        "Back",
+                        icon="arrow_back",
+                        on_click=lambda: ui.navigate.to("/products"),
+                    ).props("flat")
+                    ui.button(
+                        "Edit",
+                        icon="edit",
+                        on_click=lambda: ui.navigate.to(f"/products/{product_id}/edit"),
+                    ).props("flat color=primary")
 
         with ui.card_section():
             with ui.grid(columns=2).classes("gap-6"):
@@ -182,10 +188,14 @@ def _render_sequences_tab(product_id: str):
                             ui.label(station["name"]).classes("font-semibold")
                             ui.label(station.get("location", "")).classes("text-xs text-slate-500")
                         with ui.card_actions():
+
+                            def go_to_station(_, s=station):
+                                ui.navigate.to(f"/stations/{s['id']}")
+
                             ui.button(
                                 "View",
                                 icon="visibility",
-                                on_click=lambda _, s=station: ui.navigate.to(f"/stations/{s['id']}"),
+                                on_click=go_to_station,
                             ).props("flat dense")
         else:
             ui.label("No compatible stations found.").classes("text-slate-500 italic mb-4")

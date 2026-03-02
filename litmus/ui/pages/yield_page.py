@@ -7,13 +7,31 @@ from litmus.ui.shared.layout import create_layout
 
 
 @ui.page("/yield")
-def yield_page():
-    """Yield analytics dashboard."""
+def yield_page(
+    results_dir: str = "demo/results",
+    phase: str = "production",
+    product: str = "",
+    station: str = "",
+    lot: str = "",
+    since: str = "",
+    until: str = "",
+):
+    """Yield analytics dashboard.
+
+    Args:
+        results_dir: Results directory path
+        phase: Test phase filter (production, qual, development, all)
+        product: Product ID filter
+        station: Station ID filter
+        lot: Lot number filter
+        since: Start date filter (YYYY-MM-DD)
+        until: End date filter (YYYY-MM-DD)
+    """
     create_layout("Yield Analytics")
 
     # Load initial data to populate dropdowns (reuse for initial render to avoid double-load)
     try:
-        initial_table = query.load_runs("demo/results")
+        initial_table = query.load_runs(results_dir)
         products = (
             _get_unique_values(initial_table, "dut_part_number")
             or _get_unique_values(initial_table, "product_id")
@@ -27,6 +45,27 @@ def yield_page():
         products = []
         stations = []
 
+    def update_url():
+        """Update URL with current filter values."""
+        params = []
+        if results_dir_input.value != "demo/results":
+            params.append(f"results_dir={results_dir_input.value}")
+        if phase_filter.value != "production":
+            params.append(f"phase={phase_filter.value}")
+        if product_filter.value and product_filter.value != "All":
+            params.append(f"product={product_filter.value}")
+        if station_filter.value and station_filter.value != "All":
+            params.append(f"station={station_filter.value}")
+        if lot_filter.value:
+            params.append(f"lot={lot_filter.value}")
+        if since_filter.value:
+            params.append(f"since={since_filter.value}")
+        if until_filter.value:
+            params.append(f"until={until_filter.value}")
+        query_str = "&".join(params)
+        new_url = f"/yield{'?' + query_str if query_str else ''}"
+        ui.run_javascript(f"history.replaceState(null, '', '{new_url}')")
+
     with ui.column().classes("w-full p-6 gap-6"):
         # Header with filters
         with ui.row().classes("items-center justify-between w-full"):
@@ -36,6 +75,7 @@ def yield_page():
 
         # Helper to trigger refresh from current filter values (closure captures by reference)
         def _do_refresh():
+            update_url()
             _refresh_dashboard(
                 results_dir_input.value,
                 phase_filter.value,
@@ -51,56 +91,60 @@ def yield_page():
                 time_stats_container,
             )
 
-        # Filters row
+        # Filters row - use URL params as initial values
         with ui.row().classes("gap-4 flex-wrap w-full"):
             results_dir_input = ui.input(
                 label="Results Directory",
-                value="demo/results",
+                value=results_dir,
             ).classes("w-64")
 
+            valid_phases = ["production", "qual", "development", "all"]
             phase_filter = ui.select(
-                ["production", "qual", "development", "all"],
-                value="production",
+                valid_phases,
+                value=phase if phase in valid_phases else "production",
                 label="Phase",
                 on_change=lambda _: _do_refresh(),
             ).classes("w-40")
 
             product_filter = ui.select(
                 ["All"] + products,
-                value="All",
+                value=product if product in products else "All",
                 label="Product",
                 on_change=lambda _: _do_refresh(),
             ).classes("w-48")
 
             station_filter = ui.select(
                 ["All"] + stations,
-                value="All",
+                value=station if station in stations else "All",
                 label="Station",
                 on_change=lambda _: _do_refresh(),
             ).classes("w-48")
 
             lot_filter = ui.input(
                 label="Lot (optional)",
+                value=lot,
                 placeholder="Leave blank for all",
             ).classes("w-40")
 
-            with ui.input("Since (optional)").classes("w-40") as since_input:
+            with ui.input("Since (optional)", value=since).classes("w-40") as since_input:
                 with since_input.add_slot("append"):
                     ui.icon("event").on(
                         "click", lambda: since_menu.open(),
                     ).classes("cursor-pointer")
                 with ui.menu() as since_menu:
                     since_filter = ui.date(
+                        value=since or None,
                         on_change=lambda _: _do_refresh(),
                     ).bind_value(since_input)
 
-            with ui.input("Until (optional)").classes("w-40") as until_input:
+            with ui.input("Until (optional)", value=until).classes("w-40") as until_input:
                 with until_input.add_slot("append"):
                     ui.icon("event").on(
                         "click", lambda: until_menu.open(),
                     ).classes("cursor-pointer")
                 with ui.menu() as until_menu:
                     until_filter = ui.date(
+                        value=until or None,
                         on_change=lambda _: _do_refresh(),
                     ).bind_value(until_input)
 
@@ -119,13 +163,13 @@ def yield_page():
 
     # Initial load (reuse already-loaded table to avoid double-load)
     _refresh_dashboard(
-        "demo/results",
-        "production",
-        None,
-        None,
-        None,
-        None,
-        None,
+        results_dir,
+        phase if phase in ["production", "qual", "development", "all"] else "production",
+        product if product else None,
+        station if station else None,
+        lot if lot else None,
+        since if since else None,
+        until if until else None,
         summary_container,
         pareto_chart_container,
         cpk_table_container,
@@ -487,8 +531,9 @@ def _get_unique_values(table, column_name: str) -> list[str]:
     if table.num_rows == 0 or column_name not in table.column_names:
         return []
 
-    import pyarrow.compute as _pc
     from typing import Any
+
+    import pyarrow.compute as _pc
 
     pc: Any = _pc  # pyarrow.compute has dynamic attributes
     col = table[column_name]

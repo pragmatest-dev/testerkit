@@ -35,8 +35,14 @@ from litmus.ui.shared.services import (
 
 
 @ui.page("/designer")
-def designer_page():
-    """System Designer — interactive test system architect."""
+def designer_page(product: str = "", station: str = "", fixture: str = ""):
+    """System Designer — interactive test system architect.
+
+    Args:
+        product: Pre-fill product from URL query param
+        station: Pre-fill station from URL query param
+        fixture: Pre-fill fixture from URL query param
+    """
     create_layout("System Designer")
     state = DesignerState()
     drawer = create_properties_drawer()
@@ -49,6 +55,19 @@ def designer_page():
 
     # Container references — populated inside the layout below
     containers: dict = {}
+
+    def update_url():
+        """Update URL query params to reflect current selections."""
+        params = []
+        if state.product_id:
+            params.append(f"product={state.product_id}")
+        if state.system_id:
+            params.append(f"station={state.system_id}")
+        if state.fixture_id:
+            params.append(f"fixture={state.fixture_id}")
+        query = "&".join(params)
+        new_url = f"/designer{'?' + query if query else ''}"
+        ui.run_javascript(f"history.replaceState(null, '', '{new_url}')")
 
     def rebuild():
         """Rebuild all dynamic content from current state."""
@@ -70,14 +89,32 @@ def designer_page():
         config = load_station_config(station_id)
         if config:
             state.load_station(config.model_dump())
+            update_url()
             rebuild()
 
-    # Auto-select first station on load
-    initial_station = stations[0].id if stations else None
+    # Load from URL params or use defaults
+    initial_station = station if station in station_options else (
+        stations[0].id if stations else None
+    )
     if initial_station:
         config = load_station_config(initial_station)
         if config:
             state.load_station(config.model_dump())
+
+    # Load product from URL if provided
+    if product and product in product_options:
+        _on_product_change(product, state, lambda: None)  # Don't rebuild yet
+
+    # Load fixture from URL if provided
+    if fixture:
+        fixture_config = load_fixture_config(fixture)
+        if fixture_config:
+            state.load_fixture(fixture_config)
+
+    def on_product_change(product_id: str) -> None:
+        """Handle product selection change."""
+        _on_product_change(product_id, state, rebuild)
+        update_url()
 
     with ui.column().classes("w-full p-6 gap-4"):
         # --- Selection bar ---
@@ -86,8 +123,9 @@ def designer_page():
                 ui.select(
                     product_options,
                     label="Product",
+                    value=product if product in product_options else None,
                     with_input=True,
-                    on_change=lambda e: _on_product_change(e.value, state, rebuild),
+                    on_change=lambda e: on_product_change(e.value),
                 ).classes("w-48")
 
                 ui.select(
@@ -101,7 +139,9 @@ def designer_page():
                 ui.button(
                     "Load Fixture",
                     icon="upload",
-                    on_click=lambda: _show_load_fixture_dialog(state, rebuild),
+                    on_click=lambda: _show_load_fixture_dialog(
+                        state, rebuild, update_url
+                    ),
                 ).props("flat")
 
                 ui.button(
@@ -531,7 +571,7 @@ def _auto_save(state, quiet: bool = True) -> bool:
         return False
 
 
-def _show_load_fixture_dialog(state, rebuild) -> None:
+def _show_load_fixture_dialog(state, rebuild, on_load=None) -> None:
     """Show dialog to load an existing fixture."""
     fixtures = discover_fixtures()
 
@@ -562,6 +602,8 @@ def _show_load_fixture_dialog(state, rebuild) -> None:
                             state.load_fixture(config)
                             dialog.close()
                             rebuild()
+                            if on_load:
+                                on_load()
                             ui.notify(
                                 f"Loaded fixture {selected['fixture_id']}",
                                 type="positive",

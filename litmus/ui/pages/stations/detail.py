@@ -27,44 +27,24 @@ def format_datetime(dt):
 @ui.page("/stations/{station_id}")
 def station_detail_page(station_id: str):
     """Station detail page with tabbed interface."""
-    import sys
-    import time
-    _start = time.perf_counter()
-    def _log(msg: str) -> None:
-        sys.stderr.write(msg + "\n")
-        sys.stderr.flush()
-
-    _log(f"[station_detail] START {station_id}")
     config = load_station_config(station_id)
-    _log(f"[station_detail] +{(time.perf_counter() - _start)*1000:.0f}ms - config loaded")
 
     if config:
         create_layout(config.name or station_id)
     else:
         create_layout("Station Not Found")
-    _log(f"[station_detail] +{(time.perf_counter() - _start)*1000:.0f}ms - layout created")
 
     with ui.column().classes("w-full p-6 gap-6"):
         if config:
             _render_station_detail(station_id, config)
-            _log(f"[station_detail] +{(time.perf_counter() - _start)*1000:.0f}ms - detail rendered")
         else:
             _render_not_found()
-    _log(f"[station_detail] +{(time.perf_counter() - _start)*1000:.0f}ms - DONE")
 
 
 def _render_station_detail(station_id: str, config):
     """Render the station detail view."""
-    import sys
-    import time
-    _start = time.perf_counter()
-    def _log(msg: str) -> None:
-        sys.stderr.write(msg + "\n")
-        sys.stderr.flush()
-
     instruments = config.instruments or {}
     phases = config.supported_phases or []
-    _log(f"[render_detail] START")
 
     # Station info card
     with ui.card().classes("w-full"):
@@ -73,11 +53,17 @@ def _render_station_detail(station_id: str, config):
                 with ui.row().classes("items-center gap-4"):
                     ui.label("Station Information").classes("text-lg font-semibold")
                     ui.badge("Online", color="green").props("outline")
-                ui.button(
-                    "Edit",
-                    icon="edit",
-                    on_click=lambda: ui.navigate.to(f"/stations/{station_id}/edit"),
-                ).props("flat color=primary")
+                with ui.row().classes("gap-2"):
+                    ui.button(
+                        "Back",
+                        icon="arrow_back",
+                        on_click=lambda: ui.navigate.to("/stations"),
+                    ).props("flat")
+                    ui.button(
+                        "Edit",
+                        icon="edit",
+                        on_click=lambda: ui.navigate.to(f"/stations/{station_id}/edit"),
+                    ).props("flat color=primary")
 
         with ui.card_section():
             with ui.grid(columns=3).classes("gap-6"):
@@ -96,8 +82,6 @@ def _render_station_detail(station_id: str, config):
                     for phase in phases:
                         ui.badge(phase).props("outline")
 
-    _log(f"[render_detail] +{(time.perf_counter() - _start)*1000:.0f}ms - info card done")
-
     # Tabbed content
     with ui.tabs().classes("w-full") as tabs:
         instruments_tab = ui.tab("Instruments", icon="cable")
@@ -105,23 +89,16 @@ def _render_station_detail(station_id: str, config):
         runs_tab = ui.tab("Recent Runs", icon="history")
 
     setup_hash_sync_for_tabs(tabs, ["Instruments", "Sequences", "Recent Runs"])
-    _log(f"[render_detail] +{(time.perf_counter() - _start)*1000:.0f}ms - tabs setup done")
 
     with ui.tab_panels(tabs, value=instruments_tab).classes("w-full"):
         with ui.tab_panel(instruments_tab):
-            _log(f"[render_detail] +{(time.perf_counter() - _start)*1000:.0f}ms - starting instruments tab")
             _render_instruments_tab(station_id, instruments)
-            _log(f"[render_detail] +{(time.perf_counter() - _start)*1000:.0f}ms - instruments tab done")
 
         with ui.tab_panel(sequences_tab):
-            _log(f"[render_detail] +{(time.perf_counter() - _start)*1000:.0f}ms - starting sequences tab")
             _render_sequences_tab(station_id, config)
-            _log(f"[render_detail] +{(time.perf_counter() - _start)*1000:.0f}ms - sequences tab done")
 
         with ui.tab_panel(runs_tab):
-            _log(f"[render_detail] +{(time.perf_counter() - _start)*1000:.0f}ms - starting runs tab")
             _render_runs_tab(station_id)
-            _log(f"[render_detail] +{(time.perf_counter() - _start)*1000:.0f}ms - runs tab done")
 
     # Actions
     with ui.row().classes("mt-6 gap-2"):
@@ -233,17 +210,8 @@ def _instrument_card(name: str, inst, record=None):
 
 def _render_sequences_tab(station_id: str, config):
     """Render the sequences tab with capabilities and compatible sequences."""
-    import sys
-    import time
-    _start = time.perf_counter()
-    def _log(msg: str) -> None:
-        sys.stderr.write(msg + "\n")
-        sys.stderr.flush()
-
-    _log(f"[seq_tab] START")
     # Station capabilities summary
     station_caps = get_station_capabilities(config)
-    _log(f"[seq_tab] +{(time.perf_counter() - _start)*1000:.0f}ms - get_station_capabilities")
     if station_caps:
         with ui.card().classes("w-full mb-4"):
             with ui.card_section():
@@ -275,23 +243,17 @@ def _render_sequences_tab(station_id: str, config):
                 ui.table(columns=columns, rows=rows, row_key="capability").classes("w-full")
 
     # Compatible sequences
-    _log(f"[seq_tab] +{(time.perf_counter() - _start)*1000:.0f}ms - before discover_sequences")
     sequences = discover_sequences()
-    _log(f"[seq_tab] +{(time.perf_counter() - _start)*1000:.0f}ms - discover_sequences returned {len(sequences)}")
     compatible_sequences = []
     for seq in sequences:
         product_family = seq.product_family
         if product_family:
-            _log(f"[seq_tab] +{(time.perf_counter() - _start)*1000:.0f}ms - loading product {product_family}")
             product = load_product_model(product_family)
-            _log(f"[seq_tab] +{(time.perf_counter() - _start)*1000:.0f}ms - checking compatibility")
             if product and station_compatible_with_product(config, product):
                 compatible_sequences.append(seq)
-            _log(f"[seq_tab] +{(time.perf_counter() - _start)*1000:.0f}ms - compatibility check done")
         else:
             # Sequences without product_family are always shown
             compatible_sequences.append(seq)
-    _log(f"[seq_tab] +{(time.perf_counter() - _start)*1000:.0f}ms - loop done")
 
     with ui.row().classes("items-center gap-2 mt-4 mb-2"):
         ui.icon("list_alt").classes("text-slate-600")
