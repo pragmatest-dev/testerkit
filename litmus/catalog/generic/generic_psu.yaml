@@ -1,0 +1,78 @@
+id: generic_psu
+manufacturer: Generic
+model: PSU
+name: Generic DC Power Supply
+description: Programmable DC power supply for sourcing voltage and current to DUT
+type: psu
+scaffold: true
+source: generic
+channels:
+  CH1:
+    terminals:
+    - hi
+    - lo
+    connector: binding_post
+    ground: floating
+  CH2:
+    terminals:
+    - hi
+    - lo
+    connector: binding_post
+    ground: floating
+capabilities:
+- function: dc_voltage
+  direction: output
+  signals:
+    voltage:
+      range:
+        min: 0
+        max: 30
+        units: V
+    current:
+      range:
+        min: 0
+        max: 5
+        units: A
+  channels:
+  - CH1
+  - CH2
+- function: dc_current
+  direction: output
+  signals:
+    current:
+      range:
+        min: 0
+        max: 5
+        units: A
+    voltage:
+      range:
+        min: 0
+        max: 30
+        units: V
+  channels:
+  - CH1
+  - CH2
+- function: dc_voltage
+  direction: input
+  readback: true
+  signals:
+    voltage:
+      range:
+        min: 0
+        max: 30
+        units: V
+  channels:
+  - CH1
+  - CH2
+- function: dc_current
+  direction: input
+  readback: true
+  signals:
+    current:
+      range:
+        min: 0
+        max: 5
+        units: A
+  channels:
+  - CH1
+  - CH2

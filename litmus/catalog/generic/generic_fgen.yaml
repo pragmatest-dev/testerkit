@@ -1,0 +1,57 @@
+id: generic_fgen
+manufacturer: Generic
+model: Function Generator
+name: Generic Function Generator
+description: Arbitrary waveform and function generator for signal sourcing
+type: fgen
+scaffold: true
+source: generic
+channels:
+  CH1:
+    terminals:
+    - signal
+    connector: bnc
+    ground: shared
+  CH2:
+    terminals:
+    - signal
+    connector: bnc
+    ground: shared
+capabilities:
+- function: waveform
+  direction: output
+  signals:
+    voltage:
+      range:
+        min: 0.001
+        max: 10
+        units: Vpp
+    frequency:
+      range:
+        min: 0.001
+        max: 25000000
+        units: Hz
+  attributes:
+    waveforms:
+      options:
+      - sine
+      - square
+      - triangle
+      - ramp
+      - pulse
+      - noise
+      - dc
+  channels:
+  - CH1
+  - CH2
+- function: dc_voltage
+  direction: output
+  signals:
+    voltage:
+      range:
+        min: -10
+        max: 10
+        units: V
+  channels:
+  - CH1
+  - CH2

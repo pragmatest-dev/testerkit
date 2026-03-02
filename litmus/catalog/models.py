@@ -59,6 +59,8 @@ class InstrumentCatalogEntry(BaseModel):
     description: str | None = None
     type: str  # e.g. "dmm", "psu", "scope", "fgen", "smu", "eload"
     base: str | None = None  # Variant inheritance: ID of base catalog entry
+    scaffold: bool = False  # True = approximate entry, needs verification
+    source: str | None = None  # Provenance: generic, knowledge, datasheet, manual
     interfaces: list[str] = Field(default_factory=list)
     form_factor: str | None = None
     channels: dict[str, ChannelTopology] = Field(default_factory=dict)

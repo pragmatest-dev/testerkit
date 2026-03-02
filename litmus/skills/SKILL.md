@@ -10,8 +10,9 @@ Skills are markdown prompts that guide AI assistants (Claude, Copilot, etc.) thr
 ## Available Skills
 
 ### Workflows
-- **[datasheet-to-test](workflow/datasheet-to-test.md)** - Full 6-step workflow from datasheet to test results
-- **[datasheet-to-catalog](workflow/datasheet-to-catalog.md)** - Generate catalog YAML from instrument datasheet PDF
+- **[datasheet-to-test](workflow/datasheet-to-test.md)** - Full workflow from product datasheet to running tests
+- **[datasheet-to-catalog](workflow/datasheet-to-catalog.md)** - Generate catalog YAML from instrument datasheet PDF (thorough, for accuracy specs)
+- **[catalog-scaffold](catalog-scaffold.md)** - Quick catalog entry from Claude's knowledge (fast, for common instruments)
 
 ### Agents
 Subagent prompt templates spawned by workflows via the Task tool. Not invoked directly.

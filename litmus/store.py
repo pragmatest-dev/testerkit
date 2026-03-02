@@ -777,11 +777,22 @@ def find_catalog_dirs() -> list[Path]:
 
     Server should be run from the project root (e.g., `cd demo && litmus serve`),
     so `catalog/` resolves to that project's catalog.
+
+    Also includes bundled generic catalog from the litmus package.
     """
+    dirs: list[Path] = []
+
+    # Project-local catalog (takes precedence)
     catalog_dir = Path.cwd() / "catalog"
     if catalog_dir.is_dir():
-        return [catalog_dir]
-    return []
+        dirs.append(catalog_dir)
+
+    # Bundled generic catalog from site-packages
+    bundled = Path(__file__).parent / "catalog" / "generic"
+    if bundled.is_dir():
+        dirs.append(bundled)
+
+    return dirs
 
 
 def resolve_catalog_ref(catalog_ref: str) -> InstrumentCatalogEntry | None:

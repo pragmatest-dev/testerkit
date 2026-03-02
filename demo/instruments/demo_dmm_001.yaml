@@ -2,6 +2,7 @@
 # Instrument asset file - tracks identity and calibration independently of station
 
 id: demo_dmm_001
+catalog_ref: generic_dmm
 protocol: visa
 driver: demo.drivers.DMM
 

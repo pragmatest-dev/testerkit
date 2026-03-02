@@ -143,8 +143,30 @@ Do NOT build requirements manually.
 </step>
 
 <step id="2b.3">
-Present recommendations with coverage info.
-Check for existing drivers: PyMeasure, InstrumentKit, or vendor SDKs. Note availability.
+If litmus_match returns catalog recommendations, present them.
+If the catalog is empty or has no matches, ask the user what instruments they have:
+
+"What test equipment do you have available?"
+
+Handle responses:
+- **Specific model** (e.g., "Keysight 34461A") → Use /catalog-scaffold to create entry
+- **Generic type** (e.g., "some DMM", "a power supply") → Use generic_dmm, generic_psu, etc.
+- **Nothing yet** → Use generics for all required types, explain this is for planning/mocking
+
+Generic instruments are in demo/catalog/:
+- generic_dmm, generic_psu, generic_oscilloscope, generic_eload
+
+These provide baseline capabilities sufficient for mocked testing and test development.
+Real instruments can be added later.
+</step>
+
+<step id="2b.4">
+For any instruments not in catalog, present options:
+1. Use /catalog-scaffold (fast, uses Claude's knowledge of common instruments)
+2. Use generic_{type} template (fastest, approximate capabilities)
+3. Use /catalog-from-datasheet with PDF (thorough, for exact specs)
+
+Recommend option 1 for well-known instruments, option 2 for unknowns or "just get started".
 </step>
 
 <gate id="2b">

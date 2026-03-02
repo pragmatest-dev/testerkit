@@ -3,6 +3,7 @@
 # The station file references this instrument by ID and specifies its resource address.
 
 id: demo_psu_001
+catalog_ref: generic_psu
 protocol: visa
 driver: demo.drivers.PSU
 

@@ -1,0 +1,74 @@
+id: generic_smu
+manufacturer: Generic
+model: SMU
+name: Generic Source Measure Unit
+description: Single-channel SMU for precision voltage/current sourcing and measurement
+type: smu
+scaffold: true
+source: generic
+channels:
+  '1':
+    terminals:
+    - hi
+    - lo
+    - sense_hi
+    - sense_lo
+    connector: triax
+    ground: floating
+capabilities:
+- function: dc_voltage
+  direction: output
+  signals:
+    voltage:
+      range:
+        min: -20
+        max: 20
+        units: V
+    current:
+      range:
+        min: 0
+        max: 0.1
+        units: A
+- function: dc_current
+  direction: output
+  signals:
+    current:
+      range:
+        min: -0.1
+        max: 0.1
+        units: A
+    voltage:
+      range:
+        min: 0
+        max: 20
+        units: V
+- function: dc_voltage
+  direction: input
+  signals:
+    voltage:
+      range:
+        min: -20
+        max: 20
+        units: V
+      accuracy:
+        pct_reading: 0.015
+        pct_range: 0.005
+- function: dc_current
+  direction: input
+  signals:
+    current:
+      range:
+        min: -0.1
+        max: 0.1
+        units: A
+      accuracy:
+        pct_reading: 0.05
+        pct_range: 0.01
+- function: resistance
+  direction: input
+  signals:
+    resistance:
+      range:
+        min: 0.01
+        max: 100000000
+        units: ohm
