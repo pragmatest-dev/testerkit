@@ -16,3 +16,5 @@ points:
       net: "GND"}
   tp_vin_psu_chCH2: {name: "tp_vin_psu_chCH2", instrument: "psu", instrument_channel: "CH2", instrument_terminal: "hi", 
       dut_pin: "TP_VIN", net: "VIN_5V"}
+  tp_gnd_psu_chCH2_lo: {name: "tp_gnd_psu_chCH2_lo", instrument: "psu", instrument_channel: "CH2", instrument_terminal: "lo",
+    dut_pin: "TP_GND", net: "GND"}
