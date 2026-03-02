@@ -1,0 +1,18 @@
+id: "power_board_fixture_v1"
+name: "Power Board Fixture V1"
+product_id: "power_board"
+points:
+  vin_supply: {name: "vin_supply", instrument: "psu", instrument_channel: "CH1", instrument_terminal: "hi", dut_pin: "J1_VIN",
+    net: "VIN_5V"}
+  gnd_psu: {name: "gnd_psu", instrument: "psu", instrument_channel: "CH1", instrument_terminal: "lo", dut_pin: "J1_GND", 
+      net: "GND"}
+  gnd_eload: {name: "gnd_eload", instrument: "eload", instrument_channel: "1", instrument_terminal: "lo", dut_pin: "J1_GND",
+    net: "GND"}
+  vout_measure: {name: "vout_measure", instrument: "dmm", instrument_channel: "1", instrument_terminal: "hi", dut_pin: "TP_VOUT",
+    net: "VOUT_3V3"}
+  load_output: {name: "load_output", instrument: "eload", instrument_channel: "1", instrument_terminal: "hi", dut_pin: "J1_VOUT",
+    net: "VOUT_3V3"}
+  gnd_dmm: {name: "gnd_dmm", instrument: "dmm", instrument_channel: "1", instrument_terminal: "lo", dut_pin: "TP_GND", 
+      net: "GND"}
+  tp_vin_psu_chCH2: {name: "tp_vin_psu_chCH2", instrument: "psu", instrument_channel: "CH2", instrument_terminal: "hi", 
+      dut_pin: "TP_VIN", net: "VIN_5V"}
