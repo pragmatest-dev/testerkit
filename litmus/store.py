@@ -10,6 +10,9 @@ Public interface — four verbs per entity:
     create_*(...) → Model | None   # Create new, None if exists
 
 Plus low-level load_*(path) for callers that already have a file path.
+
+All public functions accept an optional `project_root: Path | None` parameter.
+When None (the default), falls back to Path.cwd() for backwards compatibility.
 """
 
 from __future__ import annotations
@@ -40,6 +43,11 @@ from litmus.utils.paths import (
 # =============================================================================
 # Internal helpers
 # =============================================================================
+
+
+def _resolve_root(project_root: Path | None) -> Path:
+    """Resolve project root, defaulting to cwd."""
+    return project_root if project_root is not None else Path.cwd()
 
 
 def _read_yaml(path: Path) -> dict[str, Any]:
@@ -74,29 +82,6 @@ def find_yaml_files(
                 continue
 
 
-def find_or_create_path(
-    resource_id: str,
-    search_dirs: list[Path],
-    filename: str | None = None,
-) -> Path | None:
-    """Find an existing file or determine where to create a new one."""
-    if filename is None:
-        filename = f"{resource_id}.yaml"
-
-    for search_dir in search_dirs:
-        if not search_dir.exists():
-            continue
-        existing = search_dir / filename
-        if existing.exists():
-            return existing
-
-    for search_dir in search_dirs:
-        if search_dir.exists():
-            return search_dir / filename
-
-    return None
-
-
 def _write_model(path: Path, model_data: dict[str, Any]) -> None:
     """Write a model dict to YAML using Litmus formatting conventions."""
     from litmus.config.fmt import dump_yaml
@@ -124,9 +109,11 @@ def load_station(path: Path) -> StationConfig:
     return StationConfig.model_validate(_read_yaml(path))
 
 
-def get_station(station_id: str) -> StationConfig | None:
+def get_station(
+    station_id: str, *, project_root: Path | None = None,
+) -> StationConfig | None:
     """Load station configuration by ID."""
-    for yaml_file, _ in find_yaml_files(get_station_paths()):
+    for yaml_file, _ in find_yaml_files(get_station_paths(project_root)):
         try:
             station = load_station(yaml_file)
             if station.id == station_id:
@@ -136,10 +123,10 @@ def get_station(station_id: str) -> StationConfig | None:
     return None
 
 
-def list_stations() -> list[StationConfig]:
+def list_stations(*, project_root: Path | None = None) -> list[StationConfig]:
     """List all available stations."""
     stations: list[StationConfig] = []
-    for yaml_file, _ in find_yaml_files(get_station_paths()):
+    for yaml_file, _ in find_yaml_files(get_station_paths(project_root)):
         try:
             stations.append(load_station(yaml_file))
         except Exception:
@@ -147,9 +134,11 @@ def list_stations() -> list[StationConfig]:
     return stations
 
 
-def save_station(station: StationConfig) -> bool:
+def save_station(
+    station: StationConfig, *, project_root: Path | None = None,
+) -> bool:
     """Save station configuration to YAML file."""
-    search_paths = get_station_paths()
+    search_paths = get_station_paths(project_root)
 
     target_file = None
     for stations_dir in search_paths:
@@ -168,20 +157,29 @@ def save_station(station: StationConfig) -> bool:
                 break
 
     if target_file is None:
-        return False
+        root = _resolve_root(project_root)
+        stations_dir = root / "stations"
+        stations_dir.mkdir(exist_ok=True)
+        target_file = stations_dir / f"{station.id}.yaml"
 
     _write_model(target_file, station.model_dump(exclude_none=True))
     return True
 
 
 def create_station(
-    station_id: str, name: str, location: str = "", description: str = "",
+    station_id: str,
+    name: str,
+    location: str = "",
+    description: str = "",
+    *,
+    project_root: Path | None = None,
 ) -> StationConfig | None:
     """Create a new station configuration file.
 
     Returns StationConfig if successful, None if station already exists.
     """
-    stations_dir = Path.cwd() / "stations"
+    root = _resolve_root(project_root)
+    stations_dir = root / "stations"
     stations_dir.mkdir(exist_ok=True)
 
     station_file = stations_dir / f"{station_id}.yaml"
@@ -208,9 +206,11 @@ def load_fixture(path: Path) -> FixtureConfig:
     return FixtureConfig.model_validate(_read_yaml(path))
 
 
-def get_fixture(fixture_id: str) -> FixtureConfig | None:
+def get_fixture(
+    fixture_id: str, *, project_root: Path | None = None,
+) -> FixtureConfig | None:
     """Load fixture configuration by ID."""
-    for yaml_file, _ in find_yaml_files(get_fixture_paths()):
+    for yaml_file, _ in find_yaml_files(get_fixture_paths(project_root)):
         try:
             fixture = load_fixture(yaml_file)
             if fixture.id == fixture_id or yaml_file.stem == fixture_id:
@@ -220,11 +220,11 @@ def get_fixture(fixture_id: str) -> FixtureConfig | None:
     return None
 
 
-def list_fixtures() -> list[FixtureConfig]:
+def list_fixtures(*, project_root: Path | None = None) -> list[FixtureConfig]:
     """List all available fixtures."""
     fixtures: list[FixtureConfig] = []
     seen_ids: set[str] = set()
-    for yaml_file, _ in find_yaml_files(get_fixture_paths()):
+    for yaml_file, _ in find_yaml_files(get_fixture_paths(project_root)):
         try:
             fixture = load_fixture(yaml_file)
         except Exception:
@@ -236,9 +236,11 @@ def list_fixtures() -> list[FixtureConfig]:
     return fixtures
 
 
-def save_fixture(fixture: FixtureConfig) -> bool:
+def save_fixture(
+    fixture: FixtureConfig, *, project_root: Path | None = None,
+) -> bool:
     """Save fixture configuration to YAML file."""
-    search_paths = get_fixture_paths()
+    search_paths = get_fixture_paths(project_root)
 
     target_file = None
     for fixtures_dir in search_paths:
@@ -255,7 +257,8 @@ def save_fixture(fixture: FixtureConfig) -> bool:
                 break
 
     if target_file is None:
-        fixtures_dir = Path.cwd() / "fixtures"
+        root = _resolve_root(project_root)
+        fixtures_dir = root / "fixtures"
         fixtures_dir.mkdir(exist_ok=True)
         target_file = fixtures_dir / f"{fixture.id}.yaml"
 
@@ -269,12 +272,15 @@ def create_fixture(
     product_id: str = "",
     product_revision: str = "",
     description: str = "",
+    *,
+    project_root: Path | None = None,
 ) -> FixtureConfig | None:
     """Create a new fixture configuration file.
 
     Returns FixtureConfig if successful, None if fixture already exists.
     """
-    fixtures_dir = Path.cwd() / "fixtures"
+    root = _resolve_root(project_root)
+    fixtures_dir = root / "fixtures"
     fixtures_dir.mkdir(exist_ok=True)
 
     fixture_file = fixtures_dir / f"{fixture_id}.yaml"
@@ -302,9 +308,11 @@ def load_sequence(path: Path) -> TestSequenceConfig:
     return TestSequenceConfig.model_validate(_read_yaml(path))
 
 
-def get_sequence(sequence_id: str) -> TestSequenceConfig | None:
+def get_sequence(
+    sequence_id: str, *, project_root: Path | None = None,
+) -> TestSequenceConfig | None:
     """Load sequence configuration by ID."""
-    for yaml_file, _ in find_yaml_files(get_sequence_paths()):
+    for yaml_file, _ in find_yaml_files(get_sequence_paths(project_root)):
         try:
             seq = load_sequence(yaml_file)
             if seq.id == sequence_id or yaml_file.stem == sequence_id:
@@ -314,10 +322,12 @@ def get_sequence(sequence_id: str) -> TestSequenceConfig | None:
     return None
 
 
-def list_sequences() -> list[TestSequenceConfig]:
+def list_sequences(
+    *, project_root: Path | None = None,
+) -> list[TestSequenceConfig]:
     """List all available sequences."""
     sequences: list[TestSequenceConfig] = []
-    for yaml_file, _ in find_yaml_files(get_sequence_paths()):
+    for yaml_file, _ in find_yaml_files(get_sequence_paths(project_root)):
         try:
             sequences.append(load_sequence(yaml_file))
         except Exception:
@@ -325,9 +335,11 @@ def list_sequences() -> list[TestSequenceConfig]:
     return sequences
 
 
-def save_sequence(sequence: TestSequenceConfig) -> bool:
+def save_sequence(
+    sequence: TestSequenceConfig, *, project_root: Path | None = None,
+) -> bool:
     """Save sequence configuration to YAML file."""
-    search_paths = get_sequence_paths()
+    search_paths = get_sequence_paths(project_root)
 
     target_file = None
     for seq_dir in search_paths:
@@ -344,7 +356,8 @@ def save_sequence(sequence: TestSequenceConfig) -> bool:
                 break
 
     if target_file is None:
-        sequences_dir = Path.cwd() / "sequences"
+        root = _resolve_root(project_root)
+        sequences_dir = root / "sequences"
         sequences_dir.mkdir(exist_ok=True)
         target_file = sequences_dir / f"{sequence.id}.yaml"
 
@@ -358,12 +371,15 @@ def create_sequence(
     product_family: str = "",
     test_phase: Literal["validation", "characterization", "production"] = "validation",
     description: str = "",
+    *,
+    project_root: Path | None = None,
 ) -> TestSequenceConfig | None:
     """Create a new sequence configuration file.
 
     Returns TestSequenceConfig if successful, None if sequence already exists.
     """
-    sequences_dir = Path.cwd() / "sequences"
+    root = _resolve_root(project_root)
+    sequences_dir = root / "sequences"
     sequences_dir.mkdir(exist_ok=True)
 
     sequence_file = sequences_dir / f"{sequence_id}.yaml"
@@ -472,31 +488,20 @@ def _merge_product_data(
     return merged
 
 
-def load_products_from_directory(specs_dir: Path) -> dict[str, Product]:
-    """Load all product specifications from a directory."""
-    products: dict[str, Product] = {}
-    for path in specs_dir.glob("*.yaml"):
-        if path.name.startswith("_"):
-            continue
-        try:
-            product = load_product(path, products_dir=specs_dir)
-            products[product.id] = product
-        except Exception as e:
-            warnings.warn(f"Failed to load product from {path}: {e}")
-    return products
-
-
-def _get_product_paths() -> list[Path]:
+def _get_product_paths(project_root: Path | None = None) -> list[Path]:
     """Get search paths for product folders (relative to project root)."""
-    products_dir = Path.cwd() / "products"
+    root = _resolve_root(project_root)
+    products_dir = root / "products"
     if products_dir.is_dir():
         return [products_dir]
     return []
 
 
-def get_product(product_id: str) -> Product | None:
+def get_product(
+    product_id: str, *, project_root: Path | None = None,
+) -> Product | None:
     """Load a Product model by ID."""
-    for products_dir in _get_product_paths():
+    for products_dir in _get_product_paths(project_root):
         if not products_dir.exists():
             continue
         # Try flat file first (canonical convention)
@@ -519,11 +524,11 @@ def get_product(product_id: str) -> Product | None:
     return None
 
 
-def list_products() -> list[Product]:
+def list_products(*, project_root: Path | None = None) -> list[Product]:
     """List all available products as Product models."""
     products: list[Product] = []
     seen_ids: set[str] = set()
-    for products_dir in _get_product_paths():
+    for products_dir in _get_product_paths(project_root):
         if not products_dir.exists():
             continue
         for yaml_file in sorted(products_dir.rglob("*.yaml")):
@@ -540,10 +545,12 @@ def list_products() -> list[Product]:
     return products
 
 
-def save_product(product: Product) -> bool:
+def save_product(
+    product: Product, *, project_root: Path | None = None,
+) -> bool:
     """Save product specification to YAML file."""
     target_file = None
-    for products_dir in _get_product_paths():
+    for products_dir in _get_product_paths(project_root):
         if not products_dir.exists():
             continue
         # Preserve existing file location (flat or nested)
@@ -562,7 +569,8 @@ def save_product(product: Product) -> bool:
             break
 
     if target_file is None:
-        products_dir = Path.cwd() / "products"
+        root = _resolve_root(project_root)
+        products_dir = root / "products"
         products_dir.mkdir(exist_ok=True)
         target_file = products_dir / f"{product.id}.yaml"
 
@@ -571,13 +579,18 @@ def save_product(product: Product) -> bool:
 
 
 def create_product(
-    product_id: str, name: str, description: str = "",
+    product_id: str,
+    name: str,
+    description: str = "",
+    *,
+    project_root: Path | None = None,
 ) -> Product | None:
     """Create a new product YAML file.
 
     Returns Product if successful, None if product already exists.
     """
-    products_dir = Path.cwd() / "products"
+    root = _resolve_root(project_root)
+    products_dir = root / "products"
     products_dir.mkdir(exist_ok=True)
 
     target_file = products_dir / f"{product_id}.yaml"
@@ -773,8 +786,8 @@ def load_catalog_from_directory(catalog_dir: Path) -> dict[str, InstrumentCatalo
     return entries
 
 
-def find_catalog_dirs() -> list[Path]:
-    """Find catalog directories relative to current working directory.
+def find_catalog_dirs(*, project_root: Path | None = None) -> list[Path]:
+    """Find catalog directories relative to project root.
 
     Server should be run from the project root (e.g., `cd demo && litmus serve`),
     so `catalog/` resolves to that project's catalog.
@@ -782,9 +795,10 @@ def find_catalog_dirs() -> list[Path]:
     Also includes bundled generic catalog from the litmus package.
     """
     dirs: list[Path] = []
+    root = _resolve_root(project_root)
 
     # Project-local catalog (takes precedence)
-    catalog_dir = Path.cwd() / "catalog"
+    catalog_dir = root / "catalog"
     if catalog_dir.is_dir():
         dirs.append(catalog_dir)
 
@@ -796,7 +810,9 @@ def find_catalog_dirs() -> list[Path]:
     return dirs
 
 
-def resolve_catalog_ref(catalog_ref: str) -> InstrumentCatalogEntry | None:
+def resolve_catalog_ref(
+    catalog_ref: str, *, project_root: Path | None = None,
+) -> InstrumentCatalogEntry | None:
     """Resolve a catalog reference ID to a catalog entry."""
     import sys
     import time
@@ -806,7 +822,7 @@ def resolve_catalog_ref(catalog_ref: str) -> InstrumentCatalogEntry | None:
         sys.stderr.flush()
 
     _log(f"[resolve_catalog] START {catalog_ref}")
-    for cat_dir in find_catalog_dirs():
+    for cat_dir in find_catalog_dirs(project_root=project_root):
         _log(f"[resolve_catalog] +{(time.perf_counter() - _start)*1000:.0f}ms - checking {cat_dir}")
         # Try direct filename match first
         direct_path = cat_dir / f"{catalog_ref}.yaml"
@@ -844,13 +860,16 @@ def resolve_catalog_ref(catalog_ref: str) -> InstrumentCatalogEntry | None:
 
 
 def find_by_model(
-    manufacturer: str, model: str,
+    manufacturer: str,
+    model: str,
+    *,
+    project_root: Path | None = None,
 ) -> InstrumentCatalogEntry | None:
     """Find a catalog entry by manufacturer and model name (case-insensitive)."""
     mfr_lower = manufacturer.lower()
     model_lower = model.lower()
 
-    for cat_dir in find_catalog_dirs():
+    for cat_dir in find_catalog_dirs(project_root=project_root):
         for path in sorted(cat_dir.rglob("*.yaml")):
             if path.name.startswith("_") or ".variants." in path.name:
                 continue
@@ -869,23 +888,27 @@ def find_by_model(
     return None
 
 
-def get_catalog_entry(catalog_id: str) -> InstrumentCatalogEntry | None:
+def get_catalog_entry(
+    catalog_id: str, *, project_root: Path | None = None,
+) -> InstrumentCatalogEntry | None:
     """Get a catalog entry by ID or type.
 
     Searches all catalog directories.
     """
-    for cat_dir in find_catalog_dirs():
+    for cat_dir in find_catalog_dirs(project_root=project_root):
         for entry_id, entry in load_catalog_from_directory(cat_dir).items():
             if entry.id == catalog_id or entry.type == catalog_id:
                 return entry
     return None
 
 
-def list_catalog_entries() -> list[InstrumentCatalogEntry]:
+def list_catalog_entries(
+    *, project_root: Path | None = None,
+) -> list[InstrumentCatalogEntry]:
     """List all catalog entries across all catalog directories."""
     all_entries: list[InstrumentCatalogEntry] = []
     seen_ids: set[str] = set()
-    for cat_dir in find_catalog_dirs():
+    for cat_dir in find_catalog_dirs(project_root=project_root):
         for entry_id, entry in load_catalog_from_directory(cat_dir).items():
             if not entry.id or entry.id in seen_ids:
                 continue
@@ -894,9 +917,12 @@ def list_catalog_entries() -> list[InstrumentCatalogEntry]:
     return all_entries
 
 
-def save_catalog_entry(entry: InstrumentCatalogEntry) -> bool:
+def save_catalog_entry(
+    entry: InstrumentCatalogEntry, *, project_root: Path | None = None,
+) -> bool:
     """Save a catalog entry to catalog/."""
-    catalog_dir = Path.cwd() / "catalog"
+    root = _resolve_root(project_root)
+    catalog_dir = root / "catalog"
     catalog_dir.mkdir(exist_ok=True)
 
     target_file = catalog_dir / f"{entry.id}.yaml"
@@ -909,12 +935,15 @@ def create_catalog_entry(
     name: str,
     description: str = "",
     manufacturer: str = "User",
+    *,
+    project_root: Path | None = None,
 ) -> InstrumentCatalogEntry | None:
     """Create a new catalog entry in catalog/.
 
     Returns InstrumentCatalogEntry if successful, None if already exists.
     """
-    catalog_dir = Path.cwd() / "catalog"
+    root = _resolve_root(project_root)
+    catalog_dir = root / "catalog"
     catalog_dir.mkdir(exist_ok=True)
 
     catalog_file = catalog_dir / f"{instrument_type}.yaml"
@@ -960,9 +989,11 @@ def load_instrument_files(instruments_dir: Path) -> dict[str, InstrumentAssetFil
     return instruments
 
 
-def get_instrument_asset(instrument_id: str) -> InstrumentAssetFile | None:
+def get_instrument_asset(
+    instrument_id: str, *, project_root: Path | None = None,
+) -> InstrumentAssetFile | None:
     """Load a single instrument asset file by ID."""
-    for instruments_dir in get_instrument_paths():
+    for instruments_dir in get_instrument_paths(project_root):
         if not instruments_dir.exists():
             continue
         for yaml_file in instruments_dir.glob("*.yaml"):
@@ -975,11 +1006,13 @@ def get_instrument_asset(instrument_id: str) -> InstrumentAssetFile | None:
     return None
 
 
-def list_instrument_assets() -> list[InstrumentAssetFile]:
+def list_instrument_assets(
+    *, project_root: Path | None = None,
+) -> list[InstrumentAssetFile]:
     """List all instrument asset files."""
     assets: list[InstrumentAssetFile] = []
     seen_ids: set[str] = set()
-    for instruments_dir in get_instrument_paths():
+    for instruments_dir in get_instrument_paths(project_root):
         if not instruments_dir.exists():
             continue
         for yaml_file in instruments_dir.glob("*.yaml"):
@@ -994,9 +1027,11 @@ def list_instrument_assets() -> list[InstrumentAssetFile]:
     return assets
 
 
-def save_instrument_asset(asset: InstrumentAssetFile) -> bool:
+def save_instrument_asset(
+    asset: InstrumentAssetFile, *, project_root: Path | None = None,
+) -> bool:
     """Save an instrument asset file."""
-    search_paths = get_instrument_paths()
+    search_paths = get_instrument_paths(project_root)
 
     target_file = None
     for instruments_dir in search_paths:
@@ -1013,7 +1048,8 @@ def save_instrument_asset(asset: InstrumentAssetFile) -> bool:
                 break
 
     if target_file is None:
-        instruments_dir = Path.cwd() / "instruments"
+        root = _resolve_root(project_root)
+        instruments_dir = root / "instruments"
         instruments_dir.mkdir(exist_ok=True)
         target_file = instruments_dir / f"{asset.id}.yaml"
 
@@ -1026,9 +1062,12 @@ def save_instrument_asset(asset: InstrumentAssetFile) -> bool:
 # =============================================================================
 
 
-def save_station_type(type_id: str, data: dict) -> bool:
+def save_station_type(
+    type_id: str, data: dict, *, project_root: Path | None = None,
+) -> bool:
     """Save station type YAML to stations/types/{type_id}.yaml."""
-    types_dir = Path.cwd() / "stations" / "types"
+    root = _resolve_root(project_root)
+    types_dir = root / "stations" / "types"
     types_dir.mkdir(parents=True, exist_ok=True)
 
     target_file = types_dir / f"{type_id}.yaml"
@@ -1037,18 +1076,19 @@ def save_station_type(type_id: str, data: dict) -> bool:
     return True
 
 
-def load_station_type(type_id: str) -> dict | None:
+def load_station_type(
+    type_id: str, *, project_root: Path | None = None,
+) -> dict | None:
     """Load station type by ID (raw YAML — no Pydantic model yet)."""
-    types_dir = Path.cwd() / "stations" / "types"
+    root = _resolve_root(project_root)
+    types_dir = root / "stations" / "types"
     if not types_dir.is_dir():
         return None
-    for types_dir in [types_dir]:
-        yaml_file = types_dir / f"{type_id}.yaml"
-        if not yaml_file.exists():
-            continue
-        try:
-            with open(yaml_file) as f:
-                return yaml.safe_load(f)
-        except Exception:
-            return None
-    return None
+    yaml_file = types_dir / f"{type_id}.yaml"
+    if not yaml_file.exists():
+        return None
+    try:
+        with open(yaml_file) as f:
+            return yaml.safe_load(f)
+    except Exception:
+        return None

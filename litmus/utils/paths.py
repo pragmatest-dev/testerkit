@@ -3,7 +3,7 @@
 This module provides a single source of truth for where different
 resource types (products, stations, instruments, etc.) are located.
 
-All paths are relative to the current working directory (project root).
+All paths are relative to the project root (defaults to cwd).
 Run the server from the project directory: `cd myproject && litmus serve`
 """
 
@@ -24,53 +24,57 @@ class ResourceType(StrEnum):
     TESTS = "tests"  # Test configurations
 
 
-def get_search_paths(resource_type: ResourceType) -> list[Path]:
-    """Get search paths for a resource type.
+def _resolve_root(project_root: Path | None = None) -> Path:
+    """Resolve project root, defaulting to cwd."""
+    return project_root if project_root is not None else Path.cwd()
 
-    Paths are relative to the current working directory (project root).
+
+def get_search_paths(
+    resource_type: ResourceType, project_root: Path | None = None,
+) -> list[Path]:
+    """Get search paths for a resource type.
 
     Args:
         resource_type: Type of resource to find paths for.
+        project_root: Project root directory. Defaults to cwd.
 
     Returns:
         List containing the single path for this resource type, if it exists.
     """
-    path = Path.cwd() / resource_type.value
+    path = _resolve_root(project_root) / resource_type.value
     if path.is_dir():
         return [path]
     return []
 
 
-def get_all_search_paths() -> dict[ResourceType, list[Path]]:
-    """Get search paths for all resource types.
-
-    Returns:
-        Dictionary mapping ResourceType to list of paths.
-    """
-    return {rt: get_search_paths(rt) for rt in ResourceType}
+def get_all_search_paths(
+    project_root: Path | None = None,
+) -> dict[ResourceType, list[Path]]:
+    """Get search paths for all resource types."""
+    return {rt: get_search_paths(rt, project_root) for rt in ResourceType}
 
 
 # Convenience aliases
-def get_product_paths() -> list[Path]:
+def get_product_paths(project_root: Path | None = None) -> list[Path]:
     """Get search paths for product folders."""
-    return get_search_paths(ResourceType.PRODUCTS)
+    return get_search_paths(ResourceType.PRODUCTS, project_root)
 
 
-def get_station_paths() -> list[Path]:
+def get_station_paths(project_root: Path | None = None) -> list[Path]:
     """Get search paths for station configurations."""
-    return get_search_paths(ResourceType.STATIONS)
+    return get_search_paths(ResourceType.STATIONS, project_root)
 
 
-def get_instrument_paths() -> list[Path]:
+def get_instrument_paths(project_root: Path | None = None) -> list[Path]:
     """Get search paths for instrument library."""
-    return get_search_paths(ResourceType.INSTRUMENTS)
+    return get_search_paths(ResourceType.INSTRUMENTS, project_root)
 
 
-def get_sequence_paths() -> list[Path]:
+def get_sequence_paths(project_root: Path | None = None) -> list[Path]:
     """Get search paths for test sequences."""
-    return get_search_paths(ResourceType.SEQUENCES)
+    return get_search_paths(ResourceType.SEQUENCES, project_root)
 
 
-def get_fixture_paths() -> list[Path]:
+def get_fixture_paths(project_root: Path | None = None) -> list[Path]:
     """Get search paths for test fixtures."""
-    return get_search_paths(ResourceType.FIXTURES)
+    return get_search_paths(ResourceType.FIXTURES, project_root)

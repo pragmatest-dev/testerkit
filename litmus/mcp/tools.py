@@ -265,16 +265,10 @@ def _list_stations(project: str) -> list[dict[str, Any]]:
 
 def _list_products(project: str) -> list[dict[str, Any]]:
     """List all product specifications from products/ directory."""
-    import os
-
     from litmus.store import list_products
 
-    old_cwd = os.getcwd()
-    try:
-        os.chdir(get_project_root(project))
-        products = list_products()
-    finally:
-        os.chdir(old_cwd)
+    root = get_project_root(project)
+    products = list_products(project_root=root)
 
     return [{"id": p.id, "name": p.name, "description": p.description} for p in products]
 
@@ -404,16 +398,10 @@ def _get_station(station_id: str, project: str) -> dict[str, Any]:
 
 def _get_product(product_id: str, project: str) -> dict[str, Any]:
     """Get product specification from products/{product_id}.yaml."""
-    import os
-
     from litmus.store import get_product
 
-    old_cwd = os.getcwd()
-    try:
-        os.chdir(get_project_root(project))
-        product = get_product(product_id)
-    finally:
-        os.chdir(old_cwd)
+    root = get_project_root(project)
+    product = get_product(product_id, project_root=root)
 
     if product is None:
         return {"error": f"Product '{product_id}' not found in products/"}
@@ -564,12 +552,12 @@ def _save_entity(
 
 
 def _save_station(station_id: str, content: dict[str, Any], project: str) -> dict[str, Any]:
-    """Save station configuration — validate through StationConfig, write via dump_yaml."""
+    """Save station configuration — validate through StationConfig, write via store."""
     from pydantic import ValidationError
 
-    from litmus.config.fmt import dump_yaml
     from litmus.config.normalize import check_instrument_types
     from litmus.schemas import StationConfig
+    from litmus.store import save_station
 
     try:
         station = StationConfig.model_validate(content)
@@ -586,11 +574,10 @@ def _save_station(station_id: str, content: dict[str, Any], project: str) -> dic
         {k: v.model_dump() for k, v in station.instruments.items()}
     )
 
-    stations_dir = get_project_root(project) / "stations"
-    stations_dir.mkdir(parents=True, exist_ok=True)
-    filepath = stations_dir / f"{station_id}.yaml"
-    filepath.write_text(dump_yaml(station.model_dump(exclude_none=True)))
+    root = get_project_root(project)
+    save_station(station, project_root=root)
 
+    filepath = root / "stations" / f"{station_id}.yaml"
     result: dict[str, Any] = {"success": True, "path": str(filepath)}
     if type_warnings:
         result["warnings"] = type_warnings
@@ -599,8 +586,6 @@ def _save_station(station_id: str, content: dict[str, Any], project: str) -> dic
 
 def _save_product(product_id: str, content: dict[str, Any], project: str) -> dict[str, Any]:
     """Save product specification — validate through Product, write via store."""
-    import os
-
     from pydantic import ValidationError
 
     from litmus.products.models import Product
@@ -617,23 +602,19 @@ def _save_product(product_id: str, content: dict[str, Any], project: str) -> dic
             ],
         }
 
-    old_cwd = os.getcwd()
-    try:
-        os.chdir(get_project_root(project))
-        save_product(product)
-    finally:
-        os.chdir(old_cwd)
+    root = get_project_root(project)
+    save_product(product, project_root=root)
 
-    products_dir = get_project_root(project) / "products"
+    products_dir = root / "products"
     return {"success": True, "path": str(products_dir / f"{product_id}.yaml")}
 
 
 def _save_fixture(fixture_id: str, content: dict[str, Any], project: str) -> dict[str, Any]:
-    """Save fixture configuration — validate through FixtureConfig, write via dump_yaml."""
+    """Save fixture configuration — validate through FixtureConfig, write via store."""
     from pydantic import ValidationError
 
-    from litmus.config.fmt import dump_yaml
     from litmus.config.models import FixtureConfig
+    from litmus.store import save_fixture
 
     try:
         fixture = FixtureConfig.model_validate(content)
@@ -646,20 +627,18 @@ def _save_fixture(fixture_id: str, content: dict[str, Any], project: str) -> dic
             ],
         }
 
-    fixtures_dir = get_project_root(project) / "fixtures"
-    fixtures_dir.mkdir(parents=True, exist_ok=True)
-    filepath = fixtures_dir / f"{fixture_id}.yaml"
-    filepath.write_text(dump_yaml(fixture.model_dump(exclude_none=True)))
+    root = get_project_root(project)
+    save_fixture(fixture, project_root=root)
 
-    return {"success": True, "path": str(filepath)}
+    return {"success": True, "path": str(root / "fixtures" / f"{fixture_id}.yaml")}
 
 
 def _save_sequence(sequence_id: str, content: dict[str, Any], project: str) -> dict[str, Any]:
-    """Save test sequence — validate through TestSequenceConfig, write via dump_yaml."""
+    """Save test sequence — validate through TestSequenceConfig, write via store."""
     from pydantic import ValidationError
 
-    from litmus.config.fmt import dump_yaml
     from litmus.config.models import TestSequenceConfig
+    from litmus.store import save_sequence
 
     try:
         sequence = TestSequenceConfig.model_validate(content)
@@ -672,20 +651,18 @@ def _save_sequence(sequence_id: str, content: dict[str, Any], project: str) -> d
             ],
         }
 
-    sequences_dir = get_project_root(project) / "sequences"
-    sequences_dir.mkdir(parents=True, exist_ok=True)
-    filepath = sequences_dir / f"{sequence_id}.yaml"
-    filepath.write_text(dump_yaml(sequence.model_dump(exclude_none=True)))
+    root = get_project_root(project)
+    save_sequence(sequence, project_root=root)
 
-    return {"success": True, "path": str(filepath)}
+    return {"success": True, "path": str(root / "sequences" / f"{sequence_id}.yaml")}
 
 
 def _save_instrument(instrument_type: str, content: dict[str, Any], project: str) -> dict[str, Any]:
-    """Save instrument asset file — validate through InstrumentAssetFile, write via dump_yaml."""
+    """Save instrument asset file — validate through InstrumentAssetFile, write via store."""
     from pydantic import ValidationError
 
-    from litmus.config.fmt import dump_yaml
     from litmus.schemas import InstrumentAssetFile
+    from litmus.store import save_instrument_asset
 
     try:
         asset = InstrumentAssetFile.model_validate(content)
@@ -698,12 +675,10 @@ def _save_instrument(instrument_type: str, content: dict[str, Any], project: str
             ],
         }
 
-    instruments_dir = get_project_root(project) / "instruments"
-    instruments_dir.mkdir(parents=True, exist_ok=True)
-    filepath = instruments_dir / f"{instrument_type}.yaml"
-    filepath.write_text(dump_yaml(asset.model_dump(exclude_none=True)))
+    root = get_project_root(project)
+    save_instrument_asset(asset, project_root=root)
 
-    return {"success": True, "path": str(filepath)}
+    return {"success": True, "path": str(root / "instruments" / f"{instrument_type}.yaml")}
 
 
 def _save_test(path: str, content: dict[str, Any], project: str) -> dict[str, Any]:

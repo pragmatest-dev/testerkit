@@ -6,7 +6,7 @@ import pytest
 
 from litmus.config.models import Comparator, Direction, MeasurementFunction
 from litmus.execution.limits import derive_limit
-from litmus.store import load_product, load_products_from_directory
+from litmus.store import load_product
 
 
 class TestLoadProduct:
@@ -197,17 +197,3 @@ class TestProductInheritance:
                 load_product(tmp_path, products_dir=specs_dir)
         finally:
             tmp_path.unlink()
-
-
-class TestLoadProductsFromDirectory:
-    """Tests for loading multiple products from a directory."""
-
-    @pytest.mark.filterwarnings("ignore:Failed to load product.*circular:UserWarning")
-    def test_load_products_directory(self):
-        """Test loading all products from specs directory."""
-        specs_dir = Path(__file__).parent.parent / "fixtures" / "specs"
-        products = load_products_from_directory(specs_dir)
-
-        assert "power_board_v1" in products
-        product = products["power_board_v1"]
-        assert product.name == "DC-DC Power Board Rev A"
