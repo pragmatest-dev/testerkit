@@ -47,7 +47,7 @@ harness = TestHarness(
 
 # With spec context for automatic limits
 from litmus.products import SpecContext
-spec = SpecContext.from_file("products/my_product/spec.yaml")
+spec = SpecContext.from_file("products/my_product.yaml")
 harness = TestHarness(
     step_name="my_test",
     spec_context=spec,
@@ -172,7 +172,7 @@ When using `@litmus_test`, limits come from sequence steps (primary) or inline d
 from litmus.execution.harness import TestHarness
 from litmus.products import SpecContext
 
-spec = SpecContext.from_file("products/power_board/spec.yaml", guardband_pct=10)
+spec = SpecContext.from_file("products/power_board.yaml", guardband_pct=10)
 
 harness = TestHarness(
     step_name="test_output",

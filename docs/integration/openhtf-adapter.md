@@ -188,6 +188,7 @@ If a library like PyMeasure already supports your instrument, use it directly:
 # stations/bench_1.yaml
 instruments:
   dmm:
+    type: dmm
     driver: pymeasure.instruments.keithley.Keithley2000
     resource: "TCPIP::192.168.1.100::INSTR"
 ```
@@ -230,6 +231,7 @@ class MyDMM:
 # stations/bench_1.yaml
 instruments:
   dmm:
+    type: dmm
     driver: drivers.dmm.MyDMM
     resource: "TCPIP::192.168.1.100::INSTR"
 ```
@@ -275,15 +277,16 @@ STATION_CONFIG = {
 
 ```yaml
 # stations/bench_1.yaml
-station:
-  id: bench_1
-  name: "Production Bench 1"
+id: bench_1
+name: "Production Bench 1"
 
 instruments:
   dmm:
+    type: dmm
     driver: pymeasure.instruments.keithley.Keithley2000
     resource: "TCPIP::192.168.1.100::INSTR"
   psu:
+    type: psu
     driver: drivers.psu.MyPSU
     resource: "GPIB0::5::INSTR"
 ```

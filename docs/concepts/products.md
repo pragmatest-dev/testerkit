@@ -4,15 +4,14 @@ A **Product** is what you're testing — a PCB, module, or device. Product specs
 
 ## Product Specification
 
-Product specs are defined in YAML files, in `products/{product_id}/spec.yaml`:
+Product specs are defined in YAML files, in `products/{product_id}.yaml`:
 
 ```yaml
-# products/power_board/spec.yaml
-product:
-  id: power_board
-  name: "5V to 3.3V Converter"
-  part_number: "DPB-001"
-  revision: "A"
+# products/power_board.yaml
+id: power_board
+name: "5V to 3.3V Converter"
+part_number: "DPB-001"
+revision: "A"
 
 pins:
   VIN:
@@ -193,9 +192,8 @@ signal_groups:
 The simplest spec that works:
 
 ```yaml
-product:
-  id: minimal_board
-  name: "Minimal Example"
+id: minimal_board
+name: "Minimal Example"
 
 pins:
   VOUT:
@@ -218,10 +216,9 @@ characteristics:
 The `part_number` field maps a product to its manufacturing part number. When present, it automatically populates `dut_part_number` in test results (unless overridden by `--dut-part-number` on the CLI). This enables yield analytics filtering by part number.
 
 ```yaml
-product:
-  id: power_board
-  part_number: "DPB-001"
-  name: "5V to 3.3V Converter"
+id: power_board
+part_number: "DPB-001"
+name: "5V to 3.3V Converter"
 ```
 
 ## Variant Inheritance
@@ -229,12 +226,11 @@ product:
 Product families can share specs using the `base` field. A variant inherits all fields from its base product and overrides specific sections:
 
 ```yaml
-# products/power_board_industrial/spec.yaml
-product:
-  id: power_board_industrial
-  base: power_board              # Inherits from products/power_board/spec.yaml
-  part_number: "DPB-001-IND"
-  name: "5V to 3.3V Converter (Industrial)"
+# products/power_board_industrial.yaml
+id: power_board_industrial
+base: power_board              # Inherits from products/power_board.yaml
+part_number: "DPB-001-IND"
+name: "5V to 3.3V Converter (Industrial)"
 
 # Omitted sections (pins, signal_groups) are inherited from base.
 # Sections that ARE present replace the base entirely:
@@ -263,7 +259,7 @@ In Python:
 ```python
 from litmus.products.loader import load_product
 
-product = load_product("products/power_board/spec.yaml")
+product = load_product("products/power_board.yaml")
 print(product.id)
 print(product.characteristics["output_voltage"].nominal)
 ```

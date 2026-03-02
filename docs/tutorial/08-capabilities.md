@@ -43,7 +43,7 @@ A power converter:
 
 **Product spec defines requirements:**
 ```yaml
-# products/power_board/spec.yaml
+# products/power_board.yaml
 characteristics:
   input_voltage:
     function: dc_voltage
@@ -122,10 +122,9 @@ Create files to see matching in action:
 
 **1. Create a product spec:**
 ```yaml
-# products/my_product/spec.yaml
-product:
-  id: my_product
-  name: "My Test Product"
+# products/my_product.yaml
+id: my_product
+name: "My Test Product"
 
 characteristics:
   output_voltage:
@@ -149,27 +148,28 @@ characteristics:
 
 ```yaml
 # stations/station_a.yaml — DMM only
-station:
-  id: station_a
-  name: "Station A - DMM only"
+id: station_a
+name: "Station A - DMM only"
 instruments:
   dmm:
     type: dmm
-    resource: "SIM::DMM"
+    mock: true
+    catalog_ref: generic_dmm
 ```
 
 ```yaml
 # stations/station_b.yaml — DMM + current clamp
-station:
-  id: station_b
-  name: "Station B - DMM + Clamp meter"
+id: station_b
+name: "Station B - DMM + Clamp meter"
 instruments:
   dmm:
     type: dmm
-    resource: "SIM::DMM"
+    mock: true
+    catalog_ref: generic_dmm
   clamp:
     type: current_clamp
-    resource: "SIM::CLAMP"
+    mock: true
+    catalog_ref: generic_current_clamp
 ```
 
 **3. Run the matcher:**

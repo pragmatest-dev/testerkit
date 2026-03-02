@@ -11,8 +11,7 @@ A product specification that documents your device and provides traceability for
 ```
 my_project/
 ├── products/
-│   └── power_board/
-│       └── spec.yaml       # Product specification
+│   └── power_board.yaml    # Product specification
 ├── sequences/
 │   └── power_board.yaml    # Test steps with limits derived from spec
 ├── tests/
@@ -25,12 +24,11 @@ my_project/
 Define what you're testing:
 
 ```yaml
-# products/power_board/spec.yaml
-product:
-  id: power_board
-  name: "5V to 3.3V Converter"
-  revision: "A"
-  description: "Low-dropout regulator module"
+# products/power_board.yaml
+id: power_board
+name: "5V to 3.3V Converter"
+revision: "A"
+description: "Low-dropout regulator module"
 
 pins:
   VIN:
@@ -71,11 +69,10 @@ characteristics:
 ### Product Identity
 
 ```yaml
-product:
-  id: power_board           # Unique identifier
-  name: "5V to 3.3V Converter"
-  revision: "A"
-  description: "..."
+id: power_board           # Unique identifier
+name: "5V to 3.3V Converter"
+revision: "A"
+description: "..."
 ```
 
 ### Pins
@@ -146,7 +143,7 @@ Production: 3.152V to 3.449V
 Document this in the spec:
 
 ```yaml
-# products/power_board/spec.yaml
+# products/power_board.yaml
 specs:
   verify_output:
     characteristic_ref: output_voltage
@@ -209,7 +206,7 @@ steps:
 
 ## Why Separate Spec from Sequence?
 
-| Spec (products/*/spec.yaml) | Sequence (sequences/*.yaml) |
+| Spec (products/*.yaml) | Sequence (sequences/*.yaml) |
 |-------|--------|
 | What the product SHOULD do | How we TEST it |
 | From datasheet/requirements | Test-specific parameters |
@@ -218,11 +215,10 @@ steps:
 
 ## Complete Example
 
-**products/power_board/spec.yaml:**
+**products/power_board.yaml:**
 ```yaml
-product:
-  id: power_board
-  name: "5V to 3.3V Converter"
+id: power_board
+name: "5V to 3.3V Converter"
 
 pins:
   VIN:
@@ -257,9 +253,9 @@ specs:
 
 **sequences/power_board.yaml:**
 ```yaml
-sequence:
-  id: power_board
-  product_family: power_board
+id: power_board
+product_family: power_board
+test_phase: production
 
 steps:
   - id: output_voltage

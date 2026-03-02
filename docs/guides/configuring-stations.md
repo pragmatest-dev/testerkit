@@ -6,17 +6,18 @@ This guide covers station configuration for different environments.
 
 ```yaml
 # stations/bench_1.yaml
-station:
-  id: bench_1
-  name: "Production Bench 1"
-  location: "Lab A"
+id: bench_1
+name: "Production Bench 1"
+location: "Lab A"
 
 instruments:
   dmm:
     type: dmm
+    driver: pymeasure.instruments.keysight.Keysight34461A
     resource: "TCPIP::192.168.1.100::INSTR"
   psu:
     type: psu
+    driver: pymeasure.instruments.keysight.KeysightE36312A
     resource: "GPIB0::5::INSTR"
 ```
 
@@ -78,6 +79,7 @@ Configure default values for `--mock-instruments` mode:
 instruments:
   dmm:
     type: dmm
+    driver: pymeasure.instruments.keysight.Keysight34461A
     resource: "TCPIP::192.168.1.100::INSTR"
     mock_config:
       voltage: 3.31
@@ -144,17 +146,18 @@ Reference in station instances:
 
 ```yaml
 # stations/bench_1.yaml
-station:
-  id: bench_1
-  station_type: voltage_tester
-  location: "Lab A"
+id: bench_1
+station_type: voltage_tester
+location: "Lab A"
 
 instruments:
   dmm:
     type: dmm
+    driver: pymeasure.instruments.keysight.Keysight34461A
     resource: "TCPIP::192.168.1.100::INSTR"
   psu:
     type: psu
+    driver: pymeasure.instruments.keysight.KeysightE36312A
     resource: "GPIB0::5::INSTR"
 ```
 
@@ -164,10 +167,9 @@ instruments:
 
 ```yaml
 # stations/prod_bench_1.yaml
-station:
-  id: prod_bench_1
-  name: "Production Bench 1"
-  location: "Production Floor, Bay 1"
+id: prod_bench_1
+name: "Production Bench 1"
+location: "Production Floor, Bay 1"
 
 supported_phases:
   - production
@@ -175,9 +177,11 @@ supported_phases:
 instruments:
   dmm:
     type: dmm
+    driver: pymeasure.instruments.keysight.Keysight34461A
     resource: "TCPIP::192.168.10.101::INSTR"
   psu:
     type: psu
+    driver: pymeasure.instruments.keysight.KeysightE36312A
     resource: "TCPIP::192.168.10.102::INSTR"
 ```
 
@@ -185,10 +189,9 @@ instruments:
 
 ```yaml
 # stations/dev_bench.yaml
-station:
-  id: dev_bench
-  name: "Development Bench"
-  location: "R&D Lab"
+id: dev_bench
+name: "Development Bench"
+location: "R&D Lab"
 
 supported_phases:
   - development
@@ -197,12 +200,15 @@ supported_phases:
 instruments:
   dmm:
     type: dmm
+    driver: pymeasure.instruments.keysight.Keysight34461A
     resource: "USB0::0x2A8D::0x0101::MY12345::INSTR"
   psu:
     type: psu
+    driver: pymeasure.instruments.keysight.KeysightE36312A
     resource: "GPIB0::5::INSTR"
   scope:
     type: scope
+    driver: drivers.scope.MyScope
     resource: "TCPIP::192.168.1.200::INSTR"
 ```
 
@@ -210,21 +216,22 @@ instruments:
 
 ```yaml
 # stations/ci_station.yaml
-station:
-  id: ci_station
-  name: "CI Environment"
-  description: "For automated testing with --mock-instruments"
+id: ci_station
+name: "CI Environment"
+description: "For automated testing with --mock-instruments"
 
 instruments:
   dmm:
     type: dmm
-    resource: "TCPIP::192.168.1.100::INSTR"
+    mock: true
+    catalog_ref: generic_dmm
     mock_config:
       voltage: 3.31
       current: 0.1
   psu:
     type: psu
-    resource: "GPIB0::5::INSTR"
+    mock: true
+    catalog_ref: generic_psu
     mock_config:
       voltage: 5.0
 ```
@@ -239,9 +246,8 @@ pytest tests/ --station-config=stations/ci_station.yaml --mock-instruments --dut
 Track which fixture is installed:
 
 ```yaml
-station:
-  id: bench_1
-  active_fixture: power_board_fixture
+id: bench_1
+active_fixture: power_board_fixture
 
 instruments:
   # ...
@@ -254,9 +260,8 @@ This enables validation that the correct fixture is in place.
 Explicitly declare station capabilities:
 
 ```yaml
-station:
-  id: bench_1
-  capabilities:
+id: bench_1
+capabilities:
     - direction: input
       function: dc_voltage
       range:
@@ -304,37 +309,41 @@ Invalid configurations raise `pydantic.ValidationError` with details about what'
 ### Single DMM
 
 ```yaml
-station:
-  id: simple_station
+id: simple_station
 
 instruments:
   dmm:
     type: dmm
+    driver: pymeasure.instruments.keysight.Keysight34461A
     resource: "USB0::0x2A8D::0x0101::MY12345::INSTR"
 ```
 
 ### Full Production
 
 ```yaml
-station:
-  id: production_station
-  location: "Production Floor"
+id: production_station
+location: "Production Floor"
 
 instruments:
   dmm_1:
     type: dmm
+    driver: pymeasure.instruments.keysight.Keysight34461A
     resource: "TCPIP::192.168.1.101::INSTR"
   dmm_2:
     type: dmm
+    driver: pymeasure.instruments.keysight.Keysight34461A
     resource: "TCPIP::192.168.1.102::INSTR"
   psu:
     type: psu
+    driver: pymeasure.instruments.keysight.KeysightE36312A
     resource: "TCPIP::192.168.1.103::INSTR"
   eload:
     type: eload
+    driver: drivers.eload.MyELoad
     resource: "TCPIP::192.168.1.104::INSTR"
   scope:
     type: scope
+    driver: drivers.scope.MyScope
     resource: "TCPIP::192.168.1.105::INSTR"
 ```
 

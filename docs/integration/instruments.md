@@ -1,310 +1,283 @@
-# Instrument Drivers Integration
+# Instrument Integration
 
-Use Litmus instrument drivers with any test framework — pytest, Robot Framework, unittest, or custom scripts.
+Litmus does NOT provide instrument drivers. You bring your own:
+- **PyMeasure** (100+ drivers): https://pymeasure.readthedocs.io/
+- **PyVISA** for raw SCPI: https://pyvisa.readthedocs.io/
+- **Vendor libraries** (NI-DAQmx, etc.)
 
-## Overview
+Litmus provides utilities for discovery, identification, mocking, and traceability.
 
-Litmus instrument drivers provide:
-- Unified interface across instrument types
-- Built-in simulation mode
-- Capability-based matching
-- Float precision for measurements
+## Quick Start with PyVISA
 
-## Quick Start
+Install PyVISA with the pure-Python backend (no NI-VISA or Keysight IO Libraries required):
 
-```python
-from litmus.instruments import DMM
-
-# Real hardware
-dmm = DMM("TCPIP::192.168.1.100::INSTR")
-dmm.connect()
-voltage = dmm.measure_voltage()
-dmm.disconnect()
-
-# Simulated (same interface)
-dmm = DMM("TCPIP::192.168.1.100::INSTR", mock=True, sim_config={"voltage": 3.3})
-dmm.connect()
-voltage = dmm.measure_voltage()  # Returns 3.3
-dmm.disconnect()
+```bash
+pip install pyvisa pyvisa-py
 ```
 
-## Available Drivers
-
-| Type | Class | Capabilities |
-|------|-------|--------------|
-| Digital Multimeter | `DMM` | voltage, current, resistance |
-| Power Supply | `PSU` | voltage/current output |
-| Electronic Load | `ELoad` | current sink |
-| Oscilloscope | `Scope` | voltage (AC), frequency |
-| Function Generator | `FuncGen` | waveform output |
-
-## Usage Patterns
-
-### Context Managers
+### Direct PyVISA Usage
 
 ```python
-from litmus.instruments import DMM, PSU
+import pyvisa
 
-with DMM("TCPIP::192.168.1.100::INSTR") as dmm:
-    voltage = dmm.measure_voltage()
-# Automatically disconnects
+# Connect to instrument
+rm = pyvisa.ResourceManager('@py')  # Use pyvisa-py backend
+dmm = rm.open_resource("TCPIP::192.168.1.100::INSTR")
+
+# Query identity
+print(dmm.query("*IDN?"))
+
+# Measure voltage
+voltage = float(dmm.query("MEAS:VOLT:DC?"))
+print(f"Voltage: {voltage} V")
+
+dmm.close()
 ```
 
-### Multiple Instruments
+### With Station Config
 
-```python
-from litmus.instruments import DMM, PSU
+In your station YAML, reference the driver class:
 
-with PSU("GPIB0::5::INSTR") as psu, DMM("TCPIP::192.168.1.100::INSTR") as dmm:
-    psu.set_voltage(5.0)
-    psu.enable_output()
-    voltage = dmm.measure_voltage()
-    psu.disable_output()
+```yaml
+# stations/bench_1.yaml
+id: bench_1
+name: "Test Bench 1"
+
+instruments:
+  dmm:
+    type: dmm
+    driver: pyvisa.resources.MessageBasedResource
+    resource: "TCPIP::192.168.1.100::INSTR"
 ```
 
-### Mock Mode Flag
+The pytest plugin will instantiate the driver and make it available as a fixture:
 
 ```python
-import os
-from litmus.instruments import DMM, Mock
+def test_voltage(dmm):
+    # dmm is a pyvisa MessageBasedResource
+    voltage = float(dmm.query("MEAS:VOLT:DC?"))
+    assert voltage > 3.0
+```
 
-# Environment-based mock mode
-mock_mode = os.environ.get("LITMUS_MOCK_INSTRUMENTS", "") == "1"
+## Using PyMeasure Drivers
 
-if mock_mode:
-    dmm = Mock(DMM, voltage=3.31)
-else:
-    dmm = DMM("TCPIP::192.168.1.100::INSTR")
+PyMeasure provides high-level drivers for 100+ instruments:
 
-with dmm:
-    voltage = dmm.measure_voltage()
+```bash
+pip install pymeasure
+```
+
+```yaml
+# stations/bench_1.yaml
+id: bench_1
+name: "Test Bench 1"
+
+instruments:
+  dmm:
+    type: dmm
+    driver: pymeasure.instruments.keysight.Keysight34461A
+    resource: "TCPIP::192.168.1.100::INSTR"
+
+  psu:
+    type: psu
+    driver: pymeasure.instruments.keysight.KeysightE36312A
+    resource: "TCPIP::192.168.1.101::INSTR"
+```
+
+```python
+def test_output_voltage(psu, dmm):
+    # PyMeasure provides high-level methods
+    psu.voltage = 5.0
+    psu.output_enabled = True
+
+    voltage = dmm.voltage_dc
+    assert 4.9 < voltage < 5.1
+
+    psu.output_enabled = False
 ```
 
 ## Mock Instruments
 
-For unit tests and CI, use mock instruments (no I/O overhead):
+For testing without hardware, Litmus provides a `Mock` factory that works with any class:
 
 ```python
-from litmus.instruments import DMM, PSU, ELoad, Mock
+from pymeasure.instruments.keithley import Keithley2400
+from litmus.instruments import Mock
 
-# Instant mock responses
-dmm = Mock(DMM, voltage=3.31, current=0.1)
-dmm.connect()
+# Create mock that passes isinstance checks
+smu = Mock(Keithley2400, voltage=5.0, current=1.5e-6)
 
-v = dmm.measure_voltage()  # Returns 3.31
-
-# Update simulated values
-dmm.set_value("voltage", 5.0)
-v = dmm.measure_voltage()  # Returns 5.0
+assert isinstance(smu, Keithley2400)
+assert smu.voltage == 5.0
 ```
 
-### Mock vs mock=True
+### Mock Configuration
 
-| Feature | Mock(DMM) | DMM(mock=True) |
-|---------|---------|-------------------|
-| I/O overhead | None | pyvisa-sim |
-| Realistic timing | No | Yes |
-| Tests driver logic | No | Yes |
-| Speed | Instant | ~5-50ms/call |
-| Use case | Unit tests | Integration tests |
-
-## Integration Examples
-
-### With pytest
-
-When using the Litmus plugin with a station config, instrument role fixtures are auto-registered. No conftest boilerplate needed:
+Mock supports three value types:
 
 ```python
-# Station config defines dmm with driver path → fixture is auto-available
-def test_voltage(dmm):
-    voltage = dmm.measure_voltage()
-    assert float(voltage) > 3.0
+from litmus.instruments import Mock
+
+# Simple values - always returned
+dmm = Mock(object, measure_voltage=3.31)
+dmm.measure_voltage()  # Returns 3.31
+
+# Dict lookup - first argument is key
+inst = Mock(object, query={
+    "MEAS:VOLT:DC?": "3.31",
+    "MEAS:CURR:DC?": "0.1",
+    "*IDN?": "Keysight,34461A,SN123,1.0",
+})
+inst.query("MEAS:VOLT:DC?")  # Returns "3.31"
+
+# Callable - full control
+inst = Mock(object, query=lambda cmd: "3.31" if "VOLT" in cmd else "0.0")
 ```
 
-For custom lifecycle management, override in conftest:
+### Station Mock Config
+
+Configure mocks in station YAML:
+
+```yaml
+# stations/dev_station.yaml
+id: dev_station
+name: "Development Station"
+
+instruments:
+  dmm:
+    type: dmm
+    catalog_ref: generic_dmm
+    mock: true  # Use mock mode
+    mock_config:
+      measure_dc_voltage: 3.31
+      measure_dc_current: 0.1
+
+  psu:
+    type: psu
+    catalog_ref: generic_psu
+    mock: true
+    mock_config:
+      measure_voltage: 5.0
+      measure_current: 0.25
+```
+
+Run with mocks:
+```bash
+pytest tests/ --station=dev_station --mock-instruments --dut-serial=TEST001
+```
+
+## Discovery
+
+Scan for available VISA instruments:
 
 ```python
+from litmus.instruments import discover_visa, get_info_visa
+
+# Find all instruments
+resources = discover_visa()
+# ["TCPIP::192.168.1.100::INSTR", "USB0::0x1234::0x5678::SN123::INSTR"]
+
+# Get identity info
+info = get_info_visa("TCPIP::192.168.1.100::INSTR")
+# InstrumentInfo(manufacturer="Keysight", model="34461A", serial="SN123")
+```
+
+Or use the CLI:
+```bash
+litmus discover
+```
+
+## Integration Patterns
+
+### pytest (Recommended)
+
+Station roles become fixtures automatically:
+
+```python
+# Station config has dmm and psu → fixtures auto-registered
+from litmus.execution import litmus_test
+
+@litmus_test
+def test_output_voltage(context, psu, dmm):
+    psu.voltage = context.get_in("vin", 5.0)
+    psu.output_enabled = True
+    return dmm.voltage_dc
+```
+
+### Custom Fixture Override
+
+Override auto-registered fixtures for custom setup/teardown:
+
+```python
+# tests/conftest.py
 import pytest
 
 @pytest.fixture(scope="session")
-def dmm(instruments):
-    """Custom DMM with range configuration."""
-    inst = instruments["dmm"]
-    inst.configure_voltage_range("AUTO")
-    return inst
-
-def test_voltage(dmm):
-    voltage = dmm.measure_voltage()
-    assert float(voltage) > 3.0
-```
-
-### With Robot Framework
-
-```python
-# litmus_keywords.py
-from litmus.instruments import DMM, PSU
-
-class LitmusKeywords:
-    def __init__(self):
-        self.instruments = {}
-
-    def connect_dmm(self, resource, simulate=False):
-        self.instruments["dmm"] = DMM(resource, simulate=simulate)
-        self.instruments["dmm"].connect()
-
-    def measure_voltage(self):
-        return float(self.instruments["dmm"].measure_voltage())
-
-    def disconnect_all(self):
-        for inst in self.instruments.values():
-            inst.disconnect()
-```
-
-```robot
-*** Settings ***
-Library    litmus_keywords.LitmusKeywords
-
-*** Test Cases ***
-Test Voltage
-    Connect DMM    TCPIP::192.168.1.100::INSTR    mock=True
-    ${voltage}=    Measure Voltage
-    Should Be True    ${voltage} > 3.0
-    [Teardown]    Disconnect All
-```
-
-### With unittest
-
-```python
-import unittest
-from litmus.instruments import DMM, Mock
-
-class TestVoltage(unittest.TestCase):
-    def setUp(self):
-        self.dmm = Mock(DMM, voltage=3.31)
-        self.dmm.connect()
-
-    def tearDown(self):
-        self.dmm.disconnect()
-
-    def test_measure_voltage(self):
-        voltage = self.dmm.measure_voltage()
-        self.assertGreater(float(voltage), 3.0)
+def psu(instruments):
+    """Custom PSU with safety defaults."""
+    inst = instruments["psu"]
+    inst.current_limit = 0.5  # Safety limit
+    yield inst
+    inst.output_enabled = False  # Always disable on teardown
 ```
 
 ### Standalone Script
 
 ```python
 #!/usr/bin/env python3
-from litmus.instruments import DMM, PSU
+import pyvisa
+from litmus.instruments import Mock
 
-def run_test(serial: str, simulate: bool = False):
-    with PSU("GPIB0::5::INSTR", simulate=simulate) as psu, \
-         DMM("TCPIP::192.168.1.100::INSTR", simulate=simulate) as dmm:
+def measure_voltage(resource: str, mock: bool = False) -> float:
+    if mock:
+        dmm = Mock(object, query={"MEAS:VOLT:DC?": "3.31"})
+    else:
+        rm = pyvisa.ResourceManager('@py')
+        dmm = rm.open_resource(resource)
 
-        psu.set_voltage(5.0)
-        psu.set_current_limit(1.0)
-        psu.enable_output()
-
-        voltage = dmm.measure_voltage()
-        print(f"DUT {serial}: {voltage}V")
-
-        psu.disable_output()
-
-        return float(voltage) > 3.0
+    try:
+        voltage = float(dmm.query("MEAS:VOLT:DC?"))
+        return voltage
+    finally:
+        if not mock:
+            dmm.close()
 
 if __name__ == "__main__":
     import sys
-    success = run_test(sys.argv[1], simulate="--mock-instruments" in sys.argv)
-    sys.exit(0 if success else 1)
+    mock = "--mock" in sys.argv
+    v = measure_voltage("TCPIP::192.168.1.100::INSTR", mock=mock)
+    print(f"Voltage: {v} V")
 ```
 
-## Capability Interfaces
+## Traceability
 
-Instruments implement capability interfaces for type-safe code:
+Every measurement records which instrument took it:
 
 ```python
-from litmus.capabilities.interfaces import VoltageInput, VoltageOutput
-
-def measure_and_source(
-    meter: VoltageInput,
-    supply: VoltageOutput,
-):
-    """Works with any instrument implementing these capabilities."""
-    supply.set_voltage(5.0)
-    supply.enable_output()
-    return meter.measure_voltage()
-
-# Works with any compatible instruments
-from litmus.instruments import DMM, PSU
-
-dmm = DMM("TCPIP::192.168.1.100::INSTR")
-psu = PSU("GPIB0::5::INSTR")
-voltage = measure_and_source(dmm, psu)
+# Result Parquet includes:
+# - instrument_serial: "SN123456"
+# - instrument_model: "34461A"
+# - instrument_cal_due: "2024-06-15"
+# - instrument_firmware: "1.0.2"
 ```
 
-## Station Configuration
+Configure calibration info in station:
 
-Load instruments from YAML:
-
-```python
-from litmus.config.loader import load_station
-
-station = load_station("stations/bench_1.yaml")
-
-dmm = station.get_instrument("dmm")
-psu = station.get_instrument("psu")
-```
-
-Station YAML:
 ```yaml
-# stations/bench_1.yaml
-station:
-  id: bench_1
-
 instruments:
   dmm:
     type: dmm
+    driver: pymeasure.instruments.keysight.Keysight34461A
     resource: "TCPIP::192.168.1.100::INSTR"
-  psu:
-    type: psu
-    resource: "GPIB0::5::INSTR"
-```
-
-## Custom Drivers
-
-Create drivers for custom instruments:
-
-```python
-from litmus.instruments.base import Instrument
-from litmus.capabilities.interfaces import VoltageInput
-
-class MyCustomDMM(Instrument, VoltageInput):
-    """Custom DMM driver."""
-
-    def __init__(self, port: str, simulate: bool = False, sim_config: dict = None):
-        super().__init__(simulate=simulate, sim_config=sim_config)
-        self.port = port
-        self._sim_voltage = float(sim_config.get("voltage", 0)) if sim_config else 0.0
-
-    def connect(self):
-        if self.simulate:
-            self._connected = True
-            return
-        # Real connection logic
-        self._connected = True
-
-    def disconnect(self):
-        self._connected = False
-
-    def measure_voltage(self, signal_type=None) -> float:
-        if self.simulate:
-            return self._sim_voltage
-        # Real measurement logic
-        return 3.31
+    calibration:
+      due_date: 2024-06-15
+      last_cal: 2023-06-15
+      certificate: "CAL-2023-1234"
+      lab: "Acme Calibration"
 ```
 
 ## Next Steps
 
-- [Adding Instruments](../guides/adding-instruments.md) — Create custom drivers
-- [Capabilities](../concepts/capabilities.md) — Understanding capability matching
-- [Stations](../concepts/stations.md) — Station configuration
+- [Adding Instruments](../guides/adding-instruments.md) — Station configuration details
+- [Mock Mode](../guides/mock-mode.md) — Testing without hardware
+- [Stations](../concepts/stations.md) — Station architecture

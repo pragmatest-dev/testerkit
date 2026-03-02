@@ -1,19 +1,33 @@
 # Quick Start
 
-Get up and running with Litmus in 5 minutes.
-
-## Installation
+Get up and running with Litmus in under a minute.
 
 ```bash
-# Clone the repository
+# 1. Install Litmus
+pip install litmus-hw   # or: uv add litmus-hw
+
+# 2. Create a starter project
+litmus init my-project --starter
+cd my-project
+
+# 3. Run the tests
+pytest
+```
+
+That's it. You'll see tests pass with mock instruments, limits checked, and results recorded.
+
+## How to Install
+
+```bash
+# Recommended: uv
+uv add litmus-hw
+
+# Or pip
+pip install litmus-hw
+
+# Development install from source
 git clone https://github.com/your-org/litmus.git
-cd litmus
-
-# Install with uv (recommended)
-uv sync
-
-# Or with pip
-pip install -e .
+cd litmus && uv sync
 ```
 
 ## Project Structure
@@ -23,8 +37,7 @@ Litmus projects follow a standard folder structure. The UI is driven by these fo
 ```
 my_project/
 ├── products/                    # WHAT you're testing
-│   └── my_product/
-│       └── spec.yaml            # Product specification
+│   └── my_product.yaml          # Product specification
 ├── stations/                    # WHERE you test
 │   └── my_station.yaml          # Instruments + addresses
 ├── fixtures/                    # HOW pins connect to instruments
@@ -41,15 +54,16 @@ my_project/
 └── pyproject.toml
 ```
 
-## Your First Test
+## Understanding the Starter Project
 
-### 1. Define the Product Spec
+When you run `litmus init my-project --starter`, it generates all of these files. Here's what each one does:
+
+### Product Spec (`products/example_product.yaml`)
 
 ```yaml
-# products/my_product/spec.yaml
-product:
-  id: my_product
-  name: "5V to 3.3V Power Module"
+# products/my_product.yaml
+id: my_product
+name: "5V to 3.3V Power Module"
 
 characteristics:
   output_voltage:
@@ -62,30 +76,56 @@ characteristics:
         accuracy: {pct_reading: 2.0}
 ```
 
-### 2. Configure the Station
+### Station Config (`stations/starter_station.yaml`)
 
 ```yaml
 # stations/my_station.yaml
-station:
-  id: my_station
-  name: "My Test Bench"
+id: my_station
+name: "My Test Bench"
 
 instruments:
   psu:
     type: psu
-    resource: "TCPIP::192.168.1.101::INSTR"
+    resource: "TCPIP::192.168.1.100::INSTR"
+    mock: true  # Start with mocks, switch to real hardware later
     mock_config:
-      voltage: 5.0
-      current: 0.1
+      set_voltage: null      # No-op methods
+      enable_output: null
+      measure_voltage: 5.0   # Return values
 
   dmm:
     type: dmm
-    resource: "TCPIP::192.168.1.102::INSTR"
+    resource: "TCPIP::192.168.1.101::INSTR"
+    mock: true
     mock_config:
-      voltage: 3.31  # Value returned in mock mode
+      measure_dc_voltage: 3.31
 ```
 
-### 3. Write the Test
+For real hardware, just remove `mock: true`. Litmus uses PyVISA directly:
+
+```yaml
+# stations/bench_1.yaml - Real hardware
+id: bench_1
+name: "Test Bench 1"
+
+instruments:
+  dmm:
+    type: dmm
+    resource: "TCPIP::192.168.1.100::INSTR"
+    # No mock: true → uses PyVISA, fixture has .query()/.write()
+```
+
+Or use PyMeasure for high-level drivers (100+ instruments):
+
+```yaml
+instruments:
+  dmm:
+    type: dmm
+    driver: pymeasure.instruments.keysight.Keysight34461A
+    resource: "TCPIP::192.168.1.100::INSTR"
+```
+
+### Test Code (`tests/test_example.py`)
 
 ```python
 # tests/test_my_product.py
@@ -112,16 +152,16 @@ def test_output_voltage(context, psu, dmm):
     return dmm.measure_dc_voltage()
 ```
 
-### 4. Create a Sequence
+### Sequence (`sequences/example_sequence.yaml`)
 
 Sequences are the **single source of truth** for test configuration. Each step carries its own vectors, limits, and mocks:
 
 ```yaml
 # sequences/my_product_smoke.yaml
-sequence:
-  id: my_product_smoke
-  name: "My Product - Smoke Test"
-  product_family: my_product
+id: my_product_smoke
+name: "My Product - Smoke Test"
+product_family: my_product
+test_phase: dev  # dev, validation, characterization, or production
 
 steps:
   - id: output_voltage
@@ -138,7 +178,7 @@ steps:
       dmm.measure_dc_voltage: 3.31
 ```
 
-### 5. Run the Test
+### Running Tests
 
 ```bash
 # With a sequence (production pattern)

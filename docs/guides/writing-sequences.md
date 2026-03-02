@@ -8,12 +8,12 @@ A **sequence** is a named, ordered collection of test steps:
 
 ```yaml
 # sequences/power_board_smoke.yaml
-sequence:
-  id: power_board_smoke
-  name: "Power Board - Smoke Test"
-  description: "Quick power-up verification"
+id: power_board_smoke
+name: "Power Board - Smoke Test"
+description: "Quick power-up verification"
+test_phase: dev
 
-  steps:
+steps:
     - id: measure_5v_rail
       test: tests/test_power_board.py::test_measure_5v_rail
       description: "Verify 5V rail present"
@@ -43,40 +43,39 @@ my_project/
 ### Required Fields
 
 ```yaml
-sequence:
-  id: unique_sequence_id        # Unique identifier
-  description: "What this tests" # For operators and reports
-  steps: []                      # List of test steps
+id: unique_sequence_id        # Unique identifier
+description: "What this tests" # For operators and reports
+test_phase: dev               # Required: dev, validation, characterization, production
+steps: []                      # List of test steps
 ```
 
 ### Optional Fields
 
 ```yaml
-sequence:
-  id: power_board_full
-  name: "Power Board - Full Test"           # Display name (defaults to id)
-  description: "Complete functional test"
+id: power_board_full
+name: "Power Board - Full Test"           # Display name (defaults to id)
+description: "Complete functional test"
+test_phase: production                    # Required: dev, validation, characterization, production
 
-  # Scoping
-  product_family: power_board               # Which products this applies to
-  test_phase: production                    # validation | characterization | production
+# Scoping
+product_family: power_board               # Which products this applies to
 
-  # Requirements
-  required_fixture: power_board_fixture     # Fixture ID required
-  required_station_type: bench_with_eload   # Station type required
+# Requirements
+required_fixture: power_board_fixture     # Fixture ID required
+required_station_type: bench_with_eload   # Station type required
 
-  # Execution
-  pytest_args: ["-v", "--tb=short"]         # Extra pytest arguments
-  timeout_seconds: 1800                     # Overall sequence timeout (30 min)
+# Execution
+pytest_args: ["-v", "--tb=short"]         # Extra pytest arguments
+timeout_seconds: 1800                     # Overall sequence timeout (30 min)
 
-  steps: []
+steps: []
 
-  # Inline dialog definitions
-  dialogs:
-    confirm_load:
-      id: confirm_load
-      message: "Connect electronic load"
-      dialog_type: confirm
+# Inline dialog definitions
+dialogs:
+  confirm_load:
+    id: confirm_load
+    message: "Connect electronic load"
+    dialog_type: confirm
 ```
 
 ## Test Steps
@@ -215,12 +214,12 @@ Sequences can include other sequences as steps.
 
 ```yaml
 # sequences/power_board_full.yaml
-sequence:
-  id: power_board_full
-  name: "Power Board - Full Test"
-  description: "Complete functional test"
+id: power_board_full
+name: "Power Board - Full Test"
+description: "Complete functional test"
+test_phase: production
 
-  steps:
+steps:
     # Run the smoke test sequence first
     - id: smoke_tests
       sequence: power_board_smoke    # References another sequence
@@ -253,11 +252,10 @@ The `test_phase` field indicates when this sequence runs:
 | `production` | Manufacturing test, pass/fail | Minutes |
 
 ```yaml
-sequence:
-  id: power_board_char
-  test_phase: characterization
-  description: "Characterize output across temperature"
-  # ...
+id: power_board_char
+test_phase: characterization
+description: "Characterize output across temperature"
+# ...
 ```
 
 ## Dialog Types
@@ -303,17 +301,16 @@ dialogs:
 
 ```yaml
 # sequences/power_board_production.yaml
-sequence:
-  id: power_board_production
-  name: "Power Board Production Test"
-  description: "Manufacturing test for power boards"
-  product_family: power_board
-  test_phase: production
-  required_fixture: power_board_v2
-  required_station_type: bench_with_eload
-  timeout_seconds: 600    # 10 minute limit
+id: power_board_production
+name: "Power Board Production Test"
+description: "Manufacturing test for power boards"
+product_family: power_board
+test_phase: production
+required_fixture: power_board_v2
+required_station_type: bench_with_eload
+timeout_seconds: 600    # 10 minute limit
 
-  steps:
+steps:
     # Quick checks first
     - id: check_continuity
       test: tests/test_power_board.py::test_continuity

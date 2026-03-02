@@ -18,6 +18,7 @@ def init_project(
     path: Path,
     git: bool = True,
     station: dict[str, Any] | None = None,
+    starter: bool = False,
 ) -> dict[str, Any]:
     """Initialize a new Litmus project.
 
@@ -27,6 +28,7 @@ def init_project(
         station: Optional station data to write.  Dict with
             ``instruments`` mapping role names to dicts with
             ``resource`` and optional ``info`` keys.
+        starter: Whether to create starter example files.
 
     Returns:
         Dict with created_dirs, created_files, warnings, and git_initialized.
@@ -51,6 +53,26 @@ def init_project(
     # Create pyproject.toml
     pyproject_path = path / "pyproject.toml"
     if not pyproject_path.exists():
+        if starter:
+            # Starter mode: include pytest defaults so users can just run "pytest"
+            addopts = (
+                "-v --station=starter_station --sequence=example_sequence "
+                "--mock-instruments --dut-serial=STARTER001"
+            )
+            pytest_section = f'''[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_functions = ["test_*"]
+addopts = "{addopts}"
+filterwarnings = ["ignore::pytest.PytestReturnNotNoneWarning"]
+'''
+        else:
+            pytest_section = '''[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_functions = ["test_*"]
+filterwarnings = ["ignore::pytest.PytestReturnNotNoneWarning"]
+'''
         pyproject_content = f'''[project]
 name = "{project_name}"
 version = "0.1.0"
@@ -65,11 +87,7 @@ dependencies = [
     "pytest>=8.0",
 ]
 
-[tool.pytest.ini_options]
-testpaths = ["tests"]
-python_files = ["test_*.py"]
-python_functions = ["test_*"]
-
+{pytest_section}
 [tool.uv.sources]
 # Uncomment and adjust path for local development:
 # litmus = {{ path = "../litmus", editable = true }}
@@ -80,7 +98,30 @@ python_functions = ["test_*"]
     # Create conftest.py
     conftest_path = path / "tests" / "conftest.py"
     if not conftest_path.exists():
-        conftest_content = '''"""Pytest configuration for Litmus tests.
+        if starter:
+            conftest_content = '''"""pytest configuration for Litmus tests.
+
+Instrument fixtures (psu, dmm) are AUTO-REGISTERED from station config.
+No boilerplate needed - just use them in your tests.
+
+To OVERRIDE an auto-registered fixture with custom setup/teardown:
+
+    @pytest.fixture(scope="session")
+    def psu(instruments):
+        inst = instruments.get("psu")
+        inst.set_voltage(5.0)       # custom default
+        yield inst
+        inst.disable_output()       # custom teardown
+
+For PIN-BASED fixtures with traceability (measurement -> pin -> instrument):
+
+    @pytest.fixture(scope="session")
+    def output_dmm(pins):
+        return pins.get("TP_VOUT")  # measurement includes dut_pin
+"""
+'''
+        else:
+            conftest_content = '''"""Pytest configuration for Litmus tests.
 
 The litmus pytest plugin auto-registers fixtures for each instrument role
 defined in your station config. For example, if your station has:
@@ -174,7 +215,7 @@ A [Litmus](https://github.com/anthropics/litmus) hardware test project.
             export_schemas(schemas_dir)
             settings = {
                 "yaml.schemas": {
-                    ".vscode/schemas/product.schema.json": "products/*/spec.yaml",
+                    ".vscode/schemas/product.schema.json": "products/**/*.yaml",
                     ".vscode/schemas/catalog.schema.json": "catalog/**/*.yaml",
                 },
             }
@@ -208,6 +249,11 @@ A [Litmus](https://github.com/anthropics/litmus) hardware test project.
             sc_data["resources"] = resources
             station_file.write_text(dump_yaml(sc_data))
             created_files.append("stations/station.yaml")
+
+    # Create starter files if requested
+    if starter:
+        starter_files = _create_starter_files(path, project_name)
+        created_files.extend(starter_files)
 
     # Initialize git repository (skip if already in a repo)
     git_initialized = False
@@ -246,3 +292,142 @@ def get_project_contents(path: Path) -> list[dict[str, str]]:
                 }
             )
     return contents
+
+
+def _create_starter_files(path: Path, project_name: str) -> list[str]:
+    """Create starter example files for a new project.
+
+    Args:
+        path: Project root directory.
+        project_name: Sanitized project name.
+
+    Returns:
+        List of created file paths (relative to project root).
+    """
+    from litmus.config.fmt import dump_yaml
+
+    created_files: list[str] = []
+
+    # Create stations/starter_station.yaml
+    station_file = path / "stations" / "starter_station.yaml"
+    if not station_file.exists():
+        station_content = {
+            "id": "starter_station",
+            "name": "Starter Station",
+            "description": "Auto-generated starter station with mock instruments",
+            "instruments": {
+                "psu": {
+                    "type": "psu",
+                    "resource": "TCPIP::192.168.1.100::INSTR",
+                    "mock": True,
+                    "mock_config": {
+                        "set_voltage": None,
+                        "enable_output": None,
+                        "measure_voltage": 5.0,
+                        "measure_current": 0.25,
+                    },
+                },
+                "dmm": {
+                    "type": "dmm",
+                    "resource": "TCPIP::192.168.1.101::INSTR",
+                    "mock": True,
+                    "mock_config": {
+                        "measure_dc_voltage": 3.3,
+                    },
+                },
+            },
+        }
+        station_file.write_text(dump_yaml(station_content))
+        created_files.append("stations/starter_station.yaml")
+
+    # Create products/example_product.yaml
+    product_file = path / "products" / "example_product.yaml"
+    if not product_file.exists():
+        product_content = {
+            "id": "example_product",
+            "name": "Example Product",
+            "description": "Auto-generated example product specification",
+            "characteristics": {
+                "output_voltage": {
+                    "function": "dc_voltage",
+                    "direction": "output",
+                    "units": "V",
+                    "specs": [
+                        {
+                            "value": 3.3,
+                            "accuracy": {
+                                "pct_reading": 2.0,
+                            },
+                        },
+                    ],
+                },
+            },
+        }
+        product_file.write_text(dump_yaml(product_content))
+        created_files.append("products/example_product.yaml")
+
+    # Create sequences/example_sequence.yaml
+    sequence_file = path / "sequences" / "example_sequence.yaml"
+    if not sequence_file.exists():
+        sequence_content = {
+            "id": "example_sequence",
+            "name": "Example Sequence",
+            "description": "Auto-generated starter sequence",
+            "product_family": "example_product",
+            "test_phase": "dev",
+            "steps": [
+                {
+                    "id": "output_voltage",
+                    "test": "tests/test_example.py::test_output_voltage",
+                    "description": "Verify output voltage at nominal input",
+                    "vectors": [
+                        {"vin": 5.0},
+                    ],
+                    "mocks": {
+                        "dmm.measure_dc_voltage": 3.3,
+                    },
+                    "limits": {
+                        "output_voltage": {
+                            "low": 3.2,
+                            "high": 3.4,
+                            "nominal": 3.3,
+                            "units": "V",
+                        },
+                    },
+                },
+            ],
+        }
+        sequence_file.write_text(dump_yaml(sequence_content))
+        created_files.append("sequences/example_sequence.yaml")
+
+    # Create tests/test_example.py
+    test_file = path / "tests" / "test_example.py"
+    if not test_file.exists():
+        test_content = '''"""Example test demonstrating Litmus basics.
+
+The test code focuses on WHAT to do, not configuration.
+Vectors, limits, and mocks are defined in sequences/example_sequence.yaml.
+
+Run with: pytest
+(All defaults configured in pyproject.toml)
+
+Instrument fixtures (psu, dmm) are auto-registered from station config.
+"""
+from litmus.execution import litmus_test
+
+
+@litmus_test
+def test_output_voltage(context, psu, dmm):
+    """Verify output voltage is within spec.
+
+    Config (vectors, limits, mocks) comes from sequence step.
+    """
+    vin = context.get_in("vin", 5.0)
+    psu.set_voltage(vin)
+    psu.enable_output()
+    return dmm.measure_dc_voltage()
+'''
+        test_file.write_text(test_content)
+        created_files.append("tests/test_example.py")
+
+    return created_files

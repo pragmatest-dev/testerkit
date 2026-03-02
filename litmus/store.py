@@ -429,9 +429,18 @@ def _load_product_with_inheritance(
         )
     seen.add(product_id)
 
-    base_path = products_dir / base_ref / "spec.yaml"
+    base_path = products_dir / f"{base_ref}.yaml"
     if not base_path.exists():
-        base_path = products_dir / f"{base_ref}.yaml"
+        for candidate in products_dir.rglob("*.yaml"):
+            if candidate.name.startswith("_"):
+                continue
+            try:
+                candidate_data = _read_yaml(candidate)
+                if candidate_data.get("id") == base_ref:
+                    base_path = candidate
+                    break
+            except Exception:
+                continue
     if not base_path.exists():
         raise ValueError(
             f"Base product {base_ref!r} not found "
@@ -490,25 +499,23 @@ def get_product(product_id: str) -> Product | None:
     for products_dir in _get_product_paths():
         if not products_dir.exists():
             continue
-        # Direct lookup by folder name
-        spec_file = products_dir / product_id / "spec.yaml"
-        if spec_file.exists():
+        # Try flat file first (canonical convention)
+        flat_file = products_dir / f"{product_id}.yaml"
+        if flat_file.exists():
             try:
-                return load_product(spec_file)
+                return load_product(flat_file)
             except Exception:
                 pass
-        # Fallback: search all folders
-        for product_folder in products_dir.iterdir():
-            if not product_folder.is_dir():
+        # Fallback: rglob scan (handles any nesting depth)
+        for yaml_file in products_dir.rglob("*.yaml"):
+            if yaml_file.name.startswith("_"):
                 continue
-            spec_file = product_folder / "spec.yaml"
-            if spec_file.exists():
-                try:
-                    product = load_product(spec_file)
-                    if product.id == product_id:
-                        return product
-                except Exception:
-                    continue
+            try:
+                product = load_product(yaml_file)
+                if product.id == product_id:
+                    return product
+            except Exception:
+                continue
     return None
 
 
@@ -519,14 +526,11 @@ def list_products() -> list[Product]:
     for products_dir in _get_product_paths():
         if not products_dir.exists():
             continue
-        for product_folder in products_dir.iterdir():
-            if not product_folder.is_dir():
-                continue
-            spec_file = product_folder / "spec.yaml"
-            if not spec_file.exists():
+        for yaml_file in sorted(products_dir.rglob("*.yaml")):
+            if yaml_file.name.startswith("_"):
                 continue
             try:
-                product = load_product(spec_file)
+                product = load_product(yaml_file)
                 if product.id in seen_ids:
                     continue
                 seen_ids.add(product.id)
@@ -538,21 +542,29 @@ def list_products() -> list[Product]:
 
 def save_product(product: Product) -> bool:
     """Save product specification to YAML file."""
-    search_paths = _get_product_paths()
-
     target_file = None
-    for products_dir in search_paths:
-        product_folder = products_dir / product.id
-        if product_folder.exists():
-            target_file = product_folder / "spec.yaml"
+    for products_dir in _get_product_paths():
+        if not products_dir.exists():
+            continue
+        # Preserve existing file location (flat or nested)
+        for yaml_file in products_dir.rglob("*.yaml"):
+            if yaml_file.name.startswith("_"):
+                continue
+            try:
+                import yaml as _yaml
+                data = _yaml.safe_load(yaml_file.read_text())
+                if isinstance(data, dict) and data.get("id") == product.id:
+                    target_file = yaml_file
+                    break
+            except Exception:
+                continue
+        if target_file:
             break
 
     if target_file is None:
         products_dir = Path.cwd() / "products"
         products_dir.mkdir(exist_ok=True)
-        product_folder = products_dir / product.id
-        product_folder.mkdir(exist_ok=True)
-        target_file = product_folder / "spec.yaml"
+        target_file = products_dir / f"{product.id}.yaml"
 
     _write_model(target_file, product.model_dump(exclude_none=True))
     return True
@@ -561,31 +573,20 @@ def save_product(product: Product) -> bool:
 def create_product(
     product_id: str, name: str, description: str = "",
 ) -> Product | None:
-    """Create a new product folder with spec.yaml.
+    """Create a new product YAML file.
 
     Returns Product if successful, None if product already exists.
     """
-    from litmus.products.folder import ProductFolder
-
     products_dir = Path.cwd() / "products"
     products_dir.mkdir(exist_ok=True)
 
-    try:
-        folder = ProductFolder.create(
-            base_path=products_dir,
-            product_id=product_id,
-            name=name,
-            description=description or None,
-        )
-    except FileExistsError:
+    target_file = products_dir / f"{product_id}.yaml"
+    if target_file.exists():
         return None
 
-    spec = folder.load_spec()
-    if spec:
-        return spec
-
-    # Fallback: construct minimal Product
-    return Product(id=product_id, name=name, description=description or None)
+    product = Product(id=product_id, name=name, description=description or None)
+    _write_model(target_file, product.model_dump(exclude_none=True))
+    return product
 
 
 # =============================================================================

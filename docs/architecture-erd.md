@@ -10,7 +10,7 @@
   1. SPEC                 2. SEQUENCE              3. CODE               4. RUN
   ───────                 ──────────               ──────                ──────
 
-  products/*/spec.yaml    sequences/*.yaml         tests/test_*.py       pytest
+  products/*.yaml    sequences/*.yaml         tests/test_*.py       pytest
   ┌───────────┐          ┌────────────┐           ┌────────────┐       ┌───────┐
   │ Product   │          │ steps:     │           │ @litmus_   │       │ CLI   │
   │ - pins    │          │ - vectors  │           │   test     │       │  or   │
@@ -286,7 +286,7 @@ erDiagram
   OPTION A: Product Spec                OPTION B: Sequence Step      OPTION C: Inline
   (Derived from datasheet)              (Per-step overrides)         (In decorator)
 
-  products/product/spec.yaml            sequences/*.yaml             test_*.py
+  products/product.yaml            sequences/*.yaml             test_*.py
   ┌─────────────────────┐              ┌─────────────────────┐      ┌─────────────┐
   │ characteristics:    │              │ steps:              │      │ @litmus_test│
   │   output_voltage:   │              │   - id: output      │      │ (limits={   │
@@ -321,7 +321,7 @@ erDiagram
 Product Spec (YAML)              Sequence Step (YAML)         Test Code (Python)
 ────────────────────             ────────────────────         ──────────────────
 
-products/tps54302/spec.yaml     sequences/production.yaml    tests/test_*.py
+products/tps54302.yaml     sequences/production.yaml    tests/test_*.py
 ┌────────────────────┐           ┌────────────────────┐       ┌────────────────┐
 │ characteristics:   │           │ steps:             │       │ @litmus_test   │
 │   output_voltage:  │           │   - id: output     │       │ def test_output│
@@ -374,7 +374,7 @@ TestSequence  →  TestRun   →  TestVector  →  Measurement  →  Parquet
 
 | Entity | Location |
 |--------|----------|
-| Product specs | `products/*/spec.yaml` or `products/*/spec.yaml` |
+| Product specs | `products/*.yaml` or `products/*.yaml` |
 | Station configs | `stations/*.yaml` |
 | Test sequences | `sequences/*.yaml` |
 | Fixtures | `fixtures/*.yaml` |

@@ -52,7 +52,7 @@ Every measurement can be traced from result back to source:
 ├─────────────────────────────────────────────────────────────────────────┤
 │                                                                         │
 │  Measurement Output                                                     │
-│  └── spec_ref ────────────► Product Spec (spec.yaml)                   │
+│  └── spec_ref ────────────► Product Spec (products/id.yaml)            │
 │      │                       └── Characteristic ID from datasheet       │
 │      │                                                                  │
 │      ├── meas_dut_pin ────► Product Pin Definition                     │
@@ -123,7 +123,7 @@ For spec-driven traceability:
 ```python
 from litmus.products import SpecContext
 
-spec = SpecContext.from_file("products/power_board/spec.yaml")
+spec = SpecContext.from_file("products/power_board.yaml")
 
 @litmus_test
 def test_output_voltage(context, dmm, harness):
@@ -309,7 +309,7 @@ Example compliance report structure:
 Test Report: SN12345
 ──────────────────────────────────────────────────────
 Requirement: output_voltage
-  Source: products/power_board/spec.yaml
+  Source: products/power_board.yaml
   DUT Pin: J1.3 (VOUT_3V3)
   Instrument: dmm_main (Keithley 2000)
   Resource: TCPIP::192.168.1.100::INSTR

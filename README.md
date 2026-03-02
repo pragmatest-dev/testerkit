@@ -115,7 +115,7 @@ Open in pandas, DuckDB, or anything that reads Parquet.
 ## Project layout
 
 ```
-products/spec.yaml        → Product characteristics and tolerances
+products/*.yaml           → Product characteristics and tolerances
 catalog/*.yaml            → Instrument capabilities and accuracy
 stations/*.yaml           → Which instruments are at this bench
 fixtures/*.yaml           → How DUT pins connect to instruments

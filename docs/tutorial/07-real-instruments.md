@@ -12,14 +12,14 @@ Define your test station (the bench where you test):
 
 ```yaml
 # stations/bench_1.yaml
-station:
-  id: bench_1
-  name: "Production Bench 1"
-  location: "Lab A, Position 1"
+id: bench_1
+name: "Production Bench 1"
+location: "Lab A, Position 1"
 
 instruments:
   dmm:
     type: dmm
+    driver: pymeasure.instruments.keysight.Keysight34461A
     resource: "TCPIP::192.168.1.100::INSTR"
     mock_config:
       voltage: 3.31       # Value returned in mock mode
@@ -27,6 +27,7 @@ instruments:
 
   psu:
     type: psu
+    driver: pymeasure.instruments.keysight.KeysightE36312A
     resource: "GPIB0::5::INSTR"
     mock_config:
       voltage: 5.0
@@ -149,19 +150,20 @@ litmus_discover()
 
 **stations/bench_1.yaml:**
 ```yaml
-station:
-  id: bench_1
-  name: "Production Bench 1"
-  location: "Lab A"
+id: bench_1
+name: "Production Bench 1"
+location: "Lab A"
 
 instruments:
   dmm:
     type: dmm
+    driver: pymeasure.instruments.keysight.Keysight34461A
     resource: "TCPIP::192.168.1.100::INSTR"
     mock_config:
       voltage: 3.31
   psu:
     type: psu
+    driver: pymeasure.instruments.keysight.KeysightE36312A
     resource: "GPIB0::5::INSTR"
     mock_config:
       voltage: 5.0
@@ -169,9 +171,9 @@ instruments:
 
 **sequences/smoke.yaml:**
 ```yaml
-sequence:
-  id: smoke
-  name: "Smoke Test"
+id: smoke
+name: "Smoke Test"
+test_phase: dev
 
 steps:
   - id: output_voltage

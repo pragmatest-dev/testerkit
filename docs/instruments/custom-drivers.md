@@ -438,16 +438,16 @@ Or register via station config:
 
 ```yaml
 # stations/my_station.yaml
-station:
-  id: my_station
-  name: "My Test Station"
+id: my_station
+name: "My Test Station"
 
 instruments:
   dmm:
-    type: my_drivers.MyDMM  # Full module path
+    type: dmm
+    driver: my_drivers.MyDMM  # Full module path
     resource: "TCPIP::192.168.1.100::INSTR"
     mock: true
-    sim_config:
+    mock_config:
       voltage: 5.0
 ```
 

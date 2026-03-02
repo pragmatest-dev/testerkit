@@ -8,18 +8,19 @@ Station configs are YAML files in `stations/`:
 
 ```yaml
 # stations/bench_1.yaml
-station:
-  id: bench_1
-  name: "Production Bench 1"
-  location: "Lab A"
+id: bench_1
+name: "Production Bench 1"
+location: "Lab A"
 
 instruments:
   dmm:
     type: dmm
+    driver: pymeasure.instruments.keysight.Keysight34461A
     resource: "TCPIP::192.168.1.100::INSTR"
 
   psu:
     type: psu
+    driver: pymeasure.instruments.keysight.KeysightE36312A
     resource: "GPIB0::5::INSTR"
 ```
 
@@ -57,6 +58,7 @@ Configure mock values in the station:
 instruments:
   dmm:
     type: dmm
+    driver: pymeasure.instruments.keysight.Keysight34461A
     resource: "TCPIP::192.168.1.100::INSTR"
     mock_config:
       voltage: 3.31
@@ -103,17 +105,18 @@ Concrete stations that implement a type:
 
 ```yaml
 # stations/bench_1.yaml
-station:
-  id: bench_1
-  station_type: voltage_tester
-  location: "Lab A, Bench 1"
+id: bench_1
+station_type: voltage_tester
+location: "Lab A, Bench 1"
 
 instruments:
   dmm:
     type: dmm
+    driver: pymeasure.instruments.keysight.Keysight34461A
     resource: "TCPIP::192.168.1.100::INSTR"
   psu:
     type: psu
+    driver: pymeasure.instruments.keysight.KeysightE36312A
     resource: "GPIB0::5::INSTR"
 ```
 
@@ -155,9 +158,8 @@ litmus show <run_id>            # Show run details
 Stations can optionally declare which test phases they support:
 
 ```yaml
-station:
-  id: bench_1
-  name: "Production Bench 1"
+id: bench_1
+name: "Production Bench 1"
 
 supported_phases:
   - validation
@@ -198,21 +200,22 @@ stations/
 
 ```yaml
 # stations/ci_station.yaml
-station:
-  id: ci_station
-  name: "CI Environment"
-  description: "For CI/CD with --mock-instruments"
+id: ci_station
+name: "CI Environment"
+description: "For CI/CD with --mock-instruments"
 
 instruments:
   dmm:
     type: dmm
-    resource: "TCPIP::192.168.1.100::INSTR"
+    mock: true
+    catalog_ref: generic_dmm
     mock_config:
       voltage: 3.3
       current: 0.1
   psu:
     type: psu
-    resource: "GPIB0::5::INSTR"
+    mock: true
+    catalog_ref: generic_psu
     mock_config:
       voltage: 5.0
 ```

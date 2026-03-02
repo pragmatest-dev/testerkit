@@ -78,7 +78,7 @@ def _build_instructions() -> str:
     role_values = pin_role.get("enum", [])
 
     # Load examples from demo/ files (single source of truth)
-    product_example = _load_demo_snippet("products/power_board/spec.yaml", max_lines=50)
+    product_example = _load_demo_snippet("products/power_board.yaml", max_lines=50)
     station_example = _load_demo_snippet("stations/demo_station_001.yaml", max_lines=30)
 
     return f"""\
@@ -270,7 +270,7 @@ def create_mcp_server() -> FastMCP:
                  content={...}, project="/path/to/project")
 
         - read: Read project file or template
-          litmus(action="read", path="products/x/spec.yaml", project="/path/to/project")
+          litmus(action="read", path="products/x.yaml", project="/path/to/project")
           litmus(action="read", path="template:test", project="/path/to/project")
 
         - lookup_enum: Resolve datasheet abbreviations to enum values

@@ -65,7 +65,7 @@ litmus(action="get", type="product", id="tps54302", project=project)
 litmus(action="save", type="product", id="tps54302", content={...}, project=project)
 
 # Read file or template
-litmus(action="read", path="products/tps54302/spec.yaml", project=project)
+litmus(action="read", path="products/tps54302.yaml", project=project)
 litmus(action="read", path="template:test", project=project)  # Get test template
 ```
 

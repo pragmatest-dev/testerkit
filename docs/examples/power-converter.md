@@ -24,8 +24,7 @@ A simple 5V to 3.3V DC-DC converter with:
 ```
 power_converter_test/
 ├── products/                       # WHAT you're testing
-│   └── dc_converter/
-│       └── spec.yaml
+│   └── dc_converter.yaml
 ├── stations/                       # WHERE you test
 │   └── bench_1.yaml
 ├── fixtures/                       # HOW pins connect to instruments
@@ -43,12 +42,11 @@ power_converter_test/
 ## Product Specification
 
 ```yaml
-# products/dc_converter/spec.yaml
-product:
-  id: dc_converter
-  name: "5V to 3.3V DC-DC Converter"
-  revision: "A"
-  datasheet: "docs/DC-CONV-001.pdf"
+# products/dc_converter.yaml
+id: dc_converter
+name: "5V to 3.3V DC-DC Converter"
+revision: "A"
+datasheet: "docs/DC-CONV-001.pdf"
 
 pins:
   VIN:
@@ -121,10 +119,9 @@ characteristics:
 
 ```yaml
 # stations/bench_1.yaml
-station:
-  id: bench_1
-  name: "Production Bench 1"
-  location: "Lab A, Bay 1"
+id: bench_1
+name: "Production Bench 1"
+location: "Lab A, Bay 1"
 
 supported_phases:
   - production
@@ -133,14 +130,17 @@ supported_phases:
 instruments:
   psu:
     type: psu
+    driver: pymeasure.instruments.keysight.KeysightE36312A
     resource: "TCPIP::192.168.1.101::INSTR"
 
   dmm:
     type: dmm
+    driver: pymeasure.instruments.keysight.Keysight34461A
     resource: "TCPIP::192.168.1.102::INSTR"
 
   eload:
     type: eload
+    driver: drivers.eload.MyELoad
     resource: "TCPIP::192.168.1.103::INSTR"
 ```
 
@@ -148,10 +148,9 @@ instruments:
 
 ```yaml
 # fixtures/dc_converter_fixture.yaml
-fixture:
-  id: dc_converter_fixture
-  name: "DC Converter Test Fixture"
-  product_id: dc_converter
+id: dc_converter_fixture
+name: "DC Converter Test Fixture"
+product_id: dc_converter
 
 points:
   VIN:
@@ -230,12 +229,11 @@ test_load_sweep:
 
 ```yaml
 # sequences/production_test.yaml
-sequence:
-  id: dc_converter_production
-  name: "DC Converter Production Test"
-  product_family: dc_converter
-  test_phase: production
-  required_fixture: dc_converter_fixture
+id: dc_converter_production
+name: "DC Converter Production Test"
+product_family: dc_converter
+test_phase: production
+required_fixture: dc_converter_fixture
 
 steps:
   - name: startup

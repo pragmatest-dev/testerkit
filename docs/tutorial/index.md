@@ -11,7 +11,7 @@ Welcome to Litmus! This tutorial takes you from your first test to a production-
 | [3. The @litmus_test Decorator](03-decorator.md) | Log measurements | @litmus_test, vector, return values |
 | [4. Add Limits](04-limits.md) | Pass/fail criteria | Limit, Measurement, Outcome |
 | [5. Test Configuration](05-configuration.md) | Configure in YAML | sequences, vectors, limits |
-| [6. Product Specifications](06-specifications.md) | Define products | products/*/spec.yaml, characteristics |
+| [6. Product Specifications](06-specifications.md) | Define products | products/*.yaml, characteristics |
 | [7. Real Instruments](07-real-instruments.md) | Talk to hardware | stations/*.yaml, VISA, simulation |
 | [8. Capability Matching](08-capabilities.md) | Find compatible stations | direction flip, matching API |
 | [9. Production Ready](09-production.md) | Full traceability | fixtures, sequences, pins |

@@ -25,7 +25,7 @@ class SpecContext:
     channel traceability through the test execution.
 
     Example usage:
-        spec = SpecContext.from_file("products/power_board/spec.yaml")
+        spec = SpecContext.from_file("products/power_board.yaml")
 
         # Get limit for a characteristic at specific conditions
         limit = spec.get_limit("output_voltage", temperature=25, load=0.1)

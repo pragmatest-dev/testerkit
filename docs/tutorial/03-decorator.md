@@ -152,18 +152,19 @@ We'll use the parentheses form in later steps when we add configuration.
 
 **stations/my_station.yaml:**
 ```yaml
-station:
-  id: my_station
-  name: "My Test Bench"
+id: my_station
+name: "My Test Bench"
 
 instruments:
   dmm:
     type: dmm
+    driver: pymeasure.instruments.keysight.Keysight34461A
     resource: "TCPIP::192.168.1.100::INSTR"
     mock_config:
       voltage: 3.31
   psu:
     type: psu
+    driver: pymeasure.instruments.keysight.KeysightE36312A
     resource: "GPIB0::5::INSTR"
     mock_config:
       voltage: 5.0

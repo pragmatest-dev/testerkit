@@ -40,12 +40,18 @@ _TEST_NODE_ALIASES: dict[str, dict[str, str]] = {}
 # Mapping: test node ID → full step config (built from --sequence)
 _TEST_NODE_CONFIGS: dict[str, dict[str, Any]] = {}
 
+# Test phase from sequence (dev, validation, characterization, production)
+_SEQUENCE_TEST_PHASE: str | None = None
+
 
 def _load_sequence_data(config) -> list[dict[str, Any]]:
     """Load steps from a sequence file.
 
     Returns the raw list of step dicts from the sequence YAML.
+    Also sets _SEQUENCE_TEST_PHASE global.
     """
+    global _SEQUENCE_TEST_PHASE
+
     seq_option = config.getoption("--sequence", default=None)
     if not seq_option:
         return []
@@ -72,6 +78,9 @@ def _load_sequence_data(config) -> list[dict[str, Any]]:
         seq_file = load_sequence(seq_path)
     except Exception:
         return []
+
+    # Store test phase for mock validation
+    _SEQUENCE_TEST_PHASE = seq_file.test_phase
 
     # Return steps from sequence config
     return [s.model_dump() for s in seq_file.steps]
@@ -172,8 +181,6 @@ def pytest_configure(config):
         return
 
     instruments_map = station_model.instruments or {}
-    if not instruments_map:
-        return
 
     # Load per-step aliases and configs from sequence (if --sequence provided)
     global _TEST_NODE_ALIASES, _TEST_NODE_CONFIGS
@@ -643,13 +650,11 @@ def spec_context(request):
         for root in search_roots:
             products_dir = root / "products"
             if products_dir.exists():
-                # Find first product folder with spec.yaml
-                for product_folder in products_dir.iterdir():
-                    if product_folder.is_dir() and not product_folder.name.startswith("_"):
-                        spec_file = product_folder / "spec.yaml"
-                        if spec_file.exists():
-                            ctx = SpecContext.from_file(spec_file, guardband_pct=guardband)
-                            break
+                for yaml_file in sorted(products_dir.rglob("*.yaml")):
+                    if yaml_file.name.startswith("_"):
+                        continue
+                    ctx = SpecContext.from_file(yaml_file, guardband_pct=guardband)
+                    break
             if ctx:
                 break
 
@@ -664,11 +669,24 @@ def mock_instruments(request) -> bool:
     Checks both:
     - --mock-instruments pytest option
     - LITMUS_MOCK_INSTRUMENTS environment variable (set by UI)
+
+    Raises:
+        pytest.UsageError: If mocks requested for non-dev test phase.
     """
-    return (
+    use_mocks = (
         request.config.getoption("--mock-instruments")
         or os.environ.get("LITMUS_MOCK_INSTRUMENTS") == "1"
     )
+
+    # Prevent mocks in production/validation/characterization phases
+    if use_mocks and _SEQUENCE_TEST_PHASE is not None and _SEQUENCE_TEST_PHASE != "dev":
+        raise pytest.UsageError(
+            f"Mock instruments not allowed for test_phase='{_SEQUENCE_TEST_PHASE}'. "
+            f"Mocks are only permitted for test_phase='dev'. "
+            f"Remove --mock-instruments or change sequence test_phase to 'dev'."
+        )
+
+    return use_mocks
 
 
 @pytest.fixture(scope="session")
@@ -683,6 +701,21 @@ def station_config(request):
         from litmus.store import load_station
 
         return load_station(station_path)
+
+    # Check if --station was explicitly passed (not the default)
+    station_id = request.config.getoption("--station")
+    explicit = any(
+        arg.startswith("--station") for arg in request.config.invocation_params.args
+    )
+    if explicit:
+        import warnings
+
+        warnings.warn(
+            f"Station '{station_id}' not found in stations/ directory. "
+            f"Instrument fixtures (psu, dmm, etc.) will not be available. "
+            f"Fix: create stations/{station_id}.yaml",
+            stacklevel=1,
+        )
     return None
 
 
@@ -887,15 +920,9 @@ def instruments(
         use_mock = mock_instruments or (inline_config.mock if inline_config else False)
         record.mocked = use_mock
 
-        driver_class = _load_driver_class(record.driver)
-        if driver_class is None and not use_mock:
-            # No driver and not in mock mode - can't connect to real hardware
-            continue
-
         if use_mock:
-            # Mock mode - use Mock factory
-            # If driver specified, mock that class; otherwise create generic mock
-            inst = Mock(driver_class, **mock_config) if driver_class else Mock(**mock_config)
+            # Mock mode - generic mock, no driver class needed
+            inst: Any = Mock(object, **mock_config)
             # For mocks, identity comes from config (no real device to query)
             if record.info:
                 inst.manufacturer = record.info.manufacturer
@@ -903,12 +930,23 @@ def instruments(
                 inst.serial = record.info.serial
                 inst.firmware = record.info.firmware
         else:
-            # Real hardware path (driver_class guaranteed non-None by guard above)
-            assert driver_class is not None
-            inst = driver_class(record.resource)
+            # Real hardware path
+            driver_class = _load_driver_class(record.driver)
+            if driver_class is not None:
+                # Driver specified (PyMeasure, InstrumentKit, custom)
+                inst = driver_class(record.resource)
+            elif record.resource:
+                # No driver - use raw PyVISA
+                import pyvisa
+                rm = pyvisa.ResourceManager("@py")
+                inst = rm.open_resource(record.resource)
+            else:
+                # No driver and no resource - skip
+                continue
 
-            if hasattr(inst, "connect"):
-                inst.connect()
+            connect_fn = getattr(inst, "connect", None)
+            if callable(connect_fn):
+                connect_fn()
 
             # Query and verify identity
             actual_info = _get_instrument_info(inst, record.protocol)
@@ -925,9 +963,6 @@ def instruments(
                     stacklevel=2,
                 )
 
-        if hasattr(inst, "connect") and use_mock:
-            inst.connect()
-
         # Check calibration status
         _check_calibration(role, record.calibration)
 
@@ -935,11 +970,13 @@ def instruments(
 
     yield _ACTIVE_INSTRUMENTS
 
-    # Cleanup: disconnect all instruments
+    # Cleanup: disconnect/close all instruments
     for inst in _ACTIVE_INSTRUMENTS.values():
         try:
             if hasattr(inst, "disconnect"):
                 inst.disconnect()
+            elif hasattr(inst, "close"):
+                inst.close()  # PyVISA resources use close()
         except Exception:
             pass
     _ACTIVE_INSTRUMENTS.clear()

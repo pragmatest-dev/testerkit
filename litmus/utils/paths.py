@@ -16,7 +16,7 @@ from pathlib import Path
 class ResourceType(StrEnum):
     """Types of resources in the Litmus ecosystem."""
 
-    PRODUCTS = "products"  # Product folders with spec.yaml
+    PRODUCTS = "products"  # Product YAML files
     STATIONS = "stations"  # Station configurations
     INSTRUMENTS = "instruments"  # Instrument library definitions
     SEQUENCES = "sequences"  # Test sequences

@@ -89,10 +89,10 @@ from litmus.utils.paths import get_instrument_paths
 
 
 def discover_products() -> list[dict]:
-    """Discover products from folders.
+    """Discover products from the products/ directory.
 
-    Checks products/ and demo/products/ folders for product specifications.
-    Supports both manifest-based folders and plain spec.yaml folders.
+    Flat files (products/id.yaml) are the canonical convention.
+    Manifest-based folders and other nested layouts are also supported via rglob.
     """
     from pathlib import Path
 
@@ -105,7 +105,7 @@ def discover_products() -> list[dict]:
         if not products_dir.exists():
             continue
 
-        # 1. Check manifest-based folders (full workflow)
+        # 1. Check manifest-based folders (full workflow with tracking)
         for folder in ProductFolder.list_all(products_dir):
             spec = folder.load_spec()
             product_id = folder.product_id
@@ -124,7 +124,10 @@ def discover_products() -> list[dict]:
                     "characteristics": {
                         name: char.model_dump() for name, char in spec.characteristics.items()
                     },
-                    "file": str(folder.path / "spec.yaml"),
+                    "file": (
+                        str(folder.path / folder.manifest.files.spec)
+                        if folder.manifest.files.spec else None
+                    ),
                     "folder_path": str(folder.path),
                     "workflow_step": folder.current_step.value if folder.current_step else None,
                     "completed_steps": [s.value for s in folder.manifest.completed_steps],
@@ -145,50 +148,33 @@ def discover_products() -> list[dict]:
                     "files": folder.manifest.files.model_dump(),
                 })
 
-        # 2. Fallback: discover spec.yaml folders without manifest.yaml
-        for item in sorted(products_dir.iterdir()):
-            if not item.is_dir():
+        # 2. Discover all YAML files (flat and nested, no manifest required)
+        from litmus.store import load_product
+        for yaml_file in sorted(products_dir.rglob("*.yaml")):
+            if yaml_file.name.startswith("_"):
                 continue
-            product_id = item.name
-            if product_id in seen_ids:
+            try:
+                p = load_product(yaml_file)
+            except Exception:
                 continue
-            spec_file = item / "spec.yaml"
-            if not spec_file.exists():
+            if p.id in seen_ids:
                 continue
-
-            seen_ids.add(product_id)
-            model = store_get_product(product_id)
-            if model:
-                products.append({
-                    "id": model.id,
-                    "name": model.name,
-                    "description": model.description or "",
-                    "revision": model.revision or "",
-                    "pins": None,
-                    "characteristics": {
-                        name: char.model_dump()
-                        for name, char in model.characteristics.items()
-                    },
-                    "file": str(spec_file),
-                    "folder_path": str(item),
-                    "workflow_step": None,
-                    "completed_steps": [],
-                    "files": {},
-                })
-            else:
-                products.append({
-                    "id": product_id,
-                    "name": product_id,
-                    "description": "",
-                    "revision": "",
-                    "pins": None,
-                    "characteristics": {},
-                    "file": str(spec_file),
-                    "folder_path": str(item),
-                    "workflow_step": None,
-                    "completed_steps": [],
-                    "files": {},
-                })
+            seen_ids.add(p.id)
+            products.append({
+                "id": p.id,
+                "name": p.name,
+                "description": p.description or "",
+                "revision": p.revision or "",
+                "pins": None,
+                "characteristics": {
+                    name: char.model_dump() for name, char in p.characteristics.items()
+                },
+                "file": str(yaml_file),
+                "folder_path": str(yaml_file.parent),
+                "workflow_step": None,
+                "completed_steps": [],
+                "files": {},
+            })
 
     return products
 

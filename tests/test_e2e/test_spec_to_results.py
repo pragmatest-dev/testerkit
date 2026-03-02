@@ -19,8 +19,8 @@ from litmus.execution.harness import TestHarness
 from litmus.products.context import SpecContext
 
 # Path to demo specs (used for integration testing, not value assertions)
-SPEC_PATH = Path(__file__).parent.parent.parent / "demo" / "products" / "power_board" / "spec.yaml"
-MINIMAL_SPEC_PATH = Path(__file__).parent.parent.parent / "demo" / "products" / "minimal_board" / "spec.yaml"
+SPEC_PATH = Path(__file__).parent.parent.parent / "demo" / "products" / "power_board.yaml"
+MINIMAL_SPEC_PATH = Path(__file__).parent.parent.parent / "demo" / "products" / "minimal_board.yaml"
 
 
 class TestSpecContext:

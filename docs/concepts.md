@@ -10,11 +10,10 @@ A **Product** is what you're testing — a PCB, module, or device. Product specs
 - **Test Requirements** — Which characteristics to test and how
 
 ```yaml
-# products/power_board/spec.yaml
-product:
-  id: power_board
-  name: "5V to 3.3V Converter"
-  revision: "A"
+# products/power_board.yaml
+id: power_board
+name: "5V to 3.3V Converter"
+revision: "A"
 
 pins:
   VIN:
@@ -142,9 +141,8 @@ signal_groups:
 The simplest spec that works:
 
 ```yaml
-product:
-  id: minimal_board
-  name: "Minimal Example"
+id: minimal_board
+name: "Minimal Example"
 
 pins:
   VOUT:
@@ -170,18 +168,19 @@ A **Station** is where you test — a bench with instruments. Station configs de
 
 ```yaml
 # stations/bench_1.yaml
-station:
-  id: bench_1
-  name: "Production Bench 1"
-  location: "Lab A"
+id: bench_1
+name: "Production Bench 1"
+location: "Lab A"
 
 instruments:
   dmm:
     type: dmm
+    driver: pymeasure.instruments.keysight.Keysight34461A
     resource: "TCPIP::192.168.1.100::INSTR"
 
   psu:
     type: psu
+    driver: pymeasure.instruments.keysight.KeysightE36312A
     resource: "GPIB0::5::INSTR"
 ```
 
@@ -199,6 +198,7 @@ Configure mock values in the station:
 instruments:
   dmm:
     type: dmm
+    driver: pymeasure.instruments.keysight.Keysight34461A
     resource: "TCPIP::192.168.1.100::INSTR"
     mock_config:
       voltage: 3.31
@@ -221,9 +221,8 @@ instruments:
 
 ```yaml
 # fixtures/power_board_fixture.yaml
-fixture:
-  id: power_board_fixture
-  product_id: power_board
+id: power_board_fixture
+product_id: power_board
 
 points:
   VIN:
@@ -251,10 +250,11 @@ This decouples test code from station wiring — the same test runs on different
 
 ## Capabilities
 
-**Capabilities** describe what instruments can do. They're defined in the instrument library (`litmus/instruments/library/`).
+**Capabilities** describe what instruments can do. They're defined in catalog entries under `catalog/`.
 
 ```yaml
-# litmus/instruments/library/dmm.yaml
+# catalog/generic/dmm.yaml
+id: generic_dmm
 name: Digital Multimeter
 type: dmm
 
@@ -295,10 +295,9 @@ input_voltage (INPUT)     →    voltage_dc (OUTPUT) — need to source
 ### Using the Matcher
 
 ```python
-from litmus.matching.service import find_compatible_stations, load_product_by_id
+from litmus.matching.service import find_compatible_stations
 
-product = load_product_by_id("power_board")
-matches = find_compatible_stations(product)
+matches = find_compatible_stations(product_id="power_board")
 
 for match in matches:
     print(f"{match.station_id}: {'Compatible' if match.compatible else 'Missing capabilities'}")
@@ -354,7 +353,7 @@ The **SpecContext** bridges product specs and test execution, enabling:
 from litmus.products import SpecContext
 
 # Load spec
-spec = SpecContext.from_file("products/power_board/spec.yaml")
+spec = SpecContext.from_file("products/power_board.yaml")
 
 # Get limit for characteristic at conditions
 limit = spec.get_limit("output_voltage", temperature=25, load=0.1)
@@ -371,7 +370,7 @@ pin_info = spec.get_pin_info("output_voltage")
 from litmus.execution.harness import TestHarness
 from litmus.products import SpecContext
 
-spec = SpecContext.from_file("products/power_board/spec.yaml", guardband_pct=10.0)
+spec = SpecContext.from_file("products/power_board.yaml", guardband_pct=10.0)
 
 harness = TestHarness(
     step_name="test_output",

@@ -14,8 +14,7 @@ A production-ready test suite with:
 ```
 my_project/
 ├── products/                       # WHAT you're testing
-│   └── power_board/
-│       └── spec.yaml
+│   └── power_board.yaml
 ├── stations/                       # WHERE you test
 │   └── bench_1.yaml
 ├── fixtures/                       # HOW pins connect to instruments
@@ -34,10 +33,9 @@ A fixture maps DUT pins to station instruments:
 
 ```yaml
 # fixtures/power_board_fixture.yaml
-fixture:
-  id: power_board_fixture
-  name: "Power Board Test Fixture"
-  product_id: power_board
+id: power_board_fixture
+name: "Power Board Test Fixture"
+product_id: power_board
 
 points:
   vin_supply:
@@ -101,12 +99,11 @@ Sequences are the **single source of truth** for test configuration. Each step c
 
 ```yaml
 # sequences/production_test.yaml
-sequence:
-  id: power_board_production
-  name: "Power Board Production Test"
-  product_family: power_board
-  test_phase: production
-  required_fixture: power_board_fixture
+id: power_board_production
+name: "Power Board Production Test"
+product_family: power_board
+test_phase: production
+required_fixture: power_board_fixture
 
 steps:
   - id: verify_input
@@ -187,11 +184,10 @@ steps:
 
 ## Complete Example
 
-**products/power_board/spec.yaml:**
+**products/power_board.yaml:**
 ```yaml
-product:
-  id: power_board
-  name: "5V to 3.3V Converter"
+id: power_board
+name: "5V to 3.3V Converter"
 
 pins:
   VIN: {name: "J1.1", type: power}
@@ -211,26 +207,26 @@ characteristics:
 
 **stations/bench_1.yaml:**
 ```yaml
-station:
-  id: bench_1
-  name: "Production Bench 1"
+id: bench_1
+name: "Production Bench 1"
 
 instruments:
   psu:
     type: psu
+    driver: pymeasure.instruments.keysight.KeysightE36312A
     resource: "GPIB0::5::INSTR"
     mock_config: {voltage: 5.0}
   dmm:
     type: dmm
+    driver: pymeasure.instruments.keysight.Keysight34461A
     resource: "TCPIP::192.168.1.100::INSTR"
     mock_config: {voltage: 3.31}
 ```
 
 **fixtures/power_board_fixture.yaml:**
 ```yaml
-fixture:
-  id: power_board_fixture
-  product_id: power_board
+id: power_board_fixture
+product_id: power_board
 
 points:
   vin_supply:
@@ -330,7 +326,7 @@ Spec: output_voltage @ tolerance=5%
 
 | Component | File | Purpose |
 |-----------|------|---------|
-| Product spec | `products/power_board/spec.yaml` | What to test |
+| Product spec | `products/power_board.yaml` | What to test |
 | Station | `stations/bench_1.yaml` | Where to test |
 | Fixture | `fixtures/power_board_fixture.yaml` | Pin-to-instrument mapping |
 | Sequence | `sequences/production_test.yaml` | Test order + vectors, limits, mocks |

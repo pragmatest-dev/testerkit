@@ -223,16 +223,21 @@ The `when` keys reference the flat union of `signals`, `conditions`, and `contro
 A product characteristic is a capability with physical interface info added:
 
 ```yaml
-# Product: DC-DC converter board
+# products/dc_converter.yaml
+id: dc_converter
+name: "DC-DC Converter Board"
+
+pins:
+  VOUT:
+    name: "J1.3"
+    type: signal
+
 characteristics:
   rail_3v3:
     function: dc_voltage       # same function enum
     direction: output          # DUT provides this signal
-    pin: VOUT                  # which physical pin
-    signals:
-      voltage:                 # same signal structure
-        value: 3.3
-        units: V
+    pins: [VOUT]               # which physical pin
+    units: V
     specs:
       - when:
           load: {min: 0, max: 0.5, units: A}
@@ -289,10 +294,9 @@ capabilities:
 
 Product Spec (what the DUT NEEDS tested)
 ────────────────────────────────────────
-product:
-  id: power_board_v1
-  pins:
-    VOUT: {name: "J1.3", net: "VOUT_3V3", role: signal}
+id: power_board_v1
+pins:
+  VOUT: {name: "J1.3", net: "VOUT_3V3", role: signal}
 
 characteristics:
   rail_3v3:

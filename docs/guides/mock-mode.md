@@ -20,13 +20,13 @@ Define default mock values in your station config:
 
 ```yaml
 # stations/bench_1.yaml
-station:
-  id: bench_1
-  name: "Production Bench 1"
+id: bench_1
+name: "Production Bench 1"
 
 instruments:
   dmm:
     type: dmm
+    driver: pymeasure.instruments.keysight.Keysight34461A
     resource: "TCPIP::192.168.1.100::INSTR"
     mock_config:
       voltage: 3.31
@@ -35,6 +35,7 @@ instruments:
 
   psu:
     type: psu
+    driver: pymeasure.instruments.keysight.KeysightE36312A
     resource: "GPIB0::5::INSTR"
     mock_config:
       voltage: 5.0
@@ -142,25 +143,26 @@ Mock individual instruments while using real hardware for others:
 
 ```yaml
 # stations/mixed_bench.yaml
-station:
-  id: mixed_bench
-  name: "Mixed Mode Bench"
+id: mixed_bench
+name: "Mixed Mode Bench"
 
 instruments:
   psu:
     type: psu
+    driver: pymeasure.instruments.keysight.KeysightE36312A
     resource: "GPIB0::5::INSTR"
     # No mock flag - uses real hardware
 
   dmm:
     type: dmm
-    resource: "TCPIP::192.168.1.100::INSTR"
-    mock: true              # Always mock this instrument
+    mock: true              # Always mock this instrument, no driver needed
+    catalog_ref: generic_dmm
     mock_config:
       voltage: 3.3
 
   eload:
     type: eload
+    driver: drivers.eload.MyELoad
     resource: "TCPIP::192.168.1.101::INSTR"
     # No mock flag - uses real hardware
 ```

@@ -265,32 +265,18 @@ def _list_stations(project: str) -> list[dict[str, Any]]:
 
 def _list_products(project: str) -> list[dict[str, Any]]:
     """List all product specifications from products/ directory."""
-    from litmus.store import load_product
+    import os
 
-    products = []
-    products_dir = get_project_root(project) / "products"
+    from litmus.store import list_products
 
-    if not products_dir.exists():
-        return []
+    old_cwd = os.getcwd()
+    try:
+        os.chdir(get_project_root(project))
+        products = list_products()
+    finally:
+        os.chdir(old_cwd)
 
-    # Each product is a folder with spec.yaml inside
-    for product_dir in products_dir.iterdir():
-        if not product_dir.is_dir():
-            continue
-        spec_file = product_dir / "spec.yaml"
-        if not spec_file.exists():
-            continue
-        try:
-            product = load_product(spec_file)
-            products.append({
-                "id": product.id,
-                "name": product.name,
-                "description": product.description,
-            })
-        except Exception:
-            continue
-
-    return products
+    return [{"id": p.id, "name": p.name, "description": p.description} for p in products]
 
 
 def _list_fixtures(project: str) -> list[dict[str, Any]]:  # noqa: C901
@@ -417,19 +403,21 @@ def _get_station(station_id: str, project: str) -> dict[str, Any]:
 
 
 def _get_product(product_id: str, project: str) -> dict[str, Any]:
-    """Get product specification from products/{product_id}/spec.yaml."""
-    from litmus.store import load_product
+    """Get product specification from products/{product_id}.yaml."""
+    import os
 
-    spec_file = get_project_root(project) / "products" / product_id / "spec.yaml"
+    from litmus.store import get_product
 
-    if not spec_file.exists():
-        return {"error": f"Product '{product_id}' not found in products/"}
-
+    old_cwd = os.getcwd()
     try:
-        product = load_product(spec_file)
-        return product.model_dump(mode="json")
-    except Exception as e:
-        return {"error": f"Failed to load product: {e}"}
+        os.chdir(get_project_root(project))
+        product = get_product(product_id)
+    finally:
+        os.chdir(old_cwd)
+
+    if product is None:
+        return {"error": f"Product '{product_id}' not found in products/"}
+    return product.model_dump(mode="json")
 
 
 def _get_fixture(fixture_id: str, project: str) -> dict[str, Any]:
@@ -610,11 +598,13 @@ def _save_station(station_id: str, content: dict[str, Any], project: str) -> dic
 
 
 def _save_product(product_id: str, content: dict[str, Any], project: str) -> dict[str, Any]:
-    """Save product specification — validate through Product, write via dump_yaml."""
+    """Save product specification — validate through Product, write via store."""
+    import os
+
     from pydantic import ValidationError
 
-    from litmus.config.fmt import dump_yaml
     from litmus.products.models import Product
+    from litmus.store import save_product
 
     try:
         product = Product.model_validate(content)
@@ -627,12 +617,15 @@ def _save_product(product_id: str, content: dict[str, Any], project: str) -> dic
             ],
         }
 
-    product_dir = get_project_root(project) / "products" / product_id
-    product_dir.mkdir(parents=True, exist_ok=True)
-    filepath = product_dir / "spec.yaml"
-    filepath.write_text(dump_yaml(product.model_dump(exclude_none=True)))
+    old_cwd = os.getcwd()
+    try:
+        os.chdir(get_project_root(project))
+        save_product(product)
+    finally:
+        os.chdir(old_cwd)
 
-    return {"success": True, "path": str(filepath)}
+    products_dir = get_project_root(project) / "products"
+    return {"success": True, "path": str(products_dir / f"{product_id}.yaml")}
 
 
 def _save_fixture(fixture_id: str, content: dict[str, Any], project: str) -> dict[str, Any]:

@@ -46,11 +46,11 @@ For orchestrated runs (production, validation), config lives in the sequence:
 
 ```yaml
 # sequences/power_board_smoke.yaml
-sequence:
-  id: power_board_smoke
-  name: "Power Board - Smoke Test"
+id: power_board_smoke
+name: "Power Board - Smoke Test"
+test_phase: dev
 
-  steps:
+steps:
     - id: output_voltage
       test: tests/test_power.py::test_output_voltage
       vectors:
@@ -223,9 +223,10 @@ If the test fails, it retries up to 3 times with 0.5s delay between attempts.
 **Sequence (production):**
 ```yaml
 # sequences/power_board_smoke.yaml
-sequence:
-  id: power_board_smoke
-  steps:
+id: power_board_smoke
+test_phase: production
+
+steps:
     - id: input_voltage
       test: tests/test_power.py::test_input_voltage
       limits:

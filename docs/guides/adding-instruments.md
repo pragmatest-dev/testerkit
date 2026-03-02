@@ -317,7 +317,8 @@ For running tests without hardware, use `--mock-instruments` with config-driven 
 # stations/my_station.yaml
 instruments:
   dmm:
-    type: my_drivers.MyDMM
+    type: dmm
+    driver: my_drivers.MyDMM
     resource: "TCPIP::192.168.1.100::INSTR"
     mock_config:
       voltage: 5.0
@@ -423,12 +424,12 @@ Register drivers via station config. The Litmus plugin auto-registers a pytest f
 
 ```yaml
 # stations/my_station.yaml
-station:
-  id: my_station
-  name: "My Test Station"
+id: my_station
+name: "My Test Station"
 
 instruments:
   dmm:
+    type: dmm
     driver: my_drivers.MyDMM  # Full import path
     resource: "TCPIP::192.168.1.100::INSTR"
     mock: true

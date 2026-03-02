@@ -77,8 +77,8 @@ Every `@litmus_test` function receives a `context` parameter:
 @litmus_test
 def test_sweep(context, psu, dmm):
     # Access parameters
-    voltage = context["voltage"]
-    load = context["load"]
+    voltage = context.get_in("voltage")
+    load = context.get_in("load")
 
     psu.set_voltage(voltage)
     return dmm.measure_voltage()
@@ -87,14 +87,13 @@ def test_sweep(context, psu, dmm):
 ### Context Methods
 
 ```python
-context["voltage"]          # Get parameter
-context.get("temp", 25)     # Get with default
-context.params()            # All parameters as dict (method)
-context["_index"]           # 0-based index in expansion
+context.get_in("voltage")          # Get parameter (raises if missing)
+context.get_in("temp", 25)         # Get with default
+context.inputs                     # All input parameters as dict
 
 # Change detection (for nested loops)
 if context.changed("temperature"):
-    set_chamber_temp(context["temperature"])
+    set_chamber_temp(context.get_in("temperature"))
 ```
 
 ## Test Configuration
@@ -223,7 +222,7 @@ def test_with_setup(context, psu, dmm):
 ```python
 @litmus_test
 def test_conditional(context, instruments):
-    if context.get("high_voltage", False):
+    if context.get_in("high_voltage", False):
         instruments["hvps"].set_voltage(100)
     else:
         instruments["psu"].set_voltage(5)

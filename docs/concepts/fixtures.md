@@ -16,10 +16,9 @@ Fixtures are YAML files in `fixtures/`:
 
 ```yaml
 # fixtures/power_board_fixture.yaml
-fixture:
-  id: power_board_fixture
-  name: "Power Board Test Fixture"
-  product_id: power_board
+id: power_board_fixture
+name: "Power Board Test Fixture"
+product_id: power_board
 
 points:
   VIN:
@@ -124,9 +123,8 @@ For complex fixtures with switching or routing:
 
 ```yaml
 # fixtures/multi_product_fixture.yaml
-fixture:
-  id: multi_product_fixture
-  product_family: power_converters
+id: multi_product_fixture
+product_family: power_converters
 
 points:
   # First product position
@@ -184,9 +182,8 @@ Stations track which fixture is currently installed:
 
 ```yaml
 # stations/bench_1.yaml
-station:
-  id: bench_1
-  active_fixture: power_board_fixture
+id: bench_1
+active_fixture: power_board_fixture
 
 instruments:
   # ...
@@ -227,9 +224,8 @@ pytest tests/ \
 
 **Product spec:**
 ```yaml
-# products/power_board/spec.yaml
-product:
-  id: power_board
+# products/power_board.yaml
+id: power_board
 
 pins:
   VIN:
@@ -246,24 +242,24 @@ pins:
 **Station config:**
 ```yaml
 # stations/bench_1.yaml
-station:
-  id: bench_1
+id: bench_1
 
 instruments:
   psu:
     type: psu
+    driver: pymeasure.instruments.keysight.KeysightE36312A
     resource: "GPIB0::5::INSTR"
   dmm:
     type: dmm
+    driver: pymeasure.instruments.keysight.Keysight34461A
     resource: "TCPIP::192.168.1.100::INSTR"
 ```
 
 **Fixture:**
 ```yaml
 # fixtures/power_board_fixture.yaml
-fixture:
-  id: power_board_fixture
-  product_id: power_board
+id: power_board_fixture
+product_id: power_board
 
 points:
   VIN:

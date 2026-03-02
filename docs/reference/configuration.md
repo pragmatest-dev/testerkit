@@ -4,16 +4,15 @@ Litmus uses YAML files for configuration, validated by Pydantic models.
 
 ## Product Specification
 
-**Location:** `products/<product_id>/spec.yaml`
+**Location:** `products/<product_id>.yaml`
 
 ```yaml
-product:
-  id: string              # Unique identifier
-  name: string            # Display name
-  description: string     # Optional
-  revision: string        # Version/revision
-  datasheet: string       # Optional path/URL
-  schematic: string       # Optional path/URL
+id: string              # Unique identifier
+name: string            # Display name
+description: string     # Optional
+revision: string        # Version/revision
+datasheet: string       # Optional path/URL
+schematic: string       # Optional path/URL
 
 pins:                     # Physical connection points
   <key>:                  # Pin reference name (used in characteristics)
@@ -104,11 +103,10 @@ specs:
 **Location:** `stations/<station_id>.yaml`
 
 ```yaml
-station:
-  id: string              # Unique identifier
-  name: string            # Display name
-  location: string        # Physical location
-  description: string
+id: string              # Unique identifier
+name: string            # Display name
+location: string        # Physical location
+description: string
 
 instruments:
   <name>:                 # Instrument alias / role name (used in tests as fixture)
@@ -134,10 +132,10 @@ supported_phases:         # Optional: which test phases this station supports
 **Location:** `sequences/<sequence_id>.yaml`
 
 ```yaml
-sequence:
-  id: string
-  name: string
-  description: string
+id: string
+name: string
+description: string
+test_phase: dev | validation | characterization | production  # Required
 
 steps:
   - id: string
@@ -194,12 +192,11 @@ vectors:
 Fixtures define pin-to-instrument mappings, bridging product pins to station instruments.
 
 ```yaml
-fixture:
-  id: string              # Unique identifier
-  name: string            # Display name
-  product_id: string      # Specific product (preferred)
-  product_family: string  # Or product family for shared fixtures
-  product_revision: string # Optional: specific revision
+id: string              # Unique identifier
+name: string            # Display name
+product_id: string      # Specific product (preferred)
+product_family: string  # Or product family for shared fixtures
+product_revision: string # Optional: specific revision
 
 points:
   <name>:                 # Fixture point name
@@ -214,10 +211,9 @@ points:
 
 ```yaml
 # fixtures/power_board_fixture.yaml
-fixture:
-  id: power_board_fixture
-  name: "Power Board Test Fixture"
-  product_id: power_board
+id: power_board_fixture
+name: "Power Board Test Fixture"
+product_id: power_board
 
 points:
   VIN:
@@ -417,7 +413,7 @@ from litmus.products.models import Product
 from litmus.products.loader import load_product
 
 # Load and validate
-product = load_product("products/my_product/spec.yaml")
+product = load_product("products/my_product.yaml")
 print(product.id)
 print(product.characteristics["output_voltage"].nominal)
 ```

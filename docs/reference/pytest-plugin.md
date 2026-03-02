@@ -422,10 +422,9 @@ pytest tests/
 
 **Sequence YAML example:**
 ```yaml
-sequence:
-  id: power_board_validation
-  name: "Power Board Validation"
-  test_phase: validation  # Applied when run through UI/runner
+id: power_board_validation
+name: "Power Board Validation"
+test_phase: validation  # Required
 
 steps:
   - name: power_on
@@ -479,7 +478,7 @@ pytest tests/ \
   --operator="Jane Doe" \        # Operator name
   --results-dir=./results \      # Results directory (default: results)
   --mock-instruments \           # Use mock instruments instead of real hardware
-  --spec=products/x/spec.yaml \  # Path to product spec YAML
+  --spec=products/x.yaml \  # Path to product spec YAML
   --guardband=10 \               # Default guardband percentage (default: 0)
   --station-config=stations/bench_1.yaml \  # Station config file
   --fixture-config=fixtures/x.yaml \        # Fixture config file

@@ -276,12 +276,12 @@ This is useful for:
 
 **stations/my_station.yaml:**
 ```yaml
-station:
-  id: my_station
+id: my_station
 
 instruments:
   dmm:
     type: dmm
+    driver: pymeasure.instruments.keysight.Keysight34461A
     resource: "TCPIP::192.168.1.100::INSTR"
     mock_config:
       voltage: 3.31
@@ -289,9 +289,9 @@ instruments:
 
 **sequences/smoke.yaml:**
 ```yaml
-sequence:
-  id: smoke
-  name: "Smoke Test"
+id: smoke
+name: "Smoke Test"
+test_phase: dev
 
 steps:
   - id: output_voltage
