@@ -12,7 +12,7 @@ import json
 from pathlib import Path
 from typing import Any, Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 from litmus.catalog.models import InstrumentCatalogEntry
 from litmus.config.models import (
@@ -48,13 +48,23 @@ class StationInstrumentConfig(BaseModel):
     """Single instrument entry in a station file."""
 
     type: str
-    driver: str
+    driver: str | None = None  # Optional for mock-only instruments
     resource: str | None = None
     catalog_ref: str | None = None
     mock: bool = False
     channels: list[str] = Field(default_factory=list)
     description: str | None = None
     mock_config: dict[str, Any] = Field(default_factory=dict)
+
+    @model_validator(mode="after")
+    def resource_required_for_real_hardware(self) -> StationInstrumentConfig:
+        """Validate that resource is provided when not using mock mode."""
+        if not self.mock and self.resource is None and self.driver is None:
+            raise ValueError(
+                "resource or driver is required when mock=False. Either set mock=True, "
+                "provide a VISA resource string, or provide a driver path."
+            )
+        return self
 
 
 class StationConfig(BaseModel):

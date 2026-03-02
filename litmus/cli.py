@@ -19,7 +19,12 @@ def main():
 @click.argument("name", required=False)
 @click.option("--no-git", is_flag=True, help="Skip git initialization")
 @click.option("--discover", is_flag=True, help="Auto-discover instruments and create station file")
-def init(name: str | None, no_git: bool, discover: bool):
+@click.option(
+    "--starter/--no-starter",
+    default=None,
+    help="Generate starter example files (prompts if not specified)",
+)
+def init(name: str | None, no_git: bool, discover: bool, starter: bool | None):
     """Initialize a new Litmus project.
 
     With NAME: creates a new directory and scaffolds inside it.
@@ -30,6 +35,8 @@ def init(name: str | None, no_git: bool, discover: bool):
     Examples:
 
         litmus init my_project
+
+        litmus init my_project --starter
 
         litmus init --discover
 
@@ -62,15 +69,31 @@ def init(name: str | None, no_git: bool, discover: bool):
         click.echo("Warning: uv not found")
         click.echo("  Install: curl -LsSf https://astral.sh/uv/install.sh | sh")
 
-    # Instrument discovery
+    # Instrument discovery vs starter files
+    # - If --starter: skip discovery (starter has its own mock station)
+    # - If --discover: skip starter (user wants real instruments)
+    # - If neither: prompt for starter first; if declined, prompt for discovery
     station = None
+    use_starter = False
 
-    if discover:
+    if starter is True:
+        # Explicit --starter flag
+        use_starter = True
+    elif discover:
+        # Explicit --discover flag
         station = _discover_instruments(interactive=False)
-    elif click.confirm("Discover instruments?", default=False):
-        station = _discover_instruments(interactive=True)
+    elif starter is False:
+        # Explicit --no-starter flag, prompt for discovery
+        if click.confirm("Discover instruments?", default=False):
+            station = _discover_instruments(interactive=True)
+    else:
+        # No flags provided - prompt interactively
+        if click.confirm("Create starter example files?", default=True):
+            use_starter = True
+        elif click.confirm("Discover instruments?", default=False):
+            station = _discover_instruments(interactive=True)
 
-    result = init_project(project_path, git=not no_git, station=station)
+    result = init_project(project_path, git=not no_git, station=station, starter=use_starter)
 
     # Print summary
     if cwd_mode:
@@ -92,7 +115,9 @@ def init(name: str | None, no_git: bool, discover: bool):
     if not cwd_mode:
         click.echo(f"  cd {name}")
         click.echo("  uv sync")
-    if station:
+    if use_starter:
+        click.echo("  pytest")
+    elif station:
         click.echo("  pytest tests/ --mock-instruments --dut-serial=TEST001")
     else:
         click.echo("  pytest tests/ --mock-instruments --dut-serial=TEST001")
@@ -287,8 +312,9 @@ def serve(host: str, port: int, reload: bool):
         # In reload mode we use uvicorn directly with our ASGI entry point.
         # On each reload cycle uvicorn re-imports litmus.ui._asgi which
         # re-registers pages and configures NiceGUI from scratch.
-        import uvicorn
         from pathlib import Path
+
+        import uvicorn
 
         # Watch both litmus package AND current working directory
         litmus_pkg = Path(__file__).parent

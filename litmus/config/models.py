@@ -1529,7 +1529,7 @@ class TestSequenceConfig(BaseModel):
     name: str | None = None  # Display name (defaults to id)
     description: str
     product_family: str | None = None  # Optional for composable sequences
-    test_phase: Literal["validation", "characterization", "production"] | None = None
+    test_phase: Literal["dev", "validation", "characterization", "production"] | None = None
     required_fixture: str | None = None  # Reference to FixtureConfig
     required_station_type: str | None = None  # Station type required
     steps: list[TestStepConfig] = Field(default_factory=list)

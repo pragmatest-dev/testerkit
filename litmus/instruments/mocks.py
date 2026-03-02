@@ -135,6 +135,11 @@ def Mock(cls: type[T], **values: Any) -> T:
                     elif callable(attr):
                         return lambda *args, **kwargs: None
 
+            # For generic mocks (base class is object), return no-op callable
+            # for any unknown attribute that doesn't exist on object
+            if cls is object and name not in dir(object):
+                return lambda *args, **kwargs: None
+
             # Fall back to parent (for things like __class__, etc)
             return object.__getattribute__(self, name)
 
