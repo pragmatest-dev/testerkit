@@ -3,7 +3,60 @@
 This module contains shared UI components used across pages.
 """
 
+from collections.abc import Callable
+from typing import Any
+
 from nicegui import ui
+
+
+class AutoSaver:
+    """Debounced auto-save for forms.
+
+    Usage:
+        saver = AutoSaver(save_fn, delay=1.0)
+
+        # Bind to form fields
+        ui.input(...).on('update:model-value', saver.trigger)
+
+        # Or call directly
+        saver.trigger()
+    """
+
+    def __init__(
+        self,
+        save_fn: Callable[[], Any],
+        delay: float = 1.0,
+        on_error: Callable[[Exception], None] | None = None,
+    ):
+        self.save_fn = save_fn
+        self.delay = delay
+        self.on_error = on_error or (lambda e: ui.notify(f"Save failed: {e}", type="negative"))
+        self._timer: ui.timer | None = None
+        self._dirty = False
+
+    def trigger(self, *_args: Any) -> None:
+        """Mark as dirty and schedule save."""
+        self._dirty = True
+        if self._timer:
+            self._timer.cancel()
+        self._timer = ui.timer(self.delay, self._do_save, once=True)
+
+    def _do_save(self) -> None:
+        """Execute save if dirty."""
+        if not self._dirty:
+            return
+        try:
+            self.save_fn()
+            self._dirty = False
+        except Exception as e:
+            self.on_error(e)
+
+    def save_now(self) -> None:
+        """Save immediately without delay."""
+        if self._timer:
+            self._timer.cancel()
+        self._dirty = True
+        self._do_save()
 
 
 def create_hash_tabs(

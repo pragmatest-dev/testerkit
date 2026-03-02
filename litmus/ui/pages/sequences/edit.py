@@ -2,7 +2,7 @@
 
 from nicegui import ui
 
-from litmus.ui.shared.components import setup_hash_sync_for_tabs
+from litmus.ui.shared.components import AutoSaver, setup_hash_sync_for_tabs
 from litmus.ui.shared.layout import create_layout
 from litmus.ui.shared.services import (
     discover_products,
@@ -64,6 +64,13 @@ def sequence_edit_page(sequence_id: str):
         "dialogs": {k: v.model_dump() for k, v in config.dialogs.items()} if config.dialogs else {},
     }
 
+    # Auto-save
+    def do_save():
+        seq_data = {k: v for k, v in form_data["sequence"].items() if v}
+        save_sequence(sequence_id, seq_data, form_data["steps"], form_data["dialogs"])
+
+    saver = AutoSaver(do_save, delay=1.0)
+
     with ui.column().classes("w-full p-6 gap-6"):
         # Header
         with ui.row().classes("w-full items-center justify-between"):
@@ -73,27 +80,13 @@ def sequence_edit_page(sequence_id: str):
                     "text-lg font-semibold text-slate-700"
                 )
 
-            with ui.row().classes("gap-2"):
+            with ui.row().classes("gap-2 items-center"):
+                ui.label("Changes auto-saved").classes("text-sm text-slate-400 italic")
                 ui.button(
-                    "Cancel",
-                    icon="close",
+                    "Back",
+                    icon="arrow_back",
                     on_click=lambda: ui.navigate.to(f"/sequences/{sequence_id}"),
                 ).props("flat")
-
-                def save_changes():
-                    # Clean up sequence data (remove empty optional fields)
-                    seq_data = {k: v for k, v in form_data["sequence"].items() if v}
-                    if save_sequence(
-                        sequence_id, seq_data, form_data["steps"], form_data["dialogs"]
-                    ):
-                        ui.notify("Sequence saved successfully", type="positive")
-                        ui.navigate.to(f"/sequences/{sequence_id}")
-                    else:
-                        ui.notify("Failed to save sequence", type="negative")
-
-                ui.button("Save", icon="save", on_click=save_changes).props(
-                    "color=primary"
-                )
 
         # Tabs
         with ui.tabs().classes("w-full") as tabs:
@@ -105,20 +98,22 @@ def sequence_edit_page(sequence_id: str):
 
         with ui.tab_panels(tabs, value=info_tab).classes("w-full"):
             with ui.tab_panel(info_tab):
-                _render_info_tab(form_data, product_options, phase_options)
+                _render_info_tab(form_data, product_options, phase_options, saver)
 
             with ui.tab_panel(steps_tab):
-                _render_steps_tab(form_data, sequence_options, test_options)
+                _render_steps_tab(form_data, sequence_options, test_options, saver)
 
             with ui.tab_panel(dialogs_tab):
-                _render_dialogs_tab(form_data)
+                _render_dialogs_tab(form_data, saver)
 
         ui.link("← Back to Sequence", f"/sequences/{sequence_id}").classes(
             "text-blue-600 hover:underline mt-4"
         )
 
 
-def _render_info_tab(form_data: dict, product_options: dict, phase_options: dict):
+def _render_info_tab(
+    form_data: dict, product_options: dict, phase_options: dict, saver: AutoSaver
+):
     """Render the info edit tab."""
     seq = form_data["sequence"]
 
@@ -135,12 +130,18 @@ def _render_info_tab(form_data: dict, product_options: dict, phase_options: dict
                 _labeled_input(
                     "Name",
                     seq["name"],
-                    on_change=lambda e: seq.update({"name": e.value}),
+                    on_change=lambda e: (
+                        seq.update({"name": e.value}),
+                        saver.trigger(),
+                    ),
                 )
                 _labeled_textarea(
                     "Description",
                     seq["description"],
-                    on_change=lambda e: seq.update({"description": e.value}),
+                    on_change=lambda e: (
+                        seq.update({"description": e.value}),
+                        saver.trigger(),
+                    ),
                 )
 
                 with ui.row().classes("gap-4 w-full"):
@@ -151,7 +152,10 @@ def _render_info_tab(form_data: dict, product_options: dict, phase_options: dict
                         ui.select(
                             options=product_options,
                             value=seq["product_family"],
-                            on_change=lambda e: seq.update({"product_family": e.value}),
+                            on_change=lambda e: (
+                                seq.update({"product_family": e.value}),
+                                saver.trigger(),
+                            ),
                         ).props("outlined dense").classes("w-full")
 
                     with ui.column().classes("gap-1 flex-1"):
@@ -161,7 +165,10 @@ def _render_info_tab(form_data: dict, product_options: dict, phase_options: dict
                         ui.select(
                             options=phase_options,
                             value=seq["test_phase"],
-                            on_change=lambda e: seq.update({"test_phase": e.value}),
+                            on_change=lambda e: (
+                                seq.update({"test_phase": e.value}),
+                                saver.trigger(),
+                            ),
                         ).props("outlined dense").classes("w-full")
 
     with ui.card().classes("w-full mt-4"):
@@ -173,13 +180,19 @@ def _render_info_tab(form_data: dict, product_options: dict, phase_options: dict
                     "Required Fixture",
                     seq.get("required_fixture", ""),
                     placeholder="e.g., power_board_fixture_v1",
-                    on_change=lambda e: seq.update({"required_fixture": e.value}),
+                    on_change=lambda e: (
+                        seq.update({"required_fixture": e.value}),
+                        saver.trigger(),
+                    ),
                 )
                 _labeled_input(
                     "Required Station Type",
                     seq.get("required_station_type", ""),
                     placeholder="e.g., power_test_station",
-                    on_change=lambda e: seq.update({"required_station_type": e.value}),
+                    on_change=lambda e: (
+                        seq.update({"required_station_type": e.value}),
+                        saver.trigger(),
+                    ),
                 )
                 with ui.column().classes("gap-1 w-full"):
                     ui.label("Timeout (seconds)").classes(
@@ -188,11 +201,16 @@ def _render_info_tab(form_data: dict, product_options: dict, phase_options: dict
                     ui.number(
                         value=seq.get("timeout_seconds"),
                         min=0,
-                        on_change=lambda e: seq.update({"timeout_seconds": e.value}),
+                        on_change=lambda e: (
+                            seq.update({"timeout_seconds": e.value}),
+                            saver.trigger(),
+                        ),
                     ).props("outlined dense").classes("w-full")
 
 
-def _render_steps_tab(form_data: dict, sequence_options: dict, test_options: list):
+def _render_steps_tab(
+    form_data: dict, sequence_options: dict, test_options: list, saver: AutoSaver
+):
     """Render the steps edit tab."""
     steps = form_data["steps"]
 
@@ -443,7 +461,7 @@ def _render_step_card(
                     _render_mocks_editor(step)
 
 
-def _render_dialogs_tab(form_data: dict):
+def _render_dialogs_tab(form_data: dict, saver: AutoSaver):
     """Render the dialogs edit tab."""
     dialogs = form_data["dialogs"]
 

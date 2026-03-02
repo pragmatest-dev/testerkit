@@ -39,6 +39,7 @@ class DesignerState:
         self.selected_entity: dict | None = None  # {type, key} for drawer
         self.compatible_channels: set[str] = set()  # "role:channel" keys
         self.on_change: Callable | None = None
+        self.hide_disconnected: bool = False  # Hide instruments with no connections
 
     def _notify(self) -> None:
         """Trigger UI rebuild if callback is set."""
@@ -253,6 +254,85 @@ class DesignerState:
             for c in self.connections.values()
         )
 
+    def instrument_has_connections(self, role: str) -> bool:
+        """Check if an instrument role has any wired connections."""
+        return any(conn["instrument"] == role for conn in self.connections.values())
+
+    def would_create_output_conflict(self, pin_key: str, role: str, channel: str) -> bool:
+        """Check if wiring this channel to this pin would create an output conflict.
+
+        ONE OUTPUT MAX per connection group. Count outputs:
+        - The channel (if OUTPUT)
+        - The pin (if OUTPUT based on characteristics)
+        - Any existing connections to this pin with OUTPUT channels
+        - Any existing connections to this channel with OUTPUT pins
+
+        If total > 1, it's a conflict.
+        """
+        output_count = 0
+
+        # Count: is this channel an output?
+        ch_is_out = self._channel_is_output(role, channel)
+        if ch_is_out:
+            output_count += 1
+
+        # Count: is this pin an output?
+        pin_is_out = self._pin_is_output(pin_key)
+        if pin_is_out:
+            output_count += 1
+
+        # Count: existing output channels connected to this pin
+        for conn in self.connections.values():
+            if conn["dut_pin"] == pin_key:
+                if self._channel_is_output(conn["instrument"], conn["channel"]):
+                    output_count += 1
+
+        # Count: existing output pins connected to this channel
+        for conn in self.connections.values():
+            if conn["instrument"] == role and conn["channel"] == channel:
+                if self._pin_is_output(conn["dut_pin"]):
+                    output_count += 1
+
+        return output_count > 1
+
+    def _pin_is_output(self, pin_key: str) -> bool:
+        """Check if a DUT pin is an output (provides signal)."""
+        from litmus.config.models import Direction
+
+        char_names = self.char_by_pin.get(pin_key, [])
+        if char_names and self.product:
+            for char_name in char_names:
+                char = self.product.characteristics.get(char_name)
+                if char and hasattr(char, "direction"):
+                    if char.direction == Direction.OUTPUT:
+                        return True
+        return False
+
+    def _channel_is_output(self, role: str, channel: str) -> bool:
+        """Check if a channel is an OUTPUT (source) channel."""
+        from litmus.config.models import Direction
+
+        inst = self.instruments.get(role)
+        if not inst:
+            return False
+
+        caps = inst.get("capabilities", [])
+        for cap in caps:
+            raw_channels = getattr(cap, "channels", None)
+            if raw_channels:
+                cap_channels = raw_channels if isinstance(raw_channels, list) else [raw_channels]
+            else:
+                cap_channels = inst.get("channels", ["1"])
+
+            direction = getattr(cap, "direction", None)
+            if channel not in cap_channels:
+                continue
+
+            if direction in (Direction.OUTPUT, Direction.BIDIR):
+                return True
+
+        return False
+
     # -------------------------------------------------------------------------
     # Bulk Operations
     # -------------------------------------------------------------------------
@@ -297,6 +377,7 @@ class DesignerState:
         points = {}
         for point_name, conn in self.connections.items():
             point: dict[str, Any] = {
+                "name": point_name,  # Required by FixturePoint model
                 "dut_pin": conn["dut_pin"],
                 "instrument": conn["instrument"],
             }

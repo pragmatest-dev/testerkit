@@ -4,7 +4,7 @@ from collections.abc import Callable
 
 from nicegui import ui
 
-from litmus.ui.shared.components import setup_hash_sync_for_tabs
+from litmus.ui.shared.components import AutoSaver, setup_hash_sync_for_tabs
 from litmus.ui.shared.layout import create_layout
 from litmus.ui.shared.services import (
     discover_instrument_types,
@@ -45,6 +45,18 @@ def station_edit_page(station_id: str):
     instrument_types = discover_instrument_types()
     type_options = {t.type: t.name or t.type for t in instrument_types}
 
+    # Auto-save
+    def do_save():
+        station_data = {
+            "id": form_data["id"],
+            "name": form_data["name"],
+            "location": form_data["location"],
+            "description": form_data["description"],
+        }
+        save_station(station_id, station_data, form_data["instruments"])
+
+    saver = AutoSaver(do_save, delay=1.0)
+
     with ui.column().classes("w-full p-6 gap-6"):
         # Header
         with ui.row().classes("w-full items-center justify-between"):
@@ -54,27 +66,13 @@ def station_edit_page(station_id: str):
                     "text-lg font-semibold text-slate-700"
                 )
 
-            with ui.row().classes("gap-2"):
+            with ui.row().classes("gap-2 items-center"):
+                ui.label("Changes auto-saved").classes("text-sm text-slate-400 italic")
                 ui.button(
-                    "Cancel",
-                    icon="close",
+                    "Back",
+                    icon="arrow_back",
                     on_click=lambda: ui.navigate.to(f"/stations/{station_id}"),
                 ).props("flat")
-
-                def save_changes():
-                    station_data = {
-                        "id": form_data["id"],
-                        "name": form_data["name"],
-                        "location": form_data["location"],
-                        "description": form_data["description"],
-                    }
-                    if save_station(station_id, station_data, form_data["instruments"]):
-                        ui.notify("Station saved successfully", type="positive")
-                        ui.navigate.to(f"/stations/{station_id}")
-                    else:
-                        ui.notify("Failed to save station", type="negative")
-
-                ui.button("Save", icon="save", on_click=save_changes).props("color=primary")
 
         # Tabs
         with ui.tabs().classes("w-full") as tabs:
@@ -85,17 +83,17 @@ def station_edit_page(station_id: str):
 
         with ui.tab_panels(tabs, value=info_tab).classes("w-full"):
             with ui.tab_panel(info_tab):
-                _render_info_tab(form_data)
+                _render_info_tab(form_data, saver)
 
             with ui.tab_panel(instruments_tab):
-                _render_instruments_tab(form_data, type_options)
+                _render_instruments_tab(form_data, type_options, saver)
 
         ui.link("← Back to Station", f"/stations/{station_id}").classes(
             "text-blue-600 hover:underline mt-4"
         )
 
 
-def _render_info_tab(form_data: dict):
+def _render_info_tab(form_data: dict, saver: AutoSaver):
     """Render the info edit tab."""
     with ui.card().classes("w-full"):
         with ui.card_section():
@@ -109,21 +107,30 @@ def _render_info_tab(form_data: dict):
                 _labeled_input(
                     "Name",
                     form_data["name"],
-                    on_change=lambda e: form_data.update({"name": e.value}),
+                    on_change=lambda e: (
+                        form_data.update({"name": e.value}),
+                        saver.trigger(),
+                    ),
                 )
                 _labeled_input(
                     "Location",
                     form_data["location"],
-                    on_change=lambda e: form_data.update({"location": e.value}),
+                    on_change=lambda e: (
+                        form_data.update({"location": e.value}),
+                        saver.trigger(),
+                    ),
                 )
                 _labeled_textarea(
                     "Description",
                     form_data["description"],
-                    on_change=lambda e: form_data.update({"description": e.value}),
+                    on_change=lambda e: (
+                        form_data.update({"description": e.value}),
+                        saver.trigger(),
+                    ),
                 )
 
 
-def _render_instruments_tab(form_data: dict, type_options: dict):
+def _render_instruments_tab(form_data: dict, type_options: dict, saver: AutoSaver):
     """Render the instruments edit tab."""
     instruments = form_data["instruments"]
 
@@ -134,10 +141,8 @@ def _render_instruments_tab(form_data: dict, type_options: dict):
 
                 def on_add_instrument(inst_name, inst_data):
                     form_data["instruments"][inst_name] = inst_data
-                    ui.notify(
-                        f"Added instrument: {inst_name}. Click Save to persist.",
-                        type="positive",
-                    )
+                    saver.trigger()
+                    ui.notify(f"Added instrument: {inst_name}", type="positive")
 
                 ui.button(
                     "Add Instrument",
@@ -147,14 +152,14 @@ def _render_instruments_tab(form_data: dict, type_options: dict):
 
             if instruments:
                 for inst_name, inst_data in instruments.items():
-                    _render_instrument_expansion(inst_name, inst_data)
+                    _render_instrument_expansion(inst_name, inst_data, saver)
             else:
                 ui.label(
                     "No instruments configured. Click 'Add Instrument' to add one."
                 ).classes("text-slate-500 italic")
 
 
-def _render_instrument_expansion(inst_name: str, inst_data: dict):
+def _render_instrument_expansion(inst_name: str, inst_data: dict, saver: AutoSaver):
     """Render an instrument expansion panel."""
     mocked = inst_data.get("mock", False)
     with ui.expansion(inst_name, icon="cable").classes("w-full"):
@@ -163,13 +168,20 @@ def _render_instrument_expansion(inst_name: str, inst_data: dict):
                 _labeled_input(
                     "Driver",
                     inst_data.get("driver", ""),
-                    on_change=lambda e, d=inst_data: d.update({"driver": e.value}),
+                    on_change=lambda e, d=inst_data: (
+                        d.update({"driver": e.value}),
+                        saver.trigger(),
+                    ),
                 )
                 with ui.column().classes("gap-1 flex-1"):
                     ui.label("Resource (VISA)").classes("text-sm font-medium text-slate-700")
-                    ui.input(value=inst_data.get("resource", "")).props("outlined dense").classes(
-                        "w-full"
-                    )
+                    ui.input(
+                        value=inst_data.get("resource", ""),
+                        on_change=lambda e, d=inst_data: (
+                            d.update({"resource": e.value}),
+                            saver.trigger(),
+                        ),
+                    ).props("outlined dense").classes("w-full")
             if mocked:
                 ui.chip("Mocked", icon="sim_card").props("color=blue outline")
             if inst_data.get("description"):

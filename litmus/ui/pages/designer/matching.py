@@ -47,12 +47,14 @@ def get_compatible_channels_for_pin(
     product: Product | None,
     instruments: dict[str, dict],
     dut_pins: dict[str, dict] | None = None,
-) -> set[str]:
+    *,
+    include_direction: bool = False,
+) -> set[str] | dict[str, Direction]:
     """Get instrument channels compatible with a selected pin.
 
-    Returns a set of "role:channel" keys that can handle this pin's
-    characteristics. Only channels whose capability parameters actually
-    satisfy the requirement are included (not all channels on the instrument).
+    Returns "role:channel" keys that can handle this pin's characteristics.
+    Only channels whose capability parameters actually satisfy the requirement
+    are included (not all channels on the instrument).
 
     For ground pins (role == "ground"), returns LO terminals of all channels
     instead of signal-matching channels.
@@ -66,14 +68,20 @@ def get_compatible_channels_for_pin(
         product: Product model (may be None).
         instruments: Dict of role -> {type, driver, capabilities, channels}.
         dut_pins: Dict of pin_key -> pin data (with role field).
+        include_direction: If True, return dict mapping channel to Direction.
 
     Returns:
-        Set of "role:channel" strings for compatible channels.
+        Set of "role:channel" strings, or dict of {channel: Direction} if
+        include_direction=True.
     """
     # Check if this is a ground pin
     pin_role = _get_pin_role(pin_key, dut_pins)
     if pin_role == "ground":
-        return _get_lo_channels(instruments)
+        lo_channels = _get_lo_channels(instruments)
+        if include_direction:
+            # Ground wiring doesn't have a meaningful direction
+            return {ch: Direction.INPUT for ch in lo_channels}
+        return lo_channels
 
     # Get all channels across all instruments
     all_channels: set[str] = set()
@@ -84,6 +92,9 @@ def get_compatible_channels_for_pin(
     # If no characteristics for this pin, all channels are compatible
     char_names = char_by_pin.get(pin_key, [])
     if not char_names or not product:
+        if include_direction:
+            # No direction info available — default to INPUT (exclusive)
+            return {ch: Direction.INPUT for ch in all_channels}
         return all_channels
 
     # Get required capabilities from characteristics
@@ -94,25 +105,29 @@ def get_compatible_channels_for_pin(
             requirements.append(char)
 
     if not requirements:
+        if include_direction:
+            return {ch: Direction.INPUT for ch in all_channels}
         return all_channels
 
     # Check each instrument's capabilities against requirements
-    compatible: set[str] = set()
+    compatible: dict[str, Direction] = {}
     for role, inst in instruments.items():
         caps = inst.get("capabilities", [])
         if not caps:
-            # No capability data — treat all channels as compatible
+            # No capability data — treat all channels as compatible (INPUT)
             for ch in inst.get("channels", ["1"]):
-                compatible.add(f"{role}:{ch}")
+                compatible[f"{role}:{ch}"] = Direction.INPUT
             continue
 
         # Check each requirement against each capability
         for req in requirements:
-            matching_channels = _get_channels_satisfying(caps, req)
-            for ch in matching_channels:
-                compatible.add(f"{role}:{ch}")
+            matching = _get_channels_satisfying(caps, req)
+            for ch, direction in matching:
+                compatible[f"{role}:{ch}"] = direction
 
-    return compatible
+    if include_direction:
+        return compatible
+    return set(compatible.keys())
 
 
 def _get_lo_channels(instruments: dict[str, dict]) -> set[str]:
@@ -135,20 +150,41 @@ def _get_pin_role(pin_key: str, dut_pins: dict[str, dict] | None) -> str:
     return "signal"
 
 
+def _get_pin_direction(
+    pin_key: str,
+    char_by_pin: dict[str, list[str]],
+    product: Product | None,
+) -> Direction | None:
+    """Get the primary direction of a pin from its characteristics.
+
+    Returns the direction of the first characteristic found, or None if
+    no characteristics exist for this pin.
+    """
+    char_names = char_by_pin.get(pin_key, [])
+    if not char_names or not product:
+        return None
+
+    for char_name in char_names:
+        char = product.characteristics.get(char_name)
+        if char and hasattr(char, "direction"):
+            return char.direction
+    return None
+
+
 def _get_channels_satisfying(
     capabilities: list[InstrumentCapability], requirement: Capability
-) -> list[str]:
+) -> list[tuple[str, Direction]]:
     """Get channels from capabilities that satisfy a requirement.
 
-    Returns only the channels on capabilities that match function, direction,
-    AND parameter ranges. Readback capabilities are excluded.
+    Returns (channel, direction) tuples for capabilities that match function,
+    direction, AND parameter ranges. Readback capabilities are excluded.
     If a matching capability has no channels field, returns ["1"] as default.
     """
     req_function = requirement.function
     req_direction = requirement.direction
     req_signals = requirement.signals or {}
 
-    matching_channels: list[str] = []
+    matching_channels: list[tuple[str, Direction]] = []
 
     for cap in capabilities:
         # Skip readback capabilities — not primary measurement
@@ -171,23 +207,34 @@ def _get_channels_satisfying(
         if cap_function != req_function:
             continue
 
-        # Direction must match (or instrument is bidir)
-        if cap_direction != req_direction and cap_direction != Direction.BIDIR:
+        # Directions must be complementary:
+        # - DUT input (receives) ↔ instrument output (sources)
+        # - DUT output (provides) ↔ instrument input (measures)
+        # BIDIR instruments match either direction
+        if cap_direction == Direction.BIDIR:
+            pass  # BIDIR matches anything
+        elif req_direction == Direction.INPUT and cap_direction != Direction.OUTPUT:
             continue
+        elif req_direction == Direction.OUTPUT and cap_direction != Direction.INPUT:
+            continue
+        elif req_direction == Direction.BIDIR:
+            pass  # BIDIR requirement matches any capability
 
         # Signal range check
         if not _signals_satisfy(cap.signals or {}, req_signals):
             continue
 
-        # This capability matches — extract its channels
+        # This capability matches — extract its channels with capability direction
         raw_channels = cap.channels
         if raw_channels and isinstance(raw_channels, list):
-            matching_channels.extend(raw_channels)
+            for ch in raw_channels:
+                matching_channels.append((ch, cap_direction))
         elif raw_channels and isinstance(raw_channels, str):
             from litmus.utils.ranges import expand_range
-            matching_channels.extend(expand_range(raw_channels))
+            for ch in expand_range(raw_channels):
+                matching_channels.append((ch, cap_direction))
         else:
-            matching_channels.append("1")
+            matching_channels.append(("1", cap_direction))
 
     return matching_channels
 
@@ -389,7 +436,7 @@ def auto_suggest_connections(
     # Use "most constrained first" heuristic: assign pins with fewest
     # compatible channels first so they don't get starved by pins with
     # many options.
-    pin_candidates: list[tuple[str, dict, set[str]]] = []
+    pin_candidates: list[tuple[str, dict, dict[str, Direction]]] = []
     for pin_key, pin_data in dut_pins.items():
         if pin_key in connected_pins:
             continue
@@ -402,8 +449,10 @@ def auto_suggest_connections(
             continue
 
         compatible = get_compatible_channels_for_pin(
-            pin_key, char_by_pin, product, instruments, dut_pins
+            pin_key, char_by_pin, product, instruments, dut_pins,
+            include_direction=True,
         )
+        assert isinstance(compatible, dict)  # Type narrowing
         if compatible:
             pin_candidates.append((pin_key, pin_data, compatible))
 
@@ -411,8 +460,37 @@ def auto_suggest_connections(
     pin_candidates.sort(key=lambda t: len(t[2]))
 
     for pin_key, pin_data, compatible in pin_candidates:
-        for channel_key in sorted(compatible - used_channels):
+        # Get the pin's required direction from its characteristics
+        pin_direction = _get_pin_direction(pin_key, char_by_pin, product)
+
+        # Sort channels by preference:
+        # - For INPUT pins: prefer OUTPUT channels (power sources)
+        # - For OUTPUT pins: prefer INPUT channels (measurement)
+        available = set(compatible.keys()) - used_channels
+
+        def channel_priority(ch_key: str) -> int:
+            ch_dir = compatible[ch_key]
+            if pin_direction == Direction.INPUT:
+                # INPUT pin wants OUTPUT source first
+                if ch_dir == Direction.OUTPUT:
+                    return 0
+                elif ch_dir == Direction.BIDIR:
+                    return 1
+                else:
+                    return 2
+            elif pin_direction == Direction.OUTPUT:
+                # OUTPUT pin wants INPUT measurement first
+                if ch_dir == Direction.INPUT:
+                    return 0
+                elif ch_dir == Direction.BIDIR:
+                    return 1
+                else:
+                    return 2
+            return 1  # BIDIR or unknown
+
+        for channel_key in sorted(available, key=lambda k: (channel_priority(k), k)):
             role, channel = channel_key.split(":", 1)
+            direction = compatible[channel_key]
             point_name = _generate_point_name(pin_key, role, channel)
             suggestions.append(
                 {
@@ -424,7 +502,10 @@ def auto_suggest_connections(
                     "net": pin_data.get("net", ""),
                 }
             )
-            used_channels.add(channel_key)
+            # OUTPUT/BIDIR channels can fan-out to multiple DUT inputs,
+            # only INPUT channels (DMM, scope) are exclusive
+            if direction == Direction.INPUT:
+                used_channels.add(channel_key)
             break
 
     # Phase 2: Ground pins — bus wiring to LO terminals

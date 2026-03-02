@@ -4,7 +4,7 @@ from collections.abc import Callable
 
 from nicegui import ui
 
-from litmus.ui.shared.components import setup_hash_sync_for_tabs
+from litmus.ui.shared.components import AutoSaver, setup_hash_sync_for_tabs
 from litmus.ui.shared.layout import create_layout
 from litmus.ui.shared.services import discover_products, save_product
 
@@ -32,6 +32,20 @@ def product_edit_page(product_id: str):
         "characteristics": dict(product.get("characteristics") or {}),
     }
 
+    # Auto-save
+    def do_save():
+        updated = {
+            "id": product_id,
+            "name": form_data["name"],
+            "description": form_data["description"],
+            "revision": form_data["revision"],
+            "characteristics": form_data["characteristics"],
+            "pins": form_data["pins"],
+        }
+        save_product(product_id, updated)
+
+    saver = AutoSaver(do_save, delay=1.0)
+
     with ui.column().classes("w-full p-6 gap-6"):
         # Header
         with ui.row().classes("w-full items-center justify-between"):
@@ -41,29 +55,13 @@ def product_edit_page(product_id: str):
                     "text-lg font-semibold text-slate-700"
                 )
 
-            with ui.row().classes("gap-2"):
+            with ui.row().classes("gap-2 items-center"):
+                ui.label("Changes auto-saved").classes("text-sm text-slate-400 italic")
                 ui.button(
-                    "Cancel",
-                    icon="close",
+                    "Back",
+                    icon="arrow_back",
                     on_click=lambda: ui.navigate.to(f"/products/{product_id}"),
                 ).props("flat")
-
-                def save_changes():
-                    updated = {
-                        "id": product_id,
-                        "name": form_data["name"],
-                        "description": form_data["description"],
-                        "revision": form_data["revision"],
-                        "characteristics": form_data["characteristics"],
-                        "pins": form_data["pins"],
-                    }
-                    if save_product(product_id, updated):
-                        ui.notify("Product saved successfully", type="positive")
-                        ui.navigate.to(f"/products/{product_id}")
-                    else:
-                        ui.notify("Failed to save product", type="negative")
-
-                ui.button("Save", icon="save", on_click=save_changes).props("color=primary")
 
         # Tabs
         with ui.tabs().classes("w-full") as tabs:
@@ -75,20 +73,20 @@ def product_edit_page(product_id: str):
 
         with ui.tab_panels(tabs, value=info_tab).classes("w-full"):
             with ui.tab_panel(info_tab):
-                _render_info_tab(product_id, form_data)
+                _render_info_tab(product_id, form_data, saver)
 
             with ui.tab_panel(pins_tab):
-                _render_pins_tab(form_data)
+                _render_pins_tab(form_data, saver)
 
             with ui.tab_panel(chars_tab):
-                _render_characteristics_tab(form_data)
+                _render_characteristics_tab(form_data, saver)
 
         ui.link("← Back to Product", f"/products/{product_id}").classes(
             "text-blue-600 hover:underline mt-4"
         )
 
 
-def _render_info_tab(product_id: str, form_data: dict):
+def _render_info_tab(product_id: str, form_data: dict, saver: AutoSaver):
     """Render the info edit tab."""
     with ui.card().classes("w-full"):
         with ui.card_section():
@@ -98,21 +96,30 @@ def _render_info_tab(product_id: str, form_data: dict):
                 _labeled_input(
                     "Name",
                     form_data["name"],
-                    on_change=lambda e: form_data.update({"name": e.value}),
+                    on_change=lambda e: (
+                        form_data.update({"name": e.value}),
+                        saver.trigger(),
+                    ),
                 )
                 _labeled_input(
                     "Revision",
                     form_data["revision"],
-                    on_change=lambda e: form_data.update({"revision": e.value}),
+                    on_change=lambda e: (
+                        form_data.update({"revision": e.value}),
+                        saver.trigger(),
+                    ),
                 )
                 _labeled_textarea(
                     "Description",
                     form_data["description"],
-                    on_change=lambda e: form_data.update({"description": e.value}),
+                    on_change=lambda e: (
+                        form_data.update({"description": e.value}),
+                        saver.trigger(),
+                    ),
                 )
 
 
-def _render_pins_tab(form_data: dict):
+def _render_pins_tab(form_data: dict, saver: AutoSaver):
     """Render the pins edit tab."""
     with ui.card().classes("w-full"):
         with ui.card_section():
@@ -121,7 +128,8 @@ def _render_pins_tab(form_data: dict):
 
                 def on_add_pin(pin):
                     form_data["pins"].append(pin)
-                    ui.notify(f"Added pin: {pin['name']}. Click Save to persist.", type="positive")
+                    saver.trigger()
+                    ui.notify(f"Added pin: {pin['name']}", type="positive")
 
                 ui.button(
                     "Add Pin",
@@ -146,7 +154,7 @@ def _render_pins_tab(form_data: dict):
                 )
 
 
-def _render_characteristics_tab(form_data: dict):
+def _render_characteristics_tab(form_data: dict, saver: AutoSaver):
     """Render the characteristics edit tab."""
     with ui.card().classes("w-full"):
         with ui.card_section():
@@ -155,9 +163,8 @@ def _render_characteristics_tab(form_data: dict):
 
                 def on_add_char(name, data):
                     form_data["characteristics"][name] = data
-                    ui.notify(
-                        f"Added characteristic: {name}. Click Save to persist.", type="positive"
-                    )
+                    saver.trigger()
+                    ui.notify(f"Added characteristic: {name}", type="positive")
 
                 ui.button(
                     "Add Characteristic",

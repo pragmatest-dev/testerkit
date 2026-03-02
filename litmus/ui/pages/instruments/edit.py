@@ -2,7 +2,7 @@
 
 from nicegui import ui
 
-from litmus.ui.shared.components import setup_hash_sync_for_tabs
+from litmus.ui.shared.components import AutoSaver, setup_hash_sync_for_tabs
 from litmus.ui.shared.layout import create_layout
 from litmus.ui.shared.services import (
     load_catalog_entry_by_type,
@@ -48,6 +48,20 @@ def instrument_edit_page(instrument_type: str):
     direction_options = [d.value for d in Direction]
     function_options = [f.value for f in MeasurementFunction]
 
+    # Auto-save
+    def do_save():
+        save_data = {
+            "instrument": form_data["instrument"],
+            "capabilities": form_data["capabilities"],
+        }
+        if form_data["scpi_commands"]:
+            save_data["scpi_commands"] = form_data["scpi_commands"]
+        if form_data["simulation"]:
+            save_data["simulation"] = form_data["simulation"]
+        save_catalog_entry(instrument_type, save_data)
+
+    saver = AutoSaver(do_save, delay=1.0)
+
     with ui.column().classes("w-full p-6 gap-6"):
         # Header
         with ui.row().classes("w-full items-center justify-between"):
@@ -57,32 +71,13 @@ def instrument_edit_page(instrument_type: str):
                     "text-lg font-semibold text-slate-700"
                 )
 
-            with ui.row().classes("gap-2"):
+            with ui.row().classes("gap-2 items-center"):
+                ui.label("Changes auto-saved").classes("text-sm text-slate-400 italic")
                 ui.button(
-                    "Cancel",
-                    icon="close",
+                    "Back",
+                    icon="arrow_back",
                     on_click=lambda: ui.navigate.to(f"/instruments/{instrument_type}"),
                 ).props("flat")
-
-                def save_changes():
-                    save_data = {
-                        "instrument": form_data["instrument"],
-                        "capabilities": form_data["capabilities"],
-                    }
-                    if form_data["scpi_commands"]:
-                        save_data["scpi_commands"] = form_data["scpi_commands"]
-                    if form_data["simulation"]:
-                        save_data["simulation"] = form_data["simulation"]
-
-                    if save_catalog_entry(instrument_type, save_data):
-                        ui.notify("Instrument saved successfully", type="positive")
-                        ui.navigate.to(f"/instruments/{instrument_type}")
-                    else:
-                        ui.notify("Failed to save instrument", type="negative")
-
-                ui.button("Save", icon="save", on_click=save_changes).props(
-                    "color=primary"
-                )
 
         # Tabs
         with ui.tabs().classes("w-full") as tabs:
@@ -95,25 +90,25 @@ def instrument_edit_page(instrument_type: str):
 
         with ui.tab_panels(tabs, value=info_tab).classes("w-full"):
             with ui.tab_panel(info_tab):
-                _render_info_tab(form_data)
+                _render_info_tab(form_data, saver)
 
             with ui.tab_panel(caps_tab):
                 _render_capabilities_tab(
-                    form_data, direction_options, function_options
+                    form_data, direction_options, function_options, saver
                 )
 
             with ui.tab_panel(scpi_tab):
-                _render_scpi_tab(form_data)
+                _render_scpi_tab(form_data, saver)
 
             with ui.tab_panel(sim_tab):
-                _render_simulation_tab(form_data)
+                _render_simulation_tab(form_data, saver)
 
         ui.link("← Back to Instrument", f"/instruments/{instrument_type}").classes(
             "text-blue-600 hover:underline mt-4"
         )
 
 
-def _render_info_tab(form_data: dict):
+def _render_info_tab(form_data: dict, saver: AutoSaver):
     """Render the info edit tab."""
     inst = form_data["instrument"]
 
@@ -130,24 +125,36 @@ def _render_info_tab(form_data: dict):
                 _labeled_input(
                     "Name",
                     inst["name"],
-                    on_change=lambda e: inst.update({"name": e.value}),
+                    on_change=lambda e: (
+                        inst.update({"name": e.value}),
+                        saver.trigger(),
+                    ),
                 )
                 _labeled_textarea(
                     "Description",
                     inst["description"],
-                    on_change=lambda e: inst.update({"description": e.value}),
+                    on_change=lambda e: (
+                        inst.update({"description": e.value}),
+                        saver.trigger(),
+                    ),
                 )
                 _labeled_input(
                     "Icon",
                     inst["icon"],
                     placeholder="Material icon name (e.g., speed, power)",
-                    on_change=lambda e: inst.update({"icon": e.value}),
+                    on_change=lambda e: (
+                        inst.update({"icon": e.value}),
+                        saver.trigger(),
+                    ),
                 )
                 _labeled_input(
                     "Driver Class",
                     inst.get("driver_class", ""),
                     placeholder="e.g., litmus.instruments.dmm.DMM",
-                    on_change=lambda e: inst.update({"driver_class": e.value}),
+                    on_change=lambda e: (
+                        inst.update({"driver_class": e.value}),
+                        saver.trigger(),
+                    ),
                 )
 
 
@@ -155,6 +162,7 @@ def _render_capabilities_tab(
     form_data: dict,
     direction_options: list,
     function_options: list,
+    saver: AutoSaver,
 ):
     """Render the capabilities edit tab."""
     capabilities = form_data["capabilities"]
@@ -259,7 +267,7 @@ def _render_capability_card(
                         ).props("outlined dense").classes("w-full")
 
 
-def _render_scpi_tab(form_data: dict):
+def _render_scpi_tab(form_data: dict, saver: AutoSaver):
     """Render the SCPI commands edit tab."""
     scpi_commands = form_data["scpi_commands"]
 
@@ -313,7 +321,7 @@ def _render_scpi_row(cmd_name: str, cmd_value: str, form_data: dict, refresh_cal
         ui.button(icon="delete", on_click=delete_cmd).props("flat dense round color=red")
 
 
-def _render_simulation_tab(form_data: dict):
+def _render_simulation_tab(form_data: dict, saver: AutoSaver):
     """Render the simulation edit tab."""
     simulation = form_data.setdefault("simulation", {})
 

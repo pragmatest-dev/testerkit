@@ -4,6 +4,7 @@ from collections.abc import Callable
 
 from nicegui import ui
 
+from litmus.ui.shared.components import AutoSaver
 from litmus.ui.shared.layout import create_layout
 from litmus.ui.shared.services import (
     discover_products,
@@ -64,6 +65,14 @@ def fixture_edit_page(fixture_id: str):
     # Reactive state
     form_data = {"fixture": dict(fixture_data), "points": dict(points_data)}
 
+    # Auto-save for existing fixtures
+    def do_save():
+        fid = form_data["fixture"]["id"]
+        if fid:
+            save_fixture(fid, form_data["fixture"], form_data["points"])
+
+    saver = AutoSaver(do_save, delay=1.0) if not is_new else None
+
     with ui.column().classes("w-full p-6 gap-6"):
         # Fixture info card
         with ui.card().classes("w-full"):
@@ -76,12 +85,18 @@ def fixture_edit_page(fixture_id: str):
                         "Fixture ID",
                         form_data["fixture"]["id"],
                         readonly=not is_new,
-                        on_change=lambda e: form_data["fixture"].update({"id": e.value}),
+                        on_change=lambda e: (
+                            form_data["fixture"].update({"id": e.value}),
+                            saver.trigger() if saver else None,
+                        ),
                     )
                     _labeled_input(
                         "Name",
                         form_data["fixture"]["name"],
-                        on_change=lambda e: form_data["fixture"].update({"name": e.value}),
+                        on_change=lambda e: (
+                            form_data["fixture"].update({"name": e.value}),
+                            saver.trigger() if saver else None,
+                        ),
                     )
 
                 with ui.row().classes("gap-4 w-full"):
@@ -90,23 +105,26 @@ def fixture_edit_page(fixture_id: str):
                         ui.select(
                             options=product_options,
                             value=form_data["fixture"]["product_id"],
-                            on_change=lambda e: form_data["fixture"].update(
-                                {"product_id": e.value}
+                            on_change=lambda e: (
+                                form_data["fixture"].update({"product_id": e.value}),
+                                saver.trigger() if saver else None,
                             ),
                         ).props("outlined dense").classes("w-full")
                     _labeled_input(
                         "Revision (optional)",
                         form_data["fixture"]["product_revision"],
-                        on_change=lambda e: form_data["fixture"].update(
-                            {"product_revision": e.value}
+                        on_change=lambda e: (
+                            form_data["fixture"].update({"product_revision": e.value}),
+                            saver.trigger() if saver else None,
                         ),
                     )
 
                 _labeled_textarea(
                     "Description",
                     form_data["fixture"]["description"],
-                    on_change=lambda e: form_data["fixture"].update(
-                        {"description": e.value}
+                    on_change=lambda e: (
+                        form_data["fixture"].update({"description": e.value}),
+                        saver.trigger() if saver else None,
                     ),
                 )
 
@@ -120,38 +138,48 @@ def fixture_edit_page(fixture_id: str):
                         icon="add",
                         on_click=lambda: _show_add_point_dialog(
                             instrument_options,
-                            lambda name, data: _add_point(form_data, name, data, points_container),
+                            lambda name, data: _add_point(
+                                form_data, name, data, points_container, saver
+                            ),
                         ),
                     ).props("flat color=primary")
 
             with ui.card_section() as points_container:
-                _render_points_list(form_data["points"], instrument_options, points_container)
+                _render_points_list(
+                    form_data["points"], instrument_options, points_container, saver
+                )
 
         # Actions
         with ui.row().classes("gap-2"):
+            if is_new:
+                def handle_create():
+                    fid = form_data["fixture"]["id"]
+                    if not fid:
+                        ui.notify("Fixture ID is required", type="warning")
+                        return
+                    if save_fixture(fid, form_data["fixture"], form_data["points"]):
+                        ui.notify("Fixture created", type="positive")
+                        ui.navigate.to(f"/fixtures/{fid}")
+                    else:
+                        ui.notify("Failed to create fixture", type="negative")
 
-            def handle_save():
-                fid = form_data["fixture"]["id"]
-                if not fid:
-                    ui.notify("Fixture ID is required", type="warning")
-                    return
-                if save_fixture(fid, form_data["fixture"], form_data["points"]):
-                    ui.notify("Fixture saved", type="positive")
-                    ui.navigate.to(f"/fixtures/{fid}")
-                else:
-                    ui.notify("Failed to save fixture", type="negative")
+                ui.button("Create", icon="add", on_click=handle_create).props(
+                    "color=primary"
+                )
+            else:
+                # Auto-save indicator
+                ui.label("Changes auto-saved").classes("text-sm text-slate-400 italic")
 
-            ui.button("Save", icon="save", on_click=handle_save).props("color=primary")
             ui.button(
-                "Cancel",
-                icon="close",
+                "Back",
+                icon="arrow_back",
                 on_click=lambda: ui.navigate.to(
                     f"/fixtures/{fixture_id}" if not is_new else "/fixtures"
                 ),
             ).props("flat")
 
 
-def _render_points_list(points: dict, instrument_options: list, container):
+def _render_points_list(points: dict, instrument_options: list, container, saver=None):
     """Render the list of fixture points."""
     container.clear()
     with container:
@@ -162,11 +190,18 @@ def _render_points_list(points: dict, instrument_options: list, container):
             return
 
         for point_name, point_data in points.items():
-            _render_point_row(point_name, point_data, points, instrument_options, container)
+            _render_point_row(
+                point_name, point_data, points, instrument_options, container, saver
+            )
 
 
 def _render_point_row(
-    point_name: str, point_data: dict, all_points: dict, instrument_options: list, container
+    point_name: str,
+    point_data: dict,
+    all_points: dict,
+    instrument_options: list,
+    container,
+    saver=None,
 ):
     """Render a single point row with inline editing."""
     with ui.card().classes("w-full mb-2"):
@@ -175,7 +210,7 @@ def _render_point_row(
                 ui.label(point_name).classes("font-semibold font-mono")
 
                 def delete_handler(pn=point_name):
-                    _delete_point(all_points, pn, container, instrument_options)
+                    _delete_point(all_points, pn, container, instrument_options, saver)
 
                 ui.button(icon="delete", on_click=delete_handler).props(
                     "flat dense color=red"
@@ -187,14 +222,20 @@ def _render_point_row(
                     ui.label("DUT Pin").classes("text-xs text-slate-500")
                     ui.input(
                         value=point_data.get("dut_pin", ""),
-                        on_change=lambda e, pd=point_data: pd.update({"dut_pin": e.value}),
+                        on_change=lambda e, pd=point_data: (
+                            pd.update({"dut_pin": e.value}),
+                            saver.trigger() if saver else None,
+                        ),
                     ).props("outlined dense").classes("w-full")
 
                 with ui.column().classes("gap-1"):
                     ui.label("Net").classes("text-xs text-slate-500")
                     ui.input(
                         value=point_data.get("net", ""),
-                        on_change=lambda e, pd=point_data: pd.update({"net": e.value}),
+                        on_change=lambda e, pd=point_data: (
+                            pd.update({"net": e.value}),
+                            saver.trigger() if saver else None,
+                        ),
                     ).props("outlined dense").classes("w-full")
 
                 with ui.column().classes("gap-1"):
@@ -202,32 +243,40 @@ def _render_point_row(
                     ui.select(
                         options=instrument_options,
                         value=point_data.get("instrument", ""),
-                        on_change=lambda e, pd=point_data: pd.update({"instrument": e.value}),
+                        on_change=lambda e, pd=point_data: (
+                            pd.update({"instrument": e.value}),
+                            saver.trigger() if saver else None,
+                        ),
                     ).props("outlined dense").classes("w-full")
 
                 with ui.column().classes("gap-1"):
                     ui.label("Channel").classes("text-xs text-slate-500")
                     ui.input(
                         value=point_data.get("instrument_channel", ""),
-                        on_change=lambda e, pd=point_data: pd.update(
-                            {"instrument_channel": e.value}
+                        on_change=lambda e, pd=point_data: (
+                            pd.update({"instrument_channel": e.value}),
+                            saver.trigger() if saver else None,
                         ),
                     ).props("outlined dense").classes("w-full")
 
 
-def _add_point(form_data: dict, name: str, data: dict, container):
+def _add_point(form_data: dict, name: str, data: dict, container, saver=None):
     """Add a new point to the fixture."""
     form_data["points"][name] = data
-    _render_points_list(form_data["points"], list(data.keys()), container)
+    _render_points_list(form_data["points"], list(data.keys()), container, saver)
     container.update()
+    if saver:
+        saver.trigger()
 
 
-def _delete_point(points: dict, name: str, container, instrument_options: list):
+def _delete_point(points: dict, name: str, container, instrument_options: list, saver=None):
     """Delete a point from the fixture."""
     if name in points:
         del points[name]
-    _render_points_list(points, instrument_options, container)
+    _render_points_list(points, instrument_options, container, saver)
     container.update()
+    if saver:
+        saver.trigger()
 
 
 def _labeled_input(label: str, value: str = "", readonly: bool = False, on_change=None):

@@ -203,6 +203,13 @@ def build_nodes(state: DesignerState) -> list[dict]:
     y = 20
 
     for role, inst in state.instruments.items():
+        # Skip disconnected instruments if hiding enabled, UNLESS a pin is selected
+        if state.hide_disconnected:
+            has_connections = state.instrument_has_connections(role)
+            pin_selected = state.selected_pin is not None
+            if not has_connections and not pin_selected:
+                continue
+
         # Role header
         type_label = inst.get("type", "")
         header_text = f"{role} ({type_label})" if type_label else role
@@ -575,9 +582,8 @@ def build_links(
                 "source": chain[i],
                 "target": chain[i + 1],
                 "lineStyle": line_style,
+                "point_name": point_name,  # All segments share the same connection ID
             }
-            if i == 0:
-                link["point_name"] = point_name
             links.append(link)
 
     return links, waypoints

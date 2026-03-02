@@ -31,7 +31,6 @@ from litmus.ui.shared.services import (
     load_product_model,
     load_station_config,
     save_fixture,
-    save_station_type,
 )
 
 
@@ -82,35 +81,36 @@ def designer_page():
 
     with ui.column().classes("w-full p-6 gap-4"):
         # --- Selection bar ---
-        with ui.row().classes("w-full items-end gap-3 flex-wrap"):
-            ui.select(
-                product_options,
-                label="Product",
-                with_input=True,
-                on_change=lambda e: _on_product_change(e.value, state, rebuild),
-            ).classes("w-48")
+        with ui.row().classes("w-full items-end gap-3 flex-wrap justify-between"):
+            with ui.row().classes("items-end gap-3 flex-wrap"):
+                ui.select(
+                    product_options,
+                    label="Product",
+                    with_input=True,
+                    on_change=lambda e: _on_product_change(e.value, state, rebuild),
+                ).classes("w-48")
 
-            ui.select(
-                station_options,
-                label="Station",
-                value=initial_station,
-                with_input=True,
-                on_change=lambda e: on_station_change(e.value),
-            ).classes("w-48")
+                ui.select(
+                    station_options,
+                    label="Station",
+                    value=initial_station,
+                    with_input=True,
+                    on_change=lambda e: on_station_change(e.value),
+                ).classes("w-48")
 
-            ui.button(
-                "Load Fixture",
-                icon="upload",
-                on_click=lambda: _show_load_fixture_dialog(state, rebuild),
-            ).props("flat")
+                ui.button(
+                    "Load Fixture",
+                    icon="upload",
+                    on_click=lambda: _show_load_fixture_dialog(state, rebuild),
+                ).props("flat")
 
-            ui.button(
-                "Add Instrument",
-                icon="add",
-                on_click=lambda: show_add_instrument_dialog(
-                    state, rebuild, discover_instrument_types()
-                ),
-            ).props("flat")
+                ui.button(
+                    "Add Instrument",
+                    icon="add",
+                    on_click=lambda: show_add_instrument_dialog(
+                        state, rebuild, discover_instrument_types()
+                    ),
+                ).props("flat")
 
         # --- IDs ---
         with ui.row().classes("w-full items-end gap-3"):
@@ -155,19 +155,6 @@ def designer_page():
                 with ui.tab_panel(yaml_tab):
                     containers["yaml"] = ui.column().classes("w-full")
 
-        # --- Actions ---
-        with ui.row().classes("w-full justify-between items-center"):
-            ui.button(
-                "Save System",
-                icon="save",
-                on_click=lambda: _save_system(state),
-                color="primary",
-            ).classes("px-6")
-
-            ui.link("Back to Fixtures", "/fixtures").classes(
-                "text-sm text-slate-500"
-            )
-
     # Initial rebuild
     rebuild()
 
@@ -210,6 +197,9 @@ def _rebuild_status(state: DesignerState, container, rebuild) -> None:
                 )
 
         ui.space()
+        ui.checkbox("Hide Unused", value=state.hide_disconnected).bind_value(
+            state, "hide_disconnected"
+        ).on_value_change(lambda: rebuild()).classes("text-sm")
         ui.button(
             "Auto-Match",
             icon="auto_fix_high",
@@ -263,6 +253,32 @@ def _rebuild_chart(
                 "data",
             ],
         )
+        # Connection highlighting: use JavaScript to highlight all segments on hover
+        # Highlighting for connection hover (highlight all segments sharing point_name)
+        ui.run_javascript(f'''
+            const el = getElement({chart.id});
+            if (el && el.chart) {{
+                el.chart.on('mouseover', (params) => {{
+                    if (params.dataType !== 'edge') return;
+                    const pointName = params.data?.point_name;
+                    if (!pointName) return;
+                    const links = el.chart.getOption().series[0].links;
+                    const indices = links
+                        .map((l, i) => l.point_name === pointName ? i : -1)
+                        .filter(i => i >= 0);
+                    el.chart.dispatchAction({{
+                        type: 'highlight',
+                        seriesIndex: 0,
+                        dataType: 'edge',
+                        dataIndex: indices
+                    }});
+                }});
+                el.chart.on('mouseout', (params) => {{
+                    if (params.dataType !== 'edge') return;
+                    el.chart.dispatchAction({{ type: 'downplay', seriesIndex: 0 }});
+                }});
+            }}
+        ''')
 
 
 def _handle_chart_click(event, state, drawer, rebuild) -> None:
@@ -273,6 +289,7 @@ def _handle_chart_click(event, state, drawer, rebuild) -> None:
     dataIndex, data.
     """
     args = event.args
+
     if args.get("componentType") != "series":
         return
     data_type = args.get("dataType")
@@ -299,9 +316,10 @@ def _handle_chart_click(event, state, drawer, rebuild) -> None:
                 )
                 drawer.value = False
 
-        elif side == "instrument" and node_type == "channel":
+        elif side == "instrument" and node_type in ("channel", "terminal"):
             role = data.get("role", "")
             channel = data.get("channel", "")
+            terminal = data.get("terminal")  # Only set for terminal nodes
 
             if state.selected_pin:
                 # Wiring mode: create or toggle connection
@@ -311,13 +329,18 @@ def _handle_chart_click(event, state, drawer, rebuild) -> None:
                 )
                 if existing:
                     state.remove_connection(existing)
-                elif not state.is_channel_used(role, channel):
+                else:
+                    # Create connection (allow any wiring for now)
                     pin = state.selected_pin
                     net = state.dut_pins.get(pin, {}).get("net", "")
-                    point_name = f"{pin.lower()}_{role}_ch{channel}"
-                    state.add_connection(point_name, pin, role, channel, net)
+                    term_suffix = f"_{terminal}" if terminal else ""
+                    point_name = f"{pin.lower()}_{role}_ch{channel}{term_suffix}"
+                    state.add_connection(
+                        point_name, pin, role, channel, net, terminal
+                    )
                 state.clear_selection()
                 drawer.value = False
+                _auto_save(state)  # Auto-save on connection change
             else:
                 # Not wiring — show instrument properties
                 show_instrument_properties(role, state, drawer, rebuild)
@@ -470,6 +493,7 @@ def _auto_match(state, rebuild) -> None:
             s["point_name"], s["dut_pin"], s["instrument"], s["channel"],
             s.get("net"), s.get("terminal")
         )
+    _auto_save(state)  # Auto-save after auto-match
     rebuild()
     ui.notify(f"Auto-matched {len(suggestions)} connections", type="positive")
 
@@ -478,56 +502,33 @@ def _clear_all(state, rebuild) -> None:
     """Clear all connections."""
     state.clear_all_connections()
     state.clear_selection()
+    _auto_save(state)  # Auto-save cleared state
     rebuild()
     ui.notify("All connections cleared", type="info")
 
 
-def _save_system(state) -> None:
-    """Save the complete system design."""
-    saved = []
+def _auto_save(state, quiet: bool = True) -> bool:
+    """Auto-save if fixture_id and system_id are set.
 
-    if not state.fixture_id:
-        ui.notify("Fixture ID is required", type="warning")
-        return
-    if not state.system_id:
-        ui.notify("System ID is required", type="warning")
-        return
+    Returns True if save was attempted, False if IDs not set.
+    """
+    if not state.fixture_id or not state.system_id:
+        return False
 
-    # 1. Save fixture YAML
-    if state.connections:
-        fixture_data = state.to_fixture_yaml()
-        if save_fixture(
+    if not state.connections:
+        return False
+
+    fixture_data = state.to_fixture_yaml()
+    try:
+        save_fixture(
             state.fixture_id, fixture_data["fixture"], fixture_data["points"]
-        ):
-            saved.append(f"fixtures/{state.fixture_id}.yaml")
-
-    # 2. Save station type YAML
-    if state.instruments:
-        station_type_data = state.to_station_type_yaml()
-        if save_station_type(state.system_id, station_type_data):
-            saved.append(f"stations/types/{state.system_id}.yaml")
-
-    # 3. Update product pins if modified
-    if state.pins_modified and state.product_id:
-        from litmus.ui.shared.services import save_product
-
-        product_data = {
-            "id": state.product_id,
-            "name": state.product.name if state.product else "",
-            "pins": state.to_product_pins_patch(),
-        }
-        if state.product:
-            product_data["description"] = state.product.description or ""
-            if state.product.revision:
-                product_data["revision"] = state.product.revision
-        save_product(state.product_id, product_data)
-        saved.append("Product pins updated")
-        state.pins_modified = False
-
-    if saved:
-        ui.notify(f"Saved: {', '.join(saved)}", type="positive")
-    else:
-        ui.notify("Nothing to save", type="info")
+        )
+        if not quiet:
+            ui.notify("Saved", type="positive")
+        return True
+    except Exception as e:
+        ui.notify(f"Auto-save failed: {e}", type="negative")
+        return False
 
 
 def _show_load_fixture_dialog(state, rebuild) -> None:
