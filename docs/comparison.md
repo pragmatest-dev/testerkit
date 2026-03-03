@@ -35,7 +35,7 @@
 | Feature | **Litmus** | **OpenHTF** | **TestStand** | **OpenTAP** | **htf** | **pytest** |
 |---|:---:|:---:|:---:|:---:|:---:|:---:|
 | Driver approach | Use any Python driver directly | Plug wrappers (boilerplate) | NI drivers + code modules | .NET instrument plugins | Custom drivers | Manual fixtures |
-| Auto-discovery | ✅ VISA + LXI scan | ❌ | ✅ NI ecosystem | 🟡 Plugin-dependent | ❌ | ❌ |
+| Auto-discovery | ✅ VISA + LXI + NI SysCfg + serial scan | ❌ | ✅ NI ecosystem | 🟡 Plugin-dependent | ❌ | ❌ |
 | Mock instruments | ✅ Config-driven, zero code | ❌ Manual | ✅ Simulation | ✅ | ❌ | Manual fixtures |
 | Identity verification | ✅ *IDN? query + config match | ❌ | ✅ | ❌ | ❌ | ❌ |
 | Calibration tracking | ✅ Due date, certificate, lab per asset | ❌ | ✅ | ❌ | ❌ | ❌ |
