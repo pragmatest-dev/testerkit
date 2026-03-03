@@ -12,6 +12,7 @@ from litmus.data.models import DUT, Measurement, Outcome, TestRun, TestStep
 
 if TYPE_CHECKING:
     from litmus.data.backends.journal import JournalWriter
+    from litmus.environment import EnvironmentSnapshot
     from litmus.instruments.models import InstrumentRecord
 
 
@@ -188,6 +189,8 @@ class TestRunLogger:
         results_dir: str | Path | None = None,
         # Instrument records for identity + calibration traceability
         instruments: dict[str, InstrumentRecord] | None = None,
+        # Environment snapshot for software traceability
+        environment: EnvironmentSnapshot | None = None,
     ):
         # Use provided run_id, environment variable, or generate new
         if run_id is not None:
@@ -228,6 +231,7 @@ class TestRunLogger:
             fixture_config_yaml=fixture_config_yaml,
             test_config_yaml=test_config_yaml,
         )
+        self._environment = environment
         self._current_step: TestStep | None = None
         self._current_step_index: int = -1
         self._current_vector = None  # For simple logging without harness
@@ -523,6 +527,10 @@ class TestRunLogger:
         Closes the journal writer if journaling is enabled.
         """
         self.test_run.ended_at = _utcnow()
+
+        # Serialize environment snapshot
+        if self._environment is not None:
+            self.test_run.environment_json = self._environment.model_dump_json()
 
         # Close journal writer
         if self._journal is not None:

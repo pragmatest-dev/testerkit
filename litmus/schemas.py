@@ -97,6 +97,8 @@ class ProjectConfig(BaseModel):
 
     name: str
     results_dir: str = "results"
+    default_station: str = "station"
+    mock_instruments: bool = False
     reports: ReportsConfig = Field(default_factory=ReportsConfig)
 
 

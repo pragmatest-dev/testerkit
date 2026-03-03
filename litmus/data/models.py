@@ -293,6 +293,9 @@ class TestRun(BaseModel):
     # Custom metadata (user-defined fields)
     custom_metadata: dict[str, Any] = Field(default_factory=dict)
 
+    # Environment snapshot (stored in Parquet file-level metadata)
+    environment_json: str | None = None
+
     # Config snapshots for reconstruction (stored in Parquet file metadata)
     station_config_yaml: str | None = None
     product_spec_yaml: str | None = None

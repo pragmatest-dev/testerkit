@@ -41,7 +41,9 @@ Entity-aligned folders contain YAML configuration files. Code folders contain Py
 
 ## Development Guidelines
 
-- Use Pydantic models for all configuration and data structures
+- **Pydantic everywhere** — Use Pydantic models for ALL configuration and data structures. NEVER pass raw dicts when a Pydantic model exists. `model_dump()` ONLY at actual write boundaries (YAML files, JSON API responses). Functions return and accept models, not dicts.
+- **All YAML through `litmus/store.py`** — NEVER read/write YAML directly. All YAML I/O goes through the store layer which handles validation via Pydantic models.
+- **Verify deps before specifying** — Always check PyPI (`uv run pip index versions <pkg>`) before writing version constraints. Never guess version numbers.
 - Prefer YAML for human-editable configuration files
 - Litmus does NOT provide instrument drivers — users bring their own (PyMeasure, PyVISA, vendor libs)
 - All MCP tools should have equivalent HTTP API endpoints

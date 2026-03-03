@@ -22,7 +22,7 @@ from litmus.execution.logger import RunContext, TestRunLogger
 from litmus.fixtures.manager import FixtureManager, PinAccessor
 from litmus.instruments.models import CalibrationInfo, InstrumentInfo, InstrumentRecord
 from litmus.products.context import SpecContext
-from litmus.schemas import StationConfig
+from litmus.schemas import ProjectConfig, StationConfig
 
 # Track test outcomes for skip-on-failure logic
 STEP_OUTCOMES: dict[str, bool] = {}
@@ -290,22 +290,37 @@ def pytest_sessionfinish(session, exitstatus):
     STEP_OUTCOMES.clear()
 
 
+def _load_project_defaults() -> ProjectConfig:
+    """Load ProjectConfig from litmus.yaml, falling back to defaults."""
+    try:
+        from litmus.config.project import load_project_config
+
+        return load_project_config()
+    except Exception:
+        # Bad or missing litmus.yaml — don't crash pytest over config
+        return ProjectConfig(name="litmus")
+
+
 def pytest_addoption(parser):
     """Add Litmus command-line options."""
+    project = _load_project_defaults()
     group = parser.getgroup("litmus")
     group.addoption("--dut-serial", default="DUT001", help="DUT serial number")
     group.addoption("--dut-part-number", default=None, help="DUT part number")
     group.addoption("--dut-revision", default=None, help="DUT revision")
     group.addoption("--dut-lot", default=None, help="DUT lot/batch number")
-    group.addoption("--station", default="station", help="Station ID")
+    group.addoption("--station", default=project.default_station, help="Station ID")
     group.addoption("--operator", default=None, help="Operator name")
-    group.addoption("--results-dir", default="results", help="Directory for Parquet results")
+    group.addoption(
+        "--results-dir", default=project.results_dir,
+        help="Directory for Parquet results",
+    )
     group.addoption("--spec", default=None, help="Path to product spec YAML file")
     group.addoption("--guardband", default="0", help="Default guardband percentage")
     group.addoption(
         "--mock-instruments",
         action="store_true",
-        default=False,
+        default=project.mock_instruments,
         help="Use mock instruments instead of real hardware",
     )
     group.addoption(
@@ -540,6 +555,10 @@ def litmus_logger(request) -> Generator[TestRunLogger]:
         spec_context.product.revision if spec_context else None
     )
 
+    from litmus.environment import capture_environment
+
+    env = capture_environment()
+
     logger = TestRunLogger(
         dut_serial=request.config.getoption("--dut-serial"),
         dut_part_number=dut_part_number,
@@ -562,6 +581,7 @@ def litmus_logger(request) -> Generator[TestRunLogger]:
         results_dir=results_dir,  # Enable journal streaming
         test_phase=test_phase,  # Auto-detected from git status
         instruments=instrument_records,  # Full instrument records with calibration
+        environment=env,  # Software environment for SBOM traceability
     )
     set_current_logger(logger)
     yield logger

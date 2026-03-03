@@ -47,6 +47,23 @@ def build_run_metadata(test_run: TestRun) -> dict[str, Any]:
         "sequence_id": test_run.test_sequence_id,
         "test_phase": test_run.test_phase,
         "git_commit": test_run.git_commit,
+        # Environment traceability (scalars from environment snapshot)
+        **_env_columns(test_run.environment_json),
+    }
+
+
+def _env_columns(environment_json: str | None) -> dict[str, str | None]:
+    """Extract queryable environment columns from the JSON snapshot."""
+    if not environment_json:
+        return {"python_version": None, "litmus_version": None, "env_fingerprint": None}
+
+    from litmus.environment import EnvironmentSnapshot
+
+    snapshot = EnvironmentSnapshot.model_validate_json(environment_json)
+    return {
+        "python_version": snapshot.python_version,
+        "litmus_version": snapshot.litmus_version,
+        "env_fingerprint": snapshot.fingerprint,
     }
 
 

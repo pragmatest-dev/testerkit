@@ -44,6 +44,9 @@ lxi = [
 pdf = [
     "weasyprint>=62.0",
 ]
+sbom = [
+    "cyclonedx-python-lib>=11.0",
+]
 
 [project.scripts]
 litmus = "litmus.cli:main"

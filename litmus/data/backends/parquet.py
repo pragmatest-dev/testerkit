@@ -96,6 +96,10 @@ MEASUREMENT_SCHEMA = pa.schema([
     # Rollup
     ("vector_outcome", pa.string()),
     ("run_outcome", pa.string()),
+    # Environment traceability
+    ("python_version", pa.string()),
+    ("litmus_version", pa.string()),
+    ("env_fingerprint", pa.string()),
 ])
 
 _SCHEMA_DICT = {f.name: f.type for f in MEASUREMENT_SCHEMA}
@@ -705,6 +709,9 @@ class ParquetBackend:
         if test_run.test_config_yaml:
             metadata[b"test_config_yaml"] = test_run.test_config_yaml.encode("utf-8")
 
+        if test_run.environment_json:
+            metadata[b"environment_json"] = test_run.environment_json.encode("utf-8")
+
         # Add some convenience metadata
         metadata[b"litmus_version"] = b"1.0.0"
         metadata[b"schema_version"] = b"2.0"  # New analysis-ready schema
@@ -773,7 +780,7 @@ class ParquetBackend:
         runs.sort(key=lambda x: x.get("started_at") or "", reverse=True)
         return runs[:limit]
 
-    def _find_run_file(self, run_id: str) -> Path | None:
+    def find_run_file(self, run_id: str) -> Path | None:
         """Find parquet file for a run_id (cached)."""
         runs_dir = self.results_dir / "runs"
         if not runs_dir.exists():
@@ -811,7 +818,7 @@ class ParquetBackend:
         Returns:
             Test run summary record or None if not found.
         """
-        pq_file = self._find_run_file(run_id)
+        pq_file = self.find_run_file(run_id)
         if pq_file is None:
             return None
 
@@ -852,7 +859,7 @@ class ParquetBackend:
         if _file:
             pq_file = Path(_file)
         else:
-            pq_file = self._find_run_file(run_id)
+            pq_file = self.find_run_file(run_id)
 
         if pq_file is None or not pq_file.exists():
             return []

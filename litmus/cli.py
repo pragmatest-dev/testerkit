@@ -7,6 +7,14 @@ from pathlib import Path
 import click
 
 
+def _find_parquet_for_run(run_id: str, results_dir: str) -> Path | None:
+    """Find the parquet file for a given run ID."""
+    from litmus.data.backends.parquet import ParquetBackend
+
+    backend = ParquetBackend(results_dir=results_dir)
+    return backend.find_run_file(run_id)
+
+
 @click.group()
 @click.version_option(version="0.1.0")
 def main():
@@ -631,7 +639,11 @@ def runs(results_dir: str | None, limit: int):
 )
 @click.option("-o", "--output", default=None, help="Output file or directory")
 @click.option("-t", "--template", default="default", help="Report template name")
-def show(run_id: str, results_dir: str | None, fmt: str | None, output: str | None, template: str):
+@click.option("--env", is_flag=True, default=False, help="Show environment snapshot")
+def show(
+    run_id: str, results_dir: str | None, fmt: str | None,
+    output: str | None, template: str, env: bool,
+):
     """Show details for a specific test run.
 
     Without -f, prints a summary to the terminal.
@@ -682,7 +694,7 @@ def show(run_id: str, results_dir: str | None, fmt: str | None, output: str | No
     click.echo(f"  Steps: {len(data.step_names)}")
     click.echo(f"  Measurements: {data.total_measurements} ({data.failed_measurements} failed)")
 
-    if data.measurements:
+    if data.measurements and not env:
         click.echo("\nMeasurements:")
         for m in data.measurements:
             name = m.get("measurement_name", "")
@@ -690,6 +702,68 @@ def show(run_id: str, results_dir: str | None, fmt: str | None, output: str | No
             units = m.get("units", "")
             outcome = m.get("outcome", "")
             click.echo(f"  {name}: {value} {units} [{outcome}]")
+
+    if env:
+        from litmus.sbom import environment_from_parquet, format_environment_table
+
+        pq_path = _find_parquet_for_run(run_id, results_dir)
+        if pq_path:
+            snapshot = environment_from_parquet(pq_path)
+            if snapshot:
+                click.echo(f"\n{format_environment_table(snapshot)}")
+            else:
+                click.echo("\nNo environment data captured for this run.")
+        else:
+            click.echo("\nParquet file not found.")
+
+
+# -----------------------------------------------------------------------------
+# SBOM Export
+# -----------------------------------------------------------------------------
+
+
+@main.command()
+@click.argument("run_id")
+@click.option("--results-dir", default=None, help="Results directory")
+@click.option("-o", "--output", default=None, help="Output file (default: stdout)")
+def sbom(run_id: str, results_dir: str | None, output: str | None):
+    """Export CycloneDX SBOM for a test run's software environment.
+
+    Reads the environment snapshot captured during the test run and
+    converts it to CycloneDX 1.6 JSON format.
+
+    Examples:
+        litmus sbom abc123
+        litmus sbom abc123 -o sbom.json
+    """
+    from litmus.config.project import load_project_config
+    from litmus.sbom import environment_from_parquet, generate_cyclonedx
+
+    project = load_project_config()
+    if results_dir is None:
+        results_dir = project.results_dir
+
+    pq_path = _find_parquet_for_run(run_id, results_dir)
+    if not pq_path:
+        click.echo(f"Run {run_id} not found.", err=True)
+        raise SystemExit(1)
+
+    snapshot = environment_from_parquet(pq_path)
+    if not snapshot:
+        click.echo("No environment data captured for this run.", err=True)
+        raise SystemExit(1)
+
+    try:
+        sbom_str = generate_cyclonedx(snapshot)
+    except ImportError as e:
+        click.echo(str(e), err=True)
+        raise SystemExit(1)
+
+    if output:
+        Path(output).write_text(sbom_str)
+        click.echo(f"SBOM written to {output}")
+    else:
+        click.echo(sbom_str)
 
 
 # -----------------------------------------------------------------------------
