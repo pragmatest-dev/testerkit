@@ -877,26 +877,55 @@ def _copy_skill_stubs(source_dir: Path, target_dir: Path) -> list[str]:
     return created
 
 
-def _write_instructions(target_path: Path, header: str = "") -> bool:
-    """Write project instructions from the shared template.
+_MARKER_START = "<!-- litmus:start -->"
+_MARKER_END = "<!-- litmus:end -->"
 
-    Skips if file already exists (don't overwrite user content).
-    Returns True if file was written.
+
+def _write_instructions(target_path: Path, header: str = "") -> str | None:
+    """Write or update project instructions from the shared template.
+
+    Returns:
+        "created"  — file didn't exist, wrote full template
+        "updated"  — file existed, appended/replaced managed section
+        None       — no change needed (content already up to date)
     """
-    if target_path.exists():
-        return False
-
     template = Path(__file__).parent / "skills" / "templates" / "project-instructions.md"
     if not template.exists():
-        return False
+        return None
 
-    content = template.read_text()
+    # Resolve {LITMUS_REFS} to installed package path
+    refs_path = Path(__file__).parent / "skills" / "refs"
+    content = template.read_text().replace("{LITMUS_REFS}", str(refs_path))
+
     if header:
         content = header + "\n\n" + content
 
-    target_path.parent.mkdir(parents=True, exist_ok=True)
-    target_path.write_text(content)
-    return True
+    managed = f"{_MARKER_START}\n{content}\n{_MARKER_END}\n"
+
+    if not target_path.exists():
+        target_path.parent.mkdir(parents=True, exist_ok=True)
+        target_path.write_text(managed)
+        return "created"
+
+    existing = target_path.read_text()
+
+    if _MARKER_START in existing:
+        # Replace content between markers
+        start = existing.index(_MARKER_START)
+        end = existing.index(_MARKER_END) + len(_MARKER_END)
+        # Include trailing newline if present
+        if end < len(existing) and existing[end] == "\n":
+            end += 1
+        old_section = existing[start:end]
+        if old_section == managed:
+            return None
+        target_path.write_text(existing[:start] + managed + existing[end:])
+        return "updated"
+
+    # No markers yet — append managed section
+    separator = "\n" if existing.endswith("\n") else "\n\n"
+    target_path.write_text(existing + separator + managed)
+    return "updated"
 
 
 @setup.command("claude-code")
@@ -951,9 +980,14 @@ def setup_claude_code(print_only: bool):
     if created:
         click.echo(f"✓ Copied commands to .claude/commands/ ({len(created)} files)")
 
-    # 3. Generate CLAUDE.md if missing
-    if _write_instructions(Path.cwd() / "CLAUDE.md"):
-        click.echo("✓ Created CLAUDE.md (project instructions)")
+    # 3. Generate/update CLAUDE.md
+    result = _write_instructions(Path.cwd() / "CLAUDE.md")
+    if result == "created":
+        click.echo("✓ Created CLAUDE.md")
+    elif result == "updated":
+        click.echo("✓ Updated CLAUDE.md (Litmus section)")
+    else:
+        click.echo("· CLAUDE.md already up to date")
 
 
 @setup.command("claude-desktop")
@@ -1129,14 +1163,24 @@ def setup_copilot(print_only: bool):
     if created:
         click.echo(f"✓ Copied prompts to .github/prompts/ ({len(created)} files)")
 
-    # 3. Generate .github/copilot-instructions.md if missing
+    # 3. Generate/update .github/copilot-instructions.md
     copilot_instructions = Path.cwd() / ".github" / "copilot-instructions.md"
-    if _write_instructions(copilot_instructions):
+    result = _write_instructions(copilot_instructions)
+    if result == "created":
         click.echo("✓ Created .github/copilot-instructions.md")
+    elif result == "updated":
+        click.echo("✓ Updated .github/copilot-instructions.md (Litmus section)")
+    else:
+        click.echo("· .github/copilot-instructions.md already up to date")
 
-    # 4. Generate AGENTS.md if missing (for Copilot CLI + other tools)
-    if _write_instructions(Path.cwd() / "AGENTS.md"):
+    # 4. Generate/update AGENTS.md (for Copilot CLI + other tools)
+    result = _write_instructions(Path.cwd() / "AGENTS.md")
+    if result == "created":
         click.echo("✓ Created AGENTS.md")
+    elif result == "updated":
+        click.echo("✓ Updated AGENTS.md (Litmus section)")
+    else:
+        click.echo("· AGENTS.md already up to date")
 
 
 @setup.command("cursor")

@@ -21,12 +21,19 @@ DOCS_DIR = REPO_ROOT / "docs"
 OUTPUT_DIR = REPO_ROOT / "dist"
 
 # Source docs → refs/ mapping
+# All refs are condensed LLM-optimized versions in docs/refs/.
+# Source of truth for human docs: docs/concepts/, docs/guides/, docs/reference/.
+# Source of truth for LLM refs: docs/refs/.
+REFS_SRC = DOCS_DIR / "refs"
 DOCS_TO_COPY = {
-    DOCS_DIR / "capability-schema.md": REFS_DIR / "capability-schema.md",
-    DOCS_DIR / "concepts" / "products.md": REFS_DIR / "product-schema.md",
-    DOCS_DIR / "concepts" / "stations.md": REFS_DIR / "station-schema.md",
-    DOCS_DIR / "guides" / "writing-tests.md": REFS_DIR / "test-writing.md",
-    DOCS_DIR / "guides" / "limits.md": REFS_DIR / "limits.md",
+    REFS_SRC / "capability.md": REFS_DIR / "capability.md",
+    REFS_SRC / "product.md": REFS_DIR / "product.md",
+    REFS_SRC / "station.md": REFS_DIR / "station.md",
+    REFS_SRC / "fixture.md": REFS_DIR / "fixture.md",
+    REFS_SRC / "test-writing.md": REFS_DIR / "test-writing.md",
+    REFS_SRC / "limits.md": REFS_DIR / "limits.md",
+    REFS_SRC / "sequence.md": REFS_DIR / "sequence.md",
+    REFS_SRC / "cli.md": REFS_DIR / "cli.md",
 }
 
 

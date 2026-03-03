@@ -1,10 +1,10 @@
 # Litmus — Hardware Test Platform
 
-Litmus is a Python-native hardware test platform. It provides configuration management, instrument drivers, data storage, and AI tool integration for hardware testing.
+Litmus is a Python-native hardware test platform for the AI-assisted era. It provides the infrastructure layer for hardware testing — configuration management (products, stations, fixtures, sequences), instrument discovery and access (via PyVISA/PyMeasure), structured test data storage (Parquet), and AI tool integration (MCP server). Tests are standard pytest functions; Litmus adds the hardware-specific context, data pipeline, and operator UI. Data flows from YAML config → pytest execution → Parquet results → reports/analytics.
 
 ## Folder Convention
 
-Entity-aligned folders contain YAML configuration files:
+The project uses a 7-folder structure. Entity-aligned folders contain YAML configuration files:
 - `products/` — DUT specifications and test limits
 - `stations/` — Bench configurations (instruments + roles)
 - `fixtures/` — DUT-to-instrument pin mappings
@@ -62,3 +62,19 @@ Litmus exposes MCP tools for AI agents:
 - `litmus_discover` — Discover instruments on VISA bus
 - `litmus_match` — Check if a station can test a product
 - `litmus_run` — Execute tests and get results
+
+## Reference Documentation
+
+Read these on demand — don't load them all upfront:
+
+| Topic | File |
+|-------|------|
+| Writing `@litmus_test` functions | `{LITMUS_REFS}/test-writing.md` |
+| Limits, comparators, pass/fail | `{LITMUS_REFS}/limits.md` |
+| Station YAML | `{LITMUS_REFS}/station.md` |
+| Product spec YAML | `{LITMUS_REFS}/product.md` |
+| Fixture YAML (pin routing) | `{LITMUS_REFS}/fixture.md` |
+| Sequence YAML (test order) | `{LITMUS_REFS}/sequence.md` |
+| Instrument capabilities | `{LITMUS_REFS}/capability.md` |
+| Enum values (units, functions) | `{LITMUS_REFS}/enums.md` |
+| CLI commands | `{LITMUS_REFS}/cli.md` |
