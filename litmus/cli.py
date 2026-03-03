@@ -120,11 +120,12 @@ def init(name: str | None, no_git: bool, discover: bool, starter: bool | None):
         click.echo(f"  cd {name}")
         click.echo("  uv sync")
     if use_starter:
-        click.echo("  pytest")
+        click.echo("  pytest                # run tests with mock instruments")
     elif station:
         click.echo("  pytest tests/ --mock-instruments --dut-serial=TEST001")
     else:
         click.echo("  pytest tests/ --mock-instruments --dut-serial=TEST001")
+    click.echo("  litmus serve          # open operator UI at localhost:8000")
 
 
 @main.command("new-test")
@@ -226,10 +227,26 @@ def new_test(name: str):
         "@litmus_test",
         f"def test_{test_name}({sig}):",
         f'    """Measure {test_name}."""',
-        "    # TODO: Add test logic",
-        "    pass",
-        "",
     ])
+    # Add a helpful skeleton showing the 3-step pattern
+    if roles:
+        lines.append("    # 1. GET conditions from context")
+        lines.append('    # vin = context.get_in("vin", 5.0)')
+        lines.append("    #")
+        lines.append("    # 2. SET UP stimulus")
+        first_role = roles[0]
+        lines.append(f"    # {first_role}.set_voltage(vin)")
+        lines.append("    #")
+        lines.append("    # 3. MEASURE and RETURN (framework checks limits)")
+        if len(roles) > 1:
+            measure_role = roles[1]
+        else:
+            measure_role = roles[0]
+        lines.append(f"    return {measure_role}.measure_voltage()")
+    else:
+        lines.append("    # TODO: Add test logic")
+        lines.append("    pass")
+    lines.append("")
     content = "\n".join(lines)
 
     tests_dir.mkdir(exist_ok=True)

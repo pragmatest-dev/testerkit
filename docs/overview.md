@@ -235,9 +235,11 @@ Everything is organized by what it describes:
 ## Getting Started
 
 ```bash
-pip install litmus                # Install
+# Install from source (not yet on PyPI)
+git clone https://github.com/anthropics/litmus.git && cd litmus && uv sync
+
 litmus init my-project --discover # Scaffold project + auto-detect instruments
-cd my-project && uv sync          # Install dependencies
+cd my-project
 litmus serve                      # Start operator UI at localhost:8000
 litmus setup claude-code          # Optional: configure AI assistant
 ```

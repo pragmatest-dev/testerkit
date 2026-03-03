@@ -43,8 +43,11 @@ Nine test vectors. Limits from your product spec with 10% guardband. Every measu
 
 ## Quick start
 
+> **Note:** Litmus is not yet published to PyPI. Install from source for now.
+
 ```bash
-pip install litmus
+git clone https://github.com/anthropics/litmus.git
+cd litmus && uv sync
 litmus init quick_start --starter && cd quick_start
 pytest                          # runs with mock instruments out of the box
 ```
@@ -54,26 +57,35 @@ That's it. You have a working project with example tests, a station config, and 
 ### What `--starter` generated
 
 ```yaml
-# stations/station.yaml — instruments at this bench
-station:
-  id: demo_station
+# stations/starter_station.yaml — mock instruments for getting started
+id: starter_station
+name: Starter Station
 instruments:
-  dmm:
-    driver: drivers.Keithley2000
-    resource: TCPIP::192.168.1.100::INSTR
   psu:
-    driver: drivers.KeysightE36312A
-    resource: TCPIP::192.168.1.101::INSTR
+    type: psu
+    resource: "TCPIP::192.168.1.100::INSTR"
+    mock: true
+    mock_config:
+      set_voltage: null
+      enable_output: null
+      measure_voltage: 5.0
+  dmm:
+    type: dmm
+    resource: "TCPIP::192.168.1.101::INSTR"
+    mock: true
+    mock_config:
+      measure_dc_voltage: 3.3
 ```
 
 ```python
-# tests/test_power.py
+# tests/test_example.py
 from litmus.execution import litmus_test
 
 @litmus_test
-def test_output_voltage(psu, dmm):
-    """Verify 5V rail under load."""
-    psu.set_voltage(12.0)
+def test_output_voltage(context, psu, dmm):
+    """Verify output voltage is within spec."""
+    vin = context.get_in("vin", 5.0)
+    psu.set_voltage(vin)
     psu.enable_output()
     return dmm.measure_dc_voltage()
 ```

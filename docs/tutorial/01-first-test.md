@@ -10,9 +10,9 @@ A simple test that passes. Nothing fancy yet — just getting the basics working
 
 ```bash
 # Clone and install
-git clone https://github.com/your-org/litmus.git
+git clone https://github.com/anthropics/litmus.git
 cd litmus
-uv sync  # or: pip install -e .
+uv sync
 ```
 
 ## The Code

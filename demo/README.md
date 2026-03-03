@@ -6,9 +6,13 @@ It demonstrates **every major feature** of the framework.
 ## Quick Start
 
 ```bash
+# Run from the demo/ directory (it's a self-contained project)
 cd demo
 pytest tests/test_power_board.py --station=demo_station_001 --mock-instruments -v
 ```
+
+> **Note:** The demo must be run from the `demo/` directory so pytest discovers
+> the local `stations/`, `products/`, and `sequences/` folders.
 
 ## Project Structure
 

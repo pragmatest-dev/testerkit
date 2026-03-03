@@ -3,8 +3,9 @@
 Get up and running with Litmus in under a minute.
 
 ```bash
-# 1. Install Litmus
-pip install litmus-hw   # or: uv add litmus-hw
+# 1. Install Litmus (from source — not yet on PyPI)
+git clone https://github.com/anthropics/litmus.git
+cd litmus && uv sync
 
 # 2. Create a starter project
 litmus init quick_start --starter
@@ -18,15 +19,10 @@ That's it. You'll see tests pass with mock instruments, limits checked, and resu
 
 ## How to Install
 
+> **Note:** Litmus is not yet published to PyPI. Install from source for now.
+
 ```bash
-# Recommended: uv
-uv add litmus-hw
-
-# Or pip
-pip install litmus-hw
-
-# Development install from source
-git clone https://github.com/your-org/litmus.git
+git clone https://github.com/anthropics/litmus.git
 cd litmus && uv sync
 ```
 

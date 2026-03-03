@@ -14,7 +14,8 @@ If you already have pytest tests, you can:
 ### Step 1: Install Litmus
 
 ```bash
-pip install litmus  # or add to requirements.txt
+# Install from source (not yet on PyPI)
+git clone https://github.com/anthropics/litmus.git && cd litmus && uv sync
 ```
 
 ### Step 2: Add to conftest.py
