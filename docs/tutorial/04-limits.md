@@ -12,8 +12,8 @@ In Step 3, we logged measurements but didn't check if they were good or bad:
 
 ```python
 @litmus_test
-def test_voltage(context, instruments):
-    return instruments["dmm"].measure_voltage()  # Logged, but is it passing?
+def test_voltage(context, dmm):
+    return dmm.measure_voltage()  # Logged, but is it passing?
 ```
 
 We need limits to determine pass/fail.
@@ -77,8 +77,8 @@ from litmus.config.models import Limit
         "test_output_voltage": Limit(low=3.135, high=3.465, units="V"),
     }
 )
-def test_output_voltage(context, instruments):
-    return instruments["dmm"].measure_voltage()
+def test_output_voltage(context, dmm):
+    return dmm.measure_voltage()
 ```
 
 If the measurement is outside limits, the test fails with an `AssertionError`.
@@ -119,9 +119,9 @@ During development, you may want to record values without failing:
 
 ```python
 @litmus_test(raise_on_fail=False)
-def test_characterize(context, instruments):
+def test_characterize(context, dmm):
     # Measurements recorded but won't fail test
-    return instruments["dmm"].measure_voltage()
+    return dmm.measure_voltage()
 ```
 
 ## Comparators

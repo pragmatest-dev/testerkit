@@ -44,20 +44,15 @@ All configuration uses YAML files with Pydantic validation. Edit YAML directly o
 Tests are standard pytest functions using the `@litmus_test` decorator:
 
 ```python
-from litmus import litmus_test
+from litmus.execution import litmus_test
 
 @litmus_test
-def test_output_voltage(instruments):
-    psu = instruments["psu"]
-    dmm = instruments["dmm"]
-
+def test_output_voltage(context, psu, dmm):
+    """Verify output voltage is within spec."""
     psu.set_voltage(3.3)
-    psu.enable()
+    psu.enable_output()
 
-    voltage = dmm.measure_voltage()
-    assert 3.2 <= voltage <= 3.4, f"Output voltage {voltage}V out of range"
-
-    return {"output_voltage": voltage}
+    return dmm.measure_voltage()
 ```
 
 ## MCP Tools

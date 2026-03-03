@@ -177,13 +177,49 @@ def new_test(name: str):
 
     roles = [r.strip() for r in roles_input.split(",") if r.strip()] if roles_input else []
 
-    # Build function signature
-    params = ["context"] + roles if roles else ["context"]
-    sig = ", ".join(params)
+    # Resolve driver types for selected roles
+    role_types: dict[str, tuple[str, str]] = {}
+    if roles and available_roles:
+        try:
+            from litmus.execution.typing_utils import resolve_role_types
+            from litmus.store import list_stations as _list_stations
+
+            _stations = _list_stations()
+            if _stations:
+                role_types = resolve_role_types(_stations[0].instruments)
+        except Exception:
+            pass
+
+    # Build import lines for typed roles
+    import_lines: list[str] = []
+    # Collect imports: module -> {class_names}
+    imports_by_module: dict[str, set[str]] = {}
+    for role in roles:
+        if role in role_types:
+            module, cls = role_types[role]
+            imports_by_module.setdefault(module, set()).add(cls)
+    for module in sorted(imports_by_module):
+        classes = sorted(imports_by_module[module])
+        import_lines.append(f"from {module} import {', '.join(classes)}")
+
+    # Build function signature with type annotations
+    param_parts = ["context"]
+    for role in roles:
+        if role in role_types:
+            _, cls = role_types[role]
+            param_parts.append(f"{role}: {cls}")
+        else:
+            param_parts.append(role)
+    sig = ", ".join(param_parts)
 
     lines = [
         f'"""Tests for {test_name}."""',
         "",
+    ]
+    if import_lines:
+        lines.extend(import_lines)
+        lines.append("")
+    lines.extend([
         "from litmus.execution import litmus_test",
         "",
         "",
@@ -193,13 +229,83 @@ def new_test(name: str):
         "    # TODO: Add test logic",
         "    pass",
         "",
-    ]
+    ])
     content = "\n".join(lines)
 
     tests_dir.mkdir(exist_ok=True)
     target.write_text(content)
     click.echo(f"Created {target}")
     click.echo("\nNext: pytest --mock-instruments")
+
+
+@main.command("type-tests")
+@click.option("--station", default=None, help="Station ID (default: auto-discover)")
+@click.option("--dry-run", is_flag=True, help="Print changes without writing files")
+def type_tests(station: str | None, dry_run: bool):
+    """Add driver type annotations to @litmus_test functions.
+
+    Scans tests/ for @litmus_test decorated functions and adds driver type
+    annotations to parameters that match station instrument roles.
+
+    Examples:
+
+        litmus type-tests
+
+        litmus type-tests --station bench_1
+
+        litmus type-tests --dry-run
+    """
+    from pathlib import Path
+
+    from litmus.execution.typing_utils import resolve_role_types, scan_test_files
+    from litmus.store import list_stations
+
+    # Find station
+    stations = list_stations()
+    if not stations:
+        click.echo("No station configs found in stations/", err=True)
+        raise SystemExit(1)
+
+    if station:
+        matched = [s for s in stations if s.id == station]
+        if not matched:
+            click.echo(f"Station '{station}' not found", err=True)
+            raise SystemExit(1)
+        station_config = matched[0]
+    else:
+        station_config = stations[0]
+        if len(stations) > 1:
+            click.echo(f"Using station: {station_config.id} (use --station to specify)")
+
+    role_types = resolve_role_types(station_config.instruments)
+    if not role_types:
+        click.echo("No typed drivers found in station config (all mock-only?)")
+        raise SystemExit(0)
+
+    # Scan test files
+    test_dir = Path.cwd() / "tests"
+    if not test_dir.exists():
+        click.echo("No tests/ directory found", err=True)
+        raise SystemExit(1)
+
+    edits = scan_test_files(test_dir, role_types)
+    if not edits:
+        click.echo("All @litmus_test functions already have type annotations.")
+        raise SystemExit(0)
+
+    for filepath, new_source, changes in edits:
+        rel = filepath.relative_to(Path.cwd())
+        click.echo(f"\n{rel}:")
+        for change in changes:
+            click.echo(change)
+        if not dry_run:
+            filepath.write_text(new_source)
+
+    total = sum(len(c) for _, _, c in edits)
+    if dry_run:
+        click.echo(f"\n{total} annotation(s) to add across {len(edits)} file(s). (dry run)")
+    else:
+        click.echo(f"\n{total} annotation(s) added across {len(edits)} file(s).")
 
 
 def _discover_instruments(interactive: bool = True) -> dict | None:

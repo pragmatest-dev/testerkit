@@ -145,8 +145,8 @@ test_output_voltage:
 
 ```python
 @litmus_test
-def test_output_voltage(context, instruments):
-    return instruments["dmm"].measure_voltage()
+def test_output_voltage(context, dmm):
+    return dmm.measure_voltage()
 ```
 
 ## Condition Matching
@@ -254,7 +254,7 @@ test_output_voltage:
 
 ```python
 @litmus_test
-def test_output_voltage(context, instruments, spec):
+def test_output_voltage(context, dmm, spec):
     """Verify output voltage per spec."""
     # context provides conditions
     temp = context["temperature"]
@@ -265,9 +265,7 @@ def test_output_voltage(context, instruments, spec):
     set_load(load)
 
     # Measure
-    voltage = instruments["dmm"].measure_voltage()
-
-    return voltage
+    return dmm.measure_voltage()
     # Limits resolved from spec at context conditions
 ```
 

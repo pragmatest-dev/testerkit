@@ -39,20 +39,17 @@ This defines:
 - A DMM at a TCP/IP address with mock values
 - A PSU on GPIB with mock values
 
-## The instruments Fixture
+## Instrument Role Fixtures
 
-When you run with `--station-config`, Litmus provides an `instruments` fixture:
+When you run with `--station-config`, Litmus auto-registers each instrument role as a pytest fixture. Use them directly as function parameters:
 
 ```python
 # tests/test_power.py
 from litmus.execution import litmus_test
 
 @litmus_test
-def test_output_voltage(context, instruments):
-    """Access instruments by name from station config."""
-    psu = instruments["psu"]
-    dmm = instruments["dmm"]
-
+def test_output_voltage(context, psu, dmm):
+    """Instrument roles from station config are auto-registered as fixtures."""
     psu.set_voltage(5.0)
     psu.enable_output()
 
@@ -193,11 +190,8 @@ steps:
 from litmus.execution import litmus_test
 
 @litmus_test
-def test_output_voltage(context, instruments):
+def test_output_voltage(context, psu, dmm):
     """Works with real hardware OR mock mode."""
-    psu = instruments["psu"]
-    dmm = instruments["dmm"]
-
     psu.set_voltage(5.0)
     psu.set_current_limit(1.0)
     psu.enable_output()
@@ -221,7 +215,7 @@ pytest tests/ --station-config=stations/bench_1.yaml --mock-instruments --dut-se
 ## What You Learned
 
 - Station configuration with instruments and `mock_config`
-- The `instruments` fixture from station config
+- Instrument role fixtures from station config (e.g. `psu`, `dmm`)
 - `--mock-instruments` flag for hardware-free testing
 - Per-test mock values with `mocks` in sequence steps
 - VISA address formats

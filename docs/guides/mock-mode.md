@@ -261,9 +261,8 @@ For tests that require real hardware:
 import pytest
 
 @pytest.mark.hardware
-def test_real_measurement(instruments):
+def test_real_measurement(dmm):
     """Test requiring real hardware."""
-    dmm = instruments["dmm"]
     v = dmm.measure_voltage()
     assert isinstance(v, float)
 ```

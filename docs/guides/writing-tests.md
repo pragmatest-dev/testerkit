@@ -8,9 +8,8 @@ This guide covers patterns and best practices for writing Litmus tests.
 from litmus.execution import litmus_test
 
 @litmus_test
-def test_voltage(context, instruments):
+def test_voltage(context, dmm):
     """Measure and return voltage."""
-    dmm = instruments["dmm"]
     return dmm.measure_voltage()
 ```
 
@@ -221,13 +220,13 @@ def test_with_setup(context, psu, dmm):
 
 ```python
 @litmus_test
-def test_conditional(context, instruments):
+def test_conditional(context, hvps, psu, dmm):
     if context.get_in("high_voltage", False):
-        instruments["hvps"].set_voltage(100)
+        hvps.set_voltage(100)
     else:
-        instruments["psu"].set_voltage(5)
+        psu.set_voltage(5)
 
-    return instruments["dmm"].measure_voltage()
+    return dmm.measure_voltage()
 ```
 
 ### Multiple Conditions
@@ -297,10 +296,10 @@ pytest tests/ \
 ```python
 # Bad
 @litmus_test
-def test_everything(context, instruments):
+def test_everything(context, dmm, temp_logger):
     return {
-        "voltage": measure_voltage(),
-        "temperature": measure_temp(),
+        "voltage": dmm.measure_voltage(),
+        "temperature": temp_logger.measure_temperature(),
         "communication": test_i2c(),
     }
 ```
@@ -310,12 +309,12 @@ def test_everything(context, instruments):
 ```python
 # Good
 @litmus_test
-def test_voltage(context, instruments):
-    return instruments["dmm"].measure_voltage()
+def test_voltage(context, dmm):
+    return dmm.measure_voltage()
 
 @litmus_test
-def test_temperature(context, instruments):
-    return instruments["temp_logger"].measure_temperature()
+def test_temperature(context, temp_logger):
+    return temp_logger.measure_temperature()
 ```
 
 ### Don't: Hardcode Limits

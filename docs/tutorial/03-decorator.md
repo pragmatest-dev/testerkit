@@ -13,9 +13,8 @@ A test that automatically logs measurements to Litmus results storage.
 from litmus.execution import litmus_test
 
 @litmus_test
-def test_output_voltage(context, instruments):
+def test_output_voltage(context, dmm):
     """Measure and return voltage - automatically logged."""
-    dmm = instruments["dmm"]
     return dmm.measure_voltage()
 ```
 
@@ -31,10 +30,10 @@ Every `@litmus_test` function receives a `context` parameter as its first argume
 
 ```python
 @litmus_test
-def test_output_voltage(context, instruments):
+def test_output_voltage(context, dmm):
     # context contains test parameters and provides observation logging
     # We'll use it extensively in later steps
-    return instruments["dmm"].measure_voltage()
+    return dmm.measure_voltage()
 ```
 
 The context provides:
@@ -44,16 +43,13 @@ The context provides:
 
 For now, you can ignore it. In Step 5, we'll use it to access test conditions.
 
-## The instruments Fixture
+## Instrument Role Fixtures
 
-When you run with `--station-config`, Litmus provides an `instruments` fixture:
+When you run with `--station-config`, Litmus auto-registers each instrument role as a pytest fixture. Use them directly as function parameters:
 
 ```python
 @litmus_test
-def test_output_voltage(context, instruments):
-    dmm = instruments["dmm"]   # From station config
-    psu = instruments["psu"]
-
+def test_output_voltage(context, dmm, psu):
     psu.set_voltage(5.0)
     psu.enable_output()
     return dmm.measure_voltage()
@@ -67,8 +63,8 @@ Return a single measurement:
 
 ```python
 @litmus_test
-def test_voltage(context, instruments):
-    return instruments["dmm"].measure_voltage()  # Logged as "test_voltage"
+def test_voltage(context, dmm):
+    return dmm.measure_voltage()  # Logged as "test_voltage"
 ```
 
 The measurement name defaults to the function name.
@@ -79,9 +75,7 @@ Return a dict for multiple measurements:
 
 ```python
 @litmus_test
-def test_power_analysis(context, instruments):
-    psu = instruments["psu"]
-    dmm = instruments["dmm"]
+def test_power_analysis(context, psu, dmm):
     return {
         "input_voltage": psu.measure_voltage(),
         "input_current": psu.measure_current(),
@@ -97,9 +91,8 @@ Yield measurements over time:
 
 ```python
 @litmus_test
-def test_stability(context, instruments):
+def test_stability(context, dmm):
     import time
-    dmm = instruments["dmm"]
     for i in range(10):
         yield {"voltage": dmm.measure_voltage()}
         time.sleep(1)
@@ -137,13 +130,13 @@ Both forms work:
 ```python
 # Without parentheses - uses all defaults
 @litmus_test
-def test_voltage(context, instruments):
-    return instruments["dmm"].measure_voltage()
+def test_voltage(context, dmm):
+    return dmm.measure_voltage()
 
 # With parentheses - can customize behavior
 @litmus_test()
-def test_voltage(context, instruments):
-    return instruments["dmm"].measure_voltage()
+def test_voltage(context, dmm):
+    return dmm.measure_voltage()
 ```
 
 We'll use the parentheses form in later steps when we add configuration.
@@ -175,17 +168,16 @@ instruments:
 from litmus.execution import litmus_test
 
 @litmus_test
-def test_input_voltage(context, instruments):
+def test_input_voltage(context, psu):
     """Measure input voltage."""
-    psu = instruments["psu"]
     psu.set_voltage(5.0)
     psu.enable_output()
     return psu.measure_voltage()
 
 @litmus_test
-def test_output_voltage(context, instruments):
+def test_output_voltage(context, dmm):
     """Measure output voltage."""
-    return instruments["dmm"].measure_voltage()
+    return dmm.measure_voltage()
 ```
 
 **Run:**
@@ -197,7 +189,7 @@ pytest tests/test_power.py --station-config=stations/my_station.yaml --mock-inst
 
 - The @litmus_test decorator for automatic measurement logging
 - The `context` parameter (used extensively in later steps)
-- The `instruments` fixture from station config
+- Instrument role fixtures from station config (e.g. `dmm`, `psu`)
 - Return value patterns: single, dict, yield
 
 ## Next Step

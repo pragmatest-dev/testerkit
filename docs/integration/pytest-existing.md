@@ -36,9 +36,9 @@ def pytest_addoption(parser):
 from litmus.execution import litmus_test
 
 @litmus_test
-def test_new_voltage_check(context, instruments):
+def test_new_voltage_check(context, dmm):
     """New test using Litmus."""
-    return instruments["dmm"].measure_voltage()
+    return dmm.measure_voltage()
 ```
 
 ### Step 4: Keep Existing Tests
@@ -151,9 +151,9 @@ Convert tests to use the decorator:
 from litmus.execution import litmus_test
 
 @litmus_test
-def test_voltage(context, instruments):
+def test_voltage(context, dmm):
     """Fully converted Litmus test."""
-    return instruments["dmm"].measure_voltage()
+    return dmm.measure_voltage()
 ```
 
 ## Fixture Patterns
