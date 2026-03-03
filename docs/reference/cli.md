@@ -370,7 +370,7 @@ Configure AI tool integrations automatically.
 
 ### litmus setup claude-code
 
-Configure Litmus MCP server for Claude Code.
+Configure Litmus for Claude Code.
 
 ```bash
 litmus setup claude-code [OPTIONS]
@@ -384,31 +384,62 @@ litmus setup claude-code [OPTIONS]
 
 **What it does:**
 
-Runs `claude mcp add litmus -- litmus mcp serve` to register the Litmus MCP server with Claude Code.
+1. Registers the Litmus MCP server via `claude mcp add`
+2. Copies skill command stubs to `.claude/commands/`
+3. Generates `CLAUDE.md` project instructions (if not already present)
 
 **Example:**
 
 ```bash
-# Install automatically
 litmus setup claude-code
+```
 
-# Just show the command
-litmus setup claude-code --print-only
+```
+✓ Registered Litmus MCP server
+✓ Copied commands to .claude/commands/ (2 files)
+✓ Created CLAUDE.md (project instructions)
 ```
 
 ### litmus setup claude-desktop
 
-Configure Litmus MCP server for Claude Desktop app.
+Configure Litmus for Claude Desktop.
 
 ```bash
-litmus setup claude-desktop [PROJECT_PATH] [OPTIONS]
+litmus setup claude-desktop [OPTIONS]
 ```
 
-**Arguments:**
+**Options:**
 
-| Argument | Description |
-|----------|-------------|
-| `PROJECT_PATH` | Path to project (defaults to current directory) |
+| Option | Description |
+|--------|-------------|
+| `--legacy` | Use legacy JSON config instead of .mcpb bundle |
+| `--print-only` | Print config instead of installing |
+
+**What it does:**
+
+Builds a `.mcpb` Desktop Extension bundle that can be double-clicked to install in Claude Desktop. Includes the MCP server configuration and bundled skills.
+
+Use `--legacy` for older Claude Desktop versions that don't support `.mcpb` — this writes directly to `claude_desktop_config.json`.
+
+**Example:**
+
+```bash
+litmus setup claude-desktop
+```
+
+```
+✓ Built litmus.mcpb (Desktop Extension)
+  → /mnt/c/Users/ryan/Desktop/litmus.mcpb
+  Double-click to install in Claude Desktop.
+```
+
+### litmus setup copilot
+
+Configure Litmus for GitHub Copilot (VS Code and CLI).
+
+```bash
+litmus setup copilot [OPTIONS]
+```
 
 **Options:**
 
@@ -418,19 +449,22 @@ litmus setup claude-desktop [PROJECT_PATH] [OPTIONS]
 
 **What it does:**
 
-Updates `claude_desktop_config.json` in the appropriate location:
-- **macOS:** `~/Library/Application Support/Claude/`
-- **Linux:** `~/.config/Claude/`
-- **Windows:** `%APPDATA%/Claude/`
+1. Creates/merges `.vscode/mcp.json` with litmus MCP server config
+2. Copies prompt stubs to `.github/prompts/`
+3. Generates `.github/copilot-instructions.md` (if not present)
+4. Generates `AGENTS.md` (if not present) — read by Copilot CLI, Codex, Gemini CLI, and others
 
 **Example:**
 
 ```bash
-# Configure for current project
-litmus setup claude-desktop
+litmus setup copilot
+```
 
-# Configure for specific project
-litmus setup claude-desktop /path/to/hardware-tests
+```
+✓ Wrote .vscode/mcp.json (litmus MCP server)
+✓ Copied prompts to .github/prompts/ (2 files)
+✓ Created .github/copilot-instructions.md
+✓ Created AGENTS.md
 ```
 
 ### litmus setup cursor

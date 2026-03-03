@@ -1,5 +1,9 @@
 """Litmus command-line interface."""
 
+from __future__ import annotations
+
+from pathlib import Path
+
 import click
 
 
@@ -723,26 +727,71 @@ def setup():
     pass
 
 
+def _get_litmus_path() -> Path:
+    """Find the litmus executable path."""
+    import sys
+
+    litmus_path = Path(sys.executable).parent / "litmus"
+    if not litmus_path.exists():
+        litmus_path = Path("litmus")
+    return litmus_path
+
+
+def _copy_skill_stubs(source_dir: Path, target_dir: Path) -> list[str]:
+    """Copy .md skill stubs from package source to project target.
+
+    Always overwrites (stubs are tiny pointers to package workflows).
+    Returns list of created file names.
+    """
+    created = []
+    if not source_dir.exists():
+        return created
+    target_dir.mkdir(parents=True, exist_ok=True)
+    for src_file in sorted(source_dir.glob("*.md")):
+        dst_file = target_dir / src_file.name
+        dst_file.write_text(src_file.read_text())
+        created.append(src_file.name)
+    return created
+
+
+def _write_instructions(target_path: Path, header: str = "") -> bool:
+    """Write project instructions from the shared template.
+
+    Skips if file already exists (don't overwrite user content).
+    Returns True if file was written.
+    """
+    if target_path.exists():
+        return False
+
+    template = Path(__file__).parent / "skills" / "templates" / "project-instructions.md"
+    if not template.exists():
+        return False
+
+    content = template.read_text()
+    if header:
+        content = header + "\n\n" + content
+
+    target_path.parent.mkdir(parents=True, exist_ok=True)
+    target_path.write_text(content)
+    return True
+
+
 @setup.command("claude-code")
 @click.option("--print-only", is_flag=True, help="Print config instead of installing")
 def setup_claude_code(print_only: bool):
     """Configure Litmus MCP server for Claude Code.
 
-    Adds the Litmus MCP server to Claude Code's configuration.
+    Registers the MCP server, copies skill command stubs, and generates
+    a CLAUDE.md project instructions file if one doesn't exist.
 
     Example:
         litmus setup claude-code
     """
     import json
     import subprocess
-    import sys
     from pathlib import Path
 
-    # Find the litmus executable path
-    litmus_path = Path(sys.executable).parent / "litmus"
-    if not litmus_path.exists():
-        # Fall back to assuming it's on PATH
-        litmus_path = Path("litmus")
+    litmus_path = _get_litmus_path()
 
     config = {
         "name": "litmus",
@@ -756,7 +805,7 @@ def setup_claude_code(print_only: bool):
         click.echo("\nOr run: litmus setup claude-code")
         return
 
-    # Try to add via claude CLI
+    # 1. Register MCP server via claude CLI
     try:
         result = subprocess.run(
             ["claude", "mcp", "add", "litmus", "--", str(litmus_path), "mcp", "serve"],
@@ -764,8 +813,7 @@ def setup_claude_code(print_only: bool):
             text=True,
         )
         if result.returncode == 0:
-            click.echo("Litmus MCP server added to Claude Code.")
-            click.echo("Restart Claude Code to use Litmus tools.")
+            click.echo("✓ Registered Litmus MCP server")
         else:
             click.echo("Could not add via claude CLI. Add manually:")
             click.echo(f"\n  claude mcp add litmus -- {litmus_path} mcp serve\n")
@@ -773,14 +821,26 @@ def setup_claude_code(print_only: bool):
         click.echo("Claude CLI not found. Add manually:")
         click.echo(f"\n  claude mcp add litmus -- {litmus_path} mcp serve\n")
 
+    # 2. Copy command stubs to .claude/commands/
+    stubs_src = Path(__file__).parent / "skills" / "commands" / "claude-code"
+    stubs_dst = Path.cwd() / ".claude" / "commands"
+    created = _copy_skill_stubs(stubs_src, stubs_dst)
+    if created:
+        click.echo(f"✓ Copied commands to .claude/commands/ ({len(created)} files)")
+
+    # 3. Generate CLAUDE.md if missing
+    if _write_instructions(Path.cwd() / "CLAUDE.md"):
+        click.echo("✓ Created CLAUDE.md (project instructions)")
+
 
 @setup.command("claude-desktop")
+@click.option("--legacy", is_flag=True, help="Use legacy JSON config instead of .mcpb bundle")
 @click.option("--print-only", is_flag=True, help="Print config instead of installing")
-def setup_claude_desktop(print_only: bool):
-    """Configure Litmus MCP server for Claude Desktop.
+def setup_claude_desktop(legacy: bool, print_only: bool):
+    """Configure Litmus for Claude Desktop.
 
-    The MCP server is project-agnostic. Claude can work with any project
-    by specifying the project path in each tool call.
+    Builds a .mcpb Desktop Extension bundle that can be double-clicked
+    to install. Use --legacy for older Claude Desktop versions.
 
     Example:
         litmus setup claude-desktop
@@ -788,94 +848,172 @@ def setup_claude_desktop(print_only: bool):
     import json
     import os
     import sys
+    import zipfile
     from pathlib import Path
 
-    litmus_path = Path(sys.executable).parent / "litmus"
+    litmus_path = _get_litmus_path()
 
-    # Determine config location by platform
-    # Handle WSL (Linux running Windows Claude Desktop)
     is_wsl = os.environ.get("WSL_DISTRO_NAME") is not None or (
         Path("/proc/version").exists() and "microsoft" in Path("/proc/version").read_text().lower()
     )
-
     username = os.environ.get("USERNAME") or os.environ.get("USER", "").split("@")[-1]
 
-    if sys.platform == "win32":
-        config_dir = Path(os.environ.get("APPDATA", "")) / "Claude"
-    elif is_wsl:
-        config_dir = Path(f"/mnt/c/Users/{username}/AppData/Roaming/Claude")
-    elif sys.platform == "darwin":
-        config_dir = Path.home() / "Library" / "Application Support" / "Claude"
-    else:
-        config_dir = Path.home() / ".config" / "Claude"
+    if legacy:
+        # Legacy path: direct JSON config editing
+        if sys.platform == "win32":
+            config_dir = Path(os.environ.get("APPDATA", "")) / "Claude"
+        elif is_wsl:
+            config_dir = Path(f"/mnt/c/Users/{username}/AppData/Roaming/Claude")
+        elif sys.platform == "darwin":
+            config_dir = Path.home() / "Library" / "Application Support" / "Claude"
+        else:
+            config_dir = Path.home() / ".config" / "Claude"
 
-    # For WSL, use wsl.exe to run litmus in WSL from Windows
-    if is_wsl:
-        server_config = {
-            "command": "wsl.exe",
-            "args": [str(litmus_path), "mcp", "serve"],
-        }
-    else:
-        server_config = {
-            "command": str(litmus_path),
-            "args": ["mcp", "serve"],
-        }
+        if is_wsl:
+            server_config = {
+                "command": "wsl.exe",
+                "args": [str(litmus_path), "mcp", "serve"],
+            }
+        else:
+            server_config = {
+                "command": str(litmus_path),
+                "args": ["mcp", "serve"],
+            }
 
-    if print_only:
-        click.echo("claude_desktop_config.json:\n")
-        click.echo(json.dumps({"mcpServers": {"litmus": server_config}}, indent=2))
-        click.echo(f"\nConfig location: {config_dir / 'claude_desktop_config.json'}")
+        if print_only:
+            click.echo("claude_desktop_config.json:\n")
+            click.echo(json.dumps({"mcpServers": {"litmus": server_config}}, indent=2))
+            click.echo(f"\nConfig location: {config_dir / 'claude_desktop_config.json'}")
+            return
+
+        config_dir.mkdir(parents=True, exist_ok=True)
+        config_file = config_dir / "claude_desktop_config.json"
+
+        if config_file.exists():
+            config = json.loads(config_file.read_text())
+        else:
+            config = {}
+
+        if "mcpServers" not in config:
+            config["mcpServers"] = {}
+
+        config["mcpServers"]["litmus"] = server_config
+        config_file.write_text(json.dumps(config, indent=2) + "\n")
+        click.echo(f"✓ Wrote MCP config: {config_file}")
+        click.echo("  Restart Claude Desktop to use Litmus tools.")
         return
 
-    config_dir.mkdir(parents=True, exist_ok=True)
-    config_file = config_dir / "claude_desktop_config.json"
+    # Build .mcpb Desktop Extension bundle
+    manifest = {
+        "schema_version": "1.0",
+        "name": "litmus",
+        "display_name": "Litmus Hardware Test Platform",
+        "description": (
+            "MCP server for hardware test configuration,"
+            " instrument discovery, and test execution."
+        ),
+        "version": "0.1.0",
+        "author": "Litmus",
+        "server": {
+            "transport": "stdio",
+            "command": "wsl.exe" if is_wsl else str(litmus_path),
+            "args": [str(litmus_path), "mcp", "serve"] if is_wsl else ["mcp", "serve"],
+        },
+    }
 
-    if config_file.exists():
-        config = json.loads(config_file.read_text())
-    else:
-        config = {}
+    if print_only:
+        click.echo("manifest.json:\n")
+        click.echo(json.dumps(manifest, indent=2))
+        return
 
-    if "mcpServers" not in config:
-        config["mcpServers"] = {}
-
-    config["mcpServers"]["litmus"] = server_config
-
-    config_file.write_text(json.dumps(config, indent=2) + "\n")
-    click.echo(f"✓ Wrote MCP config: {config_file}")
-
-    # Build skills zip and place it where the user can access it
-    import zipfile
-
-    skills_dir = Path(__file__).parent / "skills"
-    if skills_dir.exists():
-        # Place zip on Windows desktop (WSL) or in config dir
-        if is_wsl:
-            desktop = Path(f"/mnt/c/Users/{username}/Desktop")
-            if desktop.exists():
-                zip_path = desktop / "litmus-skills.zip"
-            else:
-                zip_path = config_dir / "litmus-skills.zip"
+    # Determine output location
+    if is_wsl:
+        desktop = Path(f"/mnt/c/Users/{username}/Desktop")
+        if desktop.exists():
+            mcpb_path = desktop / "litmus.mcpb"
         else:
-            zip_path = config_dir / "litmus-skills.zip"
-
-        # Skill name from SKILL.md frontmatter (or default)
-        skill_name = "litmus-skills"
-        with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zf:
-            for file in skills_dir.rglob("*"):
-                if file.is_file() and "__pycache__" not in str(file):
-                    # Wrap in skill_name/ directory as Claude Desktop expects
-                    arcname = Path(skill_name) / file.relative_to(skills_dir)
-                    zf.write(file, arcname)
-
-        click.echo(f"✓ Built skills zip: {zip_path}")
-        click.echo()
-        click.echo("Next steps:")
-        click.echo("  1. Restart Claude Desktop (picks up new MCP server code)")
-        click.echo("  2. Upload skills: Settings > Capabilities > Upload skill")
-        click.echo(f"     File: {zip_path}")
+            mcpb_path = Path.cwd() / "litmus.mcpb"
+    elif sys.platform == "darwin":
+        mcpb_path = Path.home() / "Desktop" / "litmus.mcpb"
     else:
-        click.echo()
-        click.echo("Restart Claude Desktop to use Litmus tools.")
+        mcpb_path = Path.cwd() / "litmus.mcpb"
+
+    with zipfile.ZipFile(mcpb_path, "w", zipfile.ZIP_DEFLATED) as zf:
+        zf.writestr("manifest.json", json.dumps(manifest, indent=2) + "\n")
+
+        # Bundle skills as reference
+        skills_dir = Path(__file__).parent / "skills"
+        if skills_dir.exists():
+            for file in sorted(skills_dir.rglob("*")):
+                if file.is_file() and "__pycache__" not in str(file):
+                    arcname = "skills" / file.relative_to(skills_dir)
+                    zf.write(file, str(arcname))
+
+    click.echo("✓ Built litmus.mcpb (Desktop Extension)")
+    click.echo(f"  → {mcpb_path}")
+    click.echo("  Double-click to install in Claude Desktop.")
+
+
+@setup.command("copilot")
+@click.option("--print-only", is_flag=True, help="Print config instead of installing")
+def setup_copilot(print_only: bool):
+    """Configure Litmus for GitHub Copilot (VS Code + CLI).
+
+    Sets up MCP server, prompt stubs, and instruction files for both
+    Copilot in VS Code and Copilot CLI (which also reads AGENTS.md).
+
+    Example:
+        litmus setup copilot
+    """
+    import json
+
+    mcp_config = {
+        "servers": {
+            "litmus": {
+                "type": "stdio",
+                "command": "uv",
+                "args": ["run", "litmus", "mcp", "serve"],
+            }
+        }
+    }
+
+    if print_only:
+        click.echo(".vscode/mcp.json:\n")
+        click.echo(json.dumps(mcp_config, indent=2))
+        return
+
+    # 1. Create/merge .vscode/mcp.json
+    vscode_dir = Path.cwd() / ".vscode"
+    vscode_dir.mkdir(exist_ok=True)
+    mcp_file = vscode_dir / "mcp.json"
+
+    if mcp_file.exists():
+        existing = json.loads(mcp_file.read_text())
+        if "servers" not in existing:
+            existing["servers"] = {}
+        existing["servers"]["litmus"] = mcp_config["servers"]["litmus"]
+        final_config = existing
+    else:
+        final_config = mcp_config
+
+    mcp_file.write_text(json.dumps(final_config, indent=2) + "\n")
+    click.echo("✓ Wrote .vscode/mcp.json (litmus MCP server)")
+
+    # 2. Copy prompt stubs to .github/prompts/
+    stubs_src = Path(__file__).parent / "skills" / "commands" / "copilot"
+    stubs_dst = Path.cwd() / ".github" / "prompts"
+    created = _copy_skill_stubs(stubs_src, stubs_dst)
+    if created:
+        click.echo(f"✓ Copied prompts to .github/prompts/ ({len(created)} files)")
+
+    # 3. Generate .github/copilot-instructions.md if missing
+    copilot_instructions = Path.cwd() / ".github" / "copilot-instructions.md"
+    if _write_instructions(copilot_instructions):
+        click.echo("✓ Created .github/copilot-instructions.md")
+
+    # 4. Generate AGENTS.md if missing (for Copilot CLI + other tools)
+    if _write_instructions(Path.cwd() / "AGENTS.md"):
+        click.echo("✓ Created AGENTS.md")
 
 
 @setup.command("cursor")
@@ -889,13 +1027,9 @@ def setup_cursor(print_only: bool):
         litmus setup cursor
     """
     import json
-    import sys
     from pathlib import Path
 
-    # Find the litmus executable path
-    litmus_path = Path(sys.executable).parent / "litmus"
-    if not litmus_path.exists():
-        litmus_path = Path("litmus")
+    litmus_path = _get_litmus_path()
 
     config = {
         "mcpServers": {
@@ -940,13 +1074,9 @@ def setup_cline(print_only: bool):
         litmus setup cline
     """
     import json
-    import sys
     from pathlib import Path
 
-    # Find the litmus executable path
-    litmus_path = Path(sys.executable).parent / "litmus"
-    if not litmus_path.exists():
-        litmus_path = Path("litmus")
+    litmus_path = _get_litmus_path()
 
     config = {
         "mcpServers": {
