@@ -70,13 +70,31 @@ def _load_sequence_data(config) -> list[dict[str, Any]]:
                 seq_path = candidate
                 break
         else:
+            import warnings
+
+            fix_hint = (
+                f"Fix: check path '{seq_option}'"
+                if Path(seq_option).is_absolute()
+                else f"Fix: create sequences/{seq_option}.yaml"
+            )
+            warnings.warn(
+                f"Sequence '{seq_option}' not found. "
+                f"No test ordering will be applied. {fix_hint}",
+                stacklevel=1,
+            )
             return []
 
     try:
         from litmus.store import load_sequence
 
         seq_file = load_sequence(seq_path)
-    except Exception:
+    except Exception as exc:
+        import warnings
+
+        warnings.warn(
+            f"Failed to load sequence '{seq_option}': {exc}",
+            stacklevel=1,
+        )
         return []
 
     # Store test phase for mock validation

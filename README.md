@@ -44,17 +44,19 @@ Nine test vectors. Limits from your product spec with 10% guardband. Every measu
 ## Quick start
 
 ```bash
-git clone https://github.com/your-org/litmus && cd litmus
-uv sync && uv pip install -e .
+pip install litmus
+litmus init quick_start --starter && cd quick_start
+pytest                          # runs with mock instruments out of the box
 ```
 
-### Define your station
+That's it. You have a working project with example tests, a station config, and mock instruments.
+
+### What `--starter` generated
 
 ```yaml
-# stations/bench_1.yaml
+# stations/station.yaml — instruments at this bench
 station:
-  id: bench_1
-
+  id: demo_station
 instruments:
   dmm:
     driver: drivers.Keithley2000
@@ -63,8 +65,6 @@ instruments:
     driver: drivers.KeysightE36312A
     resource: TCPIP::192.168.1.101::INSTR
 ```
-
-### Write a test
 
 ```python
 # tests/test_power.py
@@ -80,18 +80,15 @@ def test_output_voltage(psu, dmm):
 
 `psu` and `dmm` come from your station config. No conftest.py needed.
 
-### Run it
+### Next steps
 
 ```bash
-# Without hardware
-pytest tests/ --mock-instruments --dut-serial=PROTO001
-
-# With hardware
-pytest tests/ --station=bench_1 --dut-serial=UNIT042
-
-# See results
-litmus runs
-litmus show <run_id>
+litmus discover                 # scan for real instruments
+litmus station init             # assign roles interactively
+litmus new-test output_voltage  # scaffold a new test
+pytest --mock-instruments       # develop without hardware
+pytest --station=my_bench       # run against real instruments
+litmus runs                     # see results
 ```
 
 ### What results look like
@@ -195,11 +192,12 @@ Closest to OpenHTF in spirit. pytest instead of a custom executor, config files 
 ## CLI
 
 ```bash
-litmus init <name>              # New project (--discover to auto-detect instruments)
-litmus serve [--reload]         # Operator UI
-litmus runs / show <id>         # Results
+litmus init <name> [--starter]  # New project (--starter for full example)
 litmus discover [--visa]        # Scan for instruments
 litmus station init             # Interactive station setup
+litmus new-test <name>          # Scaffold a test file
+litmus serve [--reload]         # Operator UI
+litmus runs / show <id>         # Results
 litmus instrument list / show   # Instrument inventory
 litmus mcp serve                # MCP server
 litmus setup <tool>             # AI tool integration

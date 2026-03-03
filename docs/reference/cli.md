@@ -512,6 +512,52 @@ Available tools:
   - save_test_sequence: Save a new test sequence
 ```
 
+## Getting Started (recommended order)
+
+**1. Create your project**
+```bash
+litmus init quick_start --starter && cd quick_start
+pytest                              # verify everything works with mocks
+```
+
+**2. Define your product spec** — What are you testing?
+Most engineers start here. Describe your DUT's characteristics and limits.
+```bash
+litmus serve                        # open UI → Products → New
+# or create products/my_board.yaml manually
+```
+
+**3. Set up your bench** — What instruments do you have?
+```bash
+litmus discover                     # scan VISA bus to see what's connected
+litmus station init                 # interactive: assign roles to discovered instruments
+```
+
+**4. Write your first real test**
+```bash
+litmus new-test output_voltage      # prompts for which instruments to use
+# edit tests/test_output_voltage.py with your measurement logic
+```
+
+**5. Run with mocks, then real hardware**
+```bash
+pytest --mock-instruments           # verify test logic without hardware
+pytest --station=my_bench           # run against real instruments
+```
+
+**6. Review results**
+```bash
+litmus runs                         # list recent runs
+litmus show <run_id>                # terminal summary
+litmus show <run_id> -f html        # generate HTML report
+litmus serve                        # full UI at localhost:8000
+```
+
+**Common next steps:**
+- Add a **sequence** to define test order, vectors, and limits → `litmus serve` → Sequences → New
+- Add a **fixture** to map DUT pins to instruments → `litmus serve` → Fixtures → New
+- Set up **AI assistance** → `litmus setup claude-code`
+
 ## Common Workflows
 
 ### Development

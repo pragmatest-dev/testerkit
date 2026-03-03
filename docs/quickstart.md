@@ -7,8 +7,8 @@ Get up and running with Litmus in under a minute.
 pip install litmus-hw   # or: uv add litmus-hw
 
 # 2. Create a starter project
-litmus init my-project --starter
-cd my-project
+litmus init quick_start --starter
+cd quick_start
 
 # 3. Run the tests
 pytest
@@ -56,7 +56,7 @@ my_project/
 
 ## Understanding the Starter Project
 
-When you run `litmus init my-project --starter`, it generates all of these files. Here's what each one does:
+When you run `litmus init quick_start --starter`, it generates all of these files. Here's what each one does:
 
 ### Product Spec (`products/example_product.yaml`)
 

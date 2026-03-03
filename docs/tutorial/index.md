@@ -41,7 +41,8 @@ By the end of this tutorial, you'll have:
 If you just want to see working code:
 
 ```bash
-cd demo && python run_demo.py
+litmus init quick_start --starter && cd quick_start
+pytest
 ```
 
 Then come back here to understand how it works.

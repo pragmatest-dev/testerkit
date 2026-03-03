@@ -123,6 +123,81 @@ def init(name: str | None, no_git: bool, discover: bool, starter: bool | None):
         click.echo("  pytest tests/ --mock-instruments --dut-serial=TEST001")
 
 
+@main.command("new-test")
+@click.argument("name")
+def new_test(name: str):
+    """Scaffold a new test file.
+
+    Creates tests/test_<name>.py with instrument fixtures from your station.
+
+    Examples:
+
+        litmus new-test output_voltage
+
+        litmus new-test smoke_check
+    """
+    from pathlib import Path
+
+    # Normalize name: strip test_ prefix if present, we'll add it back
+    test_name = name.removeprefix("test_")
+    filename = f"test_{test_name}.py"
+
+    tests_dir = Path.cwd() / "tests"
+    target = tests_dir / filename
+
+    if target.exists():
+        click.echo(f"Error: {target} already exists", err=True)
+        raise SystemExit(1)
+
+    # Try to discover available roles from station config
+    available_roles: list[str] = []
+    try:
+        from litmus.store import list_stations
+
+        stations = list_stations()
+        if stations:
+            station = stations[0]
+            available_roles = sorted(station.instruments.keys())
+    except Exception:
+        pass
+
+    # Prompt for instruments
+    hint = ""
+    if available_roles:
+        hint = f" (available from station: {', '.join(available_roles)})"
+    roles_input = click.prompt(
+        f"Instruments to use in test{hint}, or Enter to skip",
+        default="",
+        show_default=False,
+    )
+
+    roles = [r.strip() for r in roles_input.split(",") if r.strip()] if roles_input else []
+
+    # Build function signature
+    params = ["context"] + roles if roles else ["context"]
+    sig = ", ".join(params)
+
+    lines = [
+        f'"""Tests for {test_name}."""',
+        "",
+        "from litmus.execution import litmus_test",
+        "",
+        "",
+        "@litmus_test",
+        f"def test_{test_name}({sig}):",
+        f'    """Measure {test_name}."""',
+        "    # TODO: Add test logic",
+        "    pass",
+        "",
+    ]
+    content = "\n".join(lines)
+
+    tests_dir.mkdir(exist_ok=True)
+    target.write_text(content)
+    click.echo(f"Created {target}")
+    click.echo("\nNext: pytest --mock-instruments")
+
+
 def _discover_instruments(interactive: bool = True) -> dict | None:
     """Discover instruments and build station data.
 
@@ -1024,6 +1099,8 @@ def discover(visa_only: bool, ni_only: bool, serial_only: bool, lxi_only: bool, 
             for resource in resources:
                 click.echo(f"  {resource}")
 
+    click.echo("\nNext: litmus station init")
+
 
 # -----------------------------------------------------------------------------
 # Catalog Commands
@@ -1187,6 +1264,7 @@ def station_init(station_id: str, name: str, location: str | None):
     click.echo(f"\nCreated {station_file}")
     click.echo(f"Created {len(station_instruments)} instrument file(s)")
     click.echo(f"\nRun tests with: pytest --station={station_id}")
+    click.echo("Write a test:   litmus new-test <name>")
 
 
 @station.command("validate")
