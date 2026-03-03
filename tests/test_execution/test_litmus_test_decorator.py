@@ -227,3 +227,29 @@ class TestLitmusTestDecoratorWithInstruments:
         assert changes[1] is False
         # Third vector (diff temp) - temp changed
         assert changes[2] is True
+
+    def test_assert_caught_as_fail(self):
+        """User assert statements should produce FAIL, not ERROR."""
+
+        @litmus_test(raise_on_fail=False)
+        def test_with_assert(context):
+            assert False, "voltage too low"
+
+        step = test_with_assert()
+
+        assert step.outcome == Outcome.FAIL
+        tv = step.vectors[0]
+        assert tv.outcome == Outcome.FAIL
+        assert "voltage too low" in tv.error_message
+        # Should have an "assert" measurement logged
+        assert any(m.name == "assert" for m in tv.measurements)
+
+    def test_assert_reraised_with_raise_on_fail(self):
+        """With raise_on_fail=True, assert errors re-raise as AssertionError."""
+
+        @litmus_test(raise_on_fail=True)
+        def test_with_assert(context):
+            assert False, "out of spec"
+
+        with pytest.raises(AssertionError, match="out of spec"):
+            test_with_assert()

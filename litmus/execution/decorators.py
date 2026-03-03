@@ -367,6 +367,11 @@ def litmus_test(
                         ]
                         if failed_measurements:
                             m = failed_measurements[0]
+                            if m.name == "assert":
+                                # From a user assert statement
+                                raise AssertionError(
+                                    tv.error_message or "assertion failed"
+                                )
                             raise AssertionError(
                                 f"Measurement '{m.name}' FAILED at vector {tv.index}: "
                                 f"{m.value} not in [{m.low_limit}, {m.high_limit}]"

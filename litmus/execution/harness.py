@@ -1019,6 +1019,15 @@ class TestHarness:
 
         try:
             yield test_vector
+        except AssertionError as e:
+            test_vector.outcome = Outcome.FAIL
+            msg = str(e) or "assertion failed"
+            test_vector.error_message = msg
+            m = Measurement(name="assert", value=None, outcome=Outcome.FAIL)
+            test_vector.measurements.append(m)
+            if self._logger is not None:
+                self._logger.log_measurement(m)
+            raise
         except Exception as e:
             test_vector.outcome = Outcome.ERROR
             test_vector.error_message = str(e)
@@ -1067,6 +1076,21 @@ class TestHarness:
                             self._record_result(item)
                     else:
                         self._record_result(result)
+
+                except AssertionError as e:
+                    # User assert → FAIL (not ERROR)
+                    test_vector.outcome = Outcome.FAIL
+                    msg = str(e) or "assertion failed"
+                    test_vector.error_message = msg
+                    # Log as a failed measurement so it appears in results
+                    m = Measurement(
+                        name="assert",
+                        value=None,
+                        outcome=Outcome.FAIL,
+                    )
+                    test_vector.measurements.append(m)
+                    if self._logger is not None:
+                        self._logger.log_measurement(m)
 
                 except Exception as e:
                     test_vector.outcome = Outcome.ERROR
