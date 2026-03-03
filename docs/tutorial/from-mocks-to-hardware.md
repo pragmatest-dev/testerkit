@@ -132,7 +132,7 @@ Your test code doesn't change at all. The `instruments` fixture handles mock vs.
 | Instrument not responding / timeout | PyVISA can't reach the instrument | Verify resource string with `litmus discover`. Check network/GPIB cables. |
 | "instrument identity mismatch" warning | Instrument serial or model doesn't match the YAML | Update `instruments/{role}.yaml` with the correct serial/model, or ignore during development. |
 | "CALIBRATION EXPIRED" warning | Cal due date has passed in instrument YAML | Update the cal due date, or accept for development. |
-| "Mock instruments not allowed for test_phase='validation'" | Phase enforcement blocks mocks in validation/production | Remove `--mock-instruments`, or set `test_phase: dev` in your sequence. |
+| "Mock instruments not allowed for test_phase='validation'" | Phase enforcement blocks mocks in validation/production | Remove `--mock-instruments`, or set `test_phase: development` in your sequence. |
 | Fixture `psu` not found (or any role) | Station not loaded or role not defined | Check `--station` flag points to the right file. Verify the role exists in your station YAML. |
 
 ## What to Do Next

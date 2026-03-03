@@ -384,7 +384,7 @@ def _create_starter_files(path: Path, project_name: str) -> list[str]:
             "name": "Example Sequence",
             "description": "Auto-generated starter sequence",
             "product_family": "example_product",
-            "test_phase": "dev",
+            "test_phase": "development",
             "steps": [
                 {
                     "id": "output_voltage",

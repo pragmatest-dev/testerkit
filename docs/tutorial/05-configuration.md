@@ -48,7 +48,7 @@ For orchestrated runs (production, validation), config lives in the sequence:
 # sequences/power_board_smoke.yaml
 id: power_board_smoke
 name: "Power Board - Smoke Test"
-test_phase: dev
+test_phase: development
 
 steps:
     - id: output_voltage

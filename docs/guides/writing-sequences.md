@@ -11,7 +11,7 @@ A **sequence** is a named, ordered collection of test steps:
 id: power_board_smoke
 name: "Power Board - Smoke Test"
 description: "Quick power-up verification"
-test_phase: dev
+test_phase: development
 
 steps:
     - id: measure_5v_rail
@@ -45,7 +45,7 @@ my_project/
 ```yaml
 id: unique_sequence_id        # Unique identifier
 description: "What this tests" # For operators and reports
-test_phase: dev               # Required: dev, validation, characterization, production
+test_phase: development       # Required: development, validation, characterization, production
 steps: []                      # List of test steps
 ```
 

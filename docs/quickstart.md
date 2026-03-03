@@ -157,7 +157,7 @@ Sequences are the **single source of truth** for test configuration. Each step c
 id: my_product_smoke
 name: "My Product - Smoke Test"
 product_family: my_product
-test_phase: dev  # dev, validation, characterization, or production
+test_phase: development  # development, validation, characterization, or production
 
 steps:
   - id: output_voltage

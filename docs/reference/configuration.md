@@ -135,7 +135,7 @@ supported_phases:         # Optional: which test phases this station supports
 id: string
 name: string
 description: string
-test_phase: dev | validation | characterization | production  # Required
+test_phase: development | validation | characterization | production  # Required
 
 steps:
   - id: string

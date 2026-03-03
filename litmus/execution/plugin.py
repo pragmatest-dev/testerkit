@@ -424,8 +424,8 @@ def _resolve_test_phase(requested_phase: str | None) -> str:
         # Can't run anything other than development without clean git
         return "development"
 
-    # Clean repo - use requested phase or default to production
-    return requested_phase or "production"
+    # Clean repo - use requested phase or default to development
+    return requested_phase or "development"
 
 
 def _serialize_config(config: dict | None) -> str | None:
@@ -721,11 +721,11 @@ def mock_instruments(request) -> bool:
     )
 
     # Prevent mocks in production/validation/characterization phases
-    if use_mocks and _SEQUENCE_TEST_PHASE is not None and _SEQUENCE_TEST_PHASE != "dev":
+    if use_mocks and _SEQUENCE_TEST_PHASE is not None and _SEQUENCE_TEST_PHASE != "development":
         raise pytest.UsageError(
             f"Mock instruments not allowed for test_phase='{_SEQUENCE_TEST_PHASE}'. "
-            f"Mocks are only permitted for test_phase='dev'. "
-            f"Remove --mock-instruments or change sequence test_phase to 'dev'."
+            f"Mocks are only permitted for test_phase='development'. "
+            f"Remove --mock-instruments or change sequence test_phase to 'development'."
         )
 
     return use_mocks

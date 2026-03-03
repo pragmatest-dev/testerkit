@@ -170,7 +170,7 @@ instruments:
 ```yaml
 id: smoke
 name: "Smoke Test"
-test_phase: dev
+test_phase: development
 
 steps:
   - id: output_voltage
