@@ -532,6 +532,7 @@ litmus serve                        # open UI → Products → New
 litmus discover                     # scan VISA bus to see what's connected
 litmus station init                 # interactive: assign roles to discovered instruments
 ```
+See [From Mocks to Hardware](../tutorial/from-mocks-to-hardware.md) for the full transition guide.
 
 **4. Write your first real test**
 ```bash

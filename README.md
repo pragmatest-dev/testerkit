@@ -82,6 +82,8 @@ def test_output_voltage(psu, dmm):
 
 ### Next steps
 
+Ready for real hardware? See [From Mocks to Hardware](docs/tutorial/from-mocks-to-hardware.md).
+
 ```bash
 litmus discover                 # scan for real instruments
 litmus station init             # assign roles interactively

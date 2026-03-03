@@ -248,6 +248,10 @@ print(table.to_pandas())
 | `tests/` | Test code | - |
 | `results/` | Parquet output (gitignored) | /runs |
 
+## Next: Connect Real Hardware
+
+When you're ready to move from mocks to real instruments, see [From Mocks to Hardware](tutorial/from-mocks-to-hardware.md). It covers discovering instruments, creating a real station config, and common troubleshooting.
+
 ## Next Steps
 
 - [Core Concepts](concepts.md) — Understand products, stations, and capabilities

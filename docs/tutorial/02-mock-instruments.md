@@ -155,6 +155,8 @@ When running with `--mock-instruments`, values are resolved in order:
 - Sequence step `mocks` for per-test/per-vector values
 - Same test code works with real hardware or mocks
 
+**Ready for real hardware?** See [From Mocks to Hardware](from-mocks-to-hardware.md) for a focused guide on connecting real instruments.
+
 ## Next Step
 
 Now let's use the @litmus_test decorator to check limits automatically.

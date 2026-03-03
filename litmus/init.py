@@ -337,7 +337,17 @@ def _create_starter_files(path: Path, project_name: str) -> list[str]:
                 },
             },
         }
-        station_file.write_text(dump_yaml(station_content))
+        comment_header = (
+            "# Starter station — mock instruments for getting started.\n"
+            "#\n"
+            "# To connect real instruments:\n"
+            "#   1. litmus discover           — find instruments on your bench\n"
+            "#   2. litmus station init       — create a real station config\n"
+            "#   3. Keep mock_config sections — they're used by --mock-instruments for CI\n"
+            "#\n"
+            "# See: docs/tutorial/from-mocks-to-hardware.md\n\n"
+        )
+        station_file.write_text(comment_header + dump_yaml(station_content))
         created_files.append("stations/starter_station.yaml")
 
     # Create products/example_product.yaml
