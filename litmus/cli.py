@@ -28,7 +28,13 @@ def main():
     default=None,
     help="Generate starter example files (prompts if not specified)",
 )
-def init(name: str | None, no_git: bool, discover: bool, starter: bool | None):
+@click.option(
+    "--ai",
+    type=click.Choice(["claude-code", "claude-desktop", "copilot"], case_sensitive=False),
+    default=None,
+    help="Set up AI tool integration (MCP server + project instructions)",
+)
+def init(name: str | None, no_git: bool, discover: bool, starter: bool | None, ai: str | None):
     """Initialize a new Litmus project.
 
     With NAME: creates a new directory and scaffolds inside it.
@@ -114,6 +120,46 @@ def init(name: str | None, no_git: bool, discover: bool, starter: bool | None):
 
     for warning in result["warnings"]:
         click.echo(f"Warning: {warning}")
+
+    # AI tool setup
+    if ai is None:
+        # Detect installed tools and prompt
+        ai_tools: list[tuple[str, str]] = []
+        if check_command("claude"):
+            ai_tools.append(("claude-code", "Claude Code"))
+        # Check for VS Code / Copilot
+        if (project_path / ".vscode").exists() or check_command("code"):
+            ai_tools.append(("copilot", "GitHub Copilot"))
+
+        if ai_tools:
+            choices = [name for name, _ in ai_tools]
+            labels = [label for _, label in ai_tools]
+            click.echo(f"\nDetected AI tools: {', '.join(labels)}")
+            if click.confirm("Set up AI assistance?", default=True):
+                if len(ai_tools) == 1:
+                    ai = choices[0]
+                else:
+                    ai = click.prompt(
+                        "Which tool?",
+                        type=click.Choice(choices, case_sensitive=False),
+                        default=choices[0],
+                    )
+
+    if ai:
+        import os
+
+        original_cwd = os.getcwd()
+        try:
+            os.chdir(project_path)
+            ctx = click.get_current_context()
+            if ai == "claude-code":
+                ctx.invoke(setup_claude_code, print_only=False)
+            elif ai == "claude-desktop":
+                ctx.invoke(setup_claude_desktop, legacy=False, print_only=False)
+            elif ai == "copilot":
+                ctx.invoke(setup_copilot, print_only=False)
+        finally:
+            os.chdir(original_cwd)
 
     click.echo("\nNext steps:")
     if not cwd_mode:
