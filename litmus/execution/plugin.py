@@ -1,5 +1,7 @@
 """pytest plugin for Litmus test framework."""
 
+from __future__ import annotations
+
 import os
 import time
 import warnings
@@ -11,10 +13,16 @@ import pytest
 import yaml
 from _pytest.runner import runtestprotocol
 
+from litmus.config.test_config import FixtureConfig
 from litmus.data.backends.parquet import ParquetBackend
+from litmus.execution.accessors import InstrumentAccessor
 from litmus.execution.decorators import set_current_logger
-from litmus.execution.logger import TestRunLogger
+from litmus.execution.harness import Context
+from litmus.execution.logger import RunContext, TestRunLogger
+from litmus.fixtures.manager import FixtureManager, PinAccessor
 from litmus.instruments.models import CalibrationInfo, InstrumentInfo, InstrumentRecord
+from litmus.products.context import SpecContext
+from litmus.schemas import StationConfig
 
 # Track test outcomes for skip-on-failure logic
 STEP_OUTCOMES: dict[str, bool] = {}
@@ -575,7 +583,7 @@ def litmus_logger(request) -> Generator[TestRunLogger]:
 
 
 @pytest.fixture(scope="session")
-def run_context(litmus_logger):
+def run_context(litmus_logger) -> RunContext:
     """Provide run context for adding custom metadata.
 
     This is the run-level context that persists across all tests in the session.
@@ -590,7 +598,7 @@ def run_context(litmus_logger):
 
 
 @pytest.fixture
-def litmus_step(litmus_logger, request):
+def litmus_step(litmus_logger, request) -> Generator[None]:
     """Create step for test function (use when NOT using @litmus_test).
 
     Note: @litmus_test decorated tests already create their own steps.
@@ -606,7 +614,7 @@ _PYTEST_CONTEXT_SENTINEL = object()
 
 
 @pytest.fixture
-def context():
+def context() -> Context:
     """Context fixture for @litmus_test decorated functions.
 
     The @litmus_test decorator injects the actual Context object from
@@ -625,11 +633,11 @@ def context():
     The context contains all vector parameters automatically.
     This fixture just satisfies pytest's fixture resolution.
     """
-    return _PYTEST_CONTEXT_SENTINEL
+    return _PYTEST_CONTEXT_SENTINEL  # type: ignore[return-value]  # decorator injects real Context
 
 
 @pytest.fixture(scope="session")
-def spec_context(request):
+def spec_context(request) -> SpecContext | None:
     """Provide product spec context for spec-driven testing.
 
     Loads product spec from --spec option or auto-discovers from products/ directory.
@@ -642,10 +650,8 @@ def spec_context(request):
             # Use limit for validation...
 
     Returns:
-        SpecContext or None if no spec configured.
+        SpecContext, or None if no product spec configured.
     """
-    from litmus.products.context import SpecContext
-
     spec_path = request.config.getoption("--spec")
     guardband = float(request.config.getoption("--guardband"))
 
@@ -658,8 +664,6 @@ def spec_context(request):
     else:
         # Try auto-discover from products/ directory
         # Check both rootpath and invocation directory (cwd) for nested project support
-        from pathlib import Path
-
         search_roots = [
             request.config.rootpath,
             Path(request.config.invocation_params.dir),  # Where pytest was invoked
@@ -708,7 +712,7 @@ def mock_instruments(request) -> bool:
 
 
 @pytest.fixture(scope="session")
-def station_config(request):
+def station_config(request) -> StationConfig | None:
     """Load station configuration from --station-config option.
 
     Returns:
@@ -738,7 +742,7 @@ def station_config(request):
 
 
 @pytest.fixture(scope="session")
-def fixture_config(request):
+def fixture_config(request) -> FixtureConfig | None:
     """Load fixture configuration from --fixture-config option.
 
     Returns:
@@ -1000,46 +1004,8 @@ def instruments(
     _ACTIVE_INSTRUMENTS.clear()
 
 
-class InstrumentAccessor:
-    """Callable accessor for instruments by role, with type-based grouping."""
-
-    def __init__(self, instruments: dict[str, Any], records: dict[str, InstrumentRecord]):
-        self._instruments = instruments
-        self._records = records
-
-    def __call__(self, role: str) -> Any:
-        """Get instrument by role name, resolving aliases. Raises KeyError with available roles."""
-        # Resolve through per-step aliases first
-        resolved = _CURRENT_STEP_ALIASES.get(role, role)
-        if resolved not in self._instruments:
-            available = ", ".join(sorted(self._instruments)) or "(none)"
-            if resolved != role:
-                raise KeyError(
-                    f"Alias '{role}' targets '{resolved}' which is not in "
-                    f"station instruments. Available: {available}"
-                )
-            raise KeyError(
-                f"No instrument with role '{role}'. Available: {available}"
-            )
-        return self._instruments[resolved]
-
-    def by_type(self, driver_path: str) -> dict[str, Any]:
-        """Get all instruments matching a driver class import path."""
-        return {
-            role: self._instruments[role]
-            for role, record in self._records.items()
-            if record.driver == driver_path and role in self._instruments
-        }
-
-    def roles(self) -> list[str]:
-        """List available instrument role names, including active aliases."""
-        names = set(self._instruments.keys())
-        names.update(_CURRENT_STEP_ALIASES.keys())
-        return sorted(names)
-
-
 @pytest.fixture
-def instrument(instruments, instrument_records):
+def instrument(instruments, instrument_records) -> InstrumentAccessor:
     """Accessor for instruments by role with grouping support.
 
     Usage:
@@ -1088,7 +1054,7 @@ def _get_instrument_info(inst: Any, protocol: str = "visa") -> InstrumentInfo | 
 
 
 @pytest.fixture(scope="session")
-def pins(instruments, fixture_config):
+def pins(instruments, fixture_config) -> PinAccessor:
     """UUT-centric pin accessor for tests.
 
     Resolves DUT pin names to instrument instances:
@@ -1098,20 +1064,26 @@ def pins(instruments, fixture_config):
             pins["VIN"].enable_output()
             assert pins["VOUT"].measure_voltage() > 3.0
 
-    Returns:
-        PinAccessor instance, or None if no fixture configured.
+    Raises:
+        pytest.UsageError: If no fixture config or instruments available.
     """
-    from litmus.fixtures.manager import FixtureManager, PinAccessor
-
-    if not fixture_config or not instruments:
-        return None
+    if not fixture_config:
+        raise pytest.UsageError(
+            "The 'pins' fixture requires a fixture config. "
+            "Provide --fixture-config <path> or create a fixtures/*.yaml file."
+        )
+    if not instruments:
+        raise pytest.UsageError(
+            "The 'pins' fixture requires instruments. "
+            "Provide --station-config <path> or create a stations/*.yaml file."
+        )
 
     manager = FixtureManager(fixture_config, instruments)
     return PinAccessor(manager)
 
 
 @pytest.fixture(scope="session")
-def fixture_manager(instruments, fixture_config):
+def fixture_manager(instruments, fixture_config) -> FixtureManager:
     """Fixture manager for advanced pin/net routing.
 
     Provides direct access to the FixtureManager for tests that need
@@ -1121,13 +1093,19 @@ def fixture_manager(instruments, fixture_config):
             point = fixture_manager.get_point_for_net("VOUT_3V3")
             instrument = fixture_manager.get_instrument_for_point(point.name)
 
-    Returns:
-        FixtureManager instance, or None if no fixture configured.
+    Raises:
+        pytest.UsageError: If no fixture config or instruments available.
     """
-    from litmus.fixtures.manager import FixtureManager
-
-    if not fixture_config or not instruments:
-        return None
+    if not fixture_config:
+        raise pytest.UsageError(
+            "The 'fixture_manager' fixture requires a fixture config. "
+            "Provide --fixture-config <path> or create a fixtures/*.yaml file."
+        )
+    if not instruments:
+        raise pytest.UsageError(
+            "The 'fixture_manager' fixture requires instruments. "
+            "Provide --station-config <path> or create a stations/*.yaml file."
+        )
 
     return FixtureManager(fixture_config, instruments)
 

@@ -1,5 +1,6 @@
 """Test execution infrastructure."""
 
+from litmus.execution.accessors import InstrumentAccessor
 from litmus.execution.decorators import (
     get_current_harness,
     get_current_logger,
@@ -27,6 +28,8 @@ from litmus.execution.vectors import (
 )
 
 __all__ = [
+    # Accessors
+    "InstrumentAccessor",
     # Harness
     "TestHarness",
     "Context",
