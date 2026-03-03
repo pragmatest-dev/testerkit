@@ -244,6 +244,16 @@ print(table.to_pandas())
 | `tests/` | Test code | - |
 | `results/` | Parquet output (gitignored) | /runs |
 
+## Optional: Set Up AI Assistance
+
+If you use an AI coding tool, Litmus can register its MCP server and generate project instructions so your AI understands the framework:
+
+```bash
+litmus setup claude-code       # Claude Code
+litmus setup claude-desktop    # Claude Desktop
+litmus setup copilot           # GitHub Copilot (VS Code + CLI)
+```
+
 ## Next: Connect Real Hardware
 
 When you're ready to move from mocks to real instruments, see [From Mocks to Hardware](tutorial/from-mocks-to-hardware.md). It covers discovering instruments, creating a real station config, and common troubleshooting.
