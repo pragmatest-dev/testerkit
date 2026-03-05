@@ -3,22 +3,37 @@
 from __future__ import annotations
 
 import os
-from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 from uuid import UUID
 
-from litmus.data.models import DUT, Measurement, Outcome, TestRun, TestStep
+from litmus.data.models import DUT, Measurement, Outcome, TestRun, TestStep, _utcnow
 
 if TYPE_CHECKING:
     from litmus.data.backends.journal import JournalWriter
+    from litmus.data.exporters._base import StreamingDestination
     from litmus.environment import EnvironmentSnapshot
     from litmus.instruments.models import InstrumentRecord
 
 
-def _utcnow() -> datetime:
-    """Return current UTC datetime (timezone-aware)."""
-    return datetime.now(UTC)
+# Canonical list of instrument identity array keys.
+# Used by build_instrument_arrays() and _build_empty_row() for schema consistency.
+INSTRUMENT_ARRAY_KEYS = (
+    "instr_name",
+    "instr_id",
+    "instr_driver",
+    "instr_resource",
+    "instr_protocol",
+    "instr_manufacturer",
+    "instr_model",
+    "instr_serial",
+    "instr_firmware",
+    "instr_cal_due",
+    "instr_cal_last",
+    "instr_cal_certificate",
+    "instr_cal_lab",
+    "instr_mocked",
+)
 
 
 def _get_run_id() -> UUID:
@@ -251,6 +266,24 @@ class TestRunLogger:
             )
             self._journal.__enter__()
 
+        # Additional streaming destinations (STDF, TDMS, PostgreSQL, etc.)
+        self._streaming_destinations: list[StreamingDestination] = []
+        self._failed_destinations: set[StreamingDestination] = set()
+
+    def add_streaming_destination(self, dest: StreamingDestination) -> None:
+        """Register an additional streaming destination.
+
+        Streaming destinations receive each measurement row as it is recorded,
+        in the same denormalized dict format as the JSONL journal. Use this to
+        wire up real-time STDF, TDMS, or database streaming alongside the
+        built-in journal.
+
+        Args:
+            dest: An object implementing the StreamingDestination protocol.
+                  Must already be open (call dest.open() before adding).
+        """
+        self._streaming_destinations.append(dest)
+
     @property
     def run_context(self) -> RunContext:
         """Get the run context for adding custom metadata."""
@@ -353,8 +386,7 @@ class TestRunLogger:
         """Set the instrument arrays for the current test step.
 
         Filters instruments to only those used by the step (detected from
-        fixture parameters) and caches the result. Updates the journal writer
-        so subsequent measurements include per-step instrument identity.
+        fixture parameters) and caches the result.
 
         Args:
             roles: List of instrument role names used by this step.
@@ -364,8 +396,6 @@ class TestRunLogger:
         """
         arrays = self.build_instrument_arrays(roles=roles)
         self._step_instrument_arrays = arrays
-        if self._journal is not None:
-            self._journal._instrument_arrays = arrays
         return arrays
 
     def start_step(self, name: str, description: str | None = None):
@@ -416,14 +446,41 @@ class TestRunLogger:
             if self.test_run.outcome != Outcome.FAIL:
                 self.test_run.outcome = Outcome.ERROR
 
+        # Build row once — works with or without journal
+        from litmus.data.backends._row_helpers import build_row
+
+        ref_saver = self._journal.save_ref if self._journal else None
+        row = build_row(
+            self.test_run,
+            measurement,
+            self._current_step.name,
+            self._current_step_index,
+            self._current_vector,
+            self._step_instrument_arrays or {},
+            ref_saver=ref_saver,
+            step_started_at=self._current_step.started_at,
+            step_ended_at=self._current_step.ended_at,
+        )
+
         # Stream to journal for live observability
         if self._journal is not None:
-            self._journal.append(
-                measurement,
-                self._current_step.name,
-                self._current_step_index,
-                self._current_vector,
-            )
+            self._journal.append_row(row)
+
+        # Fan out to additional streaming destinations
+        for dest in self._streaming_destinations:
+            if dest in self._failed_destinations:
+                continue
+            try:
+                dest.append_row(row)
+            except Exception as exc:
+                import warnings
+
+                self._failed_destinations.add(dest)
+                warnings.warn(
+                    f"Streaming to '{type(dest).__name__}' failed"
+                    f" (disabled for rest of run): {exc}",
+                    stacklevel=2,
+                )
 
     def end_step(self):
         """Finalize current step."""
@@ -535,5 +592,29 @@ class TestRunLogger:
         # Close journal writer
         if self._journal is not None:
             self._journal.close()
+
+        # Notify streaming destinations that this run is complete, then close.
+        # Destinations are opened by the plugin (_attach_streaming_destinations)
+        # and closed here so the logger owns the full append→boundary→close tail.
+        run_id_str = str(self.test_run.id)
+        for dest in self._streaming_destinations:
+            try:
+                dest.mark_run_boundary(run_id_str)
+            except Exception as exc:
+                import warnings
+
+                warnings.warn(
+                    f"mark_run_boundary on '{type(dest).__name__}' failed: {exc}",
+                    stacklevel=2,
+                )
+            try:
+                dest.close()
+            except Exception as exc:
+                import warnings
+
+                warnings.warn(
+                    f"Closing streaming destination failed: {exc}",
+                    stacklevel=2,
+                )
 
         return self.test_run

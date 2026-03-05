@@ -47,6 +47,18 @@ pdf = [
 sbom = [
     "cyclonedx-python-lib>=11.0",
 ]
+# Format exporters
+stdf = ["Semi-ATE-STDF>=0.1"]
+hdf5 = ["h5py>=3.0"]
+tdms = ["npTDMS>=1.0"]
+mdf4 = ["asammdf>=8.0"]
+# Transports
+s3 = ["boto3>=1.26"]
+gcs = ["google-cloud-storage>=2.0"]
+azure = ["azure-storage-blob>=12.0"]
+sftp = ["paramiko>=3.0"]
+# Bundles
+all-exporters = ["litmus[stdf,hdf5,tdms,mdf4]"]
 
 [project.scripts]
 litmus = "litmus.cli:main"

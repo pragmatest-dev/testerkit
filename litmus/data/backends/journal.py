@@ -14,67 +14,50 @@ After successful test completion, journals are converted to parquet
 and deleted. See ParquetBackend.convert_journal().
 """
 
+from __future__ import annotations
+
 import json
-import pickle
-import shutil
+import warnings
 from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 from uuid import UUID
 
-from litmus.data.backends._row_helpers import build_measurement_fields, build_run_metadata
+from litmus.data.backends._row_helpers import MeasurementRow, save_ref_to_dir
 
 if TYPE_CHECKING:
-    from litmus.data.models import Measurement, TestRun, TestVector
-
-# Prefix for path references in columns
-REF_PATH_PREFIX = "_ref/"
+    from litmus.data.models import TestRun
+    from litmus.schemas import OutputConfig
 
 
 class JournalWriter:
     """Streams measurements to JSONL for live observability and crash recovery.
 
+    Implements the StreamingDestination protocol for JSONL output.
+
     Usage:
-        with JournalWriter(results_dir, test_run) as journal:
-            # ... during test execution ...
-            journal.append(measurement, step_name, step_index, vector)
-            # Large data is saved separately:
-            ref_path = journal.save_ref(vector_id, "waveform", waveform_data)
+        writer = JournalWriter(results_dir, test_run)
+        with writer:
+            writer.append_row(row)   # MeasurementRow from build_row()
 
     The journal file is flushed after each write for crash safety.
     """
 
+    format_name = "jsonl"
+
     def __init__(
         self,
         results_dir: Path | str,
-        test_run: "TestRun",
-        instrument_arrays: dict[str, list] | None = None,
+        test_run: TestRun,
     ):
         """Initialize journal writer.
 
         Args:
             results_dir: Base results directory (e.g., "results")
             test_run: The TestRun object with run metadata
-            instrument_arrays: Pre-built instrument identity arrays (parallel arrays)
         """
         self.results_dir = Path(results_dir)
         self.test_run = test_run
-        self._instrument_arrays = instrument_arrays or {
-            "instr_name": [],
-            "instr_id": [],
-            "instr_driver": [],
-            "instr_resource": [],
-            "instr_protocol": [],
-            "instr_manufacturer": [],
-            "instr_model": [],
-            "instr_serial": [],
-            "instr_firmware": [],
-            "instr_cal_due": [],
-            "instr_cal_last": [],
-            "instr_cal_certificate": [],
-            "instr_cal_lab": [],
-            "instr_mocked": [],
-        }
         self._file = None
         self._closed = False
 
@@ -96,7 +79,7 @@ class JournalWriter:
         self.journal_dir.mkdir(parents=True, exist_ok=True)
         self.ref_dir.mkdir(exist_ok=True)
 
-    def __enter__(self) -> "JournalWriter":
+    def __enter__(self) -> JournalWriter:
         """Open the journal file for writing."""
         self._file = open(self.journal_path, "a", encoding="utf-8")
         return self
@@ -112,154 +95,39 @@ class JournalWriter:
             self._file.close()
             self._closed = True
 
-    def append(
-        self,
-        measurement: "Measurement",
-        step_name: str,
-        step_index: int,
-        vector: "TestVector",
-    ) -> None:
-        """Append a measurement to the journal.
+    # -------------------------------------------------------------------------
+    # StreamingDestination protocol methods
+    # -------------------------------------------------------------------------
 
-        Builds a complete row matching the parquet schema and writes it as JSON.
-        Flushes immediately for crash safety.
+    def open(self, config: OutputConfig, test_run: TestRun) -> None:
+        """Open the journal (StreamingDestination protocol).
 
-        Args:
-            measurement: The Measurement to record
-            step_name: Name of the test step
-            step_index: Index of the step in the test run
-            vector: The TestVector containing params and observations
+        The config and test_run parameters are required by the protocol
+        but ignored — journal config comes from the constructor.
         """
         if self._file is None:
-            raise RuntimeError("Journal not open. Use 'with' statement or call __enter__")
+            self._file = open(self.journal_path, "a", encoding="utf-8")
+
+    def append_row(self, row: MeasurementRow) -> None:
+        """Append a MeasurementRow to the journal.
+
+        Flattens the row to a dict for JSONL serialisation and flushes
+        immediately for crash safety.
+
+        Args:
+            row: Typed MeasurementRow model.
+        """
+        if self._file is None:
+            raise RuntimeError("Journal not open. Call open() first.")
         if self._closed:
             raise RuntimeError("Journal is closed")
 
-        row = self._build_row(measurement, step_name, step_index, vector)
-
-        # Write JSON line
-        self._file.write(json.dumps(row, default=self._json_serializer) + "\n")
+        flat = row.to_flat_dict()
+        self._file.write(json.dumps(flat, default=self._json_serializer) + "\n")
         self._file.flush()
 
-    def _build_row(
-        self,
-        measurement: "Measurement",
-        step_name: str,
-        step_index: int,
-        vector: "TestVector",
-    ) -> dict[str, Any]:
-        """Build a row dict matching the parquet schema."""
-        tr = self.test_run
-
-        row = build_run_metadata(tr)
-        row.update({
-            "step_name": step_name,
-            "step_index": step_index,
-            "vector_index": vector.index,
-            "attempt": vector.attempt,
-            "vector_started_at": vector.started_at,
-            "vector_ended_at": vector.ended_at,
-        })
-        row.update(build_measurement_fields(measurement))
-        row.update({
-            "vector_outcome": vector.outcome.value if vector.outcome else None,
-            "run_outcome": tr.outcome.value,
-        })
-
-        # Convert datetimes to ISO strings for JSON serialisation
-        for key, value in row.items():
-            if isinstance(value, datetime):
-                row[key] = value.isoformat()
-
-        # Add stimulus columns (in_* columns)
-        row.update(self._build_stimulus_columns(vector))
-
-        # Add observation columns (out_* columns)
-        row.update(self._build_observation_columns(vector))
-
-        # Add custom metadata
-        for key, value in tr.custom_metadata.items():
-            row[key] = value
-
-        # Add instrument identity arrays (parallel arrays)
-        row.update(self._instrument_arrays)
-
-        return row
-
-    def _build_stimulus_columns(self, vector: "TestVector") -> dict[str, Any]:
-        """Build dynamic in_* columns from vector params and stimulus records."""
-        cols: dict[str, Any] = {}
-
-        # First, add all vector params as in_{param} columns
-        for param, value in vector.params.items():
-            if param.startswith("_"):
-                continue
-            col_name = f"in_{param}"
-            cols[col_name] = value
-
-        # Then, overlay stimulus signal path info
-        for stim in vector.stimulus:
-            param = stim.param
-            prefix = f"in_{param}"
-
-            if stim.value is not None:
-                cols[prefix] = stim.value
-            if stim.instrument:
-                cols[f"{prefix}_instrument"] = stim.instrument
-            if stim.resource:
-                cols[f"{prefix}_resource"] = stim.resource
-            if stim.channel:
-                cols[f"{prefix}_channel"] = stim.channel
-            if stim.dut_pin:
-                cols[f"{prefix}_dut_pin"] = stim.dut_pin
-            if stim.fixture_point:
-                cols[f"{prefix}_fixture_point"] = stim.fixture_point
-
-        return cols
-
-    def _build_observation_columns(self, vector: "TestVector") -> dict[str, Any]:
-        """Build dynamic out_* columns from vector observations.
-
-        Scalars are inlined, large data is saved to _ref/ and referenced.
-        """
-        from litmus.data.models import Waveform
-
-        cols: dict[str, Any] = {}
-
-        if not hasattr(vector, "observations"):
-            return cols
-
-        for key, value in vector.observations.items():
-            if key.startswith("_"):
-                continue
-
-            col_name = f"out_{key}"
-
-            # Scalars → inline
-            if isinstance(value, (int, float, str, bool, type(None))):
-                cols[col_name] = value
-
-            # Structured types → serialize to _ref/
-            elif isinstance(value, Path):
-                cols[col_name] = self.save_ref(str(vector.id)[:8], key, value)
-            elif isinstance(value, Waveform):
-                cols[col_name] = self.save_ref(str(vector.id)[:8], key, value)
-            elif isinstance(value, bytes):
-                cols[col_name] = self.save_ref(str(vector.id)[:8], key, value)
-            elif hasattr(value, "tolist"):
-                # numpy array
-                cols[col_name] = self.save_ref(str(vector.id)[:8], key, value)
-            elif hasattr(value, "model_dump"):
-                # Pydantic model
-                cols[col_name] = self.save_ref(str(vector.id)[:8], key, value)
-            elif isinstance(value, (list, dict)):
-                # Small lists/dicts → inline
-                cols[col_name] = value
-            else:
-                # Unknown → inline (may fail on non-serializable types)
-                cols[col_name] = value
-
-        return cols
+    def mark_run_boundary(self, run_id: str) -> None:
+        """No-op for JSONL — each run gets its own journal file."""
 
     def save_ref(self, vector_id: str, key: str, value: Any) -> str:
         """Save large data to _ref/ directory and return the reference path.
@@ -272,55 +140,7 @@ class JournalWriter:
         Returns:
             Reference string like "_ref/abc123_waveform.npz"
         """
-        from litmus.data.models import Waveform
-
-        prefix = f"{vector_id}_{key}"
-
-        if isinstance(value, Path):
-            ext = value.suffix or ".bin"
-            filename = f"{prefix}{ext}"
-            shutil.copy(value, self.ref_dir / filename)
-
-        elif isinstance(value, Waveform):
-            filename = f"{prefix}.npz"
-            try:
-                import numpy as np  # type: ignore[import-not-found]
-
-                np.savez(
-                    self.ref_dir / filename,
-                    Y=value.Y,
-                    t0=value.t0,
-                    dt=value.dt,
-                    **value.attrs,
-                )
-            except ImportError:
-                filename = f"{prefix}.json"
-                (self.ref_dir / filename).write_text(value.model_dump_json())
-
-        elif isinstance(value, bytes):
-            filename = f"{prefix}.bin"
-            (self.ref_dir / filename).write_bytes(value)
-
-        elif hasattr(value, "model_dump"):
-            filename = f"{prefix}.json"
-            (self.ref_dir / filename).write_text(value.model_dump_json())
-
-        elif hasattr(value, "tolist"):
-            filename = f"{prefix}.npy"
-            try:
-                import numpy as np  # type: ignore[import-not-found]
-
-                np.save(self.ref_dir / filename, value)
-            except ImportError:
-                filename = f"{prefix}.json"
-                (self.ref_dir / filename).write_text(json.dumps(value.tolist()))
-
-        else:
-            filename = f"{prefix}.pkl"
-            with open(self.ref_dir / filename, "wb") as f:
-                pickle.dump(value, f)
-
-        return f"{REF_PATH_PREFIX}{filename}"
+        return save_ref_to_dir(self.ref_dir, vector_id, key, value)
 
     @staticmethod
     def _json_serializer(obj: Any) -> Any:
@@ -359,8 +179,10 @@ def read_journal(journal_path: Path) -> list[dict[str, Any]]:
             try:
                 rows.append(json.loads(line))
             except json.JSONDecodeError:
-                # Skip corrupted/partial lines (crash recovery scenario)
-                pass
+                warnings.warn(
+                    f"{journal_path}:{line_num}: corrupted JSONL line skipped",
+                    stacklevel=2,
+                )
 
     return rows
 

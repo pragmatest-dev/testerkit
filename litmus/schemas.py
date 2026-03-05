@@ -83,13 +83,68 @@ class StationConfig(BaseModel):
 # ---------------------------------------------------------------------------
 
 
-class ReportsConfig(BaseModel):
-    """Report generation settings."""
+class OutputConfig(BaseModel):
+    """A single output entry in the ``outputs`` list.
 
-    auto: bool = False
-    format: str = "html"
-    template: str = "default"
-    output_dir: str = "reports"
+    Each entry specifies a format (exporter), a transport, or both:
+
+    .. code-block:: yaml
+
+        outputs:
+          - format: html                    # report only
+          - format: csv                     # export only
+          - format: stdf
+            transport: s3                   # export + ship
+            bucket: my-results
+          - transport: snowflake            # ship Parquet directly
+
+    Extra keys (bucket, server, dsn_env, template, etc.) are passed
+    through as format- or transport-specific configuration.
+
+    Note: ``format`` and ``transport`` names are not validated against the
+    registries at config time (registries are lazy-loaded). Invalid names
+    will raise ``KeyError`` at runtime when the output is executed.
+    """
+
+    format: str | None = None
+    transport: str | None = None
+    output_dir: str | None = None
+    template: str | None = None
+    extras: dict[str, Any] = Field(default_factory=dict)
+
+    @model_validator(mode="before")
+    @classmethod
+    def _collect_extras(cls, data: Any) -> Any:
+        """Move unknown keys into the extras dict."""
+        if not isinstance(data, dict):
+            return data
+        known = {"format", "transport", "output_dir", "template", "extras"}
+        extras = {k: v for k, v in data.items() if k not in known}
+        cleaned = {k: v for k, v in data.items() if k in known}
+        # Merge any explicitly provided extras
+        existing = cleaned.get("extras", {})
+        if isinstance(existing, dict):
+            extras.update(existing)
+        cleaned["extras"] = extras
+        return cleaned
+
+    @model_validator(mode="after")
+    def _require_format_or_transport(self) -> OutputConfig:
+        """At least one of format or transport must be set."""
+        if self.format is None and self.transport is None:
+            raise ValueError("OutputConfig requires at least one of 'format' or 'transport'")
+        return self
+
+    def default_output_dir(self) -> str:
+        """Resolve output directory with sensible defaults."""
+        if self.output_dir:
+            return self.output_dir
+        if self.format in ("html", "pdf"):
+            return "reports"
+        if self.format:
+            return f"results/exports/{self.format}"
+        # Transport-only (shipping Parquet) — no local output dir needed
+        return "results/exports"
 
 
 class ProjectConfig(BaseModel):
@@ -99,7 +154,7 @@ class ProjectConfig(BaseModel):
     results_dir: str = "results"
     default_station: str = "station"
     mock_instruments: bool = False
-    reports: ReportsConfig = Field(default_factory=ReportsConfig)
+    outputs: list[OutputConfig] = Field(default_factory=list)
 
 
 # ---------------------------------------------------------------------------

@@ -29,13 +29,15 @@ from typing import Any
 import pyarrow as pa
 import pyarrow.parquet as pq
 
-from litmus.data.backends._row_helpers import build_measurement_fields, build_run_metadata
+from litmus.data.backends._row_helpers import (
+    REF_PATH_PREFIX,
+    build_row,
+    build_run_metadata,
+    save_ref_to_dir,
+)
 from litmus.data.models import TestRun, Waveform
 
-# Prefix for path references in columns
-REF_PATH_PREFIX = "_ref/"
-
-# Canonical schema for fixed columns. Dynamic columns (in_*, out_*, instr_*, custom)
+# Canonical schema for fixed columns. Dynamic columns (in_*, out_*, instr_*, custom_*)
 # are NOT listed here — they pass through with inferred types.
 MEASUREMENT_SCHEMA = pa.schema([
     # Identity & timing
@@ -411,160 +413,31 @@ class ParquetBackend:
         instrument_arrays: dict[str, list] | None = None,
     ) -> list[dict[str, Any]]:
         """Build one row per measurement with all metadata denormalized."""
-        rows = []
+        def ref_saver(vector_id: str, key: str, value: Any) -> str:
+            return self._save_file(parquet_path, vector_id, key, value)
 
-        # Compute run outcome
-        run_outcome = test_run.outcome.value
-
+        rows: list[dict[str, Any]] = []
         for step_idx, step in enumerate(test_run.steps):
+            step_arrays = (
+                step.instrument_arrays
+                if step.instrument_arrays
+                else instrument_arrays or {}
+            )
             for vector in step.vectors:
-                vector_outcome = vector.outcome.value if vector.outcome else None
-                stimulus_cols = self._build_stimulus_columns(vector)
-                observation_cols = self._build_observation_columns(
-                    vector, parquet_path, str(vector.id)
-                )
-
                 for measurement in vector.measurements:
-                    row = build_run_metadata(test_run)
-                    row.update({
-                        "step_name": step.name,
-                        "step_index": step_idx,
-                        "step_started_at": step.started_at,
-                        "step_ended_at": step.ended_at,
-                        "vector_index": vector.index,
-                        "attempt": vector.attempt,
-                        "vector_started_at": vector.started_at,
-                        "vector_ended_at": vector.ended_at,
-                    })
-                    row.update(build_measurement_fields(measurement))
-                    row.update({
-                        "vector_outcome": vector_outcome,
-                        "run_outcome": run_outcome,
-                    })
-
-                    # Add stimulus columns (dynamic in_* columns)
-                    row.update(stimulus_cols)
-
-                    # Add observation columns (dynamic out_* columns)
-                    row.update(observation_cols)
-
-                    # Add custom metadata columns
-                    for key, value in test_run.custom_metadata.items():
-                        row[key] = value
-
-                    # Add instrument identity arrays (per-step tracking)
-                    step_arrays = (
-                        step.instrument_arrays
-                        if step.instrument_arrays
-                        else instrument_arrays
+                    row_model = build_row(
+                        test_run,
+                        measurement,
+                        step.name,
+                        step_idx,
+                        vector,
+                        step_arrays,
+                        ref_saver=ref_saver,
+                        step_started_at=step.started_at,
+                        step_ended_at=step.ended_at,
                     )
-                    if step_arrays:
-                        row.update(step_arrays)
-
-                    rows.append(row)
-
+                    rows.append(row_model.to_flat_dict())
         return rows
-
-    def _build_stimulus_columns(self, vector) -> dict[str, Any]:
-        """Build dynamic in_* columns from vector params and stimulus records.
-
-        For each input parameter, creates columns:
-        - in_{param}: The value
-        - in_{param}_instrument: Instrument name
-        - in_{param}_resource: VISA address
-        - in_{param}_channel: Channel
-        - in_{param}_dut_pin: DUT pin driven
-        - in_{param}_fixture_point: Fixture routing point
-        """
-        cols: dict[str, Any] = {}
-
-        # First, add all vector params as in_{param} columns
-        for param, value in vector.params.items():
-            if param.startswith("_"):
-                continue  # Skip internal params like _index
-            col_name = f"in_{param}"
-            cols[col_name] = value
-
-        # Then, overlay stimulus signal path info
-        for stim in vector.stimulus:
-            param = stim.param
-            prefix = f"in_{param}"
-
-            # Value (may override from params, but stimulus is more authoritative)
-            if stim.value is not None:
-                cols[prefix] = stim.value
-
-            # Signal path info
-            if stim.instrument:
-                cols[f"{prefix}_instrument"] = stim.instrument
-            if stim.resource:
-                cols[f"{prefix}_resource"] = stim.resource
-            if stim.channel:
-                cols[f"{prefix}_channel"] = stim.channel
-            if stim.dut_pin:
-                cols[f"{prefix}_dut_pin"] = stim.dut_pin
-            if stim.fixture_point:
-                cols[f"{prefix}_fixture_point"] = stim.fixture_point
-
-        return cols
-
-    def _build_observation_columns(
-        self, vector, parquet_path: Path, vector_id: str
-    ) -> dict[str, Any]:
-        """Build dynamic out_* columns from vector observations.
-
-        For each observation, creates columns:
-        - out_{key}: The observed value (scalar) or path reference (large data)
-
-        Observations are measured context (not commanded values):
-        - Environmental readings (temperature, humidity)
-        - Raw data (waveforms, images)
-        - Actual readback values from instruments
-
-        Storage by type:
-        - Scalars (float, int, str, bool) → inline
-        - Waveform → serialize to _ref/*.npz
-        - ndarray → serialize to _ref/*.npy
-        - Path → copy file to _ref/, preserve extension
-        - Pydantic model → serialize to _ref/*.json
-        - bytes → serialize to _ref/*.bin
-        """
-        cols: dict[str, Any] = {}
-
-        if not hasattr(vector, "observations"):
-            return cols
-
-        for key, value in vector.observations.items():
-            if key.startswith("_"):
-                continue  # Skip internal keys
-
-            col_name = f"out_{key}"
-
-            # Scalars → inline
-            if isinstance(value, (int, float, str, bool, type(None))):
-                cols[col_name] = value
-
-            # Structured types → serialize to _ref/
-            elif isinstance(value, Path):
-                cols[col_name] = self._save_file(parquet_path, vector_id, key, value)
-            elif isinstance(value, Waveform):
-                cols[col_name] = self._save_file(parquet_path, vector_id, key, value)
-            elif isinstance(value, bytes):
-                cols[col_name] = self._save_file(parquet_path, vector_id, key, value)
-            elif hasattr(value, "tolist"):
-                # numpy array - save to _ref/
-                cols[col_name] = self._save_file(parquet_path, vector_id, key, value)
-            elif hasattr(value, "model_dump"):
-                # Pydantic model - save to _ref/
-                cols[col_name] = self._save_file(parquet_path, vector_id, key, value)
-            elif isinstance(value, (list, dict)):
-                # Small lists/dicts → inline (will be serialized to JSON by PyArrow)
-                cols[col_name] = value
-            else:
-                # Unknown → inline (may fail on non-serializable types)
-                cols[col_name] = value
-
-        return cols
 
     def _get_ref_dir(self, parquet_path: Path) -> Path:
         """Get or create the _ref directory for a parquet file."""
@@ -580,119 +453,38 @@ class ParquetBackend:
             Path reference string like "_ref/abc123_scope_waveform.npz"
         """
         ref_dir = self._get_ref_dir(parquet_path)
-        prefix = f"{vector_id[:8]}_{key}"
-
-        if isinstance(value, Path):
-            # File reference → copy, preserve extension
-            ext = value.suffix or ".bin"
-            filename = f"{prefix}{ext}"
-            shutil.copy(value, ref_dir / filename)
-
-        elif isinstance(value, Waveform):
-            # Waveform → .npz with structure preserved
-            filename = f"{prefix}.npz"
-            try:
-                import numpy as np
-
-                np.savez(
-                    ref_dir / filename,
-                    Y=value.Y,
-                    t0=value.t0,
-                    dt=value.dt,
-                    **value.attrs,
-                )
-            except ImportError:
-                # Fallback to JSON if numpy not available
-                filename = f"{prefix}.json"
-                (ref_dir / filename).write_text(value.model_dump_json())
-
-        elif isinstance(value, bytes):
-            # Raw bytes → .bin
-            filename = f"{prefix}.bin"
-            (ref_dir / filename).write_bytes(value)
-
-        elif hasattr(value, "model_dump"):
-            # Pydantic model → .json
-            filename = f"{prefix}.json"
-            (ref_dir / filename).write_text(value.model_dump_json())
-
-        elif hasattr(value, "tolist"):
-            # numpy array → .npy
-            filename = f"{prefix}.npy"
-            try:
-                import numpy as np
-
-                np.save(ref_dir / filename, value)
-            except ImportError:
-                # Fallback to JSON if numpy not available
-                filename = f"{prefix}.json"
-                (ref_dir / filename).write_text(json.dumps(value.tolist()))
-
-        else:
-            # Fallback: pickle
-            filename = f"{prefix}.pkl"
-            with open(ref_dir / filename, "wb") as f:
-                pickle.dump(value, f)
-
-        return f"{REF_PATH_PREFIX}{filename}"
+        return save_ref_to_dir(ref_dir, vector_id[:8], key, value)
 
     def _build_empty_row(
         self,
         test_run: TestRun,
         instrument_arrays: dict[str, list] | None = None,
     ) -> dict[str, Any]:
-        """Build a placeholder row when no measurements exist."""
-        row = build_run_metadata(test_run)
-        row.update({
-            "step_name": None,
-            "step_index": None,
-            "step_started_at": None,
-            "step_ended_at": None,
-            "vector_index": None,
-            "attempt": None,
-            "vector_started_at": None,
-            "vector_ended_at": None,
-            "measurement_name": None,
-            "measurement_timestamp": None,
-            "value": None,
-            "units": None,
-            "outcome": None,
-            "low_limit": None,
-            "high_limit": None,
-            "nominal": None,
-            "comparator": None,
-            "spec_id": None,
-            "spec_ref": None,
-            "meas_dut_pin": None,
-            "meas_fixture_point": None,
-            "meas_instrument": None,
-            "meas_instrument_resource": None,
-            "meas_instrument_channel": None,
-            "vector_outcome": None,
-            "run_outcome": test_run.outcome.value,
-        })
+        """Build a placeholder row when no measurements exist.
 
-        # Add instrument identity arrays (parallel arrays)
+        Uses MeasurementRow.model_fields to stay in sync with the schema —
+        all fields default to None except run-level metadata and run_outcome.
+        """
+        from litmus.data.backends._row_helpers import MeasurementRow
+
+        # Start with all MeasurementRow fields set to None
+        row: dict[str, Any] = {
+            name: None
+            for name in MeasurementRow.model_fields
+            if name not in ("inputs", "outputs", "instruments", "custom")
+        }
+        # Overlay run-level metadata (populates run_id, dut_serial, etc.)
+        row.update(build_run_metadata(test_run))
+        row["run_outcome"] = test_run.outcome.value
+
+        # Add instrument identity arrays (default to empty lists for schema consistency)
         if instrument_arrays:
             row.update(instrument_arrays)
         else:
-            # Add empty arrays if no instruments
-            row.update({
-                "instr_name": [],
-                "instr_id": [],
-                "instr_driver": [],
-                "instr_resource": [],
-                "instr_protocol": [],
-                "instr_manufacturer": [],
-                "instr_model": [],
-                "instr_serial": [],
-                "instr_firmware": [],
-                "instr_cal_due": [],
-                "instr_cal_last": [],
-                "instr_cal_certificate": [],
-                "instr_cal_lab": [],
-                "instr_mocked": [],
-            })
+            from litmus.execution.logger import INSTRUMENT_ARRAY_KEYS
+
+            for key in INSTRUMENT_ARRAY_KEYS:
+                row[key] = []
 
         return row
 
@@ -954,6 +746,32 @@ class ParquetBackend:
         return None
 
     # =========================================================================
+    # TestRun Reconstruction (for post-hoc export)
+    # =========================================================================
+
+    def reconstruct_test_run(self, run_id: str) -> TestRun:
+        """Reconstruct a TestRun model from a stored Parquet file.
+
+        Groups denormalized rows back into the TestRun → TestStep → TestVector
+        → Measurement hierarchy. Used by exporters for post-hoc conversion.
+
+        Args:
+            run_id: Full or partial run ID.
+
+        Returns:
+            Reconstructed TestRun model.
+
+        Raises:
+            FileNotFoundError: If no Parquet file found for the run ID.
+        """
+        pq_file = self.find_run_file(run_id)
+        if pq_file is None:
+            raise FileNotFoundError(
+                f"No Parquet file found for run '{run_id}' in {self.results_dir}/"
+            )
+        return reconstruct_test_run_from_file(pq_file)
+
+    # =========================================================================
     # Journal Management
     # =========================================================================
 
@@ -1158,3 +976,189 @@ def load_file(parquet_path: Path, ref: str) -> Any:
 def is_file_reference(value: Any) -> bool:
     """Check if a value is a _ref/ file reference."""
     return isinstance(value, str) and value.startswith(REF_PATH_PREFIX)
+
+
+# Suffix patterns for stimulus signal-path columns (in_{param}_{suffix}).
+# A column like "in_vin_instrument" is metadata, not a param value.
+_STIMULUS_SUFFIXES = ("_instrument", "_resource", "_channel", "_dut_pin", "_fixture_point")
+
+
+def reconstruct_test_run_from_file(pq_file: Path) -> TestRun:
+    """Reconstruct a TestRun model from a Parquet file.
+
+    Groups denormalized rows back into the TestRun → TestStep → TestVector
+    → Measurement hierarchy. Used by exporters for post-hoc conversion
+    and by the ``litmus convert`` CLI.
+
+    Args:
+        pq_file: Path to the Parquet file.
+
+    Returns:
+        Reconstructed TestRun model.
+
+    Raises:
+        FileNotFoundError: If the file doesn't exist or is empty.
+    """
+    from collections import defaultdict
+    from uuid import UUID
+
+    from litmus.data.models import DUT, Measurement, Outcome, TestStep, TestVector
+
+    if not pq_file.exists():
+        raise FileNotFoundError(f"Parquet file not found: {pq_file}")
+
+    pf = pq.ParquetFile(pq_file)
+    table = pf.read()
+    rows = table.to_pylist()
+    if not rows:
+        raise FileNotFoundError(f"Parquet file is empty: {pq_file}")
+
+    first = rows[0]
+
+    # Read file-level metadata for config snapshots
+    raw_meta = pf.schema_arrow.metadata or {}
+    file_meta = {k.decode(): v.decode() for k, v in raw_meta.items()}
+
+    # Group rows by (step_name, step_index) → (vector_index, attempt) → measurements
+    step_groups: dict[
+        tuple[str | None, int | None],
+        dict[tuple[int | None, int | None], list[dict]],
+    ] = defaultdict(lambda: defaultdict(list))
+    step_timing: dict[tuple[str | None, int | None], dict[str, Any]] = {}
+
+    for row in rows:
+        sk = (row.get("step_name"), row.get("step_index"))
+        vk = (row.get("vector_index"), row.get("attempt"))
+        step_groups[sk][vk].append(row)
+
+        if sk not in step_timing:
+            step_timing[sk] = {
+                "started_at": row.get("step_started_at"),
+                "ended_at": row.get("step_ended_at"),
+            }
+
+    # Build steps
+    steps: list[TestStep] = []
+    for sk in sorted(step_groups, key=lambda x: (x[1] or 0, x[0] or "")):
+        vector_groups = step_groups[sk]
+        vectors: list[TestVector] = []
+
+        # One sample row for step-level extraction (instr_* arrays)
+        step_sample_row = next(iter(vector_groups.values()))[0]
+        step_instr: dict[str, list] = {}
+        for col, val in step_sample_row.items():
+            if col.startswith("instr_"):
+                if val is not None:
+                    step_instr[col] = val if isinstance(val, list) else [val]
+
+        for vk in sorted(vector_groups, key=lambda x: (x[0] or 0, x[1] or 0)):
+            meas_rows = vector_groups[vk]
+            measurements: list[Measurement] = []
+
+            # Extract params from in_* columns and observations from out_*
+            params: dict[str, Any] = {}
+            observations: dict[str, Any] = {}
+            sample_row = meas_rows[0]
+            for col, val in sample_row.items():
+                if col.startswith("in_") and not any(
+                    col.endswith(s) for s in _STIMULUS_SUFFIXES
+                ):
+                    params[col[3:]] = val
+                elif col.startswith("out_"):
+                    observations[col[4:]] = val
+
+            for mr in meas_rows:
+                outcome_str = mr.get("outcome")
+                m = Measurement(
+                    name=mr.get("measurement_name") or "",
+                    value=mr.get("value"),
+                    units=mr.get("units"),
+                    low_limit=mr.get("low_limit"),
+                    high_limit=mr.get("high_limit"),
+                    nominal=mr.get("nominal"),
+                    comparator=mr.get("comparator"),
+                    outcome=Outcome(outcome_str) if outcome_str else None,
+                    spec_id=mr.get("spec_id"),
+                    spec_ref=mr.get("spec_ref"),
+                    dut_pin=mr.get("meas_dut_pin"),
+                    instrument_name=mr.get("meas_instrument"),
+                    instrument_resource=mr.get("meas_instrument_resource"),
+                    instrument_channel=mr.get("meas_instrument_channel"),
+                    fixture_point=mr.get("meas_fixture_point"),
+                )
+                ts = mr.get("measurement_timestamp")
+                if ts is not None:
+                    m.timestamp = ts
+                measurements.append(m)
+
+            vec_outcome_str = sample_row.get("vector_outcome")
+            vectors.append(
+                TestVector(
+                    index=vk[0] or 0,
+                    attempt=vk[1] or 1,
+                    params=params,
+                    observations=observations,
+                    outcome=Outcome(vec_outcome_str) if vec_outcome_str else Outcome.PASS,
+                    measurements=measurements,
+                    started_at=sample_row.get("vector_started_at") or first["run_started_at"],
+                    ended_at=sample_row.get("vector_ended_at"),
+                )
+            )
+
+        timing = step_timing.get(sk, {})
+        step_outcome = Outcome.PASS
+        if any(v.outcome == Outcome.FAIL for v in vectors):
+            step_outcome = Outcome.FAIL
+
+        steps.append(
+            TestStep(
+                name=sk[0] or "",
+                started_at=timing.get("started_at") or first["run_started_at"],
+                ended_at=timing.get("ended_at"),
+                outcome=step_outcome,
+                vectors=vectors,
+                instrument_arrays=step_instr if step_instr else None,
+            )
+        )
+
+    # Extract custom metadata from custom_* columns
+    custom_meta: dict[str, Any] = {}
+    for col in first:
+        if col.startswith("custom_"):
+            custom_meta[col.removeprefix("custom_")] = first[col]
+
+    run_outcome_str = first.get("run_outcome")
+    run_outcome = Outcome(run_outcome_str) if run_outcome_str else Outcome.PASS
+
+    return TestRun(
+        id=UUID(first["run_id"]),
+        started_at=first["run_started_at"],
+        ended_at=first.get("run_ended_at"),
+        dut=DUT(
+            serial=first.get("dut_serial") or "",
+            part_number=first.get("dut_part_number"),
+            revision=first.get("dut_revision"),
+            lot_number=first.get("dut_lot_number"),
+        ),
+        product_id=first.get("product_id"),
+        product_name=first.get("product_name"),
+        product_revision=first.get("product_revision"),
+        station_id=first.get("station_id") or "",
+        station_name=first.get("station_name"),
+        station_type=first.get("station_type"),
+        station_location=first.get("station_location"),
+        fixture_id=first.get("fixture_id"),
+        test_sequence_id=first.get("sequence_id") or "",
+        test_phase=first.get("test_phase") or "development",
+        operator_id=first.get("operator_id"),
+        operator_name=first.get("operator_name"),
+        git_commit=first.get("git_commit"),
+        outcome=run_outcome,
+        steps=steps,
+        environment_json=file_meta.get("environment_json"),
+        station_config_yaml=file_meta.get("station_config_yaml"),
+        product_spec_yaml=file_meta.get("product_spec_yaml"),
+        fixture_config_yaml=file_meta.get("fixture_config_yaml"),
+        test_config_yaml=file_meta.get("test_config_yaml"),
+        custom_metadata=custom_meta or {},
+    )

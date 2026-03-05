@@ -4,8 +4,7 @@ default_station: demo_station_001
 mock_instruments: true
 results_dir: results
 
-reports:
-  auto: false
-  format: html
-  template: default
-  output_dir: reports
+# Pluggable outputs (uncomment to enable)
+# outputs:
+#   - format: html
+#   - format: csv

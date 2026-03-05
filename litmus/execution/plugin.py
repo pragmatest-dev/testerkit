@@ -15,6 +15,7 @@ from _pytest.runner import runtestprotocol
 
 from litmus.config.test_config import FixtureConfig
 from litmus.data.backends.parquet import ParquetBackend
+from litmus.data.models import TestRun
 from litmus.execution.accessors import InstrumentAccessor
 from litmus.execution.decorators import set_current_logger
 from litmus.execution.harness import Context
@@ -449,25 +450,52 @@ def _safe_get_session_fixture(request, name):
         return None
 
 
-def _maybe_auto_report(run_id: str, results_dir: str) -> None:
-    """Generate a report after test run if configured in litmus.yaml."""
+def _attach_streaming_destinations(logger: TestRunLogger) -> None:
+    """Open and attach streaming destinations from outputs config.
+
+    Checks each output entry for a streaming-capable exporter and wires
+    it into the logger for real-time per-measurement streaming.
+    """
     try:
         from litmus.config.project import load_project_config
 
         config = load_project_config()
-        if not config.reports.auto:
-            return
-
-        from litmus.reports import generate_report, load_run_data
-
-        fmt = config.reports.format
-        template = config.reports.template
-        output_dir = config.reports.output_dir
-
-        data = load_run_data(run_id, results_dir)
-        generate_report(data, output_dir, fmt=fmt, template=template)
     except Exception:
-        pass  # Auto-report is best-effort; don't fail the test run
+        return
+
+    from litmus.data.exporters._base import StreamingDestination
+    from litmus.data.exporters._registry import get_exporter_class, is_report_format
+
+    for output_cfg in config.outputs:
+        fmt = output_cfg.format
+        if not fmt or is_report_format(fmt):
+            continue
+        try:
+            cls = get_exporter_class(fmt)
+            if cls is not None:
+                instance = cls()
+                if not isinstance(instance, StreamingDestination):
+                    continue
+                instance.open(output_cfg, logger.test_run)
+                logger.add_streaming_destination(instance)
+        except Exception as exc:
+            warnings.warn(
+                f"Streaming setup for '{fmt}' failed: {exc}",
+                stacklevel=2,
+            )
+
+
+def _run_configured_outputs(test_run: TestRun, run_id: str, results_dir: str) -> None:
+    """Run configured outputs (exports, reports, transports) from litmus.yaml."""
+    try:
+        from litmus.data.output_runner import run_outputs
+
+        run_outputs(test_run, run_id, results_dir)
+    except Exception as exc:
+        warnings.warn(
+            f"Output processing failed: {exc}",
+            stacklevel=2,
+        )
 
 
 @pytest.fixture(scope="session", autouse=True)
@@ -583,6 +611,9 @@ def litmus_logger(request) -> Generator[TestRunLogger]:
         instruments=instrument_records,  # Full instrument records with calibration
         environment=env,  # Software environment for SBOM traceability
     )
+    # Wire streaming destinations from outputs config
+    _attach_streaming_destinations(logger)
+
     set_current_logger(logger)
     yield logger
 
@@ -598,7 +629,8 @@ def litmus_logger(request) -> Generator[TestRunLogger]:
         journal_dir=journal_dir,
     )
 
-    _maybe_auto_report(str(test_run.id), results_dir)
+    # Run configured outputs (exports, reports, transports)
+    _run_configured_outputs(test_run, str(test_run.id), results_dir)
     set_current_logger(None)
 
 

@@ -1,0 +1,114 @@
+"""Run configured outputs (exports + reports + transports) at session end.
+
+Called by the pytest plugin after Parquet is saved. Reads the ``outputs``
+list from ``ProjectConfig`` and dispatches to exporters, report generators,
+and transports.
+"""
+
+from __future__ import annotations
+
+import warnings
+from pathlib import Path
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from litmus.data.models import TestRun
+    from litmus.schemas import OutputConfig
+
+
+def run_outputs(
+    test_run: TestRun,
+    run_id: str,
+    results_dir: str,
+) -> None:
+    """Execute all configured outputs for a completed test run.
+
+    Reads ``ProjectConfig.outputs`` and runs each entry:
+    - Report formats (html, pdf) → litmus.reports
+    - Export formats (csv, stdf, etc.) → litmus.data.exporters
+    - Transports (s3, sftp, etc.) → ship the exported file
+
+    All errors are caught and warned — outputs are best-effort and must
+    never fail the test run.
+
+    Args:
+        test_run: The finalized TestRun model.
+        run_id: The run ID string.
+        results_dir: Path to the results directory.
+    """
+    try:
+        from litmus.config.project import load_project_config
+
+        config = load_project_config()
+    except Exception:
+        return
+
+    if not config.outputs:
+        return
+
+    for output_cfg in config.outputs:
+        try:
+            _run_single_output(output_cfg, test_run, run_id, results_dir)
+        except Exception as exc:
+            warnings.warn(
+                f"Output '{output_cfg.format or output_cfg.transport}' failed: {exc}",
+                stacklevel=2,
+            )
+
+
+def _run_single_output(
+    output_cfg: OutputConfig,
+    test_run: TestRun,
+    run_id: str,
+    results_dir: str,
+) -> None:
+    """Execute a single output entry."""
+    from litmus.data.exporters._registry import is_report_format
+
+    fmt = output_cfg.format
+    transport_name = output_cfg.transport
+    output_dir = output_cfg.default_output_dir()
+
+    exported_path: Path | None = None
+
+    if fmt and is_report_format(fmt):
+        # Report formats — delegate to litmus.reports
+        from litmus.reports import generate_report, load_run_data
+
+        data = load_run_data(run_id, results_dir)
+        exported_path = generate_report(
+            data,
+            output_dir,
+            fmt=fmt,
+            template=output_cfg.template or "default",
+        )
+    elif fmt:
+        # Export formats — use exporter registry
+        from litmus.data.exporters import get_exporter
+
+        exporter = get_exporter(fmt)
+        exported_path = exporter.export(test_run, Path(output_dir))
+
+    # If transport is configured, ship the file
+    if transport_name and exported_path:
+        if not exported_path.exists():
+            warnings.warn(
+                f"Exporter returned non-existent path: {exported_path}",
+                stacklevel=2,
+            )
+        else:
+            from litmus.data.transports import get_transport
+
+            transport = get_transport(transport_name)
+            transport.send(exported_path, output_cfg)
+    elif transport_name and not fmt:
+        # Transport-only: ship the Parquet file directly
+        from litmus.data.backends.parquet import ParquetBackend
+
+        backend = ParquetBackend(results_dir=results_dir)
+        pq_file = backend.find_run_file(run_id)
+        if pq_file:
+            from litmus.data.transports import get_transport
+
+            transport = get_transport(transport_name)
+            transport.send(pq_file, output_cfg)

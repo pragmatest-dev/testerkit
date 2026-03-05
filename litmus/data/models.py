@@ -1,5 +1,8 @@
 """Data models for test results."""
 
+from __future__ import annotations
+
+from collections.abc import Iterator
 from datetime import UTC, datetime
 from enum import StrEnum
 from typing import TYPE_CHECKING, Any
@@ -8,7 +11,7 @@ from uuid import UUID, uuid4
 from pydantic import BaseModel, Field
 
 if TYPE_CHECKING:
-    pass
+    from litmus.data.backends._row_helpers import MeasurementRow
 
 
 def _utcnow() -> datetime:
@@ -301,6 +304,30 @@ class TestRun(BaseModel):
     product_spec_yaml: str | None = None
     fixture_config_yaml: str | None = None
     test_config_yaml: str | None = None
+
+    def iter_rows(self) -> Iterator[MeasurementRow]:
+        """Yield denormalized MeasurementRow for each measurement.
+
+        Joins run-level context (DUT, station, operator, etc.) onto each
+        measurement, producing the same flat view used by streaming and Parquet.
+
+        Intended for analysis and denormalization (CSV export, DataFrames).
+        No ``ref_saver`` is used, so non-serializable observation values
+        (Waveform, ndarray, bytes, etc.) fall back to ``repr()`` strings
+        in the output columns.  For full fidelity with reference file
+        storage, use ``build_row(..., ref_saver=...)`` directly.
+        """
+        from litmus.data.backends._row_helpers import build_row
+
+        for step_index, step in enumerate(self.steps):
+            for vector in step.vectors:
+                for measurement in vector.measurements:
+                    yield build_row(
+                        self, measurement, step.name, step_index,
+                        vector, step.instrument_arrays or {},
+                        step_started_at=step.started_at,
+                        step_ended_at=step.ended_at,
+                    )
 
 
 class Waveform(BaseModel):

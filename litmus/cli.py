@@ -718,6 +718,120 @@ def show(
 
 
 # -----------------------------------------------------------------------------
+# Export / Convert
+# -----------------------------------------------------------------------------
+
+
+@main.command()
+@click.argument("run_id")
+@click.option(
+    "-f", "--format", "fmt", required=True,
+    help="Target format (csv, json, stdf, hdf5, tdms, mdf4, atml)",
+)
+@click.option("-o", "--output-dir", default=None, help="Output directory")
+@click.option("--results-dir", default=None, help="Results directory")
+@click.option(
+    "--transport", default=None,
+    help="Ship exported file via transport (s3, sftp, file, etc.)",
+)
+def export(
+    run_id: str, fmt: str, output_dir: str | None,
+    results_dir: str | None, transport: str | None,
+):
+    """Export a test run to a different format.
+
+    Reads the stored Parquet, reconstructs the TestRun model,
+    and writes it in the target format.
+
+    Examples:
+
+        litmus export abc123 -f csv
+
+        litmus export abc123 -f stdf -o results/stdf/
+
+        litmus export abc123 -f csv --transport s3
+    """
+    from litmus.config.project import load_project_config
+    from litmus.data.backends.parquet import ParquetBackend
+    from litmus.data.exporters import get_exporter
+
+    project = load_project_config()
+    if results_dir is None:
+        results_dir = project.results_dir
+
+    backend = ParquetBackend(results_dir=results_dir)
+
+    try:
+        test_run = backend.reconstruct_test_run(run_id)
+    except FileNotFoundError as exc:
+        click.echo(str(exc), err=True)
+        raise SystemExit(1)
+
+    if output_dir is None:
+        output_dir = f"results/exports/{fmt}"
+
+    try:
+        exporter = get_exporter(fmt)
+    except KeyError as exc:
+        click.echo(str(exc), err=True)
+        raise SystemExit(1)
+
+    result_path = exporter.export(test_run, Path(output_dir))
+    click.echo(f"Exported: {result_path}")
+
+    if transport:
+        from litmus.data.transports import get_transport
+        from litmus.schemas import OutputConfig
+
+        t = get_transport(transport)
+        cfg = OutputConfig(format=fmt, transport=transport, output_dir=output_dir)
+        dest = t.send(result_path, cfg)
+        click.echo(f"Shipped: {dest}")
+
+
+@main.command()
+@click.argument("parquet_file", type=click.Path(exists=True))
+@click.option(
+    "-f", "--format", "fmt", required=True,
+    help="Target format (csv, json, stdf, hdf5, tdms, mdf4, atml)",
+)
+@click.option("-o", "--output-dir", default=None, help="Output directory")
+def convert(parquet_file: str, fmt: str, output_dir: str | None):
+    """Convert a Parquet file to another format (no test session needed).
+
+    Pure file-to-file conversion — reads a Parquet file directly.
+
+    Examples:
+
+        litmus convert results/runs/2026-03-04/abc123.parquet -f csv
+
+        litmus convert foo.parquet -f stdf -o /shared/stdf/
+    """
+    from litmus.data.backends.parquet import reconstruct_test_run_from_file
+    from litmus.data.exporters import get_exporter
+
+    pq_path = Path(parquet_file)
+
+    try:
+        test_run = reconstruct_test_run_from_file(pq_path)
+    except (FileNotFoundError, ValueError) as exc:
+        click.echo(str(exc), err=True)
+        raise SystemExit(1)
+
+    if output_dir is None:
+        output_dir = str(pq_path.parent)
+
+    try:
+        exporter = get_exporter(fmt)
+    except KeyError as exc:
+        click.echo(str(exc), err=True)
+        raise SystemExit(1)
+
+    result_path = exporter.export(test_run, Path(output_dir))
+    click.echo(f"Converted: {result_path}")
+
+
+# -----------------------------------------------------------------------------
 # SBOM Export
 # -----------------------------------------------------------------------------
 
