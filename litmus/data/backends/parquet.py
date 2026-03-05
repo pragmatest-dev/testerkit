@@ -360,21 +360,39 @@ class ParquetBackend:
         # Backfill run_ended_at and step timestamps from TestRun
         # (journal rows are written mid-run, so these are null at write time)
         if test_run is not None:
-            # Build step timing lookup: step_name → (started_at, ended_at)
-            step_timing: dict[str, tuple] = {}
-            for step in test_run.steps:
-                step_timing[step.name] = (step.started_at, step.ended_at)
+            # Build step timing lookup: step_index → (started_at, ended_at)
+            # Keyed by index, not name, because multiple steps can share a name.
+            step_timing: dict[int, tuple] = {}
+            for idx, step in enumerate(test_run.steps):
+                step_timing[idx] = (step.started_at, step.ended_at)
+
+            # Vector timing: (step_index, vector_index, attempt) → (started, ended)
+            vector_timing: dict[tuple[int, int | None, int | None], tuple] = {}
+            for idx, step in enumerate(test_run.steps):
+                for vec in step.vectors:
+                    vector_timing[(idx, vec.index, vec.attempt)] = (
+                        vec.started_at,
+                        vec.ended_at,
+                    )
 
             for row in rows:
                 if row.get("run_ended_at") is None:
                     row["run_ended_at"] = test_run.ended_at
-                step_name = row.get("step_name")
-                if step_name and step_name in step_timing:
-                    s_start, s_end = step_timing[step_name]
+                step_idx = row.get("step_index")
+                if step_idx is not None and step_idx in step_timing:
+                    s_start, s_end = step_timing[step_idx]
                     if row.get("step_started_at") is None:
                         row["step_started_at"] = s_start
                     if row.get("step_ended_at") is None:
                         row["step_ended_at"] = s_end
+                # Backfill vector timing
+                vk = (step_idx, row.get("vector_index"), row.get("attempt"))
+                if vk in vector_timing:
+                    v_start, v_end = vector_timing[vk]
+                    if row.get("vector_started_at") is None:
+                        row["vector_started_at"] = v_start
+                    if row.get("vector_ended_at") is None:
+                        row["vector_ended_at"] = v_end
 
         # Parse timestamp strings back to datetime objects before table construction
         for row in rows:

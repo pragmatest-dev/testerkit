@@ -619,6 +619,10 @@ class TestRunLogger:
 
         Closes the journal writer if journaling is enabled.
         """
+        # Close any unclosed step before finalizing
+        if _current_step_var.get() is not None:
+            self.end_step()
+
         self.test_run.ended_at = _utcnow()
 
         # Serialize environment snapshot
