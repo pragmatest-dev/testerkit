@@ -89,7 +89,7 @@ class TestHarnessMeasure:
     def test_measure_basic(self):
         harness = TestHarness()
         with harness.step():
-            with harness.run_vector(Vector(voltage=3.3, _index=0)) as tv:
+            with harness.run_vector(Vector(voltage=3.3, _index=0)):
                 m = harness.measure("output", 3.28)
                 assert m.name == "output"
                 assert m.value == 3.28
@@ -100,7 +100,7 @@ class TestHarnessMeasure:
         limit = Limit(low=3.0, high=3.6, units="V")
 
         with harness.step():
-            with harness.run_vector(Vector(_index=0)) as tv:
+            with harness.run_vector(Vector(_index=0)):
                 m = harness.measure("voltage", 3.3, limit=limit)
                 assert m.low_limit == 3.0
                 assert m.high_limit == 3.6
@@ -117,6 +117,32 @@ class TestHarnessMeasure:
 
         assert tv.outcome == Outcome.FAIL
 
+    def test_measure_error_updates_vector_outcome_no_logger(self):
+        """Without a logger, harness updates vector outcome on ERROR."""
+        harness = TestHarness()
+        limit = Limit(low=3.0, high=3.6, units="V")
+
+        with harness.step():
+            with harness.run_vector(Vector(_index=0)) as tv:
+                # value=None with limits → ERROR via check_limit()
+                harness.measure("voltage", None, limit=limit)
+
+        assert tv.outcome == Outcome.ERROR
+
+    def test_measure_error_overrides_fail_no_logger(self):
+        """Without a logger, ERROR overrides FAIL — can't trust untrusted state."""
+        harness = TestHarness()
+        limit = Limit(low=3.0, high=3.6, units="V")
+
+        with harness.step():
+            with harness.run_vector(Vector(_index=0)) as tv:
+                harness.measure("voltage_bad", 4.0, limit=limit)  # FAIL
+                assert tv.outcome == Outcome.FAIL
+                harness.measure("voltage_err", None, limit=limit)  # ERROR
+                assert tv.outcome == Outcome.ERROR
+
+        assert tv.outcome == Outcome.ERROR
+
     def test_measure_from_config_limits(self):
         config = {
             "limits": {
@@ -126,7 +152,7 @@ class TestHarnessMeasure:
         harness = TestHarness(config=config)
 
         with harness.step():
-            with harness.run_vector(Vector(_index=0)) as tv:
+            with harness.run_vector(Vector(_index=0)):
                 m = harness.measure("voltage", 3.3)
                 assert m.low_limit == 3.0
                 assert m.outcome == Outcome.PASS
@@ -134,7 +160,7 @@ class TestHarnessMeasure:
     def test_measure_no_limit_passes(self):
         harness = TestHarness()
         with harness.step():
-            with harness.run_vector(Vector(_index=0)) as tv:
+            with harness.run_vector(Vector(_index=0)):
                 m = harness.measure("voltage", 999.0)  # Any value
                 assert m.outcome == Outcome.PASS
 
@@ -283,7 +309,7 @@ class TestHarnessStep:
         limit = Limit(low=3.0, high=3.6, units="V")
 
         with harness.step() as step:
-            with harness.run_vector(Vector(_index=0)) as tv:
+            with harness.run_vector(Vector(_index=0)):
                 harness.measure("voltage", 4.0, limit=limit)  # Fail
 
         assert step.outcome == Outcome.FAIL

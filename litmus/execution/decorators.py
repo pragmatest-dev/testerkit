@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import inspect
 from collections.abc import Callable, Mapping
+from contextvars import ContextVar
 from functools import wraps
 from typing import TYPE_CHECKING, Any
 
@@ -15,31 +16,33 @@ if TYPE_CHECKING:
     from litmus.execution.logger import TestRunLogger
     from litmus.execution.vectors import Vector
 
-# Module-level storage for current logger and harness
-_current_logger: TestRunLogger | None = None
-_current_harness: TestHarness | None = None
+# Contextvars for concurrency-safe logger/harness resolution.
+_current_logger_var: ContextVar[TestRunLogger | None] = ContextVar(
+    "_current_logger", default=None
+)
+_current_harness_var: ContextVar[TestHarness | None] = ContextVar(
+    "_current_harness", default=None
+)
 
 
 def set_current_logger(logger: TestRunLogger | None):
     """Set the current logger for measurement capture."""
-    global _current_logger
-    _current_logger = logger
+    _current_logger_var.set(logger)
 
 
 def get_current_logger() -> TestRunLogger | None:
     """Get the current logger."""
-    return _current_logger
+    return _current_logger_var.get()
 
 
 def set_current_harness(harness: TestHarness | None):
     """Set the current harness for @litmus_test decorator."""
-    global _current_harness
-    _current_harness = harness
+    _current_harness_var.set(harness)
 
 
 def get_current_harness() -> TestHarness | None:
     """Get the current harness."""
-    return _current_harness
+    return _current_harness_var.get()
 
 
 def litmus_step(func: Callable[..., Any]) -> Callable[..., Any]:
@@ -58,28 +61,32 @@ def litmus_step(func: Callable[..., Any]) -> Callable[..., Any]:
     @wraps(func)
     def wrapper(*args: Any, **kwargs: Any) -> Any:
         step_name = func.__name__
-        if _current_logger is not None:
-            _current_logger.start_step(step_name)
+        _logger = get_current_logger()
+        if _logger is not None:
+            _logger.start_step(step_name)
         try:
             result = func(*args, **kwargs)
             return result
         finally:
-            if _current_logger is not None:
-                _current_logger.end_step()
+            _logger = get_current_logger()
+            if _logger is not None:
+                _logger.end_step()
 
     # Handle async functions
     if inspect.iscoroutinefunction(func):
         @wraps(func)
         async def async_wrapper(*args: Any, **kwargs: Any) -> Any:
             step_name = func.__name__
-            if _current_logger is not None:
-                _current_logger.start_step(step_name)
+            _logger = get_current_logger()
+            if _logger is not None:
+                _logger.start_step(step_name)
             try:
                 result = await func(*args, **kwargs)
                 return result
             finally:
-                if _current_logger is not None:
-                    _current_logger.end_step()
+                _logger = get_current_logger()
+                if _logger is not None:
+                    _logger.end_step()
         return async_wrapper
 
     return wrapper
@@ -128,8 +135,9 @@ def measure(
             result = measurement.check_limit()
 
             # Log if logger available
-            if _current_logger is not None:
-                _current_logger.log_measurement(measurement)
+            _logger = get_current_logger()
+            if _logger is not None:
+                _logger.log_measurement(measurement)
 
             # Raise on failure if configured
             if raise_on_fail and result == Outcome.FAIL:
@@ -222,7 +230,7 @@ def litmus_test(
             # Get harness from kwargs, current harness, or create new one
             harness = kwargs.pop("harness", None)
             if harness is None:
-                harness = _current_harness
+                harness = get_current_harness()
             if harness is None:
                 # Resolve config: sequence step > inline decorator > config_file > auto-discover
                 from litmus.execution.plugin import _CURRENT_STEP_CONFIG
@@ -292,7 +300,8 @@ def litmus_test(
 
                 # Set per-step instrument arrays on the logger
                 # Detect which instrument roles are used by this test function
-                if _current_logger is not None:
+                _logger = get_current_logger()
+                if _logger is not None:
                     from litmus.execution.plugin import _INSTRUMENT_RECORDS
 
                     step_roles = [
@@ -301,7 +310,7 @@ def litmus_test(
                         if name in kwargs and kwargs[name] is not None
                     ]
                     if step_roles:
-                        _current_logger.set_step_instruments(step_roles)
+                        _logger.set_step_instruments(step_roles)
 
                 # Detect mock mode by checking if instruments have set_mock_value
                 using_mocks = False
@@ -322,7 +331,7 @@ def litmus_test(
                     step_name=fn.__name__,
                     retry=resolved_retry,
                     limits=resolved_limits,
-                    logger=_current_logger,
+                    logger=_logger,
                     instruments=instruments_fixture,
                     mock_instruments=using_mocks,
                     spec_context=spec_ctx,

@@ -1,7 +1,11 @@
 """Tests for TestRunLogger."""
 
-from litmus.data.models import Measurement, Outcome
-from litmus.execution.logger import TestRunLogger
+from litmus.data.models import Measurement, Outcome, TestStep, TestVector
+from litmus.execution.logger import (
+    TestRunLogger,
+    _current_step_var,
+    _current_vector_var,
+)
 
 
 class TestTestRunLogger:
@@ -42,7 +46,7 @@ class TestTestRunLogger:
         assert len(logger.test_run.steps) == 1
         assert logger.test_run.steps[0].name == "measure_voltage"
         assert logger.test_run.steps[0].description == "Signal 5V rail"
-        assert logger._current_step is not None
+        assert _current_step_var.get() is not None
 
     def test_log_measurement(self):
         logger = TestRunLogger(
@@ -56,9 +60,11 @@ class TestTestRunLogger:
         logger.log_measurement(m)
 
         # Measurements are stored in vectors within the step
-        assert len(logger._current_step.vectors) == 1
-        assert len(logger._current_step.vectors[0].measurements) == 1
-        assert logger._current_step.vectors[0].measurements[0].name == "voltage"
+        step = _current_step_var.get()
+        assert step is not None
+        assert len(step.vectors) == 1
+        assert len(step.vectors[0].measurements) == 1
+        assert step.vectors[0].measurements[0].name == "voltage"
 
     def test_log_measurement_auto_creates_step(self):
         logger = TestRunLogger(
@@ -84,7 +90,7 @@ class TestTestRunLogger:
         m = Measurement(name="voltage", value=6.0, outcome=Outcome.FAIL)
         logger.log_measurement(m)
 
-        assert logger._current_step.outcome == Outcome.FAIL
+        assert _current_step_var.get().outcome == Outcome.FAIL
         assert logger.test_run.outcome == Outcome.FAIL
 
     def test_log_measurement_error_propagates(self):
@@ -98,10 +104,10 @@ class TestTestRunLogger:
         m = Measurement(name="voltage", value=None, outcome=Outcome.ERROR)
         logger.log_measurement(m)
 
-        assert logger._current_step.outcome == Outcome.ERROR
+        assert _current_step_var.get().outcome == Outcome.ERROR
         assert logger.test_run.outcome == Outcome.ERROR
 
-    def test_fail_overrides_error(self):
+    def test_error_overrides_fail(self):
         logger = TestRunLogger(
             dut_serial="SN001",
             station_id="station_001",
@@ -109,14 +115,14 @@ class TestTestRunLogger:
         )
         logger.start_step("test_step")
 
-        m1 = Measurement(name="voltage", value=None, outcome=Outcome.ERROR)
-        m2 = Measurement(name="current", value=6.0, outcome=Outcome.FAIL)
+        m1 = Measurement(name="current", value=6.0, outcome=Outcome.FAIL)
+        m2 = Measurement(name="voltage", value=None, outcome=Outcome.ERROR)
         logger.log_measurement(m1)
         logger.log_measurement(m2)
 
-        # FAIL should override ERROR
-        assert logger._current_step.outcome == Outcome.FAIL
-        assert logger.test_run.outcome == Outcome.FAIL
+        # ERROR overrides FAIL — can't trust results from untrusted state
+        assert _current_step_var.get().outcome == Outcome.ERROR
+        assert logger.test_run.outcome == Outcome.ERROR
 
     def test_end_step(self):
         logger = TestRunLogger(
@@ -127,7 +133,7 @@ class TestTestRunLogger:
         logger.start_step("test_step")
         logger.end_step()
 
-        assert logger._current_step is None
+        assert _current_step_var.get() is None
         assert logger.test_run.steps[0].ended_at is not None
 
     def test_finalize(self):
@@ -164,3 +170,82 @@ class TestTestRunLogger:
         assert len(logger.test_run.steps) == 2
         assert logger.test_run.steps[0].name == "step1"
         assert logger.test_run.steps[1].name == "step2"
+
+    def test_start_step_sets_contextvars(self):
+        """start_step() sets module-level contextvars."""
+        logger = TestRunLogger(
+            dut_serial="SN001",
+            station_id="station_001",
+            test_sequence_id="test",
+        )
+        # Before start_step, contextvars should be None (default)
+        assert _current_step_var.get() is None
+
+        logger.start_step("cv_step")
+        assert _current_step_var.get() is logger.test_run.steps[0]
+        assert _current_vector_var.get() is logger.test_run.steps[0].vectors[0]
+
+        logger.end_step()
+        assert _current_step_var.get() is None
+        assert _current_vector_var.get() is None
+
+    def test_log_measurement_resolves_from_contextvar(self):
+        """log_measurement() uses contextvar step when instance state is None."""
+        logger = TestRunLogger(
+            dut_serial="SN001",
+            station_id="station_001",
+            test_sequence_id="test",
+        )
+        # Create a step externally and set via contextvar
+        step = TestStep(name="external_step")
+        logger.test_run.steps.append(step)
+        vector = TestVector()
+        step.vectors.append(vector)
+
+        step_token = _current_step_var.set(step)
+        vector_token = _current_vector_var.set(vector)
+        try:
+            m = Measurement(name="voltage", value=5.0, outcome=Outcome.PASS)
+            logger.log_measurement(m)
+
+            assert len(vector.measurements) == 1
+            assert vector.measurements[0].name == "voltage"
+            assert step.outcome == Outcome.PASS
+        finally:
+            _current_step_var.reset(step_token)
+            _current_vector_var.reset(vector_token)
+
+    def test_register_step(self):
+        """register_step() adds step to test_run and returns index."""
+        logger = TestRunLogger(
+            dut_serial="SN001",
+            station_id="station_001",
+            test_sequence_id="test",
+        )
+        step = TestStep(name="registered_step")
+        idx = logger.register_step(step)
+
+        assert idx == 0
+        assert logger.test_run.steps[0] is step
+
+        step2 = TestStep(name="registered_step_2")
+        idx2 = logger.register_step(step2)
+        assert idx2 == 1
+
+    def test_log_measurement_no_double_append(self):
+        """log_measurement() doesn't double-append if measurement already in vector."""
+        logger = TestRunLogger(
+            dut_serial="SN001",
+            station_id="station_001",
+            test_sequence_id="test",
+        )
+        logger.start_step("test_step")
+        vector = _current_vector_var.get()
+
+        m = Measurement(name="voltage", value=5.0, outcome=Outcome.PASS)
+        # Pre-append (simulating what harness.measure() does)
+        vector.measurements.append(m)
+        # Now call log_measurement — should NOT double-append
+        logger.log_measurement(m)
+
+        assert len(vector.measurements) == 1

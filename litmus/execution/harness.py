@@ -16,6 +16,7 @@ from typing import TYPE_CHECKING, Any
 
 from litmus.config.models import Limit, MeasurementLimitConfig, PromptConfig, RetryConfig
 from litmus.data.models import Measurement, Outcome, TestStep, TestVector
+from litmus.execution.logger import _current_step_var, _current_vector_var
 from litmus.execution.vectors import Vector, expand_vectors
 
 if TYPE_CHECKING:
@@ -463,8 +464,7 @@ class TestHarness:
 
         # Current execution state
         self._current_vector: Vector | None = None
-        self._current_test_vector: TestVector | None = None
-        self._current_step: TestStep | None = None
+        self._current_step_index: int = -1
         self._attempt: int = 1
 
         # Hierarchical context: run → step → vector
@@ -801,15 +801,21 @@ class TestHarness:
         # Check limits
         measurement.check_limit()
 
-        # Add to current vector
-        if self._current_test_vector is not None:
-            self._current_test_vector.measurements.append(measurement)
-            # Update vector outcome
-            if measurement.outcome == Outcome.FAIL:
-                self._current_test_vector.outcome = Outcome.FAIL
-            elif measurement.outcome == Outcome.ERROR:
-                if self._current_test_vector.outcome != Outcome.FAIL:
-                    self._current_test_vector.outcome = Outcome.ERROR
+        # Add to current vector (resolved from contextvar)
+        current_tv = _current_vector_var.get()
+        if current_tv is not None:
+            current_tv.measurements.append(measurement)
+
+        # Stream to journal + destinations via logger (logger handles outcome updates)
+        if self._logger is not None:
+            self._logger.log_measurement(measurement)
+        elif current_tv is not None:
+            # No logger — harness must update outcome itself
+            # ERROR overrides everything (untrusted state)
+            if measurement.outcome == Outcome.ERROR:
+                current_tv.outcome = Outcome.ERROR
+            elif measurement.outcome == Outcome.FAIL and current_tv.outcome != Outcome.ERROR:
+                current_tv.outcome = Outcome.FAIL
 
         return measurement
 
@@ -1011,12 +1017,13 @@ class TestHarness:
             max_attempts=self._retry.max_attempts,
             started_at=_utcnow(),
         )
-        self._current_test_vector = test_vector
-
         # Add to current step if logging
-        if self._current_step is not None:
-            self._current_step.vectors.append(test_vector)
+        current_step = _current_step_var.get()
+        if current_step is not None:
+            current_step.vectors.append(test_vector)
 
+        # Set contextvar for concurrency-safe resolution
+        vector_token = _current_vector_var.set(test_vector)
         try:
             yield test_vector
         except AssertionError as e:
@@ -1037,10 +1044,10 @@ class TestHarness:
             test_vector.params = self._vector_context.inputs
             test_vector.observations = self._vector_context.outputs
             test_vector.ended_at = _utcnow()
+            _current_vector_var.reset(vector_token)
             # Save current context for next vector's change detection
             self._prev_vector_context = self._vector_context
             self._vector_context = None
-            self._current_test_vector = None
             self._current_vector = None
 
     def run_with_retry(
@@ -1125,33 +1132,32 @@ class TestHarness:
             description=description,
             started_at=_utcnow(),
         )
-        self._current_step = step
-
         # Create step context as child of run context
         self._step_context = self._run_context.child()
 
-        # Add to logger
+        # Register with logger (uses register_step instead of direct append)
         if self._logger is not None:
-            self._logger.test_run.steps.append(step)
+            self._current_step_index = self._logger.register_step(step)
             step.instrument_arrays = getattr(
                 self._logger, "_step_instrument_arrays", None
             )
 
+        # Set contextvar for concurrency-safe resolution
+        step_token = _current_step_var.set(step)
         try:
             yield step
         finally:
             step.ended_at = _utcnow()
 
-            # Compute step outcome from vectors
+            # Compute step outcome from vectors — ERROR overrides everything
             for tv in step.vectors:
-                if tv.outcome == Outcome.FAIL:
-                    step.outcome = Outcome.FAIL
-                    break
-                elif tv.outcome == Outcome.ERROR and step.outcome != Outcome.FAIL:
+                if tv.outcome == Outcome.ERROR:
                     step.outcome = Outcome.ERROR
+                elif tv.outcome == Outcome.FAIL and step.outcome != Outcome.ERROR:
+                    step.outcome = Outcome.FAIL
 
+            _current_step_var.reset(step_token)
             self._step_context = None
-            self._current_step = None
 
     def run_all(
         self,

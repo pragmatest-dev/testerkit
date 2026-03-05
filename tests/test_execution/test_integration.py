@@ -83,4 +83,6 @@ class TestFullFlow:
 
             result = measure_voltage()
             assert result.outcome == Outcome.FAIL
-            assert litmus_logger.test_run.outcome == Outcome.FAIL
+            # Check the current step's outcome (last step in shared session logger)
+            current_step = litmus_logger.test_run.steps[-1]
+            assert current_step.outcome == Outcome.FAIL

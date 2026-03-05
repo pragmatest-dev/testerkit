@@ -105,12 +105,14 @@ class TestMeasureWithLogger:
     """Tests for @measure decorator with logger integration."""
 
     def setup_method(self):
-        """Reset logger before each test."""
+        """Save and reset logger before each test."""
+        self._prev_logger = get_current_logger()
         set_current_logger(None)
 
     def teardown_method(self):
-        """Reset logger after each test."""
-        set_current_logger(None)
+        """Restore previous logger after each test."""
+        set_current_logger(self._prev_logger)
+
 
     def test_measure_logs_to_logger(self):
         logger = TestRunLogger(
@@ -128,9 +130,13 @@ class TestMeasureWithLogger:
         get_voltage()
 
         # Measurements are stored in vectors within the step
-        assert len(logger._current_step.vectors) == 1
-        assert len(logger._current_step.vectors[0].measurements) == 1
-        assert logger._current_step.vectors[0].measurements[0].name == "voltage"
+        from litmus.execution.logger import _current_step_var
+
+        step = _current_step_var.get()
+        assert step is not None
+        assert len(step.vectors) == 1
+        assert len(step.vectors[0].measurements) == 1
+        assert step.vectors[0].measurements[0].name == "voltage"
 
     def test_measure_without_logger_works(self):
         assert get_current_logger() is None

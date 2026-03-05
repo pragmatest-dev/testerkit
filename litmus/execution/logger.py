@@ -3,11 +3,17 @@
 from __future__ import annotations
 
 import os
+from contextvars import ContextVar, Token
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 from uuid import UUID
 
-from litmus.data.models import DUT, Measurement, Outcome, TestRun, TestStep, _utcnow
+from litmus.data.models import DUT, Measurement, Outcome, TestRun, TestStep, TestVector, _utcnow
+
+# Module-level contextvars for concurrency-safe step/vector resolution.
+# All execution paths (harness, decorator, fixture) set these; log_measurement() reads them.
+_current_step_var: ContextVar[TestStep | None] = ContextVar("_current_step", default=None)
+_current_vector_var: ContextVar[TestVector | None] = ContextVar("_current_vector", default=None)
 
 if TYPE_CHECKING:
     from litmus.data.backends.journal import JournalWriter
@@ -247,9 +253,12 @@ class TestRunLogger:
             test_config_yaml=test_config_yaml,
         )
         self._environment = environment
-        self._current_step: TestStep | None = None
         self._current_step_index: int = -1
-        self._current_vector = None  # For simple logging without harness
+        self._step_token: Token[TestStep | None] | None = None
+        self._vector_token: Token[TestVector | None] | None = None
+        # Clear contextvars — each logger owns its execution context
+        _current_step_var.set(None)
+        _current_vector_var.set(None)
         self._run_context = RunContext(self.test_run)
         self._instruments: dict[str, InstrumentRecord] = instruments or {}
         self._step_instrument_arrays: dict[str, list] | None = None
@@ -400,51 +409,72 @@ class TestRunLogger:
 
     def start_step(self, name: str, description: str | None = None):
         """Begin a new test step."""
-        from litmus.data.models import TestVector
-
-        self._current_step = TestStep(name=name, description=description)
+        # Auto-close any prior step that wasn't explicitly ended
+        if _current_step_var.get() is not None:
+            self.end_step()
+        step = TestStep(name=name, description=description)
         self._current_step_index += 1
-        self.test_run.steps.append(self._current_step)
+        self.test_run.steps.append(step)
         # Create a default vector for this step (for simple logging without harness)
-        self._current_vector = TestVector()
-        self._current_step.vectors.append(self._current_vector)
+        vector = TestVector()
+        step.vectors.append(vector)
+        # Token-based set for proper reset in end_step()
+        self._step_token = _current_step_var.set(step)
+        self._vector_token = _current_vector_var.set(vector)
+
+    def register_step(self, step: TestStep) -> int:
+        """Register an externally-created step. Returns step index.
+
+        Used by TestHarness to register steps it creates, so that
+        log_measurement() can find the correct step via contextvars.
+        """
+        self.test_run.steps.append(step)
+        self._current_step_index += 1
+        return self._current_step_index
 
     def log_measurement(self, measurement: Measurement):
         """Add measurement to current step.
 
-        Measurements are stored in TestVectors within the step.
-        If no step exists, one is auto-created.
+        Resolves step/vector from contextvars first (concurrency-safe),
+        falling back to instance state. If no step exists, one is auto-created.
         """
-        from litmus.data.models import TestVector
-
-        if self._current_step is None:
-            # Auto-create step if none exists
+        # Resolve step: contextvar only → auto-create
+        step = _current_step_var.get()
+        if step is None:
             self.start_step(measurement.name)
-        assert self._current_step is not None  # set by start_step above
+            step = _current_step_var.get()
+        assert step is not None
 
-        # Ensure we have a current vector
-        if not hasattr(self, "_current_vector") or self._current_vector is None:
-            self._current_vector = TestVector()
-            self._current_step.vectors.append(self._current_vector)
+        # Resolve vector: contextvar only → auto-create
+        vector = _current_vector_var.get()
+        if vector is None:
+            vector = TestVector()
+            step.vectors.append(vector)
+            self._vector_token = _current_vector_var.set(vector)
 
-        self._current_vector.measurements.append(measurement)
+        # Guard against double-append (harness.measure() appends before calling us)
+        if measurement not in vector.measurements:
+            vector.measurements.append(measurement)
 
-        # Update vector outcome
-        if measurement.outcome == Outcome.FAIL:
-            self._current_vector.outcome = Outcome.FAIL
-        elif measurement.outcome == Outcome.ERROR:
-            if self._current_vector.outcome != Outcome.FAIL:
-                self._current_vector.outcome = Outcome.ERROR
+        # Update vector outcome — ERROR overrides everything (untrusted state)
+        if measurement.outcome == Outcome.ERROR:
+            vector.outcome = Outcome.ERROR
+        elif measurement.outcome == Outcome.FAIL and vector.outcome != Outcome.ERROR:
+            vector.outcome = Outcome.FAIL
 
-        # Update step pass/fail
-        if measurement.outcome == Outcome.FAIL:
-            self._current_step.outcome = Outcome.FAIL
-            self.test_run.outcome = Outcome.FAIL
-        elif measurement.outcome == Outcome.ERROR:
-            if self._current_step.outcome != Outcome.FAIL:
-                self._current_step.outcome = Outcome.ERROR
-            if self.test_run.outcome != Outcome.FAIL:
-                self.test_run.outcome = Outcome.ERROR
+        # Update step/run outcome — ERROR overrides everything
+        if measurement.outcome == Outcome.ERROR:
+            step.outcome = Outcome.ERROR
+            self.test_run.outcome = Outcome.ERROR
+        elif measurement.outcome == Outcome.FAIL:
+            if step.outcome != Outcome.ERROR:
+                step.outcome = Outcome.FAIL
+            if self.test_run.outcome != Outcome.ERROR:
+                self.test_run.outcome = Outcome.FAIL
+
+        # Use stored index directly instead of O(n) scan.
+        # Only valid for the most recently started/registered step.
+        step_index = self._current_step_index
 
         # Build row once — works with or without journal
         from litmus.data.backends._row_helpers import build_row
@@ -453,13 +483,13 @@ class TestRunLogger:
         row = build_row(
             self.test_run,
             measurement,
-            self._current_step.name,
-            self._current_step_index,
-            self._current_vector,
+            step.name,
+            step_index,
+            vector,
             self._step_instrument_arrays or {},
             ref_saver=ref_saver,
-            step_started_at=self._current_step.started_at,
-            step_ended_at=self._current_step.ended_at,
+            step_started_at=step.started_at,
+            step_ended_at=step.ended_at,
         )
 
         # Stream to journal for live observability
@@ -484,13 +514,19 @@ class TestRunLogger:
 
     def end_step(self):
         """Finalize current step."""
-        if self._current_step:
-            self._current_step.ended_at = _utcnow()
-            # Also end the current vector
-            if self._current_vector:
-                self._current_vector.ended_at = _utcnow()
-        self._current_step = None
-        self._current_vector = None
+        step = _current_step_var.get()
+        if step is not None:
+            step.ended_at = _utcnow()
+        vector = _current_vector_var.get()
+        if vector is not None:
+            vector.ended_at = _utcnow()
+        # Reset via tokens for proper contextvar hygiene
+        if self._step_token is not None:
+            _current_step_var.reset(self._step_token)
+            self._step_token = None
+        if self._vector_token is not None:
+            _current_vector_var.reset(self._vector_token)
+            self._vector_token = None
 
     def measure(
         self,
