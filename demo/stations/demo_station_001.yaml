@@ -1,5 +1,6 @@
 id: demo_station_001
 name: Demo Test Station
+station_type: bench
 location: Virtual Lab
 description: Mock station for demonstrating Litmus capabilities
 instruments:

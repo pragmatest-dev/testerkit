@@ -252,7 +252,9 @@ class TestRunLogger:
             fixture_config_yaml=fixture_config_yaml,
             test_config_yaml=test_config_yaml,
         )
-        self._environment = environment
+        # Serialize environment eagerly so every journal row has it
+        if environment is not None:
+            self.test_run.environment_json = environment.model_dump_json()
         self._current_step_index: int = -1
         self._step_token: Token[TestStep | None] | None = None
         self._vector_token: Token[TestVector | None] | None = None
@@ -624,10 +626,6 @@ class TestRunLogger:
             self.end_step()
 
         self.test_run.ended_at = _utcnow()
-
-        # Serialize environment snapshot
-        if self._environment is not None:
-            self.test_run.environment_json = self._environment.model_dump_json()
 
         # Close journal writer
         if self._journal is not None:

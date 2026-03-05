@@ -637,3 +637,71 @@ class TestReconstructTestRun:
         assert "custom_operator_badge" in rows[0]
         assert rows[0]["custom_operator_badge"] == "EMP-123"
         assert "instr_name" in rows[0]
+
+
+class TestHarnessLoggerIntegration:
+    """Verify harness.measure() streams through logger (journal + destinations)."""
+
+    def test_harness_measure_calls_log_measurement(self):
+        """harness.measure() should stream measurements to logger destinations."""
+        from litmus.data.backends._row_helpers import MeasurementRow
+        from litmus.execution.harness import TestHarness
+        from litmus.execution.logger import TestRunLogger
+
+        logger = TestRunLogger(
+            dut_serial="DUT001",
+            station_id="station_001",
+            test_sequence_id="seq",
+        )
+
+        received: list[MeasurementRow] = []
+
+        class RecordingDest:
+            format_name = "recording"
+
+            def append_row(self, row: MeasurementRow) -> None:
+                received.append(row)
+
+            def open(self, config=None, test_run=None):
+                pass
+
+            def mark_run_boundary(self, run_id: str) -> None:
+                pass
+
+            def close(self) -> None:
+                pass
+
+        logger.add_streaming_destination(RecordingDest())
+
+        harness = TestHarness(logger=logger, step_name="test_voltage")
+        with harness.step("test_voltage"):
+            for vector in harness.vectors:
+                with harness.run_vector(vector):
+                    harness.measure("vout", 3.3)
+
+        # Measurement should have been streamed to the recording destination
+        assert len(received) == 1
+        assert received[0].measurement_name == "vout"
+        assert received[0].value == 3.3
+        # Step name should be the harness step, not auto-created from measurement name
+        assert received[0].step_name == "test_voltage"
+
+    def test_harness_measure_no_double_append_to_vector(self):
+        """Measurement should appear exactly once in the vector."""
+        from litmus.execution.harness import TestHarness
+        from litmus.execution.logger import TestRunLogger
+
+        logger = TestRunLogger(
+            dut_serial="DUT001",
+            station_id="station_001",
+            test_sequence_id="seq",
+        )
+        harness = TestHarness(logger=logger, step_name="test_voltage")
+        with harness.step("test_voltage") as step:
+            for vector in harness.vectors:
+                with harness.run_vector(vector):
+                    harness.measure("vout", 3.3)
+
+        # Only one measurement in the vector
+        assert len(step.vectors[0].measurements) == 1
+        assert step.vectors[0].measurements[0].name == "vout"

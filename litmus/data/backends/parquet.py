@@ -36,6 +36,7 @@ from litmus.data.backends._row_helpers import (
     save_ref_to_dir,
 )
 from litmus.data.models import TestRun, Waveform
+from litmus.execution.logger import INSTRUMENT_ARRAY_KEYS
 
 # Canonical schema for fixed columns. Dynamic columns (in_*, out_*, instr_*, custom_*)
 # are NOT listed here — they pass through with inferred types.
@@ -401,6 +402,12 @@ class ParquetBackend:
                 if isinstance(val, str):
                     row[col] = datetime.fromisoformat(val.replace("Z", "+00:00"))
 
+        # Ensure all rows have instrument array columns for schema consistency
+        for row in rows:
+            for key in INSTRUMENT_ARRAY_KEYS:
+                if key not in row:
+                    row[key] = []
+
         # Convert JSONL rows to Parquet with canonical types
         table = pa.Table.from_pylist(rows)
         table = _enforce_schema(table)
@@ -439,7 +446,7 @@ class ParquetBackend:
             step_arrays = (
                 step.instrument_arrays
                 if step.instrument_arrays
-                else instrument_arrays or {}
+                else instrument_arrays or {k: [] for k in INSTRUMENT_ARRAY_KEYS}
             )
             for vector in step.vectors:
                 for measurement in vector.measurements:
@@ -499,8 +506,6 @@ class ParquetBackend:
         if instrument_arrays:
             row.update(instrument_arrays)
         else:
-            from litmus.execution.logger import INSTRUMENT_ARRAY_KEYS
-
             for key in INSTRUMENT_ARRAY_KEYS:
                 row[key] = []
 

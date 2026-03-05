@@ -72,6 +72,7 @@ class StationConfig(BaseModel):
 
     id: str
     name: str
+    station_type: str | None = None
     location: str | None = None
     description: str | None = None
     instruments: dict[str, StationInstrumentConfig] = Field(default_factory=dict)
