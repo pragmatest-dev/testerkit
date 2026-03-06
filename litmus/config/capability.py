@@ -10,12 +10,10 @@ from enum import StrEnum
 from pydantic import BaseModel, Field, computed_field, model_validator
 
 from litmus.config.enums import (
-    CompareMode,
     ConnectorType,
     Direction,
     GroundTopology,
     MeasurementFunction,
-    ParameterRole,
     TerminalRole,
 )
 
@@ -189,42 +187,6 @@ class SpecBand(BaseModel):
 # =============================================================================
 
 
-class SignalParameter(BaseModel):
-    """A named parameter within a measurement function's capability.
-
-    .. deprecated::
-        Use ``Signal``, ``Condition``, ``Control``, or ``Attribute`` instead.
-        SignalParameter is kept temporarily for backward compatibility with
-        instrument library YAML files and existing code.
-
-    Each parameter describes a dimension of an instrument's capability
-    (range, accuracy, resolution) or a fixed performance characteristic
-    (bandwidth, sample rate).
-
-    Top-level accuracy/resolution are defaults when no SpecBand matches.
-    The ``specs`` list holds condition-dependent overrides.
-
-    Example YAML:
-        voltage:
-          range: {min: 0.1, max: 750, units: V}
-          accuracy: {pct_reading: 0.07, pct_range: 0.02}
-          resolution: {digits: 6.5}
-          specs:
-            - when:
-                frequency: {min: 3, max: 5, units: Hz}
-              accuracy: {pct_reading: 0.35, pct_range: 0.03}
-    """
-
-    range: RangeSpec | None = None
-    accuracy: AccuracySpec | None = None
-    resolution: ResolutionSpec | None = None
-    value: float | None = None  # Fixed value (for capability params like bandwidth)
-    units: str | None = None
-    role: ParameterRole = ParameterRole.CONTROLLABLE
-    specs: list[SpecBand] | None = None  # Condition-dependent overrides
-    compare: CompareMode | None = None  # Comparison direction for capability params
-
-
 class Signal(BaseModel):
     """A measurable/sourceable parameter — the primary signal dimension.
 
@@ -369,8 +331,8 @@ class Attribute(BaseModel):
         count = sum([has_value, has_range, has_options])
         if count == 0 and not has_specs and not has_note:
             raise ValueError(
-                "Attribute must have exactly one of 'value', 'range', or 'options'"
-                " (or 'specs' for condition-dependent values, or 'note' for unstructured data)"
+                "Attribute must provide one of: 'value', 'range', 'options',"
+                " 'specs' (condition-dependent), or 'note' (unstructured)"
             )
         if count > 1:
             raise ValueError(

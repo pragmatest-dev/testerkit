@@ -212,9 +212,13 @@ class RangeConfig(BaseModel):
     count: int | None = None
 
     def model_post_init(self, _: Any) -> None:
-        """Validate that exactly one of step or count is provided."""
+        """Validate step/count constraints."""
         if (self.step is None) == (self.count is None):
             raise ValueError("Exactly one of 'step' or 'count' must be provided")
+        if self.step is not None and self.step <= 0:
+            raise ValueError("'step' must be positive")
+        if self.count is not None and self.count < 1:
+            raise ValueError("'count' must be >= 1")
 
 
 class LoopVariableConfig(BaseModel):
@@ -272,18 +276,20 @@ class LoopVariableConfig(BaseModel):
         if self.range is not None:
             # Generate from RangeConfig
             result: list[float] = []
-            current = self.range.start
             if self.range.step is not None:
                 step = self.range.step
-                while current <= self.range.stop:
-                    result.append(current)
-                    current += step
+                num_steps = int((self.range.stop - self.range.start) / step) + 1
+                for i in range(num_steps):
+                    result.append(self.range.start + i * step)
             elif self.range.count is not None:
                 # Linear interpolation
-                span = self.range.stop - self.range.start
                 count = self.range.count
-                for i in range(count):
-                    result.append(self.range.start + span * i / (count - 1))
+                if count == 1:
+                    result.append(self.range.start)
+                else:
+                    span = self.range.stop - self.range.start
+                    for i in range(count):
+                        result.append(self.range.start + span * i / (count - 1))
             return result
 
         return []
@@ -538,8 +544,8 @@ class TestStepConfig(BaseModel):
     sequence: str | None = None  # Reference another sequence by ID
     description: str | None = None
     measurement_name: str | None = None
-    limit: Limit | None = None
-    limit_ref: str | None = None  # Reference to spec -> derived limit
+    limit: Limit | None = None  # Inline limit (highest precedence)
+    limit_ref: str | None = None  # Spec-derived limit (second precedence)
     pre_dialog: str | None = None  # Reference to DialogConfig
     post_dialog: str | None = None
     aliases: dict[str, str] = Field(
@@ -547,7 +553,7 @@ class TestStepConfig(BaseModel):
         description="Maps alias names (test fixture params) to station instrument roles",
     )
     vectors: list[dict[str, Any]] | dict[str, Any] | None = None
-    limits: dict[str, Any] | None = None
+    limits: dict[str, Any] | None = None  # Bulk limits dict (lowest precedence)
     mocks: dict[str, Any] | None = None
     retry: RetryConfig | None = None
     skip_on: list[str] | None = None  # Skip if these tests failed

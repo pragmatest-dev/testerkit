@@ -20,7 +20,6 @@ from litmus.config.capability import (  # noqa: F401
     RangeSpec,
     ResolutionSpec,
     Signal,
-    SignalParameter,
     SpecBand,
     SpecQualifier,
 )

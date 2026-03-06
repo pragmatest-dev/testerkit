@@ -35,9 +35,9 @@ def load_test_config(path: Path) -> dict[str, dict[str, Any]]:
         Dictionary mapping test function name to config dict.
     """
     with open(path) as f:
-        data = yaml.safe_load(f)
+        data = yaml.safe_load(f) or {}
 
-    if data is None:
+    if not data:
         return {}
 
     configs = {}

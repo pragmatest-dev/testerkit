@@ -19,13 +19,15 @@ from __future__ import annotations
 
 import copy
 import warnings
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from pathlib import Path
 from typing import Any, Literal
 
 import yaml
+from pydantic import ValidationError
 
 from litmus.catalog.models import InstrumentCatalogEntry
+from litmus.config.fmt import dump_yaml
 from litmus.config.models import FixtureConfig, TestSequenceConfig
 from litmus.products.models import Product
 from litmus.schemas import (
@@ -60,32 +62,49 @@ def find_yaml_files(
     search_paths: list[Path],
     *,
     prefix_skip: str = "_",
-    pattern: str = "*.yaml",
-) -> Iterator[tuple[Path, dict[str, Any]]]:
-    """Iterate over YAML files in search paths, loading their contents.
+) -> Iterator[Path]:
+    """Iterate over YAML file paths in search paths.
 
     Yields:
-        Tuples of (file_path, parsed_data) for each valid YAML file.
+        Path to each YAML file (skipping files starting with *prefix_skip*).
     """
     for search_dir in search_paths:
         if not search_dir.exists():
             continue
-        for yaml_file in search_dir.glob(pattern):
+        for yaml_file in search_dir.glob("*.yaml"):
             if prefix_skip and yaml_file.name.startswith(prefix_skip):
                 continue
-            try:
-                with open(yaml_file) as f:
-                    data = yaml.safe_load(f)
-                    if data is not None:
-                        yield yaml_file, data
-            except Exception:
-                continue
+            yield yaml_file
+
+
+def _resolve_save_path(
+    entity_id: str,
+    search_paths: list[Path],
+    default_dir_name: str,
+    project_root: Path | None,
+) -> Path:
+    """Find existing file for entity, or pick a writable directory, or create default."""
+    # 1. Find existing file
+    for search_dir in search_paths:
+        if search_dir.exists():
+            existing = search_dir / f"{entity_id}.yaml"
+            if existing.exists():
+                return existing
+
+    # 2. Use first existing directory
+    for search_dir in search_paths:
+        if search_dir.exists():
+            return search_dir / f"{entity_id}.yaml"
+
+    # 3. Create default directory
+    root = _resolve_root(project_root)
+    default_dir = root / default_dir_name
+    default_dir.mkdir(exist_ok=True)
+    return default_dir / f"{entity_id}.yaml"
 
 
 def _write_model(path: Path, model_data: dict[str, Any]) -> None:
     """Write a model dict to YAML using Litmus formatting conventions."""
-    from litmus.config.fmt import dump_yaml
-
     path.write_text(dump_yaml(model_data))
 
 
@@ -113,12 +132,12 @@ def get_station(
     station_id: str, *, project_root: Path | None = None,
 ) -> StationConfig | None:
     """Load station configuration by ID."""
-    for yaml_file, _ in find_yaml_files(get_station_paths(project_root)):
+    for yaml_file in find_yaml_files(get_station_paths(project_root)):
         try:
             station = load_station(yaml_file)
-            if station.id == station_id:
+            if station.id == station_id or yaml_file.stem == station_id:
                 return station
-        except Exception:
+        except (yaml.YAMLError, ValidationError, OSError):
             continue
     return None
 
@@ -126,11 +145,16 @@ def get_station(
 def list_stations(*, project_root: Path | None = None) -> list[StationConfig]:
     """List all available stations."""
     stations: list[StationConfig] = []
-    for yaml_file, _ in find_yaml_files(get_station_paths(project_root)):
+    seen_ids: set[str] = set()
+    for yaml_file in find_yaml_files(get_station_paths(project_root)):
         try:
-            stations.append(load_station(yaml_file))
-        except Exception:
+            station = load_station(yaml_file)
+        except (yaml.YAMLError, ValidationError, OSError):
             continue
+        if station.id in seen_ids:
+            continue
+        seen_ids.add(station.id)
+        stations.append(station)
     return stations
 
 
@@ -140,6 +164,8 @@ def save_station(
     """Save station configuration to YAML file."""
     search_paths = get_station_paths(project_root)
 
+    # Station-specific: files may use location prefixes (e.g., lab_station1.yaml
+    # for id=station1). Other entity types use exact ID matching via _resolve_save_path.
     target_file = None
     for stations_dir in search_paths:
         if stations_dir.exists():
@@ -151,16 +177,9 @@ def save_station(
                 break
 
     if target_file is None:
-        for stations_dir in search_paths:
-            if stations_dir.exists():
-                target_file = stations_dir / f"{station.id}.yaml"
-                break
-
-    if target_file is None:
-        root = _resolve_root(project_root)
-        stations_dir = root / "stations"
-        stations_dir.mkdir(exist_ok=True)
-        target_file = stations_dir / f"{station.id}.yaml"
+        target_file = _resolve_save_path(
+            station.id, search_paths, "stations", project_root,
+        )
 
     _write_model(target_file, station.model_dump(exclude_none=True))
     return True
@@ -210,12 +229,12 @@ def get_fixture(
     fixture_id: str, *, project_root: Path | None = None,
 ) -> FixtureConfig | None:
     """Load fixture configuration by ID."""
-    for yaml_file, _ in find_yaml_files(get_fixture_paths(project_root)):
+    for yaml_file in find_yaml_files(get_fixture_paths(project_root)):
         try:
             fixture = load_fixture(yaml_file)
             if fixture.id == fixture_id or yaml_file.stem == fixture_id:
                 return fixture
-        except Exception:
+        except (yaml.YAMLError, ValidationError, OSError):
             continue
     return None
 
@@ -224,10 +243,10 @@ def list_fixtures(*, project_root: Path | None = None) -> list[FixtureConfig]:
     """List all available fixtures."""
     fixtures: list[FixtureConfig] = []
     seen_ids: set[str] = set()
-    for yaml_file, _ in find_yaml_files(get_fixture_paths(project_root)):
+    for yaml_file in find_yaml_files(get_fixture_paths(project_root)):
         try:
             fixture = load_fixture(yaml_file)
-        except Exception:
+        except (yaml.YAMLError, ValidationError, OSError):
             continue
         if fixture.id in seen_ids:
             continue
@@ -240,28 +259,9 @@ def save_fixture(
     fixture: FixtureConfig, *, project_root: Path | None = None,
 ) -> bool:
     """Save fixture configuration to YAML file."""
-    search_paths = get_fixture_paths(project_root)
-
-    target_file = None
-    for fixtures_dir in search_paths:
-        if fixtures_dir.exists():
-            existing = fixtures_dir / f"{fixture.id}.yaml"
-            if existing.exists():
-                target_file = existing
-                break
-
-    if target_file is None:
-        for fixtures_dir in search_paths:
-            if fixtures_dir.exists():
-                target_file = fixtures_dir / f"{fixture.id}.yaml"
-                break
-
-    if target_file is None:
-        root = _resolve_root(project_root)
-        fixtures_dir = root / "fixtures"
-        fixtures_dir.mkdir(exist_ok=True)
-        target_file = fixtures_dir / f"{fixture.id}.yaml"
-
+    target_file = _resolve_save_path(
+        fixture.id, get_fixture_paths(project_root), "fixtures", project_root,
+    )
     _write_model(target_file, fixture.model_dump(exclude_none=True))
     return True
 
@@ -312,12 +312,12 @@ def get_sequence(
     sequence_id: str, *, project_root: Path | None = None,
 ) -> TestSequenceConfig | None:
     """Load sequence configuration by ID."""
-    for yaml_file, _ in find_yaml_files(get_sequence_paths(project_root)):
+    for yaml_file in find_yaml_files(get_sequence_paths(project_root)):
         try:
             seq = load_sequence(yaml_file)
             if seq.id == sequence_id or yaml_file.stem == sequence_id:
                 return seq
-        except Exception:
+        except (yaml.YAMLError, ValidationError, OSError):
             continue
     return None
 
@@ -327,11 +327,16 @@ def list_sequences(
 ) -> list[TestSequenceConfig]:
     """List all available sequences."""
     sequences: list[TestSequenceConfig] = []
-    for yaml_file, _ in find_yaml_files(get_sequence_paths(project_root)):
+    seen_ids: set[str] = set()
+    for yaml_file in find_yaml_files(get_sequence_paths(project_root)):
         try:
-            sequences.append(load_sequence(yaml_file))
-        except Exception:
+            seq = load_sequence(yaml_file)
+        except (yaml.YAMLError, ValidationError, OSError):
             continue
+        if seq.id in seen_ids:
+            continue
+        seen_ids.add(seq.id)
+        sequences.append(seq)
     return sequences
 
 
@@ -339,28 +344,9 @@ def save_sequence(
     sequence: TestSequenceConfig, *, project_root: Path | None = None,
 ) -> bool:
     """Save sequence configuration to YAML file."""
-    search_paths = get_sequence_paths(project_root)
-
-    target_file = None
-    for seq_dir in search_paths:
-        if seq_dir.exists():
-            existing = seq_dir / f"{sequence.id}.yaml"
-            if existing.exists():
-                target_file = existing
-                break
-
-    if target_file is None:
-        for seq_dir in search_paths:
-            if seq_dir.exists():
-                target_file = seq_dir / f"{sequence.id}.yaml"
-                break
-
-    if target_file is None:
-        root = _resolve_root(project_root)
-        sequences_dir = root / "sequences"
-        sequences_dir.mkdir(exist_ok=True)
-        target_file = sequences_dir / f"{sequence.id}.yaml"
-
+    target_file = _resolve_save_path(
+        sequence.id, get_sequence_paths(project_root), "sequences", project_root,
+    )
     _write_model(target_file, sequence.model_dump(exclude_none=True))
     return True
 
@@ -455,7 +441,7 @@ def _load_product_with_inheritance(
                 if candidate_data.get("id") == base_ref:
                     base_path = candidate
                     break
-            except Exception:
+            except (yaml.YAMLError, OSError):
                 continue
     if not base_path.exists():
         raise ValueError(
@@ -470,20 +456,26 @@ def _load_product_with_inheritance(
 def _merge_product_data(
     base: dict[str, Any], variant: dict[str, Any],
 ) -> dict[str, Any]:
-    """Merge base and variant product YAML with section-level override."""
-    merged: dict[str, Any] = {}
+    """Merge base and variant product YAML with section-level override.
 
+    Scalar fields: base provides defaults, variant overrides.
+    Section fields (pins, signal_groups, characteristics): variant wins
+    entirely if present, otherwise base is inherited. Deep-copied to
+    avoid shared references.
+    """
+    # Start with base scalars, then overlay all variant keys
+    merged: dict[str, Any] = {}
     for key in ("name", "description", "revision", "part_number", "datasheet", "schematic"):
         if key in base:
             merged[key] = base[key]
-
     merged.update(variant)
 
+    # Inherit base sections not in variant; deep-copy all to avoid shared refs
     for section in ("pins", "signal_groups", "characteristics"):
-        if section in variant:
-            merged[section] = variant[section]
-        elif section in base:
-            merged[section] = base[section]
+        if section not in merged and section in base:
+            merged[section] = copy.deepcopy(base[section])
+        elif section in merged:
+            merged[section] = copy.deepcopy(merged[section])
 
     return merged
 
@@ -509,17 +501,15 @@ def get_product(
         if flat_file.exists():
             try:
                 return load_product(flat_file)
-            except Exception:
+            except (yaml.YAMLError, ValidationError, OSError, ValueError):
                 pass
-        # Fallback: rglob scan (handles any nesting depth)
-        for yaml_file in products_dir.rglob("*.yaml"):
+        # Fallback: search by filename in subdirectories
+        for yaml_file in products_dir.rglob(f"{product_id}.yaml"):
             if yaml_file.name.startswith("_"):
                 continue
             try:
-                product = load_product(yaml_file)
-                if product.id == product_id:
-                    return product
-            except Exception:
+                return load_product(yaml_file)
+            except (yaml.YAMLError, ValidationError, OSError, ValueError):
                 continue
     return None
 
@@ -536,12 +526,12 @@ def list_products(*, project_root: Path | None = None) -> list[Product]:
                 continue
             try:
                 product = load_product(yaml_file)
-                if product.id in seen_ids:
-                    continue
-                seen_ids.add(product.id)
-                products.append(product)
-            except Exception:
+            except (yaml.YAMLError, ValidationError, OSError, ValueError):
                 continue
+            if product.id in seen_ids:
+                continue
+            seen_ids.add(product.id)
+            products.append(product)
     return products
 
 
@@ -558,12 +548,11 @@ def save_product(
             if yaml_file.name.startswith("_"):
                 continue
             try:
-                import yaml as _yaml
-                data = _yaml.safe_load(yaml_file.read_text())
-                if isinstance(data, dict) and data.get("id") == product.id:
+                data = _read_yaml(yaml_file)
+                if data.get("id") == product.id:
                     target_file = yaml_file
                     break
-            except Exception:
+            except (yaml.YAMLError, OSError):
                 continue
         if target_file:
             break
@@ -613,20 +602,10 @@ def load_catalog_entry(
     path: Path, catalog_dir: Path | None = None,
 ) -> InstrumentCatalogEntry:
     """Load a single catalog entry from a YAML file, resolving inheritance."""
-    import sys
-    import time
-    _start = time.perf_counter()
-    def _log(msg: str) -> None:
-        sys.stderr.write(msg + "\n")
-        sys.stderr.flush()
-
     if catalog_dir is None:
         catalog_dir = path.parent
     data = _load_catalog_with_inheritance(path, catalog_dir, seen=set(), depth=0)
-    _log(f"[load_entry] +{(time.perf_counter() - _start)*1000:.0f}ms - YAML loaded")
-    result = _build_catalog_entry(data, path)
-    _log(f"[load_entry] +{(time.perf_counter() - _start)*1000:.0f}ms - Pydantic validated")
-    return result
+    return _build_catalog_entry(data, path)
 
 
 def _load_catalog_with_inheritance(
@@ -638,8 +617,7 @@ def _load_catalog_with_inheritance(
             f"Catalog inheritance depth exceeds {_MAX_CATALOG_INHERIT_DEPTH} for {path}"
         )
 
-    with open(path) as f:
-        data = yaml.safe_load(f)
+    data = _read_yaml(path)
 
     entry_id = data.get("id", path.stem)
     base_ref = data.get("base")
@@ -689,7 +667,9 @@ def _merge_catalog_data(
 
     if variant_caps and base_caps:
         merged_entry["capabilities"] = _merge_capabilities(base_caps, variant_caps)
-    elif not variant_caps and base_caps:
+    elif variant_caps:
+        merged_entry["capabilities"] = variant_caps
+    elif base_caps:
         merged_entry["capabilities"] = base_caps
 
     return merged_entry
@@ -702,7 +682,13 @@ def _cap_key(cap: dict[str, Any]) -> tuple[str, str]:
 def _merge_capabilities(
     base_caps: list[dict[str, Any]], variant_caps: list[dict[str, Any]],
 ) -> list[dict[str, Any]]:
-    """Merge variant capabilities into base capabilities by (function, direction)."""
+    """Merge variant capabilities into base capabilities by (function, direction).
+
+    When function+direction keys match: signals/conditions/controls/attributes
+    are deep-merged at the parameter level. Other fields (channels, modes,
+    readback) are overwritten by the variant. New capabilities in the variant
+    are appended.
+    """
     merged: list[dict[str, Any]] = [copy.deepcopy(c) for c in base_caps]
     base_index: dict[tuple[str, str], int] = {}
     for i, cap in enumerate(base_caps):
@@ -776,7 +762,7 @@ def load_catalog_from_directory(catalog_dir: Path) -> dict[str, InstrumentCatalo
             entry = load_catalog_entry(path, catalog_dir=catalog_dir)
             if entry.id:
                 entries[entry.id] = entry
-        except Exception as exc:
+        except (yaml.YAMLError, ValidationError, OSError, ValueError) as exc:
             warnings.warn(
                 f"catalog: failed to load {path.name}: {exc}",
                 stacklevel=2,
@@ -814,30 +800,18 @@ def resolve_catalog_ref(
     catalog_ref: str, *, project_root: Path | None = None,
 ) -> InstrumentCatalogEntry | None:
     """Resolve a catalog reference ID to a catalog entry."""
-    import sys
-    import time
-    _start = time.perf_counter()
-    def _log(msg: str) -> None:
-        sys.stderr.write(msg + "\n")
-        sys.stderr.flush()
-
-    _log(f"[resolve_catalog] START {catalog_ref}")
     for cat_dir in find_catalog_dirs(project_root=project_root):
-        _log(f"[resolve_catalog] +{(time.perf_counter() - _start)*1000:.0f}ms - checking {cat_dir}")
         # Try direct filename match first
         direct_path = cat_dir / f"{catalog_ref}.yaml"
         if direct_path.exists():
-            _log(f"[resolve_catalog] +{(time.perf_counter() - _start)*1000:.0f}ms - found")
             try:
-                entry = load_catalog_entry(direct_path, catalog_dir=cat_dir)
-                _log(f"[resolve_catalog] +{(time.perf_counter() - _start)*1000:.0f}ms - loaded")
-                return entry
-            except Exception as exc:
+                return load_catalog_entry(direct_path, catalog_dir=cat_dir)
+            except (yaml.YAMLError, ValidationError, OSError, ValueError) as exc:
                 warnings.warn(
                     f"catalog: failed to load {direct_path.name}: {exc}",
                     stacklevel=2,
                 )
-                return None
+                # Fall through to rglob and other catalog dirs
 
         # Fallback: search subdirectories
         for path in cat_dir.rglob(f"{catalog_ref}.yaml"):
@@ -845,12 +819,12 @@ def resolve_catalog_ref(
                 continue
             try:
                 return load_catalog_entry(path, catalog_dir=cat_dir)
-            except Exception as exc:
+            except (yaml.YAMLError, ValidationError, OSError, ValueError) as exc:
                 warnings.warn(
                     f"catalog: failed to load {path.name}: {exc}",
                     stacklevel=2,
                 )
-                return None
+                continue
 
         # NOTE: "Last resort" full scan removed - was loading ALL catalog files
         # to check IDs, causing 100+ file loads per lookup. If direct path and
@@ -875,7 +849,7 @@ def find_by_model(
                 continue
             try:
                 entry = load_catalog_entry(path, catalog_dir=cat_dir)
-            except Exception:
+            except (yaml.YAMLError, ValidationError, OSError, ValueError):
                 continue
             if (
                 entry.manufacturer
@@ -893,11 +867,30 @@ def get_catalog_entry(
 ) -> InstrumentCatalogEntry | None:
     """Get a catalog entry by ID or type.
 
-    Searches all catalog directories.
+    Tries direct filename match first, then rglob by filename, then falls
+    back to full scan (needed for type-based lookup).
     """
     for cat_dir in find_catalog_dirs(project_root=project_root):
+        # Fast path: direct filename match
+        direct_path = cat_dir / f"{catalog_id}.yaml"
+        if direct_path.exists():
+            try:
+                return load_catalog_entry(direct_path, catalog_dir=cat_dir)
+            except (yaml.YAMLError, ValidationError, OSError, ValueError):
+                pass
+
+        # Fast path: rglob by filename (subdirectory match)
+        for path in cat_dir.rglob(f"{catalog_id}.yaml"):
+            if path.name.startswith("_") or ".variants." in path.name:
+                continue
+            try:
+                return load_catalog_entry(path, catalog_dir=cat_dir)
+            except (yaml.YAMLError, ValidationError, OSError, ValueError):
+                continue
+
+        # Slow path: full scan for type-based lookup
         for entry_id, entry in load_catalog_from_directory(cat_dir).items():
-            if entry.id == catalog_id or entry.type == catalog_id:
+            if entry.type == catalog_id:
                 return entry
     return None
 
@@ -984,7 +977,7 @@ def load_instrument_files(instruments_dir: Path) -> dict[str, InstrumentAssetFil
         try:
             asset = load_instrument_asset(path)
             instruments[asset.id] = asset
-        except Exception:
+        except (yaml.YAMLError, ValidationError, OSError):
             pass
     return instruments
 
@@ -1001,7 +994,7 @@ def get_instrument_asset(
                 asset = load_instrument_asset(yaml_file)
                 if asset.id == instrument_id:
                     return asset
-            except Exception:
+            except (yaml.YAMLError, ValidationError, OSError):
                 continue
     return None
 
@@ -1018,7 +1011,7 @@ def list_instrument_assets(
         for yaml_file in instruments_dir.glob("*.yaml"):
             try:
                 asset = load_instrument_asset(yaml_file)
-            except Exception:
+            except (yaml.YAMLError, ValidationError, OSError):
                 continue
             if asset.id in seen_ids:
                 continue
@@ -1045,27 +1038,9 @@ def save_instrument_asset(
     if target_path is not None:
         target_file = target_path
     else:
-        search_paths = get_instrument_paths(project_root)
-
-        target_file = None
-        for instruments_dir in search_paths:
-            if instruments_dir.exists():
-                existing = instruments_dir / f"{asset.id}.yaml"
-                if existing.exists():
-                    target_file = existing
-                    break
-
-        if target_file is None:
-            for instruments_dir in search_paths:
-                if instruments_dir.exists():
-                    target_file = instruments_dir / f"{asset.id}.yaml"
-                    break
-
-        if target_file is None:
-            root = _resolve_root(project_root)
-            instruments_dir = root / "instruments"
-            instruments_dir.mkdir(exist_ok=True)
-            target_file = instruments_dir / f"{asset.id}.yaml"
+        target_file = _resolve_save_path(
+            asset.id, get_instrument_paths(project_root), "instruments", project_root,
+        )
 
     _write_model(target_file, asset.model_dump(exclude_none=True))
     return True
@@ -1101,7 +1076,19 @@ def load_station_type(
     if not yaml_file.exists():
         return None
     try:
-        with open(yaml_file) as f:
-            return yaml.safe_load(f)
-    except Exception:
+        return _read_yaml(yaml_file)
+    except (yaml.YAMLError, OSError):
         return None
+
+
+# =============================================================================
+# Loader registry (single source of truth for validation.py)
+# =============================================================================
+
+FILE_LOADERS: dict[str, Callable[[Path], object]] = {
+    "station": load_station,
+    "sequence": load_sequence,
+    "fixture": load_fixture,
+    "instrument_asset": load_instrument_asset,
+    "project": load_project,
+}

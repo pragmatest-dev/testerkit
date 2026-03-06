@@ -9,22 +9,7 @@ import yaml
 from pydantic import ValidationError
 
 from litmus.schemas import FileType
-from litmus.store import (
-    load_fixture,
-    load_instrument_asset,
-    load_project,
-    load_sequence,
-    load_station,
-)
-
-# Maps type names to file-based loader functions.
-_FILE_LOADER_MAP: dict[str, Callable[[Path], object]] = {
-    "station": load_station,
-    "sequence": load_sequence,
-    "fixture": load_fixture,
-    "instrument_asset": load_instrument_asset,
-    "project": load_project,
-}
+from litmus.store import FILE_LOADERS
 
 
 def validate_yaml(
@@ -50,7 +35,7 @@ def validate_yaml(
     if file_type == "product":
         return _validate_with_product_loader(path)
     if file_type is not None:
-        loader = _FILE_LOADER_MAP.get(file_type)
+        loader = FILE_LOADERS.get(file_type)
         if loader is None:
             return [f"Unknown file type: {file_type!r}"]
         return _run_loader(loader, path)
@@ -87,22 +72,17 @@ def _run_loader(loader: Callable, path: Path) -> list[str]:
         return []
     except ValidationError as exc:
         return _format_validation_error(exc)
-    except Exception as exc:
+    except (yaml.YAMLError, OSError, ValueError) as exc:
         return [str(exc)]
 
 
 def _detect_loader(data: dict) -> Callable | None:
     """Return the appropriate loader function for the given YAML data."""
-    if "station" in data:
-        return load_station
-    if "sequence" in data:
-        return load_sequence
-    if "fixture" in data:
-        return load_fixture
+    for key in ("station", "sequence", "fixture", "project"):
+        if key in data:
+            return FILE_LOADERS.get(key)
     if "id" in data and ("protocol" in data or "driver" in data):
-        return load_instrument_asset
-    if "project" in data:
-        return load_project
+        return FILE_LOADERS.get("instrument_asset")
     return None
 
 
@@ -122,7 +102,7 @@ def _validate_catalog(path: Path, catalog_dir: Path | None) -> list[str]:
         return []
     except ValidationError as exc:
         return _format_validation_error(exc)
-    except Exception as exc:
+    except (yaml.YAMLError, OSError, ValueError) as exc:
         return [str(exc)]
 
 

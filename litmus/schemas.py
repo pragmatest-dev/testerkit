@@ -62,7 +62,8 @@ class StationInstrumentConfig(BaseModel):
         if not self.mock and self.resource is None and self.driver is None:
             raise ValueError(
                 "resource or driver is required when mock=False. Either set mock=True, "
-                "provide a VISA resource string, or provide a driver path."
+                "provide a VISA resource string (e.g., 'GPIB::1::INSTR'), "
+                "or provide a driver path (e.g., 'pymeasure.instruments.keithley:Keithley2400')."
             )
         return self
 
@@ -116,7 +117,7 @@ class OutputConfig(BaseModel):
     @model_validator(mode="before")
     @classmethod
     def _collect_extras(cls, data: Any) -> Any:
-        """Move unknown keys into the extras dict."""
+        """Collect unknown keys into extras, merging with any explicit extras dict."""
         if not isinstance(data, dict):
             return data
         known = {"format", "transport", "output_dir", "template", "extras"}

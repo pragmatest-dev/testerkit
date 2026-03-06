@@ -80,5 +80,5 @@ def _known_catalog_types() -> set[str]:
                 if entry.type:
                     types.add(entry.type.lower())
         return types | _KNOWN_TYPES
-    except Exception:
+    except (ImportError, OSError):
         return _KNOWN_TYPES
