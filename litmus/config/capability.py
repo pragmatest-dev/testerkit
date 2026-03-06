@@ -516,7 +516,6 @@ class InstrumentCapability(Capability):
     """
 
     channels: str | list[str] = Field(default_factory=list)  # Range: "1:4", list, or int
-    modes: list[str] = Field(default_factory=list)
     readback: bool = False  # Built-in meter, not primary measurement
 
     @computed_field

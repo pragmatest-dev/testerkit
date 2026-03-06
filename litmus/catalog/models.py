@@ -28,26 +28,25 @@ class InstrumentCatalogEntry(BaseModel):
     terminals, connector types, and ground topology.
 
     Example YAML:
-        catalog_entry:
-          id: keysight_34461a
-          manufacturer: Keysight
-          model: "34461A"
-          name: "Keysight 34461A Digital Multimeter"
-          type: dmm
-          interfaces: [usb, lan, gpib]
-          channels:
-            "1":
-              terminals: [hi, lo]
-              connector: binding_post
-              ground: shared
-          capabilities:
-            - function: dc_voltage
-              direction: input
-              signals:
-                voltage:
-                  range: {min: 0.0001, max: 1000, units: V}
-                  accuracy: {pct_reading: 0.0035, pct_range: 0.0006}
-                  resolution: {digits: 6.5}
+        id: keysight_34461a
+        manufacturer: Keysight
+        model: "34461A"
+        name: "Keysight 34461A Digital Multimeter"
+        type: dmm
+        interfaces: [usb, lan, gpib]
+        channels:
+          "1":
+            terminals: [hi, lo]
+            connector: binding_post
+            ground: shared
+        capabilities:
+          - function: dc_voltage
+            direction: input
+            signals:
+              voltage:
+                range: {min: 0.0001, max: 1000, units: V}
+                accuracy: {pct_reading: 0.0035, pct_range: 0.0006}
+                resolution: {digits: 6.5}
     """
 
     model_config = {"extra": "forbid"}
@@ -58,9 +57,8 @@ class InstrumentCatalogEntry(BaseModel):
     name: str | None = None  # Defaults to "{manufacturer} {model}" in loader
     description: str | None = None
     type: str  # e.g. "dmm", "psu", "scope", "fgen", "smu", "eload"
-    base: str | None = None  # Variant inheritance: ID of base catalog entry
+    base: str | None = None  # Variant inheritance: resolved at load time by store.py
     scaffold: bool = False  # True = approximate entry, needs verification
-    source: str | None = None  # Provenance: generic, knowledge, datasheet, manual
     interfaces: list[str] = Field(default_factory=list)
     form_factor: str | None = None
     channels: dict[str, ChannelTopology] = Field(default_factory=dict)

@@ -20,7 +20,6 @@ from litmus.matching.service import (
 )
 from litmus.products.models import Product, ProductCharacteristic
 
-
 # ---------------------------------------------------------------------------
 # Helpers to build test objects with new wrapper API
 # ---------------------------------------------------------------------------
@@ -33,7 +32,6 @@ def _make_station_cap(
     instrument_name="dmm_main",
     channel=None,
     readback=False,
-    modes=None,
 ) -> StationCapability:
     return StationCapability(
         capability=InstrumentCapability(
@@ -41,7 +39,6 @@ def _make_station_cap(
             direction=direction,
             signals=signals or {},
             channels=[channel] if channel else [],
-            modes=modes or [],
             readback=readback,
         ),
         instrument_type=instrument_type,

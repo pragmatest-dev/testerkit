@@ -1,6 +1,6 @@
 # Capability Schema Reference
 
-Source of truth: `litmus/config/models.py`
+Source of truth: `litmus/config/capability.py` (re-exported via `litmus/config/models.py`)
 
 ## Capability Structure
 
@@ -14,7 +14,10 @@ Every catalog YAML capability has these typed parameter dicts:
   conditions: { ... }           # What affects accuracy
   controls: { ... }             # User-adjustable knobs
   attributes: { ... }           # Fixed hardware facts
+  units: V                       # Optional — convenience fallback when all signals share one unit
 ```
+
+The top-level `units` field is a convenience fallback used by the execution layer when signal-level units aren't set. If a capability has multiple signals with different units, omit it and set units on each signal's range instead.
 
 ### signals — the primary measurement/source dimensions
 
