@@ -9,6 +9,23 @@ from typing import Any
 from nicegui import ui
 
 
+def format_datetime(dt) -> str:
+    """Format datetime for display."""
+    if not dt:
+        return ""
+    if hasattr(dt, "strftime"):
+        return dt.strftime("%Y-%m-%d %H:%M")
+    return str(dt)[:16] if dt else ""
+
+
+def render_empty_card(container, title: str, message: str) -> None:
+    """Render an empty-state card with title and message."""
+    with container:
+        with ui.card().classes("w-full"):
+            ui.label(title).classes("text-lg font-semibold mb-4")
+            ui.label(message).classes("text-slate-500 italic")
+
+
 class AutoSaver:
     """Debounced auto-save for forms.
 

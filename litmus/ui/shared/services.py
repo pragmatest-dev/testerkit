@@ -155,7 +155,7 @@ def discover_products() -> list[dict]:
                 continue
             try:
                 p = load_product(yaml_file)
-            except Exception:
+            except (OSError, ValueError, KeyError):
                 continue
             if p.id in seen_ids:
                 continue

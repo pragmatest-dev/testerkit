@@ -3,23 +3,15 @@
 from nicegui import ui
 
 from litmus.config.models import TestSequenceConfig
+from litmus.config.project import load_project_config
 from litmus.data.backends.parquet import ParquetBackend
-from litmus.ui.shared.components import setup_hash_sync_for_tabs
+from litmus.ui.shared.components import format_datetime, setup_hash_sync_for_tabs
 from litmus.ui.shared.layout import create_layout
 from litmus.ui.shared.services import (
     get_compatible_stations_for_product,
     get_required_capabilities,
     load_product_model,
 )
-
-
-def format_datetime(dt):
-    """Format datetime for display."""
-    if not dt:
-        return ""
-    if hasattr(dt, "strftime"):
-        return dt.strftime("%Y-%m-%d %H:%M")
-    return str(dt)[:16] if dt else ""
 
 
 def _load_full_sequence(sequence_id: str):
@@ -364,7 +356,7 @@ def _render_dialogs_tab(dialogs: dict):
 
 def _render_runs_tab(sequence_id: str):
     """Render the recent runs tab."""
-    backend = ParquetBackend(results_dir="results")
+    backend = ParquetBackend(results_dir=load_project_config().results_dir)
     all_runs = backend.list_runs(limit=100)
     seq_runs = [r for r in all_runs if r.get("test_sequence_id") == sequence_id]
 

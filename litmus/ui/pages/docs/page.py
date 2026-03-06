@@ -133,7 +133,7 @@ def _render_sidebar_nav(section: str, current_page: str | None = None):
             try:
                 content = page_path.read_text()
                 title = _extract_title_from_markdown(content)
-            except Exception:
+            except OSError:
                 title = page_name.replace("-", " ").title()
 
             is_current = page_name == current_page
@@ -238,7 +238,7 @@ def _render_section_index_content(section: str):
                                 if len(desc_lines) >= 2:
                                     break
                         description = " ".join(desc_lines)[:200]
-                    except Exception:
+                    except OSError:
                         title = page_name.replace("-", " ").title()
                         description = ""
 

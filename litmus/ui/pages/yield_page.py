@@ -7,6 +7,8 @@ import pyarrow as pa
 from nicegui import ui
 
 from litmus.analysis import metrics, query
+from litmus.config.project import load_project_config
+from litmus.ui.shared.components import render_empty_card
 from litmus.ui.shared.layout import create_layout
 
 logger = logging.getLogger(__name__)
@@ -14,7 +16,7 @@ logger = logging.getLogger(__name__)
 
 @ui.page("/yield")
 def yield_page(
-    results_dir: str = "demo/results",
+    results_dir: str = "",
     phase: str = "production",
     product: str = "",
     station: str = "",
@@ -33,6 +35,9 @@ def yield_page(
         since: Start date filter (YYYY-MM-DD)
         until: End date filter (YYYY-MM-DD)
     """
+    if not results_dir:
+        results_dir = load_project_config().results_dir
+
     create_layout("Yield Analytics")
 
     # Load initial data to populate dropdowns (reuse for initial render to avoid double-load)
@@ -53,7 +58,7 @@ def yield_page(
     def update_url():
         """Update URL with current filter values."""
         params = []
-        if results_dir_input.value != "demo/results":
+        if results_dir_input.value != results_dir:
             params.append(f"results_dir={results_dir_input.value}")
         if phase_filter.value != "production":
             params.append(f"phase={phase_filter.value}")
@@ -258,7 +263,7 @@ def _refresh_dashboard(
         _render_trend_chart(trend_chart_container, trend_data)
         _render_time_stats(time_stats_container, time_stats)
 
-    except Exception as e:
+    except (OSError, pa.ArrowInvalid, ValueError, KeyError) as e:
         with summary_container:
             ui.label(f"Error loading data: {e}").classes("text-red-600")
             with ui.expansion("Stack trace", icon="bug_report").classes("w-full"):
@@ -288,20 +293,12 @@ def _metric_card(label: str, value: str, icon: str, color: str):
             ui.label(value).classes("text-3xl font-bold text-slate-800")
 
 
-def _render_empty_card(container, title: str, message: str) -> None:
-    """Render an empty-state card with title and message."""
-    with container:
-        with ui.card().classes("w-full"):
-            ui.label(title).classes("text-lg font-semibold mb-4")
-            ui.label(message).classes("text-slate-500 italic")
-
-
 def _render_pareto_chart(container, pareto_data):
     """Render Pareto chart (combo: bars + cumulative line)."""
     container.clear()
 
     if not pareto_data:
-        _render_empty_card(container, "Top Failure Modes (Pareto)", "No failure data available")
+        render_empty_card(container, "Top Failure Modes (Pareto)", "No failure data available")
         return
 
     with container:
@@ -365,7 +362,7 @@ def _render_cpk_table(container, cpk_data):
     container.clear()
 
     if not cpk_data:
-        _render_empty_card(container, "Process Capability (Cpk)", "No Cpk data available")
+        render_empty_card(container, "Process Capability (Cpk)", "No Cpk data available")
         return
 
     with container:
@@ -422,7 +419,7 @@ def _render_trend_chart(container, trend_data):
     container.clear()
 
     if not trend_data:
-        _render_empty_card(container, "Yield Trend Over Time", "No trend data available")
+        render_empty_card(container, "Yield Trend Over Time", "No trend data available")
         return
 
     with container:
@@ -461,7 +458,7 @@ def _render_time_stats(container, time_stats):
     container.clear()
 
     if not time_stats:
-        _render_empty_card(container, "Test Time Statistics", "No timing data available")
+        render_empty_card(container, "Test Time Statistics", "No timing data available")
         return
 
     with container:

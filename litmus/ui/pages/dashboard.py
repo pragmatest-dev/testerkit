@@ -2,18 +2,11 @@
 
 from nicegui import ui
 
+from litmus.config.project import load_project_config
 from litmus.data.backends.parquet import ParquetBackend
+from litmus.ui.shared.components import format_datetime
 from litmus.ui.shared.layout import create_layout
 from litmus.ui.shared.services import discover_stations
-
-
-def format_datetime(dt):
-    """Format datetime for display."""
-    if not dt:
-        return ""
-    if hasattr(dt, "strftime"):
-        return dt.strftime("%Y-%m-%d %H:%M")
-    return str(dt)[:16] if dt else ""
 
 
 @ui.page("/")
@@ -22,7 +15,8 @@ def dashboard_page():
     create_layout("Dashboard")
 
     stations = discover_stations()
-    backend = ParquetBackend(results_dir="results")
+    project = load_project_config()
+    backend = ParquetBackend(results_dir=project.results_dir)
     runs = backend.list_runs(limit=10)
 
     if not stations and not runs:
@@ -137,7 +131,7 @@ def _getting_started_card():
 def _render_recent_runs(runs=None):
     """Render recent runs table."""
     if runs is None:
-        backend = ParquetBackend(results_dir="results")
+        backend = ParquetBackend(results_dir=load_project_config().results_dir)
         runs = backend.list_runs(limit=10)
 
     if runs:

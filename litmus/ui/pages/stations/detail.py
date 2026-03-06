@@ -2,8 +2,9 @@
 
 from nicegui import ui
 
+from litmus.config.project import load_project_config
 from litmus.data.backends.parquet import ParquetBackend
-from litmus.ui.shared.components import setup_hash_sync_for_tabs
+from litmus.ui.shared.components import format_datetime, setup_hash_sync_for_tabs
 from litmus.ui.shared.layout import create_layout
 from litmus.ui.shared.services import (
     discover_sequences,
@@ -13,15 +14,6 @@ from litmus.ui.shared.services import (
     resolve_station_instrument_records,
     station_compatible_with_product,
 )
-
-
-def format_datetime(dt):
-    """Format datetime for display."""
-    if not dt:
-        return ""
-    if hasattr(dt, "strftime"):
-        return dt.strftime("%Y-%m-%d %H:%M")
-    return str(dt)[:16] if dt else ""
 
 
 @ui.page("/stations/{station_id}")
@@ -300,7 +292,7 @@ def _sequence_card(station_id: str, seq):
 
 def _render_runs_tab(station_id: str):
     """Render the recent runs tab."""
-    backend = ParquetBackend(results_dir="results")
+    backend = ParquetBackend(results_dir=load_project_config().results_dir)
     all_runs = backend.list_runs(limit=100)
     station_runs = [r for r in all_runs if r.get("station_id") == station_id]
 

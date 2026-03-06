@@ -566,7 +566,7 @@ def _auto_save(state, quiet: bool = True) -> bool:
         if not quiet:
             ui.notify("Saved", type="positive")
         return True
-    except Exception as e:
+    except (OSError, ValueError, KeyError) as e:
         ui.notify(f"Auto-save failed: {e}", type="negative")
         return False
 

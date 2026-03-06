@@ -2,23 +2,16 @@
 
 from nicegui import ui
 
+from litmus.config.project import load_project_config
 from litmus.data.backends.parquet import ParquetBackend
+from litmus.ui.shared.components import format_datetime
 from litmus.ui.shared.layout import create_layout
-
-
-def format_datetime(dt):
-    """Format datetime for display."""
-    if not dt:
-        return ""
-    if hasattr(dt, "strftime"):
-        return dt.strftime("%Y-%m-%d %H:%M")
-    return str(dt)[:16] if dt else ""
 
 
 @ui.page("/results/{run_id}")
 def result_detail_page(run_id: str):
     """Single result detail page with tabbed interface."""
-    backend = ParquetBackend(results_dir="results")
+    backend = ParquetBackend(results_dir=load_project_config().results_dir)
     run = backend.get_run(run_id)
     measurements = backend.get_measurements(run_id, _file=run.get("_file")) if run else []
 
