@@ -1028,30 +1028,44 @@ def list_instrument_assets(
 
 
 def save_instrument_asset(
-    asset: InstrumentAssetFile, *, project_root: Path | None = None,
+    asset: InstrumentAssetFile,
+    *,
+    target_path: Path | None = None,
+    project_root: Path | None = None,
 ) -> bool:
-    """Save an instrument asset file."""
-    search_paths = get_instrument_paths(project_root)
+    """Save an instrument asset file.
 
-    target_file = None
-    for instruments_dir in search_paths:
-        if instruments_dir.exists():
-            existing = instruments_dir / f"{asset.id}.yaml"
-            if existing.exists():
-                target_file = existing
-                break
+    Args:
+        asset: The instrument asset to save.
+        target_path: Exact file path to write. When provided, skip directory
+            discovery and write directly to this path.
+        project_root: Project root for directory discovery (ignored when
+            *target_path* is given).
+    """
+    if target_path is not None:
+        target_file = target_path
+    else:
+        search_paths = get_instrument_paths(project_root)
 
-    if target_file is None:
+        target_file = None
         for instruments_dir in search_paths:
             if instruments_dir.exists():
-                target_file = instruments_dir / f"{asset.id}.yaml"
-                break
+                existing = instruments_dir / f"{asset.id}.yaml"
+                if existing.exists():
+                    target_file = existing
+                    break
 
-    if target_file is None:
-        root = _resolve_root(project_root)
-        instruments_dir = root / "instruments"
-        instruments_dir.mkdir(exist_ok=True)
-        target_file = instruments_dir / f"{asset.id}.yaml"
+        if target_file is None:
+            for instruments_dir in search_paths:
+                if instruments_dir.exists():
+                    target_file = instruments_dir / f"{asset.id}.yaml"
+                    break
+
+        if target_file is None:
+            root = _resolve_root(project_root)
+            instruments_dir = root / "instruments"
+            instruments_dir.mkdir(exist_ok=True)
+            target_file = instruments_dir / f"{asset.id}.yaml"
 
     _write_model(target_file, asset.model_dump(exclude_none=True))
     return True
@@ -1071,8 +1085,7 @@ def save_station_type(
     types_dir.mkdir(parents=True, exist_ok=True)
 
     target_file = types_dir / f"{type_id}.yaml"
-    with open(target_file, "w") as f:
-        yaml.dump(data, f, default_flow_style=False, sort_keys=False)
+    _write_model(target_file, data)
     return True
 
 

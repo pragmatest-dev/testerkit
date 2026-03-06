@@ -12,6 +12,7 @@ from pathlib import Path
 
 import yaml
 
+from litmus.config.fmt import dump_yaml
 from litmus.products.manifest import (
     ProductManifest,
     WorkflowStep,
@@ -97,13 +98,9 @@ class ProductFolder:
 
         # Save manifest
         manifest_path = folder_path / "manifest.yaml"
-        with open(manifest_path, "w") as f:
-            yaml.dump(
-                manifest.model_dump(mode="json", exclude_none=True),
-                f,
-                default_flow_style=False,
-                sort_keys=False,
-            )
+        manifest_path.write_text(
+            dump_yaml(manifest.model_dump(mode="json", exclude_none=True))
+        )
 
         return cls(folder_path, manifest)
 
@@ -157,13 +154,9 @@ class ProductFolder:
     def save_manifest(self) -> None:
         """Save the manifest to disk."""
         manifest_path = self.path / "manifest.yaml"
-        with open(manifest_path, "w") as f:
-            yaml.dump(
-                self.manifest.model_dump(mode="json", exclude_none=True),
-                f,
-                default_flow_style=False,
-                sort_keys=False,
-            )
+        manifest_path.write_text(
+            dump_yaml(self.manifest.model_dump(mode="json", exclude_none=True))
+        )
 
     def save_datasheet(self, content: str, filename: str = "datasheet.md") -> Path:
         """Save datasheet content to the folder.
@@ -194,13 +187,9 @@ class ProductFolder:
             Path to the saved file
         """
         file_path = self.path / filename
-        with open(file_path, "w") as f:
-            yaml.dump(
-                {"product": product.model_dump(mode="json", exclude_none=True)},
-                f,
-                default_flow_style=False,
-                sort_keys=False,
-            )
+        file_path.write_text(
+            dump_yaml({"product": product.model_dump(mode="json", exclude_none=True)})
+        )
 
         self.manifest.files.spec = filename
         self.save_manifest()

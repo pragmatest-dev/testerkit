@@ -1691,8 +1691,6 @@ def station_init(station_id: str, name: str, location: str | None):
     """
     from pathlib import Path
 
-    import yaml
-
     from litmus.instruments.discovery import discover_and_identify
 
     # Create directories
@@ -1744,26 +1742,18 @@ def station_init(station_id: str, name: str, location: str | None):
             )
 
             # Create instrument file
-            inst_data = {
-                "id": inst_id,
-                "protocol": proto,
-            }
+            from litmus.instruments.models import InstrumentInfo
+            from litmus.schemas import InstrumentAssetFile
+            from litmus.store import save_instrument_asset
 
-            if driver:
-                inst_data["driver"] = driver
-
-            if info:
-                inst_data["info"] = {
-                    "manufacturer": info.manufacturer,
-                    "model": info.model,
-                    "serial": info.serial,
-                    "firmware": info.firmware,
-                }
-
-            # Write instrument file
+            asset = InstrumentAssetFile(
+                id=inst_id,
+                protocol=proto,
+                driver=driver or None,
+                info=info if info else InstrumentInfo(),
+            )
             inst_file = instruments_dir / f"{inst_id}.yaml"
-            with open(inst_file, "w") as f:
-                yaml.dump(inst_data, f, default_flow_style=False, sort_keys=False)
+            save_instrument_asset(asset, target_path=inst_file)
             click.echo(f"  Created {inst_file}")
 
             station_instruments[role] = inst_id
@@ -1788,9 +1778,10 @@ def station_init(station_id: str, name: str, location: str | None):
     for w in type_warnings:
         click.echo(f"  Warning: {w}", err=True)
 
+    from litmus.config.fmt import dump_yaml
+
     station_file = stations_dir / f"{station_id}.yaml"
-    with open(station_file, "w") as f:
-        yaml.dump(station_data, f, default_flow_style=False, sort_keys=False)
+    station_file.write_text(dump_yaml(station_data))
 
     click.echo(f"\nCreated {station_file}")
     click.echo(f"Created {len(station_instruments)} instrument file(s)")
@@ -1921,8 +1912,6 @@ def station_update(station_id: str):
     Example:
         litmus station update bench_01
     """
-    import yaml
-
     from litmus.instruments.discovery import get_info_visa
     from litmus.instruments.loader import (
         find_instruments_dir,
@@ -1963,18 +1952,11 @@ def station_update(station_id: str):
         if instruments_dir:
             inst_file = instruments_dir / f"{record.instrument_id}.yaml"
             if inst_file.exists():
-                with open(inst_file) as f:
-                    data = yaml.safe_load(f)
+                from litmus.store import load_instrument_asset, save_instrument_asset
 
-                data["info"] = {
-                    "manufacturer": actual_info.manufacturer,
-                    "model": actual_info.model,
-                    "serial": actual_info.serial,
-                    "firmware": actual_info.firmware,
-                }
-
-                with open(inst_file, "w") as f:
-                    yaml.dump(data, f, default_flow_style=False, sort_keys=False)
+                asset = load_instrument_asset(inst_file)
+                asset.info = actual_info
+                save_instrument_asset(asset, target_path=inst_file)
 
                 click.echo(f"  {role}: Updated {inst_file}")
                 updated += 1
@@ -2097,9 +2079,8 @@ def instrument_cal(
     Example:
         litmus instrument cal keithley_dmm_001 --due 2025-12-15 --cert CAL-2025-001
     """
-    import yaml
-
     from litmus.instruments.loader import find_instruments_dir
+    from litmus.store import load_instrument_asset, save_instrument_asset
 
     instruments_dir = find_instruments_dir()
     if not instruments_dir:
@@ -2111,23 +2092,20 @@ def instrument_cal(
         click.echo(f"Instrument not found: {instrument_id}", err=True)
         raise SystemExit(1)
 
-    with open(inst_file) as f:
-        data = yaml.safe_load(f)
+    from datetime import date as date_type
 
-    if "calibration" not in data:
-        data["calibration"] = {}
+    asset = load_instrument_asset(inst_file)
 
     if due_date:
-        data["calibration"]["due_date"] = due_date
+        asset.calibration.due_date = date_type.fromisoformat(due_date)
     if last_cal:
-        data["calibration"]["last_cal"] = last_cal
+        asset.calibration.last_cal = date_type.fromisoformat(last_cal)
     if certificate:
-        data["calibration"]["certificate"] = certificate
+        asset.calibration.certificate = certificate
     if lab:
-        data["calibration"]["lab"] = lab
+        asset.calibration.lab = lab
 
-    with open(inst_file, "w") as f:
-        yaml.dump(data, f, default_flow_style=False, sort_keys=False)
+    save_instrument_asset(asset, target_path=inst_file)
 
     click.echo(f"Updated calibration for {instrument_id}")
 

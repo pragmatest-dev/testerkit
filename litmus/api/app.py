@@ -43,17 +43,21 @@ def create_api_router() -> APIRouter:
     """Create the JSON API router."""
     router = APIRouter(prefix="/api", tags=["api"])
 
+    from litmus.config.project import load_project_config
+
+    project = load_project_config()
+
     @router.get("/runs")
     def list_runs(limit: int = 50):
         """List recent test runs."""
-        backend = ParquetBackend(results_dir="results")
+        backend = ParquetBackend(results_dir=project.results_dir)
         runs = backend.list_runs(limit=limit)
         return {"runs": runs}
 
     @router.get("/runs/{run_id}")
     def get_run(run_id: str):
         """Get a specific test run."""
-        backend = ParquetBackend(results_dir="results")
+        backend = ParquetBackend(results_dir=project.results_dir)
         run = backend.get_run(run_id)
         if not run:
             return {"error": "Run not found"}, 404
@@ -62,7 +66,7 @@ def create_api_router() -> APIRouter:
     @router.get("/runs/{run_id}/measurements")
     def get_measurements(run_id: str):
         """Get measurements for a test run."""
-        backend = ParquetBackend(results_dir="results")
+        backend = ParquetBackend(results_dir=project.results_dir)
         measurements = backend.get_measurements(run_id)
         return {"measurements": measurements}
 
