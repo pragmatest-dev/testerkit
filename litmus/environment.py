@@ -7,10 +7,13 @@ at test start for SBOM generation and regulatory traceability.
 from __future__ import annotations
 
 import hashlib
+import logging
 import platform
 from pathlib import Path
 
 from pydantic import BaseModel
+
+logger = logging.getLogger(__name__)
 
 
 class PackageInfo(BaseModel):
@@ -18,6 +21,11 @@ class PackageInfo(BaseModel):
 
     name: str
     version: str
+
+
+def _package_sort_key(pkg: PackageInfo) -> str:
+    """Sort key for consistent package ordering (case-insensitive)."""
+    return pkg.name.lower()
 
 
 class EnvironmentSnapshot(BaseModel):
@@ -33,9 +41,13 @@ class EnvironmentSnapshot(BaseModel):
 
     @property
     def fingerprint(self) -> str:
-        """Truncated SHA-256 of sorted name==version pairs."""
+        """Truncated SHA-256 of sorted name==version pairs.
+
+        Sorted case-insensitively for canonical ordering. Truncated to 16 hex
+        chars for practical use as a version identifier.
+        """
         canonical = "\n".join(
-            f"{p.name}=={p.version}" for p in sorted(self.packages, key=lambda p: p.name.lower())
+            f"{p.name}=={p.version}" for p in sorted(self.packages, key=_package_sort_key)
         )
         return hashlib.sha256(canonical.encode()).hexdigest()[:16]
 
@@ -55,22 +67,19 @@ def capture_environment() -> EnvironmentSnapshot:
         if d.metadata["Name"]
     ]
 
-    # Deduplicate (importlib.metadata can return duplicates)
-    seen: set[str] = set()
-    unique: list[PackageInfo] = []
-    for p in packages:
-        key = p.name.lower()
-        if key not in seen:
-            seen.add(key)
-            unique.append(p)
+    # Deduplicate (importlib.metadata can return duplicates); preserves first seen
+    unique = list({p.name.lower(): p for p in packages}.values())
 
     # Hash lockfile if present
     lockfile_hash = None
     for name in ("uv.lock", "poetry.lock", "Pipfile.lock", "requirements.txt"):
         lockfile = Path(name)
-        if lockfile.exists():
-            lockfile_hash = hashlib.sha256(lockfile.read_bytes()).hexdigest()[:16]
-            break
+        try:
+            if lockfile.exists():
+                lockfile_hash = hashlib.sha256(lockfile.read_bytes()).hexdigest()[:16]
+                break
+        except OSError as exc:
+            logger.debug("Could not read lockfile %s: %s", name, exc)
 
     return EnvironmentSnapshot(
         python_version=platform.python_version(),

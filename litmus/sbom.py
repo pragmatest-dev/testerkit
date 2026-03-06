@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from litmus.environment import EnvironmentSnapshot
+from litmus.environment import EnvironmentSnapshot, _package_sort_key
 
 
 def environment_from_parquet(parquet_path: Path) -> EnvironmentSnapshot | None:
@@ -87,7 +87,7 @@ def generate_cyclonedx(snapshot: EnvironmentSnapshot) -> str:
         )
 
     # Add each installed package as a component
-    for pkg in sorted(snapshot.packages, key=lambda p: p.name.lower()):
+    for pkg in sorted(snapshot.packages, key=_package_sort_key):
         bom.components.add(
             Component(
                 name=pkg.name,
@@ -116,6 +116,6 @@ def format_environment_table(snapshot: EnvironmentSnapshot) -> str:
         lines.append(f"  Lockfile:  {snapshot.lockfile_hash}")
     lines.append("")
     lines.append("  Installed packages:")
-    for pkg in sorted(snapshot.packages, key=lambda p: p.name.lower()):
+    for pkg in sorted(snapshot.packages, key=_package_sort_key):
         lines.append(f"    {pkg.name} {pkg.version}")
     return "\n".join(lines)
