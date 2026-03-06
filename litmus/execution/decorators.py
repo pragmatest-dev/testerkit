@@ -116,14 +116,10 @@ def measure(
             # Execute measurement function
             value = func(*args, **kwargs)
 
-            # Convert to float if needed
-            if value is not None and not isinstance(value, float):
-                value = float(value)
-
             # Build measurement
             measurement = Measurement(
                 name=name or func.__name__,
-                value=value,
+                value=float(value) if value is not None else None,
                 units=units or (limit.units if limit else None),
                 low_limit=limit.low if limit else None,
                 high_limit=limit.high if limit else None,
@@ -152,6 +148,81 @@ def measure(
         return wrapper
 
     return decorator
+
+
+def _resolve_test_config(
+    fn: Callable[..., Any],
+    config: Mapping[str, Any] | None,
+    config_file: str | None,
+    limits: dict[str, MeasurementLimitConfig | Limit] | None,
+    retry: RetryConfig | None,
+) -> tuple[dict[str, Any], dict[str, MeasurementLimitConfig | Limit] | None, RetryConfig | None]:
+    """Resolve test config from sequence step, file, or inline decorator."""
+    from pathlib import Path
+
+    from litmus.config.loader import get_test_config
+    from litmus.execution.plugin import get_current_step_config
+
+    resolved_config: dict[str, Any] = {}
+    resolved_limits = limits
+    resolved_retry = retry
+
+    _step_cfg = get_current_step_config()
+    if _step_cfg:
+        resolved_config = dict(_step_cfg)
+        if "limits" in _step_cfg:
+            resolved_limits = _step_cfg["limits"]
+        if _step_cfg.get("retry"):
+            from litmus.config.models import RetryConfig as _RC
+            r = _step_cfg["retry"]
+            resolved_retry = r if isinstance(r, _RC) else _RC.model_validate(r)
+    else:
+        test_file = Path(inspect.getfile(fn))
+        file_config = None
+
+        if config_file:
+            from litmus.config.loader import load_test_config
+
+            config_path = test_file.parent / config_file
+            if config_path.exists():
+                all_configs = load_test_config(config_path)
+                file_config = all_configs.get(fn.__name__)
+        else:
+            file_config = get_test_config(fn.__name__, test_file)
+
+        if file_config:
+            resolved_config = dict(file_config)
+            if "limits" in file_config and resolved_limits is None:
+                resolved_limits = file_config["limits"]
+            if "retry" in file_config and resolved_retry is None:
+                resolved_retry = file_config["retry"]
+
+        if config:
+            resolved_config.update(config)
+
+    return resolved_config, resolved_limits, resolved_retry
+
+
+def _resolve_instruments(kwargs: dict[str, Any]) -> dict[str, Any]:
+    """Resolve instrument instances from kwargs or plugin state."""
+    from litmus.execution.plugin import get_active_instruments, get_instrument_records
+
+    instruments_fixture = kwargs.get("instruments")
+
+    if instruments_fixture is None:
+        _ai = get_active_instruments()
+        instruments_fixture = _ai if _ai else {}
+
+    if not instruments_fixture:
+        instrument_names = list(get_instrument_records().keys())
+        extracted = {}
+        for name in instrument_names:
+            if name in kwargs and kwargs[name] is not None:
+                extracted[name] = kwargs[name]
+        if extracted:
+            instruments_fixture = extracted
+
+    return instruments_fixture
 
 
 def litmus_test(
@@ -221,10 +292,6 @@ def litmus_test(
     def decorator(fn: Callable[..., Any]) -> Callable[..., Any]:
         @wraps(fn)
         def wrapper(*args: Any, **kwargs: Any) -> Any:
-            # Import here to avoid circular dependency
-            from pathlib import Path
-
-            from litmus.config.loader import get_test_config
             from litmus.execution.harness import TestHarness
 
             # Get harness from kwargs, current harness, or create new one
@@ -232,76 +299,12 @@ def litmus_test(
             if harness is None:
                 harness = get_current_harness()
             if harness is None:
-                # Resolve config: sequence step > inline decorator > config_file > auto-discover
-                from litmus.execution.plugin import get_current_step_config
-
-                resolved_config: dict[str, Any] = {}
-                resolved_limits = limits
-                resolved_retry = retry
-
-                _step_cfg = get_current_step_config()
-                if _step_cfg:
-                    # Sequence step config replaces all other config sources
-                    resolved_config = dict(_step_cfg)
-                    if "limits" in _step_cfg:
-                        resolved_limits = _step_cfg["limits"]
-                    if _step_cfg.get("retry"):
-                        from litmus.config.models import RetryConfig as _RC
-                        r = _step_cfg["retry"]
-                        resolved_retry = r if isinstance(r, _RC) else _RC.model_validate(r)
-                else:
-                    # No sequence — use inline decorator or file config
-                    test_file = Path(inspect.getfile(fn))
-                    file_config = None
-
-                    if config_file:
-                        from litmus.config.loader import load_test_config
-
-                        config_path = test_file.parent / config_file
-                        if config_path.exists():
-                            all_configs = load_test_config(config_path)
-                            file_config = all_configs.get(fn.__name__)
-                    else:
-                        # Auto-discover config.yaml
-                        file_config = get_test_config(fn.__name__, test_file)
-
-                    # Merge file config (lower precedence)
-                    if file_config:
-                        resolved_config = dict(file_config)
-                        if "limits" in file_config and resolved_limits is None:
-                            resolved_limits = file_config["limits"]
-                        if "retry" in file_config and resolved_retry is None:
-                            resolved_retry = file_config["retry"]
-
-                    # Merge inline config (higher precedence)
-                    if config:
-                        resolved_config.update(config)
-
-                # Extract instruments for mock configuration per vector
-                # First try kwargs (if test explicitly includes these fixtures)
-                instruments_fixture = kwargs.get("instruments")
-
-                # If not in kwargs, try to get from the plugin's active instruments
-                if instruments_fixture is None:
-                    from litmus.execution.plugin import get_active_instruments
-                    _ai = get_active_instruments()
-                    instruments_fixture = _ai if _ai else {}
-
-                # If still empty, extract individual instrument fixtures from kwargs
-                # This handles cases where tests use psu, dmm, eload fixtures directly
-                if not instruments_fixture:
-                    from litmus.execution.plugin import get_instrument_records
-
-                    instrument_names = list(get_instrument_records().keys())
-                    extracted = {}
-                    for name in instrument_names:
-                        if name in kwargs and kwargs[name] is not None:
-                            extracted[name] = kwargs[name]
-                    if extracted:
-                        instruments_fixture = extracted
+                resolved_config, resolved_limits, resolved_retry = _resolve_test_config(
+                    fn, config, config_file, limits, retry,
+                )
+                instruments_fixture = _resolve_instruments(kwargs)
 
                 # Set per-step instrument arrays on the logger
-                # Detect which instrument roles are used by this test function
                 _logger = get_current_logger()
                 if _logger is not None:
                     from litmus.execution.plugin import get_instrument_records
@@ -315,19 +318,16 @@ def litmus_test(
                         _logger.set_step_instruments(step_roles)
 
                 # Detect mock mode by checking if instruments have set_mock_value
-                using_mocks = False
-                if instruments_fixture:
-                    for inst in instruments_fixture.values():
-                        if hasattr(inst, "set_mock_value"):
-                            using_mocks = True
-                            break
+                using_mocks = any(
+                    hasattr(inst, "set_mock_value")
+                    for inst in (instruments_fixture or {}).values()
+                )
 
                 # Get spec_context for spec-driven limit resolution (ref:)
                 from litmus.execution.plugin import get_active_spec_context
 
                 spec_ctx = kwargs.get("spec_context") or get_active_spec_context()
 
-                # Create harness from resolved config
                 harness = TestHarness(
                     config=resolved_config,
                     step_name=fn.__name__,

@@ -4,6 +4,7 @@ from litmus.execution.accessors import InstrumentAccessor
 from litmus.execution.decorators import (
     get_current_harness,
     get_current_logger,
+    litmus_step,
     litmus_test,
     measure,
     set_current_harness,
@@ -46,6 +47,7 @@ __all__ = [
     # Decorators
     "get_current_harness",
     "get_current_logger",
+    "litmus_step",
     "litmus_test",
     "measure",
     "set_current_harness",

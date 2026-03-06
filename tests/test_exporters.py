@@ -303,7 +303,7 @@ class TestPluginWarnings:
             w.simplefilter("always")
             logger.log_measurement(m)
 
-        assert any("Streaming to 'BadDest' failed" in str(c.message) for c in caught)
+        assert any("Streaming append_row on 'BadDest' failed" in str(c.message) for c in caught)
 
     def test_failed_destination_skipped_on_subsequent_rows(self):
         """A destination that fails once is disabled for the rest of the run."""
@@ -486,7 +486,7 @@ class TestStreamingLifecycle:
             w.simplefilter("always")
             logger.finalize()
 
-        assert any("Closing streaming destination failed" in str(c.message) for c in caught)
+        assert any("Streaming close on 'BadCloseDest' failed" in str(c.message) for c in caught)
 
 
 class TestSaveRefToDir:
@@ -644,7 +644,6 @@ class TestHarnessLoggerIntegration:
 
     def test_harness_measure_calls_log_measurement(self):
         """harness.measure() should stream measurements to logger destinations."""
-        from litmus.data.backends._row_helpers import MeasurementRow
         from litmus.execution.harness import TestHarness
         from litmus.execution.logger import TestRunLogger
 

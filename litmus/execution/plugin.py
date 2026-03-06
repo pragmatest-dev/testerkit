@@ -48,7 +48,7 @@ _sequence_test_phase_var: ContextVar[str | None] = ContextVar("_sequence_test_ph
 # --- Session-scoped getters (create-and-store on first access) ---
 
 def get_step_outcomes() -> dict[str, bool]:
-    """Get the step outcomes dict (skip-on-failure logic)."""
+    """Create-and-store on first access; callers mutate in place."""
     try:
         return _step_outcomes_var.get()
     except LookupError:
@@ -58,7 +58,7 @@ def get_step_outcomes() -> dict[str, bool]:
 
 
 def get_active_instruments() -> dict[str, Any]:
-    """Get the active instrument instances dict."""
+    """Create-and-store on first access; callers mutate in place."""
     try:
         return _active_instruments_var.get()
     except LookupError:
@@ -68,7 +68,7 @@ def get_active_instruments() -> dict[str, Any]:
 
 
 def get_instrument_records() -> dict[str, InstrumentRecord]:
-    """Get the instrument records dict."""
+    """Create-and-store on first access; callers mutate in place."""
     try:
         return _instrument_records_var.get()
     except LookupError:
@@ -78,7 +78,7 @@ def get_instrument_records() -> dict[str, InstrumentRecord]:
 
 
 def get_test_node_aliases() -> dict[str, dict[str, str]]:
-    """Get the test node → step aliases mapping (from --sequence)."""
+    """Create-and-store on first access; callers mutate in place."""
     try:
         return _test_node_aliases_var.get()
     except LookupError:
@@ -88,7 +88,7 @@ def get_test_node_aliases() -> dict[str, dict[str, str]]:
 
 
 def get_test_node_configs() -> dict[str, dict[str, Any]]:
-    """Get the test node → step config mapping (from --sequence)."""
+    """Create-and-store on first access; callers mutate in place."""
     try:
         return _test_node_configs_var.get()
     except LookupError:
@@ -100,7 +100,7 @@ def get_test_node_configs() -> dict[str, dict[str, Any]]:
 # --- Per-test getters (return throwaway empty, no storing) ---
 
 def get_current_step_aliases() -> dict[str, str]:
-    """Get the current step aliases dict."""
+    """Return throwaway empty; never stored. Stale state never leaks."""
     try:
         return _current_step_aliases_var.get()
     except LookupError:
@@ -108,7 +108,7 @@ def get_current_step_aliases() -> dict[str, str]:
 
 
 def get_current_step_config() -> dict[str, Any]:
-    """Get the current step config dict."""
+    """Return throwaway empty; never stored. Stale state never leaks."""
     try:
         return _current_step_config_var.get()
     except LookupError:
@@ -116,7 +116,7 @@ def get_current_step_config() -> dict[str, Any]:
 
 
 def get_active_spec_context() -> Any:
-    """Get the active spec context."""
+    """Return None if not set."""
     try:
         return _active_spec_context_var.get()
     except LookupError:
@@ -124,7 +124,7 @@ def get_active_spec_context() -> Any:
 
 
 def get_sequence_test_phase() -> str | None:
-    """Get the sequence test phase."""
+    """Return None if not set."""
     try:
         return _sequence_test_phase_var.get()
     except LookupError:
@@ -134,30 +134,39 @@ def get_sequence_test_phase() -> str | None:
 # --- Setters ---
 
 def set_step_outcomes(value: dict[str, bool]) -> None:
+    """Set value. Returns None."""
     _step_outcomes_var.set(value)
 
 def set_active_instruments(value: dict[str, Any]) -> None:
+    """Set value. Returns None."""
     _active_instruments_var.set(value)
 
 def set_instrument_records(value: dict[str, InstrumentRecord]) -> None:
+    """Set value. Returns None."""
     _instrument_records_var.set(value)
 
 def set_current_step_aliases(value: dict[str, str]) -> None:
+    """Set value. Returns None."""
     _current_step_aliases_var.set(value)
 
 def set_current_step_config(value: dict[str, Any]) -> None:
+    """Set value. Returns None."""
     _current_step_config_var.set(value)
 
 def set_active_spec_context(value: Any) -> None:
+    """Set value. Returns None."""
     _active_spec_context_var.set(value)
 
 def set_test_node_aliases(value: dict[str, dict[str, str]]) -> None:
+    """Set value. Returns None."""
     _test_node_aliases_var.set(value)
 
 def set_test_node_configs(value: dict[str, dict[str, Any]]) -> None:
+    """Set value. Returns None."""
     _test_node_configs_var.set(value)
 
 def set_sequence_test_phase(value: str | None) -> None:
+    """Set value. Returns None."""
     _sequence_test_phase_var.set(value)
 
 
@@ -186,8 +195,6 @@ def _load_sequence_steps(config):
                 seq_path = candidate
                 break
         else:
-            import warnings
-
             fix_hint = (
                 f"Fix: check path '{seq_option}'"
                 if Path(seq_option).is_absolute()
@@ -205,8 +212,6 @@ def _load_sequence_steps(config):
 
         seq_file = load_sequence(seq_path)
     except Exception as exc:
-        import warnings
-
         warnings.warn(
             f"Failed to load sequence '{seq_option}': {exc}",
             stacklevel=1,
@@ -322,29 +327,30 @@ def pytest_configure(config):
     class _InstrumentFixtures:
         pass
 
-    # Determine which station roles need to become function-scoped
-    # (because an alias in some step overrides that name)
+    # Fixture scoping strategy:
+    # - Non-aliased roles → session-scoped (one instance for entire run)
+    # - Aliased roles → function-scoped (re-resolved per test, since a
+    #   sequence step may remap "dmm" to a different station instrument)
+    # - Pure alias names (not station roles) → function-scoped
     aliased_role_names = all_alias_names & set(instruments_map.keys())
+
+    def _make_resolved(name: str):
+        """Create a function-scoped fixture that resolves aliases."""
+        @pytest.fixture
+        def _fix(instruments):
+            target = get_current_step_aliases().get(name, name)
+            if target not in instruments:
+                from litmus.execution.accessors import _instrument_not_found
+
+                raise _instrument_not_found(name, target, instruments)
+            return instruments[target]
+        _fix.__name__ = name
+        _fix.__qualname__ = name
+        return _fix
 
     for role in instruments_map:
         if role in aliased_role_names:
-            # This role name is also used as an alias target — make it
-            # function-scoped so it can resolve differently per step
-            def _make_aliased(r=role):
-                @pytest.fixture
-                def _fix(instruments):
-                    target = get_current_step_aliases().get(r, r)
-                    if target not in instruments:
-                        available = ", ".join(sorted(instruments)) or "(none)"
-                        raise KeyError(
-                            f"Alias '{r}' targets '{target}' which is not in "
-                            f"station instruments. Available: {available}"
-                        )
-                    return instruments[target]
-                _fix.__name__ = r
-                _fix.__qualname__ = r
-                return _fix
-            setattr(_InstrumentFixtures, role, staticmethod(_make_aliased()))
+            setattr(_InstrumentFixtures, role, staticmethod(_make_resolved(role)))
         else:
             def _make(r=role):
                 @pytest.fixture(scope="session")
@@ -357,21 +363,7 @@ def pytest_configure(config):
 
     # Register function-scoped fixtures for alias names that aren't station roles
     for alias in all_alias_names - set(instruments_map.keys()):
-        def _make_alias(a=alias):
-            @pytest.fixture
-            def _fix(instruments):
-                target = get_current_step_aliases().get(a, a)
-                if target not in instruments:
-                    available = ", ".join(sorted(instruments)) or "(none)"
-                    raise KeyError(
-                        f"Alias '{a}' targets '{target}' which is not in "
-                        f"station instruments. Available: {available}"
-                    )
-                return instruments[target]
-            _fix.__name__ = a
-            _fix.__qualname__ = a
-            return _fix
-        setattr(_InstrumentFixtures, alias, staticmethod(_make_alias()))
+        setattr(_InstrumentFixtures, alias, staticmethod(_make_resolved(alias)))
 
     config.pluginmanager.register(
         _InstrumentFixtures(), "litmus_instrument_fixtures"
@@ -533,6 +525,22 @@ def _serialize_config(config: dict | None) -> str | None:
     return yaml.dump(config, default_flow_style=False, sort_keys=False)
 
 
+def _require_fixture_and_instruments(
+    fixture_config: Any, instruments: dict[str, Any], feature: str
+) -> None:
+    """Validate that fixture config and instruments are available."""
+    if not fixture_config:
+        raise pytest.UsageError(
+            f"The '{feature}' fixture requires a fixture config. "
+            "Provide --fixture-config <path> or create a fixtures/*.yaml file."
+        )
+    if not instruments:
+        raise pytest.UsageError(
+            f"The '{feature}' fixture requires instruments. "
+            "Provide --station-config <path> or create a stations/*.yaml file."
+        )
+
+
 def _safe_get_session_fixture(request, name):
     """Safely get a session-scoped fixture value, returning None if not available.
 
@@ -582,6 +590,104 @@ def _attach_streaming_destinations(logger: TestRunLogger) -> None:
             )
 
 
+def _build_run_metadata(request: pytest.FixtureRequest) -> dict[str, Any]:
+    """Build kwargs dict for TestRunLogger from session fixtures and CLI options."""
+    station_config = _safe_get_session_fixture(request, "station_config")
+    fixture_config = _safe_get_session_fixture(request, "fixture_config")
+    spec_context = _safe_get_session_fixture(request, "spec_context")
+
+    station_yaml = _serialize_config(station_config) if station_config else None
+
+    # Product info from spec_context
+    product_id = None
+    product_name = None
+    product_revision = None
+    product_yaml = None
+    if spec_context:
+        product_id = spec_context.product.id
+        product_name = spec_context.product.name
+        product_revision = spec_context.product.revision
+        product_yaml = yaml.dump(
+            spec_context.product.model_dump(mode="json", exclude_none=True),
+            default_flow_style=False,
+            sort_keys=False,
+        )
+
+    # Fixture info
+    fixture_id = None
+    fixture_yaml = None
+    if fixture_config:
+        fixture_id = getattr(fixture_config, "id", None) or getattr(fixture_config, "name", None)
+        fixture_yaml = yaml.dump(
+            fixture_config.model_dump(mode="json", exclude_none=True)
+            if hasattr(fixture_config, "model_dump")
+            else fixture_config,
+            default_flow_style=False,
+            sort_keys=False,
+        )
+
+    # Station info
+    station_id = request.config.getoption("--station")
+    station_name = None
+    station_type = None
+    station_location = None
+    if station_config:
+        station_name = station_config.name
+        station_type = (
+            getattr(station_config, "station_type", None)
+            or getattr(station_config, "type", None)
+        )
+        station_location = station_config.location
+
+    results_dir = request.config.getoption("--results-dir")
+
+    requested_phase = (
+        request.config.getoption("--test-phase")
+        or os.environ.get("LITMUS_TEST_PHASE")
+    )
+    test_phase = _resolve_test_phase(requested_phase)
+
+    instrument_records = _safe_get_session_fixture(request, "instrument_records")
+
+    cli_part_number = request.config.getoption("--dut-part-number")
+    dut_part_number = cli_part_number or (
+        spec_context.product.part_number if spec_context else None
+    )
+    cli_revision = request.config.getoption("--dut-revision")
+    dut_revision = cli_revision or (
+        spec_context.product.revision if spec_context else None
+    )
+
+    from litmus.environment import capture_environment
+
+    env = capture_environment()
+
+    return {
+        "dut_serial": request.config.getoption("--dut-serial"),
+        "dut_part_number": dut_part_number,
+        "dut_revision": dut_revision,
+        "dut_lot_number": request.config.getoption("--dut-lot"),
+        "station_id": station_id,
+        "station_name": station_name,
+        "station_type": station_type,
+        "station_location": station_location,
+        "operator_id": request.config.getoption("--operator"),
+        "test_sequence_id": request.config.rootpath.name,
+        "product_id": product_id,
+        "product_name": product_name,
+        "product_revision": product_revision,
+        "fixture_id": fixture_id,
+        "station_config_yaml": station_yaml,
+        "product_spec_yaml": product_yaml,
+        "fixture_config_yaml": fixture_yaml,
+        "git_commit": _get_git_commit(),
+        "results_dir": results_dir,
+        "test_phase": test_phase,
+        "instruments": instrument_records,
+        "environment": env,
+    }
+
+
 def _run_configured_outputs(test_run: TestRun, run_id: str, results_dir: str) -> None:
     """Run configured outputs (exports, reports, transports) from litmus.yaml."""
     try:
@@ -596,7 +702,7 @@ def _run_configured_outputs(test_run: TestRun, run_id: str, results_dir: str) ->
 
 
 @pytest.fixture(scope="session", autouse=True)
-def litmus_logger(request) -> Generator[TestRunLogger]:
+def litmus_logger(request) -> Generator[TestRunLogger, None, None]:
     """Provide test run logger for the session.
 
     This fixture is autouse=True so it's always active, enabling
@@ -605,109 +711,10 @@ def litmus_logger(request) -> Generator[TestRunLogger]:
     Captures config snapshots at run start for full traceability.
     Streams measurements to a JSONL journal for live observability.
     """
-    # Safely access optional session-scoped fixtures
-    # (avoids ScopeMismatch from test-defined fixtures with same name)
-    station_config = _safe_get_session_fixture(request, "station_config")
-    fixture_config = _safe_get_session_fixture(request, "fixture_config")
-    spec_context = _safe_get_session_fixture(request, "spec_context")
+    meta = _build_run_metadata(request)
+    results_dir = meta["results_dir"]
 
-    # Serialize configs for storage
-    station_yaml = _serialize_config(station_config) if station_config else None
-
-    # Get product info from spec_context
-    product_id = None
-    product_name = None
-    product_revision = None
-    product_yaml = None
-    if spec_context:
-        product_id = spec_context.product.id
-        product_name = spec_context.product.name
-        product_revision = spec_context.product.revision
-        # Serialize product spec
-        product_yaml = yaml.dump(
-            spec_context.product.model_dump(mode="json", exclude_none=True),
-            default_flow_style=False,
-            sort_keys=False,
-        )
-
-    # Get fixture info
-    fixture_id = None
-    fixture_yaml = None
-    if fixture_config:
-        fixture_id = getattr(fixture_config, "id", None) or getattr(fixture_config, "name", None)
-        fixture_yaml = yaml.dump(
-            fixture_config.model_dump(mode="json", exclude_none=True)
-            if hasattr(fixture_config, "model_dump")
-            else fixture_config,
-            default_flow_style=False,
-            sort_keys=False,
-        )
-
-    # Get station info
-    station_id = request.config.getoption("--station")
-    station_name = None
-    station_type = None
-    station_location = None
-    if station_config:
-        station_name = station_config.name
-        station_type = (
-            getattr(station_config, "station_type", None)
-            or getattr(station_config, "type", None)
-        )
-        station_location = station_config.location
-
-    # Get results directory for journal streaming
-    results_dir = request.config.getoption("--results-dir")
-
-    # Determine test phase: requested phase is validated against git status
-    # If repo is dirty or git unavailable, always "development"
-    requested_phase = (
-        request.config.getoption("--test-phase")
-        or os.environ.get("LITMUS_TEST_PHASE")
-    )
-    test_phase = _resolve_test_phase(requested_phase)
-
-    # Get instrument records for traceability
-    instrument_records = _safe_get_session_fixture(request, "instrument_records")
-
-    # Auto-populate DUT part_number/revision from product spec when CLI flags absent
-    cli_part_number = request.config.getoption("--dut-part-number")
-    dut_part_number = cli_part_number or (
-        spec_context.product.part_number if spec_context else None
-    )
-    cli_revision = request.config.getoption("--dut-revision")
-    dut_revision = cli_revision or (
-        spec_context.product.revision if spec_context else None
-    )
-
-    from litmus.environment import capture_environment
-
-    env = capture_environment()
-
-    logger = TestRunLogger(
-        dut_serial=request.config.getoption("--dut-serial"),
-        dut_part_number=dut_part_number,
-        dut_revision=dut_revision,
-        dut_lot_number=request.config.getoption("--dut-lot"),
-        station_id=station_id,
-        station_name=station_name,
-        station_type=station_type,
-        station_location=station_location,
-        operator_id=request.config.getoption("--operator"),
-        test_sequence_id=request.config.rootpath.name,
-        product_id=product_id,
-        product_name=product_name,
-        product_revision=product_revision,
-        fixture_id=fixture_id,
-        station_config_yaml=station_yaml,
-        product_spec_yaml=product_yaml,
-        fixture_config_yaml=fixture_yaml,
-        git_commit=_get_git_commit(),
-        results_dir=results_dir,  # Enable journal streaming
-        test_phase=test_phase,  # Auto-detected from git status
-        instruments=instrument_records,  # Full instrument records with calibration
-        environment=env,  # Software environment for SBOM traceability
-    )
+    logger = TestRunLogger(**meta)
     # Wire streaming destinations from outputs config
     _attach_streaming_destinations(logger)
 
@@ -747,7 +754,7 @@ def run_context(litmus_logger) -> RunContext:
 
 
 @pytest.fixture
-def litmus_step(litmus_logger, request) -> Generator[None]:
+def litmus_step(litmus_logger, request) -> Generator[None, None, None]:
     """Create step for test function (use when NOT using @litmus_test).
 
     Note: @litmus_test decorated tests already create their own steps.
@@ -878,13 +885,11 @@ def station_config(request) -> StationConfig | None:
         arg.startswith("--station") for arg in request.config.invocation_params.args
     )
     if explicit:
-        import warnings
-
         warnings.warn(
             f"Station '{station_id}' not found in stations/ directory. "
             f"Instrument fixtures (psu, dmm, etc.) will not be available. "
             f"Fix: create stations/{station_id}.yaml",
-            stacklevel=1,
+            stacklevel=2,
         )
     return None
 
@@ -1038,7 +1043,7 @@ def instrument_records(request, station_config, mock_instruments) -> dict[str, I
 @pytest.fixture(scope="session")
 def instruments(
     request, station_config, mock_instruments, instrument_records
-) -> Generator[dict[str, Any]]:
+) -> Generator[dict[str, Any], None, None]:
     """Create instrument instances from station configuration.
 
     Instruments are connected at session start and disconnected at end.
@@ -1142,14 +1147,14 @@ def instruments(
     yield active
 
     # Cleanup: disconnect/close all instruments
-    for inst in active.values():
+    for role, inst in active.items():
         try:
             if hasattr(inst, "disconnect"):
                 inst.disconnect()
             elif hasattr(inst, "close"):
                 inst.close()  # PyVISA resources use close()
-        except Exception:
-            pass
+        except Exception as exc:
+            warnings.warn(f"Failed to cleanup instrument '{role}': {exc}", stacklevel=2)
     active.clear()
 
 
@@ -1216,16 +1221,7 @@ def pins(instruments, fixture_config) -> PinAccessor:
     Raises:
         pytest.UsageError: If no fixture config or instruments available.
     """
-    if not fixture_config:
-        raise pytest.UsageError(
-            "The 'pins' fixture requires a fixture config. "
-            "Provide --fixture-config <path> or create a fixtures/*.yaml file."
-        )
-    if not instruments:
-        raise pytest.UsageError(
-            "The 'pins' fixture requires instruments. "
-            "Provide --station-config <path> or create a stations/*.yaml file."
-        )
+    _require_fixture_and_instruments(fixture_config, instruments, "pins")
 
     manager = FixtureManager(fixture_config, instruments)
     return PinAccessor(manager)
@@ -1245,17 +1241,7 @@ def fixture_manager(instruments, fixture_config) -> FixtureManager:
     Raises:
         pytest.UsageError: If no fixture config or instruments available.
     """
-    if not fixture_config:
-        raise pytest.UsageError(
-            "The 'fixture_manager' fixture requires a fixture config. "
-            "Provide --fixture-config <path> or create a fixtures/*.yaml file."
-        )
-    if not instruments:
-        raise pytest.UsageError(
-            "The 'fixture_manager' fixture requires instruments. "
-            "Provide --station-config <path> or create a stations/*.yaml file."
-        )
-
+    _require_fixture_and_instruments(fixture_config, instruments, "fixture_manager")
     return FixtureManager(fixture_config, instruments)
 
 
@@ -1275,13 +1261,17 @@ def pytest_runtest_setup(item):
     # Set per-step aliases and config from sequence
     step_aliases: dict[str, str] = {}
     step_config: dict[str, Any] = {}
-    for node_id, aliases in get_test_node_aliases().items():
-        if item.nodeid.endswith(node_id) or node_id in item.nodeid:
-            step_aliases = aliases
-            break
-    for node_id, sc in get_test_node_configs().items():
-        if item.nodeid.endswith(node_id) or node_id in item.nodeid:
-            step_config = sc
+    # Match sequence step node_id to pytest item. Sequence steps may use:
+    # - bare function name ("test_voltage")
+    # - partial path ("tests/test_power.py::test_voltage")
+    # We try exact substring match first, then fall back to function name.
+    node_aliases = get_test_node_aliases()
+    node_configs = get_test_node_configs()
+    item_func = item.nodeid.rsplit("::", 1)[-1]
+    for node_id in set(node_aliases) | set(node_configs):
+        if node_id in item.nodeid or node_id == item_func:
+            step_aliases = node_aliases.get(node_id, {})
+            step_config = node_configs.get(node_id, {})
             break
     set_current_step_aliases(step_aliases)
     set_current_step_config(step_config)

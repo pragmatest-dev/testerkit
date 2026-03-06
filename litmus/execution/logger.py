@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import os
+import warnings
+from collections.abc import Callable
 from contextvars import ContextVar, Token
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -16,6 +18,7 @@ _current_step_var: ContextVar[TestStep | None] = ContextVar("_current_step", def
 _current_vector_var: ContextVar[TestVector | None] = ContextVar("_current_vector", default=None)
 
 if TYPE_CHECKING:
+    from litmus.config.models import Limit
     from litmus.data.backends.journal import JournalWriter
     from litmus.data.exporters._base import StreamingDestination
     from litmus.environment import EnvironmentSnapshot
@@ -42,20 +45,24 @@ INSTRUMENT_ARRAY_KEYS = (
 )
 
 
+def _parse_uuid(value: str) -> UUID:
+    """Parse a string as UUID, falling back to deterministic md5 hash."""
+    try:
+        return UUID(value)
+    except ValueError:
+        import hashlib
+
+        h = hashlib.md5(value.encode()).hexdigest()
+        return UUID(h)
+
+
 def _get_run_id() -> UUID:
     """Get run ID from environment or generate new one."""
     from uuid import uuid4
 
     env_id = os.environ.get("LITMUS_RUN_ID")
     if env_id:
-        try:
-            return UUID(env_id)
-        except ValueError:
-            # Not a valid UUID - generate deterministic one from the string
-            import hashlib
-
-            h = hashlib.md5(env_id.encode()).hexdigest()
-            return UUID(h)
+        return _parse_uuid(env_id)
     return uuid4()
 
 
@@ -214,16 +221,9 @@ class TestRunLogger:
         environment: EnvironmentSnapshot | None = None,
     ):
         # Use provided run_id, environment variable, or generate new
-        if run_id is not None:
-            if isinstance(run_id, str):
-                try:
-                    run_id = UUID(run_id)
-                except ValueError:
-                    import hashlib
-
-                    h = hashlib.md5(run_id.encode()).hexdigest()
-                    run_id = UUID(h)
-        else:
+        if isinstance(run_id, str):
+            run_id = _parse_uuid(run_id)
+        elif run_id is None:
             run_id = _get_run_id()
 
         self.test_run = TestRun(
@@ -257,6 +257,8 @@ class TestRunLogger:
             self.test_run.environment_json = environment.model_dump_json()
         self._current_step_index: int = -1
         self._step_token: Token[TestStep | None] | None = None
+        # _vector_token tracks current vector context for this step.
+        # Both start_step() and log_measurement() may set it; reset in end_step().
         self._vector_token: Token[TestVector | None] | None = None
         # Clear contextvars — each logger owns its execution context
         _current_step_var.set(None)
@@ -280,6 +282,17 @@ class TestRunLogger:
         # Additional streaming destinations (STDF, TDMS, PostgreSQL, etc.)
         self._streaming_destinations: list[StreamingDestination] = []
         self._failed_destinations: set[StreamingDestination] = set()
+
+    def _safe_stream_call(self, dest: StreamingDestination, method: str, *args: Any) -> None:
+        """Call a method on a streaming destination, disabling it on failure."""
+        try:
+            getattr(dest, method)(*args)
+        except Exception as exc:
+            self._failed_destinations.add(dest)
+            warnings.warn(
+                f"Streaming {method} on '{type(dest).__name__}' failed: {exc}",
+                stacklevel=3,
+            )
 
     def add_streaming_destination(self, dest: StreamingDestination) -> None:
         """Register an additional streaming destination.
@@ -333,65 +346,38 @@ class TestRunLogger:
 
         All arrays are the same length and in the same order.
         """
-        names: list[str] = []
-        ids: list[str | None] = []
-        drivers: list[str | None] = []
-        resources: list[str | None] = []
-        protocols: list[str] = []
-        manufacturers: list[str | None] = []
-        models: list[str | None] = []
-        serials: list[str | None] = []
-        firmwares: list[str | None] = []
-        cal_dues: list[str | None] = []
-        cal_lasts: list[str | None] = []
-        cal_certs: list[str | None] = []
-        cal_labs: list[str | None] = []
-        mocked: list[bool] = []
+        _INSTR_FIELDS: list[tuple[str, Callable[[str, InstrumentRecord], Any]]] = [
+            ("instr_name", lambda role, rec: role),
+            ("instr_id", lambda role, rec: rec.instrument_id),
+            ("instr_driver", lambda role, rec: rec.driver),
+            ("instr_resource", lambda role, rec: rec.resource),
+            ("instr_protocol", lambda role, rec: rec.protocol),
+            ("instr_manufacturer", lambda role, rec: rec.info.manufacturer if rec.info else None),
+            ("instr_model", lambda role, rec: rec.info.model if rec.info else None),
+            ("instr_serial", lambda role, rec: rec.info.serial if rec.info else None),
+            ("instr_firmware", lambda role, rec: rec.info.firmware if rec.info else None),
+            ("instr_cal_due", lambda role, rec: (
+                rec.calibration.due_date.isoformat()
+                if rec.calibration and rec.calibration.due_date else None
+            )),
+            ("instr_cal_last", lambda role, rec: (
+                rec.calibration.last_cal.isoformat()
+                if rec.calibration and rec.calibration.last_cal else None
+            )),
+            ("instr_cal_certificate", lambda role, rec: (
+                rec.calibration.certificate if rec.calibration else None
+            )),
+            ("instr_cal_lab", lambda role, rec: rec.calibration.lab if rec.calibration else None),
+            ("instr_mocked", lambda role, rec: rec.mocked),
+        ]
 
+        arrays: dict[str, list] = {key: [] for key, _ in _INSTR_FIELDS}
         for role, record in self._instruments.items():
             if roles is not None and role not in roles:
                 continue
-            names.append(role)
-            mocked.append(record.mocked)
-            ids.append(record.instrument_id)
-            drivers.append(record.driver)
-            resources.append(record.resource)
-            protocols.append(record.protocol)
-            manufacturers.append(record.info.manufacturer if record.info else None)
-            models.append(record.info.model if record.info else None)
-            serials.append(record.info.serial if record.info else None)
-            firmwares.append(record.info.firmware if record.info else None)
-            cal_dues.append(
-                record.calibration.due_date.isoformat()
-                if record.calibration and record.calibration.due_date
-                else None
-            )
-            cal_lasts.append(
-                record.calibration.last_cal.isoformat()
-                if record.calibration and record.calibration.last_cal
-                else None
-            )
-            cal_certs.append(
-                record.calibration.certificate if record.calibration else None
-            )
-            cal_labs.append(record.calibration.lab if record.calibration else None)
-
-        return {
-            "instr_name": names,
-            "instr_id": ids,
-            "instr_driver": drivers,
-            "instr_resource": resources,
-            "instr_protocol": protocols,
-            "instr_manufacturer": manufacturers,
-            "instr_model": models,
-            "instr_serial": serials,
-            "instr_firmware": firmwares,
-            "instr_cal_due": cal_dues,
-            "instr_cal_last": cal_lasts,
-            "instr_cal_certificate": cal_certs,
-            "instr_cal_lab": cal_labs,
-            "instr_mocked": mocked,
-        }
+            for key, extract in _INSTR_FIELDS:
+                arrays[key].append(extract(role, record))
+        return arrays
 
     def set_step_instruments(self, roles: list[str]) -> dict[str, list]:
         """Set the instrument arrays for the current test step.
@@ -504,17 +490,7 @@ class TestRunLogger:
         for dest in self._streaming_destinations:
             if dest in self._failed_destinations:
                 continue
-            try:
-                dest.append_row(row)
-            except Exception as exc:
-                import warnings
-
-                self._failed_destinations.add(dest)
-                warnings.warn(
-                    f"Streaming to '{type(dest).__name__}' failed"
-                    f" (disabled for rest of run): {exc}",
-                    stacklevel=2,
-                )
+            self._safe_stream_call(dest, "append_row", row)
 
     def end_step(self):
         """Finalize current step."""
@@ -536,7 +512,7 @@ class TestRunLogger:
         self,
         name: str,
         value: float | int | None,
-        limit: Any | None = None,  # Limit object from litmus.config.models
+        limit: Limit | None = None,
         units: str | None = None,
         dut_pin: str | None = None,
         instrument_name: str | None = None,
@@ -638,23 +614,7 @@ class TestRunLogger:
         # and closed here so the logger owns the full append→boundary→close tail.
         run_id_str = str(self.test_run.id)
         for dest in self._streaming_destinations:
-            try:
-                dest.mark_run_boundary(run_id_str)
-            except Exception as exc:
-                import warnings
-
-                warnings.warn(
-                    f"mark_run_boundary on '{type(dest).__name__}' failed: {exc}",
-                    stacklevel=2,
-                )
-            try:
-                dest.close()
-            except Exception as exc:
-                import warnings
-
-                warnings.warn(
-                    f"Closing streaming destination failed: {exc}",
-                    stacklevel=2,
-                )
+            self._safe_stream_call(dest, "mark_run_boundary", run_id_str)
+            self._safe_stream_call(dest, "close")
 
         return self.test_run

@@ -7,6 +7,17 @@ from typing import Any
 from litmus.instruments.models import InstrumentRecord
 
 
+def _instrument_not_found(alias: str, target: str, instruments: dict[str, Any]) -> KeyError:
+    """Build a KeyError for a missing instrument, listing available roles."""
+    available = ", ".join(sorted(instruments)) or "(none)"
+    if alias != target:
+        return KeyError(
+            f"Alias '{alias}' targets '{target}' which is not in "
+            f"station instruments. Available: {available}"
+        )
+    return KeyError(f"No instrument with role '{alias}'. Available: {available}")
+
+
 class InstrumentAccessor:
     """Callable accessor for instruments by role, with type-based grouping."""
 
@@ -25,15 +36,7 @@ class InstrumentAccessor:
         aliases = self._current_aliases()
         resolved = aliases.get(role, role)
         if resolved not in self._instruments:
-            available = ", ".join(sorted(self._instruments)) or "(none)"
-            if resolved != role:
-                raise KeyError(
-                    f"Alias '{role}' targets '{resolved}' which is not in "
-                    f"station instruments. Available: {available}"
-                )
-            raise KeyError(
-                f"No instrument with role '{role}'. Available: {available}"
-            )
+            raise _instrument_not_found(role, resolved, self._instruments)
         return self._instruments[resolved]
 
     def by_type(self, driver_path: str) -> dict[str, Any]:
