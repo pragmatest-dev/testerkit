@@ -233,20 +233,21 @@ def litmus_test(
                 harness = get_current_harness()
             if harness is None:
                 # Resolve config: sequence step > inline decorator > config_file > auto-discover
-                from litmus.execution.plugin import _CURRENT_STEP_CONFIG
+                from litmus.execution.plugin import get_current_step_config
 
                 resolved_config: dict[str, Any] = {}
                 resolved_limits = limits
                 resolved_retry = retry
 
-                if _CURRENT_STEP_CONFIG:
+                _step_cfg = get_current_step_config()
+                if _step_cfg:
                     # Sequence step config replaces all other config sources
-                    resolved_config = dict(_CURRENT_STEP_CONFIG)
-                    if "limits" in _CURRENT_STEP_CONFIG:
-                        resolved_limits = _CURRENT_STEP_CONFIG["limits"]
-                    if _CURRENT_STEP_CONFIG.get("retry"):
+                    resolved_config = dict(_step_cfg)
+                    if "limits" in _step_cfg:
+                        resolved_limits = _step_cfg["limits"]
+                    if _step_cfg.get("retry"):
                         from litmus.config.models import RetryConfig as _RC
-                        r = _CURRENT_STEP_CONFIG["retry"]
+                        r = _step_cfg["retry"]
                         resolved_retry = r if isinstance(r, _RC) else _RC.model_validate(r)
                 else:
                     # No sequence — use inline decorator or file config
@@ -282,15 +283,16 @@ def litmus_test(
 
                 # If not in kwargs, try to get from the plugin's active instruments
                 if instruments_fixture is None:
-                    from litmus.execution.plugin import _ACTIVE_INSTRUMENTS
-                    instruments_fixture = _ACTIVE_INSTRUMENTS if _ACTIVE_INSTRUMENTS else {}
+                    from litmus.execution.plugin import get_active_instruments
+                    _ai = get_active_instruments()
+                    instruments_fixture = _ai if _ai else {}
 
                 # If still empty, extract individual instrument fixtures from kwargs
                 # This handles cases where tests use psu, dmm, eload fixtures directly
                 if not instruments_fixture:
-                    from litmus.execution.plugin import _INSTRUMENT_RECORDS
+                    from litmus.execution.plugin import get_instrument_records
 
-                    instrument_names = list(_INSTRUMENT_RECORDS.keys())
+                    instrument_names = list(get_instrument_records().keys())
                     extracted = {}
                     for name in instrument_names:
                         if name in kwargs and kwargs[name] is not None:
@@ -302,11 +304,11 @@ def litmus_test(
                 # Detect which instrument roles are used by this test function
                 _logger = get_current_logger()
                 if _logger is not None:
-                    from litmus.execution.plugin import _INSTRUMENT_RECORDS
+                    from litmus.execution.plugin import get_instrument_records
 
                     step_roles = [
                         name
-                        for name in _INSTRUMENT_RECORDS
+                        for name in get_instrument_records()
                         if name in kwargs and kwargs[name] is not None
                     ]
                     if step_roles:
@@ -321,9 +323,9 @@ def litmus_test(
                             break
 
                 # Get spec_context for spec-driven limit resolution (ref:)
-                from litmus.execution.plugin import _ACTIVE_SPEC_CONTEXT
+                from litmus.execution.plugin import get_active_spec_context
 
-                spec_ctx = kwargs.get("spec_context") or _ACTIVE_SPEC_CONTEXT
+                spec_ctx = kwargs.get("spec_context") or get_active_spec_context()
 
                 # Create harness from resolved config
                 harness = TestHarness(

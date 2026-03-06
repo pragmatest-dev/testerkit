@@ -16,9 +16,9 @@ class InstrumentAccessor:
 
     def _current_aliases(self) -> dict[str, str]:
         """Get current step aliases from plugin module."""
-        from litmus.execution.plugin import _CURRENT_STEP_ALIASES
+        from litmus.execution.plugin import get_current_step_aliases
 
-        return _CURRENT_STEP_ALIASES
+        return get_current_step_aliases()
 
     def __call__(self, role: str) -> Any:
         """Get instrument by role name, resolving aliases. Raises KeyError with available roles."""

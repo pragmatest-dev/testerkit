@@ -2,7 +2,7 @@
 
 import pytest
 
-from litmus.execution.plugin import STEP_OUTCOMES
+from litmus.execution.plugin import get_step_outcomes
 
 
 class TestRetryLogic:
@@ -66,37 +66,37 @@ class TestSkipOnFailure:
 
 
 class TestStepOutcomesTracking:
-    """Tests that verify STEP_OUTCOMES dict is populated correctly."""
+    """Tests that verify get_step_outcomes() dict is populated correctly."""
 
     def test_outcomes_populated_after_test(self):
         """Verify that test outcomes are recorded."""
-        # After previous tests run, STEP_OUTCOMES should have entries
+        # After previous tests run, get_step_outcomes() should have entries
         # Note: This test relies on running after other tests in this file
-        assert len(STEP_OUTCOMES) > 0
+        assert len(get_step_outcomes()) > 0
 
     def test_passed_test_recorded_as_true(self):
         """Check that passed tests are recorded with True."""
         # Look for the passing test from TestSkipOnFailure
         found = False
-        for key, value in STEP_OUTCOMES.items():
+        for key, value in get_step_outcomes().items():
             if "test_dependency_that_passes" in key:
                 found = True
                 assert value is True, f"Expected True for passing test, got {value}"
                 break
         # Note: This may not find it if running in isolation
         if not found:
-            pytest.skip("Dependency test not found in STEP_OUTCOMES (run full suite)")
+            pytest.skip("Dependency test not found in get_step_outcomes() (run full suite)")
 
     def test_failed_test_recorded_as_false(self):
         """Check that failed tests are recorded with False."""
         found = False
-        for key, value in STEP_OUTCOMES.items():
+        for key, value in get_step_outcomes().items():
             if "test_dependency_that_fails" in key:
                 found = True
                 assert value is False, f"Expected False for failing test, got {value}"
                 break
         if not found:
-            pytest.skip("Dependency test not found in STEP_OUTCOMES (run full suite)")
+            pytest.skip("Dependency test not found in get_step_outcomes() (run full suite)")
 
 
 class TestMultipleDependencies:

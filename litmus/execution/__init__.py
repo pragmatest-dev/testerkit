@@ -14,9 +14,10 @@ from litmus.execution.logger import RunContext, TestRunLogger
 
 # Plugin is only available when pytest is installed (dev dependency)
 try:
-    from litmus.execution.plugin import STEP_OUTCOMES
+    from litmus.execution.plugin import get_step_outcomes
 except ImportError:
-    STEP_OUTCOMES = {}
+    def get_step_outcomes() -> dict[str, bool]:
+        return {}
 from litmus.execution.vectors import (
     Vector,
     expand_list,
@@ -53,5 +54,5 @@ __all__ = [
     "RunContext",
     "TestRunLogger",
     # Plugin
-    "STEP_OUTCOMES",
+    "get_step_outcomes",
 ]

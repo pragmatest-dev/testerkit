@@ -1,6 +1,5 @@
 """Tests for per-step instrument role aliases."""
 
-from pathlib import Path
 from unittest.mock import MagicMock
 
 import pytest
@@ -9,8 +8,8 @@ import yaml
 from litmus.config.models import TestStepConfig
 from litmus.execution.plugin import (
     InstrumentAccessor,
-    _CURRENT_STEP_ALIASES,
-    _load_step_aliases,
+    _load_step_aliases_and_configs,
+    set_current_step_aliases,
 )
 
 
@@ -31,7 +30,7 @@ class TestStepConfigAliases:
 
 
 class TestLoadStepAliases:
-    """Test _load_step_aliases helper."""
+    """Test _load_step_aliases_and_configs helper."""
 
     def test_load_from_sequence_file(self, tmp_path):
         seq_file = tmp_path / "sequences" / "my_seq.yaml"
@@ -67,8 +66,8 @@ class TestLoadStepAliases:
         config.rootpath = tmp_path
         config.invocation_params.dir = str(tmp_path)
 
-        result = _load_step_aliases(config)
-        assert result == {
+        aliases, _configs = _load_step_aliases_and_configs(config)
+        assert aliases == {
             "tests/test_a.py::test_one": {"dmm": "precision_dmm"},
             "tests/test_b.py::test_three": {"dmm": "fast_dmm", "psu": "bench_psu"},
         }
@@ -76,108 +75,83 @@ class TestLoadStepAliases:
     def test_no_sequence_returns_empty(self):
         config = MagicMock()
         config.getoption.return_value = None
-        assert _load_step_aliases(config) == {}
+        aliases, configs = _load_step_aliases_and_configs(config)
+        assert aliases == {}
+        assert configs == {}
 
     def test_missing_file_returns_empty(self, tmp_path):
         config = MagicMock()
         config.getoption.return_value = str(tmp_path / "nonexistent.yaml")
         config.rootpath = tmp_path
         config.invocation_params.dir = str(tmp_path)
-        assert _load_step_aliases(config) == {}
+        with pytest.warns(UserWarning, match="not found"):
+            aliases, configs = _load_step_aliases_and_configs(config)
+        assert aliases == {}
+        assert configs == {}
 
 
 class TestAccessorWithAliases:
-    """Test InstrumentAccessor resolves through _CURRENT_STEP_ALIASES."""
+    """Test InstrumentAccessor resolves through step aliases contextvar."""
 
     def test_accessor_resolves_alias(self):
-        import litmus.execution.plugin as plugin
-
         instruments = {"precision_dmm": "fake_precision", "fast_dmm": "fake_fast"}
         records = {}
         accessor = InstrumentAccessor(instruments, records)
 
-        # Set alias
-        old = plugin._CURRENT_STEP_ALIASES.copy()
+        set_current_step_aliases({"dmm": "precision_dmm"})
         try:
-            plugin._CURRENT_STEP_ALIASES.clear()
-            plugin._CURRENT_STEP_ALIASES["dmm"] = "precision_dmm"
-
             result = accessor("dmm")
             assert result == "fake_precision"
         finally:
-            plugin._CURRENT_STEP_ALIASES.clear()
-            plugin._CURRENT_STEP_ALIASES.update(old)
+            set_current_step_aliases({})
 
     def test_accessor_falls_through_without_alias(self):
-        import litmus.execution.plugin as plugin
-
         instruments = {"dmm": "direct_dmm"}
         records = {}
         accessor = InstrumentAccessor(instruments, records)
 
-        old = plugin._CURRENT_STEP_ALIASES.copy()
+        set_current_step_aliases({})
         try:
-            plugin._CURRENT_STEP_ALIASES.clear()
             result = accessor("dmm")
             assert result == "direct_dmm"
         finally:
-            plugin._CURRENT_STEP_ALIASES.clear()
-            plugin._CURRENT_STEP_ALIASES.update(old)
+            set_current_step_aliases({})
 
     def test_accessor_alias_target_missing_raises(self):
-        import litmus.execution.plugin as plugin
-
         instruments = {"dmm": "some_dmm"}
         records = {}
         accessor = InstrumentAccessor(instruments, records)
 
-        old = plugin._CURRENT_STEP_ALIASES.copy()
+        set_current_step_aliases({"dmm": "nonexistent"})
         try:
-            plugin._CURRENT_STEP_ALIASES.clear()
-            plugin._CURRENT_STEP_ALIASES["dmm"] = "nonexistent"
-
             with pytest.raises(KeyError, match="Alias 'dmm' targets 'nonexistent'"):
                 accessor("dmm")
         finally:
-            plugin._CURRENT_STEP_ALIASES.clear()
-            plugin._CURRENT_STEP_ALIASES.update(old)
+            set_current_step_aliases({})
 
     def test_roles_includes_aliases(self):
-        import litmus.execution.plugin as plugin
-
         instruments = {"precision_dmm": "x", "psu": "y"}
         records = {}
         accessor = InstrumentAccessor(instruments, records)
 
-        old = plugin._CURRENT_STEP_ALIASES.copy()
+        set_current_step_aliases({"dmm": "precision_dmm"})
         try:
-            plugin._CURRENT_STEP_ALIASES.clear()
-            plugin._CURRENT_STEP_ALIASES["dmm"] = "precision_dmm"
-
             roles = accessor.roles()
             assert "dmm" in roles
             assert "precision_dmm" in roles
             assert "psu" in roles
         finally:
-            plugin._CURRENT_STEP_ALIASES.clear()
-            plugin._CURRENT_STEP_ALIASES.update(old)
+            set_current_step_aliases({})
 
     def test_alias_deduplication_same_object(self):
         """Two aliases to same role return the same object instance."""
-        import litmus.execution.plugin as plugin
-
         shared_inst = object()
         instruments = {"precision_dmm": shared_inst}
         records = {}
         accessor = InstrumentAccessor(instruments, records)
 
-        old = plugin._CURRENT_STEP_ALIASES.copy()
+        set_current_step_aliases({"dmm": "precision_dmm", "meter": "precision_dmm"})
         try:
-            plugin._CURRENT_STEP_ALIASES.clear()
-            plugin._CURRENT_STEP_ALIASES["dmm"] = "precision_dmm"
-            plugin._CURRENT_STEP_ALIASES["meter"] = "precision_dmm"
-
             assert accessor("dmm") is accessor("meter")
         finally:
-            plugin._CURRENT_STEP_ALIASES.clear()
-            plugin._CURRENT_STEP_ALIASES.update(old)
+            set_current_step_aliases({})

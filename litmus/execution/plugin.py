@@ -6,6 +6,7 @@ import os
 import time
 import warnings
 from collections.abc import Generator
+from contextvars import ContextVar
 from pathlib import Path
 from typing import Any
 
@@ -25,41 +26,147 @@ from litmus.instruments.models import CalibrationInfo, InstrumentInfo, Instrumen
 from litmus.products.context import SpecContext
 from litmus.schemas import ProjectConfig, StationConfig
 
-# Track test outcomes for skip-on-failure logic
-STEP_OUTCOMES: dict[str, bool] = {}
-
-# Track instrument instances for cleanup
-_ACTIVE_INSTRUMENTS: dict[str, Any] = {}
-
-# Track instrument records for traceability
-_INSTRUMENT_RECORDS: dict[str, InstrumentRecord] = {}
-
-# Per-step alias state (set in pytest_runtest_setup, read by alias fixtures)
-_CURRENT_STEP_ALIASES: dict[str, str] = {}
-
-# Per-step config (vectors, limits, mocks, retry) from sequence
-_CURRENT_STEP_CONFIG: dict[str, Any] = {}
-
-# Track active spec context for use by @litmus_test decorator
-_ACTIVE_SPEC_CONTEXT: Any = None
-
-# Mapping: test node ID → step aliases (built from --sequence)
-_TEST_NODE_ALIASES: dict[str, dict[str, str]] = {}
-
-# Mapping: test node ID → full step config (built from --sequence)
-_TEST_NODE_CONFIGS: dict[str, dict[str, Any]] = {}
-
-# Test phase from sequence (dev, validation, characterization, production)
-_SEQUENCE_TEST_PHASE: str | None = None
+# ---------------------------------------------------------------------------
+# ContextVars — ALL mutable module state lives here.
+#
+# Session-scoped getters create and store an empty dict on first access,
+# so callers can safely mutate the returned dict without an explicit init step.
+# Per-test getters return a throwaway empty value (without storing it),
+# so stale state never leaks across tests.
+# ---------------------------------------------------------------------------
+_step_outcomes_var: ContextVar[dict[str, bool]] = ContextVar("_step_outcomes")
+_active_instruments_var: ContextVar[dict[str, Any]] = ContextVar("_active_instruments")
+_instrument_records_var: ContextVar[dict[str, InstrumentRecord]] = ContextVar("_instrument_records")
+_current_step_aliases_var: ContextVar[dict[str, str]] = ContextVar("_current_step_aliases")
+_current_step_config_var: ContextVar[dict[str, Any]] = ContextVar("_current_step_config")
+_active_spec_context_var: ContextVar[Any] = ContextVar("_active_spec_context")
+_test_node_aliases_var: ContextVar[dict[str, dict[str, str]]] = ContextVar("_test_node_aliases")
+_test_node_configs_var: ContextVar[dict[str, dict[str, Any]]] = ContextVar("_test_node_configs")
+_sequence_test_phase_var: ContextVar[str | None] = ContextVar("_sequence_test_phase")
 
 
-def _load_sequence_data(config) -> list[dict[str, Any]]:
-    """Load steps from a sequence file.
+# --- Session-scoped getters (create-and-store on first access) ---
 
-    Returns the raw list of step dicts from the sequence YAML.
-    Also sets _SEQUENCE_TEST_PHASE global.
+def get_step_outcomes() -> dict[str, bool]:
+    """Get the step outcomes dict (skip-on-failure logic)."""
+    try:
+        return _step_outcomes_var.get()
+    except LookupError:
+        d: dict[str, bool] = {}
+        _step_outcomes_var.set(d)
+        return d
+
+
+def get_active_instruments() -> dict[str, Any]:
+    """Get the active instrument instances dict."""
+    try:
+        return _active_instruments_var.get()
+    except LookupError:
+        d: dict[str, Any] = {}
+        _active_instruments_var.set(d)
+        return d
+
+
+def get_instrument_records() -> dict[str, InstrumentRecord]:
+    """Get the instrument records dict."""
+    try:
+        return _instrument_records_var.get()
+    except LookupError:
+        d: dict[str, InstrumentRecord] = {}
+        _instrument_records_var.set(d)
+        return d
+
+
+def get_test_node_aliases() -> dict[str, dict[str, str]]:
+    """Get the test node → step aliases mapping (from --sequence)."""
+    try:
+        return _test_node_aliases_var.get()
+    except LookupError:
+        d: dict[str, dict[str, str]] = {}
+        _test_node_aliases_var.set(d)
+        return d
+
+
+def get_test_node_configs() -> dict[str, dict[str, Any]]:
+    """Get the test node → step config mapping (from --sequence)."""
+    try:
+        return _test_node_configs_var.get()
+    except LookupError:
+        d: dict[str, dict[str, Any]] = {}
+        _test_node_configs_var.set(d)
+        return d
+
+
+# --- Per-test getters (return throwaway empty, no storing) ---
+
+def get_current_step_aliases() -> dict[str, str]:
+    """Get the current step aliases dict."""
+    try:
+        return _current_step_aliases_var.get()
+    except LookupError:
+        return {}
+
+
+def get_current_step_config() -> dict[str, Any]:
+    """Get the current step config dict."""
+    try:
+        return _current_step_config_var.get()
+    except LookupError:
+        return {}
+
+
+def get_active_spec_context() -> Any:
+    """Get the active spec context."""
+    try:
+        return _active_spec_context_var.get()
+    except LookupError:
+        return None
+
+
+def get_sequence_test_phase() -> str | None:
+    """Get the sequence test phase."""
+    try:
+        return _sequence_test_phase_var.get()
+    except LookupError:
+        return None
+
+
+# --- Setters ---
+
+def set_step_outcomes(value: dict[str, bool]) -> None:
+    _step_outcomes_var.set(value)
+
+def set_active_instruments(value: dict[str, Any]) -> None:
+    _active_instruments_var.set(value)
+
+def set_instrument_records(value: dict[str, InstrumentRecord]) -> None:
+    _instrument_records_var.set(value)
+
+def set_current_step_aliases(value: dict[str, str]) -> None:
+    _current_step_aliases_var.set(value)
+
+def set_current_step_config(value: dict[str, Any]) -> None:
+    _current_step_config_var.set(value)
+
+def set_active_spec_context(value: Any) -> None:
+    _active_spec_context_var.set(value)
+
+def set_test_node_aliases(value: dict[str, dict[str, str]]) -> None:
+    _test_node_aliases_var.set(value)
+
+def set_test_node_configs(value: dict[str, dict[str, Any]]) -> None:
+    _test_node_configs_var.set(value)
+
+def set_sequence_test_phase(value: str | None) -> None:
+    _sequence_test_phase_var.set(value)
+
+
+def _load_sequence_steps(config):
+    """Load sequence file and return the step models.
+
+    Returns the list of SequenceStep models (not dicts).
+    Also sets the sequence test phase contextvar.
     """
-    global _SEQUENCE_TEST_PHASE
 
     seq_option = config.getoption("--sequence", default=None)
     if not seq_option:
@@ -107,46 +214,36 @@ def _load_sequence_data(config) -> list[dict[str, Any]]:
         return []
 
     # Store test phase for mock validation
-    _SEQUENCE_TEST_PHASE = seq_file.test_phase
+    set_sequence_test_phase(seq_file.test_phase)
 
-    # Return steps from sequence config
-    return [s.model_dump() for s in seq_file.steps]
+    return seq_file.steps
 
 
-def _load_step_aliases(config) -> dict[str, dict[str, str]]:
-    """Load per-step aliases from a sequence file.
+def _load_step_aliases_and_configs(config):
+    """Load per-step aliases and configs from sequence in a single pass.
 
-    Returns mapping of test node ID → {alias_name: station_role}.
+    Returns:
+        (aliases, configs) where:
+        - aliases: dict of test node ID → {alias_name: station_role}
+        - configs: dict of test node ID → config dict (vectors, limits, mocks, retry)
     """
-    steps = _load_sequence_data(config)
-    result: dict[str, dict[str, str]] = {}
+    steps = _load_sequence_steps(config)
+    aliases: dict[str, dict[str, str]] = {}
+    configs: dict[str, dict[str, Any]] = {}
     for step in steps:
-        test_node = step.get("test")
-        aliases = step.get("aliases", {})
-        if test_node and aliases:
-            result[test_node] = aliases
-    return result
-
-
-def _load_step_configs(config) -> dict[str, dict[str, Any]]:
-    """Load per-step configs (vectors, limits, mocks, retry) from sequence.
-
-    Returns mapping of test node ID → config dict with keys:
-    vectors, limits, mocks, retry (only present if specified in sequence).
-    """
-    steps = _load_sequence_data(config)
-    result: dict[str, dict[str, Any]] = {}
-    for step in steps:
-        test_node = step.get("test")
+        test_node = step.test
         if not test_node:
             continue
+        if step.aliases:
+            aliases[test_node] = step.aliases
         step_config: dict[str, Any] = {}
         for key in ("vectors", "limits", "mocks", "retry"):
-            if key in step:
-                step_config[key] = step[key]
+            val = getattr(step, key, None)
+            if val is not None:
+                step_config[key] = val
         if step_config:
-            result[test_node] = step_config
-    return result
+            configs[test_node] = step_config
+    return aliases, configs
 
 
 def _find_station_file(config) -> Path | None:
@@ -210,13 +307,13 @@ def pytest_configure(config):
     instruments_map = station_model.instruments or {}
 
     # Load per-step aliases and configs from sequence (if --sequence provided)
-    global _TEST_NODE_ALIASES, _TEST_NODE_CONFIGS
-    _TEST_NODE_ALIASES = _load_step_aliases(config)
-    _TEST_NODE_CONFIGS = _load_step_configs(config)
+    node_aliases, node_configs = _load_step_aliases_and_configs(config)
+    set_test_node_aliases(node_aliases)
+    set_test_node_configs(node_configs)
 
     # Collect all alias names used across all steps
     all_alias_names: set[str] = set()
-    for step_aliases in _TEST_NODE_ALIASES.values():
+    for step_aliases in get_test_node_aliases().values():
         all_alias_names.update(step_aliases.keys())
 
     # Build a plugin class with fixture functions per role.
@@ -236,7 +333,7 @@ def pytest_configure(config):
             def _make_aliased(r=role):
                 @pytest.fixture
                 def _fix(instruments):
-                    target = _CURRENT_STEP_ALIASES.get(r, r)
+                    target = get_current_step_aliases().get(r, r)
                     if target not in instruments:
                         available = ", ".join(sorted(instruments)) or "(none)"
                         raise KeyError(
@@ -263,7 +360,7 @@ def pytest_configure(config):
         def _make_alias(a=alias):
             @pytest.fixture
             def _fix(instruments):
-                target = _CURRENT_STEP_ALIASES.get(a, a)
+                target = get_current_step_aliases().get(a, a)
                 if target not in instruments:
                     available = ", ".join(sorted(instruments)) or "(none)"
                     raise KeyError(
@@ -283,12 +380,12 @@ def pytest_configure(config):
 
 def pytest_sessionstart(session):
     """Clear outcomes at session start."""
-    STEP_OUTCOMES.clear()
+    set_step_outcomes({})
 
 
 def pytest_sessionfinish(session, exitstatus):
     """Clean up after session."""
-    STEP_OUTCOMES.clear()
+    set_step_outcomes({})
 
 
 def _load_project_defaults() -> ProjectConfig:
@@ -707,8 +804,6 @@ def spec_context(request) -> SpecContext | None:
     spec_path = request.config.getoption("--spec")
     guardband = float(request.config.getoption("--guardband"))
 
-    global _ACTIVE_SPEC_CONTEXT
-
     ctx = None
 
     if spec_path:
@@ -732,7 +827,7 @@ def spec_context(request) -> SpecContext | None:
             if ctx:
                 break
 
-    _ACTIVE_SPEC_CONTEXT = ctx
+    set_active_spec_context(ctx)
     return ctx
 
 
@@ -753,9 +848,10 @@ def mock_instruments(request) -> bool:
     )
 
     # Prevent mocks in production/validation/characterization phases
-    if use_mocks and _SEQUENCE_TEST_PHASE is not None and _SEQUENCE_TEST_PHASE != "development":
+    test_phase = get_sequence_test_phase()
+    if use_mocks and test_phase is not None and test_phase != "development":
         raise pytest.UsageError(
-            f"Mock instruments not allowed for test_phase='{_SEQUENCE_TEST_PHASE}'. "
+            f"Mock instruments not allowed for test_phase='{test_phase}'. "
             f"Mocks are only permitted for test_phase='development'. "
             f"Remove --mock-instruments or change sequence test_phase to 'development'."
         )
@@ -914,11 +1010,11 @@ def instrument_records(request, station_config, mock_instruments) -> dict[str, I
     Returns:
         Dict mapping role name to InstrumentRecord
     """
-    global _INSTRUMENT_RECORDS
-    _INSTRUMENT_RECORDS.clear()
+    records: dict[str, InstrumentRecord] = {}
+    set_instrument_records(records)
 
     if not station_config:
-        return _INSTRUMENT_RECORDS
+        return records
 
     # Try to find and load instrument files
     from litmus.instruments.loader import find_instruments_dir, resolve_station_instruments
@@ -933,9 +1029,10 @@ def instrument_records(request, station_config, mock_instruments) -> dict[str, I
         instrument_files = load_instrument_files(instruments_dir)
 
     # Resolve station instruments to records
-    _INSTRUMENT_RECORDS = resolve_station_instruments(station_config, instrument_files)
+    records = resolve_station_instruments(station_config, instrument_files)
+    set_instrument_records(records)
 
-    return _INSTRUMENT_RECORDS
+    return records
 
 
 @pytest.fixture(scope="session")
@@ -970,11 +1067,11 @@ def instruments(
     Returns:
         Dictionary mapping instrument role names to driver instances.
     """
-    global _ACTIVE_INSTRUMENTS
-    _ACTIVE_INSTRUMENTS.clear()
+    active: dict[str, Any] = {}
+    set_active_instruments(active)
 
     if not station_config:
-        yield _ACTIVE_INSTRUMENTS
+        yield active
         return
 
     from litmus.instruments.mocks import Mock
@@ -1040,12 +1137,12 @@ def instruments(
         # Check calibration status
         _check_calibration(role, record.calibration)
 
-        _ACTIVE_INSTRUMENTS[role] = inst
+        active[role] = inst
 
-    yield _ACTIVE_INSTRUMENTS
+    yield active
 
     # Cleanup: disconnect/close all instruments
-    for inst in _ACTIVE_INSTRUMENTS.values():
+    for inst in active.values():
         try:
             if hasattr(inst, "disconnect"):
                 inst.disconnect()
@@ -1053,7 +1150,7 @@ def instruments(
                 inst.close()  # PyVISA resources use close()
         except Exception:
             pass
-    _ACTIVE_INSTRUMENTS.clear()
+    active.clear()
 
 
 @pytest.fixture
@@ -1166,29 +1263,31 @@ def pytest_runtest_makereport(item, call):
     """Record test outcomes for skip-on-failure logic."""
     if call.when == "call":
         passed = call.excinfo is None
-        STEP_OUTCOMES[item.name] = passed
+        outcomes = get_step_outcomes()
+        outcomes[item.name] = passed
         # Also track by nodeid for more specific matching
-        STEP_OUTCOMES[item.nodeid] = passed
+        outcomes[item.nodeid] = passed
 
 
 @pytest.hookimpl(tryfirst=True)
 def pytest_runtest_setup(item):
     """Reset mock state, set per-step aliases/config, and skip tests if dependencies failed."""
     # Set per-step aliases and config from sequence
-    global _CURRENT_STEP_ALIASES, _CURRENT_STEP_CONFIG
-    _CURRENT_STEP_ALIASES = {}
-    _CURRENT_STEP_CONFIG = {}
-    for node_id, aliases in _TEST_NODE_ALIASES.items():
+    step_aliases: dict[str, str] = {}
+    step_config: dict[str, Any] = {}
+    for node_id, aliases in get_test_node_aliases().items():
         if item.nodeid.endswith(node_id) or node_id in item.nodeid:
-            _CURRENT_STEP_ALIASES = aliases
+            step_aliases = aliases
             break
-    for node_id, step_config in _TEST_NODE_CONFIGS.items():
+    for node_id, sc in get_test_node_configs().items():
         if item.nodeid.endswith(node_id) or node_id in item.nodeid:
-            _CURRENT_STEP_CONFIG = step_config
+            step_config = sc
             break
+    set_current_step_aliases(step_aliases)
+    set_current_step_config(step_config)
 
     # Reset mock state for clean test isolation
-    for inst in _ACTIVE_INSTRUMENTS.values():
+    for inst in get_active_instruments().values():
         if hasattr(inst, "reset_mock_state"):
             inst.reset_mock_state()
 
@@ -1199,12 +1298,13 @@ def pytest_runtest_setup(item):
 
     dependencies = marker.args[0] if marker.args else []
 
+    outcomes = get_step_outcomes()
     for dep in dependencies:
         # Check by exact test name or nodeid
-        if dep in STEP_OUTCOMES and not STEP_OUTCOMES[dep]:
+        if dep in outcomes and not outcomes[dep]:
             pytest.skip(f"Dependency '{dep}' failed")
         # Also check partial matches (test name at end of nodeid)
-        for key, passed in STEP_OUTCOMES.items():
+        for key, passed in outcomes.items():
             if key.endswith(dep) and not passed:
                 pytest.skip(f"Dependency '{dep}' failed")
 
