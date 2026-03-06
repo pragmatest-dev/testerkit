@@ -8,11 +8,11 @@ from __future__ import annotations
 from pathlib import Path
 
 from litmus.instruments.models import CalibrationInfo, InstrumentInfo, InstrumentRecord
-from litmus.schemas import InstrumentAssetFile
+from litmus.schemas import InstrumentAssetFile, StationConfig
 
 
 def resolve_station_instruments(
-    station_config,
+    station_config: StationConfig,
     instrument_files: dict[str, InstrumentAssetFile],
 ) -> dict[str, InstrumentRecord]:
     """Resolve station instruments to full records.
@@ -24,7 +24,6 @@ def resolve_station_instruments(
     instruments_mapping = station_config.instruments or {}
 
     for role, inst_config in instruments_mapping.items():
-        instrument_id = role
         resource = inst_config.resource or ""
         protocol = "visa"
         driver = inst_config.driver
@@ -42,7 +41,7 @@ def resolve_station_instruments(
 
         records[role] = InstrumentRecord(
             role=role,
-            instrument_id=instrument_id,
+            instrument_id=role,
             resource=resource,
             protocol=protocol,
             info=info,
@@ -54,31 +53,26 @@ def resolve_station_instruments(
     return records
 
 
-def find_instruments_dir(start_path: Path | None = None) -> Path | None:
-    """Find instruments/ directory by searching up from start path."""
+def _find_directory(dirname: str, start_path: Path | None = None) -> Path | None:
+    """Find a named directory by searching up from start path."""
     if start_path is None:
         start_path = Path.cwd()
 
     current = start_path.resolve()
     while current != current.parent:
-        instruments_dir = current / "instruments"
-        if instruments_dir.is_dir():
-            return instruments_dir
+        candidate = current / dirname
+        if candidate.is_dir():
+            return candidate
         current = current.parent
 
     return None
+
+
+def find_instruments_dir(start_path: Path | None = None) -> Path | None:
+    """Find instruments/ directory by searching up from start path."""
+    return _find_directory("instruments", start_path)
 
 
 def find_stations_dir(start_path: Path | None = None) -> Path | None:
     """Find stations/ directory by searching up from start path."""
-    if start_path is None:
-        start_path = Path.cwd()
-
-    current = start_path.resolve()
-    while current != current.parent:
-        stations_dir = current / "stations"
-        if stations_dir.is_dir():
-            return stations_dir
-        current = current.parent
-
-    return None
+    return _find_directory("stations", start_path)

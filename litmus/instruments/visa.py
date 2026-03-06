@@ -29,6 +29,7 @@ import pyvisa
 from pyvisa.resources import MessageBasedResource
 
 from litmus.instruments.base import Instrument
+from litmus.instruments.discovery import parse_idn
 
 
 class VisaInstrument(Instrument):
@@ -104,13 +105,12 @@ class VisaInstrument(Instrument):
         # All VISA instruments support *IDN? (IEEE 488.2 mandatory)
         # Parse and set identity fields automatically
         try:
-            idn = self.query("*IDN?")
-            parts = idn.split(",")
-            self.manufacturer = parts[0].strip() if len(parts) > 0 else None
-            self.model = parts[1].strip() if len(parts) > 1 else None
-            self.serial = parts[2].strip() if len(parts) > 2 else None
-            self.firmware = parts[3].strip() if len(parts) > 3 else None
-        except Exception:
+            info = parse_idn(self.query("*IDN?"))
+            self.manufacturer = info.manufacturer
+            self.model = info.model
+            self.serial = info.serial
+            self.firmware = info.firmware
+        except (OSError, ValueError, pyvisa.errors.VisaIOError):
             pass  # Identity fields remain None if query fails
 
     def disconnect(self) -> None:

@@ -91,6 +91,40 @@ def Mock(cls: type[T], **values: Any) -> T:
     mock_values = dict(values)
     class_name = f"Mock{cls.__name__}"
 
+    def _is_property(name: str) -> bool:
+        """Check if name is a property on the mocked class."""
+        for klass in cls.__mro__:
+            if name in klass.__dict__:
+                return isinstance(klass.__dict__[name], property)
+        return False
+
+    def _is_class_attr(name: str) -> bool:
+        """Check if name exists on the mocked class."""
+        return any(name in klass.__dict__ for klass in cls.__mro__)
+
+    def _resolve_configured(name: str, value: Any) -> Any:
+        """Return configured mock value, wrapping as method if needed."""
+        if _is_property(name):
+            if callable(value):
+                return value()
+            return value
+        return _make_mock_method(value)
+
+    _NOOP = lambda *args, **kwargs: None  # noqa: E731
+    _SENTINEL = object()
+
+    def _resolve_unconfigured(name: str) -> Any:
+        """Return fallback for unconfigured attribute access."""
+        if _is_class_attr(name):
+            return None if _is_property(name) else _NOOP
+        # When cls is object (generic mock), return _NOOP for any attribute
+        # not on object itself, so mock.set_voltage() etc. silently succeed
+        if cls is object and name not in dir(object):
+            return _NOOP
+        return _SENTINEL  # Signal caller to use object.__getattribute__
+
+    _PASSTHROUGH = frozenset({'set_mock_value', 'mock_values', 'connect', 'disconnect'})
+
     class MockClass(cls):  # type: ignore[valid-type,misc]
 
         def __init__(self) -> None:
@@ -99,59 +133,24 @@ def Mock(cls: type[T], **values: Any) -> T:
             self._connected = False
 
         def __getattribute__(self, name: str) -> Any:
-            # Let internal attributes through
-            passthrough = ('set_mock_value', 'mock_values', 'connect', 'disconnect')
-            if name.startswith('_') or name in passthrough:
+            if name.startswith('_') or name in _PASSTHROUGH:
                 return object.__getattribute__(self, name)
 
             mock_vals = object.__getattribute__(self, '_mock_values')
 
-            # Check if it's a configured value
             if name in mock_vals:
-                value = mock_vals[name]
-                # Check if original is a property or method
-                for klass in cls.__mro__:
-                    if name in klass.__dict__:
-                        attr = klass.__dict__[name]
-                        if isinstance(attr, property):
-                            # Property - return value directly (no args)
-                            if callable(value):
-                                return value()
-                            elif isinstance(value, dict):
-                                return value  # Return the dict itself for properties
-                            return value
-                        else:
-                            # Method - return callable that handles value type
-                            return _make_mock_method(value)
-                # Not found in class, treat as method
-                return _make_mock_method(value)
+                return _resolve_configured(name, mock_vals[name])
 
-            # Not configured - return no-op for methods, None for properties
-            for klass in cls.__mro__:
-                if name in klass.__dict__:
-                    attr = klass.__dict__[name]
-                    if isinstance(attr, property):
-                        return None
-                    elif callable(attr):
-                        return lambda *args, **kwargs: None
-
-            # For generic mocks (base class is object), return no-op callable
-            # for any unknown attribute that doesn't exist on object
-            if cls is object and name not in dir(object):
-                return lambda *args, **kwargs: None
-
-            # Fall back to parent (for things like __class__, etc)
-            return object.__getattribute__(self, name)
+            result = _resolve_unconfigured(name)
+            if result is _SENTINEL:
+                return object.__getattribute__(self, name)
+            return result
 
         def __setattr__(self, name: str, value: Any) -> None:
             if name.startswith('_'):
                 object.__setattr__(self, name, value)
             else:
-                # Setting any attribute stores in mock_values
-                if hasattr(self, '_mock_values'):
-                    self._mock_values[name] = value
-                else:
-                    object.__setattr__(self, name, value)
+                self._mock_values[name] = value
 
         def connect(self) -> None:
             self._connected = True

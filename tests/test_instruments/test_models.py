@@ -2,8 +2,6 @@
 
 from datetime import date, timedelta
 
-import pytest
-
 from litmus.instruments.models import (
     CalibrationInfo,
     InstrumentInfo,
@@ -185,8 +183,8 @@ class TestInstrumentRecord:
         assert record.calibration.certificate == "CAL-2024-001"
         assert record.driver == "pymeasure.instruments.keithley.Keithley2000"
 
-    def test_to_dict(self):
-        """to_dict produces serializable output."""
+    def test_model_dump(self):
+        """model_dump produces serializable output."""
         record = InstrumentRecord(
             role="dmm",
             instrument_id="keithley_dmm_001",
@@ -199,21 +197,21 @@ class TestInstrumentRecord:
                 lab="Acme Cal",
             ),
         )
-        d = record.to_dict()
+        d = record.model_dump()
         assert d["role"] == "dmm"
         assert d["instrument_id"] == "keithley_dmm_001"
-        assert d["manufacturer"] == "Keithley"
-        assert d["serial"] == "ABC123"
-        assert d["cal_due"] == "2025-06-15"
-        assert d["cal_certificate"] == "CAL-2024-001"
+        assert d["info"]["manufacturer"] == "Keithley"
+        assert d["info"]["serial"] == "ABC123"
+        assert d["calibration"]["due_date"] == date(2025, 6, 15)
+        assert d["calibration"]["certificate"] == "CAL-2024-001"
 
-    def test_to_dict_empty_info(self):
-        """to_dict handles empty info/calibration."""
+    def test_model_dump_empty_info(self):
+        """model_dump handles empty info/calibration."""
         record = InstrumentRecord(
             role="dmm",
             instrument_id="dmm_001",
             resource="GPIB::16::INSTR",
         )
-        d = record.to_dict()
-        assert d["manufacturer"] is None
-        assert d["cal_due"] is None
+        d = record.model_dump()
+        assert d["info"]["manufacturer"] is None
+        assert d["calibration"]["due_date"] is None

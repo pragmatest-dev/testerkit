@@ -24,9 +24,12 @@ Usage:
 
 from __future__ import annotations
 
+import logging
 from collections.abc import Callable
 
 from litmus.instruments.models import InstrumentInfo
+
+logger = logging.getLogger(__name__)
 
 # Type alias to keep lines short
 DiscoverFn = Callable[[], list[str]]
@@ -42,8 +45,8 @@ _PROTOCOL_REGISTRY: dict[str, tuple[DiscoverFn, GetInfoFn]] = {}
 
 def register_protocol(
     name: str,
-    discover: Callable[[], list[str]],
-    get_info: Callable[[str], InstrumentInfo | None],
+    discover: DiscoverFn,
+    get_info: GetInfoFn,
 ) -> None:
     """Register a custom discovery protocol.
 
@@ -121,19 +124,24 @@ def parse_idn(idn_response: str) -> InstrumentInfo:
 # =============================================================================
 
 
+def check_import(module: str, install_hint: str) -> None:
+    """Check if an optional dependency is available."""
+    try:
+        __import__(module)
+    except ImportError as e:
+        raise ImportError(install_hint) from e
+
+
 def _check_pyvisa() -> None:
     """Check if pyvisa is available."""
-    try:
-        import pyvisa  # noqa: F401
-    except ImportError as e:
-        raise ImportError(
-            "Protocol 'visa' requires pyvisa. Install with: pip install pyvisa pyvisa-py"
-        ) from e
+    check_import(
+        "pyvisa",
+        "Protocol 'visa' requires pyvisa. Install with: pip install pyvisa pyvisa-py",
+    )
 
 
 def discover_visa(
     query: str = "?*::INSTR",
-    timeout_ms: int = 2000,
 ) -> list[str]:
     """Scan for VISA resources.
 
@@ -142,7 +150,6 @@ def discover_visa(
 
     Args:
         query: VISA resource query pattern (default: all INSTR resources)
-        timeout_ms: Timeout for resource manager operations
 
     Returns:
         List of VISA resource strings found
@@ -158,7 +165,8 @@ def discover_visa(
         resources = list(rm.list_resources(query))
         rm.close()
         return resources
-    except Exception:
+    except (OSError, ValueError, pyvisa.errors.VisaIOError) as exc:
+        logger.debug("VISA discovery failed: %s", exc)
         return []
 
 
@@ -193,19 +201,9 @@ def get_info_visa(
         rm.close()
 
         return parse_idn(idn)
-    except Exception:
+    except (OSError, ValueError, pyvisa.errors.VisaIOError) as exc:
+        logger.debug("VISA get_info failed for %s: %s", resource, exc)
         return None
-
-
-def identify_visa(resource: str, timeout_ms: int = 2000) -> tuple[str, InstrumentInfo | None]:
-    """Discover and identify a VISA resource.
-
-    Convenience function that returns both the resource string and its info.
-
-    Returns:
-        Tuple of (resource, InstrumentInfo or None)
-    """
-    return resource, get_info_visa(resource, timeout_ms)
 
 
 # Register VISA protocol
@@ -219,12 +217,10 @@ register_protocol("visa", discover_visa, get_info_visa)
 
 def _check_nisyscfg() -> None:
     """Check if NI System Configuration is available."""
-    try:
-        import nisyscfg  # noqa: F401
-    except ImportError as e:
-        raise ImportError(
-            "Protocol 'ni' requires nisyscfg. Install NI System Configuration from ni.com"
-        ) from e
+    check_import(
+        "nisyscfg",
+        "Protocol 'ni' requires nisyscfg. Install NI System Configuration from ni.com",
+    )
 
 
 def discover_ni() -> list[str]:
@@ -252,8 +248,8 @@ def discover_ni() -> list[str]:
                 )
                 if name:
                     devices.append(name)
-    except Exception:
-        pass
+    except (OSError, AttributeError) as exc:
+        logger.debug("NI discovery failed: %s", exc)
     return devices
 
 
@@ -285,8 +281,8 @@ def get_info_ni(device: str) -> InstrumentInfo | None:
                         serial=str(getattr(resource, "serial_number", "")),
                         firmware=getattr(resource, "firmware_revision", None),
                     )
-    except Exception:
-        pass
+    except (OSError, AttributeError) as exc:
+        logger.debug("NI get_info failed for %s: %s", device, exc)
     return None
 
 
@@ -301,12 +297,10 @@ register_protocol("ni", discover_ni, get_info_ni)
 
 def _check_pyserial() -> None:
     """Check if pyserial is available."""
-    try:
-        import serial.tools.list_ports  # noqa: F401
-    except ImportError as e:
-        raise ImportError(
-            "Protocol 'serial' requires pyserial. Install with: pip install pyserial"
-        ) from e
+    check_import(
+        "serial.tools.list_ports",
+        "Protocol 'serial' requires pyserial. Install with: pip install pyserial",
+    )
 
 
 def discover_serial() -> list[str]:
@@ -318,7 +312,11 @@ def discover_serial() -> list[str]:
     _check_pyserial()
     import serial.tools.list_ports
 
-    return [port.device for port in serial.tools.list_ports.comports()]
+    try:
+        return [port.device for port in serial.tools.list_ports.comports()]
+    except OSError as exc:
+        logger.debug("Serial discovery failed: %s", exc)
+        return []
 
 
 def get_info_serial(port: str) -> InstrumentInfo | None:
@@ -360,13 +358,27 @@ try:
     from litmus.instruments.lxi import discover_lxi, get_info_lxi
 
     register_protocol("lxi", discover_lxi, get_info_lxi)
-except Exception:
+except ImportError:
     pass
 
 
 # =============================================================================
 # Unified Discovery Interface
 # =============================================================================
+
+
+def _iter_protocols(
+    protocols: list[str] | None = None,
+) -> list[tuple[str, DiscoverFn, GetInfoFn]]:
+    """Resolve protocol names to their handler functions."""
+    if protocols is None:
+        protocols = list_protocols()
+    result = []
+    for name in protocols:
+        handler = get_protocol(name)
+        if handler is not None:
+            result.append((name, handler[0], handler[1]))
+    return result
 
 
 def discover(protocols: list[str] | None = None) -> dict[str, list[str]]:
@@ -386,23 +398,12 @@ def discover(protocols: list[str] | None = None) -> dict[str, list[str]]:
             "ni": ["Dev1", "PXI1Slot2"]
         }
     """
-    if protocols is None:
-        protocols = list_protocols()
-
     results: dict[str, list[str]] = {}
-    for proto in protocols:
-        handler = get_protocol(proto)
-        if handler is None:
-            continue
-        discover_fn, _ = handler
+    for proto, discover_fn, _ in _iter_protocols(protocols):
         try:
             results[proto] = discover_fn()
-        except ImportError:
-            # Dependency not installed - skip this protocol
+        except (ImportError, OSError, ValueError):
             results[proto] = []
-        except Exception:
-            results[proto] = []
-
     return results
 
 
@@ -449,21 +450,11 @@ def discover_and_identify(
             ]
         }
     """
-    if protocols is None:
-        protocols = list_protocols()
-
     results: dict[str, list[tuple[str, InstrumentInfo | None]]] = {}
-    for proto in protocols:
-        handler = get_protocol(proto)
-        if handler is None:
-            continue
-        discover_fn, get_info_fn = handler
+    for proto, discover_fn, get_info_fn in _iter_protocols(protocols):
         try:
             resources = discover_fn()
             results[proto] = [(r, get_info_fn(r)) for r in resources]
-        except ImportError:
+        except (ImportError, OSError, ValueError):
             results[proto] = []
-        except Exception:
-            results[proto] = []
-
     return results

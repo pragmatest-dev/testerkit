@@ -139,6 +139,10 @@ class FixtureManager:
             )
         return self.instruments[point.instrument]
 
+    def has_pin(self, pin_name: str) -> bool:
+        """Check if a pin has a fixture connection."""
+        return pin_name in self._pin_to_point
+
     def get_instrument_for_pin(self, pin_name: str) -> Instrument:
         """Get instrument instance for a DUT pin.
 
@@ -231,11 +235,27 @@ class PinAccessor:
 
     def __contains__(self, pin_name: str) -> bool:
         """Check if a pin has a fixture connection."""
-        return pin_name in self._manager._pin_to_point
+        return self._manager.has_pin(pin_name)
+
+    def __iter__(self):
+        """Iterate over pin names."""
+        return iter(self._manager.list_pins())
+
+    def __len__(self) -> int:
+        """Return number of available pins."""
+        return len(self._manager.list_pins())
 
     def keys(self) -> list[str]:
         """Return all available pin names."""
         return self._manager.list_pins()
+
+    def values(self) -> list[Instrument]:
+        """Return all instruments mapped to pins."""
+        return [self._manager.get_instrument_for_pin(p) for p in self._manager.list_pins()]
+
+    def items(self) -> list[tuple[str, Instrument]]:
+        """Return (pin_name, instrument) pairs."""
+        return [(p, self._manager.get_instrument_for_pin(p)) for p in self._manager.list_pins()]
 
     def get(self, pin_name: str, default: Any = None) -> Instrument | Any:
         """Get instrument for a pin, with default.

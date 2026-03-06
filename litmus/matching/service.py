@@ -11,8 +11,16 @@ Key concepts:
 - Matching is multi-tier: function → direction → range → accuracy → resolution
 """
 
+from __future__ import annotations
+
+import logging
+import os
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from litmus.catalog.models import InstrumentCatalogEntry
+    from litmus.schemas import StationConfig
 
 from pydantic import BaseModel, Field
 
@@ -39,6 +47,8 @@ from litmus.store import (
     list_stations,
     resolve_catalog_ref,
 )
+
+logger = logging.getLogger(__name__)
 
 
 class CapabilityRequirement(BaseModel):
@@ -169,7 +179,6 @@ def list_products_summary() -> list[dict[str, Any]]:
             "description": p.description,
             "revision": p.revision,
             "characteristics_count": len(p.characteristics),
-            "characteristics_count_total": len(p.characteristics),
         }
         for p in list_products()
     ]
@@ -178,6 +187,16 @@ def list_products_summary() -> list[dict[str, Any]]:
 # -----------------------------------------------------------------------------
 # Capability Extraction
 # -----------------------------------------------------------------------------
+
+
+def _directions_compatible_direct(required_dir: Direction, instrument_dir: Direction) -> bool:
+    """Check direct direction match (requirement specifies instrument direction).
+
+    BIDIR on either side matches anything; otherwise directions must match exactly.
+    """
+    if instrument_dir == Direction.BIDIR or required_dir == Direction.BIDIR:
+        return True
+    return required_dir == instrument_dir
 
 
 def _directions_compatible(product_dir: Direction, instrument_dir: Direction) -> bool:
@@ -222,7 +241,7 @@ def get_required_capabilities(product: Product) -> list[CapabilityRequirement]:
     return requirements
 
 
-def get_station_capabilities(station_config) -> list[StationCapability]:
+def get_station_capabilities(station_config: StationConfig) -> list[StationCapability]:
     """Extract all capabilities from a station's instruments.
 
     Iterates through the station's instruments, loads each instrument's
@@ -233,14 +252,6 @@ def get_station_capabilities(station_config) -> list[StationCapability]:
     Args:
         station_config: StationConfig model.
     """
-    import sys
-    import time
-    _start = time.perf_counter()
-    def _log(msg: str) -> None:
-        sys.stderr.write(msg + "\n")
-        sys.stderr.flush()
-
-    _log(f"[get_station_caps] START")
     capabilities = []
     instruments = station_config.instruments or {}
 
@@ -252,17 +263,13 @@ def get_station_capabilities(station_config) -> list[StationCapability]:
             continue
 
         if catalog_ref:
-            _log(f"[get_station_caps] +{(time.perf_counter() - _start)*1000:.0f}ms - loading {inst_name} ({catalog_ref})")
             _add_catalog_capabilities(catalog_ref, inst_type, inst_name, capabilities)
-            _log(f"[get_station_caps] +{(time.perf_counter() - _start)*1000:.0f}ms - done {inst_name}")
         else:
-            import logging
-            logging.getLogger(__name__).warning(
+            logger.warning(
                 "Instrument '%s' (type=%s) has no catalog_ref — skipping capability resolution",
                 inst_name, inst_type,
             )
 
-    _log(f"[get_station_caps] +{(time.perf_counter() - _start)*1000:.0f}ms - DONE ({len(capabilities)} caps)")
     return capabilities
 
 
@@ -343,9 +350,9 @@ def capability_satisfies(
     # Tier 2: Direction compatibility
     if direct_direction:
         # Direct: requirement specifies what the instrument must be
-        if required.direction != Direction.BIDIR and station_cap.direction != required.direction:
-            if station_cap.direction != Direction.BIDIR:
-                return False
+        # (same-direction match: INPUT→INPUT, OUTPUT→OUTPUT, BIDIR matches all)
+        if not _directions_compatible_direct(required.direction, station_cap.direction):
+            return False
     else:
         # Product↔instrument pairing (OUTPUT↔INPUT, etc.)
         if not _directions_compatible(required.direction, station_cap.direction):
@@ -404,9 +411,9 @@ def _build_operating_point(
     signals: dict[str, Signal],
     conditions: dict[str, Condition] | None = None,
     controls: dict[str, Control] | None = None,
-) -> dict[str, float | str]:
+) -> dict[str, float | str | bool]:
     """Extract operating point values from requirement signals, conditions, and controls."""
-    point: dict[str, float | str] = {}
+    point: dict[str, float | str | bool] = {}
     for name, m in signals.items():
         if m.value is not None:
             point[name] = m.value
@@ -476,50 +483,46 @@ def _band_matches(band: SpecBand, operating_point: dict[str, float | str | bool]
     return True
 
 
-def _get_accuracy_at(
-    measure: Signal, operating_point: dict[str, float | str]
-) -> AccuracySpec | None:
-    """Get the applicable accuracy for a measure at an operating point."""
+def _get_spec_field(
+    measure: Signal, field: str, operating_point: dict[str, float | str | bool],
+) -> Any:
+    """Get a spec field at an operating point, falling back to top-level.
+
+    Checks the matching SpecBand first; if the field is None or missing,
+    returns the top-level value from the Signal itself.
+    """
     band = get_spec_at(measure, operating_point)
-    if band is not None and band.accuracy is not None:
-        return band.accuracy
-    return measure.accuracy
+    if band is not None:
+        band_val = getattr(band, field, None)
+        if band_val is not None:
+            return band_val
+    return getattr(measure, field, None)
+
+
+def _get_accuracy_at(
+    measure: Signal, operating_point: dict[str, float | str | bool],
+) -> AccuracySpec | None:
+    return _get_spec_field(measure, "accuracy", operating_point)
 
 
 def _get_resolution_at(
-    measure: Signal, operating_point: dict[str, float | str]
+    measure: Signal, operating_point: dict[str, float | str | bool],
 ) -> ResolutionSpec | None:
-    """Get the applicable resolution for a measure at an operating point."""
-    band = get_spec_at(measure, operating_point)
-    if band is not None and band.resolution is not None:
-        return band.resolution
-    return measure.resolution
+    return _get_spec_field(measure, "resolution", operating_point)
 
 
 def _get_range_at(
-    measure: Signal, operating_point: dict[str, float | str]
-) -> "RangeSpec | None":
-    """Get the applicable range for a measure at an operating point.
-
-    If a matching SpecBand has a range override, use that (derated range).
-    Otherwise fall back to the top-level range.
-    """
-    band = get_spec_at(measure, operating_point)
-    if band is not None and band.range is not None:
-        return band.range
-    return measure.range
+    measure: Signal, operating_point: dict[str, float | str | bool],
+) -> RangeSpec | None:
+    return _get_spec_field(measure, "range", operating_point)
 
 
 def _get_value_at(
-    measure: Signal, operating_point: dict[str, float | str]
+    measure: Signal, operating_point: dict[str, float | str],
 ) -> float | None:
-    """Get the applicable value for a measure at an operating point."""
-    band = get_spec_at(measure, operating_point)
-    if band is not None and isinstance(band.value, (int, float)):
-        return band.value
-    if isinstance(measure.value, (int, float)):
-        return measure.value
-    return None
+    """Get the applicable value, requiring numeric type."""
+    val = _get_spec_field(measure, "value", operating_point)
+    return val if isinstance(val, (int, float)) else None
 
 
 def _accuracy_sufficient(inst: AccuracySpec, req: AccuracySpec) -> bool:
@@ -604,7 +607,8 @@ def _signal_range_contains(
             return False
         return True
 
-    # No range constraint on requirement — always satisfied
+    # No range constraint on requirement, or instrument has no range defined —
+    # treat as satisfied (instrument doesn't constrain this dimension)
     return True
 
 
@@ -732,22 +736,17 @@ def check_station_compatibility(
     }
 
 
-def find_partial_stations(product: Product) -> list[PartialStationMatch]:
-    """Find stations with partial capability coverage for a product.
+def _evaluate_stations(
+    required: list[CapabilityRequirement],
+) -> list[tuple[Any, MatchResult, int, int, int]]:
+    """Evaluate all stations against requirements.
 
-    Returns stations that have some but not all required capabilities.
-    Useful for procurement planning - shows what's available and what to order.
+    Returns list of (station, match_result, satisfied_count, total_count, coverage_pct)
+    for each station that has a loadable config.
     """
-    required = get_required_capabilities(product)
-    if not required:
-        return []
-
-    stations_list = list_stations()
     results = []
-
-    for station in stations_list:
+    for station in list_stations():
         station_config = get_station(station.id)
-
         if not station_config:
             continue
 
@@ -758,12 +757,25 @@ def find_partial_stations(product: Product) -> list[PartialStationMatch]:
         total_count = len(required)
         coverage_pct = int((satisfied_count / total_count) * 100) if total_count > 0 else 0
 
-        # Only include partial matches (not 0% and not 100%)
-        if 0 < coverage_pct < 100:
-            missing_readable = []
-            for req in match_result.missing:
-                missing_readable.append(f"{req.function.value} {req.direction.value}")
+        results.append((station, match_result, satisfied_count, total_count, coverage_pct))
+    return results
 
+
+def find_partial_stations(product: Product) -> list[PartialStationMatch]:
+    """Find stations with partial capability coverage for a product.
+
+    Returns stations that have some but not all required capabilities.
+    Useful for procurement planning - shows what's available and what to order.
+    """
+    required = get_required_capabilities(product)
+    if not required:
+        return []
+
+    results = []
+    for station, match_result, satisfied_count, total_count, coverage_pct in _evaluate_stations(
+        required,
+    ):
+        if 0 < coverage_pct < 100:
             results.append(
                 PartialStationMatch(
                     station_id=station.id,
@@ -772,11 +784,12 @@ def find_partial_stations(product: Product) -> list[PartialStationMatch]:
                     coverage_pct=coverage_pct,
                     satisfied_count=satisfied_count,
                     total_count=total_count,
-                    missing=missing_readable,
+                    missing=[
+                        f"{r.function.value} {r.direction.value}" for r in match_result.missing
+                    ],
                 )
             )
 
-    # Sort by coverage (highest first)
     results.sort(key=lambda x: x.coverage_pct, reverse=True)
     return results
 
@@ -799,8 +812,6 @@ def recommend_from_catalog(
         Dict with requirements, recommendations (sorted by coverage), and
         coverage summary.
     """
-    import os
-
     from litmus.store import find_catalog_dirs, load_catalog_from_directory  # noqa: F811
 
     old_cwd = os.getcwd() if project else None
@@ -813,7 +824,7 @@ def recommend_from_catalog(
         for cat_dir in find_catalog_dirs():
             all_entries.update(load_catalog_from_directory(cat_dir))
     finally:
-        if project and old_cwd:
+        if old_cwd:
             os.chdir(old_cwd)
 
     # Convert simplified dicts to CapabilityRequirement objects
@@ -884,8 +895,6 @@ def _parse_requirements(
         Tuple of (requirements, depths) where depths[i] is the auto-inferred
         match depth for requirements[i].
     """
-    from litmus.config.models import RangeSpec
-
     reqs = []
     depths = []
     for i, r in enumerate(raw):
@@ -921,9 +930,8 @@ def _parse_requirements(
         # Parse conditions
         conditions: dict[str, Condition] = {}
         if "conditions" in r:
-            from litmus.config.models import RangeSpec as RS
             for cond_name, cond_spec in r["conditions"].items():
-                conditions[cond_name] = Condition(range=RS(**cond_spec))
+                conditions[cond_name] = Condition(range=RangeSpec(**cond_spec))
 
         # Build a synthetic ProductCharacteristic for the wrapper
         char = ProductCharacteristic(
@@ -943,11 +951,11 @@ def _parse_requirements(
     return reqs, depths
 
 
-def _catalog_entry_to_capabilities(entry: Any) -> list[StationCapability]:
+def _catalog_entry_to_capabilities(entry: InstrumentCatalogEntry) -> list[StationCapability]:
     """Convert a catalog entry's capabilities to StationCapability objects."""
     caps: list[StationCapability] = []
     for cap in entry.capabilities:
-        _expand_capability(cap, entry.type, entry.id, caps)
+        _expand_capability(cap, entry.type or "", entry.id or "", caps)
     return caps
 
 
@@ -964,24 +972,13 @@ def find_all_station_matches(product: Product) -> dict[str, list]:
     if not required:
         return {"compatible": [], "partial": [], "incompatible": []}
 
-    stations_list = list_stations()
     compatible = []
     partial = []
     incompatible = []
 
-    for station in stations_list:
-        station_config = get_station(station.id)
-
-        if not station_config:
-            continue
-
-        available = get_station_capabilities(station_config)
-        match_result = match_capabilities(required, available)
-
-        satisfied_count = len([m for m in match_result.matches if m.satisfied])
-        total_count = len(required)
-        coverage_pct = int((satisfied_count / total_count) * 100) if total_count > 0 else 0
-
+    for station, match_result, satisfied_count, total_count, coverage_pct in _evaluate_stations(
+        required,
+    ):
         station_data = {
             "id": station.id,
             "name": station.name,
@@ -1001,7 +998,6 @@ def find_all_station_matches(product: Product) -> dict[str, list]:
         else:
             incompatible.append(station_data)
 
-    # Sort partial by coverage (highest first)
     partial.sort(key=lambda x: x["coverage"], reverse=True)
 
     return {"compatible": compatible, "partial": partial, "incompatible": incompatible}

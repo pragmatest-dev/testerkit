@@ -15,6 +15,7 @@ from __future__ import annotations
 import xml.etree.ElementTree as ET
 from urllib.request import urlopen
 
+from litmus.instruments.discovery import check_import
 from litmus.instruments.models import InstrumentInfo
 
 _LXI_SERVICE_TYPE = "_lxi._tcp.local."
@@ -22,12 +23,10 @@ _LXI_SERVICE_TYPE = "_lxi._tcp.local."
 
 def _check_zeroconf() -> None:
     """Check if zeroconf is available."""
-    try:
-        import zeroconf  # noqa: F401
-    except ImportError as e:
-        raise ImportError(
-            "Protocol 'lxi' requires zeroconf. Install with: pip install zeroconf"
-        ) from e
+    check_import(
+        "zeroconf",
+        "Protocol 'lxi' requires zeroconf. Install with: pip install zeroconf",
+    )
 
 
 def discover_lxi(timeout: float = 3.0) -> list[str]:
@@ -109,7 +108,7 @@ def get_info_lxi(resource: str, timeout: float = 5.0) -> InstrumentInfo | None:
         url = f"http://{ip}:{port}/lxi/identification"
         with urlopen(url, timeout=timeout) as resp:  # noqa: S310
             xml_bytes = resp.read()
-    except Exception:
+    except (OSError, ValueError):
         return None
 
     return _parse_identification_xml(xml_bytes)

@@ -128,27 +128,3 @@ class InstrumentRecord(BaseModel):
 
     # Whether this instrument is running in mock mode
     mocked: bool = False
-
-    def to_dict(self) -> dict:
-        """Convert to dictionary for logging/serialization."""
-        return {
-            "role": self.role,
-            "instrument_id": self.instrument_id,
-            "resource": self.resource,
-            "protocol": self.protocol,
-            "manufacturer": self.info.manufacturer,
-            "model": self.info.model,
-            "serial": self.info.serial,
-            "firmware": self.info.firmware,
-            "cal_due": self.calibration.due_date.isoformat()
-            if self.calibration.due_date
-            else None,
-            "cal_last": self.calibration.last_cal.isoformat()
-            if self.calibration.last_cal
-            else None,
-            "cal_certificate": self.calibration.certificate,
-            "cal_lab": self.calibration.lab,
-            "driver": self.driver,
-            "catalog_ref": self.catalog_ref,
-            "mocked": self.mocked,
-        }

@@ -246,9 +246,9 @@ class Condition(BaseModel):
     model_config = {"extra": "forbid"}
 
     range: RangeSpec | None = None
-    options: list[float | str] | None = None
+    options: list[float | str | bool] | None = None
     units: str | None = None
-    default: float | str | None = None
+    default: float | str | bool | None = None
     specs: list[SpecBand] | None = None
     note: str | None = None  # Unstructured annotation; will be replaced by structured fields
 
@@ -267,14 +267,17 @@ class Control(BaseModel):
           coupling:
             options: ["AC", "DC"]
             default: "DC"
+          autorange:
+            options: [true, false]
+            default: true
     """
 
     model_config = {"extra": "forbid"}
 
     range: RangeSpec | None = None
-    options: list[float | str] | None = None
+    options: list[float | str | bool] | None = None
     units: str | None = None
-    default: float | str | None = None
+    default: float | str | bool | None = None
     resolution: ResolutionSpec | None = None
     specs: list[SpecBand] | None = None
     note: str | None = None  # Unstructured annotation; will be replaced by structured fields
@@ -313,9 +316,9 @@ class Attribute(BaseModel):
 
     model_config = {"extra": "forbid"}
 
-    value: float | str | None = None
+    value: float | str | bool | None = None
     range: RangeSpec | None = None
-    options: list[float | str] | None = None
+    options: list[float | str | bool] | None = None
     units: str | None = None
     specs: list[SpecBand] | None = None
     qualifier: SpecQualifier | None = None
