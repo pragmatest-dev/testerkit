@@ -1,4 +1,8 @@
-"""Report generation core: data loading, formatting, and output."""
+"""Report generation core: data loading, formatting, and output.
+
+Note: pyarrow.parquet and weasyprint are optional dependencies,
+imported inline where needed to avoid hard requirements.
+"""
 
 import csv
 import io
@@ -85,7 +89,7 @@ def _find_parquet(run_id: str, results_dir: str = "results") -> Path | None:
                         file_run_id = str(table.column("run_id")[0])
                         if run_id in file_run_id or file_run_id.startswith(run_id):
                             return f
-                except Exception:
+                except (OSError, IndexError):
                     continue
         # Old layout: run_id subdirectory
         for run_dir in date_dir.iterdir():
@@ -136,11 +140,11 @@ def load_run_data(run_id: str, results_dir: str = "results") -> ReportData:
     step_names = sorted({r.get("step_name", "") for r in rows if r.get("step_name")})
 
     return ReportData(
-        run_id=str(first.get("run_id", "")),
+        run_id=str(first.get("run_id") or ""),
         started_at=_fmt_dt_raw(first.get("run_started_at")),
         ended_at=_fmt_dt_raw(first.get("run_ended_at")),
-        outcome=str(first.get("run_outcome", first.get("outcome", ""))),
-        dut_serial=str(first.get("dut_serial", "")),
+        outcome=str(first.get("run_outcome") or first.get("outcome") or ""),
+        dut_serial=str(first.get("dut_serial") or ""),
         dut_part_number=str(first.get("dut_part_number") or ""),
         dut_revision=str(first.get("dut_revision") or ""),
         dut_lot_number=str(first.get("dut_lot_number") or ""),
@@ -238,7 +242,8 @@ def generate_report(
     """
     output = Path(output)
 
-    # If output is a directory (or has no extension), generate filename
+    # If output is a directory, ends with /, or has no file extension
+    # (e.g. "reports" without .html), auto-generate a filename inside it.
     if output.is_dir() or str(output).endswith("/") or not output.suffix:
         output.mkdir(parents=True, exist_ok=True)
         safe_id = data.run_id[:8] if data.run_id else "report"

@@ -218,18 +218,21 @@ def fmt_resolution(res: dict[str, Any] | None) -> str:
     return "—"
 
 
+def _fmt_value(v: Any, units: str = "") -> str:
+    """Format a value with optional SI prefix for numeric types."""
+    if isinstance(v, (int, float)) and units:
+        return fmt_si(v, units)
+    if isinstance(v, (int, float)):
+        return _fmt_num(v)
+    return f"{v} {units}".strip() if units else str(v)
+
+
 def fmt_attr(attr: dict[str, Any] | None) -> str:
     """Format an Attribute dict as a readable string with SI formatting."""
     if not attr:
         return "—"
     if attr.get("value") is not None:
-        units = attr.get("units", "")
-        v = attr["value"]
-        if isinstance(v, (int, float)) and units:
-            return fmt_si(v, units)
-        if isinstance(v, (int, float)):
-            return _fmt_num(v)
-        return f"{v} {units}".strip() if units else str(v)
+        return _fmt_value(attr["value"], attr.get("units", ""))
     if attr.get("range"):
         return fmt_range(attr["range"])
     if attr.get("options"):
@@ -241,40 +244,11 @@ def _fmt_attr_band_value(band: dict[str, Any], parent_units: str = "") -> str:
     """Format an attribute spec band's value, inheriting units from parent."""
     v = band.get("value")
     if v is None:
-        # Band might just constrain when this attr applies (e.g. frequency range)
         if band.get("range"):
             return fmt_range(band["range"])
         return "—"
-    units = band.get("units") or parent_units
-    if isinstance(v, (int, float)) and units:
-        return fmt_si(v, units)
-    if isinstance(v, (int, float)):
-        return _fmt_num(v)
-    return f"{v} {units}".strip() if units else str(v)
+    return _fmt_value(v, band.get("units") or parent_units)
 
-
-def _output_field(band: dict[str, Any]) -> str | None:
-    """Return which output field a spec band overrides, or None."""
-    for field in ("range", "accuracy", "resolution"):
-        val = band.get(field)
-        if val is not None:
-            # Check it's not an all-None dict
-            if isinstance(val, dict) and all(v is None for v in val.values()):
-                continue
-            return field
-    return None
-
-
-def _split_by_output_field(
-    specs: list[dict[str, Any]],
-) -> dict[str, list[dict[str, Any]]]:
-    """Split spec bands by which output field they override."""
-    groups: dict[str, list[dict[str, Any]]] = defaultdict(list)
-    for band in specs:
-        field = _output_field(band)
-        if field:
-            groups[field].append(band)
-    return dict(groups)
 
 
 def _when_keys(bands: list[dict[str, Any]]) -> list[str]:
@@ -298,7 +272,7 @@ def _unique_values(bands: list[dict[str, Any]], key: str) -> list[Any]:
     return seen
 
 
-def _format_output_cell(band: dict[str, Any], field: str) -> str:
+def _fmt_output_cell(band: dict[str, Any], field: str) -> str:
     """Format the output value of a band for its field."""
     val = band.get(field)
     if field == "range":
@@ -363,6 +337,10 @@ def _cluster_by_key_overlap(
     return result
 
 
+# Use 2D matrix layout if grid is at least this fraction populated
+_GRID_DENSITY_THRESHOLD = 0.5
+
+
 def _emit_table(
     tables: list[dict[str, Any]],
     bands: list[dict[str, Any]],
@@ -376,9 +354,9 @@ def _emit_table(
         v0 = _unique_values(bands, keys[0])
         v1 = _unique_values(bands, keys[1])
         grid_size = len(v0) * len(v1)
-        if grid_size > 0 and len(bands) / grid_size >= 0.5:
+        if grid_size > 0 and len(bands) / grid_size >= _GRID_DENSITY_THRESHOLD:
             def cell_fn(b, f=present_fields[0]):
-                return _format_output_cell(b, f)
+                return _fmt_output_cell(b, f)
             tbl = _build_2d_generic(bands, keys, sig_name, cell_fn)
             tbl["title"] = f"{fmt_key(sig_name)} {fmt_key(present_fields[0])}"
             tables.append(tbl)
@@ -391,7 +369,7 @@ def _emit_table(
         rows = []
         for band in bands:
             label = fmt_when_value(band.get("when", {}).get(key), key)
-            rows.append({"label": label, "value": _format_output_cell(band, field)})
+            rows.append({"label": label, "value": _fmt_output_cell(band, field)})
         tables.append({
             "kind": "1d",
             "title": _field_title(field, sig_name),
@@ -443,7 +421,7 @@ def build_signal_render(
     for band in unconditional:
         for field in ("range", "accuracy", "resolution"):
             if _has_output_field(band, field):
-                headline[field] = _format_output_cell(band, field)
+                headline[field] = _fmt_output_cell(band, field)
 
     tables = []
     if not conditional:
@@ -518,7 +496,7 @@ def _build_tables_from_bands(
     bands: list[dict[str, Any]],
     name: str,
     value_label: str,
-    cell_fn,
+    cell_fn: Callable[[dict[str, Any]], str],
 ) -> list[dict[str, Any]]:
     """Generic table builder for spec bands (used by both signals and attrs)."""
     tables = []
@@ -529,7 +507,7 @@ def _build_tables_from_bands(
         ndim = len(keys)
 
         if ndim == 0:
-            pass
+            pass  # Unconditional bands are handled upstream; nothing to tabulate
         elif ndim == 1:
             key = keys[0]
             rows = []
@@ -547,7 +525,7 @@ def _build_tables_from_bands(
             v0 = _unique_values(cluster, keys[0])
             v1 = _unique_values(cluster, keys[1])
             grid_size = len(v0) * len(v1)
-            if grid_size > 0 and len(cluster) / grid_size >= 0.5:
+            if grid_size > 0 and len(cluster) / grid_size >= _GRID_DENSITY_THRESHOLD:
                 tables.append(_build_2d_generic(cluster, keys, name, cell_fn))
             else:
                 tables.append(_build_multi_col_table(
@@ -567,7 +545,7 @@ def _build_2d_generic(
     bands: list[dict[str, Any]],
     keys: list[str],
     name: str,
-    cell_fn,
+    cell_fn: Callable[[dict[str, Any]], str],
 ) -> dict[str, Any]:
     """Build a 2D matrix using a generic cell formatter."""
     k0, k1 = keys[0], keys[1]
@@ -609,7 +587,7 @@ def _build_multi_col_table(
     name: str,
     output_fields: list[str] | None = None,
     value_label: str | None = None,
-    cell_fn: Callable | None = None,
+    cell_fn: Callable[[dict[str, Any]], str] | None = None,
 ) -> dict[str, Any]:
     """Build a multi-column table: condition columns + value columns.
 
@@ -627,7 +605,7 @@ def _build_multi_col_table(
             condition_cells = [
                 fmt_when_value(band.get("when", {}).get(k), k) for k in keys
             ]
-            values = [_format_output_cell(band, f) for f in output_fields]
+            values = [_fmt_output_cell(band, f) for f in output_fields]
             rows.append({"conditions": condition_cells, "cells": values})
         return {
             "kind": "multi_col",
@@ -736,7 +714,7 @@ def _find_variant_files(base_path: Path) -> list[Path]:
             entry = raw.get("catalog_entry", {})
             if entry.get("base") == base_id:
                 variants.append(candidate)
-        except Exception:
+        except (OSError, yaml.YAMLError):
             continue
     return variants
 
