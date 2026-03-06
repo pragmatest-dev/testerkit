@@ -1,42 +1,58 @@
 """FastAPI + NiceGUI application."""
 
+from __future__ import annotations
+
 import asyncio
+from uuid import UUID
 
-from fastapi import APIRouter
-from pydantic import BaseModel
+from fastapi import APIRouter, HTTPException
 
-from litmus.api.models import LaunchRequest
+from litmus.api.models import DialogCreate, DialogRespondRequest, LaunchRequest
 from litmus.data.backends.parquet import ParquetBackend
 
 
-class DialogCreate(BaseModel):
-    """Request body for creating a dialog."""
-
-    type: str = "confirm"
-    title: str
-    message: str
-    run_id: str | None = None
-    step_name: str | None = None
-    timeout_seconds: float | None = None
-    # For choice dialogs
-    choices: list[str] | None = None
-    allow_multiple: bool = False
-    # For input dialogs
-    placeholder: str = ""
-    default_value: str = ""
-    # For confirm dialogs
-    confirm_label: str = "Confirm"
-    cancel_label: str = "Cancel"
+def _parse_uuid(value: str) -> UUID:
+    """Parse a UUID string, raising HTTPException on invalid input."""
+    try:
+        return UUID(value)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid dialog ID")
 
 
-class DialogRespondRequest(BaseModel):
-    """Request body for responding to a dialog."""
+def _create_dialog_from_request(request: DialogCreate):
+    """Factory: build the appropriate Dialog subclass from an API request."""
+    from litmus.dialogs.models import ChoiceDialog, ConfirmDialog, InputDialog
 
-    confirmed: bool = False
-    choice: int | None = None
-    choices: list[int] | None = None
-    value: str | None = None
-    cancelled: bool = False
+    if request.type == "choice":
+        return ChoiceDialog(
+            title=request.title,
+            message=request.message,
+            run_id=request.run_id,
+            step_name=request.step_name,
+            timeout_seconds=request.timeout_seconds,
+            choices=request.choices or [],
+            allow_multiple=request.allow_multiple,
+        )
+    elif request.type == "input":
+        return InputDialog(
+            title=request.title,
+            message=request.message,
+            run_id=request.run_id,
+            step_name=request.step_name,
+            timeout_seconds=request.timeout_seconds,
+            placeholder=request.placeholder,
+            default_value=request.default_value,
+        )
+    else:  # confirm is default
+        return ConfirmDialog(
+            title=request.title,
+            message=request.message,
+            run_id=request.run_id,
+            step_name=request.step_name,
+            timeout_seconds=request.timeout_seconds,
+            confirm_label=request.confirm_label,
+            cancel_label=request.cancel_label,
+        )
 
 
 def create_api_router() -> APIRouter:
@@ -46,27 +62,29 @@ def create_api_router() -> APIRouter:
     from litmus.config.project import load_project_config
 
     project = load_project_config()
+    backend = ParquetBackend(results_dir=project.results_dir)
+
+    # -------------------------------------------------------------------------
+    # Runs
+    # -------------------------------------------------------------------------
 
     @router.get("/runs")
     def list_runs(limit: int = 50):
         """List recent test runs."""
-        backend = ParquetBackend(results_dir=project.results_dir)
         runs = backend.list_runs(limit=limit)
         return {"runs": runs}
 
     @router.get("/runs/{run_id}")
     def get_run(run_id: str):
         """Get a specific test run."""
-        backend = ParquetBackend(results_dir=project.results_dir)
         run = backend.get_run(run_id)
         if not run:
-            return {"error": "Run not found"}, 404
+            raise HTTPException(status_code=404, detail="Run not found")
         return run
 
     @router.get("/runs/{run_id}/measurements")
     def get_measurements(run_id: str):
         """Get measurements for a test run."""
-        backend = ParquetBackend(results_dir=project.results_dir)
         measurements = backend.get_measurements(run_id)
         return {"measurements": measurements}
 
@@ -87,7 +105,7 @@ def create_api_router() -> APIRouter:
         runner = get_runner()
         status = runner.get_status(run_id)
         if not status:
-            return {"error": "Run not found"}, 404
+            raise HTTPException(status_code=404, detail="Run not found")
         return status.model_dump()
 
     @router.get("/active")
@@ -108,7 +126,10 @@ def create_api_router() -> APIRouter:
             })
         return {"active_runs": active, "count": len(active)}
 
-    # Dialog endpoints
+    # -------------------------------------------------------------------------
+    # Dialogs
+    # -------------------------------------------------------------------------
+
     @router.get("/dialogs")
     def list_dialogs(run_id: str | None = None):
         """List pending dialogs."""
@@ -122,68 +143,23 @@ def create_api_router() -> APIRouter:
     def create_dialog(request: DialogCreate):
         """Create a pending dialog (from test subprocess)."""
         from litmus.dialogs import get_dialog_manager
-        from litmus.dialogs.models import (
-            ChoiceDialog,
-            ConfirmDialog,
-            InputDialog,
-        )
 
         manager = get_dialog_manager()
-
-        # Create appropriate dialog type
-        if request.type == "choice":
-            dialog = ChoiceDialog(
-                title=request.title,
-                message=request.message,
-                run_id=request.run_id,
-                step_name=request.step_name,
-                timeout_seconds=request.timeout_seconds,
-                choices=request.choices or [],
-                allow_multiple=request.allow_multiple,
-            )
-        elif request.type == "input":
-            dialog = InputDialog(
-                title=request.title,
-                message=request.message,
-                run_id=request.run_id,
-                step_name=request.step_name,
-                timeout_seconds=request.timeout_seconds,
-                placeholder=request.placeholder,
-                default_value=request.default_value,
-            )
-        else:  # confirm is default
-            dialog = ConfirmDialog(
-                title=request.title,
-                message=request.message,
-                run_id=request.run_id,
-                step_name=request.step_name,
-                timeout_seconds=request.timeout_seconds,
-                confirm_label=request.confirm_label,
-                cancel_label=request.cancel_label,
-            )
-
-        # Register the dialog (makes it pending)
+        dialog = _create_dialog_from_request(request)
         manager.register_dialog(dialog)
-
         return {"dialog_id": str(dialog.id), "status": "pending"}
 
     @router.get("/dialogs/{dialog_id}")
     def get_dialog(dialog_id: str):
         """Get a specific pending dialog."""
-        from uuid import UUID
-
         from litmus.dialogs import get_dialog_manager
 
+        uuid = _parse_uuid(dialog_id)
         manager = get_dialog_manager()
-        try:
-            uuid = UUID(dialog_id)
-        except ValueError:
-            return {"error": "Invalid dialog ID"}, 400
-
         for dialog in manager.get_pending_dialogs():
             if dialog.id == uuid:
                 return dialog.model_dump(mode="json")
-        return {"error": "Dialog not found"}, 404
+        raise HTTPException(status_code=404, detail="Dialog not found")
 
     @router.get("/dialogs/{dialog_id}/wait")
     async def wait_for_response(dialog_id: str, timeout: float = 300):
@@ -192,29 +168,22 @@ def create_api_router() -> APIRouter:
         Blocks until the dialog is responded to or timeout.
         Used by test subprocesses to wait for operator input.
         """
-        from uuid import UUID
-
         from litmus.dialogs import get_dialog_manager
 
+        uuid = _parse_uuid(dialog_id)
         manager = get_dialog_manager()
-        try:
-            uuid = UUID(dialog_id)
-        except ValueError:
-            return {"error": "Invalid dialog ID"}, 400
 
         # Check if dialog exists
-        dialog = None
-        for d in manager.get_pending_dialogs():
-            if d.id == uuid:
-                dialog = d
-                break
+        dialog = next(
+            (d for d in manager.get_pending_dialogs() if d.id == uuid), None
+        )
 
         if not dialog:
-            # Maybe already responded - check responses
+            # Maybe already responded
             response = manager.get_response(uuid)
             if response:
                 return response.model_dump(mode="json")
-            return {"error": "Dialog not found"}, 404
+            raise HTTPException(status_code=404, detail="Dialog not found")
 
         # Wait for response with polling
         poll_interval = 0.5
@@ -226,21 +195,16 @@ def create_api_router() -> APIRouter:
             await asyncio.sleep(poll_interval)
             elapsed += poll_interval
 
-        # Timeout - return timeout response
+        # Timeout
         return {"dialog_id": str(uuid), "timed_out": True, "confirmed": False}
 
     @router.post("/dialogs/{dialog_id}/respond")
     def respond_to_dialog(dialog_id: str, request: DialogRespondRequest):
         """Respond to a pending dialog."""
-        from uuid import UUID
-
         from litmus.dialogs import DialogResponse, get_dialog_manager
 
+        uuid = _parse_uuid(dialog_id)
         manager = get_dialog_manager()
-        try:
-            uuid = UUID(dialog_id)
-        except ValueError:
-            return {"error": "Invalid dialog ID"}, 400
 
         response = DialogResponse(
             dialog_id=uuid,
@@ -253,10 +217,10 @@ def create_api_router() -> APIRouter:
 
         if manager.respond(uuid, response):
             return {"status": "ok"}
-        return {"error": "Dialog not found"}, 404
+        raise HTTPException(status_code=404, detail="Dialog not found")
 
     # -------------------------------------------------------------------------
-    # Matching API endpoints
+    # Products & Stations
     # -------------------------------------------------------------------------
 
     @router.get("/products")
@@ -274,7 +238,7 @@ def create_api_router() -> APIRouter:
 
         product = store_get_product(product_id)
         if not product:
-            return {"error": f"Product '{product_id}' not found"}, 404
+            raise HTTPException(status_code=404, detail=f"Product '{product_id}' not found")
         return product.model_dump()
 
     @router.get("/products/{product_id}/requirements")
@@ -285,7 +249,7 @@ def create_api_router() -> APIRouter:
 
         product = store_get_product(product_id)
         if not product:
-            return {"error": f"Product '{product_id}' not found"}, 404
+            raise HTTPException(status_code=404, detail=f"Product '{product_id}' not found")
         reqs = get_required_capabilities(product)
         return {
             "product_id": product_id,
@@ -314,7 +278,7 @@ def create_api_router() -> APIRouter:
 
         config = store_get_station(station_id)
         if not config:
-            return {"error": f"Station '{station_id}' not found"}, 404
+            raise HTTPException(status_code=404, detail=f"Station '{station_id}' not found")
         return config.model_dump()
 
     @router.get("/stations/{station_id}/capabilities")
@@ -327,7 +291,7 @@ def create_api_router() -> APIRouter:
 
         config = get_station(station_id)
         if not config:
-            return {"error": f"Station '{station_id}' not found"}, 404
+            raise HTTPException(status_code=404, detail=f"Station '{station_id}' not found")
 
         capabilities = service_get_capabilities(config)
         return {
@@ -355,21 +319,20 @@ def create_api_router() -> APIRouter:
             find_all_station_matches,
             find_compatible_stations,
         )
-        from litmus.store import (
-            get_product as store_get_product,
-        )
-        from litmus.store import (
-            get_station as store_get_station,
-        )
+        from litmus.store import get_product as store_get_product
+        from litmus.store import get_station as store_get_station
 
         product = store_get_product(product_id)
         if not product:
-            return {"error": f"Product '{product_id}' not found"}, 404
+            raise HTTPException(status_code=404, detail=f"Product '{product_id}' not found")
 
         if station_id:
+            # Validate station exists, then find its match result
             config = store_get_station(station_id)
             if not config:
-                return {"error": f"Station '{station_id}' not found"}, 404
+                raise HTTPException(
+                    status_code=404, detail=f"Station '{station_id}' not found"
+                )
             matches = find_compatible_stations(product)
             match = next(
                 (m for m in matches if m.station_id == station_id), None
@@ -382,6 +345,10 @@ def create_api_router() -> APIRouter:
         else:
             result = find_all_station_matches(product)
             return {"product_id": product_id, "stations": result}
+
+    # -------------------------------------------------------------------------
+    # Instruments & Catalog
+    # -------------------------------------------------------------------------
 
     @router.get("/instruments/catalog")
     def list_catalog_entries():
@@ -404,8 +371,10 @@ def create_api_router() -> APIRouter:
 
         result = store_get_catalog_entry(entry_id)
         if not result:
-            return {"error": f"Catalog entry '{entry_id}' not found"}, 404
-        return result
+            raise HTTPException(
+                status_code=404, detail=f"Catalog entry '{entry_id}' not found"
+            )
+        return result.model_dump()
 
     @router.get("/instruments/assets")
     def list_instrument_assets():
@@ -413,7 +382,7 @@ def create_api_router() -> APIRouter:
         from litmus.store import list_instrument_assets
 
         assets = list_instrument_assets()
-        return {"assets": assets, "count": len(assets)}
+        return {"assets": [a.model_dump() for a in assets], "count": len(assets)}
 
     @router.get("/instruments/assets/{asset_id}")
     def get_instrument_asset(asset_id: str):
@@ -422,8 +391,14 @@ def create_api_router() -> APIRouter:
 
         result = get_instrument_asset(asset_id)
         if not result:
-            return {"error": f"Instrument asset '{asset_id}' not found"}, 404
-        return result
+            raise HTTPException(
+                status_code=404, detail=f"Instrument asset '{asset_id}' not found"
+            )
+        return result.model_dump()
+
+    # -------------------------------------------------------------------------
+    # Sequences
+    # -------------------------------------------------------------------------
 
     @router.get("/sequences")
     def list_all_sequences():

@@ -1,5 +1,9 @@
 """API request/response models."""
 
+from __future__ import annotations
+
+from typing import Literal
+
 from pydantic import BaseModel
 
 
@@ -19,6 +23,36 @@ class RunStatus(BaseModel):
     """Status of a test run."""
 
     run_id: str
-    status: str  # pending, running, completed, failed
+    status: Literal["pending", "running", "completed", "failed"]
     progress_pct: int = 0
     current_step: str | None = None
+
+
+class DialogCreate(BaseModel):
+    """Request body for creating a dialog."""
+
+    type: str = "confirm"
+    title: str
+    message: str
+    run_id: str | None = None
+    step_name: str | None = None
+    timeout_seconds: float | None = None
+    # For choice dialogs
+    choices: list[str] | None = None
+    allow_multiple: bool = False
+    # For input dialogs
+    placeholder: str = ""
+    default_value: str = ""
+    # For confirm dialogs
+    confirm_label: str = "Confirm"
+    cancel_label: str = "Cancel"
+
+
+class DialogRespondRequest(BaseModel):
+    """Request body for responding to a dialog."""
+
+    confirmed: bool = False
+    choice: int | None = None
+    choices: list[int] | None = None
+    value: str | None = None
+    cancelled: bool = False
