@@ -60,11 +60,11 @@ def _get_run_id() -> UUID:
 
 
 class RunContext:
-    """Context for adding custom metadata during test execution.
+    """Run-level context for adding custom metadata during test execution.
 
-    Note: This class is deprecated. Use Context from litmus.execution.harness
-    for new code. This class remains for backwards compatibility with existing
-    code that uses the run_context fixture.
+    Unlike ``Context`` (which is per-vector and scoped to a single test step),
+    ``RunContext`` persists for the entire session and stores metadata that
+    applies to the whole run (operator badge, fixture serial, etc.).
 
     Allows test architects to add custom fields that become columns in Parquet:
 
@@ -414,6 +414,8 @@ class TestRunLogger:
         # Auto-close any prior step that wasn't explicitly ended
         if _current_step_var.get() is not None:
             self.end_step()
+        # Clear per-step instrument arrays so they don't leak between steps
+        self._step_instrument_arrays = None
         step = TestStep(name=name, description=description)
         self._current_step_index += 1
         self.test_run.steps.append(step)
@@ -437,8 +439,8 @@ class TestRunLogger:
     def log_measurement(self, measurement: Measurement):
         """Add measurement to current step.
 
-        Resolves step/vector from contextvars first (concurrency-safe),
-        falling back to instance state. If no step exists, one is auto-created.
+        Resolves step/vector from contextvars. If no step exists, one is
+        auto-created from the measurement name.
         """
         # Resolve step: contextvar only → auto-create
         step = _current_step_var.get()
