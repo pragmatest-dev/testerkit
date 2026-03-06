@@ -1,9 +1,15 @@
 """Yield & manufacturing metrics page."""
 
+import logging
+import traceback
+
+import pyarrow as pa
 from nicegui import ui
 
 from litmus.analysis import metrics, query
 from litmus.ui.shared.layout import create_layout
+
+logger = logging.getLogger(__name__)
 
 
 @ui.page("/yield")
@@ -32,15 +38,14 @@ def yield_page(
     # Load initial data to populate dropdowns (reuse for initial render to avoid double-load)
     try:
         initial_table = query.load_runs(results_dir)
-        products = (
-            _get_unique_values(initial_table, "dut_part_number")
-            or _get_unique_values(initial_table, "product_id")
-        )
-        stations = (
-            _get_unique_values(initial_table, "station_name")
-            or _get_unique_values(initial_table, "station_id")
-        )
-    except Exception:
+        products = query.get_unique_column_values(initial_table, "dut_part_number")
+        if not products:
+            products = query.get_unique_column_values(initial_table, "product_id")
+        stations = query.get_unique_column_values(initial_table, "station_name")
+        if not stations:
+            stations = query.get_unique_column_values(initial_table, "station_id")
+    except (OSError, pa.ArrowInvalid) as exc:
+        logger.warning("Failed to load initial data: %s", exc)
         initial_table = None
         products = []
         stations = []
@@ -217,20 +222,15 @@ def _refresh_dashboard(
             return
 
         # Apply filters
-        if phase and phase != "all":
-            table = query.filter_by_phase(table, [phase])
-
-        if product_id:
-            table = query.filter_by_product(table, product_id)
-
-        if station_id:
-            table = query.filter_by_station(table, station_id)
-
-        if lot:
-            table = query.filter_by_lot(table, lot)
-
-        if since or until:
-            table = query.filter_by_date_range(table, since=since, until=until)
+        table = query.apply_all_filters(
+            table,
+            phase=phase,
+            product_id=product_id,
+            station_id=station_id,
+            lot=lot,
+            since=since,
+            until=until,
+        )
 
         if table.num_rows == 0:
             with summary_container:
@@ -247,9 +247,9 @@ def _refresh_dashboard(
         fpy = metrics.calculate_fpy(runs)
         final_yield = metrics.calculate_final_yield(runs)
         pareto_data = metrics.pareto_analysis(measurements, top_n=10)
-        cpk_data = _calculate_cpk_for_all_measurements(measurements)
+        cpk_data = metrics.calculate_cpk_for_measurements(measurements)
         trend_data = metrics.trend_by_period(runs, period="day")
-        time_stats = metrics.test_time_stats(runs)
+        time_stats = metrics.timing_stats(runs)
 
         # Render components
         _render_summary_cards(summary_container, fpy, final_yield, len(runs), measurements)
@@ -261,8 +261,6 @@ def _refresh_dashboard(
     except Exception as e:
         with summary_container:
             ui.label(f"Error loading data: {e}").classes("text-red-600")
-            import traceback
-
             with ui.expansion("Stack trace", icon="bug_report").classes("w-full"):
                 ui.code(traceback.format_exc()).classes("text-xs")
 
@@ -290,15 +288,20 @@ def _metric_card(label: str, value: str, icon: str, color: str):
             ui.label(value).classes("text-3xl font-bold text-slate-800")
 
 
+def _render_empty_card(container, title: str, message: str) -> None:
+    """Render an empty-state card with title and message."""
+    with container:
+        with ui.card().classes("w-full"):
+            ui.label(title).classes("text-lg font-semibold mb-4")
+            ui.label(message).classes("text-slate-500 italic")
+
+
 def _render_pareto_chart(container, pareto_data):
     """Render Pareto chart (combo: bars + cumulative line)."""
     container.clear()
 
     if not pareto_data:
-        with container:
-            with ui.card().classes("w-full"):
-                ui.label("Top Failure Modes (Pareto)").classes("text-lg font-semibold mb-4")
-                ui.label("No failure data available").classes("text-slate-500 italic")
+        _render_empty_card(container, "Top Failure Modes (Pareto)", "No failure data available")
         return
 
     with container:
@@ -357,53 +360,12 @@ def _render_pareto_chart(container, pareto_data):
             ui.echart(option).classes("w-full h-80")
 
 
-def _calculate_cpk_for_all_measurements(measurements):
-    """Calculate Cpk for all measurement types."""
-    # Group by measurement_name
-    by_name = {}
-    for m in measurements:
-        name = m.get("measurement_name")
-        if name:
-            if name not in by_name:
-                by_name[name] = []
-            by_name[name].append(m)
-
-    cpk_results = []
-    for name, meas_list in by_name.items():
-        # Extract values and limits
-        values = []
-        lsl = None
-        usl = None
-
-        for m in meas_list:
-            val = m.get("value")
-            if val is not None:
-                values.append(float(val))
-            if lsl is None and m.get("low_limit") is not None:
-                lsl = float(m.get("low_limit"))
-            if usl is None and m.get("high_limit") is not None:
-                usl = float(m.get("high_limit"))
-
-        if values and (lsl is not None or usl is not None):
-            result = metrics.calculate_cpk(values, lsl, usl, min_samples=10)
-            if result:
-                result["measurement_name"] = name
-                cpk_results.append(result)
-
-    # Sort by cpk descending
-    cpk_results.sort(key=lambda x: x.get("cpk") or 0, reverse=True)
-    return cpk_results
-
-
 def _render_cpk_table(container, cpk_data):
     """Render Cpk table with color coding."""
     container.clear()
 
     if not cpk_data:
-        with container:
-            with ui.card().classes("w-full h-fit"):
-                ui.label("Process Capability (Cpk)").classes("text-lg font-semibold mb-4")
-                ui.label("No Cpk data available").classes("text-slate-500 italic")
+        _render_empty_card(container, "Process Capability (Cpk)", "No Cpk data available")
         return
 
     with container:
@@ -460,10 +422,7 @@ def _render_trend_chart(container, trend_data):
     container.clear()
 
     if not trend_data:
-        with container:
-            with ui.card().classes("w-full"):
-                ui.label("Yield Trend Over Time").classes("text-lg font-semibold mb-4")
-                ui.label("No trend data available").classes("text-slate-500 italic")
+        _render_empty_card(container, "Yield Trend Over Time", "No trend data available")
         return
 
     with container:
@@ -502,10 +461,7 @@ def _render_time_stats(container, time_stats):
     container.clear()
 
     if not time_stats:
-        with container:
-            with ui.card().classes("w-full"):
-                ui.label("Test Time Statistics").classes("text-lg font-semibold mb-4")
-                ui.label("No timing data available").classes("text-slate-500 italic")
+        _render_empty_card(container, "Test Time Statistics", "No timing data available")
         return
 
     with container:
@@ -526,18 +482,3 @@ def _time_stat_card(label: str, value: str):
         ui.label(value).classes("text-xl font-bold text-slate-800 mt-1")
 
 
-def _get_unique_values(table, column_name: str) -> list[str]:
-    """Extract unique non-null values from a table column."""
-    if table.num_rows == 0 or column_name not in table.column_names:
-        return []
-
-    from typing import Any
-
-    import pyarrow.compute as _pc
-
-    pc: Any = _pc  # pyarrow.compute has dynamic attributes
-    col = table[column_name]
-    # Remove nulls and get unique values
-    unique = pc.unique(col)
-    values = [str(v) for v in unique.to_pylist() if v is not None]
-    return sorted(values)

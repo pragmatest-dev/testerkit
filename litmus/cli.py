@@ -2129,24 +2129,17 @@ def _common_filters(func):
 
 def _apply_filters(table, phase, since, until_date, product, station, lot):
     """Apply common filters to a PyArrow table."""
-    from litmus.analysis.query import (
-        filter_by_date_range,
-        filter_by_lot,
-        filter_by_phase,
-        filter_by_product,
-        filter_by_station,
-    )
+    from litmus.analysis.query import apply_all_filters
 
-    phases = [phase] if phase else None
-    table = filter_by_phase(table, phases)
-    table = filter_by_date_range(table, since=since, until=until_date)
-    if product:
-        table = filter_by_product(table, product)
-    if station:
-        table = filter_by_station(table, station)
-    if lot:
-        table = filter_by_lot(table, lot)
-    return table
+    return apply_all_filters(
+        table,
+        phase=phase,
+        product_id=product,
+        station_id=station,
+        lot=lot,
+        since=since,
+        until=until_date,
+    )
 
 
 def _get_results_dir(results_dir):
@@ -2251,10 +2244,10 @@ def _yield_summary_grouped(runs, group_by):
 def yield_pareto(results_dir, phase, since, until_date, product, station, lot, top_n):
     """Top failure modes (Pareto analysis)."""
     from litmus.analysis.metrics import pareto_analysis
-    from litmus.analysis.query import load_measurements
+    from litmus.analysis.query import load_runs
 
     results_dir = _get_results_dir(results_dir)
-    table = load_measurements(results_dir)
+    table = load_runs(results_dir)
     table = _apply_filters(table, phase, since, until_date, product, station, lot)
     measurements = table.to_pylist()
 
@@ -2294,10 +2287,10 @@ def yield_cpk(
 ):
     """Process capability (Cpk) for a measurement step."""
     from litmus.analysis.metrics import calculate_cpk
-    from litmus.analysis.query import load_measurements
+    from litmus.analysis.query import load_runs
 
     results_dir = _get_results_dir(results_dir)
-    table = load_measurements(results_dir)
+    table = load_runs(results_dir)
     table = _apply_filters(table, phase, since, until_date, product, station, lot)
     rows = table.to_pylist()
 
@@ -2377,7 +2370,7 @@ def yield_trend(results_dir, phase, since, until_date, product, station, lot, pe
 @click.option("--by", "by_what", type=click.Choice(["run", "step"]), default="run")
 def yield_time(results_dir, phase, since, until_date, product, station, lot, by_what):
     """Test time analysis."""
-    from litmus.analysis.metrics import test_time_stats
+    from litmus.analysis.metrics import timing_stats
     from litmus.analysis.query import deduplicate_runs, load_runs
 
     results_dir = _get_results_dir(results_dir)
@@ -2393,7 +2386,7 @@ def yield_time(results_dir, phase, since, until_date, product, station, lot, by_
         click.echo("No data found.")
         return
 
-    stats = test_time_stats(rows, by=by_what)
+    stats = timing_stats(rows, by=by_what)
 
     if stats["count"] == 0:
         click.echo("No timing data available.")

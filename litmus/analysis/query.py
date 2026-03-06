@@ -6,19 +6,22 @@ All filtering uses pyarrow.compute — no DuckDB, no pandas.
 
 from __future__ import annotations
 
+import logging
 from datetime import datetime
 from pathlib import Path
-
 from typing import Any
 
 import pyarrow as pa
 import pyarrow.compute as _pc
 import pyarrow.parquet as pq
 
+from litmus.analysis._common import parse_datetime
+from litmus.data.backends.parquet import _enforce_schema
+
 # pyarrow.compute has dynamic attributes that pyright can't see
 pc: Any = _pc
 
-from litmus.data.backends.parquet import _enforce_schema
+logger = logging.getLogger(__name__)
 
 # Columns needed for analysis (subset of full schema)
 _ANALYSIS_COLUMNS = [
@@ -63,21 +66,14 @@ def load_runs(results_dir: str | Path) -> pa.Table:
             t = t.select(available)
             t = _enforce_schema(t)
             tables.append(t)
-        except Exception:
+        except (pa.ArrowInvalid, OSError) as exc:
+            logger.debug("Skipping unreadable parquet file %s: %s", f, exc)
             continue
 
     if not tables:
         return pa.table({})
 
     return pa.concat_tables(tables, promote_options="default")
-
-
-def load_measurements(results_dir: str | Path) -> pa.Table:
-    """Load full measurement table (alias for load_runs).
-
-    Same data, but named for clarity when used for Cpk/Pareto analysis.
-    """
-    return load_runs(results_dir)
 
 
 def deduplicate_runs(table: pa.Table) -> list[dict]:
@@ -156,54 +152,47 @@ def filter_by_date_range(
     col = table["run_started_at"]
 
     if since is not None:
-        if isinstance(since, str):
-            since = datetime.fromisoformat(since)
-        since_scalar = pa.scalar(since, type=col.type)
-        mask = pc.greater_equal(col, since_scalar)
-        table = table.filter(mask)
+        since_dt = parse_datetime(since)
+        if since_dt is not None:
+            since_scalar = pa.scalar(since_dt, type=col.type)
+            mask = pc.greater_equal(col, since_scalar)
+            table = table.filter(mask)
 
     if until is not None:
-        if isinstance(until, str):
-            until = datetime.fromisoformat(until)
-        until_scalar = pa.scalar(until, type=col.type)
-        mask = pc.less_equal(table["run_started_at"], until_scalar)
-        table = table.filter(mask)
+        until_dt = parse_datetime(until)
+        if until_dt is not None:
+            until_scalar = pa.scalar(until_dt, type=col.type)
+            mask = pc.less_equal(table["run_started_at"], until_scalar)
+            table = table.filter(mask)
 
     return table
 
 
-def filter_by_product(table: pa.Table, product_id: str) -> pa.Table:
-    """Filter by dut_part_number (preferred) or product_id (fallback)."""
+def _filter_by_column(
+    table: pa.Table, value: str, primary_col: str, fallback_col: str,
+) -> pa.Table:
+    """Filter table by value in primary column, falling back to fallback column.
+
+    Uses the first column that exists. Does NOT fall back if the primary
+    column exists but yields zero rows.
+    """
     if table.num_rows == 0:
         return table
-    # Prefer dut_part_number for manufacturing traceability
-    if "dut_part_number" in table.column_names:
-        mask = pc.equal(table["dut_part_number"], pa.scalar(product_id))
-        filtered = table.filter(mask)
-        if filtered.num_rows > 0:
-            return filtered
-    # Fall back to product_id
-    if "product_id" not in table.column_names:
+    col_name = primary_col if primary_col in table.column_names else fallback_col
+    if col_name not in table.column_names:
         return table
-    mask = pc.equal(table["product_id"], pa.scalar(product_id))
+    mask = pc.equal(table[col_name], pa.scalar(value))
     return table.filter(mask)
+
+
+def filter_by_product(table: pa.Table, product_id: str) -> pa.Table:
+    """Filter by dut_part_number (preferred) or product_id."""
+    return _filter_by_column(table, product_id, "dut_part_number", "product_id")
 
 
 def filter_by_station(table: pa.Table, station_id: str) -> pa.Table:
-    """Filter by station_name (preferred) or station_id (fallback)."""
-    if table.num_rows == 0:
-        return table
-    # Prefer station_name for human-readable filtering
-    if "station_name" in table.column_names:
-        mask = pc.equal(table["station_name"], pa.scalar(station_id))
-        filtered = table.filter(mask)
-        if filtered.num_rows > 0:
-            return filtered
-    # Fall back to station_id
-    if "station_id" not in table.column_names:
-        return table
-    mask = pc.equal(table["station_id"], pa.scalar(station_id))
-    return table.filter(mask)
+    """Filter by station_name (preferred) or station_id."""
+    return _filter_by_column(table, station_id, "station_name", "station_id")
 
 
 def filter_by_lot(table: pa.Table, lot: str) -> pa.Table:
@@ -212,3 +201,61 @@ def filter_by_lot(table: pa.Table, lot: str) -> pa.Table:
         return table
     mask = pc.equal(table["dut_lot_number"], pa.scalar(lot))
     return table.filter(mask)
+
+
+def apply_all_filters(
+    table: pa.Table,
+    *,
+    phase: str | None = None,
+    product_id: str | None = None,
+    station_id: str | None = None,
+    lot: str | None = None,
+    since: str | datetime | None = None,
+    until: str | datetime | None = None,
+) -> pa.Table:
+    """Apply all standard filters in a consistent order.
+
+    Args:
+        table: Input table.
+        phase: Test phase (None = exclude development, "all" = no filter).
+        product_id: Product filter (dut_part_number or product_id).
+        station_id: Station filter (station_name or station_id).
+        lot: Lot number filter.
+        since: Start date (inclusive).
+        until: End date (inclusive).
+
+    Returns:
+        Filtered table.
+    """
+    if phase == "all":
+        phases = ["all"]
+    elif phase:
+        phases = [phase]
+    else:
+        phases = None
+    table = filter_by_phase(table, phases)
+    table = filter_by_date_range(table, since=since, until=until)
+    if product_id:
+        table = filter_by_product(table, product_id)
+    if station_id:
+        table = filter_by_station(table, station_id)
+    if lot:
+        table = filter_by_lot(table, lot)
+    return table
+
+
+def get_unique_column_values(table: pa.Table, column_name: str) -> list[str]:
+    """Extract unique non-null values from a table column, sorted.
+
+    Args:
+        table: Input table.
+        column_name: Column to extract values from.
+
+    Returns:
+        Sorted list of unique string values.
+    """
+    if table.num_rows == 0 or column_name not in table.column_names:
+        return []
+    col = table[column_name]
+    unique = pc.unique(col)
+    return sorted(str(v) for v in unique.to_pylist() if v is not None)

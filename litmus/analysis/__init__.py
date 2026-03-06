@@ -2,31 +2,36 @@
 
 from litmus.analysis.metrics import (
     calculate_cpk,
+    calculate_cpk_for_measurements,
     calculate_final_yield,
     calculate_fpy,
     calculate_rty,
     pareto_analysis,
-    test_time_stats,
+    timing_stats,
     trend_by_period,
 )
 from litmus.analysis.query import (
+    apply_all_filters,
     deduplicate_runs,
     filter_by_date_range,
     filter_by_lot,
     filter_by_phase,
     filter_by_product,
     filter_by_station,
-    load_measurements,
+    get_unique_column_values,
     load_runs,
 )
 
 __all__ = [
+    "apply_all_filters",
     "calculate_cpk",
+    "calculate_cpk_for_measurements",
     "calculate_final_yield",
     "calculate_fpy",
     "calculate_rty",
+    "get_unique_column_values",
     "pareto_analysis",
-    "test_time_stats",
+    "timing_stats",
     "trend_by_period",
     "deduplicate_runs",
     "filter_by_date_range",
@@ -34,6 +39,5 @@ __all__ = [
     "filter_by_phase",
     "filter_by_product",
     "filter_by_station",
-    "load_measurements",
     "load_runs",
 ]

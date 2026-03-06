@@ -1,6 +1,5 @@
 """Unit tests for litmus.analysis.metrics — pure computation, no I/O."""
 
-from datetime import datetime, timezone
 
 import pytest
 
@@ -10,10 +9,9 @@ from litmus.analysis.metrics import (
     calculate_fpy,
     calculate_rty,
     pareto_analysis,
-    test_time_stats,
+    timing_stats,
     trend_by_period,
 )
-
 
 # ---------------------------------------------------------------------------
 # FPY
@@ -205,7 +203,7 @@ class TestTime:
             {"run_started_at": "2026-01-01T10:00:00Z", "run_ended_at": "2026-01-01T10:01:00Z"},
             {"run_started_at": "2026-01-01T11:00:00Z", "run_ended_at": "2026-01-01T11:02:00Z"},
         ]
-        stats = test_time_stats(runs, by="run")
+        stats = timing_stats(runs, by="run")
         assert stats["count"] == 2
         assert stats["min_s"] == 60.0
         assert stats["max_s"] == 120.0
@@ -213,16 +211,28 @@ class TestTime:
 
     def test_step_stats(self):
         rows = [
-            {"run_id": "r1", "step_name": "s1", "step_started_at": "2026-01-01T10:00:00Z", "step_ended_at": "2026-01-01T10:00:30Z"},
-            {"run_id": "r1", "step_name": "s1", "step_started_at": "2026-01-01T10:00:00Z", "step_ended_at": "2026-01-01T10:00:30Z"},  # dup
-            {"run_id": "r1", "step_name": "s2", "step_started_at": "2026-01-01T10:00:30Z", "step_ended_at": "2026-01-01T10:01:00Z"},
+            {
+                "run_id": "r1", "step_name": "s1",
+                "step_started_at": "2026-01-01T10:00:00Z",
+                "step_ended_at": "2026-01-01T10:00:30Z",
+            },
+            {
+                "run_id": "r1", "step_name": "s1",
+                "step_started_at": "2026-01-01T10:00:00Z",
+                "step_ended_at": "2026-01-01T10:00:30Z",
+            },  # dup
+            {
+                "run_id": "r1", "step_name": "s2",
+                "step_started_at": "2026-01-01T10:00:30Z",
+                "step_ended_at": "2026-01-01T10:01:00Z",
+            },
         ]
-        stats = test_time_stats(rows, by="step")
+        stats = timing_stats(rows, by="step")
         assert stats["count"] == 2  # 2 unique steps
         assert "per_step" in stats
         assert "s1" in stats["per_step"]
         assert stats["per_step"]["s1"]["avg_s"] == 30.0
 
     def test_no_timing(self):
-        stats = test_time_stats([{"run_started_at": None, "run_ended_at": None}], by="run")
+        stats = timing_stats([{"run_started_at": None, "run_ended_at": None}], by="run")
         assert stats["count"] == 0

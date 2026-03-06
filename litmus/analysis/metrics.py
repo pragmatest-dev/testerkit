@@ -10,6 +10,38 @@ import math
 from collections import defaultdict
 from datetime import datetime
 
+from litmus.analysis._common import parse_datetime
+
+
+def _yield_by_position(runs: list[dict], position: int) -> float:
+    """Calculate yield at a run position per serial (0=first, -1=last).
+
+    Groups runs by dut_serial, sorts each group by run_started_at,
+    then checks the run at the given position.
+
+    Returns:
+        Yield as a fraction (0.0–1.0). Returns 0.0 if no serials.
+    """
+    if not runs:
+        return 0.0
+
+    by_serial: dict[str, list[dict]] = defaultdict(list)
+    for r in runs:
+        serial = r.get("dut_serial")
+        if serial:
+            by_serial[serial].append(r)
+
+    if not by_serial:
+        return 0.0
+
+    passed = 0
+    for serial_runs in by_serial.values():
+        serial_runs.sort(key=lambda r: r.get("run_started_at") or "")
+        if serial_runs[position].get("run_outcome") == "pass":
+            passed += 1
+
+    return passed / len(by_serial)
+
 
 def calculate_fpy(runs: list[dict]) -> float:
     """First-pass yield: % of serials whose *first* run passed.
@@ -21,27 +53,7 @@ def calculate_fpy(runs: list[dict]) -> float:
     Returns:
         FPY as a fraction (0.0–1.0). Returns 0.0 if no serials.
     """
-    if not runs:
-        return 0.0
-
-    # Group by serial, find first run per serial
-    by_serial: dict[str, list[dict]] = defaultdict(list)
-    for r in runs:
-        serial = r.get("dut_serial")
-        if serial:
-            by_serial[serial].append(r)
-
-    if not by_serial:
-        return 0.0
-
-    passed = 0
-    for serial, serial_runs in by_serial.items():
-        serial_runs.sort(key=lambda r: r.get("run_started_at") or "")
-        first = serial_runs[0]
-        if first.get("run_outcome") == "pass":
-            passed += 1
-
-    return passed / len(by_serial)
+    return _yield_by_position(runs, 0)
 
 
 def calculate_final_yield(runs: list[dict]) -> float:
@@ -53,26 +65,7 @@ def calculate_final_yield(runs: list[dict]) -> float:
     Returns:
         Final yield as a fraction (0.0–1.0).
     """
-    if not runs:
-        return 0.0
-
-    by_serial: dict[str, list[dict]] = defaultdict(list)
-    for r in runs:
-        serial = r.get("dut_serial")
-        if serial:
-            by_serial[serial].append(r)
-
-    if not by_serial:
-        return 0.0
-
-    passed = 0
-    for serial, serial_runs in by_serial.items():
-        serial_runs.sort(key=lambda r: r.get("run_started_at") or "")
-        last = serial_runs[-1]
-        if last.get("run_outcome") == "pass":
-            passed += 1
-
-    return passed / len(by_serial)
+    return _yield_by_position(runs, -1)
 
 
 def calculate_rty(fpy_by_phase: dict[str, float]) -> float:
@@ -155,6 +148,50 @@ def calculate_cpk(
     return result
 
 
+def calculate_cpk_for_measurements(
+    measurements: list[dict],
+    min_samples: int = 10,
+) -> list[dict]:
+    """Calculate Cpk for all measurement types in a dataset.
+
+    Groups measurements by name, extracts values and limits, then computes
+    Cpk for each group. Results are sorted by Cpk descending.
+
+    Args:
+        measurements: List of measurement dicts with measurement_name,
+            value, low_limit, high_limit.
+        min_samples: Minimum sample size for Cpk warning.
+
+    Returns:
+        List of Cpk result dicts, each with an added measurement_name key.
+    """
+    by_name: dict[str, list[dict]] = defaultdict(list)
+    for m in measurements:
+        name = m.get("measurement_name")
+        if name:
+            by_name[name].append(m)
+
+    cpk_results = []
+    for name, meas_list in by_name.items():
+        values = [float(m["value"]) for m in meas_list if m.get("value") is not None]
+        lsl = next(
+            (float(m["low_limit"]) for m in meas_list if m.get("low_limit") is not None),
+            None,
+        )
+        usl = next(
+            (float(m["high_limit"]) for m in meas_list if m.get("high_limit") is not None),
+            None,
+        )
+
+        if values and (lsl is not None or usl is not None):
+            result = calculate_cpk(values, lsl, usl, min_samples=min_samples)
+            result["measurement_name"] = name
+            cpk_results.append(result)
+
+    cpk_results.sort(key=lambda x: x.get("cpk") or 0, reverse=True)
+    return cpk_results
+
+
 def pareto_analysis(
     measurements: list[dict],
     top_n: int = 10,
@@ -224,14 +261,9 @@ def trend_by_period(
 
     buckets: dict[str, dict] = defaultdict(lambda: {"total": 0, "passed": 0})
     for r in runs:
-        started = r.get("run_started_at")
+        started = parse_datetime(r.get("run_started_at"))
         if started is None:
             continue
-        if isinstance(started, str):
-            try:
-                started = datetime.fromisoformat(started.replace("Z", "+00:00"))
-            except ValueError:
-                continue
 
         key = _period_key(started)
         buckets[key]["total"] += 1
@@ -252,7 +284,7 @@ def trend_by_period(
     return result
 
 
-def duration_stats(
+def timing_stats(
     rows: list[dict],
     by: str = "run",
 ) -> dict:
@@ -270,29 +302,14 @@ def duration_stats(
     return _run_time_stats(rows)
 
 
-# Keep backward-compatible alias
-test_time_stats = duration_stats
-test_time_stats.__test__ = False  # type: ignore[attr-defined]
-
-
 def _run_time_stats(runs: list[dict]) -> dict:
     """Compute run duration stats."""
     durations: list[float] = []
     for r in runs:
-        started = r.get("run_started_at")
-        ended = r.get("run_ended_at")
+        started = parse_datetime(r.get("run_started_at"))
+        ended = parse_datetime(r.get("run_ended_at"))
         if started is None or ended is None:
             continue
-        if isinstance(started, str):
-            try:
-                started = datetime.fromisoformat(started.replace("Z", "+00:00"))
-            except ValueError:
-                continue
-        if isinstance(ended, str):
-            try:
-                ended = datetime.fromisoformat(ended.replace("Z", "+00:00"))
-            except ValueError:
-                continue
         dt = (ended - started).total_seconds()
         if dt >= 0:
             durations.append(dt)
@@ -302,7 +319,7 @@ def _run_time_stats(runs: list[dict]) -> dict:
 
 def _step_time_stats(rows: list[dict]) -> dict:
     """Compute per-step duration stats."""
-    # Deduplicate to unique (run_id, step_name, step_started_at, step_ended_at)
+    # Deduplicate to one entry per (run_id, step_name)
     seen: set[tuple] = set()
     by_step: dict[str, list[float]] = defaultdict(list)
 
@@ -319,16 +336,10 @@ def _step_time_stats(rows: list[dict]) -> dict:
             continue
         seen.add(key)
 
-        if isinstance(started, str):
-            try:
-                started = datetime.fromisoformat(started.replace("Z", "+00:00"))
-            except ValueError:
-                continue
-        if isinstance(ended, str):
-            try:
-                ended = datetime.fromisoformat(ended.replace("Z", "+00:00"))
-            except ValueError:
-                continue
+        started = parse_datetime(started)
+        ended = parse_datetime(ended)
+        if started is None or ended is None:
+            continue
 
         dt = (ended - started).total_seconds()
         if dt >= 0:
