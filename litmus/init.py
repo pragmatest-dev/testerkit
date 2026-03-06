@@ -224,30 +224,31 @@ A [Litmus](https://github.com/anthropics/litmus) hardware test project.
             created_files.append(".vscode/settings.json")
             created_files.append(".vscode/schemas/product.schema.json")
             created_files.append(".vscode/schemas/catalog.schema.json")
-        except Exception:
-            warnings.append("Failed to generate VS Code YAML schemas")
+        except (ImportError, OSError) as exc:
+            warnings.append(f"Failed to generate VS Code YAML schemas: {exc}")
 
     # Write station file if instruments were discovered
     if station and station.get("instruments"):
         from litmus.config.fmt import dump_yaml
-        from litmus.schemas import StationConfig
+        from litmus.schemas import StationConfig, StationInstrumentConfig
 
         stations_dir = path / "stations"
         stations_dir.mkdir(exist_ok=True)
         station_file = stations_dir / "station.yaml"
         if not station_file.exists():
-            instruments = {}
-            for role, data in station["instruments"].items():
-                instruments[role] = role
-            resources = {
-                role: data["resource"] for role, data in station["instruments"].items()
+            instruments = {
+                role: StationInstrumentConfig(
+                    type=role,
+                    resource=data.get("resource"),
+                )
+                for role, data in station["instruments"].items()
             }
-
-            sc = StationConfig(id="station", name="Default Station")
-            sc_data = sc.model_dump(exclude_none=True)
-            sc_data["instruments"] = instruments
-            sc_data["resources"] = resources
-            station_file.write_text(dump_yaml(sc_data))
+            sc = StationConfig(
+                id="station",
+                name="Default Station",
+                instruments=instruments,
+            )
+            station_file.write_text(dump_yaml(sc.model_dump(exclude_none=True)))
             created_files.append("stations/station.yaml")
 
     # Create starter files if requested

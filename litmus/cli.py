@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 import click
@@ -60,8 +61,6 @@ def init(name: str | None, no_git: bool, discover: bool, starter: bool | None, a
 
         litmus init my_project --discover
     """
-    from pathlib import Path
-
     from litmus.init import check_command, init_project
 
     if name:
@@ -175,8 +174,6 @@ def init(name: str | None, no_git: bool, discover: bool, starter: bool | None, a
         click.echo("  uv sync")
     if use_starter:
         click.echo("  pytest                # run tests with mock instruments")
-    elif station:
-        click.echo("  pytest tests/ --mock-instruments --dut-serial=TEST001")
     else:
         click.echo("  pytest tests/ --mock-instruments --dut-serial=TEST001")
     click.echo("  litmus serve          # open operator UI at localhost:8000")
@@ -195,8 +192,6 @@ def new_test(name: str):
 
         litmus new-test smoke_check
     """
-    from pathlib import Path
-
     # Normalize name: strip test_ prefix if present, we'll add it back
     test_name = name.removeprefix("test_")
     filename = f"test_{test_name}.py"
@@ -210,6 +205,7 @@ def new_test(name: str):
 
     # Try to discover available roles from station config
     available_roles: list[str] = []
+    stations: list = []
     try:
         from litmus.store import list_stations
 
@@ -217,7 +213,7 @@ def new_test(name: str):
         if stations:
             station = stations[0]
             available_roles = sorted(station.instruments.keys())
-    except Exception:
+    except (ImportError, OSError, ValueError):
         pass
 
     # Prompt for instruments
@@ -234,15 +230,12 @@ def new_test(name: str):
 
     # Resolve driver types for selected roles
     role_types: dict[str, tuple[str, str]] = {}
-    if roles and available_roles:
+    if roles and available_roles and stations:
         try:
             from litmus.execution.typing_utils import resolve_role_types
-            from litmus.store import list_stations as _list_stations
 
-            _stations = _list_stations()
-            if _stations:
-                role_types = resolve_role_types(_stations[0].instruments)
-        except Exception:
+            role_types = resolve_role_types(stations[0].instruments)
+        except (ImportError, OSError, ValueError):
             pass
 
     # Build import lines for typed roles
@@ -326,8 +319,6 @@ def type_tests(station: str | None, dry_run: bool):
 
         litmus type-tests --dry-run
     """
-    from pathlib import Path
-
     from litmus.execution.typing_utils import resolve_role_types, scan_test_files
     from litmus.store import list_stations
 
@@ -351,7 +342,7 @@ def type_tests(station: str | None, dry_run: bool):
     role_types = resolve_role_types(station_config.instruments)
     if not role_types:
         click.echo("No typed drivers found in station config (all mock-only?)")
-        raise SystemExit(0)
+        return
 
     # Scan test files
     test_dir = Path.cwd() / "tests"
@@ -362,7 +353,7 @@ def type_tests(station: str | None, dry_run: bool):
     edits = scan_test_files(test_dir, role_types)
     if not edits:
         click.echo("All @litmus_test functions already have type annotations.")
-        raise SystemExit(0)
+        return
 
     for filepath, new_source, changes in edits:
         rel = filepath.relative_to(Path.cwd())
@@ -379,7 +370,22 @@ def type_tests(station: str | None, dry_run: bool):
         click.echo(f"\n{total} annotation(s) added across {len(edits)} file(s).")
 
 
-def _discover_instruments(interactive: bool = True) -> dict | None:
+def _format_instrument(resource: str, info: object | None) -> str:
+    """Format a discovered instrument for display.
+
+    Returns a one-line string like 'Keysight 34465A (TCPIP::...)' or
+    'TCPIP::... (could not identify)'.
+    """
+    if info and getattr(info, "manufacturer", None) and getattr(info, "model", None):
+        mfr = info.manufacturer  # type: ignore[union-attr]
+        model = info.model  # type: ignore[union-attr]
+        serial = getattr(info, "serial", None) or ""
+        serial_str = f" (SN: {serial})" if serial else ""
+        return f"{mfr} {model}{serial_str} ({resource})"
+    return f"{resource} (could not identify)"
+
+
+def _discover_instruments(interactive: bool = True) -> dict[str, dict[str, dict[str, str]]] | None:
     """Discover instruments and build station data.
 
     Args:
@@ -408,12 +414,7 @@ def _discover_instruments(interactive: bool = True) -> dict | None:
     # First pass: determine default role for each instrument
     pending: list[tuple[str, InstrumentInfo | None, str]] = []
     for resource, info in all_instruments:
-        if info:
-            mfr = info.manufacturer or "Unknown"
-            model = info.model or "Unknown"
-            click.echo(f"  {mfr} {model} ({resource})")
-        else:
-            click.echo(f"  {resource} (could not identify)")
+        click.echo(f"  {_format_instrument(resource, info)}")
 
         # Determine default role from catalog type
         role = None
@@ -424,7 +425,7 @@ def _discover_instruments(interactive: bool = True) -> dict | None:
                 entry = find_by_model(info.manufacturer, info.model)
                 if entry and entry.type:
                     role = entry.type
-            except Exception:
+            except (ImportError, OSError, ValueError):
                 pass
 
         if not role and info and info.model:
@@ -501,8 +502,6 @@ def validate(paths, file_type):
         litmus validate catalog/ stations/
         litmus validate
     """
-    from pathlib import Path
-
     from litmus.validation import validate_yaml
 
     # Collect files
@@ -568,8 +567,6 @@ def serve(host: str, port: int, reload: bool):
         # In reload mode we use uvicorn directly with our ASGI entry point.
         # On each reload cycle uvicorn re-imports litmus.ui._asgi which
         # re-registers pages and configures NiceGUI from scratch.
-        from pathlib import Path
-
         import uvicorn
 
         # Watch both litmus package AND current working directory
@@ -604,12 +601,9 @@ def serve(host: str, port: int, reload: bool):
 @click.option("--limit", default=20, help="Number of runs to show")
 def runs(results_dir: str | None, limit: int):
     """List recent test runs."""
-    from litmus.config.project import load_project_config
     from litmus.data.backends.parquet import ParquetBackend
 
-    if results_dir is None:
-        project = load_project_config()
-        results_dir = project.results_dir
+    results_dir = _get_results_dir(results_dir)
 
     backend = ParquetBackend(results_dir=results_dir)
     test_runs = backend.list_runs(limit=limit)
@@ -655,15 +649,13 @@ def show(
         litmus show abc123 -f pdf -o reports/
         litmus show abc123 -f json -o result.json
     """
-    from litmus.config.project import load_project_config
+    results_dir = _get_results_dir(results_dir)
 
-    project = load_project_config()
-    if results_dir is None:
-        results_dir = project.results_dir
+    from litmus.reports import load_run_data
 
     if fmt:
         # Report generation mode
-        from litmus.reports import generate_report, load_run_data
+        from litmus.reports import generate_report
 
         try:
             data = load_run_data(run_id, results_dir)
@@ -677,7 +669,6 @@ def show(
         return
 
     # Terminal display mode
-    from litmus.reports import load_run_data
 
     try:
         data = load_run_data(run_id, results_dir)
@@ -850,12 +841,9 @@ def sbom(run_id: str, results_dir: str | None, output: str | None):
         litmus sbom abc123
         litmus sbom abc123 -o sbom.json
     """
-    from litmus.config.project import load_project_config
     from litmus.sbom import environment_from_parquet, generate_cyclonedx
 
-    project = load_project_config()
-    if results_dir is None:
-        results_dir = project.results_dir
+    results_dir = _get_results_dir(results_dir)
 
     pq_path = _find_parquet_for_run(run_id, results_dir)
     if not pq_path:
@@ -931,8 +919,6 @@ def recover(journal_dir: str | None, results_dir: str, recover_all: bool):
         litmus recover results/.journals/2026-02-03/20260203T120000Z_DUT001
         litmus recover --all
     """
-    from pathlib import Path
-
     from litmus.data.backends.parquet import ParquetBackend
 
     backend = ParquetBackend(results_dir=results_dir)
@@ -943,15 +929,17 @@ def recover(journal_dir: str | None, results_dir: str, recover_all: bool):
             click.echo("No orphaned journals to recover.")
             return
 
+        recovered = 0
         for j in orphaned:
             jdir = Path(j["journal_dir"])
             try:
                 parquet_path = backend.recover_journal(jdir)
                 click.echo(f"Recovered: {jdir.name} -> {parquet_path}")
-            except Exception as e:
+                recovered += 1
+            except (OSError, ValueError) as e:
                 click.echo(f"Failed to recover {jdir.name}: {e}", err=True)
 
-        click.echo(f"\nRecovered {len(orphaned)} journal(s).")
+        click.echo(f"\nRecovered {recovered}/{len(orphaned)} journal(s).")
         return
 
     if not journal_dir:
@@ -966,7 +954,7 @@ def recover(journal_dir: str | None, results_dir: str, recover_all: bool):
     try:
         parquet_path = backend.recover_journal(jdir)
         click.echo(f"Recovered: {parquet_path}")
-    except Exception as e:
+    except (OSError, ValueError) as e:
         click.echo(f"Error: {e}", err=True)
         raise SystemExit(1)
 
@@ -1033,8 +1021,6 @@ def schema_export(output_dir: str):
         litmus schema export
         litmus schema export -o litmus/schemas
     """
-    from pathlib import Path
-
     from litmus.schemas import export_schemas
 
     paths = export_schemas(Path(output_dir))
@@ -1092,6 +1078,30 @@ def _get_litmus_path() -> Path:
     if not litmus_path.exists():
         litmus_path = Path("litmus")
     return litmus_path
+
+
+def _mcp_server_entry() -> dict[str, str | list[str]]:
+    """Build the MCP server config entry for litmus."""
+    return {
+        "command": str(_get_litmus_path()),
+        "args": ["mcp", "serve"],
+    }
+
+
+def _write_mcp_config(mcp_file: Path) -> None:
+    """Merge litmus MCP server entry into an MCP config file and write it."""
+    config = {"mcpServers": {"litmus": _mcp_server_entry()}}
+
+    if mcp_file.exists():
+        existing = json.loads(mcp_file.read_text())
+        if "mcpServers" not in existing:
+            existing["mcpServers"] = {}
+        existing["mcpServers"]["litmus"] = config["mcpServers"]["litmus"]
+        config = existing
+
+    mcp_file.parent.mkdir(parents=True, exist_ok=True)
+    mcp_file.write_text(json.dumps(config, indent=2) + "\n")
+    click.echo(f"Wrote {mcp_file}")
 
 
 def _copy_skill_stubs(source_dir: Path, target_dir: Path) -> list[str]:
@@ -1173,17 +1183,10 @@ def setup_claude_code(print_only: bool):
     Example:
         litmus setup claude-code
     """
-    import json
     import subprocess
-    from pathlib import Path
 
     litmus_path = _get_litmus_path()
-
-    config = {
-        "name": "litmus",
-        "command": str(litmus_path),
-        "args": ["mcp", "serve"],
-    }
+    config = {"name": "litmus", **_mcp_server_entry()}
 
     if print_only:
         click.echo("Add this to your Claude Code MCP configuration:\n")
@@ -1203,8 +1206,8 @@ def setup_claude_code(print_only: bool):
         else:
             click.echo("Could not add via claude CLI. Add manually:")
             click.echo(f"\n  claude mcp add litmus -- {litmus_path} mcp serve\n")
-    except FileNotFoundError:
-        click.echo("Claude CLI not found. Add manually:")
+    except (FileNotFoundError, subprocess.CalledProcessError):
+        click.echo("Claude CLI not found or failed. Add manually:")
         click.echo(f"\n  claude mcp add litmus -- {litmus_path} mcp serve\n")
 
     # 2. Copy command stubs to .claude/commands/
@@ -1236,11 +1239,9 @@ def setup_claude_desktop(legacy: bool, print_only: bool):
     Example:
         litmus setup claude-desktop
     """
-    import json
     import os
     import sys
     import zipfile
-    from pathlib import Path
 
     litmus_path = _get_litmus_path()
 
@@ -1356,8 +1357,6 @@ def setup_copilot(print_only: bool):
     Example:
         litmus setup copilot
     """
-    import json
-
     mcp_config = {
         "servers": {
             "litmus": {
@@ -1427,40 +1426,14 @@ def setup_cursor(print_only: bool):
     Example:
         litmus setup cursor
     """
-    import json
-    from pathlib import Path
-
-    litmus_path = _get_litmus_path()
-
-    config = {
-        "mcpServers": {
-            "litmus": {
-                "command": str(litmus_path),
-                "args": ["mcp", "serve"],
-            }
-        }
-    }
-
     if print_only:
+        config = {"mcpServers": {"litmus": _mcp_server_entry()}}
         click.echo("Add this to .cursor/mcp.json:\n")
         click.echo(json.dumps(config, indent=2))
         return
 
-    # Create/update .cursor/mcp.json
-    cursor_dir = Path.cwd() / ".cursor"
-    cursor_dir.mkdir(exist_ok=True)
-    mcp_file = cursor_dir / "mcp.json"
-
-    if mcp_file.exists():
-        # Merge with existing config
-        existing = json.loads(mcp_file.read_text())
-        if "mcpServers" not in existing:
-            existing["mcpServers"] = {}
-        existing["mcpServers"]["litmus"] = config["mcpServers"]["litmus"]
-        config = existing
-
-    mcp_file.write_text(json.dumps(config, indent=2) + "\n")
-    click.echo(f"Wrote {mcp_file}")
+    mcp_file = Path.cwd() / ".cursor" / "mcp.json"
+    _write_mcp_config(mcp_file)
     click.echo("Restart Cursor to use Litmus tools.")
 
 
@@ -1474,19 +1447,7 @@ def setup_cline(print_only: bool):
     Example:
         litmus setup cline
     """
-    import json
-    from pathlib import Path
-
-    litmus_path = _get_litmus_path()
-
-    config = {
-        "mcpServers": {
-            "litmus": {
-                "command": str(litmus_path),
-                "args": ["mcp", "serve"],
-            }
-        }
-    }
+    config = {"mcpServers": {"litmus": _mcp_server_entry()}}
 
     if print_only:
         click.echo("Add this to your Cline MCP settings:\n")
@@ -1501,11 +1462,7 @@ def setup_cline(print_only: bool):
         home / "AppData" / "Roaming" / "Code" / "User",  # Windows
     ]
 
-    settings_dir = None
-    for d in vscode_dirs:
-        if d.exists():
-            settings_dir = d
-            break
+    settings_dir = next((d for d in vscode_dirs if d.exists()), None)
 
     if not settings_dir:
         click.echo("VS Code settings directory not found. Add manually:")
@@ -1513,16 +1470,7 @@ def setup_cline(print_only: bool):
         return
 
     mcp_file = settings_dir / "cline_mcp_settings.json"
-
-    if mcp_file.exists():
-        existing = json.loads(mcp_file.read_text())
-        if "mcpServers" not in existing:
-            existing["mcpServers"] = {}
-        existing["mcpServers"]["litmus"] = config["mcpServers"]["litmus"]
-        config = existing
-
-    mcp_file.write_text(json.dumps(config, indent=2) + "\n")
-    click.echo(f"Wrote {mcp_file}")
+    _write_mcp_config(mcp_file)
     click.echo("Restart VS Code to use Litmus tools with Cline.")
 
 
@@ -1532,12 +1480,7 @@ def setup_show():
 
     Displays the command to start the Litmus MCP server.
     """
-    import sys
-    from pathlib import Path
-
-    litmus_path = Path(sys.executable).parent / "litmus"
-    if not litmus_path.exists():
-        litmus_path = Path("litmus")
+    litmus_path = _get_litmus_path()
 
     click.echo("Litmus MCP Server")
     click.echo("-" * 40)
@@ -1607,16 +1550,7 @@ def discover(visa_only: bool, ni_only: bool, serial_only: bool, lxi_only: bool, 
             click.echo("-" * 60)
 
             for resource, info in items:
-                if info:
-                    mfr = info.manufacturer or "Unknown"
-                    model = info.model or "Unknown"
-                    serial = info.serial or ""
-                    serial_str = f" (SN: {serial})" if serial else ""
-                    click.echo(f"  {resource}")
-                    click.echo(f"    → {mfr} {model}{serial_str}")
-                else:
-                    click.echo(f"  {resource}")
-                    click.echo("    → Could not query identity")
+                click.echo(f"  {_format_instrument(resource, info)}")
     else:
         results = do_discover(protocols)
         for proto, resources in results.items():
@@ -1657,8 +1591,6 @@ def catalog_datasheet(yaml_path: str, fmt: str, output: str | None):
 
         litmus catalog datasheet catalog/keysight/keysight_e8257d.yaml -o /tmp/e8257d.html
     """
-    from pathlib import Path
-
     from litmus.reports.datasheet import generate_datasheet
 
     out = generate_datasheet(Path(yaml_path), Path(output) if output else None, fmt=fmt)
@@ -1689,8 +1621,6 @@ def station_init(station_id: str, name: str, location: str | None):
         litmus station init
         litmus station init --station-id bench_01 --name "Engineering Bench"
     """
-    from pathlib import Path
-
     from litmus.instruments.discovery import discover_and_identify
 
     # Create directories
@@ -1712,15 +1642,7 @@ def station_init(station_id: str, name: str, location: str | None):
         for resource, info in items:
             instrument_count += 1
 
-            if info:
-                mfr = info.manufacturer or "Unknown"
-                model = info.model or "Unknown"
-                serial = info.serial or ""
-                click.echo(f"\n[{instrument_count}] {resource}")
-                click.echo(f"    {mfr} {model} (SN: {serial})")
-            else:
-                click.echo(f"\n[{instrument_count}] {resource}")
-                click.echo("    Could not query identity")
+            click.echo(f"\n[{instrument_count}] {_format_instrument(resource, info)}")
 
             # Ask for role
             role = click.prompt("  Assign role (e.g., dmm, psu) or 'skip'", default="skip")
