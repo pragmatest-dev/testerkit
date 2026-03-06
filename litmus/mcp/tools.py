@@ -8,8 +8,11 @@ Tools:
 - litmus_open: Get browser URL
 """
 
+import logging
 from pathlib import Path
 from typing import Any, cast
+
+logger = logging.getLogger(__name__)
 
 # =============================================================================
 # Project root management
@@ -80,7 +83,7 @@ def litmus_tool(
     create: bool = True,
     scaffold: bool = True,
     project: str | None = None,
-) -> list[dict[str, Any]] | dict[str, Any]:
+) -> dict[str, Any]:
     """Unified CRUD operations dispatcher.
 
     Args:
@@ -212,10 +215,18 @@ def _init_project(
 # List entities
 # =============================================================================
 
-ENTITY_TYPES = ["station", "product", "fixture", "sequence", "catalog", "instrument_asset", "run"]
+ENTITY_TYPES = [
+    "station", "product", "fixture", "sequence",
+    "catalog", "instrument_asset", "run",
+]
+# Everything except "run" (read-only test results) can be saved.
+SAVEABLE_TYPES = [
+    "station", "product", "fixture", "sequence",
+    "catalog", "instrument_asset", "test",
+]
 
 
-def _list_entities(entity_type: str, project: str) -> list[dict[str, Any]] | dict[str, Any]:
+def _list_entities(entity_type: str, project: str) -> dict[str, Any]:
     """List entities of a given type."""
     if entity_type not in ENTITY_TYPES:
         return {"error": f"Unknown type '{entity_type}'. Valid: {ENTITY_TYPES}"}
@@ -237,30 +248,45 @@ def _list_entities(entity_type: str, project: str) -> list[dict[str, Any]] | dic
     }
 
 
+def _list_yaml_entities(
+    project: str,
+    dir_name: str,
+    loader: Any,
+    extractor: Any,
+) -> list[dict[str, Any]]:
+    """List entities from a YAML directory.
+
+    Args:
+        project: Project path.
+        dir_name: Subdirectory name (e.g. "stations").
+        loader: Callable that takes a Path and returns a Pydantic model.
+        extractor: Callable that takes (model, yaml_file) and returns a summary dict.
+    """
+    entity_dir = get_project_root(project) / dir_name
+    if not entity_dir.exists():
+        return []
+
+    entities = []
+    for yaml_file in entity_dir.glob("*.yaml"):
+        if yaml_file.name.startswith("_"):
+            continue
+        try:
+            model = loader(yaml_file)
+            entities.append(extractor(model, yaml_file))
+        except (OSError, ValueError) as exc:
+            logger.debug("Skipping %s: %s", yaml_file.name, exc)
+            continue
+    return entities
+
+
 def _list_stations(project: str) -> list[dict[str, Any]]:
     """List all station configurations."""
     from litmus.store import load_station
 
-    stations = []
-    stations_dir = get_project_root(project) / "stations"
-
-    if not stations_dir.exists():
-        return []
-
-    for yaml_file in stations_dir.glob("*.yaml"):
-        if yaml_file.name.startswith("_"):
-            continue
-        try:
-            station = load_station(yaml_file)
-            stations.append({
-                "id": station.id,
-                "name": station.name,
-                "location": station.location,
-            })
-        except Exception:
-            continue
-
-    return stations
+    return _list_yaml_entities(
+        project, "stations", load_station,
+        lambda s, _f: {"id": s.id, "name": s.name, "location": s.location},
+    )
 
 
 def _list_products(project: str) -> list[dict[str, Any]]:
@@ -268,76 +294,51 @@ def _list_products(project: str) -> list[dict[str, Any]]:
     from litmus.store import list_products
 
     root = get_project_root(project)
-    products = list_products(project_root=root)
+    return [{"id": p.id, "name": p.name, "description": p.description}
+            for p in list_products(project_root=root)]
 
-    return [{"id": p.id, "name": p.name, "description": p.description} for p in products]
 
-
-def _list_fixtures(project: str) -> list[dict[str, Any]]:  # noqa: C901
+def _list_fixtures(project: str) -> list[dict[str, Any]]:
     """List all fixture configurations."""
     from litmus.store import load_fixture
 
-    fixtures = []
-    fixtures_dir = get_project_root(project) / "fixtures"
-
-    if not fixtures_dir.exists():
-        return []
-
-    for yaml_file in fixtures_dir.glob("*.yaml"):
-        if yaml_file.name.startswith("_"):
-            continue
-        try:
-            fixture = load_fixture(yaml_file)
-            fixtures.append({
-                "id": fixture.id,
-                "name": fixture.name or yaml_file.stem,
-                "product_id": fixture.product_id,
-                "point_count": len(fixture.points),
-            })
-        except Exception:
-            continue
-
-    return fixtures
+    return _list_yaml_entities(
+        project, "fixtures", load_fixture,
+        lambda f, yf: {
+            "id": f.id, "name": f.name or yf.stem,
+            "product_id": f.product_id, "point_count": len(f.points),
+        },
+    )
 
 
 def _list_sequences(project: str) -> list[dict[str, Any]]:
     """List available test sequences."""
     from litmus.store import load_sequence
 
-    sequences = []
-    seq_dir = get_project_root(project) / "sequences"
-
-    if not seq_dir.exists():
-        return []
-
-    for yaml_file in seq_dir.glob("*.yaml"):
-        if yaml_file.name.startswith("_"):
-            continue
-        try:
-            seq = load_sequence(yaml_file)
-            sequences.append({
-                "id": seq.id,
-                "name": seq.name or yaml_file.stem,
-                "description": seq.description,
-            })
-        except Exception:
-            continue
-
-    return sequences
+    return _list_yaml_entities(
+        project, "sequences", load_sequence,
+        lambda s, yf: {"id": s.id, "name": s.name or yf.stem, "description": s.description},
+    )
 
 
 def _list_catalog_entries(project: str) -> list[dict[str, Any]]:
     """List available catalog entries (instrument models and capabilities)."""
-    from litmus.ui.shared.services import discover_instrument_types
+    from litmus.store import find_catalog_dirs, load_catalog_from_directory
 
-    return discover_instrument_types()
+    root = get_project_root(project)
+    entries = []
+    for cat_dir in find_catalog_dirs(project_root=root):
+        for entry_id, entry in load_catalog_from_directory(cat_dir).items():
+            entries.append({"id": entry_id, "type": entry.type, "name": entry.name})
+    return entries
 
 
 def _list_instrument_assets(project: str) -> list[dict[str, Any]]:
     """List instrument asset files (physical devices you own)."""
     from litmus.store import list_instrument_assets
 
-    return [a.model_dump() for a in list_instrument_assets()]
+    root = get_project_root(project)
+    return [a.model_dump() for a in list_instrument_assets(project_root=root)]
 
 
 def _list_runs(project: str) -> list[dict[str, Any]]:
@@ -381,19 +382,24 @@ def _get_entity(entity_type: str, id: str, project: str) -> dict[str, Any]:
     }
 
 
+def _get_yaml_entity(
+    entity_id: str, project: str, dir_name: str, entity_label: str, loader: Any,
+) -> dict[str, Any]:
+    """Load a single YAML entity by ID from a project subdirectory."""
+    yaml_file = get_project_root(project) / dir_name / f"{entity_id}.yaml"
+    if not yaml_file.exists():
+        return {"error": f"{entity_label} '{entity_id}' not found"}
+    try:
+        return loader(yaml_file).model_dump()
+    except (OSError, ValueError) as e:
+        return {"error": f"Failed to load {entity_label.lower()}: {e}"}
+
+
 def _get_station(station_id: str, project: str) -> dict[str, Any]:
     """Get station configuration."""
     from litmus.store import load_station
 
-    yaml_file = get_project_root(project) / "stations" / f"{station_id}.yaml"
-
-    if not yaml_file.exists():
-        return {"error": f"Station '{station_id}' not found"}
-
-    try:
-        return load_station(yaml_file).model_dump()
-    except Exception as e:
-        return {"error": f"Failed to load station: {e}"}
+    return _get_yaml_entity(station_id, project, "stations", "Station", load_station)
 
 
 def _get_product(product_id: str, project: str) -> dict[str, Any]:
@@ -405,35 +411,21 @@ def _get_product(product_id: str, project: str) -> dict[str, Any]:
 
     if product is None:
         return {"error": f"Product '{product_id}' not found in products/"}
-    return product.model_dump(mode="json")
+    return product.model_dump()
 
 
 def _get_fixture(fixture_id: str, project: str) -> dict[str, Any]:
     """Get fixture configuration."""
     from litmus.store import load_fixture
 
-    yaml_file = get_project_root(project) / "fixtures" / f"{fixture_id}.yaml"
-    if yaml_file.exists():
-        try:
-            return load_fixture(yaml_file).model_dump()
-        except Exception as e:
-            return {"error": f"Failed to load fixture: {e}"}
-
-    return {"error": f"Fixture '{fixture_id}' not found"}
+    return _get_yaml_entity(fixture_id, project, "fixtures", "Fixture", load_fixture)
 
 
 def _get_sequence(sequence_id: str, project: str) -> dict[str, Any]:
     """Get test sequence."""
     from litmus.store import load_sequence
 
-    yaml_file = get_project_root(project) / "sequences" / f"{sequence_id}.yaml"
-    if yaml_file.exists():
-        try:
-            return load_sequence(yaml_file).model_dump()
-        except Exception as e:
-            return {"error": f"Failed to load sequence: {e}"}
-
-    return {"error": f"Sequence '{sequence_id}' not found"}
+    return _get_yaml_entity(sequence_id, project, "sequences", "Sequence", load_sequence)
 
 
 def _get_catalog_entry(entry_id: str, project: str) -> dict[str, Any]:
@@ -515,9 +507,8 @@ def _save_entity(
     entity_type: str, id: str, content: dict[str, Any], project: str,
 ) -> dict[str, Any]:
     """Validate and save an entity."""
-    valid_types = ["station", "product", "fixture", "sequence", "instrument", "test"]
-    if entity_type not in valid_types:
-        return {"error": f"Unknown type '{entity_type}'. Valid: {valid_types}"}
+    if entity_type not in SAVEABLE_TYPES:
+        return {"error": f"Unknown type '{entity_type}'. Saveable: {SAVEABLE_TYPES}"}
 
     # Validate content against schema before saving
     schema_errors = _validate_against_schema(entity_type, content)
@@ -535,41 +526,25 @@ def _save_entity(
             result["schema"] = schema
         return result
 
-    if entity_type == "station":
-        return _save_station(id, content, project)
-    elif entity_type == "product":
-        return _save_product(id, content, project)
-    elif entity_type == "fixture":
-        return _save_fixture(id, content, project)
-    elif entity_type == "sequence":
-        return _save_sequence(id, content, project)
-    elif entity_type == "instrument":
-        return _save_instrument(id, content, project)
-    elif entity_type == "test":
-        return _save_test(id, content, project)
-
-    return {"error": "Not implemented"}
+    handlers: dict[str, Any] = {
+        "station": _save_station,
+        "product": _save_product,
+        "fixture": _save_fixture,
+        "sequence": _save_sequence,
+        "catalog": _save_catalog,
+        "instrument_asset": _save_instrument_asset,
+        "test": _save_test,
+    }
+    return handlers[entity_type](id, content, project)
 
 
 def _save_station(station_id: str, content: dict[str, Any], project: str) -> dict[str, Any]:
-    """Save station configuration — validate through StationConfig, write via store."""
-    from pydantic import ValidationError
-
+    """Save station configuration via store."""
     from litmus.config.normalize import check_instrument_types
     from litmus.schemas import StationConfig
     from litmus.store import save_station
 
-    try:
-        station = StationConfig.model_validate(content)
-    except ValidationError as e:
-        return {
-            "success": False,
-            "errors": [
-                f"{'.'.join(str(p) for p in err['loc'])}: {err['msg']}"
-                for err in e.errors()
-            ],
-        }
-
+    station = StationConfig.model_validate(content)
     _, type_warnings = check_instrument_types(
         {k: v.model_dump() for k, v in station.instruments.items()}
     )
@@ -577,56 +552,33 @@ def _save_station(station_id: str, content: dict[str, Any], project: str) -> dic
     root = get_project_root(project)
     save_station(station, project_root=root)
 
-    filepath = root / "stations" / f"{station_id}.yaml"
-    result: dict[str, Any] = {"success": True, "path": str(filepath)}
+    result: dict[str, Any] = {
+        "success": True,
+        "path": str(root / "stations" / f"{station_id}.yaml"),
+    }
     if type_warnings:
         result["warnings"] = type_warnings
     return result
 
 
 def _save_product(product_id: str, content: dict[str, Any], project: str) -> dict[str, Any]:
-    """Save product specification — validate through Product, write via store."""
-    from pydantic import ValidationError
-
+    """Save product specification via store."""
     from litmus.products.models import Product
     from litmus.store import save_product
 
-    try:
-        product = Product.model_validate(content)
-    except ValidationError as e:
-        return {
-            "success": False,
-            "errors": [
-                f"{'.'.join(str(p) for p in err['loc'])}: {err['msg']}"
-                for err in e.errors()
-            ],
-        }
-
+    product = Product.model_validate(content)
     root = get_project_root(project)
     save_product(product, project_root=root)
 
-    products_dir = root / "products"
-    return {"success": True, "path": str(products_dir / f"{product_id}.yaml")}
+    return {"success": True, "path": str(root / "products" / f"{product_id}.yaml")}
 
 
 def _save_fixture(fixture_id: str, content: dict[str, Any], project: str) -> dict[str, Any]:
-    """Save fixture configuration — validate through FixtureConfig, write via store."""
-    from pydantic import ValidationError
-
+    """Save fixture configuration via store."""
     from litmus.config.models import FixtureConfig
     from litmus.store import save_fixture
 
-    try:
-        fixture = FixtureConfig.model_validate(content)
-    except ValidationError as e:
-        return {
-            "success": False,
-            "errors": [
-                f"{'.'.join(str(p) for p in err['loc'])}: {err['msg']}"
-                for err in e.errors()
-            ],
-        }
-
+    fixture = FixtureConfig.model_validate(content)
     root = get_project_root(project)
     save_fixture(fixture, project_root=root)
 
@@ -634,51 +586,41 @@ def _save_fixture(fixture_id: str, content: dict[str, Any], project: str) -> dic
 
 
 def _save_sequence(sequence_id: str, content: dict[str, Any], project: str) -> dict[str, Any]:
-    """Save test sequence — validate through TestSequenceConfig, write via store."""
-    from pydantic import ValidationError
-
+    """Save test sequence via store."""
     from litmus.config.models import TestSequenceConfig
     from litmus.store import save_sequence
 
-    try:
-        sequence = TestSequenceConfig.model_validate(content)
-    except ValidationError as e:
-        return {
-            "success": False,
-            "errors": [
-                f"{'.'.join(str(p) for p in err['loc'])}: {err['msg']}"
-                for err in e.errors()
-            ],
-        }
-
+    sequence = TestSequenceConfig.model_validate(content)
     root = get_project_root(project)
     save_sequence(sequence, project_root=root)
 
     return {"success": True, "path": str(root / "sequences" / f"{sequence_id}.yaml")}
 
 
-def _save_instrument(instrument_type: str, content: dict[str, Any], project: str) -> dict[str, Any]:
-    """Save instrument asset file — validate through InstrumentAssetFile, write via store."""
-    from pydantic import ValidationError
+def _save_catalog(entry_id: str, content: dict[str, Any], project: str) -> dict[str, Any]:
+    """Save catalog entry via store."""
+    from litmus.catalog.models import InstrumentCatalogEntry
+    from litmus.store import save_catalog_entry
 
+    entry = InstrumentCatalogEntry.model_validate(content)
+    root = get_project_root(project)
+    save_catalog_entry(entry, project_root=root)
+
+    return {"success": True, "path": str(root / "catalog" / f"{entry_id}.yaml")}
+
+
+def _save_instrument_asset(
+    instrument_id: str, content: dict[str, Any], project: str,
+) -> dict[str, Any]:
+    """Save instrument asset file via store."""
     from litmus.schemas import InstrumentAssetFile
     from litmus.store import save_instrument_asset
 
-    try:
-        asset = InstrumentAssetFile.model_validate(content)
-    except ValidationError as e:
-        return {
-            "success": False,
-            "errors": [
-                f"{'.'.join(str(p) for p in err['loc'])}: {err['msg']}"
-                for err in e.errors()
-            ],
-        }
-
+    asset = InstrumentAssetFile.model_validate(content)
     root = get_project_root(project)
     save_instrument_asset(asset, project_root=root)
 
-    return {"success": True, "path": str(root / "instruments" / f"{instrument_type}.yaml")}
+    return {"success": True, "path": str(root / "instruments" / f"{instrument_id}.yaml")}
 
 
 def _save_test(path: str, content: dict[str, Any], project: str) -> dict[str, Any]:
@@ -918,7 +860,7 @@ def _read_file(path: str, project: str) -> dict[str, Any]:
         filepath = filepath.resolve()
         if not str(filepath).startswith(str(root.resolve())):
             return {"error": "Path must be within project directory"}
-    except Exception:
+    except (OSError, ValueError):
         return {"error": f"Invalid path: {path}"}
 
     if not filepath.exists():
@@ -952,7 +894,7 @@ def _read_file(path: str, project: str) -> dict[str, Any]:
             "path": path,
             "content": content,
         }
-    except Exception as e:
+    except (OSError, UnicodeDecodeError) as e:
         return {"error": f"Failed to read file: {e}"}
 
 
@@ -1019,7 +961,7 @@ def discover_tool(protocols: list[str] | None = None) -> dict[str, Any]:
             "resources": discovered,
         }
 
-    except Exception as e:
+    except (ImportError, OSError, RuntimeError) as e:
         return {"error": f"Discovery failed: {e}"}
 
 
@@ -1061,7 +1003,8 @@ def match_tool(
 
     # Just product_id: find compatible stations
     if product_id and not station_id and not fixture_id:
-        product = get_product(product_id)
+        root = get_project_root(project) if project else None
+        product = get_product(product_id, project_root=root)
         if not product:
             return {"error": f"Product '{product_id}' not found"}
 

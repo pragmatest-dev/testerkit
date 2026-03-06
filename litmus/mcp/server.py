@@ -172,10 +172,7 @@ Do NOT guess field names — if the schema doesn't have it, don't use it.
 
 
 def _build_workflow_prompt() -> str:
-    """Build the datasheet-to-test workflow prompt.
-
-    References litmus_schema() instead of hardcoding YAML examples.
-    """
+    """Build the datasheet-to-test workflow prompt."""
     return """\
 # Datasheet to Test Workflow
 
