@@ -51,14 +51,11 @@ class SpecContext:
         self.fixture = fixture
         self.default_guardband_pct = guardband_pct
 
-        # Build lookup caches
-        self._char_by_pin: dict[str, list[str]] = {}  # pin -> [char_ids]
-        self._pin_by_char: dict[str, list[str]] = {}  # char_id -> [pins]
+        # Build lookup cache: pin -> [char_ids]
+        self._char_by_pin: dict[str, list[str]] = {}
 
         for char_id, char in product.characteristics.items():
-            # Collect all pins for this characteristic (pin, pins, or net lookup)
             all_pins = self._get_char_pins(char)
-            self._pin_by_char[char_id] = all_pins
             for pin in all_pins:
                 if pin not in self._char_by_pin:
                     self._char_by_pin[pin] = []
@@ -70,10 +67,9 @@ class SpecContext:
 
         # Net reference - find matching pin by net name
         if char.net and not pins:
-            for pin_id, pin in self.product.pins.items():
-                if pin.net == char.net:
-                    pins.append(pin_id)
-                    break
+            net_pins = self.product.get_pins_by_net(char.net)
+            if net_pins:
+                pins.append(net_pins[0])
 
         return pins
 
@@ -118,7 +114,6 @@ class SpecContext:
 
         Raises:
             KeyError: If characteristic not found.
-            ValueError: If no condition matches.
         """
         char = self.product.characteristics.get(char_id)
         if char is None:
@@ -167,7 +162,8 @@ class SpecContext:
             pin = self.product.pins.get(primary_pin_id)
             if pin:
                 result["dut_pin"] = pin.name
-                result["net"] = pin.net
+                if pin.net is not None:
+                    result["net"] = pin.net
 
                 if self.fixture:
                     for pt_name, pt in self.fixture.points.items():

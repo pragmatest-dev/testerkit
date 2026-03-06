@@ -534,3 +534,34 @@ class InstrumentCapability(Capability):
         if isinstance(self.channels, list):
             return [str(ch) for ch in self.channels]
         return expand_range(self.channels)
+
+
+def band_matches(band: SpecBand, params: dict[str, float | str | bool]) -> bool:
+    """Check if all ``when`` clauses in a SpecBand match the given params.
+
+    Shared by product spec lookup and instrument capability matching.
+    An empty ``when`` dict matches any query (unconditional spec).
+    """
+    for key, spec in band.when.items():
+        val = params.get(key)
+        if val is None:
+            return False
+        if isinstance(spec, RangeSpec):
+            if isinstance(val, (int, float)):
+                if spec.min is not None and val < spec.min:
+                    return False
+                if spec.max is not None and val > spec.max:
+                    return False
+        elif isinstance(spec, PointSpec):
+            if val != spec.value:
+                return False
+        elif isinstance(spec, ListSpec):
+            if val not in spec.values:
+                return False
+        elif isinstance(spec, list):
+            if val not in spec:
+                return False
+        else:  # str, float, bool — equality
+            if val != spec:
+                return False
+    return True

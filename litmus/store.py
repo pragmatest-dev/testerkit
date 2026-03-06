@@ -29,6 +29,7 @@ from pydantic import ValidationError
 from litmus.catalog.models import InstrumentCatalogEntry
 from litmus.config.fmt import dump_yaml
 from litmus.config.models import FixtureConfig, TestSequenceConfig
+from litmus.products.manifest import ProductManifest
 from litmus.products.models import Product
 from litmus.schemas import (
     InstrumentAssetFile,
@@ -589,6 +590,21 @@ def create_product(
     product = Product(id=product_id, name=name, description=description or None)
     _write_model(target_file, product.model_dump(exclude_none=True))
     return product
+
+
+# =============================================================================
+# Product Manifest: load / save
+# =============================================================================
+
+
+def load_manifest(path: Path) -> ProductManifest:
+    """Load and validate a product manifest YAML file."""
+    return ProductManifest.model_validate(_read_yaml(path))
+
+
+def save_manifest(manifest: ProductManifest, path: Path) -> None:
+    """Save a product manifest to YAML."""
+    _write_model(path, manifest.model_dump(exclude_none=True))
 
 
 # =============================================================================

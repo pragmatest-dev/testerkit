@@ -24,6 +24,7 @@ if TYPE_CHECKING:
 
 from pydantic import BaseModel, Field
 
+from litmus.config.capability import band_matches
 from litmus.config.models import (
     AccuracySpec,
     Attribute,
@@ -31,10 +32,8 @@ from litmus.config.models import (
     Control,
     Direction,
     InstrumentCapability,
-    ListSpec,
     MatchDepth,
     MeasurementFunction,
-    PointSpec,
     RangeSpec,
     ResolutionSpec,
     Signal,
@@ -451,36 +450,10 @@ def get_spec_at(
     if not measure.specs:
         return None
     for band in measure.specs:
-        if _band_matches(band, operating_point):
+        if band_matches(band, operating_point):
             return band
     return None
 
-
-def _band_matches(band: SpecBand, operating_point: dict[str, float | str | bool]) -> bool:
-    """Check if all ``when`` clauses in a SpecBand match the operating point."""
-    for key, spec in band.when.items():
-        val = operating_point.get(key)
-        if val is None:
-            return False
-        if isinstance(spec, RangeSpec):
-            if isinstance(val, (int, float)):
-                if spec.min is not None and val < spec.min:
-                    return False
-                if spec.max is not None and val > spec.max:
-                    return False
-        elif isinstance(spec, PointSpec):
-            if val != spec.value:
-                return False
-        elif isinstance(spec, ListSpec):
-            if val not in spec.values:
-                return False
-        elif isinstance(spec, list):
-            if val not in spec:
-                return False
-        else:  # str, float, bool — equality
-            if val != spec:
-                return False
-    return True
 
 
 def _get_spec_field(

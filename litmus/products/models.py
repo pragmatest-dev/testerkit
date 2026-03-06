@@ -20,11 +20,9 @@ from typing import Any, Self
 
 from pydantic import BaseModel, Field, computed_field, model_validator
 
+from litmus.config.capability import band_matches
 from litmus.config.models import (
     Capability,
-    ListSpec,
-    PointSpec,
-    RangeSpec,
     SpecBand,
 )
 from litmus.utils.ranges import expand_range
@@ -204,43 +202,9 @@ class ProductCharacteristic(Capability):
             The matching SpecBand, or None if no match found.
         """
         for band in self.specs:
-            if _band_matches_product(band, params):
+            if band_matches(band, params):
                 return band
         return None
-
-
-def _band_matches_product(band: SpecBand, params: dict[str, float | str | bool]) -> bool:
-    """Check if all ``when`` clauses in a product SpecBand match the given params.
-
-    For product specs, condition values can be exact points (min==max) or ranges.
-    Scalar values (str, float, bool) are matched by equality.
-    List values are matched by membership (val in list).
-    An empty ``when`` dict matches any query (unconditional spec).
-    """
-    if not band.when:
-        return True
-    for key, spec in band.when.items():
-        val = params.get(key)
-        if val is None:
-            return False
-        if isinstance(spec, RangeSpec):
-            if spec.min is not None and isinstance(val, (int, float)) and val < spec.min:
-                return False
-            if spec.max is not None and isinstance(val, (int, float)) and val > spec.max:
-                return False
-        elif isinstance(spec, PointSpec):
-            if val != spec.value:
-                return False
-        elif isinstance(spec, ListSpec):
-            if val not in spec.values:
-                return False
-        elif isinstance(spec, list):
-            if val not in spec:
-                return False
-        else:  # str, float, bool — equality
-            if val != spec:
-                return False
-    return True
 
 
 class Product(BaseModel):
@@ -284,3 +248,7 @@ class Product(BaseModel):
 
     # Electrical characteristics
     characteristics: dict[str, ProductCharacteristic] = Field(default_factory=dict)
+
+    def get_pins_by_net(self, net: str) -> list[str]:
+        """Return pin IDs whose net matches the given name."""
+        return [pid for pid, pin in self.pins.items() if pin.net == net]

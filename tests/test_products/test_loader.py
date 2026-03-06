@@ -187,7 +187,9 @@ class TestProductInheritance:
         """Test that missing base raises ValueError."""
         import tempfile
 
-        with tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", dir=specs_dir, delete=False) as f:
+        with tempfile.NamedTemporaryFile(
+            mode="w", suffix=".yaml", dir=specs_dir, delete=False,
+        ) as f:
             f.write("id: bad_variant\nbase: nonexistent_base\nname: Bad\n")
             f.flush()
             tmp_path = Path(f.name)

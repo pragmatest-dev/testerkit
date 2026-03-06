@@ -7,6 +7,7 @@ ProductFolder provides CRUD operations for product folders, handling:
 - Listing all products in a directory
 """
 
+import logging
 from collections.abc import Iterator
 from pathlib import Path
 
@@ -18,6 +19,10 @@ from litmus.products.manifest import (
     WorkflowStep,
 )
 from litmus.products.models import Product
+from litmus.store import load_manifest, load_product
+from litmus.store import save_manifest as _store_save_manifest
+
+logger = logging.getLogger(__name__)
 
 
 class ProductFolder:
@@ -97,10 +102,7 @@ class ProductFolder:
         )
 
         # Save manifest
-        manifest_path = folder_path / "manifest.yaml"
-        manifest_path.write_text(
-            dump_yaml(manifest.model_dump(mode="json", exclude_none=True))
-        )
+        _store_save_manifest(manifest, folder_path / "manifest.yaml")
 
         return cls(folder_path, manifest)
 
@@ -124,10 +126,7 @@ class ProductFolder:
         if not manifest_path.exists():
             raise FileNotFoundError(f"Manifest not found: {manifest_path}")
 
-        with open(manifest_path) as f:
-            data = yaml.safe_load(f)
-
-        manifest = ProductManifest.model_validate(data)
+        manifest = load_manifest(manifest_path)
         return cls(path, manifest)
 
     @classmethod
@@ -147,16 +146,13 @@ class ProductFolder:
             if item.is_dir() and (item / "manifest.yaml").exists():
                 try:
                     yield cls.load(item)
-                except Exception:
-                    # Skip invalid folders
+                except (FileNotFoundError, OSError, ValueError, yaml.YAMLError) as exc:
+                    logger.debug("Skipping invalid product folder %s: %s", item, exc)
                     continue
 
     def save_manifest(self) -> None:
         """Save the manifest to disk."""
-        manifest_path = self.path / "manifest.yaml"
-        manifest_path.write_text(
-            dump_yaml(self.manifest.model_dump(mode="json", exclude_none=True))
-        )
+        _store_save_manifest(self.manifest, self.path / "manifest.yaml")
 
     def save_datasheet(self, content: str, filename: str = "datasheet.md") -> Path:
         """Save datasheet content to the folder.
@@ -169,8 +165,7 @@ class ProductFolder:
             Path to the saved file
         """
         file_path = self.path / filename
-        with open(file_path, "w") as f:
-            f.write(content)
+        file_path.write_text(content)
 
         self.manifest.files.datasheet = filename
         self.save_manifest()
@@ -188,7 +183,7 @@ class ProductFolder:
         """
         file_path = self.path / filename
         file_path.write_text(
-            dump_yaml({"product": product.model_dump(mode="json", exclude_none=True)})
+            dump_yaml({"product": product.model_dump(exclude_none=True)})
         )
 
         self.manifest.files.spec = filename
@@ -208,14 +203,7 @@ class ProductFolder:
         if not spec_path.exists():
             return None
 
-        with open(spec_path) as f:
-            data = yaml.safe_load(f)
-
-        if "product" in data:
-            from litmus.store import load_product
-
-            return load_product(spec_path)
-        return None
+        return load_product(spec_path)
 
     def load_datasheet(self) -> str | None:
         """Load the datasheet content from the folder.
@@ -230,8 +218,7 @@ class ProductFolder:
         if not datasheet_path.exists():
             return None
 
-        with open(datasheet_path) as f:
-            return f.read()
+        return datasheet_path.read_text()
 
     def get_file_path(self, file_type: str) -> Path | None:
         """Get the full path for a file type.

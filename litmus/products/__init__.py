@@ -13,12 +13,16 @@ from litmus.products.manifest import (
     WorkflowStep,
 )
 from litmus.products.models import (
+    Pin,
+    PinRole,
     Product,
     ProductCharacteristic,
 )
 
 __all__ = [
     "FileReferences",
+    "Pin",
+    "PinRole",
     "Product",
     "ProductCharacteristic",
     "ProductFolder",
