@@ -736,6 +736,11 @@ def litmus_logger(request) -> Generator[TestRunLogger, None, None]:
         parquet_sub = ParquetSubscriber(backend)
         event_log.add_subscriber(parquet_sub)
 
+        from litmus.data.channels.store import ChannelStore
+
+        channel_store = ChannelStore(results_path / "channels", session_id)
+        event_log.add_subscriber(channel_store)
+
         # Emit SessionStarted with full run context
         session_event = SessionStarted(
             session_id=logger._session_id,
@@ -1121,7 +1126,7 @@ def instrument_records(request, station_config, mock_instruments) -> dict[str, I
 
 @pytest.fixture(scope="session")
 def instruments(
-    request, station_config, mock_instruments, instrument_records
+    request, station_config, mock_instruments, instrument_records, litmus_logger
 ) -> Generator[dict[str, Any], None, None]:
     """Create instrument instances from station configuration.
 
@@ -1221,12 +1226,33 @@ def instruments(
         # Check calibration status
         _check_calibration(role, record.calibration)
 
+        # Wrap in proxy for event emission
+        if litmus_logger is not None and litmus_logger.event_log is not None:
+            from litmus.instruments.proxy import InstrumentProxy
+
+            inst = InstrumentProxy(
+                inst, role, litmus_logger.event_log,
+                litmus_logger._session_id, litmus_logger.test_run.id,
+            )
+
         active[role] = inst
 
     yield active
 
     # Cleanup: disconnect/close all instruments
     for role, inst in active.items():
+        # Emit disconnect event
+        if litmus_logger is not None and litmus_logger.event_log is not None:
+            from litmus.data.events import InstrumentDisconnected
+
+            record = instrument_records.get(role)
+            litmus_logger.event_log.emit(InstrumentDisconnected(
+                session_id=litmus_logger._session_id,
+                run_id=litmus_logger.test_run.id,
+                role=role,
+                instrument_id=record.instrument_id if record else role,
+            ))
+
         try:
             if hasattr(inst, "disconnect"):
                 inst.disconnect()

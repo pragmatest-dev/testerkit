@@ -141,9 +141,12 @@ class DutScanned(EventBase):
     scan_source: str | None = None
 
 
-class FixtureTeardown(EventBase):
-    event_type: Literal["fixture.teardown"] = "fixture.teardown"
-    reason: str | None = None
+class InstrumentDisconnected(EventBase):
+    """Emitted when an instrument is disconnected during teardown."""
+
+    event_type: Literal["fixture.instrument_disconnected"] = "fixture.instrument_disconnected"
+    role: str
+    instrument_id: str
 
 
 # ---------------------------------------------------------------------------
@@ -239,6 +242,41 @@ class DiagnosticError(EventBase):
 
 
 # ---------------------------------------------------------------------------
+# Instrument events
+# ---------------------------------------------------------------------------
+
+class InstrumentRead(EventBase):
+    """Emitted when a driver read method is called via proxy."""
+
+    event_type: Literal["instrument.read"] = "instrument.read"
+    instrument_role: str
+    channel_id: str
+    method: str
+    value: Any = None
+    units: str | None = None
+
+
+class InstrumentSet(EventBase):
+    """Emitted when a driver set method is called via proxy."""
+
+    event_type: Literal["instrument.set"] = "instrument.set"
+    instrument_role: str
+    channel_id: str
+    attribute: str
+    value: Any = None
+    units: str | None = None
+
+
+class InstrumentConfigure(EventBase):
+    """Emitted when a driver configure method is called via proxy."""
+
+    event_type: Literal["instrument.configure"] = "instrument.configure"
+    instrument_role: str
+    method: str
+    parameters: dict[str, Any] = Field(default_factory=dict)
+
+
+# ---------------------------------------------------------------------------
 # Stream events (Phase 2+)
 # ---------------------------------------------------------------------------
 
@@ -266,18 +304,24 @@ class StreamFrameIndex(EventBase):
 
 SESSION_EVENTS = {SessionStarted, SessionEnded}
 FIXTURE_EVENTS = {
-    InstrumentConnected, IdentityVerified, CalibrationWarning, DutScanned, FixtureTeardown,
+    InstrumentConnected, IdentityVerified, CalibrationWarning, DutScanned, InstrumentDisconnected,
 }
 TEST_EVENTS = {StepStarted, MeasurementRecorded, RecordEvent, StepEnded, RunEnded}
+INSTRUMENT_EVENTS = {InstrumentRead, InstrumentSet, InstrumentConfigure}
 DIAGNOSTIC_EVENTS = {DiagnosticWarning, DiagnosticError}
 STREAM_EVENTS = {StreamStarted, StreamEnded, StreamFrameIndex}
-ALL_EVENTS = SESSION_EVENTS | FIXTURE_EVENTS | TEST_EVENTS | DIAGNOSTIC_EVENTS | STREAM_EVENTS
+ALL_EVENTS = (
+    SESSION_EVENTS | FIXTURE_EVENTS | TEST_EVENTS
+    | INSTRUMENT_EVENTS | DIAGNOSTIC_EVENTS | STREAM_EVENTS
+)
 
 # Discriminated union type for deserialization
 Event = Annotated[
     SessionStarted | SessionEnded
-    | InstrumentConnected | IdentityVerified | CalibrationWarning | DutScanned | FixtureTeardown
+    | InstrumentConnected | IdentityVerified | CalibrationWarning
+    | DutScanned | InstrumentDisconnected
     | StepStarted | MeasurementRecorded | RecordEvent | StepEnded | RunEnded
+    | InstrumentRead | InstrumentSet | InstrumentConfigure
     | DiagnosticWarning | DiagnosticError
     | StreamStarted | StreamEnded | StreamFrameIndex,
     Field(discriminator="event_type"),
