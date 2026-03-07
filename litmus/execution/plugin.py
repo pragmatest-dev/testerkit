@@ -799,7 +799,7 @@ def _emit_instrument_events(logger: TestRunLogger, event_log: Any) -> None:
     records = get_instrument_records()
     for role, rec in records.items():
         event = InstrumentConnected(
-            session_id=logger._session_id or logger.test_run.id,
+            session_id=logger._effective_session_id,
             run_id=logger.test_run.id,
             role=role,
             instrument_id=rec.instrument_id,
@@ -1236,7 +1236,7 @@ def instruments(
 
             inst = InstrumentProxy(
                 inst, role, litmus_logger.event_log,
-                litmus_logger._session_id, litmus_logger.test_run.id,
+                litmus_logger._effective_session_id, litmus_logger.test_run.id,
             )
 
         active[role] = inst
@@ -1251,7 +1251,7 @@ def instruments(
 
             record = instrument_records.get(role)
             litmus_logger.event_log.emit(InstrumentDisconnected(
-                session_id=litmus_logger._session_id,
+                session_id=litmus_logger._effective_session_id,
                 run_id=litmus_logger.test_run.id,
                 role=role,
                 instrument_id=record.instrument_id if record else role,
