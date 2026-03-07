@@ -1,5 +1,6 @@
-"""Live test progress page with streaming measurements."""
+"""Live test progress page with streaming event log."""
 
+import json
 from pathlib import Path
 
 from nicegui import ui
@@ -18,9 +19,37 @@ def _outcome_badge(outcome: str | None) -> str:
     return "bg-slate-100 text-slate-600"
 
 
+_MEASUREMENT_REQUIRED_FIELDS = {"event_type", "measurement_name", "step_name"}
+
+
+def _read_event_log_measurements(events_dir: Path) -> list[dict]:
+    """Read test.measurement events from recent event log files."""
+    measurements: list[dict] = []
+    if not events_dir.exists():
+        return measurements
+
+    # Scan date-partitioned directories for JSONL files
+    for jsonl_file in sorted(events_dir.glob("*/*.jsonl")):
+        for line in jsonl_file.read_text().splitlines():
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                data = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if (
+                data.get("event_type") == "test.measurement"
+                and _MEASUREMENT_REQUIRED_FIELDS.issubset(data)
+            ):
+                measurements.append(data)
+
+    return measurements
+
+
 @ui.page("/live/{run_id}")
 async def live_page(run_id: str):
-    """Live test progress page with streaming measurements."""
+    """Live test progress page with streaming event log."""
     create_layout(f"Test Run: {run_id}")
 
     from litmus.execution.runner import get_runner
@@ -32,7 +61,7 @@ async def live_page(run_id: str):
     create_dialog_container(run_id)
 
     # Track measurements we've already displayed
-    displayed_measurements = []
+    displayed_count = 0
     run_complete = False
 
     with ui.column().classes("w-full p-6 gap-6"):
@@ -57,7 +86,9 @@ async def live_page(run_id: str):
             with ui.card_section():
                 with ui.row().classes("items-center justify-between"):
                     ui.label("Live Measurements").classes("font-semibold")
-                    measurement_count = ui.label("0 measurements").classes("text-sm text-slate-500")
+                    measurement_count = ui.label("0 measurements").classes(
+                        "text-sm text-slate-500"
+                    )
 
             measurements_container = ui.column().classes("w-full max-h-64 overflow-y-auto")
 
@@ -71,38 +102,19 @@ async def live_page(run_id: str):
 
         results_link = ui.link("View Full Results →", f"/results/{run_id}").classes("hidden")
 
-        def poll_journal():
-            """Poll journal file for new measurements."""
-            nonlocal displayed_measurements, run_complete
+        def poll_event_log():
+            """Poll event log for new measurements."""
+            nonlocal displayed_count, run_complete
 
             if run_complete:
                 return
 
-            # Find journal directory for this run
-            from litmus.data.backends.parquet import ParquetBackend
+            events_dir = runner.results_dir / "events"
+            measurements = _read_event_log_measurements(events_dir)
 
-            # Use runner's results directory
-            backend = ParquetBackend(results_dir=runner.results_dir)
-            journals = backend.list_journals()
-
-            # Find journal matching run_id (exact match or prefix match for partial IDs)
-            journal_dir = None
-            for j in journals:
-                j_run_id = j.get("run_id", "")
-                if j_run_id == run_id or j_run_id.startswith(run_id):
-                    journal_dir = Path(j["journal_dir"])
-                    break
-
-            if journal_dir is None:
-                return
-
-            # Read journal
-            measurements = backend.get_journal_measurements(journal_dir)
-
-            # Display new measurements
-            new_count = len(measurements) - len(displayed_measurements)
+            new_count = len(measurements) - displayed_count
             if new_count > 0:
-                for m in measurements[len(displayed_measurements) :]:
+                for m in measurements[displayed_count:]:
                     with measurements_container:
                         row_cls = "w-full items-center justify-between px-3 py-2"
                         row_cls += " border-b border-slate-100"
@@ -112,8 +124,10 @@ async def live_page(run_id: str):
                                     "font-medium text-sm"
                                 )
                                 step = m.get("step_name", "")
-                                ts = m.get("measurement_timestamp", "")[:19]
-                                ui.label(f"{step} • {ts}").classes("text-xs text-slate-400")
+                                ts = (m.get("occurred_at") or "")[:19]
+                                ui.label(f"{step} • {ts}").classes(
+                                    "text-xs text-slate-400"
+                                )
                             with ui.row().classes("items-center gap-2"):
                                 value = m.get("value")
                                 units = m.get("units") or ""
@@ -126,11 +140,11 @@ async def live_page(run_id: str):
                                     f"px-2 py-0.5 rounded text-xs font-medium {badge_cls}"
                                 )
 
-                displayed_measurements = measurements
+                displayed_count = len(measurements)
                 measurement_count.set_text(f"{len(measurements)} measurements")
 
-        # Poll journal every 500ms while run is in progress
-        journal_timer = ui.timer(0.5, poll_journal)
+        # Poll event log every 500ms while run is in progress
+        event_log_timer = ui.timer(0.5, poll_event_log)
 
         async def update_progress():
             nonlocal run_complete
@@ -144,7 +158,7 @@ async def live_page(run_id: str):
                     status_label.set_text(event["status"].upper())
                 elif event["type"] == "complete":
                     run_complete = True
-                    journal_timer.deactivate()
+                    event_log_timer.deactivate()
 
                     progress.set_value(1.0)
                     if event["returncode"] == 0:
@@ -158,7 +172,7 @@ async def live_page(run_id: str):
                     results_link.classes(remove="hidden")
 
                     # Final poll to get any remaining measurements
-                    poll_journal()
+                    poll_event_log()
                     break
 
         ui.timer(0.1, update_progress, once=True)

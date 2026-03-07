@@ -1,8 +1,8 @@
-"""Shared row-building helpers for parquet and journal backends.
+"""Shared row-building helpers for the parquet backend.
 
-Both backends produce denormalized rows with the same run-level and
-measurement-level fields.  This module extracts the common logic so
-new columns only need to be added in one place.
+Produces denormalized rows with run-level and measurement-level fields.
+This module extracts the common logic so new columns only need to be
+added in one place.
 """
 
 from __future__ import annotations
@@ -134,7 +134,7 @@ def build_run_metadata(test_run: TestRun) -> dict[str, Any]:
 
     These fields are identical on every row in a run.  Returns raw
     Python objects (datetime, str, None) — callers that need JSON
-    serialisation (journal) should post-process timestamps.
+    serialisation should post-process timestamps.
     """
     return {
         "run_id": str(test_run.id),

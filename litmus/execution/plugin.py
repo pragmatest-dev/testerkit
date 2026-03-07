@@ -15,7 +15,6 @@ import yaml
 from _pytest.runner import runtestprotocol
 
 from litmus.config.test_config import FixtureConfig
-from litmus.data.backends.parquet import ParquetBackend
 from litmus.data.models import TestRun
 from litmus.execution.accessors import InstrumentAccessor
 from litmus.execution.decorators import set_current_logger
@@ -555,12 +554,15 @@ def _safe_get_session_fixture(request, name):
         return None
 
 
-def _attach_streaming_destinations(logger: TestRunLogger) -> None:
-    """Open and attach streaming destinations from outputs config.
+def _attach_event_subscribers(logger: TestRunLogger) -> None:
+    """Attach event subscribers from outputs config.
 
-    Checks each output entry for a streaming-capable exporter and wires
-    it into the logger for real-time per-measurement streaming.
+    Checks each output entry for an EventSubscriber-capable exporter and
+    wires it into the logger's event log.
     """
+    if logger.event_log is None:
+        return
+
     try:
         from litmus.config.project import load_project_config
 
@@ -568,7 +570,7 @@ def _attach_streaming_destinations(logger: TestRunLogger) -> None:
     except Exception:
         return
 
-    from litmus.data.exporters._base import StreamingDestination
+    from litmus.data.event_log import EventSubscriber
     from litmus.data.exporters._registry import get_exporter_class, is_report_format
 
     for output_cfg in config.outputs:
@@ -579,13 +581,11 @@ def _attach_streaming_destinations(logger: TestRunLogger) -> None:
             cls = get_exporter_class(fmt)
             if cls is not None:
                 instance = cls()
-                if not isinstance(instance, StreamingDestination):
-                    continue
-                instance.open(output_cfg, logger.test_run)
-                logger.add_streaming_destination(instance)
+                if isinstance(instance, EventSubscriber):
+                    logger.event_log.add_subscriber(instance)
         except Exception as exc:
             warnings.warn(
-                f"Streaming setup for '{fmt}' failed: {exc}",
+                f"Event subscriber setup for '{fmt}' failed: {exc}",
                 stacklevel=2,
             )
 
@@ -709,33 +709,112 @@ def litmus_logger(request) -> Generator[TestRunLogger, None, None]:
     @litmus_test decorated functions to log measurements.
 
     Captures config snapshots at run start for full traceability.
-    Streams measurements to a JSONL journal for live observability.
+    Streams events to an event log for live observability.
     """
+    from uuid import uuid4
+
+    from litmus.data.backends.parquet import ParquetBackend, ParquetSubscriber
+    from litmus.data.event_log import EventLog
+    from litmus.data.events import SessionStarted
+
     meta = _build_run_metadata(request)
     results_dir = meta["results_dir"]
 
     logger = TestRunLogger(**meta)
-    # Wire streaming destinations from outputs config
-    _attach_streaming_destinations(logger)
+
+    # Create event log and wire ParquetSubscriber
+    if results_dir:
+        results_path = Path(results_dir)
+        events_dir = results_path / "events"
+        session_id = uuid4()
+
+        event_log = EventLog(events_dir, session_id)
+        logger.event_log = event_log
+        logger._session_id = session_id
+
+        backend = ParquetBackend(results_dir=results_dir)
+        parquet_sub = ParquetSubscriber(backend)
+        event_log.add_subscriber(parquet_sub)
+
+        # Emit SessionStarted with full run context
+        session_event = SessionStarted(
+            session_id=logger._session_id,
+            run_id=logger.test_run.id,
+            station_id=logger.test_run.station_id,
+            station_name=logger.test_run.station_name,
+            station_type=logger.test_run.station_type,
+            station_location=logger.test_run.station_location,
+            dut_serial=logger.test_run.dut.serial,
+            dut_part_number=logger.test_run.dut.part_number,
+            dut_revision=logger.test_run.dut.revision,
+            dut_lot_number=logger.test_run.dut.lot_number,
+            product_id=logger.test_run.product_id,
+            product_name=logger.test_run.product_name,
+            product_revision=logger.test_run.product_revision,
+            operator_id=logger.test_run.operator_id,
+            operator_name=logger.test_run.operator_name,
+            fixture_id=logger.test_run.fixture_id,
+            sequence_id=logger.test_run.test_sequence_id,
+            test_phase=logger.test_run.test_phase,
+            git_commit=logger.test_run.git_commit,
+            environment_json=logger.test_run.environment_json,
+            station_config_yaml=logger.test_run.station_config_yaml,
+            product_spec_yaml=logger.test_run.product_spec_yaml,
+            fixture_config_yaml=logger.test_run.fixture_config_yaml,
+            test_config_yaml=logger.test_run.test_config_yaml,
+            custom_metadata=dict(logger.test_run.custom_metadata),
+        )
+        event_log.emit(session_event)
+
+        # Emit InstrumentConnected for each instrument
+        _emit_instrument_events(logger, event_log)
+
+    # Wire additional subscribers from outputs config
+    _attach_event_subscribers(logger)
 
     set_current_logger(logger)
     yield logger
 
-    # Finalize and save
+    # Finalize (emits RunEnded, closes event log → ParquetSubscriber writes Parquet)
     test_run = logger.finalize()
-    backend = ParquetBackend(results_dir=results_dir)
-
-    # Convert journal to parquet if journaling was enabled
-    # Instrument arrays are per-step (embedded in each step and journal row)
-    journal_dir = logger.journal_dir
-    backend.save_test_run(
-        test_run,
-        journal_dir=journal_dir,
-    )
 
     # Run configured outputs (exports, reports, transports)
     _run_configured_outputs(test_run, str(test_run.id), results_dir)
     set_current_logger(None)
+
+
+def _emit_instrument_events(logger: TestRunLogger, event_log: Any) -> None:
+    """Emit InstrumentConnected events from instrument records."""
+    from litmus.data.events import InstrumentConnected
+
+    records = get_instrument_records()
+    for role, rec in records.items():
+        event = InstrumentConnected(
+            session_id=logger._session_id or logger.test_run.id,
+            run_id=logger.test_run.id,
+            role=role,
+            instrument_id=rec.instrument_id,
+            driver=rec.driver,
+            resource=rec.resource,
+            protocol=rec.protocol,
+            manufacturer=rec.info.manufacturer if rec.info else None,
+            model=rec.info.model if rec.info else None,
+            serial=rec.info.serial if rec.info else None,
+            firmware=rec.info.firmware if rec.info else None,
+            cal_due=(
+                rec.calibration.due_date.isoformat()
+                if rec.calibration and rec.calibration.due_date else None
+            ),
+            cal_last=(
+                rec.calibration.last_cal.isoformat()
+                if rec.calibration and rec.calibration.last_cal else None
+            ),
+            cal_certificate=rec.calibration.certificate if rec.calibration else None,
+            cal_lab=rec.calibration.lab if rec.calibration else None,
+            mocked=rec.mocked,
+        )
+        event_log.emit(event)
+
 
 
 @pytest.fixture(scope="session")

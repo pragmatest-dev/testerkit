@@ -4,10 +4,9 @@ from pathlib import Path
 from textwrap import dedent
 
 import pytest
-import yaml
 
-from litmus.store import load_catalog_entry, load_catalog_from_directory
 from litmus.config.models import Direction, MeasurementFunction
+from litmus.store import load_catalog_entry, load_catalog_from_directory
 
 CATALOG_DIR = Path(__file__).parent.parent.parent / "catalog"
 

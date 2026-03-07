@@ -127,7 +127,7 @@ class TestLoadRuns:
         })
         pq.write_table(rows1, runs_dir / "file1.parquet")
 
-        # File 2: string timestamps (journal write path / legacy)
+        # File 2: string timestamps (tests coercion path)
         rows2 = pa.table({
             "run_id": ["run-B"],
             "run_started_at": ["2026-01-01T11:00:00+00:00"],

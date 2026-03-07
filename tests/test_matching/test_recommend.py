@@ -10,9 +10,9 @@ from litmus.config.models import (
     Direction,
     InstrumentCapability,
     MeasurementFunction,
+    RangeSpec,
     ResolutionSpec,
     Signal,
-    RangeSpec,
     SpecBand,
 )
 from litmus.matching.service import recommend_from_catalog

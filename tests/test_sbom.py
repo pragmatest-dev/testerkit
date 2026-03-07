@@ -2,8 +2,6 @@
 
 import json
 
-import pytest
-
 from litmus.environment import EnvironmentSnapshot, PackageInfo
 from litmus.sbom import environment_from_parquet, format_environment_table, generate_cyclonedx
 

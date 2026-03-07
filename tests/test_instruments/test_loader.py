@@ -1,18 +1,16 @@
 """Tests for instrument and station configuration loader."""
 
 from datetime import date
-from pathlib import Path
 from textwrap import dedent
 
-import pytest
-
 from litmus.instruments.loader import resolve_station_instruments
+from litmus.instruments.models import CalibrationInfo, InstrumentInfo
 from litmus.store import (
     load_instrument_asset as load_instrument_file,
-    load_instrument_files,
-    load_station,
 )
-from litmus.instruments.models import CalibrationInfo, InstrumentInfo
+from litmus.store import (
+    load_instrument_files,
+)
 
 
 class TestInstrumentInfo:

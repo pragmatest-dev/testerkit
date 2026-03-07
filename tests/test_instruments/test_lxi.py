@@ -7,7 +7,6 @@ from litmus.instruments.lxi import (
     _parse_resource,
     get_info_lxi,
 )
-from litmus.instruments.models import InstrumentInfo
 
 SAMPLE_XML = b"""\
 <?xml version="1.0" encoding="UTF-8"?>

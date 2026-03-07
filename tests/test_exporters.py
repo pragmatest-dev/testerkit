@@ -273,74 +273,49 @@ class TestPluginWarnings:
 
                 assert any("Output processing failed" in str(c.message) for c in caught)
 
-    def test_streaming_destination_warns_on_error(self):
-        """Streaming fan-out in logger emits a warning on failure."""
-        from litmus.execution.logger import TestRunLogger
+    def test_event_subscriber_warns_on_error(self, tmp_path):
+        """Event subscriber failure emits a warning and disables the subscriber."""
+        from litmus.data.event_log import EventLog
+        from litmus.data.events import MeasurementRecorded
 
-        logger = TestRunLogger(
-            dut_serial="DUT001",
-            station_id="station_001",
-            test_sequence_id="seq",
-        )
-        logger.start_step("step1")
-
-        class BadDest:
-            format_name = "bad"
-            def append_row(self, row):
-                raise RuntimeError("boom")
-            def open(self, config=None, test_run=None):
-                pass
-            def mark_run_boundary(self, run_id):
-                pass
-            def close(self):
-                pass
-
-        dest = BadDest()
-        logger.add_streaming_destination(dest)
-
-        m = Measurement(name="v", value=1.0, outcome=Outcome.PASS)
-        with w.catch_warnings(record=True) as caught:
-            w.simplefilter("always")
-            logger.log_measurement(m)
-
-        assert any("Streaming append_row on 'BadDest' failed" in str(c.message) for c in caught)
-
-    def test_failed_destination_skipped_on_subsequent_rows(self):
-        """A destination that fails once is disabled for the rest of the run."""
-        from litmus.execution.logger import TestRunLogger
-
-        logger = TestRunLogger(
-            dut_serial="DUT001",
-            station_id="station_001",
-            test_sequence_id="seq",
-        )
-        logger.start_step("step1")
+        event_log = EventLog(tmp_path / "events", uuid4())
 
         call_count = 0
 
-        class CountingBadDest:
-            format_name = "counting_bad"
-            def append_row(self, row):
+        class BadSubscriber:
+            format_name = "bad"
+            event_types = {MeasurementRecorded}
+            def open(self):
+                pass
+            def on_event(self, event):
                 nonlocal call_count
                 call_count += 1
                 raise RuntimeError("boom")
-            def open(self, config=None, test_run=None):
-                pass
-            def mark_run_boundary(self, run_id):
-                pass
             def close(self):
                 pass
 
-        logger.add_streaming_destination(CountingBadDest())
+        event_log.add_subscriber(BadSubscriber())
 
-        with w.catch_warnings(record=True):
+        event = MeasurementRecorded(
+            run_id=uuid4(),
+            step_name="step1",
+            step_index=0,
+            measurement_name="v",
+            value=1.0,
+            outcome="pass",
+        )
+
+        with w.catch_warnings(record=True) as caught:
             w.simplefilter("always")
-            logger.log_measurement(Measurement(name="m1", value=1.0, outcome=Outcome.PASS))
-            logger.log_measurement(Measurement(name="m2", value=2.0, outcome=Outcome.PASS))
-            logger.log_measurement(Measurement(name="m3", value=3.0, outcome=Outcome.PASS))
+            event_log.emit(event)
 
-        # Should only be called once — disabled after first failure
+        assert any("EventSubscriber 'bad' failed" in str(c.message) for c in caught)
+
+        # Second emit should not call the subscriber (disabled after failure)
+        event_log.emit(event)
         assert call_count == 1
+
+        event_log.close()
 
 
 class TestMeasurementRow:
@@ -393,100 +368,71 @@ class TestMeasurementRow:
         assert rows[0].dut_serial == "DUT001"
 
 
-class TestStreamingLifecycle:
-    def test_streaming_without_journal(self):
-        """Streaming destinations get data even without journal enabled."""
-        from litmus.execution.logger import TestRunLogger
+class TestEventSubscriberLifecycle:
+    def test_subscriber_receives_events(self, tmp_path):
+        """EventSubscriber receives events when wired to EventLog."""
+        from litmus.data.event_log import EventLog
+        from litmus.data.events import MeasurementRecorded
 
-        logger = TestRunLogger(
-            dut_serial="DUT001",
-            station_id="station_001",
-            test_sequence_id="seq",
-            results_dir=None,  # No journal
-        )
-        logger.start_step("step1")
+        event_log = EventLog(tmp_path / "events", uuid4())
 
-        received: list[MeasurementRow] = []
+        received = []
 
-        class RecordingDest:
+        class RecordingSub:
             format_name = "recording"
-            def append_row(self, row):
-                received.append(row)
-            def open(self, config=None, test_run=None):
+            event_types = {MeasurementRecorded}
+            def open(self):
                 pass
-            def mark_run_boundary(self, run_id):
-                pass
+            def on_event(self, event):
+                received.append(event)
             def close(self):
                 pass
 
-        logger.add_streaming_destination(RecordingDest())
+        event_log.add_subscriber(RecordingSub())
 
-        m = Measurement(name="v", value=1.0, outcome=Outcome.PASS)
-        logger.log_measurement(m)
+        event = MeasurementRecorded(
+            run_id=uuid4(),
+            step_name="step1",
+            step_index=0,
+            measurement_name="v",
+            value=1.0,
+            outcome="pass",
+        )
+        event_log.emit(event)
 
         assert len(received) == 1
-        assert isinstance(received[0], MeasurementRow)
         assert received[0].measurement_name == "v"
         assert received[0].value == 1.0
 
-    def test_streaming_open_receives_test_run(self):
-        """open() is called with OutputConfig and TestRun."""
-        open_args: list[tuple] = []
+        event_log.close()
 
-        class TrackingDest:
-            format_name = "tracking"
-            def append_row(self, row):
-                pass
-            def open(self, config, test_run):
-                open_args.append((config, test_run))
-            def mark_run_boundary(self, run_id):
-                pass
-            def close(self):
-                pass
+    def test_subscriber_close_warns(self, tmp_path):
+        """EventLog.close() warns when subscriber close() raises."""
+        from litmus.data.event_log import EventLog
+        from litmus.data.events import MeasurementRecorded
 
-        cfg = OutputConfig(format="tracking")
-        test_run = TestRun(
-            dut=DUT(serial="DUT001"),
-            station_id="station_001",
-            test_sequence_id="seq",
-        )
+        event_log = EventLog(tmp_path / "events", uuid4())
 
-        dest = TrackingDest()
-        dest.open(cfg, test_run)
-
-        assert len(open_args) == 1
-        assert open_args[0][0] is cfg
-        assert open_args[0][1] is test_run
-        assert open_args[0][1].dut.serial == "DUT001"
-
-    def test_streaming_close_warns(self):
-        """finalize() warns when dest.close() raises."""
-        from litmus.execution.logger import TestRunLogger
-
-        logger = TestRunLogger(
-            dut_serial="DUT001",
-            station_id="station_001",
-            test_sequence_id="seq",
-        )
-
-        class BadCloseDest:
+        class BadCloseSub:
             format_name = "bad_close"
-            def append_row(self, row):
+            event_types = {MeasurementRecorded}
+            def open(self):
                 pass
-            def open(self, config=None, test_run=None):
-                pass
-            def mark_run_boundary(self, run_id):
+            def on_event(self, event):
                 pass
             def close(self):
                 raise RuntimeError("close failed")
 
-        logger.add_streaming_destination(BadCloseDest())
+        event_log.add_subscriber(BadCloseSub())
 
         with w.catch_warnings(record=True) as caught:
             w.simplefilter("always")
-            logger.finalize()
+            event_log.close()
 
-        assert any("Streaming close on 'BadCloseDest' failed" in str(c.message) for c in caught)
+        assert any(
+            "bad_close" in str(c.message) and "close failed" in str(c.message)
+            for c in caught
+        )
 
 
 class TestSaveRefToDir:
@@ -640,10 +586,12 @@ class TestReconstructTestRun:
 
 
 class TestHarnessLoggerIntegration:
-    """Verify harness.measure() streams through logger (journal + destinations)."""
+    """Verify harness.measure() streams through logger via event log."""
 
-    def test_harness_measure_calls_log_measurement(self):
-        """harness.measure() should stream measurements to logger destinations."""
+    def test_harness_measure_emits_event(self, tmp_path):
+        """harness.measure() emits MeasurementRecorded to event log."""
+        from litmus.data.event_log import EventLog
+        from litmus.data.events import MeasurementRecorded
         from litmus.execution.harness import TestHarness
         from litmus.execution.logger import TestRunLogger
 
@@ -653,24 +601,21 @@ class TestHarnessLoggerIntegration:
             test_sequence_id="seq",
         )
 
-        received: list[MeasurementRow] = []
+        received = []
 
-        class RecordingDest:
+        class RecordingSub:
             format_name = "recording"
-
-            def append_row(self, row: MeasurementRow) -> None:
-                received.append(row)
-
-            def open(self, config=None, test_run=None):
+            event_types = {MeasurementRecorded}
+            def open(self):
+                pass
+            def on_event(self, event):
+                received.append(event)
+            def close(self):
                 pass
 
-            def mark_run_boundary(self, run_id: str) -> None:
-                pass
-
-            def close(self) -> None:
-                pass
-
-        logger.add_streaming_destination(RecordingDest())
+        event_log = EventLog(tmp_path / "events", logger.test_run.id)
+        event_log.add_subscriber(RecordingSub())
+        logger.event_log = event_log
 
         harness = TestHarness(logger=logger, step_name="test_voltage")
         with harness.step("test_voltage"):
@@ -678,12 +623,12 @@ class TestHarnessLoggerIntegration:
                 with harness.run_vector(vector):
                     harness.measure("vout", 3.3)
 
-        # Measurement should have been streamed to the recording destination
         assert len(received) == 1
         assert received[0].measurement_name == "vout"
         assert received[0].value == 3.3
-        # Step name should be the harness step, not auto-created from measurement name
         assert received[0].step_name == "test_voltage"
+
+        event_log.close()
 
     def test_harness_measure_no_double_append_to_vector(self):
         """Measurement should appear exactly once in the vector."""

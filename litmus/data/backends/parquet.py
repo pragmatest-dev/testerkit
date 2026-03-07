@@ -21,7 +21,6 @@ Schema design:
 
 import json
 import pickle
-import shutil
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -31,6 +30,8 @@ import pyarrow.parquet as pq
 
 from litmus.data.backends._row_helpers import (
     REF_PATH_PREFIX,
+    MeasurementRow,
+    _env_columns,
     build_row,
     build_run_metadata,
     save_ref_to_dir,
@@ -211,17 +212,9 @@ class ParquetBackend:
     def save_test_run(
         self,
         test_run: TestRun,
-        journal_dir: Path | None = None,
         instrument_arrays: dict[str, list] | None = None,
     ) -> Path:
         """Save test run to Parquet with analysis-ready schema.
-
-        If journal_dir is provided, converts the journal to parquet and moves
-        ref files instead of building rows from TestRun. This is the preferred
-        path when journaling is enabled, as it:
-        1. Uses the already-captured measurements
-        2. Handles crash recovery scenarios
-        3. Moves ref files atomically
 
         Creates files:
             results/runs/{date}/{timestamp}_{serial}.parquet  (with serial)
@@ -231,15 +224,10 @@ class ParquetBackend:
 
         Args:
             test_run: Complete TestRun with steps, vectors, and measurements.
-            journal_dir: Optional path to journal directory to convert.
 
         Returns:
             Path to the Parquet file.
         """
-        # If journal exists, convert it instead of using in-memory data
-        if journal_dir is not None and journal_dir.exists():
-            return self.convert_journal(journal_dir, test_run)
-
         # UTC timestamp for filename (compact ISO 8601 basic format)
         timestamp = test_run.started_at.strftime("%Y%m%dT%H%M%SZ")
         date_str = test_run.started_at.strftime("%Y-%m-%d")
@@ -275,159 +263,6 @@ class ParquetBackend:
 
         # Write to Parquet
         pq.write_table(table, parquet_path)
-
-        return parquet_path
-
-    def convert_journal(self, journal_dir: Path, test_run: TestRun | None = None) -> Path:
-        """Convert a JSONL journal to Parquet format.
-
-        Reads the journal file, converts to parquet, moves ref files,
-        and deletes the journal directory on success.
-
-        If the journal is empty but test_run is provided, falls back to
-        building parquet from the TestRun (standard behavior without journaling).
-
-        Args:
-            journal_dir: Path to journal directory containing measurements.jsonl
-            test_run: Optional TestRun for metadata (used for filename if provided)
-
-        Returns:
-            Path to the created Parquet file.
-
-        Raises:
-            FileNotFoundError: If journal file doesn't exist
-            ValueError: If journal is empty and no test_run provided
-        """
-        journal_path = journal_dir / "measurements.jsonl"
-        journal_ref_dir = journal_dir / "_ref"
-
-        if not journal_path.exists():
-            raise FileNotFoundError(f"Journal not found: {journal_path}")
-
-        # Check if journal has content
-        journal_content = journal_path.read_text().strip()
-        if not journal_content:
-            # Journal is empty - fall back to TestRun if available
-            if test_run is not None:
-                # Clean up empty journal directory
-                shutil.rmtree(journal_dir)
-                # Use standard save path (without journal)
-                return self.save_test_run(test_run, journal_dir=None)
-            raise ValueError(f"Journal is empty: {journal_path}")
-
-        # Parse JSONL lines
-        rows = []
-        for line in journal_content.splitlines():
-            line = line.strip()
-            if line:
-                rows.append(json.loads(line))
-
-        if not rows:
-            if test_run is not None:
-                shutil.rmtree(journal_dir)
-                return self.save_test_run(test_run, journal_dir=None)
-            raise ValueError(f"Journal is empty or invalid: {journal_path}")
-
-        first_row = rows[0]
-
-        # Determine output path from metadata
-        run_started_at = first_row.get("run_started_at", "")
-        dut_serial = first_row.get("dut_serial", "")
-
-        # Parse timestamp - handle ISO format
-        if isinstance(run_started_at, str):
-            try:
-                started_dt = datetime.fromisoformat(run_started_at.replace("Z", "+00:00"))
-            except ValueError:
-                started_dt = datetime.now()
-        else:
-            started_dt = run_started_at
-
-        timestamp = started_dt.strftime("%Y%m%dT%H%M%SZ")
-        date_str = started_dt.strftime("%Y-%m-%d")
-
-        # Create output directory
-        date_dir = self.results_dir / "runs" / date_str
-        date_dir.mkdir(parents=True, exist_ok=True)
-
-        # Filename: timestamp first, serial if present
-        if dut_serial:
-            filename = f"{timestamp}_{dut_serial}.parquet"
-        else:
-            filename = f"{timestamp}.parquet"
-
-        parquet_path = date_dir / filename
-
-        # Backfill run_ended_at and step timestamps from TestRun
-        # (journal rows are written mid-run, so these are null at write time)
-        if test_run is not None:
-            # Build step timing lookup: step_index → (started_at, ended_at)
-            # Keyed by index, not name, because multiple steps can share a name.
-            step_timing: dict[int, tuple] = {}
-            for idx, step in enumerate(test_run.steps):
-                step_timing[idx] = (step.started_at, step.ended_at)
-
-            # Vector timing: (step_index, vector_index, attempt) → (started, ended)
-            vector_timing: dict[tuple[int, int | None, int | None], tuple] = {}
-            for idx, step in enumerate(test_run.steps):
-                for vec in step.vectors:
-                    vector_timing[(idx, vec.index, vec.attempt)] = (
-                        vec.started_at,
-                        vec.ended_at,
-                    )
-
-            for row in rows:
-                if row.get("run_ended_at") is None:
-                    row["run_ended_at"] = test_run.ended_at
-                step_idx = row.get("step_index")
-                if step_idx is not None and step_idx in step_timing:
-                    s_start, s_end = step_timing[step_idx]
-                    if row.get("step_started_at") is None:
-                        row["step_started_at"] = s_start
-                    if row.get("step_ended_at") is None:
-                        row["step_ended_at"] = s_end
-                # Backfill vector timing
-                vk = (step_idx, row.get("vector_index"), row.get("attempt"))
-                if vk in vector_timing:
-                    v_start, v_end = vector_timing[vk]
-                    if row.get("vector_started_at") is None:
-                        row["vector_started_at"] = v_start
-                    if row.get("vector_ended_at") is None:
-                        row["vector_ended_at"] = v_end
-
-        # Parse timestamp strings back to datetime objects before table construction
-        for row in rows:
-            for col in _TIMESTAMP_COLS:
-                val = row.get(col)
-                if isinstance(val, str):
-                    row[col] = datetime.fromisoformat(val.replace("Z", "+00:00"))
-
-        # Ensure all rows have instrument array columns for schema consistency
-        for row in rows:
-            for key in INSTRUMENT_ARRAY_KEYS:
-                if key not in row:
-                    row[key] = []
-
-        # Convert JSONL rows to Parquet with canonical types
-        table = pa.Table.from_pylist(rows)
-        table = _enforce_schema(table)
-
-        # Add file-level metadata now if test_run provided (avoid re-read later)
-        if test_run is not None:
-            metadata = self._build_file_metadata(test_run)
-            table = table.replace_schema_metadata(metadata)
-
-        pq.write_table(table, parquet_path)
-
-        # Move ref files if they exist
-        if journal_ref_dir.exists() and any(journal_ref_dir.iterdir()):
-            parquet_ref_dir = date_dir / (parquet_path.stem + "_ref")
-            if parquet_ref_dir.exists():
-                shutil.rmtree(parquet_ref_dir)
-            shutil.move(str(journal_ref_dir), str(parquet_ref_dir))
-
-        # Delete journal directory on successful conversion
-        shutil.rmtree(journal_dir)
 
         return parquet_path
 
@@ -794,137 +629,249 @@ class ParquetBackend:
             )
         return reconstruct_test_run_from_file(pq_file)
 
-    # =========================================================================
-    # Journal Management
-    # =========================================================================
+    def save_from_rows(
+        self,
+        rows: list[dict[str, Any]],
+        started_at: datetime,
+        dut_serial: str,
+        file_metadata: dict[bytes, bytes] | None = None,
+    ) -> Path:
+        """Save pre-built flat row dicts to Parquet.
 
-    def list_journals(self) -> list[dict]:
-        """List all journal directories with metadata.
-
-        Returns:
-            List of journal info dicts with run_id, dut_serial, measurement_count, etc.
+        Used by ParquetSubscriber to write accumulated rows without
+        needing a TestRun object.
         """
-        from litmus.data.backends.journal import get_journal_info
+        timestamp = started_at.strftime("%Y%m%dT%H%M%SZ")
+        date_str = started_at.strftime("%Y-%m-%d")
+        dut_serial = dut_serial.strip() if dut_serial else ""
 
-        journals = []
-        journals_dir = self.results_dir / ".journals"
+        date_dir = self.results_dir / "runs" / date_str
+        date_dir.mkdir(parents=True, exist_ok=True)
 
-        if not journals_dir.exists():
-            return journals
+        if dut_serial:
+            filename = f"{timestamp}_{dut_serial}.parquet"
+        else:
+            filename = f"{timestamp}.parquet"
 
-        for date_dir in journals_dir.iterdir():
-            if not date_dir.is_dir():
-                continue
-            for journal_dir in date_dir.iterdir():
-                if not journal_dir.is_dir():
-                    continue
-                info = get_journal_info(journal_dir)
-                if info:
-                    journals.append(info)
+        parquet_path = date_dir / filename
 
-        # Sort by started_at descending
-        journals.sort(key=lambda x: x.get("started_at") or "", reverse=True)
-        return journals
+        # Ensure instrument array columns exist for schema consistency
+        for row in rows:
+            for key in INSTRUMENT_ARRAY_KEYS:
+                if key not in row:
+                    row[key] = []
 
-    def get_journal_measurements(self, journal_dir: Path | str) -> list[dict]:
-        """Read measurements from a journal file.
+        table = pa.Table.from_pylist(rows)
+        table = _enforce_schema(table)
+
+        if file_metadata:
+            table = table.replace_schema_metadata(file_metadata)
+
+        pq.write_table(table, parquet_path)
+        return parquet_path
+
+class ParquetSubscriber:
+    """EventSubscriber that accumulates measurements and writes Parquet on close.
+
+    Caches ``SessionStarted`` for run metadata and ``InstrumentConnected``
+    for instrument arrays. On ``MeasurementRecorded``, builds a denormalized
+    row using cached context. On ``RunEnded`` or ``close()``, writes Parquet.
+    """
+
+    format_name = "parquet"
+
+    def __init__(self, backend: ParquetBackend) -> None:
+        from litmus.data.events import (
+            InstrumentConnected,
+            MeasurementRecorded,
+            RunEnded,
+            SessionStarted,
+        )
+
+        self.event_types: set[type] = {
+            SessionStarted, InstrumentConnected,
+            MeasurementRecorded, RunEnded,
+        }
+        self._backend = backend
+        self._session: Any = None  # SessionStarted event
+        self._instruments: list[Any] = []  # InstrumentConnected events
+        self._rows: list[dict[str, Any]] = []
+        self._written = False
+
+    def open(self) -> None:
+        pass
+
+    def on_event(self, event: Any) -> None:
+        from litmus.data.events import (
+            InstrumentConnected,
+            MeasurementRecorded,
+            RunEnded,
+            SessionStarted,
+        )
+
+        if isinstance(event, SessionStarted):
+            self._session = event
+        elif isinstance(event, InstrumentConnected):
+            self._instruments.append(event)
+        elif isinstance(event, MeasurementRecorded):
+            self._rows.append(self._build_row(event))
+        elif isinstance(event, RunEnded):
+            self._write(outcome=event.outcome)
+
+    def close(self) -> None:
+        if not self._written:
+            self._write()
+
+    def _build_instrument_arrays(self) -> dict[str, list]:
+        """Build instrument arrays from cached InstrumentConnected events."""
+        arrays: dict[str, list] = {k: [] for k in INSTRUMENT_ARRAY_KEYS}
+        for inst in self._instruments:
+            arrays["instr_name"].append(inst.role)
+            arrays["instr_id"].append(inst.instrument_id)
+            arrays["instr_driver"].append(inst.driver)
+            arrays["instr_resource"].append(inst.resource)
+            arrays["instr_protocol"].append(inst.protocol)
+            arrays["instr_manufacturer"].append(inst.manufacturer)
+            arrays["instr_model"].append(inst.model)
+            arrays["instr_serial"].append(inst.serial)
+            arrays["instr_firmware"].append(inst.firmware)
+            arrays["instr_cal_due"].append(inst.cal_due)
+            arrays["instr_cal_last"].append(inst.cal_last)
+            arrays["instr_cal_certificate"].append(inst.cal_certificate)
+            arrays["instr_cal_lab"].append(inst.cal_lab)
+            arrays["instr_mocked"].append(inst.mocked)
+        return arrays
+
+    def _build_row(self, event: Any) -> dict[str, Any]:
+        """Denormalize a MeasurementRecorded event into a flat row dict.
+
+        Joins cached SessionStarted metadata + InstrumentConnected arrays
+        with the normalized measurement event to produce a full
+        ``MeasurementRow``-compatible flat dict.
+        """
+        s = self._session
+        env = _env_columns(s.environment_json if s else None)
+
+        row = MeasurementRow(
+            # Run identity (from SessionStarted)
+            run_id=str(event.run_id) if event.run_id else "",
+            run_started_at=s.occurred_at if s else None,
+            run_ended_at=None,  # Backfilled on RunEnded
+            # Operator
+            operator_id=s.operator_id if s else None,
+            operator_name=s.operator_name if s else None,
+            # DUT
+            dut_serial=s.dut_serial if s else "unknown",
+            dut_part_number=s.dut_part_number if s else None,
+            dut_revision=s.dut_revision if s else None,
+            dut_lot_number=s.dut_lot_number if s else None,
+            # Product
+            product_id=s.product_id if s else None,
+            product_name=s.product_name if s else None,
+            product_revision=s.product_revision if s else None,
+            # Station
+            station_id=s.station_id if s else "unknown",
+            station_name=s.station_name if s else None,
+            station_type=s.station_type if s else None,
+            station_location=s.station_location if s else None,
+            # Fixture
+            fixture_id=s.fixture_id if s else None,
+            # Test context
+            sequence_id=s.sequence_id if s else None,
+            test_phase=s.test_phase if s else None,
+            git_commit=s.git_commit if s else None,
+            # Environment
+            python_version=env.get("python_version"),
+            litmus_version=env.get("litmus_version"),
+            env_fingerprint=env.get("env_fingerprint"),
+            # Step/vector (from event)
+            step_name=event.step_name,
+            step_index=event.step_index,
+            vector_index=event.vector_index,
+            attempt=event.attempt,
+            # Measurement (from event)
+            measurement_name=event.measurement_name,
+            measurement_timestamp=event.measurement_timestamp,
+            value=event.value,
+            units=event.units,
+            outcome=event.outcome,
+            low_limit=event.low_limit,
+            high_limit=event.high_limit,
+            nominal=event.nominal,
+            comparator=event.comparator,
+            spec_id=event.spec_id,
+            spec_ref=event.spec_ref,
+            meas_dut_pin=event.meas_dut_pin,
+            meas_fixture_point=event.meas_fixture_point,
+            meas_instrument=event.meas_instrument,
+            meas_instrument_resource=event.meas_instrument_resource,
+            meas_instrument_channel=event.meas_instrument_channel,
+            # Run outcome backfilled in _write()
+            run_outcome=None,
+            # Dynamic columns
+            inputs=dict(event.inputs),
+            outputs=dict(event.outputs),
+            instruments=self._build_instrument_arrays(),
+            custom=dict(event.custom),
+        )
+        return row.to_flat_dict()
+
+    def _write(self, outcome: str | None = None) -> None:
+        """Write accumulated rows to Parquet.
 
         Args:
-            journal_dir: Path to journal directory or its path as string
-
-        Returns:
-            List of measurement row dicts
+            outcome: Run outcome from RunEnded. If None (crash/close without
+                RunEnded), defaults to "error" since the run didn't complete.
         """
-        from litmus.data.backends.journal import read_journal
+        if self._written:
+            return
+        self._written = True
 
-        journal_dir = Path(journal_dir)
-        journal_path = journal_dir / "measurements.jsonl"
-        return read_journal(journal_path)
+        s = self._session
+        if not s:
+            return
 
-    def recover_journal(self, journal_dir: Path | str) -> Path:
-        """Convert an orphaned journal to parquet.
+        # Backfill run_ended_at and run_outcome on all rows
+        from litmus.data.models import _utcnow
+        ended_at = _utcnow()
+        final_outcome = outcome if outcome is not None else "error"
+        for row in self._rows:
+            if row.get("run_ended_at") is None:
+                row["run_ended_at"] = ended_at
+            row["run_outcome"] = final_outcome
 
-        Use this to recover data from crashed or interrupted test runs.
+        if not self._rows:
+            return
 
-        Args:
-            journal_dir: Path to journal directory
+        # Write via save_from_rows
+        self._backend.save_from_rows(
+            self._rows,
+            started_at=s.occurred_at,
+            dut_serial=s.dut_serial,
+            file_metadata=self._build_file_metadata(),
+        )
 
-        Returns:
-            Path to the created parquet file
-        """
-        journal_dir = Path(journal_dir)
-        return self.convert_journal(journal_dir)
+    def _build_file_metadata(self) -> dict[bytes, bytes]:
+        """Build Parquet file-level metadata from cached session."""
+        metadata: dict[bytes, bytes] = {}
+        s = self._session
+        if not s:
+            return metadata
 
-    def cleanup_journals(self) -> int:
-        """Delete journals that have corresponding parquet files.
+        if s.station_config_yaml:
+            metadata[b"station_config_yaml"] = s.station_config_yaml.encode("utf-8")
+        if s.product_spec_yaml:
+            metadata[b"product_spec_yaml"] = s.product_spec_yaml.encode("utf-8")
+        if s.fixture_config_yaml:
+            metadata[b"fixture_config_yaml"] = s.fixture_config_yaml.encode("utf-8")
+        if s.test_config_yaml:
+            metadata[b"test_config_yaml"] = s.test_config_yaml.encode("utf-8")
+        if s.environment_json:
+            metadata[b"environment_json"] = s.environment_json.encode("utf-8")
 
-        Returns:
-            Number of journals deleted
-        """
-        deleted = 0
-        journals_dir = self.results_dir / ".journals"
-
-        if not journals_dir.exists():
-            return deleted
-
-        for date_dir in journals_dir.iterdir():
-            if not date_dir.is_dir():
-                continue
-            for journal_dir in date_dir.iterdir():
-                if not journal_dir.is_dir():
-                    continue
-
-                # Check if corresponding parquet exists
-                parquet_path = (
-                    self.results_dir / "runs" / date_dir.name / f"{journal_dir.name}.parquet"
-                )
-                if parquet_path.exists():
-                    shutil.rmtree(journal_dir)
-                    deleted += 1
-
-            # Clean up empty date directories
-            if date_dir.exists() and not any(date_dir.iterdir()):
-                date_dir.rmdir()
-
-        # Clean up empty .journals directory
-        if journals_dir.exists() and not any(journals_dir.iterdir()):
-            journals_dir.rmdir()
-
-        return deleted
-
-    def get_orphaned_journals(self) -> list[dict]:
-        """List journals that don't have corresponding parquet files.
-
-        These are likely from crashed or interrupted test runs.
-
-        Returns:
-            List of journal info dicts
-        """
-        from litmus.data.backends.journal import get_journal_info
-
-        orphaned = []
-        journals_dir = self.results_dir / ".journals"
-
-        if not journals_dir.exists():
-            return orphaned
-
-        for date_dir in journals_dir.iterdir():
-            if not date_dir.is_dir():
-                continue
-            for journal_dir in date_dir.iterdir():
-                if not journal_dir.is_dir():
-                    continue
-
-                # Check if corresponding parquet exists
-                parquet_path = (
-                    self.results_dir / "runs" / date_dir.name / f"{journal_dir.name}.parquet"
-                )
-                if not parquet_path.exists():
-                    info = get_journal_info(journal_dir)
-                    if info:
-                        orphaned.append(info)
-
-        return orphaned
+        metadata[b"litmus_version"] = b"1.0.0"
+        metadata[b"schema_version"] = b"2.0"
+        return metadata
 
 
 def load_file(parquet_path: Path, ref: str) -> Any:

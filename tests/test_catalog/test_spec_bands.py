@@ -2,8 +2,8 @@
 
 from pathlib import Path
 
-from litmus.store import load_catalog_entry
 from litmus.config.models import Signal
+from litmus.store import load_catalog_entry
 
 
 def test_parse_parameter_with_specs():

@@ -806,7 +806,7 @@ class TestHarness:
         if current_tv is not None:
             current_tv.measurements.append(measurement)
 
-        # Stream to journal + destinations via logger (logger handles outcome updates)
+        # Stream to event log via logger (logger handles outcome updates)
         if self._logger is not None:
             self._logger.log_measurement(measurement)
         elif current_tv is not None:

@@ -2,14 +2,22 @@
 
 from __future__ import annotations
 
+import hashlib
 import os
-import warnings
 from collections.abc import Callable
 from contextvars import ContextVar, Token
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
-from uuid import UUID
+from uuid import UUID, uuid4
 
+from litmus.data.backends._row_helpers import build_input_columns, build_output_columns
+from litmus.data.events import (
+    MeasurementRecorded,
+    RunEnded,
+    SessionEnded,
+    StepEnded,
+    StepStarted,
+)
 from litmus.data.models import DUT, Measurement, Outcome, TestRun, TestStep, TestVector, _utcnow
 
 # Module-level contextvars for concurrency-safe step/vector resolution.
@@ -19,8 +27,7 @@ _current_vector_var: ContextVar[TestVector | None] = ContextVar("_current_vector
 
 if TYPE_CHECKING:
     from litmus.config.models import Limit
-    from litmus.data.backends.journal import JournalWriter
-    from litmus.data.exporters._base import StreamingDestination
+    from litmus.data.event_log import EventLog
     from litmus.environment import EnvironmentSnapshot
     from litmus.instruments.models import InstrumentRecord
 
@@ -50,16 +57,12 @@ def _parse_uuid(value: str) -> UUID:
     try:
         return UUID(value)
     except ValueError:
-        import hashlib
-
         h = hashlib.md5(value.encode()).hexdigest()
         return UUID(h)
 
 
 def _get_run_id() -> UUID:
     """Get run ID from environment or generate new one."""
-    from uuid import uuid4
-
     env_id = os.environ.get("LITMUS_RUN_ID")
     if env_id:
         return _parse_uuid(env_id)
@@ -177,9 +180,10 @@ class RunContext:
 class TestRunLogger:
     """Accumulates measurements during test run, produces TestRun.
 
-    Optionally streams measurements to a JSONL journal for live observability
-    and crash recovery. When results_dir is provided, measurements are written
-    to the journal as they happen.
+    Optionally streams typed events to an event log (JSONL) for live
+    observability and crash recovery. When an ``EventLog`` is wired,
+    events are emitted as they happen and dispatched to subscribers
+    (e.g. ``ParquetSubscriber``).
     """
 
     __test__ = False  # Prevent pytest collection
@@ -252,7 +256,7 @@ class TestRunLogger:
             fixture_config_yaml=fixture_config_yaml,
             test_config_yaml=test_config_yaml,
         )
-        # Serialize environment eagerly so every journal row has it
+        # Serialize environment eagerly so every event has it
         if environment is not None:
             self.test_run.environment_json = environment.model_dump_json()
         self._current_step_index: int = -1
@@ -267,46 +271,19 @@ class TestRunLogger:
         self._instruments: dict[str, InstrumentRecord] = instruments or {}
         self._step_instrument_arrays: dict[str, list] | None = None
 
-        # Journal streaming for live observability
-        # Start with empty instrument arrays; populated per-step via set_step_instruments()
-        self._journal: JournalWriter | None = None
-        if results_dir is not None:
-            from litmus.data.backends.journal import JournalWriter
+        # Event log for typed event streaming
+        self._event_log: EventLog | None = None
+        self._session_id: UUID | None = None
+        self._results_dir = Path(results_dir) if results_dir is not None else None
 
-            self._journal = JournalWriter(
-                results_dir,
-                self.test_run,
-            )
-            self._journal.__enter__()
+    @property
+    def event_log(self) -> EventLog | None:
+        """Get the event log, if enabled."""
+        return self._event_log
 
-        # Additional streaming destinations (STDF, TDMS, PostgreSQL, etc.)
-        self._streaming_destinations: list[StreamingDestination] = []
-        self._failed_destinations: set[StreamingDestination] = set()
-
-    def _safe_stream_call(self, dest: StreamingDestination, method: str, *args: Any) -> None:
-        """Call a method on a streaming destination, disabling it on failure."""
-        try:
-            getattr(dest, method)(*args)
-        except Exception as exc:
-            self._failed_destinations.add(dest)
-            warnings.warn(
-                f"Streaming {method} on '{type(dest).__name__}' failed: {exc}",
-                stacklevel=3,
-            )
-
-    def add_streaming_destination(self, dest: StreamingDestination) -> None:
-        """Register an additional streaming destination.
-
-        Streaming destinations receive each measurement row as it is recorded,
-        in the same denormalized dict format as the JSONL journal. Use this to
-        wire up real-time STDF, TDMS, or database streaming alongside the
-        built-in journal.
-
-        Args:
-            dest: An object implementing the StreamingDestination protocol.
-                  Must already be open (call dest.open() before adding).
-        """
-        self._streaming_destinations.append(dest)
+    @event_log.setter
+    def event_log(self, log: EventLog | None) -> None:
+        self._event_log = log
 
     @property
     def run_context(self) -> RunContext:
@@ -314,10 +291,10 @@ class TestRunLogger:
         return self._run_context
 
     @property
-    def journal_dir(self) -> Path | None:
-        """Get the journal directory path, if journaling is enabled."""
-        if self._journal is not None:
-            return self._journal.journal_dir
+    def event_log_path(self) -> Path | None:
+        """Get the event log file path, if enabled."""
+        if self._event_log is not None:
+            return self._event_log.path
         return None
 
     def build_instrument_arrays(
@@ -412,6 +389,15 @@ class TestRunLogger:
         self._step_token = _current_step_var.set(step)
         self._vector_token = _current_vector_var.set(vector)
 
+        if self._event_log is not None:
+            self._event_log.emit(StepStarted(
+                session_id=self._session_id or self.test_run.id,
+                run_id=self.test_run.id,
+                step_name=name,
+                step_index=self._current_step_index,
+                description=description,
+            ))
+
     def register_step(self, step: TestStep) -> int:
         """Register an externally-created step. Returns step index.
 
@@ -462,35 +448,41 @@ class TestRunLogger:
             if self.test_run.outcome != Outcome.ERROR:
                 self.test_run.outcome = Outcome.FAIL
 
-        # Use stored index directly instead of O(n) scan.
-        # Only valid for the most recently started/registered step.
-        step_index = self._current_step_index
-
-        # Build row once — works with or without journal
-        from litmus.data.backends._row_helpers import build_row
-
-        ref_saver = self._journal.save_ref if self._journal else None
-        row = build_row(
-            self.test_run,
-            measurement,
-            step.name,
-            step_index,
-            vector,
-            self._step_instrument_arrays or {},
-            ref_saver=ref_saver,
-            step_started_at=step.started_at,
-            step_ended_at=step.ended_at,
-        )
-
-        # Stream to journal for live observability
-        if self._journal is not None:
-            self._journal.append_row(row)
-
-        # Fan out to additional streaming destinations
-        for dest in self._streaming_destinations:
-            if dest in self._failed_destinations:
-                continue
-            self._safe_stream_call(dest, "append_row", row)
+        # Emit event if event log is wired
+        if self._event_log is not None:
+            event = MeasurementRecorded(
+                session_id=self._session_id or self.test_run.id,
+                run_id=self.test_run.id,
+                # Step/vector context
+                step_name=step.name,
+                step_index=self._current_step_index,
+                vector_index=vector.index,
+                attempt=vector.attempt,
+                # Measurement fields
+                measurement_name=measurement.name,
+                measurement_timestamp=measurement.timestamp,
+                value=measurement.value,
+                units=measurement.units,
+                outcome=measurement.outcome.value if measurement.outcome else None,
+                low_limit=measurement.low_limit,
+                high_limit=measurement.high_limit,
+                nominal=measurement.nominal,
+                comparator=measurement.comparator,
+                spec_id=measurement.spec_id,
+                spec_ref=measurement.spec_ref,
+                meas_dut_pin=measurement.dut_pin,
+                meas_fixture_point=measurement.fixture_point,
+                meas_instrument=measurement.instrument_name,
+                meas_instrument_resource=measurement.instrument_resource,
+                meas_instrument_channel=measurement.instrument_channel,
+                # Dynamic columns (vector-specific)
+                inputs=build_input_columns(vector),
+                outputs=build_output_columns(
+                    vector, ref_saver=self._event_log.save_ref,
+                ),
+                custom=dict(self.test_run.custom_metadata),
+            )
+            self._event_log.emit(event)
 
     def end_step(self):
         """Finalize current step."""
@@ -500,6 +492,16 @@ class TestRunLogger:
         vector = _current_vector_var.get()
         if vector is not None:
             vector.ended_at = _utcnow()
+
+        if self._event_log is not None and step is not None:
+            self._event_log.emit(StepEnded(
+                session_id=self._session_id or self.test_run.id,
+                run_id=self.test_run.id,
+                step_name=step.name,
+                step_index=self._current_step_index,
+                outcome=step.outcome.value,
+            ))
+
         # Reset via tokens for proper contextvar hygiene
         if self._step_token is not None:
             _current_step_var.reset(self._step_token)
@@ -597,7 +599,7 @@ class TestRunLogger:
     def finalize(self) -> TestRun:
         """Complete test run and return result.
 
-        Closes the journal writer if journaling is enabled.
+        Emits RunEnded event and closes the event log.
         """
         # Close any unclosed step before finalizing
         if _current_step_var.get() is not None:
@@ -605,16 +607,18 @@ class TestRunLogger:
 
         self.test_run.ended_at = _utcnow()
 
-        # Close journal writer
-        if self._journal is not None:
-            self._journal.close()
-
-        # Notify streaming destinations that this run is complete, then close.
-        # Destinations are opened by the plugin (_attach_streaming_destinations)
-        # and closed here so the logger owns the full append→boundary→close tail.
-        run_id_str = str(self.test_run.id)
-        for dest in self._streaming_destinations:
-            self._safe_stream_call(dest, "mark_run_boundary", run_id_str)
-            self._safe_stream_call(dest, "close")
+        # Emit RunEnded, SessionEnded, then close event log
+        if self._event_log is not None:
+            self._event_log.emit(RunEnded(
+                session_id=self._session_id or self.test_run.id,
+                run_id=self.test_run.id,
+                outcome=self.test_run.outcome.value,
+            ))
+            self._event_log.emit(SessionEnded(
+                session_id=self._session_id or self.test_run.id,
+                run_id=self.test_run.id,
+                outcome=self.test_run.outcome.value,
+            ))
+            self._event_log.close()
 
         return self.test_run

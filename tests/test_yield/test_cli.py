@@ -1,7 +1,6 @@
 """CLI tests for litmus yield commands."""
 
-from datetime import datetime, timezone
-from pathlib import Path
+from datetime import UTC, datetime
 
 import pyarrow as pa
 import pyarrow.parquet as pq
@@ -20,8 +19,8 @@ def results_dir(tmp_path):
     rows = [
         {
             "run_id": "run-001",
-            "run_started_at": datetime(2026, 1, 1, 10, 0, tzinfo=timezone.utc),
-            "run_ended_at": datetime(2026, 1, 1, 10, 1, tzinfo=timezone.utc),
+            "run_started_at": datetime(2026, 1, 1, 10, 0, tzinfo=UTC),
+            "run_ended_at": datetime(2026, 1, 1, 10, 1, tzinfo=UTC),
             "run_outcome": "pass",
             "dut_serial": "SN001",
             "product_id": "prod_a",
@@ -38,8 +37,8 @@ def results_dir(tmp_path):
         },
         {
             "run_id": "run-002",
-            "run_started_at": datetime(2026, 1, 1, 11, 0, tzinfo=timezone.utc),
-            "run_ended_at": datetime(2026, 1, 1, 11, 2, tzinfo=timezone.utc),
+            "run_started_at": datetime(2026, 1, 1, 11, 0, tzinfo=UTC),
+            "run_ended_at": datetime(2026, 1, 1, 11, 2, tzinfo=UTC),
             "run_outcome": "fail",
             "dut_serial": "SN002",
             "product_id": "prod_a",
