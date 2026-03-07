@@ -52,8 +52,11 @@ class SessionStarted(EventBase):
     station_location: str | None = None
     slot_id: str | None = None
 
+    # Process
+    pid: int | None = None
+
     # DUT
-    dut_serial: str
+    dut_serial: str = ""
     dut_part_number: str | None = None
     dut_revision: str | None = None
     dut_lot_number: str | None = None

@@ -52,6 +52,27 @@ class EventReader:
         return self.read_new()
 
 
+def find_unclosed_sessions(events_dir: Path) -> list[dict]:
+    """Find sessions that have SessionStarted but no SessionEnded.
+
+    Returns a list of dicts with session metadata (session_id, station_id, etc.).
+    Useful for diagnostics — shows sessions interrupted by crashes.
+    """
+    if not events_dir.exists():
+        return []
+
+    unclosed: list[dict] = []
+    for jsonl_path in events_dir.glob("*/*.jsonl"):
+        reader = EventReader(jsonl_path)
+        events = reader.read_all()
+        started = [e for e in events if e.get("event_type") == "session.started"]
+        ended = {e.get("session_id") for e in events if e.get("event_type") == "session.ended"}
+        for s in started:
+            if s.get("session_id") not in ended:
+                unclosed.append(s)
+    return unclosed
+
+
 def find_session_log(events_dir: Path) -> Path | None:
     """Find the most recent JSONL file in the events directory.
 

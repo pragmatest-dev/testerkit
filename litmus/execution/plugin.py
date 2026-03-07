@@ -22,7 +22,12 @@ from litmus.execution.decorators import set_current_logger
 from litmus.execution.harness import Context
 from litmus.execution.logger import RunContext, TestRunLogger
 from litmus.fixtures.manager import FixtureManager, PinAccessor
-from litmus.instruments.models import CalibrationInfo, InstrumentInfo, InstrumentRecord
+from litmus.instruments.lifecycle import (
+    disconnect,
+    load_and_connect,
+    verify_and_wrap,
+)
+from litmus.instruments.models import InstrumentRecord
 from litmus.products.context import SpecContext
 from litmus.schemas import OutputConfig, ProjectConfig, StationConfig
 
@@ -46,6 +51,7 @@ _sequence_test_phase_var: ContextVar[str | None] = ContextVar("_sequence_test_ph
 
 
 # --- Session-scoped getters (create-and-store on first access) ---
+
 
 def get_step_outcomes() -> dict[str, bool]:
     """Create-and-store on first access; callers mutate in place."""
@@ -99,6 +105,7 @@ def get_test_node_configs() -> dict[str, dict[str, Any]]:
 
 # --- Per-test getters (return throwaway empty, no storing) ---
 
+
 def get_current_step_aliases() -> dict[str, str]:
     """Return throwaway empty; never stored. Stale state never leaks."""
     try:
@@ -133,37 +140,46 @@ def get_sequence_test_phase() -> str | None:
 
 # --- Setters ---
 
+
 def set_step_outcomes(value: dict[str, bool]) -> None:
     """Set value. Returns None."""
     _step_outcomes_var.set(value)
+
 
 def set_active_instruments(value: dict[str, Any]) -> None:
     """Set value. Returns None."""
     _active_instruments_var.set(value)
 
+
 def set_instrument_records(value: dict[str, InstrumentRecord]) -> None:
     """Set value. Returns None."""
     _instrument_records_var.set(value)
+
 
 def set_current_step_aliases(value: dict[str, str]) -> None:
     """Set value. Returns None."""
     _current_step_aliases_var.set(value)
 
+
 def set_current_step_config(value: dict[str, Any]) -> None:
     """Set value. Returns None."""
     _current_step_config_var.set(value)
+
 
 def set_active_spec_context(value: Any) -> None:
     """Set value. Returns None."""
     _active_spec_context_var.set(value)
 
+
 def set_test_node_aliases(value: dict[str, dict[str, str]]) -> None:
     """Set value. Returns None."""
     _test_node_aliases_var.set(value)
 
+
 def set_test_node_configs(value: dict[str, dict[str, Any]]) -> None:
     """Set value. Returns None."""
     _test_node_configs_var.set(value)
+
 
 def set_sequence_test_phase(value: str | None) -> None:
     """Set value. Returns None."""
@@ -201,8 +217,7 @@ def _load_sequence_steps(config):
                 else f"Fix: create sequences/{seq_option}.yaml"
             )
             warnings.warn(
-                f"Sequence '{seq_option}' not found. "
-                f"No test ordering will be applied. {fix_hint}",
+                f"Sequence '{seq_option}' not found. No test ordering will be applied. {fix_hint}",
                 stacklevel=1,
             )
             return []
@@ -336,6 +351,7 @@ def pytest_configure(config):
 
     def _make_resolved(name: str):
         """Create a function-scoped fixture that resolves aliases."""
+
         @pytest.fixture
         def _fix(instruments):
             target = get_current_step_aliases().get(name, name)
@@ -344,6 +360,7 @@ def pytest_configure(config):
 
                 raise _instrument_not_found(name, target, instruments)
             return instruments[target]
+
         _fix.__name__ = name
         _fix.__qualname__ = name
         return _fix
@@ -352,22 +369,23 @@ def pytest_configure(config):
         if role in aliased_role_names:
             setattr(_InstrumentFixtures, role, staticmethod(_make_resolved(role)))
         else:
+
             def _make(r=role):
                 @pytest.fixture(scope="session")
                 def _fix(instruments):
                     return instruments.get(r)
+
                 _fix.__name__ = r
                 _fix.__qualname__ = r
                 return _fix
+
             setattr(_InstrumentFixtures, role, staticmethod(_make()))
 
     # Register function-scoped fixtures for alias names that aren't station roles
     for alias in all_alias_names - set(instruments_map.keys()):
         setattr(_InstrumentFixtures, alias, staticmethod(_make_resolved(alias)))
 
-    config.pluginmanager.register(
-        _InstrumentFixtures(), "litmus_instrument_fixtures"
-    )
+    config.pluginmanager.register(_InstrumentFixtures(), "litmus_instrument_fixtures")
 
 
 def pytest_sessionstart(session):
@@ -402,7 +420,8 @@ def pytest_addoption(parser):
     group.addoption("--station", default=project.default_station, help="Station ID")
     group.addoption("--operator", default=None, help="Operator name")
     group.addoption(
-        "--results-dir", default=project.results_dir,
+        "--results-dir",
+        default=project.results_dir,
         help="Directory for Parquet results",
     )
     group.addoption("--spec", default=None, help="Path to product spec YAML file")
@@ -626,17 +645,15 @@ def _build_run_metadata(request: pytest.FixtureRequest) -> dict[str, Any]:
     station_location = None
     if station_config:
         station_name = station_config.name
-        station_type = (
-            getattr(station_config, "station_type", None)
-            or getattr(station_config, "type", None)
+        station_type = getattr(station_config, "station_type", None) or getattr(
+            station_config, "type", None
         )
         station_location = station_config.location
 
     results_dir = request.config.getoption("--results-dir")
 
-    requested_phase = (
-        request.config.getoption("--test-phase")
-        or os.environ.get("LITMUS_TEST_PHASE")
+    requested_phase = request.config.getoption("--test-phase") or os.environ.get(
+        "LITMUS_TEST_PHASE"
     )
     test_phase = _resolve_test_phase(requested_phase)
 
@@ -647,9 +664,7 @@ def _build_run_metadata(request: pytest.FixtureRequest) -> dict[str, Any]:
         spec_context.product.part_number if spec_context else None
     )
     cli_revision = request.config.getoption("--dut-revision")
-    dut_revision = cli_revision or (
-        spec_context.product.revision if spec_context else None
-    )
+    dut_revision = cli_revision or (spec_context.product.revision if spec_context else None)
 
     from litmus.environment import capture_environment
 
@@ -746,7 +761,11 @@ def litmus_logger(request) -> Generator[TestRunLogger, None, None]:
                 cls = get_subscriber_class(fmt)
                 if cls is not None:
                     sub = _create_subscriber(
-                        cls, fmt, OutputConfig(format=fmt), results_path, session_id,
+                        cls,
+                        fmt,
+                        OutputConfig(format=fmt),
+                        results_path,
+                        session_id,
                     )
                     event_log.add_subscriber(sub)
 
@@ -814,18 +833,19 @@ def _emit_instrument_events(logger: TestRunLogger, event_log: Any) -> None:
             firmware=rec.info.firmware if rec.info else None,
             cal_due=(
                 rec.calibration.due_date.isoformat()
-                if rec.calibration and rec.calibration.due_date else None
+                if rec.calibration and rec.calibration.due_date
+                else None
             ),
             cal_last=(
                 rec.calibration.last_cal.isoformat()
-                if rec.calibration and rec.calibration.last_cal else None
+                if rec.calibration and rec.calibration.last_cal
+                else None
             ),
             cal_certificate=rec.calibration.certificate if rec.calibration else None,
             cal_lab=rec.calibration.lab if rec.calibration else None,
             mocked=rec.mocked,
         )
         event_log.emit(event)
-
 
 
 @pytest.fixture(scope="session")
@@ -971,9 +991,7 @@ def station_config(request) -> StationConfig | None:
 
     # Check if --station was explicitly passed (not the default)
     station_id = request.config.getoption("--station")
-    explicit = any(
-        arg.startswith("--station") for arg in request.config.invocation_params.args
-    )
+    explicit = any(arg.startswith("--station") for arg in request.config.invocation_params.args)
     if explicit:
         warnings.warn(
             f"Station '{station_id}' not found in stations/ directory. "
@@ -1012,80 +1030,6 @@ def fixture_config(request) -> FixtureConfig | None:
 
         return load_fixture(Path(config_path))
     return None
-
-
-def _load_driver_class(driver_path: str | None):
-    """Load a driver class from import path.
-
-    Args:
-        driver_path: Dotted import path like "pymeasure.instruments.keithley.Keithley2400"
-
-    Returns the class or None if not found.
-    """
-    if not driver_path:
-        return None
-
-    try:
-        import importlib
-
-        module_path, class_name = driver_path.rsplit(".", 1)
-        module = importlib.import_module(module_path)
-        return getattr(module, class_name)
-    except (ImportError, AttributeError, ValueError):
-        return None
-
-
-def _check_calibration(role: str, calibration: CalibrationInfo) -> None:
-    """Check calibration status and emit warnings if needed."""
-    if not calibration or not calibration.due_date:
-        return
-
-    days_until = calibration.days_until_due()
-    if days_until is None:
-        return
-
-    if days_until < 0:
-        warnings.warn(
-            f"{role}: CALIBRATION EXPIRED (due {calibration.due_date}, "
-            f"{-days_until} days overdue)",
-            UserWarning,
-            stacklevel=3,
-        )
-    elif days_until < 30:
-        warnings.warn(
-            f"{role}: calibration due soon ({calibration.due_date}, "
-            f"{days_until} days remaining)",
-            UserWarning,
-            stacklevel=3,
-        )
-
-
-def _verify_instrument_identity(
-    role: str,
-    actual: InstrumentInfo,
-    expected: InstrumentInfo,
-    strict: bool = False,
-) -> None:
-    """Verify instrument identity matches expected configuration.
-
-    Args:
-        role: Instrument role name for error messages
-        actual: InstrumentInfo queried from device
-        expected: InstrumentInfo from configuration
-        strict: If True, raise error on mismatch. If False, warn only.
-
-    Raises:
-        RuntimeError: If strict and identity doesn't match
-    """
-    if not expected:
-        return  # No expected identity configured
-
-    matches, mismatches = actual.matches(expected)
-    if not matches:
-        msg = f"{role}: instrument identity mismatch - {'; '.join(mismatches)}"
-        if strict:
-            raise RuntimeError(msg)
-        warnings.warn(msg, UserWarning, stacklevel=3)
 
 
 class StationError(Exception):
@@ -1169,8 +1113,6 @@ def instruments(
         yield active
         return
 
-    from litmus.instruments.mocks import Mock
-
     # Get instrument configs from station
     inst_configs = station_config.instruments or {}
 
@@ -1179,67 +1121,20 @@ def instruments(
         inline_config = inst_configs.get(role)
 
         mock_config = (
-            inline_config.mock_config
-            if inline_config and inline_config.mock_config
-            else {}
+            inline_config.mock_config if inline_config and inline_config.mock_config else {}
         )
         use_mock = mock_instruments or (inline_config.mock if inline_config else False)
         record.mocked = use_mock
+        try:
+            inst: Any = load_and_connect(record, mock=use_mock, mock_config=mock_config)
+        except ValueError:
+            # No driver and no resource — skip this instrument
+            continue
 
-        if use_mock:
-            # Mock mode - generic mock, no driver class needed
-            inst: Any = Mock(object, **mock_config)
-            # For mocks, identity comes from config (no real device to query)
-            if record.info:
-                inst.manufacturer = record.info.manufacturer
-                inst.model = record.info.model
-                inst.serial = record.info.serial
-                inst.firmware = record.info.firmware
-        else:
-            # Real hardware path
-            driver_class = _load_driver_class(record.driver)
-            if driver_class is not None:
-                # Driver specified (PyMeasure, InstrumentKit, custom)
-                inst = driver_class(record.resource)
-            elif record.resource:
-                # No driver - use raw PyVISA
-                import pyvisa
-                rm = pyvisa.ResourceManager("@py")
-                inst = rm.open_resource(record.resource)
-            else:
-                # No driver and no resource - skip
-                continue
-
-            connect_fn = getattr(inst, "connect", None)
-            if callable(connect_fn):
-                connect_fn()
-
-            # Query and verify identity
-            actual_info = _get_instrument_info(inst, record.protocol)
-            if actual_info:
-                # Verify against expected (warn on mismatch, don't fail)
-                _verify_instrument_identity(role, actual_info, record.info, strict=False)
-                # Update record with actual info for logging
-                record.info = actual_info
-            elif record.info:
-                # Couldn't query device but have expected info - warn
-                warnings.warn(
-                    f"{role}: could not query instrument identity",
-                    UserWarning,
-                    stacklevel=2,
-                )
-
-        # Check calibration status
-        _check_calibration(role, record.calibration)
-
-        # Wrap in proxy for event emission
-        if litmus_logger is not None and litmus_logger.event_log is not None:
-            from litmus.instruments.proxy import InstrumentProxy
-
-            inst = InstrumentProxy(
-                inst, role, litmus_logger.event_log,
-                litmus_logger._session_id, litmus_logger.test_run.id,
-            )
+        run_id = litmus_logger.test_run.id if litmus_logger else None
+        event_log = litmus_logger.event_log if litmus_logger else None
+        session_id = litmus_logger._session_id if litmus_logger else None
+        inst = verify_and_wrap(inst, role, record, event_log, session_id, run_id)
 
         active[role] = inst
 
@@ -1252,20 +1147,16 @@ def instruments(
             from litmus.data.events import InstrumentDisconnected
 
             record = instrument_records.get(role)
-            litmus_logger.event_log.emit(InstrumentDisconnected(
-                session_id=litmus_logger._session_id,
-                run_id=litmus_logger.test_run.id,
-                role=role,
-                instrument_id=record.instrument_id if record else role,
-            ))
+            litmus_logger.event_log.emit(
+                InstrumentDisconnected(
+                    session_id=litmus_logger._session_id,
+                    run_id=litmus_logger.test_run.id,
+                    role=role,
+                    instrument_id=record.instrument_id if record else role,
+                )
+            )
 
-        try:
-            if hasattr(inst, "disconnect"):
-                inst.disconnect()
-            elif hasattr(inst, "close"):
-                inst.close()  # PyVISA resources use close()
-        except Exception as exc:
-            warnings.warn(f"Failed to cleanup instrument '{role}': {exc}", stacklevel=2)
+        disconnect(inst, role)
     active.clear()
 
 
@@ -1281,41 +1172,6 @@ def instrument(instruments, instrument_records) -> InstrumentAccessor:
             dmms = instrument.by_type("pymeasure.instruments.keithley.Keithley2000")
     """
     return InstrumentAccessor(instruments, instrument_records)
-
-
-def _get_instrument_info(inst: Any, protocol: str = "visa") -> InstrumentInfo | None:
-    """Get instrument identity from connected instance.
-
-    For VISA instruments, queries *IDN?. For other protocols,
-    uses protocol-specific methods.
-
-    Args:
-        inst: Connected instrument instance
-        protocol: Protocol type ("visa", "ni", etc.)
-
-    Returns:
-        InstrumentInfo or None if query fails
-    """
-    # First check if instrument already has identity attributes
-    if hasattr(inst, "manufacturer") and inst.manufacturer:
-        return InstrumentInfo(
-            manufacturer=getattr(inst, "manufacturer", None),
-            model=getattr(inst, "model", None),
-            serial=getattr(inst, "serial", None),
-            firmware=getattr(inst, "firmware", None),
-        )
-
-    # Try to query via SCPI *IDN?
-    if hasattr(inst, "query"):
-        try:
-            from litmus.instruments.discovery import parse_idn
-
-            idn = inst.query("*IDN?")
-            return parse_idn(idn)
-        except Exception:
-            pass
-
-    return None
 
 
 @pytest.fixture(scope="session")

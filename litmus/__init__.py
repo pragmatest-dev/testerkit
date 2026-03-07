@@ -3,5 +3,6 @@
 __version__ = "0.1.0"
 
 from litmus.client import LitmusClient
+from litmus.connect import connect
 
-__all__ = ["LitmusClient"]
+__all__ = ["LitmusClient", "connect"]
