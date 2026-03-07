@@ -171,6 +171,7 @@ class TestRunLogger:
         operator_id: str | None = None,
         operator_name: str | None = None,
         test_phase: str = "production",
+        session_id: UUID | None = None,
         run_id: UUID | str | None = None,
         # Product traceability
         product_id: str | None = None,
@@ -245,13 +246,8 @@ class TestRunLogger:
 
         # Event log for typed event streaming
         self._event_log: EventLog | None = None
-        self._session_id: UUID | None = None
+        self._session_id: UUID = session_id or self.test_run.id
         self._results_dir = Path(results_dir) if results_dir is not None else None
-
-    @property
-    def _effective_session_id(self) -> UUID:
-        """Session ID for event emission."""
-        return self._session_id or self.test_run.id
 
     @property
     def event_log(self) -> EventLog | None:
@@ -368,7 +364,7 @@ class TestRunLogger:
 
         if self._event_log is not None:
             self._event_log.emit(StepStarted(
-                session_id=self._effective_session_id,
+                session_id=self._session_id,
                 run_id=self.test_run.id,
                 step_name=name,
                 step_index=self._current_step_index,
@@ -418,7 +414,7 @@ class TestRunLogger:
         # Emit event if event log is wired
         if self._event_log is not None:
             event = MeasurementRecorded(
-                session_id=self._effective_session_id,
+                session_id=self._session_id,
                 run_id=self.test_run.id,
                 # Step/vector context
                 step_name=step.name,
@@ -462,7 +458,7 @@ class TestRunLogger:
 
         if self._event_log is not None and step is not None:
             self._event_log.emit(StepEnded(
-                session_id=self._effective_session_id,
+                session_id=self._session_id,
                 run_id=self.test_run.id,
                 step_name=step.name,
                 step_index=self._current_step_index,
@@ -575,7 +571,7 @@ class TestRunLogger:
         step_index = self._current_step_index if step else -1
         if self._event_log is not None:
             self._event_log.emit(RecordEvent(
-                session_id=self._effective_session_id,
+                session_id=self._session_id,
                 run_id=self.test_run.id,
                 step_name=step_name,
                 step_index=step_index,
@@ -597,12 +593,12 @@ class TestRunLogger:
         # Emit RunEnded, SessionEnded, then close event log
         if self._event_log is not None:
             self._event_log.emit(RunEnded(
-                session_id=self._effective_session_id,
+                session_id=self._session_id,
                 run_id=self.test_run.id,
                 outcome=self.test_run.outcome.value,
             ))
             self._event_log.emit(SessionEnded(
-                session_id=self._effective_session_id,
+                session_id=self._session_id,
                 run_id=self.test_run.id,
                 outcome=self.test_run.outcome.value,
             ))

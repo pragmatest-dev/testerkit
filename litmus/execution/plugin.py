@@ -719,6 +719,8 @@ def litmus_logger(request) -> Generator[TestRunLogger, None, None]:
 
     meta = _build_run_metadata(request)
     results_dir = meta["results_dir"]
+    session_id = uuid4()
+    meta["session_id"] = session_id
 
     logger = TestRunLogger(**meta)
 
@@ -726,11 +728,9 @@ def litmus_logger(request) -> Generator[TestRunLogger, None, None]:
     if results_dir:
         results_path = Path(results_dir)
         events_dir = results_path / "events"
-        session_id = uuid4()
 
         event_log = EventLog(events_dir, session_id)
         logger.event_log = event_log
-        logger._session_id = session_id
 
         backend = ParquetBackend(results_dir=results_dir)
         parquet_sub = ParquetSubscriber(backend)
@@ -747,7 +747,7 @@ def litmus_logger(request) -> Generator[TestRunLogger, None, None]:
 
         # Emit SessionStarted with full run context
         session_event = SessionStarted(
-            session_id=logger._effective_session_id,
+            session_id=logger._session_id,
             run_id=logger.test_run.id,
             station_id=logger.test_run.station_id,
             station_name=logger.test_run.station_name,
@@ -799,7 +799,7 @@ def _emit_instrument_events(logger: TestRunLogger, event_log: Any) -> None:
     records = get_instrument_records()
     for role, rec in records.items():
         event = InstrumentConnected(
-            session_id=logger._effective_session_id,
+            session_id=logger._session_id,
             run_id=logger.test_run.id,
             role=role,
             instrument_id=rec.instrument_id,
@@ -1236,7 +1236,7 @@ def instruments(
 
             inst = InstrumentProxy(
                 inst, role, litmus_logger.event_log,
-                litmus_logger._effective_session_id, litmus_logger.test_run.id,
+                litmus_logger._session_id, litmus_logger.test_run.id,
             )
 
         active[role] = inst
@@ -1251,7 +1251,7 @@ def instruments(
 
             record = instrument_records.get(role)
             litmus_logger.event_log.emit(InstrumentDisconnected(
-                session_id=litmus_logger._effective_session_id,
+                session_id=litmus_logger._session_id,
                 run_id=litmus_logger.test_run.id,
                 role=role,
                 instrument_id=record.instrument_id if record else role,
