@@ -6,6 +6,10 @@ import re
 import shutil
 from datetime import date, timedelta
 from pathlib import Path
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from litmus.schemas import OutputConfig
 
 _DURATION_RE = re.compile(r"^(\d+)d$")
 
@@ -51,14 +55,11 @@ def prune_date_dirs(base_dir: Path, cutoff: date, *, dry_run: bool = False) -> l
     return removed
 
 
-ALL_DATA_TYPES = ("channels", "sessions", "events")
-
-
 def prune_all(
     results_dir: Path,
     older_than: str,
     *,
-    data_types: tuple[str, ...] = ALL_DATA_TYPES,
+    data_types: tuple[str, ...] = ("telemetry", "sessions", "events"),
     dry_run: bool = False,
 ) -> dict[str, list[Path]]:
     """Prune date-partitioned subdirectories under *results_dir*.
@@ -66,20 +67,45 @@ def prune_all(
     Args:
         results_dir: Root results directory.
         older_than: Duration string (e.g. '30d').
-        data_types: Which subdirectories to prune (default: all).
+        data_types: Which subdirectories to prune.
         dry_run: If True, report but don't delete.
 
     Returns:
         Dict mapping subdirectory name to list of pruned date dirs.
     """
-    invalid = set(data_types) - set(ALL_DATA_TYPES)
-    if invalid:
-        valid = ", ".join(ALL_DATA_TYPES)
-        msg = f"Invalid data type(s): {', '.join(sorted(invalid))}. Valid: {valid}"
-        raise ValueError(msg)
     delta = parse_duration(older_than)
     cutoff = date.today() - delta
     result: dict[str, list[Path]] = {}
     for subdir in data_types:
         result[subdir] = prune_date_dirs(results_dir / subdir, cutoff, dry_run=dry_run)
+    return result
+
+
+def prune_from_config(
+    project_dir: Path,
+    outputs: list[OutputConfig],
+    *,
+    dry_run: bool = False,
+) -> dict[str, list[Path]]:
+    """Prune using per-output retention settings from OutputConfig entries.
+
+    Args:
+        project_dir: Project root directory (output_dir paths are relative to this).
+        outputs: List of OutputConfig instances with optional ``retention`` field.
+        dry_run: If True, report but don't delete.
+
+    Returns:
+        Dict mapping output format to list of pruned date dirs.
+    """
+    result: dict[str, list[Path]] = {}
+    for output_cfg in outputs:
+        retention = output_cfg.retention
+        if not retention:
+            continue
+        output_dir = output_cfg.default_output_dir()
+        base_dir = project_dir / output_dir
+        delta = parse_duration(retention)
+        cutoff = date.today() - delta
+        label = output_cfg.format or output_dir
+        result[label] = prune_date_dirs(base_dir, cutoff, dry_run=dry_run)
     return result

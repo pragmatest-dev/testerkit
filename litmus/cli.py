@@ -2218,11 +2218,10 @@ def data():
 
 @data.command("prune")
 @click.option("--older-than", default=None, help="Retention period (e.g. 30d, 90d)")
-@click.option("--policy", is_flag=True, help="Use retention policy from litmus.yaml")
+@click.option("--policy", is_flag=True, help="Use per-output retention from litmus.yaml outputs:")
 @click.option(
     "--type", "data_types", multiple=True,
-    type=click.Choice(["channels", "sessions", "events"]),
-    help="Data types to prune (default: all)",
+    help="Data types to prune (e.g. telemetry, sessions, events)",
 )
 @click.option("--results-dir", default=None, help="Results directory")
 @click.option("--dry-run", is_flag=True, help="Show what would be deleted")
@@ -2236,30 +2235,27 @@ def data_prune(
     """Delete date-partitioned data older than the retention period.
 
     Either --older-than or --policy is required. With --policy, reads
-    retention settings from litmus.yaml.
+    per-output retention settings from litmus.yaml outputs:.
     """
-    from litmus.data.retention import ALL_DATA_TYPES, prune_all
+    from litmus.data.retention import prune_all, prune_from_config
 
     if not older_than and not policy:
         raise click.UsageError("Provide --older-than or --policy.")
 
     results_dir_path = Path(_get_results_dir(results_dir))
 
-    if policy and not older_than:
+    if policy:
         from litmus.config.project import load_project_config
 
         cfg = load_project_config()
-        older_than = cfg.retention_policy
-        if not older_than:
-            raise click.UsageError("No retention_policy set in litmus.yaml.")
-
-    assert older_than is not None  # guaranteed by checks above
-
-    types = data_types or ALL_DATA_TYPES
-    try:
-        result = prune_all(results_dir_path, older_than, data_types=types, dry_run=dry_run)
-    except ValueError as e:
-        raise click.BadParameter(str(e), param_hint="'--older-than'") from e
+        result = prune_from_config(Path.cwd(), cfg.outputs, dry_run=dry_run)
+    else:
+        assert older_than is not None
+        types = data_types or ("telemetry", "sessions", "events")
+        try:
+            result = prune_all(results_dir_path, older_than, data_types=types, dry_run=dry_run)
+        except ValueError as e:
+            raise click.BadParameter(str(e), param_hint="'--older-than'") from e
 
     total = 0
     for subdir, paths in result.items():

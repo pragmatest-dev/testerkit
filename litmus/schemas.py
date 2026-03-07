@@ -112,7 +112,17 @@ class OutputConfig(BaseModel):
     transport: str | None = None
     output_dir: str | None = None
     template: str | None = None
+    retention: str | None = None  # e.g. "90d"
     extras: dict[str, Any] = Field(default_factory=dict)
+
+    @field_validator("retention")
+    @classmethod
+    def _validate_retention(cls, v: str | None) -> str | None:
+        if v is not None:
+            from litmus.data.retention import parse_duration
+
+            parse_duration(v)
+        return v
 
     @model_validator(mode="before")
     @classmethod
@@ -120,7 +130,7 @@ class OutputConfig(BaseModel):
         """Collect unknown keys into extras, merging with any explicit extras dict."""
         if not isinstance(data, dict):
             return data
-        known = {"format", "transport", "output_dir", "template", "extras"}
+        known = {"format", "transport", "output_dir", "template", "retention", "extras"}
         extras = {k: v for k, v in data.items() if k not in known}
         cleaned = {k: v for k, v in data.items() if k in known}
         # Merge any explicitly provided extras
@@ -141,6 +151,13 @@ class OutputConfig(BaseModel):
         """Resolve output directory with sensible defaults."""
         if self.output_dir:
             return self.output_dir
+        subscriber_dirs = {
+            "parquet": "results/parquet",
+            "telemetry": "results/telemetry",
+            "sessions": "results/sessions",
+        }
+        if self.format in subscriber_dirs:
+            return subscriber_dirs[self.format]
         if self.format in ("html", "pdf"):
             return "reports"
         if self.format:
@@ -157,16 +174,6 @@ class ProjectConfig(BaseModel):
     default_station: str = "station"
     mock_instruments: bool = False
     outputs: list[OutputConfig] = Field(default_factory=list)
-    retention_policy: str | None = None  # e.g. "90d" — used by `litmus data prune --policy`
-
-    @field_validator("retention_policy")
-    @classmethod
-    def _validate_retention_policy(cls, v: str | None) -> str | None:
-        if v is not None:
-            from litmus.data.retention import parse_duration
-
-            parse_duration(v)
-        return v
 
 
 # ---------------------------------------------------------------------------

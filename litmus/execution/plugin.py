@@ -9,6 +9,7 @@ from collections.abc import Generator
 from contextvars import ContextVar
 from pathlib import Path
 from typing import Any
+from uuid import UUID, uuid4
 
 import pytest
 import yaml
@@ -23,7 +24,7 @@ from litmus.execution.logger import RunContext, TestRunLogger
 from litmus.fixtures.manager import FixtureManager, PinAccessor
 from litmus.instruments.models import CalibrationInfo, InstrumentInfo, InstrumentRecord
 from litmus.products.context import SpecContext
-from litmus.schemas import ProjectConfig, StationConfig
+from litmus.schemas import OutputConfig, ProjectConfig, StationConfig
 
 # ---------------------------------------------------------------------------
 # ContextVars — ALL mutable module state lives here.
@@ -554,40 +555,32 @@ def _safe_get_session_fixture(request, name):
         return None
 
 
-def _attach_event_subscribers(logger: TestRunLogger) -> None:
-    """Attach event subscribers from outputs config.
+def _create_subscriber(
+    cls: type,
+    fmt: str,
+    output_cfg: OutputConfig,
+    results_path: Path,
+    session_id: UUID,
+) -> Any:
+    """Instantiate a subscriber with format-specific constructor args."""
+    from litmus.data.backends.parquet import ParquetBackend, ParquetSubscriber
+    from litmus.data.sessions import SessionSubscriber
+    from litmus.data.telemetry.store import TelemetryStore
 
-    Checks each output entry for an EventSubscriber-capable exporter and
-    wires it into the logger's event log.
-    """
-    if logger.event_log is None:
-        return
+    # Resolve output directory from config (strips "results/" prefix since
+    # results_path already points at the results root).
+    output_dir = output_cfg.default_output_dir()
+    subdir = output_dir.removeprefix("results/")  # results_path is already the root
 
-    try:
-        from litmus.config.project import load_project_config
-
-        config = load_project_config()
-    except Exception:
-        return
-
-    from litmus.data.event_log import EventSubscriber
-    from litmus.data.exporters._registry import get_exporter_class, is_report_format
-
-    for output_cfg in config.outputs:
-        fmt = output_cfg.format
-        if not fmt or is_report_format(fmt):
-            continue
-        try:
-            cls = get_exporter_class(fmt)
-            if cls is not None:
-                instance = cls()
-                if isinstance(instance, EventSubscriber):
-                    logger.event_log.add_subscriber(instance)
-        except Exception as exc:
-            warnings.warn(
-                f"Event subscriber setup for '{fmt}' failed: {exc}",
-                stacklevel=2,
-            )
+    if cls is ParquetSubscriber:
+        backend = ParquetBackend(results_dir=str(results_path))
+        return ParquetSubscriber(backend)
+    if cls is TelemetryStore:
+        return TelemetryStore(results_path / subdir, session_id)
+    if cls is SessionSubscriber:
+        return SessionSubscriber(results_path / subdir)
+    # Unknown subscriber — try no-arg constructor
+    return cls()
 
 
 def _build_run_metadata(request: pytest.FixtureRequest) -> dict[str, Any]:
@@ -711,11 +704,9 @@ def litmus_logger(request) -> Generator[TestRunLogger, None, None]:
     Captures config snapshots at run start for full traceability.
     Streams events to an event log for live observability.
     """
-    from uuid import uuid4
-
-    from litmus.data.backends.parquet import ParquetBackend, ParquetSubscriber
     from litmus.data.event_log import EventLog
     from litmus.data.events import SessionStarted
+    from litmus.data.subscribers import get_subscriber_class
 
     meta = _build_run_metadata(request)
     results_dir = meta["results_dir"]
@@ -724,7 +715,7 @@ def litmus_logger(request) -> Generator[TestRunLogger, None, None]:
 
     logger = TestRunLogger(**meta)
 
-    # Create event log and wire ParquetSubscriber
+    # Create event log and wire subscribers from config
     if results_dir:
         results_path = Path(results_dir)
         events_dir = results_path / "events"
@@ -732,18 +723,32 @@ def litmus_logger(request) -> Generator[TestRunLogger, None, None]:
         event_log = EventLog(events_dir, session_id)
         logger.event_log = event_log
 
-        backend = ParquetBackend(results_dir=results_dir)
-        parquet_sub = ParquetSubscriber(backend)
-        event_log.add_subscriber(parquet_sub)
+        # Collect configured subscriber formats from outputs config
+        configured: set[str] = set()
+        try:
+            from litmus.config.project import load_project_config
 
-        from litmus.data.channels.store import ChannelStore
-        from litmus.data.sessions import SessionSubscriber
+            config = load_project_config()
+            for output_cfg in config.outputs:
+                fmt = output_cfg.format
+                if fmt:
+                    cls = get_subscriber_class(fmt)
+                    if cls is not None:
+                        sub = _create_subscriber(cls, fmt, output_cfg, results_path, session_id)
+                        event_log.add_subscriber(sub)
+                        configured.add(fmt)
+        except Exception:
+            pass
 
-        channel_store = ChannelStore(results_path / "channels", session_id)
-        event_log.add_subscriber(channel_store)
-
-        session_sub = SessionSubscriber(results_path / "sessions")
-        event_log.add_subscriber(session_sub)
+        # Register defaults not already configured
+        for fmt in ("parquet", "telemetry", "sessions"):
+            if fmt not in configured:
+                cls = get_subscriber_class(fmt)
+                if cls is not None:
+                    sub = _create_subscriber(
+                        cls, fmt, OutputConfig(format=fmt), results_path, session_id,
+                    )
+                    event_log.add_subscriber(sub)
 
         # Emit SessionStarted with full run context
         session_event = SessionStarted(
@@ -777,9 +782,6 @@ def litmus_logger(request) -> Generator[TestRunLogger, None, None]:
 
         # Emit InstrumentConnected for each instrument
         _emit_instrument_events(logger, event_log)
-
-    # Wire additional subscribers from outputs config
-    _attach_event_subscribers(logger)
 
     set_current_logger(logger)
     yield logger

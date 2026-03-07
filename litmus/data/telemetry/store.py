@@ -1,4 +1,4 @@
-"""Channel store — materializes instrument events into Arrow IPC time-series.
+"""Telemetry store — materializes instrument events into Arrow IPC time-series.
 
 Implements EventSubscriber. Buffers InstrumentRead/InstrumentSet events
 in memory, writes one Arrow IPC file per channel per session on close().
@@ -38,23 +38,23 @@ INDEX_SCHEMA = pa.schema([
 ])
 
 
-class ChannelStore:
+class TelemetryStore:
     """EventSubscriber that materializes instrument events to Arrow IPC.
 
     One file per channel per session, date-partitioned:
-    ``channels/{date}/{channel_id}_{session_short}.arrow``
+    ``telemetry/{date}/{channel_id}_{session_short}.arrow``
     """
 
-    format_name: str = "channels"
+    format_name: str = "telemetry"
     event_types: set[type] = {InstrumentRead, InstrumentSet}
 
-    def __init__(self, channels_dir: Path, session_id: UUID) -> None:
-        self._channels_dir = channels_dir
+    def __init__(self, telemetry_dir: Path, session_id: UUID) -> None:
+        self._telemetry_dir = telemetry_dir
         self._session_id = session_id
         self._buffers: dict[str, list[dict]] = {}
 
     def open(self) -> None:
-        self._channels_dir.mkdir(parents=True, exist_ok=True)
+        self._telemetry_dir.mkdir(parents=True, exist_ok=True)
 
     def on_event(self, event: EventBase) -> None:
         # Only read/set produce numeric channel data.
@@ -71,15 +71,18 @@ class ChannelStore:
         else:
             return
 
-        try:
-            float_value = float(value) if value is not None else None
-        except (TypeError, ValueError):
+        if value is None:
             float_value = None
-            warnings.warn(
-                f"Channel {channel_id}: cannot coerce "
-                f"{type(value).__name__} to float",
-                stacklevel=2,
-            )
+        else:
+            try:
+                float_value = float(value)
+            except (TypeError, ValueError):
+                float_value = None
+                warnings.warn(
+                    f"Channel {channel_id}: cannot coerce "
+                    f"{type(value).__name__} to float",
+                    stacklevel=2,
+                )
 
         row = {
             "timestamp": event.occurred_at,
@@ -98,7 +101,7 @@ class ChannelStore:
 
         try:
             today = date.today().isoformat()
-            date_dir = self._channels_dir / today
+            date_dir = self._telemetry_dir / today
             date_dir.mkdir(parents=True, exist_ok=True)
 
             session_short = str(self._session_id)[:8]
@@ -129,12 +132,12 @@ class ChannelStore:
                         "ended_at": max(timestamps),
                         "row_count": len(rows),
                         "file_path": str(
-                            filepath.relative_to(self._channels_dir),
+                            filepath.relative_to(self._telemetry_dir),
                         ),
                     })
                 except _WRITE_ERRORS as exc:
                     warnings.warn(
-                        f"ChannelStore failed to write '{channel_id}': {exc}",
+                        f"TelemetryStore failed to write '{channel_id}': {exc}",
                         stacklevel=2,
                     )
 
@@ -154,7 +157,7 @@ class ChannelStore:
                     pq.write_table(idx_table, index_path)
                 except _WRITE_ERRORS as exc:
                     warnings.warn(
-                        f"ChannelStore failed to write index: {exc}",
+                        f"TelemetryStore failed to write index: {exc}",
                         stacklevel=2,
                     )
         finally:
@@ -163,7 +166,7 @@ class ChannelStore:
     @classmethod
     def query(
         cls,
-        channels_dir: Path,
+        telemetry_dir: Path,
         channel_id: str,
         start: datetime | None = None,
         end: datetime | None = None,
@@ -176,7 +179,7 @@ class ChannelStore:
         """
         tables: list[pa.Table] = []
 
-        for arrow_file in sorted(channels_dir.glob(f"*/{channel_id}_*.arrow")):
+        for arrow_file in sorted(telemetry_dir.glob(f"*/{channel_id}_*.arrow")):
             reader = ipc.open_file(str(arrow_file))
             table = reader.read_all()
             tables.append(table)

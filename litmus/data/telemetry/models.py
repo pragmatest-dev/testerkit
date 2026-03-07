@@ -1,7 +1,7 @@
-"""Data models for the channel store.
+"""Data models for the telemetry store.
 
-ChannelSource and ChannelSegment are defined here for Phase 3+ (sessions,
-retention, channel metadata). They are not yet consumed by ChannelStore.
+ChannelSource and ChannelSegment are defined here for future use
+(channel metadata, segment indexing). Not yet consumed by TelemetryStore.
 """
 
 from __future__ import annotations

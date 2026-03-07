@@ -1,4 +1,4 @@
-"""Tests for ChannelStore Arrow IPC materialization."""
+"""Tests for TelemetryStore Arrow IPC materialization."""
 
 from __future__ import annotations
 
@@ -9,13 +9,13 @@ from uuid import uuid4
 import pyarrow.ipc as ipc
 import pyarrow.parquet as pq
 
-from litmus.data.channels.store import CHANNEL_SCHEMA, ChannelStore
 from litmus.data.events import InstrumentRead, InstrumentSet
+from litmus.data.telemetry.store import CHANNEL_SCHEMA, TelemetryStore
 
 
-def _make_store(tmp_path: Path) -> ChannelStore:
+def _make_store(tmp_path: Path) -> TelemetryStore:
     session_id = uuid4()
-    store = ChannelStore(tmp_path / "channels", session_id)
+    store = TelemetryStore(tmp_path / "telemetry", session_id)
     store.open()
     return store
 
@@ -57,7 +57,7 @@ class TestBufferAndWrite:
         store.on_event(_read_event(value=3.4))
         store.close()
 
-        arrow_files = list((tmp_path / "channels").glob("*/*.arrow"))
+        arrow_files = list((tmp_path / "telemetry").glob("*/*.arrow"))
         assert len(arrow_files) == 1
 
         reader = ipc.open_file(str(arrow_files[0]))
@@ -69,8 +69,8 @@ class TestBufferAndWrite:
         store = _make_store(tmp_path)
         store.close()
 
-        channels_dir = tmp_path / "channels"
-        arrow_files = list(channels_dir.glob("*/*.arrow"))
+        telemetry_dir = tmp_path / "telemetry"
+        arrow_files = list(telemetry_dir.glob("*/*.arrow"))
         assert len(arrow_files) == 0
 
 
@@ -81,7 +81,7 @@ class TestMultipleChannels:
         store.on_event(_set_event(channel="psu.voltage"))
         store.close()
 
-        arrow_files = list((tmp_path / "channels").glob("*/*.arrow"))
+        arrow_files = list((tmp_path / "telemetry").glob("*/*.arrow"))
         assert len(arrow_files) == 2
 
 
@@ -91,7 +91,7 @@ class TestIndex:
         store.on_event(_read_event())
         store.close()
 
-        index_files = list((tmp_path / "channels").glob("*/_index_*.parquet"))
+        index_files = list((tmp_path / "telemetry").glob("*/_index_*.parquet"))
         assert len(index_files) == 1
 
         table = pq.read_table(index_files[0])
@@ -106,7 +106,7 @@ class TestSetEvents:
         store.on_event(_set_event(value=12.0))
         store.close()
 
-        arrow_files = list((tmp_path / "channels").glob("*/*.arrow"))
+        arrow_files = list((tmp_path / "telemetry").glob("*/*.arrow"))
         reader = ipc.open_file(str(arrow_files[0]))
         table = reader.read_all()
         assert table.column("value")[0].as_py() == 12.0
@@ -120,8 +120,8 @@ class TestQuery:
         store.on_event(_read_event(value=3.4))
         store.close()
 
-        channels_dir = tmp_path / "channels"
-        result = ChannelStore.query(channels_dir, "dmm.dc_voltage")
+        telemetry_dir = tmp_path / "telemetry"
+        result = TelemetryStore.query(telemetry_dir, "dmm.dc_voltage")
         assert len(result) == 2
 
     def test_query_filters_by_time(self, tmp_path: Path):
@@ -137,16 +137,16 @@ class TestQuery:
         store.on_event(e2)
         store.close()
 
-        channels_dir = tmp_path / "channels"
-        result = ChannelStore.query(
-            channels_dir, "dmm.dc_voltage",
+        telemetry_dir = tmp_path / "telemetry"
+        result = TelemetryStore.query(
+            telemetry_dir, "dmm.dc_voltage",
             start=now - timedelta(hours=1),
         )
         assert len(result) == 1
         assert result.column("value")[0].as_py() == 2.0
 
     def test_query_empty(self, tmp_path: Path):
-        channels_dir = tmp_path / "channels"
-        channels_dir.mkdir(parents=True)
-        result = ChannelStore.query(channels_dir, "nonexistent")
+        telemetry_dir = tmp_path / "telemetry"
+        telemetry_dir.mkdir(parents=True)
+        result = TelemetryStore.query(telemetry_dir, "nonexistent")
         assert len(result) == 0
