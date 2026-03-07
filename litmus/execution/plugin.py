@@ -747,7 +747,7 @@ def litmus_logger(request) -> Generator[TestRunLogger, None, None]:
 
         # Emit SessionStarted with full run context
         session_event = SessionStarted(
-            session_id=logger._session_id,
+            session_id=logger._effective_session_id,
             run_id=logger.test_run.id,
             station_id=logger.test_run.station_id,
             station_name=logger.test_run.station_name,

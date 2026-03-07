@@ -72,6 +72,11 @@ def prune_all(
     Returns:
         Dict mapping subdirectory name to list of pruned date dirs.
     """
+    invalid = set(data_types) - set(ALL_DATA_TYPES)
+    if invalid:
+        valid = ", ".join(ALL_DATA_TYPES)
+        msg = f"Invalid data type(s): {', '.join(sorted(invalid))}. Valid: {valid}"
+        raise ValueError(msg)
     delta = parse_duration(older_than)
     cutoff = date.today() - delta
     result: dict[str, list[Path]] = {}

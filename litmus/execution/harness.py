@@ -131,18 +131,6 @@ class Context:
         return current_value != prev_value
 
     # -------------------------------------------------------------------------
-    # Explicit API (aliases)
-    # -------------------------------------------------------------------------
-
-    def set_in(self, key: str, value: Any) -> None:
-        """Alias for configure() - explicitly set an in_* value."""
-        self.configure(key, value)
-
-    def set_out(self, key: str, value: Any) -> None:
-        """Alias for observe() - explicitly set an out_* value."""
-        self.observe(key, value)
-
-    # -------------------------------------------------------------------------
     # Bulk operations
     # -------------------------------------------------------------------------
 
@@ -355,9 +343,6 @@ class Context:
         """Access the underlying metadata dict (RunContext compatibility)."""
         return self.inputs
 
-
-# Backwards compatibility alias
-VectorContext = Context
 
 
 class TestHarness:
