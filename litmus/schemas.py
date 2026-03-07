@@ -153,7 +153,7 @@ class OutputConfig(BaseModel):
             return self.output_dir
         subscriber_dirs = {
             "parquet": "results/parquet",
-            "telemetry": "results/telemetry",
+            "channels": "results/channels",
             "sessions": "results/sessions",
         }
         if self.format in subscriber_dirs:

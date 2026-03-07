@@ -564,8 +564,8 @@ def _create_subscriber(
 ) -> Any:
     """Instantiate a subscriber with format-specific constructor args."""
     from litmus.data.backends.parquet import ParquetBackend, ParquetSubscriber
+    from litmus.data.channels.store import ChannelStore
     from litmus.data.sessions import SessionSubscriber
-    from litmus.data.telemetry.store import TelemetryStore
 
     # Resolve output directory from config (strips "results/" prefix since
     # results_path already points at the results root).
@@ -575,8 +575,8 @@ def _create_subscriber(
     if cls is ParquetSubscriber:
         backend = ParquetBackend(results_dir=str(results_path))
         return ParquetSubscriber(backend)
-    if cls is TelemetryStore:
-        return TelemetryStore(results_path / subdir, session_id)
+    if cls is ChannelStore:
+        return ChannelStore(results_path / subdir, session_id)
     if cls is SessionSubscriber:
         return SessionSubscriber(results_path / subdir)
     # Unknown subscriber — try no-arg constructor
@@ -741,7 +741,7 @@ def litmus_logger(request) -> Generator[TestRunLogger, None, None]:
             pass
 
         # Register defaults not already configured
-        for fmt in ("parquet", "telemetry", "sessions"):
+        for fmt in ("parquet", "channels", "sessions"):
             if fmt not in configured:
                 cls = get_subscriber_class(fmt)
                 if cls is not None:

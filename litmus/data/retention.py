@@ -59,7 +59,7 @@ def prune_all(
     results_dir: Path,
     older_than: str,
     *,
-    data_types: tuple[str, ...] = ("telemetry", "sessions", "events"),
+    data_types: tuple[str, ...] = ("channels", "sessions", "events"),
     dry_run: bool = False,
 ) -> dict[str, list[Path]]:
     """Prune date-partitioned subdirectories under *results_dir*.

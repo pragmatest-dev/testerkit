@@ -16,7 +16,7 @@ _REGISTRY: dict[str, type] = {}
 
 _LAZY: dict[str, tuple[str, str]] = {
     "parquet": ("litmus.data.backends.parquet", "ParquetSubscriber"),
-    "telemetry": ("litmus.data.telemetry.store", "TelemetryStore"),
+    "channels": ("litmus.data.channels.store", "ChannelStore"),
     "sessions": ("litmus.data.sessions", "SessionSubscriber"),
 }
 
@@ -51,7 +51,7 @@ def _try_lazy_load(format_name: str) -> None:
         _REGISTRY[format_name] = cls
     except ImportError:
         pass  # Optional dependency not installed — expected
-    except Exception as exc:
+    except AttributeError as exc:
         warnings.warn(
             f"Failed to load subscriber '{format_name}': {exc}",
             stacklevel=2,

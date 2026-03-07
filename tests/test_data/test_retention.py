@@ -65,22 +65,22 @@ class TestPruneDateDirs:
 class TestPruneAll:
     def test_prunes_all_subdirs(self, tmp_path: Path):
         old = (date.today() - timedelta(days=60)).isoformat()
-        for sub in ("telemetry", "sessions", "events"):
+        for sub in ("channels", "sessions", "events"):
             (tmp_path / sub / old).mkdir(parents=True)
 
         result = prune_all(tmp_path, "30d")
-        for sub in ("telemetry", "sessions", "events"):
+        for sub in ("channels", "sessions", "events"):
             assert len(result[sub]) == 1
             assert not (tmp_path / sub / old).exists()
 
     def test_prunes_specific_types(self, tmp_path: Path):
         old = (date.today() - timedelta(days=60)).isoformat()
-        for sub in ("telemetry", "sessions", "events"):
+        for sub in ("channels", "sessions", "events"):
             (tmp_path / sub / old).mkdir(parents=True)
 
-        result = prune_all(tmp_path, "30d", data_types=("telemetry",))
+        result = prune_all(tmp_path, "30d", data_types=("channels",))
         assert len(result) == 1
-        assert len(result["telemetry"]) == 1
+        assert len(result["channels"]) == 1
         # sessions and events untouched
         assert (tmp_path / "sessions" / old).exists()
         assert (tmp_path / "events" / old).exists()
@@ -91,16 +91,16 @@ class TestPruneFromConfig:
         from litmus.schemas import OutputConfig
 
         old = (date.today() - timedelta(days=60)).isoformat()
-        (tmp_path / "results" / "telemetry" / old).mkdir(parents=True)
+        (tmp_path / "results" / "channels" / old).mkdir(parents=True)
         (tmp_path / "results" / "sessions" / old).mkdir(parents=True)
 
         outputs = [
-            OutputConfig(format="telemetry", retention="30d"),
+            OutputConfig(format="channels", retention="30d"),
             OutputConfig(format="sessions"),  # no retention — should be skipped
         ]
         result = prune_from_config(tmp_path, outputs)
         assert len(result) == 1
-        assert "telemetry" in result
-        assert len(result["telemetry"]) == 1
+        assert "channels" in result
+        assert len(result["channels"]) == 1
         # sessions untouched
         assert (tmp_path / "results" / "sessions" / old).exists()

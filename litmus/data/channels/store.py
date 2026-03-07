@@ -1,4 +1,4 @@
-"""Telemetry store — materializes instrument events into Arrow IPC time-series.
+"""Channel store — materializes instrument events into Arrow IPC time-series.
 
 Implements EventSubscriber. Buffers InstrumentRead/InstrumentSet events
 in memory, writes one Arrow IPC file per channel per session on close().
@@ -38,23 +38,23 @@ INDEX_SCHEMA = pa.schema([
 ])
 
 
-class TelemetryStore:
+class ChannelStore:
     """EventSubscriber that materializes instrument events to Arrow IPC.
 
     One file per channel per session, date-partitioned:
-    ``telemetry/{date}/{channel_id}_{session_short}.arrow``
+    ``channels/{date}/{channel_id}_{session_short}.arrow``
     """
 
-    format_name: str = "telemetry"
+    format_name: str = "channels"
     event_types: set[type] = {InstrumentRead, InstrumentSet}
 
-    def __init__(self, telemetry_dir: Path, session_id: UUID) -> None:
-        self._telemetry_dir = telemetry_dir
+    def __init__(self, channels_dir: Path, session_id: UUID) -> None:
+        self._channels_dir = channels_dir
         self._session_id = session_id
         self._buffers: dict[str, list[dict]] = {}
 
     def open(self) -> None:
-        self._telemetry_dir.mkdir(parents=True, exist_ok=True)
+        self._channels_dir.mkdir(parents=True, exist_ok=True)
 
     def on_event(self, event: EventBase) -> None:
         # Only read/set produce numeric channel data.
@@ -101,7 +101,7 @@ class TelemetryStore:
 
         try:
             today = date.today().isoformat()
-            date_dir = self._telemetry_dir / today
+            date_dir = self._channels_dir / today
             date_dir.mkdir(parents=True, exist_ok=True)
 
             session_short = str(self._session_id)[:8]
@@ -132,12 +132,12 @@ class TelemetryStore:
                         "ended_at": max(timestamps),
                         "row_count": len(rows),
                         "file_path": str(
-                            filepath.relative_to(self._telemetry_dir),
+                            filepath.relative_to(self._channels_dir),
                         ),
                     })
                 except _WRITE_ERRORS as exc:
                     warnings.warn(
-                        f"TelemetryStore failed to write '{channel_id}': {exc}",
+                        f"ChannelStore failed to write '{channel_id}': {exc}",
                         stacklevel=2,
                     )
 
@@ -157,7 +157,7 @@ class TelemetryStore:
                     pq.write_table(idx_table, index_path)
                 except _WRITE_ERRORS as exc:
                     warnings.warn(
-                        f"TelemetryStore failed to write index: {exc}",
+                        f"ChannelStore failed to write index: {exc}",
                         stacklevel=2,
                     )
         finally:
@@ -166,7 +166,7 @@ class TelemetryStore:
     @classmethod
     def query(
         cls,
-        telemetry_dir: Path,
+        channels_dir: Path,
         channel_id: str,
         start: datetime | None = None,
         end: datetime | None = None,
@@ -179,7 +179,7 @@ class TelemetryStore:
         """
         tables: list[pa.Table] = []
 
-        for arrow_file in sorted(telemetry_dir.glob(f"*/{channel_id}_*.arrow")):
+        for arrow_file in sorted(channels_dir.glob(f"*/{channel_id}_*.arrow")):
             reader = ipc.open_file(str(arrow_file))
             table = reader.read_all()
             tables.append(table)
@@ -203,14 +203,10 @@ class TelemetryStore:
                 end.astimezone(UTC) if end and end.tzinfo
                 else end.replace(tzinfo=UTC) if end else None
             )
-            keep = []
-            for ts in timestamps:
-                if start_utc and ts < start_utc:
-                    keep.append(False)
-                elif end_utc and ts > end_utc:
-                    keep.append(False)
-                else:
-                    keep.append(True)
+            keep = [
+                (not start_utc or ts >= start_utc) and (not end_utc or ts <= end_utc)
+                for ts in timestamps
+            ]
             result = result.filter(keep)
 
         return result

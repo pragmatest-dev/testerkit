@@ -2221,7 +2221,7 @@ def data():
 @click.option("--policy", is_flag=True, help="Use per-output retention from litmus.yaml outputs:")
 @click.option(
     "--type", "data_types", multiple=True,
-    help="Data types to prune (e.g. telemetry, sessions, events)",
+    help="Data types to prune (e.g. channels, sessions, events)",
 )
 @click.option("--results-dir", default=None, help="Results directory")
 @click.option("--dry-run", is_flag=True, help="Show what would be deleted")
@@ -2251,7 +2251,7 @@ def data_prune(
         result = prune_from_config(Path.cwd(), cfg.outputs, dry_run=dry_run)
     else:
         assert older_than is not None
-        types = data_types or ("telemetry", "sessions", "events")
+        types = data_types or ("channels", "sessions", "events")
         try:
             result = prune_all(results_dir_path, older_than, data_types=types, dry_run=dry_run)
         except ValueError as e:
