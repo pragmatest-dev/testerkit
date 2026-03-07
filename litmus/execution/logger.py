@@ -13,12 +13,21 @@ from uuid import UUID, uuid4
 from litmus.data.backends._row_helpers import build_input_columns, build_output_columns
 from litmus.data.events import (
     MeasurementRecorded,
+    RecordEvent,
     RunEnded,
     SessionEnded,
     StepEnded,
     StepStarted,
 )
-from litmus.data.models import DUT, Measurement, Outcome, TestRun, TestStep, TestVector, _utcnow
+from litmus.data.models import (
+    DUT,
+    Measurement,
+    TestRun,
+    TestStep,
+    TestVector,
+    _utcnow,
+    escalate_outcome,
+)
 
 # Module-level contextvars for concurrency-safe step/vector resolution.
 # All execution paths (harness, decorator, fixture) set these; log_measurement() reads them.
@@ -138,43 +147,6 @@ class RunContext:
         """Access the underlying metadata dict (read-only view)."""
         return dict(self._test_run.custom_metadata)
 
-    # -------------------------------------------------------------------------
-    # Context API compatibility (for use as unified context)
-    # -------------------------------------------------------------------------
-
-    def configure(self, key: str, value: Any) -> None:
-        """Alias for set() - Context API compatibility."""
-        self.set(key, value)
-
-    def observe(self, key: str, value: Any) -> None:
-        """Alias for set() - Context API compatibility."""
-        self.set(key, value)
-
-    def set_in(self, key: str, value: Any) -> None:
-        """Alias for set() - Context API compatibility."""
-        self.set(key, value)
-
-    def set_out(self, key: str, value: Any) -> None:
-        """Alias for set() - Context API compatibility."""
-        self.set(key, value)
-
-    def get_in(self, key: str, default: Any = None) -> Any:
-        """Alias for get() - Context API compatibility."""
-        return self.get(key, default)
-
-    def get_out(self, key: str, default: Any = None) -> Any:
-        """Alias for get() - Context API compatibility."""
-        return self.get(key, default)
-
-    @property
-    def inputs(self) -> dict[str, Any]:
-        """Alias for metadata - Context API compatibility."""
-        return self.metadata
-
-    @property
-    def outputs(self) -> dict[str, Any]:
-        """Alias for metadata - Context API compatibility."""
-        return self.metadata
 
 
 class TestRunLogger:
@@ -275,6 +247,11 @@ class TestRunLogger:
         self._event_log: EventLog | None = None
         self._session_id: UUID | None = None
         self._results_dir = Path(results_dir) if results_dir is not None else None
+
+    @property
+    def _effective_session_id(self) -> UUID:
+        """Session ID for event emission."""
+        return self._session_id or self.test_run.id
 
     @property
     def event_log(self) -> EventLog | None:
@@ -391,7 +368,7 @@ class TestRunLogger:
 
         if self._event_log is not None:
             self._event_log.emit(StepStarted(
-                session_id=self._session_id or self.test_run.id,
+                session_id=self._effective_session_id,
                 run_id=self.test_run.id,
                 step_name=name,
                 step_index=self._current_step_index,
@@ -432,26 +409,16 @@ class TestRunLogger:
         if measurement not in vector.measurements:
             vector.measurements.append(measurement)
 
-        # Update vector outcome — ERROR overrides everything (untrusted state)
-        if measurement.outcome == Outcome.ERROR:
-            vector.outcome = Outcome.ERROR
-        elif measurement.outcome == Outcome.FAIL and vector.outcome != Outcome.ERROR:
-            vector.outcome = Outcome.FAIL
-
-        # Update step/run outcome — ERROR overrides everything
-        if measurement.outcome == Outcome.ERROR:
-            step.outcome = Outcome.ERROR
-            self.test_run.outcome = Outcome.ERROR
-        elif measurement.outcome == Outcome.FAIL:
-            if step.outcome != Outcome.ERROR:
-                step.outcome = Outcome.FAIL
-            if self.test_run.outcome != Outcome.ERROR:
-                self.test_run.outcome = Outcome.FAIL
+        # Cascade outcome: ERROR > FAIL > PASS
+        if measurement.outcome is not None:
+            vector.outcome = escalate_outcome(vector.outcome, measurement.outcome)
+            step.outcome = escalate_outcome(step.outcome, measurement.outcome)
+            self.test_run.outcome = escalate_outcome(self.test_run.outcome, measurement.outcome)
 
         # Emit event if event log is wired
         if self._event_log is not None:
             event = MeasurementRecorded(
-                session_id=self._session_id or self.test_run.id,
+                session_id=self._effective_session_id,
                 run_id=self.test_run.id,
                 # Step/vector context
                 step_name=step.name,
@@ -495,7 +462,7 @@ class TestRunLogger:
 
         if self._event_log is not None and step is not None:
             self._event_log.emit(StepEnded(
-                session_id=self._session_id or self.test_run.id,
+                session_id=self._effective_session_id,
                 run_id=self.test_run.id,
                 step_name=step.name,
                 step_index=self._current_step_index,
@@ -596,6 +563,26 @@ class TestRunLogger:
 
         return measurement
 
+    def record(self, key: str, value: Any) -> None:
+        """Emit a key/value record event to the event log.
+
+        Args:
+            key: Record key (e.g., "firmware_version", "calibration_date").
+            value: Record value (must be JSON-serializable).
+        """
+        step = _current_step_var.get()
+        step_name = step.name if step else ""
+        step_index = self._current_step_index if step else -1
+        if self._event_log is not None:
+            self._event_log.emit(RecordEvent(
+                session_id=self._effective_session_id,
+                run_id=self.test_run.id,
+                step_name=step_name,
+                step_index=step_index,
+                key=key,
+                value=value,
+            ))
+
     def finalize(self) -> TestRun:
         """Complete test run and return result.
 
@@ -610,12 +597,12 @@ class TestRunLogger:
         # Emit RunEnded, SessionEnded, then close event log
         if self._event_log is not None:
             self._event_log.emit(RunEnded(
-                session_id=self._session_id or self.test_run.id,
+                session_id=self._effective_session_id,
                 run_id=self.test_run.id,
                 outcome=self.test_run.outcome.value,
             ))
             self._event_log.emit(SessionEnded(
-                session_id=self._session_id or self.test_run.id,
+                session_id=self._effective_session_id,
                 run_id=self.test_run.id,
                 outcome=self.test_run.outcome.value,
             ))

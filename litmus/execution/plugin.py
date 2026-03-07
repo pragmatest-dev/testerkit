@@ -737,9 +737,13 @@ def litmus_logger(request) -> Generator[TestRunLogger, None, None]:
         event_log.add_subscriber(parquet_sub)
 
         from litmus.data.channels.store import ChannelStore
+        from litmus.data.sessions import SessionSubscriber
 
         channel_store = ChannelStore(results_path / "channels", session_id)
         event_log.add_subscriber(channel_store)
+
+        session_sub = SessionSubscriber(results_path / "sessions")
+        event_log.add_subscriber(session_sub)
 
         # Emit SessionStarted with full run context
         session_event = SessionStarted(

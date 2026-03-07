@@ -15,7 +15,7 @@ from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
 
 from litmus.config.models import Limit, MeasurementLimitConfig, PromptConfig, RetryConfig
-from litmus.data.models import Measurement, Outcome, TestStep, TestVector
+from litmus.data.models import Measurement, Outcome, TestStep, TestVector, escalate_outcome
 from litmus.execution.logger import _current_step_var, _current_vector_var
 from litmus.execution.vectors import Vector, expand_vectors
 
@@ -809,13 +809,9 @@ class TestHarness:
         # Stream to event log via logger (logger handles outcome updates)
         if self._logger is not None:
             self._logger.log_measurement(measurement)
-        elif current_tv is not None:
+        elif current_tv is not None and measurement.outcome is not None:
             # No logger — harness must update outcome itself
-            # ERROR overrides everything (untrusted state)
-            if measurement.outcome == Outcome.ERROR:
-                current_tv.outcome = Outcome.ERROR
-            elif measurement.outcome == Outcome.FAIL and current_tv.outcome != Outcome.ERROR:
-                current_tv.outcome = Outcome.FAIL
+            current_tv.outcome = escalate_outcome(current_tv.outcome, measurement.outcome)
 
         return measurement
 
@@ -858,6 +854,16 @@ class TestHarness:
             # Single value: infer name from spec ref → limit key → step name
             name = self._infer_measurement_name()
             self.measure(name, result)
+
+    def record(self, key: str, value: Any) -> None:
+        """Emit a key/value record event via the logger.
+
+        Args:
+            key: Record key (e.g., "firmware_version").
+            value: Record value (must be JSON-serializable).
+        """
+        if self._logger:
+            self._logger.record(key, value)
 
     def _infer_measurement_name(self) -> str:
         """Infer measurement name from limits config.
@@ -1149,12 +1155,9 @@ class TestHarness:
         finally:
             step.ended_at = _utcnow()
 
-            # Compute step outcome from vectors — ERROR overrides everything
+            # Compute step outcome from vectors
             for tv in step.vectors:
-                if tv.outcome == Outcome.ERROR:
-                    step.outcome = Outcome.ERROR
-                elif tv.outcome == Outcome.FAIL and step.outcome != Outcome.ERROR:
-                    step.outcome = Outcome.FAIL
+                step.outcome = escalate_outcome(step.outcome, tv.outcome)
 
             _current_step_var.reset(step_token)
             self._step_context = None

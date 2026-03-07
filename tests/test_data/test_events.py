@@ -12,6 +12,7 @@ from litmus.data.events import (
     TEST_EVENTS,
     InstrumentConnected,
     MeasurementRecorded,
+    RecordEvent,
     RunEnded,
     SessionStarted,
     StepEnded,
@@ -82,6 +83,25 @@ class TestEventModels:
         assert restored.station_id == "st1"
         assert restored.custom_metadata == {"badge": "EMP-123"}
         assert restored.id == e.id
+
+    def test_record_event_key_value(self):
+        e = RecordEvent(
+            step_name="step1",
+            step_index=0,
+            key="firmware_version",
+            value="1.2.3",
+        )
+        assert e.event_type == "test.record"
+        assert e.key == "firmware_version"
+        assert e.value == "1.2.3"
+
+    def test_session_started_session_type(self):
+        e = SessionStarted(station_id="st1", dut_serial="SN001")
+        assert e.session_type == "test_run"
+        e2 = SessionStarted(
+            station_id="st1", dut_serial="SN001", session_type="characterization"
+        )
+        assert e2.session_type == "characterization"
 
     def test_category_grouping(self):
         assert SessionStarted in SESSION_EVENTS

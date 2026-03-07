@@ -12,7 +12,7 @@ import json
 from pathlib import Path
 from typing import Any, Literal
 
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 from litmus.catalog.models import InstrumentCatalogEntry
 from litmus.config.models import (
@@ -157,6 +157,16 @@ class ProjectConfig(BaseModel):
     default_station: str = "station"
     mock_instruments: bool = False
     outputs: list[OutputConfig] = Field(default_factory=list)
+    retention_policy: str | None = None  # e.g. "90d" — used by `litmus data prune --policy`
+
+    @field_validator("retention_policy")
+    @classmethod
+    def _validate_retention_policy(cls, v: str | None) -> str | None:
+        if v is not None:
+            from litmus.data.retention import parse_duration
+
+            parse_duration(v)
+        return v
 
 
 # ---------------------------------------------------------------------------

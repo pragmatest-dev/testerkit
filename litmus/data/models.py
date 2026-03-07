@@ -54,6 +54,19 @@ class Outcome(StrEnum):
     NOT_TESTED = "not_tested"
 
 
+def escalate_outcome(current: Outcome, incoming: Outcome) -> Outcome:
+    """Return the worse of two outcomes: ERROR > FAIL > everything else.
+
+    Use this everywhere outcome cascading is needed (vector, step, run)
+    to keep the severity logic in one place.
+    """
+    if incoming == Outcome.ERROR or current == Outcome.ERROR:
+        return Outcome.ERROR
+    if incoming == Outcome.FAIL or current == Outcome.FAIL:
+        return Outcome.FAIL
+    return current
+
+
 class Measurement(BaseModel):
     """A single measurement with optional limit checking."""
 

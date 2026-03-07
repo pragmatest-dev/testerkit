@@ -43,6 +43,7 @@ class SessionStarted(EventBase):
     """Emitted once at the start of a run. Contains full run context."""
 
     event_type: Literal["session.started"] = "session.started"
+    session_type: str = "test_run"
 
     # Station
     station_id: str
@@ -203,12 +204,13 @@ class MeasurementRecorded(EventBase):
 
 
 class RecordEvent(EventBase):
-    """A raw record (non-measurement data row)."""
+    """A key/value record emitted by harness.record()."""
 
     event_type: Literal["test.record"] = "test.record"
     step_name: str
     step_index: int
-    data: dict[str, Any] = Field(default_factory=dict)
+    key: str
+    value: Any
 
 
 class StepEnded(EventBase):

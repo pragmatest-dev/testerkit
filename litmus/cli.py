@@ -2205,5 +2205,75 @@ def yield_time(results_dir, phase, since, until_date, product, station, lot, by_
             )
 
 
+# ---------------------------------------------------------------------------
+# Data management
+# ---------------------------------------------------------------------------
+
+
+@main.group()
+def data():
+    """Data retention and management."""
+    pass
+
+
+@data.command("prune")
+@click.option("--older-than", default=None, help="Retention period (e.g. 30d, 90d)")
+@click.option("--policy", is_flag=True, help="Use retention policy from litmus.yaml")
+@click.option(
+    "--type", "data_types", multiple=True,
+    type=click.Choice(["channels", "sessions", "events"]),
+    help="Data types to prune (default: all)",
+)
+@click.option("--results-dir", default=None, help="Results directory")
+@click.option("--dry-run", is_flag=True, help="Show what would be deleted")
+def data_prune(
+    older_than: str | None,
+    policy: bool,
+    data_types: tuple[str, ...],
+    results_dir: str | None,
+    dry_run: bool,
+) -> None:
+    """Delete date-partitioned data older than the retention period.
+
+    Either --older-than or --policy is required. With --policy, reads
+    retention settings from litmus.yaml.
+    """
+    from litmus.data.retention import ALL_DATA_TYPES, prune_all
+
+    if not older_than and not policy:
+        raise click.UsageError("Provide --older-than or --policy.")
+
+    results_dir_path = Path(_get_results_dir(results_dir))
+
+    if policy and not older_than:
+        from litmus.config.project import load_project_config
+
+        cfg = load_project_config()
+        older_than = cfg.retention_policy
+        if not older_than:
+            raise click.UsageError("No retention_policy set in litmus.yaml.")
+
+    assert older_than is not None  # guaranteed by checks above
+
+    types = data_types or ALL_DATA_TYPES
+    try:
+        result = prune_all(results_dir_path, older_than, data_types=types, dry_run=dry_run)
+    except ValueError as e:
+        raise click.BadParameter(str(e), param_hint="'--older-than'") from e
+
+    total = 0
+    for subdir, paths in result.items():
+        for p in paths:
+            prefix = "[dry-run] " if dry_run else ""
+            click.echo(f"{prefix}Removed {subdir}/{p.name}")
+            total += 1
+    if total == 0:
+        click.echo("Nothing to prune.")
+    elif dry_run:
+        click.echo(f"\n{total} directories would be removed.")
+    else:
+        click.echo(f"\n{total} directories removed.")
+
+
 if __name__ == "__main__":
     main()
