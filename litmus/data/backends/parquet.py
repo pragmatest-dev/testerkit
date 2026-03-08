@@ -26,6 +26,7 @@ from pathlib import Path
 from typing import Any
 
 import pyarrow as pa
+import pyarrow.compute as pc
 import pyarrow.parquet as pq
 
 from litmus.data.backends._row_helpers import (
@@ -146,51 +147,37 @@ def _enforce_schema(table: pa.Table) -> pa.Table:
             names.append(field.name)
             continue
 
-        # Extension types or type mismatches — rebuild via pylist
+        # Try Arrow-native cast first (handles most numeric/string conversions)
+        try:
+            if pa.types.is_timestamp(target_type) and pa.types.is_string(field.type):
+                # String → timestamp: use strptime then cast to target tz
+                parsed = pc.strptime(col, format="%Y-%m-%dT%H:%M:%S%z", unit="us")  # type: ignore[attr-defined]
+                columns.append(parsed.cast(target_type))
+            else:
+                columns.append(col.cast(target_type, safe=False))
+            names.append(field.name)
+            continue
+        except (pa.ArrowInvalid, pa.ArrowNotImplementedError):
+            pass
+
+        # Fallback for extension types: pylist round-trip
         values = col.to_pylist()
 
         if pa.types.is_timestamp(target_type):
-            # Parse string timestamps
-            parsed = []
+            parsed_ts = []
             for v in values:
                 if isinstance(v, str):
-                    parsed.append(datetime.fromisoformat(v.replace("Z", "+00:00")))
+                    parsed_ts.append(datetime.fromisoformat(v.replace("Z", "+00:00")))
                 else:
-                    parsed.append(v)
-            columns.append(pa.array(parsed, type=target_type))
-        elif target_type == pa.float64():
-            # Coerce to float (handles json extension → float)
-            parsed = []
-            for v in values:
-                if v is None:
-                    parsed.append(None)
-                else:
-                    try:
-                        parsed.append(float(v))
-                    except (TypeError, ValueError):
-                        parsed.append(None)
-            columns.append(pa.array(parsed, type=target_type))
+                    parsed_ts.append(v)
+            columns.append(pa.array(parsed_ts, type=target_type))
         elif target_type == pa.string():
-            # Coerce to string (handles uuid extension, json extension)
-            parsed = [str(v) if v is not None else None for v in values]
-            columns.append(pa.array(parsed, type=target_type))
-        elif target_type == pa.int64():
-            parsed = []
-            for v in values:
-                if v is None:
-                    parsed.append(None)
-                else:
-                    try:
-                        parsed.append(int(v))
-                    except (TypeError, ValueError):
-                        parsed.append(None)
-            columns.append(pa.array(parsed, type=target_type))
+            columns.append(pa.array(
+                [str(v) if v is not None else None for v in values],
+                type=target_type,
+            ))
         else:
-            # Fallback: try direct cast
-            try:
-                columns.append(col.cast(target_type))
-            except (pa.ArrowInvalid, pa.ArrowNotImplementedError):
-                columns.append(col)  # keep as-is
+            columns.append(col)  # keep as-is
 
         names.append(field.name)
 
@@ -278,6 +265,7 @@ class ParquetBackend:
         def ref_saver(vector_id: str, key: str, value: Any) -> str:
             return self._save_file(parquet_path, vector_id, key, value)
 
+        meta = build_run_metadata(test_run)
         rows: list[dict[str, Any]] = []
         for step_idx, step in enumerate(test_run.steps):
             step_arrays = (
@@ -298,6 +286,7 @@ class ParquetBackend:
                         step_path=step.step_path,
                         step_started_at=step.started_at,
                         step_ended_at=step.ended_at,
+                        meta=meta,
                     )
                     rows.append(row_model.to_flat_dict())
         return rows

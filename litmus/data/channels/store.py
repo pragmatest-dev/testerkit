@@ -108,8 +108,9 @@ class _ChannelWriter:
     """Manages streaming IPC output for a single channel."""
 
     __slots__ = (
-        "channel_id", "data_type", "schema", "path",
-        "_writer", "_buffer", "_all_rows", "_flush_threshold", "_row_count",
+        "channel_id", "data_type", "schema", "_path_template",
+        "_writer", "_buffer", "_flush_threshold", "_row_count",
+        "_segment", "_closed_paths",
     )
 
     def __init__(
@@ -123,22 +124,37 @@ class _ChannelWriter:
         self.channel_id = channel_id
         self.data_type = data_type
         self.schema = schema
-        self.path = path
+        # Template: /dir/channel_id_session.arrow → segments append _NNN
+        self._path_template = path
         self._writer: ipc.RecordBatchFileWriter | None = None
         self._buffer: list[dict] = []
-        self._all_rows: list[dict] = []  # All rows for mid-session query
         self._flush_threshold = flush_threshold
         self._row_count = 0
+        self._segment = 0
+        self._closed_paths: list[Path] = []
+
+    @property
+    def path(self) -> Path:
+        """Current segment path."""
+        if self._segment == 0:
+            return self._path_template
+        stem = self._path_template.stem
+        return self._path_template.with_name(f"{stem}_{self._segment:03d}.arrow")
+
+    @property
+    def all_paths(self) -> list[Path]:
+        """All closed segment paths (readable by ipc.open_file)."""
+        return list(self._closed_paths)
 
     def _ensure_writer(self) -> ipc.RecordBatchFileWriter:
         if self._writer is None:
-            self.path.parent.mkdir(parents=True, exist_ok=True)
-            self._writer = ipc.new_file(str(self.path), self.schema)
+            p = self.path
+            p.parent.mkdir(parents=True, exist_ok=True)
+            self._writer = ipc.new_file(str(p), self.schema)
         return self._writer
 
     def append(self, row: dict) -> None:
         self._buffer.append(row)
-        self._all_rows.append(row)
         if len(self._buffer) >= self._flush_threshold:
             self.flush()
 
@@ -153,13 +169,20 @@ class _ChannelWriter:
         writer.write_batch(batch)
         self._row_count += len(self._buffer)
         self._buffer.clear()
+        # Rotate: close this segment so it's readable, open next on demand
+        self._rotate()
+
+    def _rotate(self) -> None:
+        """Close current IPC file so it's readable, bump segment counter."""
+        if self._writer is not None:
+            self._closed_paths.append(self.path)
+            self._writer.close()
+            self._writer = None
+            self._segment += 1
 
     def close(self) -> int:
         """Flush remaining buffer and close writer. Returns total row count."""
         self.flush()
-        if self._writer is not None:
-            self._writer.close()
-            self._writer = None
         return self._row_count
 
 
@@ -425,18 +448,28 @@ class ChannelStore:
 
         tables: list[pa.Table] = []
 
-        # Active session: use in-memory rows (flushed + unflushed)
-        active_path = writer.path if writer else None
-        if writer and writer._all_rows:
-            buf_table = pa.table(
-                {col: [r[col] for r in writer._all_rows] for col in writer.schema.names},
-                schema=writer.schema,
-            )
-            tables.append(buf_table)
+        # Closed segment files from the active writer (already readable)
+        active_paths: set[Path] = set()
+        if writer:
+            for seg_path in writer.all_paths:
+                active_paths.add(seg_path)
+                try:
+                    seg_reader = ipc.open_file(str(seg_path))
+                    tables.append(seg_reader.read_all())
+                except Exception:
+                    pass
+            # Unflushed buffer
+            if writer._buffer:
+                buf_table = pa.table(
+                    {col: [r[col] for r in writer._buffer]
+                     for col in writer.schema.names},
+                    schema=writer.schema,
+                )
+                tables.append(buf_table)
 
         # Read from closed files on disk (other sessions)
         for arrow_file in sorted(self._channels_dir.glob(f"*/{channel_id}_*.arrow")):
-            if arrow_file == active_path:
+            if arrow_file in active_paths:
                 continue
             try:
                 reader = ipc.open_file(str(arrow_file))

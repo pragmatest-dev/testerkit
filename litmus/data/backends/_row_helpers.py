@@ -369,9 +369,16 @@ def build_row(
     step_path: str = "",
     step_started_at: datetime | None = None,
     step_ended_at: datetime | None = None,
+    meta: dict[str, Any] | None = None,
 ) -> MeasurementRow:
-    """Build a complete MeasurementRow from test execution context."""
-    meta = build_run_metadata(test_run)
+    """Build a complete MeasurementRow from test execution context.
+
+    Args:
+        meta: Pre-computed run metadata from ``build_run_metadata()``.
+            If ``None``, computed from ``test_run`` (backwards-compatible).
+    """
+    if meta is None:
+        meta = build_run_metadata(test_run)
     meas = build_measurement_fields(measurement)
 
     return MeasurementRow(

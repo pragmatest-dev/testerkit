@@ -99,4 +99,5 @@ dev = [
     "weasyprint>=62.0",
     "cyclonedx-python-lib>=11.0",
     "zeroconf>=0.80",
+    "pytest-benchmark>=5.2.3",
 ]

@@ -18,7 +18,6 @@ Usage::
 
 from __future__ import annotations
 
-import json
 import threading
 import warnings
 from collections.abc import Callable
@@ -29,8 +28,8 @@ from uuid import UUID
 
 import duckdb
 
+from litmus.data import duckdb_manager
 from litmus.data._event_filters import event_matches_role
-from litmus.data._event_reader import EventReader
 from litmus.data.event_log import EventLog
 from litmus.data.events import EventBase
 
@@ -68,6 +67,27 @@ def _resolve_results_dir(explicit: Path | None = None) -> Path:
     return d
 
 
+def _parse_timestamp(ts: object) -> datetime | None:
+    """Parse a timestamp value to datetime. Returns None if unparseable."""
+    if isinstance(ts, datetime):
+        return ts
+    if isinstance(ts, str):
+        try:
+            return datetime.fromisoformat(ts)
+        except ValueError:
+            return None
+    return None
+
+
+def _is_before(evt: dict, cutoff: datetime) -> bool:
+    """Return True if the event's timestamp is before ``cutoff``."""
+    ts = evt.get("received_at") or evt.get("occurred_at")
+    if ts is None:
+        return False
+    parsed = _parse_timestamp(ts)
+    return parsed is not None and parsed < cutoff
+
+
 class _Subscription:
     """Internal subscription record."""
 
@@ -95,15 +115,8 @@ class _Subscription:
             return False
         if self.session_id and evt.get("session_id") != str(self.session_id):
             return False
-        if self.since:
-            ts = evt.get("received_at") or evt.get("occurred_at")
-            if ts is not None:
-                try:
-                    evt_time = datetime.fromisoformat(str(ts)) if isinstance(ts, str) else ts
-                    if evt_time < self.since:
-                        return False
-                except (ValueError, TypeError):
-                    pass
+        if self.since and _is_before(evt, self.since):
+            return False
         return True
 
 
@@ -111,14 +124,24 @@ class EventStore:
     """Storage-agnostic event API. Callers never see paths, files, or SQL."""
 
     def __init__(self, *, _results_dir: Path | None = None) -> None:
-        """Resolve storage location internally.
-
-        The ``_results_dir`` parameter is for testing only — production
-        callers should use ``EventStore()`` with no arguments.
-        """
         self._results_dir = _resolve_results_dir(_results_dir)
         self._events_dir = self._results_dir / "events"
         self._events_dir.mkdir(parents=True, exist_ok=True)
+
+        # Start daemon and get path to index.duckdb
+        self._db_path = duckdb_manager.acquire(self._events_dir)
+
+        # Read-only connection for queries
+        self._conn: duckdb.DuckDBPyConnection | None = None
+
+        # Local buffer for immediate read-after-write consistency.
+        # The DuckDB index is built asynchronously by the daemon's ingest
+        # loop (typically <1s lag).  Until ingested, emitted events live
+        # here so that events() returns them immediately.  Buffer entries
+        # are pruned once they appear in DuckDB query results.
+        self._local_buffer: list[dict[str, Any]] = []
+        self._local_buffer_lock = threading.Lock()
+        self._MAX_BUFFER_SIZE = 50_000  # safety cap; should never be reached
 
         # Internal writer per session (created lazily via get_event_log)
         self._event_logs: dict[UUID, EventLog] = {}
@@ -131,22 +154,24 @@ class EventStore:
         self._watcher_thread: threading.Thread | None = None
         self._watcher_stop = threading.Event()
 
+    def _get_conn(self) -> duckdb.DuckDBPyConnection:
+        """Get or create a read-only DuckDB connection."""
+        if self._conn is None:
+            self._conn = duckdb.connect(str(self._db_path), read_only=True)
+        return self._conn
+
     # -- Write path ----------------------------------------------------------
 
     def get_event_log(self, session_id: UUID) -> EventLog:
-        """Get or create an EventLog for a session.
-
-        The EventLog handles JSONL writing and subscriber dispatch.
-        """
+        """Get or create an EventLog for a session."""
         if session_id not in self._event_logs:
             self._event_logs[session_id] = EventLog(self._events_dir, session_id)
         return self._event_logs[session_id]
 
     def emit(self, event: EventBase, *, session_id: UUID | None = None) -> None:
-        """Write event to storage and notify in-process subscribers.
+        """Write event to JSONL and notify in-process subscribers.
 
-        If ``session_id`` is provided, writes to that session's log.
-        Otherwise uses the session_id from the event itself.
+        The daemon's ingest loop picks up the JSONL file for indexing.
         """
         sid = session_id or getattr(event, "session_id", None)
         if sid is None:
@@ -155,8 +180,19 @@ class EventStore:
         log = self.get_event_log(sid)
         log.emit(event)
 
+        # Buffer for immediate read-after-write consistency
+        evt_dict = event.model_dump(mode="json")
+        with self._local_buffer_lock:
+            self._local_buffer.append(evt_dict)
+            if len(self._local_buffer) > self._MAX_BUFFER_SIZE:
+                warnings.warn(
+                    f"Event local buffer cap ({self._MAX_BUFFER_SIZE}) reached, "
+                    "keeping newest entries — DuckDB daemon may be unavailable",
+                    stacklevel=2,
+                )
+                self._local_buffer = self._local_buffer[-self._MAX_BUFFER_SIZE:]
+
         # Notify in-process subscribers
-        evt_dict = json.loads(event.model_dump_json())
         with self._lock:
             for sub in self._subscriptions:
                 if sub.matches(evt_dict):
@@ -178,11 +214,7 @@ class EventStore:
         role: str | None = None,
         since: datetime | None = None,
     ) -> list[dict]:
-        """Query events using DuckDB over JSONL files."""
-        jsonl_pattern = str(self._events_dir / "*" / "*.jsonl")
-
-        # Build WHERE clauses — values are trusted internal types (UUID,
-        # event_type literals, ISO datetimes), not user input.
+        """Query events from the DuckDB index."""
         conditions: list[str] = []
         if session_id:
             conditions.append(f"session_id = '{session_id}'")
@@ -193,32 +225,52 @@ class EventStore:
 
         where = f" WHERE {' AND '.join(conditions)}" if conditions else ""
 
+        # Query DuckDB index (daemon-ingested events)
+        db_events: list[dict[str, Any]] = []
+        db_ids: set[str] = set()
         try:
-            conn = duckdb.connect(":memory:")
+            conn = self._get_conn()
             query = f"""
                 SELECT *
-                FROM read_json_auto('{jsonl_pattern}',
-                     format='newline_delimited',
-                     ignore_errors=true,
-                     union_by_name=true)
+                FROM events
                 {where}
                 ORDER BY received_at ASC
             """
             result = conn.execute(query).fetchall()
             columns = [desc[0] for desc in conn.description or []]
-            conn.close()
-        except duckdb.IOException:
-            # No files match the glob
-            return []
+            for row in result:
+                evt = dict(zip(columns, row))
+                if role and not event_matches_role(evt, role):
+                    continue
+                db_events.append(evt)
+                eid = evt.get("id")
+                if eid:
+                    db_ids.add(str(eid))
+        except (duckdb.IOException, duckdb.CatalogException):
+            pass
 
-        events: list[dict[str, Any]] = []
-        for row in result:
-            evt = dict(zip(columns, row))
-            # Apply role filter (complex logic, not in SQL)
-            if role and not event_matches_role(evt, role):
-                continue
-            events.append(evt)
-        return events
+        # Merge locally-buffered events not yet in DuckDB, pruning ingested ones
+        with self._local_buffer_lock:
+            if db_ids:
+                self._local_buffer = [
+                    e for e in self._local_buffer
+                    if e.get("id") and str(e["id"]) not in db_ids
+                ]
+            for evt in self._local_buffer:
+                # Apply filters
+                if session_id and evt.get("session_id") != str(session_id):
+                    continue
+                if event_type and evt.get("event_type") != event_type:
+                    continue
+                if since and _is_before(evt, since):
+                    continue
+                if role and not event_matches_role(evt, role):
+                    continue
+                db_events.append(evt)
+
+        # Sort by received_at
+        db_events.sort(key=lambda e: str(e.get("received_at", "")))
+        return db_events
 
     def sessions(self) -> list[dict]:
         """List known sessions with metadata from SessionStarted events."""
@@ -241,11 +293,10 @@ class EventStore:
         as they arrive.
 
         In-process: instant dispatch on ``emit()``.
-        Cross-process: internal polling detects new data.
+        Cross-process: internal polling detects new data via DuckDB index.
 
         Returns an unsubscribe callable.
         """
-        # Replay existing events
         existing = self.events(
             session_id=session_id,
             event_type=event_type,
@@ -261,7 +312,6 @@ class EventStore:
                     stacklevel=2,
                 )
 
-        # Register for future events
         sub = _Subscription(
             callback,
             event_type=event_type,
@@ -272,7 +322,6 @@ class EventStore:
         with self._lock:
             self._subscriptions.append(sub)
 
-        # Start cross-process watcher if not running
         self._ensure_watcher()
 
         def unsubscribe() -> None:
@@ -298,43 +347,44 @@ class EventStore:
         self._watcher_thread.start()
 
     def _watch_loop(self) -> None:
-        """Poll for new JSONL files and events from other processes."""
-        readers: dict[Path, EventReader] = {}
-        known_files: set[Path] = set()
+        """Poll for new events from other processes using DuckDB index."""
+        last_received_at: str | None = None
 
         while not self._watcher_stop.is_set():
-            # Discover new JSONL files
             try:
-                current_files = set(self._events_dir.glob("*/*.jsonl"))
-            except OSError:
-                current_files = set()
+                conn = self._get_conn()
+                condition = (
+                    f" WHERE received_at > '{last_received_at}'"
+                    if last_received_at
+                    else ""
+                )
+                query = f"""
+                    SELECT *
+                    FROM events
+                    {condition}
+                    ORDER BY received_at ASC
+                """
+                result = conn.execute(query).fetchall()
+                columns = [desc[0] for desc in conn.description or []]
+            except (duckdb.IOException, duckdb.CatalogException):
+                result = []
+                columns = []
 
-            new_files = current_files - known_files
-            for path in new_files:
-                # Skip files owned by our own EventLog instances
-                if not any(
-                    log.path == path for log in self._event_logs.values()
-                ):
-                    readers[path] = EventReader(path)
-            known_files = current_files
-
-            # Read new events from external files
-            for path, reader in list(readers.items()):
-                if not path.exists():
-                    del readers[path]
-                    continue
-                new_events = reader.read_new()
-                for evt in new_events:
-                    with self._lock:
-                        for sub in self._subscriptions:
-                            if sub.matches(evt):
-                                try:
-                                    sub.callback(evt)
-                                except Exception as exc:
-                                    warnings.warn(
-                                        f"Event subscriber failed: {exc}",
-                                        stacklevel=2,
-                                    )
+            for row_values in result:
+                evt = dict(zip(columns, row_values))
+                ts = evt.get("received_at")
+                if ts is not None:
+                    last_received_at = str(ts)
+                with self._lock:
+                    for sub in self._subscriptions:
+                        if sub.matches(evt):
+                            try:
+                                sub.callback(evt)
+                            except Exception as exc:
+                                warnings.warn(
+                                    f"Event subscriber failed: {exc}",
+                                    stacklevel=2,
+                                )
 
             self._watcher_stop.wait(timeout=0.5)
 
@@ -358,3 +408,15 @@ class EventStore:
 
         with self._lock:
             self._subscriptions.clear()
+
+        if self._conn is not None:
+            try:
+                self._conn.close()
+            except Exception as exc:
+                warnings.warn(
+                    f"Failed to close DuckDB read connection: {exc}",
+                    stacklevel=2,
+                )
+            self._conn = None
+
+        duckdb_manager.release(self._events_dir)
