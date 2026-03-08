@@ -233,6 +233,7 @@ class TestRunLogger:
         if environment is not None:
             self.test_run.environment_json = environment.model_dump_json()
         self._current_step_index: int = -1
+        self._step_stack: list[str] = []  # Path components for nested steps
         self._step_token: Token[TestStep | None] | None = None
         # _vector_token tracks current vector context for this step.
         # Both start_step() and log_measurement() may set it; reset in end_step().
@@ -346,13 +347,22 @@ class TestRunLogger:
         return arrays
 
     def start_step(self, name: str, description: str | None = None):
-        """Begin a new test step."""
+        """Begin a new test step. Supports nesting via step_path."""
         # Auto-close any prior step that wasn't explicitly ended
         if _current_step_var.get() is not None:
             self.end_step()
         # Clear per-step instrument arrays so they don't leak between steps
         self._step_instrument_arrays = None
-        step = TestStep(name=name, description=description)
+
+        # Build hierarchy path
+        self._step_stack.append(name)
+        step_path = "/".join(self._step_stack)
+        parent_path = "/".join(self._step_stack[:-1])
+
+        step = TestStep(
+            name=name, description=description,
+            step_path=step_path, parent_path=parent_path,
+        )
         self._current_step_index += 1
         self.test_run.steps.append(step)
         # Create a default vector for this step (for simple logging without harness)
@@ -368,6 +378,8 @@ class TestRunLogger:
                 run_id=self.test_run.id,
                 step_name=name,
                 step_index=self._current_step_index,
+                step_path=step_path,
+                parent_path=parent_path,
                 description=description,
             ))
 
@@ -419,6 +431,7 @@ class TestRunLogger:
                 # Step/vector context
                 step_name=step.name,
                 step_index=self._current_step_index,
+                step_path=step.step_path,
                 vector_index=vector.index,
                 attempt=vector.attempt,
                 # Measurement fields
@@ -462,8 +475,13 @@ class TestRunLogger:
                 run_id=self.test_run.id,
                 step_name=step.name,
                 step_index=self._current_step_index,
+                step_path=step.step_path,
                 outcome=step.outcome.value,
             ))
+
+        # Pop step from hierarchy stack
+        if self._step_stack:
+            self._step_stack.pop()
 
         # Reset via tokens for proper contextvar hygiene
         if self._step_token is not None:

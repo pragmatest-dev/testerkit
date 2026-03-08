@@ -48,9 +48,20 @@ _active_spec_context_var: ContextVar[Any] = ContextVar("_active_spec_context")
 _test_node_aliases_var: ContextVar[dict[str, dict[str, str]]] = ContextVar("_test_node_aliases")
 _test_node_configs_var: ContextVar[dict[str, dict[str, Any]]] = ContextVar("_test_node_configs")
 _sequence_test_phase_var: ContextVar[str | None] = ContextVar("_sequence_test_phase")
+_channel_store_var: ContextVar[Any] = ContextVar("_channel_store")
 
 
 # --- Session-scoped getters (create-and-store on first access) ---
+#
+# Two patterns are used here:
+#
+# 1. **Create-and-store** (session-scoped): First call creates a dict and
+#    stores it in the ContextVar. Callers mutate the returned dict in place.
+#    Cleanup sets the var to a fresh empty dict.
+#
+# 2. **Return throwaway** (per-test-scoped): First call returns a new empty
+#    dict WITHOUT storing it. This prevents stale state from leaking across
+#    tests — each test gets its own empty dict that is never persisted.
 
 
 def get_step_outcomes() -> dict[str, bool]:
@@ -184,6 +195,19 @@ def set_test_node_configs(value: dict[str, dict[str, Any]]) -> None:
 def set_sequence_test_phase(value: str | None) -> None:
     """Set value. Returns None."""
     _sequence_test_phase_var.set(value)
+
+
+def get_channel_store() -> Any:
+    """Return None if not set."""
+    try:
+        return _channel_store_var.get()
+    except LookupError:
+        return None
+
+
+def set_channel_store(value: Any) -> None:
+    """Set value. Returns None."""
+    _channel_store_var.set(value)
 
 
 def _load_sequence_steps(config):
@@ -583,7 +607,6 @@ def _create_subscriber(
 ) -> Any:
     """Instantiate a subscriber with format-specific constructor args."""
     from litmus.data.backends.parquet import ParquetBackend, ParquetSubscriber
-    from litmus.data.channels.store import ChannelStore
     from litmus.data.sessions import SessionSubscriber
 
     # Resolve output directory from config (strips "results/" prefix since
@@ -594,8 +617,6 @@ def _create_subscriber(
     if cls is ParquetSubscriber:
         backend = ParquetBackend(results_dir=str(results_path))
         return ParquetSubscriber(backend)
-    if cls is ChannelStore:
-        return ChannelStore(results_path / subdir, session_id)
     if cls is SessionSubscriber:
         return SessionSubscriber(results_path / subdir)
     # Unknown subscriber — try no-arg constructor
@@ -755,8 +776,15 @@ def litmus_logger(request) -> Generator[TestRunLogger, None, None]:
         except Exception:
             pass
 
+        # Create ChannelStore directly (not via subscriber registry)
+        from litmus.data.channels.store import ChannelStore as _ChannelStore
+
+        _cs = _ChannelStore(results_path / "channels", session_id, serve=True)
+        _cs.open()
+        set_channel_store(_cs)
+
         # Register defaults not already configured
-        for fmt in ("parquet", "channels", "sessions"):
+        for fmt in ("parquet", "sessions"):
             if fmt not in configured:
                 cls = get_subscriber_class(fmt)
                 if cls is not None:
@@ -796,6 +824,7 @@ def litmus_logger(request) -> Generator[TestRunLogger, None, None]:
             fixture_config_yaml=logger.test_run.fixture_config_yaml,
             test_config_yaml=logger.test_run.test_config_yaml,
             custom_metadata=dict(logger.test_run.custom_metadata),
+            pid=os.getpid(),
         )
         event_log.emit(session_event)
 
@@ -804,6 +833,12 @@ def litmus_logger(request) -> Generator[TestRunLogger, None, None]:
 
     set_current_logger(logger)
     yield logger
+
+    # Close ChannelStore before finalizing (before EventLog closes subscribers)
+    _cs_final = get_channel_store()
+    if _cs_final is not None:
+        _cs_final.close()
+        set_channel_store(None)
 
     # Finalize (emits RunEnded, closes event log → ParquetSubscriber writes Parquet)
     test_run = logger.finalize()
@@ -1134,7 +1169,10 @@ def instruments(
         run_id = litmus_logger.test_run.id if litmus_logger else None
         event_log = litmus_logger.event_log if litmus_logger else None
         session_id = litmus_logger._session_id if litmus_logger else None
-        inst = verify_and_wrap(inst, role, record, event_log, session_id, run_id)
+        inst = verify_and_wrap(
+            inst, role, record, event_log, session_id, run_id,
+            channel_store=get_channel_store(),
+        )
 
         active[role] = inst
 

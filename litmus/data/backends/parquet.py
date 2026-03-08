@@ -37,6 +37,7 @@ from litmus.data.backends._row_helpers import (
     save_ref_to_dir,
 )
 from litmus.data.models import TestRun, Waveform
+from litmus.data.ref import is_ref, ref_scheme
 from litmus.execution.logger import INSTRUMENT_ARRAY_KEYS
 
 # Canonical schema for fixed columns. Dynamic columns (in_*, out_*, instr_*, custom_*)
@@ -48,6 +49,7 @@ MEASUREMENT_SCHEMA = pa.schema([
     ("run_ended_at", pa.timestamp("us", tz="UTC")),
     ("step_name", pa.string()),
     ("step_index", pa.int64()),
+    ("step_path", pa.string()),
     ("step_started_at", pa.timestamp("us", tz="UTC")),
     ("step_ended_at", pa.timestamp("us", tz="UTC")),
     ("vector_index", pa.int64()),
@@ -293,6 +295,7 @@ class ParquetBackend:
                         vector,
                         step_arrays,
                         ref_saver=ref_saver,
+                        step_path=step.step_path,
                         step_started_at=step.started_at,
                         step_ended_at=step.ended_at,
                     )
@@ -686,17 +689,21 @@ class ParquetSubscriber:
             MeasurementRecorded,
             RunEnded,
             SessionStarted,
+            StepEnded,
+            StepStarted,
         )
 
         self.event_types: set[type] = {
             SessionStarted, InstrumentConnected,
-            MeasurementRecorded, RunEnded,
+            StepStarted, MeasurementRecorded, StepEnded, RunEnded,
         }
         self._backend = backend
         self._session: Any = None  # SessionStarted event
         self._instruments: list[Any] = []  # InstrumentConnected events
         self._rows: list[dict[str, Any]] = []
         self._written = False
+        self._steps_with_measurements: set[int] = set()  # step_index values that have measurements
+        self._step_events: dict[int, Any] = {}  # step_index → StepStarted event
 
     def open(self) -> None:
         pass
@@ -707,14 +714,22 @@ class ParquetSubscriber:
             MeasurementRecorded,
             RunEnded,
             SessionStarted,
+            StepEnded,
+            StepStarted,
         )
 
         if isinstance(event, SessionStarted):
             self._session = event
         elif isinstance(event, InstrumentConnected):
             self._instruments.append(event)
+        elif isinstance(event, StepStarted):
+            self._step_events[event.step_index] = event
         elif isinstance(event, MeasurementRecorded):
+            self._steps_with_measurements.add(event.step_index)
             self._rows.append(self._build_row(event))
+        elif isinstance(event, StepEnded):
+            if event.step_index not in self._steps_with_measurements:
+                self._rows.append(self._build_step_summary_row(event))
         elif isinstance(event, RunEnded):
             self._write(outcome=event.outcome)
 
@@ -787,6 +802,7 @@ class ParquetSubscriber:
             # Step/vector (from event)
             step_name=event.step_name,
             step_index=event.step_index,
+            step_path=event.step_path,
             vector_index=event.vector_index,
             attempt=event.attempt,
             # Measurement (from event)
@@ -813,6 +829,46 @@ class ParquetSubscriber:
             outputs=dict(event.outputs),
             instruments=self._build_instrument_arrays(),
             custom=dict(event.custom),
+        )
+        return row.to_flat_dict()
+
+    def _build_step_summary_row(self, step_ended: Any) -> dict[str, Any]:
+        """Build a summary row for a step that completed with no measurements."""
+        s = self._session
+        env = _env_columns(s.environment_json if s else None)
+
+        row = MeasurementRow(
+            run_id=str(step_ended.run_id) if step_ended.run_id else "",
+            run_started_at=s.occurred_at if s else None,
+            run_ended_at=None,
+            operator_id=s.operator_id if s else None,
+            operator_name=s.operator_name if s else None,
+            dut_serial=s.dut_serial if s else "unknown",
+            dut_part_number=s.dut_part_number if s else None,
+            dut_revision=s.dut_revision if s else None,
+            dut_lot_number=s.dut_lot_number if s else None,
+            product_id=s.product_id if s else None,
+            product_name=s.product_name if s else None,
+            product_revision=s.product_revision if s else None,
+            station_id=s.station_id if s else "unknown",
+            station_name=s.station_name if s else None,
+            station_type=s.station_type if s else None,
+            station_location=s.station_location if s else None,
+            fixture_id=s.fixture_id if s else None,
+            sequence_id=s.sequence_id if s else None,
+            test_phase=s.test_phase if s else None,
+            git_commit=s.git_commit if s else None,
+            python_version=env.get("python_version"),
+            litmus_version=env.get("litmus_version"),
+            env_fingerprint=env.get("env_fingerprint"),
+            step_name=step_ended.step_name,
+            step_index=step_ended.step_index,
+            step_path=step_ended.step_path,
+            measurement_name="_step_summary",
+            value=None,
+            outcome=step_ended.outcome,
+            run_outcome=None,
+            instruments=self._build_instrument_arrays(),
         )
         return row.to_flat_dict()
 
@@ -875,11 +931,11 @@ class ParquetSubscriber:
 
 
 def load_file(parquet_path: Path, ref: str) -> Any:
-    """Load a file from _ref/ directory based on its extension.
+    """Load a file reference (``file://`` URI or legacy ``_ref/`` path).
 
     Args:
         parquet_path: Path to the parquet file (used to locate _ref/ dir).
-        ref: Reference string like "_ref/abc123_waveform.npz".
+        ref: Reference string — ``"file://_ref/abc.npz"`` or legacy ``"_ref/abc.npz"``.
 
     Returns:
         Loaded data in appropriate format:
@@ -890,12 +946,17 @@ def load_file(parquet_path: Path, ref: str) -> Any:
         - .pkl → pickled object
         - Other → raw file path
     """
-    if not ref.startswith(REF_PATH_PREFIX):
-        return ref  # Not a reference, return as-is
+    # Normalize: strip file:// prefix if present
+    raw = ref
+    if raw.startswith("file://"):
+        raw = raw[len("file://"):]
+
+    if not raw.startswith(REF_PATH_PREFIX):
+        return ref  # Not a file reference, return as-is
 
     # Get path relative to parquet file
     ref_dir = parquet_path.parent / (parquet_path.stem + "_ref")
-    filename = ref[len(REF_PATH_PREFIX) :]
+    filename = raw[len(REF_PATH_PREFIX):]
     path = ref_dir / filename
     ext = path.suffix.lower()
 
@@ -943,9 +1004,55 @@ def load_file(parquet_path: Path, ref: str) -> Any:
         return path
 
 
+def load_ref(
+    value: str,
+    *,
+    parquet_path: Path | None = None,
+    channel_store: Any | None = None,
+) -> Any:
+    """Unified reference loader — dispatches on URI scheme.
+
+    Args:
+        value: URI string (``channel://...``, ``file://...``, or legacy ``_ref/...``).
+        parquet_path: Path to parquet file (needed for ``file://`` refs).
+        channel_store: ChannelStore instance (needed for ``channel://`` refs).
+
+    Returns:
+        Loaded data.
+    """
+    if not is_ref(value):
+        # Legacy _ref/ path without file:// prefix
+        if isinstance(value, str) and value.startswith(REF_PATH_PREFIX) and parquet_path:
+            return load_file(parquet_path, value)
+        return value
+
+    scheme = ref_scheme(value)
+
+    if scheme == "file":
+        if parquet_path is None:
+            return value
+        return load_file(parquet_path, value)
+
+    if scheme == "channel":
+        if channel_store is None:
+            return value
+        from litmus.data.ref import parse_channel_uri
+        channel_id, _session_id = parse_channel_uri(value)
+        return channel_store.query(channel_id)
+
+    # Unknown scheme — return as-is
+    return value
+
+
 def is_file_reference(value: Any) -> bool:
-    """Check if a value is a _ref/ file reference."""
-    return isinstance(value, str) and value.startswith(REF_PATH_PREFIX)
+    """Check if a value is a file reference (``file://`` URI or legacy ``_ref/`` path)."""
+    if not isinstance(value, str):
+        return False
+    if value.startswith(REF_PATH_PREFIX):
+        return True
+    if is_ref(value) and ref_scheme(value) == "file":
+        return True
+    return False
 
 
 # Suffix patterns for stimulus signal-path columns (in_{param}_{suffix}).

@@ -447,7 +447,7 @@ class TestSaveRefToDir:
         ref_dir.mkdir()
 
         ref = save_ref_to_dir(ref_dir, "abc", "trace", src)
-        assert ref == "_ref/abc_trace.csv"
+        assert ref == "file://_ref/abc_trace.csv"
         assert (ref_dir / "abc_trace.csv").read_text() == "data"
 
     def test_bytes(self, tmp_path: Path):
@@ -457,7 +457,7 @@ class TestSaveRefToDir:
         ref_dir.mkdir()
 
         ref = save_ref_to_dir(ref_dir, "abc", "blob", b"\x00\x01\x02")
-        assert ref == "_ref/abc_blob.bin"
+        assert ref == "file://_ref/abc_blob.bin"
         assert (ref_dir / "abc_blob.bin").read_bytes() == b"\x00\x01\x02"
 
     def test_waveform_json_fallback(self, tmp_path: Path):
@@ -470,8 +470,8 @@ class TestSaveRefToDir:
         wfm = Waveform(t0=0.0, dt=0.001, Y=[1.0, 2.0, 3.0])
         ref = save_ref_to_dir(ref_dir, "abc", "wfm", wfm)
         # npz if numpy available, json otherwise — either is valid
-        assert ref.startswith("_ref/abc_wfm.")
-        assert (ref_dir / ref.removeprefix("_ref/")).exists()
+        assert ref.startswith("file://_ref/abc_wfm.")
+        assert (ref_dir / ref.removeprefix("file://_ref/")).exists()
 
     def test_pydantic_model(self, tmp_path: Path):
         from litmus.data.backends._row_helpers import save_ref_to_dir
@@ -481,7 +481,7 @@ class TestSaveRefToDir:
 
         model = DUT(serial="DUT001", part_number="PN-100")
         ref = save_ref_to_dir(ref_dir, "abc", "dut", model)
-        assert ref == "_ref/abc_dut.json"
+        assert ref == "file://_ref/abc_dut.json"
         content = json.loads((ref_dir / "abc_dut.json").read_text())
         assert content["serial"] == "DUT001"
 

@@ -23,15 +23,17 @@ Usage::
 from __future__ import annotations
 
 import os
+from collections.abc import Callable
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 from uuid import UUID, uuid4
 
-import platformdirs
 from filelock._api import BaseFileLock
 
+from litmus.data.channels.store import ChannelStore
 from litmus.data.event_log import EventLog
+from litmus.data.event_store import EventStore
 from litmus.data.events import (
     InstrumentConnected,
     InstrumentDisconnected,
@@ -67,10 +69,12 @@ class StationConnection:
         self._results_dir = results_dir
         self._mock = mock
         self._session_id = uuid4()
+        self._event_store: EventStore | None = None
         self._event_log: EventLog | None = None
         self._instruments: dict[str, Any] = {}
         self._records: dict[str, InstrumentRecord] = {}
         self._locks: dict[str, BaseFileLock] = {}
+        self._channel_store: ChannelStore | None = None
         self._started = False
 
     def start(self) -> None:
@@ -78,8 +82,15 @@ class StationConnection:
         if self._started:
             return
 
-        events_dir = self._resolve_events_dir()
-        self._event_log = EventLog(events_dir, self._session_id)
+        self._event_store = EventStore(_results_dir=self._results_dir)
+        self._event_log = self._event_store.get_event_log(self._session_id)
+
+        # Create ChannelStore directly (not as EventLog subscriber)
+        results_dir = self._event_store._results_dir
+        self._channel_store = ChannelStore(
+            results_dir / "channels", self._session_id, serve=True,
+        )
+        self._channel_store.open()
 
         # Register cleanup callback for SIGTERM/atexit
         cleanup_key = str(self._session_id)
@@ -115,8 +126,15 @@ class StationConnection:
                     outcome=outcome,
                 )
             )
-            self._event_log.close()
-            self._event_log = None
+
+        if self._channel_store:
+            self._channel_store.close()
+            self._channel_store = None
+
+        if self._event_store:
+            self._event_store.close()
+            self._event_store = None
+        self._event_log = None
 
         deregister_cleanup(str(self._session_id))
         self._started = False
@@ -181,6 +199,7 @@ class StationConnection:
                 record,
                 self._event_log,
                 self._session_id,
+                channel_store=self._channel_store,
             )
         except Exception:
             if lock is not None:
@@ -247,6 +266,84 @@ class StationConnection:
         if lock is not None and record:
             release_resource(record.resource, lock)
 
+    def events(
+        self,
+        *,
+        event_type: str | None = None,
+        role: str | None = None,
+    ) -> list[dict]:
+        """Read events from this session's log.
+
+        Args:
+            event_type: Filter by event_type (e.g. "instrument.read").
+            role: Filter by instrument role.
+
+        Returns:
+            List of event dicts, oldest first.
+        """
+        if self._event_store is None:
+            return []
+        return self._event_store.events(
+            session_id=self._session_id,
+            event_type=event_type,
+            role=role,
+        )
+
+    def on_event(
+        self,
+        callback: Callable[[dict], None],
+        *,
+        event_type: str | None = None,
+        role: str | None = None,
+        since: datetime | None = None,
+    ) -> Callable[[], None]:
+        """Subscribe to events from this session.
+
+        Replays matching events, then pushes new ones as they arrive.
+        Returns an unsubscribe callable.
+        """
+        if self._event_store is None:
+            raise RuntimeError("Station not started")
+        return self._event_store.on_event(
+            callback,
+            event_type=event_type,
+            role=role,
+            session_id=self._session_id,
+            since=since,
+        )
+
+    def observe(
+        self,
+        key: str,
+        value: object,
+        *,
+        units: str | None = None,
+        sample_interval: float | None = None,
+    ) -> str:
+        """Write an observation to the ChannelStore.
+
+        Interactive equivalent of ``context.observe(key, value)`` in pytest.
+
+        Args:
+            key: Channel name (e.g. "scope.ch1_waveform", "temp_reading").
+            value: Scalar or numeric array.
+            units: Optional unit string.
+            sample_interval: For array data, seconds between samples.
+
+        Returns:
+            ``channel://`` URI pointing to the stored data.
+
+        Raises:
+            RuntimeError: If station not started or ChannelStore unavailable.
+        """
+        if not self._started:
+            self.start()
+        if self._channel_store is None:
+            raise RuntimeError("ChannelStore not available")
+        return self._channel_store.write(
+            key, value, units=units, sample_interval=sample_interval,
+        )
+
     @property
     def instruments(self) -> dict[str, Any]:
         """Currently connected instruments by role."""
@@ -264,26 +361,13 @@ class StationConnection:
     def config(self) -> StationConfig:
         return self._config
 
-    def _resolve_events_dir(self) -> Path:
-        """Resolve events directory from explicit param → litmus.yaml → LITMUS_HOME."""
-        if self._results_dir:
-            d = self._results_dir / "events"
-            d.mkdir(parents=True, exist_ok=True)
-            return d
+    @property
+    def event_store(self) -> EventStore | None:
+        return self._event_store
 
-        found = _find_project_config()
-        if found:
-            root, project = found
-            if project.results_dir:
-                d = root / project.results_dir / "events"
-                d.mkdir(parents=True, exist_ok=True)
-                return d
-
-        # Fallback: LITMUS_HOME/results/events
-        home = Path(os.environ.get("LITMUS_HOME", platformdirs.user_data_dir("litmus")))
-        d = home / "results" / "events"
-        d.mkdir(parents=True, exist_ok=True)
-        return d
+    @property
+    def channel_store(self) -> ChannelStore | None:
+        return self._channel_store
 
     def _emergency_stop(self) -> None:
         """Best-effort cleanup on SIGTERM/atexit."""

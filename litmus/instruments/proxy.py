@@ -14,6 +14,7 @@ from uuid import UUID
 
 from litmus.data.event_log import EventLog
 from litmus.data.events import InstrumentConfigure, InstrumentRead, InstrumentSet
+from litmus.data.ref import classify_value
 
 _READ_PREFIXES = ("measure_", "read_", "get_", "query_", "fetch_")
 _SET_PREFIXES = ("set_", "write_")
@@ -79,12 +80,16 @@ class InstrumentProxy:
         event_log: EventLog,
         session_id: UUID,
         run_id: UUID | None = None,
+        resource: str = "",
+        channel_store: Any | None = None,
     ) -> None:
         object.__setattr__(self, "_driver", driver)
         object.__setattr__(self, "_role", role)
         object.__setattr__(self, "_event_log", event_log)
         object.__setattr__(self, "_session_id", session_id)
         object.__setattr__(self, "_run_id", run_id)
+        object.__setattr__(self, "_resource", resource)
+        object.__setattr__(self, "_channel_store", channel_store)
 
     def __getattr__(self, name: str) -> Any:
         attr = getattr(self._driver, name)
@@ -107,19 +112,32 @@ class InstrumentProxy:
         session_id = self._session_id
         run_id = self._run_id
         event_log = self._event_log
+        resource = self._resource
+        channel_store = self._channel_store
 
         if classification == "read":
             channel_id = f"{role}.{_strip_prefix(name, classification)}"
 
             def read_wrapper(*args: Any, **kwargs: Any) -> Any:
                 result = fn(*args, **kwargs)
+                # Write to ChannelStore directly; emit URI in event
+                event_value: Any = result
+                if channel_store is not None and result is not None:
+                    vtype = classify_value(result)
+                    if vtype != "blob":
+                        try:
+                            uri = channel_store.write(channel_id, result, source=name)
+                            event_value = uri
+                        except Exception:
+                            pass  # event still emitted with raw value
                 event_log.emit(InstrumentRead(
                     session_id=session_id,
                     run_id=run_id,
                     instrument_role=role,
                     channel_id=channel_id,
                     method=name,
-                    value=result,
+                    value=event_value,
+                    resource=resource,
                 ))
                 return result
 
@@ -130,13 +148,24 @@ class InstrumentProxy:
 
             def set_wrapper(*args: Any, **kwargs: Any) -> Any:
                 value = args[0] if args else kwargs.get("value")
+                # Write to ChannelStore directly; emit URI in event
+                event_value: Any = value
+                if channel_store is not None and value is not None:
+                    vtype = classify_value(value)
+                    if vtype != "blob":
+                        try:
+                            uri = channel_store.write(channel_id, value, source=name)
+                            event_value = uri
+                        except Exception:
+                            pass  # event still emitted with raw value
                 event_log.emit(InstrumentSet(
                     session_id=session_id,
                     run_id=run_id,
                     instrument_role=role,
                     channel_id=channel_id,
                     attribute=_strip_prefix(name, classification),
-                    value=value,
+                    value=event_value,
+                    resource=resource,
                 ))
                 return fn(*args, **kwargs)
 
@@ -150,6 +179,7 @@ class InstrumentProxy:
                 instrument_role=role,
                 method=name,
                 parameters=kwargs,
+                resource=resource,
             ))
             return fn(*args, **kwargs)
 

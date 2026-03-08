@@ -2,6 +2,8 @@
 
 from uuid import uuid4
 
+import pytest
+
 from litmus.instruments.lifecycle import (
     disconnect,
     load_and_connect,
@@ -92,4 +94,5 @@ class TestDisconnect:
             def disconnect(self):
                 raise RuntimeError("boom")
 
-        disconnect(FakeInst(), "dmm")  # Should not raise
+        with pytest.warns(UserWarning, match="Failed to cleanup instrument 'dmm'"):
+            disconnect(FakeInst(), "dmm")  # Should not raise

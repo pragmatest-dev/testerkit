@@ -3,10 +3,15 @@
 This module contains shared UI components used across pages.
 """
 
+from __future__ import annotations
+
 from collections.abc import Callable
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from nicegui import ui
+
+if TYPE_CHECKING:
+    from litmus.connect import StationConnection
 
 
 def format_datetime(dt) -> str:
@@ -263,6 +268,123 @@ def render_capability_detail(cap: dict):
                 ui.label(f"  {name}: {val} {u}".strip()).classes("text-sm font-mono ml-2")
             else:
                 ui.label(f"  {name}: {attr}").classes("text-sm font-mono ml-2")
+
+
+# ---------------------------------------------------------------------------
+# Table helpers — reduce boilerplate for styled Quasar tables
+# ---------------------------------------------------------------------------
+
+
+def table_col(
+    name: str,
+    label: str = "",
+    *,
+    width: str | None = None,
+    align: str = "left",
+) -> dict:
+    """Build a column definition dict for ``ui.table``."""
+    col: dict[str, Any] = {
+        "name": name,
+        "label": label or name.title(),
+        "field": name,
+        "align": align,
+    }
+    if width:
+        col["style"] = f"width: {width}"
+    return col
+
+
+def table_cell_slot(table: ui.table, col: str, css_class: str) -> None:
+    """Add a simple styled cell slot to a table.
+
+    For cells that just wrap the value in a ``<span class="...">``::
+
+        table_cell_slot(table, "time", "cell-muted")
+    """
+    table.add_slot(f"body-cell-{col}", f"""
+        <q-td :props="props">
+            <span class="{css_class}">{{{{ props.value }}}}</span>
+        </q-td>
+    """)
+
+
+def litmus_table(
+    columns: list[dict],
+    rows: list[dict] | None = None,
+    *,
+    row_key: str = "idx",
+    per_page: int = 5,
+) -> ui.table:
+    """Create a dense flat table with standard litmus styling."""
+    return ui.table(
+        columns=columns,
+        rows=rows or [],
+        row_key=row_key,
+        pagination={"rowsPerPage": per_page},
+    ).classes("w-full litmus-table").props("dense flat hide-pagination")
+
+
+# ---------------------------------------------------------------------------
+# InstrumentToggle — connect/disconnect button for an instrument role
+# ---------------------------------------------------------------------------
+
+
+class InstrumentToggle:
+    """Connect/disconnect button for an instrument role.
+
+    Usage::
+
+        toggle = InstrumentToggle(station, "psu")
+        # In a click handler:
+        if not toggle.ensure():
+            return
+        psu = toggle.driver
+    """
+
+    def __init__(self, station: StationConnection, role: str) -> None:
+        self.role = role
+        self._station = station
+        self._btn = ui.button("Connect", on_click=self._toggle)
+        self._btn.props("color=primary dense")
+        self._sync()
+
+    @property
+    def connected(self) -> bool:
+        return self.role in self._station.instruments
+
+    @property
+    def driver(self) -> Any:
+        return self._station.instruments[self.role]
+
+    def ensure(self) -> bool:
+        """Connect if needed. Returns True if connected."""
+        if self.connected:
+            return True
+        try:
+            self._station.instrument(self.role)
+            self._sync()
+            return True
+        except Exception as e:
+            ui.notify(f"Connection failed: {e}", type="negative")
+            return False
+
+    def _toggle(self) -> None:
+        if self.connected:
+            self._station.release(self.role)
+        else:
+            try:
+                self._station.instrument(self.role)
+            except Exception as e:
+                ui.notify(f"Connection failed: {e}", type="negative")
+        self._sync()
+
+    def _sync(self) -> None:
+        on = self.connected
+        self._btn.text = "Disconnect" if on else "Connect"
+        self._btn.props(
+            remove="color=primary" if on else "color=red",
+            add="color=red" if on else "color=primary",
+        )
 
 
 def setup_hash_sync_for_tabs(tabs, tab_names: list[str]):

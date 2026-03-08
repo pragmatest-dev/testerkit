@@ -71,6 +71,7 @@ class Measurement(BaseModel):
     """A single measurement with optional limit checking."""
 
     name: str
+    step_path: str = ""
     value: float | None
     units: str | None = None
     low_limit: float | None = None
@@ -232,6 +233,8 @@ class TestStep(BaseModel):
 
     id: UUID = Field(default_factory=uuid4)
     name: str
+    step_path: str = ""
+    parent_path: str = ""
     description: str | None = None
     started_at: datetime = Field(default_factory=_utcnow)
     ended_at: datetime | None = None
@@ -338,6 +341,7 @@ class TestRun(BaseModel):
                     yield build_row(
                         self, measurement, step.name, step_index,
                         vector, step.instrument_arrays or {},
+                        step_path=step.step_path,
                         step_started_at=step.started_at,
                         step_ended_at=step.ended_at,
                     )

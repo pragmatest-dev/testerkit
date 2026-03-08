@@ -11,11 +11,29 @@ from datetime import UTC, datetime
 from typing import Annotated, Any, Literal
 from uuid import UUID, uuid4
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_serializer
+
+from litmus.data.ref import classify_value, make_channel_uri
 
 
 def _utcnow() -> datetime:
     return datetime.now(UTC)
+
+
+def _detect_client() -> str:
+    """Derive a human-readable client name from the running process."""
+    import sys
+    from pathlib import Path
+
+    if not sys.argv:
+        return "unknown"
+    name = Path(sys.argv[0]).name
+    # Common runners → friendly names
+    if name in ("pytest", "py.test") or "pytest" in name:
+        return "pytest"
+    if name in ("jupyter", "ipykernel_launcher"):
+        return "jupyter"
+    return name
 
 
 # ---------------------------------------------------------------------------
@@ -54,6 +72,7 @@ class SessionStarted(EventBase):
 
     # Process
     pid: int | None = None
+    client: str = Field(default_factory=_detect_client)
 
     # DUT
     dut_serial: str = ""
@@ -161,6 +180,8 @@ class StepStarted(EventBase):
     event_type: Literal["test.step_started"] = "test.step_started"
     step_name: str
     step_index: int
+    step_path: str = ""
+    parent_path: str = ""
     description: str | None = None
 
 
@@ -177,6 +198,7 @@ class MeasurementRecorded(EventBase):
     # Step/vector context
     step_name: str
     step_index: int
+    step_path: str = ""
     vector_index: int | None = None
     attempt: int | None = None
 
@@ -220,6 +242,7 @@ class StepEnded(EventBase):
     event_type: Literal["test.step_ended"] = "test.step_ended"
     step_name: str
     step_index: int
+    step_path: str = ""
     outcome: str = "pass"
 
 
@@ -251,7 +274,12 @@ class DiagnosticError(EventBase):
 # ---------------------------------------------------------------------------
 
 class InstrumentRead(EventBase):
-    """Emitted when a driver read method is called via proxy."""
+    """Emitted when a driver read method is called via proxy.
+
+    For array/waveform data, ``value`` holds the full Python object in memory
+    (subscribers like ChannelStore get the real data), but JSON serialization
+    replaces it with a claim-check summary to keep JSONL compact.
+    """
 
     event_type: Literal["instrument.read"] = "instrument.read"
     instrument_role: str
@@ -259,6 +287,56 @@ class InstrumentRead(EventBase):
     method: str
     value: Any = None
     units: str | None = None
+    resource: str = ""
+
+    @model_serializer(mode="wrap")
+    def _serialize_with_claim_check(self, handler: Any) -> dict[str, Any]:
+        """Scalars and URIs inline; raw arrays → ``channel://`` URI claim-check.
+
+        When proxy writes to ChannelStore directly, value is already a URI
+        string — pass through. Fallback for no-channel-store case still
+        builds a claim-check reference.
+        """
+        from litmus.data.ref import is_ref
+
+        data = handler(self)
+        v = self.value
+
+        # Already a URI from proxy writing to ChannelStore
+        if is_ref(v):
+            return data
+
+        vtype = classify_value(v)
+
+        if vtype == "scalar":
+            return data
+
+        if vtype in ("numeric_array", "channel"):
+            uri = make_channel_uri(self.channel_id, str(self.session_id))
+            ref: dict[str, Any] = {
+                "_ref": uri,
+                "channel_id": self.channel_id,
+                "type": "array" if vtype == "numeric_array" else "struct",
+            }
+            if isinstance(v, (list, tuple)) and len(v) >= 1:
+                first = v[0]
+                if isinstance(first, (list, tuple)):
+                    samples = first
+                    dt = v[1] if len(v) > 1 else None
+                    ref["length"] = len(samples)
+                    if dt is not None:
+                        ref["sample_interval"] = dt
+                    if samples:
+                        ref["min"] = min(samples)
+                        ref["max"] = max(samples)
+            elif hasattr(v, "tolist"):
+                ref["length"] = len(v)  # type: ignore[arg-type]
+            data["value"] = ref
+            return data
+
+        # blob — repr for JSONL
+        data["value"] = repr(v)
+        return data
 
 
 class InstrumentSet(EventBase):
@@ -270,6 +348,7 @@ class InstrumentSet(EventBase):
     attribute: str
     value: Any = None
     units: str | None = None
+    resource: str = ""
 
 
 class InstrumentConfigure(EventBase):
@@ -279,6 +358,7 @@ class InstrumentConfigure(EventBase):
     instrument_role: str
     method: str
     parameters: dict[str, Any] = Field(default_factory=dict)
+    resource: str = ""
 
 
 # ---------------------------------------------------------------------------

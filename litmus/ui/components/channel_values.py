@@ -11,7 +11,8 @@ from typing import NamedTuple
 
 from nicegui import ui
 
-from litmus.data.event_reader import EventReader, find_session_log
+from litmus.data._event_reader import EventReader, find_session_log
+from litmus.data.event_store import EventStore
 from litmus.ui.shared.timestamps import format_time_short
 
 _INSTRUMENT_EVENT_TYPES = {"instrument.read", "instrument.set"}
@@ -52,12 +53,21 @@ def extract_channel_points(
 
 
 def create_channel_values_panel(
-    events_dir: Path, poll_interval: float = 0.5
+    events_dir_or_store: Path | EventStore, poll_interval: float = 0.5
 ) -> tuple[ui.column, ui.timer]:
     """Auto-discover channels and show a live-values table.
 
     Returns (container, timer) so the caller can deactivate the timer.
     """
+
+    # Resolve input: EventStore or legacy Path
+    store: EventStore | None = None
+    events_dir: Path | None = None
+    if isinstance(events_dir_or_store, EventStore):
+        store = events_dir_or_store
+        events_dir = store.events_dir
+    else:
+        events_dir = events_dir_or_store
 
     reader: EventReader | None = None
     # channel_id → (value_label, units_label, timestamp_label)

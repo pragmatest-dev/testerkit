@@ -9,12 +9,14 @@ Storage: ``results/events/{date}/{session_id}.jsonl``
 
 from __future__ import annotations
 
+import json
 import warnings
 from datetime import UTC, date, datetime
 from pathlib import Path
 from typing import Any, Protocol, runtime_checkable
 from uuid import UUID
 
+from litmus.data._event_filters import event_matches_role
 from litmus.data.backends._row_helpers import save_ref_to_dir
 from litmus.data.events import EventBase
 
@@ -88,6 +90,43 @@ class EventLog:
         """Save large data to _ref/ subdirectory."""
         self._ref_dir.mkdir(exist_ok=True)
         return save_ref_to_dir(self._ref_dir, vector_id, key, value)
+
+    def events(
+        self,
+        *,
+        event_type: str | None = None,
+        role: str | None = None,
+    ) -> list[dict]:
+        """Read events from this session's log.
+
+        Args:
+            event_type: Filter by event_type (e.g. "instrument.read").
+            role: Filter by instrument role (checks role,
+                  instrument_role, and channel_id prefix).
+
+        Returns:
+            List of event dicts, oldest first.
+        """
+        self._file.flush()
+        events: list[dict] = []
+        try:
+            with open(self._path, encoding="utf-8") as f:
+                for line in f:
+                    line = line.strip()
+                    if not line:
+                        continue
+                    try:
+                        evt = json.loads(line)
+                    except json.JSONDecodeError:
+                        continue
+                    if event_type and evt.get("event_type") != event_type:
+                        continue
+                    if role and not event_matches_role(evt, role):
+                        continue
+                    events.append(evt)
+        except OSError:
+            pass
+        return events
 
     def close(self) -> None:
         """Close all subscribers, then close the JSONL file."""

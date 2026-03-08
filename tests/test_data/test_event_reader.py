@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-from litmus.data.event_reader import EventReader, find_session_log
+from litmus.data._event_reader import EventReader, find_session_log
 
 
 @pytest.fixture

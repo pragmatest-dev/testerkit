@@ -12,7 +12,8 @@ from pathlib import Path
 
 from nicegui import ui
 
-from litmus.data.event_reader import EventReader, find_session_log
+from litmus.data._event_reader import EventReader, find_session_log
+from litmus.data.event_store import EventStore
 from litmus.ui.shared.timestamps import parse_iso_timestamp
 
 # Category → (color-dot class, badge bg, label)
@@ -84,12 +85,21 @@ def _relative_time(evt: dict, t0: str | None) -> str:
 
 
 def create_event_timeline(
-    events_dir: Path, poll_interval: float = 0.5
+    events_dir_or_store: Path | EventStore, poll_interval: float = 0.5
 ) -> tuple[ui.column, ui.timer]:
     """Create a live-updating event timeline.
 
     Returns (container, timer) so the caller can deactivate the timer.
     """
+
+    # Resolve input: EventStore or legacy Path
+    store: EventStore | None = None
+    events_dir: Path | None = None
+    if isinstance(events_dir_or_store, EventStore):
+        store = events_dir_or_store
+        events_dir = store.events_dir
+    else:
+        events_dir = events_dir_or_store
 
     # State
     reader: EventReader | None = None

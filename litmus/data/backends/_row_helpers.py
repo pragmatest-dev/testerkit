@@ -14,11 +14,13 @@ from typing import TYPE_CHECKING, Any
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from litmus.data.ref import classify_value
+
 if TYPE_CHECKING:
     from litmus.data.models import Measurement, TestRun, TestVector
 
 
-# Prefix for path references in output columns
+# Prefix for path references in output columns (legacy, use file:// URIs)
 REF_PATH_PREFIX = "_ref/"
 
 
@@ -69,6 +71,7 @@ class MeasurementRow(BaseModel):
     # Step/vector context
     step_name: str
     step_index: int
+    step_path: str = ""
     step_started_at: datetime | None = None
     step_ended_at: datetime | None = None
     vector_index: int | None = None
@@ -245,10 +248,17 @@ def build_output_columns(
     """Build outputs dict from vector observations.
 
     Keys are unprefixed (e.g. ``"temperature"``); ``to_flat_dict()`` adds
-    the ``out_`` prefix.  Scalars are inlined.  Large data uses *ref_saver*
-    if provided, otherwise non-serializable types get ``repr()``.
+    the ``out_`` prefix.
+
+    By the time this runs, observations already contain URIs (from
+    Context.observe() writing to ChannelStore) or inline scalars.
+
+    Routing:
+    - **ref URI** (``channel://``, ``file://``) → pass through as-is
+    - **scalar** → inline value
+    - **blob** → ``ref_saver()`` → ``file://`` URI, or ``repr()``
     """
-    from litmus.data.models import Waveform
+    from litmus.data.ref import is_ref
 
     cols: dict[str, Any] = {}
 
@@ -256,20 +266,23 @@ def build_output_columns(
         if key.startswith("_"):
             continue
 
-        if isinstance(value, (int, float, str, bool, type(None))):
+        # Already a URI (from proxy or context.observe writing to stores)
+        if is_ref(value):
             cols[key] = value
-        elif ref_saver is not None and isinstance(value, (Path, Waveform, bytes)):
-            cols[key] = ref_saver(str(vector.id)[:8], key, value)
-        elif ref_saver is not None and hasattr(value, "tolist"):
-            cols[key] = ref_saver(str(vector.id)[:8], key, value)
-        elif ref_saver is not None and hasattr(value, "model_dump"):
+            continue
+
+        vtype = classify_value(value)
+
+        if vtype == "scalar":
+            cols[key] = value
+        elif vtype == "blob" and ref_saver is not None:
             cols[key] = ref_saver(str(vector.id)[:8], key, value)
         elif isinstance(value, (list, dict)):
             cols[key] = value
-        elif ref_saver is None:
-            cols[key] = repr(value)
-        else:
+        elif ref_saver is not None:
             cols[key] = ref_saver(str(vector.id)[:8], key, value)
+        else:
+            cols[key] = repr(value)
 
     return cols
 
@@ -341,7 +354,7 @@ def save_ref_to_dir(ref_dir: Path, vector_id: str, key: str, value: Any) -> str:
         with open(ref_dir / filename, "wb") as f:
             pickle.dump(value, f)
 
-    return f"{REF_PATH_PREFIX}{filename}"
+    return f"file://{REF_PATH_PREFIX}{filename}"
 
 
 def build_row(
@@ -353,6 +366,7 @@ def build_row(
     instrument_arrays: dict[str, list[str | bool | None]],
     ref_saver: Callable[[str, str, Any], str] | None = None,
     *,
+    step_path: str = "",
     step_started_at: datetime | None = None,
     step_ended_at: datetime | None = None,
 ) -> MeasurementRow:
@@ -366,6 +380,7 @@ def build_row(
         # Step/vector context
         step_name=step_name,
         step_index=step_index,
+        step_path=step_path,
         step_started_at=step_started_at,
         step_ended_at=step_ended_at,
         vector_index=vector.index,

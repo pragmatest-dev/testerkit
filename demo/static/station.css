@@ -1,0 +1,94 @@
+/* Litmus Station Monitor — table styling */
+
+/* ── Shared table defaults ── */
+.litmus-table .q-table__container {
+    font-size: 13px;
+}
+.litmus-table th {
+    font-weight: 600;
+    text-transform: uppercase;
+    font-size: 11px;
+    letter-spacing: 0.03em;
+    color: #64748b;
+}
+.litmus-table td {
+    font-family: "JetBrains Mono", "Fira Code", ui-monospace, monospace;
+    font-size: 12px;
+}
+
+/* ── Event type badges ── */
+.event-badge {
+    font-size: 11px;
+    font-weight: 600;
+    padding: 2px 8px;
+    border-radius: 4px;
+    text-transform: lowercase;
+    letter-spacing: 0.02em;
+}
+.event-badge.read {
+    background: #dcfce7;
+    color: #166534;
+}
+.event-badge.set {
+    background: #fef3c7;
+    color: #92400e;
+}
+.event-badge.configure {
+    background: #dbeafe;
+    color: #1e40af;
+}
+
+/* ── Client / session badges ── */
+.session-badge {
+    font-size: 11px;
+    font-weight: 600;
+    padding: 2px 8px;
+    border-radius: 4px;
+}
+.session-badge.test_run {
+    background: #f3e8ff;
+    color: #6b21a8;
+}
+.session-badge.interactive {
+    background: #ccfbf1;
+    color: #115e59;
+}
+.session-badge.pytest {
+    background: #f3e8ff;
+    color: #6b21a8;
+}
+.session-badge.jupyter {
+    background: #fff7ed;
+    color: #9a3412;
+}
+
+/* ── Status dot ── */
+.status-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    display: inline-block;
+}
+.status-dot.active {
+    background: #22c55e;
+    box-shadow: 0 0 4px #22c55e88;
+}
+.status-dot.ended {
+    background: #cbd5e1;
+}
+
+/* ── Muted secondary text ── */
+.cell-muted {
+    color: #94a3b8;
+}
+.cell-dim {
+    color: #64748b;
+}
+
+/* ── Activity table: alternating rows ── */
+.litmus-table .q-table tbody tr:nth-child(even) {
+    background: #f8fafc;
+}
+.litmus-table .q-table tbody tr:hover {
+    background: #f1f5f9;
+}

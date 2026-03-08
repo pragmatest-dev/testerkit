@@ -66,6 +66,7 @@ class Context:
         parent: Context | None = None,
         prev: Context | None = None,
         harness: TestHarness | None = None,
+        channel_store: Any | None = None,
     ):
         """Initialize context with optional parent for inheritance.
 
@@ -73,10 +74,12 @@ class Context:
             parent: Parent context to inherit values from. If None, this is a root context.
             prev: Previous sibling context (for change detection across vectors).
             harness: TestHarness reference for accessing limits and other harness features.
+            channel_store: Optional ChannelStore for direct writes of numeric data.
         """
         self._parent = parent
         self._prev = prev
         self._harness = harness
+        self._channel_store = channel_store
         self._inputs: dict[str, Any] = {}
         self._outputs: dict[str, Any] = {}
 
@@ -86,7 +89,7 @@ class Context:
         Returns:
             New Context with this context as parent.
         """
-        return Context(parent=self, harness=self._harness)
+        return Context(parent=self, harness=self._harness, channel_store=self._channel_store)
 
     # -------------------------------------------------------------------------
     # Semantic API (preferred)
@@ -107,11 +110,21 @@ class Context:
         """Record an observation/measurement context (→ out_* column).
 
         Use for measured environmental data, raw readings, and context.
+        Numeric arrays are written to ChannelStore directly and a URI is stored.
 
         Args:
             key: Observation name (e.g., "temp_probe.temperature", "scope.waveform").
-            value: The observed value. Large arrays are stored in _ref/ directory.
+            value: The observed value. Large arrays go to ChannelStore, blobs to file store.
         """
+        from litmus.data.ref import classify_value
+
+        if self._channel_store is not None and value is not None:
+            vtype = classify_value(value)
+            if vtype in ("numeric_array", "channel"):
+                uri = self._channel_store.write(key, value, source="observe")
+                self._outputs[key] = uri
+                return
+
         self._outputs[key] = value
 
     def changed(self, key: str) -> bool:
@@ -384,6 +397,7 @@ class TestHarness:
         spec_context: SpecContext | None = None,
         instruments: dict[str, Any] | None = None,
         mock_instruments: bool = False,
+        channel_store: Any | None = None,
     ):
         """Initialize harness.
 
@@ -399,6 +413,7 @@ class TestHarness:
                          channel traceability.
             instruments: Dictionary of instrument instances for mock configuration.
             mock_instruments: Whether using mock instruments.
+            channel_store: Optional ChannelStore for direct writes of numeric data.
         """
         self._config = config or {}
         self._logger = logger
@@ -407,6 +422,7 @@ class TestHarness:
         self._spec_context = spec_context
         self._instruments = instruments or {}
         self._mock_instruments = mock_instruments
+        self._channel_store = channel_store
         self._test_level_mock = self._config.get("mocks", self._config.get("_mock", {}))
 
         # Parse retry config
@@ -453,7 +469,7 @@ class TestHarness:
         self._attempt: int = 1
 
         # Hierarchical context: run → step → vector
-        self._run_context: Context = Context(harness=self)
+        self._run_context: Context = Context(harness=self, channel_store=self._channel_store)
         self._step_context: Context | None = None
         self._vector_context: Context | None = None
         self._prev_vector_context: Context | None = None
@@ -994,7 +1010,8 @@ class TestHarness:
         # Create vector context as child of step (or run if no step)
         parent_context = self._step_context or self._run_context
         self._vector_context = Context(
-            parent=parent_context, prev=self._prev_vector_context, harness=self
+            parent=parent_context, prev=self._prev_vector_context, harness=self,
+            channel_store=self._channel_store,
         )
 
         # Pre-populate with vector params (they become in_* columns)

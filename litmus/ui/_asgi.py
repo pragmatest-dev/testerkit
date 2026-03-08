@@ -27,15 +27,15 @@ def _log(msg: str) -> None:
 _start = time.perf_counter()
 _log(f"[ASGI] Starting reload at {time.strftime('%H:%M:%S')}")
 
-from fastapi.middleware.gzip import GZipMiddleware
+from fastapi.middleware.gzip import GZipMiddleware  # noqa: E402
 
 _log(f"[ASGI] +{(time.perf_counter() - _start)*1000:.0f}ms - fastapi imported")
 
-from nicegui import core
+from nicegui import core  # noqa: E402
 
 _log(f"[ASGI] +{(time.perf_counter() - _start)*1000:.0f}ms - nicegui.core imported")
 
-from nicegui.middlewares import RedirectWithPrefixMiddleware, SetCacheControlMiddleware
+from nicegui.middlewares import RedirectWithPrefixMiddleware, SetCacheControlMiddleware  # noqa: E402, I001
 
 _log(f"[ASGI] +{(time.perf_counter() - _start)*1000:.0f}ms - middlewares imported")
 
@@ -44,7 +44,7 @@ import litmus.ui.app  # noqa: F401, E402
 
 _log(f"[ASGI] +{(time.perf_counter() - _start)*1000:.0f}ms - litmus.ui.app imported")
 
-from litmus.api.app import create_api_router
+from litmus.api.app import create_api_router  # noqa: E402
 
 _log(f"[ASGI] +{(time.perf_counter() - _start)*1000:.0f}ms - api router imported")
 

@@ -26,7 +26,6 @@ class TestSubscriberRegistry:
     def test_list_includes_lazy(self):
         names = list_subscribers()
         assert "parquet" in names
-        assert "channels" in names
         assert "sessions" in names
 
     def test_lazy_load_parquet(self):
@@ -35,11 +34,10 @@ class TestSubscriberRegistry:
         assert cls is not None
         assert cls.__name__ == "ParquetSubscriber"
 
-    def test_lazy_load_channels(self):
-        _REGISTRY.pop("channels", None)
+    def test_channels_not_in_registry(self):
+        """ChannelStore is no longer a subscriber — it's created directly."""
         cls = get_subscriber_class("channels")
-        assert cls is not None
-        assert cls.__name__ == "ChannelStore"
+        assert cls is None
 
     def test_lazy_load_sessions(self):
         _REGISTRY.pop("sessions", None)

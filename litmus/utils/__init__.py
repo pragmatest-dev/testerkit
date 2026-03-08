@@ -4,7 +4,10 @@ This package provides shared utilities for the litmus codebase:
 
 - ranges: Range expansion for pins, channels, and numeric values
 - paths: Centralized search path management
+- time: Timestamp formatting
 """
+
+from datetime import datetime
 
 from litmus.utils.paths import (
     ResourceType,
@@ -21,7 +24,26 @@ from litmus.utils.ranges import (
     generate_numeric_range,
 )
 
+
+def local_time(iso_timestamp: str, fmt: str = "%H:%M:%S") -> str:
+    """Convert an ISO 8601 UTC timestamp to a local time string.
+
+    Args:
+        iso_timestamp: e.g. ``"2026-03-07T20:07:43.123456+00:00"``
+        fmt: strftime format string. Default ``"%H:%M:%S"``.
+
+    Returns:
+        Formatted local time string, or the raw input on parse failure.
+    """
+    try:
+        return datetime.fromisoformat(iso_timestamp).astimezone().strftime(fmt)
+    except (ValueError, TypeError):
+        return iso_timestamp
+
+
 __all__ = [
+    # time
+    "local_time",
     # ranges
     "expand_range",
     "expand_numeric_range",

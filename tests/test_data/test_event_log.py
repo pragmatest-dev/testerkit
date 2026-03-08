@@ -100,7 +100,7 @@ class TestEventLog:
         log = EventLog(tmp_path / "events", session_id)
 
         ref = log.save_ref("abc12345", "trace", b"\x00\x01\x02")
-        assert ref == "_ref/abc12345_trace.bin"
+        assert ref == "file://_ref/abc12345_trace.bin"
         # Ref dir lives alongside the JSONL in the date partition
         assert (log.path.parent / f"{session_id}_ref" / "abc12345_trace.bin").exists()
         log.close()

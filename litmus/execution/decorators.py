@@ -328,6 +328,8 @@ def litmus_test(
 
                 spec_ctx = kwargs.get("spec_context") or get_active_spec_context()
 
+                from litmus.execution.plugin import get_channel_store
+
                 harness = TestHarness(
                     config=resolved_config,
                     step_name=fn.__name__,
@@ -337,6 +339,7 @@ def litmus_test(
                     instruments=instruments_fixture,
                     mock_instruments=using_mocks,
                     spec_context=spec_ctx,
+                    channel_store=get_channel_store(),
                 )
 
             # Strip context sentinel from args/kwargs - we inject the real context

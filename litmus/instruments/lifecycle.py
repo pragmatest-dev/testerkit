@@ -150,6 +150,7 @@ def verify_and_wrap(
     event_log: EventLog | None,
     session_id: UUID | None,
     run_id: UUID | None = None,
+    channel_store: Any | None = None,
 ) -> Any:
     """Verify identity, check calibration, wrap in InstrumentProxy.
 
@@ -172,7 +173,11 @@ def verify_and_wrap(
     if event_log is not None and session_id is not None:
         from litmus.instruments.proxy import InstrumentProxy
 
-        return InstrumentProxy(driver, role, event_log, session_id, run_id)
+        return InstrumentProxy(
+            driver, role, event_log, session_id, run_id,
+            resource=record.resource,
+            channel_store=channel_store,
+        )
 
     return driver
 
