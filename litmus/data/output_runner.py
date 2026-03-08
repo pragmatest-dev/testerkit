@@ -40,7 +40,10 @@ def run_outputs(
         from litmus.config.project import load_project_config
 
         config = load_project_config()
-    except Exception:
+    except FileNotFoundError:
+        return
+    except Exception as exc:
+        warnings.warn(f"Failed to load project config for outputs: {exc}", stacklevel=2)
         return
 
     if not config.outputs:
@@ -89,7 +92,7 @@ def _run_single_output(
         exporter = get_exporter(fmt)
         exported_path = exporter.export(test_run, Path(output_dir))
 
-    # If transport is configured, ship the file
+    # If transport is configured, ship the file via upload queue
     if transport_name and exported_path:
         if not exported_path.exists():
             warnings.warn(
@@ -97,10 +100,7 @@ def _run_single_output(
                 stacklevel=2,
             )
         else:
-            from litmus.data.transports import get_transport
-
-            transport = get_transport(transport_name)
-            transport.send(exported_path, output_cfg)
+            _enqueue_and_drain(exported_path, transport_name, output_cfg, results_dir)
     elif transport_name and not fmt:
         # Transport-only: ship the Parquet file directly
         from litmus.data.backends.parquet import ParquetBackend
@@ -108,7 +108,17 @@ def _run_single_output(
         backend = ParquetBackend(results_dir=results_dir)
         pq_file = backend.find_run_file(run_id)
         if pq_file:
-            from litmus.data.transports import get_transport
+            _enqueue_and_drain(pq_file, transport_name, output_cfg, results_dir)
 
-            transport = get_transport(transport_name)
-            transport.send(pq_file, output_cfg)
+
+def _enqueue_and_drain(
+    local_path: Path,
+    transport_name: str,
+    output_cfg: OutputConfig,
+    results_dir: str,
+) -> None:
+    """Enqueue an upload and immediately attempt to drain the queue."""
+    from litmus.data.transports.upload_queue import drain, enqueue
+
+    enqueue(local_path, transport_name, output_cfg, results_dir)
+    drain(results_dir)

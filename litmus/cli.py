@@ -2271,5 +2271,55 @@ def data_prune(
         click.echo(f"\n{total} directories removed.")
 
 
+# ---------------------------------------------------------------------------
+# Upload queue
+# ---------------------------------------------------------------------------
+
+
+@main.group()
+def uploads():
+    """Manage the upload queue for cloud transports."""
+    pass
+
+
+@uploads.command("status")
+@click.option("--results-dir", default=None, help="Results directory")
+def uploads_status(results_dir: str | None) -> None:
+    """Show pending/failed uploads."""
+    from litmus.data.transports.upload_queue import status
+
+    rows = status(_get_results_dir(results_dir))
+    if not rows:
+        click.echo("Upload queue is empty.")
+        return
+    for row in rows:
+        error_str = f", error: {row.last_error}" if row.last_error else ""
+        click.echo(
+            f"[{row.status}] {row.local_path} → {row.transport} "
+            f"(attempts: {row.attempts}{error_str})"
+        )
+
+
+@uploads.command("retry")
+@click.option("--results-dir", default=None, help="Results directory")
+@click.option("--max-attempts", default=3, help="Max retry attempts per upload")
+def uploads_retry(results_dir: str | None, max_attempts: int) -> None:
+    """Retry all pending/failed uploads."""
+    from litmus.data.transports.upload_queue import drain
+
+    count = drain(_get_results_dir(results_dir), max_attempts=max_attempts)
+    click.echo(f"{count} upload(s) completed.")
+
+
+@uploads.command("clear")
+@click.option("--results-dir", default=None, help="Results directory")
+def uploads_clear(results_dir: str | None) -> None:
+    """Remove completed entries from the upload queue."""
+    from litmus.data.transports.upload_queue import clear_done
+
+    count = clear_done(_get_results_dir(results_dir))
+    click.echo(f"{count} completed entry/entries removed.")
+
+
 if __name__ == "__main__":
     main()
