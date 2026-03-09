@@ -6,6 +6,7 @@ This module contains shared UI components used across pages.
 from __future__ import annotations
 
 from collections.abc import Callable
+from datetime import datetime
 from typing import TYPE_CHECKING, Any
 
 from nicegui import ui
@@ -14,16 +15,16 @@ if TYPE_CHECKING:
     from litmus.connect import StationConnection
 
 
-def format_datetime(dt) -> str:
+def format_datetime(dt: datetime | str | None) -> str:
     """Format datetime for display."""
     if not dt:
         return ""
-    if hasattr(dt, "strftime"):
+    if isinstance(dt, datetime):
         return dt.strftime("%Y-%m-%d %H:%M")
-    return str(dt)[:16] if dt else ""
+    return str(dt)[:16]
 
 
-def render_empty_card(container, title: str, message: str) -> None:
+def render_empty_card(container: Any, title: str, message: str) -> None:
     """Render an empty-state card with title and message."""
     with container:
         with ui.card().classes("w-full"):
@@ -81,92 +82,20 @@ class AutoSaver:
         self._do_save()
 
 
-def create_hash_tabs(
-    tab_definitions: list[dict],
-    default_tab: str | None = None,
-) -> tuple:
-    """Create tabs that sync with URL hash.
-
-    Args:
-        tab_definitions: List of dicts with 'name' and optional 'icon' keys.
-            Example: [{"name": "Overview", "icon": "info"}, {"name": "Settings"}]
-        default_tab: Name of the default tab. If None, uses first tab.
-
-    Returns:
-        Tuple of (tabs container, dict of tab name -> tab element, tab_panels element)
-
-    Usage:
-        tabs, tab_map, panels = create_hash_tabs([
-            {"name": "Pins", "icon": "memory"},
-            {"name": "Characteristics", "icon": "tune"},
-        ])
-
-        with panels:
-            with ui.tab_panel(tab_map["Pins"]):
-                ui.label("Pins content")
-            with ui.tab_panel(tab_map["Characteristics"]):
-                ui.label("Characteristics content")
-    """
-    if not tab_definitions:
-        raise ValueError("tab_definitions cannot be empty")
-
-    default_name = default_tab or tab_definitions[0]["name"]
-    tab_map = {}
-
-    # Create tabs container
-    tabs = ui.tabs().classes("w-full")
-
-    with tabs:
-        for tab_def in tab_definitions:
-            name = tab_def["name"]
-            icon = tab_def.get("icon")
-            tab = ui.tab(name, icon=icon) if icon else ui.tab(name)
-            tab_map[name] = tab
-
-    # Get the default tab element
-    default_tab_element = tab_map.get(default_name, tab_map[tab_definitions[0]["name"]])
-
-    # Create tab panels
-    panels = ui.tab_panels(tabs, value=default_tab_element).classes("w-full")
-
-    # JavaScript to read hash on load and sync tab
-    tab_names = [t["name"] for t in tab_definitions]
-    tab_names_js = ", ".join(f'"{n}"' for n in tab_names)
-
-    # On tab change, update URL hash
-    def on_tab_change(e):
-        if e.value:
-            tab_name = e.value.replace(" ", "-").lower()
-            ui.run_javascript(f'window.location.hash = "{tab_name}";')
-
-    tabs.on_value_change(on_tab_change)
-
-    # Read initial hash and set tab
-    ui.run_javascript(f'''
-        (function() {{
-            const hash = window.location.hash.slice(1);
-            if (hash) {{
-                const tabNames = [{tab_names_js}];
-                const normalizedHash = hash.toLowerCase().replace(/-/g, " ");
-                const matchedTab = tabNames.find(t => t.toLowerCase() === normalizedHash);
-                if (matchedTab) {{
-                    // Find and click the matching tab
-                    const tabElements = document.querySelectorAll('.q-tab');
-                    tabElements.forEach(el => {{
-                        if (el.textContent.trim().toLowerCase()
-                            .includes(matchedTab.toLowerCase())) {{
-                            el.click();
-                        }}
-                    }});
-                }}
-            }}
-        }})();
-    ''')
-
-    return tabs, tab_map, panels
+def _format_range(r: dict[str, Any], units: str = "") -> str:
+    """Format a min/max range dict as a human-readable string."""
+    u = r.get("units") or units
+    rmin, rmax = r.get("min"), r.get("max")
+    if rmin is not None and rmax is not None:
+        return f"{rmin}–{rmax} {u}".strip()
+    if rmin is not None:
+        return f"≥ {rmin} {u}".strip()
+    if rmax is not None:
+        return f"≤ {rmax} {u}".strip()
+    return ""
 
 
-def render_capability_detail(cap: dict):
+def render_capability_detail(cap: dict[str, Any]) -> None:
     """Render read-only detail view for a capability's signals, conditions, controls, attributes.
 
     Args:
@@ -184,14 +113,9 @@ def render_capability_detail(cap: dict):
             if isinstance(sig, dict):
                 r = sig.get("range")
                 if r and isinstance(r, dict):
-                    u = r.get("units") or units
-                    rmin, rmax = r.get("min"), r.get("max")
-                    if rmin is not None and rmax is not None:
-                        parts.append(f"{rmin}–{rmax} {u}".strip())
-                    elif rmin is not None:
-                        parts.append(f"≥ {rmin} {u}".strip())
-                    elif rmax is not None:
-                        parts.append(f"≤ {rmax} {u}".strip())
+                    fmt = _format_range(r, units)
+                    if fmt:
+                        parts.append(fmt)
                 v = sig.get("value")
                 if v is not None:
                     parts.append(f"= {v}")
@@ -222,18 +146,9 @@ def render_capability_detail(cap: dict):
             if isinstance(cond, dict):
                 r = cond.get("range")
                 if r and isinstance(r, dict):
-                    u = r.get("units", "")
-                    rmin, rmax = r.get("min"), r.get("max")
-                    if rmin is not None and rmax is not None:
-                        ui.label(f"  {name}: {rmin}–{rmax} {u}".strip()).classes(
-                            "text-sm font-mono ml-2"
-                        )
-                    elif rmin is not None:
-                        ui.label(f"  {name}: ≥ {rmin} {u}".strip()).classes(
-                            "text-sm font-mono ml-2"
-                        )
-                    elif rmax is not None:
-                        ui.label(f"  {name}: ≤ {rmax} {u}".strip()).classes(
+                    fmt = _format_range(r)
+                    if fmt:
+                        ui.label(f"  {name}: {fmt}").classes(
                             "text-sm font-mono ml-2"
                         )
                 else:
@@ -250,8 +165,9 @@ def render_capability_detail(cap: dict):
                     parts.append(f"default={ctrl['default']}")
                 r = ctrl.get("range")
                 if r and isinstance(r, dict):
-                    u = r.get("units", "")
-                    parts.append(f"{r.get('min', '')}–{r.get('max', '')} {u}".strip())
+                    fmt = _format_range(r)
+                    if fmt:
+                        parts.append(fmt)
                 opts = ctrl.get("options")
                 if opts:
                     parts.append(f"options={opts}")
@@ -273,6 +189,18 @@ def render_capability_detail(cap: dict):
 # ---------------------------------------------------------------------------
 # Table helpers — reduce boilerplate for styled Quasar tables
 # ---------------------------------------------------------------------------
+
+STICKY_TABLE_CSS = """
+.litmus-sticky-table {
+    overflow: auto;
+}
+.litmus-sticky-table tr th {
+    position: sticky;
+    top: 0;
+    z-index: 2;
+    background: white;
+}
+"""
 
 
 def table_col(
@@ -315,12 +243,16 @@ def litmus_table(
     row_key: str = "idx",
     per_page: int = 5,
 ) -> ui.table:
-    """Create a dense flat table with standard litmus styling."""
+    """Create a dense flat table with standard litmus styling.
+
+    Pass ``per_page=0`` to show all rows (no pagination limit).
+    """
+    pagination = {"rowsPerPage": 0} if per_page == 0 else {"rowsPerPage": per_page}
     return ui.table(
         columns=columns,
         rows=rows or [],
         row_key=row_key,
-        pagination={"rowsPerPage": per_page},
+        pagination=pagination,
     ).classes("w-full litmus-table").props("dense flat hide-pagination")
 
 
@@ -332,6 +264,9 @@ def litmus_table(
 class InstrumentToggle:
     """Connect/disconnect button for an instrument role.
 
+    Subscribes to cross-process EventStore events to show when another
+    session has the instrument in use (disables the connect button).
+
     Usage::
 
         toggle = InstrumentToggle(station, "psu")
@@ -342,11 +277,52 @@ class InstrumentToggle:
     """
 
     def __init__(self, station: StationConnection, role: str) -> None:
+        from litmus.ui.shared.event_binding import ui_subscribe
+
         self.role = role
         self._station = station
+        self._my_session = str(station.session_id)
+        # Sessions (other than ours) that have this role connected
+        self._other_sessions: set[str] = set()
         self._btn = ui.button("Connect", on_click=self._toggle)
         self._btn.props("color=primary dense")
         self._sync()
+
+        # Subscribe to cross-process instrument events
+        if station.event_store is not None:
+            self._unsub = ui_subscribe(
+                station.event_store, self._on_instrument_event,
+            )
+        else:
+            self._unsub = None
+
+    def _on_instrument_event(self, evt: dict) -> None:
+        et = evt.get("event_type", "")
+        sid = str(evt.get("session_id", ""))
+        if sid == self._my_session:
+            return  # Our own events — _sync handles local state
+
+        if et == "session.ended":
+            # Other session ended — clear any in-use state for it
+            if sid in self._other_sessions:
+                self._other_sessions.discard(sid)
+                self._sync()
+            return
+
+        if evt.get("role") != self.role:
+            return
+
+        if et == "fixture.instrument_connected":
+            self._other_sessions.add(sid)
+            self._sync()
+        elif et == "fixture.instrument_disconnected":
+            self._other_sessions.discard(sid)
+            self._sync()
+
+    @property
+    def in_use(self) -> bool:
+        """True if another session has this instrument connected."""
+        return len(self._other_sessions) > 0
 
     @property
     def connected(self) -> bool:
@@ -380,14 +356,24 @@ class InstrumentToggle:
 
     def _sync(self) -> None:
         on = self.connected
-        self._btn.text = "Disconnect" if on else "Connect"
-        self._btn.props(
-            remove="color=primary" if on else "color=red",
-            add="color=red" if on else "color=primary",
-        )
+        in_use = self.in_use
+        if in_use and not on:
+            self._btn.text = "In Use"
+            self._btn.props(
+                remove="color=primary color=red",
+                add="color=amber",
+            )
+            self._btn.disable()
+        else:
+            self._btn.enable()
+            self._btn.text = "Disconnect" if on else "Connect"
+            self._btn.props(
+                remove="color=primary color=red color=amber",
+                add="color=red" if on else "color=primary",
+            )
 
 
-def setup_hash_sync_for_tabs(tabs, tab_names: list[str]):
+def setup_hash_sync_for_tabs(tabs: ui.tabs, tab_names: list[str]) -> None:
     """Add hash sync behavior to existing tabs.
 
     Args:
@@ -404,7 +390,7 @@ def setup_hash_sync_for_tabs(tabs, tab_names: list[str]):
     tab_names_js = ", ".join(f'"{n}"' for n in tab_names)
 
     # On tab change, update URL hash
-    def on_tab_change(e):
+    def on_tab_change(e: Any) -> None:
         if e.value:
             tab_name = e.value.replace(" ", "-").lower()
             ui.run_javascript(f'window.location.hash = "{tab_name}";')
