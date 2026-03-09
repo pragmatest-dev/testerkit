@@ -61,6 +61,7 @@ def prune_all(
     *,
     data_types: tuple[str, ...] = ("channels", "sessions", "events"),
     dry_run: bool = False,
+    materialize: bool = True,
 ) -> dict[str, list[Path]]:
     """Prune date-partitioned subdirectories under *results_dir*.
 
@@ -69,6 +70,8 @@ def prune_all(
         older_than: Duration string (e.g. '30d').
         data_types: Which subdirectories to prune.
         dry_run: If True, report but don't delete.
+        materialize: If True (default), copy channel data referenced by
+            parquet files into ``_ref/`` sidecar dirs before pruning channels.
 
     Returns:
         Dict mapping subdirectory name to list of pruned date dirs.
@@ -76,6 +79,17 @@ def prune_all(
     delta = parse_duration(older_than)
     cutoff = date.today() - delta
     result: dict[str, list[Path]] = {}
+
+    # Materialize channel refs before pruning channel data
+    if materialize and "channels" in data_types:
+        dirs_to_prune = prune_date_dirs(
+            results_dir / "channels", cutoff, dry_run=True
+        )
+        if dirs_to_prune:
+            from litmus.data.materialize import materialize_channel_refs
+
+            materialize_channel_refs(results_dir, dirs_to_prune)
+
     for subdir in data_types:
         result[subdir] = prune_date_dirs(results_dir / subdir, cutoff, dry_run=dry_run)
     return result

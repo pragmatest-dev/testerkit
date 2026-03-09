@@ -1,75 +1,70 @@
-"""Tests for EventReader incremental JSONL reader."""
+"""Tests for EventReader incremental Arrow IPC reader."""
 
 from __future__ import annotations
 
 import json
 from pathlib import Path
 
+import pyarrow as pa
+import pyarrow.ipc as ipc
 import pytest
 
 from litmus.data._event_reader import EventReader, find_session_log
+from litmus.data.event_log import _IPC_SCHEMA
 
 
 @pytest.fixture
-def jsonl_path(tmp_path: Path) -> Path:
-    return tmp_path / "events" / "2026-03-06" / "abc123.jsonl"
+def arrow_path(tmp_path: Path) -> Path:
+    return tmp_path / "events" / "2026-03-06" / "abc123.arrow"
 
 
 def _write_events(path: Path, events: list[dict]) -> None:
+    """Write events to an Arrow IPC file."""
     path.parent.mkdir(parents=True, exist_ok=True)
-    with open(path, "a", encoding="utf-8") as f:
+    with pa.OSFile(str(path), "wb") as sink:
+        writer = ipc.new_file(sink, _IPC_SCHEMA)
         for evt in events:
-            f.write(json.dumps(evt) + "\n")
+            batch = pa.record_batch(
+                {
+                    "id": [evt.get("id", "test")],
+                    "event_type": [evt.get("event_type", "unknown")],
+                    "occurred_at": [evt.get("occurred_at", "2026-01-01")],
+                    "received_at": [evt.get("received_at", "2026-01-01")],
+                    "session_id": [evt.get("session_id", "sid")],
+                    "run_id": [evt.get("run_id")],
+                    "json": [json.dumps(evt)],
+                },
+                schema=_IPC_SCHEMA,
+            )
+            writer.write_batch(batch)
+        writer.close()
 
 
 class TestEventReader:
-    def test_read_new_empty_file(self, jsonl_path: Path):
-        _write_events(jsonl_path, [])
-        reader = EventReader(jsonl_path)
+    def test_read_new_empty_file(self, arrow_path: Path):
+        _write_events(arrow_path, [])
+        reader = EventReader(arrow_path)
         assert reader.read_new() == []
 
-    def test_read_new_returns_events(self, jsonl_path: Path):
+    def test_read_new_returns_events(self, arrow_path: Path):
         events = [{"event_type": "session.started", "station_id": "S1"}]
-        _write_events(jsonl_path, events)
-        reader = EventReader(jsonl_path)
+        _write_events(arrow_path, events)
+        reader = EventReader(arrow_path)
         result = reader.read_new()
         assert len(result) == 1
         assert result[0]["event_type"] == "session.started"
 
-    def test_incremental_reads(self, jsonl_path: Path):
-        _write_events(jsonl_path, [{"event_type": "a"}])
-        reader = EventReader(jsonl_path)
-        first = reader.read_new()
-        assert len(first) == 1
-
-        _write_events(jsonl_path, [{"event_type": "b"}, {"event_type": "c"}])
-        second = reader.read_new()
-        assert len(second) == 2
-        assert second[0]["event_type"] == "b"
-
-    def test_read_all_resets_offset(self, jsonl_path: Path):
-        _write_events(jsonl_path, [{"event_type": "a"}, {"event_type": "b"}])
-        reader = EventReader(jsonl_path)
+    def test_read_all_resets_offset(self, arrow_path: Path):
+        _write_events(arrow_path, [{"event_type": "a"}, {"event_type": "b"}])
+        reader = EventReader(arrow_path)
         reader.read_new()  # consume all
 
         result = reader.read_all()
         assert len(result) == 2
 
     def test_missing_file(self, tmp_path: Path):
-        reader = EventReader(tmp_path / "nonexistent.jsonl")
+        reader = EventReader(tmp_path / "nonexistent.arrow")
         assert reader.read_new() == []
-
-    def test_partial_write_skips_bad_json(self, jsonl_path: Path):
-        jsonl_path.parent.mkdir(parents=True, exist_ok=True)
-        with open(jsonl_path, "w", encoding="utf-8") as f:
-            f.write('{"event_type": "a"}\n')
-            f.write('{"incomplete\n')
-            f.write('{"event_type": "c"}\n')
-        reader = EventReader(jsonl_path)
-        result = reader.read_new()
-        assert len(result) == 2
-        assert result[0]["event_type"] == "a"
-        assert result[1]["event_type"] == "c"
 
 
 class TestFindSessionLog:
@@ -78,13 +73,13 @@ class TestFindSessionLog:
         import time
 
         events_dir = tmp_path / "events"
-        path1 = events_dir / "2026-03-05" / "old.jsonl"
-        path2 = events_dir / "2026-03-06" / "new.jsonl"
-        _write_events(path1, [{"a": 1}])
+        path1 = events_dir / "2026-03-05" / "old.arrow"
+        path2 = events_dir / "2026-03-06" / "new.arrow"
+        _write_events(path1, [{"event_type": "a"}])
         # Ensure path1 has an older mtime
         past = time.time() - 10
         os.utime(path1, (past, past))
-        _write_events(path2, [{"b": 2}])
+        _write_events(path2, [{"event_type": "b"}])
         result = find_session_log(events_dir)
         assert result == path2
 

@@ -3,8 +3,8 @@
 Subclasses ``DaemonManager`` for the DuckDB-specific daemon.
 Clients call ``acquire()`` / ``release()``.
 
-JSONL files remain the crash-safe source of truth.  The DuckDB file is
-disposable — deleted and rebuilt from JSONL on every daemon start.
+Arrow IPC files are the crash-safe source of truth. The in-memory
+DuckDB index is rebuilt from IPC files on every daemon start.
 """
 
 from __future__ import annotations
@@ -30,20 +30,22 @@ class DuckDBDaemonManager(DaemonManager):
         ]
 
 
-def db_path(events_dir: Path) -> Path:
-    """Path to the DuckDB index file."""
-    return events_dir / "index.duckdb"
-
-
 # Module-level convenience — EventStore uses these directly.
 
-def acquire(events_dir: Path) -> Path:
+def acquire(events_dir: Path) -> str:
     """Acquire a reference to the DuckDB daemon, starting it if needed.
 
-    Returns the path to ``index.duckdb`` for read-only queries.
+    Returns the gRPC location string for Flight queries.
     """
-    DuckDBDaemonManager(events_dir).acquire()
-    return db_path(events_dir)
+    mgr = DuckDBDaemonManager(events_dir)
+    mgr.acquire()
+    state = mgr.read_state()
+    location = state.get("location")
+    if not location:
+        # Fallback: read from port file (daemon writes it before ready)
+        port_file = events_dir / "_duckdb_flight_port"
+        location = port_file.read_text().strip()
+    return location
 
 
 def release(events_dir: Path) -> None:

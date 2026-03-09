@@ -121,6 +121,7 @@ class ChannelClient:
         self,
         channel_id: str,
         *,
+        session_id: str | None = None,
         start: datetime | None = None,
         end: datetime | None = None,
         max_points: int | None = None,
@@ -130,12 +131,15 @@ class ChannelClient:
 
         Args:
             channel_id: Channel to query.
+            session_id: If provided, only return data for this session.
             start: Filter rows after this time (zoom window start).
             end: Filter rows before this time (zoom window end).
             max_points: Downsample to at most this many rows (LTTB).
             last_n: Return only the last N rows.
         """
         params: list[str] = []
+        if session_id is not None:
+            params.append(f"session_id={quote(session_id)}")
         if start is not None:
             params.append(f"start={quote(start.isoformat())}")
         if end is not None:

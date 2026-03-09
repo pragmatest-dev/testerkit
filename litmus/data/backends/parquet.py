@@ -253,7 +253,23 @@ class ParquetBackend:
         # Write to Parquet
         pq.write_table(table, parquet_path)
 
+        # Notify runs daemon so it indexes immediately
+        self._notify_daemon(parquet_path)
+
         return parquet_path
+
+    def _notify_daemon(self, parquet_path: Path) -> None:
+        """Best-effort notification to the runs DuckDB daemon."""
+        try:
+            from litmus.data.run_store import RunStore
+
+            run_store = RunStore(_results_dir=self.results_dir)
+            try:
+                run_store.notify_new_run(parquet_path)
+            finally:
+                run_store.close()
+        except Exception:
+            pass  # Non-fatal: daemon will rebuild from files on next start
 
     def _build_measurement_rows(
         self,
@@ -361,169 +377,47 @@ class ParquetBackend:
         return metadata
 
     def list_runs(self, limit: int = 50) -> list[dict]:
-        """List recent test runs.
+        """List recent test runs. Delegates to RunStore."""
+        from litmus.data.run_store import RunStore
 
-        Args:
-            limit: Maximum number of runs to return.
-
-        Returns:
-            List of test run summary records, most recent first.
-        """
-        runs = []
-        runs_dir = self.results_dir / "runs"
-
-        if not runs_dir.exists():
-            return runs
-
-        # Collect all parquet files across date directories
-        # Files are named: {timestamp}_{serial}.parquet or {timestamp}.parquet
-        # Skip _ref directories
-        parquet_files = sorted(
-            (p for p in runs_dir.rglob("*.parquet") if "_ref" not in p.parent.name),
-            reverse=True,
-        )
-
-        for pq_file in parquet_files:
-            if len(runs) >= limit:
-                break
-
-            try:
-                table = pq.read_table(pq_file)
-                if table.num_rows == 0:
-                    continue
-
-                # Get first row for run-level info (all rows have same run metadata)
-                row = table.to_pylist()[0]
-
-                # Build summary record
-                summary = {
-                    "test_run_id": row.get("run_id"),
-                    "started_at": row.get("run_started_at"),
-                    "ended_at": row.get("run_ended_at"),
-                    "dut_serial": row.get("dut_serial"),
-                    "dut_part_number": row.get("dut_part_number"),
-                    "product_id": row.get("product_id"),
-                    "station_id": row.get("station_id"),
-                    "station_type": row.get("station_type"),
-                    "test_sequence_id": row.get("sequence_id"),
-                    "test_phase": row.get("test_phase"),
-                    "operator": row.get("operator_id"),
-                    "outcome": row.get("run_outcome"),
-                    "total_measurements": table.num_rows,
-                    "failed_measurements": sum(
-                        1 for r in table.to_pylist() if r.get("outcome") == "fail"
-                    ),
-                }
-                runs.append(summary)
-            except Exception:
-                continue  # Skip corrupted files
-
-        # Sort by started_at descending
-        runs.sort(key=lambda x: x.get("started_at") or "", reverse=True)
-        return runs[:limit]
+        run_store = RunStore(_results_dir=self.results_dir)
+        try:
+            return run_store.list_runs(limit=limit)
+        finally:
+            run_store.close()
 
     def find_run_file(self, run_id: str) -> Path | None:
-        """Find parquet file for a run_id (cached)."""
-        runs_dir = self.results_dir / "runs"
-        if not runs_dir.exists():
-            return None
+        """Find parquet file for a run_id. Delegates to RunStore."""
+        from litmus.data.run_store import RunStore
 
-        run_prefix = run_id[:8] if len(run_id) >= 8 else run_id
-
-        # Sort by date folder descending, then by filename descending (most recent first)
-        date_dirs = sorted(runs_dir.iterdir(), reverse=True) if runs_dir.exists() else []
-        for date_dir in date_dirs:
-            if not date_dir.is_dir():
-                continue
-            for pq_file in sorted(date_dir.glob("*.parquet"), reverse=True):
-                if "_ref" in pq_file.parent.name:
-                    continue
-                try:
-                    # Read just first row to check run_id
-                    pf = pq.ParquetFile(pq_file)
-                    table = pf.read_row_group(0, columns=["run_id"])
-                    if table.num_rows == 0:
-                        continue
-                    file_run_id = table.to_pylist()[0].get("run_id", "")
-                    if file_run_id.startswith(run_prefix) or run_prefix in file_run_id:
-                        return pq_file
-                except Exception:
-                    continue
-        return None
+        run_store = RunStore(_results_dir=self.results_dir)
+        try:
+            return run_store.find_run_file(run_id)
+        finally:
+            run_store.close()
 
     def get_run(self, run_id: str) -> dict | None:
-        """Get a specific test run by ID.
+        """Get a specific test run by ID. Delegates to RunStore."""
+        from litmus.data.run_store import RunStore
 
-        Args:
-            run_id: The test run ID (can be partial, at least 8 chars).
-
-        Returns:
-            Test run summary record or None if not found.
-        """
-        pq_file = self.find_run_file(run_id)
-        if pq_file is None:
-            return None
-
+        run_store = RunStore(_results_dir=self.results_dir)
         try:
-            table = pq.read_table(pq_file)
-            if table.num_rows == 0:
-                return None
-            row = table.to_pylist()[0]
-            return {
-                "test_run_id": row.get("run_id"),
-                "started_at": row.get("run_started_at"),
-                "ended_at": row.get("run_ended_at"),
-                "dut_serial": row.get("dut_serial"),
-                "dut_part_number": row.get("dut_part_number"),
-                "product_id": row.get("product_id"),
-                "station_id": row.get("station_id"),
-                "station_type": row.get("station_type"),
-                "test_sequence_id": row.get("sequence_id"),
-                "test_phase": row.get("test_phase"),
-                "operator": row.get("operator_id"),
-                "outcome": row.get("run_outcome"),
-                "total_measurements": table.num_rows,
-                "_file": str(pq_file),  # Cache file path for get_measurements
-            }
-        except Exception:
-            return None
+            return run_store.get_run(run_id)
+        finally:
+            run_store.close()
 
     def get_measurements(self, run_id: str, *, _file: str | None = None) -> list[dict]:
-        """Get all measurements for a specific test run.
+        """Get all measurements for a specific test run. Delegates to RunStore."""
+        from litmus.data.run_store import RunStore
 
-        Args:
-            run_id: The test run ID (can be partial, at least 8 chars).
-            _file: Cached file path from get_run (optimization).
-
-        Returns:
-            List of measurement records for the run.
-        """
-        if _file:
-            pq_file = Path(_file)
-        else:
-            pq_file = self.find_run_file(run_id)
-
-        if pq_file is None or not pq_file.exists():
-            return []
-
+        run_store = RunStore(_results_dir=self.results_dir)
         try:
-            table = pq.read_table(pq_file)
-            return table.to_pylist()
-        except Exception:
-            return []
+            return run_store.get_measurements(run_id, _file=_file)
+        finally:
+            run_store.close()
 
     def get_vectors(self, run_id: str) -> list[dict]:
-        """Get unique test vectors for a specific test run.
-
-        Extracts unique (step_name, vector_index, attempt) combinations
-        from the measurements table.
-
-        Args:
-            run_id: The test run ID (can be partial, at least 8 chars).
-
-        Returns:
-            List of vector records for the run.
-        """
+        """Get unique test vectors for a specific test run."""
         measurements = self.get_measurements(run_id)
         if not measurements:
             return []
@@ -551,8 +445,7 @@ class ParquetBackend:
                 params = {}
                 for k, v in m.items():
                     if k.startswith("in_") and "_" not in k[3:]:
-                        # e.g., in_vin but not in_vin_instrument
-                        param_name = k[3:]  # Remove "in_" prefix
+                        param_name = k[3:]
                         params[param_name] = v
                 vector_info["params"] = params
                 vectors_seen[key] = vector_info
@@ -560,40 +453,26 @@ class ParquetBackend:
         return list(vectors_seen.values())
 
     def get_run_metadata(self, run_id: str) -> dict[str, str] | None:
-        """Get file-level metadata (config snapshots) for a run.
+        """Get file-level metadata (config snapshots) for a run."""
+        from litmus.data.run_store import RunStore
 
-        Args:
-            run_id: The test run ID (can be partial).
+        run_store = RunStore(_results_dir=self.results_dir)
+        try:
+            pq_file = run_store.find_run_file(run_id)
+        finally:
+            run_store.close()
 
-        Returns:
-            Dict with config YAML strings, or None if not found.
-        """
-        runs_dir = self.results_dir / "runs"
-
-        if not runs_dir.exists():
+        if pq_file is None:
             return None
 
-        run_prefix = run_id[:8] if len(run_id) >= 8 else run_id
-        for pq_file in runs_dir.rglob("*.parquet"):
-            if "_ref" in pq_file.parent.name:
-                continue
-            try:
-                pf = pq.ParquetFile(pq_file)
-                # Quick check: read first row to get run_id
-                table = pf.read_row_group(0)
-                if table.num_rows == 0:
-                    continue
-                row = table.to_pylist()[0]
-                file_run_id = row.get("run_id", "")
-                if file_run_id.startswith(run_prefix) or run_prefix in file_run_id:
-                    raw_metadata = pf.schema_arrow.metadata or {}
-                    return {
-                        k.decode("utf-8"): v.decode("utf-8") for k, v in raw_metadata.items()
-                    }
-            except Exception:
-                continue
-
-        return None
+        try:
+            pf = pq.ParquetFile(pq_file)
+            raw_metadata = pf.schema_arrow.metadata or {}
+            return {
+                k.decode("utf-8"): v.decode("utf-8") for k, v in raw_metadata.items()
+            }
+        except Exception:
+            return None
 
     # =========================================================================
     # TestRun Reconstruction (for post-hoc export)
@@ -660,6 +539,10 @@ class ParquetBackend:
             table = table.replace_schema_metadata(file_metadata)
 
         pq.write_table(table, parquet_path)
+
+        # Notify runs daemon so it indexes immediately
+        self._notify_daemon(parquet_path)
+
         return parquet_path
 
 class ParquetSubscriber:
@@ -984,6 +867,11 @@ def load_file(parquet_path: Path, ref: str) -> Any:
     elif ext == ".bin":
         return path.read_bytes()
 
+    elif ext == ".arrow":
+        import pyarrow.ipc as ipc_mod
+
+        return ipc_mod.open_file(path).read_all()
+
     elif ext == ".pkl":
         with open(path, "rb") as f:
             return pickle.load(f)
@@ -1026,8 +914,8 @@ def load_ref(
         if channel_store is None:
             return value
         from litmus.data.ref import parse_channel_uri
-        channel_id, _session_id = parse_channel_uri(value)
-        return channel_store.query(channel_id)
+        channel_id, session_id = parse_channel_uri(value)
+        return channel_store.query(channel_id, session_id=session_id or None)
 
     # Unknown scheme — return as-is
     return value

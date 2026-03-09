@@ -279,8 +279,9 @@ class TestEventLogIntegration:
         logger.end_step()
         logger.finalize()
 
-        lines = event_log.path.read_text().strip().splitlines()
-        types = [json.loads(line)["event_type"] for line in lines]
+        event_log.close()
+        events = event_log.events()
+        types = [e["event_type"] for e in events]
         assert types == [
             "test.step_started",
             "test.measurement",
@@ -313,9 +314,9 @@ class TestEventLogIntegration:
         logger.end_step()
         logger.finalize()
 
-        lines = event_log.path.read_text().strip().splitlines()
-        for line in lines:
-            data = json.loads(line)
+        event_log.close()
+        events = event_log.events()
+        for data in events:
             if data["event_type"] == "test.measurement":
                 # These fields should NOT be on the normalized event
                 assert "station_id" not in data

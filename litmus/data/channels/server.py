@@ -93,6 +93,8 @@ class ChannelFlightServer(flight.FlightServerBase):
             channel_id, query_str = raw.split("?", 1)
             params = parse_qs(query_str)
             kwargs: dict[str, Any] = {}
+            if "session_id" in params:
+                kwargs["session_id"] = params["session_id"][0]
             if "max_points" in params:
                 kwargs["max_points"] = int(params["max_points"][0])
             if "last_n" in params:

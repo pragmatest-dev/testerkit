@@ -3,12 +3,14 @@
 import json
 from uuid import uuid4
 
+import pyarrow.ipc as ipc
+
 from litmus.data.event_log import EventLog
 from litmus.data.events import MeasurementRecorded, RunEnded, SessionStarted
 
 
 class TestEventLog:
-    def test_emit_writes_jsonl(self, tmp_path):
+    def test_emit_writes_arrow_ipc(self, tmp_path):
         run_id = uuid4()
         log = EventLog(tmp_path / "events", run_id)
 
@@ -20,9 +22,11 @@ class TestEventLog:
         log.emit(event)
         log.close()
 
-        lines = log.path.read_text().strip().splitlines()
-        assert len(lines) == 1
-        data = json.loads(lines[0])
+        reader = ipc.open_file(str(log.path))
+        assert reader.num_record_batches == 1
+        batch = reader.get_batch(0)
+        assert batch.num_rows == 1
+        data = json.loads(batch.column("json")[0].as_py())
         assert data["event_type"] == "session.started"
         assert data["station_id"] == "st1"
         assert data["received_at"] is not None
@@ -101,7 +105,7 @@ class TestEventLog:
 
         ref = log.save_ref("abc12345", "trace", b"\x00\x01\x02")
         assert ref == "file://_ref/abc12345_trace.bin"
-        # Ref dir lives alongside the JSONL in the date partition
+        # Ref dir lives alongside the Arrow IPC in the date partition
         assert (log.path.parent / f"{session_id}_ref" / "abc12345_trace.bin").exists()
         log.close()
 
@@ -117,7 +121,9 @@ class TestEventLog:
         log.emit(RunEnded(run_id=run_id, outcome="pass"))
         log.close()
 
-        lines = log.path.read_text().strip().splitlines()
-        assert len(lines) == 3
-        types = [json.loads(line)["event_type"] for line in lines]
+        reader = ipc.open_file(str(log.path))
+        # Events are batched together (flushed on close), so we get 1 batch
+        assert reader.num_record_batches == 1
+        batch = reader.get_batch(0)
+        types = batch.column("event_type").to_pylist()
         assert types == ["session.started", "test.measurement", "test.run_ended"]

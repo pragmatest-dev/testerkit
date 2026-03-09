@@ -17,6 +17,7 @@ from uuid import UUID
 import pyarrow as pa
 import pyarrow.ipc as ipc
 
+from litmus.data._ipc_writer import BufferedIPCWriter
 from litmus.data.channels.models import (
     SCALAR_SCHEMA,
     ChannelDescriptor,
@@ -104,14 +105,13 @@ def _decimate_table(table: pa.Table, max_points: int) -> pa.Table:
     return table.take(indices)
 
 
-class _ChannelWriter:
-    """Manages streaming IPC output for a single channel."""
+class _ChannelWriter(BufferedIPCWriter):
+    """Manages streaming IPC output for a single channel.
 
-    __slots__ = (
-        "channel_id", "data_type", "schema", "_path_template",
-        "_writer", "_buffer", "_flush_threshold", "_row_count",
-        "_segment", "_closed_paths",
-    )
+    Extends ``BufferedIPCWriter`` with segment rotation: after each flush
+    the current IPC file is closed (making it readable) and the next flush
+    writes to a new segment file.
+    """
 
     def __init__(
         self,
@@ -121,15 +121,11 @@ class _ChannelWriter:
         path: Path,
         flush_threshold: int = 100,
     ) -> None:
+        super().__init__(path=path, schema=schema, flush_threshold=flush_threshold)
         self.channel_id = channel_id
         self.data_type = data_type
-        self.schema = schema
         # Template: /dir/channel_id_session.arrow → segments append _NNN
         self._path_template = path
-        self._writer: ipc.RecordBatchFileWriter | None = None
-        self._buffer: list[dict] = []
-        self._flush_threshold = flush_threshold
-        self._row_count = 0
         self._segment = 0
         self._closed_paths: list[Path] = []
 
@@ -146,44 +142,13 @@ class _ChannelWriter:
         """All closed segment paths (readable by ipc.open_file)."""
         return list(self._closed_paths)
 
-    def _ensure_writer(self) -> ipc.RecordBatchFileWriter:
-        if self._writer is None:
-            p = self.path
-            p.parent.mkdir(parents=True, exist_ok=True)
-            self._writer = ipc.new_file(str(p), self.schema)
-        return self._writer
-
-    def append(self, row: dict) -> None:
-        self._buffer.append(row)
-        if len(self._buffer) >= self._flush_threshold:
-            self.flush()
-
-    def flush(self) -> None:
-        if not self._buffer:
-            return
-        writer = self._ensure_writer()
-        batch = pa.record_batch(
-            {col: [r[col] for r in self._buffer] for col in self.schema.names},
-            schema=self.schema,
-        )
-        writer.write_batch(batch)
-        self._row_count += len(self._buffer)
-        self._buffer.clear()
-        # Rotate: close this segment so it's readable, open next on demand
-        self._rotate()
-
-    def _rotate(self) -> None:
-        """Close current IPC file so it's readable, bump segment counter."""
+    def _on_flush(self, batch: pa.RecordBatch) -> None:
+        """Rotate: close this segment so it's readable, open next on demand."""
         if self._writer is not None:
             self._closed_paths.append(self.path)
             self._writer.close()
             self._writer = None
             self._segment += 1
-
-    def close(self) -> int:
-        """Flush remaining buffer and close writer. Returns total row count."""
-        self.flush()
-        return self._row_count
 
 
 class ChannelStore:
@@ -422,6 +387,7 @@ class ChannelStore:
         self,
         channel_id: str,
         *,
+        session_id: str | None = None,
         start: datetime | None = None,
         end: datetime | None = None,
         last_n: int | None = None,
@@ -433,6 +399,8 @@ class ChannelStore:
 
         Args:
             channel_id: Channel to query.
+            session_id: If provided, only return data for this session
+                (matched by first 8 chars of the session UUID).
             start: Filter rows after this time.
             end: Filter rows before this time.
             last_n: Return only the last N rows.
@@ -441,6 +409,7 @@ class ChannelStore:
                 for faithful visual representation. Applied after all other
                 filters. Requires a ``value`` or ``samples`` column.
         """
+        session_short = session_id[:8] if session_id else None
         writer = self._writers.get(channel_id)
 
         # Determine schema: from active writer, or try reading from disk
@@ -449,8 +418,11 @@ class ChannelStore:
         tables: list[pa.Table] = []
 
         # Closed segment files from the active writer (already readable)
+        # Skip if filtering to a different session
         active_paths: set[Path] = set()
-        if writer:
+        writer_session = str(self._session_id)[:8] if writer else None
+        include_writer = writer and (session_short is None or session_short == writer_session)
+        if include_writer and writer:
             for seg_path in writer.all_paths:
                 active_paths.add(seg_path)
                 try:
@@ -459,16 +431,20 @@ class ChannelStore:
                 except Exception:
                     pass
             # Unflushed buffer
-            if writer._buffer:
+            if writer.buffer:
                 buf_table = pa.table(
-                    {col: [r[col] for r in writer._buffer]
+                    {col: [r[col] for r in writer.buffer]
                      for col in writer.schema.names},
                     schema=writer.schema,
                 )
                 tables.append(buf_table)
 
-        # Read from closed files on disk (other sessions)
-        for arrow_file in sorted(self._channels_dir.glob(f"*/{channel_id}_*.arrow")):
+        # Read from closed files on disk (other sessions or filtered session)
+        if session_short:
+            glob_pattern = f"*/{channel_id}_{session_short}*.arrow"
+        else:
+            glob_pattern = f"*/{channel_id}_*.arrow"
+        for arrow_file in sorted(self._channels_dir.glob(glob_pattern)):
             if arrow_file in active_paths:
                 continue
             try:
@@ -543,6 +519,35 @@ class ChannelStore:
     def flight_location(self) -> str | None:
         """The gRPC location of the Flight server, if running."""
         return self._flight_location
+
+    @staticmethod
+    def list_channel_refs(date_dirs: list[Path]) -> set[tuple[str, str]]:
+        """List (channel_id, session_short) pairs stored in the given date dirs.
+
+        Used by retention/materialize to discover which channel data lives
+        in directories that are about to be pruned.
+
+        Args:
+            date_dirs: Channel date directories to scan.
+
+        Returns:
+            Set of (channel_id, session_short) pairs.
+        """
+        import re
+
+        # session_short is always 8 hex chars (first 8 of UUID)
+        # Filename: {channel_id}_{session_short}.arrow or {channel_id}_{session_short}_NNN.arrow
+        pattern = re.compile(r"^(.+)_([0-9a-f]{8})(?:_\d+)?$")
+
+        refs: set[tuple[str, str]] = set()
+        for dir_path in date_dirs:
+            if not dir_path.is_dir():
+                continue
+            for arrow_file in dir_path.rglob("*.arrow"):
+                m = pattern.match(arrow_file.stem)
+                if m:
+                    refs.add((m.group(1), m.group(2)))
+        return refs
 
     def close(self) -> None:
         """Flush all writers, write channel registry, close."""

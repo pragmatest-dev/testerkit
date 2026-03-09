@@ -1,8 +1,11 @@
 """Storage-agnostic event API.
 
 Callers use ``emit()``, ``events()``, ``on_event()`` — never see paths,
-files, or SQL.  Storage details (JSONL files, DuckDB queries, file watching)
+files, or SQL.  Storage details (Arrow IPC files, DuckDB queries)
 are internal.
+
+Dual-write pattern: emit() writes Arrow IPC file (crash safety) and
+pushes to in-memory DuckDB daemon via Flight (immediate queryability).
 
 Usage::
 
@@ -18,7 +21,9 @@ Usage::
 
 from __future__ import annotations
 
+import json as json_mod
 import threading
+import time
 import warnings
 from collections.abc import Callable
 from datetime import datetime
@@ -26,10 +31,13 @@ from pathlib import Path
 from typing import Any
 from uuid import UUID
 
-import duckdb
+import pyarrow as pa
+import pyarrow.flight as flight
 
 from litmus.data import duckdb_manager
+from litmus.data._duckdb_flight_server import FlightPutStream
 from litmus.data._event_filters import event_matches_role
+from litmus.data._sql_helpers import sql_escape as _sql_escape
 from litmus.data.event_log import EventLog
 from litmus.data.events import EventBase
 
@@ -128,20 +136,14 @@ class EventStore:
         self._events_dir = self._results_dir / "events"
         self._events_dir.mkdir(parents=True, exist_ok=True)
 
-        # Start daemon and get path to index.duckdb
-        self._db_path = duckdb_manager.acquire(self._events_dir)
+        # Start daemon and get gRPC location for Flight queries
+        self._location = duckdb_manager.acquire(self._events_dir)
 
-        # Read-only connection for queries
-        self._conn: duckdb.DuckDBPyConnection | None = None
+        # Lazy Flight client (for queries)
+        self._client: flight.FlightClient | None = None
 
-        # Local buffer for immediate read-after-write consistency.
-        # The DuckDB index is built asynchronously by the daemon's ingest
-        # loop (typically <1s lag).  Until ingested, emitted events live
-        # here so that events() returns them immediately.  Buffer entries
-        # are pruned once they appear in DuckDB query results.
-        self._local_buffer: list[dict[str, Any]] = []
-        self._local_buffer_lock = threading.Lock()
-        self._MAX_BUFFER_SIZE = 50_000  # safety cap; should never be reached
+        # Persistent do_put stream (for writes)
+        self._put_stream = FlightPutStream(self._location, "events", "events")
 
         # Internal writer per session (created lazily via get_event_log)
         self._event_logs: dict[UUID, EventLog] = {}
@@ -154,11 +156,52 @@ class EventStore:
         self._watcher_thread: threading.Thread | None = None
         self._watcher_stop = threading.Event()
 
-    def _get_conn(self) -> duckdb.DuckDBPyConnection:
-        """Get or create a read-only DuckDB connection."""
-        if self._conn is None:
-            self._conn = duckdb.connect(str(self._db_path), read_only=True)
-        return self._conn
+    def _get_client(self) -> flight.FlightClient:
+        """Get or create a Flight client to the DuckDB daemon."""
+        if self._client is None:
+            self._client = flight.connect(self._location)
+        return self._client
+
+    def _flight_query(self, sql: str, *, _retries: int = 2) -> list[dict[str, Any]]:
+        """Execute a SQL query via Flight and return list of dicts.
+
+        Retries on transient gRPC errors (e.g. daemon restart).
+        """
+        last_exc: Exception | None = None
+        for attempt in range(_retries + 1):
+            try:
+                client = self._get_client()
+                ticket = flight.Ticket(f"events\0{sql}".encode())
+                reader = client.do_get(ticket)
+                table = reader.read_all()
+                return table.to_pylist()
+            except Exception as exc:
+                last_exc = exc
+                self._client = None
+                if attempt < _retries:
+                    time.sleep(0.2)
+                    # Re-acquire in case daemon restarted with new port
+                    try:
+                        self._location = duckdb_manager.acquire(self._events_dir)
+                    except Exception:
+                        pass
+        warnings.warn(
+            f"EventStore Flight query failed after {_retries + 1} attempts: {last_exc}",
+            stacklevel=2,
+        )
+        return []
+
+    def _flight_put(self, batch: pa.RecordBatch) -> None:
+        """Push an Arrow batch to the daemon via persistent do_put stream.
+
+        Does not block for server confirmation — call ``_drain_puts()``
+        before querying for read-after-write consistency.
+        """
+        try:
+            self._put_stream.write(batch)
+        except Exception as exc:
+            # Non-fatal: data is in IPC file, daemon will rebuild on restart
+            warnings.warn(f"Flight put failed (non-fatal): {exc}", stacklevel=2)
 
     # -- Write path ----------------------------------------------------------
 
@@ -169,30 +212,25 @@ class EventStore:
         return self._event_logs[session_id]
 
     def emit(self, event: EventBase, *, session_id: UUID | None = None) -> None:
-        """Write event to JSONL and notify in-process subscribers.
+        """Buffer event for batched IPC write, push to DuckDB on flush.
 
-        The daemon's ingest loop picks up the JSONL file for indexing.
+        Dual-write: Arrow IPC file for crash safety, Flight do_put for
+        queryability. Both writes are batched at flush threshold — same
+        pattern as ChannelStore.
         """
         sid = session_id or getattr(event, "session_id", None)
         if sid is None:
             raise ValueError("Event must have session_id or pass session_id to emit()")
 
         log = self.get_event_log(sid)
-        log.emit(event)
+        batch = log.emit(event)
 
-        # Buffer for immediate read-after-write consistency
-        evt_dict = event.model_dump(mode="json")
-        with self._local_buffer_lock:
-            self._local_buffer.append(evt_dict)
-            if len(self._local_buffer) > self._MAX_BUFFER_SIZE:
-                warnings.warn(
-                    f"Event local buffer cap ({self._MAX_BUFFER_SIZE}) reached, "
-                    "keeping newest entries — DuckDB daemon may be unavailable",
-                    stacklevel=2,
-                )
-                self._local_buffer = self._local_buffer[-self._MAX_BUFFER_SIZE:]
+        # If the log flushed (buffer hit threshold), push batch to daemon
+        if batch is not None:
+            self._flight_put(batch)
 
         # Notify in-process subscribers
+        evt_dict = event.model_dump(mode="json")
         with self._lock:
             for sub in self._subscriptions:
                 if sub.matches(evt_dict):
@@ -214,62 +252,49 @@ class EventStore:
         role: str | None = None,
         since: datetime | None = None,
     ) -> list[dict]:
-        """Query events from the DuckDB index."""
+        """Query events from the DuckDB index via Flight."""
+        # Flush any buffered events to IPC + Flight before querying
+        for log in self._event_logs.values():
+            batch = log.flush()
+            if batch is not None:
+                self._flight_put(batch)
+        try:
+            self._put_stream.drain()
+        except Exception:
+            pass
         conditions: list[str] = []
         if session_id:
-            conditions.append(f"session_id = '{session_id}'")
+            conditions.append(f"session_id = '{_sql_escape(str(session_id))}'")
         if event_type:
-            conditions.append(f"event_type = '{event_type}'")
+            conditions.append(f"event_type = '{_sql_escape(event_type)}'")
         if since:
-            conditions.append(f"received_at >= '{since.isoformat()}'")
+            conditions.append(f"received_at >= '{_sql_escape(since.isoformat())}'")
 
         where = f" WHERE {' AND '.join(conditions)}" if conditions else ""
 
-        # Query DuckDB index (daemon-ingested events)
-        db_events: list[dict[str, Any]] = []
-        db_ids: set[str] = set()
-        try:
-            conn = self._get_conn()
-            query = f"""
-                SELECT *
-                FROM events
-                {where}
-                ORDER BY received_at ASC
-            """
-            result = conn.execute(query).fetchall()
-            columns = [desc[0] for desc in conn.description or []]
-            for row in result:
-                evt = dict(zip(columns, row))
-                if role and not event_matches_role(evt, role):
-                    continue
-                db_events.append(evt)
-                eid = evt.get("id")
-                if eid:
-                    db_ids.add(str(eid))
-        except (duckdb.IOException, duckdb.CatalogException):
-            pass
+        query = f"""
+            SELECT *
+            FROM events
+            {where}
+            ORDER BY received_at ASC
+        """
+        rows = self._flight_query(query)
 
-        # Merge locally-buffered events not yet in DuckDB, pruning ingested ones
-        with self._local_buffer_lock:
-            if db_ids:
-                self._local_buffer = [
-                    e for e in self._local_buffer
-                    if e.get("id") and str(e["id"]) not in db_ids
-                ]
-            for evt in self._local_buffer:
-                # Apply filters
-                if session_id and evt.get("session_id") != str(session_id):
-                    continue
-                if event_type and evt.get("event_type") != event_type:
-                    continue
-                if since and _is_before(evt, since):
-                    continue
-                if role and not event_matches_role(evt, role):
-                    continue
-                db_events.append(evt)
+        db_events: list[dict] = []
+        for row in rows:
+            json_str = row.get("json")
+            if json_str:
+                try:
+                    db_events.append(json_mod.loads(json_str))
+                except (json_mod.JSONDecodeError, TypeError):
+                    db_events.append(row)
+            else:
+                db_events.append(row)
 
-        # Sort by received_at
-        db_events.sort(key=lambda e: str(e.get("received_at", "")))
+        # Apply role filter (can't be done in SQL — needs event field inspection)
+        if role:
+            db_events = [e for e in db_events if event_matches_role(e, role)]
+
         return db_events
 
     def sessions(self) -> list[dict]:
@@ -347,31 +372,24 @@ class EventStore:
         self._watcher_thread.start()
 
     def _watch_loop(self) -> None:
-        """Poll for new events from other processes using DuckDB index."""
+        """Poll for new events from other processes using Flight queries."""
         last_received_at: str | None = None
 
         while not self._watcher_stop.is_set():
-            try:
-                conn = self._get_conn()
-                condition = (
-                    f" WHERE received_at > '{last_received_at}'"
-                    if last_received_at
-                    else ""
-                )
-                query = f"""
-                    SELECT *
-                    FROM events
-                    {condition}
-                    ORDER BY received_at ASC
-                """
-                result = conn.execute(query).fetchall()
-                columns = [desc[0] for desc in conn.description or []]
-            except (duckdb.IOException, duckdb.CatalogException):
-                result = []
-                columns = []
+            condition = (
+                f" WHERE received_at > '{_sql_escape(last_received_at)}'"
+                if last_received_at
+                else ""
+            )
+            query = f"""
+                SELECT *
+                FROM events
+                {condition}
+                ORDER BY received_at ASC
+            """
+            rows = self._flight_query(query)
 
-            for row_values in result:
-                evt = dict(zip(columns, row_values))
+            for evt in rows:
                 ts = evt.get("received_at")
                 if ts is not None:
                     last_received_at = str(ts)
@@ -402,6 +420,14 @@ class EventStore:
             self._watcher_thread.join(timeout=2.0)
             self._watcher_thread = None
 
+        # Flush remaining buffered events to Flight before closing
+        for log in self._event_logs.values():
+            batch = log.flush()
+            if batch is not None:
+                self._flight_put(batch)
+
+        self._put_stream.close()
+
         for log in self._event_logs.values():
             log.close()
         self._event_logs.clear()
@@ -409,14 +435,14 @@ class EventStore:
         with self._lock:
             self._subscriptions.clear()
 
-        if self._conn is not None:
+        if self._client is not None:
             try:
-                self._conn.close()
+                self._client.close()
             except Exception as exc:
                 warnings.warn(
-                    f"Failed to close DuckDB read connection: {exc}",
+                    f"Failed to close Flight client: {exc}",
                     stacklevel=2,
                 )
-            self._conn = None
+            self._client = None
 
         duckdb_manager.release(self._events_dir)

@@ -278,7 +278,7 @@ class InstrumentRead(EventBase):
 
     For array/waveform data, ``value`` holds the full Python object in memory
     (subscribers like ChannelStore get the real data), but JSON serialization
-    replaces it with a claim-check summary to keep JSONL compact.
+    replaces it with a claim-check summary to keep the JSON column compact.
     """
 
     event_type: Literal["instrument.read"] = "instrument.read"
@@ -334,7 +334,7 @@ class InstrumentRead(EventBase):
             data["value"] = ref
             return data
 
-        # blob — repr for JSONL
+        # blob — repr for JSON serialization
         data["value"] = repr(v)
         return data
 
@@ -367,20 +367,48 @@ class InstrumentConfigure(EventBase):
 
 class StreamStarted(EventBase):
     event_type: Literal["stream.started"] = "stream.started"
-    stream_id: UUID = Field(default_factory=uuid4)
+    stream_id: UUID
     format: str = ""
     path: str | None = None
 
 
 class StreamEnded(EventBase):
     event_type: Literal["stream.ended"] = "stream.ended"
-    stream_id: UUID = Field(default_factory=uuid4)
+    stream_id: UUID
 
 
 class StreamFrameIndex(EventBase):
     event_type: Literal["stream.frame_index"] = "stream.frame_index"
-    stream_id: UUID = Field(default_factory=uuid4)
+    stream_id: UUID
     frame_count: int = 0
+
+
+# ---------------------------------------------------------------------------
+# Dialog events
+# ---------------------------------------------------------------------------
+
+class DialogOpened(EventBase):
+    """Emitted when an operator dialog is shown, pausing test execution."""
+
+    event_type: Literal["dialog.opened"] = "dialog.opened"
+    dialog_id: UUID
+    dialog_type: str  # "confirm", "choice", "input", "image"
+    title: str
+    message: str
+    step_name: str | None = None
+    blocking: bool = True
+
+
+class DialogResponded(EventBase):
+    """Emitted when an operator dialog receives a response."""
+
+    event_type: Literal["dialog.responded"] = "dialog.responded"
+    dialog_id: UUID
+    dialog_type: str
+    response_type: str  # "confirmed", "cancelled", "timed_out"
+    duration_seconds: float
+    value: str | None = None
+    choice: int | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -395,9 +423,11 @@ TEST_EVENTS = {StepStarted, MeasurementRecorded, RecordEvent, StepEnded, RunEnde
 INSTRUMENT_EVENTS = {InstrumentRead, InstrumentSet, InstrumentConfigure}
 DIAGNOSTIC_EVENTS = {DiagnosticWarning, DiagnosticError}
 STREAM_EVENTS = {StreamStarted, StreamEnded, StreamFrameIndex}
+DIALOG_EVENTS = {DialogOpened, DialogResponded}
 ALL_EVENTS = (
     SESSION_EVENTS | FIXTURE_EVENTS | TEST_EVENTS
     | INSTRUMENT_EVENTS | DIAGNOSTIC_EVENTS | STREAM_EVENTS
+    | DIALOG_EVENTS
 )
 
 # Discriminated union type for deserialization
@@ -408,6 +438,7 @@ Event = Annotated[
     | StepStarted | MeasurementRecorded | RecordEvent | StepEnded | RunEnded
     | InstrumentRead | InstrumentSet | InstrumentConfigure
     | DiagnosticWarning | DiagnosticError
-    | StreamStarted | StreamEnded | StreamFrameIndex,
+    | StreamStarted | StreamEnded | StreamFrameIndex
+    | DialogOpened | DialogResponded,
     Field(discriminator="event_type"),
 ]

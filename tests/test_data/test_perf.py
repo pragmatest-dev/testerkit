@@ -21,14 +21,14 @@ from litmus.data.channels.store import ChannelStore
 from litmus.data.event_store import EventStore
 from litmus.data.events import MeasurementRecorded, SessionStarted
 
-
 # ---------------------------------------------------------------------------
-# Fixtures
+# Fixtures — ONE daemon per module
 # ---------------------------------------------------------------------------
 
-@pytest.fixture
-def event_store(tmp_path: Path) -> Generator[EventStore]:
-    s = EventStore(_results_dir=tmp_path / "results")
+@pytest.fixture(scope="module")
+def event_store(tmp_path_factory: pytest.TempPathFactory) -> Generator[EventStore]:
+    d = tmp_path_factory.mktemp("perf_events")
+    s = EventStore(_results_dir=d / "results")
     yield s
     s.close()
 
@@ -75,58 +75,51 @@ class TestEventStorePerf:
 
     @pytest.mark.benchmark(group="event-query")
     @pytest.mark.parametrize("n_events", [100, 1_000, 10_000])
-    def test_query_scale(self, tmp_path: Path, benchmark, n_events: int):
+    def test_query_scale(self, event_store: EventStore, benchmark, n_events: int):
         """Query performance as event count grows."""
-        store = EventStore(_results_dir=tmp_path / "results")
         sid = uuid4()
         for i in range(n_events):
-            store.emit(_make_measurement(sid, i))
+            event_store.emit(_make_measurement(sid, i))
 
         def query_all():
-            return store.events(session_id=sid)
+            return event_store.events(session_id=sid)
 
         result = benchmark(query_all)
         assert len(result) == n_events
-        store.close()
 
     @pytest.mark.benchmark(group="event-query")
-    def test_query_by_type_10k(self, tmp_path: Path, benchmark):
+    def test_query_by_type_10k(self, event_store: EventStore, benchmark):
         """Filter by event_type over 10k events."""
-        store = EventStore(_results_dir=tmp_path / "results")
         sid = uuid4()
-        # Mix event types
-        store.emit(SessionStarted(
+        event_store.emit(SessionStarted(
             session_id=sid, station_id="bench", dut_serial="X",
             session_type="test", pid=1,
         ))
         for i in range(10_000):
-            store.emit(_make_measurement(sid, i))
+            event_store.emit(_make_measurement(sid, i))
 
         def query_type():
-            return store.events(event_type="session.started")
+            return event_store.events(session_id=sid, event_type="session.started")
 
         result = benchmark(query_type)
         assert len(result) == 1
-        store.close()
 
     @pytest.mark.benchmark(group="event-query")
-    def test_query_multi_session(self, tmp_path: Path, benchmark):
+    def test_query_multi_session(self, event_store: EventStore, benchmark):
         """Query across 50 sessions, 200 events each (10k total)."""
-        store = EventStore(_results_dir=tmp_path / "results")
         target_sid = None
         for s in range(50):
             sid = uuid4()
             if s == 25:
                 target_sid = sid
             for i in range(200):
-                store.emit(_make_measurement(sid, i))
+                event_store.emit(_make_measurement(sid, i))
 
         def query_one_session():
-            return store.events(session_id=target_sid)
+            return event_store.events(session_id=target_sid)
 
         result = benchmark(query_one_session)
         assert len(result) == 200
-        store.close()
 
 
 # ---------------------------------------------------------------------------
@@ -207,7 +200,7 @@ class TestEnforceSchemaPerf:
     @pytest.mark.benchmark(group="parquet-schema")
     @pytest.mark.parametrize("n_rows", [100, 1_000, 10_000])
     def test_enforce_schema(self, benchmark, n_rows: int):
-        from litmus.data.backends.parquet import _enforce_schema, MEASUREMENT_SCHEMA
+        from litmus.data.backends.parquet import _enforce_schema
 
         # Build a table with string timestamps (the hard coercion case)
         data = {

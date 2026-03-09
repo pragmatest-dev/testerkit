@@ -4,6 +4,7 @@ from uuid import uuid4
 
 from litmus.data.events import (
     ALL_EVENTS,
+    DIALOG_EVENTS,
     DIAGNOSTIC_EVENTS,
     FIXTURE_EVENTS,
     INSTRUMENT_EVENTS,
@@ -110,4 +111,5 @@ class TestEventModels:
         assert len(ALL_EVENTS) == (
             len(SESSION_EVENTS) + len(FIXTURE_EVENTS) + len(TEST_EVENTS)
             + len(INSTRUMENT_EVENTS) + len(DIAGNOSTIC_EVENTS) + len(STREAM_EVENTS)
+            + len(DIALOG_EVENTS)
         )

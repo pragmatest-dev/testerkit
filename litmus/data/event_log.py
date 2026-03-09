@@ -1,24 +1,42 @@
 """Event log writer and subscriber protocol.
 
-The EventLog writes typed events to a JSONL file (one per session) and
-dispatches them to registered subscribers. Failed subscribers are
-disabled for the remainder of the session.
+The EventLog buffers typed events and flushes them as multi-row Arrow
+batches to IPC files via ``BufferedIPCWriter`` — shared infrastructure
+with ChannelStore's ``_ChannelWriter``.
 
-Storage: ``results/events/{date}/{session_id}.jsonl``
+Subscribers are dispatched immediately on emit; IPC writes are batched.
+
+Storage: ``results/events/{date}/{session_id}.arrow``
 """
 
 from __future__ import annotations
 
-import json
 import warnings
 from datetime import UTC, date, datetime
 from pathlib import Path
 from typing import Any, Protocol, runtime_checkable
 from uuid import UUID
 
+import pyarrow as pa
+
 from litmus.data._event_filters import event_matches_role
+from litmus.data._ipc_writer import BufferedIPCWriter, read_ipc_batches
 from litmus.data.backends._row_helpers import save_ref_to_dir
 from litmus.data.events import EventBase
+
+# Schema for the index columns stored in IPC files.
+# Full event JSON is kept in the ``json`` column for lossless replay.
+_IPC_SCHEMA = pa.schema([
+    ("id", pa.string()),
+    ("event_type", pa.string()),
+    ("occurred_at", pa.string()),
+    ("received_at", pa.string()),
+    ("session_id", pa.string()),
+    ("run_id", pa.string()),
+    ("json", pa.string()),
+])
+
+_DEFAULT_FLUSH_THRESHOLD = 50
 
 
 @runtime_checkable
@@ -34,33 +52,53 @@ class EventSubscriber(Protocol):
 
 
 class EventLog:
-    """Writes events to JSONL and dispatches to subscribers.
+    """Buffers events, flushes as batched Arrow IPC writes.
 
     One file per session, date-partitioned. Each event gets
-    ``received_at`` stamped on emit.
+    ``received_at`` stamped on emit. IPC writes are batched at
+    ``flush_threshold`` rows via shared ``BufferedIPCWriter``.
     """
 
-    def __init__(self, log_dir: Path, session_id: UUID) -> None:
+    def __init__(
+        self,
+        log_dir: Path,
+        session_id: UUID,
+        flush_threshold: int = _DEFAULT_FLUSH_THRESHOLD,
+    ) -> None:
         self.log_dir = log_dir
         self.session_id = session_id
         date_dir = self.log_dir / date.today().isoformat()
         date_dir.mkdir(parents=True, exist_ok=True)
-        self._path = date_dir / f"{session_id}.jsonl"
-        self._file = open(self._path, "a", encoding="utf-8")
+        self._ipc = BufferedIPCWriter(
+            path=date_dir / f"{session_id}.arrow",
+            schema=_IPC_SCHEMA,
+            flush_threshold=flush_threshold,
+        )
         self._subscribers: list[EventSubscriber] = []
         self._failed: set[EventSubscriber] = set()
         self._ref_dir = date_dir / f"{session_id}_ref"
 
     @property
     def path(self) -> Path:
-        return self._path
+        return self._ipc.path
 
-    def emit(self, event: EventBase) -> None:
-        """Stamp received_at, write to JSONL, dispatch to subscribers."""
+    def emit(self, event: EventBase) -> pa.RecordBatch | None:
+        """Stamp received_at, buffer for IPC, dispatch to subscribers.
+
+        Returns the flushed batch if the buffer hit the threshold, or
+        None if the event was just buffered.
+        """
         event.received_at = datetime.now(UTC)
-        line = event.model_dump_json()
-        self._file.write(line + "\n")
-        self._file.flush()
+
+        batch = self._ipc.append({
+            "id": str(event.id),
+            "event_type": event.event_type,  # type: ignore[attr-defined]
+            "occurred_at": event.occurred_at.isoformat(),
+            "received_at": event.received_at.isoformat() if event.received_at else None,
+            "session_id": str(event.session_id),
+            "run_id": str(event.run_id) if event.run_id else None,
+            "json": event.model_dump_json(),
+        })
 
         for sub in self._subscribers:
             if sub in self._failed:
@@ -76,6 +114,12 @@ class EventLog:
                     f"{type(event).__name__}: {exc}",
                     stacklevel=2,
                 )
+
+        return batch
+
+    def flush(self) -> pa.RecordBatch | None:
+        """Flush buffered events to IPC file. Returns the batch, or None."""
+        return self._ipc.flush()
 
     def add_subscriber(self, sub: EventSubscriber) -> None:
         """Register a subscriber and call open().
@@ -97,7 +141,7 @@ class EventLog:
         event_type: str | None = None,
         role: str | None = None,
     ) -> list[dict]:
-        """Read events from this session's log.
+        """Read events from this session's Arrow IPC file + buffer.
 
         Args:
             event_type: Filter by event_type (e.g. "instrument.read").
@@ -107,29 +151,45 @@ class EventLog:
         Returns:
             List of event dicts, oldest first.
         """
-        self._file.flush()
+        import json
+
         events: list[dict] = []
-        try:
-            with open(self._path, encoding="utf-8") as f:
-                for line in f:
-                    line = line.strip()
-                    if not line:
-                        continue
-                    try:
-                        evt = json.loads(line)
-                    except json.JSONDecodeError:
-                        continue
-                    if event_type and evt.get("event_type") != event_type:
-                        continue
-                    if role and not event_matches_role(evt, role):
-                        continue
-                    events.append(evt)
-        except OSError:
-            pass
+
+        # Read flushed IPC data
+        table = read_ipc_batches(self._ipc.path)
+        if table is not None:
+            json_col = table.column("json")
+            type_col = table.column("event_type")
+            for j in range(table.num_rows):
+                if event_type and type_col[j].as_py() != event_type:
+                    continue
+                try:
+                    evt = json.loads(json_col[j].as_py())
+                except (json.JSONDecodeError, TypeError):
+                    continue
+                if role and not event_matches_role(evt, role):
+                    continue
+                events.append(evt)
+
+        # Include unflushed buffer
+        for row in self._ipc.buffer:
+            json_str = row.get("json")
+            if not json_str:
+                continue
+            if event_type and row.get("event_type") != event_type:
+                continue
+            try:
+                evt = json.loads(str(json_str))
+            except (json.JSONDecodeError, TypeError):
+                continue
+            if role and not event_matches_role(evt, role):
+                continue
+            events.append(evt)
+
         return events
 
     def close(self) -> None:
-        """Close all subscribers, then close the JSONL file."""
+        """Close all subscribers, flush buffer, close the Arrow IPC file."""
         for sub in self._subscribers:
             try:
                 sub.close()
@@ -138,5 +198,4 @@ class EventLog:
                     f"EventSubscriber '{sub.format_name}' close failed: {exc}",
                     stacklevel=2,
                 )
-        if self._file and not self._file.closed:
-            self._file.close()
+        self._ipc.close()

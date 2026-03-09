@@ -1,12 +1,26 @@
 """Tests for StationConnection and litmus.connect()."""
 
 import json
+from pathlib import Path
 from uuid import UUID
 
+import pyarrow.ipc as ipc
 import pytest
 
 from litmus.connect import StationConnection
 from litmus.schemas import StationConfig, StationInstrumentConfig
+
+
+def _read_events_from_ipc(path: Path) -> list[dict]:
+    """Read all events from an Arrow IPC file, parsing the json column."""
+    reader = ipc.open_file(str(path))
+    events: list[dict] = []
+    for i in range(reader.num_record_batches):
+        batch = reader.get_batch(i)
+        json_col = batch.column("json")
+        for j in range(batch.num_rows):
+            events.append(json.loads(json_col[j].as_py()))
+    return events
 
 
 def _make_station(**instruments) -> StationConfig:
@@ -68,8 +82,8 @@ class TestStationConnection:
             conn.release("dmm")
             log_path = conn.event_log.path
 
-        lines = log_path.read_text().strip().splitlines()
-        event_types = [json.loads(line)["event_type"] for line in lines]
+        events = _read_events_from_ipc(log_path)
+        event_types = [e["event_type"] for e in events]
         assert "session.started" in event_types
         assert "fixture.instrument_connected" in event_types
         assert "fixture.instrument_disconnected" in event_types
@@ -104,8 +118,8 @@ class TestStationConnection:
                 log_path = conn.event_log.path
                 raise ValueError("test error")
 
-        lines = log_path.read_text().strip().splitlines()
-        ended = [json.loads(line) for line in lines if "session.ended" in line]
+        events = _read_events_from_ipc(log_path)
+        ended = [e for e in events if e["event_type"] == "session.ended"]
         assert ended[0]["outcome"] == "error"
 
 
@@ -119,8 +133,8 @@ class TestSessionStartedFields:
         ) as conn:
             log_path = conn.event_log.path
 
-        lines = log_path.read_text().strip().splitlines()
-        started = json.loads(lines[0])
+        events = _read_events_from_ipc(log_path)
+        started = events[0]
         assert started["pid"] == os.getpid()
 
     def test_dut_serial_defaults_empty(self, tmp_path):
@@ -130,6 +144,6 @@ class TestSessionStartedFields:
         ) as conn:
             log_path = conn.event_log.path
 
-        lines = log_path.read_text().strip().splitlines()
-        started = json.loads(lines[0])
+        events = _read_events_from_ipc(log_path)
+        started = events[0]
         assert started["dut_serial"] == ""

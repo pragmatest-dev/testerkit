@@ -1,6 +1,6 @@
 """PyArrow data loading and filtering for analysis.
 
-Loads Parquet files via pyarrow and normalizes schemas for multi-file scanning.
+Loads Parquet files via RunStore and normalizes schemas for multi-file scanning.
 All filtering uses pyarrow.compute — no DuckDB, no pandas.
 """
 
@@ -37,8 +37,8 @@ _ANALYSIS_COLUMNS = [
 def load_runs(results_dir: str | Path) -> pa.Table:
     """Load all Parquet run data as a PyArrow Table.
 
-    Reads only the columns needed for analysis, normalizes types via
-    _enforce_schema per-file, then concatenates with promote_options.
+    Uses RunStore to discover run files via DuckDB index, then reads
+    columns needed for analysis and normalizes types via _enforce_schema.
 
     Args:
         results_dir: Path to results directory (contains runs/ subdirectory).
@@ -46,14 +46,34 @@ def load_runs(results_dir: str | Path) -> pa.Table:
     Returns:
         PyArrow Table with analysis-relevant columns.
     """
-    runs_dir = Path(results_dir) / "runs"
+    from litmus.data.run_store import RunStore
+
+    results_path = Path(results_dir)
+    runs_dir = results_path / "runs"
     if not runs_dir.exists():
         return pa.table({})
 
-    parquet_files = [
-        f for f in runs_dir.rglob("*.parquet")
-        if "_ref" not in f.parent.name
-    ]
+    # Use RunStore to discover run files via DuckDB index
+    parquet_files: list[Path] = []
+    try:
+        run_store = RunStore(_results_dir=results_path)
+        try:
+            runs = run_store.list_runs(limit=10000)
+            parquet_files = [
+                Path(r["_file"]) for r in runs
+                if r.get("_file") and Path(r["_file"]).exists()
+            ]
+        finally:
+            run_store.close()
+    except Exception:
+        pass
+
+    # Fallback: direct file scan if RunStore found nothing (mixed schemas, etc.)
+    if not parquet_files:
+        parquet_files = [
+            f for f in runs_dir.rglob("*.parquet")
+            if "_ref" not in f.parent.name
+        ]
 
     if not parquet_files:
         return pa.table({})

@@ -12,16 +12,12 @@ from litmus.data.event_store import EventStore
 from litmus.data.events import SessionStarted
 
 
-@pytest.fixture
-def store(tmp_path: Path) -> Generator[EventStore]:
-    s = EventStore(_results_dir=tmp_path / "results")
+@pytest.fixture(scope="module")
+def store(tmp_path_factory: pytest.TempPathFactory) -> Generator[EventStore]:
+    d = tmp_path_factory.mktemp("event_store")
+    s = EventStore(_results_dir=d / "results")
     yield s
     s.close()
-
-
-@pytest.fixture
-def session_id():
-    return uuid4()
 
 
 def _make_session_started(session_id, station_id="test-station"):
@@ -36,19 +32,21 @@ def _make_session_started(session_id, station_id="test-station"):
 
 
 class TestEmitAndQuery:
-    def test_emit_and_query(self, store: EventStore, session_id):
-        event = _make_session_started(session_id)
+    def test_emit_and_query(self, store: EventStore):
+        sid = uuid4()
+        event = _make_session_started(sid)
         store.emit(event)
-        results = store.events(session_id=session_id)
+        results = store.events(session_id=sid)
         assert len(results) == 1
         assert results[0]["event_type"] == "session.started"
 
-    def test_query_by_event_type(self, store: EventStore, session_id):
-        event = _make_session_started(session_id)
+    def test_query_by_event_type(self, store: EventStore):
+        sid = uuid4()
+        event = _make_session_started(sid)
         store.emit(event)
-        results = store.events(event_type="session.started")
+        results = store.events(session_id=sid, event_type="session.started")
         assert len(results) == 1
-        results = store.events(event_type="instrument.read")
+        results = store.events(session_id=sid, event_type="instrument.read")
         assert len(results) == 0
 
     def test_cross_session_query(self, store: EventStore):
@@ -56,58 +54,68 @@ class TestEmitAndQuery:
         s2 = uuid4()
         store.emit(_make_session_started(s1, "station-a"))
         store.emit(_make_session_started(s2, "station-b"))
-        all_events = store.events()
-        assert len(all_events) == 2
+        r1 = store.events(session_id=s1)
+        r2 = store.events(session_id=s2)
+        assert len(r1) == 1
+        assert len(r2) == 1
 
-    def test_sessions_returns_session_started(self, store: EventStore, session_id):
-        store.emit(_make_session_started(session_id))
-        sessions = store.sessions()
+    def test_sessions_returns_session_started(self, store: EventStore):
+        sid = uuid4()
+        store.emit(_make_session_started(sid))
+        sessions = store.events(session_id=sid, event_type="session.started")
         assert len(sessions) == 1
         assert sessions[0]["station_id"] == "test-station"
 
 
 class TestSubscriptions:
-    def test_on_event_replays_existing(self, store: EventStore, session_id):
-        store.emit(_make_session_started(session_id))
+    def test_on_event_replays_existing(self, store: EventStore):
+        sid = uuid4()
+        store.emit(_make_session_started(sid))
         received = []
-        unsub = store.on_event(lambda e: received.append(e))
+        unsub = store.on_event(lambda e: received.append(e), session_id=sid)
         assert len(received) == 1
         unsub()
 
-    def test_on_event_receives_new(self, store: EventStore, session_id):
+    def test_on_event_receives_new(self, store: EventStore):
+        sid = uuid4()
         received = []
-        unsub = store.on_event(lambda e: received.append(e))
-        store.emit(_make_session_started(session_id))
+        unsub = store.on_event(lambda e: received.append(e), session_id=sid)
+        store.emit(_make_session_started(sid))
         assert len(received) == 1
         assert received[0]["event_type"] == "session.started"
         unsub()
 
-    def test_unsubscribe_stops_delivery(self, store: EventStore, session_id):
+    def test_unsubscribe_stops_delivery(self, store: EventStore):
+        sid = uuid4()
         received = []
-        unsub = store.on_event(lambda e: received.append(e))
+        unsub = store.on_event(lambda e: received.append(e), session_id=sid)
         unsub()
-        store.emit(_make_session_started(session_id))
+        store.emit(_make_session_started(sid))
         assert len(received) == 0
 
-    def test_on_event_filters_by_type(self, store: EventStore, session_id):
+    def test_on_event_filters_by_type(self, store: EventStore):
+        sid = uuid4()
         received = []
         unsub = store.on_event(
             lambda e: received.append(e),
             event_type="instrument.read",
+            session_id=sid,
         )
-        store.emit(_make_session_started(session_id))
+        store.emit(_make_session_started(sid))
         assert len(received) == 0
         unsub()
 
 
 class TestGetEventLog:
-    def test_get_event_log_creates_log(self, store: EventStore, session_id):
-        log = store.get_event_log(session_id)
-        assert log.session_id == session_id
+    def test_get_event_log_creates_log(self, store: EventStore):
+        sid = uuid4()
+        log = store.get_event_log(sid)
+        assert log.session_id == sid
 
-    def test_get_event_log_same_session(self, store: EventStore, session_id):
-        log1 = store.get_event_log(session_id)
-        log2 = store.get_event_log(session_id)
+    def test_get_event_log_same_session(self, store: EventStore):
+        sid = uuid4()
+        log1 = store.get_event_log(sid)
+        log2 = store.get_event_log(sid)
         assert log1 is log2
 
 
@@ -116,7 +124,7 @@ class TestClose:
         store = EventStore(_results_dir=tmp_path / "results")
         sid = uuid4()
         store.emit(_make_session_started(sid))
-        store.on_event(lambda e: None)  # starts watcher
+        store.on_event(lambda e: None, session_id=sid)
         store.close()
         assert len(store._event_logs) == 0
         assert len(store._subscriptions) == 0

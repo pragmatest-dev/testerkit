@@ -13,7 +13,7 @@ dispatch on retrieval.
 from __future__ import annotations
 
 from typing import Any, Literal
-from urllib.parse import parse_qs, quote, urlencode
+from urllib.parse import parse_qs, quote, unquote, urlencode
 
 
 def classify_value(value: Any) -> Literal["scalar", "numeric_array", "channel", "blob"]:
@@ -64,7 +64,7 @@ def parse_channel_uri(uri: str) -> tuple[str, str]:
     else:
         channel_id = rest
         session_id = ""
-    return channel_id, session_id
+    return unquote(channel_id), session_id
 
 
 def is_ref(value: object) -> bool:

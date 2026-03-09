@@ -2,6 +2,7 @@
 
 import asyncio
 import os
+import time
 from collections import deque
 from collections.abc import Callable
 from uuid import UUID
@@ -66,6 +67,7 @@ class DialogManager:
         self._events: dict[UUID, asyncio.Event] = {}
         self._listeners: list[Callable[[Dialog], None]] = []
         self._preset_responses: deque[DialogResponse] = deque()
+        self._open_times: dict[UUID, float] = {}
 
     def add_listener(self, callback: Callable[[Dialog], None]) -> None:
         """Add a listener for new dialogs."""
@@ -169,6 +171,60 @@ class DialogManager:
             value="auto",  # Default value for input dialogs
         )
 
+    def _emit_dialog_opened(self, dialog: Dialog) -> None:
+        """Emit a DialogOpened event if inside a test run."""
+        try:
+            from litmus.execution.decorators import get_current_logger
+        except ImportError:
+            return
+        logger = get_current_logger()
+        if logger is None or logger.event_log is None:
+            return
+        from litmus.data.events import DialogOpened
+
+        logger.event_log.emit(DialogOpened(
+            session_id=logger._session_id,
+            run_id=logger.test_run.id,
+            dialog_id=dialog.id,
+            dialog_type=dialog.type.value,
+            title=dialog.title,
+            message=dialog.message,
+            step_name=dialog.step_name,
+            blocking=dialog.blocking,
+        ))
+
+    def _emit_dialog_responded(
+        self, dialog: Dialog, response: DialogResponse, duration: float
+    ) -> None:
+        """Emit a DialogResponded event if inside a test run."""
+        try:
+            from litmus.execution.decorators import get_current_logger
+        except ImportError:
+            return
+        logger = get_current_logger()
+        if logger is None or logger.event_log is None:
+            return
+        from litmus.data.events import DialogResponded
+
+        if response.timed_out:
+            response_type = "timed_out"
+        elif response.cancelled:
+            response_type = "cancelled"
+        else:
+            # Default: any non-cancelled, non-timed-out response is a confirmation
+            response_type = "confirmed"
+
+        logger.event_log.emit(DialogResponded(
+            session_id=logger._session_id,
+            run_id=logger.test_run.id,
+            dialog_id=dialog.id,
+            dialog_type=dialog.type.value,
+            response_type=response_type,
+            duration_seconds=duration,
+            value=response.value,
+            choice=response.choice,
+        ))
+
     async def show(self, dialog: Dialog) -> DialogResponse:
         """Show a dialog and wait for response.
 
@@ -178,14 +234,22 @@ class DialogManager:
         Returns:
             The operator's response.
         """
+        t0 = time.monotonic()
+        self._emit_dialog_opened(dialog)
+
         # Check for auto-respond mode first
         auto_response = self._get_auto_response(dialog)
         if auto_response is not None:
+            self._emit_dialog_responded(dialog, auto_response, time.monotonic() - t0)
             return auto_response
 
         if self.server_url:
-            return await self._show_http(dialog)
-        return await self._show_local(dialog)
+            response = await self._show_http(dialog)
+        else:
+            response = await self._show_local(dialog)
+
+        self._emit_dialog_responded(dialog, response, time.monotonic() - t0)
+        return response
 
     async def _show_http(self, dialog: Dialog) -> DialogResponse:
         """Show dialog via HTTP (for test subprocesses)."""
@@ -237,6 +301,7 @@ class DialogManager:
         event = asyncio.Event()
         self._pending[dialog.id] = dialog
         self._events[dialog.id] = event
+        self._open_times[dialog.id] = time.monotonic()
 
         # Notify listeners (UI)
         self._notify_listeners(dialog)
@@ -263,6 +328,8 @@ class DialogManager:
         since the caller will poll for response via API.
         """
         self._pending[dialog.id] = dialog
+        self._open_times[dialog.id] = time.monotonic()
+        self._emit_dialog_opened(dialog)
         self._notify_listeners(dialog)
 
     def get_response(self, dialog_id: UUID) -> DialogResponse | None:
@@ -284,6 +351,15 @@ class DialogManager:
         """
         if dialog_id not in self._pending:
             return False
+
+        dialog = self._pending[dialog_id]
+
+        # Emit responded event only for externally-registered dialogs
+        # (in-process dialogs have events emitted by show())
+        if dialog_id not in self._events:
+            t0 = self._open_times.pop(dialog_id, None)
+            duration = time.monotonic() - t0 if t0 is not None else 0.0
+            self._emit_dialog_responded(dialog, response, duration)
 
         self._responses[dialog_id] = response
 
