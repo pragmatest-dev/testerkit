@@ -746,9 +746,8 @@ def export(
     from litmus.data.backends.parquet import ParquetBackend
     from litmus.data.exporters import get_exporter
 
-    project = load_project_config()
     if results_dir is None:
-        results_dir = project.results_dir
+        results_dir = _get_results_dir(None)
 
     backend = ParquetBackend(results_dir=results_dir)
 
@@ -1938,12 +1937,9 @@ def _apply_filters(table, phase, since, until_date, product, station, lot):
 
 def _get_results_dir(results_dir):
     """Resolve results directory from option or project config."""
-    if results_dir is None:
-        from litmus.config.project import load_project_config
+    from litmus.data.results_dir import resolve_results_dir
 
-        project = load_project_config()
-        results_dir = project.results_dir
-    return results_dir
+    return str(resolve_results_dir(results_dir))
 
 
 @main.group("yield")
@@ -2217,8 +2213,7 @@ def data():
 
 
 @data.command("prune")
-@click.option("--older-than", default=None, help="Retention period (e.g. 30d, 90d)")
-@click.option("--policy", is_flag=True, help="Use per-output retention from litmus.yaml outputs:")
+@click.option("--older-than", required=True, help="Retention period (e.g. 30d, 90d)")
 @click.option(
     "--type", "data_types", multiple=True,
     help="Data types to prune (e.g. channels, sessions, events)",
@@ -2226,36 +2221,21 @@ def data():
 @click.option("--results-dir", default=None, help="Results directory")
 @click.option("--dry-run", is_flag=True, help="Show what would be deleted")
 def data_prune(
-    older_than: str | None,
-    policy: bool,
+    older_than: str,
     data_types: tuple[str, ...],
     results_dir: str | None,
     dry_run: bool,
 ) -> None:
-    """Delete date-partitioned data older than the retention period.
-
-    Either --older-than or --policy is required. With --policy, reads
-    per-output retention settings from litmus.yaml outputs:.
-    """
-    from litmus.data.retention import prune_all, prune_from_config
-
-    if not older_than and not policy:
-        raise click.UsageError("Provide --older-than or --policy.")
+    """Delete date-partitioned data older than the specified period."""
+    from litmus.data.retention import prune_all
 
     results_dir_path = Path(_get_results_dir(results_dir))
 
-    if policy:
-        from litmus.config.project import load_project_config
-
-        cfg = load_project_config()
-        result = prune_from_config(Path.cwd(), cfg.outputs, dry_run=dry_run)
-    else:
-        assert older_than is not None
-        types = data_types or ("channels", "sessions", "events")
-        try:
-            result = prune_all(results_dir_path, older_than, data_types=types, dry_run=dry_run)
-        except ValueError as e:
-            raise click.BadParameter(str(e), param_hint="'--older-than'") from e
+    types = data_types or ("channels", "sessions", "events")
+    try:
+        result = prune_all(results_dir_path, older_than, data_types=types, dry_run=dry_run)
+    except ValueError as e:
+        raise click.BadParameter(str(e), param_hint="'--older-than'") from e
 
     total = 0
     for subdir, paths in result.items():

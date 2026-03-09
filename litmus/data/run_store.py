@@ -8,7 +8,6 @@ ParquetBackend keeps the write path; RunStore owns reads + ref management.
 from __future__ import annotations
 
 import os
-import warnings
 from pathlib import Path
 from typing import Any
 
@@ -17,6 +16,7 @@ import pyarrow.flight as flight
 import pyarrow.parquet as pq
 
 from litmus.data import runs_duckdb_manager
+from litmus.data._flight_query import FlightQueryClient
 from litmus.data._sql_helpers import sql_escape as _sql_escape
 
 
@@ -28,11 +28,9 @@ class RunStore:
     """
 
     def __init__(self, *, _results_dir: Path | None = None) -> None:
-        if _results_dir is not None:
-            results_dir = _results_dir
-        else:
-            from litmus.config.project import load_project_config
-            results_dir = Path(load_project_config().results_dir)
+        from litmus.data.results_dir import resolve_results_dir
+
+        results_dir = resolve_results_dir(_results_dir)
 
         self._runs_dir = results_dir / "runs"
         self._runs_dir.mkdir(parents=True, exist_ok=True)
@@ -40,45 +38,16 @@ class RunStore:
         # Start daemon and get gRPC location
         self._location = runs_duckdb_manager.acquire(self._runs_dir)
 
-        # Lazy Flight client
-        self._client: flight.FlightClient | None = None
-
-    def _get_client(self) -> flight.FlightClient:
-        """Get or create a Flight client to the DuckDB daemon."""
-        if self._client is None:
-            self._client = flight.connect(self._location)
-        return self._client
+        # Flight query client (shared retry logic with EventStore)
+        self._flight = FlightQueryClient(
+            self._location, "runs",
+            reacquire=lambda: runs_duckdb_manager.acquire(self._runs_dir),
+            label="RunStore",
+        )
 
     def _flight_query(self, sql: str, *, _retries: int = 2) -> list[dict[str, Any]]:
-        """Execute a SQL query via Flight and return list of dicts.
-
-        Retries on transient gRPC errors (e.g. daemon restart).
-        """
-        import time
-
-        last_exc: Exception | None = None
-        for attempt in range(_retries + 1):
-            try:
-                client = self._get_client()
-                ticket = flight.Ticket(f"runs\0{sql}".encode())
-                reader = client.do_get(ticket)
-                table = reader.read_all()
-                return table.to_pylist()
-            except Exception as exc:
-                last_exc = exc
-                self._client = None
-                if attempt < _retries:
-                    time.sleep(0.2)
-                    # Re-acquire in case daemon restarted with new port
-                    try:
-                        self._location = runs_duckdb_manager.acquire(self._runs_dir)
-                    except Exception:
-                        pass
-        warnings.warn(
-            f"RunStore Flight query failed after {_retries + 1} attempts: {last_exc}",
-            stacklevel=2,
-        )
-        return []
+        """Execute a SQL query via Flight and return list of dicts."""
+        return self._flight.query(sql, _retries=_retries)
 
     # --- Query API ---
 
@@ -235,7 +204,7 @@ class RunStore:
         Sends the file path so the daemon can read and index it immediately.
         """
         try:
-            client = self._get_client()
+            client = self._flight.get_client()
             descriptor = flight.FlightDescriptor.for_command(b"runs\0runs")
             table = pa.table({"file_path": [str(parquet_path)]})
             batch = table.to_batches()[0]
@@ -244,18 +213,9 @@ class RunStore:
             writer.close()
         except Exception:
             # Non-fatal: daemon will pick up on restart
-            self._client = None
+            self._flight.reset()
 
     def close(self) -> None:
         """Close Flight client and release daemon ref."""
-        if self._client is not None:
-            try:
-                self._client.close()
-            except Exception as exc:
-                warnings.warn(
-                    f"Failed to close Flight client: {exc}",
-                    stacklevel=2,
-                )
-            self._client = None
-
+        self._flight.close()
         runs_duckdb_manager.release(self._runs_dir)

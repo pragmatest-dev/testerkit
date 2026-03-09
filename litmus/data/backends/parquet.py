@@ -194,8 +194,10 @@ class ParquetBackend:
     4. Config snapshots in file metadata - full reconstruction possible
     """
 
-    def __init__(self, results_dir: Path | str = "results"):
-        self.results_dir = Path(results_dir)
+    def __init__(self, results_dir: Path | str | None = None):
+        from litmus.data.results_dir import resolve_results_dir
+
+        self.results_dir = resolve_results_dir(results_dir)
         self.results_dir.mkdir(parents=True, exist_ok=True)
 
     def save_test_run(

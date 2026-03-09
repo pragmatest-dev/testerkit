@@ -82,8 +82,15 @@ class FlightPutStream:
                 raise
 
     def close(self) -> None:
-        """Close the stream and client."""
+        """Drain pending acks, then close the stream and client."""
         with self._lock:
+            if self._reader is not None and self._pending_acks > 0:
+                try:
+                    for _ in range(self._pending_acks):
+                        self._reader.read()
+                    self._pending_acks = 0
+                except Exception:
+                    pass
             self._reset()
 
     def _reset(self) -> None:

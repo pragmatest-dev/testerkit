@@ -36,7 +36,9 @@ def yield_page(
         until: End date filter (YYYY-MM-DD)
     """
     if not results_dir:
-        results_dir = load_project_config().results_dir
+        from litmus.data.results_dir import resolve_results_dir
+
+        results_dir = str(resolve_results_dir())
 
     create_layout("Yield Analytics")
 

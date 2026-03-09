@@ -12,7 +12,7 @@ import json
 from pathlib import Path
 from typing import Any, Literal
 
-from pydantic import BaseModel, Field, field_validator, model_validator
+from pydantic import BaseModel, Field, model_validator
 
 from litmus.catalog.models import InstrumentCatalogEntry
 from litmus.config.models import (
@@ -112,17 +112,7 @@ class OutputConfig(BaseModel):
     transport: str | None = None
     output_dir: str | None = None
     template: str | None = None
-    retention: str | None = None  # e.g. "90d"
     extras: dict[str, Any] = Field(default_factory=dict)
-
-    @field_validator("retention")
-    @classmethod
-    def _validate_retention(cls, v: str | None) -> str | None:
-        if v is not None:
-            from litmus.data.retention import parse_duration
-
-            parse_duration(v)
-        return v
 
     @model_validator(mode="before")
     @classmethod
@@ -130,7 +120,7 @@ class OutputConfig(BaseModel):
         """Collect unknown keys into extras, merging with any explicit extras dict."""
         if not isinstance(data, dict):
             return data
-        known = {"format", "transport", "output_dir", "template", "retention", "extras"}
+        known = {"format", "transport", "output_dir", "template", "extras"}
         extras = {k: v for k, v in data.items() if k not in known}
         cleaned = {k: v for k, v in data.items() if k in known}
         # Merge any explicitly provided extras
@@ -170,7 +160,7 @@ class ProjectConfig(BaseModel):
     """Schema for litmus.yaml project config files — all fields at root."""
 
     name: str
-    results_dir: str = "results"
+    results_dir: str | None = None
     default_station: str = "station"
     mock_instruments: bool = False
     outputs: list[OutputConfig] = Field(default_factory=list)

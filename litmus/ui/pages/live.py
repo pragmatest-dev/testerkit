@@ -41,8 +41,10 @@ async def live_page(run_id: str):
                 progress = ui.linear_progress(value=0).classes("w-full")
                 step_label = ui.label("").classes("text-sm text-slate-600 mt-2")
 
-        # Tabbed content
-        events_dir = runner.results_dir / "events"
+        # Tabbed content — EventStore provides push-based subscriptions
+        from litmus.data.event_store import EventStore
+
+        event_store = EventStore(_results_dir=runner.results_dir)
 
         with ui.tabs().classes("w-full") as tabs:
             events_tab = ui.tab("Events")
@@ -51,11 +53,13 @@ async def live_page(run_id: str):
 
         with ui.tab_panels(tabs, value=events_tab).classes("w-full"):
             with ui.tab_panel(events_tab):
-                _timeline_container, timeline_timer = create_event_timeline(events_dir)
+                _timeline_container, unsub_timeline = create_event_timeline(
+                    event_store
+                )
 
             with ui.tab_panel(channels_tab):
-                _channels_container, channels_timer = create_channel_values_panel(
-                    events_dir
+                _channels_container, unsub_channels = create_channel_values_panel(
+                    event_store
                 )
 
             with ui.tab_panel(output_tab):
@@ -94,7 +98,8 @@ async def live_page(run_id: str):
                 status_label.classes(remove="bg-blue-100 text-blue-800")
                 status_label.classes(add="bg-red-100 text-red-800")
             finally:
-                timeline_timer.deactivate()
-                channels_timer.deactivate()
+                unsub_timeline()
+                unsub_channels()
+                event_store.close()
 
         ui.timer(0.1, update_progress, once=True)

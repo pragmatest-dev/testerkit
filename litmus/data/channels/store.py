@@ -15,6 +15,7 @@ from pathlib import Path
 from uuid import UUID
 
 import pyarrow as pa
+import pyarrow.flight as flight
 import pyarrow.ipc as ipc
 
 from litmus.data._ipc_writer import BufferedIPCWriter
@@ -183,6 +184,7 @@ class ChannelStore:
         self._flight_host = host
         self._flight_port = port
         self._flight_location: str | None = None
+        self._flight_client: flight.FlightClient | None = None
 
     def open(self) -> None:
         self._channels_dir.mkdir(parents=True, exist_ok=True)
@@ -256,6 +258,8 @@ class ChannelStore:
         # Notify subscribers
         if sample is not None:
             self._notify(channel_id, sample)
+            # Push to Flight daemon so cross-process subscribers see it
+            self._flight_push(channel_id, sample)
 
         return make_channel_uri(channel_id, str(self._session_id))
 
@@ -515,6 +519,32 @@ class ChannelStore:
 
         flight_manager.release(self._channels_dir)
 
+    def _flight_push(self, channel_id: str, sample: ChannelSample) -> None:
+        """Push a sample to the Flight daemon via do_put.
+
+        Non-fatal: data is in IPC files, daemon rebuilds on restart.
+        """
+        location = self._flight_location
+        if location is None:
+            return
+        try:
+            from litmus.data.channels.server import _sample_to_batch
+
+            client = self._flight_client
+            if client is None:
+                client = flight.connect(location)
+                self._flight_client = client
+            batch = _sample_to_batch(sample)
+            descriptor = flight.FlightDescriptor.for_command(
+                channel_id.encode("utf-8"),
+            )
+            writer, _ = client.do_put(descriptor, batch.schema)
+            writer.write_batch(batch)
+            writer.close()
+        except Exception as exc:
+            warnings.warn(f"Channel Flight push failed (non-fatal): {exc}", stacklevel=2)
+            self._flight_client = None
+
     @property
     def flight_location(self) -> str | None:
         """The gRPC location of the Flight server, if running."""
@@ -551,7 +581,13 @@ class ChannelStore:
 
     def close(self) -> None:
         """Flush all writers, write channel registry, close."""
-        # Release Flight server ref
+        # Close Flight client and release server ref
+        if self._flight_client is not None:
+            try:
+                self._flight_client.close()
+            except Exception:
+                pass
+            self._flight_client = None
         if self._flight_location is not None:
             self._flight_release()
             self._flight_location = None

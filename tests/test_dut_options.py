@@ -44,6 +44,7 @@ def test_dut_options_land_in_parquet(pytester_with_test):
         "--dut-revision=C",
         "--dut-lot=LOT-42",
         "--mock-instruments",
+        f"--results-dir={pytester_with_test.path / 'results'}",
         "-q",
     )
     result.assert_outcomes(passed=1)
@@ -65,6 +66,7 @@ def test_dut_options_default_to_none(pytester_with_test):
     """DUT options default to None when not provided."""
     result = pytester_with_test.runpytest_subprocess(
         "--mock-instruments",
+        f"--results-dir={pytester_with_test.path / 'results'}",
         "-q",
     )
     result.assert_outcomes(passed=1)

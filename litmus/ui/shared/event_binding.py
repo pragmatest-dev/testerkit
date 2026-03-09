@@ -7,7 +7,7 @@ Two data paths:
 
 2. **Channel data** (measurements, waveforms) →
    ``bind_channel_store(store)`` once at startup, then
-   ``ui_channel_event(channel_id).subscribe(handler)`` in UI components.
+   ``ui_channel_data(channel_id).subscribe(handler)`` per component.
 
    NiceGUI ``Event`` handles thread safety, multi-client delivery,
    and auto-unsubscribe on client disconnect.
@@ -16,7 +16,7 @@ Usage::
 
     from litmus.ui.shared.event_binding import (
         bind_channel_store,
-        ui_channel_event,
+        ui_channel_data,
         ui_subscribe,
     )
 
@@ -25,7 +25,7 @@ Usage::
 
     # Channel data — bind once, subscribe per-component:
     bind_channel_store(station.channel_store)
-    ui_channel_event("scope.waveform").subscribe(update_chart)
+    ui_channel_data("scope.waveform").subscribe(update_chart)
 """
 
 from __future__ import annotations
@@ -77,40 +77,40 @@ def ui_subscribe(
 # Channel data via NiceGUI Event[ChannelSample]
 # ---------------------------------------------------------------------------
 
-_channel_events: dict[str, Event] = {}
+_channel_signals: dict[str, Event] = {}
 _bound_locations: set[str] = set()
-_global_event: Event | None = None
+_global_signal: Event | None = None
 
 
-def ui_channel_event(channel_id: str) -> Event:
+def ui_channel_data(channel_id: str) -> Event:
     """Get or create a NiceGUI Event for a channel.
 
     UI components subscribe from within their UI context::
 
-        ui_channel_event("scope.waveform").subscribe(lambda sample: ...)
+        ui_channel_data("scope.waveform").subscribe(lambda sample: ...)
 
     NiceGUI handles thread safety, multi-client delivery, and
     auto-unsubscribe on client disconnect.
     """
-    if channel_id not in _channel_events:
-        _channel_events[channel_id] = Event()
-    return _channel_events[channel_id]
+    if channel_id not in _channel_signals:
+        _channel_signals[channel_id] = Event()
+    return _channel_signals[channel_id]
 
 
-def ui_global_channel_event() -> Event:
+def ui_global_channel_data() -> Event:
     """Get or create a NiceGUI Event that fires for ALL channels."""
-    global _global_event
-    if _global_event is None:
-        _global_event = Event()
-    return _global_event
+    global _global_signal
+    if _global_signal is None:
+        _global_signal = Event()
+    return _global_signal
 
 
-def reset_channel_events() -> None:
+def reset_channel_signals() -> None:
     """Clear all channel event state. For testing only."""
-    _channel_events.clear()
+    _channel_signals.clear()
     _bound_locations.clear()
-    global _global_event
-    _global_event = None
+    global _global_signal
+    _global_signal = None
 
 
 def bind_channel_store(store: ChannelStore) -> Callable[[], None]:
@@ -123,11 +123,11 @@ def bind_channel_store(store: ChannelStore) -> Callable[[], None]:
     Call once at startup. Returns a cleanup callable.
     """
     def _on_sample(sample: ChannelSample) -> None:
-        evt = _channel_events.get(sample.channel_id)
+        evt = _channel_signals.get(sample.channel_id)
         if evt is not None:
             evt.emit(sample)
-        if _global_event is not None:
-            _global_event.emit(sample)
+        if _global_signal is not None:
+            _global_signal.emit(sample)
 
     location = store.flight_location
     if location and location not in _bound_locations:

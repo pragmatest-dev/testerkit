@@ -23,7 +23,6 @@ from __future__ import annotations
 
 import json as json_mod
 import threading
-import time
 import warnings
 from collections.abc import Callable
 from datetime import datetime
@@ -32,47 +31,15 @@ from typing import Any
 from uuid import UUID
 
 import pyarrow as pa
-import pyarrow.flight as flight
 
 from litmus.data import duckdb_manager
 from litmus.data._duckdb_flight_server import FlightPutStream
 from litmus.data._event_filters import event_matches_role
+from litmus.data._flight_query import FlightQueryClient
 from litmus.data._sql_helpers import sql_escape as _sql_escape
 from litmus.data.event_log import EventLog
 from litmus.data.events import EventBase
-
-
-def _resolve_results_dir(explicit: Path | None = None) -> Path:
-    """Resolve the results directory.
-
-    Resolution chain:
-    1. ``explicit`` parameter (if provided)
-    2. ``litmus.yaml`` in CWD ancestors → project ``results_dir``
-    3. ``LITMUS_HOME`` env var
-    4. ``platformdirs.user_data_dir("litmus")``
-    """
-    if explicit is not None:
-        explicit.mkdir(parents=True, exist_ok=True)
-        return explicit
-
-    from litmus.connect import _find_project_config
-
-    found = _find_project_config()
-    if found:
-        root, project = found
-        if project.results_dir:
-            d = root / project.results_dir
-            d.mkdir(parents=True, exist_ok=True)
-            return d
-
-    import os
-
-    import platformdirs
-
-    home = Path(os.environ.get("LITMUS_HOME", platformdirs.user_data_dir("litmus")))
-    d = home / "results"
-    d.mkdir(parents=True, exist_ok=True)
-    return d
+from litmus.data.results_dir import resolve_results_dir
 
 
 def _parse_timestamp(ts: object) -> datetime | None:
@@ -132,15 +99,19 @@ class EventStore:
     """Storage-agnostic event API. Callers never see paths, files, or SQL."""
 
     def __init__(self, *, _results_dir: Path | None = None) -> None:
-        self._results_dir = _resolve_results_dir(_results_dir)
+        self._results_dir = resolve_results_dir(_results_dir)
         self._events_dir = self._results_dir / "events"
         self._events_dir.mkdir(parents=True, exist_ok=True)
 
         # Start daemon and get gRPC location for Flight queries
         self._location = duckdb_manager.acquire(self._events_dir)
 
-        # Lazy Flight client (for queries)
-        self._client: flight.FlightClient | None = None
+        # Flight query client (shared retry logic with RunStore)
+        self._flight = FlightQueryClient(
+            self._location, "events",
+            reacquire=lambda: duckdb_manager.acquire(self._events_dir),
+            label="EventStore",
+        )
 
         # Persistent do_put stream (for writes)
         self._put_stream = FlightPutStream(self._location, "events", "events")
@@ -152,44 +123,17 @@ class EventStore:
         self._subscriptions: list[_Subscription] = []
         self._lock = threading.Lock()
 
+        # Track event IDs delivered in-process to avoid duplicate delivery
+        # from the cross-process watcher.
+        self._delivered_ids: set[str] = set()
+
         # Cross-process watcher
         self._watcher_thread: threading.Thread | None = None
         self._watcher_stop = threading.Event()
 
-    def _get_client(self) -> flight.FlightClient:
-        """Get or create a Flight client to the DuckDB daemon."""
-        if self._client is None:
-            self._client = flight.connect(self._location)
-        return self._client
-
     def _flight_query(self, sql: str, *, _retries: int = 2) -> list[dict[str, Any]]:
-        """Execute a SQL query via Flight and return list of dicts.
-
-        Retries on transient gRPC errors (e.g. daemon restart).
-        """
-        last_exc: Exception | None = None
-        for attempt in range(_retries + 1):
-            try:
-                client = self._get_client()
-                ticket = flight.Ticket(f"events\0{sql}".encode())
-                reader = client.do_get(ticket)
-                table = reader.read_all()
-                return table.to_pylist()
-            except Exception as exc:
-                last_exc = exc
-                self._client = None
-                if attempt < _retries:
-                    time.sleep(0.2)
-                    # Re-acquire in case daemon restarted with new port
-                    try:
-                        self._location = duckdb_manager.acquire(self._events_dir)
-                    except Exception:
-                        pass
-        warnings.warn(
-            f"EventStore Flight query failed after {_retries + 1} attempts: {last_exc}",
-            stacklevel=2,
-        )
-        return []
+        """Execute a SQL query via Flight and return list of dicts."""
+        return self._flight.query(sql, _retries=_retries)
 
     def _flight_put(self, batch: pa.RecordBatch) -> None:
         """Push an Arrow batch to the daemon via persistent do_put stream.
@@ -205,10 +149,38 @@ class EventStore:
 
     # -- Write path ----------------------------------------------------------
 
+    def _dispatch_to_subscribers(self, evt_dict: dict) -> None:
+        """Dispatch an event dict to matching subscribers (caller holds lock)."""
+        for sub in self._subscriptions:
+            if sub.matches(evt_dict):
+                try:
+                    sub.callback(evt_dict)
+                except Exception as exc:
+                    warnings.warn(
+                        f"Event subscriber failed: {exc}",
+                        stacklevel=2,
+                    )
+
+    def _notify_subscribers(self, event: EventBase) -> None:
+        """Notify in-process subscribers about a new event."""
+        evt_dict = event.model_dump(mode="json")
+        event_id = str(event.id)
+        with self._lock:
+            self._delivered_ids.add(event_id)
+            self._dispatch_to_subscribers(evt_dict)
+
     def get_event_log(self, session_id: UUID) -> EventLog:
-        """Get or create an EventLog for a session."""
+        """Get or create an EventLog for a session.
+
+        The returned EventLog is wired to notify this store's subscribers
+        on every emit, bridging per-session writes to store-level subscriptions.
+        """
         if session_id not in self._event_logs:
-            self._event_logs[session_id] = EventLog(self._events_dir, session_id)
+            self._event_logs[session_id] = EventLog(
+                self._events_dir, session_id,
+                on_emit=self._notify_subscribers,
+                on_flush=self._flight_put,
+            )
         return self._event_logs[session_id]
 
     def emit(self, event: EventBase, *, session_id: UUID | None = None) -> None:
@@ -223,24 +195,10 @@ class EventStore:
             raise ValueError("Event must have session_id or pass session_id to emit()")
 
         log = self.get_event_log(sid)
-        batch = log.emit(event)
+        log.emit(event)
 
-        # If the log flushed (buffer hit threshold), push batch to daemon
-        if batch is not None:
-            self._flight_put(batch)
-
-        # Notify in-process subscribers
-        evt_dict = event.model_dump(mode="json")
-        with self._lock:
-            for sub in self._subscriptions:
-                if sub.matches(evt_dict):
-                    try:
-                        sub.callback(evt_dict)
-                    except Exception as exc:
-                        warnings.warn(
-                            f"Event subscriber failed: {exc}",
-                            stacklevel=2,
-                        )
+        # Note: _notify_subscribers is called by EventLog.on_emit callback,
+        # and _flight_put is called by EventLog.on_flush callback.
 
     # -- Read path -----------------------------------------------------------
 
@@ -254,10 +212,9 @@ class EventStore:
     ) -> list[dict]:
         """Query events from the DuckDB index via Flight."""
         # Flush any buffered events to IPC + Flight before querying
+        # (on_flush callback pushes batches to Flight automatically)
         for log in self._event_logs.values():
-            batch = log.flush()
-            if batch is not None:
-                self._flight_put(batch)
+            log.flush()
         try:
             self._put_stream.drain()
         except Exception:
@@ -372,7 +329,11 @@ class EventStore:
         self._watcher_thread.start()
 
     def _watch_loop(self) -> None:
-        """Poll for new events from other processes using Flight queries."""
+        """Poll for new events from other processes using Flight queries.
+
+        Skips events already delivered in-process (via ``_notify_subscribers``).
+        Parses the ``json`` column so subscribers get full event dicts.
+        """
         last_received_at: str | None = None
 
         while not self._watcher_stop.is_set():
@@ -389,20 +350,27 @@ class EventStore:
             """
             rows = self._flight_query(query)
 
-            for evt in rows:
-                ts = evt.get("received_at")
+            for row in rows:
+                ts = row.get("received_at")
                 if ts is not None:
                     last_received_at = str(ts)
+
+                # Parse the full event from the json column
+                json_str = row.get("json")
+                if json_str:
+                    try:
+                        evt = json_mod.loads(json_str)
+                    except (json_mod.JSONDecodeError, TypeError):
+                        evt = row
+                else:
+                    evt = row
+
+                # Skip events already delivered in-process
+                event_id = str(evt.get("id") or row.get("id", ""))
                 with self._lock:
-                    for sub in self._subscriptions:
-                        if sub.matches(evt):
-                            try:
-                                sub.callback(evt)
-                            except Exception as exc:
-                                warnings.warn(
-                                    f"Event subscriber failed: {exc}",
-                                    stacklevel=2,
-                                )
+                    if event_id in self._delivered_ids:
+                        continue
+                    self._dispatch_to_subscribers(evt)
 
             self._watcher_stop.wait(timeout=0.5)
 
@@ -420,29 +388,16 @@ class EventStore:
             self._watcher_thread.join(timeout=2.0)
             self._watcher_thread = None
 
-        # Flush remaining buffered events to Flight before closing
-        for log in self._event_logs.values():
-            batch = log.flush()
-            if batch is not None:
-                self._flight_put(batch)
-
-        self._put_stream.close()
-
+        # Close event logs — their on_flush callback pushes final batches to Flight
         for log in self._event_logs.values():
             log.close()
         self._event_logs.clear()
 
+        self._put_stream.close()
+
         with self._lock:
             self._subscriptions.clear()
+            self._delivered_ids.clear()
 
-        if self._client is not None:
-            try:
-                self._client.close()
-            except Exception as exc:
-                warnings.warn(
-                    f"Failed to close Flight client: {exc}",
-                    stacklevel=2,
-                )
-            self._client = None
-
+        self._flight.close()
         duckdb_manager.release(self._events_dir)

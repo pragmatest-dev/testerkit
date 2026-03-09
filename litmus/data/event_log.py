@@ -12,6 +12,7 @@ Storage: ``results/events/{date}/{session_id}.arrow``
 from __future__ import annotations
 
 import warnings
+from collections.abc import Callable
 from datetime import UTC, date, datetime
 from pathlib import Path
 from typing import Any, Protocol, runtime_checkable
@@ -39,6 +40,27 @@ _IPC_SCHEMA = pa.schema([
 _DEFAULT_FLUSH_THRESHOLD = 50
 
 
+class _EventIPCWriter(BufferedIPCWriter):
+    """IPC writer that calls on_flush after each batch is written."""
+
+    def __init__(
+        self,
+        path: Path,
+        schema: pa.Schema,
+        flush_threshold: int = 50,
+        on_flush: Callable[[pa.RecordBatch], None] | None = None,
+    ) -> None:
+        super().__init__(path, schema, flush_threshold=flush_threshold)
+        self._on_flush_cb = on_flush
+
+    def _on_flush(self, batch: pa.RecordBatch) -> None:
+        if self._on_flush_cb is not None:
+            try:
+                self._on_flush_cb(batch)
+            except Exception as exc:
+                warnings.warn(f"on_flush callback failed: {exc}", stacklevel=2)
+
+
 @runtime_checkable
 class EventSubscriber(Protocol):
     """Protocol for event log subscribers."""
@@ -64,15 +86,20 @@ class EventLog:
         log_dir: Path,
         session_id: UUID,
         flush_threshold: int = _DEFAULT_FLUSH_THRESHOLD,
+        on_emit: Callable[[EventBase], None] | None = None,
+        on_flush: Callable[[pa.RecordBatch], None] | None = None,
     ) -> None:
         self.log_dir = log_dir
         self.session_id = session_id
+        self._on_emit = on_emit
+        self._on_flush = on_flush
         date_dir = self.log_dir / date.today().isoformat()
         date_dir.mkdir(parents=True, exist_ok=True)
-        self._ipc = BufferedIPCWriter(
+        self._ipc = _EventIPCWriter(
             path=date_dir / f"{session_id}.arrow",
             schema=_IPC_SCHEMA,
             flush_threshold=flush_threshold,
+            on_flush=on_flush,
         )
         self._subscribers: list[EventSubscriber] = []
         self._failed: set[EventSubscriber] = set()
@@ -114,6 +141,13 @@ class EventLog:
                     f"{type(event).__name__}: {exc}",
                     stacklevel=2,
                 )
+
+        # Notify store-level callback (bridges EventLog → EventStore subscribers)
+        if self._on_emit is not None:
+            try:
+                self._on_emit(event)
+            except Exception as exc:
+                warnings.warn(f"on_emit callback failed: {exc}", stacklevel=2)
 
         return batch
 

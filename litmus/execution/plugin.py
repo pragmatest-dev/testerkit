@@ -445,8 +445,8 @@ def pytest_addoption(parser):
     group.addoption("--operator", default=None, help="Operator name")
     group.addoption(
         "--results-dir",
-        default=project.results_dir,
-        help="Directory for Parquet results",
+        default=None,
+        help="Directory for Parquet results (default: platform data dir)",
     )
     group.addoption("--spec", default=None, help="Path to product spec YAML file")
     group.addoption("--guardband", default="0", help="Default guardband percentage")
@@ -740,23 +740,29 @@ def litmus_logger(request) -> Generator[TestRunLogger, None, None]:
     Captures config snapshots at run start for full traceability.
     Streams events to an event log for live observability.
     """
-    from litmus.data.event_log import EventLog
+    from litmus.data.event_store import EventStore
     from litmus.data.events import SessionStarted
     from litmus.data.subscribers import get_subscriber_class
 
     meta = _build_run_metadata(request)
+    from litmus.data.results_dir import resolve_results_dir
+
     results_dir = meta["results_dir"]
+    if not results_dir:
+        results_dir = str(resolve_results_dir())
+        meta["results_dir"] = results_dir
     session_id = uuid4()
     meta["session_id"] = session_id
 
     logger = TestRunLogger(**meta)
 
-    # Create event log and wire subscribers from config
+    # Create event store + log and wire subscribers from config
+    _event_store: EventStore | None = None
     if results_dir:
         results_path = Path(results_dir)
-        events_dir = results_path / "events"
 
-        event_log = EventLog(events_dir, session_id)
+        _event_store = EventStore(_results_dir=results_path)
+        event_log = _event_store.get_event_log(session_id)
         logger.event_log = event_log
 
         # Collect configured subscriber formats from outputs config
@@ -840,8 +846,14 @@ def litmus_logger(request) -> Generator[TestRunLogger, None, None]:
         _cs_final.close()
         set_channel_store(None)
 
-    # Finalize (emits RunEnded, closes event log → ParquetSubscriber writes Parquet)
+    # Finalize emits RunEnded/SessionEnded and closes event log + subscribers.
+    # EventStore.close() will flush remaining events to Flight/DuckDB after.
     test_run = logger.finalize()
+
+    # Close EventStore — releases daemon ref. Event logs were already closed
+    # by finalize(), and on_flush callback pushed final batches to Flight.
+    if _event_store is not None:
+        _event_store.close()
 
     # Run configured outputs (exports, reports, transports)
     _run_configured_outputs(test_run, str(test_run.id), results_dir)
@@ -1141,7 +1153,16 @@ def instruments(
     Returns:
         Dictionary mapping instrument role names to driver instances.
     """
+    from litmus.instruments.locks import (
+        ResourceMeta,
+        acquire_resource,
+        release_resource,
+    )
+
     active: dict[str, Any] = {}
+    from filelock._api import BaseFileLock
+
+    held_locks: dict[str, BaseFileLock] = {}  # role → FileLock
     set_active_instruments(active)
 
     if not station_config:
@@ -1150,6 +1171,7 @@ def instruments(
 
     # Get instrument configs from station
     inst_configs = station_config.instruments or {}
+    session_id = litmus_logger._session_id if litmus_logger else None
 
     for role, record in instrument_records.items():
         # Get config - either from record (new format) or inline (legacy)
@@ -1160,15 +1182,32 @@ def instruments(
         )
         use_mock = mock_instruments or (inline_config.mock if inline_config else False)
         record.mocked = use_mock
+
+        # Acquire resource lock (skip for mocks with no real resource)
+        if record.resource and not record.mocked:
+            from datetime import UTC, datetime
+            from uuid import UUID
+
+            meta = ResourceMeta(
+                pid=os.getpid(),
+                session_id=UUID(str(session_id)) if session_id else UUID(int=0),
+                station_id=station_config.id or "",
+                role=role,
+                acquired_at=datetime.now(UTC),
+            )
+            lock = acquire_resource(record.resource, meta, timeout=0)
+            held_locks[role] = lock
+
         try:
             inst: Any = load_and_connect(record, mock=use_mock, mock_config=mock_config)
         except ValueError:
             # No driver and no resource — skip this instrument
+            if role in held_locks:
+                release_resource(record.resource, held_locks.pop(role))
             continue
 
         run_id = litmus_logger.test_run.id if litmus_logger else None
         event_log = litmus_logger.event_log if litmus_logger else None
-        session_id = litmus_logger._session_id if litmus_logger else None
         inst = verify_and_wrap(
             inst, role, record, event_log, session_id, run_id,
             channel_store=get_channel_store(),
@@ -1178,7 +1217,7 @@ def instruments(
 
     yield active
 
-    # Cleanup: disconnect/close all instruments
+    # Cleanup: disconnect/close all instruments, release locks
     for role, inst in active.items():
         # Emit disconnect event
         if litmus_logger is not None and litmus_logger.event_log is not None:
@@ -1195,6 +1234,14 @@ def instruments(
             )
 
         disconnect(inst, role)
+
+        # Release resource lock
+        if role in held_locks:
+            record = instrument_records.get(role)
+            if record and record.resource:
+                release_resource(record.resource, held_locks[role])
+
+    held_locks.clear()
     active.clear()
 
 

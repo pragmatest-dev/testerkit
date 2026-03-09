@@ -1,19 +1,19 @@
 """Live event timeline component.
 
 Displays a scrollable, filterable list of session events
-with color-coded categories and auto-scroll.
+with color-coded categories and auto-scroll.  Uses EventStore
+subscriptions for push-based updates (no polling).
 """
 
 from __future__ import annotations
 
 import json
 from collections.abc import Callable
-from pathlib import Path
 
 from nicegui import ui
 
-from litmus.data._event_reader import EventReader, find_session_log
 from litmus.data.event_store import EventStore
+from litmus.ui.shared.event_binding import ui_subscribe
 from litmus.ui.shared.timestamps import parse_iso_timestamp
 
 # Category → (color-dot class, badge bg, label)
@@ -85,24 +85,14 @@ def _relative_time(evt: dict, t0: str | None) -> str:
 
 
 def create_event_timeline(
-    events_dir_or_store: Path | EventStore, poll_interval: float = 0.5
-) -> tuple[ui.column, ui.timer]:
-    """Create a live-updating event timeline.
+    store: EventStore,
+) -> tuple[ui.column, Callable[[], None]]:
+    """Create a live-updating event timeline via EventStore subscription.
 
-    Returns (container, timer) so the caller can deactivate the timer.
+    Returns (container, unsubscribe) so the caller can stop updates.
     """
 
-    # Resolve input: EventStore or legacy Path
-    store: EventStore | None = None
-    events_dir: Path | None = None
-    if isinstance(events_dir_or_store, EventStore):
-        store = events_dir_or_store
-        events_dir = store.events_dir
-    else:
-        events_dir = events_dir_or_store
-
     # State
-    reader: EventReader | None = None
     all_events: list[dict] = []
     active_filters: set[str] = set(_CATEGORIES.keys())
     t0: str | None = None
@@ -154,7 +144,6 @@ def create_event_timeline(
 
     def _render_event_row(evt: dict, cat: str):
         """Render a single event row in the rows container."""
-        # Fall back to "diagnostic" styling for unknown event categories
         dot_cls, badge_cls, _ = _CATEGORIES.get(cat, _CATEGORIES["diagnostic"])
         et = evt.get("event_type", "unknown")
         detail = _event_detail(evt)
@@ -166,55 +155,33 @@ def create_event_timeline(
             ).props("dense header-class='py-1 px-2'") as exp:
                 with exp.add_slot("header"):
                     with ui.row().classes("items-center gap-2 w-full text-sm"):
-                        # Color dot
                         ui.element("div").classes(
                             f"w-2 h-2 rounded-full {dot_cls} flex-shrink-0"
                         )
-                        # Event type badge
                         ui.label(et).classes(
                             f"px-1.5 py-0.5 rounded text-xs font-mono {badge_cls}"
                         )
-                        # Timestamp
                         ui.label(rel).classes(
                             "text-xs text-slate-400 flex-shrink-0"
                         )
-                        # Detail
                         if detail:
                             ui.label(detail).classes(
                                 "text-xs text-slate-600 truncate"
                             )
-                # Expanded: full JSON
                 ui.code(json.dumps(evt, indent=2, default=str)).classes(
                     "text-xs w-full"
                 )
 
-    def poll():
-        nonlocal reader, t0
-
-        # Lazily find the session log file
-        if reader is None:
-            path = find_session_log(events_dir)
-            if path is None:
-                return
-            reader = EventReader(path)
-
-        new_events = reader.read_new()
-        if not new_events:
-            return
-
+    def _on_event(evt: dict) -> None:
+        nonlocal t0
         if t0 is None:
-            source = all_events[0] if all_events else (new_events[0] if new_events else None)
-            if source:
-                t0 = source.get("occurred_at") or source.get("received_at")
+            t0 = evt.get("occurred_at") or evt.get("received_at")
 
-        for evt in new_events:
-            all_events.append(evt)
-            cat = _category_for(evt.get("event_type", ""))
-            if cat in active_filters:
-                _render_event_row(evt, cat)
+        all_events.append(evt)
+        cat = _category_for(evt.get("event_type", ""))
+        if cat in active_filters:
+            _render_event_row(evt, cat)
+            scroll_area.scroll_to(percent=1.0)
 
-        # Auto-scroll to bottom
-        scroll_area.scroll_to(percent=1.0)
-
-    timer = ui.timer(poll_interval, poll)
-    return container, timer
+    unsubscribe = ui_subscribe(store, _on_event)
+    return container, unsubscribe

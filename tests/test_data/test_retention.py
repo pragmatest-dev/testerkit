@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-from litmus.data.retention import parse_duration, prune_all, prune_date_dirs, prune_from_config
+from litmus.data.retention import parse_duration, prune_all, prune_date_dirs
 
 
 class TestParseDuration:
@@ -24,83 +24,103 @@ class TestParseDuration:
 
 
 class TestPruneDateDirs:
+    @pytest.fixture()
+    def project_dir(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+        """Create a project dir with litmus.yaml so prune considers it owned."""
+        (tmp_path / "litmus.yaml").write_text(
+            f"name: test\nresults_dir: {tmp_path / 'data'}\n"
+        )
+        monkeypatch.chdir(tmp_path)
+        return tmp_path / "data"
+
     def _make_date_dirs(self, base: Path, dates: list[date]) -> None:
         for d in dates:
             (base / d.isoformat()).mkdir(parents=True)
 
-    def test_deletes_old_keeps_recent(self, tmp_path: Path):
+    def test_deletes_old_keeps_recent(self, project_dir: Path):
         today = date.today()
         old = today - timedelta(days=60)
         recent = today - timedelta(days=5)
-        self._make_date_dirs(tmp_path, [old, recent])
+        self._make_date_dirs(project_dir, [old, recent])
 
         cutoff = today - timedelta(days=30)
-        removed = prune_date_dirs(tmp_path, cutoff)
+        removed = prune_date_dirs(project_dir, cutoff)
 
         assert len(removed) == 1
         assert removed[0].name == old.isoformat()
-        assert not (tmp_path / old.isoformat()).exists()
-        assert (tmp_path / recent.isoformat()).exists()
+        assert not (project_dir / old.isoformat()).exists()
+        assert (project_dir / recent.isoformat()).exists()
 
-    def test_dry_run(self, tmp_path: Path):
+    def test_dry_run(self, project_dir: Path):
         old = date.today() - timedelta(days=60)
-        self._make_date_dirs(tmp_path, [old])
+        self._make_date_dirs(project_dir, [old])
 
         cutoff = date.today() - timedelta(days=30)
-        removed = prune_date_dirs(tmp_path, cutoff, dry_run=True)
+        removed = prune_date_dirs(project_dir, cutoff, dry_run=True)
 
         assert len(removed) == 1
-        assert (tmp_path / old.isoformat()).exists()  # not deleted
+        assert (project_dir / old.isoformat()).exists()  # not deleted
 
-    def test_nonexistent_dir(self, tmp_path: Path):
-        removed = prune_date_dirs(tmp_path / "nope", date.today())
+    def test_nonexistent_dir(self, project_dir: Path):
+        removed = prune_date_dirs(project_dir / "nope", date.today())
         assert removed == []
 
-    def test_ignores_non_date_dirs(self, tmp_path: Path):
-        (tmp_path / "not-a-date").mkdir()
-        removed = prune_date_dirs(tmp_path, date.today())
+    def test_ignores_non_date_dirs(self, project_dir: Path):
+        (project_dir / "not-a-date").mkdir(parents=True)
+        removed = prune_date_dirs(project_dir, date.today())
         assert removed == []
+
+    def test_refuses_unowned_dir(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+        no_project = tmp_path / "no_project"
+        no_project.mkdir()
+        monkeypatch.chdir(no_project)
+
+        with pytest.raises(PermissionError, match="project-owned"):
+            prune_date_dirs(tmp_path / "whatever", date.today())
 
 
 class TestPruneAll:
-    def test_prunes_all_subdirs(self, tmp_path: Path):
+    @pytest.fixture()
+    def project_dir(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+        """Create a project dir with litmus.yaml so prune considers it owned."""
+        (tmp_path / "litmus.yaml").write_text(
+            f"name: test\nresults_dir: {tmp_path / 'results'}\n"
+        )
+        monkeypatch.chdir(tmp_path)
+        return tmp_path / "results"
+
+    def test_prunes_all_subdirs(self, project_dir: Path):
         old = (date.today() - timedelta(days=60)).isoformat()
         for sub in ("channels", "sessions", "events"):
-            (tmp_path / sub / old).mkdir(parents=True)
+            (project_dir / sub / old).mkdir(parents=True)
 
-        result = prune_all(tmp_path, "30d")
+        result = prune_all(project_dir, "30d")
         for sub in ("channels", "sessions", "events"):
             assert len(result[sub]) == 1
-            assert not (tmp_path / sub / old).exists()
+            assert not (project_dir / sub / old).exists()
 
-    def test_prunes_specific_types(self, tmp_path: Path):
+    def test_prunes_specific_types(self, project_dir: Path):
         old = (date.today() - timedelta(days=60)).isoformat()
         for sub in ("channels", "sessions", "events"):
-            (tmp_path / sub / old).mkdir(parents=True)
+            (project_dir / sub / old).mkdir(parents=True)
 
-        result = prune_all(tmp_path, "30d", data_types=("channels",))
+        result = prune_all(project_dir, "30d", data_types=("channels",))
         assert len(result) == 1
         assert len(result["channels"]) == 1
         # sessions and events untouched
-        assert (tmp_path / "sessions" / old).exists()
-        assert (tmp_path / "events" / old).exists()
+        assert (project_dir / "sessions" / old).exists()
+        assert (project_dir / "events" / old).exists()
+
+    def test_refuses_unowned_dir(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+        """Pruning a dir not owned by any project should fail."""
+        # chdir to a dir with no litmus.yaml
+        no_project = tmp_path / "no_project"
+        no_project.mkdir()
+        monkeypatch.chdir(no_project)
+
+        target = tmp_path / "some_random_dir"
+        target.mkdir()
+        with pytest.raises(PermissionError, match="project-owned"):
+            prune_all(target, "30d")
 
 
-class TestPruneFromConfig:
-    def test_prunes_outputs_with_retention(self, tmp_path: Path):
-        from litmus.schemas import OutputConfig
-
-        old = (date.today() - timedelta(days=60)).isoformat()
-        (tmp_path / "results" / "channels" / old).mkdir(parents=True)
-        (tmp_path / "results" / "sessions" / old).mkdir(parents=True)
-
-        outputs = [
-            OutputConfig(format="channels", retention="30d"),
-            OutputConfig(format="sessions"),  # no retention — should be skipped
-        ]
-        result = prune_from_config(tmp_path, outputs)
-        assert len(result) == 1
-        assert "channels" in result
-        assert len(result["channels"]) == 1
-        # sessions untouched
-        assert (tmp_path / "results" / "sessions" / old).exists()

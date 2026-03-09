@@ -6,10 +6,6 @@ import re
 import shutil
 from datetime import date, timedelta
 from pathlib import Path
-from typing import TYPE_CHECKING
-
-if TYPE_CHECKING:
-    from litmus.schemas import OutputConfig
 
 _DURATION_RE = re.compile(r"^(\d+)d$")
 
@@ -29,15 +25,61 @@ def parse_duration(s: str) -> timedelta:
     return timedelta(days=int(m.group(1)))
 
 
+def _is_project_owned(path: Path) -> bool:
+    """Return True if *path* is owned by the current project.
+
+    A directory is project-owned if:
+    1. It was explicitly set via ``results_dir`` in ``litmus.yaml``, OR
+    2. It is located under the project repo folder (CWD ancestors)
+
+    Anything else (global default, arbitrary paths) is not owned.
+    """
+    resolved = path.resolve()
+
+    # Check if project explicitly defines results_dir
+    try:
+        from litmus.connect import _find_project_config
+
+        found = _find_project_config()
+        if found:
+            root, project = found
+            if project.results_dir:
+                explicit = (root / project.results_dir).resolve()
+                try:
+                    resolved.relative_to(explicit)
+                    return True
+                except ValueError:
+                    pass
+            # Check if under the project repo folder
+            try:
+                resolved.relative_to(root.resolve())
+                return True
+            except ValueError:
+                pass
+    except Exception:
+        pass
+
+    return False
+
+
 def prune_date_dirs(base_dir: Path, cutoff: date, *, dry_run: bool = False) -> list[Path]:
     """Delete date-named subdirectories older than *cutoff*.
 
     Only directories whose name is a valid ISO date (YYYY-MM-DD) and
     predates *cutoff* are removed. Non-date directories are left untouched.
 
+    Raises:
+        PermissionError: If *base_dir* is not owned by the current project.
+
     Returns:
         List of directories that were (or would be) deleted.
     """
+    if not _is_project_owned(base_dir):
+        raise PermissionError(
+            f"Refusing to prune: {base_dir}\n"
+            "Only project-owned directories can be pruned (results_dir in litmus.yaml "
+            "or under the project repo folder)."
+        )
     removed: list[Path] = []
     if not base_dir.is_dir():
         return removed
@@ -73,9 +115,19 @@ def prune_all(
         materialize: If True (default), copy channel data referenced by
             parquet files into ``_ref/`` sidecar dirs before pruning channels.
 
+    Raises:
+        PermissionError: If *results_dir* is the shared global results
+            directory. Projects cannot prune shared data.
+
     Returns:
         Dict mapping subdirectory name to list of pruned date dirs.
     """
+    if not _is_project_owned(results_dir):
+        raise PermissionError(
+            f"Refusing to prune: {results_dir}\n"
+            "Only project-owned directories can be pruned (results_dir in litmus.yaml "
+            "or under the project repo folder)."
+        )
     delta = parse_duration(older_than)
     cutoff = date.today() - delta
     result: dict[str, list[Path]] = {}
@@ -95,31 +147,3 @@ def prune_all(
     return result
 
 
-def prune_from_config(
-    project_dir: Path,
-    outputs: list[OutputConfig],
-    *,
-    dry_run: bool = False,
-) -> dict[str, list[Path]]:
-    """Prune using per-output retention settings from OutputConfig entries.
-
-    Args:
-        project_dir: Project root directory (output_dir paths are relative to this).
-        outputs: List of OutputConfig instances with optional ``retention`` field.
-        dry_run: If True, report but don't delete.
-
-    Returns:
-        Dict mapping output format to list of pruned date dirs.
-    """
-    result: dict[str, list[Path]] = {}
-    for output_cfg in outputs:
-        retention = output_cfg.retention
-        if not retention:
-            continue
-        output_dir = output_cfg.default_output_dir()
-        base_dir = project_dir / output_dir
-        delta = parse_duration(retention)
-        cutoff = date.today() - delta
-        label = output_cfg.format or output_dir
-        result[label] = prune_date_dirs(base_dir, cutoff, dry_run=dry_run)
-    return result
