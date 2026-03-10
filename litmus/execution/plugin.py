@@ -22,12 +22,8 @@ from litmus.execution.decorators import set_current_logger
 from litmus.execution.harness import Context
 from litmus.execution.logger import RunContext, TestRunLogger
 from litmus.fixtures.manager import FixtureManager, PinAccessor
-from litmus.instruments.lifecycle import (
-    disconnect,
-    load_and_connect,
-    verify_and_wrap,
-)
 from litmus.instruments.models import InstrumentRecord
+from litmus.instruments.pool import _InstrumentPool
 from litmus.products.context import SpecContext
 from litmus.schemas import OutputConfig, ProjectConfig, StationConfig
 
@@ -1152,96 +1148,39 @@ def instruments(
     Returns:
         Dictionary mapping instrument role names to driver instances.
     """
-    from litmus.instruments.locks import (
-        ResourceMeta,
-        acquire_resource,
-        release_resource,
-    )
-
-    active: dict[str, Any] = {}
-    from filelock._api import BaseFileLock
-
-    held_locks: dict[str, BaseFileLock] = {}  # role → FileLock
-    set_active_instruments(active)
-
     if not station_config:
+        active: dict[str, Any] = {}
+        set_active_instruments(active)
         yield active
         return
 
-    # Get instrument configs from station
     inst_configs = station_config.instruments or {}
     session_id = litmus_logger._session_id if litmus_logger else None
+    run_id = litmus_logger.test_run.id if litmus_logger else None
+    event_log = litmus_logger.event_log if litmus_logger else None
+
+    pool = _InstrumentPool(
+        session_id=session_id,
+        event_log=event_log,
+        channel_store=get_channel_store(),
+        mock_all=mock_instruments,
+        station_id=station_config.id or "",
+        run_id=run_id,
+    )
 
     for role, record in instrument_records.items():
-        # Get config - either from record (new format) or inline (legacy)
         inline_config = inst_configs.get(role)
-
-        mock_config = (
-            inline_config.mock_config if inline_config and inline_config.mock_config else {}
-        )
         use_mock = mock_instruments or (inline_config.mock if inline_config else False)
         record.mocked = use_mock
-
-        # Acquire resource lock (skip for mocks with no real resource)
-        if record.resource and not record.mocked:
-            from datetime import UTC, datetime
-            from uuid import UUID
-
-            meta = ResourceMeta(
-                pid=os.getpid(),
-                session_id=UUID(str(session_id)) if session_id else UUID(int=0),
-                station_id=station_config.id or "",
-                role=role,
-                acquired_at=datetime.now(UTC),
-            )
-            lock = acquire_resource(record.resource, meta, timeout=0)
-            held_locks[role] = lock
-
         try:
-            inst: Any = load_and_connect(record, mock=use_mock, mock_config=mock_config)
+            pool.acquire(role, record, inline_config)
         except ValueError:
-            # No driver and no resource — skip this instrument
-            if role in held_locks:
-                release_resource(record.resource, held_locks.pop(role))
             continue
 
-        run_id = litmus_logger.test_run.id if litmus_logger else None
-        event_log = litmus_logger.event_log if litmus_logger else None
-        inst = verify_and_wrap(
-            inst, role, record, event_log, session_id, run_id,
-            channel_store=get_channel_store(),
-        )
+    set_active_instruments(pool.active)
+    yield pool.active
 
-        active[role] = inst
-
-    yield active
-
-    # Cleanup: disconnect/close all instruments, release locks
-    for role, inst in active.items():
-        # Emit disconnect event
-        if litmus_logger is not None and litmus_logger.event_log is not None:
-            from litmus.data.events import InstrumentDisconnected
-
-            record = instrument_records.get(role)
-            litmus_logger.event_log.emit(
-                InstrumentDisconnected(
-                    session_id=litmus_logger._session_id,
-                    run_id=litmus_logger.test_run.id,
-                    role=role,
-                    instrument_id=record.instrument_id if record else role,
-                )
-            )
-
-        disconnect(inst, role)
-
-        # Release resource lock
-        if role in held_locks:
-            record = instrument_records.get(role)
-            if record and record.resource:
-                release_resource(record.resource, held_locks[role])
-
-    held_locks.clear()
-    active.clear()
+    pool.release_all()
 
 
 @pytest.fixture

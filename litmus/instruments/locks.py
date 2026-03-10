@@ -111,6 +111,6 @@ def lock_holder(resource: str) -> ResourceMeta | None:
         text = lock_path.read_text().strip()
         if text:
             return ResourceMeta.model_validate_json(text)
-    except Exception:
+    except (OSError, ValueError):
         pass
     return None

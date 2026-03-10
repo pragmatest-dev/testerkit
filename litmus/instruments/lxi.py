@@ -21,14 +21,6 @@ from litmus.instruments.models import InstrumentInfo
 _LXI_SERVICE_TYPE = "_lxi._tcp.local."
 
 
-def _check_zeroconf() -> None:
-    """Check if zeroconf is available."""
-    check_import(
-        "zeroconf",
-        "Protocol 'lxi' requires zeroconf. Install with: pip install zeroconf",
-    )
-
-
 def discover_lxi(timeout: float = 3.0) -> list[str]:
     """Browse mDNS for LXI instruments.
 
@@ -40,7 +32,10 @@ def discover_lxi(timeout: float = 3.0) -> list[str]:
     Raises:
         ImportError: If zeroconf is not installed.
     """
-    _check_zeroconf()
+    check_import(
+        "zeroconf",
+        "Protocol 'lxi' requires zeroconf. Install with: pip install zeroconf",
+    )
     import threading
 
     from zeroconf import ServiceBrowser, ServiceListener, Zeroconf

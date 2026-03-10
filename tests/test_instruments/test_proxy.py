@@ -1,10 +1,13 @@
-"""Tests for InstrumentProxy event emission."""
+"""Tests for InstrumentProxy event emission via observers."""
 
 from __future__ import annotations
 
 from uuid import uuid4
 
 from litmus.data.events import InstrumentConfigure, InstrumentRead, InstrumentSet
+from litmus.instruments.observer import EventEmitter
+from litmus.instruments.observers.generic import GenericObserver
+from litmus.instruments.observers.pymeasure import PyMeasureObserver
 from litmus.instruments.proxy import InstrumentProxy
 
 
@@ -40,17 +43,21 @@ class CollectingLog:
     def __init__(self) -> None:
         self.events: list = []
 
-    def emit(self, event) -> None:
+    def emit(self, event) -> None:  # noqa: ANN001
         self.events.append(event)
 
 
-def _make_proxy(driver=None) -> tuple[InstrumentProxy, CollectingLog]:
+def _make_proxy(driver=None) -> tuple[InstrumentProxy, CollectingLog]:  # noqa: ANN001
     log = CollectingLog()
     session_id = uuid4()
     run_id = uuid4()
-    proxy = InstrumentProxy(
-        driver or FakeDriver(), "dmm", log, session_id, run_id,  # type: ignore[arg-type]
+    d = driver or FakeDriver()
+    emitter = EventEmitter(
+        event_log=log, session_id=session_id, role="dmm",  # type: ignore[arg-type]
+        run_id=run_id,
     )
+    observer = GenericObserver(type(d), "dmm", emitter)
+    proxy = InstrumentProxy(d, "dmm", observer)
     return proxy, log
 
 
@@ -99,13 +106,11 @@ class TestConfigureMethods:
         assert event.method == "configure_range"
         assert event.parameters == {"auto": True}
 
-    def test_unrecognized_method_classified_as_configure(self):
+    def test_unrecognized_method_is_silent(self):
         proxy, log = _make_proxy()
         proxy.enable_output()
 
-        assert len(log.events) == 1
-        assert isinstance(log.events[0], InstrumentConfigure)
-        assert log.events[0].method == "enable_output"
+        assert len(log.events) == 0
 
 
 class TestPassthrough:
@@ -125,6 +130,7 @@ class TestPassthrough:
         assert len(log.events) == 0
 
     def test_property_access(self):
+        """Non-callable attrs pass through GenericObserver without events."""
         proxy, log = _make_proxy()
         assert proxy.voltage == 0.0
         assert len(log.events) == 0
@@ -140,3 +146,94 @@ class TestChannelIdDerivation:
         proxy, log = _make_proxy()
         proxy.set_voltage(1.0)
         assert log.events[0].channel_id == "dmm.voltage"
+
+
+# --- Property/descriptor-based proxy tests (PyMeasureObserver) ---
+
+
+class PropertyDriver:
+    """Driver with properties instead of prefixed methods."""
+
+    _voltage: float = 3.3
+    _current: float = 0.001
+
+    @property
+    def voltage(self) -> float:
+        return self._voltage
+
+    @voltage.setter
+    def voltage(self, v: float) -> None:
+        self._voltage = v
+
+    @property
+    def current(self) -> float:
+        return self._current
+
+
+def _make_property_proxy() -> tuple[InstrumentProxy, CollectingLog]:
+    log = CollectingLog()
+    session_id = uuid4()
+    emitter = EventEmitter(
+        event_log=log, session_id=session_id, role="dmm",  # type: ignore[arg-type]
+    )
+    observer = PyMeasureObserver(PropertyDriver, "dmm", emitter)
+    proxy = InstrumentProxy(PropertyDriver(), "dmm", observer)
+    return proxy, log
+
+
+class TestPropertyRead:
+    def test_get_control_emits_read(self):
+        proxy, log = _make_property_proxy()
+        v = proxy.voltage
+        assert v == 3.3
+        assert len(log.events) == 1
+        event = log.events[0]
+        assert isinstance(event, InstrumentRead)
+        assert event.channel_id == "dmm.voltage"
+        assert event.value == 3.3
+
+    def test_get_read_emits_read(self):
+        proxy, log = _make_property_proxy()
+        c = proxy.current
+        assert c == 0.001
+        assert len(log.events) == 1
+        assert isinstance(log.events[0], InstrumentRead)
+        assert log.events[0].channel_id == "dmm.current"
+
+
+class TestPropertySet:
+    def test_set_control_emits_set(self):
+        proxy, log = _make_property_proxy()
+        proxy.voltage = 5.0
+        assert len(log.events) == 1
+        event = log.events[0]
+        assert isinstance(event, InstrumentSet)
+        assert event.channel_id == "dmm.voltage"
+        assert event.attribute == "voltage"
+        assert event.value == 5.0
+
+    def test_set_actually_sets_value(self):
+        proxy, _ = _make_property_proxy()
+        proxy.voltage = 5.0
+        assert proxy.voltage == 5.0
+
+
+class TestMixedMethodAndProperty:
+    def test_method_still_works_with_channel_map(self):
+        """Methods not in channel map still use prefix fallback."""
+
+        class MixedDriver(PropertyDriver):
+            def measure_temperature(self) -> float:
+                return 25.0
+
+        log = CollectingLog()
+        emitter = EventEmitter(
+            event_log=log, session_id=uuid4(), role="dmm",  # type: ignore[arg-type]
+        )
+        observer = PyMeasureObserver(MixedDriver, "dmm", emitter)
+        proxy = InstrumentProxy(MixedDriver(), "dmm", observer)
+        t = proxy.measure_temperature()
+        assert t == 25.0
+        assert len(log.events) == 1
+        assert isinstance(log.events[0], InstrumentRead)
+        assert log.events[0].method == "measure_temperature"

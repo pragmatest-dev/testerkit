@@ -1,189 +1,46 @@
-"""Transparent instrument proxy that emits events on driver calls.
+"""Transparent instrument proxy that delegates to a DriverObserver.
 
-Wraps any driver object and intercepts method calls to push
-InstrumentRead, InstrumentSet, or InstrumentConfigure events
-to the event log. Test code is unaffected — the proxy is applied
-at fixture creation time.
+Wraps any driver object and intercepts attribute access. The proxy is
+a dumb membrane — it intercepts everything and lets the observer decide
+what to do with it. No policy decisions live here.
 """
 
 from __future__ import annotations
 
-from collections.abc import Callable
 from typing import Any
-from uuid import UUID
 
-from litmus.data.event_log import EventLog
-from litmus.data.events import InstrumentConfigure, InstrumentRead, InstrumentSet
-from litmus.data.ref import classify_value
-
-_READ_PREFIXES = ("measure_", "read_", "get_", "query_", "fetch_")
-_SET_PREFIXES = ("set_", "write_")
-_CONFIGURE_PREFIXES = ("configure_", "setup_", "init_")
-_PASSTHROUGH = frozenset({
-    "connect", "disconnect", "close",
-    "__enter__", "__exit__",
-    "set_mock_value",
-})
-
-
-def _classify(name: str) -> str:
-    """Classify a method name as read, set, or configure."""
-    for prefix in _READ_PREFIXES:
-        if name.startswith(prefix):
-            return "read"
-    for prefix in _SET_PREFIXES:
-        if name.startswith(prefix):
-            return "set"
-    for prefix in _CONFIGURE_PREFIXES:
-        if name.startswith(prefix):
-            return "configure"
-    return "configure"
-
-
-def _strip_prefix(name: str, classification: str) -> str:
-    """Strip the classification prefix to derive a channel stem."""
-    prefixes = {
-        "read": _READ_PREFIXES,
-        "set": _SET_PREFIXES,
-        "configure": _CONFIGURE_PREFIXES,
-    }
-    for prefix in prefixes.get(classification, ()):
-        if name.startswith(prefix):
-            return name[len(prefix):]
-    return name
+from litmus.instruments.observer import DriverObserver
 
 
 class InstrumentProxy:
-    """Transparent proxy that emits events for instrument driver calls.
+    """Transparent proxy that delegates event interpretation to an observer."""
 
-    Wraps a driver instance and intercepts attribute access. Callable
-    attributes (methods) are wrapped to emit events before/after the
-    real call. Non-callable attributes pass through directly.
-
-    Method classification (by name prefix) drives the event type:
-
-    - **Read** (``measure_``, ``read_``, ``get_``, ``query_``, ``fetch_``)
-      → emits ``InstrumentRead``, channel_id = ``{role}.{stem}``
-    - **Set** (``set_``, ``write_``)
-      → emits ``InstrumentSet``, channel_id = ``{role}.{stem}``
-    - **Configure** (``configure_``, ``setup_``, ``init_``, or unrecognized)
-      → emits ``InstrumentConfigure`` (no channel_id, no numeric data)
-
-    Lifecycle methods (connect, disconnect, close) pass through without
-    events — the plugin handles those via InstrumentConnected/Disconnected.
-    """
-
-    def __init__(
-        self,
-        driver: Any,
-        role: str,
-        event_log: EventLog,
-        session_id: UUID,
-        run_id: UUID | None = None,
-        resource: str = "",
-        channel_store: Any | None = None,
-    ) -> None:
+    def __init__(self, driver: Any, role: str, observer: DriverObserver) -> None:
         object.__setattr__(self, "_driver", driver)
         object.__setattr__(self, "_role", role)
-        object.__setattr__(self, "_event_log", event_log)
-        object.__setattr__(self, "_session_id", session_id)
-        object.__setattr__(self, "_run_id", run_id)
-        object.__setattr__(self, "_resource", resource)
-        object.__setattr__(self, "_channel_store", channel_store)
+        object.__setattr__(self, "_observer", observer)
 
     def __getattr__(self, name: str) -> Any:
-        attr = getattr(self._driver, name)
-
-        if name.startswith("_") or name in _PASSTHROUGH:
-            return attr
+        driver = object.__getattribute__(self, "_driver")
+        observer = object.__getattribute__(self, "_observer")
+        attr = getattr(driver, name)
 
         if callable(attr):
-            return self._wrap_call(name, attr)
+            def wrapper(*args: Any, **kwargs: Any) -> Any:
+                result = attr(*args, **kwargs)
+                observer.on_call(name, args, kwargs, result)
+                return result
+            return wrapper
 
-        return attr
+        return observer.on_getattr(name, attr)
 
     def __setattr__(self, name: str, value: Any) -> None:
-        setattr(self._driver, name, value)
-
-    def _wrap_call(self, name: str, fn: Callable[..., Any]) -> Callable[..., Any]:
-        """Return a wrapper that calls fn and emits the appropriate event."""
-        classification = _classify(name)
-        role = self._role
-        session_id = self._session_id
-        run_id = self._run_id
-        event_log = self._event_log
-        resource = self._resource
-        channel_store = self._channel_store
-
-        if classification == "read":
-            channel_id = f"{role}.{_strip_prefix(name, classification)}"
-
-            def read_wrapper(*args: Any, **kwargs: Any) -> Any:
-                result = fn(*args, **kwargs)
-                # Write to ChannelStore directly; emit URI in event
-                event_value: Any = result
-                if channel_store is not None and result is not None:
-                    vtype = classify_value(result)
-                    if vtype != "blob":
-                        try:
-                            uri = channel_store.write(channel_id, result, source=name)
-                            event_value = uri
-                        except Exception:
-                            pass  # event still emitted with raw value
-                event_log.emit(InstrumentRead(
-                    session_id=session_id,
-                    run_id=run_id,
-                    instrument_role=role,
-                    channel_id=channel_id,
-                    method=name,
-                    value=event_value,
-                    resource=resource,
-                ))
-                return result
-
-            return read_wrapper
-
-        if classification == "set":
-            channel_id = f"{role}.{_strip_prefix(name, classification)}"
-
-            def set_wrapper(*args: Any, **kwargs: Any) -> Any:
-                value = args[0] if args else kwargs.get("value")
-                # Write to ChannelStore directly; emit URI in event
-                event_value: Any = value
-                if channel_store is not None and value is not None:
-                    vtype = classify_value(value)
-                    if vtype != "blob":
-                        try:
-                            uri = channel_store.write(channel_id, value, source=name)
-                            event_value = uri
-                        except Exception:
-                            pass  # event still emitted with raw value
-                event_log.emit(InstrumentSet(
-                    session_id=session_id,
-                    run_id=run_id,
-                    instrument_role=role,
-                    channel_id=channel_id,
-                    attribute=_strip_prefix(name, classification),
-                    value=event_value,
-                    resource=resource,
-                ))
-                return fn(*args, **kwargs)
-
-            return set_wrapper
-
-        # configure
-        def configure_wrapper(*args: Any, **kwargs: Any) -> Any:
-            event_log.emit(InstrumentConfigure(
-                session_id=session_id,
-                run_id=run_id,
-                instrument_role=role,
-                method=name,
-                parameters=kwargs,
-                resource=resource,
-            ))
-            return fn(*args, **kwargs)
-
-        return configure_wrapper
+        driver = object.__getattribute__(self, "_driver")
+        observer = object.__getattribute__(self, "_observer")
+        observer.on_setattr(name, value)
+        setattr(driver, name, value)
 
     def __repr__(self) -> str:
-        return f"InstrumentProxy({self._role!r}, {self._driver!r})"
+        driver = object.__getattribute__(self, "_driver")
+        role = object.__getattribute__(self, "_role")
+        return f"InstrumentProxy({role!r}, {driver!r})"

@@ -14,6 +14,7 @@ from uuid import UUID
 
 from litmus.data.event_log import EventLog
 from litmus.instruments.models import CalibrationInfo, InstrumentInfo, InstrumentRecord
+from litmus.instruments.observer import DriverObserver
 
 
 def load_driver_class(driver_path: str | None) -> type | None:
@@ -35,6 +36,9 @@ def load_driver_class(driver_path: str | None) -> type | None:
         return None
 
 
+_CALIBRATION_WARNING_DAYS = 30
+
+
 def check_calibration(role: str, calibration: CalibrationInfo) -> None:
     """Emit warnings if calibration is expired or due soon."""
     if not calibration or not calibration.due_date:
@@ -49,7 +53,7 @@ def check_calibration(role: str, calibration: CalibrationInfo) -> None:
             UserWarning,
             stacklevel=3,
         )
-    elif days_until < 30:
+    elif days_until < _CALIBRATION_WARNING_DAYS:
         warnings.warn(
             f"{role}: calibration due soon ({calibration.due_date}, "
             f"{days_until} days remaining)",
@@ -103,6 +107,7 @@ def load_and_connect(
     record: InstrumentRecord,
     mock: bool = False,
     mock_config: dict[str, Any] | None = None,
+    driver_class: type | None = None,
 ) -> Any:
     """Load driver class, instantiate, and connect. Returns the raw driver.
 
@@ -110,6 +115,8 @@ def load_and_connect(
         record: Full instrument record with resource, driver path, etc.
         mock: If True, create a mock instrument instead of real hardware.
         mock_config: Method return values for mock instruments (e.g. ``{"measure_voltage": 3.3}``).
+        driver_class: Pre-resolved driver class. Avoids redundant resolution
+            when the caller already loaded the class for observer construction.
 
     Returns:
         Connected driver instance.
@@ -125,7 +132,8 @@ def load_and_connect(
             inst.firmware = record.info.firmware
         return inst
 
-    driver_class = load_driver_class(record.driver)
+    if driver_class is None:
+        driver_class = load_driver_class(record.driver)
     if driver_class is not None:
         inst = driver_class(record.resource)
     elif record.resource:
@@ -149,10 +157,13 @@ def verify_and_wrap(
     record: InstrumentRecord,
     event_log: EventLog | None,
     session_id: UUID | None,
-    run_id: UUID | None = None,
-    channel_store: Any | None = None,
+    observer: DriverObserver | None = None,
 ) -> Any:
     """Verify identity, check calibration, wrap in InstrumentProxy.
+
+    Args:
+        observer: Observer for event interpretation. If provided along with
+            event_log and session_id, wraps driver in an InstrumentProxy.
 
     Returns the (possibly proxied) driver.
     """
@@ -170,14 +181,10 @@ def verify_and_wrap(
 
     check_calibration(role, record.calibration)
 
-    if event_log is not None and session_id is not None:
+    if event_log is not None and session_id is not None and observer is not None:
         from litmus.instruments.proxy import InstrumentProxy
 
-        return InstrumentProxy(
-            driver, role, event_log, session_id, run_id,
-            resource=record.resource,
-            channel_store=channel_store,
-        )
+        return InstrumentProxy(driver, role, observer)
 
     return driver
 
@@ -189,5 +196,5 @@ def disconnect(inst: Any, role: str) -> None:
             inst.disconnect()
         elif hasattr(inst, "close"):
             inst.close()
-    except Exception as exc:
+    except (OSError, RuntimeError) as exc:
         warnings.warn(f"Failed to cleanup instrument '{role}': {exc}", stacklevel=2)

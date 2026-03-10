@@ -24,29 +24,21 @@ from __future__ import annotations
 
 import os
 from collections.abc import Callable
-from datetime import UTC, datetime
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 from uuid import UUID, uuid4
-
-from filelock._api import BaseFileLock
 
 from litmus.data.channels.store import ChannelStore
 from litmus.data.event_log import EventLog
 from litmus.data.event_store import EventStore
 from litmus.data.events import (
-    InstrumentConnected,
-    InstrumentDisconnected,
+    InstrumentConfigure,
     SessionEnded,
     SessionStarted,
 )
-from litmus.instruments.lifecycle import disconnect, load_and_connect, verify_and_wrap
-from litmus.instruments.locks import (
-    ResourceMeta,
-    acquire_resource,
-    release_resource,
-)
 from litmus.instruments.models import InstrumentRecord
+from litmus.instruments.pool import _InstrumentPool
 from litmus.schemas import StationConfig
 from litmus.signals import deregister_cleanup, register_cleanup
 
@@ -71,9 +63,7 @@ class StationConnection:
         self._session_id = uuid4()
         self._event_store: EventStore | None = None
         self._event_log: EventLog | None = None
-        self._instruments: dict[str, Any] = {}
-        self._records: dict[str, InstrumentRecord] = {}
-        self._locks: dict[str, BaseFileLock] = {}
+        self._pool: _InstrumentPool | None = None
         self._channel_store: ChannelStore | None = None
         self._started = False
 
@@ -91,6 +81,14 @@ class StationConnection:
             results_dir / "channels", self._session_id, serve=True,
         )
         self._channel_store.open()
+
+        self._pool = _InstrumentPool(
+            session_id=self._session_id,
+            event_log=self._event_log,
+            channel_store=self._channel_store,
+            mock_all=self._mock,
+            station_id=self._config.id,
+        )
 
         # Register cleanup callback for SIGTERM/atexit
         cleanup_key = str(self._session_id)
@@ -116,8 +114,8 @@ class StationConnection:
             return
 
         # Release all instruments
-        for role in list(self._instruments):
-            self.release(role)
+        if self._pool:
+            self._pool.release_all()
 
         if self._event_log:
             self._event_log.emit(
@@ -156,8 +154,10 @@ class StationConnection:
         if not self._started:
             self.start()
 
-        if role in self._instruments:
-            return self._instruments[role]
+        assert self._pool is not None
+
+        if role in self._pool.active:
+            return self._pool.active[role]
 
         inst_configs = self._config.instruments or {}
         if role not in inst_configs:
@@ -176,95 +176,35 @@ class StationConnection:
             mocked=self._mock or inst_config.mock,
         )
 
-        # Acquire resource lock (skip for mocks with no real resource)
-        lock: BaseFileLock | None = None
-        if record.resource and not record.mocked:
-            meta = ResourceMeta(
-                pid=os.getpid(),
-                session_id=self._session_id,
-                station_id=self._config.id,
-                role=role,
-                acquired_at=datetime.now(UTC),
-            )
-            lock = acquire_resource(record.resource, meta, timeout=timeout)
-
-        # Load, connect, verify, proxy — release lock on failure
-        try:
-            mock_config = inst_config.mock_config if inst_config.mock_config else {}
-            driver = load_and_connect(record, mock=record.mocked, mock_config=mock_config)
-
-            inst = verify_and_wrap(
-                driver,
-                role,
-                record,
-                self._event_log,
-                self._session_id,
-                channel_store=self._channel_store,
-            )
-        except Exception:
-            if lock is not None:
-                release_resource(record.resource, lock)
-            raise
-
-        self._instruments[role] = inst
-        self._records[role] = record
-        if lock is not None:
-            self._locks[role] = lock
-
-        # Emit InstrumentConnected event
-        if self._event_log:
-            self._event_log.emit(
-                InstrumentConnected(
-                    session_id=self._session_id,
-                    role=role,
-                    instrument_id=record.instrument_id,
-                    driver=record.driver,
-                    resource=record.resource,
-                    protocol=record.protocol,
-                    manufacturer=record.info.manufacturer if record.info else None,
-                    model=record.info.model if record.info else None,
-                    serial=record.info.serial if record.info else None,
-                    firmware=record.info.firmware if record.info else None,
-                    cal_due=(
-                        record.calibration.due_date.isoformat()
-                        if record.calibration and record.calibration.due_date
-                        else None
-                    ),
-                    cal_last=(
-                        record.calibration.last_cal.isoformat()
-                        if record.calibration and record.calibration.last_cal
-                        else None
-                    ),
-                    cal_certificate=record.calibration.certificate if record.calibration else None,
-                    cal_lab=record.calibration.lab if record.calibration else None,
-                    mocked=record.mocked,
-                )
-            )
-
-        return inst
+        return self._pool.acquire(role, record, inst_config, timeout=timeout)
 
     def release(self, role: str) -> None:
         """Disconnect and unlock a single instrument.
 
         Emits InstrumentDisconnected, disconnects driver, releases lock.
         """
-        inst = self._instruments.pop(role, None)
-        record = self._records.pop(role, None)
+        if self._pool:
+            self._pool.release(role)
 
-        if inst is not None:
-            if self._event_log and record:
-                self._event_log.emit(
-                    InstrumentDisconnected(
-                        session_id=self._session_id,
-                        role=role,
-                        instrument_id=record.instrument_id,
-                    )
-                )
-            disconnect(inst, role)
+    def configure(self, role: str, method: str, **parameters: Any) -> None:
+        """Emit an InstrumentConfigure event for a UI-initiated operation.
 
-        lock = self._locks.pop(role, None)
-        if lock is not None and record:
-            release_resource(record.resource, lock)
+        Use this for actions the UI performs that aren't driver method calls
+        (e.g., starting continuous acquisition, changing display mode).
+
+        Args:
+            role: Instrument role (e.g., "scope").
+            method: Descriptive name for the operation.
+            **parameters: Key-value pairs describing the operation.
+        """
+        if self._event_log is None:
+            return
+        self._event_log.emit(InstrumentConfigure(
+            session_id=self._session_id,
+            instrument_role=role,
+            method=method,
+            parameters={k: v for k, v in parameters.items() if v is not None},
+        ))
 
     def events(
         self,
@@ -347,7 +287,9 @@ class StationConnection:
     @property
     def instruments(self) -> dict[str, Any]:
         """Currently connected instruments by role."""
-        return dict(self._instruments)
+        if self._pool:
+            return dict(self._pool.active)
+        return {}
 
     @property
     def event_log(self) -> EventLog | None:

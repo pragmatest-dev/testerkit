@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import asyncio
 import sys
+from dataclasses import dataclass, field
 from pathlib import Path
 
 from nicegui import app, ui
@@ -31,14 +32,77 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 import litmus
 from litmus.connect import StationConnection
 from litmus.data.channels.models import ChannelSample
-from litmus.data.events import InstrumentConfigure
-from litmus.instruments.proxy import _READ_PREFIXES, _SET_PREFIXES
 from litmus.ui.components import create_instrument_activity, create_session_table
 from litmus.ui.shared.components import InstrumentToggle
 from litmus.ui.shared.event_binding import (
     bind_channel_store,
     ui_channel_data,
 )
+
+# ---------------------------------------------------------------------------
+# UI channel definitions — what the user wants to show, per instrument type.
+# No Litmus internals needed.  The user knows their instruments.
+# ---------------------------------------------------------------------------
+
+
+@dataclass
+class ReadChannel:
+    """A readable channel shown as a button + live readback."""
+
+    label: str  # Button / display label
+    method: str  # Driver method to call
+    channel: str  # Channel ID suffix (role.{channel})
+
+
+@dataclass
+class SetChannel:
+    """A settable parameter shown as a number input."""
+
+    label: str
+    method: str  # Driver method to call
+    default: float = 0.0
+
+
+@dataclass
+class CardLayout:
+    """Describes the UI for one readback instrument."""
+
+    reads: list[ReadChannel] = field(default_factory=list)
+    sets: list[SetChannel] = field(default_factory=list)
+
+
+# The demo knows its instruments.  No prefix parsing needed.
+_CARD_LAYOUTS: dict[str, CardLayout] = {
+    "psu": CardLayout(
+        reads=[
+            ReadChannel("Voltage", "measure_voltage", "voltage"),
+            ReadChannel("Current", "measure_current", "current"),
+        ],
+        sets=[
+            SetChannel("Voltage", "set_voltage", 5.0),
+            SetChannel("Current", "set_current", 0.5),
+        ],
+    ),
+    "dmm": CardLayout(
+        reads=[
+            ReadChannel("Voltage", "measure_voltage", "voltage"),
+            ReadChannel("DC Voltage", "measure_dc_voltage", "dc_voltage"),
+            ReadChannel("Current", "measure_current", "current"),
+            ReadChannel("DC Current", "measure_dc_current", "dc_current"),
+            ReadChannel("Resistance", "measure_resistance", "resistance"),
+        ],
+    ),
+    "eload": CardLayout(
+        reads=[
+            ReadChannel("Voltage", "measure_voltage", "voltage"),
+            ReadChannel("Current", "measure_current", "current"),
+        ],
+        sets=[
+            SetChannel("Current", "set_current", 0.5),
+        ],
+    ),
+}
+
 
 # ---------------------------------------------------------------------------
 # Station — one physical station, initialized once at app startup
@@ -66,27 +130,9 @@ app.on_startup(_init_station)
 app.on_shutdown(_shutdown_station)
 
 
-def _emit_configure(role: str, method: str, **params: object) -> None:
-    """Emit an instrument.configure event for a UI-level operation."""
-    assert _station is not None and _station.event_log is not None
-    _station.event_log.emit(InstrumentConfigure(
-        session_id=_station.session_id,
-        instrument_role=role,
-        method=method,
-        parameters={k: v for k, v in params.items() if v is not None},
-    ))
-
-
 # ---------------------------------------------------------------------------
 # Page
 # ---------------------------------------------------------------------------
-
-
-def _strip(name: str, prefixes: tuple[str, ...]) -> str:
-    for p in prefixes:
-        if name.startswith(p):
-            return name[len(p):]
-    return name
 
 
 @ui.page("/")
@@ -106,7 +152,7 @@ def main_page() -> None:
         for role, inst_config in inst_configs.items():
             if inst_config.type == "scope":
                 scopes.append((role, inst_config))
-            elif inst_config.type in ("psu", "dmm", "eload"):
+            elif inst_config.type in _CARD_LAYOUTS:
                 readback.append((role, inst_config))
 
         for i in range(0, len(readback), 2):
@@ -141,10 +187,8 @@ def _build_readback_card(
     station: StationConnection, role: str, inst_config: object,
 ) -> None:
     desc = getattr(inst_config, "description", "") or role.upper()
-    mock_cfg = getattr(inst_config, "mock_config", {}) or {}
-
-    read_methods = [k for k in mock_cfg if k.startswith(_READ_PREFIXES)]
-    set_methods = [k for k in mock_cfg if k.startswith(_SET_PREFIXES)]
+    inst_type = getattr(inst_config, "type", "")
+    layout = _CARD_LAYOUTS.get(inst_type, CardLayout())
 
     with ui.card().classes("flex-1"):
         with ui.row().classes("items-center justify-between w-full mb-2"):
@@ -160,55 +204,45 @@ def _build_readback_card(
                 val = float(sample.value)
             except (TypeError, ValueError):
                 return
-            stem = _strip(sample.channel_id, (f"{role}.",))
+            stem = sample.channel_id.removeprefix(f"{role}.")
             reading.text = f"{stem}: {val:.4f}"
             reading.classes(
                 remove="text-slate-400", add="text-emerald-700",
             )
 
-        for method in read_methods:
-            channel_id = f"{role}.{_strip(method, _READ_PREFIXES)}"
-            ui_channel_data(channel_id).subscribe(_on_sample)
+        for ch in layout.reads:
+            ui_channel_data(f"{role}.{ch.channel}").subscribe(_on_sample)
 
         ui.separator()
 
-        if set_methods:
+        if layout.sets:
             with ui.row().classes("items-end gap-4 mt-2"):
                 set_inputs: dict[str, ui.number] = {}
-                for method in set_methods:
-                    stem = _strip(method, _SET_PREFIXES)
-                    default = mock_cfg.get(method, 0)
-                    if isinstance(default, (int, float)):
-                        label = stem.replace("_", " ").title()
-                        inp = ui.number(label, value=default)
-                        inp.classes("w-28")
-                        set_inputs[method] = inp
+                for ch in layout.sets:
+                    inp = ui.number(ch.label, value=ch.default)
+                    inp.classes("w-28")
+                    set_inputs[ch.method] = inp
 
-            if set_inputs:
-                def _apply() -> None:
-                    if not toggle.ensure():
-                        return
-                    for m, inp in set_inputs.items():
-                        getattr(toggle.driver, m)(inp.value)
-                    ui.notify("Applied", type="positive")
+            def _apply() -> None:
+                if not toggle.ensure():
+                    return
+                for method, inp in set_inputs.items():
+                    getattr(toggle.driver, method)(inp.value)
+                ui.notify("Applied", type="positive")
 
-                ui.button("Apply", on_click=_apply).props(
-                    "color=primary dense outline",
-                ).classes("mt-2")
+            ui.button("Apply", on_click=_apply).props(
+                "color=primary dense outline",
+            ).classes("mt-2")
 
-        if read_methods:
+        if layout.reads:
             with ui.row().classes("gap-2 mt-3"):
-                for method in read_methods:
-                    label = _strip(method, _READ_PREFIXES).replace(
-                        "_", " ",
-                    ).title()
-
-                    def _read(fn: str = method) -> None:
+                for ch in layout.reads:
+                    def _read(fn: str = ch.method) -> None:
                         if not toggle.ensure():
                             return
                         getattr(toggle.driver, fn)()
 
-                    ui.button(label, on_click=_read).props(
+                    ui.button(ch.label, on_click=_read).props(
                         "color=teal dense outline",
                     )
 
@@ -295,7 +329,7 @@ def _build_scope_card(
         def _start() -> None:
             if running["active"] or not toggle.ensure():
                 return
-            _emit_configure(role, "start_continuous", channel="CH1")
+            _station.configure(role,"start_continuous", channel="CH1")
             running["active"] = True
             running["task"] = asyncio.ensure_future(_continuous())
             run_btn.props(remove="color=green", add="color=red")
@@ -306,7 +340,7 @@ def _build_scope_card(
             if running["task"]:
                 running["task"].cancel()
                 running["task"] = None
-            _emit_configure(role, "stop_continuous")
+            _station.configure(role,"stop_continuous")
             run_btn.props(remove="color=red", add="color=green")
             run_btn.text = "Run"
             acq_count[0] = 0
@@ -315,7 +349,7 @@ def _build_scope_card(
             def _single() -> None:
                 if not toggle.ensure():
                     return
-                _emit_configure(role, "single_acquisition", channel="CH1")
+                _station.configure(role,"single_acquisition", channel="CH1")
                 toggle.driver.fetch_waveform("CH1")
 
             ui.button("Single", on_click=_single).props(

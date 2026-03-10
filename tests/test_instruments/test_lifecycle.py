@@ -60,7 +60,12 @@ class TestVerifyAndWrap:
             role="dmm", instrument_id="dmm-001", resource="", mocked=True,
         )
         driver = object()
-        result = verify_and_wrap(driver, "dmm", record, event_log, session_id)
+
+        from litmus.instruments.observer import DriverObserver, EventEmitter
+
+        emitter = EventEmitter(event_log, session_id, "dmm")
+        observer = DriverObserver(object, "dmm", emitter)
+        result = verify_and_wrap(driver, "dmm", record, event_log, session_id, observer=observer)
 
         from litmus.instruments.proxy import InstrumentProxy
 
