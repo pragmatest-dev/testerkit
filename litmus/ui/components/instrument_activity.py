@@ -94,7 +94,7 @@ def create_instrument_activity(
         else:
             detail = ""
         return {
-            "time": local_time(str(ts)) if ts else "",
+            "time": local_time(str(ts), "%H:%M:%S.%f")[:-3] if ts else "",
             "event": et,
             "source": _session_label(sid),
             "detail": detail,
