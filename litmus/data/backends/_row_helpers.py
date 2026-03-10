@@ -29,7 +29,8 @@ class MeasurementRow(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    # Run identity
+    # Session / run identity
+    session_id: str
     run_id: str
     run_started_at: datetime | None = None
     run_ended_at: datetime | None = None
@@ -140,6 +141,7 @@ def build_run_metadata(test_run: TestRun) -> dict[str, Any]:
     serialisation should post-process timestamps.
     """
     return {
+        "session_id": str(test_run.session_id),
         "run_id": str(test_run.id),
         "run_started_at": test_run.started_at,
         "run_ended_at": test_run.ended_at,

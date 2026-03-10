@@ -91,24 +91,23 @@ class TestPruneAll:
 
     def test_prunes_all_subdirs(self, project_dir: Path):
         old = (date.today() - timedelta(days=60)).isoformat()
-        for sub in ("channels", "sessions", "events"):
+        for sub in ("channels", "events"):
             (project_dir / sub / old).mkdir(parents=True)
 
         result = prune_all(project_dir, "30d")
-        for sub in ("channels", "sessions", "events"):
+        for sub in ("channels", "events"):
             assert len(result[sub]) == 1
             assert not (project_dir / sub / old).exists()
 
     def test_prunes_specific_types(self, project_dir: Path):
         old = (date.today() - timedelta(days=60)).isoformat()
-        for sub in ("channels", "sessions", "events"):
+        for sub in ("channels", "events"):
             (project_dir / sub / old).mkdir(parents=True)
 
         result = prune_all(project_dir, "30d", data_types=("channels",))
         assert len(result) == 1
         assert len(result["channels"]) == 1
-        # sessions and events untouched
-        assert (project_dir / "sessions" / old).exists()
+        # events untouched
         assert (project_dir / "events" / old).exists()
 
     def test_refuses_unowned_dir(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch):

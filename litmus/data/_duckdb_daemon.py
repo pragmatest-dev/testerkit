@@ -33,8 +33,8 @@ def daemon_run(events_dir: Path) -> None:
         CREATE TABLE events (
             id VARCHAR NOT NULL,
             event_type VARCHAR NOT NULL,
-            occurred_at VARCHAR NOT NULL,
-            received_at VARCHAR,
+            occurred_at TIMESTAMPTZ NOT NULL,
+            received_at TIMESTAMPTZ,
             session_id VARCHAR,
             run_id VARCHAR,
             json VARCHAR,

@@ -742,7 +742,6 @@ def export(
 
         litmus export abc123 -f csv --transport s3
     """
-    from litmus.config.project import load_project_config
     from litmus.data.backends.parquet import ParquetBackend
     from litmus.data.exporters import get_exporter
 
@@ -2216,7 +2215,7 @@ def data():
 @click.option("--older-than", required=True, help="Retention period (e.g. 30d, 90d)")
 @click.option(
     "--type", "data_types", multiple=True,
-    help="Data types to prune (e.g. channels, sessions, events)",
+    help="Data types to prune (e.g. channels, events)",
 )
 @click.option("--results-dir", default=None, help="Results directory")
 @click.option("--dry-run", is_flag=True, help="Show what would be deleted")
@@ -2231,7 +2230,7 @@ def data_prune(
 
     results_dir_path = Path(_get_results_dir(results_dir))
 
-    types = data_types or ("channels", "sessions", "events")
+    types = data_types or ("channels", "events")
     try:
         result = prune_all(results_dir_path, older_than, data_types=types, dry_run=dry_run)
     except ValueError as e:
@@ -2299,6 +2298,16 @@ def uploads_clear(results_dir: str | None) -> None:
 
     count = clear_done(_get_results_dir(results_dir))
     click.echo(f"{count} completed entry/entries removed.")
+
+
+# ---------------------------------------------------------------------------
+# Grafana dashboards
+# ---------------------------------------------------------------------------
+
+# Import and register the grafana subgroup
+from litmus.grafana.cli import grafana  # noqa: E402
+
+main.add_command(grafana)
 
 
 if __name__ == "__main__":

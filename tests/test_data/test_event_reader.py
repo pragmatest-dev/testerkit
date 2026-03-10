@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from datetime import UTC, datetime
 from pathlib import Path
 
 import pyarrow as pa
@@ -28,8 +29,8 @@ def _write_events(path: Path, events: list[dict]) -> None:
                 {
                     "id": [evt.get("id", "test")],
                     "event_type": [evt.get("event_type", "unknown")],
-                    "occurred_at": [evt.get("occurred_at", "2026-01-01")],
-                    "received_at": [evt.get("received_at", "2026-01-01")],
+                    "occurred_at": [evt.get("occurred_at", datetime(2026, 1, 1, tzinfo=UTC))],
+                    "received_at": [evt.get("received_at", datetime(2026, 1, 1, tzinfo=UTC))],
                     "session_id": [evt.get("session_id", "sid")],
                     "run_id": [evt.get("run_id")],
                     "json": [json.dumps(evt)],

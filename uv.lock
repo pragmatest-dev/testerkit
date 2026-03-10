@@ -462,6 +462,20 @@ wheels = [
 ]
 
 [[package]]
+name = "buenavista"
+version = "0.5.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "fastapi" },
+    { name = "pydantic" },
+    { name = "sqlglot" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/a2/86/c4058b8978ce1339b299308ff3bba698cd3ef1e0c3ef72933a96ddf4dcfb/buenavista-0.5.0.tar.gz", hash = "sha256:3997f9931e709a47b2606cfddd82cc05434119bbdb70de9a0c73f2f0565ef7b8", size = 24072, upload-time = "2024-10-12T18:15:22.108Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/0a/90/e600732d6f4c1b093dae769ea336606d0c0c50bea8769da42f0caf150691/buenavista-0.5.0-py3-none-any.whl", hash = "sha256:d3281fa4f8fe05adc0c91b73c3ceaa26d9588a53e6eb4ca04a2e06fe28cca964", size = 27684, upload-time = "2024-10-12T18:15:20.915Z" },
+]
+
+[[package]]
 name = "cachetools"
 version = "6.2.6"
 source = { registry = "https://pypi.org/simple" }
@@ -1806,6 +1820,7 @@ dependencies = [
     { name = "pyarrow" },
     { name = "pydantic" },
     { name = "python-multipart" },
+    { name = "pytz" },
     { name = "pyvisa" },
     { name = "pyvisa-sim" },
     { name = "pyyaml" },
@@ -1830,6 +1845,10 @@ dev = [
 ]
 gcs = [
     { name = "google-cloud-storage" },
+]
+grafana = [
+    { name = "buenavista" },
+    { name = "duckdb" },
 ]
 hdf5 = [
     { name = "h5py" },
@@ -1884,8 +1903,10 @@ requires-dist = [
     { name = "asammdf", marker = "extra == 'mdf4'", specifier = ">=8.0" },
     { name = "azure-storage-blob", marker = "extra == 'azure'", specifier = ">=12.0" },
     { name = "boto3", marker = "extra == 's3'", specifier = ">=1.26" },
+    { name = "buenavista", marker = "extra == 'grafana'", specifier = ">=0.5.0" },
     { name = "click", specifier = ">=8.1" },
     { name = "cyclonedx-python-lib", marker = "extra == 'sbom'", specifier = ">=11.0" },
+    { name = "duckdb", marker = "extra == 'grafana'", specifier = ">=1.0" },
     { name = "fastapi", specifier = ">=0.110" },
     { name = "fastmcp", specifier = ">=2.0" },
     { name = "filelock", specifier = ">=3.12" },
@@ -1906,6 +1927,7 @@ requires-dist = [
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.0" },
     { name = "pytest-cov", marker = "extra == 'dev'", specifier = ">=4.0" },
     { name = "python-multipart", specifier = ">=0.0.9" },
+    { name = "pytz", specifier = ">=2025.2" },
     { name = "pyvisa", specifier = ">=1.14" },
     { name = "pyvisa-sim", specifier = ">=0.6" },
     { name = "pyyaml", specifier = ">=6.0" },
@@ -1916,7 +1938,7 @@ requires-dist = [
     { name = "weasyprint", marker = "extra == 'pdf'", specifier = ">=62.0" },
     { name = "zeroconf", marker = "extra == 'lxi'", specifier = ">=0.80" },
 ]
-provides-extras = ["dev", "pymeasure", "ni", "lxi", "pdf", "sbom", "stdf", "hdf5", "tdms", "mdf4", "s3", "gcs", "azure", "sftp", "all-exporters"]
+provides-extras = ["dev", "pymeasure", "ni", "lxi", "pdf", "sbom", "stdf", "hdf5", "tdms", "mdf4", "s3", "gcs", "azure", "sftp", "grafana", "all-exporters"]
 
 [package.metadata.requires-dev]
 dev = [
@@ -4146,6 +4168,15 @@ source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/e8/c4/ba2f8066cceb6f23394729afe52f3bf7adec04bf9ed2c820b39e19299111/sortedcontainers-2.4.0.tar.gz", hash = "sha256:25caa5a06cc30b6b83d11423433f65d1f9d76c4c6a0c90e3379eaa43b9bfdb88", size = 30594, upload-time = "2021-05-16T22:03:42.897Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/32/46/9cb0e58b2deb7f82b84065f37f3bffeb12413f947f9388e4cac22c4621ce/sortedcontainers-2.4.0-py2.py3-none-any.whl", hash = "sha256:a163dcaede0f1c021485e957a39245190e74249897e2ae4b2aa38595db237ee0", size = 29575, upload-time = "2021-05-16T22:03:41.177Z" },
+]
+
+[[package]]
+name = "sqlglot"
+version = "29.0.1"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/61/12/c3f7533fde302fcd59bebcd4c2e46d5bf0eef21f183c67995bbb010fb578/sqlglot-29.0.1.tar.gz", hash = "sha256:0010b4f77fb996c8d25dd4b16f3654e6da163ff1866ceabc70b24e791c203048", size = 5760786, upload-time = "2026-02-23T21:41:20.178Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/ad/c9/f58c3a17beb650700f9d2eccd410726b6d96df8953663700764ca48636c7/sqlglot-29.0.1-py3-none-any.whl", hash = "sha256:06a473ea6c2b3632ac67bd38e687a6860265bf4156e66b54adeda15d07f00c65", size = 611448, upload-time = "2026-02-23T21:41:18.008Z" },
 ]
 
 [[package]]

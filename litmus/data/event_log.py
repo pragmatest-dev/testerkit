@@ -30,8 +30,8 @@ from litmus.data.events import EventBase
 _IPC_SCHEMA = pa.schema([
     ("id", pa.string()),
     ("event_type", pa.string()),
-    ("occurred_at", pa.string()),
-    ("received_at", pa.string()),
+    ("occurred_at", pa.timestamp("us", tz="UTC")),
+    ("received_at", pa.timestamp("us", tz="UTC")),
     ("session_id", pa.string()),
     ("run_id", pa.string()),
     ("json", pa.string()),
@@ -120,8 +120,8 @@ class EventLog:
         batch = self._ipc.append({
             "id": str(event.id),
             "event_type": event.event_type,  # type: ignore[attr-defined]
-            "occurred_at": event.occurred_at.isoformat(),
-            "received_at": event.received_at.isoformat() if event.received_at else None,
+            "occurred_at": event.occurred_at,
+            "received_at": event.received_at,
             "session_id": str(event.session_id),
             "run_id": str(event.run_id) if event.run_id else None,
             "json": event.model_dump_json(),

@@ -144,7 +144,6 @@ class OutputConfig(BaseModel):
         subscriber_dirs = {
             "parquet": "results/parquet",
             "channels": "results/channels",
-            "sessions": "results/sessions",
         }
         if self.format in subscriber_dirs:
             return subscriber_dirs[self.format]

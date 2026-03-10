@@ -607,18 +607,10 @@ def _create_subscriber(
 ) -> Any:
     """Instantiate a subscriber with format-specific constructor args."""
     from litmus.data.backends.parquet import ParquetBackend, ParquetSubscriber
-    from litmus.data.sessions import SessionSubscriber
-
-    # Resolve output directory from config (strips "results/" prefix since
-    # results_path already points at the results root).
-    output_dir = output_cfg.default_output_dir()
-    subdir = output_dir.removeprefix("results/")  # results_path is already the root
 
     if cls is ParquetSubscriber:
         backend = ParquetBackend(results_dir=str(results_path))
         return ParquetSubscriber(backend)
-    if cls is SessionSubscriber:
-        return SessionSubscriber(results_path / subdir)
     # Unknown subscriber — try no-arg constructor
     return cls()
 
@@ -790,7 +782,7 @@ def litmus_logger(request) -> Generator[TestRunLogger, None, None]:
         set_channel_store(_cs)
 
         # Register defaults not already configured
-        for fmt in ("parquet", "sessions"):
+        for fmt in ("parquet",):
             if fmt not in configured:
                 cls = get_subscriber_class(fmt)
                 if cls is not None:
@@ -1116,6 +1108,13 @@ def instrument_records(request, station_config, mock_instruments) -> dict[str, I
 
     # Resolve station instruments to records
     records = resolve_station_instruments(station_config, instrument_files)
+
+    # Set mocked flag early so InstrumentConnected events capture it
+    inst_configs = station_config.instruments or {}
+    for role, rec in records.items():
+        inline = inst_configs.get(role)
+        rec.mocked = mock_instruments or (inline.mock if inline else False)
+
     set_instrument_records(records)
 
     return records

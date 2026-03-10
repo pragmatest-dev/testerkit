@@ -45,6 +45,7 @@ from litmus.execution.logger import INSTRUMENT_ARRAY_KEYS
 # are NOT listed here — they pass through with inferred types.
 MEASUREMENT_SCHEMA = pa.schema([
     # Identity & timing
+    ("session_id", pa.string()),
     ("run_id", pa.string()),
     ("run_started_at", pa.timestamp("us", tz="UTC")),
     ("run_ended_at", pa.timestamp("us", tz="UTC")),
@@ -574,10 +575,11 @@ class ParquetSubscriber:
         self._backend = backend
         self._session: Any = None  # SessionStarted event
         self._instruments: list[Any] = []  # InstrumentConnected events
-        self._rows: list[dict[str, Any]] = []
+        self._measurement_events: list[Any] = []  # MeasurementRecorded events
         self._written = False
-        self._steps_with_measurements: set[int] = set()  # step_index values that have measurements
-        self._step_events: dict[int, Any] = {}  # step_index → StepStarted event
+        self._steps_with_measurements: set[int] = set()
+        self._step_starts: dict[int, Any] = {}  # step_index → StepStarted
+        self._step_ends: dict[int, Any] = {}  # step_index → StepEnded
 
     def open(self) -> None:
         pass
@@ -597,13 +599,12 @@ class ParquetSubscriber:
         elif isinstance(event, InstrumentConnected):
             self._instruments.append(event)
         elif isinstance(event, StepStarted):
-            self._step_events[event.step_index] = event
+            self._step_starts[event.step_index] = event
         elif isinstance(event, MeasurementRecorded):
             self._steps_with_measurements.add(event.step_index)
-            self._rows.append(self._build_row(event))
+            self._measurement_events.append(event)
         elif isinstance(event, StepEnded):
-            if event.step_index not in self._steps_with_measurements:
-                self._rows.append(self._build_step_summary_row(event))
+            self._step_ends[event.step_index] = event
         elif isinstance(event, RunEnded):
             self._write(outcome=event.outcome)
 
@@ -642,7 +643,8 @@ class ParquetSubscriber:
         env = _env_columns(s.environment_json if s else None)
 
         row = MeasurementRow(
-            # Run identity (from SessionStarted)
+            # Session / run identity (from SessionStarted)
+            session_id=str(s.session_id) if s else str(event.session_id),
             run_id=str(event.run_id) if event.run_id else "",
             run_started_at=s.occurred_at if s else None,
             run_ended_at=None,  # Backfilled on RunEnded
@@ -673,10 +675,20 @@ class ParquetSubscriber:
             python_version=env.get("python_version"),
             litmus_version=env.get("litmus_version"),
             env_fingerprint=env.get("env_fingerprint"),
-            # Step/vector (from event)
+            # Step/vector (from event + cached StepStarted)
             step_name=event.step_name,
             step_index=event.step_index,
             step_path=event.step_path,
+            step_started_at=(
+                self._step_starts[event.step_index].occurred_at
+                if event.step_index in self._step_starts
+                else None
+            ),
+            step_ended_at=(
+                self._step_ends[event.step_index].occurred_at
+                if event.step_index in self._step_ends
+                else None
+            ),
             vector_index=event.vector_index,
             attempt=event.attempt,
             # Measurement (from event)
@@ -712,6 +724,7 @@ class ParquetSubscriber:
         env = _env_columns(s.environment_json if s else None)
 
         row = MeasurementRow(
+            session_id=str(s.session_id) if s else str(step_ended.session_id),
             run_id=str(step_ended.run_id) if step_ended.run_id else "",
             run_started_at=s.occurred_at if s else None,
             run_ended_at=None,
@@ -738,6 +751,12 @@ class ParquetSubscriber:
             step_name=step_ended.step_name,
             step_index=step_ended.step_index,
             step_path=step_ended.step_path,
+            step_started_at=(
+                self._step_starts[step_ended.step_index].occurred_at
+                if step_ended.step_index in self._step_starts
+                else None
+            ),
+            step_ended_at=step_ended.occurred_at,
             measurement_name="_step_summary",
             value=None,
             outcome=step_ended.outcome,
@@ -761,21 +780,32 @@ class ParquetSubscriber:
         if not s:
             return
 
-        # Backfill run_ended_at and run_outcome on all rows
+        # Build all rows now — all events are in, step times are known
         from litmus.data.models import _utcnow
         ended_at = _utcnow()
         final_outcome = outcome if outcome is not None else "error"
-        for row in self._rows:
-            if row.get("run_ended_at") is None:
-                row["run_ended_at"] = ended_at
-            row["run_outcome"] = final_outcome
 
-        if not self._rows:
+        rows: list[dict[str, Any]] = []
+        for event in self._measurement_events:
+            row = self._build_row(event)
+            row["run_ended_at"] = ended_at
+            row["run_outcome"] = final_outcome
+            rows.append(row)
+
+        # Add summary rows for steps with no measurements
+        for step_idx, step_end in self._step_ends.items():
+            if step_idx not in self._steps_with_measurements:
+                row = self._build_step_summary_row(step_end)
+                row["run_ended_at"] = ended_at
+                row["run_outcome"] = final_outcome
+                rows.append(row)
+
+        if not rows:
             return
 
         # Write via save_from_rows
         self._backend.save_from_rows(
-            self._rows,
+            rows,
             started_at=s.occurred_at,
             dut_serial=s.dut_serial,
             file_metadata=self._build_file_metadata(),

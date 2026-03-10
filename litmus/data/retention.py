@@ -101,7 +101,7 @@ def prune_all(
     results_dir: Path,
     older_than: str,
     *,
-    data_types: tuple[str, ...] = ("channels", "sessions", "events"),
+    data_types: tuple[str, ...] = ("channels", "events"),
     dry_run: bool = False,
     materialize: bool = True,
 ) -> dict[str, list[Path]]:

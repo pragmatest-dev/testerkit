@@ -1,0 +1,92 @@
+{
+  "uid": "litmus-event-log",
+  "title": "Event Log",
+  "description": "Event volume, session timeline, and instrument activity from the event bus",
+  "tags": ["litmus"],
+  "timezone": "browser",
+  "refresh": "10s",
+  "time": { "from": "now-7d", "to": "now" },
+  "templating": {
+    "list": [
+      {
+        "name": "event_type",
+        "type": "query",
+        "datasource": { "type": "grafana-postgresql-datasource", "uid": "${DS_LITMUS}" },
+        "query": "SELECT DISTINCT event_type FROM events ORDER BY event_type",
+        "includeAll": true,
+        "allValue": "%",
+        "current": { "text": "All", "value": "$__all" },
+        "multi": true
+      }
+    ]
+  },
+  "panels": [
+    {
+      "id": 1,
+      "title": "Event Volume Over Time",
+      "type": "barchart",
+      "gridPos": { "h": 10, "w": 24, "x": 0, "y": 0 },
+      "datasource": { "type": "grafana-postgresql-datasource", "uid": "${DS_LITMUS}" },
+      "targets": [
+        {
+          "rawSql": "SELECT date_trunc('hour', occurred_at) AS time, split_part(event_type, '.', 1) AS category, count(*) AS cnt FROM events WHERE occurred_at BETWEEN '${__from:date}' AND '${__to:date}' AND (event_type LIKE '${event_type}' OR '${event_type}' = '%') GROUP BY 1, 2 ORDER BY 1",
+          "format": "table"
+        }
+      ],
+      "options": { "stacking": "normal" }
+    },
+    {
+      "id": 2,
+      "title": "Event Type Breakdown",
+      "type": "piechart",
+      "gridPos": { "h": 8, "w": 8, "x": 0, "y": 10 },
+      "datasource": { "type": "grafana-postgresql-datasource", "uid": "${DS_LITMUS}" },
+      "targets": [
+        {
+          "rawSql": "SELECT event_type, count(*) AS cnt FROM events WHERE occurred_at BETWEEN '${__from:date}' AND '${__to:date}' GROUP BY event_type ORDER BY cnt DESC",
+          "format": "table"
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "title": "Recent Sessions",
+      "type": "table",
+      "gridPos": { "h": 8, "w": 16, "x": 8, "y": 10 },
+      "datasource": { "type": "grafana-postgresql-datasource", "uid": "${DS_LITMUS}" },
+      "targets": [
+        {
+          "rawSql": "SELECT e.session_id, min(e.occurred_at) AS started, max(e.occurred_at) AS ended, count(*) AS event_count, count(DISTINCT e.event_type) AS event_types, count(DISTINCT e.run_id) FILTER (WHERE e.run_id IS NOT NULL) AS runs, (SELECT count(*) FROM channels c WHERE c.session_id = e.session_id) AS channel_samples FROM events e WHERE e.occurred_at BETWEEN '${__from:date}' AND '${__to:date}' GROUP BY e.session_id ORDER BY started DESC LIMIT 50",
+          "format": "table"
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "title": "Instrument Activity",
+      "type": "table",
+      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 18 },
+      "datasource": { "type": "grafana-postgresql-datasource", "uid": "${DS_LITMUS}" },
+      "targets": [
+        {
+          "rawSql": "SELECT occurred_at AS time, event_type, session_id, run_id FROM events WHERE event_type LIKE 'instrument.%' AND occurred_at BETWEEN '${__from:date}' AND '${__to:date}' ORDER BY time DESC LIMIT 200",
+          "format": "table"
+        }
+      ]
+    },
+    {
+      "id": 5,
+      "title": "Dialogs",
+      "type": "table",
+      "gridPos": { "h": 6, "w": 24, "x": 0, "y": 26 },
+      "datasource": { "type": "grafana-postgresql-datasource", "uid": "${DS_LITMUS}" },
+      "targets": [
+        {
+          "rawSql": "SELECT occurred_at AS time, event_type, session_id, run_id FROM events WHERE event_type LIKE 'dialog.%' AND occurred_at BETWEEN '${__from:date}' AND '${__to:date}' ORDER BY time DESC LIMIT 50",
+          "format": "table"
+        }
+      ]
+    }
+  ],
+  "schemaVersion": 39
+}

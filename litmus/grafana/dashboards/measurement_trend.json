@@ -1,0 +1,161 @@
+{
+  "uid": "litmus-measurement-trend",
+  "title": "Measurement Trend",
+  "description": "Measurement values over time with limit lines",
+  "tags": [
+    "litmus"
+  ],
+  "timezone": "browser",
+  "refresh": "30s",
+  "time": {
+    "from": "now-30d",
+    "to": "now"
+  },
+  "templating": {
+    "list": [
+      {
+        "name": "measurement",
+        "type": "query",
+        "datasource": {
+          "type": "grafana-postgresql-datasource",
+          "uid": "${DS_LITMUS}"
+        },
+        "query": "SELECT DISTINCT step_name || ' / ' || measurement_name AS m FROM measurements WHERE value IS NOT NULL ORDER BY m",
+        "current": {}
+      }
+    ]
+  },
+  "panels": [
+    {
+      "id": 1,
+      "title": "Trend: $measurement",
+      "type": "timeseries",
+      "gridPos": {
+        "h": 16,
+        "w": 24,
+        "x": 0,
+        "y": 0
+      },
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "${DS_LITMUS}"
+      },
+      "targets": [
+        {
+          "rawSql": "SELECT measurement_timestamp AS time, value FROM measurements WHERE step_name || ' / ' || measurement_name = '${measurement}' AND value IS NOT NULL AND measurement_timestamp BETWEEN '${__from:date}' AND '${__to:date}' ORDER BY time",
+          "format": "table"
+        },
+        {
+          "rawSql": "SELECT measurement_timestamp AS time, high_limit AS \"Upper Limit\" FROM measurements WHERE step_name || ' / ' || measurement_name = '${measurement}' AND high_limit IS NOT NULL AND measurement_timestamp BETWEEN '${__from:date}' AND '${__to:date}' ORDER BY time",
+          "format": "table"
+        },
+        {
+          "rawSql": "SELECT measurement_timestamp AS time, low_limit AS \"Lower Limit\" FROM measurements WHERE step_name || ' / ' || measurement_name = '${measurement}' AND low_limit IS NOT NULL AND measurement_timestamp BETWEEN '${__from:date}' AND '${__to:date}' ORDER BY time",
+          "format": "table"
+        },
+        {
+          "rawSql": "SELECT measurement_timestamp AS time, nominal AS \"Nominal\" FROM measurements WHERE step_name || ' / ' || measurement_name = '${measurement}' AND nominal IS NOT NULL AND measurement_timestamp BETWEEN '${__from:date}' AND '${__to:date}' ORDER BY time",
+          "format": "table"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "drawStyle": "points",
+            "pointSize": 5
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Upper Limit"
+            },
+            "properties": [
+              {
+                "id": "custom.drawStyle",
+                "value": "line"
+              },
+              {
+                "id": "color",
+                "value": {
+                  "fixedColor": "red",
+                  "mode": "fixed"
+                }
+              },
+              {
+                "id": "custom.lineStyle",
+                "value": {
+                  "dash": [
+                    10,
+                    5
+                  ],
+                  "fill": "dash"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Lower Limit"
+            },
+            "properties": [
+              {
+                "id": "custom.drawStyle",
+                "value": "line"
+              },
+              {
+                "id": "color",
+                "value": {
+                  "fixedColor": "red",
+                  "mode": "fixed"
+                }
+              },
+              {
+                "id": "custom.lineStyle",
+                "value": {
+                  "dash": [
+                    10,
+                    5
+                  ],
+                  "fill": "dash"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Nominal"
+            },
+            "properties": [
+              {
+                "id": "custom.drawStyle",
+                "value": "line"
+              },
+              {
+                "id": "color",
+                "value": {
+                  "fixedColor": "blue",
+                  "mode": "fixed"
+                }
+              },
+              {
+                "id": "custom.lineStyle",
+                "value": {
+                  "dash": [
+                    5,
+                    5
+                  ],
+                  "fill": "dash"
+                }
+              }
+            ]
+          }
+        ]
+      }
+    }
+  ],
+  "schemaVersion": 39
+}

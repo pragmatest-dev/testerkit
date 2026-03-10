@@ -301,21 +301,25 @@ class ChannelStore:
         """Convert a value to an Arrow-compatible row dict."""
         normalized = self._normalize_value(value, sample_interval)
 
+        sid = str(self._session_id)
+
+        common = {"timestamp": timestamp, "source_method": source, "session_id": sid}
+
         if isinstance(normalized, dict):
-            row: dict = {"timestamp": timestamp, **normalized, "source_method": source}
+            row: dict = {**common, **normalized}
             data_type = "struct"
             sample_value = normalized
         elif isinstance(normalized, bool):
-            row = {"timestamp": timestamp, "value": normalized, "source_method": source}
+            row = {**common, "value": normalized}
             data_type = "scalar_bool"
             sample_value = normalized
         elif isinstance(normalized, str):
-            row = {"timestamp": timestamp, "value": normalized, "source_method": source}
+            row = {**common, "value": normalized}
             data_type = "scalar_str"
             sample_value = normalized
         elif isinstance(normalized, (int, float)):
             float_value = float(normalized)
-            row = {"timestamp": timestamp, "value": float_value, "source_method": source}
+            row = {**common, "value": float_value}
             data_type = "scalar"
             sample_value = float_value
         else:

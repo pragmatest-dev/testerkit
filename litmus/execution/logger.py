@@ -203,8 +203,10 @@ class TestRunLogger:
         elif run_id is None:
             run_id = _get_run_id()
 
+        _session_id = session_id if session_id is not None else uuid4()
         self.test_run = TestRun(
             id=run_id,
+            session_id=_session_id,
             dut=DUT(
                 serial=dut_serial,
                 part_number=dut_part_number,
@@ -247,7 +249,7 @@ class TestRunLogger:
 
         # Event log for typed event streaming
         self._event_log: EventLog | None = None
-        self._session_id: UUID = session_id or self.test_run.id
+        self._session_id: UUID = self.test_run.session_id
         self._results_dir = Path(results_dir) if results_dir is not None else None
 
     @property

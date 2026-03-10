@@ -16,7 +16,6 @@ _REGISTRY: dict[str, type] = {}
 
 _LAZY: dict[str, tuple[str, str]] = {
     "parquet": ("litmus.data.backends.parquet", "ParquetSubscriber"),
-    "sessions": ("litmus.data.sessions", "SessionSubscriber"),
 }
 
 

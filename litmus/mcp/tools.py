@@ -1099,7 +1099,7 @@ def run_tool(test: str, station: str, serial: str, project: str | None = None) -
     """
     import subprocess
     import sys
-    from datetime import datetime
+    from datetime import UTC, datetime
 
     if not project:
         return {
@@ -1144,7 +1144,7 @@ def run_tool(test: str, station: str, serial: str, project: str | None = None) -
         "--mock-instruments",
     ]
 
-    started_at = datetime.now()
+    started_at = datetime.now(UTC)
 
     try:
         result = subprocess.run(

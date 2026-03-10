@@ -274,6 +274,7 @@ class TestRun(BaseModel):
     __test__ = False  # Prevent pytest collection
 
     id: UUID = Field(default_factory=uuid4)
+    session_id: UUID = Field(default_factory=uuid4)  # Cross-store join key; set by logger
     started_at: datetime = Field(default_factory=_utcnow)
     ended_at: datetime | None = None
 

@@ -8,7 +8,7 @@ from __future__ import annotations
 import json
 import threading
 from collections.abc import Callable
-from datetime import datetime
+from datetime import UTC, datetime
 from pathlib import Path
 from urllib.parse import quote
 
@@ -59,7 +59,7 @@ class ChannelClient:
         batch = pa.record_batch(
             {
                 "channel_id": [channel_id],
-                "timestamp": [datetime.now().astimezone()],
+                "timestamp": [datetime.now(UTC)],
                 "value": [value_str],
                 "source_method": [source],
                 "units": [units or ""],

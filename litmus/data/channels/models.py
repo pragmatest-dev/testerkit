@@ -95,6 +95,7 @@ def _infer_schema(value: object, source_method: str = "") -> pa.Schema:
         fields.append(pa.field("value", pa.utf8()))
 
     fields.append(pa.field("source_method", pa.utf8()))
+    fields.append(pa.field("session_id", pa.utf8()))
     return pa.schema(fields)
 
 
@@ -104,6 +105,7 @@ SCALAR_SCHEMA = pa.schema([
     ("timestamp", pa.timestamp("us", tz="UTC")),
     ("value", pa.float64()),
     ("source_method", pa.utf8()),
+    ("session_id", pa.utf8()),
 ])
 
 ARRAY_SCHEMA = pa.schema([
@@ -111,4 +113,5 @@ ARRAY_SCHEMA = pa.schema([
     ("samples", pa.list_(pa.float64())),
     ("sample_interval", pa.float64()),
     ("source_method", pa.utf8()),
+    ("session_id", pa.utf8()),
 ])
