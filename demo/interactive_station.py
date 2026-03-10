@@ -111,6 +111,12 @@ _CARD_LAYOUTS: dict[str, CardLayout] = {
 _station: StationConnection | None = None
 
 
+def _get_station() -> StationConnection:
+    """Return the station, raising if not yet initialized."""
+    assert _station is not None, "Station not initialized"
+    return _station
+
+
 def _init_station() -> None:
     global _station
     _station = litmus.connect("demo_station_001", mock=True)
@@ -137,9 +143,9 @@ app.on_shutdown(_shutdown_station)
 
 @ui.page("/")
 def main_page() -> None:
-    assert _station is not None
+    station = _get_station()
     ui.add_css(Path(__file__).parent / "static" / "station.css")
-    config = _station.config
+    config = station.config
 
     with ui.header().classes("bg-slate-800 text-white items-center px-6"):
         ui.label(config.name).classes("text-lg font-semibold")
@@ -158,12 +164,12 @@ def main_page() -> None:
         for i in range(0, len(readback), 2):
             with ui.row().classes("w-full gap-6"):
                 for role, ic in readback[i:i + 2]:
-                    _build_readback_card(_station, role, ic)
+                    _build_readback_card(station, role, ic)
 
         for role, ic in scopes:
-            _build_scope_card(_station, role, ic)
+            _build_scope_card(station, role, ic)
 
-        store = _station.event_store
+        store = station.event_store
         assert store is not None
         with ui.card().classes("w-full"):
             ui.label("Instrument Activity").classes(
@@ -329,7 +335,7 @@ def _build_scope_card(
         def _start() -> None:
             if running["active"] or not toggle.ensure():
                 return
-            _station.configure(role,"start_continuous", channel="CH1")
+            station.configure(role, "start_continuous", channel="CH1")
             running["active"] = True
             running["task"] = asyncio.ensure_future(_continuous())
             run_btn.props(remove="color=green", add="color=red")
@@ -340,7 +346,7 @@ def _build_scope_card(
             if running["task"]:
                 running["task"].cancel()
                 running["task"] = None
-            _station.configure(role,"stop_continuous")
+            station.configure(role, "stop_continuous")
             run_btn.props(remove="color=red", add="color=green")
             run_btn.text = "Run"
             acq_count[0] = 0
@@ -349,7 +355,7 @@ def _build_scope_card(
             def _single() -> None:
                 if not toggle.ensure():
                     return
-                _station.configure(role,"single_acquisition", channel="CH1")
+                station.configure(role, "single_acquisition", channel="CH1")
                 toggle.driver.fetch_waveform("CH1")
 
             ui.button("Single", on_click=_single).props(
