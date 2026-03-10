@@ -15,9 +15,13 @@ import warnings
 from pathlib import Path
 
 import duckdb
+import pyarrow as pa
+import pyarrow.ipc as ipc
 
 from litmus.data._duckdb_flight_server import DuckDBFlightServer
 from litmus.data.duckdb_manager import DuckDBDaemonManager
+
+_EVENT_COLUMNS = ["id", "event_type", "occurred_at", "received_at", "session_id", "run_id", "json"]
 
 
 def daemon_run(events_dir: Path) -> None:
@@ -37,22 +41,23 @@ def daemon_run(events_dir: Path) -> None:
         )
     """)
 
-    # Bulk rebuild from Arrow IPC files
+    # Bulk rebuild from Arrow IPC files using PyArrow
     ipc_files = sorted(events_dir.glob("*/*.arrow"))
     if ipc_files:
-        globs = [str(f) for f in ipc_files]
-        for fpath in globs:
+        tables: list[pa.Table] = []
+        for fpath in ipc_files:
             try:
-                conn.execute(f"""
-                    INSERT INTO events BY NAME
-                    SELECT id, event_type, occurred_at, received_at,
-                           session_id, run_id, json
-                    FROM read_ipc('{fpath}')
-                """)
+                reader = ipc.open_file(str(fpath))
+                tables.append(reader.read_all().select(_EVENT_COLUMNS))
             except Exception as exc:
                 warnings.warn(
-                    f"Failed to rebuild from {fpath}: {exc}", stacklevel=2
+                    f"Failed to read {fpath}: {exc}", stacklevel=2
                 )
+        if tables:
+            combined = pa.concat_tables(tables, promote_options="default")
+            conn.register("_ipc_rebuild", combined)
+            conn.execute("INSERT INTO events BY NAME SELECT * FROM _ipc_rebuild")
+            conn.unregister("_ipc_rebuild")
 
     # Start Flight server for cross-process queries and inserts
     server = DuckDBFlightServer("grpc://127.0.0.1:0")
