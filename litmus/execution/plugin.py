@@ -898,6 +898,37 @@ def run_context(litmus_logger) -> RunContext:
     return litmus_logger.run_context
 
 
+def _extract_code_identity(item: Any) -> dict[str, str | None]:
+    """Extract code identity fields from a pytest.Item node."""
+    identity: dict[str, str | None] = {}
+    identity["node_id"] = getattr(item, "nodeid", None)
+    identity["function"] = getattr(item, "originalname", None) or getattr(item, "name", None)
+    identity["class_name"] = item.cls.__name__ if getattr(item, "cls", None) else None
+    mod = getattr(item, "module", None)
+    identity["module"] = mod.__name__ if mod else None
+
+    item_path = getattr(item, "path", None)
+    if item_path is not None:
+        rootdir = getattr(item.config, "rootpath", None)
+        if rootdir:
+            try:
+                identity["file"] = str(item_path.relative_to(rootdir))
+            except ValueError:
+                identity["file"] = str(item_path)
+        else:
+            identity["file"] = str(item_path)
+    else:
+        identity["file"] = None
+
+    own_markers = getattr(item, "own_markers", [])
+    if own_markers:
+        identity["markers"] = ",".join(m.name for m in own_markers)
+    else:
+        identity["markers"] = None
+
+    return identity
+
+
 @pytest.fixture
 def litmus_step(litmus_logger, request) -> Generator[None, None, None]:
     """Create step for test function (use when NOT using @litmus_test).
@@ -905,7 +936,8 @@ def litmus_step(litmus_logger, request) -> Generator[None, None, None]:
     Note: @litmus_test decorated tests already create their own steps.
     Only use this fixture for tests that need step tracking without @litmus_test.
     """
-    litmus_logger.start_step(request.node.name)
+    identity = _extract_code_identity(request.node)
+    litmus_logger.start_step(request.node.name, **identity)
     yield
     litmus_logger.end_step()
 

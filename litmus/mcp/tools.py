@@ -1221,6 +1221,179 @@ def open_tool(
     }
 
 
+def _resolve_results_dir(project: str | None) -> Path | None:
+    """Resolve results dir from a project path."""
+    if project:
+        return get_project_root(project) / "results"
+    return None
+
+
+def events_query(
+    session_id: str | None = None,
+    event_type: str | None = None,
+    role: str | None = None,
+    since: str | None = None,
+    limit: int = 100,
+    *,
+    results_dir: Path | None = None,
+) -> dict[str, Any]:
+    """Query events from the event store.
+
+    Shared implementation for HTTP API and MCP tool.
+
+    Args:
+        session_id: Filter by session UUID.
+        event_type: Filter by event type (e.g. "instrument.read").
+        role: Filter by instrument role.
+        since: ISO timestamp — only events after this time.
+        limit: Max events to return (default 100).
+        results_dir: Explicit results directory (takes precedence).
+    """
+    from datetime import datetime
+    from uuid import UUID
+
+    from litmus.data.event_store import EventStore
+
+    store = EventStore(_results_dir=results_dir)
+    try:
+        since_dt = datetime.fromisoformat(since) if since else None
+        sid = UUID(session_id) if session_id else None
+        events = store.events(
+            session_id=sid, event_type=event_type, role=role, since=since_dt,
+        )
+        return {"events": events[:limit], "count": len(events[:limit])}
+    finally:
+        store.close()
+
+
+def sessions_query(*, results_dir: Path | None = None) -> dict[str, Any]:
+    """List known sessions with metadata from SessionStarted events.
+
+    Shared implementation for HTTP API and MCP tool.
+    """
+    from litmus.data.event_store import EventStore
+
+    store = EventStore(_results_dir=results_dir)
+    try:
+        sessions = store.sessions()
+        return {"sessions": sessions, "count": len(sessions)}
+    finally:
+        store.close()
+
+
+def session_detail_query(
+    session_id: str,
+    *,
+    results_dir: Path | None = None,
+) -> dict[str, Any]:
+    """Get events for a specific session.
+
+    Shared implementation for HTTP API and MCP tool.
+    Returns dict with session_id and events, or None if not found.
+    """
+    from uuid import UUID
+
+    from litmus.data.event_store import EventStore
+
+    store = EventStore(_results_dir=results_dir)
+    try:
+        sid = UUID(session_id)
+        events = store.events(session_id=sid)
+        if not events:
+            return {"session_id": session_id, "events": None}
+        return {"session_id": session_id, "events": events}
+    finally:
+        store.close()
+
+
+def channels_query(
+    channel_id: str,
+    session_id: str | None = None,
+    start: str | None = None,
+    end: str | None = None,
+    last_n: int | None = None,
+    max_points: int | None = None,
+    *,
+    results_dir: Path | None = None,
+) -> dict[str, Any]:
+    """Query channel data from the channel store.
+
+    Shared implementation for HTTP API and MCP tool.
+    """
+    from datetime import datetime
+    from uuid import uuid4
+
+    from litmus.data.channels.store import ChannelStore
+
+    channels_dir = (results_dir / "channels") if results_dir else Path("results/channels")
+    if not channels_dir.exists():
+        return {"channel_id": channel_id, "data": []}
+
+    store = ChannelStore(channels_dir, uuid4())
+    start_dt = datetime.fromisoformat(start) if start else None
+    end_dt = datetime.fromisoformat(end) if end else None
+    table = store.query(
+        channel_id,
+        session_id=session_id,
+        start=start_dt,
+        end=end_dt,
+        last_n=last_n,
+        max_points=max_points,
+    )
+    return {"channel_id": channel_id, "data": table.to_pylist()}
+
+
+def channels_list_query(*, results_dir: Path | None = None) -> dict[str, Any]:
+    """List known channels from the channel registry.
+
+    Shared implementation for HTTP API and MCP tool.
+    """
+    import json as json_mod
+
+    channels_dir = (results_dir / "channels") if results_dir else Path("results/channels")
+    registry_path = channels_dir / "_registry.json"
+    if not registry_path.exists():
+        return {"channels": {}}
+    return {"channels": json_mod.loads(registry_path.read_text())}
+
+
+# Thin wrappers for MCP tools (resolve project → results_dir)
+
+
+def events_tool(
+    session_id: str | None = None,
+    event_type: str | None = None,
+    role: str | None = None,
+    since: str | None = None,
+    limit: int = 100,
+    project: str | None = None,
+) -> dict[str, Any]:
+    """Query events from the event store (MCP tool wrapper)."""
+    return events_query(
+        session_id, event_type, role, since, limit,
+        results_dir=_resolve_results_dir(project),
+    )
+
+
+def sessions_tool(project: str | None = None) -> dict[str, Any]:
+    """List known sessions (MCP tool wrapper)."""
+    return sessions_query(results_dir=_resolve_results_dir(project))
+
+
+def channels_tool(
+    channel_id: str,
+    session_id: str | None = None,
+    last_n: int | None = None,
+    max_points: int | None = None,
+    project: str | None = None,
+) -> dict[str, Any]:
+    """Query channel data (MCP tool wrapper)."""
+    return channels_query(
+        channel_id, session_id=session_id, last_n=last_n, max_points=max_points,
+        results_dir=_resolve_results_dir(project),
+    )
+
+
 def schema_tool(yaml_type: str | None = None) -> dict[str, Any]:
     """Get JSON Schema for Litmus YAML file types.
 

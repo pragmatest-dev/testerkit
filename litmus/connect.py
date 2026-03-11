@@ -23,6 +23,7 @@ Usage::
 from __future__ import annotations
 
 import os
+import socket
 from collections.abc import Callable
 from datetime import datetime
 from pathlib import Path
@@ -101,6 +102,7 @@ class StationConnection:
                 station_name=self._config.name,
                 station_type=self._config.station_type,
                 station_location=self._config.location,
+                station_hostname=socket.gethostname(),
                 dut_serial="",
                 session_type="interactive",
                 pid=os.getpid(),

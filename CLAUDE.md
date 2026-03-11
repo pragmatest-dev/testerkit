@@ -50,6 +50,7 @@ Entity-aligned folders contain YAML configuration files. Code folders contain Py
 - Operator UI uses NiceGUI with Tailwind CSS classes via `.classes()`
 - **UI inputs:** Use dropdowns/autocomplete for fields with known value sets, even if dynamically populated from data
 - API routes use FastAPI for JSON endpoints
+- **Top-level imports** — Prefer module-level imports. Only use lazy imports inside functions when needed to break circular imports or defer heavy optional dependencies (e.g., `import numpy`). Never use in-function imports just for convenience.
 
 ## Documentation Updates
 

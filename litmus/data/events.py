@@ -68,6 +68,7 @@ class SessionStarted(EventBase):
     station_name: str | None = None
     station_type: str | None = None
     station_location: str | None = None
+    station_hostname: str | None = None
     slot_id: str | None = None
 
     # Process
@@ -184,6 +185,13 @@ class StepStarted(EventBase):
     parent_path: str = ""
     description: str | None = None
 
+    # Code identity
+    node_id: str | None = None
+    file: str | None = None
+    module: str | None = None
+    class_name: str | None = None
+    function: str | None = None
+
 
 class MeasurementRecorded(EventBase):
     """A single measurement. Normalized: carries only measurement-specific fields.
@@ -244,6 +252,13 @@ class StepEnded(EventBase):
     step_index: int
     step_path: str = ""
     outcome: str = "pass"
+
+    # Code identity
+    node_id: str | None = None
+    file: str | None = None
+    module: str | None = None
+    class_name: str | None = None
+    function: str | None = None
 
 
 class RunEnded(EventBase):

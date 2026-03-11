@@ -18,6 +18,7 @@ import pyarrow as pa
 import pyarrow.flight as flight
 import pyarrow.ipc as ipc
 
+from litmus.data._atomic import atomic_write_text
 from litmus.data._ipc_writer import BufferedIPCWriter
 from litmus.data.channels.models import (
     SCALAR_SCHEMA,
@@ -616,7 +617,7 @@ class ChannelStore:
                         existing = json.loads(registry_path.read_text())
                     for cid, desc in self._registry.items():
                         existing[cid] = json.loads(desc.model_dump_json())
-                    registry_path.write_text(json.dumps(existing, indent=2))
+                    atomic_write_text(json.dumps(existing, indent=2), registry_path)
                 except _WRITE_ERRORS as exc:
                     warnings.warn(
                         f"ChannelStore failed to write registry: {exc}",

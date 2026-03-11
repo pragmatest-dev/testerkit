@@ -58,12 +58,17 @@ def litmus_step(func: Callable[..., Any]) -> Callable[..., Any]:
             assert response.confirmed
     """
 
+    _code_identity = {
+        "function": func.__name__,
+        "module": getattr(func, "__module__", None),
+    }
+
     @wraps(func)
     def wrapper(*args: Any, **kwargs: Any) -> Any:
         step_name = func.__name__
         _logger = get_current_logger()
         if _logger is not None:
-            _logger.start_step(step_name)
+            _logger.start_step(step_name, **_code_identity)
         try:
             result = func(*args, **kwargs)
             return result
@@ -79,7 +84,7 @@ def litmus_step(func: Callable[..., Any]) -> Callable[..., Any]:
             step_name = func.__name__
             _logger = get_current_logger()
             if _logger is not None:
-                _logger.start_step(step_name)
+                _logger.start_step(step_name, **_code_identity)
             try:
                 result = await func(*args, **kwargs)
                 return result

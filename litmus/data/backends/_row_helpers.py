@@ -55,6 +55,7 @@ class MeasurementRow(BaseModel):
     station_name: str | None = None
     station_type: str | None = None
     station_location: str | None = None
+    station_hostname: str | None = None
 
     # Fixture
     fixture_id: str | None = None
@@ -75,6 +76,12 @@ class MeasurementRow(BaseModel):
     step_path: str = ""
     step_started_at: datetime | None = None
     step_ended_at: datetime | None = None
+    step_node_id: str | None = None
+    step_module: str | None = None
+    step_file: str | None = None
+    step_class: str | None = None
+    step_function: str | None = None
+    step_markers: str | None = None
     vector_index: int | None = None
     attempt: int | None = None
     vector_started_at: datetime | None = None
@@ -162,6 +169,7 @@ def build_run_metadata(test_run: TestRun) -> dict[str, Any]:
         "station_name": test_run.station_name,
         "station_type": test_run.station_type,
         "station_location": test_run.station_location,
+        "station_hostname": test_run.station_hostname,
         # Fixture
         "fixture_id": test_run.fixture_id,
         # Test context
@@ -371,6 +379,12 @@ def build_row(
     step_path: str = "",
     step_started_at: datetime | None = None,
     step_ended_at: datetime | None = None,
+    step_node_id: str | None = None,
+    step_module: str | None = None,
+    step_file: str | None = None,
+    step_class: str | None = None,
+    step_function: str | None = None,
+    step_markers: str | None = None,
     meta: dict[str, Any] | None = None,
 ) -> MeasurementRow:
     """Build a complete MeasurementRow from test execution context.
@@ -392,6 +406,12 @@ def build_row(
         step_path=step_path,
         step_started_at=step_started_at,
         step_ended_at=step_ended_at,
+        step_node_id=step_node_id,
+        step_module=step_module,
+        step_file=step_file,
+        step_class=step_class,
+        step_function=step_function,
+        step_markers=step_markers,
         vector_index=vector.index,
         attempt=vector.attempt,
         vector_started_at=vector.started_at,
@@ -405,3 +425,33 @@ def build_row(
         instruments=instrument_arrays,
         custom=dict(test_run.custom_metadata),
     )
+
+
+def build_step_manifest(test_run: TestRun) -> list[dict[str, Any]]:
+    """Build a step manifest from all steps in a TestRun.
+
+    Returns a JSON-serializable list of step summaries including steps
+    that produced no measurements (action steps, setup/teardown).
+    """
+    manifest: list[dict[str, Any]] = []
+    for index, step in enumerate(test_run.steps):
+        measurement_count = sum(len(v.measurements) for v in step.vectors)
+        vector_count = len(step.vectors)
+        manifest.append({
+            "index": index,
+            "name": step.name,
+            "node_id": step.node_id,
+            "file": step.file,
+            "function": step.function,
+            "class": step.class_name,
+            "module": step.module,
+            "step_path": step.step_path,
+            "description": step.description,
+            "outcome": step.outcome.value if step.outcome else None,
+            "started_at": step.started_at.isoformat() if step.started_at else None,
+            "ended_at": step.ended_at.isoformat() if step.ended_at else None,
+            "has_measurements": measurement_count > 0,
+            "measurement_count": measurement_count,
+            "vector_count": vector_count,
+        })
+    return manifest

@@ -236,6 +236,14 @@ class TestStep(BaseModel):
     step_path: str = ""
     parent_path: str = ""
     description: str | None = None
+
+    # Code identity (populated from pytest.Item when available)
+    node_id: str | None = None
+    file: str | None = None
+    module: str | None = None
+    class_name: str | None = None
+    function: str | None = None
+    markers: str | None = None
     started_at: datetime = Field(default_factory=_utcnow)
     ended_at: datetime | None = None
     outcome: Outcome = Outcome.PASS
@@ -291,6 +299,7 @@ class TestRun(BaseModel):
     station_name: str | None = None
     station_type: str | None = None
     station_location: str | None = None
+    station_hostname: str | None = None
 
     # Fixture traceability
     fixture_id: str | None = None
@@ -345,6 +354,12 @@ class TestRun(BaseModel):
                         step_path=step.step_path,
                         step_started_at=step.started_at,
                         step_ended_at=step.ended_at,
+                        step_node_id=step.node_id,
+                        step_module=step.module,
+                        step_file=step.file,
+                        step_class=step.class_name,
+                        step_function=step.function,
+                        step_markers=step.markers,
                     )
 
 

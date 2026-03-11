@@ -29,12 +29,14 @@ import pyarrow as pa
 import pyarrow.compute as pc
 import pyarrow.parquet as pq
 
+from litmus.data._atomic import atomic_write_table
 from litmus.data.backends._row_helpers import (
     REF_PATH_PREFIX,
     MeasurementRow,
     _env_columns,
     build_row,
     build_run_metadata,
+    build_step_manifest,
     save_ref_to_dir,
 )
 from litmus.data.models import TestRun, Waveform
@@ -54,6 +56,12 @@ MEASUREMENT_SCHEMA = pa.schema([
     ("step_path", pa.string()),
     ("step_started_at", pa.timestamp("us", tz="UTC")),
     ("step_ended_at", pa.timestamp("us", tz="UTC")),
+    ("step_node_id", pa.string()),
+    ("step_module", pa.string()),
+    ("step_file", pa.string()),
+    ("step_class", pa.string()),
+    ("step_function", pa.string()),
+    ("step_markers", pa.string()),
     ("vector_index", pa.int64()),
     ("attempt", pa.int64()),
     ("vector_started_at", pa.timestamp("us", tz="UTC")),
@@ -75,6 +83,7 @@ MEASUREMENT_SCHEMA = pa.schema([
     ("station_name", pa.string()),
     ("station_type", pa.string()),
     ("station_location", pa.string()),
+    ("station_hostname", pa.string()),
     # Fixture
     ("fixture_id", pa.string()),
     # Test context
@@ -253,8 +262,8 @@ class ParquetBackend:
         metadata = self._build_file_metadata(test_run)
         table = table.replace_schema_metadata(metadata)
 
-        # Write to Parquet
-        pq.write_table(table, parquet_path)
+        # Write to Parquet (atomic: temp file + os.replace)
+        atomic_write_table(table, parquet_path)
 
         # Notify runs daemon so it indexes immediately
         self._notify_daemon(parquet_path)
@@ -305,6 +314,12 @@ class ParquetBackend:
                         step_path=step.step_path,
                         step_started_at=step.started_at,
                         step_ended_at=step.ended_at,
+                        step_node_id=step.node_id,
+                        step_module=step.module,
+                        step_file=step.file,
+                        step_class=step.class_name,
+                        step_function=step.function,
+                        step_markers=step.markers,
                         meta=meta,
                     )
                     rows.append(row_model.to_flat_dict())
@@ -372,6 +387,10 @@ class ParquetBackend:
 
         if test_run.environment_json:
             metadata[b"environment_json"] = test_run.environment_json.encode("utf-8")
+
+        # Step manifest
+        manifest = build_step_manifest(test_run)
+        metadata[b"litmus_step_manifest"] = json.dumps(manifest).encode("utf-8")
 
         # Add some convenience metadata
         metadata[b"litmus_version"] = b"1.0.0"
@@ -541,7 +560,7 @@ class ParquetBackend:
         if file_metadata:
             table = table.replace_schema_metadata(file_metadata)
 
-        pq.write_table(table, parquet_path)
+        atomic_write_table(table, parquet_path)
 
         # Notify runs daemon so it indexes immediately
         self._notify_daemon(parquet_path)
@@ -632,6 +651,41 @@ class ParquetSubscriber:
             arrays["instr_mocked"].append(inst.mocked)
         return arrays
 
+    def _session_metadata_kwargs(self, event: Any) -> dict[str, Any]:
+        """Extract session-level metadata as kwargs for MeasurementRow.
+
+        Shared by ``_build_row()`` and ``_build_step_summary_row()``.
+        """
+        s = self._session
+        env = _env_columns(s.environment_json if s else None)
+        return {
+            "session_id": str(s.session_id) if s else str(event.session_id),
+            "run_id": str(event.run_id) if event.run_id else "",
+            "run_started_at": s.occurred_at if s else None,
+            "run_ended_at": None,
+            "operator_id": s.operator_id if s else None,
+            "operator_name": s.operator_name if s else None,
+            "dut_serial": s.dut_serial if s else "unknown",
+            "dut_part_number": s.dut_part_number if s else None,
+            "dut_revision": s.dut_revision if s else None,
+            "dut_lot_number": s.dut_lot_number if s else None,
+            "product_id": s.product_id if s else None,
+            "product_name": s.product_name if s else None,
+            "product_revision": s.product_revision if s else None,
+            "station_id": s.station_id if s else "unknown",
+            "station_name": s.station_name if s else None,
+            "station_type": s.station_type if s else None,
+            "station_location": s.station_location if s else None,
+            "station_hostname": s.station_hostname if s else None,
+            "fixture_id": s.fixture_id if s else None,
+            "sequence_id": s.sequence_id if s else None,
+            "test_phase": s.test_phase if s else None,
+            "git_commit": s.git_commit if s else None,
+            "python_version": env.get("python_version"),
+            "litmus_version": env.get("litmus_version"),
+            "env_fingerprint": env.get("env_fingerprint"),
+        }
+
     def _build_row(self, event: Any) -> dict[str, Any]:
         """Denormalize a MeasurementRecorded event into a flat row dict.
 
@@ -639,42 +693,8 @@ class ParquetSubscriber:
         with the normalized measurement event to produce a full
         ``MeasurementRow``-compatible flat dict.
         """
-        s = self._session
-        env = _env_columns(s.environment_json if s else None)
-
         row = MeasurementRow(
-            # Session / run identity (from SessionStarted)
-            session_id=str(s.session_id) if s else str(event.session_id),
-            run_id=str(event.run_id) if event.run_id else "",
-            run_started_at=s.occurred_at if s else None,
-            run_ended_at=None,  # Backfilled on RunEnded
-            # Operator
-            operator_id=s.operator_id if s else None,
-            operator_name=s.operator_name if s else None,
-            # DUT
-            dut_serial=s.dut_serial if s else "unknown",
-            dut_part_number=s.dut_part_number if s else None,
-            dut_revision=s.dut_revision if s else None,
-            dut_lot_number=s.dut_lot_number if s else None,
-            # Product
-            product_id=s.product_id if s else None,
-            product_name=s.product_name if s else None,
-            product_revision=s.product_revision if s else None,
-            # Station
-            station_id=s.station_id if s else "unknown",
-            station_name=s.station_name if s else None,
-            station_type=s.station_type if s else None,
-            station_location=s.station_location if s else None,
-            # Fixture
-            fixture_id=s.fixture_id if s else None,
-            # Test context
-            sequence_id=s.sequence_id if s else None,
-            test_phase=s.test_phase if s else None,
-            git_commit=s.git_commit if s else None,
-            # Environment
-            python_version=env.get("python_version"),
-            litmus_version=env.get("litmus_version"),
-            env_fingerprint=env.get("env_fingerprint"),
+            **self._session_metadata_kwargs(event),
             # Step/vector (from event + cached StepStarted)
             step_name=event.step_name,
             step_index=event.step_index,
@@ -687,6 +707,31 @@ class ParquetSubscriber:
             step_ended_at=(
                 self._step_ends[event.step_index].occurred_at
                 if event.step_index in self._step_ends
+                else None
+            ),
+            step_node_id=(
+                self._step_starts[event.step_index].node_id
+                if event.step_index in self._step_starts
+                else None
+            ),
+            step_module=(
+                self._step_starts[event.step_index].module
+                if event.step_index in self._step_starts
+                else None
+            ),
+            step_file=(
+                self._step_starts[event.step_index].file
+                if event.step_index in self._step_starts
+                else None
+            ),
+            step_class=(
+                self._step_starts[event.step_index].class_name
+                if event.step_index in self._step_starts
+                else None
+            ),
+            step_function=(
+                self._step_starts[event.step_index].function
+                if event.step_index in self._step_starts
                 else None
             ),
             vector_index=event.vector_index,
@@ -720,34 +765,8 @@ class ParquetSubscriber:
 
     def _build_step_summary_row(self, step_ended: Any) -> dict[str, Any]:
         """Build a summary row for a step that completed with no measurements."""
-        s = self._session
-        env = _env_columns(s.environment_json if s else None)
-
         row = MeasurementRow(
-            session_id=str(s.session_id) if s else str(step_ended.session_id),
-            run_id=str(step_ended.run_id) if step_ended.run_id else "",
-            run_started_at=s.occurred_at if s else None,
-            run_ended_at=None,
-            operator_id=s.operator_id if s else None,
-            operator_name=s.operator_name if s else None,
-            dut_serial=s.dut_serial if s else "unknown",
-            dut_part_number=s.dut_part_number if s else None,
-            dut_revision=s.dut_revision if s else None,
-            dut_lot_number=s.dut_lot_number if s else None,
-            product_id=s.product_id if s else None,
-            product_name=s.product_name if s else None,
-            product_revision=s.product_revision if s else None,
-            station_id=s.station_id if s else "unknown",
-            station_name=s.station_name if s else None,
-            station_type=s.station_type if s else None,
-            station_location=s.station_location if s else None,
-            fixture_id=s.fixture_id if s else None,
-            sequence_id=s.sequence_id if s else None,
-            test_phase=s.test_phase if s else None,
-            git_commit=s.git_commit if s else None,
-            python_version=env.get("python_version"),
-            litmus_version=env.get("litmus_version"),
-            env_fingerprint=env.get("env_fingerprint"),
+            **self._session_metadata_kwargs(step_ended),
             step_name=step_ended.step_name,
             step_index=step_ended.step_index,
             step_path=step_ended.step_path,
@@ -757,6 +776,11 @@ class ParquetSubscriber:
                 else None
             ),
             step_ended_at=step_ended.occurred_at,
+            step_node_id=step_ended.node_id,
+            step_module=step_ended.module,
+            step_file=step_ended.file,
+            step_class=step_ended.class_name,
+            step_function=step_ended.function,
             measurement_name="_step_summary",
             value=None,
             outcome=step_ended.outcome,
@@ -829,9 +853,44 @@ class ParquetSubscriber:
         if s.environment_json:
             metadata[b"environment_json"] = s.environment_json.encode("utf-8")
 
+        # Step manifest from cached events
+        manifest = self._build_step_manifest_from_events()
+        if manifest:
+            metadata[b"litmus_step_manifest"] = json.dumps(manifest).encode("utf-8")
+
         metadata[b"litmus_version"] = b"1.0.0"
         metadata[b"schema_version"] = b"2.0"
         return metadata
+
+    def _build_step_manifest_from_events(self) -> list[dict[str, Any]]:
+        """Build step manifest from cached StepStarted/StepEnded events."""
+        manifest: list[dict[str, Any]] = []
+        all_indices = sorted(set(self._step_starts) | set(self._step_ends))
+        for idx in all_indices:
+            start = self._step_starts.get(idx)
+            end = self._step_ends.get(idx)
+            meas_count = sum(
+                1 for e in self._measurement_events if e.step_index == idx
+            )
+            entry: dict[str, Any] = {
+                "index": idx,
+                "name": start.step_name if start else (end.step_name if end else ""),
+                "node_id": start.node_id if start else None,
+                "file": start.file if start else None,
+                "function": start.function if start else None,
+                "class": start.class_name if start else None,
+                "module": start.module if start else None,
+                "step_path": start.step_path if start else (end.step_path if end else ""),
+                "description": start.description if start else None,
+                "outcome": end.outcome if end else None,
+                "started_at": start.occurred_at.isoformat() if start else None,
+                "ended_at": end.occurred_at.isoformat() if end else None,
+                "has_measurements": meas_count > 0,
+                "measurement_count": meas_count,
+                "vector_count": 0,
+            }
+            manifest.append(entry)
+        return manifest
 
 
 def load_file(parquet_path: Path, ref: str) -> Any:
@@ -911,6 +970,22 @@ def load_file(parquet_path: Path, ref: str) -> Any:
     else:
         # Return path for other file types
         return path
+
+
+def read_step_manifest(parquet_path: Path) -> list[dict[str, Any]]:
+    """Read the step manifest from Parquet file-level metadata.
+
+    Returns an empty list if no manifest is stored.
+    """
+    try:
+        pf = pq.ParquetFile(parquet_path)
+        raw_metadata = pf.schema_arrow.metadata or {}
+        manifest_bytes = raw_metadata.get(b"litmus_step_manifest")
+        if manifest_bytes:
+            return json.loads(manifest_bytes)
+    except Exception:
+        pass
+    return []
 
 
 def load_ref(
@@ -1133,6 +1208,7 @@ def reconstruct_test_run_from_file(pq_file: Path) -> TestRun:
         station_name=first.get("station_name"),
         station_type=first.get("station_type"),
         station_location=first.get("station_location"),
+        station_hostname=first.get("station_hostname"),
         fixture_id=first.get("fixture_id"),
         test_sequence_id=first.get("sequence_id") or "",
         test_phase=first.get("test_phase") or "development",

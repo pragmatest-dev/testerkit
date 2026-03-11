@@ -331,3 +331,28 @@ class TestEventLogIntegration:
                 break
         else:
             raise AssertionError("No test.measurement event found")
+
+    def test_start_step_code_identity(self):
+        """start_step() stores code identity on TestStep."""
+        logger = TestRunLogger(
+            dut_serial="SN001",
+            station_id="station_001",
+            test_sequence_id="test",
+        )
+        logger.start_step(
+            "test_5v_rail",
+            node_id="tests/test_power.py::TestPower::test_5v_rail",
+            file="tests/test_power.py",
+            module="tests.test_power",
+            class_name="TestPower",
+            function="test_5v_rail",
+            markers="litmus_test,parametrize",
+        )
+
+        step = logger.test_run.steps[0]
+        assert step.node_id == "tests/test_power.py::TestPower::test_5v_rail"
+        assert step.file == "tests/test_power.py"
+        assert step.module == "tests.test_power"
+        assert step.class_name == "TestPower"
+        assert step.function == "test_5v_rail"
+        assert step.markers == "litmus_test,parametrize"

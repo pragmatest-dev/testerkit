@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import os
+import socket
 from collections.abc import Callable
 from contextvars import ContextVar, Token
 from pathlib import Path
@@ -168,6 +169,7 @@ class TestRunLogger:
         station_name: str | None = None,
         station_type: str | None = None,
         station_location: str | None = None,
+        station_hostname: str | None = None,
         operator_id: str | None = None,
         operator_name: str | None = None,
         test_phase: str = "production",
@@ -217,6 +219,7 @@ class TestRunLogger:
             station_name=station_name,
             station_type=station_type,
             station_location=station_location,
+            station_hostname=station_hostname or socket.gethostname(),
             operator_id=operator_id,
             operator_name=operator_name,
             test_sequence_id=test_sequence_id,
@@ -348,7 +351,18 @@ class TestRunLogger:
         self._step_instrument_arrays = arrays
         return arrays
 
-    def start_step(self, name: str, description: str | None = None):
+    def start_step(
+        self,
+        name: str,
+        description: str | None = None,
+        *,
+        node_id: str | None = None,
+        file: str | None = None,
+        module: str | None = None,
+        class_name: str | None = None,
+        function: str | None = None,
+        markers: str | None = None,
+    ):
         """Begin a new test step. Supports nesting via step_path."""
         # Auto-close any prior step that wasn't explicitly ended
         if _current_step_var.get() is not None:
@@ -364,6 +378,8 @@ class TestRunLogger:
         step = TestStep(
             name=name, description=description,
             step_path=step_path, parent_path=parent_path,
+            node_id=node_id, file=file, module=module,
+            class_name=class_name, function=function, markers=markers,
         )
         self._current_step_index += 1
         self.test_run.steps.append(step)
@@ -383,6 +399,11 @@ class TestRunLogger:
                 step_path=step_path,
                 parent_path=parent_path,
                 description=description,
+                node_id=node_id,
+                file=file,
+                module=module,
+                class_name=class_name,
+                function=function,
             ))
 
     def register_step(self, step: TestStep) -> int:
@@ -479,6 +500,11 @@ class TestRunLogger:
                 step_index=self._current_step_index,
                 step_path=step.step_path,
                 outcome=step.outcome.value,
+                node_id=step.node_id,
+                file=step.file,
+                module=step.module,
+                class_name=step.class_name,
+                function=step.function,
             ))
 
         # Pop step from hierarchy stack
