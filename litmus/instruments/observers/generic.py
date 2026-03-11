@@ -11,25 +11,27 @@ from __future__ import annotations
 from typing import Any
 
 from litmus.instruments.models import ChannelKind
-from litmus.instruments.observer import LIFECYCLE_METHODS, DriverObserver, EventEmitter
+from litmus.instruments.observer import DriverObserver, EventEmitter
 
 _READ_PREFIXES = ("measure_", "read_", "get_", "query_", "fetch_")
 _SET_PREFIXES = ("set_", "write_")
 _CONFIGURE_PREFIXES = ("configure_", "setup_", "init_")
 
 
+_PREFIX_TO_KIND: tuple[tuple[tuple[str, ...], ChannelKind], ...] = (
+    (_READ_PREFIXES, ChannelKind.read),
+    (_SET_PREFIXES, ChannelKind.set),
+    (_CONFIGURE_PREFIXES, ChannelKind.configure),
+)
+
+
 def classify_by_prefix(name: str) -> ChannelKind | None:
     """Classify a method name by prefix, or None if unrecognized."""
-    for prefix in _READ_PREFIXES:
-        if name.startswith(prefix):
-            return ChannelKind.read
-    for prefix in _SET_PREFIXES:
-        if name.startswith(prefix):
-            return ChannelKind.set
-    for prefix in _CONFIGURE_PREFIXES:
-        if name.startswith(prefix):
-            return ChannelKind.configure
-    return None
+    return next(
+        (kind for prefixes, kind in _PREFIX_TO_KIND
+         if any(name.startswith(p) for p in prefixes)),
+        None,
+    )
 
 
 def strip_prefix(name: str, kind: ChannelKind) -> str:
@@ -54,13 +56,14 @@ class GenericObserver(DriverObserver):
         role: str,
         emit: EventEmitter,
         yaml_overrides: dict[str, str] | None = None,
+        driver_instance: Any = None,
     ) -> None:
-        super().__init__(driver_class, role, emit, yaml_overrides)
+        super().__init__(driver_class, role, emit, yaml_overrides, driver_instance)
 
     def on_call(
         self, name: str, args: tuple[Any, ...], kwargs: dict[str, Any], result: Any,
     ) -> None:
-        if name.startswith("_") or name in LIFECYCLE_METHODS:
+        if self._should_skip(name):
             return
         kind = classify_by_prefix(name)
         if kind == ChannelKind.read:

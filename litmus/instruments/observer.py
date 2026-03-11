@@ -102,16 +102,28 @@ class DriverObserver:
     library gets its own observer subclass.
     """
 
+    _silent_methods: frozenset[str] = frozenset()
+    """Per-subclass methods to skip (in addition to LIFECYCLE_METHODS)."""
+
     def __init__(
         self,
         driver_class: type,
         role: str,
         emit: EventEmitter,
         yaml_overrides: dict[str, str] | None = None,
+        driver_instance: Any = None,
     ) -> None:
         """Inspect driver_class once, build lookup tables."""
         self.role = role
         self.emit = emit
+
+    def _should_skip(self, name: str) -> bool:
+        """True for private, lifecycle, or observer-specific silent methods."""
+        return (
+            name.startswith("_")
+            or name in LIFECYCLE_METHODS
+            or name in self._silent_methods
+        )
 
     def on_getattr(self, name: str, value: Any) -> Any:
         """Called on every non-callable attribute access.

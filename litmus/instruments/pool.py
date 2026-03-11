@@ -117,7 +117,7 @@ class _InstrumentPool:
                 self._session_id,
                 observer=observer,
             )
-        except Exception:
+        except BaseException:
             if lock is not None:
                 release_resource(record.resource, lock)
             raise
@@ -159,6 +159,7 @@ class _InstrumentPool:
             role,
             emitter,
             yaml_overrides=channel_overrides or None,
+            driver_instance=driver,
         )
 
     def release(self, role: str) -> None:
@@ -253,6 +254,6 @@ def _resolve_from_catalog(catalog_ref: str) -> type | None:
                 if entry.driver:
                     return load_driver_class(entry.driver)
                 return None
-    except (ImportError, OSError, ValueError):
+    except (ImportError, OSError, ValueError, KeyError):
         pass
     return None

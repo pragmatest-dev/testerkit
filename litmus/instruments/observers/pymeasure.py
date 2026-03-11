@@ -74,7 +74,13 @@ def build_channel_map(
 
 
 class PyMeasureObserver(DriverObserver):
-    """Descriptor-based classification for PyMeasure and InstrumentKit."""
+    """Descriptor-based classification for PyMeasure and InstrumentKit.
+
+    Kept as a thin subclass. The shared descriptor logic lives in
+    ``DescriptorObserver``; PyMeasureObserver inherits from ``DriverObserver``
+    directly to avoid circular imports (``DescriptorObserver`` imports
+    ``build_channel_map`` from this module). Behavior is identical.
+    """
 
     def __init__(
         self,
@@ -82,10 +88,10 @@ class PyMeasureObserver(DriverObserver):
         role: str,
         emit: EventEmitter,
         yaml_overrides: dict[str, str] | None = None,
+        driver_instance: Any = None,
     ) -> None:
-        super().__init__(driver_class, role, emit, yaml_overrides)
+        super().__init__(driver_class, role, emit, yaml_overrides, driver_instance)
         self._channel_map = build_channel_map(driver_class, yaml_overrides)
-        # For fallback on plain methods
         self._generic = GenericObserver(driver_class, role, emit, yaml_overrides)
 
     def on_getattr(self, name: str, value: Any) -> Any:
@@ -104,6 +110,5 @@ class PyMeasureObserver(DriverObserver):
     def on_call(
         self, name: str, args: tuple[Any, ...], kwargs: dict[str, Any], result: Any,
     ) -> None:
-        # Methods not in channel map → fall back to prefix classification
         if name not in self._channel_map:
             self._generic.on_call(name, args, kwargs, result)
