@@ -16,7 +16,7 @@ import yaml
 from _pytest.runner import runtestprotocol
 
 from litmus.config.test_config import FixtureConfig
-from litmus.data.models import TestRun
+from litmus.data.models import CollectedItem, TestRun
 from litmus.execution.accessors import InstrumentAccessor
 from litmus.execution.decorators import set_current_logger
 from litmus.execution.harness import Context
@@ -45,6 +45,7 @@ _test_node_aliases_var: ContextVar[dict[str, dict[str, str]]] = ContextVar("_tes
 _test_node_configs_var: ContextVar[dict[str, dict[str, Any]]] = ContextVar("_test_node_configs")
 _sequence_test_phase_var: ContextVar[str | None] = ContextVar("_sequence_test_phase")
 _channel_store_var: ContextVar[Any] = ContextVar("_channel_store")
+_collected_items_var: ContextVar[list[CollectedItem]] = ContextVar("_collected_items")
 
 
 # --- Session-scoped getters (create-and-store on first access) ---
@@ -206,6 +207,19 @@ def set_channel_store(value: Any) -> None:
     _channel_store_var.set(value)
 
 
+def get_collected_items() -> list[CollectedItem]:
+    """Return collected pytest items, or empty list if not set."""
+    try:
+        return _collected_items_var.get()
+    except LookupError:
+        return []
+
+
+def set_collected_items(value: list[CollectedItem]) -> None:
+    """Set value. Returns None."""
+    _collected_items_var.set(value)
+
+
 def _load_sequence_steps(config):
     """Load sequence file and return the step models.
 
@@ -339,6 +353,7 @@ def pytest_configure(config):
 
         station_model = load_station(station_path)
     except Exception:
+        # ValidationError, bad YAML, missing deps — don't crash pytest
         return
 
     if not station_model:
@@ -411,6 +426,26 @@ def pytest_configure(config):
 def pytest_sessionstart(session):
     """Clear outcomes at session start."""
     set_step_outcomes({})
+
+
+def pytest_collection_modifyitems(items: list[pytest.Item]) -> None:
+    """Capture collected items so the step manifest can include not-started steps."""
+    collected = []
+    for item in items:
+        markers = ",".join(sorted(m.name for m in item.iter_markers()))
+        parts = item.nodeid.rsplit("::", 1)
+        func_name = parts[-1] if len(parts) > 1 else item.name
+        mod = getattr(item, "module", None)
+        cls = getattr(item, "cls", None)
+        collected.append(CollectedItem(
+            node_id=item.nodeid,
+            file=str(item.path) if hasattr(item, "path") else None,
+            module=mod.__name__ if mod else None,
+            class_name=cls.__name__ if cls else None,
+            function=func_name,
+            markers=markers or None,
+        ))
+    set_collected_items(collected)
 
 
 def pytest_sessionfinish(session, exitstatus):
@@ -591,6 +626,7 @@ def _safe_get_session_fixture(request, name):
     except pytest.FixtureLookupError:
         return None
     except Exception:
+        # Fixture exists but raised during setup (e.g. ValidationError)
         return None
 
 
@@ -825,8 +861,22 @@ def litmus_logger(request) -> Generator[TestRunLogger, None, None]:
         # Emit InstrumentConnected for each instrument
         _emit_instrument_events(logger, event_log)
 
+        # Emit StepsDiscovered so subscribers know the full manifest
+        from litmus.data.events import StepsDiscovered
+
+        collected = get_collected_items()
+        if collected:
+            event_log.emit(StepsDiscovered(
+                session_id=logger._session_id,
+                run_id=logger.test_run.id,
+                items=[ci.model_dump() for ci in collected],
+            ))
+
     set_current_logger(logger)
     yield logger
+
+    # Copy collected items onto test_run so the manifest captures not-started steps
+    logger.test_run.collected_items = get_collected_items()
 
     # Close ChannelStore before finalizing (before EventLog closes subscribers)
     _cs_final = get_channel_store()

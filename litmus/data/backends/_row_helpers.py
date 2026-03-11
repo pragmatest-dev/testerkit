@@ -430,13 +430,19 @@ def build_row(
 def build_step_manifest(test_run: TestRun) -> list[dict[str, Any]]:
     """Build a step manifest from all steps in a TestRun.
 
-    Returns a JSON-serializable list of step summaries including steps
-    that produced no measurements (action steps, setup/teardown).
+    Returns a JSON-serializable list of step summaries.  Executed steps
+    come first (with real outcomes), followed by ``not_started`` entries
+    for any collected items that were never executed — e.g. because the
+    run was aborted or hit ``--maxfail``.
     """
     manifest: list[dict[str, Any]] = []
+    executed_node_ids: set[str] = set()
+
     for index, step in enumerate(test_run.steps):
         measurement_count = sum(len(v.measurements) for v in step.vectors)
         vector_count = len(step.vectors)
+        if step.node_id:
+            executed_node_ids.add(step.node_id)
         manifest.append({
             "index": index,
             "name": step.name,
@@ -454,4 +460,47 @@ def build_step_manifest(test_run: TestRun) -> list[dict[str, Any]]:
             "measurement_count": measurement_count,
             "vector_count": vector_count,
         })
+
+    # Append not-started entries for collected items that never executed
+    _append_not_started(
+        manifest,
+        [ci.model_dump() for ci in test_run.collected_items],
+        executed_node_ids,
+    )
+
     return manifest
+
+
+def _append_not_started(
+    manifest: list[dict[str, Any]],
+    collected_items: list[dict[str, str | None]],
+    executed_node_ids: set[str],
+) -> None:
+    """Append ``not_started`` entries for collected items that never executed.
+
+    Shared by both the batch path (``build_step_manifest``) and the
+    streaming path (``ParquetSubscriber._build_step_manifest_from_events``).
+    """
+    next_index = len(manifest)
+    for ci in collected_items:
+        node_id = ci.get("node_id") or ""
+        if node_id in executed_node_ids:
+            continue
+        manifest.append({
+            "index": next_index,
+            "name": ci.get("function") or node_id,
+            "node_id": node_id,
+            "file": ci.get("file"),
+            "function": ci.get("function"),
+            "class": ci.get("class_name"),
+            "module": ci.get("module"),
+            "step_path": "",
+            "description": None,
+            "outcome": "not_started",
+            "started_at": None,
+            "ended_at": None,
+            "has_measurements": False,
+            "measurement_count": 0,
+            "vector_count": 0,
+        })
+        next_index += 1

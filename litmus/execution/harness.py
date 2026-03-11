@@ -11,11 +11,10 @@ import importlib
 import time
 from collections.abc import Callable, Iterator, Mapping
 from contextlib import contextmanager
-from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
 
 from litmus.config.models import Limit, MeasurementLimitConfig, PromptConfig, RetryConfig
-from litmus.data.models import Measurement, Outcome, TestStep, TestVector, escalate_outcome
+from litmus.data.models import Measurement, Outcome, TestStep, TestVector, _utcnow, escalate_outcome
 from litmus.execution.logger import _current_step_var, _current_vector_var
 from litmus.execution.vectors import Vector, expand_vectors
 
@@ -24,10 +23,6 @@ if TYPE_CHECKING:
     from litmus.products.context import SpecContext
 
 
-
-def _utcnow() -> datetime:
-    """Return current UTC datetime."""
-    return datetime.now(UTC)
 
 
 class Context:

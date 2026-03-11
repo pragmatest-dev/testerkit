@@ -7,17 +7,14 @@ Subscribers (e.g. ParquetSubscriber) denormalize at write time.
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import datetime
 from typing import Annotated, Any, Literal
 from uuid import UUID, uuid4
 
 from pydantic import BaseModel, Field, model_serializer
 
+from litmus.data.models import _utcnow
 from litmus.data.ref import classify_value, make_channel_uri
-
-
-def _utcnow() -> datetime:
-    return datetime.now(UTC)
 
 
 def _detect_client() -> str:
@@ -261,6 +258,18 @@ class StepEnded(EventBase):
     function: str | None = None
 
 
+class StepsDiscovered(EventBase):
+    """Emitted after instruments connect, before steps execute.
+
+    Carries the full list of pytest-collected items so subscribers can
+    build a complete step manifest (including ``not_started`` entries
+    for steps that never ran due to abort / ``--maxfail``).
+    """
+
+    event_type: Literal["test.steps_discovered"] = "test.steps_discovered"
+    items: list[dict[str, str | None]] = Field(default_factory=list)
+
+
 class RunEnded(EventBase):
     event_type: Literal["test.run_ended"] = "test.run_ended"
     outcome: str = "pass"
@@ -434,7 +443,7 @@ SESSION_EVENTS = {SessionStarted, SessionEnded}
 FIXTURE_EVENTS = {
     InstrumentConnected, IdentityVerified, CalibrationWarning, DutScanned, InstrumentDisconnected,
 }
-TEST_EVENTS = {StepStarted, MeasurementRecorded, RecordEvent, StepEnded, RunEnded}
+TEST_EVENTS = {StepStarted, MeasurementRecorded, RecordEvent, StepEnded, StepsDiscovered, RunEnded}
 INSTRUMENT_EVENTS = {InstrumentRead, InstrumentSet, InstrumentConfigure}
 DIAGNOSTIC_EVENTS = {DiagnosticWarning, DiagnosticError}
 STREAM_EVENTS = {StreamStarted, StreamEnded, StreamFrameIndex}
@@ -450,7 +459,7 @@ Event = Annotated[
     SessionStarted | SessionEnded
     | InstrumentConnected | IdentityVerified | CalibrationWarning
     | DutScanned | InstrumentDisconnected
-    | StepStarted | MeasurementRecorded | RecordEvent | StepEnded | RunEnded
+    | StepStarted | MeasurementRecorded | RecordEvent | StepEnded | StepsDiscovered | RunEnded
     | InstrumentRead | InstrumentSet | InstrumentConfigure
     | DiagnosticWarning | DiagnosticError
     | StreamStarted | StreamEnded | StreamFrameIndex

@@ -20,6 +20,7 @@ Schema design:
 """
 
 import json
+import logging
 import pickle
 from datetime import datetime
 from pathlib import Path
@@ -33,6 +34,7 @@ from litmus.data._atomic import atomic_write_table
 from litmus.data.backends._row_helpers import (
     REF_PATH_PREFIX,
     MeasurementRow,
+    _append_not_started,
     _env_columns,
     build_row,
     build_run_metadata,
@@ -281,7 +283,7 @@ class ParquetBackend:
             finally:
                 run_store.close()
         except Exception:
-            pass  # Non-fatal: daemon will rebuild from files on next start
+            logging.debug("Failed to notify runs daemon", exc_info=True)
 
     def _build_measurement_rows(
         self,
@@ -388,6 +390,12 @@ class ParquetBackend:
         if test_run.environment_json:
             metadata[b"environment_json"] = test_run.environment_json.encode("utf-8")
 
+        # Collected items for reconstruction
+        if test_run.collected_items:
+            metadata[b"litmus_collected_items"] = json.dumps(
+                [ci.model_dump() for ci in test_run.collected_items]
+            ).encode("utf-8")
+
         # Step manifest
         manifest = build_step_manifest(test_run)
         metadata[b"litmus_step_manifest"] = json.dumps(manifest).encode("utf-8")
@@ -493,7 +501,7 @@ class ParquetBackend:
             return {
                 k.decode("utf-8"): v.decode("utf-8") for k, v in raw_metadata.items()
             }
-        except Exception:
+        except (OSError, pa.ArrowInvalid):
             return None
 
     # =========================================================================
@@ -584,11 +592,12 @@ class ParquetSubscriber:
             RunEnded,
             SessionStarted,
             StepEnded,
+            StepsDiscovered,
             StepStarted,
         )
 
         self.event_types: set[type] = {
-            SessionStarted, InstrumentConnected,
+            SessionStarted, InstrumentConnected, StepsDiscovered,
             StepStarted, MeasurementRecorded, StepEnded, RunEnded,
         }
         self._backend = backend
@@ -599,9 +608,10 @@ class ParquetSubscriber:
         self._steps_with_measurements: set[int] = set()
         self._step_starts: dict[int, Any] = {}  # step_index → StepStarted
         self._step_ends: dict[int, Any] = {}  # step_index → StepEnded
+        self._collected_items: list[dict[str, str | None]] = []
 
     def open(self) -> None:
-        pass
+        """No-op — subscriber protocol requires this but Parquet needs no setup."""
 
     def on_event(self, event: Any) -> None:
         from litmus.data.events import (
@@ -610,6 +620,7 @@ class ParquetSubscriber:
             RunEnded,
             SessionStarted,
             StepEnded,
+            StepsDiscovered,
             StepStarted,
         )
 
@@ -617,6 +628,8 @@ class ParquetSubscriber:
             self._session = event
         elif isinstance(event, InstrumentConnected):
             self._instruments.append(event)
+        elif isinstance(event, StepsDiscovered):
+            self._collected_items = event.items
         elif isinstance(event, StepStarted):
             self._step_starts[event.step_index] = event
         elif isinstance(event, MeasurementRecorded):
@@ -657,34 +670,55 @@ class ParquetSubscriber:
         Shared by ``_build_row()`` and ``_build_step_summary_row()``.
         """
         s = self._session
-        env = _env_columns(s.environment_json if s else None)
+        if not s:
+            env = _env_columns(None)
+            return {
+                "session_id": str(event.session_id),
+                "run_id": str(event.run_id) if event.run_id else "",
+                "run_started_at": None, "run_ended_at": None,
+                "operator_id": None, "operator_name": None,
+                "dut_serial": "unknown", "dut_part_number": None,
+                "dut_revision": None, "dut_lot_number": None,
+                "product_id": None, "product_name": None,
+                "product_revision": None,
+                "station_id": "unknown", "station_name": None,
+                "station_type": None, "station_location": None,
+                "station_hostname": None, "fixture_id": None,
+                "sequence_id": None, "test_phase": None,
+                "git_commit": None,
+                **env,
+            }
+        env = _env_columns(s.environment_json)
         return {
-            "session_id": str(s.session_id) if s else str(event.session_id),
+            "session_id": str(s.session_id),
             "run_id": str(event.run_id) if event.run_id else "",
-            "run_started_at": s.occurred_at if s else None,
+            "run_started_at": s.occurred_at,
             "run_ended_at": None,
-            "operator_id": s.operator_id if s else None,
-            "operator_name": s.operator_name if s else None,
-            "dut_serial": s.dut_serial if s else "unknown",
-            "dut_part_number": s.dut_part_number if s else None,
-            "dut_revision": s.dut_revision if s else None,
-            "dut_lot_number": s.dut_lot_number if s else None,
-            "product_id": s.product_id if s else None,
-            "product_name": s.product_name if s else None,
-            "product_revision": s.product_revision if s else None,
-            "station_id": s.station_id if s else "unknown",
-            "station_name": s.station_name if s else None,
-            "station_type": s.station_type if s else None,
-            "station_location": s.station_location if s else None,
-            "station_hostname": s.station_hostname if s else None,
-            "fixture_id": s.fixture_id if s else None,
-            "sequence_id": s.sequence_id if s else None,
-            "test_phase": s.test_phase if s else None,
-            "git_commit": s.git_commit if s else None,
-            "python_version": env.get("python_version"),
-            "litmus_version": env.get("litmus_version"),
-            "env_fingerprint": env.get("env_fingerprint"),
+            "operator_id": s.operator_id,
+            "operator_name": s.operator_name,
+            "dut_serial": s.dut_serial,
+            "dut_part_number": s.dut_part_number,
+            "dut_revision": s.dut_revision,
+            "dut_lot_number": s.dut_lot_number,
+            "product_id": s.product_id,
+            "product_name": s.product_name,
+            "product_revision": s.product_revision,
+            "station_id": s.station_id,
+            "station_name": s.station_name,
+            "station_type": s.station_type,
+            "station_location": s.station_location,
+            "station_hostname": s.station_hostname,
+            "fixture_id": s.fixture_id,
+            "sequence_id": s.sequence_id,
+            "test_phase": s.test_phase,
+            "git_commit": s.git_commit,
+            **env,
         }
+
+    def _step_start_field(self, step_index: int, attr: str) -> Any:
+        """Get a field from the cached StepStarted event, or None."""
+        start = self._step_starts.get(step_index)
+        return getattr(start, attr, None) if start else None
 
     def _build_row(self, event: Any) -> dict[str, Any]:
         """Denormalize a MeasurementRecorded event into a flat row dict.
@@ -693,47 +727,21 @@ class ParquetSubscriber:
         with the normalized measurement event to produce a full
         ``MeasurementRow``-compatible flat dict.
         """
+        idx = event.step_index
+        end = self._step_ends.get(idx)
         row = MeasurementRow(
             **self._session_metadata_kwargs(event),
             # Step/vector (from event + cached StepStarted)
             step_name=event.step_name,
-            step_index=event.step_index,
+            step_index=idx,
             step_path=event.step_path,
-            step_started_at=(
-                self._step_starts[event.step_index].occurred_at
-                if event.step_index in self._step_starts
-                else None
-            ),
-            step_ended_at=(
-                self._step_ends[event.step_index].occurred_at
-                if event.step_index in self._step_ends
-                else None
-            ),
-            step_node_id=(
-                self._step_starts[event.step_index].node_id
-                if event.step_index in self._step_starts
-                else None
-            ),
-            step_module=(
-                self._step_starts[event.step_index].module
-                if event.step_index in self._step_starts
-                else None
-            ),
-            step_file=(
-                self._step_starts[event.step_index].file
-                if event.step_index in self._step_starts
-                else None
-            ),
-            step_class=(
-                self._step_starts[event.step_index].class_name
-                if event.step_index in self._step_starts
-                else None
-            ),
-            step_function=(
-                self._step_starts[event.step_index].function
-                if event.step_index in self._step_starts
-                else None
-            ),
+            step_started_at=self._step_start_field(idx, "occurred_at"),
+            step_ended_at=end.occurred_at if end else None,
+            step_node_id=self._step_start_field(idx, "node_id"),
+            step_module=self._step_start_field(idx, "module"),
+            step_file=self._step_start_field(idx, "file"),
+            step_class=self._step_start_field(idx, "class_name"),
+            step_function=self._step_start_field(idx, "function"),
             vector_index=event.vector_index,
             attempt=event.attempt,
             # Measurement (from event)
@@ -853,6 +861,10 @@ class ParquetSubscriber:
         if s.environment_json:
             metadata[b"environment_json"] = s.environment_json.encode("utf-8")
 
+        # Collected items for reconstruction
+        if self._collected_items:
+            metadata[b"litmus_collected_items"] = json.dumps(self._collected_items).encode("utf-8")
+
         # Step manifest from cached events
         manifest = self._build_step_manifest_from_events()
         if manifest:
@@ -863,19 +875,27 @@ class ParquetSubscriber:
         return metadata
 
     def _build_step_manifest_from_events(self) -> list[dict[str, Any]]:
-        """Build step manifest from cached StepStarted/StepEnded events."""
+        """Build step manifest from cached StepStarted/StepEnded events.
+
+        Appends ``not_started`` entries for collected items that never
+        executed (e.g. run aborted via Ctrl-C or ``--maxfail``).
+        """
         manifest: list[dict[str, Any]] = []
+        executed_node_ids: set[str] = set()
         all_indices = sorted(set(self._step_starts) | set(self._step_ends))
         for idx in all_indices:
             start = self._step_starts.get(idx)
             end = self._step_ends.get(idx)
+            node_id = start.node_id if start else None
+            if node_id:
+                executed_node_ids.add(node_id)
             meas_count = sum(
                 1 for e in self._measurement_events if e.step_index == idx
             )
             entry: dict[str, Any] = {
                 "index": idx,
                 "name": start.step_name if start else (end.step_name if end else ""),
-                "node_id": start.node_id if start else None,
+                "node_id": node_id,
                 "file": start.file if start else None,
                 "function": start.function if start else None,
                 "class": start.class_name if start else None,
@@ -890,6 +910,10 @@ class ParquetSubscriber:
                 "vector_count": 0,
             }
             manifest.append(entry)
+
+        # Append not-started entries from collected items
+        _append_not_started(manifest, self._collected_items, executed_node_ids)
+
         return manifest
 
 
@@ -983,7 +1007,7 @@ def read_step_manifest(parquet_path: Path) -> list[dict[str, Any]]:
         manifest_bytes = raw_metadata.get(b"litmus_step_manifest")
         if manifest_bytes:
             return json.loads(manifest_bytes)
-    except Exception:
+    except (OSError, pa.ArrowInvalid, json.JSONDecodeError):
         pass
     return []
 
@@ -1063,7 +1087,7 @@ def reconstruct_test_run_from_file(pq_file: Path) -> TestRun:
     from collections import defaultdict
     from uuid import UUID
 
-    from litmus.data.models import DUT, Measurement, Outcome, TestStep, TestVector
+    from litmus.data.models import DUT, CollectedItem, Measurement, Outcome, TestStep, TestVector
 
     if not pq_file.exists():
         raise FileNotFoundError(f"Parquet file not found: {pq_file}")
@@ -1222,5 +1246,9 @@ def reconstruct_test_run_from_file(pq_file: Path) -> TestRun:
         product_spec_yaml=file_meta.get("product_spec_yaml"),
         fixture_config_yaml=file_meta.get("fixture_config_yaml"),
         test_config_yaml=file_meta.get("test_config_yaml"),
+        collected_items=[
+            CollectedItem(**ci)
+            for ci in json.loads(file_meta["litmus_collected_items"])
+        ] if "litmus_collected_items" in file_meta else [],
         custom_metadata=custom_meta or {},
     )

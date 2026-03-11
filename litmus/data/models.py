@@ -125,26 +125,26 @@ class Measurement(BaseModel):
             else:
                 self.outcome = Outcome.FAIL
         elif comp == "LT":
-            # Less than high limit
-            if self.high_limit is not None and self.value < self.high_limit:
+            # Less than high limit (no limit = no constraint = pass)
+            if self.high_limit is None or self.value < self.high_limit:
                 self.outcome = Outcome.PASS
             else:
                 self.outcome = Outcome.FAIL
         elif comp == "LE":
-            # Less than or equal to high limit
-            if self.high_limit is not None and self.value <= self.high_limit:
+            # Less than or equal to high limit (no limit = no constraint = pass)
+            if self.high_limit is None or self.value <= self.high_limit:
                 self.outcome = Outcome.PASS
             else:
                 self.outcome = Outcome.FAIL
         elif comp == "GT":
-            # Greater than low limit
-            if self.low_limit is not None and self.value > self.low_limit:
+            # Greater than low limit (no limit = no constraint = pass)
+            if self.low_limit is None or self.value > self.low_limit:
                 self.outcome = Outcome.PASS
             else:
                 self.outcome = Outcome.FAIL
         elif comp == "GE":
-            # Greater than or equal to low limit
-            if self.low_limit is not None and self.value >= self.low_limit:
+            # Greater than or equal to low limit (no limit = no constraint = pass)
+            if self.low_limit is None or self.value >= self.low_limit:
                 self.outcome = Outcome.PASS
             else:
                 self.outcome = Outcome.FAIL
@@ -267,6 +267,17 @@ class TestStep(BaseModel):
         return sum(1 for v in self.vectors if v.outcome == Outcome.FAIL)
 
 
+class CollectedItem(BaseModel):
+    """A pytest item collected for execution (before any run)."""
+
+    node_id: str
+    file: str | None = None
+    module: str | None = None
+    class_name: str | None = None
+    function: str | None = None
+    markers: str | None = None
+
+
 class DUT(BaseModel):
     """Device under test identification."""
 
@@ -318,6 +329,9 @@ class TestRun(BaseModel):
     # Results
     outcome: Outcome = Outcome.PASS
     steps: list[TestStep] = Field(default_factory=list)
+
+    # Collected items (full list from pytest collection, before execution)
+    collected_items: list[CollectedItem] = Field(default_factory=list)
 
     # Custom metadata (user-defined fields)
     custom_metadata: dict[str, Any] = Field(default_factory=dict)
