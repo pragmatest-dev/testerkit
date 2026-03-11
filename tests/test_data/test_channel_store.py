@@ -2,12 +2,11 @@
 
 from __future__ import annotations
 
-from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from uuid import uuid4
 
-import pytest
 import pyarrow.ipc as ipc
+import pytest
 
 from litmus.data.channels.models import ChannelSample
 from litmus.data.channels.store import ChannelStore

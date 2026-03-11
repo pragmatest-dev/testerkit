@@ -1,6 +1,6 @@
 # Writing Custom Outputs
 
-Litmus output infrastructure is extensible via three protocols: **Exporter** (file format), **Transport** (file shipping), and **StreamingDestination** (real-time per-measurement).
+Litmus output infrastructure is extensible via three protocols: **Exporter** (file format), **Transport** (file shipping), and **EventSubscriber** (real-time event processing).
 
 ## Writing a Custom Exporter
 
@@ -48,46 +48,53 @@ class InternalServerTransport:
         return f"{server}/uploads/{local_path.name}"
 ```
 
-## Writing a Custom StreamingDestination
+## Writing a Custom EventSubscriber
 
-Streaming destinations receive a typed `MeasurementRow` model for each measurement in real time. The `open()` method receives the `TestRun` with full run-level context (DUT, station, operator) so you can write run-level headers before measurements arrive.
+Event subscribers receive typed Pydantic events in real time as they are emitted. Declare which event types you handle via `event_types`.
 
 ```python
-# my_project/destinations/my_database.py
-from litmus.data.backends._row_helpers import MeasurementRow
-from litmus.data.models import TestRun
-from litmus.schemas import OutputConfig
+# my_project/subscribers/my_database.py
+from litmus.data.event_log import EventSubscriber
+from litmus.data.events import (
+    EventBase,
+    MeasurementRecorded,
+    SessionStarted,
+)
 
-class MyDatabaseDestination:
+class MyDatabaseSubscriber:
     format_name = "my_db"
+    event_types = {SessionStarted, MeasurementRecorded}
 
-    def open(self, config: OutputConfig, test_run: TestRun) -> None:
-        self.conn = connect(config.extras["dsn_env"])
-        # Write run-level record before measurements arrive
-        self.conn.insert("runs", {
-            "run_id": str(test_run.id),
-            "dut_serial": test_run.dut.serial,
-            "station_id": test_run.station_id,
-        })
+    def open(self) -> None:
+        self.conn = connect(...)
 
-    def append_row(self, row: MeasurementRow) -> None:
-        # Typed field access — IDE autocomplete works
-        self.conn.insert("measurements", {
-            "run_id": row.run_id,
-            "name": row.measurement_name,
-            "value": row.value,
-            "units": row.units,
-            "outcome": row.outcome,
-            # Or flatten everything at once:
-            # **row.to_flat_dict(),
-        })
-
-    def mark_run_boundary(self, run_id: str) -> None:
-        self.conn.commit()
+    def on_event(self, event: EventBase) -> None:
+        if isinstance(event, SessionStarted):
+            self.conn.insert("sessions", {
+                "session_id": str(event.session_id),
+                "station_id": event.station_id,
+                "dut_serial": event.dut_serial,
+            })
+        elif isinstance(event, MeasurementRecorded):
+            self.conn.insert("measurements", {
+                "session_id": str(event.session_id),
+                "name": event.measurement_name,
+                "value": event.value,
+                "units": event.units,
+                "outcome": event.outcome,
+            })
 
     def close(self) -> None:
         self.conn.close()
 ```
+
+Register on an EventLog:
+
+```python
+event_log.add_subscriber(MyDatabaseSubscriber())
+```
+
+See [Subscribing to Events](guides/subscribing-to-events.md) for more patterns.
 
 ## Registering Custom Outputs
 
@@ -142,4 +149,4 @@ For denormalized row dicts (used by StreamingDestination.append_row), see `litmu
 |---|---|---|
 | File format exporter | `Exporter` | `format_name`, `export(test_run, output_path) → Path` |
 | Remote transport | `Transport` | `transport_name`, `send(local_path, config: OutputConfig) → str` |
-| Streaming destination | `StreamingDestination` | `format_name`, `open(config, test_run)`, `append_row(row: MeasurementRow)`, `mark_run_boundary(run_id)`, `close()` |
+| Event subscriber | `EventSubscriber` | `format_name`, `event_types`, `open()`, `on_event(event: EventBase)`, `close()` |

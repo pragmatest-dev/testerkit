@@ -219,6 +219,10 @@ class EventStore:
             self._put_stream.drain()
         except Exception:
             pass
+        # Build SQL via f-string — safe because inputs are typed:
+        # session_id is UUID (validated by caller), event_type is a known
+        # enum string, since is a datetime. sql_escape guards against quotes.
+        # Flight do_get does not support parameterized queries.
         conditions: list[str] = []
         if session_id:
             conditions.append(f"session_id = '{_sql_escape(str(session_id))}'")

@@ -4,8 +4,8 @@ from uuid import uuid4
 
 from litmus.data.events import (
     ALL_EVENTS,
-    DIALOG_EVENTS,
     DIAGNOSTIC_EVENTS,
+    DIALOG_EVENTS,
     FIXTURE_EVENTS,
     INSTRUMENT_EVENTS,
     SESSION_EVENTS,

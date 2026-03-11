@@ -373,9 +373,24 @@ TestSequence  →  TestRun   →  TestVector  →  Measurement  →  Parquet
 
 | Entity | Location |
 |--------|----------|
-| Product specs | `products/*.yaml` or `products/*.yaml` |
+| Product specs | `products/*.yaml` |
 | Station configs | `stations/*.yaml` |
 | Test sequences | `sequences/*.yaml` |
 | Fixtures | `fixtures/*.yaml` |
 | Instrument library | `litmus/instruments/library/*.yaml` |
-| Test results | `results/**/*.parquet` |
+| Test results (Parquet) | `results/runs/{date}/*.parquet` |
+| Event logs (Arrow IPC) | `results/events/{date}/{session_id}.arrow` |
+| Channel data (Arrow IPC) | `results/channels/{date}/{channel}_{session}.arrow` |
+| Session index | `results/sessions/sessions.json` |
+
+## Data Architecture
+
+The storage layer uses three complementary stores:
+
+| Store | Purpose | Format |
+|-------|---------|--------|
+| **EventStore** | All test activity as typed events | Arrow IPC + DuckDB via Flight |
+| **ChannelStore** | Time-series instrument data | Arrow IPC segments |
+| **ParquetBackend** | Denormalized test results | Parquet files |
+
+Events are the source of truth. Parquet files are a materialized view produced by `ParquetSubscriber`. See [Three Stores Architecture](three-stores.md) and [Event Log Architecture](event-log.md) for details.

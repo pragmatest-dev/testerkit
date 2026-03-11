@@ -32,12 +32,12 @@ Litmus provides **infrastructure services** that any test runner can use:
 │  └───────────────┘  └───────────────┘  └───────────────┘              │
 │                                                                         │
 │  ┌───────────────┐  ┌───────────────┐  ┌───────────────┐              │
-│  │    Results    │  │   Dialogs     │  │     Data      │              │
-│  │    Service    │  │   Service     │  │    Models     │              │
+│  │  Event Log   │  │   Dialogs     │  │   Channels    │              │
+│  │   Service    │  │   Service     │  │    Service    │              │
 │  │               │  │               │  │               │              │
-│  │ • Parquet     │  │ • Operator    │  │ • Measurement │              │
-│  │ • PostgreSQL  │  │   prompts     │  │ • TestRun     │              │
-│  │ • InfluxDB    │  │ • Confirmations│ │ • Outcome     │              │
+│  │ • EventStore │  │ • Operator    │  │ • ChannelStore│              │
+│  │ • Parquet    │  │   prompts     │  │ • Flight RPC  │              │
+│  │ • DuckDB     │  │ • Confirmations│ │ • LTTB decim. │              │
 │  └───────────────┘  └───────────────┘  └───────────────┘              │
 │                                                                         │
 └─────────────────────────────────────────────────────────────────────────┘
@@ -161,6 +161,9 @@ AI Agent (Claude Code)
 │ • litmus_match (capability check)    │
 │ • litmus_run (execute tests)         │
 │ • litmus_open (browser URLs)         │
+│ • litmus_events (query events)       │
+│ • litmus_sessions (list sessions)    │
+│ • litmus_channels (query channels)   │
 └───────────────────────────────────────┘
         │
         ▼
@@ -180,7 +183,7 @@ AI Agent (Claude Code)
 ### 2. Flexibility
 
 - Choose your test runner (pytest, OpenHTF, custom)
-- Choose your storage backend (Parquet, PostgreSQL)
+- Storage: Event log (Arrow IPC) + Parquet (materialized views) + Channels (time-series)
 - Choose your integration (CLI, API, UI, AI)
 
 ### 3. Incremental Adoption
@@ -239,7 +242,8 @@ Start small, expand as needed:
                     ┌─────────────▼───────────────────┐
                     │         STORAGE LAYER           │
                     │                                 │
-                    │  Parquet │ PostgreSQL │ InfluxDB│
+                    │  Events  │ Channels │  Parquet  │
+                    │ (Arrow)  │ (Arrow)  │ (results) │
                     └─────────────────────────────────┘
 ```
 

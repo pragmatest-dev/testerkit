@@ -56,14 +56,14 @@ def daemon_run(runs_dir: Path) -> None:
             continue
         if pq_file.name.endswith(".tmp.parquet"):
             continue
-        _ingest_one_file(conn, str(pq_file))
+        _index_parquet_file(conn, str(pq_file))
 
     # Custom do_put hook: receives a table with a single "file_path" column
     def _on_put(table: pa.Table) -> None:
         for row in table.to_pylist():
             fpath = row.get("file_path", "")
             if fpath:
-                _ingest_one_file(conn, fpath)
+                _index_parquet_file(conn, fpath)
 
     # Start Flight server
     server = DuckDBFlightServer("grpc://127.0.0.1:0")
@@ -94,8 +94,8 @@ def daemon_run(runs_dir: Path) -> None:
     mgr.cleanup_state_files()
 
 
-def _ingest_one_file(conn: duckdb.DuckDBPyConnection, fkey: str) -> bool:
-    """Ingest a single parquet file into the runs and run_channel_refs tables."""
+def _index_parquet_file(conn: duckdb.DuckDBPyConnection, fkey: str) -> bool:
+    """Index a single parquet file into the runs and run_channel_refs tables."""
     escaped = _sql_escape(fkey)
     try:
         result = conn.execute(f"""

@@ -80,3 +80,9 @@ Supports context manager (`with`) for automatic cleanup.
 
 - File locks use `fcntl.flock()` — single-machine only. Cross-machine coordination is future work.
 - Mock instruments with `mock=True` skip resource locking (no physical resource to coordinate).
+
+## See Also
+
+- [litmus.connect() Reference](reference/connect-api.md) — Full API reference with all parameters
+- [Sessions Concept](concepts/sessions.md) — Why sessions exist and what they capture
+- [Managing Sessions Guide](guides/managing-sessions.md) — Practical session workflows

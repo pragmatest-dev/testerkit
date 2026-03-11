@@ -219,6 +219,11 @@ class ChannelStore:
         Raises:
             ValueError: If value classifies as "blob" (not storable).
         """
+        if "/" in channel_id or "\\" in channel_id or ".." in channel_id:
+            raise ValueError(
+                f"Invalid channel_id '{channel_id}': must not contain path separators or '..'"
+            )
+
         vtype = classify_value(value)
         if vtype == "blob":
             raise ValueError(
@@ -437,7 +442,7 @@ class ChannelStore:
                 try:
                     seg_reader = ipc.open_file(str(seg_path))
                     tables.append(seg_reader.read_all())
-                except Exception:
+                except (pa.ArrowInvalid, OSError):
                     pass
             # Unflushed buffer
             if writer.buffer:
@@ -462,7 +467,7 @@ class ChannelStore:
                 tables.append(file_table)
                 if schema is None:
                     schema = file_table.schema
-            except Exception:
+            except (pa.ArrowInvalid, OSError):
                 pass
 
         if not tables:
@@ -590,7 +595,7 @@ class ChannelStore:
         if self._flight_client is not None:
             try:
                 self._flight_client.close()
-            except Exception:
+            except (OSError, RuntimeError):
                 pass
             self._flight_client = None
         if self._flight_location is not None:

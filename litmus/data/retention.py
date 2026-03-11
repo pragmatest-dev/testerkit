@@ -56,7 +56,7 @@ def _is_project_owned(path: Path) -> bool:
                 return True
             except ValueError:
                 pass
-    except Exception:
+    except (ImportError, OSError):
         pass
 
     return False

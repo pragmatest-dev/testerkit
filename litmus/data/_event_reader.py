@@ -7,10 +7,13 @@ so each poll only reads newly appended batches.
 from __future__ import annotations
 
 import json
+import logging
 from pathlib import Path
 
 import pyarrow as pa
 import pyarrow.ipc as ipc
+
+logger = logging.getLogger(__name__)
 
 
 class EventReader:
@@ -36,7 +39,8 @@ class EventReader:
             for j in range(batch.num_rows):
                 try:
                     events.append(json.loads(json_col[j].as_py()))
-                except (json.JSONDecodeError, TypeError):
+                except (json.JSONDecodeError, TypeError) as exc:
+                    logger.warning("Skipping malformed event in batch %d row %d: %s", i, j, exc)
                     continue
         self._batch_offset = reader.num_record_batches
         return events

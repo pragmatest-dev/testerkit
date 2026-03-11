@@ -7,7 +7,6 @@ import pyarrow as pa
 from nicegui import ui
 
 from litmus.analysis import metrics, query
-from litmus.config.project import load_project_config
 from litmus.ui.shared.components import render_empty_card
 from litmus.ui.shared.layout import create_layout
 

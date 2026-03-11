@@ -5,8 +5,7 @@ from uuid import uuid4
 
 import pyarrow.parquet as pq
 
-from litmus.data.backends.parquet import ParquetBackend, ParquetSubscriber
-from litmus.data.backends.parquet import read_step_manifest
+from litmus.data.backends.parquet import ParquetBackend, ParquetSubscriber, read_step_manifest
 from litmus.data.events import (
     InstrumentConnected,
     MeasurementRecorded,

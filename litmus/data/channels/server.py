@@ -63,7 +63,7 @@ class ChannelFlightServer(flight.FlightServerBase):
 
     def do_put(
         self,
-        context: flight.ServerCallContext,
+        _context: flight.ServerCallContext,
         descriptor: flight.FlightDescriptor,
         reader: flight.MetadataRecordBatchReader,
         writer: flight.FlightMetadataWriter,
@@ -82,7 +82,7 @@ class ChannelFlightServer(flight.FlightServerBase):
 
     def do_get(
         self,
-        context: flight.ServerCallContext,
+        _context: flight.ServerCallContext,
         ticket: flight.Ticket,
     ) -> flight.GeneratorStream:
         """Consumer subscribes to live channel data, or queries historical."""
@@ -140,7 +140,7 @@ class ChannelFlightServer(flight.FlightServerBase):
 
     def list_flights(
         self,
-        context: flight.ServerCallContext,
+        _context: flight.ServerCallContext,
         criteria: bytes,
     ) -> list[flight.FlightInfo]:
         """List active channels with their schemas."""
@@ -160,7 +160,7 @@ class ChannelFlightServer(flight.FlightServerBase):
 
     def get_flight_info(
         self,
-        context: flight.ServerCallContext,
+        _context: flight.ServerCallContext,
         descriptor: flight.FlightDescriptor,
     ) -> flight.FlightInfo:
         """Return schema and metadata for a channel."""

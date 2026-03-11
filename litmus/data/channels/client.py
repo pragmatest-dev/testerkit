@@ -104,7 +104,7 @@ class ChannelClient:
                             source_method=batch.column("source_method")[i].as_py() or "",
                         )
                         callback(sample)
-            except Exception:
+            except (OSError, pa.ArrowException):
                 if not stop.is_set() and not self._stop.is_set():
                     raise
 

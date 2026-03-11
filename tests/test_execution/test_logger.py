@@ -258,7 +258,6 @@ class TestEventLogIntegration:
 
     def test_event_log_emits_events(self, tmp_path):
         """Logger emits StepStarted, MeasurementRecorded, StepEnded, RunEnded, SessionEnded."""
-        import json
 
         from litmus.data.event_log import EventLog
 
@@ -292,7 +291,6 @@ class TestEventLogIntegration:
 
     def test_measurement_event_is_normalized(self, tmp_path):
         """MeasurementRecorded should NOT contain run-level metadata."""
-        import json
 
         from litmus.data.event_log import EventLog
 

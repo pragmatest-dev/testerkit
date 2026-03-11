@@ -77,7 +77,7 @@ class FlightQueryClient:
                     if self._reacquire is not None:
                         try:
                             self._location = self._reacquire()
-                        except Exception:
+                        except (ValueError, OSError):
                             pass
         warnings.warn(
             f"{self._label} Flight query failed after {_retries + 1} attempts: {last_exc}",

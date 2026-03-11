@@ -45,6 +45,8 @@ from litmus.data.models import TestRun, Waveform
 from litmus.data.ref import is_ref, ref_scheme
 from litmus.execution.logger import INSTRUMENT_ARRAY_KEYS
 
+logger = logging.getLogger(__name__)
+
 # Canonical schema for fixed columns. Dynamic columns (in_*, out_*, instr_*, custom_*)
 # are NOT listed here — they pass through with inferred types.
 MEASUREMENT_SCHEMA = pa.schema([
@@ -283,7 +285,7 @@ class ParquetBackend:
             finally:
                 run_store.close()
         except Exception:
-            logging.debug("Failed to notify runs daemon", exc_info=True)
+            logger.debug("Failed to notify runs daemon", exc_info=True)
 
     def _build_measurement_rows(
         self,

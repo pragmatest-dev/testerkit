@@ -116,7 +116,7 @@ class MeasurementRow(BaseModel):
     custom: dict[str, Any] = Field(default_factory=dict)
 
     def to_flat_dict(self) -> dict[str, Any]:
-        """Flatten to denormalized dict for JSONL/Parquet write boundary.
+        """Flatten to denormalized dict for Parquet write boundary.
 
         Merges dynamic columns back into the flat namespace:
         - ``inputs`` keys are prefixed with ``in_`` (provide unprefixed keys)

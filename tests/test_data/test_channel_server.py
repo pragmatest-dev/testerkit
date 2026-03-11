@@ -15,8 +15,6 @@ import time
 from pathlib import Path
 from uuid import uuid4
 
-import pytest
-
 from litmus.data.channels.client import ChannelClient
 from litmus.data.channels.models import ChannelSample
 from litmus.data.channels.server import start_server_background

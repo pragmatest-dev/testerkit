@@ -201,7 +201,10 @@ class TestCatalogInheritance:
         assert list(entry.channels.keys()) == ["A"]
 
     def test_variant_merges_capabilities(self, tmp_path):
-        """Variant capabilities merge with base: new functions appended, matching functions merged."""
+        """Variant capabilities merge with base.
+
+        New functions appended, matching functions merged.
+        """
         _write_yaml(tmp_path / "base_dmm.yaml", self._base_yaml())
         _write_yaml(tmp_path / "variant.yaml", """\
             id: variant_dmm

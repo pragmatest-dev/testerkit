@@ -76,7 +76,10 @@ class TestYieldCLI:
 
     def test_cpk(self, results_dir):
         runner = CliRunner()
-        result = runner.invoke(main, ["yield", "cpk", "test_voltage", "--results-dir", str(results_dir)])
+        result = runner.invoke(
+            main,
+            ["yield", "cpk", "test_voltage", "--results-dir", str(results_dir)],
+        )
         assert result.exit_code == 0
         assert "Samples: 2" in result.output
 

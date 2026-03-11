@@ -32,7 +32,7 @@ def channel_subscribe(
     """Cross-process channel subscription via EventStore.
 
     Filters instrument.read/instrument.set events by channel_id.
-    Works across processes since EventStore polls JSONL files.
+    Works across processes since EventStore queries via Arrow Flight.
     """
     def _filter(evt: dict) -> None:
         if evt.get("channel_id") != channel_id:

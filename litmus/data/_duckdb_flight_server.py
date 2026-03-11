@@ -64,7 +64,7 @@ class FlightPutStream:
                     self._reader = reader
                 writer.write_batch(batch)
                 self._pending_acks += 1
-            except Exception:
+            except (OSError, flight.FlightError, pa.ArrowException):
                 self._reset()
                 raise
 
@@ -77,7 +77,7 @@ class FlightPutStream:
                 for _ in range(self._pending_acks):
                     self._reader.read()
                 self._pending_acks = 0
-            except Exception:
+            except (OSError, flight.FlightError, pa.ArrowException):
                 self._reset()
                 raise
 
@@ -89,7 +89,7 @@ class FlightPutStream:
                     for _ in range(self._pending_acks):
                         self._reader.read()
                     self._pending_acks = 0
-                except Exception:
+                except (OSError, flight.FlightError, pa.ArrowException):
                     pass
             self._reset()
 

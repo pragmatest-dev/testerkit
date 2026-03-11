@@ -23,7 +23,11 @@ class TestDemoTestSuites:
         if not DEMO_DIR.exists():
             pytest.skip("Demo directory not found")
 
-    def _run_demo_tests(self, test_file: str, extra_args: list[str] | None = None) -> subprocess.CompletedProcess:
+    def _run_demo_tests(
+        self,
+        test_file: str,
+        extra_args: list[str] | None = None,
+    ) -> subprocess.CompletedProcess:
         """Run a demo test file with mock instruments.
 
         Args:
@@ -61,7 +65,10 @@ class TestDemoTestSuites:
             print("STDOUT:", result.stdout)
             print("STDERR:", result.stderr)
 
-        assert result.returncode == 0, f"Power board demo tests failed:\n{result.stdout}\n{result.stderr}"
+        assert result.returncode == 0, (
+            f"Power board demo tests failed:\n"
+            f"{result.stdout}\n{result.stderr}"
+        )
 
     def test_pure_pytest_demo(self):
         """Run the pure pytest demo tests."""
@@ -71,7 +78,10 @@ class TestDemoTestSuites:
             print("STDOUT:", result.stdout)
             print("STDERR:", result.stderr)
 
-        assert result.returncode == 0, f"Pure pytest demo tests failed:\n{result.stdout}\n{result.stderr}"
+        assert result.returncode == 0, (
+            f"Pure pytest demo tests failed:\n"
+            f"{result.stdout}\n{result.stderr}"
+        )
 
     def test_architect_demo(self):
         """Run the architect demo tests."""
@@ -81,4 +91,7 @@ class TestDemoTestSuites:
             print("STDOUT:", result.stdout)
             print("STDERR:", result.stderr)
 
-        assert result.returncode == 0, f"Architect demo tests failed:\n{result.stdout}\n{result.stderr}"
+        assert result.returncode == 0, (
+            f"Architect demo tests failed:\n"
+            f"{result.stdout}\n{result.stderr}"
+        )

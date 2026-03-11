@@ -76,7 +76,7 @@ class DaemonManager:
                         state.write_text(json.dumps(data))
                         self._register_cleanup()
                         return
-                except Exception as exc:
+                except (json.JSONDecodeError, OSError, KeyError, TypeError) as exc:
                     warnings.warn(
                         f"Stale daemon state, respawning: {exc}",
                         stacklevel=2,
@@ -107,7 +107,7 @@ class DaemonManager:
                 refs = [p for p in refs if p != my_pid]
                 data["refs"] = refs
                 state.write_text(json.dumps(data))
-            except Exception as exc:
+            except (json.JSONDecodeError, OSError, TypeError) as exc:
                 warnings.warn(
                     f"Failed to release daemon ref: {exc}",
                     stacklevel=2,
@@ -120,7 +120,7 @@ class DaemonManager:
             return {}
         try:
             return json.loads(state.read_text())
-        except Exception:
+        except (json.JSONDecodeError, OSError):
             return {}
 
     # -- Subclass hooks ------------------------------------------------------
@@ -155,7 +155,7 @@ class DaemonManager:
                     data = json.loads(state.read_text())
                     data["pid"] = os.getpid()
                     state.write_text(json.dumps(data))
-                except Exception as exc:
+                except (json.JSONDecodeError, OSError, TypeError) as exc:
                     warnings.warn(
                         f"Failed to update daemon state: {exc}",
                         stacklevel=2,
@@ -171,7 +171,7 @@ class DaemonManager:
                     data = json.loads(state.read_text())
                     data.update(extra)
                     state.write_text(json.dumps(data))
-                except Exception as exc:
+                except (json.JSONDecodeError, OSError, TypeError) as exc:
                     warnings.warn(
                         f"Failed to update daemon state: {exc}",
                         stacklevel=2,
@@ -205,7 +205,7 @@ class DaemonManager:
                         data["refs"] = live
                         state.write_text(json.dumps(data))
                         refs = live
-                except Exception:
+                except (json.JSONDecodeError, OSError):
                     break
 
             if not refs:
@@ -277,8 +277,8 @@ class DaemonManager:
             if mgr is not None:
                 try:
                     mgr.release()
-                except Exception:
-                    pass  # best-effort on exit
+                except Exception:  # noqa: BLE001 — deliberately broad for atexit cleanup
+                    pass
 
         atexit.register(_cleanup)
 

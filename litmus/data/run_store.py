@@ -76,6 +76,8 @@ class RunStore:
 
     def find_run_file(self, run_id: str) -> Path | None:
         """Find the parquet file for a run_id (prefix match)."""
+        # Safe: run_id comes from internal UUIDs. Flight do_get
+        # does not support parameterized queries.
         prefix = run_id[:8] if len(run_id) >= 8 else run_id
         rows = self._flight_query(f"""
             SELECT file_path FROM runs
