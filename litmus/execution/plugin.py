@@ -23,7 +23,7 @@ from litmus.execution.harness import Context
 from litmus.execution.logger import RunContext, TestRunLogger
 from litmus.fixtures.manager import FixtureManager, PinAccessor
 from litmus.instruments.models import InstrumentRecord
-from litmus.instruments.pool import _InstrumentPool
+from litmus.instruments.pool import InstrumentPool
 from litmus.products.context import SpecContext
 from litmus.schemas import OutputConfig, ProjectConfig, StationConfig
 
@@ -1159,7 +1159,7 @@ def instruments(
     run_id = litmus_logger.test_run.id if litmus_logger else None
     event_log = litmus_logger.event_log if litmus_logger else None
 
-    pool = _InstrumentPool(
+    pool = InstrumentPool(
         session_id=session_id,
         event_log=event_log,
         channel_store=get_channel_store(),

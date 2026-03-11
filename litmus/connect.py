@@ -38,7 +38,7 @@ from litmus.data.events import (
     SessionStarted,
 )
 from litmus.instruments.models import InstrumentRecord
-from litmus.instruments.pool import _InstrumentPool
+from litmus.instruments.pool import InstrumentPool
 from litmus.schemas import StationConfig
 from litmus.signals import deregister_cleanup, register_cleanup
 
@@ -63,7 +63,7 @@ class StationConnection:
         self._session_id = uuid4()
         self._event_store: EventStore | None = None
         self._event_log: EventLog | None = None
-        self._pool: _InstrumentPool | None = None
+        self._pool: InstrumentPool | None = None
         self._channel_store: ChannelStore | None = None
         self._started = False
 
@@ -82,7 +82,7 @@ class StationConnection:
         )
         self._channel_store.open()
 
-        self._pool = _InstrumentPool(
+        self._pool = InstrumentPool(
             session_id=self._session_id,
             event_log=self._event_log,
             channel_store=self._channel_store,

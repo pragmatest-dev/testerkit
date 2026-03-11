@@ -34,7 +34,7 @@ from litmus.instruments.observers import detect_protocol, get_observer_class
 from litmus.schemas import StationInstrumentConfig
 
 
-class _InstrumentPool:
+class InstrumentPool:
     """Manages instrument lifecycle: lock, connect, verify, wrap, disconnect.
 
     Used internally by both the pytest plugin and StationConnection.

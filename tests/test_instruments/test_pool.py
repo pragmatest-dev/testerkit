@@ -1,4 +1,4 @@
-"""Tests for _InstrumentPool lifecycle management."""
+"""Tests for InstrumentPool lifecycle management."""
 
 from __future__ import annotations
 
@@ -6,7 +6,7 @@ from uuid import uuid4
 
 from litmus.data.events import InstrumentConnected, InstrumentDisconnected
 from litmus.instruments.models import InstrumentRecord
-from litmus.instruments.pool import _InstrumentPool
+from litmus.instruments.pool import InstrumentPool
 
 
 class CollectingLog:
@@ -29,7 +29,7 @@ def _make_record(role: str = "dmm") -> InstrumentRecord:
 class TestAcquireRelease:
     def test_acquire_returns_proxy(self):
         log = CollectingLog()
-        pool = _InstrumentPool(
+        pool = InstrumentPool(
             session_id=uuid4(), event_log=log, channel_store=None, mock_all=True,
         )
         record = _make_record()
@@ -44,7 +44,7 @@ class TestAcquireRelease:
 
     def test_release_disconnects(self):
         log = CollectingLog()
-        pool = _InstrumentPool(
+        pool = InstrumentPool(
             session_id=uuid4(), event_log=log, channel_store=None, mock_all=True,
         )
         pool.acquire("dmm", _make_record())
@@ -57,7 +57,7 @@ class TestAcquireRelease:
 
     def test_release_all_reverse_order(self):
         log = CollectingLog()
-        pool = _InstrumentPool(
+        pool = InstrumentPool(
             session_id=uuid4(), event_log=log, channel_store=None, mock_all=True,
         )
         pool.acquire("dmm", _make_record("dmm"))
@@ -72,7 +72,7 @@ class TestAcquireRelease:
         assert disconnected[1].role == "dmm"
 
     def test_release_nonexistent_noop(self):
-        pool = _InstrumentPool(
+        pool = InstrumentPool(
             session_id=uuid4(), event_log=None, channel_store=None,
         )
         pool.release("nonexistent")  # should not raise
@@ -80,7 +80,7 @@ class TestAcquireRelease:
 
 class TestMockAll:
     def test_mock_all_overrides_record(self):
-        pool = _InstrumentPool(
+        pool = InstrumentPool(
             session_id=uuid4(), event_log=None, channel_store=None, mock_all=True,
         )
         record = _make_record()
@@ -91,7 +91,7 @@ class TestMockAll:
 
 class TestNoEventLog:
     def test_acquire_without_event_log(self):
-        pool = _InstrumentPool(
+        pool = InstrumentPool(
             session_id=uuid4(), event_log=None, channel_store=None, mock_all=True,
         )
         inst = pool.acquire("dmm", _make_record())
