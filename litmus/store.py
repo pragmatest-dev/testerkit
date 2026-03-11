@@ -186,6 +186,43 @@ def save_station(
     return True
 
 
+def find_station_config(
+    station_id: str, *, project_root: Path | None = None,
+) -> StationConfig:
+    """Find and load station config by ID.
+
+    Search order:
+    1. ``./stations/{station_id}.yaml`` (project-local, via ``get_station``)
+    2. ``~/.local/share/litmus/stations/{station_id}.yaml`` (machine-global)
+
+    Raises:
+        FileNotFoundError: If station not found in any location.
+    """
+    # 1. Project-local search
+    result = get_station(station_id, project_root=project_root)
+    if result is not None:
+        return result
+
+    # 2. Machine-global fallback
+    import os
+
+    import platformdirs
+
+    home = Path(os.environ.get("LITMUS_HOME", platformdirs.user_data_dir("litmus")))
+    global_path = home / "stations" / f"{station_id}.yaml"
+    if global_path.exists():
+        try:
+            return load_station(global_path)
+        except (yaml.YAMLError, ValidationError, OSError):
+            pass
+
+    raise FileNotFoundError(
+        f"Station {station_id!r} not found. Searched:\n"
+        f"  - ./stations/{station_id}.yaml (project-local)\n"
+        f"  - {global_path} (machine-global)"
+    )
+
+
 def create_station(
     station_id: str,
     name: str,

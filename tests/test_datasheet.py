@@ -132,8 +132,16 @@ class TestBuildSignalRender:
             "accuracy": None,
             "resolution": None,
             "specs": [
-                {"when": {"option": "503"}, "range": {"min": 9000, "max": 3e9, "units": "Hz"}, "accuracy": None, "resolution": None},
-                {"when": {"option": "506"}, "range": {"min": 9000, "max": 6e9, "units": "Hz"}, "accuracy": None, "resolution": None},
+                {
+                    "when": {"option": "503"},
+                    "range": {"min": 9000, "max": 3e9, "units": "Hz"},
+                    "accuracy": None, "resolution": None,
+                },
+                {
+                    "when": {"option": "506"},
+                    "range": {"min": 9000, "max": 6e9, "units": "Hz"},
+                    "accuracy": None, "resolution": None,
+                },
             ],
         }
         render = build_signal_render("frequency", sig)
@@ -150,10 +158,30 @@ class TestBuildSignalRender:
             "accuracy": None,
             "resolution": None,
             "specs": [
-                {"when": {"voltage_range": 0.1, "cal": "24h"}, "range": None, "accuracy": {"pct_reading": 0.003, "pct_range": 0.003}, "resolution": None},
-                {"when": {"voltage_range": 0.1, "cal": "1yr"}, "range": None, "accuracy": {"pct_reading": 0.005, "pct_range": 0.0035}, "resolution": None},
-                {"when": {"voltage_range": 1.0, "cal": "24h"}, "range": None, "accuracy": {"pct_reading": 0.002, "pct_range": 0.0005}, "resolution": None},
-                {"when": {"voltage_range": 1.0, "cal": "1yr"}, "range": None, "accuracy": {"pct_reading": 0.004, "pct_range": 0.001}, "resolution": None},
+                {
+                    "when": {"voltage_range": 0.1, "cal": "24h"},
+                    "range": None,
+                    "accuracy": {"pct_reading": 0.003, "pct_range": 0.003},
+                    "resolution": None,
+                },
+                {
+                    "when": {"voltage_range": 0.1, "cal": "1yr"},
+                    "range": None,
+                    "accuracy": {"pct_reading": 0.005, "pct_range": 0.0035},
+                    "resolution": None,
+                },
+                {
+                    "when": {"voltage_range": 1.0, "cal": "24h"},
+                    "range": None,
+                    "accuracy": {"pct_reading": 0.002, "pct_range": 0.0005},
+                    "resolution": None,
+                },
+                {
+                    "when": {"voltage_range": 1.0, "cal": "1yr"},
+                    "range": None,
+                    "accuracy": {"pct_reading": 0.004, "pct_range": 0.001},
+                    "resolution": None,
+                },
             ],
         }
         render = build_signal_render("voltage", sig)
@@ -170,8 +198,17 @@ class TestBuildSignalRender:
             "accuracy": {"pct_reading": 1.0},
             "resolution": None,
             "specs": [
-                {"when": {"freq": "low"}, "range": {"min": 0, "max": 50, "units": "V"}, "accuracy": None, "resolution": None},
-                {"when": {"freq": "high"}, "range": None, "accuracy": {"pct_reading": 2.0}, "resolution": None},
+                {
+                    "when": {"freq": "low"},
+                    "range": {"min": 0, "max": 50, "units": "V"},
+                    "accuracy": None, "resolution": None,
+                },
+                {
+                    "when": {"freq": "high"},
+                    "range": None,
+                    "accuracy": {"pct_reading": 2.0},
+                    "resolution": None,
+                },
             ],
         }
         render = build_signal_render("voltage", sig)
@@ -183,8 +220,16 @@ class TestBuildSignalRender:
         sig = {
             "range": None, "accuracy": None, "resolution": None,
             "specs": [
-                {"when": {"freq": "low"}, "range": {"min": 0, "max": 50, "units": "V"}, "accuracy": None, "resolution": None},
-                {"when": {"power": "high", "temp": "hot"}, "accuracy": {"absolute": 1.0, "units": "dB"}, "range": None, "resolution": None},
+                {
+                    "when": {"freq": "low"},
+                    "range": {"min": 0, "max": 50, "units": "V"},
+                    "accuracy": None, "resolution": None,
+                },
+                {
+                    "when": {"power": "high", "temp": "hot"},
+                    "accuracy": {"absolute": 1.0, "units": "dB"},
+                    "range": None, "resolution": None,
+                },
             ],
         }
         render = build_signal_render("voltage", sig)

@@ -67,8 +67,8 @@ def _find_parquet(run_id: str, results_dir: str = "results") -> Path | None:
     """Find a Parquet file matching a run ID.
 
     Supports two layouts:
-    - New (journal): results/runs/{date}/{timestamp}_{serial}.parquet
-    - Old: results/runs/{date}/{run_id}/measurements.parquet
+    - Current: results/runs/{date}/{timestamp}_{serial}.parquet
+    - Legacy: results/runs/{date}/{run_id}/measurements.parquet
     """
     runs_dir = Path(results_dir) / "runs"
     if not runs_dir.exists():

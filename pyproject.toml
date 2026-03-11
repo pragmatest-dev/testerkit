@@ -21,6 +21,9 @@ dependencies = [
     "fastmcp>=2.0",
     "jinja2>=3.1",
     "ruamel-yaml>=0.19.1",
+    "filelock>=3.12",
+    "platformdirs>=4.0",
+    "pytz>=2025.2",
 ]
 
 [project.optional-dependencies]
@@ -57,6 +60,10 @@ s3 = ["boto3>=1.26"]
 gcs = ["google-cloud-storage>=2.0"]
 azure = ["azure-storage-blob>=12.0"]
 sftp = ["paramiko>=3.0"]
+grafana = [
+    "buenavista>=0.5.0",
+    "duckdb>=1.0",
+]
 # Bundles
 all-exporters = ["litmus[stdf,hdf5,tdms,mdf4]"]
 
@@ -97,4 +104,5 @@ dev = [
     "weasyprint>=62.0",
     "cyclonedx-python-lib>=11.0",
     "zeroconf>=0.80",
+    "pytest-benchmark>=5.2.3",
 ]

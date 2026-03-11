@@ -11,11 +11,10 @@ import importlib
 import time
 from collections.abc import Callable, Iterator, Mapping
 from contextlib import contextmanager
-from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
 
 from litmus.config.models import Limit, MeasurementLimitConfig, PromptConfig, RetryConfig
-from litmus.data.models import Measurement, Outcome, TestStep, TestVector
+from litmus.data.models import Measurement, Outcome, TestStep, TestVector, _utcnow, escalate_outcome
 from litmus.execution.logger import _current_step_var, _current_vector_var
 from litmus.execution.vectors import Vector, expand_vectors
 
@@ -24,10 +23,6 @@ if TYPE_CHECKING:
     from litmus.products.context import SpecContext
 
 
-
-def _utcnow() -> datetime:
-    """Return current UTC datetime."""
-    return datetime.now(UTC)
 
 
 class Context:
@@ -66,6 +61,7 @@ class Context:
         parent: Context | None = None,
         prev: Context | None = None,
         harness: TestHarness | None = None,
+        channel_store: Any | None = None,
     ):
         """Initialize context with optional parent for inheritance.
 
@@ -73,10 +69,12 @@ class Context:
             parent: Parent context to inherit values from. If None, this is a root context.
             prev: Previous sibling context (for change detection across vectors).
             harness: TestHarness reference for accessing limits and other harness features.
+            channel_store: Optional ChannelStore for direct writes of numeric data.
         """
         self._parent = parent
         self._prev = prev
         self._harness = harness
+        self._channel_store = channel_store
         self._inputs: dict[str, Any] = {}
         self._outputs: dict[str, Any] = {}
 
@@ -86,7 +84,7 @@ class Context:
         Returns:
             New Context with this context as parent.
         """
-        return Context(parent=self, harness=self._harness)
+        return Context(parent=self, harness=self._harness, channel_store=self._channel_store)
 
     # -------------------------------------------------------------------------
     # Semantic API (preferred)
@@ -107,11 +105,21 @@ class Context:
         """Record an observation/measurement context (→ out_* column).
 
         Use for measured environmental data, raw readings, and context.
+        Numeric arrays are written to ChannelStore directly and a URI is stored.
 
         Args:
             key: Observation name (e.g., "temp_probe.temperature", "scope.waveform").
-            value: The observed value. Large arrays are stored in _ref/ directory.
+            value: The observed value. Large arrays go to ChannelStore, blobs to file store.
         """
+        from litmus.data.ref import classify_value
+
+        if self._channel_store is not None and value is not None:
+            vtype = classify_value(value)
+            if vtype in ("numeric_array", "channel"):
+                uri = self._channel_store.write(key, value, source="observe")
+                self._outputs[key] = uri
+                return
+
         self._outputs[key] = value
 
     def changed(self, key: str) -> bool:
@@ -129,18 +137,6 @@ class Context:
         current_value = self.get_in(key)
         prev_value = self._prev.get_in(key)
         return current_value != prev_value
-
-    # -------------------------------------------------------------------------
-    # Explicit API (aliases)
-    # -------------------------------------------------------------------------
-
-    def set_in(self, key: str, value: Any) -> None:
-        """Alias for configure() - explicitly set an in_* value."""
-        self.configure(key, value)
-
-    def set_out(self, key: str, value: Any) -> None:
-        """Alias for observe() - explicitly set an out_* value."""
-        self.observe(key, value)
 
     # -------------------------------------------------------------------------
     # Bulk operations
@@ -356,9 +352,6 @@ class Context:
         return self.inputs
 
 
-# Backwards compatibility alias
-VectorContext = Context
-
 
 class TestHarness:
     """Harness for executing tests across expanded vectors.
@@ -399,6 +392,7 @@ class TestHarness:
         spec_context: SpecContext | None = None,
         instruments: dict[str, Any] | None = None,
         mock_instruments: bool = False,
+        channel_store: Any | None = None,
     ):
         """Initialize harness.
 
@@ -414,6 +408,7 @@ class TestHarness:
                          channel traceability.
             instruments: Dictionary of instrument instances for mock configuration.
             mock_instruments: Whether using mock instruments.
+            channel_store: Optional ChannelStore for direct writes of numeric data.
         """
         self._config = config or {}
         self._logger = logger
@@ -422,6 +417,7 @@ class TestHarness:
         self._spec_context = spec_context
         self._instruments = instruments or {}
         self._mock_instruments = mock_instruments
+        self._channel_store = channel_store
         self._test_level_mock = self._config.get("mocks", self._config.get("_mock", {}))
 
         # Parse retry config
@@ -468,7 +464,7 @@ class TestHarness:
         self._attempt: int = 1
 
         # Hierarchical context: run → step → vector
-        self._run_context: Context = Context(harness=self)
+        self._run_context: Context = Context(harness=self, channel_store=self._channel_store)
         self._step_context: Context | None = None
         self._vector_context: Context | None = None
         self._prev_vector_context: Context | None = None
@@ -806,16 +802,12 @@ class TestHarness:
         if current_tv is not None:
             current_tv.measurements.append(measurement)
 
-        # Stream to journal + destinations via logger (logger handles outcome updates)
+        # Stream to event log via logger (logger handles outcome updates)
         if self._logger is not None:
             self._logger.log_measurement(measurement)
-        elif current_tv is not None:
+        elif current_tv is not None and measurement.outcome is not None:
             # No logger — harness must update outcome itself
-            # ERROR overrides everything (untrusted state)
-            if measurement.outcome == Outcome.ERROR:
-                current_tv.outcome = Outcome.ERROR
-            elif measurement.outcome == Outcome.FAIL and current_tv.outcome != Outcome.ERROR:
-                current_tv.outcome = Outcome.FAIL
+            current_tv.outcome = escalate_outcome(current_tv.outcome, measurement.outcome)
 
         return measurement
 
@@ -858,6 +850,16 @@ class TestHarness:
             # Single value: infer name from spec ref → limit key → step name
             name = self._infer_measurement_name()
             self.measure(name, result)
+
+    def record(self, key: str, value: Any) -> None:
+        """Emit a key/value record event via the logger.
+
+        Args:
+            key: Record key (e.g., "firmware_version").
+            value: Record value (must be JSON-serializable).
+        """
+        if self._logger:
+            self._logger.record(key, value)
 
     def _infer_measurement_name(self) -> str:
         """Infer measurement name from limits config.
@@ -1003,7 +1005,8 @@ class TestHarness:
         # Create vector context as child of step (or run if no step)
         parent_context = self._step_context or self._run_context
         self._vector_context = Context(
-            parent=parent_context, prev=self._prev_vector_context, harness=self
+            parent=parent_context, prev=self._prev_vector_context, harness=self,
+            channel_store=self._channel_store,
         )
 
         # Pre-populate with vector params (they become in_* columns)
@@ -1149,12 +1152,9 @@ class TestHarness:
         finally:
             step.ended_at = _utcnow()
 
-            # Compute step outcome from vectors — ERROR overrides everything
+            # Compute step outcome from vectors
             for tv in step.vectors:
-                if tv.outcome == Outcome.ERROR:
-                    step.outcome = Outcome.ERROR
-                elif tv.outcome == Outcome.FAIL and step.outcome != Outcome.ERROR:
-                    step.outcome = Outcome.FAIL
+                step.outcome = escalate_outcome(step.outcome, tv.outcome)
 
             _current_step_var.reset(step_token)
             self._step_context = None

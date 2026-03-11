@@ -64,3 +64,7 @@ The most important concept in Litmus is **direction** — understanding who prov
 - [Capabilities](capabilities.md) — Understanding capability matching
 - [Fixtures](fixtures.md) — Pin-to-instrument mapping
 - [Architecture](architecture.md) — System architecture and data flow
+- [Event Log](event-log.md) — Unified event stream for all test activity
+- [Three Stores](three-stores.md) — EventStore, ChannelStore, and ParquetBackend
+- [Sessions](sessions.md) — Sessions as observation windows
+- [Flight Streaming](flight-streaming.md) — Cross-process data access via Arrow Flight

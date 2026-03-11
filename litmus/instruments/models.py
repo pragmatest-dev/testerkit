@@ -6,9 +6,26 @@ These models capture instrument metadata for traceability:
 """
 
 from datetime import date
+from enum import StrEnum
 from typing import Any
 
 from pydantic import BaseModel, Field, field_validator
+
+
+class ChannelKind(StrEnum):
+    """Classification for instrument channels/attributes.
+
+    Drives event emission in InstrumentProxy:
+    - read: measurement/get → emits InstrumentRead
+    - set: set/write → emits InstrumentSet
+    - control: read-write property → emits InstrumentRead on get, InstrumentSet on set
+    - configure: setup/init → emits InstrumentConfigure
+    """
+
+    read = "read"
+    set = "set"
+    control = "control"
+    configure = "configure"
 
 
 class InstrumentInfo(BaseModel):

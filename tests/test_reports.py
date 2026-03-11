@@ -215,7 +215,7 @@ class TestProjectConfig:
         from litmus.config.project import load_project_config
 
         config = load_project_config(tmp_path / "litmus.yaml")
-        assert config.results_dir == "results"
+        assert config.results_dir is None
         assert config.outputs == []
 
     def test_load_valid(self, tmp_path):

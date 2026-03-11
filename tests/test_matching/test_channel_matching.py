@@ -3,9 +3,9 @@
 from litmus.config.models import (
     Direction,
     InstrumentCapability,
-    Signal,
     MeasurementFunction,
     RangeSpec,
+    Signal,
 )
 from litmus.matching.service import (
     CapabilityRequirement,
@@ -343,8 +343,9 @@ class TestCatalogChannelParsing:
 
     def test_e36312a_catalog_channels(self):
         """E36312A catalog entry has correct per-channel capabilities."""
-        from litmus.store import load_catalog_entry
         from pathlib import Path
+
+        from litmus.store import load_catalog_entry
 
         catalog_path = Path("catalog/keysight_e36312a.yaml")
         if not catalog_path.exists():
@@ -411,7 +412,10 @@ class TestReadbackFiltering:
         assert cap.readback is True
 
     def test_readback_capability_not_used_in_match(self):
-        """Readback capability should still match in capability_satisfies (filtering is at auto-suggest level)."""
+        """Readback capability should still match in capability_satisfies.
+
+        Filtering is at auto-suggest level.
+        """
         available = _make_station_cap(
             function=MeasurementFunction.DC_VOLTAGE,
             direction=Direction.INPUT,
@@ -456,7 +460,7 @@ class TestChannelTopology:
 
     def test_channel_topology_defaults(self):
         """ChannelTopology has sensible defaults."""
-        from litmus.config.models import ChannelTopology, TerminalRole, GroundTopology
+        from litmus.config.models import ChannelTopology, GroundTopology
         ct = ChannelTopology()
         assert ct.terminals == []
         assert ct.ground == GroundTopology.SHARED
@@ -465,10 +469,18 @@ class TestChannelTopology:
 
     def test_channel_topology_custom(self):
         """ChannelTopology with custom values."""
-        from litmus.config.models import ChannelTopology, TerminalRole, GroundTopology, ConnectorType
+        from litmus.config.models import (
+            ChannelTopology,
+            ConnectorType,
+            GroundTopology,
+            TerminalRole,
+        )
         ct = ChannelTopology(
             label="6V/5A Output",
-            terminals=[TerminalRole.HI, TerminalRole.LO, TerminalRole.SENSE_HI, TerminalRole.SENSE_LO],
+            terminals=[
+                TerminalRole.HI, TerminalRole.LO,
+                TerminalRole.SENSE_HI, TerminalRole.SENSE_LO,
+            ],
             connector=ConnectorType.BINDING_POST,
             ground=GroundTopology.FLOATING,
         )
@@ -480,7 +492,12 @@ class TestChannelTopology:
     def test_catalog_entry_structured_channels(self):
         """InstrumentCatalogEntry with structured channel dict."""
         from litmus.catalog.models import InstrumentCatalogEntry
-        from litmus.config.models import ChannelTopology, TerminalRole, GroundTopology, ConnectorType
+        from litmus.config.models import (
+            ChannelTopology,
+            ConnectorType,
+            GroundTopology,
+            TerminalRole,
+        )
         entry = InstrumentCatalogEntry(
             id="test_psu",
             manufacturer="Test",

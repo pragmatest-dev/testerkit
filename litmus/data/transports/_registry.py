@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import importlib
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -57,23 +58,17 @@ def _try_lazy_load(transport_name: str) -> None:
     """Attempt to import and register a built-in transport module."""
     loaders: dict[str, tuple[str, str]] = {
         "file": ("litmus.data.transports.file_transport", "FileTransport"),
+        "s3": ("litmus.data.transports.s3_transport", "S3Transport"),
+        "azure": ("litmus.data.transports.azure_transport", "AzureBlobTransport"),
+        "gcs": ("litmus.data.transports.gcs_transport", "GCSTransport"),
     }
     if transport_name not in loaders:
         return
 
     module_path, class_name = loaders[transport_name]
     try:
-        import importlib
-
         mod = importlib.import_module(module_path)
         cls = getattr(mod, class_name)
         register_transport(cls())
     except ImportError:
         pass
-    except Exception as exc:
-        import warnings
-
-        warnings.warn(
-            f"Failed to load transport '{transport_name}': {exc}",
-            stacklevel=2,
-        )

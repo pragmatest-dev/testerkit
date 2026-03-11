@@ -253,6 +253,109 @@ curl -X POST http://localhost:8000/api/runs \
 | GET | `/dialogs/{id}/wait` | Long-poll for response |
 | POST | `/dialogs/{id}/respond` | Respond to dialog |
 
+### Events
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/events` | Query events from the event store |
+| GET | `/events?session_id=UUID` | Filter by session |
+| GET | `/events?type=instrument.read` | Filter by event type |
+| GET | `/events?role=dmm` | Filter by instrument role |
+| GET | `/events?since=ISO_TIMESTAMP` | Events after timestamp |
+| GET | `/events?limit=50` | Limit results (default 100) |
+
+**Example:**
+```bash
+# All events
+curl http://localhost:8000/api/events
+
+# Events for a session
+curl "http://localhost:8000/api/events?session_id=abc12345-..."
+
+# Only instrument reads for the DMM role
+curl "http://localhost:8000/api/events?type=instrument.read&role=dmm"
+```
+
+### Sessions
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/sessions` | List all known sessions |
+| GET | `/sessions/{session_id}` | Get all events for a session |
+
+**Example:**
+```bash
+curl http://localhost:8000/api/sessions
+curl http://localhost:8000/api/sessions/abc12345-1234-5678-abcd-1234567890ab
+```
+
+### Channels
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/channels` | List known channels from registry |
+| GET | `/channels/{channel_id}` | Query channel data |
+| GET | `/channels/{id}?session_id=X` | Filter by session |
+| GET | `/channels/{id}?last_n=100` | Last N samples |
+| GET | `/channels/{id}?max_points=500` | LTTB decimation |
+| GET | `/channels/{id}?start=ISO&end=ISO` | Time range filter |
+
+**Example:**
+```bash
+# List all channels
+curl http://localhost:8000/api/channels
+
+# Get channel data with decimation
+curl "http://localhost:8000/api/channels/dmm.voltage?max_points=500"
+
+# Last 100 readings for a session
+curl "http://localhost:8000/api/channels/scope.ch1?session_id=abc123&last_n=100"
+```
+
+## MCP Tools — Events, Sessions, Channels
+
+### `litmus_events`
+
+Query events from the event store.
+
+```
+Params:
+  session_id (string) — Filter by session UUID
+  event_type (string) — Filter by type (e.g. "instrument.read", "session.started")
+  role (string) — Filter by instrument role
+  since (string) — ISO timestamp, only events after this time
+  limit (int) — Max events to return (default 100)
+  project (string) — Project root path
+
+Returns: {events: [...], count: int}
+```
+
+### `litmus_sessions`
+
+List known sessions with metadata from SessionStarted events.
+
+```
+Params:
+  project (string) — Project root path
+
+Returns: {sessions: [...], count: int}
+```
+
+### `litmus_channels`
+
+Query channel data from the streaming channel store.
+
+```
+Params:
+  channel_id (string) — Channel to query (e.g. "scope.ch1_waveform")
+  session_id (string) — Filter to a specific session
+  last_n (int) — Return only the last N rows
+  max_points (int) — Downsample to at most N rows (LTTB)
+  project (string) — Project root path
+
+Returns: {channel_id: string, data: [...]}
+```
+
 ## Response Format
 
 All endpoints return JSON. Successful responses:

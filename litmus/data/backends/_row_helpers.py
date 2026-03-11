@@ -1,8 +1,8 @@
-"""Shared row-building helpers for parquet and journal backends.
+"""Shared row-building helpers for the parquet backend.
 
-Both backends produce denormalized rows with the same run-level and
-measurement-level fields.  This module extracts the common logic so
-new columns only need to be added in one place.
+Produces denormalized rows with run-level and measurement-level fields.
+This module extracts the common logic so new columns only need to be
+added in one place.
 """
 
 from __future__ import annotations
@@ -14,11 +14,13 @@ from typing import TYPE_CHECKING, Any
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from litmus.data.ref import classify_value
+
 if TYPE_CHECKING:
     from litmus.data.models import Measurement, TestRun, TestVector
 
 
-# Prefix for path references in output columns
+# Prefix for path references in output columns (legacy, use file:// URIs)
 REF_PATH_PREFIX = "_ref/"
 
 
@@ -27,7 +29,8 @@ class MeasurementRow(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    # Run identity
+    # Session / run identity
+    session_id: str
     run_id: str
     run_started_at: datetime | None = None
     run_ended_at: datetime | None = None
@@ -52,6 +55,7 @@ class MeasurementRow(BaseModel):
     station_name: str | None = None
     station_type: str | None = None
     station_location: str | None = None
+    station_hostname: str | None = None
 
     # Fixture
     fixture_id: str | None = None
@@ -69,8 +73,15 @@ class MeasurementRow(BaseModel):
     # Step/vector context
     step_name: str
     step_index: int
+    step_path: str = ""
     step_started_at: datetime | None = None
     step_ended_at: datetime | None = None
+    step_node_id: str | None = None
+    step_module: str | None = None
+    step_file: str | None = None
+    step_class: str | None = None
+    step_function: str | None = None
+    step_markers: str | None = None
     vector_index: int | None = None
     attempt: int | None = None
     vector_started_at: datetime | None = None
@@ -105,7 +116,7 @@ class MeasurementRow(BaseModel):
     custom: dict[str, Any] = Field(default_factory=dict)
 
     def to_flat_dict(self) -> dict[str, Any]:
-        """Flatten to denormalized dict for JSONL/Parquet write boundary.
+        """Flatten to denormalized dict for Parquet write boundary.
 
         Merges dynamic columns back into the flat namespace:
         - ``inputs`` keys are prefixed with ``in_`` (provide unprefixed keys)
@@ -134,9 +145,10 @@ def build_run_metadata(test_run: TestRun) -> dict[str, Any]:
 
     These fields are identical on every row in a run.  Returns raw
     Python objects (datetime, str, None) — callers that need JSON
-    serialisation (journal) should post-process timestamps.
+    serialisation should post-process timestamps.
     """
     return {
+        "session_id": str(test_run.session_id),
         "run_id": str(test_run.id),
         "run_started_at": test_run.started_at,
         "run_ended_at": test_run.ended_at,
@@ -157,6 +169,7 @@ def build_run_metadata(test_run: TestRun) -> dict[str, Any]:
         "station_name": test_run.station_name,
         "station_type": test_run.station_type,
         "station_location": test_run.station_location,
+        "station_hostname": test_run.station_hostname,
         # Fixture
         "fixture_id": test_run.fixture_id,
         # Test context
@@ -245,10 +258,17 @@ def build_output_columns(
     """Build outputs dict from vector observations.
 
     Keys are unprefixed (e.g. ``"temperature"``); ``to_flat_dict()`` adds
-    the ``out_`` prefix.  Scalars are inlined.  Large data uses *ref_saver*
-    if provided, otherwise non-serializable types get ``repr()``.
+    the ``out_`` prefix.
+
+    By the time this runs, observations already contain URIs (from
+    Context.observe() writing to ChannelStore) or inline scalars.
+
+    Routing:
+    - **ref URI** (``channel://``, ``file://``) → pass through as-is
+    - **scalar** → inline value
+    - **blob** → ``ref_saver()`` → ``file://`` URI, or ``repr()``
     """
-    from litmus.data.models import Waveform
+    from litmus.data.ref import is_ref
 
     cols: dict[str, Any] = {}
 
@@ -256,20 +276,23 @@ def build_output_columns(
         if key.startswith("_"):
             continue
 
-        if isinstance(value, (int, float, str, bool, type(None))):
+        # Already a URI (from proxy or context.observe writing to stores)
+        if is_ref(value):
             cols[key] = value
-        elif ref_saver is not None and isinstance(value, (Path, Waveform, bytes)):
-            cols[key] = ref_saver(str(vector.id)[:8], key, value)
-        elif ref_saver is not None and hasattr(value, "tolist"):
-            cols[key] = ref_saver(str(vector.id)[:8], key, value)
-        elif ref_saver is not None and hasattr(value, "model_dump"):
+            continue
+
+        vtype = classify_value(value)
+
+        if vtype == "scalar":
+            cols[key] = value
+        elif vtype == "blob" and ref_saver is not None:
             cols[key] = ref_saver(str(vector.id)[:8], key, value)
         elif isinstance(value, (list, dict)):
             cols[key] = value
-        elif ref_saver is None:
-            cols[key] = repr(value)
-        else:
+        elif ref_saver is not None:
             cols[key] = ref_saver(str(vector.id)[:8], key, value)
+        else:
+            cols[key] = repr(value)
 
     return cols
 
@@ -341,7 +364,7 @@ def save_ref_to_dir(ref_dir: Path, vector_id: str, key: str, value: Any) -> str:
         with open(ref_dir / filename, "wb") as f:
             pickle.dump(value, f)
 
-    return f"{REF_PATH_PREFIX}{filename}"
+    return f"file://{REF_PATH_PREFIX}{filename}"
 
 
 def build_row(
@@ -353,11 +376,25 @@ def build_row(
     instrument_arrays: dict[str, list[str | bool | None]],
     ref_saver: Callable[[str, str, Any], str] | None = None,
     *,
+    step_path: str = "",
     step_started_at: datetime | None = None,
     step_ended_at: datetime | None = None,
+    step_node_id: str | None = None,
+    step_module: str | None = None,
+    step_file: str | None = None,
+    step_class: str | None = None,
+    step_function: str | None = None,
+    step_markers: str | None = None,
+    meta: dict[str, Any] | None = None,
 ) -> MeasurementRow:
-    """Build a complete MeasurementRow from test execution context."""
-    meta = build_run_metadata(test_run)
+    """Build a complete MeasurementRow from test execution context.
+
+    Args:
+        meta: Pre-computed run metadata from ``build_run_metadata()``.
+            If ``None``, computed from ``test_run`` (backwards-compatible).
+    """
+    if meta is None:
+        meta = build_run_metadata(test_run)
     meas = build_measurement_fields(measurement)
 
     return MeasurementRow(
@@ -366,8 +403,15 @@ def build_row(
         # Step/vector context
         step_name=step_name,
         step_index=step_index,
+        step_path=step_path,
         step_started_at=step_started_at,
         step_ended_at=step_ended_at,
+        step_node_id=step_node_id,
+        step_module=step_module,
+        step_file=step_file,
+        step_class=step_class,
+        step_function=step_function,
+        step_markers=step_markers,
         vector_index=vector.index,
         attempt=vector.attempt,
         vector_started_at=vector.started_at,
@@ -381,3 +425,82 @@ def build_row(
         instruments=instrument_arrays,
         custom=dict(test_run.custom_metadata),
     )
+
+
+def build_step_manifest(test_run: TestRun) -> list[dict[str, Any]]:
+    """Build a step manifest from all steps in a TestRun.
+
+    Returns a JSON-serializable list of step summaries.  Executed steps
+    come first (with real outcomes), followed by ``not_started`` entries
+    for any collected items that were never executed — e.g. because the
+    run was aborted or hit ``--maxfail``.
+    """
+    manifest: list[dict[str, Any]] = []
+    executed_node_ids: set[str] = set()
+
+    for index, step in enumerate(test_run.steps):
+        measurement_count = sum(len(v.measurements) for v in step.vectors)
+        vector_count = len(step.vectors)
+        if step.node_id:
+            executed_node_ids.add(step.node_id)
+        manifest.append({
+            "index": index,
+            "name": step.name,
+            "node_id": step.node_id,
+            "file": step.file,
+            "function": step.function,
+            "class": step.class_name,
+            "module": step.module,
+            "step_path": step.step_path,
+            "description": step.description,
+            "outcome": step.outcome.value if step.outcome else None,
+            "started_at": step.started_at.isoformat() if step.started_at else None,
+            "ended_at": step.ended_at.isoformat() if step.ended_at else None,
+            "has_measurements": measurement_count > 0,
+            "measurement_count": measurement_count,
+            "vector_count": vector_count,
+        })
+
+    # Append not-started entries for collected items that never executed
+    _append_not_started(
+        manifest,
+        [ci.model_dump() for ci in test_run.collected_items],
+        executed_node_ids,
+    )
+
+    return manifest
+
+
+def _append_not_started(
+    manifest: list[dict[str, Any]],
+    collected_items: list[dict[str, str | None]],
+    executed_node_ids: set[str],
+) -> None:
+    """Append ``not_started`` entries for collected items that never executed.
+
+    Shared by both the batch path (``build_step_manifest``) and the
+    streaming path (``ParquetSubscriber._build_step_manifest_from_events``).
+    """
+    next_index = len(manifest)
+    for ci in collected_items:
+        node_id = ci.get("node_id") or ""
+        if node_id in executed_node_ids:
+            continue
+        manifest.append({
+            "index": next_index,
+            "name": ci.get("function") or node_id,
+            "node_id": node_id,
+            "file": ci.get("file"),
+            "function": ci.get("function"),
+            "class": ci.get("class_name"),
+            "module": ci.get("module"),
+            "step_path": "",
+            "description": None,
+            "outcome": "not_started",
+            "started_at": None,
+            "ended_at": None,
+            "has_measurements": False,
+            "measurement_count": 0,
+            "vector_count": 0,
+        })
+        next_index += 1

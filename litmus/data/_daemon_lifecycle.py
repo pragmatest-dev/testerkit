@@ -1,0 +1,294 @@
+"""Ref-counted daemon lifecycle base class.
+
+``DaemonManager`` handles the common pattern shared by ``duckdb_manager``
+and ``flight_manager``:
+
+- Acquire / release with PID-list state files and file locks
+- Detached process spawning with readiness polling
+- atexit / signal cleanup
+- Daemon-side ref monitoring with idle timeout
+
+Subclasses set class-level file names and override ``_spawn_cmd()``.
+"""
+
+from __future__ import annotations
+
+import atexit
+import json
+import os
+import signal
+import subprocess
+import sys
+import time
+import warnings
+from pathlib import Path
+
+from filelock import FileLock
+
+_IDLE_TIMEOUT = 10  # seconds daemon waits after refs=0 before exiting
+_POLL_INTERVAL = 2  # seconds between daemon ref-count checks
+
+# Track acquired managers so atexit/signal can release them all
+_acquired: dict[str, DaemonManager] = {}
+
+
+def _pid_alive(pid: int) -> bool:
+    """Check if a process is alive (cross-platform)."""
+    try:
+        os.kill(pid, 0)
+        return True
+    except (OSError, PermissionError):
+        return False
+
+
+class DaemonManager:
+    """Base class for ref-counted daemon lifecycle management.
+
+    Subclasses must set the four ``_*_name`` class variables and
+    override ``_spawn_cmd()``.
+    """
+
+    _state_name: str
+    _lock_name: str
+    _ready_name: str
+    _pid_name: str
+
+    def __init__(self, daemon_dir: Path) -> None:
+        self._dir = daemon_dir
+
+    # -- Client-side API -----------------------------------------------------
+
+    def acquire(self) -> None:
+        """Acquire a reference to the daemon, starting it if needed."""
+        self._dir.mkdir(parents=True, exist_ok=True)
+        lock = FileLock(self._dir / self._lock_name, timeout=10)
+        state = self._dir / self._state_name
+
+        with lock:
+            if state.exists():
+                try:
+                    data = json.loads(state.read_text())
+                    if _pid_alive(data["pid"]):
+                        refs: list[int] = data.get("refs", [])
+                        if os.getpid() not in refs:
+                            refs.append(os.getpid())
+                        data["refs"] = refs
+                        state.write_text(json.dumps(data))
+                        self._register_cleanup()
+                        return
+                except (json.JSONDecodeError, OSError, KeyError, TypeError) as exc:
+                    warnings.warn(
+                        f"Stale daemon state, respawning: {exc}",
+                        stacklevel=2,
+                    )
+                state.unlink(missing_ok=True)
+
+            self._spawn()
+            pid = self._read_pid()
+
+            data = {"pid": pid, "refs": [os.getpid()]}
+            data.update(self._post_spawn_state())
+            state.write_text(json.dumps(data))
+
+        self._register_cleanup()
+
+    def release(self) -> None:
+        """Release our reference to the daemon."""
+        lock = FileLock(self._dir / self._lock_name, timeout=10)
+        state = self._dir / self._state_name
+
+        with lock:
+            if not state.exists():
+                return
+            try:
+                data = json.loads(state.read_text())
+                refs: list[int] = data.get("refs", [])
+                my_pid = os.getpid()
+                refs = [p for p in refs if p != my_pid]
+                data["refs"] = refs
+                state.write_text(json.dumps(data))
+            except (json.JSONDecodeError, OSError, TypeError) as exc:
+                warnings.warn(
+                    f"Failed to release daemon ref: {exc}",
+                    stacklevel=2,
+                )
+
+    def read_state(self) -> dict:
+        """Read the current state file. Returns empty dict if missing."""
+        state = self._dir / self._state_name
+        if not state.exists():
+            return {}
+        try:
+            return json.loads(state.read_text())
+        except (json.JSONDecodeError, OSError):
+            return {}
+
+    # -- Subclass hooks ------------------------------------------------------
+
+    def _spawn_cmd(self) -> list[str]:
+        """Command to spawn the daemon process. Must be overridden."""
+        raise NotImplementedError
+
+    def _post_spawn_state(self) -> dict:
+        """Extra fields to store in state file after spawn. Default: none."""
+        return {}
+
+    # -- Daemon-side API -----------------------------------------------------
+
+    def write_ready(self) -> None:
+        """Write PID and ready files, update state. Called from daemon.
+
+        If the ready file was already written (e.g. Flight writes its port
+        file with actual content), this will not overwrite it — subclasses
+        that pre-write the ready file should call this after.
+        """
+        (self._dir / self._pid_name).write_text(str(os.getpid()))
+        ready = self._dir / self._ready_name
+        if not ready.exists():
+            ready.write_text("ok")
+
+        lock = FileLock(self._dir / self._lock_name, timeout=10)
+        state = self._dir / self._state_name
+        with lock:
+            if state.exists():
+                try:
+                    data = json.loads(state.read_text())
+                    data["pid"] = os.getpid()
+                    state.write_text(json.dumps(data))
+                except (json.JSONDecodeError, OSError, TypeError) as exc:
+                    warnings.warn(
+                        f"Failed to update daemon state: {exc}",
+                        stacklevel=2,
+                    )
+
+    def update_state(self, **extra: object) -> None:
+        """Merge extra fields into the state file. Called from daemon."""
+        lock = FileLock(self._dir / self._lock_name, timeout=10)
+        state = self._dir / self._state_name
+        with lock:
+            if state.exists():
+                try:
+                    data = json.loads(state.read_text())
+                    data.update(extra)
+                    state.write_text(json.dumps(data))
+                except (json.JSONDecodeError, OSError, TypeError) as exc:
+                    warnings.warn(
+                        f"Failed to update daemon state: {exc}",
+                        stacklevel=2,
+                    )
+
+    def monitor_refs(
+        self,
+        *,
+        idle_timeout: float = _IDLE_TIMEOUT,
+        poll_interval: float = _POLL_INTERVAL,
+    ) -> None:
+        """Block until refs drop to zero and idle timeout expires.
+
+        Called from daemon processes to know when to shut down.
+        """
+        state = self._dir / self._state_name
+        lock = FileLock(self._dir / self._lock_name, timeout=10)
+        idle_since: float | None = None
+
+        while True:
+            time.sleep(poll_interval)
+
+            with lock:
+                if not state.exists():
+                    break
+                try:
+                    data = json.loads(state.read_text())
+                    refs: list[int] = data.get("refs", [])
+                    live = [p for p in refs if _pid_alive(p)]
+                    if live != refs:
+                        data["refs"] = live
+                        state.write_text(json.dumps(data))
+                        refs = live
+                except (json.JSONDecodeError, OSError):
+                    break
+
+            if not refs:
+                if idle_since is None:
+                    idle_since = time.monotonic()
+                elif time.monotonic() - idle_since >= idle_timeout:
+                    break
+            else:
+                idle_since = None
+
+    def cleanup_state_files(self) -> None:
+        """Remove state, ready, and PID files. Called from daemon on shutdown."""
+        with FileLock(self._dir / self._lock_name, timeout=5):
+            (self._dir / self._state_name).unlink(missing_ok=True)
+            (self._dir / self._ready_name).unlink(missing_ok=True)
+            (self._dir / self._pid_name).unlink(missing_ok=True)
+
+    # -- Internal ------------------------------------------------------------
+
+    def _spawn(self) -> None:
+        """Spawn daemon as a detached process, wait for ready file."""
+        ready_file = self._dir / self._ready_name
+        ready_file.unlink(missing_ok=True)
+
+        cmd = self._spawn_cmd()
+        kwargs: dict = {"stdout": subprocess.DEVNULL, "stderr": subprocess.DEVNULL}
+        if sys.platform == "win32":
+            kwargs["creationflags"] = (
+                subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP  # type: ignore[attr-defined]
+            )
+        else:
+            kwargs["start_new_session"] = True
+
+        proc = subprocess.Popen(cmd, **kwargs)
+
+        deadline = time.monotonic() + 10
+        while time.monotonic() < deadline:
+            if ready_file.exists():
+                return
+            time.sleep(0.05)
+
+        proc.kill()
+        proc.wait(timeout=2)
+        raise RuntimeError(
+            f"Daemon failed to start within 10s. dir={self._dir}, cmd={cmd}"
+        )
+
+    def _read_pid(self) -> int:
+        """Read the daemon PID from its PID file."""
+        pid_file = self._dir / self._pid_name
+        deadline = time.monotonic() + 5
+        while time.monotonic() < deadline:
+            if pid_file.exists():
+                try:
+                    return int(pid_file.read_text().strip())
+                except ValueError:
+                    pass
+            time.sleep(0.05)
+        raise RuntimeError("Daemon did not write PID file")
+
+    def _register_cleanup(self) -> None:
+        key = str(self._dir) + ":" + self._state_name
+        if key in _acquired:
+            return
+        _acquired[key] = self
+
+        def _cleanup() -> None:
+            mgr = _acquired.pop(key, None)
+            if mgr is not None:
+                try:
+                    mgr.release()
+                except Exception:  # noqa: BLE001 — deliberately broad for atexit cleanup
+                    pass
+
+        atexit.register(_cleanup)
+
+        def _signal_handler(signum: int, frame: object) -> None:
+            _cleanup()
+            signal.signal(signum, signal.SIG_DFL)
+            os.kill(os.getpid(), signum)
+
+        for sig in (signal.SIGTERM, signal.SIGINT):
+            try:
+                signal.signal(sig, _signal_handler)
+            except (OSError, ValueError):
+                pass  # can't set signal handlers outside main thread

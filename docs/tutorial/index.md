@@ -15,6 +15,7 @@ Welcome to Litmus! This tutorial takes you from your first test to a production-
 | [7. Real Instruments](07-real-instruments.md) | Talk to hardware | stations/*.yaml, VISA, simulation |
 | [8. Capability Matching](08-capabilities.md) | Find compatible stations | direction flip, matching API |
 | [9. Production Ready](09-production.md) | Full traceability | fixtures, sequences, pins |
+| [10. Live Monitoring](10-live-monitoring.md) | Monitor in real time | sessions, events, channels |
 
 ## Prerequisites
 
@@ -35,6 +36,7 @@ By the end of this tutorial, you'll have:
 3. Tests that run with real instruments OR in simulation mode
 4. Automatic station matching based on required capabilities
 5. Full traceability from requirements to results
+6. Live monitoring of test sessions with event queries
 
 ## Quick Start
 

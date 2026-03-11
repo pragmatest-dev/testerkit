@@ -1,12 +1,15 @@
 """MCP server for AI-assisted test generation workflows.
 
-This server exposes 6 tools:
+This server exposes 9 tools:
 - litmus: Unified CRUD operations (init, list, get, save, read)
 - litmus_discover: Scan for VISA instruments
 - litmus_match: Check compatibility between products/stations/fixtures
 - litmus_run: Execute tests and return results
 - litmus_open: Get URL to view/edit in browser
 - litmus_schema: Get JSON Schema for YAML validation/generation
+- litmus_events: Query events from the event store
+- litmus_sessions: List known sessions
+- litmus_channels: Query channel data
 
 The platform does NOT call LLMs - it exposes these tools so that AI agents
 (Claude Code, etc.) can orchestrate the full datasheet-to-test workflow.
@@ -17,12 +20,15 @@ from typing import Any
 from fastmcp import FastMCP
 
 from litmus.mcp.tools import (
+    channels_tool,
     discover_tool,
+    events_tool,
     litmus_tool,
     match_tool,
     open_tool,
     run_tool,
     schema_tool,
+    sessions_tool,
 )
 
 
@@ -428,6 +434,69 @@ def create_mcp_server() -> FastMCP:
             JSON Schema for the requested YAML type.
         """
         return schema_tool(yaml_type)
+
+    # -------------------------------------------------------------------------
+    # Tool 7: litmus_events
+    # -------------------------------------------------------------------------
+
+    @mcp.tool(name="litmus_events")
+    def query_events(
+        session_id: str | None = None,
+        event_type: str | None = None,
+        role: str | None = None,
+        since: str | None = None,
+        limit: int = 100,
+        project: str | None = None,
+    ) -> dict[str, Any]:
+        """Query events from the event store.
+
+        Args:
+            session_id: Filter by session UUID.
+            event_type: Filter by event type (e.g. "instrument.read", "session.started").
+            role: Filter by instrument role.
+            since: ISO timestamp — only events after this time.
+            limit: Max events to return (default 100).
+            project: Project root path.
+        """
+        return events_tool(session_id, event_type, role, since, limit, project)
+
+    # -------------------------------------------------------------------------
+    # Tool 8: litmus_sessions
+    # -------------------------------------------------------------------------
+
+    @mcp.tool(name="litmus_sessions")
+    def list_sessions(project: str | None = None) -> dict[str, Any]:
+        """List known sessions with metadata.
+
+        Returns SessionStarted events for all sessions.
+
+        Args:
+            project: Project root path.
+        """
+        return sessions_tool(project)
+
+    # -------------------------------------------------------------------------
+    # Tool 9: litmus_channels
+    # -------------------------------------------------------------------------
+
+    @mcp.tool(name="litmus_channels")
+    def query_channels(
+        channel_id: str,
+        session_id: str | None = None,
+        last_n: int | None = None,
+        max_points: int | None = None,
+        project: str | None = None,
+    ) -> dict[str, Any]:
+        """Query channel data from the streaming channel store.
+
+        Args:
+            channel_id: Channel to query (e.g. "scope.ch1_waveform").
+            session_id: Filter to a specific session.
+            last_n: Return only the last N rows.
+            max_points: Downsample to at most this many rows (LTTB).
+            project: Project root path.
+        """
+        return channels_tool(channel_id, session_id, last_n, max_points, project)
 
     # -------------------------------------------------------------------------
     # Prompt: datasheet-to-test workflow

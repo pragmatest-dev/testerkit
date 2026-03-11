@@ -1,5 +1,11 @@
 """Shared UI utilities."""
 
+from litmus.ui.shared.components import (
+    InstrumentToggle,
+    litmus_table,
+    table_cell_slot,
+    table_col,
+)
 from litmus.ui.shared.dialogs import create_dialog_container
 from litmus.ui.shared.layout import create_layout, create_sidebar
 from litmus.ui.shared.services import (
@@ -19,6 +25,7 @@ from litmus.ui.shared.services import (
 )
 
 __all__ = [
+    "InstrumentToggle",
     "create_dialog_container",
     "create_layout",
     "create_sidebar",
@@ -31,8 +38,11 @@ __all__ = [
     "get_required_capabilities",
     "get_station_capabilities",
     "load_product_model",
+    "litmus_table",
     "load_station_config",
     "save_product",
     "save_station",
     "station_compatible_with_product",
+    "table_cell_slot",
+    "table_col",
 ]

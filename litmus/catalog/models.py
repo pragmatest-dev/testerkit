@@ -59,6 +59,7 @@ class InstrumentCatalogEntry(BaseModel):
     type: str  # e.g. "dmm", "psu", "scope", "fgen", "smu", "eload"
     base: str | None = None  # Variant inheritance: resolved at load time by store.py
     scaffold: bool = False  # True = approximate entry, needs verification
+    driver: str | None = None  # e.g. "pymeasure.instruments.keithley.Keithley2400"
     interfaces: list[str] = Field(default_factory=list)
     form_factor: str | None = None
     channels: dict[str, ChannelTopology] = Field(default_factory=dict)

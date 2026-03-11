@@ -87,15 +87,21 @@ def generate_cyclonedx(snapshot: EnvironmentSnapshot) -> str:
         )
 
     # Add each installed package as a component
+    from cyclonedx.model.dependency import Dependency
+
+    root_dep = Dependency(ref=bom.metadata.component.bom_ref)
+
     for pkg in sorted(snapshot.packages, key=_package_sort_key):
-        bom.components.add(
-            Component(
-                name=pkg.name,
-                type=ComponentType.LIBRARY,
-                version=pkg.version,
-                purl=PackageURL(type="pypi", name=pkg.name.lower(), version=pkg.version),
-            )
+        comp = Component(
+            name=pkg.name,
+            type=ComponentType.LIBRARY,
+            version=pkg.version,
+            purl=PackageURL(type="pypi", name=pkg.name.lower(), version=pkg.version),
         )
+        bom.components.add(comp)
+        root_dep.dependencies.add(Dependency(ref=comp.bom_ref))
+
+    bom.dependencies.add(root_dep)
 
     outputter = JsonV1Dot6(bom)
     return outputter.output_as_string(indent=2)

@@ -685,6 +685,27 @@ def show(
     click.echo(f"  Steps: {len(data.step_names)}")
     click.echo(f"  Measurements: {data.total_measurements} ({data.failed_measurements} failed)")
 
+    # Show step manifest if available
+    pq_path = _find_parquet_for_run(run_id, results_dir)
+    if pq_path and not env:
+        from litmus.data.backends.parquet import read_step_manifest
+
+        manifest = read_step_manifest(pq_path)
+        if manifest:
+            click.echo("\nStep Manifest:")
+            for entry in manifest:
+                mc = entry.get("measurement_count")
+                meas_info = f" ({mc} measurements)" if mc else ""
+                loc = entry.get("file") or ""
+                if loc and entry.get("function"):
+                    loc = f" [{loc}::{entry['function']}]"
+                elif loc:
+                    loc = f" [{loc}]"
+                click.echo(
+                    f"  {entry['index']:>2}. {entry['name']}: "
+                    f"{entry.get('outcome', '?')}{meas_info}{loc}"
+                )
+
     if data.measurements and not env:
         click.echo("\nMeasurements:")
         for m in data.measurements:
@@ -742,13 +763,11 @@ def export(
 
         litmus export abc123 -f csv --transport s3
     """
-    from litmus.config.project import load_project_config
     from litmus.data.backends.parquet import ParquetBackend
     from litmus.data.exporters import get_exporter
 
-    project = load_project_config()
     if results_dir is None:
-        results_dir = project.results_dir
+        results_dir = _get_results_dir(None)
 
     backend = ParquetBackend(results_dir=results_dir)
 
@@ -866,134 +885,6 @@ def sbom(run_id: str, results_dir: str | None, output: str | None):
         click.echo(f"SBOM written to {output}")
     else:
         click.echo(sbom_str)
-
-
-# -----------------------------------------------------------------------------
-# Journal Management Commands
-# -----------------------------------------------------------------------------
-
-
-@main.command()
-@click.option("--results-dir", default="results", help="Results directory")
-def journals(results_dir: str):
-    """List orphaned journals (from crashed or interrupted runs).
-
-    Journals are temporary JSONL files created during test execution.
-    On successful completion, they are converted to parquet and deleted.
-    Orphaned journals indicate runs that crashed or were interrupted.
-    """
-    from litmus.data.backends.parquet import ParquetBackend
-
-    backend = ParquetBackend(results_dir=results_dir)
-    orphaned = backend.get_orphaned_journals()
-
-    if not orphaned:
-        click.echo("No orphaned journals found.")
-        return
-
-    click.echo(f"Found {len(orphaned)} orphaned journal(s):\n")
-    click.echo(f"{'Run ID':<12} {'DUT Serial':<15} {'Station':<15} {'Measurements'}")
-    click.echo("-" * 55)
-
-    for j in orphaned:
-        run_id = (j.get("run_id") or "")[:10]
-        dut = j.get("dut_serial") or ""
-        station = j.get("station_id") or ""
-        count = j.get("measurement_count", 0)
-        click.echo(f"{run_id:<12} {dut:<15} {station:<15} {count}")
-
-    click.echo("\nTo recover a journal: litmus recover <journal_dir>")
-    click.echo("To recover all: litmus recover --all")
-
-
-@main.command()
-@click.argument("journal_dir", required=False)
-@click.option("--results-dir", default="results", help="Results directory")
-@click.option("--all", "recover_all", is_flag=True, help="Recover all orphaned journals")
-def recover(journal_dir: str | None, results_dir: str, recover_all: bool):
-    """Convert orphaned journal(s) to parquet.
-
-    Use this to recover data from crashed or interrupted test runs.
-
-    Examples:
-        litmus recover results/.journals/2026-02-03/20260203T120000Z_DUT001
-        litmus recover --all
-    """
-    from litmus.data.backends.parquet import ParquetBackend
-
-    backend = ParquetBackend(results_dir=results_dir)
-
-    if recover_all:
-        orphaned = backend.get_orphaned_journals()
-        if not orphaned:
-            click.echo("No orphaned journals to recover.")
-            return
-
-        recovered = 0
-        for j in orphaned:
-            jdir = Path(j["journal_dir"])
-            try:
-                parquet_path = backend.recover_journal(jdir)
-                click.echo(f"Recovered: {jdir.name} -> {parquet_path}")
-                recovered += 1
-            except (OSError, ValueError) as e:
-                click.echo(f"Failed to recover {jdir.name}: {e}", err=True)
-
-        click.echo(f"\nRecovered {recovered}/{len(orphaned)} journal(s).")
-        return
-
-    if not journal_dir:
-        click.echo("Error: Specify a journal directory or use --all", err=True)
-        raise SystemExit(1)
-
-    jdir = Path(journal_dir)
-    if not jdir.exists():
-        click.echo(f"Error: Journal directory not found: {jdir}", err=True)
-        raise SystemExit(1)
-
-    try:
-        parquet_path = backend.recover_journal(jdir)
-        click.echo(f"Recovered: {parquet_path}")
-    except (OSError, ValueError) as e:
-        click.echo(f"Error: {e}", err=True)
-        raise SystemExit(1)
-
-
-@main.command("cleanup-journals")
-@click.option("--results-dir", default="results", help="Results directory")
-@click.option("--dry-run", is_flag=True, help="Show what would be deleted without deleting")
-def cleanup_journals(results_dir: str, dry_run: bool):
-    """Delete journals that have corresponding parquet files.
-
-    Journals are normally deleted after successful conversion to parquet.
-    This command cleans up any that were left behind (e.g., due to bugs).
-    """
-    from litmus.data.backends.parquet import ParquetBackend
-
-    backend = ParquetBackend(results_dir=results_dir)
-
-    if dry_run:
-        # List journals that would be deleted
-        all_journals = backend.list_journals()
-        orphaned = backend.get_orphaned_journals()
-        orphaned_dirs = {j["journal_dir"] for j in orphaned}
-
-        deletable = [j for j in all_journals if j["journal_dir"] not in orphaned_dirs]
-
-        if not deletable:
-            click.echo("No journals to clean up.")
-            return
-
-        click.echo(f"Would delete {len(deletable)} journal(s):")
-        for j in deletable:
-            click.echo(f"  {j['journal_dir']}")
-        return
-
-    deleted = backend.cleanup_journals()
-    if deleted == 0:
-        click.echo("No journals to clean up.")
-    else:
-        click.echo(f"Deleted {deleted} journal(s).")
 
 
 # -----------------------------------------------------------------------------
@@ -2066,12 +1957,9 @@ def _apply_filters(table, phase, since, until_date, product, station, lot):
 
 def _get_results_dir(results_dir):
     """Resolve results directory from option or project config."""
-    if results_dir is None:
-        from litmus.config.project import load_project_config
+    from litmus.data.results_dir import resolve_results_dir
 
-        project = load_project_config()
-        results_dir = project.results_dir
-    return results_dir
+    return str(resolve_results_dir(results_dir))
 
 
 @main.group("yield")
@@ -2331,6 +2219,116 @@ def yield_time(results_dir, phase, since, until_date, product, station, lot, by_
                 f"{step_name:<35} {s['avg_s']:>6.1f}s {s['min_s']:>6.1f}s "
                 f"{s['max_s']:>6.1f}s {s['p95_s']:>6.1f}s {s['count']:>5}"
             )
+
+
+# ---------------------------------------------------------------------------
+# Data management
+# ---------------------------------------------------------------------------
+
+
+@main.group()
+def data():
+    """Data retention and management."""
+    pass
+
+
+@data.command("prune")
+@click.option("--older-than", required=True, help="Retention period (e.g. 30d, 90d)")
+@click.option(
+    "--type", "data_types", multiple=True,
+    help="Data types to prune (e.g. channels, events)",
+)
+@click.option("--results-dir", default=None, help="Results directory")
+@click.option("--dry-run", is_flag=True, help="Show what would be deleted")
+def data_prune(
+    older_than: str,
+    data_types: tuple[str, ...],
+    results_dir: str | None,
+    dry_run: bool,
+) -> None:
+    """Delete date-partitioned data older than the specified period."""
+    from litmus.data.retention import prune_all
+
+    results_dir_path = Path(_get_results_dir(results_dir))
+
+    types = data_types or ("channels", "events")
+    try:
+        result = prune_all(results_dir_path, older_than, data_types=types, dry_run=dry_run)
+    except ValueError as e:
+        raise click.BadParameter(str(e), param_hint="'--older-than'") from e
+
+    total = 0
+    for subdir, paths in result.items():
+        for p in paths:
+            prefix = "[dry-run] " if dry_run else ""
+            click.echo(f"{prefix}Removed {subdir}/{p.name}")
+            total += 1
+    if total == 0:
+        click.echo("Nothing to prune.")
+    elif dry_run:
+        click.echo(f"\n{total} directories would be removed.")
+    else:
+        click.echo(f"\n{total} directories removed.")
+
+
+# ---------------------------------------------------------------------------
+# Upload queue
+# ---------------------------------------------------------------------------
+
+
+@main.group()
+def uploads():
+    """Manage the upload queue for cloud transports."""
+    pass
+
+
+@uploads.command("status")
+@click.option("--results-dir", default=None, help="Results directory")
+def uploads_status(results_dir: str | None) -> None:
+    """Show pending/failed uploads."""
+    from litmus.data.transports.upload_queue import status
+
+    rows = status(_get_results_dir(results_dir))
+    if not rows:
+        click.echo("Upload queue is empty.")
+        return
+    for row in rows:
+        error_str = f", error: {row.last_error}" if row.last_error else ""
+        click.echo(
+            f"[{row.status}] {row.local_path} → {row.transport} "
+            f"(attempts: {row.attempts}{error_str})"
+        )
+
+
+@uploads.command("retry")
+@click.option("--results-dir", default=None, help="Results directory")
+@click.option("--max-attempts", default=3, help="Max retry attempts per upload")
+def uploads_retry(results_dir: str | None, max_attempts: int) -> None:
+    """Retry all pending/failed uploads."""
+    from litmus.data.transports.upload_queue import drain
+
+    count = drain(_get_results_dir(results_dir), max_attempts=max_attempts)
+    click.echo(f"{count} upload(s) completed.")
+
+
+@uploads.command("clear")
+@click.option("--results-dir", default=None, help="Results directory")
+def uploads_clear(results_dir: str | None) -> None:
+    """Remove completed entries from the upload queue."""
+    from litmus.data.transports.upload_queue import clear_done
+
+    count = clear_done(_get_results_dir(results_dir))
+    click.echo(f"{count} completed entry/entries removed.")
+
+
+# ---------------------------------------------------------------------------
+# Grafana dashboards
+# ---------------------------------------------------------------------------
+
+# Import and register the grafana subgroup
+from litmus.grafana.cli import grafana  # noqa: E402
+
+main.add_command(grafana)
 
 
 if __name__ == "__main__":

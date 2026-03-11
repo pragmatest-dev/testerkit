@@ -1,0 +1,17 @@
+apiVersion: 1
+
+datasources:
+  - name: Litmus
+    # "postgres" is the built-in type; "grafana-postgresql-datasource" is the
+    # newer plugin ID used by API provisioning — both work for file provisioning.
+    type: postgres
+    access: proxy
+    url: {{ pgwire_host }}:{{ pgwire_port }}
+    database: litmus
+    user: litmus
+    isDefault: true
+    jsonData:
+      sslmode: disable
+      # 1500 = PostgreSQL 15; must match the API setup in cli.py
+      postgresVersion: 1500
+    editable: true

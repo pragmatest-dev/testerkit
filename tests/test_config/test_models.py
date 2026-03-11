@@ -2,8 +2,6 @@
 
 import pytest
 
-import pytest
-
 from litmus.config.models import (
     Capability,
     Condition,

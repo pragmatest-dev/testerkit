@@ -1,0 +1,97 @@
+{
+  "uid": "litmus-measurement-dist",
+  "title": "Measurement Distribution",
+  "description": "Histogram and SPC statistics (Cpk, Cp) for a selected measurement",
+  "tags": [
+    "litmus"
+  ],
+  "timezone": "browser",
+  "refresh": "30s",
+  "time": {
+    "from": "now-30d",
+    "to": "now"
+  },
+  "templating": {
+    "list": [
+      {
+        "name": "measurement",
+        "type": "query",
+        "datasource": {
+          "type": "grafana-postgresql-datasource",
+          "uid": "${DS_LITMUS}"
+        },
+        "query": "SELECT DISTINCT step_name || ' / ' || measurement_name AS m FROM measurements WHERE value IS NOT NULL ORDER BY m",
+        "current": {}
+      }
+    ]
+  },
+  "panels": [
+    {
+      "id": 1,
+      "title": "Distribution: $measurement",
+      "type": "histogram",
+      "gridPos": {
+        "h": 12,
+        "w": 16,
+        "x": 0,
+        "y": 0
+      },
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "${DS_LITMUS}"
+      },
+      "targets": [
+        {
+          "rawSql": "SELECT value FROM measurements WHERE step_name || ' / ' || measurement_name = '${measurement}' AND value IS NOT NULL AND measurement_timestamp BETWEEN '${__from:date}' AND '${__to:date}'",
+          "format": "table"
+        }
+      ],
+      "options": {
+        "bucketCount": 30
+      }
+    },
+    {
+      "id": 2,
+      "title": "SPC Statistics",
+      "type": "table",
+      "gridPos": {
+        "h": 6,
+        "w": 8,
+        "x": 16,
+        "y": 0
+      },
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "${DS_LITMUS}"
+      },
+      "targets": [
+        {
+          "rawSql": "SELECT round(avg(value), 4) AS mean, round(stddev(value), 4) AS sigma, round(min(value), 4) AS min_val, round(max(value), 4) AS max_val, count(*) AS n, round(first(low_limit), 4) AS lsl, round(first(high_limit), 4) AS usl, round(first(nominal), 4) AS nominal, CASE WHEN stddev(value) > 0 AND first(high_limit) IS NOT NULL AND first(low_limit) IS NOT NULL THEN round((first(high_limit) - first(low_limit)) / (6 * stddev(value)), 2) END AS cp, CASE WHEN stddev(value) > 0 AND first(high_limit) IS NOT NULL AND first(low_limit) IS NOT NULL THEN round(least((first(high_limit) - avg(value)) / (3 * stddev(value)), (avg(value) - first(low_limit)) / (3 * stddev(value))), 2) END AS cpk FROM measurements WHERE step_name || ' / ' || measurement_name = '${measurement}' AND value IS NOT NULL AND measurement_timestamp BETWEEN '${__from:date}' AND '${__to:date}'",
+          "format": "table"
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "title": "Pass / Fail Breakdown",
+      "type": "piechart",
+      "gridPos": {
+        "h": 6,
+        "w": 8,
+        "x": 16,
+        "y": 6
+      },
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "${DS_LITMUS}"
+      },
+      "targets": [
+        {
+          "rawSql": "SELECT outcome, count(*) AS cnt FROM measurements WHERE step_name || ' / ' || measurement_name = '${measurement}' AND measurement_timestamp BETWEEN '${__from:date}' AND '${__to:date}' GROUP BY outcome",
+          "format": "table"
+        }
+      ]
+    }
+  ],
+  "schemaVersion": 39
+}

@@ -20,35 +20,52 @@ Schema design:
 """
 
 import json
+import logging
 import pickle
-import shutil
 from datetime import datetime
 from pathlib import Path
 from typing import Any
 
 import pyarrow as pa
+import pyarrow.compute as pc
 import pyarrow.parquet as pq
 
+from litmus.data._atomic import atomic_write_table
 from litmus.data.backends._row_helpers import (
     REF_PATH_PREFIX,
+    MeasurementRow,
+    _append_not_started,
+    _env_columns,
     build_row,
     build_run_metadata,
+    build_step_manifest,
     save_ref_to_dir,
 )
 from litmus.data.models import TestRun, Waveform
+from litmus.data.ref import is_ref, ref_scheme
 from litmus.execution.logger import INSTRUMENT_ARRAY_KEYS
+
+logger = logging.getLogger(__name__)
 
 # Canonical schema for fixed columns. Dynamic columns (in_*, out_*, instr_*, custom_*)
 # are NOT listed here — they pass through with inferred types.
 MEASUREMENT_SCHEMA = pa.schema([
     # Identity & timing
+    ("session_id", pa.string()),
     ("run_id", pa.string()),
     ("run_started_at", pa.timestamp("us", tz="UTC")),
     ("run_ended_at", pa.timestamp("us", tz="UTC")),
     ("step_name", pa.string()),
     ("step_index", pa.int64()),
+    ("step_path", pa.string()),
     ("step_started_at", pa.timestamp("us", tz="UTC")),
     ("step_ended_at", pa.timestamp("us", tz="UTC")),
+    ("step_node_id", pa.string()),
+    ("step_module", pa.string()),
+    ("step_file", pa.string()),
+    ("step_class", pa.string()),
+    ("step_function", pa.string()),
+    ("step_markers", pa.string()),
     ("vector_index", pa.int64()),
     ("attempt", pa.int64()),
     ("vector_started_at", pa.timestamp("us", tz="UTC")),
@@ -70,6 +87,7 @@ MEASUREMENT_SCHEMA = pa.schema([
     ("station_name", pa.string()),
     ("station_type", pa.string()),
     ("station_location", pa.string()),
+    ("station_hostname", pa.string()),
     # Fixture
     ("fixture_id", pa.string()),
     # Test context
@@ -143,51 +161,37 @@ def _enforce_schema(table: pa.Table) -> pa.Table:
             names.append(field.name)
             continue
 
-        # Extension types or type mismatches — rebuild via pylist
+        # Try Arrow-native cast first (handles most numeric/string conversions)
+        try:
+            if pa.types.is_timestamp(target_type) and pa.types.is_string(field.type):
+                # String → timestamp: use strptime then cast to target tz
+                parsed = pc.strptime(col, format="%Y-%m-%dT%H:%M:%S%z", unit="us")  # type: ignore[attr-defined]
+                columns.append(parsed.cast(target_type))
+            else:
+                columns.append(col.cast(target_type, safe=False))
+            names.append(field.name)
+            continue
+        except (pa.ArrowInvalid, pa.ArrowNotImplementedError):
+            pass
+
+        # Fallback for extension types: pylist round-trip
         values = col.to_pylist()
 
         if pa.types.is_timestamp(target_type):
-            # Parse string timestamps
-            parsed = []
+            parsed_ts = []
             for v in values:
                 if isinstance(v, str):
-                    parsed.append(datetime.fromisoformat(v.replace("Z", "+00:00")))
+                    parsed_ts.append(datetime.fromisoformat(v.replace("Z", "+00:00")))
                 else:
-                    parsed.append(v)
-            columns.append(pa.array(parsed, type=target_type))
-        elif target_type == pa.float64():
-            # Coerce to float (handles json extension → float)
-            parsed = []
-            for v in values:
-                if v is None:
-                    parsed.append(None)
-                else:
-                    try:
-                        parsed.append(float(v))
-                    except (TypeError, ValueError):
-                        parsed.append(None)
-            columns.append(pa.array(parsed, type=target_type))
+                    parsed_ts.append(v)
+            columns.append(pa.array(parsed_ts, type=target_type))
         elif target_type == pa.string():
-            # Coerce to string (handles uuid extension, json extension)
-            parsed = [str(v) if v is not None else None for v in values]
-            columns.append(pa.array(parsed, type=target_type))
-        elif target_type == pa.int64():
-            parsed = []
-            for v in values:
-                if v is None:
-                    parsed.append(None)
-                else:
-                    try:
-                        parsed.append(int(v))
-                    except (TypeError, ValueError):
-                        parsed.append(None)
-            columns.append(pa.array(parsed, type=target_type))
+            columns.append(pa.array(
+                [str(v) if v is not None else None for v in values],
+                type=target_type,
+            ))
         else:
-            # Fallback: try direct cast
-            try:
-                columns.append(col.cast(target_type))
-            except (pa.ArrowInvalid, pa.ArrowNotImplementedError):
-                columns.append(col)  # keep as-is
+            columns.append(col)  # keep as-is
 
         names.append(field.name)
 
@@ -204,24 +208,18 @@ class ParquetBackend:
     4. Config snapshots in file metadata - full reconstruction possible
     """
 
-    def __init__(self, results_dir: Path | str = "results"):
-        self.results_dir = Path(results_dir)
+    def __init__(self, results_dir: Path | str | None = None):
+        from litmus.data.results_dir import resolve_results_dir
+
+        self.results_dir = resolve_results_dir(results_dir)
         self.results_dir.mkdir(parents=True, exist_ok=True)
 
     def save_test_run(
         self,
         test_run: TestRun,
-        journal_dir: Path | None = None,
         instrument_arrays: dict[str, list] | None = None,
     ) -> Path:
         """Save test run to Parquet with analysis-ready schema.
-
-        If journal_dir is provided, converts the journal to parquet and moves
-        ref files instead of building rows from TestRun. This is the preferred
-        path when journaling is enabled, as it:
-        1. Uses the already-captured measurements
-        2. Handles crash recovery scenarios
-        3. Moves ref files atomically
 
         Creates files:
             results/runs/{date}/{timestamp}_{serial}.parquet  (with serial)
@@ -231,15 +229,10 @@ class ParquetBackend:
 
         Args:
             test_run: Complete TestRun with steps, vectors, and measurements.
-            journal_dir: Optional path to journal directory to convert.
 
         Returns:
             Path to the Parquet file.
         """
-        # If journal exists, convert it instead of using in-memory data
-        if journal_dir is not None and journal_dir.exists():
-            return self.convert_journal(journal_dir, test_run)
-
         # UTC timestamp for filename (compact ISO 8601 basic format)
         timestamp = test_run.started_at.strftime("%Y%m%dT%H%M%SZ")
         date_str = test_run.started_at.strftime("%Y-%m-%d")
@@ -273,163 +266,26 @@ class ParquetBackend:
         metadata = self._build_file_metadata(test_run)
         table = table.replace_schema_metadata(metadata)
 
-        # Write to Parquet
-        pq.write_table(table, parquet_path)
+        # Write to Parquet (atomic: temp file + os.replace)
+        atomic_write_table(table, parquet_path)
+
+        # Notify runs daemon so it indexes immediately
+        self._notify_daemon(parquet_path)
 
         return parquet_path
 
-    def convert_journal(self, journal_dir: Path, test_run: TestRun | None = None) -> Path:
-        """Convert a JSONL journal to Parquet format.
+    def _notify_daemon(self, parquet_path: Path) -> None:
+        """Best-effort notification to the runs DuckDB daemon."""
+        try:
+            from litmus.data.run_store import RunStore
 
-        Reads the journal file, converts to parquet, moves ref files,
-        and deletes the journal directory on success.
-
-        If the journal is empty but test_run is provided, falls back to
-        building parquet from the TestRun (standard behavior without journaling).
-
-        Args:
-            journal_dir: Path to journal directory containing measurements.jsonl
-            test_run: Optional TestRun for metadata (used for filename if provided)
-
-        Returns:
-            Path to the created Parquet file.
-
-        Raises:
-            FileNotFoundError: If journal file doesn't exist
-            ValueError: If journal is empty and no test_run provided
-        """
-        journal_path = journal_dir / "measurements.jsonl"
-        journal_ref_dir = journal_dir / "_ref"
-
-        if not journal_path.exists():
-            raise FileNotFoundError(f"Journal not found: {journal_path}")
-
-        # Check if journal has content
-        journal_content = journal_path.read_text().strip()
-        if not journal_content:
-            # Journal is empty - fall back to TestRun if available
-            if test_run is not None:
-                # Clean up empty journal directory
-                shutil.rmtree(journal_dir)
-                # Use standard save path (without journal)
-                return self.save_test_run(test_run, journal_dir=None)
-            raise ValueError(f"Journal is empty: {journal_path}")
-
-        # Parse JSONL lines
-        rows = []
-        for line in journal_content.splitlines():
-            line = line.strip()
-            if line:
-                rows.append(json.loads(line))
-
-        if not rows:
-            if test_run is not None:
-                shutil.rmtree(journal_dir)
-                return self.save_test_run(test_run, journal_dir=None)
-            raise ValueError(f"Journal is empty or invalid: {journal_path}")
-
-        first_row = rows[0]
-
-        # Determine output path from metadata
-        run_started_at = first_row.get("run_started_at", "")
-        dut_serial = first_row.get("dut_serial", "")
-
-        # Parse timestamp - handle ISO format
-        if isinstance(run_started_at, str):
+            run_store = RunStore(_results_dir=self.results_dir)
             try:
-                started_dt = datetime.fromisoformat(run_started_at.replace("Z", "+00:00"))
-            except ValueError:
-                started_dt = datetime.now()
-        else:
-            started_dt = run_started_at
-
-        timestamp = started_dt.strftime("%Y%m%dT%H%M%SZ")
-        date_str = started_dt.strftime("%Y-%m-%d")
-
-        # Create output directory
-        date_dir = self.results_dir / "runs" / date_str
-        date_dir.mkdir(parents=True, exist_ok=True)
-
-        # Filename: timestamp first, serial if present
-        if dut_serial:
-            filename = f"{timestamp}_{dut_serial}.parquet"
-        else:
-            filename = f"{timestamp}.parquet"
-
-        parquet_path = date_dir / filename
-
-        # Backfill run_ended_at and step timestamps from TestRun
-        # (journal rows are written mid-run, so these are null at write time)
-        if test_run is not None:
-            # Build step timing lookup: step_index → (started_at, ended_at)
-            # Keyed by index, not name, because multiple steps can share a name.
-            step_timing: dict[int, tuple] = {}
-            for idx, step in enumerate(test_run.steps):
-                step_timing[idx] = (step.started_at, step.ended_at)
-
-            # Vector timing: (step_index, vector_index, attempt) → (started, ended)
-            vector_timing: dict[tuple[int, int | None, int | None], tuple] = {}
-            for idx, step in enumerate(test_run.steps):
-                for vec in step.vectors:
-                    vector_timing[(idx, vec.index, vec.attempt)] = (
-                        vec.started_at,
-                        vec.ended_at,
-                    )
-
-            for row in rows:
-                if row.get("run_ended_at") is None:
-                    row["run_ended_at"] = test_run.ended_at
-                step_idx = row.get("step_index")
-                if step_idx is not None and step_idx in step_timing:
-                    s_start, s_end = step_timing[step_idx]
-                    if row.get("step_started_at") is None:
-                        row["step_started_at"] = s_start
-                    if row.get("step_ended_at") is None:
-                        row["step_ended_at"] = s_end
-                # Backfill vector timing
-                vk = (step_idx, row.get("vector_index"), row.get("attempt"))
-                if vk in vector_timing:
-                    v_start, v_end = vector_timing[vk]
-                    if row.get("vector_started_at") is None:
-                        row["vector_started_at"] = v_start
-                    if row.get("vector_ended_at") is None:
-                        row["vector_ended_at"] = v_end
-
-        # Parse timestamp strings back to datetime objects before table construction
-        for row in rows:
-            for col in _TIMESTAMP_COLS:
-                val = row.get(col)
-                if isinstance(val, str):
-                    row[col] = datetime.fromisoformat(val.replace("Z", "+00:00"))
-
-        # Ensure all rows have instrument array columns for schema consistency
-        for row in rows:
-            for key in INSTRUMENT_ARRAY_KEYS:
-                if key not in row:
-                    row[key] = []
-
-        # Convert JSONL rows to Parquet with canonical types
-        table = pa.Table.from_pylist(rows)
-        table = _enforce_schema(table)
-
-        # Add file-level metadata now if test_run provided (avoid re-read later)
-        if test_run is not None:
-            metadata = self._build_file_metadata(test_run)
-            table = table.replace_schema_metadata(metadata)
-
-        pq.write_table(table, parquet_path)
-
-        # Move ref files if they exist
-        if journal_ref_dir.exists() and any(journal_ref_dir.iterdir()):
-            parquet_ref_dir = date_dir / (parquet_path.stem + "_ref")
-            if parquet_ref_dir.exists():
-                shutil.rmtree(parquet_ref_dir)
-            shutil.move(str(journal_ref_dir), str(parquet_ref_dir))
-
-        # Delete journal directory on successful conversion
-        shutil.rmtree(journal_dir)
-
-        return parquet_path
+                run_store.notify_new_run(parquet_path)
+            finally:
+                run_store.close()
+        except Exception:
+            logger.debug("Failed to notify runs daemon", exc_info=True)
 
     def _build_measurement_rows(
         self,
@@ -441,6 +297,7 @@ class ParquetBackend:
         def ref_saver(vector_id: str, key: str, value: Any) -> str:
             return self._save_file(parquet_path, vector_id, key, value)
 
+        meta = build_run_metadata(test_run)
         rows: list[dict[str, Any]] = []
         for step_idx, step in enumerate(test_run.steps):
             step_arrays = (
@@ -458,8 +315,16 @@ class ParquetBackend:
                         vector,
                         step_arrays,
                         ref_saver=ref_saver,
+                        step_path=step.step_path,
                         step_started_at=step.started_at,
                         step_ended_at=step.ended_at,
+                        step_node_id=step.node_id,
+                        step_module=step.module,
+                        step_file=step.file,
+                        step_class=step.class_name,
+                        step_function=step.function,
+                        step_markers=step.markers,
+                        meta=meta,
                     )
                     rows.append(row_model.to_flat_dict())
         return rows
@@ -527,6 +392,16 @@ class ParquetBackend:
         if test_run.environment_json:
             metadata[b"environment_json"] = test_run.environment_json.encode("utf-8")
 
+        # Collected items for reconstruction
+        if test_run.collected_items:
+            metadata[b"litmus_collected_items"] = json.dumps(
+                [ci.model_dump() for ci in test_run.collected_items]
+            ).encode("utf-8")
+
+        # Step manifest
+        manifest = build_step_manifest(test_run)
+        metadata[b"litmus_step_manifest"] = json.dumps(manifest).encode("utf-8")
+
         # Add some convenience metadata
         metadata[b"litmus_version"] = b"1.0.0"
         metadata[b"schema_version"] = b"2.0"  # New analysis-ready schema
@@ -534,169 +409,47 @@ class ParquetBackend:
         return metadata
 
     def list_runs(self, limit: int = 50) -> list[dict]:
-        """List recent test runs.
+        """List recent test runs. Delegates to RunStore."""
+        from litmus.data.run_store import RunStore
 
-        Args:
-            limit: Maximum number of runs to return.
-
-        Returns:
-            List of test run summary records, most recent first.
-        """
-        runs = []
-        runs_dir = self.results_dir / "runs"
-
-        if not runs_dir.exists():
-            return runs
-
-        # Collect all parquet files across date directories
-        # Files are named: {timestamp}_{serial}.parquet or {timestamp}.parquet
-        # Skip _ref directories
-        parquet_files = sorted(
-            (p for p in runs_dir.rglob("*.parquet") if "_ref" not in p.parent.name),
-            reverse=True,
-        )
-
-        for pq_file in parquet_files:
-            if len(runs) >= limit:
-                break
-
-            try:
-                table = pq.read_table(pq_file)
-                if table.num_rows == 0:
-                    continue
-
-                # Get first row for run-level info (all rows have same run metadata)
-                row = table.to_pylist()[0]
-
-                # Build summary record
-                summary = {
-                    "test_run_id": row.get("run_id"),
-                    "started_at": row.get("run_started_at"),
-                    "ended_at": row.get("run_ended_at"),
-                    "dut_serial": row.get("dut_serial"),
-                    "dut_part_number": row.get("dut_part_number"),
-                    "product_id": row.get("product_id"),
-                    "station_id": row.get("station_id"),
-                    "station_type": row.get("station_type"),
-                    "test_sequence_id": row.get("sequence_id"),
-                    "test_phase": row.get("test_phase"),
-                    "operator": row.get("operator_id"),
-                    "outcome": row.get("run_outcome"),
-                    "total_measurements": table.num_rows,
-                    "failed_measurements": sum(
-                        1 for r in table.to_pylist() if r.get("outcome") == "fail"
-                    ),
-                }
-                runs.append(summary)
-            except Exception:
-                continue  # Skip corrupted files
-
-        # Sort by started_at descending
-        runs.sort(key=lambda x: x.get("started_at") or "", reverse=True)
-        return runs[:limit]
+        run_store = RunStore(_results_dir=self.results_dir)
+        try:
+            return run_store.list_runs(limit=limit)
+        finally:
+            run_store.close()
 
     def find_run_file(self, run_id: str) -> Path | None:
-        """Find parquet file for a run_id (cached)."""
-        runs_dir = self.results_dir / "runs"
-        if not runs_dir.exists():
-            return None
+        """Find parquet file for a run_id. Delegates to RunStore."""
+        from litmus.data.run_store import RunStore
 
-        run_prefix = run_id[:8] if len(run_id) >= 8 else run_id
-
-        # Sort by date folder descending, then by filename descending (most recent first)
-        date_dirs = sorted(runs_dir.iterdir(), reverse=True) if runs_dir.exists() else []
-        for date_dir in date_dirs:
-            if not date_dir.is_dir():
-                continue
-            for pq_file in sorted(date_dir.glob("*.parquet"), reverse=True):
-                if "_ref" in pq_file.parent.name:
-                    continue
-                try:
-                    # Read just first row to check run_id
-                    pf = pq.ParquetFile(pq_file)
-                    table = pf.read_row_group(0, columns=["run_id"])
-                    if table.num_rows == 0:
-                        continue
-                    file_run_id = table.to_pylist()[0].get("run_id", "")
-                    if file_run_id.startswith(run_prefix) or run_prefix in file_run_id:
-                        return pq_file
-                except Exception:
-                    continue
-        return None
+        run_store = RunStore(_results_dir=self.results_dir)
+        try:
+            return run_store.find_run_file(run_id)
+        finally:
+            run_store.close()
 
     def get_run(self, run_id: str) -> dict | None:
-        """Get a specific test run by ID.
+        """Get a specific test run by ID. Delegates to RunStore."""
+        from litmus.data.run_store import RunStore
 
-        Args:
-            run_id: The test run ID (can be partial, at least 8 chars).
-
-        Returns:
-            Test run summary record or None if not found.
-        """
-        pq_file = self.find_run_file(run_id)
-        if pq_file is None:
-            return None
-
+        run_store = RunStore(_results_dir=self.results_dir)
         try:
-            table = pq.read_table(pq_file)
-            if table.num_rows == 0:
-                return None
-            row = table.to_pylist()[0]
-            return {
-                "test_run_id": row.get("run_id"),
-                "started_at": row.get("run_started_at"),
-                "ended_at": row.get("run_ended_at"),
-                "dut_serial": row.get("dut_serial"),
-                "dut_part_number": row.get("dut_part_number"),
-                "product_id": row.get("product_id"),
-                "station_id": row.get("station_id"),
-                "station_type": row.get("station_type"),
-                "test_sequence_id": row.get("sequence_id"),
-                "test_phase": row.get("test_phase"),
-                "operator": row.get("operator_id"),
-                "outcome": row.get("run_outcome"),
-                "total_measurements": table.num_rows,
-                "_file": str(pq_file),  # Cache file path for get_measurements
-            }
-        except Exception:
-            return None
+            return run_store.get_run(run_id)
+        finally:
+            run_store.close()
 
     def get_measurements(self, run_id: str, *, _file: str | None = None) -> list[dict]:
-        """Get all measurements for a specific test run.
+        """Get all measurements for a specific test run. Delegates to RunStore."""
+        from litmus.data.run_store import RunStore
 
-        Args:
-            run_id: The test run ID (can be partial, at least 8 chars).
-            _file: Cached file path from get_run (optimization).
-
-        Returns:
-            List of measurement records for the run.
-        """
-        if _file:
-            pq_file = Path(_file)
-        else:
-            pq_file = self.find_run_file(run_id)
-
-        if pq_file is None or not pq_file.exists():
-            return []
-
+        run_store = RunStore(_results_dir=self.results_dir)
         try:
-            table = pq.read_table(pq_file)
-            return table.to_pylist()
-        except Exception:
-            return []
+            return run_store.get_measurements(run_id, _file=_file)
+        finally:
+            run_store.close()
 
     def get_vectors(self, run_id: str) -> list[dict]:
-        """Get unique test vectors for a specific test run.
-
-        Extracts unique (step_name, vector_index, attempt) combinations
-        from the measurements table.
-
-        Args:
-            run_id: The test run ID (can be partial, at least 8 chars).
-
-        Returns:
-            List of vector records for the run.
-        """
+        """Get unique test vectors for a specific test run."""
         measurements = self.get_measurements(run_id)
         if not measurements:
             return []
@@ -724,8 +477,7 @@ class ParquetBackend:
                 params = {}
                 for k, v in m.items():
                     if k.startswith("in_") and "_" not in k[3:]:
-                        # e.g., in_vin but not in_vin_instrument
-                        param_name = k[3:]  # Remove "in_" prefix
+                        param_name = k[3:]
                         params[param_name] = v
                 vector_info["params"] = params
                 vectors_seen[key] = vector_info
@@ -733,40 +485,26 @@ class ParquetBackend:
         return list(vectors_seen.values())
 
     def get_run_metadata(self, run_id: str) -> dict[str, str] | None:
-        """Get file-level metadata (config snapshots) for a run.
+        """Get file-level metadata (config snapshots) for a run."""
+        from litmus.data.run_store import RunStore
 
-        Args:
-            run_id: The test run ID (can be partial).
+        run_store = RunStore(_results_dir=self.results_dir)
+        try:
+            pq_file = run_store.find_run_file(run_id)
+        finally:
+            run_store.close()
 
-        Returns:
-            Dict with config YAML strings, or None if not found.
-        """
-        runs_dir = self.results_dir / "runs"
-
-        if not runs_dir.exists():
+        if pq_file is None:
             return None
 
-        run_prefix = run_id[:8] if len(run_id) >= 8 else run_id
-        for pq_file in runs_dir.rglob("*.parquet"):
-            if "_ref" in pq_file.parent.name:
-                continue
-            try:
-                pf = pq.ParquetFile(pq_file)
-                # Quick check: read first row to get run_id
-                table = pf.read_row_group(0)
-                if table.num_rows == 0:
-                    continue
-                row = table.to_pylist()[0]
-                file_run_id = row.get("run_id", "")
-                if file_run_id.startswith(run_prefix) or run_prefix in file_run_id:
-                    raw_metadata = pf.schema_arrow.metadata or {}
-                    return {
-                        k.decode("utf-8"): v.decode("utf-8") for k, v in raw_metadata.items()
-                    }
-            except Exception:
-                continue
-
-        return None
+        try:
+            pf = pq.ParquetFile(pq_file)
+            raw_metadata = pf.schema_arrow.metadata or {}
+            return {
+                k.decode("utf-8"): v.decode("utf-8") for k, v in raw_metadata.items()
+            }
+        except (OSError, pa.ArrowInvalid):
+            return None
 
     # =========================================================================
     # TestRun Reconstruction (for post-hoc export)
@@ -794,145 +532,399 @@ class ParquetBackend:
             )
         return reconstruct_test_run_from_file(pq_file)
 
-    # =========================================================================
-    # Journal Management
-    # =========================================================================
+    def save_from_rows(
+        self,
+        rows: list[dict[str, Any]],
+        started_at: datetime,
+        dut_serial: str,
+        file_metadata: dict[bytes, bytes] | None = None,
+    ) -> Path:
+        """Save pre-built flat row dicts to Parquet.
 
-    def list_journals(self) -> list[dict]:
-        """List all journal directories with metadata.
-
-        Returns:
-            List of journal info dicts with run_id, dut_serial, measurement_count, etc.
+        Used by ParquetSubscriber to write accumulated rows without
+        needing a TestRun object.
         """
-        from litmus.data.backends.journal import get_journal_info
+        timestamp = started_at.strftime("%Y%m%dT%H%M%SZ")
+        date_str = started_at.strftime("%Y-%m-%d")
+        dut_serial = dut_serial.strip() if dut_serial else ""
 
-        journals = []
-        journals_dir = self.results_dir / ".journals"
+        date_dir = self.results_dir / "runs" / date_str
+        date_dir.mkdir(parents=True, exist_ok=True)
 
-        if not journals_dir.exists():
-            return journals
+        if dut_serial:
+            filename = f"{timestamp}_{dut_serial}.parquet"
+        else:
+            filename = f"{timestamp}.parquet"
 
-        for date_dir in journals_dir.iterdir():
-            if not date_dir.is_dir():
-                continue
-            for journal_dir in date_dir.iterdir():
-                if not journal_dir.is_dir():
-                    continue
-                info = get_journal_info(journal_dir)
-                if info:
-                    journals.append(info)
+        parquet_path = date_dir / filename
 
-        # Sort by started_at descending
-        journals.sort(key=lambda x: x.get("started_at") or "", reverse=True)
-        return journals
+        # Ensure instrument array columns exist for schema consistency
+        for row in rows:
+            for key in INSTRUMENT_ARRAY_KEYS:
+                if key not in row:
+                    row[key] = []
 
-    def get_journal_measurements(self, journal_dir: Path | str) -> list[dict]:
-        """Read measurements from a journal file.
+        table = pa.Table.from_pylist(rows)
+        table = _enforce_schema(table)
+
+        if file_metadata:
+            table = table.replace_schema_metadata(file_metadata)
+
+        atomic_write_table(table, parquet_path)
+
+        # Notify runs daemon so it indexes immediately
+        self._notify_daemon(parquet_path)
+
+        return parquet_path
+
+class ParquetSubscriber:
+    """EventSubscriber that accumulates measurements and writes Parquet on close.
+
+    Caches ``SessionStarted`` for run metadata and ``InstrumentConnected``
+    for instrument arrays. On ``MeasurementRecorded``, builds a denormalized
+    row using cached context. On ``RunEnded`` or ``close()``, writes Parquet.
+    """
+
+    format_name = "parquet"
+
+    def __init__(self, backend: ParquetBackend) -> None:
+        from litmus.data.events import (
+            InstrumentConnected,
+            MeasurementRecorded,
+            RunEnded,
+            SessionStarted,
+            StepEnded,
+            StepsDiscovered,
+            StepStarted,
+        )
+
+        self.event_types: set[type] = {
+            SessionStarted, InstrumentConnected, StepsDiscovered,
+            StepStarted, MeasurementRecorded, StepEnded, RunEnded,
+        }
+        self._backend = backend
+        self._session: Any = None  # SessionStarted event
+        self._instruments: list[Any] = []  # InstrumentConnected events
+        self._measurement_events: list[Any] = []  # MeasurementRecorded events
+        self._written = False
+        self._steps_with_measurements: set[int] = set()
+        self._step_starts: dict[int, Any] = {}  # step_index → StepStarted
+        self._step_ends: dict[int, Any] = {}  # step_index → StepEnded
+        self._collected_items: list[dict[str, str | None]] = []
+
+    def open(self) -> None:
+        """No-op — subscriber protocol requires this but Parquet needs no setup."""
+
+    def on_event(self, event: Any) -> None:
+        from litmus.data.events import (
+            InstrumentConnected,
+            MeasurementRecorded,
+            RunEnded,
+            SessionStarted,
+            StepEnded,
+            StepsDiscovered,
+            StepStarted,
+        )
+
+        if isinstance(event, SessionStarted):
+            self._session = event
+        elif isinstance(event, InstrumentConnected):
+            self._instruments.append(event)
+        elif isinstance(event, StepsDiscovered):
+            self._collected_items = event.items
+        elif isinstance(event, StepStarted):
+            self._step_starts[event.step_index] = event
+        elif isinstance(event, MeasurementRecorded):
+            self._steps_with_measurements.add(event.step_index)
+            self._measurement_events.append(event)
+        elif isinstance(event, StepEnded):
+            self._step_ends[event.step_index] = event
+        elif isinstance(event, RunEnded):
+            self._write(outcome=event.outcome)
+
+    def close(self) -> None:
+        if not self._written:
+            self._write()
+
+    def _build_instrument_arrays(self) -> dict[str, list]:
+        """Build instrument arrays from cached InstrumentConnected events."""
+        arrays: dict[str, list] = {k: [] for k in INSTRUMENT_ARRAY_KEYS}
+        for inst in self._instruments:
+            arrays["instr_name"].append(inst.role)
+            arrays["instr_id"].append(inst.instrument_id)
+            arrays["instr_driver"].append(inst.driver)
+            arrays["instr_resource"].append(inst.resource)
+            arrays["instr_protocol"].append(inst.protocol)
+            arrays["instr_manufacturer"].append(inst.manufacturer)
+            arrays["instr_model"].append(inst.model)
+            arrays["instr_serial"].append(inst.serial)
+            arrays["instr_firmware"].append(inst.firmware)
+            arrays["instr_cal_due"].append(inst.cal_due)
+            arrays["instr_cal_last"].append(inst.cal_last)
+            arrays["instr_cal_certificate"].append(inst.cal_certificate)
+            arrays["instr_cal_lab"].append(inst.cal_lab)
+            arrays["instr_mocked"].append(inst.mocked)
+        return arrays
+
+    def _session_metadata_kwargs(self, event: Any) -> dict[str, Any]:
+        """Extract session-level metadata as kwargs for MeasurementRow.
+
+        Shared by ``_build_row()`` and ``_build_step_summary_row()``.
+        """
+        s = self._session
+        if not s:
+            env = _env_columns(None)
+            return {
+                "session_id": str(event.session_id),
+                "run_id": str(event.run_id) if event.run_id else "",
+                "run_started_at": None, "run_ended_at": None,
+                "operator_id": None, "operator_name": None,
+                "dut_serial": "unknown", "dut_part_number": None,
+                "dut_revision": None, "dut_lot_number": None,
+                "product_id": None, "product_name": None,
+                "product_revision": None,
+                "station_id": "unknown", "station_name": None,
+                "station_type": None, "station_location": None,
+                "station_hostname": None, "fixture_id": None,
+                "sequence_id": None, "test_phase": None,
+                "git_commit": None,
+                **env,
+            }
+        env = _env_columns(s.environment_json)
+        return {
+            "session_id": str(s.session_id),
+            "run_id": str(event.run_id) if event.run_id else "",
+            "run_started_at": s.occurred_at,
+            "run_ended_at": None,
+            "operator_id": s.operator_id,
+            "operator_name": s.operator_name,
+            "dut_serial": s.dut_serial,
+            "dut_part_number": s.dut_part_number,
+            "dut_revision": s.dut_revision,
+            "dut_lot_number": s.dut_lot_number,
+            "product_id": s.product_id,
+            "product_name": s.product_name,
+            "product_revision": s.product_revision,
+            "station_id": s.station_id,
+            "station_name": s.station_name,
+            "station_type": s.station_type,
+            "station_location": s.station_location,
+            "station_hostname": s.station_hostname,
+            "fixture_id": s.fixture_id,
+            "sequence_id": s.sequence_id,
+            "test_phase": s.test_phase,
+            "git_commit": s.git_commit,
+            **env,
+        }
+
+    def _step_start_field(self, step_index: int, attr: str) -> Any:
+        """Get a field from the cached StepStarted event, or None."""
+        start = self._step_starts.get(step_index)
+        return getattr(start, attr, None) if start else None
+
+    def _build_row(self, event: Any) -> dict[str, Any]:
+        """Denormalize a MeasurementRecorded event into a flat row dict.
+
+        Joins cached SessionStarted metadata + InstrumentConnected arrays
+        with the normalized measurement event to produce a full
+        ``MeasurementRow``-compatible flat dict.
+        """
+        idx = event.step_index
+        end = self._step_ends.get(idx)
+        row = MeasurementRow(
+            **self._session_metadata_kwargs(event),
+            # Step/vector (from event + cached StepStarted)
+            step_name=event.step_name,
+            step_index=idx,
+            step_path=event.step_path,
+            step_started_at=self._step_start_field(idx, "occurred_at"),
+            step_ended_at=end.occurred_at if end else None,
+            step_node_id=self._step_start_field(idx, "node_id"),
+            step_module=self._step_start_field(idx, "module"),
+            step_file=self._step_start_field(idx, "file"),
+            step_class=self._step_start_field(idx, "class_name"),
+            step_function=self._step_start_field(idx, "function"),
+            vector_index=event.vector_index,
+            attempt=event.attempt,
+            # Measurement (from event)
+            measurement_name=event.measurement_name,
+            measurement_timestamp=event.measurement_timestamp,
+            value=event.value,
+            units=event.units,
+            outcome=event.outcome,
+            low_limit=event.low_limit,
+            high_limit=event.high_limit,
+            nominal=event.nominal,
+            comparator=event.comparator,
+            spec_id=event.spec_id,
+            spec_ref=event.spec_ref,
+            meas_dut_pin=event.meas_dut_pin,
+            meas_fixture_point=event.meas_fixture_point,
+            meas_instrument=event.meas_instrument,
+            meas_instrument_resource=event.meas_instrument_resource,
+            meas_instrument_channel=event.meas_instrument_channel,
+            # Run outcome backfilled in _write()
+            run_outcome=None,
+            # Dynamic columns
+            inputs=dict(event.inputs),
+            outputs=dict(event.outputs),
+            instruments=self._build_instrument_arrays(),
+            custom=dict(event.custom),
+        )
+        return row.to_flat_dict()
+
+    def _build_step_summary_row(self, step_ended: Any) -> dict[str, Any]:
+        """Build a summary row for a step that completed with no measurements."""
+        row = MeasurementRow(
+            **self._session_metadata_kwargs(step_ended),
+            step_name=step_ended.step_name,
+            step_index=step_ended.step_index,
+            step_path=step_ended.step_path,
+            step_started_at=(
+                self._step_starts[step_ended.step_index].occurred_at
+                if step_ended.step_index in self._step_starts
+                else None
+            ),
+            step_ended_at=step_ended.occurred_at,
+            step_node_id=step_ended.node_id,
+            step_module=step_ended.module,
+            step_file=step_ended.file,
+            step_class=step_ended.class_name,
+            step_function=step_ended.function,
+            measurement_name="_step_summary",
+            value=None,
+            outcome=step_ended.outcome,
+            run_outcome=None,
+            instruments=self._build_instrument_arrays(),
+        )
+        return row.to_flat_dict()
+
+    def _write(self, outcome: str | None = None) -> None:
+        """Write accumulated rows to Parquet.
 
         Args:
-            journal_dir: Path to journal directory or its path as string
-
-        Returns:
-            List of measurement row dicts
+            outcome: Run outcome from RunEnded. If None (crash/close without
+                RunEnded), defaults to "error" since the run didn't complete.
         """
-        from litmus.data.backends.journal import read_journal
+        if self._written:
+            return
+        self._written = True
 
-        journal_dir = Path(journal_dir)
-        journal_path = journal_dir / "measurements.jsonl"
-        return read_journal(journal_path)
+        s = self._session
+        if not s:
+            return
 
-    def recover_journal(self, journal_dir: Path | str) -> Path:
-        """Convert an orphaned journal to parquet.
+        # Build all rows now — all events are in, step times are known
+        from litmus.data.models import _utcnow
+        ended_at = _utcnow()
+        final_outcome = outcome if outcome is not None else "error"
 
-        Use this to recover data from crashed or interrupted test runs.
+        rows: list[dict[str, Any]] = []
+        for event in self._measurement_events:
+            row = self._build_row(event)
+            row["run_ended_at"] = ended_at
+            row["run_outcome"] = final_outcome
+            rows.append(row)
 
-        Args:
-            journal_dir: Path to journal directory
+        # Add summary rows for steps with no measurements
+        for step_idx, step_end in self._step_ends.items():
+            if step_idx not in self._steps_with_measurements:
+                row = self._build_step_summary_row(step_end)
+                row["run_ended_at"] = ended_at
+                row["run_outcome"] = final_outcome
+                rows.append(row)
 
-        Returns:
-            Path to the created parquet file
+        if not rows:
+            return
+
+        # Write via save_from_rows
+        self._backend.save_from_rows(
+            rows,
+            started_at=s.occurred_at,
+            dut_serial=s.dut_serial,
+            file_metadata=self._build_file_metadata(),
+        )
+
+    def _build_file_metadata(self) -> dict[bytes, bytes]:
+        """Build Parquet file-level metadata from cached session."""
+        metadata: dict[bytes, bytes] = {}
+        s = self._session
+        if not s:
+            return metadata
+
+        if s.station_config_yaml:
+            metadata[b"station_config_yaml"] = s.station_config_yaml.encode("utf-8")
+        if s.product_spec_yaml:
+            metadata[b"product_spec_yaml"] = s.product_spec_yaml.encode("utf-8")
+        if s.fixture_config_yaml:
+            metadata[b"fixture_config_yaml"] = s.fixture_config_yaml.encode("utf-8")
+        if s.test_config_yaml:
+            metadata[b"test_config_yaml"] = s.test_config_yaml.encode("utf-8")
+        if s.environment_json:
+            metadata[b"environment_json"] = s.environment_json.encode("utf-8")
+
+        # Collected items for reconstruction
+        if self._collected_items:
+            metadata[b"litmus_collected_items"] = json.dumps(self._collected_items).encode("utf-8")
+
+        # Step manifest from cached events
+        manifest = self._build_step_manifest_from_events()
+        if manifest:
+            metadata[b"litmus_step_manifest"] = json.dumps(manifest).encode("utf-8")
+
+        metadata[b"litmus_version"] = b"1.0.0"
+        metadata[b"schema_version"] = b"2.0"
+        return metadata
+
+    def _build_step_manifest_from_events(self) -> list[dict[str, Any]]:
+        """Build step manifest from cached StepStarted/StepEnded events.
+
+        Appends ``not_started`` entries for collected items that never
+        executed (e.g. run aborted via Ctrl-C or ``--maxfail``).
         """
-        journal_dir = Path(journal_dir)
-        return self.convert_journal(journal_dir)
+        manifest: list[dict[str, Any]] = []
+        executed_node_ids: set[str] = set()
+        all_indices = sorted(set(self._step_starts) | set(self._step_ends))
+        for idx in all_indices:
+            start = self._step_starts.get(idx)
+            end = self._step_ends.get(idx)
+            node_id = start.node_id if start else None
+            if node_id:
+                executed_node_ids.add(node_id)
+            meas_count = sum(
+                1 for e in self._measurement_events if e.step_index == idx
+            )
+            entry: dict[str, Any] = {
+                "index": idx,
+                "name": start.step_name if start else (end.step_name if end else ""),
+                "node_id": node_id,
+                "file": start.file if start else None,
+                "function": start.function if start else None,
+                "class": start.class_name if start else None,
+                "module": start.module if start else None,
+                "step_path": start.step_path if start else (end.step_path if end else ""),
+                "description": start.description if start else None,
+                "outcome": end.outcome if end else None,
+                "started_at": start.occurred_at.isoformat() if start else None,
+                "ended_at": end.occurred_at.isoformat() if end else None,
+                "has_measurements": meas_count > 0,
+                "measurement_count": meas_count,
+                "vector_count": 0,
+            }
+            manifest.append(entry)
 
-    def cleanup_journals(self) -> int:
-        """Delete journals that have corresponding parquet files.
+        # Append not-started entries from collected items
+        _append_not_started(manifest, self._collected_items, executed_node_ids)
 
-        Returns:
-            Number of journals deleted
-        """
-        deleted = 0
-        journals_dir = self.results_dir / ".journals"
-
-        if not journals_dir.exists():
-            return deleted
-
-        for date_dir in journals_dir.iterdir():
-            if not date_dir.is_dir():
-                continue
-            for journal_dir in date_dir.iterdir():
-                if not journal_dir.is_dir():
-                    continue
-
-                # Check if corresponding parquet exists
-                parquet_path = (
-                    self.results_dir / "runs" / date_dir.name / f"{journal_dir.name}.parquet"
-                )
-                if parquet_path.exists():
-                    shutil.rmtree(journal_dir)
-                    deleted += 1
-
-            # Clean up empty date directories
-            if date_dir.exists() and not any(date_dir.iterdir()):
-                date_dir.rmdir()
-
-        # Clean up empty .journals directory
-        if journals_dir.exists() and not any(journals_dir.iterdir()):
-            journals_dir.rmdir()
-
-        return deleted
-
-    def get_orphaned_journals(self) -> list[dict]:
-        """List journals that don't have corresponding parquet files.
-
-        These are likely from crashed or interrupted test runs.
-
-        Returns:
-            List of journal info dicts
-        """
-        from litmus.data.backends.journal import get_journal_info
-
-        orphaned = []
-        journals_dir = self.results_dir / ".journals"
-
-        if not journals_dir.exists():
-            return orphaned
-
-        for date_dir in journals_dir.iterdir():
-            if not date_dir.is_dir():
-                continue
-            for journal_dir in date_dir.iterdir():
-                if not journal_dir.is_dir():
-                    continue
-
-                # Check if corresponding parquet exists
-                parquet_path = (
-                    self.results_dir / "runs" / date_dir.name / f"{journal_dir.name}.parquet"
-                )
-                if not parquet_path.exists():
-                    info = get_journal_info(journal_dir)
-                    if info:
-                        orphaned.append(info)
-
-        return orphaned
+        return manifest
 
 
 def load_file(parquet_path: Path, ref: str) -> Any:
-    """Load a file from _ref/ directory based on its extension.
+    """Load a file reference (``file://`` URI or legacy ``_ref/`` path).
 
     Args:
         parquet_path: Path to the parquet file (used to locate _ref/ dir).
-        ref: Reference string like "_ref/abc123_waveform.npz".
+        ref: Reference string — ``"file://_ref/abc.npz"`` or legacy ``"_ref/abc.npz"``.
 
     Returns:
         Loaded data in appropriate format:
@@ -943,12 +935,17 @@ def load_file(parquet_path: Path, ref: str) -> Any:
         - .pkl → pickled object
         - Other → raw file path
     """
-    if not ref.startswith(REF_PATH_PREFIX):
-        return ref  # Not a reference, return as-is
+    # Normalize: strip file:// prefix if present
+    raw = ref
+    if raw.startswith("file://"):
+        raw = raw[len("file://"):]
+
+    if not raw.startswith(REF_PATH_PREFIX):
+        return ref  # Not a file reference, return as-is
 
     # Get path relative to parquet file
     ref_dir = parquet_path.parent / (parquet_path.stem + "_ref")
-    filename = ref[len(REF_PATH_PREFIX) :]
+    filename = raw[len(REF_PATH_PREFIX):]
     path = ref_dir / filename
     ext = path.suffix.lower()
 
@@ -987,6 +984,11 @@ def load_file(parquet_path: Path, ref: str) -> Any:
     elif ext == ".bin":
         return path.read_bytes()
 
+    elif ext == ".arrow":
+        import pyarrow.ipc as ipc_mod
+
+        return ipc_mod.open_file(path).read_all()
+
     elif ext == ".pkl":
         with open(path, "rb") as f:
             return pickle.load(f)
@@ -996,9 +998,71 @@ def load_file(parquet_path: Path, ref: str) -> Any:
         return path
 
 
+def read_step_manifest(parquet_path: Path) -> list[dict[str, Any]]:
+    """Read the step manifest from Parquet file-level metadata.
+
+    Returns an empty list if no manifest is stored.
+    """
+    try:
+        pf = pq.ParquetFile(parquet_path)
+        raw_metadata = pf.schema_arrow.metadata or {}
+        manifest_bytes = raw_metadata.get(b"litmus_step_manifest")
+        if manifest_bytes:
+            return json.loads(manifest_bytes)
+    except (OSError, pa.ArrowInvalid, json.JSONDecodeError):
+        pass
+    return []
+
+
+def load_ref(
+    value: str,
+    *,
+    parquet_path: Path | None = None,
+    channel_store: Any | None = None,
+) -> Any:
+    """Unified reference loader — dispatches on URI scheme.
+
+    Args:
+        value: URI string (``channel://...``, ``file://...``, or legacy ``_ref/...``).
+        parquet_path: Path to parquet file (needed for ``file://`` refs).
+        channel_store: ChannelStore instance (needed for ``channel://`` refs).
+
+    Returns:
+        Loaded data.
+    """
+    if not is_ref(value):
+        # Legacy _ref/ path without file:// prefix
+        if isinstance(value, str) and value.startswith(REF_PATH_PREFIX) and parquet_path:
+            return load_file(parquet_path, value)
+        return value
+
+    scheme = ref_scheme(value)
+
+    if scheme == "file":
+        if parquet_path is None:
+            return value
+        return load_file(parquet_path, value)
+
+    if scheme == "channel":
+        if channel_store is None:
+            return value
+        from litmus.data.ref import parse_channel_uri
+        channel_id, session_id = parse_channel_uri(value)
+        return channel_store.query(channel_id, session_id=session_id or None)
+
+    # Unknown scheme — return as-is
+    return value
+
+
 def is_file_reference(value: Any) -> bool:
-    """Check if a value is a _ref/ file reference."""
-    return isinstance(value, str) and value.startswith(REF_PATH_PREFIX)
+    """Check if a value is a file reference (``file://`` URI or legacy ``_ref/`` path)."""
+    if not isinstance(value, str):
+        return False
+    if value.startswith(REF_PATH_PREFIX):
+        return True
+    if is_ref(value) and ref_scheme(value) == "file":
+        return True
+    return False
 
 
 # Suffix patterns for stimulus signal-path columns (in_{param}_{suffix}).
@@ -1025,7 +1089,7 @@ def reconstruct_test_run_from_file(pq_file: Path) -> TestRun:
     from collections import defaultdict
     from uuid import UUID
 
-    from litmus.data.models import DUT, Measurement, Outcome, TestStep, TestVector
+    from litmus.data.models import DUT, CollectedItem, Measurement, Outcome, TestStep, TestVector
 
     if not pq_file.exists():
         raise FileNotFoundError(f"Parquet file not found: {pq_file}")
@@ -1170,6 +1234,7 @@ def reconstruct_test_run_from_file(pq_file: Path) -> TestRun:
         station_name=first.get("station_name"),
         station_type=first.get("station_type"),
         station_location=first.get("station_location"),
+        station_hostname=first.get("station_hostname"),
         fixture_id=first.get("fixture_id"),
         test_sequence_id=first.get("sequence_id") or "",
         test_phase=first.get("test_phase") or "development",
@@ -1183,5 +1248,9 @@ def reconstruct_test_run_from_file(pq_file: Path) -> TestRun:
         product_spec_yaml=file_meta.get("product_spec_yaml"),
         fixture_config_yaml=file_meta.get("fixture_config_yaml"),
         test_config_yaml=file_meta.get("test_config_yaml"),
+        collected_items=[
+            CollectedItem(**ci)
+            for ci in json.loads(file_meta["litmus_collected_items"])
+        ] if "litmus_collected_items" in file_meta else [],
         custom_metadata=custom_meta or {},
     )

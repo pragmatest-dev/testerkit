@@ -52,7 +52,7 @@ class StationInstrumentConfig(BaseModel):
     resource: str | None = None
     catalog_ref: str | None = None
     mock: bool = False
-    channels: list[str] = Field(default_factory=list)
+    channels: dict[str, str] = Field(default_factory=dict)
     description: str | None = None
     mock_config: dict[str, Any] = Field(default_factory=dict)
 
@@ -141,6 +141,12 @@ class OutputConfig(BaseModel):
         """Resolve output directory with sensible defaults."""
         if self.output_dir:
             return self.output_dir
+        subscriber_dirs = {
+            "parquet": "results/parquet",
+            "channels": "results/channels",
+        }
+        if self.format in subscriber_dirs:
+            return subscriber_dirs[self.format]
         if self.format in ("html", "pdf"):
             return "reports"
         if self.format:
@@ -153,7 +159,7 @@ class ProjectConfig(BaseModel):
     """Schema for litmus.yaml project config files — all fields at root."""
 
     name: str
-    results_dir: str = "results"
+    results_dir: str | None = None
     default_station: str = "station"
     mock_instruments: bool = False
     outputs: list[OutputConfig] = Field(default_factory=list)

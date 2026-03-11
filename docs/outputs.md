@@ -1,14 +1,16 @@
 # Output Formats
 
-Litmus has a three-layer output architecture: **Exporters** convert test results to industry file formats, **Transports** ship files to remote destinations, and **Streaming Destinations** write per-measurement in real time.
+Litmus has a multi-layer output architecture: the **Event Log** captures all test activity as typed events, **ParquetSubscriber** materializes analysis-ready Parquet files, **Exporters** convert results to industry file formats, and **Transports** ship files to remote destinations.
 
 ## Default Data Pipeline (zero-config)
 
 ```
-test execution → JSONL (live streaming) → Parquet (session end) ← DuckDB (query) ← HTML/PDF (reports)
+test execution → EventLog (typed events) → ParquetSubscriber → Parquet (per-run) ← DuckDB (query) ← HTML/PDF (reports)
+                      │
+                      └→ Arrow IPC files (crash-safe) + DuckDB via Flight (live queries)
 ```
 
-Parquet, JSONL journaling, and DuckDB queryability are always-on and not configurable. The `outputs` list in `litmus.yaml` controls **additional** outputs.
+The event log, Parquet materialization, and DuckDB queryability are always-on and not configurable. The `outputs` list in `litmus.yaml` controls **additional** outputs. See [Event Log Architecture](concepts/event-log.md) and [Three Stores](concepts/three-stores.md) for details.
 
 ## Configuration
 
@@ -100,17 +102,17 @@ litmus convert foo.parquet -f stdf -o /shared/stdf/
 | azure | azure-storage-blob | `pip install litmus[azure]` *(planned)* |
 | sftp | paramiko | `pip install litmus[sftp]` *(planned)* |
 
-## Streaming Destinations
+## Event Subscribers (Real-Time Processing)
 
-Streaming destinations receive each measurement as a typed `MeasurementRow` model in real time, rather than waiting for the full `TestRun` at session end. Use streaming for formats that write incrementally or for database inserts. Any class implementing the `StreamingDestination` protocol can be wired in — see [Writing Custom Outputs](custom-outputs.md).
+The event log dispatches typed events to subscribers in real time. This replaces the earlier `StreamingDestination` protocol. Any class implementing the `EventSubscriber` protocol receives events as they are emitted.
 
-**Lifecycle:** `open(config, test_run)` → `append_row(row)` × N → `mark_run_boundary(run_id)` → `close()`
+**Lifecycle:** `open()` → `on_event(event)` × N → `close()`
 
-- `open()` receives the `OutputConfig` and the `TestRun` with run-level context (DUT serial, station, operator), so destinations can write run-level headers before any measurements arrive.
-- `append_row()` receives a `MeasurementRow` with ~30 typed fields plus namespaced dynamic columns (`inputs`, `outputs`, `instruments`, `custom`). Call `row.to_flat_dict()` at the write boundary.
-- Streaming destinations work with or without journaling enabled.
+- Subscribers declare which `event_types` they handle
+- `on_event()` receives typed Pydantic event models (not raw dicts)
+- Built-in subscribers: `ParquetSubscriber` (materializes Parquet), `SessionSubscriber` (tracks sessions)
 
-See [Writing Custom Outputs](custom-outputs.md) for implementation details.
+See [Subscribing to Events](guides/subscribing-to-events.md) for implementation details and the `EventSubscriber` protocol.
 
 ## Bundles
 

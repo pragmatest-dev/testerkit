@@ -57,8 +57,8 @@ litmus setup claude-code
         ▼
 ┌─────────────────────────────────────────────────────────────┐
 │                      Storage Layer                           │
-│                    Parquet Files                             │
-│            (test_runs, vectors, measurements)                │
+│   Events (Arrow IPC)  │  Channels (Arrow)  │  Parquet       │
+│   DuckDB via Flight   │  LTTB decimation   │  (results)     │
 └─────────────────────────────────────────────────────────────┘
 ```
 
@@ -69,7 +69,10 @@ litmus setup claude-code
 - **Capability matching** — Automatically match products to compatible stations
 - **Simulated mode** — Develop without hardware
 - **AI-ready** — MCP server for Claude Code, Cursor, Cline
+- **Event log** — Typed event stream with Arrow IPC storage and DuckDB queries
+- **Channel store** — Time-series instrument data with LTTB decimation
 - **Parquet storage** — Efficient columnar storage for analytics
+- **Live monitoring** — Real-time event subscriptions via Arrow Flight
 
 ## Learning Paths
 
@@ -93,7 +96,7 @@ litmus/
 ├── instruments/     # Instrument drivers and library
 ├── matching/        # Capability matching service
 ├── execution/       # pytest plugin
-├── data/            # Result models and Parquet backend
+├── data/            # Event log, channels, Parquet backend
 ├── mcp/             # MCP server
 ├── api/             # HTTP API (FastAPI)
 ├── ui/              # Operator UI (NiceGUI)

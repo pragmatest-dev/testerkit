@@ -58,12 +58,17 @@ def litmus_step(func: Callable[..., Any]) -> Callable[..., Any]:
             assert response.confirmed
     """
 
+    _code_identity = {
+        "function": func.__name__,
+        "module": getattr(func, "__module__", None),
+    }
+
     @wraps(func)
     def wrapper(*args: Any, **kwargs: Any) -> Any:
         step_name = func.__name__
         _logger = get_current_logger()
         if _logger is not None:
-            _logger.start_step(step_name)
+            _logger.start_step(step_name, **_code_identity)
         try:
             result = func(*args, **kwargs)
             return result
@@ -79,7 +84,7 @@ def litmus_step(func: Callable[..., Any]) -> Callable[..., Any]:
             step_name = func.__name__
             _logger = get_current_logger()
             if _logger is not None:
-                _logger.start_step(step_name)
+                _logger.start_step(step_name, **_code_identity)
             try:
                 result = await func(*args, **kwargs)
                 return result
@@ -328,6 +333,8 @@ def litmus_test(
 
                 spec_ctx = kwargs.get("spec_context") or get_active_spec_context()
 
+                from litmus.execution.plugin import get_channel_store
+
                 harness = TestHarness(
                     config=resolved_config,
                     step_name=fn.__name__,
@@ -337,6 +344,7 @@ def litmus_test(
                     instruments=instruments_fixture,
                     mock_instruments=using_mocks,
                     spec_context=spec_ctx,
+                    channel_store=get_channel_store(),
                 )
 
             # Strip context sentinel from args/kwargs - we inject the real context

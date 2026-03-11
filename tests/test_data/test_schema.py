@@ -1,12 +1,9 @@
 """Tests for Parquet schema consistency across write paths."""
 
-from datetime import datetime
 
 import pyarrow as pa
-import pyarrow.parquet as pq
 
 from litmus.data.backends.parquet import (
-    ParquetBackend,
     _enforce_schema,
 )
 from litmus.data.models import DUT, Measurement, Outcome, TestRun, TestStep, TestVector
@@ -73,45 +70,3 @@ class TestEnforceSchema:
         result = _enforce_schema(table)
         assert result.schema.field("run_id").type == pa.string()
         assert result.equals(table)
-
-
-class TestWritePathConsistency:
-    def test_direct_and_journal_produce_same_types(self, tmp_path):
-        """Both write paths must produce identical column types."""
-        backend = ParquetBackend(results_dir=tmp_path)
-        run = _make_test_run()
-
-        # Direct write
-        direct_path = backend.save_test_run(run)
-        direct_table = pq.read_table(direct_path)
-
-        # Journal write: simulate JSONL round-trip
-        journal_dir = tmp_path / ".journals" / "2026-01-01" / "test"
-        journal_dir.mkdir(parents=True)
-        import json
-        rows = direct_table.to_pylist()
-        journal_path = journal_dir / "measurements.jsonl"
-        with open(journal_path, "w") as f:
-            for row in rows:
-                # Serialize like the real journal does
-                serialized = {}
-                for k, v in row.items():
-                    if isinstance(v, datetime):
-                        serialized[k] = v.isoformat()
-                    elif hasattr(v, "hex"):  # UUID
-                        serialized[k] = str(v)
-                    else:
-                        serialized[k] = v
-                f.write(json.dumps(serialized, default=str) + "\n")
-
-        journal_path2 = backend.convert_journal(journal_dir)
-        journal_table = pq.read_table(journal_path2)
-
-        # Compare types for all analysis columns
-        for col in direct_table.column_names:
-            if col in journal_table.column_names:
-                direct_type = direct_table.schema.field(col).type
-                journal_type = journal_table.schema.field(col).type
-                assert direct_type == journal_type, (
-                    f"Type mismatch for '{col}': direct={direct_type}, journal={journal_type}"
-                )

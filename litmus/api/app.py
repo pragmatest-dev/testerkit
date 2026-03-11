@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+from pathlib import Path
 from uuid import UUID
 
 from fastapi import APIRouter, HTTPException
@@ -218,6 +219,80 @@ def create_api_router() -> APIRouter:
         if manager.respond(uuid, response):
             return {"status": "ok"}
         raise HTTPException(status_code=404, detail="Dialog not found")
+
+    # -------------------------------------------------------------------------
+    # Events & Sessions
+    # -------------------------------------------------------------------------
+
+    @router.get("/events")
+    def list_events(
+        session_id: str | None = None,
+        type: str | None = None,
+        role: str | None = None,
+        since: str | None = None,
+        limit: int = 100,
+    ):
+        """Query events from the event store."""
+        from litmus.mcp.tools import events_query
+
+        _rdir = Path(project.results_dir) if project.results_dir else None
+        return events_query(
+            session_id, type, role, since, limit, results_dir=_rdir,
+        )
+
+    @router.get("/sessions")
+    def list_sessions():
+        """List known sessions."""
+        from litmus.mcp.tools import sessions_query
+
+        _rdir = Path(project.results_dir) if project.results_dir else None
+        return sessions_query(results_dir=_rdir)
+
+    @router.get("/sessions/{session_id}")
+    def get_session(session_id: str):
+        """Get events for a specific session."""
+        from litmus.mcp.tools import session_detail_query
+
+        _rdir = Path(project.results_dir) if project.results_dir else None
+        result = session_detail_query(session_id, results_dir=_rdir)
+        if result["events"] is None:
+            raise HTTPException(status_code=404, detail="Session not found")
+        return result
+
+    # -------------------------------------------------------------------------
+    # Channels
+    # -------------------------------------------------------------------------
+
+    @router.get("/channels")
+    def list_channels():
+        """List known channels from the channel registry."""
+        from litmus.mcp.tools import channels_list_query
+
+        _rdir = Path(project.results_dir) if project.results_dir else None
+        return channels_list_query(results_dir=_rdir)
+
+    @router.get("/channels/{channel_id}")
+    def get_channel_data(
+        channel_id: str,
+        session_id: str | None = None,
+        start: str | None = None,
+        end: str | None = None,
+        last_n: int | None = None,
+        max_points: int | None = None,
+    ):
+        """Query channel data."""
+        from litmus.mcp.tools import channels_query
+
+        _rdir = Path(project.results_dir) if project.results_dir else None
+        return channels_query(
+            channel_id,
+            session_id=session_id,
+            start=start,
+            end=end,
+            last_n=last_n,
+            max_points=max_points,
+            results_dir=_rdir,
+        )
 
     # -------------------------------------------------------------------------
     # Products & Stations

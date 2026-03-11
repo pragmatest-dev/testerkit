@@ -9,22 +9,23 @@ from collections.abc import Generator
 from contextvars import ContextVar
 from pathlib import Path
 from typing import Any
+from uuid import UUID, uuid4
 
 import pytest
 import yaml
 from _pytest.runner import runtestprotocol
 
 from litmus.config.test_config import FixtureConfig
-from litmus.data.backends.parquet import ParquetBackend
-from litmus.data.models import TestRun
+from litmus.data.models import CollectedItem, TestRun
 from litmus.execution.accessors import InstrumentAccessor
 from litmus.execution.decorators import set_current_logger
 from litmus.execution.harness import Context
 from litmus.execution.logger import RunContext, TestRunLogger
 from litmus.fixtures.manager import FixtureManager, PinAccessor
-from litmus.instruments.models import CalibrationInfo, InstrumentInfo, InstrumentRecord
+from litmus.instruments.models import InstrumentRecord
+from litmus.instruments.pool import InstrumentPool
 from litmus.products.context import SpecContext
-from litmus.schemas import ProjectConfig, StationConfig
+from litmus.schemas import OutputConfig, ProjectConfig, StationConfig
 
 # ---------------------------------------------------------------------------
 # ContextVars — ALL mutable module state lives here.
@@ -43,9 +44,22 @@ _active_spec_context_var: ContextVar[Any] = ContextVar("_active_spec_context")
 _test_node_aliases_var: ContextVar[dict[str, dict[str, str]]] = ContextVar("_test_node_aliases")
 _test_node_configs_var: ContextVar[dict[str, dict[str, Any]]] = ContextVar("_test_node_configs")
 _sequence_test_phase_var: ContextVar[str | None] = ContextVar("_sequence_test_phase")
+_channel_store_var: ContextVar[Any] = ContextVar("_channel_store")
+_collected_items_var: ContextVar[list[CollectedItem]] = ContextVar("_collected_items")
 
 
 # --- Session-scoped getters (create-and-store on first access) ---
+#
+# Two patterns are used here:
+#
+# 1. **Create-and-store** (session-scoped): First call creates a dict and
+#    stores it in the ContextVar. Callers mutate the returned dict in place.
+#    Cleanup sets the var to a fresh empty dict.
+#
+# 2. **Return throwaway** (per-test-scoped): First call returns a new empty
+#    dict WITHOUT storing it. This prevents stale state from leaking across
+#    tests — each test gets its own empty dict that is never persisted.
+
 
 def get_step_outcomes() -> dict[str, bool]:
     """Create-and-store on first access; callers mutate in place."""
@@ -99,6 +113,7 @@ def get_test_node_configs() -> dict[str, dict[str, Any]]:
 
 # --- Per-test getters (return throwaway empty, no storing) ---
 
+
 def get_current_step_aliases() -> dict[str, str]:
     """Return throwaway empty; never stored. Stale state never leaks."""
     try:
@@ -133,41 +148,76 @@ def get_sequence_test_phase() -> str | None:
 
 # --- Setters ---
 
+
 def set_step_outcomes(value: dict[str, bool]) -> None:
     """Set value. Returns None."""
     _step_outcomes_var.set(value)
+
 
 def set_active_instruments(value: dict[str, Any]) -> None:
     """Set value. Returns None."""
     _active_instruments_var.set(value)
 
+
 def set_instrument_records(value: dict[str, InstrumentRecord]) -> None:
     """Set value. Returns None."""
     _instrument_records_var.set(value)
+
 
 def set_current_step_aliases(value: dict[str, str]) -> None:
     """Set value. Returns None."""
     _current_step_aliases_var.set(value)
 
+
 def set_current_step_config(value: dict[str, Any]) -> None:
     """Set value. Returns None."""
     _current_step_config_var.set(value)
+
 
 def set_active_spec_context(value: Any) -> None:
     """Set value. Returns None."""
     _active_spec_context_var.set(value)
 
+
 def set_test_node_aliases(value: dict[str, dict[str, str]]) -> None:
     """Set value. Returns None."""
     _test_node_aliases_var.set(value)
+
 
 def set_test_node_configs(value: dict[str, dict[str, Any]]) -> None:
     """Set value. Returns None."""
     _test_node_configs_var.set(value)
 
+
 def set_sequence_test_phase(value: str | None) -> None:
     """Set value. Returns None."""
     _sequence_test_phase_var.set(value)
+
+
+def get_channel_store() -> Any:
+    """Return None if not set."""
+    try:
+        return _channel_store_var.get()
+    except LookupError:
+        return None
+
+
+def set_channel_store(value: Any) -> None:
+    """Set value. Returns None."""
+    _channel_store_var.set(value)
+
+
+def get_collected_items() -> list[CollectedItem]:
+    """Return collected pytest items, or empty list if not set."""
+    try:
+        return _collected_items_var.get()
+    except LookupError:
+        return []
+
+
+def set_collected_items(value: list[CollectedItem]) -> None:
+    """Set value. Returns None."""
+    _collected_items_var.set(value)
 
 
 def _load_sequence_steps(config):
@@ -201,8 +251,7 @@ def _load_sequence_steps(config):
                 else f"Fix: create sequences/{seq_option}.yaml"
             )
             warnings.warn(
-                f"Sequence '{seq_option}' not found. "
-                f"No test ordering will be applied. {fix_hint}",
+                f"Sequence '{seq_option}' not found. No test ordering will be applied. {fix_hint}",
                 stacklevel=1,
             )
             return []
@@ -304,6 +353,7 @@ def pytest_configure(config):
 
         station_model = load_station(station_path)
     except Exception:
+        # ValidationError, bad YAML, missing deps — don't crash pytest
         return
 
     if not station_model:
@@ -336,6 +386,7 @@ def pytest_configure(config):
 
     def _make_resolved(name: str):
         """Create a function-scoped fixture that resolves aliases."""
+
         @pytest.fixture
         def _fix(instruments):
             target = get_current_step_aliases().get(name, name)
@@ -344,6 +395,7 @@ def pytest_configure(config):
 
                 raise _instrument_not_found(name, target, instruments)
             return instruments[target]
+
         _fix.__name__ = name
         _fix.__qualname__ = name
         return _fix
@@ -352,27 +404,48 @@ def pytest_configure(config):
         if role in aliased_role_names:
             setattr(_InstrumentFixtures, role, staticmethod(_make_resolved(role)))
         else:
+
             def _make(r=role):
                 @pytest.fixture(scope="session")
                 def _fix(instruments):
                     return instruments.get(r)
+
                 _fix.__name__ = r
                 _fix.__qualname__ = r
                 return _fix
+
             setattr(_InstrumentFixtures, role, staticmethod(_make()))
 
     # Register function-scoped fixtures for alias names that aren't station roles
     for alias in all_alias_names - set(instruments_map.keys()):
         setattr(_InstrumentFixtures, alias, staticmethod(_make_resolved(alias)))
 
-    config.pluginmanager.register(
-        _InstrumentFixtures(), "litmus_instrument_fixtures"
-    )
+    config.pluginmanager.register(_InstrumentFixtures(), "litmus_instrument_fixtures")
 
 
 def pytest_sessionstart(session):
     """Clear outcomes at session start."""
     set_step_outcomes({})
+
+
+def pytest_collection_modifyitems(items: list[pytest.Item]) -> None:
+    """Capture collected items so the step manifest can include not-started steps."""
+    collected = []
+    for item in items:
+        markers = ",".join(sorted(m.name for m in item.iter_markers()))
+        parts = item.nodeid.rsplit("::", 1)
+        func_name = parts[-1] if len(parts) > 1 else item.name
+        mod = getattr(item, "module", None)
+        cls = getattr(item, "cls", None)
+        collected.append(CollectedItem(
+            node_id=item.nodeid,
+            file=str(item.path) if hasattr(item, "path") else None,
+            module=mod.__name__ if mod else None,
+            class_name=cls.__name__ if cls else None,
+            function=func_name,
+            markers=markers or None,
+        ))
+    set_collected_items(collected)
 
 
 def pytest_sessionfinish(session, exitstatus):
@@ -402,8 +475,9 @@ def pytest_addoption(parser):
     group.addoption("--station", default=project.default_station, help="Station ID")
     group.addoption("--operator", default=None, help="Operator name")
     group.addoption(
-        "--results-dir", default=project.results_dir,
-        help="Directory for Parquet results",
+        "--results-dir",
+        default=None,
+        help="Directory for Parquet results (default: platform data dir)",
     )
     group.addoption("--spec", default=None, help="Path to product spec YAML file")
     group.addoption("--guardband", default="0", help="Default guardband percentage")
@@ -552,42 +626,25 @@ def _safe_get_session_fixture(request, name):
     except pytest.FixtureLookupError:
         return None
     except Exception:
+        # Fixture exists but raised during setup (e.g. ValidationError)
         return None
 
 
-def _attach_streaming_destinations(logger: TestRunLogger) -> None:
-    """Open and attach streaming destinations from outputs config.
+def _create_subscriber(
+    cls: type,
+    fmt: str,
+    output_cfg: OutputConfig,
+    results_path: Path,
+    session_id: UUID,
+) -> Any:
+    """Instantiate a subscriber with format-specific constructor args."""
+    from litmus.data.backends.parquet import ParquetBackend, ParquetSubscriber
 
-    Checks each output entry for a streaming-capable exporter and wires
-    it into the logger for real-time per-measurement streaming.
-    """
-    try:
-        from litmus.config.project import load_project_config
-
-        config = load_project_config()
-    except Exception:
-        return
-
-    from litmus.data.exporters._base import StreamingDestination
-    from litmus.data.exporters._registry import get_exporter_class, is_report_format
-
-    for output_cfg in config.outputs:
-        fmt = output_cfg.format
-        if not fmt or is_report_format(fmt):
-            continue
-        try:
-            cls = get_exporter_class(fmt)
-            if cls is not None:
-                instance = cls()
-                if not isinstance(instance, StreamingDestination):
-                    continue
-                instance.open(output_cfg, logger.test_run)
-                logger.add_streaming_destination(instance)
-        except Exception as exc:
-            warnings.warn(
-                f"Streaming setup for '{fmt}' failed: {exc}",
-                stacklevel=2,
-            )
+    if cls is ParquetSubscriber:
+        backend = ParquetBackend(results_dir=str(results_path))
+        return ParquetSubscriber(backend)
+    # Unknown subscriber — try no-arg constructor
+    return cls()
 
 
 def _build_run_metadata(request: pytest.FixtureRequest) -> dict[str, Any]:
@@ -633,17 +690,15 @@ def _build_run_metadata(request: pytest.FixtureRequest) -> dict[str, Any]:
     station_location = None
     if station_config:
         station_name = station_config.name
-        station_type = (
-            getattr(station_config, "station_type", None)
-            or getattr(station_config, "type", None)
+        station_type = getattr(station_config, "station_type", None) or getattr(
+            station_config, "type", None
         )
         station_location = station_config.location
 
     results_dir = request.config.getoption("--results-dir")
 
-    requested_phase = (
-        request.config.getoption("--test-phase")
-        or os.environ.get("LITMUS_TEST_PHASE")
+    requested_phase = request.config.getoption("--test-phase") or os.environ.get(
+        "LITMUS_TEST_PHASE"
     )
     test_phase = _resolve_test_phase(requested_phase)
 
@@ -654,9 +709,7 @@ def _build_run_metadata(request: pytest.FixtureRequest) -> dict[str, Any]:
         spec_context.product.part_number if spec_context else None
     )
     cli_revision = request.config.getoption("--dut-revision")
-    dut_revision = cli_revision or (
-        spec_context.product.revision if spec_context else None
-    )
+    dut_revision = cli_revision or (spec_context.product.revision if spec_context else None)
 
     from litmus.environment import capture_environment
 
@@ -709,33 +762,175 @@ def litmus_logger(request) -> Generator[TestRunLogger, None, None]:
     @litmus_test decorated functions to log measurements.
 
     Captures config snapshots at run start for full traceability.
-    Streams measurements to a JSONL journal for live observability.
+    Streams events to an event log for live observability.
     """
+    from litmus.data.event_store import EventStore
+    from litmus.data.events import SessionStarted
+    from litmus.data.subscribers import get_subscriber_class
+
     meta = _build_run_metadata(request)
+    from litmus.data.results_dir import resolve_results_dir
+
     results_dir = meta["results_dir"]
+    if not results_dir:
+        results_dir = str(resolve_results_dir())
+        meta["results_dir"] = results_dir
+    session_id = uuid4()
+    meta["session_id"] = session_id
 
     logger = TestRunLogger(**meta)
-    # Wire streaming destinations from outputs config
-    _attach_streaming_destinations(logger)
+
+    # Create event store + log and wire subscribers from config
+    _event_store: EventStore | None = None
+    if results_dir:
+        results_path = Path(results_dir)
+
+        _event_store = EventStore(_results_dir=results_path)
+        event_log = _event_store.get_event_log(session_id)
+        logger.event_log = event_log
+
+        # Collect configured subscriber formats from outputs config
+        configured: set[str] = set()
+        try:
+            from litmus.config.project import load_project_config
+
+            config = load_project_config()
+            for output_cfg in config.outputs:
+                fmt = output_cfg.format
+                if fmt:
+                    cls = get_subscriber_class(fmt)
+                    if cls is not None:
+                        sub = _create_subscriber(cls, fmt, output_cfg, results_path, session_id)
+                        event_log.add_subscriber(sub)
+                        configured.add(fmt)
+        except Exception:
+            pass
+
+        # Create ChannelStore directly (not via subscriber registry)
+        from litmus.data.channels.store import ChannelStore as _ChannelStore
+
+        _cs = _ChannelStore(results_path / "channels", session_id, serve=True)
+        _cs.open()
+        set_channel_store(_cs)
+
+        # Register defaults not already configured
+        for fmt in ("parquet",):
+            if fmt not in configured:
+                cls = get_subscriber_class(fmt)
+                if cls is not None:
+                    sub = _create_subscriber(
+                        cls,
+                        fmt,
+                        OutputConfig(format=fmt),
+                        results_path,
+                        session_id,
+                    )
+                    event_log.add_subscriber(sub)
+
+        # Emit SessionStarted with full run context
+        session_event = SessionStarted(
+            session_id=logger._session_id,
+            run_id=logger.test_run.id,
+            station_id=logger.test_run.station_id,
+            station_name=logger.test_run.station_name,
+            station_type=logger.test_run.station_type,
+            station_location=logger.test_run.station_location,
+            dut_serial=logger.test_run.dut.serial,
+            dut_part_number=logger.test_run.dut.part_number,
+            dut_revision=logger.test_run.dut.revision,
+            dut_lot_number=logger.test_run.dut.lot_number,
+            product_id=logger.test_run.product_id,
+            product_name=logger.test_run.product_name,
+            product_revision=logger.test_run.product_revision,
+            operator_id=logger.test_run.operator_id,
+            operator_name=logger.test_run.operator_name,
+            fixture_id=logger.test_run.fixture_id,
+            sequence_id=logger.test_run.test_sequence_id,
+            test_phase=logger.test_run.test_phase,
+            git_commit=logger.test_run.git_commit,
+            environment_json=logger.test_run.environment_json,
+            station_config_yaml=logger.test_run.station_config_yaml,
+            product_spec_yaml=logger.test_run.product_spec_yaml,
+            fixture_config_yaml=logger.test_run.fixture_config_yaml,
+            test_config_yaml=logger.test_run.test_config_yaml,
+            custom_metadata=dict(logger.test_run.custom_metadata),
+            pid=os.getpid(),
+        )
+        event_log.emit(session_event)
+
+        # Emit InstrumentConnected for each instrument
+        _emit_instrument_events(logger, event_log)
+
+        # Emit StepsDiscovered so subscribers know the full manifest
+        from litmus.data.events import StepsDiscovered
+
+        collected = get_collected_items()
+        if collected:
+            event_log.emit(StepsDiscovered(
+                session_id=logger._session_id,
+                run_id=logger.test_run.id,
+                items=[ci.model_dump() for ci in collected],
+            ))
 
     set_current_logger(logger)
     yield logger
 
-    # Finalize and save
-    test_run = logger.finalize()
-    backend = ParquetBackend(results_dir=results_dir)
+    # Copy collected items onto test_run so the manifest captures not-started steps
+    logger.test_run.collected_items = get_collected_items()
 
-    # Convert journal to parquet if journaling was enabled
-    # Instrument arrays are per-step (embedded in each step and journal row)
-    journal_dir = logger.journal_dir
-    backend.save_test_run(
-        test_run,
-        journal_dir=journal_dir,
-    )
+    # Close ChannelStore before finalizing (before EventLog closes subscribers)
+    _cs_final = get_channel_store()
+    if _cs_final is not None:
+        _cs_final.close()
+        set_channel_store(None)
+
+    # Finalize emits RunEnded/SessionEnded and closes event log + subscribers.
+    # EventStore.close() will flush remaining events to Flight/DuckDB after.
+    test_run = logger.finalize()
+
+    # Close EventStore — releases daemon ref. Event logs were already closed
+    # by finalize(), and on_flush callback pushed final batches to Flight.
+    if _event_store is not None:
+        _event_store.close()
 
     # Run configured outputs (exports, reports, transports)
     _run_configured_outputs(test_run, str(test_run.id), results_dir)
     set_current_logger(None)
+
+
+def _emit_instrument_events(logger: TestRunLogger, event_log: Any) -> None:
+    """Emit InstrumentConnected events from instrument records."""
+    from litmus.data.events import InstrumentConnected
+
+    records = get_instrument_records()
+    for role, rec in records.items():
+        event = InstrumentConnected(
+            session_id=logger._session_id,
+            run_id=logger.test_run.id,
+            role=role,
+            instrument_id=rec.instrument_id,
+            driver=rec.driver,
+            resource=rec.resource,
+            protocol=rec.protocol,
+            manufacturer=rec.info.manufacturer if rec.info else None,
+            model=rec.info.model if rec.info else None,
+            serial=rec.info.serial if rec.info else None,
+            firmware=rec.info.firmware if rec.info else None,
+            cal_due=(
+                rec.calibration.due_date.isoformat()
+                if rec.calibration and rec.calibration.due_date
+                else None
+            ),
+            cal_last=(
+                rec.calibration.last_cal.isoformat()
+                if rec.calibration and rec.calibration.last_cal
+                else None
+            ),
+            cal_certificate=rec.calibration.certificate if rec.calibration else None,
+            cal_lab=rec.calibration.lab if rec.calibration else None,
+            mocked=rec.mocked,
+        )
+        event_log.emit(event)
 
 
 @pytest.fixture(scope="session")
@@ -753,6 +948,37 @@ def run_context(litmus_logger) -> RunContext:
     return litmus_logger.run_context
 
 
+def _extract_code_identity(item: Any) -> dict[str, str | None]:
+    """Extract code identity fields from a pytest.Item node."""
+    identity: dict[str, str | None] = {}
+    identity["node_id"] = getattr(item, "nodeid", None)
+    identity["function"] = getattr(item, "originalname", None) or getattr(item, "name", None)
+    identity["class_name"] = item.cls.__name__ if getattr(item, "cls", None) else None
+    mod = getattr(item, "module", None)
+    identity["module"] = mod.__name__ if mod else None
+
+    item_path = getattr(item, "path", None)
+    if item_path is not None:
+        rootdir = getattr(item.config, "rootpath", None)
+        if rootdir:
+            try:
+                identity["file"] = str(item_path.relative_to(rootdir))
+            except ValueError:
+                identity["file"] = str(item_path)
+        else:
+            identity["file"] = str(item_path)
+    else:
+        identity["file"] = None
+
+    own_markers = getattr(item, "own_markers", [])
+    if own_markers:
+        identity["markers"] = ",".join(m.name for m in own_markers)
+    else:
+        identity["markers"] = None
+
+    return identity
+
+
 @pytest.fixture
 def litmus_step(litmus_logger, request) -> Generator[None, None, None]:
     """Create step for test function (use when NOT using @litmus_test).
@@ -760,7 +986,8 @@ def litmus_step(litmus_logger, request) -> Generator[None, None, None]:
     Note: @litmus_test decorated tests already create their own steps.
     Only use this fixture for tests that need step tracking without @litmus_test.
     """
-    litmus_logger.start_step(request.node.name)
+    identity = _extract_code_identity(request.node)
+    litmus_logger.start_step(request.node.name, **identity)
     yield
     litmus_logger.end_step()
 
@@ -881,9 +1108,7 @@ def station_config(request) -> StationConfig | None:
 
     # Check if --station was explicitly passed (not the default)
     station_id = request.config.getoption("--station")
-    explicit = any(
-        arg.startswith("--station") for arg in request.config.invocation_params.args
-    )
+    explicit = any(arg.startswith("--station") for arg in request.config.invocation_params.args)
     if explicit:
         warnings.warn(
             f"Station '{station_id}' not found in stations/ directory. "
@@ -924,80 +1149,6 @@ def fixture_config(request) -> FixtureConfig | None:
     return None
 
 
-def _load_driver_class(driver_path: str | None):
-    """Load a driver class from import path.
-
-    Args:
-        driver_path: Dotted import path like "pymeasure.instruments.keithley.Keithley2400"
-
-    Returns the class or None if not found.
-    """
-    if not driver_path:
-        return None
-
-    try:
-        import importlib
-
-        module_path, class_name = driver_path.rsplit(".", 1)
-        module = importlib.import_module(module_path)
-        return getattr(module, class_name)
-    except (ImportError, AttributeError, ValueError):
-        return None
-
-
-def _check_calibration(role: str, calibration: CalibrationInfo) -> None:
-    """Check calibration status and emit warnings if needed."""
-    if not calibration or not calibration.due_date:
-        return
-
-    days_until = calibration.days_until_due()
-    if days_until is None:
-        return
-
-    if days_until < 0:
-        warnings.warn(
-            f"{role}: CALIBRATION EXPIRED (due {calibration.due_date}, "
-            f"{-days_until} days overdue)",
-            UserWarning,
-            stacklevel=3,
-        )
-    elif days_until < 30:
-        warnings.warn(
-            f"{role}: calibration due soon ({calibration.due_date}, "
-            f"{days_until} days remaining)",
-            UserWarning,
-            stacklevel=3,
-        )
-
-
-def _verify_instrument_identity(
-    role: str,
-    actual: InstrumentInfo,
-    expected: InstrumentInfo,
-    strict: bool = False,
-) -> None:
-    """Verify instrument identity matches expected configuration.
-
-    Args:
-        role: Instrument role name for error messages
-        actual: InstrumentInfo queried from device
-        expected: InstrumentInfo from configuration
-        strict: If True, raise error on mismatch. If False, warn only.
-
-    Raises:
-        RuntimeError: If strict and identity doesn't match
-    """
-    if not expected:
-        return  # No expected identity configured
-
-    matches, mismatches = actual.matches(expected)
-    if not matches:
-        msg = f"{role}: instrument identity mismatch - {'; '.join(mismatches)}"
-        if strict:
-            raise RuntimeError(msg)
-        warnings.warn(msg, UserWarning, stacklevel=3)
-
-
 class StationError(Exception):
     """Error during station instrument setup."""
 
@@ -1035,6 +1186,13 @@ def instrument_records(request, station_config, mock_instruments) -> dict[str, I
 
     # Resolve station instruments to records
     records = resolve_station_instruments(station_config, instrument_files)
+
+    # Set mocked flag early so InstrumentConnected events capture it
+    inst_configs = station_config.instruments or {}
+    for role, rec in records.items():
+        inline = inst_configs.get(role)
+        rec.mocked = mock_instruments or (inline.mock if inline else False)
+
     set_instrument_records(records)
 
     return records
@@ -1042,7 +1200,7 @@ def instrument_records(request, station_config, mock_instruments) -> dict[str, I
 
 @pytest.fixture(scope="session")
 def instruments(
-    request, station_config, mock_instruments, instrument_records
+    request, station_config, mock_instruments, instrument_records, litmus_logger
 ) -> Generator[dict[str, Any], None, None]:
     """Create instrument instances from station configuration.
 
@@ -1072,90 +1230,39 @@ def instruments(
     Returns:
         Dictionary mapping instrument role names to driver instances.
     """
-    active: dict[str, Any] = {}
-    set_active_instruments(active)
-
     if not station_config:
+        active: dict[str, Any] = {}
+        set_active_instruments(active)
         yield active
         return
 
-    from litmus.instruments.mocks import Mock
-
-    # Get instrument configs from station
     inst_configs = station_config.instruments or {}
+    session_id = litmus_logger._session_id if litmus_logger else None
+    run_id = litmus_logger.test_run.id if litmus_logger else None
+    event_log = litmus_logger.event_log if litmus_logger else None
+
+    pool = InstrumentPool(
+        session_id=session_id,
+        event_log=event_log,
+        channel_store=get_channel_store(),
+        mock_all=mock_instruments,
+        station_id=station_config.id or "",
+        run_id=run_id,
+    )
 
     for role, record in instrument_records.items():
-        # Get config - either from record (new format) or inline (legacy)
         inline_config = inst_configs.get(role)
-
-        mock_config = (
-            inline_config.mock_config
-            if inline_config and inline_config.mock_config
-            else {}
-        )
         use_mock = mock_instruments or (inline_config.mock if inline_config else False)
         record.mocked = use_mock
-
-        if use_mock:
-            # Mock mode - generic mock, no driver class needed
-            inst: Any = Mock(object, **mock_config)
-            # For mocks, identity comes from config (no real device to query)
-            if record.info:
-                inst.manufacturer = record.info.manufacturer
-                inst.model = record.info.model
-                inst.serial = record.info.serial
-                inst.firmware = record.info.firmware
-        else:
-            # Real hardware path
-            driver_class = _load_driver_class(record.driver)
-            if driver_class is not None:
-                # Driver specified (PyMeasure, InstrumentKit, custom)
-                inst = driver_class(record.resource)
-            elif record.resource:
-                # No driver - use raw PyVISA
-                import pyvisa
-                rm = pyvisa.ResourceManager("@py")
-                inst = rm.open_resource(record.resource)
-            else:
-                # No driver and no resource - skip
-                continue
-
-            connect_fn = getattr(inst, "connect", None)
-            if callable(connect_fn):
-                connect_fn()
-
-            # Query and verify identity
-            actual_info = _get_instrument_info(inst, record.protocol)
-            if actual_info:
-                # Verify against expected (warn on mismatch, don't fail)
-                _verify_instrument_identity(role, actual_info, record.info, strict=False)
-                # Update record with actual info for logging
-                record.info = actual_info
-            elif record.info:
-                # Couldn't query device but have expected info - warn
-                warnings.warn(
-                    f"{role}: could not query instrument identity",
-                    UserWarning,
-                    stacklevel=2,
-                )
-
-        # Check calibration status
-        _check_calibration(role, record.calibration)
-
-        active[role] = inst
-
-    yield active
-
-    # Cleanup: disconnect/close all instruments
-    for role, inst in active.items():
         try:
-            if hasattr(inst, "disconnect"):
-                inst.disconnect()
-            elif hasattr(inst, "close"):
-                inst.close()  # PyVISA resources use close()
-        except Exception as exc:
-            warnings.warn(f"Failed to cleanup instrument '{role}': {exc}", stacklevel=2)
-    active.clear()
+            pool.acquire(role, record, inline_config)
+        except ValueError:
+            continue
+
+    set_active_instruments(pool.active)
+    yield pool.active
+
+    pool.release_all()
 
 
 @pytest.fixture
@@ -1170,41 +1277,6 @@ def instrument(instruments, instrument_records) -> InstrumentAccessor:
             dmms = instrument.by_type("pymeasure.instruments.keithley.Keithley2000")
     """
     return InstrumentAccessor(instruments, instrument_records)
-
-
-def _get_instrument_info(inst: Any, protocol: str = "visa") -> InstrumentInfo | None:
-    """Get instrument identity from connected instance.
-
-    For VISA instruments, queries *IDN?. For other protocols,
-    uses protocol-specific methods.
-
-    Args:
-        inst: Connected instrument instance
-        protocol: Protocol type ("visa", "ni", etc.)
-
-    Returns:
-        InstrumentInfo or None if query fails
-    """
-    # First check if instrument already has identity attributes
-    if hasattr(inst, "manufacturer") and inst.manufacturer:
-        return InstrumentInfo(
-            manufacturer=getattr(inst, "manufacturer", None),
-            model=getattr(inst, "model", None),
-            serial=getattr(inst, "serial", None),
-            firmware=getattr(inst, "firmware", None),
-        )
-
-    # Try to query via SCPI *IDN?
-    if hasattr(inst, "query"):
-        try:
-            from litmus.instruments.discovery import parse_idn
-
-            idn = inst.query("*IDN?")
-            return parse_idn(idn)
-        except Exception:
-            pass
-
-    return None
 
 
 @pytest.fixture(scope="session")

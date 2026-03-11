@@ -4,7 +4,7 @@ import pytest
 
 from litmus.config.models import Limit, RetryConfig
 from litmus.data.models import Outcome, TestVector
-from litmus.execution.harness import Context, TestHarness, VectorContext
+from litmus.execution.harness import Context, TestHarness
 from litmus.execution.vectors import Vector
 
 
@@ -564,20 +564,6 @@ class TestContext:
         assert ctx.get_out("temp_probe.humidity") == 45.2
         assert ctx.outputs == {"temp_probe.temperature": 24.8, "temp_probe.humidity": 45.2}
 
-    def test_set_in_alias(self):
-        """Test that set_in() is an alias for configure()."""
-        ctx = Context()
-        ctx.set_in("psu.voltage", 5.0)
-
-        assert ctx.get_in("psu.voltage") == 5.0
-
-    def test_set_out_alias(self):
-        """Test that set_out() is an alias for observe()."""
-        ctx = Context()
-        ctx.set_out("temp_probe.temperature", 24.8)
-
-        assert ctx.get_out("temp_probe.temperature") == 24.8
-
     def test_configure_all_bulk(self):
         """Test that configure_all() adds multiple inputs at once."""
         ctx = Context()
@@ -723,23 +709,6 @@ class TestContext:
         ctx.set("operator_badge", "EMP-12345")
 
         assert ctx.metadata == {"operator_badge": "EMP-12345"}
-
-
-class TestVectorContextAlias:
-    """Tests that VectorContext is an alias for Context."""
-
-    def test_vector_context_is_context(self):
-        """Test that VectorContext is Context."""
-        assert VectorContext is Context
-
-    def test_vector_context_works_as_before(self):
-        """Test that VectorContext API works for backwards compatibility."""
-        ctx = VectorContext()
-        ctx.configure("psu.voltage", 5.0)
-        ctx.observe("temp_probe.temperature", 24.8)
-
-        assert ctx.get_in("psu.voltage") == 5.0
-        assert ctx.get_out("temp_probe.temperature") == 24.8
 
 
 class TestHarnessContext:

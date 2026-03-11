@@ -20,7 +20,7 @@ Optional exporters (install via pip install litmus[stdf], etc.):
 
 from __future__ import annotations
 
-from litmus.data.exporters._base import Exporter, StreamingDestination
+from litmus.data.exporters._base import EventSubscriber, Exporter
 from litmus.data.exporters._registry import (
     get_exporter,
     list_exporters,
@@ -28,8 +28,8 @@ from litmus.data.exporters._registry import (
 )
 
 __all__ = [
+    "EventSubscriber",
     "Exporter",
-    "StreamingDestination",
     "get_exporter",
     "list_exporters",
     "register_exporter",

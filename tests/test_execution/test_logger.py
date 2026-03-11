@@ -1,5 +1,7 @@
 """Tests for TestRunLogger."""
 
+from uuid import uuid4
+
 from litmus.data.models import Measurement, Outcome, TestStep, TestVector
 from litmus.execution.logger import (
     TestRunLogger,
@@ -249,3 +251,106 @@ class TestTestRunLogger:
         logger.log_measurement(m)
 
         assert len(vector.measurements) == 1
+
+
+class TestEventLogIntegration:
+    """Tests for EventLog integration in TestRunLogger."""
+
+    def test_event_log_emits_events(self, tmp_path):
+        """Logger emits StepStarted, MeasurementRecorded, StepEnded, RunEnded, SessionEnded."""
+
+        from litmus.data.event_log import EventLog
+
+        run_id = uuid4()
+        logger = TestRunLogger(
+            dut_serial="SN001",
+            station_id="station_001",
+            test_sequence_id="test",
+            run_id=run_id,
+        )
+        event_log = EventLog(tmp_path / "events", run_id)
+        logger._event_log = event_log
+        logger._session_id = uuid4()
+
+        logger.start_step("step1")
+        m = Measurement(name="voltage", value=5.0, outcome=Outcome.PASS)
+        logger.log_measurement(m)
+        logger.end_step()
+        logger.finalize()
+
+        event_log.close()
+        events = event_log.events()
+        types = [e["event_type"] for e in events]
+        assert types == [
+            "test.step_started",
+            "test.measurement",
+            "test.step_ended",
+            "test.run_ended",
+            "session.ended",
+        ]
+
+    def test_measurement_event_is_normalized(self, tmp_path):
+        """MeasurementRecorded should NOT contain run-level metadata."""
+
+        from litmus.data.event_log import EventLog
+
+        run_id = uuid4()
+        logger = TestRunLogger(
+            dut_serial="SN001",
+            station_id="station_001",
+            test_sequence_id="test",
+            run_id=run_id,
+        )
+        event_log = EventLog(tmp_path / "events", run_id)
+        logger._event_log = event_log
+        logger._session_id = uuid4()
+
+        logger.start_step("step1")
+        logger.log_measurement(
+            Measurement(name="v", value=3.3, outcome=Outcome.PASS)
+        )
+        logger.end_step()
+        logger.finalize()
+
+        event_log.close()
+        events = event_log.events()
+        for data in events:
+            if data["event_type"] == "test.measurement":
+                # These fields should NOT be on the normalized event
+                assert "station_id" not in data
+                assert "dut_serial" not in data
+                assert "instruments" not in data
+                assert "vector_started_at" not in data
+                assert "step_started_at" not in data
+                # These should be present
+                assert data["measurement_name"] == "v"
+                assert data["value"] == 3.3
+                assert data["step_name"] == "step1"
+                break
+        else:
+            raise AssertionError("No test.measurement event found")
+
+    def test_start_step_code_identity(self):
+        """start_step() stores code identity on TestStep."""
+        logger = TestRunLogger(
+            dut_serial="SN001",
+            station_id="station_001",
+            test_sequence_id="test",
+        )
+        logger.start_step(
+            "test_5v_rail",
+            node_id="tests/test_power.py::TestPower::test_5v_rail",
+            file="tests/test_power.py",
+            module="tests.test_power",
+            class_name="TestPower",
+            function="test_5v_rail",
+            markers="litmus_test,parametrize",
+        )
+
+        step = logger.test_run.steps[0]
+        assert step.node_id == "tests/test_power.py::TestPower::test_5v_rail"
+        assert step.file == "tests/test_power.py"
+        assert step.module == "tests.test_power"
+        assert step.class_name == "TestPower"
+        assert step.function == "test_5v_rail"
+        assert step.markers == "litmus_test,parametrize"

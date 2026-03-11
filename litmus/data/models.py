@@ -54,10 +54,24 @@ class Outcome(StrEnum):
     NOT_TESTED = "not_tested"
 
 
+def escalate_outcome(current: Outcome, incoming: Outcome) -> Outcome:
+    """Return the worse of two outcomes: ERROR > FAIL > everything else.
+
+    Use this everywhere outcome cascading is needed (vector, step, run)
+    to keep the severity logic in one place.
+    """
+    if incoming == Outcome.ERROR or current == Outcome.ERROR:
+        return Outcome.ERROR
+    if incoming == Outcome.FAIL or current == Outcome.FAIL:
+        return Outcome.FAIL
+    return current
+
+
 class Measurement(BaseModel):
     """A single measurement with optional limit checking."""
 
     name: str
+    step_path: str = ""
     value: float | None
     units: str | None = None
     low_limit: float | None = None
@@ -111,26 +125,26 @@ class Measurement(BaseModel):
             else:
                 self.outcome = Outcome.FAIL
         elif comp == "LT":
-            # Less than high limit
-            if self.high_limit is not None and self.value < self.high_limit:
+            # Less than high limit (no limit = no constraint = pass)
+            if self.high_limit is None or self.value < self.high_limit:
                 self.outcome = Outcome.PASS
             else:
                 self.outcome = Outcome.FAIL
         elif comp == "LE":
-            # Less than or equal to high limit
-            if self.high_limit is not None and self.value <= self.high_limit:
+            # Less than or equal to high limit (no limit = no constraint = pass)
+            if self.high_limit is None or self.value <= self.high_limit:
                 self.outcome = Outcome.PASS
             else:
                 self.outcome = Outcome.FAIL
         elif comp == "GT":
-            # Greater than low limit
-            if self.low_limit is not None and self.value > self.low_limit:
+            # Greater than low limit (no limit = no constraint = pass)
+            if self.low_limit is None or self.value > self.low_limit:
                 self.outcome = Outcome.PASS
             else:
                 self.outcome = Outcome.FAIL
         elif comp == "GE":
-            # Greater than or equal to low limit
-            if self.low_limit is not None and self.value >= self.low_limit:
+            # Greater than or equal to low limit (no limit = no constraint = pass)
+            if self.low_limit is None or self.value >= self.low_limit:
                 self.outcome = Outcome.PASS
             else:
                 self.outcome = Outcome.FAIL
@@ -219,7 +233,17 @@ class TestStep(BaseModel):
 
     id: UUID = Field(default_factory=uuid4)
     name: str
+    step_path: str = ""
+    parent_path: str = ""
     description: str | None = None
+
+    # Code identity (populated from pytest.Item when available)
+    node_id: str | None = None
+    file: str | None = None
+    module: str | None = None
+    class_name: str | None = None
+    function: str | None = None
+    markers: str | None = None
     started_at: datetime = Field(default_factory=_utcnow)
     ended_at: datetime | None = None
     outcome: Outcome = Outcome.PASS
@@ -243,6 +267,17 @@ class TestStep(BaseModel):
         return sum(1 for v in self.vectors if v.outcome == Outcome.FAIL)
 
 
+class CollectedItem(BaseModel):
+    """A pytest item collected for execution (before any run)."""
+
+    node_id: str
+    file: str | None = None
+    module: str | None = None
+    class_name: str | None = None
+    function: str | None = None
+    markers: str | None = None
+
+
 class DUT(BaseModel):
     """Device under test identification."""
 
@@ -258,6 +293,7 @@ class TestRun(BaseModel):
     __test__ = False  # Prevent pytest collection
 
     id: UUID = Field(default_factory=uuid4)
+    session_id: UUID = Field(default_factory=uuid4)  # Cross-store join key; set by logger
     started_at: datetime = Field(default_factory=_utcnow)
     ended_at: datetime | None = None
 
@@ -274,6 +310,7 @@ class TestRun(BaseModel):
     station_name: str | None = None
     station_type: str | None = None
     station_location: str | None = None
+    station_hostname: str | None = None
 
     # Fixture traceability
     fixture_id: str | None = None
@@ -292,6 +329,9 @@ class TestRun(BaseModel):
     # Results
     outcome: Outcome = Outcome.PASS
     steps: list[TestStep] = Field(default_factory=list)
+
+    # Collected items (full list from pytest collection, before execution)
+    collected_items: list[CollectedItem] = Field(default_factory=list)
 
     # Custom metadata (user-defined fields)
     custom_metadata: dict[str, Any] = Field(default_factory=dict)
@@ -325,8 +365,15 @@ class TestRun(BaseModel):
                     yield build_row(
                         self, measurement, step.name, step_index,
                         vector, step.instrument_arrays or {},
+                        step_path=step.step_path,
                         step_started_at=step.started_at,
                         step_ended_at=step.ended_at,
+                        step_node_id=step.node_id,
+                        step_module=step.module,
+                        step_file=step.file,
+                        step_class=step.class_name,
+                        step_function=step.function,
+                        step_markers=step.markers,
                     )
 
 
