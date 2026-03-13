@@ -16,7 +16,7 @@ import pyarrow.compute as _pc
 import pyarrow.parquet as pq
 
 from litmus.analysis._common import parse_datetime
-from litmus.data.backends.parquet import _enforce_schema
+from litmus.data.schemas import _enforce_schema
 
 # pyarrow.compute has dynamic attributes that pyright can't see
 pc: Any = _pc

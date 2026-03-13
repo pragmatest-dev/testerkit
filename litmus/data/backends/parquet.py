@@ -22,12 +22,12 @@ Schema design:
 import json
 import logging
 import pickle
+from collections.abc import Callable
 from datetime import datetime
 from pathlib import Path
 from typing import Any
 
 import pyarrow as pa
-import pyarrow.compute as pc
 import pyarrow.parquet as pq
 
 from litmus.data._atomic import atomic_write_table
@@ -43,159 +43,90 @@ from litmus.data.backends._row_helpers import (
 )
 from litmus.data.models import TestRun, Waveform
 from litmus.data.ref import is_ref, ref_scheme
+from litmus.data.schemas import (
+    SCHEMA_VERSION,
+    _build_write_schema,
+    table_from_rows,
+)
 from litmus.execution.logger import INSTRUMENT_ARRAY_KEYS
 
 logger = logging.getLogger(__name__)
 
-# Canonical schema for fixed columns. Dynamic columns (in_*, out_*, instr_*, custom_*)
-# are NOT listed here — they pass through with inferred types.
-MEASUREMENT_SCHEMA = pa.schema([
-    # Identity & timing
-    ("session_id", pa.string()),
-    ("run_id", pa.string()),
-    ("run_started_at", pa.timestamp("us", tz="UTC")),
-    ("run_ended_at", pa.timestamp("us", tz="UTC")),
-    ("step_name", pa.string()),
-    ("step_index", pa.int64()),
-    ("step_path", pa.string()),
-    ("step_started_at", pa.timestamp("us", tz="UTC")),
-    ("step_ended_at", pa.timestamp("us", tz="UTC")),
-    ("step_node_id", pa.string()),
-    ("step_module", pa.string()),
-    ("step_file", pa.string()),
-    ("step_class", pa.string()),
-    ("step_function", pa.string()),
-    ("step_markers", pa.string()),
-    ("vector_index", pa.int64()),
-    ("attempt", pa.int64()),
-    ("vector_started_at", pa.timestamp("us", tz="UTC")),
-    ("vector_ended_at", pa.timestamp("us", tz="UTC")),
-    # Who
-    ("operator_id", pa.string()),
-    ("operator_name", pa.string()),
-    # DUT
-    ("dut_serial", pa.string()),
-    ("dut_part_number", pa.string()),
-    ("dut_revision", pa.string()),
-    ("dut_lot_number", pa.string()),
-    # Product
-    ("product_id", pa.string()),
-    ("product_name", pa.string()),
-    ("product_revision", pa.string()),
-    # Station
-    ("station_id", pa.string()),
-    ("station_name", pa.string()),
-    ("station_type", pa.string()),
-    ("station_location", pa.string()),
-    ("station_hostname", pa.string()),
-    # Fixture
-    ("fixture_id", pa.string()),
-    # Test context
-    ("sequence_id", pa.string()),
-    ("test_phase", pa.string()),
-    ("git_commit", pa.string()),
-    # Measurement core
-    ("measurement_name", pa.string()),
-    ("measurement_timestamp", pa.timestamp("us", tz="UTC")),
-    ("value", pa.float64()),
-    ("units", pa.string()),
-    ("outcome", pa.string()),
-    # Limits
-    ("low_limit", pa.float64()),
-    ("high_limit", pa.float64()),
-    ("nominal", pa.float64()),
-    ("comparator", pa.string()),
-    # Spec traceability
-    ("spec_id", pa.string()),
-    ("spec_ref", pa.string()),
-    # Signal path
-    ("meas_dut_pin", pa.string()),
-    ("meas_fixture_point", pa.string()),
-    ("meas_instrument", pa.string()),
-    ("meas_instrument_resource", pa.string()),
-    ("meas_instrument_channel", pa.string()),
-    # Rollup
-    ("vector_outcome", pa.string()),
-    ("run_outcome", pa.string()),
-    # Environment traceability
-    ("python_version", pa.string()),
-    ("litmus_version", pa.string()),
-    ("env_fingerprint", pa.string()),
-])
+# Suffix patterns for stimulus signal-path columns (in_{param}_{suffix}).
+# A column like "in_vin_instrument" is metadata, not a param value.
+_STIMULUS_SUFFIXES = ("_instrument", "_resource", "_channel", "_dut_pin", "_fixture_point")
 
-_SCHEMA_DICT = {f.name: f.type for f in MEASUREMENT_SCHEMA}
-
-_TIMESTAMP_COLS = {
-    "run_started_at", "run_ended_at", "vector_started_at", "vector_ended_at",
-    "measurement_timestamp", "step_started_at", "step_ended_at",
-}
+# Fields in MeasurementRow that are expanded via to_flat_dict(), not stored directly.
+_DENORMALIZATION_FIELDS = frozenset({"inputs", "outputs", "instruments", "custom"})
 
 
-def _enforce_schema(table: pa.Table) -> pa.Table:
-    """Normalize column types to match MEASUREMENT_SCHEMA.
+def _is_param_column(col: str) -> bool:
+    """True if col is an in_* param value, not signal-path metadata."""
+    return col.startswith("in_") and not any(col.endswith(s) for s in _STIMULUS_SUFFIXES)
 
-    For each column in the table that appears in the canonical schema:
-    - If the type already matches, no-op.
-    - If the column is null-typed, cast to the target type.
-    - If the column is an extension type (uuid, json) or string where timestamp
-      expected, rebuild via to_pylist() round-trip.
 
-    Dynamic columns not in the schema pass through unchanged.
+def _build_parquet_metadata(
+    *,
+    station_config_yaml: str | None = None,
+    product_spec_yaml: str | None = None,
+    fixture_config_yaml: str | None = None,
+    test_config_yaml: str | None = None,
+    environment_json: str | None = None,
+    collected_items_json: str | None = None,
+    step_manifest: list[dict[str, Any]] | None = None,
+) -> dict[bytes, bytes]:
+    """Build Parquet file-level metadata from config snapshots.
+
+    Shared by ParquetBackend (from TestRun) and ParquetSubscriber
+    (from cached SessionStarted event).
     """
-    columns = []
-    names = []
+    metadata: dict[bytes, bytes] = {}
 
-    for i, field in enumerate(table.schema):
-        col = table.column(i)
-        target_type = _SCHEMA_DICT.get(field.name)
+    if station_config_yaml:
+        metadata[b"station_config_yaml"] = station_config_yaml.encode("utf-8")
+    if product_spec_yaml:
+        metadata[b"product_spec_yaml"] = product_spec_yaml.encode("utf-8")
+    if fixture_config_yaml:
+        metadata[b"fixture_config_yaml"] = fixture_config_yaml.encode("utf-8")
+    if test_config_yaml:
+        metadata[b"test_config_yaml"] = test_config_yaml.encode("utf-8")
+    if environment_json:
+        metadata[b"environment_json"] = environment_json.encode("utf-8")
+    if collected_items_json:
+        metadata[b"litmus_collected_items"] = collected_items_json.encode("utf-8")
+    if step_manifest:
+        metadata[b"litmus_step_manifest"] = json.dumps(step_manifest).encode("utf-8")
 
-        if target_type is None or field.type == target_type:
-            # Dynamic column or already correct
-            columns.append(col)
-            names.append(field.name)
-            continue
+    metadata[b"litmus_version"] = b"1.0.0"
+    metadata[b"schema_version"] = SCHEMA_VERSION.encode()
+    return metadata
 
-        if pa.types.is_null(field.type):
-            # All nulls — cast to target
-            columns.append(col.cast(target_type))
-            names.append(field.name)
-            continue
 
-        # Try Arrow-native cast first (handles most numeric/string conversions)
-        try:
-            if pa.types.is_timestamp(target_type) and pa.types.is_string(field.type):
-                # String → timestamp: use strptime then cast to target tz
-                parsed = pc.strptime(col, format="%Y-%m-%dT%H:%M:%S%z", unit="us")  # type: ignore[attr-defined]
-                columns.append(parsed.cast(target_type))
-            else:
-                columns.append(col.cast(target_type, safe=False))
-            names.append(field.name)
-            continue
-        except (pa.ArrowInvalid, pa.ArrowNotImplementedError):
-            pass
+class ParquetMeasurementWriter:
+    """Writes measurement RecordBatches as Parquet files."""
 
-        # Fallback for extension types: pylist round-trip
-        values = col.to_pylist()
+    def __init__(self, *, notify: Callable[[Path], None] | None = None) -> None:
+        self._notify = notify
 
-        if pa.types.is_timestamp(target_type):
-            parsed_ts = []
-            for v in values:
-                if isinstance(v, str):
-                    parsed_ts.append(datetime.fromisoformat(v.replace("Z", "+00:00")))
-                else:
-                    parsed_ts.append(v)
-            columns.append(pa.array(parsed_ts, type=target_type))
-        elif target_type == pa.string():
-            columns.append(pa.array(
-                [str(v) if v is not None else None for v in values],
-                type=target_type,
-            ))
-        else:
-            columns.append(col)  # keep as-is
+    def write_batch(
+        self,
+        batch: pa.RecordBatch,
+        path: Path,
+        *,
+        file_metadata: dict[bytes, bytes] | None = None,
+    ) -> Path:
+        """Write a measurement batch to a Parquet file.
 
-        names.append(field.name)
-
-    return pa.table(columns, names=names)
+        Converts the RecordBatch to a Table, attaches file-level metadata,
+        and writes atomically (temp file + os.replace).
+        """
+        table = pa.Table.from_batches([batch])
+        if file_metadata:
+            table = table.replace_schema_metadata(file_metadata)
+        atomic_write_table(table, path)
+        if self._notify:
+            self._notify(path)
+        return path
 
 
 class ParquetBackend:
@@ -213,6 +144,7 @@ class ParquetBackend:
 
         self.results_dir = resolve_results_dir(results_dir)
         self.results_dir.mkdir(parents=True, exist_ok=True)
+        self._writer = ParquetMeasurementWriter(notify=self._notify_daemon)
 
     def save_test_run(
         self,
@@ -258,19 +190,14 @@ class ParquetBackend:
             # No measurements - create empty file with minimal schema
             rows = [self._build_empty_row(test_run, instrument_arrays)]
 
-        # Convert to PyArrow table with canonical types
-        table = pa.Table.from_pylist(rows)
-        table = _enforce_schema(table)
+        # Convert to RecordBatch with explicit schema
+        schema = _build_write_schema(rows)
+        table = table_from_rows(rows, schema)
+        batch = table.combine_chunks().to_batches()[0]
 
-        # Add file-level metadata (config snapshots)
+        # Write via measurement writer
         metadata = self._build_file_metadata(test_run)
-        table = table.replace_schema_metadata(metadata)
-
-        # Write to Parquet (atomic: temp file + os.replace)
-        atomic_write_table(table, parquet_path)
-
-        # Notify runs daemon so it indexes immediately
-        self._notify_daemon(parquet_path)
+        self._writer.write_batch(batch, parquet_path, file_metadata=metadata)
 
         return parquet_path
 
@@ -284,7 +211,7 @@ class ParquetBackend:
                 run_store.notify_new_run(parquet_path)
             finally:
                 run_store.close()
-        except Exception:
+        except Exception:  # Intentionally broad: notification must not fail writes
             logger.debug("Failed to notify runs daemon", exc_info=True)
 
     def _build_measurement_rows(
@@ -361,7 +288,7 @@ class ParquetBackend:
         row: dict[str, Any] = {
             name: None
             for name in MeasurementRow.model_fields
-            if name not in ("inputs", "outputs", "instruments", "custom")
+            if name not in _DENORMALIZATION_FIELDS
         }
         # Overlay run-level metadata (populates run_id, dut_serial, etc.)
         row.update(build_run_metadata(test_run))
@@ -378,35 +305,19 @@ class ParquetBackend:
 
     def _build_file_metadata(self, test_run: TestRun) -> dict[bytes, bytes]:
         """Build Parquet file-level metadata with config snapshots."""
-        metadata: dict[bytes, bytes] = {}
-
-        if test_run.station_config_yaml:
-            metadata[b"station_config_yaml"] = test_run.station_config_yaml.encode("utf-8")
-        if test_run.product_spec_yaml:
-            metadata[b"product_spec_yaml"] = test_run.product_spec_yaml.encode("utf-8")
-        if test_run.fixture_config_yaml:
-            metadata[b"fixture_config_yaml"] = test_run.fixture_config_yaml.encode("utf-8")
-        if test_run.test_config_yaml:
-            metadata[b"test_config_yaml"] = test_run.test_config_yaml.encode("utf-8")
-
-        if test_run.environment_json:
-            metadata[b"environment_json"] = test_run.environment_json.encode("utf-8")
-
-        # Collected items for reconstruction
-        if test_run.collected_items:
-            metadata[b"litmus_collected_items"] = json.dumps(
-                [ci.model_dump() for ci in test_run.collected_items]
-            ).encode("utf-8")
-
-        # Step manifest
-        manifest = build_step_manifest(test_run)
-        metadata[b"litmus_step_manifest"] = json.dumps(manifest).encode("utf-8")
-
-        # Add some convenience metadata
-        metadata[b"litmus_version"] = b"1.0.0"
-        metadata[b"schema_version"] = b"2.0"  # New analysis-ready schema
-
-        return metadata
+        collected_items_json = (
+            json.dumps([ci.model_dump() for ci in test_run.collected_items])
+            if test_run.collected_items else None
+        )
+        return _build_parquet_metadata(
+            station_config_yaml=test_run.station_config_yaml,
+            product_spec_yaml=test_run.product_spec_yaml,
+            fixture_config_yaml=test_run.fixture_config_yaml,
+            test_config_yaml=test_run.test_config_yaml,
+            environment_json=test_run.environment_json,
+            collected_items_json=collected_items_json,
+            step_manifest=build_step_manifest(test_run),
+        )
 
     def list_runs(self, limit: int = 50) -> list[dict]:
         """List recent test runs. Delegates to RunStore."""
@@ -473,12 +384,11 @@ class ParquetBackend:
                     "station_id": m.get("station_id"),
                     "sequence_id": m.get("sequence_id"),
                 }
-                # Extract params (in_* columns without suffix)
+                # Extract params (in_* columns, excluding signal-path metadata)
                 params = {}
                 for k, v in m.items():
-                    if k.startswith("in_") and "_" not in k[3:]:
-                        param_name = k[3:]
-                        params[param_name] = v
+                    if _is_param_column(k):
+                        params[k[3:]] = v
                 vector_info["params"] = params
                 vectors_seen[key] = vector_info
 
@@ -544,6 +454,9 @@ class ParquetBackend:
         Used by ParquetSubscriber to write accumulated rows without
         needing a TestRun object.
         """
+        if not rows:
+            raise ValueError("save_from_rows() requires at least one row")
+
         timestamp = started_at.strftime("%Y%m%dT%H%M%SZ")
         date_str = started_at.strftime("%Y-%m-%d")
         dut_serial = dut_serial.strip() if dut_serial else ""
@@ -564,16 +477,11 @@ class ParquetBackend:
                 if key not in row:
                     row[key] = []
 
-        table = pa.Table.from_pylist(rows)
-        table = _enforce_schema(table)
+        schema = _build_write_schema(rows)
+        table = table_from_rows(rows, schema)
+        batch = table.combine_chunks().to_batches()[0]
 
-        if file_metadata:
-            table = table.replace_schema_metadata(file_metadata)
-
-        atomic_write_table(table, parquet_path)
-
-        # Notify runs daemon so it indexes immediately
-        self._notify_daemon(parquet_path)
+        self._writer.write_batch(batch, parquet_path, file_metadata=file_metadata)
 
         return parquet_path
 
@@ -847,34 +755,24 @@ class ParquetSubscriber:
 
     def _build_file_metadata(self) -> dict[bytes, bytes]:
         """Build Parquet file-level metadata from cached session."""
-        metadata: dict[bytes, bytes] = {}
         s = self._session
         if not s:
-            return metadata
+            return _build_parquet_metadata()
 
-        if s.station_config_yaml:
-            metadata[b"station_config_yaml"] = s.station_config_yaml.encode("utf-8")
-        if s.product_spec_yaml:
-            metadata[b"product_spec_yaml"] = s.product_spec_yaml.encode("utf-8")
-        if s.fixture_config_yaml:
-            metadata[b"fixture_config_yaml"] = s.fixture_config_yaml.encode("utf-8")
-        if s.test_config_yaml:
-            metadata[b"test_config_yaml"] = s.test_config_yaml.encode("utf-8")
-        if s.environment_json:
-            metadata[b"environment_json"] = s.environment_json.encode("utf-8")
-
-        # Collected items for reconstruction
-        if self._collected_items:
-            metadata[b"litmus_collected_items"] = json.dumps(self._collected_items).encode("utf-8")
-
-        # Step manifest from cached events
-        manifest = self._build_step_manifest_from_events()
-        if manifest:
-            metadata[b"litmus_step_manifest"] = json.dumps(manifest).encode("utf-8")
-
-        metadata[b"litmus_version"] = b"1.0.0"
-        metadata[b"schema_version"] = b"2.0"
-        return metadata
+        collected_items_json = (
+            json.dumps(self._collected_items)
+            if self._collected_items else None
+        )
+        manifest = self._build_step_manifest_from_events() or None
+        return _build_parquet_metadata(
+            station_config_yaml=s.station_config_yaml,
+            product_spec_yaml=s.product_spec_yaml,
+            fixture_config_yaml=s.fixture_config_yaml,
+            test_config_yaml=s.test_config_yaml,
+            environment_json=s.environment_json,
+            collected_items_json=collected_items_json,
+            step_manifest=manifest,
+        )
 
     def _build_step_manifest_from_events(self) -> list[dict[str, Any]]:
         """Build step manifest from cached StepStarted/StepEnded events.
@@ -884,6 +782,12 @@ class ParquetSubscriber:
         """
         manifest: list[dict[str, Any]] = []
         executed_node_ids: set[str] = set()
+
+        # Pre-compute measurement counts per step index (avoids O(M*N) scan)
+        meas_counts: dict[int, int] = {}
+        for e in self._measurement_events:
+            meas_counts[e.step_index] = meas_counts.get(e.step_index, 0) + 1
+
         all_indices = sorted(set(self._step_starts) | set(self._step_ends))
         for idx in all_indices:
             start = self._step_starts.get(idx)
@@ -891,9 +795,7 @@ class ParquetSubscriber:
             node_id = start.node_id if start else None
             if node_id:
                 executed_node_ids.add(node_id)
-            meas_count = sum(
-                1 for e in self._measurement_events if e.step_index == idx
-            )
+            meas_count = meas_counts.get(idx, 0)
             entry: dict[str, Any] = {
                 "index": idx,
                 "name": start.step_name if start else (end.step_name if end else ""),
@@ -1065,10 +967,6 @@ def is_file_reference(value: Any) -> bool:
     return False
 
 
-# Suffix patterns for stimulus signal-path columns (in_{param}_{suffix}).
-# A column like "in_vin_instrument" is metadata, not a param value.
-_STIMULUS_SUFFIXES = ("_instrument", "_resource", "_channel", "_dut_pin", "_fixture_point")
-
 
 def reconstruct_test_run_from_file(pq_file: Path) -> TestRun:
     """Reconstruct a TestRun model from a Parquet file.
@@ -1147,9 +1045,7 @@ def reconstruct_test_run_from_file(pq_file: Path) -> TestRun:
             observations: dict[str, Any] = {}
             sample_row = meas_rows[0]
             for col, val in sample_row.items():
-                if col.startswith("in_") and not any(
-                    col.endswith(s) for s in _STIMULUS_SUFFIXES
-                ):
+                if _is_param_column(col):
                     params[col[3:]] = val
                 elif col.startswith("out_"):
                     observations[col[4:]] = val
@@ -1178,7 +1074,10 @@ def reconstruct_test_run_from_file(pq_file: Path) -> TestRun:
                     m.timestamp = ts
                 measurements.append(m)
 
-            vec_outcome_str = sample_row.get("vector_outcome")
+            vec_outcome_str = next(
+                (mr.get("vector_outcome") for mr in meas_rows if mr.get("vector_outcome")),
+                None,
+            )
             vectors.append(
                 TestVector(
                     index=vk[0] or 0,

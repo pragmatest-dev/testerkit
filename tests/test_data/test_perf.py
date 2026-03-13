@@ -200,7 +200,7 @@ class TestEnforceSchemaPerf:
     @pytest.mark.benchmark(group="parquet-schema")
     @pytest.mark.parametrize("n_rows", [100, 1_000, 10_000])
     def test_enforce_schema(self, benchmark, n_rows: int):
-        from litmus.data.backends.parquet import _enforce_schema
+        from litmus.data.schemas import _enforce_schema
 
         # Build a table with string timestamps (the hard coercion case)
         data = {

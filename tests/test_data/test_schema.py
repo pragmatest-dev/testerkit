@@ -3,10 +3,8 @@
 
 import pyarrow as pa
 
-from litmus.data.backends.parquet import (
-    _enforce_schema,
-)
 from litmus.data.models import DUT, Measurement, Outcome, TestRun, TestStep, TestVector
+from litmus.data.schemas import _enforce_schema
 
 
 def _make_test_run() -> TestRun:
