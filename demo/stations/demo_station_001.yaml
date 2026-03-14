@@ -68,6 +68,12 @@ instruments:
         - 3.3
         - 3.31
       - 1.0e-05
+  matrix:
+    type: switch
+    driver: demo.drivers.SwitchMatrix
+    resource: TCPIP::192.168.1.106::INSTR
+    mock: true
+    description: 4x8 relay matrix for signal switching demo
 supported_phases:
 - validation
 - production

@@ -333,6 +333,32 @@ class DiagnosticError(EventBase):
 # Instrument events
 # ---------------------------------------------------------------------------
 
+# ---------------------------------------------------------------------------
+# Route events (signal switching)
+# ---------------------------------------------------------------------------
+
+class RouteClosed(EventBase):
+    """Emitted when switch channels are closed to activate a route."""
+
+    event_type: Literal["route.closed"] = "route.closed"
+    point_name: str
+    switch_role: str
+    channels: list[str]
+
+
+class RouteOpened(EventBase):
+    """Emitted when switch channels are opened to deactivate a route."""
+
+    event_type: Literal["route.opened"] = "route.opened"
+    point_name: str
+    switch_role: str
+    channels: list[str]
+
+
+# ---------------------------------------------------------------------------
+# Instrument events
+# ---------------------------------------------------------------------------
+
 class InstrumentRead(EventBase):
     """Emitted when a driver read method is called via proxy.
 
@@ -481,13 +507,14 @@ FIXTURE_EVENTS = {
     InstrumentConnected, IdentityVerified, CalibrationWarning, DutScanned, InstrumentDisconnected,
 }
 TEST_EVENTS = {StepStarted, MeasurementRecorded, RecordEvent, StepEnded, StepsDiscovered, RunEnded}
+ROUTE_EVENTS = {RouteClosed, RouteOpened}
 INSTRUMENT_EVENTS = {InstrumentRead, InstrumentSet, InstrumentConfigure}
 DIAGNOSTIC_EVENTS = {DiagnosticWarning, DiagnosticError}
 STREAM_EVENTS = {StreamStarted, StreamEnded, StreamFrameIndex}
 DIALOG_EVENTS = {DialogOpened, DialogResponded}
 ALL_EVENTS = (
     SESSION_EVENTS | SLOT_EVENTS | FIXTURE_EVENTS | TEST_EVENTS
-    | INSTRUMENT_EVENTS | DIAGNOSTIC_EVENTS | STREAM_EVENTS
+    | ROUTE_EVENTS | INSTRUMENT_EVENTS | DIAGNOSTIC_EVENTS | STREAM_EVENTS
     | DIALOG_EVENTS
 )
 
@@ -498,6 +525,7 @@ Event = Annotated[
     | InstrumentConnected | IdentityVerified | CalibrationWarning
     | DutScanned | InstrumentDisconnected
     | StepStarted | MeasurementRecorded | RecordEvent | StepEnded | StepsDiscovered | RunEnded
+    | RouteClosed | RouteOpened
     | InstrumentRead | InstrumentSet | InstrumentConfigure
     | DiagnosticWarning | DiagnosticError
     | StreamStarted | StreamEnded | StreamFrameIndex

@@ -81,6 +81,11 @@ def _build_resolved_slot(
 ) -> ResolvedSlot:
     """Build a ResolvedSlot from fixture points."""
     roles = {point.instrument for point in points.values()}
+    # Include switch roles from route configs so station validation
+    # catches missing switch instruments
+    for point in points.values():
+        if point.route is not None:
+            roles.add(point.route.switch)
     return ResolvedSlot(
         slot_id=slot_id,
         points=points,

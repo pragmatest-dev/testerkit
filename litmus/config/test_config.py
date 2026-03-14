@@ -103,6 +103,25 @@ class Specification(BaseModel):
 # =============================================================================
 
 
+class SwitchRoute(BaseModel):
+    """Switch routing for a fixture point.
+
+    Declares which switch channels to close before this point's
+    instrument can be used. The platform manages the lifecycle:
+    lock acquisition, channel closure, settling, and cleanup.
+
+    Example YAML:
+        route:
+          switch: matrix
+          channels: ["r0c0", "r0c1"]
+          settling_ms: 10
+    """
+
+    switch: str  # Station instrument role for the switch
+    channels: list[str]  # Crosspoints/channels to close
+    settling_ms: float = 0  # ms to wait after closing
+
+
 class FixturePoint(BaseModel):
     """A named routing junction on a test fixture.
 
@@ -117,7 +136,7 @@ class FixturePoint(BaseModel):
     - InstrumentChannel: Physical channel on instrument (CH1, ai0)
     - InstrumentTerminal: Physical terminal (hi, lo, signal)
 
-    Example YAML:
+    Example YAML (direct wiring):
         vout_measure:
           name: vout_measure
           instrument: dmm
@@ -125,6 +144,17 @@ class FixturePoint(BaseModel):
           instrument_terminal: hi
           dut_pin: VOUT
           net: "VOUT_3V3"
+
+    Example YAML (switched routing):
+        vout_measure:
+          name: vout_measure
+          instrument: dmm
+          instrument_channel: "1"
+          dut_pin: VOUT
+          route:
+            switch: matrix
+            channels: ["r0c0"]
+            settling_ms: 10
     """
 
     name: str
@@ -136,6 +166,9 @@ class FixturePoint(BaseModel):
     # DUT-side mapping (ATML: signal routing)
     dut_pin: str | None = None  # Reference to Product.pins key
     net: str | None = None  # Match by schematic net name
+
+    # Switch routing (None = direct-wired, no switching needed)
+    route: SwitchRoute | None = None
 
 
 class FixtureSlot(BaseModel):

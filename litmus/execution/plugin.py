@@ -25,6 +25,7 @@ from litmus.execution.logger import RunContext, TestRunLogger
 from litmus.fixtures.manager import FixtureManager, PinAccessor
 from litmus.instruments.models import InstrumentRecord
 from litmus.instruments.pool import InstrumentPool
+from litmus.instruments.route_manager import RouteManager
 from litmus.products.context import SpecContext
 from litmus.schemas import OutputConfig, ProjectConfig, StationConfig
 
@@ -1453,10 +1454,80 @@ def dut(
 
 
 @pytest.fixture(scope="session")
-def pins(instruments, fixture_config) -> PinAccessor:
+def _route_manager(
+    instruments, fixture_config, litmus_logger,
+) -> Generator[RouteManager | None, None, None]:
+    """Session-scoped route manager for switched signal routing.
+
+    Built from fixture points that have routes. Holds locks for the
+    session duration. Yields None if no routes are configured.
+    """
+    if not fixture_config or not instruments:
+        yield None
+        return
+
+    session_id = litmus_logger._session_id if litmus_logger else None
+    event_log = litmus_logger.event_log if litmus_logger else None
+    station_id = ""
+    if litmus_logger and hasattr(litmus_logger, "_station_id"):
+        station_id = getattr(litmus_logger, "_station_id", "")
+
+    rm = RouteManager(
+        points=fixture_config.points,
+        instruments=instruments,
+        session_id=session_id,
+        station_id=station_id,
+        event_log=event_log,
+    )
+
+    if not rm.has_routes:
+        yield None
+        return
+
+    yield rm
+    rm.deactivate_all()
+
+
+@pytest.fixture
+def routes(request) -> Generator[RouteManager | None, None, None]:
+    """Per-test route manager for explicit switch routing.
+
+    Use with the context-manager pattern for direct instrument access::
+
+        def test_vout(dmm, routes):
+            with routes.for_pin("VOUT"):
+                v = dmm.measure_voltage()
+            assert 3.2 < v < 3.4
+
+    Yields None if no routes are configured (tests without switching
+    can still request this fixture without error).
+    """
+    rm = _safe_get_session_fixture(request, "_route_manager")
+    yield rm
+    if rm is not None:
+        rm.deactivate_all()
+
+
+@pytest.fixture(autouse=True)
+def _route_cleanup(request) -> Generator[None, None, None]:
+    """Per-test cleanup for lazy-activated routes (pins[] pattern).
+
+    Ensures all routes activated via RoutedProxy during a test are
+    deactivated before the next test runs.
+    """
+    yield
+    rm = _safe_get_session_fixture(request, "_route_manager")
+    if rm is not None:
+        rm.deactivate_all()
+
+
+@pytest.fixture(scope="session")
+def pins(instruments, fixture_config, _route_manager) -> PinAccessor:
     """UUT-centric pin accessor for tests.
 
-    Resolves DUT pin names to instrument instances:
+    Resolves DUT pin names to instrument instances. When fixture points
+    have switch routes, instruments are wrapped in RoutedProxy for
+    transparent route activation on first use.
 
         def test_output(pins):
             pins["VIN"].set_voltage(5.0)
@@ -1468,12 +1539,12 @@ def pins(instruments, fixture_config) -> PinAccessor:
     """
     _require_fixture_and_instruments(fixture_config, instruments, "pins")
 
-    manager = FixtureManager(fixture_config, instruments)
+    manager = FixtureManager(fixture_config, instruments, route_manager=_route_manager)
     return PinAccessor(manager)
 
 
 @pytest.fixture(scope="session")
-def fixture_manager(instruments, fixture_config) -> FixtureManager:
+def fixture_manager(instruments, fixture_config, _route_manager) -> FixtureManager:
     """Fixture manager for advanced pin/net routing.
 
     Provides direct access to the FixtureManager for tests that need
@@ -1487,7 +1558,7 @@ def fixture_manager(instruments, fixture_config) -> FixtureManager:
         pytest.UsageError: If no fixture config or instruments available.
     """
     _require_fixture_and_instruments(fixture_config, instruments, "fixture_manager")
-    return FixtureManager(fixture_config, instruments)
+    return FixtureManager(fixture_config, instruments, route_manager=_route_manager)
 
 
 def pytest_runtest_makereport(item, call):
