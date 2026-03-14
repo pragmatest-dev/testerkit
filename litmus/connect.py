@@ -66,6 +66,7 @@ class StationConnection:
         self._event_log: EventLog | None = None
         self._pool: InstrumentPool | None = None
         self._channel_store: ChannelStore | None = None
+        self._sync_point: Any = None
         self._started = False
 
     def start(self) -> None:
@@ -94,6 +95,11 @@ class StationConnection:
         # Register cleanup callback for SIGTERM/atexit
         cleanup_key = str(self._session_id)
         register_cleanup(cleanup_key, self._emergency_stop)
+
+        # Set up sync point if in multi-slot worker mode
+        from litmus.execution.sync import get_sync
+
+        self._sync_point = get_sync(self._event_store)
 
         self._event_log.emit(
             SessionStarted(
@@ -130,6 +136,8 @@ class StationConnection:
         if self._channel_store:
             self._channel_store.close()
             self._channel_store = None
+
+        self._sync_point = None
 
         if self._event_store:
             self._event_store.close()
@@ -285,6 +293,23 @@ class StationConnection:
         return self._channel_store.write(
             key, value, units=units, sample_interval=sample_interval,
         )
+
+    def sync(self, name: str, timeout: float | None = None) -> None:
+        """Wait at a named sync point (multi-DUT coordination).
+
+        In single-slot mode (no LITMUS_SLOT_ID), returns immediately.
+        In multi-slot mode, blocks until all slots arrive at this point.
+
+        Args:
+            name: Sync point name (e.g., "thermal_soak").
+            timeout: Max seconds to wait. None = wait forever.
+
+        Raises:
+            SyncError: If timeout expires before all slots arrive.
+        """
+        if self._sync_point is None:
+            return  # Single-slot, no sync needed
+        self._sync_point.wait(name, timeout=timeout)
 
     @property
     def instruments(self) -> dict[str, Any]:

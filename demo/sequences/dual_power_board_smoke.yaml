@@ -1,0 +1,50 @@
+id: dual_power_board_smoke
+name: Dual Power Board - Parallel Smoke Test
+description: >
+  Smoke test for two power boards in parallel. Includes a sync step
+  to ensure all boards are powered before output measurement begins.
+product_family: power_board
+test_phase: production
+timeout_seconds: 120
+steps:
+- id: power_up
+  test: tests/test_multi_dut.py::test_power_up
+  description: Power up each board independently
+  mocks:
+    psu.measure_current: 0.005
+  limits:
+    startup_current:
+      low: 0
+      high: 50
+      nominal: 5
+      units: mA
+      comparator: LE
+- id: wait_all_powered
+  sync: all_powered
+  timeout: 30
+- id: output_voltage
+  test: tests/test_multi_dut.py::test_output_voltage_synced
+  description: Verify 3.3V output after all boards are powered
+  mocks:
+    dmm.measure_dc_voltage: 3.3
+  limits:
+    output_voltage:
+      low: 3.234
+      high: 3.366
+      nominal: 3.3
+      units: V
+      ref: output_voltage
+- id: efficiency
+  test: tests/test_multi_dut.py::test_efficiency
+  description: Measure efficiency independently per slot
+  skip_on:
+  - output_voltage
+  mocks:
+    dmm.measure_dc_voltage: 3.28
+    psu.measure_current: 0.55
+  limits:
+    efficiency:
+      low: 55
+      high: 100
+      nominal: 60
+      units: '%'

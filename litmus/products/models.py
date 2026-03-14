@@ -241,6 +241,7 @@ class Product(BaseModel):
     revision: str | None = None
     datasheet: str | None = None
     schematic: str | None = None
+    driver: str | None = None  # Dotted import path (e.g., "drivers.my_board.MyBoard")
 
     # Physical interface (ATML: UUT Ports)
     pins: dict[str, Pin] = Field(default_factory=dict)

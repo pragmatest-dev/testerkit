@@ -115,6 +115,42 @@ class SessionEnded(EventBase):
 
 
 # ---------------------------------------------------------------------------
+# Slot events (multi-DUT)
+# ---------------------------------------------------------------------------
+
+class SlotStarted(EventBase):
+    """Emitted when a DUT slot begins execution."""
+
+    event_type: Literal["slot.started"] = "slot.started"
+    slot_id: str
+    dut_serial: str
+
+
+class SlotCompleted(EventBase):
+    """Emitted when a DUT slot finishes execution."""
+
+    event_type: Literal["slot.completed"] = "slot.completed"
+    slot_id: str
+    outcome: str  # "pass", "fail", "error"
+    error_message: str | None = None
+
+
+class SyncArrived(EventBase):
+    """Emitted by a child process when it reaches a named sync point."""
+
+    event_type: Literal["sync.arrived"] = "sync.arrived"
+    slot_id: str
+    name: str  # Sync point name (e.g., "thermal_soak")
+
+
+class SyncRelease(EventBase):
+    """Emitted by the orchestrator to unblock all slots at a sync point."""
+
+    event_type: Literal["sync.release"] = "sync.release"
+    name: str  # Sync point name
+
+
+# ---------------------------------------------------------------------------
 # Fixture events
 # ---------------------------------------------------------------------------
 
@@ -440,6 +476,7 @@ class DialogResponded(EventBase):
 # ---------------------------------------------------------------------------
 
 SESSION_EVENTS = {SessionStarted, SessionEnded}
+SLOT_EVENTS = {SlotStarted, SlotCompleted, SyncArrived, SyncRelease}
 FIXTURE_EVENTS = {
     InstrumentConnected, IdentityVerified, CalibrationWarning, DutScanned, InstrumentDisconnected,
 }
@@ -449,7 +486,7 @@ DIAGNOSTIC_EVENTS = {DiagnosticWarning, DiagnosticError}
 STREAM_EVENTS = {StreamStarted, StreamEnded, StreamFrameIndex}
 DIALOG_EVENTS = {DialogOpened, DialogResponded}
 ALL_EVENTS = (
-    SESSION_EVENTS | FIXTURE_EVENTS | TEST_EVENTS
+    SESSION_EVENTS | SLOT_EVENTS | FIXTURE_EVENTS | TEST_EVENTS
     | INSTRUMENT_EVENTS | DIAGNOSTIC_EVENTS | STREAM_EVENTS
     | DIALOG_EVENTS
 )
@@ -457,6 +494,7 @@ ALL_EVENTS = (
 # Discriminated union type for deserialization
 Event = Annotated[
     SessionStarted | SessionEnded
+    | SlotStarted | SlotCompleted | SyncArrived | SyncRelease
     | InstrumentConnected | IdentityVerified | CalibrationWarning
     | DutScanned | InstrumentDisconnected
     | StepStarted | MeasurementRecorded | RecordEvent | StepEnded | StepsDiscovered | RunEnded

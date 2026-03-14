@@ -138,6 +138,29 @@ class FixturePoint(BaseModel):
     net: str | None = None  # Match by schematic net name
 
 
+class FixtureSlot(BaseModel):
+    """A DUT slot within a multi-DUT fixture.
+
+    Each slot has its own FixturePoint mappings that route DUT pins
+    to specific instrument channels. Slots share the same instrument
+    roles but use different channels (or entirely different instruments).
+
+    Example YAML:
+        slot_1:
+          dut_resource: /dev/ttyUSB0
+          points:
+            vout_measure:
+              name: vout_measure
+              instrument: dmm
+              instrument_channel: "1"
+              dut_pin: VOUT
+    """
+
+    points: dict[str, FixturePoint] = Field(default_factory=dict)
+    dut_resource: str | None = None  # Per-slot DUT connection string
+    description: str | None = None
+
+
 class FixtureConfig(BaseModel):
     """Test fixture definition (DUT interface).
 
@@ -146,6 +169,10 @@ class FixtureConfig(BaseModel):
     - A specific product (product_id)
     - A product family (product_family) - for shared fixtures
     - A specific revision (product_revision) - optional refinement
+
+    Single-DUT fixtures use ``points`` directly. Multi-DUT fixtures
+    use ``slots``, where each slot has its own ``points`` dict mapping
+    DUT pins to instrument channels. The two are mutually exclusive.
 
     For simple setups without formal fixtures, tests can use:
     - Direct instrument access via fixtures (dmm, psu)
@@ -160,10 +187,36 @@ class FixtureConfig(BaseModel):
     product_family: str | None = None  # Product family (for shared fixtures)
     product_revision: str | None = None  # Optional: specific revision
 
-    # Pin-to-instrument mappings
+    # DUT connection string (e.g., COM3, /dev/ttyUSB0)
+    dut_resource: str | None = None
+
+    # Pin-to-instrument mappings (single-DUT)
     points: dict[str, FixturePoint] = Field(default_factory=dict)
+    # Multi-DUT slot mappings
+    slots: dict[str, FixtureSlot] = Field(default_factory=dict)
 
     description: str | None = None
+
+    def model_post_init(self, _: Any) -> None:
+        """Validate fixture configuration."""
+        if self.points and self.slots:
+            raise ValueError(
+                "FixtureConfig cannot have both 'points' and 'slots'. "
+                "Use 'points' for single-DUT fixtures or 'slots' for multi-DUT."
+            )
+        for slot_id in self.slots:
+            if not slot_id or not slot_id.strip():
+                raise ValueError(f"Slot ID must be a non-empty string, got {slot_id!r}")
+
+    @property
+    def slot_count(self) -> int:
+        """Number of DUT slots (1 for single-DUT fixtures)."""
+        return len(self.slots) if self.slots else 1
+
+    @property
+    def is_multi_slot(self) -> bool:
+        """True if this fixture has multiple DUT slots."""
+        return len(self.slots) > 1
 
     def matches_product(self, product_id: str, revision: str | None = None) -> bool:
         """Check if this fixture matches a product."""
@@ -524,7 +577,7 @@ class TestConfig(BaseModel):
 class TestStepConfig(BaseModel):
     """Configuration for a single test step.
 
-    A step references either a test OR another sequence (mutually exclusive).
+    A step references either a test, a sequence, or a sync point (mutually exclusive).
 
     Example with test:
         - id: measure_5v
@@ -535,6 +588,12 @@ class TestStepConfig(BaseModel):
         - id: run_smoke
           sequence: power_board_smoke
           description: "Run smoke tests first"
+
+    Example with sync point (multi-DUT):
+        - id: wait_thermal
+          sync: thermal_soak
+          timeout: 300
+          description: "Wait for all slots to reach thermal soak"
     """
 
     __test__ = False  # Prevent pytest collection
@@ -542,6 +601,8 @@ class TestStepConfig(BaseModel):
     id: str
     test: str | None = None  # pytest node ID, e.g. "tests/test_power.py::test_5v"
     sequence: str | None = None  # Reference another sequence by ID
+    sync: str | None = None  # Sync point name for multi-DUT coordination
+    timeout: float | None = None  # Timeout for sync point (seconds)
     description: str | None = None
     measurement_name: str | None = None
     limit: Limit | None = None  # Inline limit (highest precedence)
@@ -559,11 +620,12 @@ class TestStepConfig(BaseModel):
     skip_on: list[str] | None = None  # Skip if these tests failed
 
     def model_post_init(self, _: Any) -> None:
-        """Validate that step has either test or sequence, not both."""
-        if not self.test and not self.sequence:
-            raise ValueError("Step must have either 'test' or 'sequence'")
-        if self.test and self.sequence:
-            raise ValueError("Step cannot have both 'test' and 'sequence'")
+        """Validate that step has exactly one of test, sequence, or sync."""
+        action_count = sum(1 for x in (self.test, self.sequence, self.sync) if x)
+        if action_count == 0:
+            raise ValueError("Step must have one of 'test', 'sequence', or 'sync'")
+        if action_count > 1:
+            raise ValueError("Step must have only one of 'test', 'sequence', or 'sync'")
 
 
 class TestSequenceConfig(BaseModel):

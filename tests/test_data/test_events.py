@@ -9,6 +9,7 @@ from litmus.data.events import (
     FIXTURE_EVENTS,
     INSTRUMENT_EVENTS,
     SESSION_EVENTS,
+    SLOT_EVENTS,
     STREAM_EVENTS,
     TEST_EVENTS,
     InstrumentConnected,
@@ -109,7 +110,7 @@ class TestEventModels:
         assert InstrumentConnected in FIXTURE_EVENTS
         assert MeasurementRecorded in TEST_EVENTS
         assert len(ALL_EVENTS) == (
-            len(SESSION_EVENTS) + len(FIXTURE_EVENTS) + len(TEST_EVENTS)
-            + len(INSTRUMENT_EVENTS) + len(DIAGNOSTIC_EVENTS) + len(STREAM_EVENTS)
-            + len(DIALOG_EVENTS)
+            len(SESSION_EVENTS) + len(SLOT_EVENTS) + len(FIXTURE_EVENTS)
+            + len(TEST_EVENTS) + len(INSTRUMENT_EVENTS) + len(DIAGNOSTIC_EVENTS)
+            + len(STREAM_EVENTS) + len(DIALOG_EVENTS)
         )
