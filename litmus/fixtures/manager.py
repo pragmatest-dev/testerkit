@@ -55,6 +55,7 @@ class FixtureManager:
         fixture_config: FixtureConfig,
         instruments: dict[str, Instrument],
         route_manager: Any = None,
+        shared_instrument_roles: set[str] | None = None,
     ):
         """Initialize fixture manager.
 
@@ -62,10 +63,14 @@ class FixtureManager:
             fixture_config: Fixture configuration with point definitions
             instruments: Dictionary mapping instrument names to instances
             route_manager: Optional RouteManager for switched routing
+            shared_instrument_roles: Instrument roles that are shared across
+                slots. For these roles, RoutedProxy uses a resolver callable
+                instead of a direct instrument reference.
         """
         self.fixture_config = fixture_config
         self.instruments = instruments
         self._route_manager = route_manager
+        self._shared_roles = shared_instrument_roles or set()
 
         # Build reverse lookup: dut_pin -> point_name
         self._pin_to_point: dict[str, str] = {}
@@ -142,15 +147,10 @@ class FixtureManager:
             Instrument instance (or RoutedProxy wrapping it)
 
         Raises:
-            KeyError: If point or instrument not found
+            KeyError: If point or instrument not found (unless shared)
         """
         point = self.get_point(point_name)
-        if point.instrument not in self.instruments:
-            raise KeyError(
-                f"Instrument '{point.instrument}' for point '{point_name}' not found"
-            )
-        inst = self.instruments[point.instrument]
-        return self._maybe_wrap_routed(inst, point_name, point)
+        return self._resolve_instrument(point_name, point)
 
     def has_pin(self, pin_name: str) -> bool:
         """Check if a pin has a fixture connection."""
@@ -169,16 +169,13 @@ class FixtureManager:
             Instrument instance (or RoutedProxy wrapping it)
 
         Raises:
-            KeyError: If pin or instrument not found
+            KeyError: If pin or instrument not found (unless shared)
         """
-        point = self.get_point_for_pin(pin_name)
+        if pin_name not in self._pin_to_point:
+            raise KeyError(f"No fixture point for DUT pin '{pin_name}'")
         point_name = self._pin_to_point[pin_name]
-        if point.instrument not in self.instruments:
-            raise KeyError(
-                f"Instrument '{point.instrument}' for pin '{pin_name}' not found"
-            )
-        inst = self.instruments[point.instrument]
-        return self._maybe_wrap_routed(inst, point_name, point)
+        point = self.fixture_config.points[point_name]
+        return self._resolve_instrument(point_name, point)
 
     def get_channel_for_point(self, point_name: str) -> str | None:
         """Get instrument channel for a fixture point.
@@ -220,13 +217,35 @@ class FixtureManager:
         """
         return list(self.fixture_config.points.keys())
 
+    def _resolve_instrument(self, point_name: str, point: FixturePoint) -> Instrument:
+        """Resolve a fixture point to its instrument, wrapping if routed.
+
+        Shared instruments may not be in the instruments dict (they're
+        connected on-demand). The proxy resolver will handle access.
+        """
+        if point.instrument not in self.instruments and point.instrument not in self._shared_roles:
+            raise KeyError(
+                f"Instrument '{point.instrument}' for point '{point_name}' not found"
+            )
+        inst = self.instruments.get(point.instrument)
+        return self._maybe_wrap_routed(inst, point_name, point)
+
     def _maybe_wrap_routed(
-        self, inst: Instrument, point_name: str, point: FixturePoint,
+        self, inst: Any, point_name: str, point: FixturePoint,
     ) -> Instrument:
-        """Wrap instrument in RoutedProxy if the point has a switch route."""
+        """Wrap instrument in RoutedProxy if the point has a switch route.
+
+        For shared instruments, uses a resolver callable from the route
+        manager, since the driver may not be connected at proxy creation time.
+        """
         if point.route is not None and self._route_manager is not None:
             from litmus.instruments.routed_proxy import RoutedProxy
 
+            if point.instrument in self._shared_roles:
+                resolver = self._route_manager.get_resolver(point.instrument)
+                return RoutedProxy(  # type: ignore[return-value]
+                    None, point_name, self._route_manager, resolver=resolver,
+                )
             return RoutedProxy(inst, point_name, self._route_manager)  # type: ignore[return-value]
         return inst
 

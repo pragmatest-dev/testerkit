@@ -58,3 +58,51 @@ class TestRoutedProxy:
         proxy, instrument, _ = self._make_proxy()
         instrument.some_property = 42
         assert proxy.some_property == 42
+
+
+class TestRoutedProxyWithResolver:
+    """RoutedProxy with resolver callable for shared instruments."""
+
+    def _make_proxy_with_resolver(self):
+        instrument = MagicMock()
+        instrument.measure_voltage.return_value = 5.5
+        route_manager = MagicMock()
+        resolver = MagicMock(return_value=instrument)
+        proxy = RoutedProxy(None, "vout_measure", route_manager, resolver=resolver)
+        return proxy, instrument, route_manager, resolver
+
+    def test_resolver_called_on_access(self):
+        proxy, instrument, rm, resolver = self._make_proxy_with_resolver()
+        result = proxy.measure_voltage()
+
+        rm.activate.assert_called_once_with("vout_measure")
+        resolver.assert_called()
+        instrument.measure_voltage.assert_called_once()
+        assert result == 5.5
+
+    def test_resolver_not_called_without_access(self):
+        _, _, _, resolver = self._make_proxy_with_resolver()
+        resolver.assert_not_called()
+
+    def test_resolver_used_instead_of_instrument(self):
+        """When resolver is set, _instrument is ignored."""
+        other_instrument = MagicMock()
+        other_instrument.measure_voltage.return_value = 9.9
+        route_manager = MagicMock()
+        resolver = MagicMock(return_value=other_instrument)
+
+        proxy = RoutedProxy(
+            MagicMock(),  # This should be ignored
+            "vout_measure",
+            route_manager,
+            resolver=resolver,
+        )
+        result = proxy.measure_voltage()
+        assert result == 9.9
+        other_instrument.measure_voltage.assert_called_once()
+
+    def test_repr_with_resolver(self):
+        proxy, _, _, _ = self._make_proxy_with_resolver()
+        r = repr(proxy)
+        assert "pending" in r
+        assert "vout_measure" in r

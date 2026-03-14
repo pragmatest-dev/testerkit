@@ -212,6 +212,55 @@ pytest tests/ \
   --dut-serial=SN001
 ```
 
+## Multi-Slot Fixtures
+
+For multi-DUT testing, fixtures can define multiple **slots** instead of a single `points` map. Each slot has its own set of fixture points, allowing parallel testing of identical products:
+
+```yaml
+# fixtures/dual_board_fixture.yaml
+id: dual_board_fixture
+product_family: power_board
+
+slots:
+  slot_1:
+    description: Left-side board
+    points:
+      vout_measure:
+        name: vout_measure
+        instrument: dmm
+        instrument_channel: "1"
+        dut_pin: VOUT
+  slot_2:
+    description: Right-side board
+    points:
+      vout_measure:
+        name: vout_measure
+        instrument: dmm
+        instrument_channel: "2"
+        dut_pin: VOUT
+```
+
+A fixture uses either `points` (single-DUT) or `slots` (multi-DUT), never both.
+
+## Shared Instruments
+
+When multiple slots reference the same instrument role, that instrument is automatically detected as **shared**. Shared instruments are accessed through thread-safe proxies so concurrent slot execution doesn't cause conflicts.
+
+For instruments that need active signal switching (e.g., a single DMM routed to different DUT slots via a relay matrix), fixture points include a `route` field:
+
+```yaml
+vout_measure:
+  name: vout_measure
+  instrument: dmm
+  dut_pin: VOUT
+  route:
+    switch: matrix
+    channels: ["r0c0"]
+    settling_ms: 10
+```
+
+See `demo/fixtures/shared_dmm_board.yaml` for a complete working example with a shared DMM routed through a switch matrix.
+
 ## Best Practices
 
 1. **One fixture per product** — Or per product family

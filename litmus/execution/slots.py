@@ -5,9 +5,14 @@ referenced instrument roles exist. Single-DUT fixtures (using ``points``
 instead of ``slots``) are normalized to a single implicit slot.
 """
 
+from __future__ import annotations
+
+from collections import Counter
+
 from pydantic import BaseModel, Field
 
 from litmus.config.test_config import FixtureConfig, FixturePoint
+from litmus.schemas import StationInstrumentConfig
 
 
 class ResolvedSlot(BaseModel):
@@ -92,6 +97,47 @@ def _build_resolved_slot(
         instrument_roles=roles,
         dut_resource=dut_resource,
     )
+
+
+def detect_shared_instruments(slots: dict[str, ResolvedSlot]) -> set[str]:
+    """Detect instrument roles shared by multiple slots.
+
+    An instrument role is "shared" when two or more slots reference it.
+
+    Args:
+        slots: Resolved fixture slots.
+
+    Returns:
+        Set of instrument role names that appear in 2+ slots.
+    """
+    counts: Counter[str] = Counter()
+    for slot in slots.values():
+        counts.update(slot.instrument_roles)
+    return {role for role, count in counts.items() if count >= 2}
+
+
+def needs_thread_mode(
+    shared_roles: set[str],
+    station_instruments: dict[str, StationInstrumentConfig],
+) -> bool:
+    """Determine whether thread-per-slot mode is required.
+
+    Thread mode is forced when any shared instrument has ``persistent=True``
+    in station config. Persistent instruments require a long-lived connection
+    that cannot be repeatedly connected/disconnected per measurement.
+
+    Args:
+        shared_roles: Instrument roles referenced by multiple slots.
+        station_instruments: Station instrument configs keyed by role.
+
+    Returns:
+        True if any shared instrument is persistent.
+    """
+    for role in shared_roles:
+        cfg = station_instruments.get(role)
+        if cfg is not None and cfg.persistent:
+            return True
+    return False
 
 
 def _validate_instrument_refs(

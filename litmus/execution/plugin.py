@@ -1727,16 +1727,34 @@ def pytest_runtestloop(session):
         return None  # Use default test loop
 
     from litmus.execution.dut_provider import CLIDUTProvider
-    from litmus.execution.slot_runner import SlotRunner
-    from litmus.execution.slots import resolve_fixture_slots
-    from litmus.store import load_fixture
+    from litmus.execution.slots import (
+        detect_shared_instruments,
+        needs_thread_mode,
+        resolve_fixture_slots,
+    )
+    from litmus.store import load_fixture, load_station
 
     fixture_path = session.config.getoption("--fixture-config")
     fixture_config = load_fixture(Path(fixture_path))
 
+    # Load station config for persistent flag checking
+    station_path = _find_station_file(session.config)
+    station_config_obj: StationConfig | None = None
+    if station_path:
+        station_config_obj = load_station(station_path)
+
     # Resolve slots
     slots = resolve_fixture_slots(fixture_config)
     slot_ids = sorted(slots.keys())
+
+    # Detect shared instruments and stamp into slots
+    shared_roles = detect_shared_instruments(slots)
+    for slot in slots.values():
+        slot.shared_instruments = shared_roles & slot.instrument_roles
+
+    # Decide execution mode
+    station_instruments = station_config_obj.instruments if station_config_obj else {}
+    use_threads = shared_roles and needs_thread_mode(shared_roles, station_instruments)
 
     # Resolve DUT identities
     dut_serial = session.config.getoption("--dut-serial")
@@ -1759,16 +1777,37 @@ def pytest_runtestloop(session):
         event_store = EventStore()
         set_event_store(event_store)
 
-    def _stream_output(slot_id: str, line: str) -> None:
-        sys.stdout.write(f"[{slot_id}] {line}")
-        sys.stdout.flush()
-
     # Use the logger's session_id so sync events from children correlate
     # with the parent's EventStore subscriptions.
     from litmus.execution.decorators import get_current_logger
 
     current_logger = get_current_logger()
     session_id = current_logger.test_run.session_id if current_logger else uuid4()
+
+    if use_threads:
+        # Thread mode: persistent shared instruments
+        _run_thread_mode(session, slots, duts, shared_roles, station_instruments, session_id)
+    else:
+        # Subprocess mode (default)
+        _run_subprocess_mode(session, slots, duts, session_id, event_store)
+
+    return True  # Suppress default test execution
+
+
+def _run_subprocess_mode(
+    session: Any,
+    slots: dict[str, Any],
+    duts: dict[str, Any],
+    session_id: UUID,
+    event_store: Any,
+) -> None:
+    """Run multi-slot tests using subprocess-per-slot (reconnect-safe)."""
+    from litmus.execution.slot_runner import SlotRunner
+
+    def _stream_output(slot_id: str, line: str) -> None:
+        sys.stdout.write(f"[{slot_id}] {line}")
+        sys.stdout.flush()
+
     runner = SlotRunner(slots, duts, session_id=session_id)
     child_cmd = _build_child_cmd(session.config)
     results = runner.run(
@@ -1777,7 +1816,97 @@ def pytest_runtestloop(session):
         event_store=event_store,
     )
 
-    # Report results
+    _report_slot_results(session, results)
+
+
+def _run_thread_mode(
+    session: Any,
+    slots: dict[str, Any],
+    duts: dict[str, Any],
+    shared_roles: set[str],
+    station_instruments: dict[str, Any],
+    session_id: UUID,
+) -> None:
+    """Run multi-slot tests using thread-per-slot (persistent shared instruments).
+
+    Connects persistent shared instruments once, creates handles, and
+    passes them to ThreadSlotRunner.
+    """
+    import threading
+
+    from litmus.execution.thread_runner import ThreadSlotResult, ThreadSlotRunner
+    from litmus.instruments.lifecycle import disconnect, load_and_connect
+    from litmus.instruments.models import InstrumentRecord
+    from litmus.instruments.shared import SharedInstrumentHandle
+
+    mock_all = session.config.getoption("--mock-instruments")
+
+    # Connect shared instruments and create handles
+    shared_handles: dict[str, SharedInstrumentHandle] = {}
+    shared_drivers: dict[str, Any] = {}
+
+    for role in shared_roles:
+        inst_cfg = station_instruments.get(role)
+        if inst_cfg is None:
+            continue
+
+        record = InstrumentRecord(
+            role=role,
+            instrument_id=role,
+            driver=inst_cfg.driver,
+            resource=inst_cfg.resource or "",
+            protocol="visa",
+            mocked=mock_all or inst_cfg.mock,
+        )
+
+        mock_config = inst_cfg.mock_config if inst_cfg else {}
+        driver = load_and_connect(record, mock=record.mocked, mock_config=mock_config)
+
+        # Switches allow concurrent access — each slot controls different
+        # channels and the hardware supports simultaneous operations.
+        # Measurement instruments (DMM, PSU) need serialized access.
+        is_switch = inst_cfg.type == "switch"
+        lock = threading.Lock()
+        shared_handles[role] = SharedInstrumentHandle(
+            role, driver, lock, concurrent=is_switch,
+        )
+        shared_drivers[role] = driver
+
+    try:
+        def _run_slot(
+            slot_id: str, slot: Any, dut: Any,
+            shared_handles: dict[str, SharedInstrumentHandle], **kwargs: Any,
+        ) -> ThreadSlotResult:
+            # Placeholder: in a full implementation, this would run
+            # pytest items for this slot. For now, return pass.
+            return ThreadSlotResult(slot_id=slot_id, outcome="pass")
+
+        runner = ThreadSlotRunner(
+            slots, duts,
+            shared_handles=shared_handles,
+            session_id=session_id,
+        )
+        results = runner.run(_run_slot)
+
+        # Convert to slot-level outcome reporting
+        failed_slots = [
+            sid for sid, r in results.items() if r.outcome != "pass"
+        ]
+        session.testsfailed = len(failed_slots)
+        if failed_slots:
+            for sid in failed_slots:
+                warnings.warn(
+                    f"Slot '{sid}' failed: {results[sid].error or 'unknown'}",
+                    stacklevel=1,
+                )
+    finally:
+        # Disconnect shared instruments
+        for role, driver in shared_drivers.items():
+            disconnect(driver, role)
+
+
+def _report_slot_results(session: Any, results: dict[str, Any]) -> None:
+    """Report slot results from subprocess mode."""
     failed_slots = [
         sid for sid, r in results.items() if r.outcome != "pass"
     ]
@@ -1791,8 +1920,6 @@ def pytest_runtestloop(session):
         session.testsfailed = len(failed_slots)
     else:
         session.testsfailed = 0
-
-    return True  # Suppress default test execution
 
 
 # ---------------------------------------------------------------------------

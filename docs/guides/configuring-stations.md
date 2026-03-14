@@ -39,6 +39,7 @@ instruments:
 | `resource` | Yes | VISA address or connection string |
 | `mock_config` | No | Values for `--mock-instruments` mode |
 | `mock` | No | Always mock this instrument (even without `--mock-instruments`) |
+| `persistent` | No | Keep connection open for session lifetime (default: `false`) |
 
 ## VISA Addresses
 
@@ -294,6 +295,36 @@ print(f"Instruments: {list(station.instruments.keys())}")
 ```
 
 Invalid configurations raise `pydantic.ValidationError` with details about what's wrong.
+
+## Shared Instruments (Multi-DUT)
+
+When a fixture defines multiple slots, instruments referenced by more than one slot are automatically detected as **shared**. Shared instruments use thread-safe proxied access so multiple slots can measure through the same physical instrument without conflicts.
+
+### Persistent Connections
+
+Set `persistent: true` on instruments that need their connection held open for the entire test session. This is important for:
+
+- **Calibration state** — instruments that lose calibration when disconnected
+- **Licensed connections** — instruments with limited connection slots
+- **Shared instruments** — instruments accessed by multiple DUT slots through a switch matrix
+
+```yaml
+instruments:
+  dmm:
+    type: dmm
+    driver: pymeasure.instruments.keysight.Keysight34461A
+    resource: "TCPIP::192.168.1.100::INSTR"
+    persistent: true   # Keep connected for session lifetime
+  matrix:
+    type: switch
+    driver: drivers.switch.RelayMatrix
+    resource: "TCPIP::192.168.1.106::INSTR"
+    persistent: true   # Switch matrix shared across slots
+```
+
+### Execution Mode
+
+When shared instruments are detected, the plugin automatically switches from subprocess-based to thread-based slot execution. This allows slots to share instrument connections within the same process while still running tests concurrently.
 
 ## Best Practices
 

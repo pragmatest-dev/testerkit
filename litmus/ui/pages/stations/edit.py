@@ -182,8 +182,23 @@ def _render_instrument_expansion(inst_name: str, inst_data: dict, saver: AutoSav
                             saver.trigger(),
                         ),
                     ).props("outlined dense").classes("w-full")
-            if mocked:
-                ui.chip("Mocked", icon="sim_card").props("color=blue outline")
+            with ui.row().classes("gap-4"):
+                ui.checkbox(
+                    "Mocked",
+                    value=mocked,
+                    on_change=lambda e, d=inst_data: (
+                        d.update({"mock": e.value}),
+                        saver.trigger(),
+                    ),
+                )
+                ui.checkbox(
+                    "Persistent connection",
+                    value=inst_data.get("persistent", False),
+                    on_change=lambda e, d=inst_data: (
+                        d.update({"persistent": e.value}),
+                        saver.trigger(),
+                    ),
+                )
             if inst_data.get("description"):
                 ui.label(inst_data["description"]).classes("text-sm text-slate-500")
 

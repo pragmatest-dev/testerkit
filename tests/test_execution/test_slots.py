@@ -3,7 +3,14 @@
 import pytest
 
 from litmus.config.test_config import FixtureConfig, FixturePoint, FixtureSlot
-from litmus.execution.slots import DEFAULT_SLOT_ID, ResolvedSlot, resolve_fixture_slots
+from litmus.execution.slots import (
+    DEFAULT_SLOT_ID,
+    ResolvedSlot,
+    detect_shared_instruments,
+    needs_thread_mode,
+    resolve_fixture_slots,
+)
+from litmus.schemas import StationInstrumentConfig
 
 
 class TestSingleDUTFixture:
@@ -200,3 +207,102 @@ class TestResolvedSlotModel:
         assert slot.slot_id == "slot_1"
         assert "vout" in slot.points
         assert "dmm" in slot.instrument_roles
+
+    def test_dut_resource_defaults_none(self):
+        slot = ResolvedSlot(slot_id="slot_1")
+        assert slot.dut_resource is None
+
+
+class TestDetectSharedInstruments:
+    """detect_shared_instruments identifies roles used by 2+ slots."""
+
+    def test_no_shared_when_dedicated(self):
+        slots = {
+            "slot_1": ResolvedSlot(
+                slot_id="slot_1", instrument_roles={"dmm_left", "psu_left"},
+            ),
+            "slot_2": ResolvedSlot(
+                slot_id="slot_2", instrument_roles={"dmm_right", "psu_right"},
+            ),
+        }
+        assert detect_shared_instruments(slots) == set()
+
+    def test_shared_dmm(self):
+        slots = {
+            "slot_1": ResolvedSlot(
+                slot_id="slot_1", instrument_roles={"dmm", "psu_left"},
+            ),
+            "slot_2": ResolvedSlot(
+                slot_id="slot_2", instrument_roles={"dmm", "psu_right"},
+            ),
+        }
+        assert detect_shared_instruments(slots) == {"dmm"}
+
+    def test_multiple_shared(self):
+        slots = {
+            "slot_1": ResolvedSlot(
+                slot_id="slot_1", instrument_roles={"dmm", "matrix"},
+            ),
+            "slot_2": ResolvedSlot(
+                slot_id="slot_2", instrument_roles={"dmm", "matrix"},
+            ),
+        }
+        assert detect_shared_instruments(slots) == {"dmm", "matrix"}
+
+    def test_empty_slots(self):
+        assert detect_shared_instruments({}) == set()
+
+    def test_single_slot(self):
+        slots = {
+            "slot_1": ResolvedSlot(
+                slot_id="slot_1", instrument_roles={"dmm"},
+            ),
+        }
+        assert detect_shared_instruments(slots) == set()
+
+    def test_three_slots_sharing(self):
+        slots = {
+            "slot_1": ResolvedSlot(slot_id="slot_1", instrument_roles={"dmm"}),
+            "slot_2": ResolvedSlot(slot_id="slot_2", instrument_roles={"dmm"}),
+            "slot_3": ResolvedSlot(slot_id="slot_3", instrument_roles={"dmm"}),
+        }
+        assert detect_shared_instruments(slots) == {"dmm"}
+
+
+class TestNeedsThreadMode:
+    """needs_thread_mode checks persistent flag on shared instruments."""
+
+    def test_no_shared_roles(self):
+        assert needs_thread_mode(set(), {}) is False
+
+    def test_shared_not_persistent(self):
+        instruments = {
+            "dmm": StationInstrumentConfig(type="dmm", resource="GPIB::16::INSTR"),
+        }
+        assert needs_thread_mode({"dmm"}, instruments) is False
+
+    def test_shared_persistent(self):
+        instruments = {
+            "dmm": StationInstrumentConfig(
+                type="dmm", resource="GPIB::16::INSTR", persistent=True,
+            ),
+        }
+        assert needs_thread_mode({"dmm"}, instruments) is True
+
+    def test_mixed_shared_one_persistent(self):
+        instruments = {
+            "dmm": StationInstrumentConfig(
+                type="dmm", resource="GPIB::16::INSTR", persistent=True,
+            ),
+            "matrix": StationInstrumentConfig(
+                type="switch", resource="TCPIP::1.2.3.4::INSTR",
+            ),
+        }
+        assert needs_thread_mode({"dmm", "matrix"}, instruments) is True
+
+    def test_shared_role_not_in_station(self):
+        """Shared role not in station config → no persistent flag → reconnect-safe."""
+        instruments = {
+            "psu": StationInstrumentConfig(type="psu", resource="GPIB::1::INSTR"),
+        }
+        assert needs_thread_mode({"dmm"}, instruments) is False

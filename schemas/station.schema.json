@@ -1,48 +1,5 @@
 {
   "$defs": {
-    "StationHeader": {
-      "description": "Station identification block.",
-      "properties": {
-        "id": {
-          "title": "Id",
-          "type": "string"
-        },
-        "name": {
-          "title": "Name",
-          "type": "string"
-        },
-        "location": {
-          "anyOf": [
-            {
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Location"
-        },
-        "description": {
-          "anyOf": [
-            {
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Description"
-        }
-      },
-      "required": [
-        "id",
-        "name"
-      ],
-      "title": "StationHeader",
-      "type": "object"
-    },
     "StationInstrumentConfig": {
       "description": "Single instrument entry in a station file.",
       "properties": {
@@ -51,8 +8,16 @@
           "type": "string"
         },
         "driver": {
-          "title": "Driver",
-          "type": "string"
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Driver"
         },
         "resource": {
           "anyOf": [
@@ -83,12 +48,17 @@
           "title": "Mock",
           "type": "boolean"
         },
+        "persistent": {
+          "default": false,
+          "title": "Persistent",
+          "type": "boolean"
+        },
         "channels": {
-          "items": {
+          "additionalProperties": {
             "type": "string"
           },
           "title": "Channels",
-          "type": "array"
+          "type": "object"
         },
         "description": {
           "anyOf": [
@@ -109,17 +79,57 @@
         }
       },
       "required": [
-        "type",
-        "driver"
+        "type"
       ],
       "title": "StationInstrumentConfig",
       "type": "object"
     }
   },
-  "description": "Schema for stations/*.yaml files.",
+  "description": "Schema for stations/*.yaml files \u2014 all fields at root.",
   "properties": {
-    "station": {
-      "$ref": "#/$defs/StationHeader"
+    "id": {
+      "title": "Id",
+      "type": "string"
+    },
+    "name": {
+      "title": "Name",
+      "type": "string"
+    },
+    "station_type": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Station Type"
+    },
+    "location": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Location"
+    },
+    "description": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Description"
     },
     "instruments": {
       "additionalProperties": {
@@ -137,8 +147,9 @@
     }
   },
   "required": [
-    "station"
+    "id",
+    "name"
   ],
-  "title": "StationFile",
+  "title": "StationConfig",
   "type": "object"
 }
