@@ -84,6 +84,7 @@ Updated March 2026.
 | Operator dialogs | ✅ Confirm, choice, input, image | ❌ | ✅ | ✅ | ✅ | ✅ | ✅ | ❌ |
 | Live event timeline | ✅ | 🟡 | ✅ | ✅ | ✅ | ✅ CouchDB sync | ✅ | ❌ |
 | HTML/PDF reports | ✅ Jinja2 + WeasyPrint | ❌ | ✅ | ✅ | ✅ | ❌ | ❌ | ✅ `pytest-html` |
+| Industry format export | 🟡 Pluggable registry (STDF, ATML, MDF4, TDMS planned; CSV/JSON shipped) | ❌ | ✅ ATML, custom | ✅ | ❌ | ❌ | ❌ | ❌ |
 
 ### AI & Automation
 
