@@ -35,6 +35,7 @@ MEASUREMENT_SCHEMA = pa.schema([
     # Identity & timing
     ("session_id", pa.string()),
     ("run_id", pa.string()),
+    ("slot_id", pa.string()),
     ("run_started_at", pa.timestamp("us", tz="UTC")),
     ("run_ended_at", pa.timestamp("us", tz="UTC")),
     ("step_name", pa.string()),

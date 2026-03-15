@@ -1,5 +1,7 @@
 """Results detail page."""
 
+from typing import Any
+
 from nicegui import ui
 
 from litmus.config.project import load_project_config
@@ -83,10 +85,17 @@ def _render_run_detail(run_id: str, run: dict, measurements: list, backend):
                 )
                 _info_field("Results", results_summary)
 
+    # Check if this is a multi-slot run (slot_id present in measurements)
+    has_slots = any(m.get("slot_id") for m in measurements)
+    session_id = run.get("session_id")
+
     # Tabbed content
+    timeline_tab = None
     with ui.tabs().classes("w-full") as tabs:
         overview_tab = ui.tab("Overview", icon="dashboard")
         measurements_tab = ui.tab("Measurements", icon="science")
+        if has_slots and session_id:
+            timeline_tab = ui.tab("Execution Timeline", icon="timeline")
         history_tab = ui.tab("DUT History", icon="history")
 
     with ui.tab_panels(tabs, value=overview_tab).classes("w-full"):
@@ -99,8 +108,32 @@ def _render_run_detail(run_id: str, run: dict, measurements: list, backend):
         with ui.tab_panel(measurements_tab):
             _render_measurements_tab(measurements)
 
+        gantt_chart = None
+        if has_slots and timeline_tab is not None and session_id:
+            with ui.tab_panel(timeline_tab):
+                # Load measurements from ALL sibling runs in the same session
+                session_measurements = backend.get_session_measurements(session_id)
+                # Identify which slot this run belongs to
+                current_slot_id = next(
+                    (m.get("slot_id") for m in measurements if m.get("slot_id")),
+                    None,
+                )
+                gantt_chart = _render_timeline_tab(
+                    session_measurements, current_slot_id=current_slot_id,
+                )
+
         with ui.tab_panel(history_tab):
             _render_history_tab(run_id, run, backend)
+
+    # ECharts in hidden tabs can't compute layout — resize on tab switch
+    if gantt_chart is not None:
+        chart_id = gantt_chart.id
+        tabs.on_value_change(
+            lambda: ui.run_javascript(
+                f"setTimeout(() => {{ const el = getElement({chart_id}); "
+                f"if (el && el.chart) el.chart.resize(); }}, 100);"
+            )
+        )
 
     ui.link("← Back to Results", "/results").classes("text-blue-600 hover:underline")
 
@@ -221,6 +254,25 @@ def _render_history_tab(run_id: str, run: dict, backend):
             )
     else:
         ui.label(f"No other runs found for DUT: {dut_serial}").classes("text-slate-500 italic")
+
+
+def _render_timeline_tab(
+    measurements: list, *, current_slot_id: str | None = None,
+) -> Any:
+    """Render the execution timeline tab for multi-DUT runs."""
+    from litmus.ui.components.execution_gantt import render_execution_gantt
+
+    with ui.card().classes("w-full"):
+        with ui.card_section():
+            ui.label("Execution Timeline").classes("font-semibold")
+            ui.label(
+                "Combined view of all slots in this parallel session. "
+                "This run's slot is highlighted."
+            ).classes("text-sm text-slate-500")
+        with ui.card_section().classes("w-full"):
+            return render_execution_gantt(
+                measurements, current_slot_id=current_slot_id,
+            )
 
 
 def _render_not_found():

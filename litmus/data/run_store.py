@@ -54,7 +54,7 @@ class RunStore:
     def list_runs(self, limit: int = 50) -> list[dict]:
         """List recent test runs, most recent first."""
         rows = self._flight_query(f"""
-            SELECT file_path, run_id, dut_serial, station_id,
+            SELECT file_path, run_id, session_id, dut_serial, station_id,
                    outcome, started_at, num_measurements
             FROM runs
             ORDER BY started_at DESC
@@ -64,6 +64,7 @@ class RunStore:
         return [
             {
                 "test_run_id": r["run_id"],
+                "session_id": r.get("session_id"),
                 "started_at": r["started_at"],
                 "dut_serial": r["dut_serial"],
                 "station_id": r["station_id"],
@@ -103,6 +104,7 @@ class RunStore:
             row = table.to_pylist()[0]
             return {
                 "test_run_id": row.get("run_id"),
+                "session_id": row.get("session_id"),
                 "started_at": row.get("run_started_at"),
                 "ended_at": row.get("run_ended_at"),
                 "dut_serial": row.get("dut_serial"),
@@ -119,6 +121,27 @@ class RunStore:
             }
         except Exception:
             return None
+
+    def find_session_files(self, session_id: str) -> list[Path]:
+        """Find all parquet files sharing a session_id (multi-DUT siblings)."""
+        escaped = _sql_escape(session_id)
+        rows = self._flight_query(f"""
+            SELECT file_path FROM runs
+            WHERE session_id = '{escaped}'
+        """)
+        return [Path(r["file_path"]) for r in rows if Path(r["file_path"]).exists()]
+
+    def get_session_measurements(self, session_id: str) -> list[dict]:
+        """Get measurements from all runs sharing a session_id."""
+        files = self.find_session_files(session_id)
+        all_measurements: list[dict] = []
+        for pq_file in files:
+            try:
+                table = pq.read_table(pq_file)
+                all_measurements.extend(table.to_pylist())
+            except Exception:
+                continue
+        return all_measurements
 
     def get_measurements(self, run_id: str, *, _file: str | None = None) -> list[dict]:
         """Get all measurements for a specific test run."""

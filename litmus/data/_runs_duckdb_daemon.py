@@ -32,6 +32,7 @@ def daemon_run(runs_dir: Path) -> None:
         CREATE TABLE runs (
             file_path VARCHAR NOT NULL,
             run_id VARCHAR,
+            session_id VARCHAR,
             dut_serial VARCHAR,
             station_id VARCHAR,
             outcome VARCHAR,
@@ -101,23 +102,24 @@ def _index_parquet_file(conn: duckdb.DuckDBPyConnection, fkey: str) -> bool:
         result = conn.execute(f"""
             SELECT
                 run_id,
+                CAST(session_id AS VARCHAR) AS session_id,
                 CAST(dut_serial AS VARCHAR) AS dut_serial,
                 CAST(station_id AS VARCHAR) AS station_id,
                 CAST(run_outcome AS VARCHAR) AS outcome,
                 CAST(run_started_at AS VARCHAR) AS started_at,
                 COUNT(*) AS num_measurements
             FROM read_parquet('{escaped}')
-            GROUP BY run_id, dut_serial, station_id, run_outcome, run_started_at
+            GROUP BY run_id, session_id, dut_serial, station_id, run_outcome, run_started_at
             LIMIT 1
         """).fetchone()
 
         if result is None:
             return False
 
-        run_id, dut_serial, station_id, outcome, started_at, num_meas = result
+        run_id, session_id, dut_serial, station_id, outcome, started_at, num_meas = result
         conn.execute(
-            "INSERT INTO runs VALUES (?, ?, ?, ?, ?, ?, ?)",
-            [fkey, run_id, dut_serial, station_id, outcome, started_at, num_meas],
+            "INSERT INTO runs VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            [fkey, run_id, session_id, dut_serial, station_id, outcome, started_at, num_meas],
         )
 
         # Scan out_* columns for channel:// URIs

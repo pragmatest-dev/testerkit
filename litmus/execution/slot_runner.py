@@ -121,7 +121,7 @@ class SlotRunner:
     def session_id(self) -> UUID:
         return self._session_id
 
-    def run(
+    def run(  # noqa: PLR0912
         self,
         cmd: list[str],
         *,
@@ -183,6 +183,11 @@ class SlotRunner:
             except (ImportError, ValueError, OSError) as exc:
                 logger.warning("Sync coordinator unavailable: %s", exc)
 
+        # Get event log for emitting slot lifecycle events
+        event_log = None
+        if event_store is not None:
+            event_log = event_store.get_event_log(self._session_id)
+
         try:
             # Spawn one subprocess per slot
             for slot_id, slot in self._slots.items():
@@ -206,6 +211,16 @@ class SlotRunner:
                 )
                 processes[slot_id] = proc
 
+                # Emit SlotStarted event
+                if event_log is not None:
+                    from litmus.data.events import SlotStarted
+
+                    event_log.emit(SlotStarted(
+                        session_id=self._session_id,
+                        slot_id=slot_id,
+                        dut_serial=dut.serial,
+                    ))
+
                 # Monitor thread: reads stdout, waits for exit, notifies
                 # coordinator *immediately* when a child dies so sync points
                 # don't deadlock.
@@ -222,7 +237,31 @@ class SlotRunner:
             for t in threads:
                 t.join()
 
+            # Emit SlotCompleted events after all workers finish
+            if event_log is not None:
+                from litmus.data.events import SlotCompleted
+
+                for slot_id, result in results.items():
+                    event_log.emit(SlotCompleted(
+                        session_id=self._session_id,
+                        slot_id=slot_id,
+                        outcome=result.outcome,
+                        error_message=(
+                            f"exit code {result.returncode}"
+                            if result.outcome != "pass" else None
+                        ),
+                    ))
+
         finally:
+            # Terminate any still-running worker processes
+            for slot_id, proc in processes.items():
+                if proc.poll() is None:
+                    logger.warning("Terminating orphaned slot '%s'", slot_id)
+                    proc.terminate()
+                    try:
+                        proc.wait(timeout=5)
+                    except subprocess.TimeoutExpired:
+                        proc.kill()
             if coordinator:
                 coordinator.stop()
             if owns_event_store and event_store is not None:
