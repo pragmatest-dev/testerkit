@@ -105,6 +105,7 @@ class RunStore:
             return {
                 "test_run_id": row.get("run_id"),
                 "session_id": row.get("session_id"),
+                "slot_id": row.get("slot_id"),
                 "started_at": row.get("run_started_at"),
                 "ended_at": row.get("run_ended_at"),
                 "dut_serial": row.get("dut_serial"),

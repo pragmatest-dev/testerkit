@@ -60,9 +60,9 @@ class TestSyncCoordinatorBasics:
             event_store=store,
         )
         coord.start()
-        assert len(callbacks) == 1
+        assert len(callbacks) == 2  # sync.arrived + slot.completed
 
-        # Simulate slot_1 arriving
+        # Simulate slot_1 arriving (first callback is sync.arrived handler)
         callbacks[0]({
             "event_type": "sync.arrived",
             "name": "thermal_soak",

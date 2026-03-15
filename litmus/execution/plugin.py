@@ -943,22 +943,31 @@ def litmus_logger(request) -> Generator[TestRunLogger, None, None]:
                     )
                     event_log.add_subscriber(sub)
 
-        # Emit SessionStarted (session lifecycle) then RunStarted (run context)
-        event_log.emit(SessionStarted.from_station(
-            session_id=logger._session_id,
-            station_id=logger.test_run.station_id,
-            station_name=logger.test_run.station_name,
-            station_type=logger.test_run.station_type,
-            station_location=logger.test_run.station_location,
-            station_hostname=logger.test_run.station_hostname,
-            operator_id=logger.test_run.operator_id,
-            operator_name=logger.test_run.operator_name,
-            fixture_id=logger.test_run.fixture_id,
-        ))
+        # In multi-slot worker mode, the orchestrator emits SessionStarted/
+        # SessionEnded. Workers only emit RunStarted/RunEnded.
+        is_worker = env_slot_id is not None and int(os.environ.get("LITMUS_SLOT_COUNT", "1")) > 1
+        if not is_worker:
+            event_log.emit(SessionStarted.from_station(
+                session_id=logger._session_id,
+                station_id=logger.test_run.station_id,
+                station_name=logger.test_run.station_name,
+                station_type=logger.test_run.station_type,
+                station_location=logger.test_run.station_location,
+                station_hostname=logger.test_run.station_hostname,
+                operator_id=logger.test_run.operator_id,
+                operator_name=logger.test_run.operator_name,
+                fixture_id=logger.test_run.fixture_id,
+            ))
+
+        # Compute slot_index from LITMUS_SLOT_INDEX env (set by orchestrator)
+        env_slot_index_str = os.environ.get("LITMUS_SLOT_INDEX")
+        env_slot_index = int(env_slot_index_str) if env_slot_index_str else None
+
         event_log.emit(RunStarted(
             session_id=logger._session_id,
             run_id=logger.test_run.id,
             slot_id=env_slot_id,
+            slot_index=env_slot_index,
             station_id=logger.test_run.station_id,
             station_name=logger.test_run.station_name,
             station_type=logger.test_run.station_type,
@@ -1015,13 +1024,18 @@ def litmus_logger(request) -> Generator[TestRunLogger, None, None]:
     # Finalize emits RunEnded (does not close event log).
     test_run = logger.finalize()
 
-    # Emit SessionEnded and close the event log
-    # TODO: In multi-DUT, outcome should be worst across all runs, not just one.
+    # In multi-slot worker mode, orchestrator handles SessionEnded.
+    # Workers only close their event log.
+    _is_worker = (
+        os.environ.get("LITMUS_SLOT_ID") is not None
+        and int(os.environ.get("LITMUS_SLOT_COUNT", "1")) > 1
+    )
     if logger.event_log is not None:
-        logger.event_log.emit(SessionEnded(
-            session_id=logger._session_id,
-            outcome=test_run.outcome.value,
-        ))
+        if not _is_worker:
+            logger.event_log.emit(SessionEnded(
+                session_id=logger._session_id,
+                outcome=test_run.outcome.value,
+            ))
         logger.event_log.close()
 
     # Close EventStore — releases daemon ref. Event logs were already closed
@@ -1931,6 +1945,45 @@ def _run_subprocess_mode(
             )
             server.start()
 
+    # Emit orchestrator-level SessionStarted before spawning workers
+    from litmus.data.events import SessionEnded, SessionStarted
+    from litmus.execution.decorators import get_current_logger
+
+    current_logger = get_current_logger()
+    event_log = None
+    if event_store is not None:
+        event_log = event_store.get_event_log(session_id)
+
+    station_id = ""
+    station_name = None
+    station_type = None
+    station_location = None
+    operator_id = None
+    operator_name = None
+    fixture_id = None
+    if current_logger:
+        tr = current_logger.test_run
+        station_id = tr.station_id
+        station_name = tr.station_name
+        station_type = tr.station_type
+        station_location = tr.station_location
+        operator_id = tr.operator_id
+        operator_name = tr.operator_name
+        fixture_id = tr.fixture_id
+
+    if event_log is not None:
+        event_log.emit(SessionStarted.from_station(
+            session_id=session_id,
+            station_id=station_id,
+            station_name=station_name,
+            station_type=station_type,
+            station_location=station_location,
+            operator_id=operator_id,
+            operator_name=operator_name,
+            fixture_id=fixture_id,
+            slot_count=len(slots),
+        ))
+
     try:
         def _stream_output(slot_id: str, line: str) -> None:
             sys.stdout.write(f"[{slot_id}] {line}")
@@ -1950,7 +2003,24 @@ def _run_subprocess_mode(
         )
 
         _report_slot_results(session, results)
+
+        # Emit orchestrator-level SessionEnded with worst outcome
+        if event_log is not None:
+            worst = "pass"
+            for r in results.values():
+                if r.outcome == "error":
+                    worst = "error"
+                    break
+                if r.outcome == "fail":
+                    worst = "fail"
+            event_log.emit(SessionEnded(
+                session_id=session_id,
+                outcome=worst,
+            ))
     finally:
+        if event_log is not None:
+            event_log.close()
+
         if server is not None:
             server.stop(force=True)
 

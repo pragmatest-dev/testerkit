@@ -188,11 +188,14 @@ class SlotRunner:
         if event_store is not None:
             event_log = event_store.get_event_log(self._session_id)
 
+        slot_ids = list(self._slots.keys())
+
         try:
             # Spawn one subprocess per slot
             for slot_id, slot in self._slots.items():
                 dut = self._duts[slot_id]
                 slot_env = _build_slot_env(slot_id, dut, slot, base_env)
+                slot_env["LITMUS_SLOT_INDEX"] = str(slot_ids.index(slot_id))
 
                 result = SlotResult(slot_id=slot_id, outcome="error")
                 results[slot_id] = result

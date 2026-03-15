@@ -181,7 +181,21 @@ class InstrumentServer:
                 lock = self._locks.get(resource_key) if resource_key else None
                 try:
                     if lock is not None:
-                        lock.acquire()
+                        # Timeout prevents deadlock if another client
+                        # crashed while holding the lock. After timeout,
+                        # force-acquire: the dead client won't release.
+                        if not lock.acquire(timeout=_HEARTBEAT_TIMEOUT):
+                            logger.warning(
+                                "Lock for '%s' timed out after %.0fs — "
+                                "possible dead client, force-proceeding",
+                                role, _HEARTBEAT_TIMEOUT,
+                            )
+                            # Force re-create the lock (old holder is dead)
+                            resource_key = self._role_to_resource.get(role)
+                            if resource_key:
+                                self._locks[resource_key] = threading.Lock()
+                                lock = self._locks[resource_key]
+                                lock.acquire()
                     try:
                         result = self._dispatch(driver, action, rest)
                         conn.send(("ok", result))

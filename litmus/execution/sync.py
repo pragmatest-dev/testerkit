@@ -111,6 +111,18 @@ class SyncPoint:
 
             # Wait for release
             if not release_event.wait(timeout=timeout):
+                # Emit a slot.completed event so the orchestrator's
+                # SyncCoordinator can mark this slot dead and unblock
+                # other slots waiting at this or future sync points.
+                from litmus.data.events import SlotCompleted
+
+                self._event_store.emit(SlotCompleted(
+                    session_id=self._session_id,
+                    slot_id=self._slot_id,
+                    outcome="error",
+                    error_message=f"sync timeout at '{name}' after {timeout}s",
+                ))
+                self._event_store.flush()
                 raise SyncError(
                     f"Sync point '{name}' timed out for slot '{self._slot_id}' "
                     f"after {timeout}s"
@@ -147,12 +159,19 @@ class SyncCoordinator:
         self._active_slots = slot_count
         self._lock = threading.Lock()
         self._unsub: Callable[[], None] | None = None
+        self._unsub_completed: Callable[[], None] | None = None
 
     def start(self) -> None:
-        """Begin watching for SyncArrived events."""
+        """Begin watching for SyncArrived and SlotCompleted events."""
         self._unsub = self._event_store.on_event(
             self._on_event,
             event_type="sync.arrived",
+            session_id=self._session_id,
+        )
+        # Watch for slot.completed to detect dead slots (sync timeouts, crashes)
+        self._unsub_completed = self._event_store.on_event(
+            self._on_slot_completed,
+            event_type="slot.completed",
             session_id=self._session_id,
         )
 
@@ -187,6 +206,13 @@ class SyncCoordinator:
         ))
         self._event_store.flush()
 
+    def _on_slot_completed(self, evt: dict) -> None:
+        """Handle a SlotCompleted event — mark the slot dead if it errored."""
+        slot_id = evt.get("slot_id")
+        outcome = evt.get("outcome")
+        if slot_id and outcome in ("error", "fail"):
+            self.mark_slot_dead(slot_id)
+
     def mark_slot_dead(self, slot_id: str) -> None:
         """Reduce expected count when a child process dies.
 
@@ -218,6 +244,9 @@ class SyncCoordinator:
         if self._unsub:
             self._unsub()
             self._unsub = None
+        if self._unsub_completed:
+            self._unsub_completed()
+            self._unsub_completed = None
 
 
 def get_sync(event_store: EventStore | None = None) -> SyncPoint | None:
