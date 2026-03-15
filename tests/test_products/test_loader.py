@@ -6,6 +6,8 @@ import pytest
 
 from litmus.config.models import Comparator, Direction, MeasurementFunction
 from litmus.execution.limits import derive_limit
+from litmus.products.loader import load_product_driver, resolve_product_driver
+from litmus.products.models import Product
 from litmus.store import load_product
 
 
@@ -199,3 +201,72 @@ class TestProductInheritance:
                 load_product(tmp_path, products_dir=specs_dir)
         finally:
             tmp_path.unlink()
+
+
+class TestProductDriver:
+    """Tests for Product.driver field and driver resolution."""
+
+    def test_product_driver_field(self):
+        """Product model accepts a driver field."""
+        product = Product(id="test", name="Test", driver="drivers.board.MyBoard")
+        assert product.driver == "drivers.board.MyBoard"
+
+    def test_product_no_driver(self):
+        """Product without driver defaults to None."""
+        product = Product(id="test", name="Test")
+        assert product.driver is None
+
+    def test_resolve_product_driver_with_driver(self):
+        """resolve_product_driver returns the driver string."""
+        product = Product(id="test", name="Test", driver="some.module.Cls")
+        assert resolve_product_driver(product) == "some.module.Cls"
+
+    def test_resolve_product_driver_none(self):
+        """resolve_product_driver returns None when no driver set."""
+        product = Product(id="test", name="Test")
+        assert resolve_product_driver(product) is None
+
+    def test_load_product_driver_none(self):
+        """load_product_driver returns None when product has no driver."""
+        product = Product(id="test", name="Test")
+        assert load_product_driver(product) is None
+
+    def test_load_product_driver_import(self):
+        """load_product_driver loads a real class from a dotted path."""
+        # Use a stdlib class as a stand-in for a driver
+        product = Product(
+            id="test", name="Test", driver="collections.OrderedDict",
+        )
+        cls = load_product_driver(product)
+        from collections import OrderedDict
+
+        assert cls is OrderedDict
+
+    def test_load_product_driver_bad_path(self):
+        """load_product_driver returns None for an invalid import path."""
+        product = Product(
+            id="test", name="Test", driver="nonexistent.module.Cls",
+        )
+        assert load_product_driver(product) is None
+
+
+class TestProductDriverInheritance:
+    """Tests for driver field inheritance through product base chain."""
+
+    @pytest.fixture
+    def specs_dir(self) -> Path:
+        return Path(__file__).parent.parent / "fixtures" / "specs"
+
+    def test_driver_inherited_from_base(self, specs_dir):
+        """Variant without driver inherits base product's driver."""
+        product = load_product(
+            specs_dir / "variant_driver_inherit.yaml", products_dir=specs_dir,
+        )
+        assert product.driver == "drivers.base.BaseDriver"
+
+    def test_driver_overridden_by_variant(self, specs_dir):
+        """Variant with its own driver overrides base."""
+        product = load_product(
+            specs_dir / "variant_driver_override.yaml", products_dir=specs_dir,
+        )
+        assert product.driver == "drivers.variant.VariantDriver"

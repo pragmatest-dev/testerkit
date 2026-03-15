@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import sys
 import time
 import warnings
 from collections.abc import Generator
@@ -24,6 +25,7 @@ from litmus.execution.logger import RunContext, TestRunLogger
 from litmus.fixtures.manager import FixtureManager, PinAccessor
 from litmus.instruments.models import InstrumentRecord
 from litmus.instruments.pool import InstrumentPool
+from litmus.instruments.route_manager import RouteManager
 from litmus.products.context import SpecContext
 from litmus.schemas import OutputConfig, ProjectConfig, StationConfig
 
@@ -46,6 +48,7 @@ _test_node_configs_var: ContextVar[dict[str, dict[str, Any]]] = ContextVar("_tes
 _sequence_test_phase_var: ContextVar[str | None] = ContextVar("_sequence_test_phase")
 _channel_store_var: ContextVar[Any] = ContextVar("_channel_store")
 _collected_items_var: ContextVar[list[CollectedItem]] = ContextVar("_collected_items")
+_event_store_var: ContextVar[Any] = ContextVar("_event_store")
 
 
 # --- Session-scoped getters (create-and-store on first access) ---
@@ -205,6 +208,19 @@ def get_channel_store() -> Any:
 def set_channel_store(value: Any) -> None:
     """Set value. Returns None."""
     _channel_store_var.set(value)
+
+
+def get_event_store() -> Any:
+    """Return the session EventStore, or None if not set."""
+    try:
+        return _event_store_var.get()
+    except LookupError:
+        return None
+
+
+def set_event_store(value: Any) -> None:
+    """Set the session EventStore. Returns None."""
+    _event_store_var.set(value)
 
 
 def get_collected_items() -> list[CollectedItem]:
@@ -424,8 +440,29 @@ def pytest_configure(config):
 
 
 def pytest_sessionstart(session):
-    """Clear outcomes at session start."""
+    """Clear outcomes at session start and validate DUT serial."""
     set_step_outcomes({})
+
+    config = session.config
+    dut_serial = config.getoption("--dut-serial")
+    dut_serials = config.getoption("--dut-serials")
+
+    # Skip validation if per-slot serials were explicitly provided
+    if dut_serials:
+        return
+
+    requested_phase = config.getoption("--test-phase") or os.environ.get(
+        "LITMUS_TEST_PHASE"
+    )
+    test_phase = _resolve_test_phase(requested_phase)
+
+    if test_phase == "development":
+        return
+
+    # Non-development phase: require explicit DUT serial
+    if dut_serial == "DUT001":
+        serial = _prompt_for_serial(test_phase)
+        config.option.dut_serial = serial
 
 
 def pytest_collection_modifyitems(items: list[pytest.Item]) -> None:
@@ -449,8 +486,16 @@ def pytest_collection_modifyitems(items: list[pytest.Item]) -> None:
 
 
 def pytest_sessionfinish(session, exitstatus):
-    """Clean up after session."""
+    """Clean up all session-scoped ContextVars."""
     set_step_outcomes({})
+    set_active_instruments({})
+    set_instrument_records({})
+    set_test_node_aliases({})
+    set_test_node_configs({})
+    set_sequence_test_phase(None)
+    set_collected_items([])
+    set_channel_store(None)
+    set_event_store(None)
 
 
 def _load_project_defaults() -> ProjectConfig:
@@ -469,6 +514,11 @@ def pytest_addoption(parser):
     project = _load_project_defaults()
     group = parser.getgroup("litmus")
     group.addoption("--dut-serial", default="DUT001", help="DUT serial number")
+    group.addoption(
+        "--dut-serials",
+        default=None,
+        help="Per-slot DUT serials: slot_1=SN1,slot_2=SN2",
+    )
     group.addoption("--dut-part-number", default=None, help="DUT part number")
     group.addoption("--dut-revision", default=None, help="DUT revision")
     group.addoption("--dut-lot", default=None, help="DUT lot/batch number")
@@ -590,6 +640,56 @@ def _resolve_test_phase(requested_phase: str | None) -> str:
 
     # Clean repo - use requested phase or default to development
     return requested_phase or "development"
+
+
+def _prompt_for_serial(test_phase: str, slot_id: str | None = None) -> str:
+    """Prompt for DUT serial or raise if non-interactive.
+
+    Args:
+        test_phase: Current test phase (for error message).
+        slot_id: If provided, prompt for a specific slot.
+
+    Returns:
+        Non-empty serial string.
+    """
+    label = f" for slot '{slot_id}'" if slot_id else ""
+
+    if sys.stdin.isatty():
+        serial = input(
+            f"[litmus] test_phase='{test_phase}' requires a DUT serial{label}.\n"
+            f"  Enter DUT serial (or Ctrl+C to abort): "
+        )
+        serial = serial.strip()
+        if not serial:
+            raise pytest.UsageError(
+                f"DUT serial number is required{label} for "
+                f"non-development test phases. "
+                "Use --dut-serial <serial> or enter a serial when prompted."
+            )
+        return serial
+
+    raise pytest.UsageError(
+        f"DUT serial number is required for test_phase='{test_phase}'{label}. "
+        "Use --dut-serial <serial> or --dut-serials slot=serial."
+    )
+
+
+def _prompt_for_slot_serials(
+    slot_ids: list[str], test_phase: str,
+) -> dict[str, str]:
+    """Prompt for DUT serial for each slot.
+
+    Args:
+        slot_ids: Ordered list of slot IDs from fixture config.
+        test_phase: Current test phase (for error message).
+
+    Returns:
+        Dict mapping slot_id → serial.
+    """
+    serials: dict[str, str] = {}
+    for slot_id in slot_ids:
+        serials[slot_id] = _prompt_for_serial(test_phase, slot_id)
+    return serials
 
 
 def _serialize_config(config: dict | None) -> str | None:
@@ -765,7 +865,7 @@ def litmus_logger(request) -> Generator[TestRunLogger, None, None]:
     Streams events to an event log for live observability.
     """
     from litmus.data.event_store import EventStore
-    from litmus.data.events import SessionStarted
+    from litmus.data.events import RunStarted, SessionEnded, SessionStarted
     from litmus.data.subscribers import get_subscriber_class
 
     meta = _build_run_metadata(request)
@@ -775,8 +875,17 @@ def litmus_logger(request) -> Generator[TestRunLogger, None, None]:
     if not results_dir:
         results_dir = str(resolve_results_dir())
         meta["results_dir"] = results_dir
-    session_id = uuid4()
+
+    # Worker mode: inherit session_id and DUT serial from env
+    env_session_id = os.environ.get("LITMUS_SESSION_ID")
+    session_id = UUID(env_session_id) if env_session_id else uuid4()
     meta["session_id"] = session_id
+
+    env_dut_serial = os.environ.get("LITMUS_DUT_SERIAL")
+    if env_dut_serial:
+        meta["dut_serial"] = env_dut_serial
+
+    env_slot_id = os.environ.get("LITMUS_SLOT_ID")
 
     logger = TestRunLogger(**meta)
 
@@ -785,7 +894,11 @@ def litmus_logger(request) -> Generator[TestRunLogger, None, None]:
     if results_dir:
         results_path = Path(results_dir)
 
-        _event_store = EventStore(_results_dir=results_path)
+        # Reuse EventStore if already created (e.g. by orchestrator)
+        _event_store = get_event_store()
+        if _event_store is None:
+            _event_store = EventStore(_results_dir=results_path)
+            set_event_store(_event_store)
         event_log = _event_store.get_event_log(session_id)
         logger.event_log = event_log
 
@@ -803,8 +916,11 @@ def litmus_logger(request) -> Generator[TestRunLogger, None, None]:
                         sub = _create_subscriber(cls, fmt, output_cfg, results_path, session_id)
                         event_log.add_subscriber(sub)
                         configured.add(fmt)
-        except Exception:
-            pass
+        except Exception as exc:
+            warnings.warn(
+                f"Failed to register configured output subscribers: {exc}",
+                stacklevel=2,
+            )
 
         # Create ChannelStore directly (not via subscriber registry)
         from litmus.data.channels.store import ChannelStore as _ChannelStore
@@ -827,14 +943,36 @@ def litmus_logger(request) -> Generator[TestRunLogger, None, None]:
                     )
                     event_log.add_subscriber(sub)
 
-        # Emit SessionStarted with full run context
-        session_event = SessionStarted(
+        # In multi-slot worker mode, the orchestrator emits SessionStarted/
+        # SessionEnded. Workers only emit RunStarted/RunEnded.
+        is_worker = env_slot_id is not None and int(os.environ.get("LITMUS_SLOT_COUNT", "1")) > 1
+        if not is_worker:
+            event_log.emit(SessionStarted.from_station(
+                session_id=logger._session_id,
+                station_id=logger.test_run.station_id,
+                station_name=logger.test_run.station_name,
+                station_type=logger.test_run.station_type,
+                station_location=logger.test_run.station_location,
+                station_hostname=logger.test_run.station_hostname,
+                operator_id=logger.test_run.operator_id,
+                operator_name=logger.test_run.operator_name,
+                fixture_id=logger.test_run.fixture_id,
+            ))
+
+        # Compute slot_index from LITMUS_SLOT_INDEX env (set by orchestrator)
+        env_slot_index_str = os.environ.get("LITMUS_SLOT_INDEX")
+        env_slot_index = int(env_slot_index_str) if env_slot_index_str else None
+
+        event_log.emit(RunStarted(
             session_id=logger._session_id,
             run_id=logger.test_run.id,
+            slot_id=env_slot_id,
+            slot_index=env_slot_index,
             station_id=logger.test_run.station_id,
             station_name=logger.test_run.station_name,
             station_type=logger.test_run.station_type,
             station_location=logger.test_run.station_location,
+            station_hostname=logger.test_run.station_hostname,
             dut_serial=logger.test_run.dut.serial,
             dut_part_number=logger.test_run.dut.part_number,
             dut_revision=logger.test_run.dut.revision,
@@ -855,8 +993,7 @@ def litmus_logger(request) -> Generator[TestRunLogger, None, None]:
             test_config_yaml=logger.test_run.test_config_yaml,
             custom_metadata=dict(logger.test_run.custom_metadata),
             pid=os.getpid(),
-        )
-        event_log.emit(session_event)
+        ))
 
         # Emit InstrumentConnected for each instrument
         _emit_instrument_events(logger, event_log)
@@ -884,14 +1021,28 @@ def litmus_logger(request) -> Generator[TestRunLogger, None, None]:
         _cs_final.close()
         set_channel_store(None)
 
-    # Finalize emits RunEnded/SessionEnded and closes event log + subscribers.
-    # EventStore.close() will flush remaining events to Flight/DuckDB after.
+    # Finalize emits RunEnded (does not close event log).
     test_run = logger.finalize()
+
+    # In multi-slot worker mode, orchestrator handles SessionEnded.
+    # Workers only close their event log.
+    _is_worker = (
+        os.environ.get("LITMUS_SLOT_ID") is not None
+        and int(os.environ.get("LITMUS_SLOT_COUNT", "1")) > 1
+    )
+    if logger.event_log is not None:
+        if not _is_worker:
+            logger.event_log.emit(SessionEnded(
+                session_id=logger._session_id,
+                outcome=test_run.outcome.value,
+            ))
+        logger.event_log.close()
 
     # Close EventStore — releases daemon ref. Event logs were already closed
     # by finalize(), and on_flush callback pushed final batches to Flight.
     if _event_store is not None:
         _event_store.close()
+        set_event_store(None)
 
     # Run configured outputs (exports, reports, transports)
     _run_configured_outputs(test_run, str(test_run.id), results_dir)
@@ -1123,6 +1274,10 @@ def station_config(request) -> StationConfig | None:
 def fixture_config(request) -> FixtureConfig | None:
     """Load fixture configuration from --fixture-config option.
 
+    In worker mode (``LITMUS_SLOT_ID`` set), extracts this slot's points
+    from a multi-slot fixture config so downstream fixtures (pins,
+    FixtureManager) see a flat ``points`` dict.
+
     Returns:
         FixtureConfig instance, or None if not specified.
     """
@@ -1142,11 +1297,31 @@ def fixture_config(request) -> FixtureConfig | None:
                     config_path = str(yaml_files[0])
                     break
 
-    if config_path:
-        from litmus.store import load_fixture
+    if not config_path:
+        return None
 
-        return load_fixture(Path(config_path))
-    return None
+    from litmus.store import load_fixture
+
+    fc = load_fixture(Path(config_path))
+
+    # Worker mode: extract this slot's points from multi-slot fixture
+    slot_id = os.environ.get("LITMUS_SLOT_ID")
+    if slot_id and fc.is_multi_slot and fc.slots:
+        slot = fc.slots.get(slot_id)
+        if slot is not None:
+            # Return a flat fixture config with just this slot's points
+            fc = FixtureConfig(
+                id=fc.id,
+                name=fc.name,
+                description=fc.description,
+                product_id=fc.product_id,
+                product_family=fc.product_family,
+                product_revision=fc.product_revision,
+                points=slot.points,
+                dut_resource=slot.dut_resource,
+            )
+
+    return fc
 
 
 class StationError(Exception):
@@ -1280,10 +1455,144 @@ def instrument(instruments, instrument_records) -> InstrumentAccessor:
 
 
 @pytest.fixture(scope="session")
-def pins(instruments, fixture_config) -> PinAccessor:
+def dut(
+    spec_context, fixture_config, mock_instruments,
+) -> Generator[Any, None, None]:
+    """Instantiate and yield the DUT communication driver.
+
+    Resolves the driver class from ``Product.driver`` (loaded via spec_context)
+    and connects using ``FixtureConfig.dut_resource``. Follows the same pattern
+    as instrument fixtures — session-scoped, auto-disconnected at teardown.
+
+    Usage in tests:
+        def test_firmware_version(dut):
+            assert dut.get_version().startswith("2.")
+
+    Returns:
+        Connected DUT driver instance, or None if product has no driver.
+    """
+    if not spec_context or not spec_context.product.driver:
+        yield None
+        return
+
+    from litmus.products.loader import load_product_driver
+
+    driver_class = load_product_driver(spec_context.product)
+    if driver_class is None:
+        warnings.warn(
+            f"DUT driver {spec_context.product.driver!r} could not be imported",
+            UserWarning,
+            stacklevel=2,
+        )
+        yield None
+        return
+
+    # Resolve connection resource from fixture config
+    dut_resource = fixture_config.dut_resource if fixture_config else None
+
+    if mock_instruments:
+        from litmus.instruments.mocks import Mock
+
+        inst: Any = Mock(driver_class)
+        yield inst
+        return
+
+    if dut_resource:
+        inst = driver_class(dut_resource)
+    else:
+        inst = driver_class()
+
+    connect_fn = getattr(inst, "connect", None)
+    if callable(connect_fn):
+        connect_fn()
+
+    yield inst
+
+    # Teardown: disconnect
+    try:
+        if hasattr(inst, "disconnect"):
+            inst.disconnect()
+        elif hasattr(inst, "close"):
+            inst.close()
+    except (OSError, RuntimeError) as exc:
+        warnings.warn(f"Failed to cleanup DUT driver: {exc}", stacklevel=2)
+
+
+@pytest.fixture(scope="session")
+def _route_manager(
+    instruments, fixture_config, litmus_logger,
+) -> Generator[RouteManager | None, None, None]:
+    """Session-scoped route manager for switched signal routing.
+
+    Built from fixture points that have routes. Holds locks for the
+    session duration. Yields None if no routes are configured.
+    """
+    if not fixture_config or not instruments:
+        yield None
+        return
+
+    session_id = litmus_logger._session_id if litmus_logger else None
+    event_log = litmus_logger.event_log if litmus_logger else None
+    station_id = ""
+    if litmus_logger and hasattr(litmus_logger, "_station_id"):
+        station_id = getattr(litmus_logger, "_station_id", "")
+
+    rm = RouteManager(
+        points=fixture_config.points,
+        instruments=instruments,
+        session_id=session_id,
+        station_id=station_id,
+        event_log=event_log,
+    )
+
+    if not rm.has_routes:
+        yield None
+        return
+
+    yield rm
+    rm.deactivate_all()
+
+
+@pytest.fixture
+def routes(request) -> Generator[RouteManager | None, None, None]:
+    """Per-test route manager for explicit switch routing.
+
+    Use with the context-manager pattern for direct instrument access::
+
+        def test_vout(dmm, routes):
+            with routes.for_pin("VOUT"):
+                v = dmm.measure_voltage()
+            assert 3.2 < v < 3.4
+
+    Yields None if no routes are configured (tests without switching
+    can still request this fixture without error).
+    """
+    rm = _safe_get_session_fixture(request, "_route_manager")
+    yield rm
+    if rm is not None:
+        rm.deactivate_all()
+
+
+@pytest.fixture(autouse=True)
+def _route_cleanup(request) -> Generator[None, None, None]:
+    """Per-test cleanup for lazy-activated routes (pins[] pattern).
+
+    Ensures all routes activated via RoutedProxy during a test are
+    deactivated before the next test runs.
+    """
+    yield
+    rm = _safe_get_session_fixture(request, "_route_manager")
+    if rm is not None:
+        rm.deactivate_all()
+
+
+@pytest.fixture(scope="session")
+def pins(instruments, fixture_config, _route_manager) -> PinAccessor:
     """UUT-centric pin accessor for tests.
 
-    Resolves DUT pin names to instrument instances:
+    Resolves DUT pin names to instrument instances. When fixture points
+    have switch routes, instruments are wrapped in RoutedProxy for
+    transparent route activation on first use.
 
         def test_output(pins):
             pins["VIN"].set_voltage(5.0)
@@ -1295,12 +1604,12 @@ def pins(instruments, fixture_config) -> PinAccessor:
     """
     _require_fixture_and_instruments(fixture_config, instruments, "pins")
 
-    manager = FixtureManager(fixture_config, instruments)
+    manager = FixtureManager(fixture_config, instruments, route_manager=_route_manager)
     return PinAccessor(manager)
 
 
 @pytest.fixture(scope="session")
-def fixture_manager(instruments, fixture_config) -> FixtureManager:
+def fixture_manager(instruments, fixture_config, _route_manager) -> FixtureManager:
     """Fixture manager for advanced pin/net routing.
 
     Provides direct access to the FixtureManager for tests that need
@@ -1314,7 +1623,7 @@ def fixture_manager(instruments, fixture_config) -> FixtureManager:
         pytest.UsageError: If no fixture config or instruments available.
     """
     _require_fixture_and_instruments(fixture_config, instruments, "fixture_manager")
-    return FixtureManager(fixture_config, instruments)
+    return FixtureManager(fixture_config, instruments, route_manager=_route_manager)
 
 
 def pytest_runtest_makereport(item, call):
@@ -1404,3 +1713,386 @@ def pytest_runtest_protocol(item, nextitem):
                 item.ihook.pytest_runtest_logreport(report=report)
 
     return True
+
+
+# ---------------------------------------------------------------------------
+# Multi-slot orchestrator/worker mode
+# ---------------------------------------------------------------------------
+
+def _is_orchestrator_mode(config) -> bool:
+    """Detect if this process should orchestrate multi-slot execution.
+
+    Orchestrator mode activates when:
+    1. LITMUS_SLOT_ID is NOT set (we're not a worker child)
+    2. A multi-slot fixture config is detected
+    """
+    if os.environ.get("LITMUS_SLOT_ID"):
+        return False  # Already a worker
+
+    fixture_path = config.getoption("--fixture-config", default=None)
+    if not fixture_path:
+        return False
+
+    try:
+        from litmus.store import load_fixture
+
+        fc = load_fixture(Path(fixture_path))
+        return fc.is_multi_slot
+    except Exception:
+        return False
+
+
+def _is_worker_mode() -> bool:
+    """Detect if this process is a multi-slot worker child."""
+    return bool(os.environ.get("LITMUS_SLOT_ID"))
+
+
+def _build_child_cmd(config) -> list[str]:
+    """Build the pytest command for child processes.
+
+    Reconstructs the original pytest invocation, stripping --dut-serials
+    (each child gets --dut-serial via env var).
+    """
+    args = list(config.invocation_params.args)
+
+    # Remove --dut-serials from args (children get individual --dut-serial via env)
+    filtered: list[str] = []
+    skip_next = False
+    for arg in args:
+        if skip_next:
+            skip_next = False
+            continue
+        if arg.startswith("--dut-serials="):
+            continue
+        if arg == "--dut-serials":
+            skip_next = True
+            continue
+        # Remove --dut-serial too (children get it from env)
+        if arg.startswith("--dut-serial="):
+            continue
+        if arg == "--dut-serial":
+            skip_next = True
+            continue
+        filtered.append(arg)
+
+    return [sys.executable, "-m", "pytest"] + filtered
+
+
+@pytest.hookimpl(tryfirst=True)
+def pytest_runtestloop(session):
+    """Override test loop for multi-slot orchestration.
+
+    When a multi-slot fixture is detected and LITMUS_SLOT_ID is not set,
+    this hook takes over: spawns N child pytest processes (one per slot),
+    coordinates sync points, and reports aggregate results.
+
+    In worker mode or single-slot mode, returns None to use the default loop.
+    """
+    if not _is_orchestrator_mode(session.config):
+        return None  # Use default test loop
+
+    from litmus.execution.dut_provider import CLIDUTProvider
+    from litmus.execution.slots import (
+        detect_shared_instruments,
+        resolve_fixture_slots,
+    )
+    from litmus.store import load_fixture, load_station
+
+    fixture_path = session.config.getoption("--fixture-config")
+    fixture_config = load_fixture(Path(fixture_path))
+
+    # Load station config for instrument types/resources
+    station_path = _find_station_file(session.config)
+    station_config_obj: StationConfig | None = None
+    if station_path:
+        station_config_obj = load_station(station_path)
+
+    # Resolve slots
+    slots = resolve_fixture_slots(fixture_config)
+    slot_ids = list(slots.keys())  # preserve YAML definition order
+
+    # Detect shared instruments — ALL shared roles are served via InstrumentServer
+    shared_roles = detect_shared_instruments(slots)
+    station_instruments = station_config_obj.instruments if station_config_obj else {}
+
+    # Resolve DUT identities
+    dut_serial = session.config.getoption("--dut-serial")
+    dut_serials_raw = session.config.getoption("--dut-serials")
+    provider = CLIDUTProvider.from_cli_args(
+        dut_serial=dut_serial,
+        dut_serials=dut_serials_raw,
+        slot_ids=slot_ids,
+    )
+    duts = {sid: provider.get_dut(sid) for sid in slot_ids}
+
+    if dut_serial and not dut_serials_raw and len(slot_ids) > 1:
+        warnings.warn(
+            f"Single --dut-serial '{dut_serial}' applied to all {len(slot_ids)} slots. "
+            f"Use --dut-serials for per-slot assignment.",
+            stacklevel=1,
+        )
+
+    # Create EventStore for sync coordination. pytest_runtestloop runs after
+    # litmus_logger session setup (session-scoped fixture), so get_event_store()
+    # will return the store litmus_logger already created. litmus_logger owns
+    # the close() call in its teardown, so SlotRunner must not close it.
+    from litmus.data.event_store import EventStore
+
+    event_store = get_event_store()
+    if event_store is None:
+        event_store = EventStore()
+        set_event_store(event_store)
+
+    # Use the logger's session_id so sync events from children correlate
+    # with the parent's EventStore subscriptions.
+    from litmus.execution.decorators import get_current_logger
+
+    current_logger = get_current_logger()
+    session_id = current_logger.test_run.session_id if current_logger else uuid4()
+
+    # Always subprocess mode — instrument server handles all shared instruments
+    _run_subprocess_mode(
+        session, slots, duts, session_id, event_store,
+        shared_roles=shared_roles,
+        station_instruments=station_instruments,
+        mock_all=session.config.getoption("--mock-instruments"),
+    )
+
+    return True  # Suppress default test execution
+
+
+def _run_subprocess_mode(
+    session: Any,
+    slots: dict[str, Any],
+    duts: dict[str, Any],
+    session_id: UUID,
+    event_store: Any,
+    shared_roles: set[str] | None = None,
+    station_instruments: dict[str, Any] | None = None,
+    mock_all: bool = False,
+) -> None:
+    """Run multi-slot tests using subprocess-per-slot.
+
+    If shared instruments are detected, starts an InstrumentServer in the
+    orchestrator process and passes the address to workers via env vars.
+    Workers get RemoteInstrumentProxy objects for those roles.
+    """
+    from litmus.execution.slot_runner import SlotRunner
+
+    server = None
+    shared_drivers: dict[str, Any] = {}
+    shared_roles = shared_roles or set()
+    station_instruments = station_instruments or {}
+
+    # Only serve non-mocked shared instruments through the server.
+    # Mocked instruments get independent instances per worker so each
+    # worker has its own mock state (per-test mock values don't leak).
+    served_roles: set[str] = set()
+    if shared_roles:
+        from litmus.instruments.lifecycle import load_and_connect
+        from litmus.instruments.models import InstrumentRecord
+        from litmus.instruments.server import InstrumentServer
+
+        concurrent_roles: set[str] = set()
+        resources: dict[str, str] = {}
+        current_role = ""
+
+        try:
+            for role in shared_roles:
+                current_role = role
+                inst_cfg = station_instruments.get(role)
+                if inst_cfg is None:
+                    continue
+
+                is_mocked = mock_all or inst_cfg.mock
+                if is_mocked:
+                    continue  # Workers get independent mocks
+
+                record = InstrumentRecord(
+                    role=role,
+                    instrument_id=role,
+                    driver=inst_cfg.driver,
+                    resource=inst_cfg.resource or "",
+                    protocol="visa",
+                    mocked=False,
+                )
+
+                mock_config = inst_cfg.mock_config if inst_cfg else {}
+                driver = load_and_connect(
+                    record, mock=False, mock_config=mock_config,
+                )
+                shared_drivers[role] = driver
+                served_roles.add(role)
+
+                if inst_cfg.resource:
+                    resources[role] = inst_cfg.resource
+                if inst_cfg.type == "switch":
+                    concurrent_roles.add(role)
+        except Exception as exc:
+            # Clean up any already-connected drivers
+            from litmus.instruments.lifecycle import disconnect
+
+            for cleanup_role, driver in shared_drivers.items():
+                disconnect(driver, cleanup_role)
+            raise RuntimeError(
+                f"Failed to connect shared instrument '{current_role}': {exc}"
+            ) from exc
+
+        if shared_drivers:
+            server = InstrumentServer(
+                shared_drivers, resources=resources,
+                concurrent_roles=concurrent_roles,
+            )
+            server.start()
+
+    # Emit orchestrator-level SessionStarted before spawning workers
+    from litmus.data.events import SessionEnded, SessionStarted
+    from litmus.execution.decorators import get_current_logger
+
+    current_logger = get_current_logger()
+    event_log = None
+    if event_store is not None:
+        event_log = event_store.get_event_log(session_id)
+
+    station_id = ""
+    station_name = None
+    station_type = None
+    station_location = None
+    operator_id = None
+    operator_name = None
+    fixture_id = None
+    if current_logger:
+        tr = current_logger.test_run
+        station_id = tr.station_id
+        station_name = tr.station_name
+        station_type = tr.station_type
+        station_location = tr.station_location
+        operator_id = tr.operator_id
+        operator_name = tr.operator_name
+        fixture_id = tr.fixture_id
+
+    if event_log is not None:
+        event_log.emit(SessionStarted.from_station(
+            session_id=session_id,
+            station_id=station_id,
+            station_name=station_name,
+            station_type=station_type,
+            station_location=station_location,
+            operator_id=operator_id,
+            operator_name=operator_name,
+            fixture_id=fixture_id,
+            slot_count=len(slots),
+        ))
+
+    try:
+        def _stream_output(slot_id: str, line: str) -> None:
+            sys.stdout.write(f"[{slot_id}] {line}")
+            sys.stdout.flush()
+
+        runner = SlotRunner(
+            slots, duts,
+            session_id=session_id,
+            instrument_server_address=server.address_str if server else None,
+            shared_roles=served_roles if server else None,
+        )
+        child_cmd = _build_child_cmd(session.config)
+        results = runner.run(
+            child_cmd,
+            on_output=_stream_output,
+            event_store=event_store,
+        )
+
+        _report_slot_results(session, results)
+
+        # Emit orchestrator-level SessionEnded with worst outcome
+        if event_log is not None:
+            worst = "pass"
+            for r in results.values():
+                if r.outcome == "error":
+                    worst = "error"
+                    break
+                if r.outcome == "fail":
+                    worst = "fail"
+            event_log.emit(SessionEnded(
+                session_id=session_id,
+                outcome=worst,
+            ))
+    finally:
+        if event_log is not None:
+            event_log.close()
+
+        if server is not None:
+            server.stop(force=True)
+
+        from litmus.instruments.lifecycle import disconnect
+
+        for role, driver in shared_drivers.items():
+            disconnect(driver, role)
+
+
+def _extract_pytest_summary(output_lines: list[str]) -> str:
+    """Extract the pytest summary line from worker output.
+
+    Scans from the end looking for lines matching pytest's summary format
+    (e.g., "1 passed", "2 failed, 1 passed").
+    """
+    import re
+
+    pattern = re.compile(r"\d+ (passed|failed|error|warning|skipped|deselected)")
+    for line in reversed(output_lines):
+        if pattern.search(line):
+            # Strip ANSI escape codes and leading/trailing whitespace
+            clean = re.sub(r"\x1b\[[0-9;]*m", "", line).strip()
+            # Remove leading "=" decorations
+            clean = clean.strip("= ").strip()
+            return clean
+    return "(no summary)"
+
+
+def _report_slot_results(session: Any, results: dict[str, Any]) -> None:
+    """Report per-slot results from subprocess mode."""
+    import sys
+
+    sys.stdout.write("\n" + "=" * 60 + "\n")
+    sys.stdout.write("Multi-DUT Results\n")
+    sys.stdout.write("=" * 60 + "\n")
+    for slot_id in results:
+        r = results[slot_id]
+        status = "PASS" if r.outcome == "pass" else "FAIL"
+        summary = _extract_pytest_summary(r.output_lines)
+        sys.stdout.write(f"  {slot_id}: {status}  {summary}\n")
+    sys.stdout.write("=" * 60 + "\n\n")
+    sys.stdout.flush()
+
+    failed_slots = [sid for sid, r in results.items() if r.outcome != "pass"]
+    session.testsfailed = len(failed_slots)
+
+
+# ---------------------------------------------------------------------------
+# Worker-mode fixtures
+# ---------------------------------------------------------------------------
+
+@pytest.fixture(scope="session")
+def sync(litmus_logger):
+    """Provide sync point for multi-DUT test coordination.
+
+    In worker mode (LITMUS_SLOT_ID set), returns a SyncPoint that
+    blocks until all slots arrive. In single-slot mode, returns None.
+
+    Usage:
+        def test_measure_hot(dmm, sync):
+            if sync:
+                sync.wait("thermal_soak", timeout=300)
+            v = dmm.measure_voltage()
+            assert v > 3.0
+    """
+    if not _is_worker_mode():
+        yield None
+        return
+
+    from litmus.execution.sync import get_sync
+
+    # Reuse the session EventStore from litmus_logger — never create a second one
+    event_store = get_event_store()
+    sync_point = get_sync(event_store)
+    yield sync_point

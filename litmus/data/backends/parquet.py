@@ -78,7 +78,7 @@ def _build_parquet_metadata(
     """Build Parquet file-level metadata from config snapshots.
 
     Shared by ParquetBackend (from TestRun) and ParquetSubscriber
-    (from cached SessionStarted event).
+    (from cached RunStarted event).
     """
     metadata: dict[bytes, bytes] = {}
 
@@ -359,6 +359,21 @@ class ParquetBackend:
         finally:
             run_store.close()
 
+    def get_session_measurements(self, session_id: str) -> list[dict]:
+        """Get measurements from all runs sharing a session_id.
+
+        For multi-DUT runs, each worker writes its own parquet file but
+        they share a session_id. This collects measurements across all
+        sibling runs for combined views like the execution timeline.
+        """
+        from litmus.data.run_store import RunStore
+
+        run_store = RunStore(_results_dir=self.results_dir)
+        try:
+            return run_store.get_session_measurements(session_id)
+        finally:
+            run_store.close()
+
     def get_vectors(self, run_id: str) -> list[dict]:
         """Get unique test vectors for a specific test run."""
         measurements = self.get_measurements(run_id)
@@ -488,7 +503,7 @@ class ParquetBackend:
 class ParquetSubscriber:
     """EventSubscriber that accumulates measurements and writes Parquet on close.
 
-    Caches ``SessionStarted`` for run metadata and ``InstrumentConnected``
+    Caches ``RunStarted`` for run metadata and ``InstrumentConnected``
     for instrument arrays. On ``MeasurementRecorded``, builds a denormalized
     row using cached context. On ``RunEnded`` or ``close()``, writes Parquet.
     """
@@ -500,18 +515,18 @@ class ParquetSubscriber:
             InstrumentConnected,
             MeasurementRecorded,
             RunEnded,
-            SessionStarted,
+            RunStarted,
             StepEnded,
             StepsDiscovered,
             StepStarted,
         )
 
         self.event_types: set[type] = {
-            SessionStarted, InstrumentConnected, StepsDiscovered,
+            RunStarted, InstrumentConnected, StepsDiscovered,
             StepStarted, MeasurementRecorded, StepEnded, RunEnded,
         }
         self._backend = backend
-        self._session: Any = None  # SessionStarted event
+        self._run_started: Any = None  # RunStarted event (run context)
         self._instruments: list[Any] = []  # InstrumentConnected events
         self._measurement_events: list[Any] = []  # MeasurementRecorded events
         self._written = False
@@ -528,14 +543,14 @@ class ParquetSubscriber:
             InstrumentConnected,
             MeasurementRecorded,
             RunEnded,
-            SessionStarted,
+            RunStarted,
             StepEnded,
             StepsDiscovered,
             StepStarted,
         )
 
-        if isinstance(event, SessionStarted):
-            self._session = event
+        if isinstance(event, RunStarted):
+            self._run_started = event
         elif isinstance(event, InstrumentConnected):
             self._instruments.append(event)
         elif isinstance(event, StepsDiscovered):
@@ -574,17 +589,18 @@ class ParquetSubscriber:
             arrays["instr_mocked"].append(inst.mocked)
         return arrays
 
-    def _session_metadata_kwargs(self, event: Any) -> dict[str, Any]:
-        """Extract session-level metadata as kwargs for MeasurementRow.
+    def _run_started_metadata_kwargs(self, event: Any) -> dict[str, Any]:
+        """Extract run-level metadata as kwargs for MeasurementRow.
 
         Shared by ``_build_row()`` and ``_build_step_summary_row()``.
         """
-        s = self._session
+        s = self._run_started
         if not s:
             env = _env_columns(None)
             return {
                 "session_id": str(event.session_id),
                 "run_id": str(event.run_id) if event.run_id else "",
+                "slot_id": None,
                 "run_started_at": None, "run_ended_at": None,
                 "operator_id": None, "operator_name": None,
                 "dut_serial": "unknown", "dut_part_number": None,
@@ -602,6 +618,7 @@ class ParquetSubscriber:
         return {
             "session_id": str(s.session_id),
             "run_id": str(event.run_id) if event.run_id else "",
+            "slot_id": s.slot_id,
             "run_started_at": s.occurred_at,
             "run_ended_at": None,
             "operator_id": s.operator_id,
@@ -633,14 +650,14 @@ class ParquetSubscriber:
     def _build_row(self, event: Any) -> dict[str, Any]:
         """Denormalize a MeasurementRecorded event into a flat row dict.
 
-        Joins cached SessionStarted metadata + InstrumentConnected arrays
+        Joins cached RunStarted metadata + InstrumentConnected arrays
         with the normalized measurement event to produce a full
         ``MeasurementRow``-compatible flat dict.
         """
         idx = event.step_index
         end = self._step_ends.get(idx)
         row = MeasurementRow(
-            **self._session_metadata_kwargs(event),
+            **self._run_started_metadata_kwargs(event),
             # Step/vector (from event + cached StepStarted)
             step_name=event.step_name,
             step_index=idx,
@@ -684,7 +701,7 @@ class ParquetSubscriber:
     def _build_step_summary_row(self, step_ended: Any) -> dict[str, Any]:
         """Build a summary row for a step that completed with no measurements."""
         row = MeasurementRow(
-            **self._session_metadata_kwargs(step_ended),
+            **self._run_started_metadata_kwargs(step_ended),
             step_name=step_ended.step_name,
             step_index=step_ended.step_index,
             step_path=step_ended.step_path,
@@ -718,7 +735,7 @@ class ParquetSubscriber:
             return
         self._written = True
 
-        s = self._session
+        s = self._run_started
         if not s:
             return
 
@@ -755,7 +772,7 @@ class ParquetSubscriber:
 
     def _build_file_metadata(self) -> dict[bytes, bytes]:
         """Build Parquet file-level metadata from cached session."""
-        s = self._session
+        s = self._run_started
         if not s:
             return _build_parquet_metadata()
 

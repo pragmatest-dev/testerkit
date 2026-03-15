@@ -5,6 +5,7 @@ import uuid
 from collections.abc import AsyncIterator
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Literal
 
 from litmus.api.models import LaunchRequest, RunStatus
 from litmus.config.models import TestSequenceConfig
@@ -17,7 +18,7 @@ class RunInfo:
     run_id: str
     request: LaunchRequest
     process: asyncio.subprocess.Process | None = None
-    status: str = "pending"  # pending, running, completed, failed
+    status: Literal["pending", "running", "completed", "failed"] = "pending"
     progress_pct: int = 0
     current_step: str | None = None
     output_lines: list[str] = field(default_factory=list)
@@ -178,6 +179,8 @@ class TestRunner:
         env["LITMUS_SERVER_URL"] = os.environ.get("LITMUS_SERVER_URL", "http://localhost:8000")
         # Pass run ID so dialogs are linked to this run
         env["LITMUS_RUN_ID"] = run_info.run_id
+        # Pass session ID for multi-slot coordination
+        env["LITMUS_SESSION_ID"] = run_info.run_id
         # Enable mock instruments if requested
         if req.mock_instruments:
             env["LITMUS_MOCK_INSTRUMENTS"] = "1"

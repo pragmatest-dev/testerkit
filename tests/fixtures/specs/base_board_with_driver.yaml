@@ -1,0 +1,28 @@
+id: base_board_with_driver
+part_number: BASE-DRV-001
+name: Base Board With Driver
+description: Base board for testing driver inheritance
+revision: A
+driver: drivers.base.BaseDriver
+characteristics:
+  output_voltage:
+    function: dc_voltage
+    direction: output
+    units: V
+    pin: VOUT
+    specs:
+    - value: 3.3
+      accuracy:
+        pct_reading: 5.0
+pins:
+  VIN:
+    name: J1.1
+    net: VIN_5V
+    role: power
+  GND:
+    name: J1.2
+    net: GND
+    role: ground
+  VOUT:
+    name: J1.3
+    net: VOUT_3V3

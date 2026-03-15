@@ -121,7 +121,7 @@ class EventStore:
 
         # In-process subscriptions
         self._subscriptions: list[_Subscription] = []
-        self._lock = threading.Lock()
+        self._lock = threading.RLock()
 
         # Track event IDs delivered in-process to avoid duplicate delivery
         # from the cross-process watcher.
@@ -200,6 +200,15 @@ class EventStore:
         # Note: _notify_subscribers is called by EventLog.on_emit callback,
         # and _flight_put is called by EventLog.on_flush callback.
 
+    def flush(self) -> None:
+        """Flush all buffered events to IPC files and Flight.
+
+        Call this after emitting events that must be visible to other
+        processes immediately (e.g., sync events).
+        """
+        for log in self._event_logs.values():
+            log.flush()
+
     # -- Read path -----------------------------------------------------------
 
     def events(
@@ -218,6 +227,7 @@ class EventStore:
         try:
             self._put_stream.drain()
         except Exception:
+            # Non-fatal: Flight stream may be closed or have no pending data
             pass
         # Build SQL via f-string — safe because inputs are typed:
         # session_id is UUID (validated by caller), event_type is a known
@@ -386,7 +396,7 @@ class EventStore:
         return self._events_dir
 
     def close(self) -> None:
-        """Stop watchers, release resources."""
+        """Stop watchers, release resources. Safe to call multiple times."""
         self._watcher_stop.set()
         if self._watcher_thread is not None:
             self._watcher_thread.join(timeout=2.0)
@@ -394,14 +404,26 @@ class EventStore:
 
         # Close event logs — their on_flush callback pushes final batches to Flight
         for log in self._event_logs.values():
-            log.close()
+            try:
+                log.close()
+            except Exception:
+                pass
         self._event_logs.clear()
 
-        self._put_stream.close()
+        try:
+            self._put_stream.close()
+        except Exception:
+            pass
 
         with self._lock:
             self._subscriptions.clear()
             self._delivered_ids.clear()
 
-        self._flight.close()
-        duckdb_manager.release(self._events_dir)
+        try:
+            self._flight.close()
+        except Exception:
+            pass
+        try:
+            duckdb_manager.release(self._events_dir)
+        except Exception:
+            pass

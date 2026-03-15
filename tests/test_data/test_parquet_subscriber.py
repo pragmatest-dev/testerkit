@@ -10,7 +10,7 @@ from litmus.data.events import (
     InstrumentConnected,
     MeasurementRecorded,
     RunEnded,
-    SessionStarted,
+    RunStarted,
     StepEnded,
     StepStarted,
 )
@@ -25,7 +25,7 @@ class TestParquetSubscriber:
         run_id = uuid4()
         session_id = uuid4()
 
-        sub.on_event(SessionStarted(
+        sub.on_event(RunStarted(
             session_id=session_id,
             run_id=run_id,
             station_id="st1",
@@ -73,7 +73,7 @@ class TestParquetSubscriber:
         run_id = uuid4()
         session_id = uuid4()
 
-        sub.on_event(SessionStarted(
+        sub.on_event(RunStarted(
             session_id=session_id,
             run_id=run_id,
             station_id="st1",
@@ -110,13 +110,13 @@ class TestParquetSubscriber:
         assert row["instr_manufacturer"] == ["Keithley"]
 
     def test_close_without_run_ended(self, tmp_path):
-        """close() writes even if RunEnded was not emitted (crash recovery)."""
+        """close() writes even if RunEnded was not received (crash recovery)."""
         backend = ParquetBackend(results_dir=str(tmp_path / "results"))
         sub = ParquetSubscriber(backend)
         sub.open()
 
         run_id = uuid4()
-        sub.on_event(SessionStarted(
+        sub.on_event(RunStarted(
             run_id=run_id,
             station_id="st1",
             dut_serial="SN001",
@@ -142,7 +142,7 @@ class TestParquetSubscriber:
         sub = ParquetSubscriber(backend)
         sub.open()
 
-        sub.on_event(SessionStarted(
+        sub.on_event(RunStarted(
             run_id=uuid4(),
             station_id="st1",
             dut_serial="SN001",
@@ -164,7 +164,7 @@ class TestParquetSubscriber:
         run_id = uuid4()
         session_id = uuid4()
 
-        sub.on_event(SessionStarted(
+        sub.on_event(RunStarted(
             session_id=session_id, run_id=run_id,
             station_id="st1", dut_serial="SN001",
             occurred_at=datetime(2026, 3, 6, 14, 0, 0, tzinfo=UTC),
@@ -209,7 +209,7 @@ class TestParquetSubscriber:
         run_id = uuid4()
         session_id = uuid4()
 
-        sub.on_event(SessionStarted(
+        sub.on_event(RunStarted(
             session_id=session_id, run_id=run_id,
             station_id="st1", dut_serial="SN001",
             occurred_at=datetime(2026, 3, 6, 14, 0, 0, tzinfo=UTC),
@@ -255,3 +255,26 @@ class TestParquetSubscriber:
         assert manifest[1]["has_measurements"] is False
         assert manifest[1]["measurement_count"] == 0
         assert manifest[1]["node_id"] == "tests/test_hw.py::configure_dut"
+
+    def test_measurement_before_run_started(self, tmp_path):
+        """Graceful fallback when RunStarted never arrives (crash recovery)."""
+        backend = ParquetBackend(results_dir=str(tmp_path / "results"))
+        sub = ParquetSubscriber(backend)
+        sub.open()
+
+        # Measurement arrives without a preceding RunStarted
+        sub.on_event(MeasurementRecorded(
+            run_id=uuid4(),
+            step_name="s",
+            step_index=0,
+            measurement_name="v",
+            value=1.0,
+            outcome="pass",
+        ))
+
+        # close() should not crash — no RunStarted means no parquet written
+        sub.close()
+
+        runs_dir = tmp_path / "results" / "runs"
+        pq_files = list(runs_dir.rglob("*.parquet")) if runs_dir.exists() else []
+        assert len(pq_files) == 0

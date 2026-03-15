@@ -281,16 +281,16 @@ class TestTestStepConfig:
         assert step.pre_dialog == "connect_dut"
         assert step.retry.max_attempts == 3
 
-    def test_step_requires_test_or_sequence(self):
+    def test_step_requires_test_or_sequence_or_sync(self):
         import pytest
 
-        with pytest.raises(ValueError, match="must have either 'test' or 'sequence'"):
+        with pytest.raises(ValueError, match="must have one of"):
             TestStepConfig(id="invalid_step", description="No test or sequence")
 
-    def test_step_cannot_have_both(self):
+    def test_step_cannot_have_multiple(self):
         import pytest
 
-        with pytest.raises(ValueError, match="cannot have both 'test' and 'sequence'"):
+        with pytest.raises(ValueError, match="must have only one of"):
             TestStepConfig(
                 id="invalid_step",
                 test="tests/test.py::test",

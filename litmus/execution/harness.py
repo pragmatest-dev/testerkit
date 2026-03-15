@@ -1144,6 +1144,23 @@ class TestHarness:
             step.instrument_arrays = getattr(
                 self._logger, "_step_instrument_arrays", None
             )
+            # Emit StepStarted event (register_step doesn't emit)
+            if self._logger.event_log is not None:
+                from litmus.data.events import StepStarted
+
+                self._logger.event_log.emit(StepStarted(
+                    session_id=self._logger._session_id,
+                    run_id=self._logger.test_run.id,
+                    step_name=step.name,
+                    step_index=self._current_step_index,
+                    step_path=step.step_path,
+                    description=step.description,
+                    node_id=step.node_id,
+                    file=step.file,
+                    module=step.module,
+                    class_name=step.class_name,
+                    function=step.function,
+                ))
 
         # Set contextvar for concurrency-safe resolution
         step_token = _current_step_var.set(step)
@@ -1155,6 +1172,24 @@ class TestHarness:
             # Compute step outcome from vectors
             for tv in step.vectors:
                 step.outcome = escalate_outcome(step.outcome, tv.outcome)
+
+            # Emit StepEnded event
+            if self._logger is not None and self._logger.event_log is not None:
+                from litmus.data.events import StepEnded
+
+                self._logger.event_log.emit(StepEnded(
+                    session_id=self._logger._session_id,
+                    run_id=self._logger.test_run.id,
+                    step_name=step.name,
+                    step_index=self._current_step_index,
+                    step_path=step.step_path,
+                    outcome=step.outcome.value,
+                    node_id=step.node_id,
+                    file=step.file,
+                    module=step.module,
+                    class_name=step.class_name,
+                    function=step.function,
+                ))
 
             _current_step_var.reset(step_token)
             self._step_context = None

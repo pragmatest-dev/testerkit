@@ -39,6 +39,7 @@ instruments:
 | `resource` | Yes | VISA address or connection string |
 | `mock_config` | No | Values for `--mock-instruments` mode |
 | `mock` | No | Always mock this instrument (even without `--mock-instruments`) |
+| `persistent` | No | Keep connection open for session lifetime (default: `false`) |
 
 ## VISA Addresses
 
@@ -294,6 +295,52 @@ print(f"Instruments: {list(station.instruments.keys())}")
 ```
 
 Invalid configurations raise `pydantic.ValidationError` with details about what's wrong.
+
+## Shared Instruments (Multi-DUT)
+
+When a fixture defines multiple slots, instruments referenced by more than one slot are automatically detected as **shared**. The orchestrator connects shared instruments once, hosts them via an InstrumentServer (TCP RPC), and worker subprocesses access them through transparent `RemoteInstrumentProxy` objects. Tests never know the difference.
+
+### Per-Resource Locking
+
+Locking is keyed on the instrument's **resource string** (e.g., VISA address), not the role name. This means:
+
+- **Same resource** → same driver session → same lock → serialized access
+- **Different resources** → different sessions → independent locks → parallel access
+- **Switches** → concurrent access (relay operations are atomic)
+
+Two roles pointing at the same physical instrument share a lock automatically:
+
+```yaml
+instruments:
+  dmm:
+    type: dmm
+    resource: "TCPIP::192.168.1.100::INSTR"   # ← lock key
+    persistent: true
+  scope:
+    type: scope
+    resource: "TCPIP::192.168.1.100::INSTR"   # ← same resource = same lock
+    persistent: true
+```
+
+### Automatic Server Setup
+
+No special flags are needed. When the fixture defines multiple slots that share an instrument role, the orchestrator automatically:
+
+1. Connects the shared instruments once in the orchestrator process
+2. Starts an InstrumentServer to serve them via TCP RPC
+3. Worker subprocesses get transparent `RemoteInstrumentProxy` objects
+
+```yaml
+instruments:
+  dmm:
+    type: dmm
+    driver: pymeasure.instruments.keysight.Keysight34461A
+    resource: "TCPIP::192.168.1.100::INSTR"
+  matrix:
+    type: switch
+    driver: drivers.switch.RelayMatrix
+    resource: "TCPIP::192.168.1.106::INSTR"
+```
 
 ## Best Practices
 

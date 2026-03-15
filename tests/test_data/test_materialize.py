@@ -46,6 +46,7 @@ def results_tree(tmp_path: Path) -> Path:
     uri = make_channel_uri(channel_id, session_id)
     pq_table = pa.table({
         "run_id": ["run1"],
+        "session_id": [session_id],
         "run_started_at": ["2026-03-01T10:00:00Z"],
         "run_ended_at": ["2026-03-01T10:05:00Z"],
         "run_outcome": ["pass"],

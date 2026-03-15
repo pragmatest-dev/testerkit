@@ -16,7 +16,6 @@ from litmus.data.events import (
     MeasurementRecorded,
     RecordEvent,
     RunEnded,
-    SessionEnded,
     StepEnded,
     StepStarted,
 )
@@ -628,7 +627,8 @@ class TestRunLogger:
     def finalize(self) -> TestRun:
         """Complete test run and return result.
 
-        Emits RunEnded event and closes the event log.
+        Emits RunEnded event. Does NOT close the event log — caller is
+        responsible for emitting SessionEnded and closing the log.
         """
         # Close any unclosed step before finalizing
         if _current_step_var.get() is not None:
@@ -636,18 +636,11 @@ class TestRunLogger:
 
         self.test_run.ended_at = _utcnow()
 
-        # Emit RunEnded, SessionEnded, then close event log
         if self._event_log is not None:
             self._event_log.emit(RunEnded(
                 session_id=self._session_id,
                 run_id=self.test_run.id,
                 outcome=self.test_run.outcome.value,
             ))
-            self._event_log.emit(SessionEnded(
-                session_id=self._session_id,
-                run_id=self.test_run.id,
-                outcome=self.test_run.outcome.value,
-            ))
-            self._event_log.close()
 
         return self.test_run

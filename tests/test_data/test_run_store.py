@@ -26,6 +26,7 @@ def runs_store(tmp_path_factory: pytest.TempPathFactory) -> Generator[RunStore]:
     pq1 = runs_dir / "20260301T100000Z_SN001.parquet"
     table = pa.table({
         "run_id": ["run-001-abc"],
+        "session_id": [session_id],
         "run_started_at": ["2026-03-01T10:00:00Z"],
         "run_ended_at": ["2026-03-01T10:05:00Z"],
         "run_outcome": ["pass"],
@@ -41,6 +42,7 @@ def runs_store(tmp_path_factory: pytest.TempPathFactory) -> Generator[RunStore]:
     pq2 = runs_dir / "20260301T110000Z_SN002.parquet"
     table2 = pa.table({
         "run_id": ["run-002-def"],
+        "session_id": [session_id],
         "run_started_at": ["2026-03-01T11:00:00Z"],
         "run_ended_at": ["2026-03-01T11:05:00Z"],
         "run_outcome": ["fail"],
@@ -135,6 +137,7 @@ def test_notify_new_run(tmp_path: Path) -> None:
     pq_file = runs_dir / "20260308T120000Z_SN099.parquet"
     table = pa.table({
         "run_id": ["run-099-xyz"],
+        "session_id": ["sess-099"],
         "run_started_at": ["2026-03-08T12:00:00Z"],
         "run_ended_at": ["2026-03-08T12:01:00Z"],
         "run_outcome": ["pass"],
@@ -153,6 +156,7 @@ def test_notify_new_run(tmp_path: Path) -> None:
         pq_file2 = runs_dir / "20260308T130000Z_SN100.parquet"
         table2 = pa.table({
             "run_id": ["run-100-abc"],
+            "session_id": ["sess-100"],
             "run_started_at": ["2026-03-08T13:00:00Z"],
             "run_ended_at": ["2026-03-08T13:01:00Z"],
             "run_outcome": ["fail"],

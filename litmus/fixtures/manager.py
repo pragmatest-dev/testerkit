@@ -17,6 +17,8 @@ Resolution Flow:
         → .measure_voltage() on the DMM
 """
 
+from __future__ import annotations
+
 from typing import Any
 
 from litmus.config.models import FixtureConfig, FixturePoint
@@ -33,6 +35,10 @@ class FixtureManager:
     - Instrument instances (physical: DMM, PSU)
     - Instrument channels (for multi-channel instruments)
 
+    When a ``route_manager`` is provided and a fixture point has a
+    ``route``, the returned instrument is wrapped in a ``RoutedProxy``
+    that lazy-activates the switch route on first use.
+
     Example:
         # Load from configs
         instruments = {"dmm_main": DMM(...), "psu_main": PSU(...)}
@@ -48,15 +54,18 @@ class FixtureManager:
         self,
         fixture_config: FixtureConfig,
         instruments: dict[str, Instrument],
+        route_manager: Any = None,
     ):
         """Initialize fixture manager.
 
         Args:
             fixture_config: Fixture configuration with point definitions
             instruments: Dictionary mapping instrument names to instances
+            route_manager: Optional RouteManager for switched routing
         """
         self.fixture_config = fixture_config
         self.instruments = instruments
+        self._route_manager = route_manager
 
         # Build reverse lookup: dut_pin -> point_name
         self._pin_to_point: dict[str, str] = {}
@@ -123,21 +132,20 @@ class FixtureManager:
     def get_instrument_for_point(self, point_name: str) -> Instrument:
         """Get instrument instance for a fixture point.
 
+        If the point has a switch route and a route_manager is available,
+        returns a RoutedProxy that lazy-activates the route on first use.
+
         Args:
             point_name: Fixture point name (e.g., "vout_measure")
 
         Returns:
-            Instrument instance
+            Instrument instance (or RoutedProxy wrapping it)
 
         Raises:
-            KeyError: If point or instrument not found
+            KeyError: If point or instrument not found (unless shared)
         """
         point = self.get_point(point_name)
-        if point.instrument not in self.instruments:
-            raise KeyError(
-                f"Instrument '{point.instrument}' for point '{point_name}' not found"
-            )
-        return self.instruments[point.instrument]
+        return self._resolve_instrument(point_name, point)
 
     def has_pin(self, pin_name: str) -> bool:
         """Check if a pin has a fixture connection."""
@@ -146,21 +154,23 @@ class FixtureManager:
     def get_instrument_for_pin(self, pin_name: str) -> Instrument:
         """Get instrument instance for a DUT pin.
 
+        If the point has a switch route and a route_manager is available,
+        returns a RoutedProxy that lazy-activates the route on first use.
+
         Args:
             pin_name: DUT pin name (e.g., "VOUT")
 
         Returns:
-            Instrument instance
+            Instrument instance (or RoutedProxy wrapping it)
 
         Raises:
-            KeyError: If pin or instrument not found
+            KeyError: If pin or instrument not found (unless shared)
         """
-        point = self.get_point_for_pin(pin_name)
-        if point.instrument not in self.instruments:
-            raise KeyError(
-                f"Instrument '{point.instrument}' for pin '{pin_name}' not found"
-            )
-        return self.instruments[point.instrument]
+        if pin_name not in self._pin_to_point:
+            raise KeyError(f"No fixture point for DUT pin '{pin_name}'")
+        point_name = self._pin_to_point[pin_name]
+        point = self.fixture_config.points[point_name]
+        return self._resolve_instrument(point_name, point)
 
     def get_channel_for_point(self, point_name: str) -> str | None:
         """Get instrument channel for a fixture point.
@@ -201,6 +211,25 @@ class FixtureManager:
             List of point names
         """
         return list(self.fixture_config.points.keys())
+
+    def _resolve_instrument(self, point_name: str, point: FixturePoint) -> Instrument:
+        """Resolve a fixture point to its instrument, wrapping if routed."""
+        if point.instrument not in self.instruments:
+            raise KeyError(
+                f"Instrument '{point.instrument}' for point '{point_name}' not found"
+            )
+        inst = self.instruments[point.instrument]
+        return self._maybe_wrap_routed(inst, point_name, point)
+
+    def _maybe_wrap_routed(
+        self, inst: Any, point_name: str, point: FixturePoint,
+    ) -> Instrument:
+        """Wrap instrument in RoutedProxy if the point has a switch route."""
+        if point.route is not None and self._route_manager is not None:
+            from litmus.instruments.routed_proxy import RoutedProxy
+
+            return RoutedProxy(inst, point_name, self._route_manager)  # type: ignore[return-value]
+        return inst
 
 
 class PinAccessor:

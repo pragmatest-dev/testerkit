@@ -1,0 +1,4 @@
+id: variant_driver_override
+base: base_board_with_driver
+name: Variant Overrides Driver
+driver: drivers.variant.VariantDriver

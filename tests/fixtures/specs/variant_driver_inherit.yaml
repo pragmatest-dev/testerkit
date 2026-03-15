@@ -1,0 +1,3 @@
+id: variant_driver_inherit
+base: base_board_with_driver
+name: Variant Inherits Driver

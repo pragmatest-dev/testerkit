@@ -51,7 +51,7 @@ class TestFixtureManager:
     """Tests for FixtureManager routing."""
 
     @pytest.fixture
-    def fixture_config(self):
+    def fx_config(self):
         """Fixture providing a test fixture configuration."""
         return FixtureConfig(
             id="test_fixture",
@@ -75,7 +75,7 @@ class TestFixtureManager:
         )
 
     @pytest.fixture
-    def instruments(self):
+    def inst_map(self):
         """Fixture providing mock instruments."""
         dmm = Mock(FakeDMM, measure_voltage=3.3)
         psu = Mock(FakePSU)
@@ -85,53 +85,53 @@ class TestFixtureManager:
         dmm.disconnect()
         psu.disconnect()
 
-    def test_get_point(self, fixture_config, instruments):
-        manager = FixtureManager(fixture_config, instruments)
+    def test_get_point(self, fx_config, inst_map):
+        manager = FixtureManager(fx_config, inst_map)
         point = manager.get_point("vout_measure")
         assert point.name == "vout_measure"
         assert point.instrument == "dmm_main"
 
-    def test_get_point_not_found(self, fixture_config, instruments):
-        manager = FixtureManager(fixture_config, instruments)
+    def test_get_point_not_found(self, fx_config, inst_map):
+        manager = FixtureManager(fx_config, inst_map)
         with pytest.raises(KeyError, match="nonexistent"):
             manager.get_point("nonexistent")
 
-    def test_get_point_for_pin(self, fixture_config, instruments):
-        manager = FixtureManager(fixture_config, instruments)
+    def test_get_point_for_pin(self, fx_config, inst_map):
+        manager = FixtureManager(fx_config, inst_map)
         point = manager.get_point_for_pin("VOUT")
         assert point.name == "vout_measure"
         assert point.dut_pin == "VOUT"
 
-    def test_get_point_for_net(self, fixture_config, instruments):
-        manager = FixtureManager(fixture_config, instruments)
+    def test_get_point_for_net(self, fx_config, inst_map):
+        manager = FixtureManager(fx_config, inst_map)
         point = manager.get_point_for_net("VIN_5V")
         assert point.name == "vin_supply"
         assert point.net == "VIN_5V"
 
-    def test_get_instrument_for_point(self, fixture_config, instruments):
-        manager = FixtureManager(fixture_config, instruments)
+    def test_get_instrument_for_point(self, fx_config, inst_map):
+        manager = FixtureManager(fx_config, inst_map)
         inst = manager.get_instrument_for_point("vout_measure")
         assert isinstance(inst, FakeDMM)
 
-    def test_get_instrument_for_pin(self, fixture_config, instruments):
-        manager = FixtureManager(fixture_config, instruments)
+    def test_get_instrument_for_pin(self, fx_config, inst_map):
+        manager = FixtureManager(fx_config, inst_map)
         inst = manager.get_instrument_for_pin("VOUT")
         assert isinstance(inst, FakeDMM)
 
-    def test_get_channel_for_point(self, fixture_config, instruments):
-        manager = FixtureManager(fixture_config, instruments)
+    def test_get_channel_for_point(self, fx_config, inst_map):
+        manager = FixtureManager(fx_config, inst_map)
         channel = manager.get_channel_for_point("vout_measure")
         assert channel == "1"
 
-    def test_list_pins(self, fixture_config, instruments):
-        manager = FixtureManager(fixture_config, instruments)
+    def test_list_pins(self, fx_config, inst_map):
+        manager = FixtureManager(fx_config, inst_map)
         pins = manager.list_pins()
         assert "VOUT" in pins
         assert "VIN" in pins
         assert len(pins) == 2
 
-    def test_list_points(self, fixture_config, instruments):
-        manager = FixtureManager(fixture_config, instruments)
+    def test_list_points(self, fx_config, inst_map):
+        manager = FixtureManager(fx_config, inst_map)
         points = manager.list_points()
         assert "vout_measure" in points
         assert "vin_supply" in points
@@ -143,7 +143,7 @@ class TestPinAccessor:
     @pytest.fixture
     def pin_accessor(self):
         """Fixture providing a PinAccessor with mock instruments."""
-        fixture_config = FixtureConfig(
+        fc = FixtureConfig(
             id="test_fixture",
             product_family="test_product",
             points={
@@ -163,8 +163,8 @@ class TestPinAccessor:
         psu = Mock(FakePSU)
         dmm.connect()
         psu.connect()
-        instruments = {"dmm_main": dmm, "psu_main": psu}
-        manager = FixtureManager(fixture_config, instruments)
+        inst_map = {"dmm_main": dmm, "psu_main": psu}
+        manager = FixtureManager(fc, inst_map)
         yield PinAccessor(manager)
         dmm.disconnect()
         psu.disconnect()

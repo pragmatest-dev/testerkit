@@ -503,7 +503,11 @@ def _merge_product_data(
     """
     # Start with base scalars, then overlay all variant keys
     merged: dict[str, Any] = {}
-    for key in ("name", "description", "revision", "part_number", "datasheet", "schematic"):
+    scalar_keys = (
+        "name", "description", "revision", "part_number",
+        "datasheet", "schematic", "driver",
+    )
+    for key in scalar_keys:
         if key in base:
             merged[key] = base[key]
     merged.update(variant)
