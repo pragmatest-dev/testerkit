@@ -18,7 +18,9 @@
 | Parametric sweeps | ✅ Vector expansion (product, zip, range) | ❌ | ❌ Manual loops | ✅ Sweep/loop steps | ✅ Sweep operator | ❌ | ❌ | ❌ | ✅ `parametrize` |
 | Retry on failure | ✅ Per-step config | ❌ | ❌ | ✅ | ✅ | ✅ | ✅ Attempt markers | ❌ | ❌ (needs plugin) |
 | Skip-on-dependency | ✅ | ❌ | ❌ | ✅ | ✅ | ❌ | ✅ Dependency markers | ❌ | ❌ (needs plugin) |
-| Parallel execution | ❌ | ❌ | ❌ | ✅ | ✅ | ❌ | ❌ | ❌ | ✅ `pytest-xdist` |
+| Parallel multi-DUT | ✅ Subprocess per slot + sync | ❌ | ❌ | ✅ | ✅ | ❌ | ❌ | ❌ | ✅ `pytest-xdist` |
+| Shared instruments | ✅ InstrumentServer (TCP RPC) | ❌ | ❌ | ✅ | ✅ | ❌ | ❌ | ❌ | ❌ |
+| Signal routing | ✅ RouteManager + RoutedProxy | ❌ | ❌ | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ |
 
 ### Measurement & Limits
 
@@ -177,13 +179,15 @@
 
 3. **Analytics out of the box** — Parquet + DuckDB gives you FPY, Cpk, trend analysis, and Pareto charts without a separate analytics platform. OpenHTF users need TofuPilot for this. HardPy needs StandCloud.
 
-4. **AI-native** — MCP server means Claude, Copilot, or any AI agent can discover instruments, run tests, and query results. No other framework exposes test infrastructure as AI tools.
+4. **Parallel multi-DUT** — Subprocess-per-slot execution with cross-process sync points, shared instrument server (TCP RPC, per-resource locking, lock-lease timeout), and signal routing (RouteManager with break-before-make). No other open-source Python framework supports parallel multi-DUT testing. OpenHTF issue #61 has been open since 2016.
 
-5. **Zero-boilerplate instruments** — Use PyMeasure, PyVISA, or vendor drivers directly. OpenHTF requires wrapping every driver in a Plug class. TestStand requires NI code modules.
+5. **AI-native** — MCP server means Claude, Copilot, or any AI agent can discover instruments, run tests, and query results. No other framework exposes test infrastructure as AI tools.
 
-6. **Incremental adoption** — Start with `pip install litmus` and a single pytest test. Add config, instruments, UI, and analytics as needed. No big-bang migration required.
+6. **Zero-boilerplate instruments** — Use PyMeasure, PyVISA, or vendor drivers directly. OpenHTF requires wrapping every driver in a Plug class. TestStand requires NI code modules.
 
-7. **No viral license** — Apache-2.0 is manufacturing-friendly. HardPy's GPL-3.0 requires distributing source code of any derivative work — a dealbreaker for most hardware companies.
+7. **Incremental adoption** — Start with `pip install litmus` and a single pytest test. Add config, instruments, UI, and analytics as needed. No big-bang migration required.
+
+8. **No viral license** — Apache-2.0 is manufacturing-friendly. HardPy's GPL-3.0 requires distributing source code of any derivative work — a dealbreaker for most hardware companies.
 
 ## Where Litmus Doesn't Win (Yet)
 
@@ -191,11 +195,10 @@
 - **Post-hoc analysis & fleet monitoring** — Nominal's checks, data reviews, and streaming checklists enable continuous validation across assets and operations. Litmus validates during test execution only.
 - **Asset lifecycle tracking** — Nominal tracks physical assets from test through field operations with cross-run analysis. Litmus tracks DUT serial numbers per run but has no asset registry or fleet view.
 - **Team collaboration** — Nominal provides multi-user workspaces, shared analysis templates, and event annotations. Litmus is single-station, file-based.
-- **Parallel execution** — TestStand and OpenTAP support parallel test steps. Litmus runs vectors sequentially.
 - **Medical certification** — htf (HILSTER) has ISO/TR 80002-2. Litmus provides the traceability data but no formal certification.
 - **Visual sequence editor** — TestStand's drag-and-drop sequence builder is unmatched. Litmus sequences are YAML.
 - **Maturity** — TestStand has 25 years of production deployment. Litmus is new.
 
 ---
 
-*Sources: [OpenHTF GitHub](https://github.com/google/openhtf), [OpenHTF Missing Tutorial](https://www.frdmtoplay.com/openhtf-the-missing-tutorial/), [NI TestStand 2025 Q3](https://forums.ni.com/t5/NI-TestStand/Announcing-TestStand-2025-Q3/td-p/4447022), [OpenTAP](https://opentap.io/), [htf HILSTER](https://docs.hilster.io/htf/latest/), [HardPy GitHub](https://github.com/everypinio/hardpy), [HardPy Docs](https://everypinio.github.io/hardpy/), [pytest-f3ts](https://www.fixturfab.com/articles/pytest-f3ts-hardware-testing), [pytest-f3ts Docs](https://docs.fixturfab.com/pytest-f3ts/), [TofuPilot](https://www.tofupilot.com/), [LAVA Forum](https://lavag.org/topic/22024-open-source-alternatives-to-teststand/), [awesome-hardware-test](https://github.com/sschaetz/awesome-hardware-test)*
+*Updated March 2026. Sources: [OpenHTF GitHub](https://github.com/google/openhtf) (v1.6.0, Mar 2025), [NI TestStand 2026 Q1](https://forums.ni.com/t5/NI-TestStand/Announcing-TestStand-2026-Q1/td-p/4468199), [OpenTAP](https://opentap.io/), [htf HILSTER](https://docs.hilster.io/htf/latest/), [HardPy GitHub](https://github.com/everypinio/hardpy) (v0.22.1, Feb 2026), [pytest-f3ts](https://www.fixturfab.com/articles/pytest-f3ts-hardware-testing) (v1.1.4, Mar 2026), [TofuPilot](https://www.tofupilot.com/), [QCoDeS](https://github.com/microsoft/Qcodes) (v0.55.0, Feb 2026), [tm_devices](https://github.com/tektronix/tm_devices) (v3.5.0, Dec 2025), [awesome-hardware-test](https://github.com/sschaetz/awesome-hardware-test)*
