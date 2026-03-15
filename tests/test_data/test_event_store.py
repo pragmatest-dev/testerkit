@@ -25,7 +25,6 @@ def _make_session_started(session_id, station_id="test-station"):
         session_id=session_id,
         station_id=station_id,
         station_name="Test",
-        dut_serial="DUT001",
         session_type="test",
         pid=1234,
     )

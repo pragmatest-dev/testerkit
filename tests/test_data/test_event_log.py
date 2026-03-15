@@ -6,7 +6,7 @@ from uuid import uuid4
 import pyarrow.ipc as ipc
 
 from litmus.data.event_log import EventLog
-from litmus.data.events import MeasurementRecorded, RunEnded, SessionStarted
+from litmus.data.events import MeasurementRecorded, RunEnded, RunStarted, SessionStarted
 
 
 class TestEventLog:
@@ -14,7 +14,7 @@ class TestEventLog:
         run_id = uuid4()
         log = EventLog(tmp_path / "events", run_id)
 
-        event = SessionStarted(
+        event = RunStarted(
             run_id=run_id,
             station_id="st1",
             dut_serial="SN001",
@@ -27,7 +27,7 @@ class TestEventLog:
         batch = reader.get_batch(0)
         assert batch.num_rows == 1
         data = json.loads(batch.column("json")[0].as_py())
-        assert data["event_type"] == "session.started"
+        assert data["event_type"] == "run.started"
         assert data["station_id"] == "st1"
         assert data["received_at"] is not None
 
@@ -57,7 +57,7 @@ class TestEventLog:
         log.add_subscriber(Sub())
 
         # Should NOT dispatch (wrong type)
-        log.emit(SessionStarted(station_id="st1", dut_serial="SN001"))
+        log.emit(SessionStarted(station_id="st1"))
         assert len(received) == 0
 
         # Should dispatch
@@ -113,7 +113,7 @@ class TestEventLog:
         run_id = uuid4()
         log = EventLog(tmp_path / "events", run_id)
 
-        log.emit(SessionStarted(run_id=run_id, station_id="st1", dut_serial="SN001"))
+        log.emit(RunStarted(run_id=run_id, station_id="st1", dut_serial="SN001"))
         log.emit(MeasurementRecorded(
             run_id=run_id, step_name="s", step_index=0,
             measurement_name="v", value=1.0,
@@ -126,4 +126,4 @@ class TestEventLog:
         assert reader.num_record_batches == 1
         batch = reader.get_batch(0)
         types = batch.column("event_type").to_pylist()
-        assert types == ["session.started", "test.measurement", "test.run_ended"]
+        assert types == ["run.started", "test.measurement", "run.ended"]

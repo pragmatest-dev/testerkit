@@ -11,7 +11,7 @@ from datetime import datetime
 from typing import Annotated, Any, Literal
 from uuid import UUID, uuid4
 
-from pydantic import BaseModel, Field, model_serializer
+from pydantic import BaseModel, Field, model_serializer, model_validator
 
 from litmus.data.models import _utcnow
 from litmus.data.ref import classify_value, make_channel_uri
@@ -55,7 +55,11 @@ class EventBase(BaseModel):
 # ---------------------------------------------------------------------------
 
 class SessionStarted(EventBase):
-    """Emitted once at the start of a run. Contains full run context."""
+    """Emitted once at the start of a session (interactive or test orchestrator).
+
+    Contains session-wide metadata only. Run-level fields (DUT, config snapshots)
+    live in ``RunStarted``. Session events must NOT carry run_id.
+    """
 
     event_type: Literal["session.started"] = "session.started"
     session_type: str = "test_run"
@@ -66,7 +70,103 @@ class SessionStarted(EventBase):
     station_type: str | None = None
     station_location: str | None = None
     station_hostname: str | None = None
+
+    # Process
+    pid: int | None = None
+    client: str = Field(default_factory=_detect_client)
+
+    # Operator
+    operator_id: str | None = None
+    operator_name: str | None = None
+
+    # Fixture & slot
+    fixture_id: str | None = None
+    slot_count: int = 1
+
+    @model_validator(mode="after")
+    def _reject_run_id(self) -> SessionStarted:
+        if self.run_id is not None:
+            raise ValueError("SessionStarted must not have run_id; use RunStarted for run context")
+        return self
+
+    @classmethod
+    def from_station(
+        cls,
+        *,
+        session_id: UUID,
+        station_id: str,
+        station_name: str | None = None,
+        station_type: str | None = None,
+        station_location: str | None = None,
+        station_hostname: str | None = None,
+        operator_id: str | None = None,
+        operator_name: str | None = None,
+        fixture_id: str | None = None,
+        slot_count: int | None = None,
+        session_type: str = "test_run",
+    ) -> SessionStarted:
+        """Build a SessionStarted with common station fields.
+
+        Shared by plugin.py (pytest) and connect.py (interactive).
+        If ``slot_count`` is None, reads ``LITMUS_SLOT_COUNT`` env var
+        (defaults to 1).
+        """
+        import os
+        import socket as _socket
+
+        if slot_count is None:
+            slot_count = int(os.environ.get("LITMUS_SLOT_COUNT", "1"))
+
+        return cls(
+            session_id=session_id,
+            station_id=station_id,
+            station_name=station_name,
+            station_type=station_type,
+            station_location=station_location,
+            station_hostname=station_hostname or _socket.gethostname(),
+            operator_id=operator_id,
+            operator_name=operator_name,
+            fixture_id=fixture_id,
+            slot_count=slot_count,
+            session_type=session_type,
+            pid=os.getpid(),
+        )
+
+
+class SessionEnded(EventBase):
+    """Emitted at the end of a session. Must NOT carry run_id."""
+
+    event_type: Literal["session.ended"] = "session.ended"
+    outcome: str = "pass"
+
+    @model_validator(mode="after")
+    def _reject_run_id(self) -> SessionEnded:
+        if self.run_id is not None:
+            raise ValueError("SessionEnded must not have run_id; use RunEnded for run lifecycle")
+        return self
+
+
+# ---------------------------------------------------------------------------
+# Run events (test run lifecycle)
+# ---------------------------------------------------------------------------
+
+class RunStarted(EventBase):
+    """Emitted once per test run. Contains full run context.
+
+    In single-DUT mode, one RunStarted follows SessionStarted.
+    In multi-DUT mode, each worker emits its own RunStarted.
+    """
+
+    event_type: Literal["run.started"] = "run.started"
+
+    # Station
+    station_id: str
+    station_name: str | None = None
+    station_type: str | None = None
+    station_location: str | None = None
+    station_hostname: str | None = None
     slot_id: str | None = None
+    slot_index: int | None = None
 
     # Process
     pid: int | None = None
@@ -107,10 +207,10 @@ class SessionStarted(EventBase):
     channel_refs: list[str] = Field(default_factory=list)
 
 
-class SessionEnded(EventBase):
-    """Emitted at the end of a run."""
+class RunEnded(EventBase):
+    """Emitted at the end of a test run."""
 
-    event_type: Literal["session.ended"] = "session.ended"
+    event_type: Literal["run.ended"] = "run.ended"
     outcome: str = "pass"
 
 
@@ -229,7 +329,7 @@ class StepStarted(EventBase):
 class MeasurementRecorded(EventBase):
     """A single measurement. Normalized: carries only measurement-specific fields.
 
-    Run metadata (station, DUT, operator, etc.) lives in ``SessionStarted``.
+    Run metadata (station, DUT, operator, etc.) lives in ``RunStarted``.
     Instrument arrays live in ``InstrumentConnected`` events.
     Subscribers denormalize at write time.
     """
@@ -305,10 +405,6 @@ class StepsDiscovered(EventBase):
     event_type: Literal["test.steps_discovered"] = "test.steps_discovered"
     items: list[dict[str, str | None]] = Field(default_factory=list)
 
-
-class RunEnded(EventBase):
-    event_type: Literal["test.run_ended"] = "test.run_ended"
-    outcome: str = "pass"
 
 
 # ---------------------------------------------------------------------------
@@ -502,18 +598,19 @@ class DialogResponded(EventBase):
 # ---------------------------------------------------------------------------
 
 SESSION_EVENTS = {SessionStarted, SessionEnded}
+RUN_EVENTS = {RunStarted, RunEnded}
 SLOT_EVENTS = {SlotStarted, SlotCompleted, SyncArrived, SyncRelease}
 FIXTURE_EVENTS = {
     InstrumentConnected, IdentityVerified, CalibrationWarning, DutScanned, InstrumentDisconnected,
 }
-TEST_EVENTS = {StepStarted, MeasurementRecorded, RecordEvent, StepEnded, StepsDiscovered, RunEnded}
+TEST_EVENTS = {StepStarted, MeasurementRecorded, RecordEvent, StepEnded, StepsDiscovered}
 ROUTE_EVENTS = {RouteClosed, RouteOpened}
 INSTRUMENT_EVENTS = {InstrumentRead, InstrumentSet, InstrumentConfigure}
 DIAGNOSTIC_EVENTS = {DiagnosticWarning, DiagnosticError}
 STREAM_EVENTS = {StreamStarted, StreamEnded, StreamFrameIndex}
 DIALOG_EVENTS = {DialogOpened, DialogResponded}
 ALL_EVENTS = (
-    SESSION_EVENTS | SLOT_EVENTS | FIXTURE_EVENTS | TEST_EVENTS
+    SESSION_EVENTS | RUN_EVENTS | SLOT_EVENTS | FIXTURE_EVENTS | TEST_EVENTS
     | ROUTE_EVENTS | INSTRUMENT_EVENTS | DIAGNOSTIC_EVENTS | STREAM_EVENTS
     | DIALOG_EVENTS
 )
@@ -521,10 +618,11 @@ ALL_EVENTS = (
 # Discriminated union type for deserialization
 Event = Annotated[
     SessionStarted | SessionEnded
+    | RunStarted | RunEnded
     | SlotStarted | SlotCompleted | SyncArrived | SyncRelease
     | InstrumentConnected | IdentityVerified | CalibrationWarning
     | DutScanned | InstrumentDisconnected
-    | StepStarted | MeasurementRecorded | RecordEvent | StepEnded | StepsDiscovered | RunEnded
+    | StepStarted | MeasurementRecorded | RecordEvent | StepEnded | StepsDiscovered
     | RouteClosed | RouteOpened
     | InstrumentRead | InstrumentSet | InstrumentConfigure
     | DiagnosticWarning | DiagnosticError

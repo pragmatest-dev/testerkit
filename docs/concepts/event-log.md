@@ -24,13 +24,19 @@ Each event type adds a `Literal` `event_type` field used as a discriminator for 
 
 ## Event Categories
 
-Litmus defines events across 7 categories:
+Litmus defines events across 8 categories:
 
 ### Session (2 events)
 | Event | Type String | Description |
 |-------|-------------|-------------|
-| `SessionStarted` | `session.started` | Full run context: station, DUT, operator, configs |
+| `SessionStarted` | `session.started` | Session-wide metadata: station, operator, fixture |
 | `SessionEnded` | `session.ended` | Session outcome |
+
+### Run (2 events)
+| Event | Type String | Description |
+|-------|-------------|-------------|
+| `RunStarted` | `run.started` | Full run context: DUT, product, operator, config snapshots |
+| `RunEnded` | `run.ended` | Run outcome |
 
 ### Fixture (5 events)
 | Event | Type String | Description |
@@ -41,7 +47,7 @@ Litmus defines events across 7 categories:
 | `DutScanned` | `fixture.dut_scanned` | DUT serial barcode scanned |
 | `InstrumentDisconnected` | `fixture.instrument_disconnected` | Instrument released during teardown |
 
-### Test (6 events)
+### Test (5 events)
 | Event | Type String | Description |
 |-------|-------------|-------------|
 | `StepsDiscovered` | `test.steps_discovered` | Full list of collected test items |
@@ -49,7 +55,6 @@ Litmus defines events across 7 categories:
 | `MeasurementRecorded` | `test.measurement` | A single measurement with limits and outcome |
 | `RecordEvent` | `test.record` | A key/value record from `harness.record()` |
 | `StepEnded` | `test.step_ended` | A test step finishes |
-| `RunEnded` | `test.run_ended` | All steps complete |
 
 ### Instrument (3 events)
 | Event | Type String | Description |
@@ -82,7 +87,8 @@ Litmus defines events across 7 categories:
 A typical test session emits events in this order:
 
 ```
-SessionStarted          # Station, DUT, operator context
+SessionStarted          # Session-wide metadata (station, operator)
+├── RunStarted          # Run context (DUT, product, config snapshots)
 ├── InstrumentConnected # One per instrument role
 ├── IdentityVerified    # Optional identity check
 ├── StepsDiscovered     # Full list of collected test items

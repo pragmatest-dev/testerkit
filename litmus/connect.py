@@ -22,8 +22,6 @@ Usage::
 
 from __future__ import annotations
 
-import os
-import socket
 from collections.abc import Callable
 from datetime import datetime
 from pathlib import Path
@@ -103,16 +101,13 @@ class StationConnection:
         self._sync_point = get_sync(self._event_store)
 
         self._event_log.emit(
-            SessionStarted(
+            SessionStarted.from_station(
                 session_id=self._session_id,
                 station_id=self._config.id,
                 station_name=self._config.name,
                 station_type=self._config.station_type,
                 station_location=self._config.location,
-                station_hostname=socket.gethostname(),
-                dut_serial="",
                 session_type="interactive",
-                pid=os.getpid(),
             )
         )
         self._started = True

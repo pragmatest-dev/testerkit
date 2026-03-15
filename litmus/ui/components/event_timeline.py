@@ -19,11 +19,16 @@ from litmus.ui.shared.timestamps import parse_iso_timestamp
 # Category → (color-dot class, badge bg, label)
 _CATEGORIES: dict[str, tuple[str, str, str]] = {
     "session": ("bg-blue-500", "bg-blue-100 text-blue-800", "Session"),
+    "run": ("bg-blue-400", "bg-blue-50 text-blue-700", "Run"),
     "fixture": ("bg-purple-500", "bg-purple-100 text-purple-800", "Fixture"),
     "test": ("bg-orange-500", "bg-orange-100 text-orange-800", "Test"),
+    "slot": ("bg-amber-500", "bg-amber-100 text-amber-800", "Slot"),
+    "sync": ("bg-amber-400", "bg-amber-50 text-amber-700", "Sync"),
+    "route": ("bg-teal-500", "bg-teal-100 text-teal-800", "Route"),
     "instrument": ("bg-emerald-500", "bg-emerald-100 text-emerald-800", "Instrument"),
     "diagnostic": ("bg-slate-400", "bg-slate-100 text-slate-600", "Diagnostic"),
     "stream": ("bg-cyan-500", "bg-cyan-100 text-cyan-800", "Stream"),
+    "dialog": ("bg-pink-500", "bg-pink-100 text-pink-800", "Dialog"),
 }
 
 
@@ -48,6 +53,10 @@ def _detail_set(e: dict) -> str:
 
 
 def _detail_session_started(e: dict) -> str:
+    return f"station={e.get('station_id', '')}"
+
+
+def _detail_run_started(e: dict) -> str:
     return f"station={e.get('station_id', '')} dut={e.get('dut_serial', '')}"
 
 
@@ -60,8 +69,10 @@ _DETAIL_FORMATTERS: dict[str, Callable[[dict], str]] = {
     "instrument.read": _detail_read,
     "instrument.set": _detail_set,
     "session.started": _detail_session_started,
+    "run.started": _detail_run_started,
     "test.step_started": lambda e: e.get("step_name", ""),
     "test.step_ended": _detail_step_ended,
+    "run.ended": lambda e: e.get("outcome", ""),
     "session.ended": lambda e: e.get("outcome", ""),
 }
 

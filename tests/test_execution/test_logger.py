@@ -257,7 +257,7 @@ class TestEventLogIntegration:
     """Tests for EventLog integration in TestRunLogger."""
 
     def test_event_log_emits_events(self, tmp_path):
-        """Logger emits StepStarted, MeasurementRecorded, StepEnded, RunEnded, SessionEnded."""
+        """Logger emits StepStarted, MeasurementRecorded, StepEnded, RunEnded."""
 
         from litmus.data.event_log import EventLog
 
@@ -285,8 +285,7 @@ class TestEventLogIntegration:
             "test.step_started",
             "test.measurement",
             "test.step_ended",
-            "test.run_ended",
-            "session.ended",
+            "run.ended",
         ]
 
     def test_measurement_event_is_normalized(self, tmp_path):

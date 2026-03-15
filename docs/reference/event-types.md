@@ -18,11 +18,37 @@ Complete reference for all Litmus event types. All events inherit from `EventBas
 
 ### `session.started` — SessionStarted
 
-Emitted once at session start. Contains full run context.
+Emitted once at session start. Contains session-wide metadata only. Run-level fields (DUT, config snapshots) live in `RunStarted`.
 
 | Field | Type | Default |
 |-------|------|---------|
 | `session_type` | str | `"test_run"` |
+| `station_id` | str | *required* |
+| `station_name` | str \| None | |
+| `station_type` | str \| None | |
+| `station_location` | str \| None | |
+| `station_hostname` | str \| None | |
+| `pid` | int \| None | |
+| `client` | str | auto-detected |
+| `operator_id` | str \| None | |
+| `operator_name` | str \| None | |
+| `fixture_id` | str \| None | |
+| `slot_count` | int | `1` |
+
+### `session.ended` — SessionEnded
+
+| Field | Type | Default |
+|-------|------|---------|
+| `outcome` | str | `"pass"` |
+
+## Run Events
+
+### `run.started` — RunStarted
+
+Emitted once per test run. Contains full run context (DUT, product, config snapshots). In single-DUT mode, one `RunStarted` follows `SessionStarted`. In multi-DUT mode, each worker emits its own `RunStarted`.
+
+| Field | Type | Default |
+|-------|------|---------|
 | `station_id` | str | *required* |
 | `station_name` | str \| None | |
 | `station_type` | str \| None | |
@@ -52,7 +78,9 @@ Emitted once at session start. Contains full run context.
 | `custom_metadata` | dict | `{}` |
 | `channel_refs` | list[str] | `[]` |
 
-### `session.ended` — SessionEnded
+### `run.ended` — RunEnded
+
+Emitted at the end of a test run.
 
 | Field | Type | Default |
 |-------|------|---------|
@@ -190,12 +218,6 @@ Each item dict contains: `node_id`, `name`, `file`, `module`, `class_name`, `fun
 | `module` | str \| None | |
 | `class_name` | str \| None | |
 | `function` | str \| None | |
-
-### `test.run_ended` — RunEnded
-
-| Field | Type | Default |
-|-------|------|---------|
-| `outcome` | str | `"pass"` |
 
 ## Instrument Events
 

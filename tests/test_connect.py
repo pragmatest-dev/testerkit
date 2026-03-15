@@ -137,7 +137,7 @@ class TestSessionStartedFields:
         started = events[0]
         assert started["pid"] == os.getpid()
 
-    def test_dut_serial_defaults_empty(self, tmp_path):
+    def test_session_type_interactive(self, tmp_path):
         station = _make_station()
         with StationConnection(
             station, results_dir=tmp_path / "results", mock=True,
@@ -146,4 +146,42 @@ class TestSessionStartedFields:
 
         events = _read_events_from_ipc(log_path)
         started = events[0]
-        assert started["dut_serial"] == ""
+        assert started["session_type"] == "interactive"
+
+    def test_session_started_no_run_id(self, tmp_path):
+        station = _make_station()
+        with StationConnection(
+            station, results_dir=tmp_path / "results", mock=True,
+        ) as conn:
+            log_path = conn.event_log.path
+
+        events = _read_events_from_ipc(log_path)
+        started = events[0]
+        assert started.get("run_id") is None
+
+    def test_session_ended_no_run_id(self, tmp_path):
+        station = _make_station()
+        with StationConnection(
+            station, results_dir=tmp_path / "results", mock=True,
+        ) as conn:
+            log_path = conn.event_log.path
+
+        events = _read_events_from_ipc(log_path)
+        ended = [e for e in events if e["event_type"] == "session.ended"]
+        assert ended[0].get("run_id") is None
+
+    def test_interactive_no_run_events(self, tmp_path):
+        """Interactive sessions emit session events but no run events."""
+        station = _make_station(dmm="GPIB::16::INSTR")
+        with StationConnection(
+            station, results_dir=tmp_path / "results", mock=True,
+        ) as conn:
+            conn.instrument("dmm")
+            log_path = conn.event_log.path
+
+        events = _read_events_from_ipc(log_path)
+        event_types = {e["event_type"] for e in events}
+        assert "session.started" in event_types
+        assert "session.ended" in event_types
+        assert "run.started" not in event_types
+        assert "run.ended" not in event_types

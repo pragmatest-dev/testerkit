@@ -486,8 +486,16 @@ def pytest_collection_modifyitems(items: list[pytest.Item]) -> None:
 
 
 def pytest_sessionfinish(session, exitstatus):
-    """Clean up after session."""
+    """Clean up all session-scoped ContextVars."""
     set_step_outcomes({})
+    set_active_instruments({})
+    set_instrument_records({})
+    set_test_node_aliases({})
+    set_test_node_configs({})
+    set_sequence_test_phase(None)
+    set_collected_items([])
+    set_channel_store(None)
+    set_event_store(None)
 
 
 def _load_project_defaults() -> ProjectConfig:
@@ -857,7 +865,7 @@ def litmus_logger(request) -> Generator[TestRunLogger, None, None]:
     Streams events to an event log for live observability.
     """
     from litmus.data.event_store import EventStore
-    from litmus.data.events import SessionStarted
+    from litmus.data.events import RunStarted, SessionEnded, SessionStarted
     from litmus.data.subscribers import get_subscriber_class
 
     meta = _build_run_metadata(request)
@@ -935,8 +943,19 @@ def litmus_logger(request) -> Generator[TestRunLogger, None, None]:
                     )
                     event_log.add_subscriber(sub)
 
-        # Emit SessionStarted with full run context
-        session_event = SessionStarted(
+        # Emit SessionStarted (session lifecycle) then RunStarted (run context)
+        event_log.emit(SessionStarted.from_station(
+            session_id=logger._session_id,
+            station_id=logger.test_run.station_id,
+            station_name=logger.test_run.station_name,
+            station_type=logger.test_run.station_type,
+            station_location=logger.test_run.station_location,
+            station_hostname=logger.test_run.station_hostname,
+            operator_id=logger.test_run.operator_id,
+            operator_name=logger.test_run.operator_name,
+            fixture_id=logger.test_run.fixture_id,
+        ))
+        event_log.emit(RunStarted(
             session_id=logger._session_id,
             run_id=logger.test_run.id,
             slot_id=env_slot_id,
@@ -944,6 +963,7 @@ def litmus_logger(request) -> Generator[TestRunLogger, None, None]:
             station_name=logger.test_run.station_name,
             station_type=logger.test_run.station_type,
             station_location=logger.test_run.station_location,
+            station_hostname=logger.test_run.station_hostname,
             dut_serial=logger.test_run.dut.serial,
             dut_part_number=logger.test_run.dut.part_number,
             dut_revision=logger.test_run.dut.revision,
@@ -964,8 +984,7 @@ def litmus_logger(request) -> Generator[TestRunLogger, None, None]:
             test_config_yaml=logger.test_run.test_config_yaml,
             custom_metadata=dict(logger.test_run.custom_metadata),
             pid=os.getpid(),
-        )
-        event_log.emit(session_event)
+        ))
 
         # Emit InstrumentConnected for each instrument
         _emit_instrument_events(logger, event_log)
@@ -993,9 +1012,17 @@ def litmus_logger(request) -> Generator[TestRunLogger, None, None]:
         _cs_final.close()
         set_channel_store(None)
 
-    # Finalize emits RunEnded/SessionEnded and closes event log + subscribers.
-    # EventStore.close() will flush remaining events to Flight/DuckDB after.
+    # Finalize emits RunEnded (does not close event log).
     test_run = logger.finalize()
+
+    # Emit SessionEnded and close the event log
+    # TODO: In multi-DUT, outcome should be worst across all runs, not just one.
+    if logger.event_log is not None:
+        logger.event_log.emit(SessionEnded(
+            session_id=logger._session_id,
+            outcome=test_run.outcome.value,
+        ))
+        logger.event_log.close()
 
     # Close EventStore — releases daemon ref. Event logs were already closed
     # by finalize(), and on_flush callback pushed final batches to Flight.
@@ -1768,7 +1795,7 @@ def pytest_runtestloop(session):
 
     # Resolve slots
     slots = resolve_fixture_slots(fixture_config)
-    slot_ids = sorted(slots.keys())
+    slot_ids = list(slots.keys())  # preserve YAML definition order
 
     # Detect shared instruments — ALL shared roles are served via InstrumentServer
     shared_roles = detect_shared_instruments(slots)
@@ -1783,6 +1810,13 @@ def pytest_runtestloop(session):
         slot_ids=slot_ids,
     )
     duts = {sid: provider.get_dut(sid) for sid in slot_ids}
+
+    if dut_serial and not dut_serials_raw and len(slot_ids) > 1:
+        warnings.warn(
+            f"Single --dut-serial '{dut_serial}' applied to all {len(slot_ids)} slots. "
+            f"Use --dut-serials for per-slot assignment.",
+            stacklevel=1,
+        )
 
     # Create EventStore for sync coordination. pytest_runtestloop runs after
     # litmus_logger session setup (session-scoped fixture), so get_event_store()
@@ -1847,36 +1881,48 @@ def _run_subprocess_mode(
 
         concurrent_roles: set[str] = set()
         resources: dict[str, str] = {}
+        current_role = ""
 
-        for role in shared_roles:
-            inst_cfg = station_instruments.get(role)
-            if inst_cfg is None:
-                continue
+        try:
+            for role in shared_roles:
+                current_role = role
+                inst_cfg = station_instruments.get(role)
+                if inst_cfg is None:
+                    continue
 
-            is_mocked = mock_all or inst_cfg.mock
-            if is_mocked:
-                continue  # Workers get independent mocks
+                is_mocked = mock_all or inst_cfg.mock
+                if is_mocked:
+                    continue  # Workers get independent mocks
 
-            record = InstrumentRecord(
-                role=role,
-                instrument_id=role,
-                driver=inst_cfg.driver,
-                resource=inst_cfg.resource or "",
-                protocol="visa",
-                mocked=False,
-            )
+                record = InstrumentRecord(
+                    role=role,
+                    instrument_id=role,
+                    driver=inst_cfg.driver,
+                    resource=inst_cfg.resource or "",
+                    protocol="visa",
+                    mocked=False,
+                )
 
-            mock_config = inst_cfg.mock_config if inst_cfg else {}
-            driver = load_and_connect(
-                record, mock=False, mock_config=mock_config,
-            )
-            shared_drivers[role] = driver
-            served_roles.add(role)
+                mock_config = inst_cfg.mock_config if inst_cfg else {}
+                driver = load_and_connect(
+                    record, mock=False, mock_config=mock_config,
+                )
+                shared_drivers[role] = driver
+                served_roles.add(role)
 
-            if inst_cfg.resource:
-                resources[role] = inst_cfg.resource
-            if inst_cfg.type == "switch":
-                concurrent_roles.add(role)
+                if inst_cfg.resource:
+                    resources[role] = inst_cfg.resource
+                if inst_cfg.type == "switch":
+                    concurrent_roles.add(role)
+        except Exception as exc:
+            # Clean up any already-connected drivers
+            from litmus.instruments.lifecycle import disconnect
+
+            for cleanup_role, driver in shared_drivers.items():
+                disconnect(driver, cleanup_role)
+            raise RuntimeError(
+                f"Failed to connect shared instrument '{current_role}': {exc}"
+            ) from exc
 
         if shared_drivers:
             server = InstrumentServer(
@@ -1914,21 +1960,42 @@ def _run_subprocess_mode(
             disconnect(driver, role)
 
 
+def _extract_pytest_summary(output_lines: list[str]) -> str:
+    """Extract the pytest summary line from worker output.
+
+    Scans from the end looking for lines matching pytest's summary format
+    (e.g., "1 passed", "2 failed, 1 passed").
+    """
+    import re
+
+    pattern = re.compile(r"\d+ (passed|failed|error|warning|skipped|deselected)")
+    for line in reversed(output_lines):
+        if pattern.search(line):
+            # Strip ANSI escape codes and leading/trailing whitespace
+            clean = re.sub(r"\x1b\[[0-9;]*m", "", line).strip()
+            # Remove leading "=" decorations
+            clean = clean.strip("= ").strip()
+            return clean
+    return "(no summary)"
+
+
 def _report_slot_results(session: Any, results: dict[str, Any]) -> None:
-    """Report slot results from subprocess mode."""
-    failed_slots = [
-        sid for sid, r in results.items() if r.outcome != "pass"
-    ]
-    if failed_slots:
-        for sid in failed_slots:
-            rc = results[sid].returncode
-            warnings.warn(
-                f"Slot '{sid}' failed (exit code {rc})",
-                stacklevel=1,
-            )
-        session.testsfailed = len(failed_slots)
-    else:
-        session.testsfailed = 0
+    """Report per-slot results from subprocess mode."""
+    import sys
+
+    sys.stdout.write("\n" + "=" * 60 + "\n")
+    sys.stdout.write("Multi-DUT Results\n")
+    sys.stdout.write("=" * 60 + "\n")
+    for slot_id in results:
+        r = results[slot_id]
+        status = "PASS" if r.outcome == "pass" else "FAIL"
+        summary = _extract_pytest_summary(r.output_lines)
+        sys.stdout.write(f"  {slot_id}: {status}  {summary}\n")
+    sys.stdout.write("=" * 60 + "\n\n")
+    sys.stdout.flush()
+
+    failed_slots = [sid for sid, r in results.items() if r.outcome != "pass"]
+    session.testsfailed = len(failed_slots)
 
 
 # ---------------------------------------------------------------------------
