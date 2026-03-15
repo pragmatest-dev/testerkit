@@ -1233,6 +1233,10 @@ def station_config(request) -> StationConfig | None:
 def fixture_config(request) -> FixtureConfig | None:
     """Load fixture configuration from --fixture-config option.
 
+    In worker mode (``LITMUS_SLOT_ID`` set), extracts this slot's points
+    from a multi-slot fixture config so downstream fixtures (pins,
+    FixtureManager) see a flat ``points`` dict.
+
     Returns:
         FixtureConfig instance, or None if not specified.
     """
@@ -1252,11 +1256,31 @@ def fixture_config(request) -> FixtureConfig | None:
                     config_path = str(yaml_files[0])
                     break
 
-    if config_path:
-        from litmus.store import load_fixture
+    if not config_path:
+        return None
 
-        return load_fixture(Path(config_path))
-    return None
+    from litmus.store import load_fixture
+
+    fc = load_fixture(Path(config_path))
+
+    # Worker mode: extract this slot's points from multi-slot fixture
+    slot_id = os.environ.get("LITMUS_SLOT_ID")
+    if slot_id and fc.is_multi_slot and fc.slots:
+        slot = fc.slots.get(slot_id)
+        if slot is not None:
+            # Return a flat fixture config with just this slot's points
+            fc = FixtureConfig(
+                id=fc.id,
+                name=fc.name,
+                description=fc.description,
+                product_id=fc.product_id,
+                product_family=fc.product_family,
+                product_revision=fc.product_revision,
+                points=slot.points,
+                dut_resource=slot.dut_resource,
+            )
+
+    return fc
 
 
 class StationError(Exception):
@@ -1729,7 +1753,6 @@ def pytest_runtestloop(session):
     from litmus.execution.dut_provider import CLIDUTProvider
     from litmus.execution.slots import (
         detect_shared_instruments,
-        needs_thread_mode,
         resolve_fixture_slots,
     )
     from litmus.store import load_fixture, load_station
@@ -1737,7 +1760,7 @@ def pytest_runtestloop(session):
     fixture_path = session.config.getoption("--fixture-config")
     fixture_config = load_fixture(Path(fixture_path))
 
-    # Load station config for persistent flag checking
+    # Load station config for instrument types/resources
     station_path = _find_station_file(session.config)
     station_config_obj: StationConfig | None = None
     if station_path:
@@ -1747,14 +1770,9 @@ def pytest_runtestloop(session):
     slots = resolve_fixture_slots(fixture_config)
     slot_ids = sorted(slots.keys())
 
-    # Detect shared instruments and stamp into slots
+    # Detect shared instruments — ALL shared roles are served via InstrumentServer
     shared_roles = detect_shared_instruments(slots)
-    for slot in slots.values():
-        slot.shared_instruments = shared_roles & slot.instrument_roles
-
-    # Decide execution mode
     station_instruments = station_config_obj.instruments if station_config_obj else {}
-    use_threads = shared_roles and needs_thread_mode(shared_roles, station_instruments)
 
     # Resolve DUT identities
     dut_serial = session.config.getoption("--dut-serial")
@@ -1784,12 +1802,13 @@ def pytest_runtestloop(session):
     current_logger = get_current_logger()
     session_id = current_logger.test_run.session_id if current_logger else uuid4()
 
-    if use_threads:
-        # Thread mode: persistent shared instruments
-        _run_thread_mode(session, slots, duts, shared_roles, station_instruments, session_id)
-    else:
-        # Subprocess mode (default)
-        _run_subprocess_mode(session, slots, duts, session_id, event_store)
+    # Always subprocess mode — instrument server handles all shared instruments
+    _run_subprocess_mode(
+        session, slots, duts, session_id, event_store,
+        shared_roles=shared_roles,
+        station_instruments=station_instruments,
+        mock_all=session.config.getoption("--mock-instruments"),
+    )
 
     return True  # Suppress default test execution
 
@@ -1800,107 +1819,97 @@ def _run_subprocess_mode(
     duts: dict[str, Any],
     session_id: UUID,
     event_store: Any,
+    shared_roles: set[str] | None = None,
+    station_instruments: dict[str, Any] | None = None,
+    mock_all: bool = False,
 ) -> None:
-    """Run multi-slot tests using subprocess-per-slot (reconnect-safe)."""
+    """Run multi-slot tests using subprocess-per-slot.
+
+    If shared instruments are detected, starts an InstrumentServer in the
+    orchestrator process and passes the address to workers via env vars.
+    Workers get RemoteInstrumentProxy objects for those roles.
+    """
     from litmus.execution.slot_runner import SlotRunner
 
-    def _stream_output(slot_id: str, line: str) -> None:
-        sys.stdout.write(f"[{slot_id}] {line}")
-        sys.stdout.flush()
-
-    runner = SlotRunner(slots, duts, session_id=session_id)
-    child_cmd = _build_child_cmd(session.config)
-    results = runner.run(
-        child_cmd,
-        on_output=_stream_output,
-        event_store=event_store,
-    )
-
-    _report_slot_results(session, results)
-
-
-def _run_thread_mode(
-    session: Any,
-    slots: dict[str, Any],
-    duts: dict[str, Any],
-    shared_roles: set[str],
-    station_instruments: dict[str, Any],
-    session_id: UUID,
-) -> None:
-    """Run multi-slot tests using thread-per-slot (persistent shared instruments).
-
-    Connects persistent shared instruments once, creates handles, and
-    passes them to ThreadSlotRunner.
-    """
-    import threading
-
-    from litmus.execution.thread_runner import ThreadSlotResult, ThreadSlotRunner
-    from litmus.instruments.lifecycle import disconnect, load_and_connect
-    from litmus.instruments.models import InstrumentRecord
-    from litmus.instruments.shared import SharedInstrumentHandle
-
-    mock_all = session.config.getoption("--mock-instruments")
-
-    # Connect shared instruments and create handles
-    shared_handles: dict[str, SharedInstrumentHandle] = {}
+    server = None
     shared_drivers: dict[str, Any] = {}
+    shared_roles = shared_roles or set()
+    station_instruments = station_instruments or {}
 
-    for role in shared_roles:
-        inst_cfg = station_instruments.get(role)
-        if inst_cfg is None:
-            continue
+    # Only serve non-mocked shared instruments through the server.
+    # Mocked instruments get independent instances per worker so each
+    # worker has its own mock state (per-test mock values don't leak).
+    served_roles: set[str] = set()
+    if shared_roles:
+        from litmus.instruments.lifecycle import load_and_connect
+        from litmus.instruments.models import InstrumentRecord
+        from litmus.instruments.server import InstrumentServer
 
-        record = InstrumentRecord(
-            role=role,
-            instrument_id=role,
-            driver=inst_cfg.driver,
-            resource=inst_cfg.resource or "",
-            protocol="visa",
-            mocked=mock_all or inst_cfg.mock,
-        )
+        concurrent_roles: set[str] = set()
+        resources: dict[str, str] = {}
 
-        mock_config = inst_cfg.mock_config if inst_cfg else {}
-        driver = load_and_connect(record, mock=record.mocked, mock_config=mock_config)
+        for role in shared_roles:
+            inst_cfg = station_instruments.get(role)
+            if inst_cfg is None:
+                continue
 
-        # Switches allow concurrent access — each slot controls different
-        # channels and the hardware supports simultaneous operations.
-        # Measurement instruments (DMM, PSU) need serialized access.
-        is_switch = inst_cfg.type == "switch"
-        lock = threading.Lock()
-        shared_handles[role] = SharedInstrumentHandle(
-            role, driver, lock, concurrent=is_switch,
-        )
-        shared_drivers[role] = driver
+            is_mocked = mock_all or inst_cfg.mock
+            if is_mocked:
+                continue  # Workers get independent mocks
+
+            record = InstrumentRecord(
+                role=role,
+                instrument_id=role,
+                driver=inst_cfg.driver,
+                resource=inst_cfg.resource or "",
+                protocol="visa",
+                mocked=False,
+            )
+
+            mock_config = inst_cfg.mock_config if inst_cfg else {}
+            driver = load_and_connect(
+                record, mock=False, mock_config=mock_config,
+            )
+            shared_drivers[role] = driver
+            served_roles.add(role)
+
+            if inst_cfg.resource:
+                resources[role] = inst_cfg.resource
+            if inst_cfg.type == "switch":
+                concurrent_roles.add(role)
+
+        if shared_drivers:
+            server = InstrumentServer(
+                shared_drivers, resources=resources,
+                concurrent_roles=concurrent_roles,
+            )
+            server.start()
 
     try:
-        def _run_slot(
-            slot_id: str, slot: Any, dut: Any,
-            shared_handles: dict[str, SharedInstrumentHandle], **kwargs: Any,
-        ) -> ThreadSlotResult:
-            # Placeholder: in a full implementation, this would run
-            # pytest items for this slot. For now, return pass.
-            return ThreadSlotResult(slot_id=slot_id, outcome="pass")
+        def _stream_output(slot_id: str, line: str) -> None:
+            sys.stdout.write(f"[{slot_id}] {line}")
+            sys.stdout.flush()
 
-        runner = ThreadSlotRunner(
+        runner = SlotRunner(
             slots, duts,
-            shared_handles=shared_handles,
             session_id=session_id,
+            instrument_server_address=server.address_str if server else None,
+            shared_roles=served_roles if server else None,
         )
-        results = runner.run(_run_slot)
+        child_cmd = _build_child_cmd(session.config)
+        results = runner.run(
+            child_cmd,
+            on_output=_stream_output,
+            event_store=event_store,
+        )
 
-        # Convert to slot-level outcome reporting
-        failed_slots = [
-            sid for sid, r in results.items() if r.outcome != "pass"
-        ]
-        session.testsfailed = len(failed_slots)
-        if failed_slots:
-            for sid in failed_slots:
-                warnings.warn(
-                    f"Slot '{sid}' failed: {results[sid].error or 'unknown'}",
-                    stacklevel=1,
-                )
+        _report_slot_results(session, results)
     finally:
-        # Disconnect shared instruments
+        if server is not None:
+            server.stop(force=True)
+
+        from litmus.instruments.lifecycle import disconnect
+
         for role, driver in shared_drivers.items():
             disconnect(driver, role)
 

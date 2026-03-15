@@ -54,23 +54,17 @@ class RouteManager:
         session_id: UUID | None = None,
         station_id: str = "",
         event_log: Any = None,
-        shared_providers: dict[str, Any] | None = None,
-        shared_handles: dict[str, Any] | None = None,
     ) -> None:
         self._points = points
         self._instruments = instruments
         self._session_id = session_id
         self._station_id = station_id
         self._event_log = event_log
-        self._shared_providers = shared_providers or {}
-        self._shared_handles = shared_handles or {}
 
         # Active state
         self._active_routes: dict[str, SwitchRoute] = {}  # point_name → active route
         self._held_locks: dict[str, BaseFileLock] = {}  # resource_key → held lock
         self._channel_owners: dict[tuple[str, str], str] = {}  # (switch_role, channel) → point
-        self._shared_live: dict[str, Any] = {}  # role → live shared instrument context
-        self._shared_contexts: dict[str, Any] = {}  # role → context manager (for cleanup)
 
         # Build reverse lookup: dut_pin → point_name (for for_pin)
         self._pin_to_point: dict[str, str] = {}
@@ -117,10 +111,6 @@ class RouteManager:
         # Check for conflicts
         self._check_conflicts(point_name, point, route)
 
-        # Acquire shared instrument if needed
-        self._acquire_shared_if_needed(point.instrument)
-        self._acquire_shared_if_needed(route.switch)
-
         # Resolve switch instrument
         switch = self._get_switch(route.switch)
 
@@ -151,19 +141,14 @@ class RouteManager:
     def deactivate(self, point_name: str) -> None:
         """Deactivate a switch route for a fixture point.
 
-        Opens channels and releases channel ownership. Shared instrument
-        contexts are exited (disconnect for providers, release mutex for
-        handles). Locks are retained until ``deactivate_all()`` (session
-        teardown).
+        Opens channels and releases channel ownership.
+        Locks are retained until ``deactivate_all()`` (session teardown).
 
         No-op if the route is not active.
         """
         route = self._active_routes.pop(point_name, None)
         if route is None:
             return
-
-        # Resolve the point to know which instrument role to release
-        point = self._points.get(point_name)
 
         # Open channels
         switch = self._get_switch(route.switch)
@@ -172,11 +157,6 @@ class RouteManager:
         # Release channel ownership
         for ch in route.channels:
             self._channel_owners.pop((route.switch, ch), None)
-
-        # Release shared instrument contexts
-        if point is not None:
-            self._release_shared_if_needed(point.instrument)
-            self._release_shared_if_needed(route.switch)
 
         # Emit event
         self._emit_route_opened(point_name, route)
@@ -260,7 +240,7 @@ class RouteManager:
 
     def _get_switch(self, switch_role: str) -> SwitchDriver:
         """Resolve a switch role to its driver instance."""
-        inst = self._instruments.get(switch_role) or self._shared_live.get(switch_role)
+        inst = self._instruments.get(switch_role)
         if inst is None:
             raise KeyError(
                 f"Switch instrument '{switch_role}' not found in active instruments"
@@ -311,55 +291,8 @@ class RouteManager:
         required = ("close_channels", "open_channels", "open_all")
         return all(callable(getattr(inst, m, None)) for m in required)
 
-    def _acquire_shared_if_needed(self, role: str) -> None:
-        """Enter a shared instrument context if the role is shared.
-
-        Both SharedInstrumentProvider and SharedInstrumentHandle expose
-        context managers (``connection()`` and ``acquire()`` respectively)
-        with the same ``__enter__``/``__exit__`` contract — yielding the
-        driver instance. This allows uniform handling here despite their
-        different internal semantics (reconnect-per-use vs persistent mutex).
-
-        Stores the live driver in ``_shared_live`` so ``_get_switch`` and
-        ``resolve_instrument`` can find it.
-        """
-        if role in self._shared_live:
-            return  # Already acquired
-        cm = None
-        if role in self._shared_providers:
-            cm = self._shared_providers[role].connection()
-        elif role in self._shared_handles:
-            cm = self._shared_handles[role].acquire()
-
-        if cm is not None:
-            try:
-                driver = cm.__enter__()
-                self._shared_live[role] = driver
-                self._shared_contexts[role] = cm
-            except BaseException:
-                try:
-                    cm.__exit__(None, None, None)
-                except (RuntimeError, OSError, ValueError, TimeoutError):
-                    pass
-                raise
-
-    def _release_shared_if_needed(self, role: str) -> None:
-        """Exit the shared instrument context for a role, if active.
-
-        Swallows errors during cleanup to avoid masking the primary
-        exception (intentional asymmetry with _acquire_shared_if_needed
-        which hard-fails).
-        """
-        cm = self._shared_contexts.pop(role, None)
-        if cm is not None:
-            try:
-                cm.__exit__(None, None, None)
-            except (RuntimeError, OSError, ValueError, TimeoutError):
-                logger.warning("Error releasing shared instrument '%s'", role, exc_info=True)
-            self._shared_live.pop(role, None)
-
     def resolve_instrument(self, role: str) -> Any:
-        """Resolve an instrument by role: dedicated, then shared live.
+        """Resolve an instrument by role.
 
         Args:
             role: Instrument role name.
@@ -367,10 +300,7 @@ class RouteManager:
         Returns:
             The instrument driver instance, or None if not found.
         """
-        inst = self._instruments.get(role)
-        if inst is not None:
-            return inst
-        return self._shared_live.get(role)
+        return self._instruments.get(role)
 
     def get_resolver(self, role: str) -> Callable[[], Any]:
         """Return a callable that resolves an instrument by role.

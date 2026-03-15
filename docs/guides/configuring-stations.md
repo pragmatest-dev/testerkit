@@ -298,15 +298,37 @@ Invalid configurations raise `pydantic.ValidationError` with details about what'
 
 ## Shared Instruments (Multi-DUT)
 
-When a fixture defines multiple slots, instruments referenced by more than one slot are automatically detected as **shared**. Shared instruments use thread-safe proxied access so multiple slots can measure through the same physical instrument without conflicts.
+When a fixture defines multiple slots, instruments referenced by more than one slot are automatically detected as **shared**. The orchestrator connects shared instruments once, hosts them via an InstrumentServer (TCP RPC), and worker subprocesses access them through transparent `RemoteInstrumentProxy` objects. Tests never know the difference.
 
-### Persistent Connections
+### Per-Resource Locking
 
-Set `persistent: true` on instruments that need their connection held open for the entire test session. This is important for:
+Locking is keyed on the instrument's **resource string** (e.g., VISA address), not the role name. This means:
 
-- **Calibration state** — instruments that lose calibration when disconnected
-- **Licensed connections** — instruments with limited connection slots
-- **Shared instruments** — instruments accessed by multiple DUT slots through a switch matrix
+- **Same resource** → same driver session → same lock → serialized access
+- **Different resources** → different sessions → independent locks → parallel access
+- **Switches** → concurrent access (relay operations are atomic)
+
+Two roles pointing at the same physical instrument share a lock automatically:
+
+```yaml
+instruments:
+  dmm:
+    type: dmm
+    resource: "TCPIP::192.168.1.100::INSTR"   # ← lock key
+    persistent: true
+  scope:
+    type: scope
+    resource: "TCPIP::192.168.1.100::INSTR"   # ← same resource = same lock
+    persistent: true
+```
+
+### Automatic Server Setup
+
+No special flags are needed. When the fixture defines multiple slots that share an instrument role, the orchestrator automatically:
+
+1. Connects the shared instruments once in the orchestrator process
+2. Starts an InstrumentServer to serve them via TCP RPC
+3. Worker subprocesses get transparent `RemoteInstrumentProxy` objects
 
 ```yaml
 instruments:
@@ -314,17 +336,11 @@ instruments:
     type: dmm
     driver: pymeasure.instruments.keysight.Keysight34461A
     resource: "TCPIP::192.168.1.100::INSTR"
-    persistent: true   # Keep connected for session lifetime
   matrix:
     type: switch
     driver: drivers.switch.RelayMatrix
     resource: "TCPIP::192.168.1.106::INSTR"
-    persistent: true   # Switch matrix shared across slots
 ```
-
-### Execution Mode
-
-When shared instruments are detected, the plugin automatically switches from subprocess-based to thread-based slot execution. This allows slots to share instrument connections within the same process while still running tests concurrently.
 
 ## Best Practices
 

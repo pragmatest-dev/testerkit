@@ -87,9 +87,10 @@ class SlotRunner:
     - ``LITMUS_DUT_PART_NUMBER`` — optional DUT metadata
     - ``LITMUS_DUT_RESOURCE`` — DUT driver connection string
     - ``LITMUS_FIXTURE_SLOT`` — JSON-serialized slot config
+    - ``LITMUS_INSTRUMENT_SERVER`` — instrument server address (if shared instruments)
+    - ``LITMUS_SHARED_ROLES`` — comma-separated roles served remotely
 
-    File locks (``litmus/instruments/locks.py``) coordinate shared physical
-    resources across processes. Sync points use EventStore events.
+    Sync points use EventStore events.
     """
 
     def __init__(
@@ -98,6 +99,8 @@ class SlotRunner:
         duts: dict[str, DUT],
         *,
         session_id: UUID | None = None,
+        instrument_server_address: str | None = None,
+        shared_roles: set[str] | None = None,
     ) -> None:
         if not slots:
             raise ValueError("At least one slot is required")
@@ -111,6 +114,8 @@ class SlotRunner:
         self._slots = slots
         self._duts = duts
         self._session_id = session_id or uuid4()
+        self._instrument_server_address = instrument_server_address
+        self._shared_roles = shared_roles or set()
 
     @property
     def session_id(self) -> UUID:
@@ -150,6 +155,13 @@ class SlotRunner:
         # Set shared env vars
         base_env["LITMUS_SESSION_ID"] = str(self._session_id)
         base_env["LITMUS_SLOT_COUNT"] = str(len(self._slots))
+
+        # Instrument server env vars for shared instruments
+        if self._instrument_server_address and self._shared_roles:
+            base_env["LITMUS_INSTRUMENT_SERVER"] = self._instrument_server_address
+            base_env["LITMUS_SHARED_ROLES"] = ",".join(
+                sorted(self._shared_roles),
+            )
 
         # Start sync coordinator if needed
         coordinator: SyncCoordinator | None = None

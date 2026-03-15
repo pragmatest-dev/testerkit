@@ -191,14 +191,6 @@ def _render_instrument_expansion(inst_name: str, inst_data: dict, saver: AutoSav
                         saver.trigger(),
                     ),
                 )
-                ui.checkbox(
-                    "Persistent connection",
-                    value=inst_data.get("persistent", False),
-                    on_change=lambda e, d=inst_data: (
-                        d.update({"persistent": e.value}),
-                        saver.trigger(),
-                    ),
-                )
             if inst_data.get("description"):
                 ui.label(inst_data["description"]).classes("text-sm text-slate-500")
 

@@ -244,7 +244,7 @@ A fixture uses either `points` (single-DUT) or `slots` (multi-DUT), never both.
 
 ## Shared Instruments
 
-When multiple slots reference the same instrument role, that instrument is automatically detected as **shared**. Shared instruments are accessed through thread-safe proxies so concurrent slot execution doesn't cause conflicts.
+When multiple slots reference the same instrument role, that instrument is automatically detected as **shared**. The orchestrator connects shared instruments once and hosts them via an InstrumentServer (TCP RPC). Worker subprocesses access them through transparent proxy objects — tests never know the difference. Locking is per-resource (keyed on the instrument's connection string), so roles sharing a physical session serialize while roles on independent sessions run in parallel.
 
 For instruments that need active signal switching (e.g., a single DMM routed to different DUT slots via a relay matrix), fixture points include a `route` field:
 

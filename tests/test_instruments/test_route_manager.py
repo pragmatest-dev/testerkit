@@ -291,109 +291,13 @@ class TestSettling:
         assert len(sleep_calls) == 0
 
 
-class TestSharedInstruments:
-    """RouteManager with shared providers and handles."""
+class TestResolveInstrument:
+    """RouteManager.resolve_instrument lookup."""
 
-    def test_shared_provider_connected_during_activate(self):
-        """Shared provider enters connection context on activate."""
-        from collections.abc import Generator
-        from contextlib import contextmanager
-
-        connected = []
-
-        @contextmanager
-        def fake_connection() -> Generator[FakeInstrument, None, None]:
-            inst = FakeInstrument()
-            connected.append(inst)
-            yield inst
-
-        class FakeProvider:
-            role = "dmm"
-            def connection(self):
-                return fake_connection()
-
-        switch = FakeSwitch()
-        points = _make_points()
-        rm = RouteManager(
-            points=points,
-            instruments={"matrix": switch},
-            shared_providers={"dmm": FakeProvider()},
-        )
-        rm.activate("vout_measure")
-
-        assert len(connected) == 1
-        assert "vout_measure" in rm.active_routes
-
-    def test_shared_provider_disconnected_on_deactivate(self):
-        """Shared provider exits connection context on deactivate."""
-        from collections.abc import Generator
-        from contextlib import contextmanager
-
-        disconnected = []
-
-        @contextmanager
-        def fake_connection() -> Generator[FakeInstrument, None, None]:
-            inst = FakeInstrument()
-            try:
-                yield inst
-            finally:
-                disconnected.append(inst)
-
-        class FakeProvider:
-            role = "dmm"
-            def connection(self):
-                return fake_connection()
-
-        switch = FakeSwitch()
-        points = _make_points()
-        rm = RouteManager(
-            points=points,
-            instruments={"matrix": switch},
-            shared_providers={"dmm": FakeProvider()},
-        )
-        rm.activate("vout_measure")
-        rm.deactivate("vout_measure")
-
-        assert len(disconnected) == 1
-
-    def test_shared_handle_acquired_during_activate(self):
-        """Shared handle acquires mutex on activate."""
-        import threading
-
-        from litmus.instruments.shared import SharedInstrumentHandle
-
-        driver = FakeInstrument()
-        handle = SharedInstrumentHandle("dmm", driver, threading.Lock())
-
-        switch = FakeSwitch()
-        points = _make_points()
-        rm = RouteManager(
-            points=points,
-            instruments={"matrix": switch},
-            shared_handles={"dmm": handle},
-        )
-        rm.activate("vout_measure")
-
-        assert "vout_measure" in rm.active_routes
-        # The driver should be in _shared_live
-        assert rm.resolve_instrument("dmm") is driver
-
-    def test_resolve_instrument_prefers_dedicated(self):
-        """Dedicated instruments take priority over shared."""
-        import threading
-
-        from litmus.instruments.shared import SharedInstrumentHandle
-
-        dedicated_dmm = FakeInstrument()
-        shared_dmm = FakeInstrument()
-        handle = SharedInstrumentHandle("dmm", shared_dmm, threading.Lock())
-
-        rm = RouteManager(
-            points={},
-            instruments={"dmm": dedicated_dmm},
-            shared_handles={"dmm": handle},
-        )
-        assert rm.resolve_instrument("dmm") is dedicated_dmm
+    def test_resolve_instrument_finds_dedicated(self):
+        dmm = FakeInstrument()
+        rm = RouteManager(points={}, instruments={"dmm": dmm})
+        assert rm.resolve_instrument("dmm") is dmm
 
     def test_resolve_instrument_returns_none_for_unknown(self):
         rm = _make_manager()

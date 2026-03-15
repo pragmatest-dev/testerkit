@@ -7,10 +7,8 @@ from litmus.execution.slots import (
     DEFAULT_SLOT_ID,
     ResolvedSlot,
     detect_shared_instruments,
-    needs_thread_mode,
     resolve_fixture_slots,
 )
-from litmus.schemas import StationInstrumentConfig
 
 
 class TestSingleDUTFixture:
@@ -269,40 +267,3 @@ class TestDetectSharedInstruments:
         assert detect_shared_instruments(slots) == {"dmm"}
 
 
-class TestNeedsThreadMode:
-    """needs_thread_mode checks persistent flag on shared instruments."""
-
-    def test_no_shared_roles(self):
-        assert needs_thread_mode(set(), {}) is False
-
-    def test_shared_not_persistent(self):
-        instruments = {
-            "dmm": StationInstrumentConfig(type="dmm", resource="GPIB::16::INSTR"),
-        }
-        assert needs_thread_mode({"dmm"}, instruments) is False
-
-    def test_shared_persistent(self):
-        instruments = {
-            "dmm": StationInstrumentConfig(
-                type="dmm", resource="GPIB::16::INSTR", persistent=True,
-            ),
-        }
-        assert needs_thread_mode({"dmm"}, instruments) is True
-
-    def test_mixed_shared_one_persistent(self):
-        instruments = {
-            "dmm": StationInstrumentConfig(
-                type="dmm", resource="GPIB::16::INSTR", persistent=True,
-            ),
-            "matrix": StationInstrumentConfig(
-                type="switch", resource="TCPIP::1.2.3.4::INSTR",
-            ),
-        }
-        assert needs_thread_mode({"dmm", "matrix"}, instruments) is True
-
-    def test_shared_role_not_in_station(self):
-        """Shared role not in station config → no persistent flag → reconnect-safe."""
-        instruments = {
-            "psu": StationInstrumentConfig(type="psu", resource="GPIB::1::INSTR"),
-        }
-        assert needs_thread_mode({"dmm"}, instruments) is False

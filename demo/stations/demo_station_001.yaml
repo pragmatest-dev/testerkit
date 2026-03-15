@@ -22,7 +22,6 @@ instruments:
     resource: TCPIP::192.168.1.102::INSTR
     catalog_ref: generic_dmm
     mock: true
-    persistent: false
     description: Generic digital multimeter
     mock_config:
       measure_voltage: 3.3
@@ -74,7 +73,6 @@ instruments:
     driver: demo.drivers.SwitchMatrix
     resource: TCPIP::192.168.1.106::INSTR
     mock: true
-    persistent: true
     description: 4x8 relay matrix for signal switching demo
 supported_phases:
 - validation

@@ -2,8 +2,9 @@ id: dual_power_board_v1
 name: Dual Power Board Test Fixture
 description: >
   Two-slot fixture for parallel testing of two power boards.
-  Each slot uses a different channel on shared instruments (PSU, DMM, eload).
-  Demonstrates multi-DUT testing with sync points.
+  Each slot uses a different channel on shared instruments (PSU, DMM).
+  Demonstrates multi-DUT testing where shared instruments are served
+  via InstrumentServer with per-resource locking.
 product_id: power_board
 product_revision: A
 slots:
@@ -62,14 +63,14 @@ slots:
         name: vout_measure
         dut_pin: TP_VOUT
         net: VOUT_3V3
-        instrument: fast_dmm
-        instrument_channel: '1'
+        instrument: dmm
+        instrument_channel: '2'
         instrument_terminal: hi
-        description: Output voltage via fast DMM (dedicated to slot 2)
+        description: Output voltage via DMM channel 2
       gnd_dmm:
         name: gnd_dmm
         dut_pin: TP_GND
         net: GND
-        instrument: fast_dmm
-        instrument_channel: '1'
+        instrument: dmm
+        instrument_channel: '2'
         instrument_terminal: lo

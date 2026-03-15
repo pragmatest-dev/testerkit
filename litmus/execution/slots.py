@@ -12,7 +12,6 @@ from collections import Counter
 from pydantic import BaseModel, Field
 
 from litmus.config.test_config import FixtureConfig, FixturePoint
-from litmus.schemas import StationInstrumentConfig
 
 
 class ResolvedSlot(BaseModel):
@@ -114,30 +113,6 @@ def detect_shared_instruments(slots: dict[str, ResolvedSlot]) -> set[str]:
     for slot in slots.values():
         counts.update(slot.instrument_roles)
     return {role for role, count in counts.items() if count >= 2}
-
-
-def needs_thread_mode(
-    shared_roles: set[str],
-    station_instruments: dict[str, StationInstrumentConfig],
-) -> bool:
-    """Determine whether thread-per-slot mode is required.
-
-    Thread mode is forced when any shared instrument has ``persistent=True``
-    in station config. Persistent instruments require a long-lived connection
-    that cannot be repeatedly connected/disconnected per measurement.
-
-    Args:
-        shared_roles: Instrument roles referenced by multiple slots.
-        station_instruments: Station instrument configs keyed by role.
-
-    Returns:
-        True if any shared instrument is persistent.
-    """
-    for role in shared_roles:
-        cfg = station_instruments.get(role)
-        if cfg is not None and cfg.persistent:
-            return True
-    return False
 
 
 def _validate_instrument_refs(

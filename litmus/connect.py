@@ -67,6 +67,7 @@ class StationConnection:
         self._pool: InstrumentPool | None = None
         self._channel_store: ChannelStore | None = None
         self._sync_point: Any = None
+        self._instrument_server: Any = None
         self._started = False
 
     def start(self) -> None:
@@ -116,10 +117,76 @@ class StationConnection:
         )
         self._started = True
 
+    @property
+    def instrument_server_address(self) -> str | None:
+        """Address of the instrument server, if running."""
+        if self._instrument_server is not None:
+            return self._instrument_server.address_str
+        return None
+
+    def start_instrument_server(
+        self, roles: set[str] | None = None,
+    ) -> str:
+        """Start an instrument server for shared instruments.
+
+        Connects the specified instruments (or all instruments if no roles
+        given) and exposes them via IPC. Workers can use the returned
+        address to get remote proxies.
+
+        Args:
+            roles: Instrument roles to serve. If None, serves all instruments.
+
+        Returns:
+            Server address as ``host:port`` string.
+        """
+        if self._instrument_server is not None:
+            return self._instrument_server.address_str
+
+        if not self._started:
+            self.start()
+
+        assert self._pool is not None
+
+        from litmus.instruments.server import InstrumentServer
+
+        inst_configs = self._config.instruments or {}
+        serve_roles = roles if roles is not None else set(inst_configs.keys())
+
+        if not serve_roles:
+            raise ValueError("No instruments to serve")
+
+        # Connect instruments if not already connected
+        drivers: dict[str, Any] = {}
+        resources: dict[str, str] = {}
+        concurrent_roles: set[str] = set()
+        for role in serve_roles:
+            inst = self.instrument(role)
+            # Unwrap proxy to get the raw driver for the server
+            raw = getattr(inst, "_driver", inst)
+            drivers[role] = raw
+            cfg = inst_configs.get(role)
+            if cfg:
+                if cfg.resource:
+                    resources[role] = cfg.resource
+                if cfg.type == "switch":
+                    concurrent_roles.add(role)
+
+        self._instrument_server = InstrumentServer(
+            drivers, resources=resources,
+            concurrent_roles=concurrent_roles,
+        )
+        self._instrument_server.start()
+        return self._instrument_server.address_str
+
     def stop(self, outcome: str = "complete") -> None:
         """Release all instruments, emit SessionEnded, close EventLog."""
         if not self._started:
             return
+
+        # Stop instrument server before releasing instruments
+        if self._instrument_server is not None:
+            self._instrument_server.stop(force=True)
+            self._instrument_server = None
 
         # Release all instruments
         if self._pool:

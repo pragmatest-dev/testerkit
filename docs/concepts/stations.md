@@ -33,9 +33,7 @@ Each instrument has:
 | `type` | Instrument type (dmm, scope, psu, eload, etc.) |
 | `resource` | VISA address or connection string |
 | `mock_config` | Values for `--mock-instruments` mode |
-| `persistent` | Keep connection open for session lifetime (default: `false`) |
-
-Instruments can be shared across multiple DUT slots in a multi-DUT fixture. When shared, they use thread-safe proxied access. Set `persistent: true` for instruments that need session-scoped connections. See [Configuring Stations](../guides/configuring-stations.md#shared-instruments-multi-dut) for details.
+Instruments can be shared across multiple DUT slots in a multi-DUT fixture. When shared, the orchestrator connects them once and serves them to worker subprocesses via an InstrumentServer (TCP RPC with per-resource locking). No special flags needed — sharing is detected automatically from the fixture topology. See [Configuring Stations](../guides/configuring-stations.md#shared-instruments-multi-dut) for details.
 
 ### Common Instrument Types
 

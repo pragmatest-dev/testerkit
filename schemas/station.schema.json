@@ -48,11 +48,6 @@
           "title": "Mock",
           "type": "boolean"
         },
-        "persistent": {
-          "default": false,
-          "title": "Persistent",
-          "type": "boolean"
-        },
         "channels": {
           "additionalProperties": {
             "type": "string"

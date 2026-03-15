@@ -52,7 +52,6 @@ class StationInstrumentConfig(BaseModel):
     resource: str | None = None
     catalog_ref: str | None = None
     mock: bool = False
-    persistent: bool = False
     channels: dict[str, str] = Field(default_factory=dict)
     description: str | None = None
     mock_config: dict[str, Any] = Field(default_factory=dict)
