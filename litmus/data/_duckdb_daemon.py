@@ -15,7 +15,6 @@ import warnings
 from pathlib import Path
 
 import duckdb
-import pyarrow as pa
 import pyarrow.ipc as ipc
 
 from litmus.data._duckdb_flight_server import DuckDBFlightServer
@@ -41,23 +40,23 @@ def daemon_run(events_dir: Path) -> None:
         )
     """)
 
-    # Bulk rebuild from Arrow IPC files using PyArrow
+    # Bulk rebuild from Arrow IPC files using PyArrow.
+    # Insert per-file so one corrupt file doesn't block the rest.
     ipc_files = sorted(events_dir.glob("*/*.arrow"))
-    if ipc_files:
-        tables: list[pa.Table] = []
-        for fpath in ipc_files:
-            try:
-                reader = ipc.open_file(str(fpath))
-                tables.append(reader.read_all().select(_EVENT_COLUMNS))
-            except Exception as exc:
-                warnings.warn(
-                    f"Failed to read {fpath}: {exc}", stacklevel=2
-                )
-        if tables:
-            combined = pa.concat_tables(tables, promote_options="default")
-            conn.register("_ipc_rebuild", combined)
+    for fpath in ipc_files:
+        try:
+            reader = ipc.open_stream(fpath.read_bytes())
+            table = reader.read_all().select(_EVENT_COLUMNS)
+        except Exception as exc:
+            warnings.warn(f"Skipping unreadable {fpath.name}: {exc}", stacklevel=2)
+            continue
+        try:
+            conn.register("_ipc_rebuild", table)
             conn.execute("INSERT INTO events BY NAME SELECT * FROM _ipc_rebuild")
             conn.unregister("_ipc_rebuild")
+        except Exception as exc:
+            conn.unregister("_ipc_rebuild")
+            warnings.warn(f"Skipping bad data in {fpath.name}: {exc}", stacklevel=2)
 
     # Start Flight server for cross-process queries and inserts
     server = DuckDBFlightServer("grpc://127.0.0.1:0")

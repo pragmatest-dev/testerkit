@@ -730,12 +730,71 @@ def show(
 
 
 # -----------------------------------------------------------------------------
-# Export / Convert
+# Export
 # -----------------------------------------------------------------------------
 
 
+def _read_events_by_id(
+    id_prefix: str, results_dir: str,
+) -> tuple[list[dict], str]:
+    """Read events matching an ID prefix from Arrow IPC files.
+
+    Auto-detects whether the prefix matches a run_id or session_id.
+    UUIDs never collide, so a prefix match on either column is unambiguous.
+
+    Returns:
+        (events, matched_column) where matched_column is "run_id" or "session_id".
+    """
+    import json as json_mod
+
+    from litmus.data._ipc_writer import read_ipc_batches
+
+    events_dir = Path(results_dir) / "events"
+    if not events_dir.exists():
+        return [], ""
+
+    # First pass: determine which column matches
+    matched_col = ""
+    for arrow_file in sorted(events_dir.rglob("*.arrow")):
+        table = read_ipc_batches(arrow_file)
+        if table is None:
+            continue
+        for col_name in ("run_id", "session_id"):
+            col = table.column(col_name)
+            for i in range(table.num_rows):
+                val = col[i].as_py()
+                if val and val.startswith(id_prefix):
+                    matched_col = col_name
+                    break
+            if matched_col:
+                break
+        if matched_col:
+            break
+
+    if not matched_col:
+        return [], ""
+
+    # Second openly collect all matching events
+    all_events: list[dict] = []
+    for arrow_file in sorted(events_dir.rglob("*.arrow")):
+        table = read_ipc_batches(arrow_file)
+        if table is None:
+            continue
+        col = table.column(matched_col)
+        json_col = table.column("json")
+        for i in range(table.num_rows):
+            val = col[i].as_py()
+            if val and val.startswith(id_prefix):
+                try:
+                    evt = json_mod.loads(json_col[i].as_py())
+                    all_events.append(evt)
+                except (json_mod.JSONDecodeError, TypeError):
+                    continue
+    return all_events, matched_col
+
+
 @main.command()
-@click.argument("run_id")
+@click.argument("id")
 @click.option(
     "-f", "--format", "fmt", required=True,
     help="Target format (csv, json, stdf, hdf5, tdms, mdf4, atml)",
@@ -747,13 +806,13 @@ def show(
     help="Ship exported file via transport (s3, sftp, file, etc.)",
 )
 def export(
-    run_id: str, fmt: str, output_dir: str | None,
+    id: str, fmt: str, output_dir: str | None,
     results_dir: str | None, transport: str | None,
 ):
-    """Export a test run to a different format.
+    """Export a test run or session to a different format via event replay.
 
-    Reads the stored Parquet, reconstructs the TestRun model,
-    and writes it in the target format.
+    ID can be a run_id or session_id (prefix match). Auto-detected from
+    stored events — UUIDs never collide.
 
     Examples:
 
@@ -763,82 +822,64 @@ def export(
 
         litmus export abc123 -f csv --transport s3
     """
-    from litmus.data.backends.parquet import ParquetBackend
-    from litmus.data.exporters import get_exporter
+    from litmus.data.subscribers import get_subscriber_class, replay_to_subscriber
 
     if results_dir is None:
         results_dir = _get_results_dir(None)
 
-    backend = ParquetBackend(results_dir=results_dir)
-
-    try:
-        test_run = backend.reconstruct_test_run(run_id)
-    except FileNotFoundError as exc:
-        click.echo(str(exc), err=True)
+    # Look up subscriber class for the format
+    cls = get_subscriber_class(fmt)
+    if cls is None:
+        click.echo(
+            f"No subscriber registered for format '{fmt}'. "
+            f"Available: {', '.join(_list_export_formats())}",
+            err=True,
+        )
         raise SystemExit(1)
 
     if output_dir is None:
         output_dir = f"results/exports/{fmt}"
 
-    try:
-        exporter = get_exporter(fmt)
-    except KeyError as exc:
-        click.echo(str(exc), err=True)
+    # Find events by run_id or session_id
+    events, matched_col = _read_events_by_id(id, results_dir)
+    if not events:
+        click.echo(f"No events found for '{id}'.", err=True)
         raise SystemExit(1)
 
-    result_path = exporter.export(test_run, Path(output_dir))
-    click.echo(f"Exported: {result_path}")
+    kind = "session" if matched_col == "session_id" else "run"
+    click.echo(f"Matched {kind} {id} ({len(events)} events)")
 
-    if transport:
-        from litmus.data.transports import get_transport
-        from litmus.schemas import OutputConfig
+    sub = cls(Path(output_dir))
+    replay_to_subscriber(sub, events)
 
-        t = get_transport(transport)
-        cfg = OutputConfig(format=fmt, transport=transport, output_dir=output_dir)
-        dest = t.send(result_path, cfg)
-        click.echo(f"Shipped: {dest}")
+    # Find the output file(s)
+    out_dir = Path(output_dir)
+    candidates = sorted(f for f in out_dir.iterdir() if f.is_file())
+    if candidates:
+        for result_path in candidates:
+            click.echo(f"Exported: {result_path}")
+
+        if transport:
+            from litmus.data.transports import get_transport
+            from litmus.schemas import OutputConfig
+
+            t = get_transport(transport)
+            cfg = OutputConfig(format=fmt, transport=transport, output_dir=output_dir)
+            for result_path in candidates:
+                dest = t.send(result_path, cfg)
+                click.echo(f"Shipped: {dest}")
+    else:
+        click.echo(f"Export completed but no output file found in {output_dir}.", err=True)
 
 
-@main.command()
-@click.argument("parquet_file", type=click.Path(exists=True))
-@click.option(
-    "-f", "--format", "fmt", required=True,
-    help="Target format (csv, json, stdf, hdf5, tdms, mdf4, atml)",
-)
-@click.option("-o", "--output-dir", default=None, help="Output directory")
-def convert(parquet_file: str, fmt: str, output_dir: str | None):
-    """Convert a Parquet file to another format (no test session needed).
+def _list_export_formats() -> list[str]:
+    """List available export formats (excluding report formats)."""
+    from litmus.data.subscribers import list_subscribers
 
-    Pure file-to-file conversion — reads a Parquet file directly.
-
-    Examples:
-
-        litmus convert results/runs/2026-03-04/abc123.parquet -f csv
-
-        litmus convert foo.parquet -f stdf -o /shared/stdf/
-    """
-    from litmus.data.backends.parquet import reconstruct_test_run_from_file
-    from litmus.data.exporters import get_exporter
-
-    pq_path = Path(parquet_file)
-
-    try:
-        test_run = reconstruct_test_run_from_file(pq_path)
-    except (FileNotFoundError, ValueError) as exc:
-        click.echo(str(exc), err=True)
-        raise SystemExit(1)
-
-    if output_dir is None:
-        output_dir = str(pq_path.parent)
-
-    try:
-        exporter = get_exporter(fmt)
-    except KeyError as exc:
-        click.echo(str(exc), err=True)
-        raise SystemExit(1)
-
-    result_path = exporter.export(test_run, Path(output_dir))
-    click.echo(f"Converted: {result_path}")
+    return sorted(
+        f for f in list_subscribers()
+        if f not in {"html", "pdf"}
+    )
 
 
 # -----------------------------------------------------------------------------

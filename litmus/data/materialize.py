@@ -25,7 +25,7 @@ def _save_arrow_ref(
     """Save Arrow IPC table to ref dir, return ``file://`` URI."""
     ref_dir.mkdir(parents=True, exist_ok=True)
     filename = f"{channel_id}_{session_short}.arrow"
-    writer = ipc.new_file(ref_dir / filename, table.schema)
+    writer = ipc.new_stream(ref_dir / filename, table.schema)
     writer.write_table(table)
     writer.close()
     return f"file://{REF_PATH_PREFIX}{filename}"

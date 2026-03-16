@@ -5,6 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 from uuid import uuid4
 
+import pyarrow as pa
 import pyarrow.ipc as ipc
 import pytest
 
@@ -29,7 +30,7 @@ class TestScalarChannel:
         arrow_files = list((tmp_path / "channels").glob("*/*.arrow"))
         assert len(arrow_files) == 1
 
-        reader = ipc.open_file(str(arrow_files[0]))
+        reader = ipc.open_stream(pa.OSFile(str(arrow_files[0]), "rb"))
         table = reader.read_all()
         assert len(table) == 2
         assert "value" in table.schema.names
@@ -49,7 +50,7 @@ class TestScalarChannel:
         store.close()
 
         arrow_files = list((tmp_path / "channels").glob("*/*.arrow"))
-        reader = ipc.open_file(str(arrow_files[0]))
+        reader = ipc.open_stream(pa.OSFile(str(arrow_files[0]), "rb"))
         table = reader.read_all()
         assert table.column("value")[0].as_py() == 12.0
         assert table.column("source_method")[0].as_py() == "set_voltage"
@@ -65,7 +66,7 @@ class TestArrayChannel:
 
         arrow_files = list((tmp_path / "channels").glob("*/*.arrow"))
         assert len(arrow_files) == 1
-        reader = ipc.open_file(str(arrow_files[0]))
+        reader = ipc.open_stream(pa.OSFile(str(arrow_files[0]), "rb"))
         table = reader.read_all()
         assert "samples" in table.schema.names
         assert table.column("samples")[0].as_py() == [1.0, 2.0, 3.0, 4.0]
@@ -77,7 +78,7 @@ class TestArrayChannel:
         store.close()
 
         arrow_files = list((tmp_path / "channels").glob("*/*.arrow"))
-        reader = ipc.open_file(str(arrow_files[0]))
+        reader = ipc.open_stream(pa.OSFile(str(arrow_files[0]), "rb"))
         table = reader.read_all()
         assert table.column("samples")[0].as_py() == [1.0, 2.0, 3.0]
 

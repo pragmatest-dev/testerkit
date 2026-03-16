@@ -38,7 +38,7 @@ def _read_ipc_files(directory: Path) -> pa.Table | None:
     tables: list[pa.Table] = []
     for f in arrow_files:
         try:
-            reader = ipc.open_file(f)
+            reader = ipc.open_stream(pa.OSFile(str(f), "rb"))
             tables.append(reader.read_all())
         except (OSError, pa.ArrowInvalid) as exc:
             warnings.warn(f"Skipping {f}: {exc}", stacklevel=2)

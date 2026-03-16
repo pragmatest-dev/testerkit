@@ -51,7 +51,7 @@ class BufferedIPCWriter:
         self._flush_threshold = flush_threshold
         self._flush_interval = flush_interval
         self._buffer: list[dict[str, object]] = []
-        self._writer: ipc.RecordBatchFileWriter | None = None
+        self._writer: ipc.RecordBatchStreamWriter | None = None
         self._row_count: int = 0
         self._lock = threading.Lock()
         self._timer: threading.Timer | None = None
@@ -74,12 +74,12 @@ class BufferedIPCWriter:
         with self._lock:
             return list(self._buffer)
 
-    def _ensure_writer(self) -> ipc.RecordBatchFileWriter:
+    def _ensure_writer(self) -> ipc.RecordBatchStreamWriter:
         if self._writer is None:
             p = self.path  # Use property — subclasses may override (e.g. segments)
             p.parent.mkdir(parents=True, exist_ok=True)
             sink = pa.OSFile(str(p), "wb")
-            self._writer = ipc.new_file(sink, self._schema)
+            self._writer = ipc.new_stream(sink, self._schema)
         return self._writer
 
     def _cancel_timer(self) -> None:
@@ -135,7 +135,7 @@ class BufferedIPCWriter:
         """Hook called after each flush. Override for post-flush behavior."""
 
     def close(self) -> int:
-        """Flush remaining buffer and close the IPC writer. Returns row count."""
+        """Flush remaining buffer and close the stream writer."""
         with self._lock:
             self._cancel_timer()
             self._flush_unlocked()
@@ -149,14 +149,20 @@ class BufferedIPCWriter:
 
 
 def read_ipc_batches(path: Path) -> pa.Table | None:
-    """Read all batches from an Arrow IPC file. Returns None on error."""
-    if not path.exists():
+    """Read all batches from an Arrow IPC stream. Returns None on error."""
+    if not path.exists() or path.stat().st_size == 0:
         return None
     try:
-        reader = ipc.open_file(str(path))
-        batches = [reader.get_batch(i) for i in range(reader.num_record_batches)]
-        if not batches:
-            return None
-        return pa.Table.from_batches(batches)
+        reader = ipc.open_stream(pa.OSFile(str(path), "rb"))
+        batches = []
+        while True:
+            try:
+                batch = reader.read_next_batch()
+                batches.append(batch)
+            except StopIteration:
+                break
+            except pa.ArrowInvalid:
+                break  # Truncated — return complete batches we got
+        return pa.Table.from_batches(batches) if batches else None
     except (pa.ArrowInvalid, OSError):
         return None

@@ -38,7 +38,7 @@ def results_tree(tmp_path: Path) -> Path:
         "source_method": ["observe", "observe", "observe"],
     })
     arrow_path = channel_dir / f"{channel_id}_{session_short}.arrow"
-    writer = ipc.new_file(arrow_path, arrow_table.schema)
+    writer = ipc.new_stream(arrow_path, arrow_table.schema)
     writer.write_table(arrow_table)
     writer.close()
 
@@ -85,7 +85,7 @@ def test_materialize_rewrites_parquet(results_tree: Path) -> None:
     arrow_files = list(ref_dir.glob("*.arrow"))
     assert len(arrow_files) == 1
 
-    saved = ipc.open_file(arrow_files[0]).read_all()
+    saved = ipc.open_stream(pa.OSFile(str(arrow_files[0]), "rb")).read_all()
     assert saved.num_rows == 3
     assert saved.column("value").to_pylist() == [1.0, 2.0, 3.0]
 

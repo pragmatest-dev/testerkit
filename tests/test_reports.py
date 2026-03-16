@@ -87,7 +87,7 @@ def sample_run():
 def results_dir(tmp_path, sample_run):
     """Save sample run to a temp results dir and return the dir path."""
     rd = tmp_path / "results"
-    backend = ParquetBackend(results_dir=rd)
+    backend = ParquetBackend(results_dir=rd / "runs")
     backend.save_test_run(sample_run)
     return rd
 

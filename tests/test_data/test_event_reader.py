@@ -23,7 +23,7 @@ def _write_events(path: Path, events: list[dict]) -> None:
     """Write events to an Arrow IPC file."""
     path.parent.mkdir(parents=True, exist_ok=True)
     with pa.OSFile(str(path), "wb") as sink:
-        writer = ipc.new_file(sink, _IPC_SCHEMA)
+        writer = ipc.new_stream(sink, _IPC_SCHEMA)
         for evt in events:
             batch = pa.record_batch(
                 {

@@ -4,6 +4,7 @@ import json
 from pathlib import Path
 from uuid import UUID
 
+import pyarrow as pa
 import pyarrow.ipc as ipc
 import pytest
 
@@ -12,14 +13,13 @@ from litmus.schemas import StationConfig, StationInstrumentConfig
 
 
 def _read_events_from_ipc(path: Path) -> list[dict]:
-    """Read all events from an Arrow IPC file, parsing the json column."""
-    reader = ipc.open_file(str(path))
+    """Read all events from an Arrow IPC stream, parsing the json column."""
+    reader = ipc.open_stream(pa.OSFile(str(path), "rb"))
+    table = reader.read_all()
     events: list[dict] = []
-    for i in range(reader.num_record_batches):
-        batch = reader.get_batch(i)
-        json_col = batch.column("json")
-        for j in range(batch.num_rows):
-            events.append(json.loads(json_col[j].as_py()))
+    json_col = table.column("json")
+    for j in range(len(table)):
+        events.append(json.loads(json_col[j].as_py()))
     return events
 
 

@@ -25,24 +25,37 @@ class EventReader:
 
     def read_new(self) -> list[dict]:
         """Read events added since last call."""
-        if not self._path.exists():
+        if not self._path.exists() or self._path.stat().st_size == 0:
             return []
         try:
-            reader = ipc.open_file(str(self._path))
+            reader = ipc.open_stream(pa.OSFile(str(self._path), "rb"))
         except (pa.ArrowInvalid, OSError):
             return []
 
         events: list[dict] = []
-        for i in range(self._batch_offset, reader.num_record_batches):
-            batch = reader.get_batch(i)
+        batch_idx = 0
+        while True:
+            try:
+                batch = reader.read_next_batch()
+            except StopIteration:
+                break
+            except pa.ArrowInvalid:
+                break  # Truncated stream — stop at last complete batch
+            if batch_idx < self._batch_offset:
+                batch_idx += 1
+                continue
+            batch_idx += 1
             json_col = batch.column("json")
             for j in range(batch.num_rows):
                 try:
                     events.append(json.loads(json_col[j].as_py()))
                 except (json.JSONDecodeError, TypeError) as exc:
-                    logger.warning("Skipping malformed event in batch %d row %d: %s", i, j, exc)
+                    logger.warning(
+                        "Skipping malformed event in batch %d row %d: %s",
+                        batch_idx - 1, j, exc,
+                    )
                     continue
-        self._batch_offset = reader.num_record_batches
+        self._batch_offset = batch_idx
         return events
 
     def read_all(self) -> list[dict]:

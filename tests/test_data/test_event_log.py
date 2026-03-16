@@ -3,6 +3,7 @@
 import json
 from uuid import uuid4
 
+import pyarrow as pa
 import pyarrow.ipc as ipc
 
 from litmus.data.event_log import EventLog
@@ -22,11 +23,10 @@ class TestEventLog:
         log.emit(event)
         log.close()
 
-        reader = ipc.open_file(str(log.path))
-        assert reader.num_record_batches == 1
-        batch = reader.get_batch(0)
-        assert batch.num_rows == 1
-        data = json.loads(batch.column("json")[0].as_py())
+        reader = ipc.open_stream(pa.OSFile(str(log.path), "rb"))
+        table = reader.read_all()
+        assert len(table) == 1
+        data = json.loads(table.column("json")[0].as_py())
         assert data["event_type"] == "run.started"
         assert data["station_id"] == "st1"
         assert data["received_at"] is not None
@@ -121,9 +121,7 @@ class TestEventLog:
         log.emit(RunEnded(run_id=run_id, outcome="pass"))
         log.close()
 
-        reader = ipc.open_file(str(log.path))
-        # Events are batched together (flushed on close), so we get 1 batch
-        assert reader.num_record_batches == 1
-        batch = reader.get_batch(0)
-        types = batch.column("event_type").to_pylist()
+        reader = ipc.open_stream(pa.OSFile(str(log.path), "rb"))
+        table = reader.read_all()
+        types = table.column("event_type").to_pylist()
         assert types == ["run.started", "test.measurement", "run.ended"]
