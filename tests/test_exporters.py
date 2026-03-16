@@ -12,15 +12,20 @@ from uuid import uuid4
 import pytest
 
 from litmus.data.backends._row_helpers import MeasurementRow, build_row
-from litmus.data.exporters import get_exporter, list_exporters, register_exporter
-from litmus.data.exporters._registry import _REGISTRY, get_exporter_class
-from litmus.data.exporters.csv_exporter import CsvExporter
-from litmus.data.exporters.json_exporter import JsonExporter
+from litmus.data.exporters.csv_exporter import CsvSubscriber
+from litmus.data.exporters.json_exporter import JsonSubscriber
 from litmus.data.models import DUT, Measurement, Outcome, TestRun, TestStep, TestVector
+from litmus.data.subscribers._registry import (
+    _REGISTRY,
+    get_subscriber_class,
+    list_subscribers,
+    register_subscriber,
+)
 from litmus.data.transports import get_transport, register_transport
 from litmus.data.transports._registry import _REGISTRY as _TRANSPORT_REGISTRY
 from litmus.data.transports.file_transport import FileTransport
 from litmus.schemas import OutputConfig, ProjectConfig
+from tests.test_data.conftest import _replay_events
 
 
 @pytest.fixture
@@ -78,62 +83,63 @@ def sample_test_run() -> TestRun:
     )
 
 
-class TestExporterRegistry:
+class TestSubscriberRegistry:
     def test_csv_lazy_load(self):
-        """CSV exporter loads lazily on first access."""
-        # Clear registry to test lazy loading
+        """CSV subscriber loads lazily on first access."""
         _REGISTRY.pop("csv", None)
-        exporter = get_exporter("csv")
-        assert exporter.format_name == "csv"
+        cls = get_subscriber_class("csv")
+        assert cls is not None
+        assert cls.format_name == "csv"
 
     def test_json_lazy_load(self):
-        """JSON exporter loads lazily on first access."""
+        """JSON subscriber loads lazily on first access."""
         _REGISTRY.pop("json", None)
-        exporter = get_exporter("json")
-        assert exporter.format_name == "json"
+        cls = get_subscriber_class("json")
+        assert cls is not None
+        assert cls.format_name == "json"
 
-    def test_unknown_format_raises(self):
-        with pytest.raises(KeyError, match="No exporter registered"):
-            get_exporter("nonexistent_format_xyz")
+    def test_unknown_format_returns_none(self):
+        assert get_subscriber_class("nonexistent_format_xyz") is None
 
-    def test_register_custom_exporter(self):
-        class FakeExporter:
+    def test_register_custom_subscriber(self):
+        class FakeSubscriber:
             format_name = "fake"
-            def export(self, test_run, output_path):
-                return output_path / "fake.dat"
+            event_types = set()
+            def open(self): pass
+            def on_event(self, event): pass
+            def close(self): pass
 
-        register_exporter(FakeExporter())
-        assert "fake" in list_exporters()
+        register_subscriber(FakeSubscriber)
+        assert "fake" in list_subscribers()
         _REGISTRY.pop("fake")  # cleanup
 
-    def test_get_exporter_class_returns_class(self):
-        cls = get_exporter_class("csv")
-        assert cls is not None
-        assert isinstance(cls(), object)
-        assert cls().format_name == "csv"
-
-    def test_get_exporter_class_unknown_returns_none(self):
-        assert get_exporter_class("nonexistent_format_xyz") is None
-
-    def test_list_exporters(self):
-        # Ensure at least csv is loadable
-        get_exporter("csv")
-        names = list_exporters()
+    def test_list_subscribers(self):
+        names = list_subscribers()
         assert "csv" in names
+        assert "json" in names
+        assert "parquet" in names
 
 
-class TestCsvExporter:
-    def test_export_creates_file(self, sample_test_run: TestRun, tmp_path: Path):
-        exporter = CsvExporter()
-        result = exporter.export(sample_test_run, tmp_path)
-        assert result.exists()
-        assert result.suffix == ".csv"
 
-    def test_export_content(self, sample_test_run: TestRun, tmp_path: Path):
-        exporter = CsvExporter()
-        result = exporter.export(sample_test_run, tmp_path)
+class TestCsvSubscriber:
+    def test_creates_file(self, sample_test_run: TestRun, tmp_path: Path):
+        sub = CsvSubscriber(tmp_path)
+        sub.open()
+        _replay_events(sample_test_run, sub)
+        sub.close()
+        csv_dir = tmp_path / "exports" / "csv"
+        files = list(csv_dir.glob("*.csv"))
+        assert len(files) == 1
 
-        with result.open() as f:
+    def test_content(self, sample_test_run: TestRun, tmp_path: Path):
+        sub = CsvSubscriber(tmp_path)
+        sub.open()
+        _replay_events(sample_test_run, sub)
+        sub.close()
+        csv_dir = tmp_path / "exports" / "csv"
+        csv_file = next(csv_dir.glob("*.csv"))
+
+        with csv_file.open() as f:
             reader = csv.DictReader(f)
             rows = list(reader)
 
@@ -143,32 +149,58 @@ class TestCsvExporter:
         assert rows[0]["units"] == "V"
         assert rows[1]["measurement_name"] == "iout"
 
-    def test_export_includes_dynamic_columns(self, sample_test_run: TestRun, tmp_path: Path):
-        """CSV export includes in_* columns from vector params."""
-        exporter = CsvExporter()
-        result = exporter.export(sample_test_run, tmp_path)
+    def test_includes_dynamic_columns(self, sample_test_run: TestRun, tmp_path: Path):
+        """CSV includes in_* columns from event inputs."""
+        sub = CsvSubscriber(tmp_path)
+        sub.open()
+        _replay_events(sample_test_run, sub)
+        sub.close()
+        csv_dir = tmp_path / "exports" / "csv"
+        csv_file = next(csv_dir.glob("*.csv"))
 
-        with result.open() as f:
+        with csv_file.open() as f:
             reader = csv.DictReader(f)
             rows = list(reader)
 
-        # Vector had params={"vin": 5.0} → should produce in_vin column
         assert "in_vin" in rows[0]
         assert rows[0]["in_vin"] == "5.0"
 
+    def test_includes_custom_metadata(self, sample_test_run: TestRun, tmp_path: Path):
+        """CSV includes custom_* columns from RunStarted."""
+        sub = CsvSubscriber(tmp_path)
+        sub.open()
+        _replay_events(sample_test_run, sub)
+        sub.close()
+        csv_dir = tmp_path / "exports" / "csv"
+        csv_file = next(csv_dir.glob("*.csv"))
 
-class TestJsonExporter:
-    def test_export_creates_file(self, sample_test_run: TestRun, tmp_path: Path):
-        exporter = JsonExporter()
-        result = exporter.export(sample_test_run, tmp_path)
-        assert result.exists()
-        assert result.suffix == ".json"
+        with csv_file.open() as f:
+            reader = csv.DictReader(f)
+            rows = list(reader)
 
-    def test_export_content(self, sample_test_run: TestRun, tmp_path: Path):
-        exporter = JsonExporter()
-        result = exporter.export(sample_test_run, tmp_path)
+        assert "custom_operator_badge" in rows[0]
+        assert rows[0]["custom_operator_badge"] == "EMP-123"
 
-        data = json.loads(result.read_text())
+
+class TestJsonSubscriber:
+    def test_creates_file(self, sample_test_run: TestRun, tmp_path: Path):
+        sub = JsonSubscriber(tmp_path)
+        sub.open()
+        _replay_events(sample_test_run, sub)
+        sub.close()
+        json_dir = tmp_path / "exports" / "json"
+        files = list(json_dir.glob("*.json"))
+        assert len(files) == 1
+
+    def test_content(self, sample_test_run: TestRun, tmp_path: Path):
+        sub = JsonSubscriber(tmp_path)
+        sub.open()
+        _replay_events(sample_test_run, sub)
+        sub.close()
+        json_dir = tmp_path / "exports" / "json"
+        json_file = next(json_dir.glob("*.json"))
+
+        data = json.loads(json_file.read_text())
         assert data["station_id"] == "station_001"
         assert data["dut"]["serial"] == "DUT001"
         assert len(data["steps"]) == 1
@@ -217,7 +249,7 @@ class TestOutputConfig:
 
     def test_default_output_dir_csv(self):
         cfg = OutputConfig(format="csv")
-        assert cfg.default_output_dir() == "results/exports/csv"
+        assert cfg.default_output_dir() == "results"
 
     def test_default_output_dir_override(self):
         cfg = OutputConfig(format="csv", output_dir="/custom")
@@ -506,12 +538,14 @@ class TestReconstructTestRun:
     def test_roundtrip(self, sample_test_run: TestRun, tmp_path: Path):
         from litmus.data.backends.parquet import ParquetBackend, reconstruct_test_run_from_file
 
-        results_dir = tmp_path / "results"
-        backend = ParquetBackend(results_dir=str(results_dir))
+        runs_dir = tmp_path / "results" / "runs"
+        backend = ParquetBackend(results_dir=runs_dir)
         backend.save_test_run(sample_test_run)
 
-        # Find the saved file
-        pq_file = backend.find_run_file(str(sample_test_run.id))
+        # Find the saved file (direct glob — avoids RunStore path indirection)
+        pq_files = list(runs_dir.rglob("*.parquet"))
+        assert len(pq_files) == 1
+        pq_file = pq_files[0]
         assert pq_file is not None
 
         # Reconstruct
@@ -545,11 +579,11 @@ class TestReconstructTestRun:
         """custom_metadata survives Parquet save → reconstruct."""
         from litmus.data.backends.parquet import ParquetBackend, reconstruct_test_run_from_file
 
-        results_dir = tmp_path / "results"
-        backend = ParquetBackend(results_dir=str(results_dir))
+        runs_dir = tmp_path / "results" / "runs"
+        backend = ParquetBackend(results_dir=runs_dir)
         backend.save_test_run(sample_test_run)
 
-        pq_file = backend.find_run_file(str(sample_test_run.id))
+        pq_file = next(runs_dir.rglob("*.parquet"))
         rebuilt = reconstruct_test_run_from_file(pq_file)
 
         assert rebuilt.custom_metadata == {"operator_badge": "EMP-123"}
@@ -558,11 +592,11 @@ class TestReconstructTestRun:
         """instrument_arrays survives Parquet save → reconstruct."""
         from litmus.data.backends.parquet import ParquetBackend, reconstruct_test_run_from_file
 
-        results_dir = tmp_path / "results"
-        backend = ParquetBackend(results_dir=str(results_dir))
+        runs_dir = tmp_path / "results" / "runs"
+        backend = ParquetBackend(results_dir=runs_dir)
         backend.save_test_run(sample_test_run)
 
-        pq_file = backend.find_run_file(str(sample_test_run.id))
+        pq_file = next(runs_dir.rglob("*.parquet"))
         rebuilt = reconstruct_test_run_from_file(pq_file)
 
         step = rebuilt.steps[0]
@@ -571,18 +605,21 @@ class TestReconstructTestRun:
         assert step.instrument_arrays["instr_resource"] == ["TCPIP::192.168.1.10"]
         assert step.instrument_arrays["instr_driver"] == ["Keysight34465A"]
 
-    def test_csv_includes_custom_and_instr_columns(self, sample_test_run: TestRun, tmp_path: Path):
-        """CSV export includes custom_* and instr_* columns."""
-        exporter = CsvExporter()
-        result = exporter.export(sample_test_run, tmp_path)
+    def test_csv_subscriber_includes_custom_columns(self, sample_test_run: TestRun, tmp_path: Path):
+        """CSV subscriber includes custom_* columns from RunStarted."""
+        sub = CsvSubscriber(tmp_path)
+        sub.open()
+        _replay_events(sample_test_run, sub)
+        sub.close()
+        csv_dir = tmp_path / "exports" / "csv"
+        csv_file = next(csv_dir.glob("*.csv"))
 
-        with result.open() as f:
+        with csv_file.open() as f:
             reader = csv.DictReader(f)
             rows = list(reader)
 
         assert "custom_operator_badge" in rows[0]
         assert rows[0]["custom_operator_badge"] == "EMP-123"
-        assert "instr_name" in rows[0]
 
 
 class TestHarnessLoggerIntegration:

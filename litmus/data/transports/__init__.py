@@ -3,10 +3,10 @@
 Architecture:
     file.parquet/stdf/csv → Transport → S3/SFTP/Snowflake/etc.
 
-Transports ship files created by exporters (or raw Parquet) to remote
-storage, warehouses, or APIs. They are composable with exporters:
+Transports ship files created by subscribers (or raw Parquet) to remote
+storage, warehouses, or APIs. They are composable with subscribers:
 
-    TestRun → Exporter (STDF) → file.stdf → Transport (S3) → s3://bucket/file.stdf
+    Events → Subscriber (STDF) → file.stdf → Transport (S3) → s3://bucket/file.stdf
 
 Built-in transports:
     file    — copy to local/network path (stdlib shutil)

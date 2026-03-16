@@ -1,7 +1,7 @@
 """Subscriber registry — maps format names to EventSubscriber classes.
 
-Unlike the exporter registry (which stores instances), this registry stores
-**classes** because subscribers need fresh state per session.
+Subscribers need fresh state per session, so this registry stores
+**classes** (not instances). A new instance is created per session.
 
 Built-in subscribers are lazy-loaded on first access.
 Users can register custom subscribers via ``register_subscriber()``.
@@ -16,6 +16,13 @@ _REGISTRY: dict[str, type] = {}
 
 _LAZY: dict[str, tuple[str, str]] = {
     "parquet": ("litmus.data.backends.parquet", "ParquetSubscriber"),
+    "csv": ("litmus.data.exporters.csv_exporter", "CsvSubscriber"),
+    "json": ("litmus.data.exporters.json_exporter", "JsonSubscriber"),
+    "atml": ("litmus.data.exporters.atml", "AtmlSubscriber"),
+    "stdf": ("litmus.data.exporters.stdf", "StdfSubscriber"),
+    "hdf5": ("litmus.data.exporters.hdf5", "Hdf5Subscriber"),
+    "tdms": ("litmus.data.exporters.tdms", "TdmsSubscriber"),
+    "mdf4": ("litmus.data.exporters.mdf4", "Mdf4Subscriber"),
 }
 
 

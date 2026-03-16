@@ -5,7 +5,7 @@ from uuid import uuid4
 
 import pyarrow.parquet as pq
 
-from litmus.data.backends.parquet import ParquetBackend, ParquetSubscriber, read_step_manifest
+from litmus.data.backends.parquet import ParquetSubscriber, read_step_manifest
 from litmus.data.events import (
     InstrumentConnected,
     MeasurementRecorded,
@@ -18,8 +18,7 @@ from litmus.data.events import (
 
 class TestParquetSubscriber:
     def test_accumulates_and_writes(self, tmp_path):
-        backend = ParquetBackend(results_dir=str(tmp_path / "results"))
-        sub = ParquetSubscriber(backend)
+        sub = ParquetSubscriber(tmp_path / "results")
         sub.open()
 
         run_id = uuid4()
@@ -66,8 +65,7 @@ class TestParquetSubscriber:
         assert row["run_outcome"] == "pass"
 
     def test_instruments_cached(self, tmp_path):
-        backend = ParquetBackend(results_dir=str(tmp_path / "results"))
-        sub = ParquetSubscriber(backend)
+        sub = ParquetSubscriber(tmp_path / "results")
         sub.open()
 
         run_id = uuid4()
@@ -111,8 +109,7 @@ class TestParquetSubscriber:
 
     def test_close_without_run_ended(self, tmp_path):
         """close() writes even if RunEnded was not received (crash recovery)."""
-        backend = ParquetBackend(results_dir=str(tmp_path / "results"))
-        sub = ParquetSubscriber(backend)
+        sub = ParquetSubscriber(tmp_path / "results")
         sub.open()
 
         run_id = uuid4()
@@ -138,8 +135,7 @@ class TestParquetSubscriber:
 
     def test_no_measurements_no_file(self, tmp_path):
         """No Parquet written when no measurements accumulated."""
-        backend = ParquetBackend(results_dir=str(tmp_path / "results"))
-        sub = ParquetSubscriber(backend)
+        sub = ParquetSubscriber(tmp_path / "results")
         sub.open()
 
         sub.on_event(RunStarted(
@@ -157,8 +153,7 @@ class TestParquetSubscriber:
 
     def test_step_identity_columns(self, tmp_path):
         """Step code identity fields appear in Parquet rows."""
-        backend = ParquetBackend(results_dir=str(tmp_path / "results"))
-        sub = ParquetSubscriber(backend)
+        sub = ParquetSubscriber(tmp_path / "results")
         sub.open()
 
         run_id = uuid4()
@@ -202,8 +197,7 @@ class TestParquetSubscriber:
 
     def test_step_manifest_metadata(self, tmp_path):
         """Step manifest is written to Parquet file-level metadata."""
-        backend = ParquetBackend(results_dir=str(tmp_path / "results"))
-        sub = ParquetSubscriber(backend)
+        sub = ParquetSubscriber(tmp_path / "results")
         sub.open()
 
         run_id = uuid4()
@@ -258,8 +252,7 @@ class TestParquetSubscriber:
 
     def test_measurement_before_run_started(self, tmp_path):
         """Graceful fallback when RunStarted never arrives (crash recovery)."""
-        backend = ParquetBackend(results_dir=str(tmp_path / "results"))
-        sub = ParquetSubscriber(backend)
+        sub = ParquetSubscriber(tmp_path / "results")
         sub.open()
 
         # Measurement arrives without a preceding RunStarted
@@ -278,3 +271,41 @@ class TestParquetSubscriber:
         runs_dir = tmp_path / "results" / "runs"
         pq_files = list(runs_dir.rglob("*.parquet")) if runs_dir.exists() else []
         assert len(pq_files) == 0
+
+    def test_on_output_callback(self, tmp_path):
+        """on_output callback is called with OutputFile after write."""
+        from litmus.data.subscribers._output_file import OutputFile
+
+        outputs: list[OutputFile] = []
+        sub = ParquetSubscriber(tmp_path / "results", on_output=outputs.append)
+        sub.open()
+
+        run_id = uuid4()
+        session_id = uuid4()
+
+        sub.on_event(RunStarted(
+            session_id=session_id,
+            run_id=run_id,
+            station_id="st1",
+            dut_serial="SN001",
+            occurred_at=datetime(2026, 3, 6, 14, 0, 0, tzinfo=UTC),
+        ))
+        sub.on_event(MeasurementRecorded(
+            session_id=session_id,
+            run_id=run_id,
+            step_name="test_v",
+            step_index=0,
+            measurement_name="vout",
+            value=3.3,
+            outcome="pass",
+        ))
+        sub.on_event(RunEnded(
+            session_id=session_id,
+            run_id=run_id,
+            outcome="pass",
+        ))
+
+        assert len(outputs) == 1
+        assert outputs[0].format == "parquet"
+        assert outputs[0].path.exists()
+        assert outputs[0].run_id == str(run_id)

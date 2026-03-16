@@ -1,16 +1,21 @@
-"""CSV exporter — stdlib, no extra dependencies.
+"""CSV subscriber — stdlib, no extra dependencies.
 
-Writes one row per measurement with all metadata denormalized,
-including dynamic columns (in_*, out_*, instr_*, custom).
+EventSubscriber that accumulates MeasurementRecorded events and writes
+one row per measurement as CSV on close, with all metadata denormalized.
 """
 
 from __future__ import annotations
 
 import csv
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
-from litmus.data.models import TestRun
+from litmus.data.events import (
+    MeasurementRecorded,
+    RunStarted,
+)
+from litmus.data.subscribers._output_file import OutputFile
 
 # Fixed columns written first (in this order), followed by any
 # dynamic columns discovered across all rows.
@@ -39,43 +44,104 @@ _FIXED_COLUMNS = [
 ]
 
 
-class CsvExporter:
-    """Export TestRun to CSV (one row per measurement).
+class CsvSubscriber:
+    """EventSubscriber that writes CSV (one row per measurement) on close.
 
-    Uses ``TestRun.iter_rows()`` → ``to_flat_dict()`` so all dynamic
-    columns (``in_*``, ``out_*``, ``instr_*``, custom) are included.
+    Accumulates MeasurementRecorded events with RunStarted metadata,
+    then writes a denormalized CSV with fixed + dynamic columns.
     """
 
     format_name = "csv"
 
-    def export(self, test_run: TestRun, output_path: Path) -> Path:
-        """Write test_run measurements to a CSV file.
+    def __init__(
+        self,
+        output_dir: Path,
+        *,
+        on_output: Callable[[OutputFile], None] | None = None,
+    ) -> None:
+        self.event_types: set[type] = {RunStarted, MeasurementRecorded}
+        self._output_dir = output_dir / "exports" / "csv"
+        self._on_output = on_output
+        self._run_started: RunStarted | None = None
+        self._measurements: list[MeasurementRecorded] = []
+        self._written = False
 
-        Args:
-            test_run: The TestRun model to export.
-            output_path: Directory to write the file into.
+    def open(self) -> None:
+        self._output_dir.mkdir(parents=True, exist_ok=True)
 
-        Returns:
-            Path to the created CSV file.
-        """
-        output_path.mkdir(parents=True, exist_ok=True)
-        run_id_short = str(test_run.id)[:8]
-        out_file = output_path / f"{run_id_short}.csv"
+    def on_event(self, event: Any) -> None:
+        if isinstance(event, RunStarted):
+            self._run_started = event
+        elif isinstance(event, MeasurementRecorded):
+            self._measurements.append(event)
 
-        # Flatten all rows first so we can discover every column name.
+    def close(self) -> None:
+        if not self._written:
+            self._write()
+
+    def _write(self) -> None:
+        if self._written:
+            return
+        self._written = True
+
+        s = self._run_started
+        if not s or not self._measurements:
+            return
+
+        run_id = str(s.run_id)[:8] if s.run_id else "unknown"
+        out_file = self._output_dir / f"{run_id}.csv"
+
+        # Build flat rows from measurement events + run metadata
         flat_rows: list[dict[str, Any]] = []
         extra_keys: list[str] = []
-        seen: set[str] = set()
-        for mrow in test_run.iter_rows():
-            flat = mrow.to_flat_dict()
-            flat_rows.append(flat)
-            for k in flat:
-                if k not in seen:
-                    seen.add(k)
-                    if k not in _FIXED_COLUMNS:
-                        extra_keys.append(k)
+        seen: set[str] = set(_FIXED_COLUMNS)
 
-        # Fixed columns first, then dynamic columns in discovery order.
+        for m in self._measurements:
+            row: dict[str, Any] = {
+                "run_id": str(s.run_id) if s.run_id else "",
+                "step_name": m.step_name,
+                "step_index": m.step_index,
+                "vector_index": m.vector_index or 0,
+                "attempt": m.attempt or 1,
+                "measurement_name": m.measurement_name,
+                "value": m.value,
+                "units": m.units or "",
+                "low_limit": m.low_limit,
+                "high_limit": m.high_limit,
+                "nominal": m.nominal,
+                "comparator": m.comparator or "",
+                "outcome": m.outcome or "",
+                "spec_id": m.spec_id or "",
+                "spec_ref": m.spec_ref or "",
+                "meas_dut_pin": m.meas_dut_pin or "",
+                "meas_instrument": m.meas_instrument or "",
+                "dut_serial": s.dut_serial,
+                "station_id": s.station_id,
+                "operator_id": s.operator_id or "",
+                "test_phase": s.test_phase,
+            }
+            # Dynamic columns from inputs/outputs/custom
+            for k, v in m.inputs.items():
+                key = f"in_{k}"
+                row[key] = v
+                if key not in seen:
+                    seen.add(key)
+                    extra_keys.append(key)
+            for k, v in m.outputs.items():
+                key = f"out_{k}"
+                row[key] = v
+                if key not in seen:
+                    seen.add(key)
+                    extra_keys.append(key)
+            for k, v in s.custom_metadata.items():
+                key = f"custom_{k}"
+                row[key] = v
+                if key not in seen:
+                    seen.add(key)
+                    extra_keys.append(key)
+
+            flat_rows.append(row)
+
         fieldnames = [c for c in _FIXED_COLUMNS if c in seen] + extra_keys
 
         with out_file.open("w", newline="") as f:
@@ -94,4 +160,5 @@ class CsvExporter:
                         clean[k] = v
                 writer.writerow(clean)
 
-        return out_file
+        if self._on_output:
+            self._on_output(OutputFile(path=out_file, format="csv", run_id=run_id))

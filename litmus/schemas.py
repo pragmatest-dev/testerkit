@@ -138,21 +138,17 @@ class OutputConfig(BaseModel):
         return self
 
     def default_output_dir(self) -> str:
-        """Resolve output directory with sensible defaults."""
+        """Resolve output directory with sensible defaults.
+
+        Subscribers own their own subfolder within the results root,
+        so this just returns the root (``"results"``) for subscriber
+        formats.  Report formats get ``"reports"``.
+        """
         if self.output_dir:
             return self.output_dir
-        subscriber_dirs = {
-            "parquet": "results/parquet",
-            "channels": "results/channels",
-        }
-        if self.format in subscriber_dirs:
-            return subscriber_dirs[self.format]
         if self.format in ("html", "pdf"):
             return "reports"
-        if self.format:
-            return f"results/exports/{self.format}"
-        # Transport-only (shipping Parquet) — no local output dir needed
-        return "results/exports"
+        return "results"
 
 
 class ProjectConfig(BaseModel):
