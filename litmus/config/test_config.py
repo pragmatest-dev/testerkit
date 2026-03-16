@@ -41,6 +41,7 @@ class Limit(BaseModel):
     comparator: Comparator = Comparator.GELE
 
     model_config = {
+        "extra": "forbid",
         "json_schema_extra": {
             "example": {
                 "low": 4.5,
@@ -51,12 +52,14 @@ class Limit(BaseModel):
                 "spec_ref": "Table 4.2 @ temp=25, load=0.8",
                 "comparator": "GELE",
             }
-        }
+        },
     }
 
 
 class Specification(BaseModel):
     """A product specification that limits are derived from."""
+
+    model_config = {"extra": "forbid"}
 
     id: str
     description: str
@@ -117,6 +120,8 @@ class SwitchRoute(BaseModel):
           settling_ms: 10
     """
 
+    model_config = {"extra": "forbid"}
+
     switch: str  # Station instrument role for the switch
     channels: list[str]  # Crosspoints/channels to close
     settling_ms: float = 0  # ms to wait after closing
@@ -157,6 +162,8 @@ class FixturePoint(BaseModel):
             settling_ms: 10
     """
 
+    model_config = {"extra": "forbid"}
+
     name: str
     instrument: str  # Reference to instrument config
     instrument_channel: str | None = None
@@ -189,6 +196,8 @@ class FixtureSlot(BaseModel):
               dut_pin: VOUT
     """
 
+    model_config = {"extra": "forbid"}
+
     points: dict[str, FixturePoint] = Field(default_factory=dict)
     dut_resource: str | None = None  # Per-slot DUT connection string
     description: str | None = None
@@ -211,6 +220,8 @@ class FixtureConfig(BaseModel):
     - Direct instrument access via fixtures (dmm, psu)
     - Ad-hoc pin mappings in test config
     """
+
+    model_config = {"extra": "forbid"}
 
     id: str
     name: str | None = None
@@ -271,6 +282,8 @@ class FixtureConfig(BaseModel):
 class RetryConfig(BaseModel):
     """Retry behavior configuration."""
 
+    model_config = {"extra": "forbid"}
+
     max_attempts: int = 1
     delay_seconds: float = 0
     strategy: Literal["always", "on_fail", "dialog", "custom"] = "on_fail"
@@ -291,6 +304,8 @@ class RangeConfig(BaseModel):
           stop: 5.0
           step: 0.5
     """
+
+    model_config = {"extra": "forbid"}
 
     start: float
     stop: float
@@ -332,6 +347,8 @@ class LoopVariableConfig(BaseModel):
         - name: load
           values: "0.1:0.5:0.1"  # → 0.1, 0.2, 0.3, 0.4, 0.5
     """
+
+    model_config = {"extra": "forbid"}
 
     name: str
     values: list[Any] | str | None = None  # List, or range string like "-40:125:25"
@@ -392,6 +409,8 @@ class ZippedLoopConfig(BaseModel):
               values: [3.2, 4.9, 11.8]
     """
 
+    model_config = {"extra": "forbid"}
+
     zip: list[LoopVariableConfig]
 
 
@@ -403,6 +422,8 @@ class PromptConfig(BaseModel):
           message: "Set chamber to {temperature}C"
           type: confirm
     """
+
+    model_config = {"extra": "forbid"}
 
     message: str
     prompt_type: Literal["confirm", "choice", "input"] = "confirm"
@@ -420,6 +441,8 @@ class LimitRefConfig(BaseModel):
             guardband_pct: 10
     """
 
+    model_config = {"extra": "forbid"}
+
     ref: str
     guardband_pct: float = 0.0
 
@@ -434,6 +457,8 @@ class LimitExprConfig(BaseModel):
             tolerance_pct: 5
             units: V
     """
+
+    model_config = {"extra": "forbid"}
 
     expr: str
     tolerance_pct: float | None = None
@@ -453,6 +478,8 @@ class LimitLookupConfig(BaseModel):
                 -40: { low: 3.0, high: 3.6 }
                 25: { low: 3.1, high: 3.5 }
     """
+
+    model_config = {"extra": "forbid"}
 
     key: str
     table: dict[str, Limit]
@@ -476,6 +503,8 @@ class LimitStepConfig(BaseModel):
                   limit: { low: 3.0, high: 3.6, units: V }
     """
 
+    model_config = {"extra": "forbid"}
+
     param: str
     ranges: list[dict[str, Any]]  # List of {below: X, limit: {...}} or {default: ..., limit: {...}}
 
@@ -488,6 +517,8 @@ class LimitCallableConfig(BaseModel):
           output_voltage:
             callable: "myproject.limits.output_voltage_limit"
     """
+
+    model_config = {"extra": "forbid"}
 
     callable: str  # Dotted path to Python function
 
@@ -504,13 +535,21 @@ class MeasurementLimitConfig(BaseModel):
     - Callable: Python function for complex logic
     """
 
+    model_config = {"extra": "forbid"}
+
     # Direct limit values
     low: float | None = None
     high: float | None = None
     nominal: float | None = None
     units: str | None = None
+    # TODO: review naming — ref vs spec_ref vs spec_id are confusingly similar.
+    # ref = "derive limits from this Specification" (functional, config-time lookup key)
+    # spec_id = "this measurement traces to this characteristic" (traceability)
+    # spec_ref = "human-readable note about limit origin" (documentation)
+    spec_id: str | None = None
+    spec_ref: str | None = None
 
-    # Spec reference
+    # Spec reference (dotted path to a Specification, e.g. "specs.power_board.rail_3v3")
     ref: str | None = None
     guardband_pct: float | None = None
     comparator: Comparator | None = None
@@ -540,6 +579,8 @@ class MeasurementLimitConfig(BaseModel):
                 high=self.high,
                 nominal=self.nominal,
                 units=self.units or "",
+                spec_id=self.spec_id,
+                spec_ref=self.spec_ref,
             )
         return None
 
@@ -597,6 +638,7 @@ class TestConfig(BaseModel):
     """
 
     __test__ = False  # Prevent pytest collection
+    model_config = {"extra": "forbid"}
 
     description: str | None = None
     vectors: VectorConfig | list[dict[str, Any]] | None = None
@@ -630,6 +672,7 @@ class TestStepConfig(BaseModel):
     """
 
     __test__ = False  # Prevent pytest collection
+    model_config = {"extra": "forbid"}
 
     id: str
     test: str | None = None  # pytest node ID, e.g. "tests/test_power.py::test_5v"
@@ -712,6 +755,7 @@ class TestSequenceConfig(BaseModel):
     """
 
     __test__ = False  # Prevent pytest collection
+    model_config = {"extra": "forbid"}
 
     id: str
     name: str | None = None  # Display name (defaults to id)

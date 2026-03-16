@@ -67,6 +67,8 @@ class Pin(BaseModel):
             role: ground
     """
 
+    model_config = {"extra": "forbid"}
+
     name: str  # Pin designator: "J1.1", "TP5", "U3.14"
     net: str | None = None  # Schematic net name
     role: PinRole = PinRole.SIGNAL  # Pin role for routing
@@ -83,6 +85,8 @@ class BusSignal(BaseModel):
           - pin: SCL
             role: clock
     """
+
+    model_config = {"extra": "forbid"}
 
     pin: str  # Reference to Pin key
     role: str  # "clock", "data", "chip_select", "strobe", etc.
@@ -107,6 +111,8 @@ class SignalGroup(BaseModel):
             parameters:
               frequency: 400000
     """
+
+    model_config = {"extra": "forbid"}
 
     protocol: str  # "i2c", "spi", "uart", "parallel", "custom"
     signals: list[BusSignal] = Field(default_factory=list)
@@ -232,6 +238,8 @@ class Product(BaseModel):
               - value: 3.3
                 accuracy: {pct_reading: 3.0}
     """
+
+    model_config = {"extra": "forbid"}
 
     id: str
     name: str

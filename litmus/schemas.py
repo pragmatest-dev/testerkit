@@ -30,6 +30,8 @@ from litmus.products.models import Product
 class InstrumentAssetFile(BaseModel):
     """Schema for instruments/*.yaml asset files (per-device identity + calibration)."""
 
+    model_config = {"extra": "forbid"}
+
     id: str
     protocol: str = "visa"
     driver: str | None = None
@@ -46,6 +48,8 @@ class InstrumentAssetFile(BaseModel):
 
 class StationInstrumentConfig(BaseModel):
     """Single instrument entry in a station file."""
+
+    model_config = {"extra": "forbid"}
 
     type: str
     driver: str | None = None  # Optional for mock-only instruments
@@ -70,6 +74,8 @@ class StationInstrumentConfig(BaseModel):
 
 class StationConfig(BaseModel):
     """Schema for stations/*.yaml files — all fields at root."""
+
+    model_config = {"extra": "forbid"}
 
     id: str
     name: str
@@ -153,6 +159,8 @@ class OutputConfig(BaseModel):
 
 class ProjectConfig(BaseModel):
     """Schema for litmus.yaml project config files — all fields at root."""
+
+    model_config = {"extra": "forbid"}
 
     name: str
     results_dir: str | None = None

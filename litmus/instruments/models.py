@@ -38,6 +38,8 @@ class InstrumentInfo(BaseModel):
     all identity information.
     """
 
+    model_config = {"extra": "forbid"}
+
     manufacturer: str | None = None
     model: str | None = None
     serial: str | None = None
@@ -89,6 +91,8 @@ class CalibrationInfo(BaseModel):
     the instrument configuration file and is tracked by the organization's
     calibration management system.
     """
+
+    model_config = {"extra": "forbid"}
 
     due_date: date | None = None
     last_cal: date | None = None
