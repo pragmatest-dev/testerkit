@@ -487,7 +487,8 @@ def _discover_instruments(interactive: bool = True) -> dict[str, dict[str, dict[
     default=None,
     help="Explicit file type (skips auto-detection).",
 )
-def validate(paths, file_type):
+@click.option("--json", "as_json", is_flag=True, help="Output as JSON")
+def validate(paths, file_type, as_json):
     """Validate YAML configuration files.
 
     Checks catalog, product, station, sequence, fixture, instrument, and
@@ -529,25 +530,39 @@ def validate(paths, file_type):
             files.append(project_yaml)
 
     if not files:
-        click.echo("No YAML files found.")
+        if as_json:
+            click.echo(json.dumps({"files": [], "passed": 0, "failed": 0}))
+        else:
+            click.echo("No YAML files found.")
         return
 
     passed = 0
     failed = 0
+    json_results = []
 
     for f in files:
         rel = f.relative_to(Path.cwd()) if f.is_relative_to(Path.cwd()) else f
         errors = validate_yaml(f, file_type=file_type, catalog_dir=f.parent)
         if errors:
-            click.echo(click.style(f"{rel} FAIL", fg="red"))
-            for err in errors:
-                click.echo(err)
+            if as_json:
+                json_results.append({"file": str(rel), "status": "FAIL", "errors": errors})
+            else:
+                click.echo(click.style(f"{rel} FAIL", fg="red"))
+                for err in errors:
+                    click.echo(err)
             failed += 1
         else:
-            click.echo(click.style(f"{rel} OK", fg="green"))
+            if as_json:
+                json_results.append({"file": str(rel), "status": "OK", "errors": []})
+            else:
+                click.echo(click.style(f"{rel} OK", fg="green"))
             passed += 1
 
-    click.echo(f"\n{passed} passed, {failed} failed")
+    if as_json:
+        data = {"files": json_results, "passed": passed, "failed": failed}
+        click.echo(json.dumps(data, indent=2))
+    else:
+        click.echo(f"\n{passed} passed, {failed} failed")
     if failed:
         raise SystemExit(1)
 
@@ -599,7 +614,8 @@ def serve(host: str, port: int, reload: bool):
 @main.command()
 @click.option("--results-dir", default=None, help="Results directory")
 @click.option("--limit", default=20, help="Number of runs to show")
-def runs(results_dir: str | None, limit: int):
+@click.option("--json", "as_json", is_flag=True, help="Output as JSON")
+def runs(results_dir: str | None, limit: int, as_json: bool):
     """List recent test runs."""
     from litmus.data.backends.parquet import ParquetBackend
 
@@ -609,7 +625,14 @@ def runs(results_dir: str | None, limit: int):
     test_runs = backend.list_runs(limit=limit)
 
     if not test_runs:
-        click.echo("No test runs found.")
+        if as_json:
+            click.echo("[]")
+        else:
+            click.echo("No test runs found.")
+        return
+
+    if as_json:
+        click.echo(json.dumps(test_runs, indent=2, default=str))
         return
 
     click.echo(f"{'Run ID':<10} {'DUT Serial':<15} {'Station':<20} {'Outcome':<10}")
@@ -1444,7 +1467,11 @@ def setup_show():
 @click.option("--serial", "serial_only", is_flag=True, help="Serial ports only")
 @click.option("--lxi", "lxi_only", is_flag=True, help="LXI network instruments only")
 @click.option("--identify/--no-identify", default=True, help="Query *IDN? for each instrument")
-def discover(visa_only: bool, ni_only: bool, serial_only: bool, lxi_only: bool, identify: bool):
+@click.option("--json", "as_json", is_flag=True, help="Output as JSON")
+def discover(
+    visa_only: bool, ni_only: bool, serial_only: bool,
+    lxi_only: bool, identify: bool, as_json: bool,
+):
     """Scan for available instruments.
 
     This is a SLOW operation that scans all configured backends.
@@ -1469,10 +1496,23 @@ def discover(visa_only: bool, ni_only: bool, serial_only: bool, lxi_only: bool, 
     elif lxi_only:
         protocols = ["lxi"]
 
-    click.echo("Scanning for instruments...")
+    if not as_json:
+        click.echo("Scanning for instruments...")
 
     if identify:
         results = discover_and_identify(protocols)
+
+        if as_json:
+            data = {
+                proto: [
+                    {"resource": resource, "identity": info}
+                    for resource, info in items
+                ]
+                for proto, items in results.items()
+            }
+            click.echo(json.dumps(data, indent=2, default=str))
+            return
+
         for proto, items in results.items():
             if not items:
                 click.echo(f"\n{proto.upper()}: No instruments found")
@@ -1485,6 +1525,11 @@ def discover(visa_only: bool, ni_only: bool, serial_only: bool, lxi_only: bool, 
                 click.echo(f"  {_format_instrument(resource, info)}")
     else:
         results = do_discover(protocols)
+
+        if as_json:
+            click.echo(json.dumps(results, indent=2, default=str))
+            return
+
         for proto, resources in results.items():
             if not resources:
                 click.echo(f"\n{proto.upper()}: No instruments found")
@@ -1830,19 +1875,34 @@ def instrument():
 
 
 @instrument.command("list")
-def instrument_list():
+@click.option("--json", "as_json", is_flag=True, help="Output as JSON")
+def instrument_list(as_json: bool):
     """List all instrument configuration files."""
     from litmus.instruments.loader import find_instruments_dir
     from litmus.store import load_instrument_files
 
     instruments_dir = find_instruments_dir()
     if not instruments_dir:
-        click.echo("No instruments/ directory found")
+        if as_json:
+            click.echo("[]")
+        else:
+            click.echo("No instruments/ directory found")
         return
 
     instruments = load_instrument_files(instruments_dir)
     if not instruments:
-        click.echo("No instrument files found")
+        if as_json:
+            click.echo("[]")
+        else:
+            click.echo("No instrument files found")
+        return
+
+    if as_json:
+        data = {
+            inst_id: asset.model_dump(mode="json", exclude_none=True)
+            for inst_id, asset in sorted(instruments.items())
+        }
+        click.echo(json.dumps(data, indent=2, default=str))
         return
 
     click.echo(f"Found {len(instruments)} instrument(s):\n")
@@ -1862,7 +1922,8 @@ def instrument_list():
 
 @instrument.command("show")
 @click.argument("instrument_id")
-def instrument_show(instrument_id: str):
+@click.option("--json", "as_json", is_flag=True, help="Output as JSON")
+def instrument_show(instrument_id: str, as_json: bool):
     """Show details for a specific instrument."""
     from litmus.instruments.loader import find_instruments_dir
     from litmus.store import load_instrument_asset
@@ -1878,6 +1939,12 @@ def instrument_show(instrument_id: str):
         raise SystemExit(1)
 
     asset = load_instrument_asset(inst_file)
+
+    if as_json:
+        data = {"id": instrument_id, **asset.model_dump(mode="json", exclude_none=True)}
+        click.echo(json.dumps(data, indent=2, default=str))
+        return
+
     info = asset.info
     cal = asset.calibration
 
@@ -1978,6 +2045,7 @@ def _common_filters(func):
     func = click.option("--product", default=None, help="Product ID")(func)
     func = click.option("--station", default=None, help="Station ID")(func)
     func = click.option("--lot", default=None, help="Lot number")(func)
+    func = click.option("--json", "as_json", is_flag=True, help="Output as JSON")(func)
     return func
 
 
@@ -2015,7 +2083,7 @@ def yield_group():
     "--group-by", "group_by",
     type=click.Choice(["product", "station", "lot"]), default=None,
 )
-def yield_summary(results_dir, phase, since, until_date, product, station, lot, group_by):
+def yield_summary(results_dir, phase, since, until_date, product, station, lot, group_by, as_json):
     """Show yield summary (FPY, final yield, RTY)."""
     from litmus.analysis.query import deduplicate_runs, load_runs
 
@@ -2025,16 +2093,19 @@ def yield_summary(results_dir, phase, since, until_date, product, station, lot, 
     runs = deduplicate_runs(table)
 
     if not runs:
-        click.echo("No runs found.")
+        if as_json:
+            click.echo("{}")
+        else:
+            click.echo("No runs found.")
         return
 
     if group_by:
-        _yield_summary_grouped(runs, group_by)
+        _yield_summary_grouped(runs, group_by, as_json=as_json)
     else:
-        _yield_summary_flat(runs)
+        _yield_summary_flat(runs, as_json=as_json)
 
 
-def _yield_summary_flat(runs):
+def _yield_summary_flat(runs, *, as_json=False):
     from collections import defaultdict
 
     from litmus.analysis.metrics import (
@@ -2057,6 +2128,18 @@ def _yield_summary_flat(runs):
 
     serials = {r.get("dut_serial") for r in runs if r.get("dut_serial")}
 
+    if as_json:
+        data = {
+            "runs": len(runs),
+            "unique_serials": len(serials),
+            "first_pass_yield": fpy,
+            "final_yield": final,
+            "rolled_throughput_yield": rty,
+            "fpy_by_phase": {p: v for p, v in sorted(fpy_by_phase.items())},
+        }
+        click.echo(json.dumps(data, indent=2, default=str))
+        return
+
     click.echo(f"Runs: {len(runs)}  |  Unique serials: {len(serials)}")
     click.echo(f"First-pass yield:  {fpy * 100:.1f}%")
     click.echo(f"Final yield:       {final * 100:.1f}%")
@@ -2067,7 +2150,7 @@ def _yield_summary_flat(runs):
             click.echo(f"  {p}: {val * 100:.1f}%")
 
 
-def _yield_summary_grouped(runs, group_by):
+def _yield_summary_grouped(runs, group_by, *, as_json=False):
     from collections import defaultdict
 
     from litmus.analysis.metrics import calculate_final_yield, calculate_fpy
@@ -2079,6 +2162,22 @@ def _yield_summary_grouped(runs, group_by):
     for r in runs:
         g = r.get(field) or "unknown"
         groups[g].append(r)
+
+    if as_json:
+        data = {
+            "group_by": group_by,
+            "groups": [
+                {
+                    "group": g,
+                    "runs": len(groups[g]),
+                    "first_pass_yield": calculate_fpy(groups[g]),
+                    "final_yield": calculate_final_yield(groups[g]),
+                }
+                for g in sorted(groups)
+            ],
+        }
+        click.echo(json.dumps(data, indent=2, default=str))
+        return
 
     click.echo(f"{'Group':<25} {'Runs':>5} {'FPY':>7} {'Final':>7}")
     click.echo("-" * 48)
@@ -2092,7 +2191,7 @@ def _yield_summary_grouped(runs, group_by):
 @yield_group.command("pareto")
 @_common_filters
 @click.option("--top", "top_n", default=10, help="Number of top failures")
-def yield_pareto(results_dir, phase, since, until_date, product, station, lot, top_n):
+def yield_pareto(results_dir, phase, since, until_date, product, station, lot, top_n, as_json):
     """Top failure modes (Pareto analysis)."""
     from litmus.analysis.metrics import pareto_analysis
     from litmus.analysis.query import load_runs
@@ -2103,12 +2202,27 @@ def yield_pareto(results_dir, phase, since, until_date, product, station, lot, t
     measurements = table.to_pylist()
 
     if not measurements:
-        click.echo("No measurements found.")
+        if as_json:
+            click.echo("[]")
+        else:
+            click.echo("No measurements found.")
         return
 
     results = pareto_analysis(measurements, top_n=top_n)
     if not results:
-        click.echo("No failures found.")
+        if as_json:
+            click.echo("[]")
+        else:
+            click.echo("No failures found.")
+        return
+
+    if as_json:
+        data = {
+            "total_measurements": len(measurements),
+            "total_failures": sum(r["count"] for r in results),
+            "failures": results,
+        }
+        click.echo(json.dumps(data, indent=2, default=str))
         return
 
     total_meas = len(measurements)
@@ -2134,7 +2248,7 @@ def yield_pareto(results_dir, phase, since, until_date, product, station, lot, t
 @click.option("--min-samples", default=30, help="Minimum sample count")
 def yield_cpk(
     step_name, results_dir, phase, since, until_date,
-    product, station, lot, measurement, min_samples,
+    product, station, lot, measurement, min_samples, as_json,
 ):
     """Process capability (Cpk) for a measurement step."""
     from litmus.analysis.metrics import calculate_cpk
@@ -2173,6 +2287,19 @@ def yield_cpk(
 
     meas_name = measurement or rows[0].get("measurement_name", "")
     units = rows[0].get("units", "")
+
+    if as_json:
+        data = {
+            "step_name": step_name,
+            "measurement_name": meas_name,
+            "units": units,
+            "lsl": lsl,
+            "usl": usl,
+            **result,
+        }
+        click.echo(json.dumps(data, indent=2, default=str))
+        return
+
     click.echo(f"Step: {step_name}")
     if meas_name:
         click.echo(f"Measurement: {meas_name}")
@@ -2194,7 +2321,7 @@ def yield_cpk(
 @yield_group.command("trend")
 @_common_filters
 @click.option("--period", type=click.Choice(["day", "week", "month"]), default="day")
-def yield_trend(results_dir, phase, since, until_date, product, station, lot, period):
+def yield_trend(results_dir, phase, since, until_date, product, station, lot, period, as_json):
     """Yield trend over time."""
     from litmus.analysis.metrics import trend_by_period
     from litmus.analysis.query import deduplicate_runs, load_runs
@@ -2205,10 +2332,17 @@ def yield_trend(results_dir, phase, since, until_date, product, station, lot, pe
     runs = deduplicate_runs(table)
 
     if not runs:
-        click.echo("No runs found.")
+        if as_json:
+            click.echo("[]")
+        else:
+            click.echo("No runs found.")
         return
 
     results = trend_by_period(runs, period=period)
+
+    if as_json:
+        click.echo(json.dumps(results, indent=2, default=str))
+        return
 
     click.echo(f"{'Period':<14} {'Total':>6} {'Passed':>7} {'Yield':>7}")
     click.echo("-" * 38)
@@ -2219,7 +2353,7 @@ def yield_trend(results_dir, phase, since, until_date, product, station, lot, pe
 @yield_group.command("time")
 @_common_filters
 @click.option("--by", "by_what", type=click.Choice(["run", "step"]), default="run")
-def yield_time(results_dir, phase, since, until_date, product, station, lot, by_what):
+def yield_time(results_dir, phase, since, until_date, product, station, lot, by_what, as_json):
     """Test time analysis."""
     from litmus.analysis.metrics import timing_stats
     from litmus.analysis.query import deduplicate_runs, load_runs
@@ -2234,13 +2368,23 @@ def yield_time(results_dir, phase, since, until_date, product, station, lot, by_
         rows = deduplicate_runs(table)
 
     if not rows:
-        click.echo("No data found.")
+        if as_json:
+            click.echo("{}")
+        else:
+            click.echo("No data found.")
         return
 
     stats = timing_stats(rows, by=by_what)
 
     if stats["count"] == 0:
-        click.echo("No timing data available.")
+        if as_json:
+            click.echo("{}")
+        else:
+            click.echo("No timing data available.")
+        return
+
+    if as_json:
+        click.echo(json.dumps(stats, indent=2, default=str))
         return
 
     label = "Run" if by_what == "run" else "Step"

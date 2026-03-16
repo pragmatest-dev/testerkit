@@ -24,10 +24,23 @@ pytest --station=my_bench      # Run against specific station
 
 litmus serve                   # Operator UI (localhost:8000)
 litmus serve --reload          # Dev mode with auto-reload
-litmus runs                    # List recent test runs
+litmus runs [--json]           # List recent test runs
 litmus show <run_id>           # Show run details
-litmus show <run_id> -f html   # Generate HTML report
-litmus discover                # Scan for instruments
+litmus show <run_id> -f json   # JSON output (also: html, csv, pdf)
+litmus discover [--json]       # Scan for instruments
+litmus validate [paths] [--json]  # Validate YAML config files
+litmus instrument list [--json]   # List configured instruments
+litmus instrument show <id> [--json]  # Show instrument details + cal status
+```
+
+### Yield & Analytics (all accept `--json` and filters: `--since`, `--until`, `--product`, `--station`, `--lot`)
+
+```bash
+litmus yield summary [--group-by product|station|lot] [--json]
+litmus yield pareto [--top N] [--json]
+litmus yield cpk <step_name> [--json]
+litmus yield trend [--period day|week|month] [--json]
+litmus yield time [--by run|step] [--json]
 ```
 
 ## YAML Configuration
@@ -55,13 +68,20 @@ def test_output_voltage(context, psu, dmm):
     return dmm.measure_voltage()
 ```
 
-## MCP Tools
+## AI Agent Integration
 
-Litmus exposes MCP tools for AI agents:
+**Prefer CLI with `--json` for tool use** — all commands above accept `--json` for machine-readable output. This is more token-efficient and reliable than MCP for local operations.
+
+**MCP tools** (for remote/discovery use cases):
 - `litmus` — CRUD operations on products, stations, fixtures, instruments, sequences
 - `litmus_discover` — Discover instruments on VISA bus
 - `litmus_match` — Check if a station can test a product
 - `litmus_run` — Execute tests and get results
+
+**Test data** is Parquet, queryable with DuckDB:
+```sql
+SELECT * FROM 'results/**/*.parquet' WHERE step_name = 'voltage_check'
+```
 
 ## Reference Documentation
 
