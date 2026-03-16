@@ -1,34 +1,136 @@
 # Writing Custom Outputs
 
-Litmus output infrastructure is extensible via three protocols: **Exporter** (file format), **Transport** (file shipping), and **EventSubscriber** (real-time event processing).
+Litmus output infrastructure is extensible via two protocols: **EventSubscriber** (format output) and **Transport** (file shipping).
 
-## Writing a Custom Exporter
+All output formats — CSV, JSON, STDF, HDF5, TDMS, MDF4, ATML — are implemented as EventSubscribers. They work both live (during a test session) and post-hoc (via event replay from stored IPC files).
+
+## Subscriber Contract
+
+Every subscriber follows the same constructor contract:
 
 ```python
-# my_project/exporters/my_format.py
+from collections.abc import Callable
 from pathlib import Path
-from litmus.data.models import TestRun
+from litmus.data.subscribers._output_file import OutputFile
 
-class MyFormatExporter:
+class MySubscriber:
+    format_name: str          # e.g. "csv"
+    event_types: set[type]    # event classes to receive
+
+    def __init__(
+        self,
+        output_dir: Path,
+        *,
+        on_output: Callable[[OutputFile], None] | None = None,
+    ) -> None:
+        """
+        Args:
+            output_dir: Results root. Subscriber owns its subfolder.
+            on_output: Called after each file write with metadata.
+                       Pipeline uses this to enqueue for transport.
+        """
+
+    def open(self) -> None: ...
+    def on_event(self, event) -> None: ...
+    def close(self) -> None: ...
+```
+
+### Rules
+
+1. **`output_dir` is the results root** — subscriber creates its own subfolder (e.g. `exports/csv/`, `runs/`)
+2. **`on_output` callback** — called after each file is successfully written, with an `OutputFile` descriptor. `None` = no transport.
+3. **Crash-resilient** — files written before a crash are already enqueued via callback. No waiting for `close()`.
+
+### `OutputFile` descriptor
+
+```python
+from dataclasses import dataclass
+from pathlib import Path
+
+@dataclass(frozen=True, slots=True)
+class OutputFile:
+    path: Path          # absolute path to the written file
+    format: str         # "parquet", "csv", "stdf", etc.
+    run_id: str | None = None
+```
+
+### Subfolder conventions
+
+| Subscriber | Subfolder |
+|-----------|-----------|
+| parquet | `runs/{date}/` |
+| csv | `exports/csv/` |
+| json | `exports/json/` |
+| atml | `exports/atml/` |
+| hdf5 | `exports/hdf5/` |
+| mdf4 | `exports/mdf4/` |
+| stdf | `exports/stdf/` |
+| tdms | `exports/tdms/` |
+
+## Writing a Custom Subscriber
+
+```python
+# my_project/subscribers/my_format.py
+from collections.abc import Callable
+from pathlib import Path
+from litmus.data.events import (
+    EventBase,
+    MeasurementRecorded,
+    RunStarted,
+    RunEnded,
+)
+from litmus.data.subscribers._output_file import OutputFile
+
+class MyFormatSubscriber:
     format_name = "my_format"
+    event_types = {RunStarted, MeasurementRecorded, RunEnded}
 
-    def export(self, test_run: TestRun, output_path: Path) -> Path:
-        """Convert TestRun to your format."""
-        output_path.mkdir(parents=True, exist_ok=True)
-        out_file = output_path / f"{str(test_run.id)[:8]}.myformat"
+    def __init__(
+        self,
+        output_dir: Path,
+        *,
+        on_output: Callable[[OutputFile], None] | None = None,
+    ) -> None:
+        self._output_dir = output_dir / "exports" / "my_format"
+        self._on_output = on_output
+        self._run_started = None
+        self._measurements = []
+        self._written = False
 
-        # Access the full hierarchy:
-        # test_run.steps → list[TestStep]
-        #   step.vectors → list[TestVector]
-        #     vector.measurements → list[Measurement]
-        for step in test_run.steps:
-            for vector in step.vectors:
-                for m in vector.measurements:
-                    # m.name, m.value, m.units, m.outcome, m.low_limit, ...
-                    pass
+    def open(self) -> None:
+        self._output_dir.mkdir(parents=True, exist_ok=True)
 
-        out_file.write_text("...")
-        return out_file
+    def on_event(self, event: EventBase) -> None:
+        if isinstance(event, RunStarted):
+            self._run_started = event
+        elif isinstance(event, MeasurementRecorded):
+            self._measurements.append(event)
+        elif isinstance(event, RunEnded):
+            self._write()
+
+    def close(self) -> None:
+        if not self._written:
+            self._write()
+
+    def _write(self) -> None:
+        if self._written:
+            return
+        self._written = True
+        s = self._run_started
+        if not s:
+            return
+
+        run_id = str(s.run_id)[:8] if s.run_id else "unknown"
+        out_file = self._output_dir / f"{run_id}.myformat"
+
+        # Write self._measurements to your format ...
+
+        if self._on_output:
+            self._on_output(OutputFile(
+                path=out_file,
+                format="my_format",
+                run_id=run_id,
+            ))
 ```
 
 ## Writing a Custom Transport
@@ -48,65 +150,17 @@ class InternalServerTransport:
         return f"{server}/uploads/{local_path.name}"
 ```
 
-## Writing a Custom EventSubscriber
-
-Event subscribers receive typed Pydantic events in real time as they are emitted. Declare which event types you handle via `event_types`.
-
-```python
-# my_project/subscribers/my_database.py
-from litmus.data.event_log import EventSubscriber
-from litmus.data.events import (
-    EventBase,
-    MeasurementRecorded,
-    SessionStarted,
-)
-
-class MyDatabaseSubscriber:
-    format_name = "my_db"
-    event_types = {SessionStarted, MeasurementRecorded}
-
-    def open(self) -> None:
-        self.conn = connect(...)
-
-    def on_event(self, event: EventBase) -> None:
-        if isinstance(event, SessionStarted):
-            self.conn.insert("sessions", {
-                "session_id": str(event.session_id),
-                "station_id": event.station_id,
-                "dut_serial": event.dut_serial,
-            })
-        elif isinstance(event, MeasurementRecorded):
-            self.conn.insert("measurements", {
-                "session_id": str(event.session_id),
-                "name": event.measurement_name,
-                "value": event.value,
-                "units": event.units,
-                "outcome": event.outcome,
-            })
-
-    def close(self) -> None:
-        self.conn.close()
-```
-
-Register on an EventLog:
-
-```python
-event_log.add_subscriber(MyDatabaseSubscriber())
-```
-
-See [Subscribing to Events](guides/subscribing-to-events.md) for more patterns.
-
 ## Registering Custom Outputs
 
 In your `conftest.py`:
 
 ```python
-from litmus.data.exporters import register_exporter
+from litmus.data.subscribers import register_subscriber
 from litmus.data.transports import register_transport
-from my_project.exporters.my_format import MyFormatExporter
+from my_project.subscribers.my_format import MyFormatSubscriber
 from my_project.transports.internal_server import InternalServerTransport
 
-register_exporter(MyFormatExporter())
+register_subscriber(MyFormatSubscriber)
 register_transport(InternalServerTransport())
 ```
 
@@ -115,38 +169,48 @@ Then reference in `litmus.yaml`:
 ```yaml
 outputs:
   - format: my_format
-    output_dir: results/my_format/
     transport: internal_server
     server: https://internal.company.com
 ```
 
-## Data Model Reference
+## Post-hoc Export via Event Replay
 
-The `TestRun` hierarchy (see `litmus/data/models.py`):
+Any subscriber can also be used for post-hoc conversion. The `replay_to_subscriber()` function reads stored event dicts and feeds them through a subscriber:
 
-```
-TestRun
-├── id, started_at, ended_at, outcome
-├── dut: DUT (serial, part_number, revision, lot_number)
-├── station_id, operator_id, sequence_id, test_phase, git_commit
-├── environment_json, station_config_yaml, product_spec_yaml
-└── steps: list[TestStep]
-      ├── name, index, started_at, ended_at, outcome
-      └── vectors: list[TestVector]
-            ├── index, attempt, params, observations
-            └── measurements: list[Measurement]
-                  ├── name, value, units, outcome
-                  ├── low_limit, high_limit, nominal, comparator
-                  ├── spec_id, spec_ref
-                  └── instrument_name, dut_pin, fixture_point
+```python
+from litmus.data.subscribers import replay_to_subscriber, get_subscriber_class
+
+cls = get_subscriber_class("csv")
+sub = cls(Path("results/"))
+replay_to_subscriber(sub, event_dicts)
 ```
 
-For denormalized row dicts (used by StreamingDestination.append_row), see `litmus/data/backends/_row_helpers.py` — `build_run_metadata()` and `build_measurement_fields()`.
+The CLI `litmus export` command uses this pattern:
+
+```bash
+litmus export abc123 -f csv
+litmus export abc123 -f stdf -o results/stdf/
+```
+
+## Event Types Reference
+
+Subscribers declare which event types they handle via `event_types`. Common types:
+
+| Event | When emitted |
+|---|---|
+| `RunStarted` | Test session begins (metadata: station, DUT, operator) |
+| `StepStarted` | Test step begins (name, path, description) |
+| `MeasurementRecorded` | A measurement is taken (value, limits, outcome) |
+| `StepEnded` | Test step completes (outcome) |
+| `RunEnded` | Test session ends (overall outcome) |
+| `InstrumentConnected` | Instrument is connected (role, driver, resource) |
+| `SessionStarted` | Session envelope (multi-DUT orchestration) |
+
+See `litmus/data/events.py` for the full list.
 
 ## Protocol Summary
 
 | What | Protocol | Required |
 |---|---|---|
-| File format exporter | `Exporter` | `format_name`, `export(test_run, output_path) → Path` |
+| Format subscriber | `EventSubscriber` | `format_name`, `event_types`, `__init__(output_dir, *, on_output)`, `open()`, `on_event(event)`, `close()` |
 | Remote transport | `Transport` | `transport_name`, `send(local_path, config: OutputConfig) → str` |
-| Event subscriber | `EventSubscriber` | `format_name`, `event_types`, `open()`, `on_event(event: EventBase)`, `close()` |
