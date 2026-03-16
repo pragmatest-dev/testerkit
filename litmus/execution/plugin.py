@@ -6,7 +6,7 @@ import os
 import sys
 import time
 import warnings
-from collections.abc import Generator
+from collections.abc import Callable, Generator
 from contextvars import ContextVar
 from pathlib import Path
 from typing import Any
@@ -560,66 +560,6 @@ def pytest_addoption(parser):
     )
 
 
-def _get_git_commit() -> str | None:
-    """Get current git commit hash, or None if not in a git repo."""
-    import subprocess
-
-    try:
-        result = subprocess.run(
-            ["git", "rev-parse", "HEAD"],
-            capture_output=True,
-            text=True,
-            timeout=5,
-        )
-        if result.returncode == 0:
-            return result.stdout.strip()[:12]  # Short hash
-    except (subprocess.TimeoutExpired, FileNotFoundError):
-        pass
-    return None
-
-
-def _is_git_clean() -> bool:
-    """Check if we're in a clean git repository.
-
-    Returns True only if:
-    - Git is installed
-    - We're in a git repository
-    - There are no uncommitted changes
-
-    Returns False otherwise.
-    """
-    import subprocess
-
-    try:
-        # Check if we're in a git repo
-        result = subprocess.run(
-            ["git", "rev-parse", "--git-dir"],
-            capture_output=True,
-            text=True,
-            timeout=5,
-        )
-        if result.returncode != 0:
-            return False
-
-        # Check for uncommitted changes (staged or unstaged)
-        result = subprocess.run(
-            ["git", "status", "--porcelain"],
-            capture_output=True,
-            text=True,
-            timeout=5,
-        )
-        if result.returncode != 0:
-            return False
-
-        # If there's any output, the repo is dirty
-        if result.stdout.strip():
-            return False
-
-        return True
-
-    except (FileNotFoundError, subprocess.TimeoutExpired):
-        return False
-
 
 def _resolve_test_phase(requested_phase: str | None) -> str:
     """Resolve test phase, enforcing development for dirty/non-git repos.
@@ -634,7 +574,9 @@ def _resolve_test_phase(requested_phase: str | None) -> str:
     Returns:
         Resolved test phase string
     """
-    if not _is_git_clean():
+    from litmus.execution._git import is_git_clean
+
+    if not is_git_clean():
         # Can't run anything other than development without clean git
         return "development"
 
@@ -737,14 +679,57 @@ def _create_subscriber(
     results_path: Path,
     session_id: UUID,
 ) -> Any:
-    """Instantiate a subscriber with format-specific constructor args."""
-    from litmus.data.backends.parquet import ParquetBackend, ParquetSubscriber
+    """Instantiate a subscriber with the uniform contract.
 
-    if cls is ParquetSubscriber:
-        backend = ParquetBackend(results_dir=str(results_path))
-        return ParquetSubscriber(backend)
-    # Unknown subscriber — try no-arg constructor
-    return cls()
+    All subscribers take ``(output_dir, *, on_output=...)`` where
+    ``output_dir`` is the results root and each subscriber creates
+    its own subfolder.
+    """
+    on_output = _make_transport_callback(output_cfg, results_path) if output_cfg.transport else None
+    output_dir = Path(output_cfg.default_output_dir())
+    return cls(output_dir, on_output=on_output)
+
+
+def _make_transport_callback(
+    output_cfg: OutputConfig,
+    results_path: Path,
+) -> Callable[[Any], None]:
+    """Return a callback that enqueues OutputFiles for transport."""
+    from litmus.data.subscribers._output_file import OutputFile
+
+    transport_name = output_cfg.transport
+    assert transport_name is not None  # caller checks before calling
+
+    def _on_output(output: OutputFile) -> None:
+        try:
+            from litmus.data.transports.upload_queue import drain, enqueue
+
+            enqueue(output.path, transport_name, output_cfg, str(results_path))
+            drain(str(results_path))
+        except Exception as exc:
+            warnings.warn(
+                f"Transport callback failed for {output.path}: {exc}",
+                stacklevel=2,
+            )
+
+    return _on_output
+
+
+def _find_format_transport_callback(
+    format_name: str,
+    results_path: Path,
+) -> Callable[[Any], None] | None:
+    """If litmus.yaml has an output entry for this format with transport, wire it."""
+    try:
+        from litmus.config.project import load_project_config
+
+        config = load_project_config()
+    except Exception:
+        return None
+    for output_cfg in config.outputs:
+        if output_cfg.format == format_name and output_cfg.transport:
+            return _make_transport_callback(output_cfg, results_path)
+    return None
 
 
 def _build_run_metadata(request: pytest.FixtureRequest) -> dict[str, Any]:
@@ -833,7 +818,7 @@ def _build_run_metadata(request: pytest.FixtureRequest) -> dict[str, Any]:
         "station_config_yaml": station_yaml,
         "product_spec_yaml": product_yaml,
         "fixture_config_yaml": fixture_yaml,
-        "git_commit": _get_git_commit(),
+        "project_dir": request.config.rootpath,
         "results_dir": results_dir,
         "test_phase": test_phase,
         "instruments": instrument_records,
@@ -902,46 +887,41 @@ def litmus_logger(request) -> Generator[TestRunLogger, None, None]:
         event_log = _event_store.get_event_log(session_id)
         logger.event_log = event_log
 
-        # Collect configured subscriber formats from outputs config
-        configured: set[str] = set()
+        # Create ParquetSubscriber directly (default, always on)
+        from litmus.data.backends.parquet import ParquetSubscriber
+
+        parquet_on_output = _find_format_transport_callback("parquet", results_path)
+        _pq_sub = ParquetSubscriber(results_path, on_output=parquet_on_output)
+        event_log.add_subscriber(_pq_sub)
+
+        # Create ChannelStore directly (default, always on)
+        from litmus.data.channels.store import ChannelStore as _ChannelStore
+
+        channels_on_output = _find_format_transport_callback("channels", results_path)
+        _cs = _ChannelStore(
+            results_path / "channels", session_id, serve=True,
+            on_output=channels_on_output,
+        )
+        _cs.open()
+        set_channel_store(_cs)
+
+        # Wire additional configured subscriber formats
         try:
             from litmus.config.project import load_project_config
 
             config = load_project_config()
             for output_cfg in config.outputs:
                 fmt = output_cfg.format
-                if fmt:
+                if fmt and fmt not in {"parquet", "channels"}:
                     cls = get_subscriber_class(fmt)
                     if cls is not None:
                         sub = _create_subscriber(cls, fmt, output_cfg, results_path, session_id)
                         event_log.add_subscriber(sub)
-                        configured.add(fmt)
         except Exception as exc:
             warnings.warn(
                 f"Failed to register configured output subscribers: {exc}",
                 stacklevel=2,
             )
-
-        # Create ChannelStore directly (not via subscriber registry)
-        from litmus.data.channels.store import ChannelStore as _ChannelStore
-
-        _cs = _ChannelStore(results_path / "channels", session_id, serve=True)
-        _cs.open()
-        set_channel_store(_cs)
-
-        # Register defaults not already configured
-        for fmt in ("parquet",):
-            if fmt not in configured:
-                cls = get_subscriber_class(fmt)
-                if cls is not None:
-                    sub = _create_subscriber(
-                        cls,
-                        fmt,
-                        OutputConfig(format=fmt),
-                        results_path,
-                        session_id,
-                    )
-                    event_log.add_subscriber(sub)
 
         # In multi-slot worker mode, the orchestrator emits SessionStarted/
         # SessionEnded. Workers only emit RunStarted/RunEnded.
@@ -986,6 +966,8 @@ def litmus_logger(request) -> Generator[TestRunLogger, None, None]:
             sequence_id=logger.test_run.test_sequence_id,
             test_phase=logger.test_run.test_phase,
             git_commit=logger.test_run.git_commit,
+            git_branch=logger.test_run.git_branch,
+            git_remote=logger.test_run.git_remote,
             environment_json=logger.test_run.environment_json,
             station_config_yaml=logger.test_run.station_config_yaml,
             product_spec_yaml=logger.test_run.product_spec_yaml,

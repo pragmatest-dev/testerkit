@@ -48,6 +48,7 @@ from litmus.data.schemas import (
     _build_write_schema,
     table_from_rows,
 )
+from litmus.data.subscribers._output_file import OutputFile
 from litmus.execution.logger import INSTRUMENT_ARRAY_KEYS
 
 logger = logging.getLogger(__name__)
@@ -171,7 +172,7 @@ class ParquetBackend:
         dut_serial = test_run.dut.serial.strip() if test_run.dut.serial else ""
 
         # Create date directory
-        date_dir = self.results_dir / "runs" / date_str
+        date_dir = self.results_dir / date_str
         date_dir.mkdir(parents=True, exist_ok=True)
 
         # Filename: timestamp first, serial if present
@@ -476,7 +477,7 @@ class ParquetBackend:
         date_str = started_at.strftime("%Y-%m-%d")
         dut_serial = dut_serial.strip() if dut_serial else ""
 
-        date_dir = self.results_dir / "runs" / date_str
+        date_dir = self.results_dir / date_str
         date_dir.mkdir(parents=True, exist_ok=True)
 
         if dut_serial:
@@ -510,7 +511,12 @@ class ParquetSubscriber:
 
     format_name = "parquet"
 
-    def __init__(self, backend: ParquetBackend) -> None:
+    def __init__(
+        self,
+        output_dir: Path,
+        *,
+        on_output: Callable[[OutputFile], None] | None = None,
+    ) -> None:
         from litmus.data.events import (
             InstrumentConnected,
             MeasurementRecorded,
@@ -525,7 +531,9 @@ class ParquetSubscriber:
             RunStarted, InstrumentConnected, StepsDiscovered,
             StepStarted, MeasurementRecorded, StepEnded, RunEnded,
         }
-        self._backend = backend
+        self._output_dir = output_dir
+        self._on_output = on_output
+        self._backend = ParquetBackend(results_dir=output_dir / "runs")
         self._run_started: Any = None  # RunStarted event (run context)
         self._instruments: list[Any] = []  # InstrumentConnected events
         self._measurement_events: list[Any] = []  # MeasurementRecorded events
@@ -763,12 +771,15 @@ class ParquetSubscriber:
             return
 
         # Write via save_from_rows
-        self._backend.save_from_rows(
+        pq_path = self._backend.save_from_rows(
             rows,
             started_at=s.occurred_at,
             dut_serial=s.dut_serial,
             file_metadata=self._build_file_metadata(),
         )
+        if self._on_output:
+            run_id = str(s.run_id) if s.run_id else None
+            self._on_output(OutputFile(path=pq_path, format="parquet", run_id=run_id))
 
     def _build_file_metadata(self) -> dict[bytes, bytes]:
         """Build Parquet file-level metadata from cached session."""

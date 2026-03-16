@@ -12,7 +12,11 @@ import warnings
 from collections.abc import Callable, Sequence
 from datetime import UTC, date, datetime
 from pathlib import Path
+from typing import TYPE_CHECKING
 from uuid import UUID
+
+if TYPE_CHECKING:
+    from litmus.data.subscribers._output_file import OutputFile
 
 import pyarrow as pa
 import pyarrow.flight as flight
@@ -141,7 +145,7 @@ class _ChannelWriter(BufferedIPCWriter):
 
     @property
     def all_paths(self) -> list[Path]:
-        """All closed segment paths (readable by ipc.open_file)."""
+        """All closed segment paths (readable by ipc.open_stream)."""
         return list(self._closed_paths)
 
     def _on_flush(self, batch: pa.RecordBatch) -> None:
@@ -173,6 +177,7 @@ class ChannelStore:
         serve: bool = False,
         host: str = "127.0.0.1",
         port: int = 0,
+        on_output: Callable[[OutputFile], None] | None = None,
     ) -> None:
         self._channels_dir = channels_dir
         self._session_id = session_id
@@ -186,6 +191,7 @@ class ChannelStore:
         self._flight_port = port
         self._flight_location: str | None = None
         self._flight_client: flight.FlightClient | None = None
+        self._on_output = on_output
 
     def open(self) -> None:
         self._channels_dir.mkdir(parents=True, exist_ok=True)
@@ -440,7 +446,7 @@ class ChannelStore:
             for seg_path in writer.all_paths:
                 active_paths.add(seg_path)
                 try:
-                    seg_reader = ipc.open_file(str(seg_path))
+                    seg_reader = ipc.open_stream(pa.OSFile(str(seg_path), "rb"))
                     tables.append(seg_reader.read_all())
                 except (pa.ArrowInvalid, OSError):
                     pass
@@ -462,7 +468,7 @@ class ChannelStore:
             if arrow_file in active_paths:
                 continue
             try:
-                reader = ipc.open_file(str(arrow_file))
+                reader = ipc.open_stream(pa.OSFile(str(arrow_file), "rb"))
                 file_table = reader.read_all()
                 tables.append(file_table)
                 if schema is None:
@@ -628,6 +634,21 @@ class ChannelStore:
                         f"ChannelStore failed to write registry: {exc}",
                         stacklevel=2,
                     )
+            # Notify transport for each written channel file
+            if self._on_output:
+                from litmus.data.subscribers._output_file import OutputFile
+
+                for writer in self._writers.values():
+                    for ipc_path in writer.all_paths:
+                        try:
+                            self._on_output(OutputFile(
+                                path=ipc_path, format="channels",
+                            ))
+                        except Exception as exc:
+                            warnings.warn(
+                                f"Channel on_output callback failed for {ipc_path}: {exc}",
+                                stacklevel=2,
+                            )
         finally:
             self._writers.clear()
             self._subscribers.clear()
