@@ -192,6 +192,8 @@ class RunStarted(EventBase):
     sequence_id: str | None = None
     test_phase: str = "production"
     git_commit: str | None = None
+    git_branch: str | None = None
+    git_remote: str | None = None
 
     # Environment & config snapshots
     environment_json: str | None = None

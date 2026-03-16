@@ -191,7 +191,11 @@ class TestRunLogger:
         test_config_yaml: str | None = None,
         # Code traceability
         git_commit: str | None = None,
-        # Journal streaming
+        git_branch: str | None = None,
+        git_remote: str | None = None,
+        # Project directory — used for auto-detection (git, etc.)
+        project_dir: str | Path | None = None,
+        # Results storage
         results_dir: str | Path | None = None,
         # Instrument records for identity + calibration traceability
         instruments: dict[str, InstrumentRecord] | None = None,
@@ -205,6 +209,19 @@ class TestRunLogger:
             run_id = _get_run_id()
 
         _session_id = session_id if session_id is not None else uuid4()
+
+        # Auto-detect git info when not provided
+        if git_commit is None or git_branch is None or git_remote is None:
+            from litmus.execution._git import get_git_info
+
+            info = get_git_info(project_dir)
+            if git_commit is None:
+                git_commit = info.commit
+            if git_branch is None:
+                git_branch = info.branch
+            if git_remote is None:
+                git_remote = info.remote
+
         self.test_run = TestRun(
             id=run_id,
             session_id=_session_id,
@@ -228,6 +245,8 @@ class TestRunLogger:
             product_revision=product_revision,
             fixture_id=fixture_id,
             git_commit=git_commit,
+            git_branch=git_branch,
+            git_remote=git_remote,
             station_config_yaml=station_config_yaml,
             product_spec_yaml=product_spec_yaml,
             fixture_config_yaml=fixture_config_yaml,

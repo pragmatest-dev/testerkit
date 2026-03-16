@@ -47,6 +47,8 @@ class ReportData:
     sequence_id: str = ""
     test_phase: str = ""
     git_commit: str = ""
+    git_branch: str = ""
+    git_remote: str = ""
 
     # Raw measurement rows
     measurements: list[dict[str, Any]] = field(default_factory=list)
@@ -159,6 +161,8 @@ def load_run_data(run_id: str, results_dir: str = "results") -> ReportData:
         sequence_id=str(first.get("sequence_id") or ""),
         test_phase=str(first.get("test_phase") or ""),
         git_commit=str(first.get("git_commit") or ""),
+        git_branch=str(first.get("git_branch") or ""),
+        git_remote=str(first.get("git_remote") or ""),
         measurements=rows,
         instruments=instruments,
         total_measurements=total,
@@ -294,6 +298,8 @@ def _write_json(data: ReportData, output: Path) -> None:
         "sequence_id": data.sequence_id,
         "test_phase": data.test_phase,
         "git_commit": data.git_commit,
+        "git_branch": data.git_branch,
+        "git_remote": data.git_remote,
         "summary": {
             "total": data.total_measurements,
             "passed": data.passed_measurements,

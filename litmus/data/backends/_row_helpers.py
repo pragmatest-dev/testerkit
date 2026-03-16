@@ -65,6 +65,8 @@ class MeasurementRow(BaseModel):
     sequence_id: str | None = None
     test_phase: str | None = None
     git_commit: str | None = None
+    git_branch: str | None = None
+    git_remote: str | None = None
 
     # Environment traceability
     python_version: str | None = None
@@ -180,6 +182,8 @@ def build_run_metadata(test_run: TestRun) -> dict[str, Any]:
         "sequence_id": test_run.test_sequence_id,
         "test_phase": test_run.test_phase,
         "git_commit": test_run.git_commit,
+        "git_branch": test_run.git_branch,
+        "git_remote": test_run.git_remote,
         # Environment traceability (scalars from environment snapshot)
         **_env_columns(test_run.environment_json),
     }

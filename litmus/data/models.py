@@ -325,6 +325,8 @@ class TestRun(BaseModel):
 
     # Code traceability
     git_commit: str | None = None
+    git_branch: str | None = None
+    git_remote: str | None = None
 
     # Results
     outcome: Outcome = Outcome.PASS

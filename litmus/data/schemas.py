@@ -77,6 +77,8 @@ MEASUREMENT_SCHEMA = pa.schema([
     ("sequence_id", pa.string()),
     ("test_phase", pa.string()),
     ("git_commit", pa.string()),
+    ("git_branch", pa.string()),
+    ("git_remote", pa.string()),
     # Measurement core
     ("measurement_name", pa.string()),
     ("measurement_timestamp", pa.timestamp("us", tz="UTC")),
