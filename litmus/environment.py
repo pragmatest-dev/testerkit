@@ -1,7 +1,8 @@
 """Environment snapshot for software traceability.
 
-Captures the Python runtime environment (version, OS, installed packages)
-at test start for SBOM generation and regulatory traceability.
+Captures the Python runtime environment (version, OS, top-level dependencies)
+at test start.  Full package resolution is tracked by ``uv.lock`` in git;
+we store only the hash here for correlation.
 """
 
 from __future__ import annotations
@@ -16,18 +17,6 @@ from pydantic import BaseModel
 logger = logging.getLogger(__name__)
 
 
-class PackageInfo(BaseModel):
-    """An installed Python package."""
-
-    name: str
-    version: str
-
-
-def _package_sort_key(pkg: PackageInfo) -> str:
-    """Sort key for consistent package ordering (case-insensitive)."""
-    return pkg.name.lower()
-
-
 class EnvironmentSnapshot(BaseModel):
     """Snapshot of the software environment at test time."""
 
@@ -36,50 +25,53 @@ class EnvironmentSnapshot(BaseModel):
     os_version: str
     platform_machine: str
     litmus_version: str
-    packages: list[PackageInfo]
+    dependencies: list[str]
     lockfile_hash: str | None = None
 
-    @property
-    def fingerprint(self) -> str:
-        """Truncated SHA-256 of sorted name==version pairs.
 
-        Sorted case-insensitively for canonical ordering. Truncated to 16 hex
-        chars for practical use as a version identifier.
-        """
-        canonical = "\n".join(
-            f"{p.name}=={p.version}" for p in sorted(self.packages, key=_package_sort_key)
-        )
-        return hashlib.sha256(canonical.encode()).hexdigest()[:16]
+def _read_top_level_deps() -> list[str]:
+    """Read direct dependencies from pyproject.toml [project.dependencies]."""
+    pyproject = Path("pyproject.toml")
+    if not pyproject.exists():
+        return []
+    try:
+        import tomllib
+    except ModuleNotFoundError:
+        import tomli as tomllib  # type: ignore[no-redef]
+
+    try:
+        data = tomllib.loads(pyproject.read_text())
+        return sorted(data.get("project", {}).get("dependencies", []))
+    except Exception as exc:
+        logger.debug("Could not parse pyproject.toml: %s", exc)
+        return []
+
+
+def _hash_file(path: Path) -> str | None:
+    """SHA-256 prefix of a file, or None if missing/unreadable."""
+    try:
+        if path.exists():
+            return hashlib.sha256(path.read_bytes()).hexdigest()[:16]
+    except OSError as exc:
+        logger.debug("Could not read %s: %s", path, exc)
+    return None
 
 
 def capture_environment() -> EnvironmentSnapshot:
     """Capture current environment snapshot.
 
-    Uses importlib.metadata (stdlib) — no subprocess calls, ~5ms.
+    Stores top-level dependencies from pyproject.toml (the ones you chose),
+    not the full transitive dependency tree.  ``lockfile_hash`` covers the
+    exact resolved versions; ``pyproject_hash`` covers the intent.
     """
-    import importlib.metadata
-
     from litmus import __version__
 
-    packages = [
-        PackageInfo(name=d.metadata["Name"], version=d.metadata["Version"])
-        for d in importlib.metadata.distributions()
-        if d.metadata["Name"]
-    ]
-
-    # Deduplicate (importlib.metadata can return duplicates); preserves first seen
-    unique = list({p.name.lower(): p for p in packages}.values())
-
-    # Hash lockfile if present
+    # Hash lockfile (uv.lock preferred, fallback to others)
     lockfile_hash = None
     for name in ("uv.lock", "poetry.lock", "Pipfile.lock", "requirements.txt"):
-        lockfile = Path(name)
-        try:
-            if lockfile.exists():
-                lockfile_hash = hashlib.sha256(lockfile.read_bytes()).hexdigest()[:16]
-                break
-        except OSError as exc:
-            logger.debug("Could not read lockfile %s: %s", name, exc)
+        lockfile_hash = _hash_file(Path(name))
+        if lockfile_hash:
+            break
 
     return EnvironmentSnapshot(
         python_version=platform.python_version(),
@@ -87,6 +79,6 @@ def capture_environment() -> EnvironmentSnapshot:
         os_version=platform.release(),
         platform_machine=platform.machine(),
         litmus_version=__version__,
-        packages=unique,
+        dependencies=_read_top_level_deps(),
         lockfile_hash=lockfile_hash,
     )

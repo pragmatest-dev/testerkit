@@ -2,7 +2,7 @@
 
 import json
 
-from litmus.environment import EnvironmentSnapshot, PackageInfo
+from litmus.environment import EnvironmentSnapshot
 from litmus.sbom import environment_from_parquet, format_environment_table, generate_cyclonedx
 
 
@@ -10,10 +10,7 @@ def _make_snapshot(**overrides) -> EnvironmentSnapshot:
     defaults = dict(
         python_version="3.12.0", os_name="Linux", os_version="6.0",
         platform_machine="x86_64", litmus_version="0.1.0",
-        packages=[
-            PackageInfo(name="alpha", version="1.0"),
-            PackageInfo(name="beta", version="2.0"),
-        ],
+        dependencies=["alpha>=1.0", "beta>=2.0"],
     )
     defaults.update(overrides)
     return EnvironmentSnapshot(**defaults)
@@ -26,8 +23,8 @@ class TestFormatEnvironmentTable:
         assert "3.12.0" in table
         assert "Linux" in table
         assert "0.1.0" in table
-        assert "alpha 1.0" in table
-        assert "beta 2.0" in table
+        assert "alpha>=1.0" in table
+        assert "beta>=2.0" in table
 
     def test_includes_lockfile_hash(self):
         snap = _make_snapshot(lockfile_hash="abc123def456")
@@ -38,16 +35,6 @@ class TestFormatEnvironmentTable:
         snap = _make_snapshot(lockfile_hash=None)
         table = format_environment_table(snap)
         assert "Lockfile" not in table
-
-    def test_packages_sorted(self):
-        snap = _make_snapshot(packages=[
-            PackageInfo(name="Zeta", version="1.0"),
-            PackageInfo(name="alpha", version="2.0"),
-        ])
-        table = format_environment_table(snap)
-        alpha_pos = table.index("alpha")
-        zeta_pos = table.index("Zeta")
-        assert alpha_pos < zeta_pos
 
 
 class TestEnvironmentFromParquet:
@@ -82,11 +69,16 @@ class TestEnvironmentFromParquet:
         restored = environment_from_parquet(path)
         assert restored is not None
         assert restored.python_version == "3.12.0"
-        assert len(restored.packages) == 2
-        assert restored.packages[0].name == "alpha"
+        assert restored.dependencies == ["alpha>=1.0", "beta>=2.0"]
 
 
 class TestGenerateCyclonedx:
+    """SBOM generation captures installed packages at call time.
+
+    These tests verify the CycloneDX structure, not specific package
+    contents (which depend on the test environment).
+    """
+
     def test_returns_valid_json(self):
         snap = _make_snapshot()
         result = generate_cyclonedx(snap)
@@ -104,11 +96,11 @@ class TestGenerateCyclonedx:
         assert parsed.get("specVersion") == "1.6"
 
     def test_metadata_component_is_test_environment(self):
-        snap = _make_snapshot()
+        snap = _make_snapshot(lockfile_hash="abc123")
         parsed = json.loads(generate_cyclonedx(snap))
         meta_component = parsed["metadata"]["component"]
         assert meta_component["name"] == "test-environment"
-        assert meta_component["version"] == snap.fingerprint
+        assert meta_component["version"] == "abc123"
         assert meta_component["type"] == "application"
 
     def test_metadata_has_litmus_tool(self):
@@ -139,26 +131,18 @@ class TestGenerateCyclonedx:
         prop_names = [p["name"] for p in parsed["metadata"]["properties"]]
         assert "lockfile:hash" not in prop_names
 
-    def test_components_match_packages(self):
+    def test_components_are_libraries(self):
         snap = _make_snapshot()
         parsed = json.loads(generate_cyclonedx(snap))
         components = parsed.get("components", [])
-        component_names = {c["name"] for c in components}
-        assert component_names == {"alpha", "beta"}
-
-    def test_component_has_purl(self):
-        snap = _make_snapshot(packages=[PackageInfo(name="MyPkg", version="3.0")])
-        parsed = json.loads(generate_cyclonedx(snap))
-        comp = parsed["components"][0]
-        assert comp["purl"] == "pkg:pypi/mypkg@3.0"
-
-    def test_component_type_is_library(self):
-        snap = _make_snapshot()
-        parsed = json.loads(generate_cyclonedx(snap))
-        for comp in parsed["components"]:
+        # We're in a real Python env, should have packages
+        assert len(components) > 0
+        for comp in components:
             assert comp["type"] == "library"
 
-    def test_empty_packages(self):
-        snap = _make_snapshot(packages=[])
+    def test_components_have_purl(self):
+        snap = _make_snapshot()
         parsed = json.loads(generate_cyclonedx(snap))
-        assert parsed.get("components", []) == []
+        for comp in parsed.get("components", []):
+            assert "purl" in comp
+            assert comp["purl"].startswith("pkg:pypi/")

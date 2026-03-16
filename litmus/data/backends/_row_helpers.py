@@ -200,7 +200,7 @@ def _env_columns(environment_json: str | None) -> dict[str, str | None]:
     return {
         "python_version": snapshot.python_version,
         "litmus_version": snapshot.litmus_version,
-        "env_fingerprint": snapshot.fingerprint,
+        "env_fingerprint": snapshot.lockfile_hash,
     }
 
 
@@ -436,9 +436,9 @@ def build_row(
 
 
 def build_step_manifest(test_run: TestRun) -> list[dict[str, Any]]:
-    """Build a step manifest from all steps in a TestRun.
+    """Build step results from all steps in a TestRun.
 
-    Returns a JSON-serializable list of step summaries.  Executed steps
+    Returns a JSON-serializable list of step results.  Executed steps
     come first (with real outcomes), followed by ``not_started`` entries
     for any collected items that were never executed — e.g. because the
     run was aborted or hit ``--maxfail``.
@@ -487,7 +487,7 @@ def _append_not_started(
     """Append ``not_started`` entries for collected items that never executed.
 
     Shared by both the batch path (``build_step_manifest``) and the
-    streaming path (``ParquetSubscriber._build_step_manifest_from_events``).
+    streaming path (``ParquetSubscriber._build_step_results_from_events``).
     """
     next_index = len(manifest)
     for ci in collected_items:

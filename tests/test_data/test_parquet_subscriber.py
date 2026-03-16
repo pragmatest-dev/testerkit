@@ -5,7 +5,7 @@ from uuid import uuid4
 
 import pyarrow.parquet as pq
 
-from litmus.data.backends.parquet import ParquetSubscriber, read_step_manifest
+from litmus.data.backends.parquet import ParquetSubscriber, read_step_results
 from litmus.data.events import (
     InstrumentConnected,
     MeasurementRecorded,
@@ -195,8 +195,8 @@ class TestParquetSubscriber:
         assert row["step_class"] == "TestPower"
         assert row["step_function"] == "test_5v_rail"
 
-    def test_step_manifest_metadata(self, tmp_path):
-        """Step manifest is written to Parquet file-level metadata."""
+    def test_step_results_metadata(self, tmp_path):
+        """Step results are written to Parquet file-level metadata."""
         sub = ParquetSubscriber(tmp_path / "results")
         sub.open()
 
@@ -240,7 +240,7 @@ class TestParquetSubscriber:
         ))
 
         pq_files = list((tmp_path / "results" / "runs").rglob("*.parquet"))
-        manifest = read_step_manifest(pq_files[0])
+        manifest = read_step_results(pq_files[0])
         assert len(manifest) == 2
         assert manifest[0]["name"] == "test_voltage"
         assert manifest[0]["has_measurements"] is True

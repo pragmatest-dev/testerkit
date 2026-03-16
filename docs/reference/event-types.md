@@ -71,10 +71,6 @@ Emitted once per test run. Contains full run context (DUT, product, config snaps
 | `test_phase` | str | `"production"` |
 | `git_commit` | str \| None | |
 | `environment_json` | str \| None | |
-| `station_config_yaml` | str \| None | |
-| `product_spec_yaml` | str \| None | |
-| `fixture_config_yaml` | str \| None | |
-| `test_config_yaml` | str \| None | |
 | `custom_metadata` | dict | `{}` |
 | `channel_refs` | list[str] | `[]` |
 

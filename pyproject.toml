@@ -24,6 +24,7 @@ dependencies = [
     "filelock>=3.12",
     "platformdirs>=4.0",
     "pytz>=2025.2",
+    "duckdb>=1.5.0",
 ]
 
 [project.optional-dependencies]

@@ -1,10 +1,10 @@
-# Step Manifest & StepsDiscovered
+# Step Results & StepsDiscovered
 
-The step manifest provides a complete view of all planned test steps — including those that never ran due to early abort, `--maxfail`, or skip markers.
+Step results provide a complete view of all planned test steps — including those that never ran due to early abort, `--maxfail`, or skip markers.
 
 ## The Problem
 
-Without a manifest, you only know about steps that actually executed. If a test run aborts after step 3 of 10, the Parquet file only has 3 rows. There's no record that 7 other steps were planned but never ran.
+Without step results, you only know about steps that actually executed. If a test run aborts after step 3 of 10, the Parquet file only has 3 rows. There's no record that 7 other steps were planned but never ran.
 
 This matters for:
 
@@ -45,15 +45,14 @@ StepsDiscovered event  ──► EventLog.emit()
 ParquetSubscriber          Arrow IPC file
     │
     ▼
-Step manifest in Parquet metadata
-(litmus_collected_items key)
+step_results in Parquet file-level metadata
 ```
 
-The `ParquetSubscriber` stores the collected items in Parquet file-level metadata under the `litmus_collected_items` key. When the run ends, any items that never produced a `StepStarted` event get `not_started` status rows appended.
+The `ParquetSubscriber` caches the collected items in memory. When the run ends, it builds step results: executed steps get real outcomes, and any items that never produced a `StepStarted` event get `not_started` status. The combined list is stored in Parquet metadata under the `step_results` key.
 
 ## `not_started` Status
 
-After `RunEnded`, the subscriber compares the discovered items against actually-executed steps. Missing steps get synthetic rows with:
+After `RunEnded`, the subscriber compares the discovered items against actually-executed steps. Missing steps get synthetic entries with:
 
 - `outcome`: `"not_started"`
 - All measurement fields: `None`
@@ -61,16 +60,16 @@ After `RunEnded`, the subscriber compares the discovered items against actually-
 
 This means every Parquet file has a complete picture — executed steps with real data, plus `not_started` entries for steps that were planned but never ran.
 
-## Querying the Manifest
+## Querying Step Results
 
 From Parquet files:
 
 ```python
-import pyarrow.parquet as pq
+from litmus.data.backends.parquet import read_step_results
 
-meta = pq.read_metadata("results/runs/2026-03-10/run.parquet")
-items = meta.metadata[b"litmus_collected_items"]
-# JSON list of collected items
+results = read_step_results(Path("results/runs/2026-03-10/run.parquet"))
+for step in results:
+    print(f"{step['name']}: {step['outcome']}")
 ```
 
 From the event store:

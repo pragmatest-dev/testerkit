@@ -157,6 +157,7 @@ class ProjectConfig(BaseModel):
     name: str
     results_dir: str | None = None
     default_station: str = "station"
+    default_fixture: str | None = None
     mock_instruments: bool = False
     outputs: list[OutputConfig] = Field(default_factory=list)
 

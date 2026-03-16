@@ -1,8 +1,19 @@
-"""Tests for retry and skip-on-failure functionality."""
+"""Tests for retry and skip-on-failure functionality.
+
+Requires the litmus plugin to be active (registers markers, runs retry
+protocol, tracks step outcomes).
+"""
 
 import pytest
 
 from litmus.execution.plugin import get_step_outcomes
+
+
+@pytest.fixture(autouse=True)
+def _require_litmus_plugin(request):
+    """Skip tests in this module when the litmus plugin is not loaded."""
+    if not request.config.pluginmanager.has_plugin("litmus"):
+        pytest.skip("Requires litmus plugin")
 
 
 class TestRetryLogic:

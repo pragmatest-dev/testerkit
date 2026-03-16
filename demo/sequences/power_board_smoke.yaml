@@ -3,6 +3,7 @@ name: Power Board - Smoke Test
 description: Quick power-up verification for production screening
 product_family: power_board
 test_phase: production
+required_fixture: power_board_fixture
 timeout_seconds: 120
 steps:
 - id: basic_power

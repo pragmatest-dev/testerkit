@@ -184,11 +184,6 @@ class TestRunLogger:
         dut_part_number: str | None = None,
         dut_revision: str | None = None,
         dut_lot_number: str | None = None,
-        # Config snapshots
-        station_config_yaml: str | None = None,
-        product_spec_yaml: str | None = None,
-        fixture_config_yaml: str | None = None,
-        test_config_yaml: str | None = None,
         # Code traceability
         git_commit: str | None = None,
         git_branch: str | None = None,
@@ -247,10 +242,6 @@ class TestRunLogger:
             git_commit=git_commit,
             git_branch=git_branch,
             git_remote=git_remote,
-            station_config_yaml=station_config_yaml,
-            product_spec_yaml=product_spec_yaml,
-            fixture_config_yaml=fixture_config_yaml,
-            test_config_yaml=test_config_yaml,
         )
         # Serialize environment eagerly so every event has it
         if environment is not None:

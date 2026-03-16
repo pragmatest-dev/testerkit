@@ -731,10 +731,10 @@ A complete test run with all steps and measurements.
 | `outcome` | `Outcome` | Overall run result |
 | `steps` | `list[TestStep]` | Test steps executed |
 
-**Config Snapshots** (stored in Parquet file-level metadata, not columns):
-- `station_config_yaml` — Full station YAML at test time
-- `product_spec_yaml` — Full product spec YAML at test time
-- `fixture_config_yaml` — Full fixture YAML at test time
+**Environment** (stored in Parquet file-level metadata, not columns):
+- `environment_json` — Python version, OS, litmus version, top-level dependencies, lockfile hash
+
+Config files (station, fixture, product spec) are tracked via git — the `git_commit` column identifies the exact state.
 
 ### JSON Example
 

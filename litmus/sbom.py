@@ -2,13 +2,18 @@
 
 Uses cyclonedx-python-lib for proper SBOM generation with schema validation.
 Install with: uv pip install 'litmus[sbom]'
+
+SBOM needs the full installed-package list, which is intentionally excluded
+from ``EnvironmentSnapshot`` (the snapshot stores only top-level deps and
+a lockfile hash).  This module captures the full list on demand.
 """
 
 from __future__ import annotations
 
+import importlib.metadata
 from pathlib import Path
 
-from litmus.environment import EnvironmentSnapshot, _package_sort_key
+from litmus.environment import EnvironmentSnapshot
 
 
 def environment_from_parquet(parquet_path: Path) -> EnvironmentSnapshot | None:
@@ -30,8 +35,21 @@ def environment_from_parquet(parquet_path: Path) -> EnvironmentSnapshot | None:
     return EnvironmentSnapshot.model_validate_json(raw)
 
 
+def _installed_packages() -> list[tuple[str, str]]:
+    """Return sorted (name, version) for all installed packages."""
+    seen: dict[str, str] = {}
+    for d in importlib.metadata.distributions():
+        name = d.metadata["Name"]
+        if name and name.lower() not in seen:
+            seen[name.lower()] = d.metadata["Version"]
+    return sorted(seen.items())
+
+
 def generate_cyclonedx(snapshot: EnvironmentSnapshot) -> str:
     """Convert EnvironmentSnapshot to CycloneDX 1.6 JSON string.
+
+    Captures the full installed-package list at call time for the SBOM
+    (not stored in the snapshot).
 
     Requires cyclonedx-python-lib (install with ``uv pip install 'litmus[sbom]'``).
 
@@ -42,6 +60,7 @@ def generate_cyclonedx(snapshot: EnvironmentSnapshot) -> str:
         from cyclonedx.model import Property
         from cyclonedx.model.bom import Bom
         from cyclonedx.model.component import Component, ComponentType
+        from cyclonedx.model.dependency import Dependency
         from cyclonedx.output.json import JsonV1Dot6
         from packageurl import PackageURL
     except ImportError:
@@ -56,7 +75,7 @@ def generate_cyclonedx(snapshot: EnvironmentSnapshot) -> str:
     bom.metadata.component = Component(
         name="test-environment",
         type=ComponentType.APPLICATION,
-        version=snapshot.fingerprint,
+        version=snapshot.lockfile_hash or snapshot.litmus_version,
     )
 
     # Tool that generated this SBOM
@@ -87,16 +106,14 @@ def generate_cyclonedx(snapshot: EnvironmentSnapshot) -> str:
         )
 
     # Add each installed package as a component
-    from cyclonedx.model.dependency import Dependency
-
     root_dep = Dependency(ref=bom.metadata.component.bom_ref)
 
-    for pkg in sorted(snapshot.packages, key=_package_sort_key):
+    for name, version in _installed_packages():
         comp = Component(
-            name=pkg.name,
+            name=name,
             type=ComponentType.LIBRARY,
-            version=pkg.version,
-            purl=PackageURL(type="pypi", name=pkg.name.lower(), version=pkg.version),
+            version=version,
+            purl=PackageURL(type="pypi", name=name.lower(), version=version),
         )
         bom.components.add(comp)
         root_dep.dependencies.add(Dependency(ref=comp.bom_ref))
@@ -115,13 +132,12 @@ def format_environment_table(snapshot: EnvironmentSnapshot) -> str:
         f"  OS:        {snapshot.os_name} {snapshot.os_version}",
         f"  Machine:   {snapshot.platform_machine}",
         f"  Litmus:    {snapshot.litmus_version}",
-        f"  Packages:  {len(snapshot.packages)}",
-        f"  Fingerprint: {snapshot.fingerprint}",
+        f"  Deps:      {len(snapshot.dependencies)}",
     ]
     if snapshot.lockfile_hash:
         lines.append(f"  Lockfile:  {snapshot.lockfile_hash}")
     lines.append("")
-    lines.append("  Installed packages:")
-    for pkg in sorted(snapshot.packages, key=_package_sort_key):
-        lines.append(f"    {pkg.name} {pkg.version}")
+    lines.append("  Dependencies:")
+    for dep in snapshot.dependencies:
+        lines.append(f"    {dep}")
     return "\n".join(lines)

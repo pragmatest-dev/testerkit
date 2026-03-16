@@ -685,14 +685,14 @@ def show(
     click.echo(f"  Steps: {len(data.step_names)}")
     click.echo(f"  Measurements: {data.total_measurements} ({data.failed_measurements} failed)")
 
-    # Show step manifest if available
+    # Show step results if available
     pq_path = _find_parquet_for_run(run_id, results_dir)
     if pq_path and not env:
-        from litmus.data.backends.parquet import read_step_manifest
+        from litmus.data.backends.parquet import read_step_results
 
-        manifest = read_step_manifest(pq_path)
+        manifest = read_step_results(pq_path)
         if manifest:
-            click.echo("\nStep Manifest:")
+            click.echo("\nStep Results:")
             for entry in manifest:
                 mc = entry.get("measurement_count")
                 meas_info = f" ({mc} measurements)" if mc else ""

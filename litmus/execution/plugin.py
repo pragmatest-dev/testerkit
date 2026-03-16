@@ -13,7 +13,6 @@ from typing import Any
 from uuid import UUID, uuid4
 
 import pytest
-import yaml
 from _pytest.runner import runtestprotocol
 
 from litmus.config.test_config import FixtureConfig
@@ -46,6 +45,7 @@ _active_spec_context_var: ContextVar[Any] = ContextVar("_active_spec_context")
 _test_node_aliases_var: ContextVar[dict[str, dict[str, str]]] = ContextVar("_test_node_aliases")
 _test_node_configs_var: ContextVar[dict[str, dict[str, Any]]] = ContextVar("_test_node_configs")
 _sequence_test_phase_var: ContextVar[str | None] = ContextVar("_sequence_test_phase")
+_sequence_required_fixture_var: ContextVar[str | None] = ContextVar("_sequence_required_fixture")
 _channel_store_var: ContextVar[Any] = ContextVar("_channel_store")
 _collected_items_var: ContextVar[list[CollectedItem]] = ContextVar("_collected_items")
 _event_store_var: ContextVar[Any] = ContextVar("_event_store")
@@ -149,6 +149,14 @@ def get_sequence_test_phase() -> str | None:
         return None
 
 
+def get_sequence_required_fixture() -> str | None:
+    """Return None if not set."""
+    try:
+        return _sequence_required_fixture_var.get()
+    except LookupError:
+        return None
+
+
 # --- Setters ---
 
 
@@ -195,6 +203,11 @@ def set_test_node_configs(value: dict[str, dict[str, Any]]) -> None:
 def set_sequence_test_phase(value: str | None) -> None:
     """Set value. Returns None."""
     _sequence_test_phase_var.set(value)
+
+
+def set_sequence_required_fixture(value: str | None) -> None:
+    """Set value. Returns None."""
+    _sequence_required_fixture_var.set(value)
 
 
 def get_channel_store() -> Any:
@@ -285,6 +298,7 @@ def _load_sequence_steps(config):
 
     # Store test phase for mock validation
     set_sequence_test_phase(seq_file.test_phase)
+    set_sequence_required_fixture(seq_file.required_fixture)
 
     return seq_file.steps
 
@@ -344,6 +358,65 @@ def _find_station_file(config) -> Path | None:
             station_file = stations_dir / f"{station_id}.yaml"
             if station_file.exists():
                 return station_file
+
+    return None
+
+
+def _find_fixture_file(config) -> Path | None:
+    """Find fixture config file from pytest config options.
+
+    Resolution: --fixture-config path → --fixture ID → sequence
+    required_fixture → single-file fallback.
+    """
+    # Explicit path (highest priority)
+    config_path = config.getoption("--fixture-config")
+    if config_path:
+        return Path(config_path)
+
+    # --fixture ID → fixtures/{id}.yaml
+    fixture_id = config.getoption("--fixture")
+    if fixture_id:
+        search_roots = [
+            config.rootpath,
+            Path(config.invocation_params.dir),
+        ]
+        for root in search_roots:
+            fixture_file = root / "fixtures" / f"{fixture_id}.yaml"
+            if fixture_file.exists():
+                return fixture_file
+        warnings.warn(
+            f"Fixture '{fixture_id}' not found in fixtures/ directory.",
+            stacklevel=2,
+        )
+        return None
+
+    # Sequence required_fixture (hard error if declared but missing)
+    seq_fixture = get_sequence_required_fixture()
+    if seq_fixture:
+        search_roots = [
+            config.rootpath,
+            Path(config.invocation_params.dir),
+        ]
+        for root in search_roots:
+            fixture_file = root / "fixtures" / f"{seq_fixture}.yaml"
+            if fixture_file.exists():
+                return fixture_file
+        raise pytest.UsageError(
+            f"Sequence requires fixture '{seq_fixture}' but "
+            f"fixtures/{seq_fixture}.yaml was not found."
+        )
+
+    # Single-file fallback
+    search_roots = [
+        config.rootpath,
+        Path(config.invocation_params.dir),
+    ]
+    for root in search_roots:
+        fixtures_dir = root / "fixtures"
+        if fixtures_dir.exists():
+            yaml_files = list(fixtures_dir.glob("*.yaml"))
+            if len(yaml_files) == 1:
+                return yaml_files[0]
 
     return None
 
@@ -493,6 +566,7 @@ def pytest_sessionfinish(session, exitstatus):
     set_test_node_aliases({})
     set_test_node_configs({})
     set_sequence_test_phase(None)
+    set_sequence_required_fixture(None)
     set_collected_items([])
     set_channel_store(None)
     set_event_store(None)
@@ -537,6 +611,7 @@ def pytest_addoption(parser):
         default=project.mock_instruments,
         help="Use mock instruments instead of real hardware",
     )
+    group.addoption("--fixture", default=project.default_fixture, help="Fixture ID")
     group.addoption(
         "--fixture-config",
         default=None,
@@ -633,12 +708,6 @@ def _prompt_for_slot_serials(
         serials[slot_id] = _prompt_for_serial(test_phase, slot_id)
     return serials
 
-
-def _serialize_config(config: dict | None) -> str | None:
-    """Serialize config dict to YAML string for storage."""
-    if config is None:
-        return None
-    return yaml.dump(config, default_flow_style=False, sort_keys=False)
 
 
 def _require_fixture_and_instruments(
@@ -738,35 +807,19 @@ def _build_run_metadata(request: pytest.FixtureRequest) -> dict[str, Any]:
     fixture_config = _safe_get_session_fixture(request, "fixture_config")
     spec_context = _safe_get_session_fixture(request, "spec_context")
 
-    station_yaml = _serialize_config(station_config) if station_config else None
-
     # Product info from spec_context
     product_id = None
     product_name = None
     product_revision = None
-    product_yaml = None
     if spec_context:
         product_id = spec_context.product.id
         product_name = spec_context.product.name
         product_revision = spec_context.product.revision
-        product_yaml = yaml.dump(
-            spec_context.product.model_dump(mode="json", exclude_none=True),
-            default_flow_style=False,
-            sort_keys=False,
-        )
 
     # Fixture info
     fixture_id = None
-    fixture_yaml = None
     if fixture_config:
         fixture_id = getattr(fixture_config, "id", None) or getattr(fixture_config, "name", None)
-        fixture_yaml = yaml.dump(
-            fixture_config.model_dump(mode="json", exclude_none=True)
-            if hasattr(fixture_config, "model_dump")
-            else fixture_config,
-            default_flow_style=False,
-            sort_keys=False,
-        )
 
     # Station info
     station_id = request.config.getoption("--station")
@@ -815,9 +868,6 @@ def _build_run_metadata(request: pytest.FixtureRequest) -> dict[str, Any]:
         "product_name": product_name,
         "product_revision": product_revision,
         "fixture_id": fixture_id,
-        "station_config_yaml": station_yaml,
-        "product_spec_yaml": product_yaml,
-        "fixture_config_yaml": fixture_yaml,
         "project_dir": request.config.rootpath,
         "results_dir": results_dir,
         "test_phase": test_phase,
@@ -969,10 +1019,6 @@ def litmus_logger(request) -> Generator[TestRunLogger, None, None]:
             git_branch=logger.test_run.git_branch,
             git_remote=logger.test_run.git_remote,
             environment_json=logger.test_run.environment_json,
-            station_config_yaml=logger.test_run.station_config_yaml,
-            product_spec_yaml=logger.test_run.product_spec_yaml,
-            fixture_config_yaml=logger.test_run.fixture_config_yaml,
-            test_config_yaml=logger.test_run.test_config_yaml,
             custom_metadata=dict(logger.test_run.custom_metadata),
             pid=os.getpid(),
         ))
@@ -1263,24 +1309,10 @@ def fixture_config(request) -> FixtureConfig | None:
     Returns:
         FixtureConfig instance, or None if not specified.
     """
-    config_path = request.config.getoption("--fixture-config")
-    if not config_path:
-        # Try auto-discover from fixtures/ directory
-        # Check both rootpath and invocation directory (for nested projects like demo/)
-        search_roots = [
-            request.config.rootpath,
-            Path(request.config.invocation_params.dir),  # Where pytest was invoked
-        ]
-        for root in search_roots:
-            fixtures_dir = root / "fixtures"
-            if fixtures_dir.exists():
-                yaml_files = list(fixtures_dir.glob("*.yaml"))
-                if yaml_files:
-                    config_path = str(yaml_files[0])
-                    break
-
-    if not config_path:
+    fixture_path = _find_fixture_file(request.config)
+    if not fixture_path:
         return None
+    config_path = str(fixture_path)
 
     from litmus.store import load_fixture
 

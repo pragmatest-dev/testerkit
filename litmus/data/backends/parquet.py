@@ -68,35 +68,20 @@ def _is_param_column(col: str) -> bool:
 
 def _build_parquet_metadata(
     *,
-    station_config_yaml: str | None = None,
-    product_spec_yaml: str | None = None,
-    fixture_config_yaml: str | None = None,
-    test_config_yaml: str | None = None,
     environment_json: str | None = None,
-    collected_items_json: str | None = None,
-    step_manifest: list[dict[str, Any]] | None = None,
+    step_results: list[dict[str, Any]] | None = None,
 ) -> dict[bytes, bytes]:
-    """Build Parquet file-level metadata from config snapshots.
+    """Build Parquet file-level metadata.
 
     Shared by ParquetBackend (from TestRun) and ParquetSubscriber
     (from cached RunStarted event).
     """
     metadata: dict[bytes, bytes] = {}
 
-    if station_config_yaml:
-        metadata[b"station_config_yaml"] = station_config_yaml.encode("utf-8")
-    if product_spec_yaml:
-        metadata[b"product_spec_yaml"] = product_spec_yaml.encode("utf-8")
-    if fixture_config_yaml:
-        metadata[b"fixture_config_yaml"] = fixture_config_yaml.encode("utf-8")
-    if test_config_yaml:
-        metadata[b"test_config_yaml"] = test_config_yaml.encode("utf-8")
     if environment_json:
         metadata[b"environment_json"] = environment_json.encode("utf-8")
-    if collected_items_json:
-        metadata[b"litmus_collected_items"] = collected_items_json.encode("utf-8")
-    if step_manifest:
-        metadata[b"litmus_step_manifest"] = json.dumps(step_manifest).encode("utf-8")
+    if step_results:
+        metadata[b"step_results"] = json.dumps(step_results).encode("utf-8")
 
     metadata[b"litmus_version"] = b"1.0.0"
     metadata[b"schema_version"] = SCHEMA_VERSION.encode()
@@ -305,19 +290,10 @@ class ParquetBackend:
         return row
 
     def _build_file_metadata(self, test_run: TestRun) -> dict[bytes, bytes]:
-        """Build Parquet file-level metadata with config snapshots."""
-        collected_items_json = (
-            json.dumps([ci.model_dump() for ci in test_run.collected_items])
-            if test_run.collected_items else None
-        )
+        """Build Parquet file-level metadata."""
         return _build_parquet_metadata(
-            station_config_yaml=test_run.station_config_yaml,
-            product_spec_yaml=test_run.product_spec_yaml,
-            fixture_config_yaml=test_run.fixture_config_yaml,
-            test_config_yaml=test_run.test_config_yaml,
             environment_json=test_run.environment_json,
-            collected_items_json=collected_items_json,
-            step_manifest=build_step_manifest(test_run),
+            step_results=build_step_manifest(test_run),
         )
 
     def list_runs(self, limit: int = 50) -> list[dict]:
@@ -787,22 +763,13 @@ class ParquetSubscriber:
         if not s:
             return _build_parquet_metadata()
 
-        collected_items_json = (
-            json.dumps(self._collected_items)
-            if self._collected_items else None
-        )
-        manifest = self._build_step_manifest_from_events() or None
+        results = self._build_step_results_from_events() or None
         return _build_parquet_metadata(
-            station_config_yaml=s.station_config_yaml,
-            product_spec_yaml=s.product_spec_yaml,
-            fixture_config_yaml=s.fixture_config_yaml,
-            test_config_yaml=s.test_config_yaml,
             environment_json=s.environment_json,
-            collected_items_json=collected_items_json,
-            step_manifest=manifest,
+            step_results=results,
         )
 
-    def _build_step_manifest_from_events(self) -> list[dict[str, Any]]:
+    def _build_step_results_from_events(self) -> list[dict[str, Any]]:
         """Build step manifest from cached StepStarted/StepEnded events.
 
         Appends ``not_started`` entries for collected items that never
@@ -928,17 +895,17 @@ def load_file(parquet_path: Path, ref: str) -> Any:
         return path
 
 
-def read_step_manifest(parquet_path: Path) -> list[dict[str, Any]]:
-    """Read the step manifest from Parquet file-level metadata.
+def read_step_results(parquet_path: Path) -> list[dict[str, Any]]:
+    """Read step results from Parquet file-level metadata.
 
-    Returns an empty list if no manifest is stored.
+    Returns an empty list if no step results are stored.
     """
     try:
         pf = pq.ParquetFile(parquet_path)
         raw_metadata = pf.schema_arrow.metadata or {}
-        manifest_bytes = raw_metadata.get(b"litmus_step_manifest")
-        if manifest_bytes:
-            return json.loads(manifest_bytes)
+        results_bytes = raw_metadata.get(b"step_results")
+        if results_bytes:
+            return json.loads(results_bytes)
     except (OSError, pa.ArrowInvalid, json.JSONDecodeError):
         pass
     return []
@@ -1015,7 +982,7 @@ def reconstruct_test_run_from_file(pq_file: Path) -> TestRun:
     from collections import defaultdict
     from uuid import UUID
 
-    from litmus.data.models import DUT, CollectedItem, Measurement, Outcome, TestStep, TestVector
+    from litmus.data.models import DUT, Measurement, Outcome, TestStep, TestVector
 
     if not pq_file.exists():
         raise FileNotFoundError(f"Parquet file not found: {pq_file}")
@@ -1171,13 +1138,5 @@ def reconstruct_test_run_from_file(pq_file: Path) -> TestRun:
         outcome=run_outcome,
         steps=steps,
         environment_json=file_meta.get("environment_json"),
-        station_config_yaml=file_meta.get("station_config_yaml"),
-        product_spec_yaml=file_meta.get("product_spec_yaml"),
-        fixture_config_yaml=file_meta.get("fixture_config_yaml"),
-        test_config_yaml=file_meta.get("test_config_yaml"),
-        collected_items=[
-            CollectedItem(**ci)
-            for ci in json.loads(file_meta["litmus_collected_items"])
-        ] if "litmus_collected_items" in file_meta else [],
         custom_metadata=custom_meta or {},
     )

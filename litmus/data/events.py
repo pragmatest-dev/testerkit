@@ -195,12 +195,8 @@ class RunStarted(EventBase):
     git_branch: str | None = None
     git_remote: str | None = None
 
-    # Environment & config snapshots
+    # Environment snapshot (small — python/litmus versions + fingerprint)
     environment_json: str | None = None
-    station_config_yaml: str | None = None
-    product_spec_yaml: str | None = None
-    fixture_config_yaml: str | None = None
-    test_config_yaml: str | None = None
 
     # Custom metadata
     custom_metadata: dict[str, Any] = Field(default_factory=dict)
@@ -402,6 +398,10 @@ class StepsDiscovered(EventBase):
     Carries the full list of pytest-collected items so subscribers can
     build a complete step manifest (including ``not_started`` entries
     for steps that never ran due to abort / ``--maxfail``).
+
+    One event per run, bounded by test count (not vectors).
+    The DuckDB index caps the json column at 4K; the arrow file keeps
+    the full list for replay.
     """
 
     event_type: Literal["test.steps_discovered"] = "test.steps_discovered"

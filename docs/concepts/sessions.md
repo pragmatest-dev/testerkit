@@ -20,10 +20,10 @@ Sessions are broader than test runs. A single session might contain multiple tes
 | **Product** | `product_id`, `product_name`, `product_revision` |
 | **Operator** | `operator_id`, `operator_name` |
 | **Test Context** | `fixture_id`, `sequence_id`, `test_phase`, `git_commit` |
-| **Config Snapshots** | `environment_json`, `station_config_yaml`, `product_spec_yaml`, `fixture_config_yaml` |
+| **Environment** | `environment_json` (Python version, litmus version, top-level deps, lockfile hash) |
 | **Custom** | `custom_metadata` dict, `channel_refs` list |
 
-This means you can reconstruct the exact configuration of any historical session without relying on external config files that may have changed since.
+Config files (station, fixture, product spec) are tracked via git — the `git_commit` field on each run identifies the exact code and config state.
 
 ## Why Sessions Exist
 

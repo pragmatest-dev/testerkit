@@ -291,27 +291,25 @@ These become columns in the Parquet file:
 
 ## File-Level Metadata
 
-Config snapshots are stored in Parquet file metadata (not columns) for reconstruction:
+Metadata is stored in Parquet file-level metadata (not columns). Config snapshots (station, fixture, product spec) are tracked via git — the `git_commit` column in each row identifies the exact code and config state.
 
 | Key | Description |
 |-----|-------------|
-| `station_config_yaml` | Full station YAML snapshot |
-| `product_spec_yaml` | Full spec YAML snapshot |
-| `fixture_config_yaml` | Full fixture YAML snapshot |
-| `test_config_yaml` | Full test config YAML snapshot |
+| `environment_json` | Environment snapshot (Python version, OS, litmus version, top-level deps, lockfile hash) |
+| `step_results` | Step results with outcomes, timing, and code identity (includes `not_started` for unexecuted steps) |
 | `litmus_version` | Litmus version |
 | `schema_version` | Schema version (2.0) |
 
 Access with PyArrow:
 ```python
 import pyarrow.parquet as pq
-import yaml
+from litmus.environment import EnvironmentSnapshot
 
 pf = pq.ParquetFile("results/runs/2026-01-15/20260115T143025Z_SN001/measurements.parquet")
 metadata = pf.schema_arrow.metadata
 
-station_config = yaml.safe_load(metadata[b"station_config_yaml"])
-product_spec = yaml.safe_load(metadata[b"product_spec_yaml"])
+env = EnvironmentSnapshot.model_validate_json(metadata[b"environment_json"])
+print(f"Python: {env.python_version}, Litmus: {env.litmus_version}")
 ```
 
 ## Querying Examples
