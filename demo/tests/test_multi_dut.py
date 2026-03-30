@@ -29,6 +29,7 @@ Run with:
 """
 
 from litmus.execution import litmus_test
+from demo.drivers import DMM, ELoad, PSU
 
 
 # =============================================================================
@@ -46,7 +47,7 @@ from litmus.execution import litmus_test
         },
     }
 )
-def test_power_up(context, psu):
+def test_power_up(context, psu: PSU):
     """Power up the DUT and verify startup current.
 
     In a multi-slot run, both boards power up independently (no sync needed).
@@ -77,7 +78,7 @@ def test_power_up(context, psu):
         },
     }
 )
-def test_output_voltage_synced(context, psu, dmm, sync):
+def test_output_voltage_synced(context, psu: PSU, dmm: DMM, sync):
     """Measure output voltage after all slots are powered.
 
     The ``sync`` fixture coordinates across slots:
@@ -117,7 +118,7 @@ def test_output_voltage_synced(context, psu, dmm, sync):
         },
     }
 )
-def test_efficiency(context, psu, dmm, eload):
+def test_efficiency(context, psu: PSU, dmm: DMM, eload: ELoad):
     """Measure efficiency — runs independently per slot.
 
     No sync needed here. Each slot measures its own board at its own pace.

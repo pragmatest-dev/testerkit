@@ -46,6 +46,7 @@ import random
 import time
 
 from litmus.execution import litmus_test
+from demo.drivers import DMM, ELoad, PSU, Scope
 
 
 # =============================================================================
@@ -63,7 +64,7 @@ from litmus.execution import litmus_test
         },
     }
 )
-def test_output_voltage_no_load(context, psu, dmm):
+def test_output_voltage_no_load(context, psu: PSU, dmm: DMM):
     """Verify output voltage at no load.
 
     Naming: The limit key 'output_voltage' names the measurement.
@@ -98,7 +99,7 @@ def test_output_voltage_no_load(context, psu, dmm):
         },
     }
 )
-def test_output_voltage_full_load(context, psu, dmm, eload):
+def test_output_voltage_full_load(context, psu: PSU, dmm: DMM, eload: ELoad):
     """Verify output voltage at full load.
 
     Inline config provides dev defaults. Retry: max_attempts=3, delay=0.5s.
@@ -140,7 +141,7 @@ def test_output_voltage_full_load(context, psu, dmm, eload):
         },
     }
 )
-def test_load_regulation(context, psu, dmm, eload):
+def test_load_regulation(context, psu: PSU, dmm: DMM, eload: ELoad):
     """Signal output at multiple load points.
 
     3 vectors with per-vector mock values, one limit for all.
@@ -179,7 +180,7 @@ def test_load_regulation(context, psu, dmm, eload):
         },
     }
 )
-def test_load_sweep(context, psu, dmm, eload):
+def test_load_sweep(context, psu: PSU, dmm: DMM, eload: ELoad):
     """Sweep VIN and load using product expansion.
 
     5×5 = 25 vectors. Uses context.changed() to detect when parameters change.
@@ -223,7 +224,7 @@ def test_load_sweep(context, psu, dmm, eload):
         },
     }
 )
-def test_temp_load_matrix(context, psu, dmm, eload):
+def test_temp_load_matrix(context, psu: PSU, dmm: DMM, eload: ELoad):
     """Full characterization matrix with nested loops.
 
     4×5 = 20 vectors. Uses context.changed() for outer parameter changes.
@@ -267,7 +268,7 @@ def test_temp_load_matrix(context, psu, dmm, eload):
         },
     }
 )
-def test_line_regulation(context, psu, dmm, eload):
+def test_line_regulation(context, psu: PSU, dmm: DMM, eload: ELoad):
     """Sweep input voltage using range expansion (4.5V to 5.5V, 0.1V steps)."""
     vin = context.inputs["vin"]
 
@@ -305,7 +306,7 @@ def test_line_regulation(context, psu, dmm, eload):
         },
     }
 )
-def test_power_analysis(context, psu, dmm, eload):
+def test_power_analysis(context, psu: PSU, dmm: DMM, eload: ELoad):
     """Signal multiple values and return as dict.
 
     Returns: {"input_power": W, "output_power": W, "efficiency": %}
@@ -359,7 +360,7 @@ def test_power_analysis(context, psu, dmm, eload):
         },
     }
 )
-def test_quiescent_current(context, psu):
+def test_quiescent_current(context, psu: PSU):
     """Verify quiescent current (no load). Comparator=LE for upper-bound-only."""
     vin = context.get_in("vin", 5.0)
 
@@ -387,7 +388,7 @@ def test_quiescent_current(context, psu):
         },
     }
 )
-def test_stability_over_time(context, psu, dmm, eload):
+def test_stability_over_time(context, psu: PSU, dmm: DMM, eload: ELoad):
     """Monitor output stability over time using yield (streaming measurements)."""
     vin = context.get_in("vin", 5.0)
     load = context.get_in("load_current", 0.5)
@@ -424,7 +425,7 @@ def test_stability_over_time(context, psu, dmm, eload):
         },
     }
 )
-def test_thermal_shutdown(context, psu, dmm, eload):
+def test_thermal_shutdown(context, psu: PSU, dmm: DMM, eload: ELoad):
     """Verify thermal protection (manual test). Output should collapse."""
     vin = context.get_in("vin", 5.0)
     load = context.get_in("load_current", 0.5)
@@ -463,7 +464,7 @@ def test_thermal_shutdown(context, psu, dmm, eload):
         },
     }
 )
-def test_output_ripple(context, psu, eload, scope):
+def test_output_ripple(context, psu: PSU, eload: ELoad, scope: Scope):
     """Signal output ripple using oscilloscope waveform capture."""
     vin = context.get_in("vin", 5.0)
     load = context.get_in("load_current", 0.5)
@@ -511,7 +512,7 @@ def test_output_ripple(context, psu, eload, scope):
         },
     }
 )
-def test_output_voltage_temp(context, psu, dmm):
+def test_output_voltage_temp(context, psu: PSU, dmm: DMM):
     """Verify output voltage with temperature-dependent callable limits."""
     temp = context.inputs["temperature"]
     vin = context.get_in("vin", 5.0)
@@ -551,7 +552,7 @@ def test_output_voltage_temp(context, psu, dmm):
         },
     }
 )
-def test_efficiency_with_context(context, psu, dmm, eload):
+def test_efficiency_with_context(context, psu: PSU, dmm: DMM, eload: ELoad):
     """Full efficiency test with context traceability (configure/observe)."""
     vin = context.inputs["vin"]
     load = context.inputs["load_current"]
@@ -623,7 +624,7 @@ def test_efficiency_with_context(context, psu, dmm, eload):
         },
     }
 )
-def test_ripple_waveform_capture(context, psu, eload, scope):
+def test_ripple_waveform_capture(context, psu: PSU, eload: ELoad, scope: Scope):
     """Capture and observe raw waveform data (stored in _ref/ directory)."""
     from litmus.data.models import Waveform
 
