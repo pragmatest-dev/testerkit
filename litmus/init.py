@@ -151,7 +151,14 @@ Run with --mock-instruments for hardware-free testing:
         from litmus.config.fmt import dump_yaml
         from litmus.schemas import ProjectConfig
 
-        proj = ProjectConfig(name=project_name)
+        proj_data: dict[str, Any] = {"name": project_name}
+        if starter:
+            proj_data.update({
+                "default_station": "starter_station",
+                "default_fixture": "example_fixture",
+                "mock_instruments": True,
+            })
+        proj = ProjectConfig(**proj_data)
         litmus_yaml_path.write_text(dump_yaml(proj.model_dump()))
         created_files.append("litmus.yaml")
 
@@ -410,6 +417,67 @@ def _create_starter_files(path: Path, project_name: str) -> list[str]:
         }
         sequence_file.write_text(dump_yaml(sequence_content))
         created_files.append("sequences/example_sequence.yaml")
+
+    # Create fixtures/example_fixture.yaml
+    fixture_file = path / "fixtures" / "example_fixture.yaml"
+    if not fixture_file.exists():
+        fixture_content = {
+            "id": "example_fixture",
+            "name": "Example Fixture",
+            "description": "Maps DUT test points to instrument channels",
+            "product_family": "example_product",
+            "points": {
+                "VOUT": {
+                    "instrument": "dmm",
+                    "channel": "ch1",
+                    "terminals": ["hi", "lo"],
+                    "description": "Output voltage measurement point",
+                },
+                "VIN": {
+                    "instrument": "psu",
+                    "channel": "ch1",
+                    "terminals": ["pos", "neg"],
+                    "description": "Input power connection",
+                },
+            },
+        }
+        comment_header = (
+            "# Example fixture — maps DUT test points to instrument channels.\n"
+            "#\n"
+            "# This is the wiring diagram as config. Each point describes:\n"
+            "#   - Which DUT test point (VOUT, VIN, etc.)\n"
+            "#   - Which instrument and channel measures/drives it\n"
+            "#   - Which terminals are connected\n\n"
+        )
+        fixture_file.write_text(comment_header + dump_yaml(fixture_content))
+        created_files.append("fixtures/example_fixture.yaml")
+
+    # Create instruments/ asset files
+    for role, instrument_id in [
+        ("psu", "generic_psu_001"),
+        ("dmm", "generic_dmm_001"),
+    ]:
+        inst_file = path / "instruments" / f"{instrument_id}.yaml"
+        if not inst_file.exists():
+            inst_content = {
+                "id": instrument_id,
+                "protocol": "visa",
+                "driver": "litmus.instruments.visa.VisaInstrument",
+                "resource": f"TCPIP::192.168.1.{100 if role == 'psu' else 101}::INSTR",
+                "info": {
+                    "manufacturer": "Generic",
+                    "model": role.upper(),
+                    "serial": f"SIM-{role.upper()}-001",
+                },
+                "calibration": {
+                    "due_date": "2027-01-01",
+                    "last_calibrated": "2026-01-01",
+                    "certificate": f"CAL-{role.upper()}-2026-001",
+                    "lab": "In-house",
+                },
+            }
+            inst_file.write_text(dump_yaml(inst_content))
+            created_files.append(f"instruments/{instrument_id}.yaml")
 
     # Create tests/test_example.py
     test_file = path / "tests" / "test_example.py"
