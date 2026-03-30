@@ -2,7 +2,7 @@
 
 from unittest.mock import MagicMock, patch
 
-from litmus.instruments.lxi import (
+from litmus.instruments.discovery.lxi import (
     _parse_identification_xml,
     _parse_resource,
     get_info_lxi,
@@ -66,7 +66,7 @@ def test_get_info_lxi_bad_resource():
     assert get_info_lxi("BAD::resource") is None
 
 
-@patch("litmus.instruments.lxi.urlopen")
+@patch("litmus.instruments.discovery.lxi.urlopen")
 def test_get_info_lxi_success(mock_urlopen):
     mock_resp = MagicMock()
     mock_resp.read.return_value = SAMPLE_XML
@@ -85,7 +85,7 @@ def test_discover_lxi_no_zeroconf():
     import pytest
 
     with patch.dict("sys.modules", {"zeroconf": None}):
-        from litmus.instruments.lxi import discover_lxi
+        from litmus.instruments.discovery.lxi import discover_lxi
 
         with pytest.raises(ImportError, match="zeroconf"):
             discover_lxi()

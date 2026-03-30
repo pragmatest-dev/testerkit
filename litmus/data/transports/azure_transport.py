@@ -10,13 +10,14 @@ import os
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+from litmus.data.transports._base import Transport
 from litmus.data.transports._helpers import build_blob_name, require_extra
 
 if TYPE_CHECKING:
     from litmus.schemas import OutputConfig
 
 
-class AzureBlobTransport:
+class AzureBlobTransport(Transport):
     """Upload files to Azure Blob Storage."""
 
     transport_name = "azure"

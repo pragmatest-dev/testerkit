@@ -15,6 +15,8 @@ from litmus.instruments.observers.generic import GenericObserver
 class OphydObserver(DriverObserver):
     """Ophyd device observer with dict-unpacking read()."""
 
+    observer_protocols = ["ophyd"]
+
     _silent_methods = frozenset({
         "describe", "read_configuration", "describe_configuration", "summary",
     })

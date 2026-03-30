@@ -22,6 +22,8 @@ _CONFIG_METHODS = frozenset({"commit", "abort", "self_test", "self_cal"})
 class NiModularObserver(DriverObserver):
     """Session-based classification for NI modular instruments."""
 
+    observer_protocols = ["ni_modular"]
+
     _silent_methods = frozenset({"initiate", "close", "reset"})
 
     def __init__(

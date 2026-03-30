@@ -15,7 +15,7 @@ import warnings
 from collections.abc import Callable
 from datetime import UTC, date, datetime
 from pathlib import Path
-from typing import Any, Protocol, runtime_checkable
+from typing import Any
 from uuid import UUID
 
 import pyarrow as pa
@@ -61,12 +61,34 @@ class _EventIPCWriter(BufferedIPCWriter):
                 warnings.warn(f"on_flush callback failed: {exc}", stacklevel=2)
 
 
-@runtime_checkable
-class EventSubscriber(Protocol):
-    """Protocol for event log subscribers."""
+class EventSubscriber:
+    """Base class for event log subscribers.
+
+    Subclass and set ``format_name`` to auto-register::
+
+        class MySubscriber(EventSubscriber):
+            format_name = "myformat"
+            event_types = {MeasurementEvent, StepEvent}
+            def open(self) -> None: ...
+            def on_event(self, event: EventBase) -> None: ...
+            def close(self) -> None: ...
+
+    Extend via entry points in pyproject.toml::
+
+        [project.entry-points."litmus.subscribers"]
+        myformat = "my_package.exporters:MySubscriber"
+    """
 
     format_name: str
     event_types: set[type]
+
+    _registry: dict[str, type[EventSubscriber]] = {}
+    """Maps format_name → subscriber class. Populated by __init_subclass__."""
+
+    def __init_subclass__(cls, **kwargs: Any) -> None:
+        super().__init_subclass__(**kwargs)
+        if hasattr(cls, "format_name") and cls.format_name:
+            EventSubscriber._registry[cls.format_name] = cls
 
     def open(self) -> None: ...
     def on_event(self, event: EventBase) -> None: ...

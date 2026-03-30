@@ -15,14 +15,9 @@ from litmus.data.backends._row_helpers import MeasurementRow, build_row
 from litmus.data.exporters.csv_exporter import CsvSubscriber
 from litmus.data.exporters.json_exporter import JsonSubscriber
 from litmus.data.models import DUT, Measurement, Outcome, TestRun, TestStep, TestVector
-from litmus.data.subscribers._registry import (
-    _REGISTRY,
-    get_subscriber_class,
-    list_subscribers,
-    register_subscriber,
-)
-from litmus.data.transports import get_transport, register_transport
-from litmus.data.transports._registry import _REGISTRY as _TRANSPORT_REGISTRY
+from litmus.data.subscribers._base import get_subscriber_class, list_subscribers
+from litmus.data.transports import get_transport
+from litmus.data.transports._base import Transport
 from litmus.data.transports.file_transport import FileTransport
 from litmus.schemas import OutputConfig, ProjectConfig
 from tests.test_data.conftest import _replay_events
@@ -84,16 +79,14 @@ def sample_test_run() -> TestRun:
 
 
 class TestSubscriberRegistry:
-    def test_csv_lazy_load(self):
-        """CSV subscriber loads lazily on first access."""
-        _REGISTRY.pop("csv", None)
+    def test_csv_registered(self):
+        """CSV subscriber auto-registered via __init_subclass__."""
         cls = get_subscriber_class("csv")
         assert cls is not None
         assert cls.format_name == "csv"
 
-    def test_json_lazy_load(self):
-        """JSON subscriber loads lazily on first access."""
-        _REGISTRY.pop("json", None)
+    def test_json_registered(self):
+        """JSON subscriber auto-registered via __init_subclass__."""
         cls = get_subscriber_class("json")
         assert cls is not None
         assert cls.format_name == "json"
@@ -102,16 +95,17 @@ class TestSubscriberRegistry:
         assert get_subscriber_class("nonexistent_format_xyz") is None
 
     def test_register_custom_subscriber(self):
-        class FakeSubscriber:
-            format_name = "fake"
-            event_types = set()
-            def open(self): pass
-            def on_event(self, event): pass
-            def close(self): pass
+        from litmus.data.event_log import EventSubscriber
 
-        register_subscriber(FakeSubscriber)
+        class FakeSubscriber(EventSubscriber):
+            format_name = "fake"
+            event_types: set[type] = set()
+            def open(self) -> None: pass
+            def on_event(self, event: object) -> None: pass
+            def close(self) -> None: pass
+
         assert "fake" in list_subscribers()
-        _REGISTRY.pop("fake")  # cleanup
+        EventSubscriber._registry.pop("fake")  # cleanup
 
     def test_list_subscribers(self):
         names = list_subscribers()
@@ -208,8 +202,7 @@ class TestJsonSubscriber:
 
 
 class TestTransportRegistry:
-    def test_file_transport_lazy_load(self):
-        _TRANSPORT_REGISTRY.pop("file", None)
+    def test_file_transport_registered(self):
         transport = get_transport("file")
         assert transport.transport_name == "file"
 
@@ -218,13 +211,13 @@ class TestTransportRegistry:
             get_transport("nonexistent_transport_xyz")
 
     def test_register_custom_transport(self):
-        class FakeTransport:
+        class FakeTransport(Transport):
             transport_name = "fake_t"
-            def send(self, local_path, config):
+            def send(self, local_path: object, config: object) -> str:
                 return "sent"
 
-        register_transport(FakeTransport())
-        _TRANSPORT_REGISTRY.pop("fake_t")
+        assert "fake_t" in Transport._registry
+        Transport._registry.pop("fake_t")  # cleanup
 
 
 class TestFileTransport:

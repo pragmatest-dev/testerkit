@@ -15,7 +15,7 @@ from __future__ import annotations
 import xml.etree.ElementTree as ET
 from urllib.request import urlopen
 
-from litmus.instruments.discovery import check_import
+from litmus.instruments.discovery._base import DiscoveryProtocol, check_import
 from litmus.instruments.models import InstrumentInfo
 
 _LXI_SERVICE_TYPE = "_lxi._tcp.local."
@@ -121,7 +121,6 @@ def _parse_identification_xml(xml_bytes: bytes) -> InstrumentInfo | None:
         return None
 
     def _find(tag: str) -> str | None:
-        # Search case-insensitively by checking local names
         for elem in root.iter():
             local = elem.tag.split("}")[-1] if "}" in elem.tag else elem.tag
             if local.lower() == tag.lower():
@@ -135,3 +134,17 @@ def _parse_identification_xml(xml_bytes: bytes) -> InstrumentInfo | None:
         serial=_find("SerialNumber"),
         firmware=_find("FirmwareRevision"),
     )
+
+
+class LxiDiscovery(DiscoveryProtocol):
+    """LXI/mDNS discovery protocol."""
+
+    name = "lxi"
+
+    def discover(self) -> list[str]:
+        return discover_lxi()
+
+    def get_info(self, resource: str) -> InstrumentInfo | None:
+        return get_info_lxi(resource)
+
+

@@ -20,6 +20,8 @@ from litmus.instruments.observers.descriptor import DescriptorObserver
 class QCodesObserver(DescriptorObserver):
     """QCodes Parameter-aware observer."""
 
+    observer_protocols = ["qcodes"]
+
     def __init__(
         self,
         driver_class: type,

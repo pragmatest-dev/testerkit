@@ -19,6 +19,7 @@ from typing import Any
 
 from Semi_ATE.STDF import FAR, MIR, MRR, PIR, PRR, PTR
 
+from litmus.data.event_log import EventSubscriber
 from litmus.data.events import (
     MeasurementRecorded,
     RunEnded,
@@ -117,7 +118,7 @@ def _build_ptr(
 
 # ── Event subscriber ────────────────────────────────────────────────
 
-class StdfSubscriber:
+class StdfSubscriber(EventSubscriber):
     """EventSubscriber that writes STDF V4 binary on close."""
 
     format_name = "stdf"

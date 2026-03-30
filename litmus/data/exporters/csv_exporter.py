@@ -11,6 +11,7 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
+from litmus.data.event_log import EventSubscriber
 from litmus.data.events import (
     MeasurementRecorded,
     RunStarted,
@@ -44,7 +45,7 @@ _FIXED_COLUMNS = [
 ]
 
 
-class CsvSubscriber:
+class CsvSubscriber(EventSubscriber):
     """EventSubscriber that writes CSV (one row per measurement) on close.
 
     Accumulates MeasurementRecorded events with RunStarted metadata,

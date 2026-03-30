@@ -2,33 +2,28 @@
 
 from __future__ import annotations
 
-from litmus.data.subscribers._registry import (
-    _REGISTRY,
-    get_subscriber_class,
-    list_subscribers,
-    register_subscriber,
-)
+from litmus.data.event_log import EventSubscriber
+from litmus.data.subscribers._base import get_subscriber_class, list_subscribers
 
 
 class TestSubscriberRegistry:
-    def test_register_and_get(self):
-        class FakeSub:
+    def test_register_via_init_subclass(self):
+        class FakeSub(EventSubscriber):
             format_name = "fake_test"
+            event_types: set[type] = set()
 
-        register_subscriber(FakeSub)
         assert get_subscriber_class("fake_test") is FakeSub
         # Cleanup
-        _REGISTRY.pop("fake_test", None)
+        EventSubscriber._registry.pop("fake_test", None)
 
     def test_get_nonexistent_returns_none(self):
         assert get_subscriber_class("nonexistent_xyz") is None
 
-    def test_list_includes_lazy(self):
+    def test_list_includes_builtins(self):
         names = list_subscribers()
         assert "parquet" in names
 
-    def test_lazy_load_parquet(self):
-        _REGISTRY.pop("parquet", None)
+    def test_parquet_registered(self):
         cls = get_subscriber_class("parquet")
         assert cls is not None
         assert cls.__name__ == "ParquetSubscriber"

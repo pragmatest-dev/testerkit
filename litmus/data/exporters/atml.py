@@ -12,6 +12,7 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
+from litmus.data.event_log import EventSubscriber
 from litmus.data.events import (
     InstrumentConnected,
     MeasurementRecorded,
@@ -131,7 +132,7 @@ def _get_or_create_group(
 
 # ── Event subscriber ────────────────────────────────────────────────
 
-class AtmlSubscriber:
+class AtmlSubscriber(EventSubscriber):
     """EventSubscriber that writes IEEE 1636.1 ATML XML on close."""
 
     format_name = "atml"

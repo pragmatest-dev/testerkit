@@ -28,6 +28,8 @@ _SINGLE_WRITE_METHODS = frozenset({
 class ModbusObserver(DriverObserver):
     """Register-based classification for pymodbus / minimalmodbus."""
 
+    observer_protocols = ["modbus"]
+
     _silent_methods = frozenset({"connect", "close"})
 
     def __init__(

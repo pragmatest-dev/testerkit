@@ -17,6 +17,7 @@ from typing import Any
 import numpy as np
 from asammdf import MDF, Signal
 
+from litmus.data.event_log import EventSubscriber
 from litmus.data.events import (
     MeasurementRecorded,
     RunEnded,
@@ -116,7 +117,7 @@ def _signals_from_measurements(
 
 # ── Event subscriber ────────────────────────────────────────────────
 
-class Mdf4Subscriber:
+class Mdf4Subscriber(EventSubscriber):
     """EventSubscriber that writes ASAM MDF4 on close."""
 
     format_name = "mdf4"

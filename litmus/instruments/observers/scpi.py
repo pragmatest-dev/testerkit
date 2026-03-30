@@ -31,6 +31,8 @@ _WRITE_METHODS = frozenset({
 class ScpiObserver(DriverObserver):
     """Typed SCPI wrapper classification for RsInstrument / easy-scpi."""
 
+    observer_protocols = ["rsinstrument", "easy_scpi"]
+
     def __init__(
         self,
         driver_class: type,

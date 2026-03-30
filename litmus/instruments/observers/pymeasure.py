@@ -82,6 +82,8 @@ class PyMeasureObserver(DriverObserver):
     ``build_channel_map`` from this module). Behavior is identical.
     """
 
+    observer_protocols = ["pymeasure", "instrumentkit", "instrumental", "ivi", "slave"]
+
     def __init__(
         self,
         driver_class: type,

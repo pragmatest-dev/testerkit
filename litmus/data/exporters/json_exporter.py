@@ -11,6 +11,7 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
+from litmus.data.event_log import EventSubscriber
 from litmus.data.events import (
     MeasurementRecorded,
     RunEnded,
@@ -21,7 +22,7 @@ from litmus.data.events import (
 from litmus.data.subscribers._output_file import OutputFile
 
 
-class JsonSubscriber:
+class JsonSubscriber(EventSubscriber):
     """EventSubscriber that writes a JSON file on close.
 
     Accumulates all events and builds a structured JSON document

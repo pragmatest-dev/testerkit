@@ -19,6 +19,8 @@ _SILENT_METHODS = frozenset({"wait_move", "is_in_motion", "stop"})
 class MotionObserver(DescriptorObserver):
     """Motion controller observer with position/velocity awareness."""
 
+    observer_protocols = ["motion"]
+
     _silent_methods = _SILENT_METHODS
 
     def __init__(

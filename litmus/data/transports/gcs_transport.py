@@ -5,13 +5,14 @@ from __future__ import annotations
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+from litmus.data.transports._base import Transport
 from litmus.data.transports._helpers import build_blob_name, require_extra
 
 if TYPE_CHECKING:
     from litmus.schemas import OutputConfig
 
 
-class GCSTransport:
+class GCSTransport(Transport):
     """Upload files to Google Cloud Storage."""
 
     transport_name = "gcs"

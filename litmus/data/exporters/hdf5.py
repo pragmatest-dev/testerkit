@@ -18,6 +18,7 @@ from typing import Any
 
 import h5py
 
+from litmus.data.event_log import EventSubscriber
 from litmus.data.events import (
     InstrumentConnected,
     MeasurementRecorded,
@@ -30,7 +31,7 @@ from litmus.data.subscribers._output_file import OutputFile
 
 # ── Event subscriber ────────────────────────────────────────────────
 
-class Hdf5Subscriber:
+class Hdf5Subscriber(EventSubscriber):
     """EventSubscriber that writes HDF5 on close."""
 
     format_name = "hdf5"

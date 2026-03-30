@@ -18,6 +18,8 @@ _CHANNEL_ADD_PREFIXES = (
 class DaqmxObserver(DriverObserver):
     """Task-based DAQ classification for nidaqmx."""
 
+    observer_protocols = ["nidaqmx"]
+
     _silent_methods = frozenset({"start", "stop", "close", "wait_until_done"})
 
     def __init__(

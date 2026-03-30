@@ -50,6 +50,11 @@ def strip_prefix(name: str, kind: ChannelKind) -> str:
 class GenericObserver(DriverObserver):
     """Prefix-based classification. Works for DIY drivers and Litmus convention."""
 
+    observer_protocols = [
+        "generic", "yaqc", "lakeshore", "epics", "seabreeze",
+        "zhinst", "dwfpy", "picosdk", "pylablib",
+    ]
+
     def __init__(
         self,
         driver_class: type,

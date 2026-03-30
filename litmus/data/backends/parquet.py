@@ -41,6 +41,7 @@ from litmus.data.backends._row_helpers import (
     build_step_manifest,
     save_ref_to_dir,
 )
+from litmus.data.event_log import EventSubscriber
 from litmus.data.models import TestRun, Waveform
 from litmus.data.ref import is_ref, ref_scheme
 from litmus.data.schemas import (
@@ -477,7 +478,7 @@ class ParquetBackend:
 
         return parquet_path
 
-class ParquetSubscriber:
+class ParquetSubscriber(EventSubscriber):
     """EventSubscriber that accumulates measurements and writes Parquet on close.
 
     Caches ``RunStarted`` for run metadata and ``InstrumentConnected``

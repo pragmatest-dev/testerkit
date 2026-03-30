@@ -13,7 +13,7 @@ from collections.abc import Callable
 from pathlib import Path
 from litmus.data.subscribers._output_file import OutputFile
 
-class MySubscriber:
+class MySubscriber(EventSubscriber):
     format_name: str          # e.g. "csv"
     event_types: set[type]    # event classes to receive
 
@@ -81,7 +81,7 @@ from litmus.data.events import (
 )
 from litmus.data.subscribers._output_file import OutputFile
 
-class MyFormatSubscriber:
+class MyFormatSubscriber(EventSubscriber):
     format_name = "my_format"
     event_types = {RunStarted, MeasurementRecorded, RunEnded}
 
@@ -140,7 +140,7 @@ class MyFormatSubscriber:
 from pathlib import Path
 from litmus.schemas import OutputConfig
 
-class InternalServerTransport:
+class InternalServerTransport(Transport):
     transport_name = "internal_server"
 
     def send(self, local_path: Path, config: OutputConfig) -> str:
@@ -152,16 +152,15 @@ class InternalServerTransport:
 
 ## Registering Custom Outputs
 
-In your `conftest.py`:
+Subclassing `EventSubscriber` or `Transport` auto-registers via `__init_subclass__`.
+For third-party packages, declare entry points in `pyproject.toml`:
 
-```python
-from litmus.data.subscribers import register_subscriber
-from litmus.data.transports import register_transport
-from my_project.subscribers.my_format import MyFormatSubscriber
-from my_project.transports.internal_server import InternalServerTransport
+```toml
+[project.entry-points."litmus.subscribers"]
+my_format = "my_project.subscribers.my_format:MyFormatSubscriber"
 
-register_subscriber(MyFormatSubscriber)
-register_transport(InternalServerTransport())
+[project.entry-points."litmus.transports"]
+internal_server = "my_project.transports.internal_server:InternalServerTransport"
 ```
 
 Then reference in `litmus.yaml`:

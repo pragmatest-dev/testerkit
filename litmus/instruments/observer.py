@@ -100,10 +100,26 @@ class DriverObserver:
     The proxy calls these hooks on every interaction. The observer
     interprets what happened and emits appropriate events. Each driver
     library gets its own observer subclass.
+
+    Subclasses set ``observer_protocols`` to auto-register::
+
+        class MyObserver(DriverObserver):
+            observer_protocols = ["mylib"]
     """
+
+    observer_protocols: list[str] = []
+    """Protocol names this observer handles. Set to auto-register."""
 
     _silent_methods: frozenset[str] = frozenset()
     """Per-subclass methods to skip (in addition to LIFECYCLE_METHODS)."""
+
+    _registry: dict[str, type[DriverObserver]] = {}
+    """Maps protocol name → observer class. Populated by __init_subclass__."""
+
+    def __init_subclass__(cls, **kwargs: Any) -> None:
+        super().__init_subclass__(**kwargs)
+        for name in cls.observer_protocols:
+            DriverObserver._registry[name] = cls
 
     def __init__(
         self,

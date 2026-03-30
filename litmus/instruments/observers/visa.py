@@ -46,6 +46,8 @@ _RAW_READ_METHODS = frozenset({"read", "read_raw", "read_bytes"})
 class VisaObserver(DriverObserver):
     """SCPI string parsing from query()/write() calls."""
 
+    observer_protocols = ["visa"]
+
     def __init__(
         self,
         driver_class: type,

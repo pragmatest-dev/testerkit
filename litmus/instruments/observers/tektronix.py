@@ -17,6 +17,8 @@ from litmus.instruments.observers.visa import parse_scpi
 class TektronixObserver(DescriptorObserver):
     """Hybrid descriptor + SCPI observer for tm_devices."""
 
+    observer_protocols = ["tektronix"]
+
     def __init__(
         self,
         driver_class: type,

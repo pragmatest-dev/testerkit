@@ -5,6 +5,7 @@ from __future__ import annotations
 import pytest
 
 from litmus.instruments.observer import DriverObserver
+from litmus.instruments.observers import detect_protocol, get_observer_class
 from litmus.instruments.observers.daqmx import DaqmxObserver
 from litmus.instruments.observers.generic import GenericObserver
 from litmus.instruments.observers.lantz import LantzObserver
@@ -14,11 +15,6 @@ from litmus.instruments.observers.ni_modular import NiModularObserver
 from litmus.instruments.observers.ophyd import OphydObserver
 from litmus.instruments.observers.pymeasure import PyMeasureObserver
 from litmus.instruments.observers.qcodes import QCodesObserver
-from litmus.instruments.observers.registry import (
-    detect_protocol,
-    get_observer_class,
-    register_observer,
-)
 from litmus.instruments.observers.scpi import ScpiObserver
 from litmus.instruments.observers.tektronix import TektronixObserver
 from litmus.instruments.observers.visa import VisaObserver
@@ -116,13 +112,11 @@ class TestGetObserverClass:
         assert get_observer_class("nonexistent") is GenericObserver
 
 
-class TestRegisterObserver:
-    def test_register_custom(self):
+class TestAutoRegistration:
+    def test_register_via_init_subclass(self):
         class CustomObserver(DriverObserver):
-            pass
+            observer_protocols = ["test_custom_proto"]
 
-        register_observer("custom_proto", CustomObserver)
-        assert get_observer_class("custom_proto") is CustomObserver
+        assert get_observer_class("test_custom_proto") is CustomObserver
         # Cleanup
-        from litmus.instruments.observers.registry import _observers
-        _observers.pop("custom_proto", None)
+        DriverObserver._registry.pop("test_custom_proto", None)

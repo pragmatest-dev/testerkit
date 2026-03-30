@@ -38,13 +38,13 @@ Mock supports:
 
 from litmus.instruments.base import Instrument
 from litmus.instruments.discovery import (
+    DiscoveryProtocol,
     discover,
     discover_and_identify,
     discover_visa,
     get_info,
     get_info_visa,
     parse_idn,
-    register_protocol,
 )
 from litmus.instruments.mocks import Mock
 from litmus.instruments.models import (
@@ -65,11 +65,11 @@ __all__ = [
     "CalibrationInfo",
     "InstrumentRecord",
     # Discovery
+    "DiscoveryProtocol",
     "discover",
     "discover_visa",
     "discover_and_identify",
     "get_info",
     "get_info_visa",
     "parse_idn",
-    "register_protocol",
 ]

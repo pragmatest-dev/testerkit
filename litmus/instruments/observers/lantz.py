@@ -18,6 +18,8 @@ from litmus.instruments.observers.descriptor import DescriptorObserver
 class LantzObserver(DescriptorObserver):
     """Lantz Feat/DictFeat descriptor observer."""
 
+    observer_protocols = ["lantz"]
+
     def __init__(
         self,
         driver_class: type,

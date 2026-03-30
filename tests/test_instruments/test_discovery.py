@@ -2,10 +2,10 @@
 
 
 from litmus.instruments.discovery import (
+    DiscoveryProtocol,
     get_protocol,
     list_protocols,
     parse_idn,
-    register_protocol,
 )
 from litmus.instruments.models import InstrumentInfo
 
@@ -93,34 +93,34 @@ class TestProtocolRegistry:
         """get_protocol returns functions for registered protocols."""
         handler = get_protocol("visa")
         assert handler is not None
-        discover_fn, get_info_fn = handler
-        assert callable(discover_fn)
-        assert callable(get_info_fn)
+        assert callable(handler.discover)
+        assert callable(handler.get_info)
 
     def test_get_protocol_unknown(self):
         """get_protocol returns None for unknown protocol."""
         assert get_protocol("unknown_protocol_xyz") is None
 
     def test_register_custom_protocol(self):
-        """Custom protocols can be registered."""
+        """Custom protocols auto-register via __init_subclass__."""
 
-        def my_discover():
-            return ["CUSTOM::1", "CUSTOM::2"]
+        class CustomDiscovery(DiscoveryProtocol):
+            name = "custom_test"
 
-        def my_get_info(resource):
-            return InstrumentInfo(manufacturer="Custom", model=resource)
+            def discover(self) -> list[str]:
+                return ["CUSTOM::1", "CUSTOM::2"]
 
-        register_protocol("custom_test", my_discover, my_get_info)
+            def get_info(self, resource: str) -> InstrumentInfo | None:
+                return InstrumentInfo(manufacturer="Custom", model=resource)
 
-        # Verify registration
+        # Verify auto-registration
         handler = get_protocol("custom_test")
         assert handler is not None
 
-        discover_fn, get_info_fn = handler
-        resources = discover_fn()
+        resources = handler.discover()
         assert resources == ["CUSTOM::1", "CUSTOM::2"]
 
-        info = get_info_fn("CUSTOM::1")
+        info = handler.get_info("CUSTOM::1")
+        assert info is not None
         assert info.manufacturer == "Custom"
         assert info.model == "CUSTOM::1"
 

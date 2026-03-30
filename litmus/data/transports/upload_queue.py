@@ -112,7 +112,7 @@ def enqueue(
 
 def drain(results_dir: str = "results", max_attempts: int = 3) -> int:
     """Process all pending/failed rows. Returns count of successfully uploaded items."""
-    from litmus.data.transports._registry import get_transport
+    from litmus.data.transports._base import get_transport
 
     with _db_connection(results_dir) as con:
         rows = con.execute(

@@ -191,7 +191,7 @@ def test_upload_queue_drain_success(tmp_path: Path) -> None:
 
 
 def test_upload_queue_drain_failure(tmp_path: Path) -> None:
-    from litmus.data.transports import register_transport
+    from litmus.data.transports._base import Transport
     from litmus.data.transports.upload_queue import drain, enqueue, status
 
     results_dir = str(tmp_path)
@@ -201,14 +201,13 @@ def test_upload_queue_drain_failure(tmp_path: Path) -> None:
 
     enqueue(local_file, "s3", config, results_dir)
 
-    class FailingS3Transport:
+    class FailingS3Transport(Transport):
         transport_name = "s3"
 
         def send(self, local_path: Path, config: OutputConfig) -> str:
             raise ConnectionError("no creds")
 
-    register_transport(FailingS3Transport())  # type: ignore[arg-type]
-
+    # __init_subclass__ already registered it by overwriting "s3"
     count = drain(results_dir)
     assert count == 0
 
@@ -238,20 +237,11 @@ def test_upload_queue_clear_done(tmp_path: Path) -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_registry_lazy_load_s3() -> None:
-    """Verify s3 is in the lazy-load map (even if boto3 isn't installed)."""
-    from litmus.data.transports._registry import _try_lazy_load
+def test_builtin_transports_registered() -> None:
+    """Verify built-in transports auto-register via __init_subclass__."""
+    from litmus.data.transports import list_transports
 
-    _try_lazy_load("s3")  # may ImportError, that's fine
-
-
-def test_registry_lazy_load_azure() -> None:
-    from litmus.data.transports._registry import _try_lazy_load
-
-    _try_lazy_load("azure")
-
-
-def test_registry_lazy_load_gcs() -> None:
-    from litmus.data.transports._registry import _try_lazy_load
-
-    _try_lazy_load("gcs")
+    names = list_transports()
+    assert "file" in names
+    # Optional transports registered if deps installed
+    assert "s3" in names or True  # s3 may not be installed

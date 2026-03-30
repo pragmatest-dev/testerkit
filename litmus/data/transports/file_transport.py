@@ -6,11 +6,13 @@ import shutil
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+from litmus.data.transports._base import Transport
+
 if TYPE_CHECKING:
     from litmus.schemas import OutputConfig
 
 
-class FileTransport:
+class FileTransport(Transport):
     """Copy a file to a local or network directory."""
 
     transport_name = "file"

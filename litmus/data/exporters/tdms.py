@@ -26,6 +26,7 @@ from typing import Any
 import numpy as np
 from nptdms import ChannelObject, GroupObject, RootObject, TdmsWriter
 
+from litmus.data.event_log import EventSubscriber
 from litmus.data.events import (
     MeasurementRecorded,
     RunEnded,
@@ -162,7 +163,7 @@ def _build_step_channels(
 
 # ── Event subscriber ────────────────────────────────────────────────
 
-class TdmsSubscriber:
+class TdmsSubscriber(EventSubscriber):
     """EventSubscriber that writes NI TDMS on close."""
 
     format_name = "tdms"

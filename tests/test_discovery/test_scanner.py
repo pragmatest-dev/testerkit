@@ -1,10 +1,10 @@
 """Tests for instrument discovery functions."""
 
 from litmus.instruments.discovery import (
+    DiscoveryProtocol,
     get_protocol,
     list_protocols,
     parse_idn,
-    register_protocol,
 )
 from litmus.instruments.models import InstrumentInfo
 
@@ -50,25 +50,27 @@ class TestProtocolRegistry:
     def test_get_registered_protocol(self):
         handler = get_protocol("visa")
         assert handler is not None
-        discover_fn, get_info_fn = handler
-        assert callable(discover_fn)
-        assert callable(get_info_fn)
+        assert callable(handler.discover)
+        assert callable(handler.get_info)
 
     def test_get_unregistered_protocol(self):
         assert get_protocol("nonexistent") is None
 
     def test_register_custom_protocol(self):
-        def my_discover():
-            return ["CUSTOM::1"]
+        class ScannerCustom(DiscoveryProtocol):
+            name = "scanner_test_custom"
 
-        def my_get_info(resource):
-            return InstrumentInfo(manufacturer="Custom")
+            def discover(self) -> list[str]:
+                return ["CUSTOM::1"]
 
-        register_protocol("test_custom", my_discover, my_get_info)
-        assert "test_custom" in list_protocols()
+            def get_info(self, resource: str) -> InstrumentInfo | None:
+                return InstrumentInfo(manufacturer="Custom")
 
-        handler = get_protocol("test_custom")
+        assert "scanner_test_custom" in list_protocols()
+
+        handler = get_protocol("scanner_test_custom")
         assert handler is not None
-        discover_fn, get_info_fn = handler
-        assert discover_fn() == ["CUSTOM::1"]
-        assert get_info_fn("CUSTOM::1").manufacturer == "Custom"
+        assert handler.discover() == ["CUSTOM::1"]
+        info = handler.get_info("CUSTOM::1")
+        assert info is not None
+        assert info.manufacturer == "Custom"
