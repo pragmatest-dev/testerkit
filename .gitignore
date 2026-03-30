@@ -13,6 +13,7 @@ dist/
 demo/uv.lock
 dist/
 .playwright-mcp/
+report_*.html
 
 # Datasheets and research PDFs (large files, managed separately)
 agent-os/specs/*/research/pdfs/
