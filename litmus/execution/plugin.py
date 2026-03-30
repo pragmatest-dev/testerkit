@@ -431,6 +431,11 @@ def pytest_configure(config):
         "markers",
         "litmus_skip_on(dependencies): Skip if dependencies failed",
     )
+    # @litmus_test returns TestStep for programmatic callers; suppress pytest warning
+    config.addinivalue_line(
+        "filterwarnings",
+        "ignore::pytest.PytestReturnNotNoneWarning",
+    )
 
     # Auto-register instrument role fixtures from station config
     station_path = _find_station_file(config)
