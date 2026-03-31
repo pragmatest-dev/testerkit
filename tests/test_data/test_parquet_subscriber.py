@@ -239,7 +239,10 @@ class TestParquetSubscriber:
             session_id=session_id, run_id=run_id, outcome="pass",
         ))
 
-        pq_files = list((tmp_path / "results" / "runs").rglob("*.parquet"))
+        pq_files = [
+            f for f in (tmp_path / "results" / "runs").rglob("*.parquet")
+            if not f.stem.endswith("_steps")
+        ]
         manifest = read_step_results(pq_files[0])
         assert len(manifest) == 2
         assert manifest[0]["name"] == "test_voltage"

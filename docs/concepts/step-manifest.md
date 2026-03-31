@@ -44,32 +44,67 @@ StepsDiscovered event  ──► EventLog.emit()
     ▼                           ▼
 ParquetSubscriber          Arrow IPC file
     │
-    ▼
-step_results in Parquet file-level metadata
+    ├──► measurements.parquet       (one row per measurement)
+    └──► measurements_steps.parquet (one row per step — NEW)
 ```
 
-The `ParquetSubscriber` caches the collected items in memory. When the run ends, it builds step results: executed steps get real outcomes, and any items that never produced a `StepStarted` event get `not_started` status. The combined list is stored in Parquet metadata under the `step_results` key.
+The `ParquetSubscriber` caches the collected items in memory. When the run ends, it builds step results: executed steps get real outcomes and timing, and any items that never produced a `StepStarted` event get `not_started` status. Steps are written as a sibling `_steps.parquet` file alongside the measurements Parquet.
+
+## Storage
+
+Steps are stored in a dedicated Parquet file with one row per step:
+
+```
+results/runs/{date}/
+├── {timestamp}_{serial}.parquet           # measurements
+└── {timestamp}_{serial}_steps.parquet     # steps
+```
+
+Key columns: `name`, `outcome`, `started_at`, `ended_at`, `duration_s`,
+`measurement_count`, plus denormalized run context (`run_id`, `dut_serial`,
+`station_id`). Full schema in [Parquet Schema Reference](../reference/parquet-schema.md#steps-schema-_stepsparquet).
+
+Legacy files (before this feature) store step results as JSON in Parquet
+file-level metadata. The `read_step_results()` function checks for the
+sibling file first and falls back to metadata automatically.
 
 ## `not_started` Status
 
 After `RunEnded`, the subscriber compares the discovered items against actually-executed steps. Missing steps get synthetic entries with:
 
 - `outcome`: `"not_started"`
-- All measurement fields: `None`
+- All timing fields: `None`
 - Step metadata: populated from the collected item
 
-This means every Parquet file has a complete picture — executed steps with real data, plus `not_started` entries for steps that were planned but never ran.
+This means every result has a complete picture — executed steps with real data, plus `not_started` entries for steps that were planned but never ran.
 
 ## Querying Step Results
 
-From Parquet files:
+With DuckDB (SQL on Parquet files):
+
+```sql
+-- Step summary for a run
+SELECT name, outcome, duration_s, measurement_count
+FROM 'results/runs/**/*_steps.parquet'
+WHERE run_id = 'abc123'
+ORDER BY index
+
+-- Find steps that are frequently skipped
+SELECT name, COUNT(*) AS total,
+       SUM(CASE WHEN outcome = 'not_started' THEN 1 ELSE 0 END) AS never_ran
+FROM 'results/runs/**/*_steps.parquet'
+GROUP BY name
+HAVING never_ran > 0
+```
+
+From Python:
 
 ```python
 from litmus.data.backends.parquet import read_step_results
 
 results = read_step_results(Path("results/runs/2026-03-10/run.parquet"))
 for step in results:
-    print(f"{step['name']}: {step['outcome']}")
+    print(f"{step['name']}: {step['outcome']} ({step.get('duration_s', '?')}s)")
 ```
 
 From the event store:

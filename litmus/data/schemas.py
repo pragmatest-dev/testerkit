@@ -20,6 +20,7 @@ logger = logging.getLogger(__name__)
 __all__ = [
     "MEASUREMENT_SCHEMA",
     "SCHEMA_VERSION",
+    "STEP_SCHEMA",
     "_INSTR_ARRAY_TYPES",
     "_SCHEMA_DICT",
     "_build_write_schema",
@@ -106,6 +107,61 @@ MEASUREMENT_SCHEMA = pa.schema([
     ("python_version", pa.string()),
     ("litmus_version", pa.string()),
     ("env_fingerprint", pa.string()),
+])
+
+STEP_SCHEMA = pa.schema([
+    # Step identity
+    ("index", pa.int32()),
+    ("name", pa.string()),
+    ("node_id", pa.string()),
+    ("file", pa.string()),
+    ("function", pa.string()),
+    ("class", pa.string()),
+    ("module", pa.string()),
+    ("step_path", pa.string()),
+    ("description", pa.string()),
+    ("markers", pa.string()),
+    # Execution
+    ("outcome", pa.string()),
+    ("started_at", pa.timestamp("us", tz="UTC")),
+    ("ended_at", pa.timestamp("us", tz="UTC")),
+    ("duration_s", pa.float64()),
+    # Counts
+    ("has_measurements", pa.bool_()),
+    ("measurement_count", pa.int32()),
+    ("vector_count", pa.int32()),
+    # Run context (denormalized — matches measurement schema)
+    ("run_id", pa.string()),
+    ("session_id", pa.string()),
+    ("slot_id", pa.string()),
+    ("run_started_at", pa.timestamp("us", tz="UTC")),
+    ("run_ended_at", pa.timestamp("us", tz="UTC")),
+    # Who
+    ("operator_id", pa.string()),
+    ("operator_name", pa.string()),
+    # DUT
+    ("dut_serial", pa.string()),
+    ("dut_part_number", pa.string()),
+    ("dut_revision", pa.string()),
+    ("dut_lot_number", pa.string()),
+    # Product
+    ("product_id", pa.string()),
+    ("product_name", pa.string()),
+    ("product_revision", pa.string()),
+    # Station
+    ("station_id", pa.string()),
+    ("station_name", pa.string()),
+    ("station_type", pa.string()),
+    ("station_location", pa.string()),
+    ("station_hostname", pa.string()),
+    # Fixture
+    ("fixture_id", pa.string()),
+    # Test context
+    ("sequence_id", pa.string()),
+    ("test_phase", pa.string()),
+    ("git_commit", pa.string()),
+    ("git_branch", pa.string()),
+    ("git_remote", pa.string()),
 ])
 
 _SCHEMA_DICT = {f.name: f.type for f in MEASUREMENT_SCHEMA}

@@ -387,6 +387,20 @@ class ParquetBackend:
 
         return list(vectors_seen.values())
 
+    def get_steps(self, run_id: str) -> list[dict[str, Any]]:
+        """Get step results for a run from _steps.parquet or metadata."""
+        from litmus.data.run_store import RunStore
+
+        run_store = RunStore(_results_dir=self.results_dir)
+        try:
+            pq_file = run_store.find_run_file(run_id)
+        finally:
+            run_store.close()
+
+        if pq_file is None:
+            return []
+        return read_step_results(Path(pq_file))
+
     def get_run_metadata(self, run_id: str) -> dict[str, str] | None:
         """Get file-level metadata (config snapshots) for a run."""
         from litmus.data.run_store import RunStore
@@ -754,9 +768,96 @@ class ParquetSubscriber(EventSubscriber):
             dut_serial=s.dut_serial,
             file_metadata=self._build_file_metadata(),
         )
+        self._write_steps_parquet(pq_path)
         if self._on_output:
             run_id = str(s.run_id) if s.run_id else None
             self._on_output(OutputFile(path=pq_path, format="parquet", run_id=run_id))
+
+    def _write_steps_parquet(self, measurements_path: Path) -> None:
+        """Write sibling _steps.parquet alongside the measurements file."""
+        from litmus.data.schemas import STEP_SCHEMA
+
+        step_results = self._build_step_results_from_events()
+        if not step_results:
+            return
+
+        s = self._run_started
+        if not s:
+            return
+
+        # Build rows with run context denormalized
+        rows: list[dict[str, Any]] = []
+        for entry in step_results:
+            started_at = entry.get("started_at")
+            ended_at = entry.get("ended_at")
+            if isinstance(started_at, str):
+                started_at = datetime.fromisoformat(started_at)
+            if isinstance(ended_at, str):
+                ended_at = datetime.fromisoformat(ended_at)
+            duration_s = (
+                (ended_at - started_at).total_seconds()
+                if started_at and ended_at
+                else None
+            )
+            rows.append({
+                # Step identity
+                "index": entry.get("index"),
+                "name": entry.get("name"),
+                "node_id": entry.get("node_id"),
+                "file": entry.get("file"),
+                "function": entry.get("function"),
+                "class": entry.get("class"),
+                "module": entry.get("module"),
+                "step_path": entry.get("step_path"),
+                "description": entry.get("description"),
+                "markers": entry.get("markers"),
+                # Execution
+                "outcome": entry.get("outcome"),
+                "started_at": started_at,
+                "ended_at": ended_at,
+                "duration_s": duration_s,
+                # Counts
+                "has_measurements": entry.get("has_measurements", False),
+                "measurement_count": entry.get("measurement_count", 0),
+                "vector_count": entry.get("vector_count", 0),
+                # Run context
+                "run_id": str(s.run_id) if s.run_id else None,
+                "session_id": str(s.session_id),
+                "slot_id": s.slot_id,
+                "run_started_at": s.occurred_at,
+                "run_ended_at": None,  # filled by caller if available
+                # Who
+                "operator_id": s.operator_id,
+                "operator_name": s.operator_name,
+                # DUT
+                "dut_serial": s.dut_serial,
+                "dut_part_number": s.dut_part_number,
+                "dut_revision": s.dut_revision,
+                "dut_lot_number": s.dut_lot_number,
+                # Product
+                "product_id": s.product_id,
+                "product_name": s.product_name,
+                "product_revision": s.product_revision,
+                # Station
+                "station_id": s.station_id,
+                "station_name": s.station_name,
+                "station_type": s.station_type,
+                "station_location": s.station_location,
+                "station_hostname": s.station_hostname,
+                # Fixture & test context
+                "fixture_id": s.fixture_id,
+                "sequence_id": s.sequence_id,
+                "test_phase": s.test_phase,
+                "git_commit": s.git_commit,
+                "git_branch": s.git_branch,
+                "git_remote": s.git_remote,
+            })
+
+        table = pa.Table.from_pylist(rows, schema=STEP_SCHEMA)
+        steps_path = measurements_path.with_name(
+            measurements_path.stem + "_steps.parquet"
+        )
+        atomic_write_table(table, steps_path)
 
     def _build_file_metadata(self) -> dict[bytes, bytes]:
         """Build Parquet file-level metadata from cached session."""
@@ -778,6 +879,13 @@ class ParquetSubscriber(EventSubscriber):
         """
         manifest: list[dict[str, Any]] = []
         executed_node_ids: set[str] = set()
+
+        # Build node_id → markers lookup from collected items
+        markers_by_node: dict[str, str | None] = {}
+        for ci in self._collected_items:
+            nid = ci.get("node_id")
+            if nid:
+                markers_by_node[nid] = ci.get("markers")
 
         # Pre-compute measurement counts per step index (avoids O(M*N) scan)
         meas_counts: dict[int, int] = {}
@@ -802,6 +910,7 @@ class ParquetSubscriber(EventSubscriber):
                 "module": start.module if start else None,
                 "step_path": start.step_path if start else (end.step_path if end else ""),
                 "description": start.description if start else None,
+                "markers": markers_by_node.get(node_id or "", None),
                 "outcome": end.outcome if end else None,
                 "started_at": start.occurred_at.isoformat() if start else None,
                 "ended_at": end.occurred_at.isoformat() if end else None,
@@ -897,10 +1006,25 @@ def load_file(parquet_path: Path, ref: str) -> Any:
 
 
 def read_step_results(parquet_path: Path) -> list[dict[str, Any]]:
-    """Read step results from Parquet file-level metadata.
+    """Read step results from sibling _steps.parquet or file-level metadata.
+
+    Checks for ``{stem}_steps.parquet`` first (new format). Falls back to
+    JSON in file-level metadata (legacy format).
 
     Returns an empty list if no step results are stored.
     """
+    # Try sibling _steps.parquet first
+    steps_path = parquet_path.with_name(
+        parquet_path.stem + "_steps.parquet"
+    )
+    if steps_path.exists():
+        try:
+            table = pq.read_table(steps_path)
+            return table.to_pylist()
+        except (OSError, pa.ArrowInvalid):
+            pass
+
+    # Fall back to JSON metadata (legacy files)
     try:
         pf = pq.ParquetFile(parquet_path)
         raw_metadata = pf.schema_arrow.metadata or {}

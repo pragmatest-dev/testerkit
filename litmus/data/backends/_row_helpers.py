@@ -464,6 +464,11 @@ def build_step_manifest(test_run: TestRun) -> list[dict[str, Any]]:
             "outcome": step.outcome.value if step.outcome else None,
             "started_at": step.started_at.isoformat() if step.started_at else None,
             "ended_at": step.ended_at.isoformat() if step.ended_at else None,
+            "duration_s": (
+                (step.ended_at - step.started_at).total_seconds()
+                if step.started_at and step.ended_at
+                else None
+            ),
             "has_measurements": measurement_count > 0,
             "measurement_count": measurement_count,
             "vector_count": vector_count,

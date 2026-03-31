@@ -19,12 +19,13 @@ This is captured automatically—no user effort required.
 
 ```
 results/runs/{date}/
-├── {timestamp}_{serial}.parquet     # With serial (production)
-├── {timestamp}.parquet              # Without serial (dev/debug)
-└── {timestamp}_{serial}_ref/        # Reference data (waveforms, images, files)
-    ├── {vector_id}_scope_waveform.npz    # Waveform data
-    ├── {vector_id}_camera_image.png      # Image file
-    ├── {vector_id}_debug_log.txt         # Log file
+├── {timestamp}_{serial}.parquet           # Measurements (one row per measurement)
+├── {timestamp}_{serial}_steps.parquet     # Steps (one row per step)
+├── {timestamp}.parquet                    # Without serial (dev/debug)
+├── {timestamp}_steps.parquet              # Steps without serial
+└── {timestamp}_{serial}_ref/              # Reference data (waveforms, images, files)
+    ├── {vector_id}_scope_waveform.npz
+    ├── {vector_id}_camera_image.png
     └── ...
 ```
 
@@ -288,6 +289,75 @@ These become columns in the Parquet file:
 - `operator_badge`
 - `fixture_serial`
 - `ambient_temp`
+
+## Steps Schema (`_steps.parquet`)
+
+One row per step (including steps that never executed). Sibling file alongside the measurements Parquet. Queryable with DuckDB independently.
+
+### Step Identity
+
+| Column | Type | Description |
+|--------|------|-------------|
+| `index` | int32 | 0-based step order |
+| `name` | string | Test function name |
+| `node_id` | string | pytest node ID (`tests/test_power.py::test_voltage`) |
+| `file` | string | Source file path |
+| `function` | string | Function name |
+| `class` | string | Class name (nullable) |
+| `module` | string | Module name |
+| `step_path` | string | Full path (`parent::child`) |
+| `description` | string | Step description (nullable) |
+
+### Execution
+
+| Column | Type | Description |
+|--------|------|-------------|
+| `outcome` | string | `pass`, `fail`, `error`, `skip`, `not_started` |
+| `started_at` | timestamp | Step start time (null for not_started) |
+| `ended_at` | timestamp | Step end time (null for not_started) |
+| `duration_s` | float64 | Wall-clock duration in seconds |
+
+### Counts
+
+| Column | Type | Description |
+|--------|------|-------------|
+| `has_measurements` | bool | True if step produced measurements |
+| `measurement_count` | int32 | Number of measurements recorded |
+| `vector_count` | int32 | Number of test vectors |
+
+### Run Context (denormalized)
+
+| Column | Type | Description |
+|--------|------|-------------|
+| `run_id` | string | UUID of the test run |
+| `session_id` | string | UUID of the session |
+| `dut_serial` | string | DUT serial number |
+| `station_id` | string | Station config ID |
+| `run_started_at` | timestamp | When the run started |
+
+### Example Query
+
+```sql
+-- Step execution summary for a run
+SELECT name, outcome, duration_s, measurement_count
+FROM 'results/runs/**/*_steps.parquet'
+WHERE run_id = 'abc123'
+ORDER BY index
+
+-- Find slowest steps across all runs
+SELECT name, AVG(duration_s) AS avg_s, COUNT(*) AS runs
+FROM 'results/runs/**/*_steps.parquet'
+WHERE outcome != 'not_started'
+GROUP BY name
+ORDER BY avg_s DESC
+
+-- Coverage: which steps are never reached?
+SELECT name, COUNT(*) AS total,
+       SUM(CASE WHEN outcome = 'not_started' THEN 1 ELSE 0 END) AS never_ran
+FROM 'results/runs/**/*_steps.parquet'
+GROUP BY name
+HAVING never_ran > 0
+```
 
 ## File-Level Metadata
 
