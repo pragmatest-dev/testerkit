@@ -21,8 +21,8 @@ PATTERNS DEMONSTRATED:
 - Pattern 2: Multiple vectors with retry
 - Pattern 3: Explicit vector list
 - Pattern 4: Product expansion (Cartesian product)
-- Pattern 5: Nested loops with change detection
-- Pattern 6: Range expansion
+- Pattern 5: Product with change detection
+- Pattern 6: Range string expansion
 - Pattern 7: Multiple measurements (dict return)
 - Pattern 8: One-sided limits (max only)
 - Pattern 9: Streaming measurements (yield)
@@ -45,8 +45,8 @@ Run with:
 import random
 import time
 
+from demo.drivers import DMM, PSU, ELoad, Scope
 from litmus.execution import litmus_test
-from demo.drivers import DMM, ELoad, PSU, Scope
 
 
 # =============================================================================
@@ -205,16 +205,14 @@ def test_load_sweep(context, psu: PSU, dmm: DMM, eload: ELoad):
 
 
 # =============================================================================
-# Pattern 5: Nested Loops with Change Detection
+# Pattern 5: Product with Change Detection
 # =============================================================================
 @litmus_test(
     config={
         "vectors": {
-            "expand": "nested",
-            "loops": [
-                {"name": "temperature", "values": [-20, 25, 55, 85]},
-                {"name": "load_current", "values": [0.1, 0.3, 0.5, 0.7, 0.8]},
-            ],
+            "expand": "product",
+            "temperature": [-20, 25, 55, 85],
+            "load_current": [0.1, 0.3, 0.5, 0.7, 0.8],
         },
         "limits": {
             "output_voltage": {
@@ -225,7 +223,7 @@ def test_load_sweep(context, psu: PSU, dmm: DMM, eload: ELoad):
     }
 )
 def test_temp_load_matrix(context, psu: PSU, dmm: DMM, eload: ELoad):
-    """Full characterization matrix with nested loops.
+    """Full characterization matrix with product expansion.
 
     4×5 = 20 vectors. Uses context.changed() for outer parameter changes.
     """
@@ -251,14 +249,13 @@ def test_temp_load_matrix(context, psu: PSU, dmm: DMM, eload: ELoad):
 
 
 # =============================================================================
-# Pattern 6: Range Expansion
+# Pattern 6: Range String Expansion
 # =============================================================================
 @litmus_test(
     config={
         "vectors": {
-            "expand": "range",
-            "name": "vin",
-            "start": 4.5, "stop": 5.5, "step": 0.1,
+            "expand": "product",
+            "vin": "4.5:5.5:0.1",
         },
         "limits": {
             "output_voltage": {
@@ -269,7 +266,7 @@ def test_temp_load_matrix(context, psu: PSU, dmm: DMM, eload: ELoad):
     }
 )
 def test_line_regulation(context, psu: PSU, dmm: DMM, eload: ELoad):
-    """Sweep input voltage using range expansion (4.5V to 5.5V, 0.1V steps)."""
+    """Sweep input voltage using range string (4.5V to 5.5V, 0.1V steps)."""
     vin = context.inputs["vin"]
 
     psu.set_voltage(vin)

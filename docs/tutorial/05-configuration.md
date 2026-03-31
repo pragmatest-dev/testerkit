@@ -150,17 +150,14 @@ vectors:
 # Creates 3 vectors: (3.3, 0.1), (5.0, 0.5), (12.0, 1.0)
 ```
 
-### range (Numeric)
+### Range strings (Numeric sweeps)
 
-Generate a numeric sequence:
+Use a compact `"start:stop:step"` string anywhere a list is expected:
 
 ```yaml
 vectors:
-  expand: range
-  name: voltage
-  start: 3.0
-  stop: 5.0
-  step: 0.5
+  expand: product
+  voltage: "3.0:5.0:0.5"
 # Creates: 3.0, 3.5, 4.0, 4.5, 5.0
 ```
 
@@ -178,21 +175,16 @@ vectors:
     load: 0.5
 ```
 
-### nested (With Change Detection)
+### Product with Change Detection
 
-Nested loops with slow outer parameters:
+Put slow-changing parameters first. Use `context.changed()` to detect outer loop changes:
 
 ```yaml
 vectors:
-  expand: nested
-  loops:
-    - name: temperature
-      values: [25, 85]      # Outer (changes slowly)
-    - name: load
-      values: [0.1, 0.5]    # Inner (changes fast)
+  expand: product
+  temperature: [25, 85]      # Outer (changes slowly)
+  load: [0.1, 0.5]           # Inner (changes fast)
 ```
-
-Use `context.changed()` to detect outer loop changes:
 
 ```python
 @litmus_test
@@ -291,9 +283,9 @@ pytest tests/ --sequence=power_board_smoke --station=bench_1 -v
 
 - Config lives in sequence steps (primary) or inline decorators (fallback)
 - Sequence step config replaces decorator config entirely
-- Vector expansion modes (product, zip, range, nested)
+- Vector expansion modes (product, zip, range strings, recursive sub-blocks)
 - Accessing vector parameters via context.inputs and context.get_in()
-- Using context.changed() for nested loops
+- Using context.changed() for product sweeps
 - Retry configuration
 
 ## Next Step

@@ -21,10 +21,7 @@ except ImportError:
         return {}
 from litmus.execution.vectors import (
     Vector,
-    expand_list,
-    expand_nested,
     expand_product,
-    expand_range,
     expand_vectors,
     expand_zip,
 )
@@ -37,10 +34,7 @@ __all__ = [
     "Context",
     # Vectors
     "Vector",
-    "expand_list",
-    "expand_nested",
     "expand_product",
-    "expand_range",
     "expand_vectors",
     "expand_zip",
     # Decorators

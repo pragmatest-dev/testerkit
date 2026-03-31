@@ -204,11 +204,9 @@ class TestLitmusTestDecoratorWithInstruments:
         """Test that context.changed() works in decorated function."""
         config = {
             "vectors": {
-                "expand": "nested",
-                "loops": [
-                    {"name": "temp", "values": [25, 85]},
-                    {"name": "volt", "values": [3.3, 5.0]},
-                ]
+                "expand": "product",
+                "temp": [25, 85],
+                "volt": [3.3, 5.0],
             }
         }
 

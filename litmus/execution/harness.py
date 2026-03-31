@@ -447,11 +447,7 @@ class TestHarness:
         vectors_config = self._config.get("vectors", {})
         if isinstance(vectors_config, list):
             # Explicit list of vectors
-            self._vectors = expand_vectors({"expand": None})
-            # Re-expand with the list
-            from litmus.execution.vectors import expand_list
-
-            self._vectors = expand_list(vectors_config)
+            self._vectors = expand_vectors(vectors_config)
         elif vectors_config:
             self._vectors = expand_vectors(vectors_config)
         else:

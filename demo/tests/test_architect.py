@@ -245,17 +245,15 @@ class TestDirectHarness:
     def test_with_change_detection(self, psu, dmm, eload, litmus_logger):
         """Use vector.changed() to optimize slow operations.
 
-        Nested loops where outer param changes slowly - only
+        Product expansion where outer param changes slowly - only
         reconfigure when it changes.
         """
         harness = TestHarness(
             config={
                 "vectors": {
-                    "expand": "nested",
-                    "loops": [
-                        {"name": "vin", "values": [4.75, 5.0, 5.5]},
-                        {"name": "load", "values": [0.1, 0.5]},
-                    ],
+                    "expand": "product",
+                    "vin": [4.75, 5.0, 5.5],
+                    "load": [0.1, 0.5],
                 },
                 "limits": {
                     "vout": {"low": 3.1, "high": 3.5, "nominal": 3.3, "units": "V"},

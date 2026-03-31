@@ -212,12 +212,9 @@ test_output_full_load:
       spec_ref: "output_voltage @ load_ma=1000, guardband=10%"
 
 test_load_sweep:
-  contexts:
-    expand: range
-    load_ma:
-      start: 0
-      stop: 1000
-      step: 100
+  vectors:
+    expand: product
+    load_ma: "0:1000:100"
   limits:
     output_voltage:
       low: 3.1

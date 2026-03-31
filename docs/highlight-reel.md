@@ -124,8 +124,9 @@ def test_full_sweep(context, psu: PSU, dmm: DMM, eload: ELoad):
     ...
 ```
 
-Four expansion modes: `product` (Cartesian), `zip` (lock-step),
-`range` (single parameter sweep), `nested` (explicit loop ordering).
+Two expansion modes: `product` (Cartesian) and `zip` (lock-step).
+Range strings (`"start:stop:step"`) work anywhere a list is expected.
+Recursive `vectors` sub-blocks compose product and zip at different levels.
 
 ---
 

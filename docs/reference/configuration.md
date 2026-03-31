@@ -147,7 +147,7 @@ steps:
 
     # Test config (overrides inline decorator config)
     vectors:                  # Parameter combinations (same syntax as inline)
-      expand: product | zip | range | nested
+      expand: product | zip
       <param>: [values]
     limits:                   # Measurement limits
       <measurement_name>:
@@ -290,27 +290,24 @@ vectors:
 # Creates 3 vectors: (3.3, 0.1), (5.0, 0.5), (12.0, 1.0)
 ```
 
-**range** — Numeric range:
+**Range strings** — Compact numeric sweeps (anywhere a list is expected):
 ```yaml
 vectors:
-  expand: range
-  voltage:
-    start: 3.0
-    stop: 5.0
-    step: 0.5
+  expand: product
+  voltage: "3.0:5.0:0.5"
 # Creates: 3.0, 3.5, 4.0, 4.5, 5.0
 ```
 
-**nested** — Nested loops with change detection:
+**Recursive sub-blocks** — Compose product and zip:
 ```yaml
 vectors:
-  expand: nested
-  loops:
-    - name: temperature   # Outer loop (changes less frequently)
-      values: [25, 85]
-    - name: load          # Inner loop
-      values: [0, 50, 100]
-# Creates 6 vectors, temperature changes every 3 iterations
+  expand: product
+  temperature: [25, 85]          # Outer loop (changes slowly)
+  vectors:
+    expand: zip
+    voltage: [3.3, 5.0, 12.0]
+    expected: [3.2, 4.9, 11.8]  # Paired with voltage
+# Creates 6 vectors: 2 temps x 3 zipped pairs
 ```
 
 ## Instrument Library

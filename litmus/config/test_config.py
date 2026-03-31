@@ -590,9 +590,10 @@ class VectorConfig(BaseModel):
 
     Supports multiple expansion modes:
     - Explicit list: Just a list of parameter dicts
-    - product: Cartesian product of parameters
+    - product: Cartesian product of parameters (default)
     - zip: Parallel iteration of parameters
-    - nested: Nested loops with fine-grained control
+
+    Recursive composition via the ``vectors`` key:
 
     Example YAML (product):
         vectors:
@@ -600,18 +601,22 @@ class VectorConfig(BaseModel):
           voltage: [3.3, 5.0, 12.0]
           current: [0.1, 0.5, 1.0]
 
-    Example YAML (nested):
+    Example YAML (product with zip sub-block):
         vectors:
-          expand: nested
-          loops:
-            - name: temperature
-              values: [-40, 25, 85]
-            - name: voltage
-              range: { start: 3.0, stop: 3.6, step: 0.1 }
+          expand: product
+          temperature: [-40, 25, 85]
+          vectors:
+            expand: zip
+            voltage: [3.3, 5.0]
+            expected: [3.2, 4.9]
+
+    Range strings work anywhere a list is expected:
+        vectors:
+          expand: product
+          vin: "4.5:5.5:0.1"
     """
 
-    expand: Literal["product", "zip", "nested"] | None = None
-    loops: list[LoopVariableConfig | ZippedLoopConfig] | None = None
+    expand: Literal["product", "zip"] | None = None
     # For product/zip modes, parameters are stored as extra fields
 
 

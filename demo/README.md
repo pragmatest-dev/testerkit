@@ -151,26 +151,20 @@ vectors:
 # Result: 9 vectors (3×3)
 ```
 
-### Nested Loops
+### Product with Change Detection
 ```yaml
 vectors:
-  expand: nested
-  loops:
-    - name: temperature
-      values: [25, 85]      # Outer (slow)
-    - name: load
-      values: [0.1, 0.5]    # Inner (fast)
+  expand: product
+  temperature: [25, 85]      # Outer (slow)
+  load: [0.1, 0.5]           # Inner (fast)
 # Result: 4 vectors, temperature changes first
 ```
 
-### Range
+### Range Strings
 ```yaml
 vectors:
-  expand: range
-  name: vin
-  start: 4.5
-  stop: 6.0
-  step: 0.5
+  expand: product
+  vin: "4.5:6.0:0.5"
 # Result: [4.5, 5.0, 5.5, 6.0]
 ```
 
@@ -438,8 +432,8 @@ table = dataset.to_table(filter=ds.field("step_name") == "test_load_sweep")
 | Retry | `config.yaml` | `test_output_voltage_full_load` |
 | Explicit list | `config.yaml` | `test_load_regulation` |
 | Product expansion | `config.yaml` | `test_load_sweep` |
-| Nested loops | `config.yaml` | `test_temp_load_matrix` |
-| Range expansion | `config.yaml` | `test_line_regulation` |
+| Product sweep | `config.yaml` | `test_temp_load_matrix` |
+| Range string | `config.yaml` | `test_line_regulation` |
 | Dict return | `test_power_board.py` | `test_power_analysis` |
 | Yield streaming | `test_power_board.py` | `test_stability_over_time` |
 | Change detection | `test_power_board.py` | `test_load_sweep` |

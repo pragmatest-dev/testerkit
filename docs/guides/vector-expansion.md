@@ -42,7 +42,7 @@ steps:
         high: 3.465
 ```
 
-This runs the test 3 times—once for each vector.
+This runs the test 3 times -- once for each vector.
 
 ## Expansion Modes
 
@@ -73,7 +73,7 @@ vectors:
   load: [0.1, 0.5, 1.0]
 ```
 
-Generates **9 vectors** (3 × 3):
+Generates **9 vectors** (3 x 3):
 ```
 {vin: 4.5, load: 0.1}, {vin: 4.5, load: 0.5}, {vin: 4.5, load: 1.0},
 {vin: 5.0, load: 0.1}, {vin: 5.0, load: 0.5}, {vin: 5.0, load: 1.0},
@@ -100,54 +100,47 @@ Generates **3 vectors**:
 {vin: 5.5, expected: 5.4}
 ```
 
-### Mode 4: Range (Numeric Sweep)
+### Mode 4: Recursive Composition (vectors sub-blocks)
 
-Sweep a single parameter over a range:
-
-```yaml
-vectors:
-  expand: range
-  voltage:
-    start: 0.0
-    stop: 5.0
-    step: 0.5
-```
-
-Generates **11 vectors**: 0.0, 0.5, 1.0, 1.5, 2.0, 2.5, 3.0, 3.5, 4.0, 4.5, 5.0
-
-Alternative with count instead of step:
-```yaml
-vectors:
-  expand: range
-  voltage:
-    start: 0.0
-    stop: 5.0
-    count: 11  # Evenly spaced
-```
-
-### Mode 5: Nested (Fine-Grained Control)
-
-For complex multi-level sweeps with explicit loop ordering:
+For complex multi-level sweeps, nest a `vectors` sub-block inside a product or zip. The outer level is cross-producted with the inner:
 
 ```yaml
 vectors:
-  expand: nested
-  loops:
-    - name: temperature
-      values: [-40, 25, 85]
-    - name: voltage
-      range:
-        start: 3.0
-        stop: 3.6
-        step: 0.1
-    - name: load
-      values: [0.0, 0.5, 1.0]
+  expand: product
+  temperature: [-40, 25, 85]
+  vectors:
+    expand: zip
+    voltage: [3.3, 5.0, 12.0]
+    expected: [3.2, 4.9, 11.8]
 ```
 
-Generates **63 vectors** (3 × 7 × 3):
-- Temperature is outermost (changes slowest)
-- Voltage is middle
-- Load is innermost (changes fastest)
+Generates **9 vectors** (3 temperatures x 3 zipped pairs):
+- Temperature is outer (changes slowest)
+- Voltage/expected are zipped together (always paired)
+
+Product-of-product collapses to a flat product:
+
+```yaml
+vectors:
+  expand: product
+  temperature: [-40, 25, 85]
+  vectors:
+    expand: product
+    voltage: [3.3, 5.0]
+    load: [0.1, 0.5]
+```
+
+This is equivalent to:
+
+```yaml
+vectors:
+  expand: product
+  temperature: [-40, 25, 85]
+  voltage: [3.3, 5.0]
+  load: [0.1, 0.5]
+```
+
+Both generate 12 vectors (3 x 2 x 2).
 
 ## Range String Syntax
 
@@ -155,10 +148,10 @@ Litmus supports a compact range syntax (SCPI-style, inclusive ranges):
 
 | Syntax | Meaning | Example |
 |--------|---------|---------|
-| `"start:stop"` | Range with step=1 | `"1:4"` → [1, 2, 3, 4] |
-| `"start:stop:step"` | Range with custom step | `"-40:85:25"` → [-40, -15, 10, 35, 60, 85] |
-| `"a,b,c"` | Comma-separated values | `"3.3,5.0,12.0"` → [3.3, 5.0, 12.0] |
-| `"a:b,c,d:e"` | Mixed ranges and values | `"0,0.5:2:0.5,5"` → [0, 0.5, 1.0, 1.5, 2.0, 5] |
+| `"start:stop"` | Range with step=1 | `"1:4"` -> [1, 2, 3, 4] |
+| `"start:stop:step"` | Range with custom step | `"-40:85:25"` -> [-40, -15, 10, 35, 60, 85] |
+| `"a,b,c"` | Comma-separated values | `"3.3,5.0,12.0"` -> [3.3, 5.0, 12.0] |
+| `"a:b,c,d:e"` | Mixed ranges and values | `"0,0.5:2:0.5,5"` -> [0, 0.5, 1.0, 1.5, 2.0, 5] |
 
 Range strings work anywhere you'd use a list:
 
@@ -218,25 +211,6 @@ The chamber only changes 3 times (once per temperature), not 9 times.
 - Returns `True` if the value differs from the previous vector
 - Returns `False` if the value is the same as the previous vector
 
-## Zipped Variables in Nested Mode
-
-For nested mode, you can zip multiple variables that should iterate together:
-
-```yaml
-vectors:
-  expand: nested
-  loops:
-    - name: temperature
-      values: [-40, 25, 85]
-    - zip:  # These iterate together
-        - name: vin
-          values: [4.5, 5.0, 5.5]
-        - name: vout_expected
-          values: [3.2, 3.3, 3.4]
-```
-
-This generates 9 vectors where `vin` and `vout_expected` are always paired.
-
 ## Choosing the Right Mode
 
 | Use Case | Mode | Why |
@@ -244,18 +218,16 @@ This generates 9 vectors where `vin` and `vout_expected` are always paired.
 | Specific test points | Explicit list | Full control over each vector |
 | All combinations of parameters | Product | Comprehensive coverage |
 | Paired input/expected values | Zip | Keep related values together |
-| Single parameter sweep | Range | Simple numeric sweeps |
-| Multi-level sweeps with change detection | Nested | Fine-grained loop control |
+| Single parameter sweep | Product + range string | `"4.5:5.5:0.1"` for compact numeric sweeps |
+| Multi-level sweeps with mixed modes | Recursive `vectors` sub-block | Product outer x zip inner |
 
 ## Performance Considerations
 
 1. **Loop order matters in Product mode:** First parameter is outermost. Put expensive-to-change parameters (temperature, fixture setup) first.
 
-2. **Use `vector.changed()` for expensive transitions:** Don't reconfigure equipment that didn't change.
+2. **Use `context.changed()` for expensive transitions:** Don't reconfigure equipment that didn't change.
 
-3. **Nested mode gives explicit control:** When loop order matters for equipment transitions, use nested mode with explicit ordering.
-
-4. **Range strings are efficient:** They're expanded at config load time, not during test execution.
+3. **Range strings are efficient:** They're expanded at config load time, not during test execution.
 
 ## Complete Example
 
@@ -266,17 +238,10 @@ steps:
   - id: load_regulation
     test: tests/test_power.py::test_load_regulation
     vectors:
-      expand: nested
-      loops:
-        - name: temperature
-          values: [-40, 25, 85]
-        - name: vin
-          range:
-            start: 4.5
-            stop: 5.5
-            step: 0.5
-        - name: load_current
-          values: "0.1:1.0:0.1"  # Range string: 0.1, 0.2, ... 1.0
+      expand: product
+      temperature: [-40, 25, 85]
+      vin: "4.5:5.5:0.5"
+      load_current: "0.1:1.0:0.1"    # Range string: 0.1, 0.2, ... 1.0
     limits:
       test_load_regulation:
         low: 3.135
@@ -311,4 +276,4 @@ def test_load_regulation(context, psu, dmm, eload, chamber):
     return dmm.measure_dc_voltage()
 ```
 
-This runs 90 tests (3 × 3 × 10) with minimal equipment transitions.
+This runs 90 tests (3 x 3 x 10) with minimal equipment transitions.
