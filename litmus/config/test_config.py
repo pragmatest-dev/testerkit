@@ -6,10 +6,9 @@ sequences, and all test-runner configuration.
 
 from typing import Any, Literal
 
-from pydantic import BaseModel, Field, computed_field
+from pydantic import BaseModel, Field
 
 from litmus.config.enums import Comparator
-from litmus.utils.ranges import expand_numeric_range
 
 # =============================================================================
 # Limits & Specifications
@@ -321,97 +320,6 @@ class RangeConfig(BaseModel):
         if self.count is not None and self.count < 1:
             raise ValueError("'count' must be >= 1")
 
-
-class LoopVariableConfig(BaseModel):
-    """Configuration for a single loop variable.
-
-    Supports three input formats:
-    1. Explicit list: values=[3.3, 5.0, 12.0]
-    2. Range object: range={start: -40, stop: 85, step: 25}
-    3. Range string: values="-40:125:25" (compact SCPI-style syntax)
-
-    Example YAML (explicit values):
-        - name: voltage
-          values: [3.3, 5.0, 12.0]
-
-    Example YAML (range object):
-        - name: temperature
-          range:
-            start: -40
-            stop: 85
-            step: 25
-
-    Example YAML (range string - NEW):
-        - name: temperature
-          values: "-40:125:25"    # start:stop:step → -40, -15, 10, ...
-        - name: load
-          values: "0.1:0.5:0.1"  # → 0.1, 0.2, 0.3, 0.4, 0.5
-    """
-
-    model_config = {"extra": "forbid"}
-
-    name: str
-    values: list[Any] | str | None = None  # List, or range string like "-40:125:25"
-    range: RangeConfig | None = None
-    prompt: "PromptConfig | None" = None  # Prompt shown when this variable changes
-
-    def model_post_init(self, _: Any) -> None:
-        """Validate that exactly one of values or range is provided."""
-        if (self.values is None) == (self.range is None):
-            raise ValueError("Exactly one of 'values' or 'range' must be provided")
-
-    @computed_field
-    @property
-    def resolved_values(self) -> list[float]:
-        """Expand values to list, handling range syntax.
-
-        Returns:
-            List of float values ready for iteration.
-
-        Examples:
-            values=[1, 2, 3] → [1.0, 2.0, 3.0]
-            values="-40:125:55" → [-40.0, 15.0, 70.0, 125.0]
-            range={start: 0, stop: 1, step: 0.5} → [0.0, 0.5, 1.0]
-        """
-        if self.values is not None:
-            return expand_numeric_range(self.values)
-
-        if self.range is not None:
-            # Generate from RangeConfig
-            result: list[float] = []
-            if self.range.step is not None:
-                step = self.range.step
-                num_steps = int((self.range.stop - self.range.start) / step) + 1
-                for i in range(num_steps):
-                    result.append(self.range.start + i * step)
-            elif self.range.count is not None:
-                # Linear interpolation
-                count = self.range.count
-                if count == 1:
-                    result.append(self.range.start)
-                else:
-                    span = self.range.stop - self.range.start
-                    for i in range(count):
-                        result.append(self.range.start + span * i / (count - 1))
-            return result
-
-        return []
-
-
-class ZippedLoopConfig(BaseModel):
-    """Configuration for zipped variables that iterate together.
-
-    Example YAML:
-        - zip:
-            - name: voltage
-              values: [3.3, 5.0, 12.0]
-            - name: expected
-              values: [3.2, 4.9, 11.8]
-    """
-
-    model_config = {"extra": "forbid"}
-
-    zip: list[LoopVariableConfig]
 
 
 class PromptConfig(BaseModel):

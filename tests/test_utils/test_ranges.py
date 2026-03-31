@@ -221,30 +221,3 @@ class TestIntegrationWithModels:
         )
         assert char.resolved_pins == ["TP_VOUT"]
 
-    def test_loop_variable_config_with_range_string(self):
-        """LoopVariableConfig.resolved_values expands range string."""
-        from litmus.config.models import LoopVariableConfig
-
-        config = LoopVariableConfig(name="temperature", values="-40:85:25")
-        expected = [
-            -40.0, -15.0, 10.0,
-            35.0, 60.0, 85.0,
-        ]
-        assert config.resolved_values == expected
-
-    def test_loop_variable_config_with_list(self):
-        """LoopVariableConfig.resolved_values works with list."""
-        from litmus.config.models import LoopVariableConfig
-
-        config = LoopVariableConfig(name="voltage", values=[3.3, 5.0, 12.0])
-        assert config.resolved_values == [3.3, 5.0, 12.0]
-
-    def test_loop_variable_config_with_range_object(self):
-        """LoopVariableConfig.resolved_values works with RangeConfig."""
-        from litmus.config.models import LoopVariableConfig, RangeConfig
-
-        config = LoopVariableConfig(
-            name="load",
-            range=RangeConfig(start=0.0, stop=1.0, step=0.5),
-        )
-        assert config.resolved_values == [0.0, 0.5, 1.0]

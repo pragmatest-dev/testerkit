@@ -53,7 +53,6 @@ from litmus.config.test_config import (  # noqa: F401
     LimitLookupConfig,
     LimitRefConfig,
     LimitStepConfig,
-    LoopVariableConfig,
     MeasurementLimitConfig,
     PromptConfig,
     RangeConfig,
@@ -63,5 +62,4 @@ from litmus.config.test_config import (  # noqa: F401
     TestSequenceConfig,
     TestStepConfig,
     VectorConfig,
-    ZippedLoopConfig,
 )

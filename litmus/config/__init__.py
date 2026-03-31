@@ -21,7 +21,6 @@ from litmus.config.models import (
     LimitLookupConfig,
     LimitRefConfig,
     LimitStepConfig,
-    LoopVariableConfig,
     MeasurementLimitConfig,
     PromptConfig,
     RangeConfig,
@@ -33,7 +32,6 @@ from litmus.config.models import (
     TestSequenceConfig,
     TestStepConfig,
     VectorConfig,
-    ZippedLoopConfig,
 )
 
 __all__ = [
@@ -48,7 +46,6 @@ __all__ = [
     "LimitLookupConfig",
     "LimitRefConfig",
     "LimitStepConfig",
-    "LoopVariableConfig",
     "MeasurementLimitConfig",
     "PromptConfig",
     "RangeConfig",
@@ -60,7 +57,6 @@ __all__ = [
     "TestSequenceConfig",
     "TestStepConfig",
     "VectorConfig",
-    "ZippedLoopConfig",
     # Enum metadata
     "LookupResult",
     "lookup_enum",
