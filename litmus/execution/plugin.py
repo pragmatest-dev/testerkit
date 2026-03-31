@@ -250,15 +250,15 @@ def set_collected_items(value: list[CollectedItem]) -> None:
 
 
 def _load_sequence_steps(config):
-    """Load sequence file and return the step models.
+    """Load sequence config from --sequence option.
 
-    Returns the list of SequenceStep models (not dicts).
+    Returns the full TestSequenceConfig, or None if no sequence.
     Also sets the sequence test phase contextvar.
     """
 
     seq_option = config.getoption("--sequence", default=None)
     if not seq_option:
-        return []
+        return None
 
     # Find the sequence file
     seq_path = Path(seq_option)
@@ -283,7 +283,7 @@ def _load_sequence_steps(config):
                 f"Sequence '{seq_option}' not found. No test ordering will be applied. {fix_hint}",
                 stacklevel=1,
             )
-            return []
+            return None
 
     try:
         from litmus.store import load_sequence
@@ -294,37 +294,52 @@ def _load_sequence_steps(config):
             f"Failed to load sequence '{seq_option}': {exc}",
             stacklevel=1,
         )
-        return []
+        return None
 
     # Store test phase for mock validation
     set_sequence_test_phase(seq_file.test_phase)
     set_sequence_required_fixture(seq_file.required_fixture)
 
-    return seq_file.steps
+    return seq_file
 
 
 def _load_step_aliases_and_configs(config):
     """Load per-step aliases and configs from sequence in a single pass.
 
+    Applies sequence-level defaults (raise_on_fail, retry) to steps
+    that don't set their own. Resolution: step > sequence > decorator.
+
     Returns:
         (aliases, configs) where:
         - aliases: dict of test node ID → {alias_name: station_role}
-        - configs: dict of test node ID → config dict (vectors, limits, mocks, retry)
+        - configs: dict of test node ID → step config dict
     """
-    steps = _load_sequence_steps(config)
+    seq = _load_sequence_steps(config)
+    if not seq:
+        return {}, {}
+
+    # Sequence-level defaults for params that make sense globally
+    seq_defaults: dict[str, Any] = {}
+    if seq.raise_on_fail is not None:
+        seq_defaults["raise_on_fail"] = seq.raise_on_fail
+    if seq.retry is not None:
+        seq_defaults["retry"] = seq.retry
+
     aliases: dict[str, dict[str, str]] = {}
     configs: dict[str, dict[str, Any]] = {}
-    for step in steps:
+    for step in seq.steps:
         test_node = step.test
         if not test_node:
             continue
         if step.aliases:
             aliases[test_node] = step.aliases
         step_config: dict[str, Any] = {}
-        for key in ("vectors", "limits", "mocks", "retry"):
+        for key in ("vectors", "limits", "mocks", "retry", "raise_on_fail"):
             val = getattr(step, key, None)
             if val is not None:
                 step_config[key] = val
+            elif key in seq_defaults:
+                step_config[key] = seq_defaults[key]
         if step_config:
             configs[test_node] = step_config
     return aliases, configs

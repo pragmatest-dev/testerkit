@@ -606,6 +606,7 @@ class TestStepConfig(BaseModel):
     limits: dict[str, Any] | None = None  # Bulk limits dict (lowest precedence)
     mocks: dict[str, Any] | None = None
     retry: RetryConfig | None = None
+    raise_on_fail: bool | None = None  # None = inherit from sequence/decorator
     skip_on: list[str] | None = None  # Skip if these tests failed
 
     def model_post_init(self, _: Any) -> None:
@@ -682,3 +683,6 @@ class TestSequenceConfig(BaseModel):
     # pytest customization
     pytest_args: list[str] = Field(default_factory=list)  # Extra pytest arguments
     timeout_seconds: int | None = None  # Overall sequence timeout
+    # Sequence-level defaults (step overrides these)
+    raise_on_fail: bool | None = None
+    retry: RetryConfig | None = None

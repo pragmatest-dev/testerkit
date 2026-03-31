@@ -161,8 +161,17 @@ def _resolve_test_config(
     config_file: str | None,
     limits: dict[str, MeasurementLimitConfig | Limit] | None,
     retry: RetryConfig | None,
-) -> tuple[dict[str, Any], dict[str, MeasurementLimitConfig | Limit] | None, RetryConfig | None]:
-    """Resolve test config from sequence step, file, or inline decorator."""
+    raise_on_fail: bool = True,
+) -> tuple[
+    dict[str, Any],
+    dict[str, MeasurementLimitConfig | Limit] | None,
+    RetryConfig | None,
+    bool,
+]:
+    """Resolve test config from sequence step, file, or inline decorator.
+
+    Resolution: step config > sequence default > decorator default.
+    """
     from pathlib import Path
 
     from litmus.config.loader import get_test_config
@@ -171,6 +180,7 @@ def _resolve_test_config(
     resolved_config: dict[str, Any] = {}
     resolved_limits = limits
     resolved_retry = retry
+    resolved_raise_on_fail = raise_on_fail
 
     _step_cfg = get_current_step_config()
     if _step_cfg:
@@ -181,6 +191,8 @@ def _resolve_test_config(
             from litmus.config.models import RetryConfig as _RC
             r = _step_cfg["retry"]
             resolved_retry = r if isinstance(r, _RC) else _RC.model_validate(r)
+        if "raise_on_fail" in _step_cfg:
+            resolved_raise_on_fail = bool(_step_cfg["raise_on_fail"])
     else:
         test_file = Path(inspect.getfile(fn))
         file_config = None
@@ -205,7 +217,7 @@ def _resolve_test_config(
         if config:
             resolved_config.update(config)
 
-    return resolved_config, resolved_limits, resolved_retry
+    return resolved_config, resolved_limits, resolved_retry, resolved_raise_on_fail
 
 
 def _resolve_instruments(kwargs: dict[str, Any]) -> dict[str, Any]:
@@ -300,12 +312,16 @@ def litmus_test(
             from litmus.execution.harness import TestHarness
 
             # Get harness from kwargs, current harness, or create new one
+            resolved_raise_on_fail = raise_on_fail  # decorator default
             harness = kwargs.pop("harness", None)
             if harness is None:
                 harness = get_current_harness()
             if harness is None:
-                resolved_config, resolved_limits, resolved_retry = _resolve_test_config(
-                    fn, config, config_file, limits, retry,
+                (
+                    resolved_config, resolved_limits,
+                    resolved_retry, resolved_raise_on_fail,
+                ) = _resolve_test_config(
+                    fn, config, config_file, limits, retry, raise_on_fail,
                 )
                 instruments_fixture = _resolve_instruments(kwargs)
 
@@ -377,8 +393,8 @@ def litmus_test(
 
             step = harness.run_all(test_fn, step_name=fn.__name__)
 
-            # Check for failures
-            if raise_on_fail:
+            # Check for failures (step > sequence > decorator)
+            if resolved_raise_on_fail:
                 for tv in step.vectors:
                     if tv.outcome == Outcome.FAIL:
                         failed_measurements = [
