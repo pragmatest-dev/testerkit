@@ -10,7 +10,7 @@ Tools:
 
 import logging
 from pathlib import Path
-from typing import Any, cast
+from typing import Any, Literal, cast
 
 logger = logging.getLogger(__name__)
 
@@ -1428,3 +1428,69 @@ def schema_tool(yaml_type: str | None = None) -> dict[str, Any]:
         "type": yaml_type,
         "schema": model.model_json_schema(),
     }
+
+
+# ---------------------------------------------------------------------------
+# Tool 10: litmus_gold — gold layer analytics
+# ---------------------------------------------------------------------------
+
+GoldAction = Literal["summary", "pareto", "cpk", "trend", "retest", "time_loss"]
+_GOLD_ACTIONS: tuple[GoldAction, ...] = (
+    "summary", "pareto", "cpk", "trend", "retest", "time_loss",
+)
+
+
+def gold_tool(
+    action: str,
+    product: str | None = None,
+    station: str | None = None,
+    phase: str | None = None,
+    since: str | None = None,
+    until: str | None = None,
+    period: str = "day",
+    top_n: int = 10,
+    min_samples: int = 10,
+    project: str | None = None,
+) -> dict[str, Any]:
+    """Query pre-aggregated manufacturing metrics (DuckDB SQL on silver).
+
+    Args:
+        action: One of: summary, pareto, cpk, trend, retest, time_loss.
+        product: Filter by product/part number.
+        station: Filter by station name.
+        phase: Filter by test phase (default: exclude development, 'all' = no filter).
+        since: Start date (ISO format, inclusive).
+        until: End date (ISO format, inclusive).
+        period: Time bucket — day, week, or month (default: day).
+        top_n: Number of top failures for pareto (default: 10).
+        min_samples: Minimum sample count for cpk (default: 10).
+        project: Project root path.
+    """
+    if action not in _GOLD_ACTIONS:
+        return {"error": f"Unknown action '{action}'. Valid: {list(_GOLD_ACTIONS)}"}
+
+    from litmus.analysis.gold import GoldStore
+
+    results_dir = _resolve_results_dir(project)
+    store = GoldStore(_results_dir=results_dir)
+
+    kwargs: dict[str, Any] = {
+        "product": product, "station": station, "phase": phase,
+        "since": since, "until": until,
+    }
+
+    match action:
+        case "summary":
+            return {"data": store.yield_summary(**kwargs, period=period)}
+        case "pareto":
+            return {"data": store.pareto(**kwargs, top_n=top_n)}
+        case "cpk":
+            return {"data": store.cpk(**kwargs, min_samples=min_samples)}
+        case "trend":
+            return {"data": store.trend(**kwargs, period=period)}
+        case "retest":
+            return {"data": store.retest(**kwargs, period=period)}
+        case "time_loss":
+            return {"data": store.time_loss(**kwargs, period=period)}
+        case _:
+            return {"error": f"Unknown action '{action}'"}

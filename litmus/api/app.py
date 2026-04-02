@@ -483,6 +483,118 @@ def create_api_router() -> APIRouter:
         sequences = list_sequences()
         return {"sequences": [s.model_dump() for s in sequences]}
 
+    # -------------------------------------------------------------------------
+    # Gold Analytics
+    # -------------------------------------------------------------------------
+
+    @router.get("/gold/summary")
+    def gold_summary(
+        product: str | None = None,
+        station: str | None = None,
+        phase: str | None = None,
+        since: str | None = None,
+        until: str | None = None,
+        period: str = "day",
+    ):
+        """Yield summary from gold layer (DuckDB SQL on silver)."""
+        from litmus.analysis.gold import GoldStore
+
+        store = GoldStore(_results_dir=project.results_dir)
+        return {"data": store.yield_summary(
+            product=product, station=station, phase=phase,
+            since=since, until=until, period=period,
+        )}
+
+    @router.get("/gold/pareto")
+    def gold_pareto(
+        product: str | None = None,
+        station: str | None = None,
+        phase: str | None = None,
+        since: str | None = None,
+        until: str | None = None,
+        top_n: int = 10,
+    ):
+        """Top failure modes from gold layer."""
+        from litmus.analysis.gold import GoldStore
+
+        store = GoldStore(_results_dir=project.results_dir)
+        return {"data": store.pareto(
+            product=product, station=station, phase=phase,
+            since=since, until=until, top_n=top_n,
+        )}
+
+    @router.get("/gold/cpk")
+    def gold_cpk(
+        product: str | None = None,
+        station: str | None = None,
+        phase: str | None = None,
+        since: str | None = None,
+        until: str | None = None,
+        min_samples: int = 10,
+    ):
+        """Process capability from gold layer."""
+        from litmus.analysis.gold import GoldStore
+
+        store = GoldStore(_results_dir=project.results_dir)
+        return {"data": store.cpk(
+            product=product, station=station, phase=phase,
+            since=since, until=until, min_samples=min_samples,
+        )}
+
+    @router.get("/gold/trend")
+    def gold_trend(
+        product: str | None = None,
+        station: str | None = None,
+        phase: str | None = None,
+        since: str | None = None,
+        until: str | None = None,
+        period: str = "day",
+    ):
+        """Yield trend from gold layer."""
+        from litmus.analysis.gold import GoldStore
+
+        store = GoldStore(_results_dir=project.results_dir)
+        return {"data": store.trend(
+            product=product, station=station, phase=phase,
+            since=since, until=until, period=period,
+        )}
+
+    @router.get("/gold/retest")
+    def gold_retest(
+        product: str | None = None,
+        station: str | None = None,
+        phase: str | None = None,
+        since: str | None = None,
+        until: str | None = None,
+        period: str = "day",
+    ):
+        """Retest rates from gold layer."""
+        from litmus.analysis.gold import GoldStore
+
+        store = GoldStore(_results_dir=project.results_dir)
+        return {"data": store.retest(
+            product=product, station=station, phase=phase,
+            since=since, until=until, period=period,
+        )}
+
+    @router.get("/gold/time-loss")
+    def gold_time_loss(
+        product: str | None = None,
+        station: str | None = None,
+        phase: str | None = None,
+        since: str | None = None,
+        until: str | None = None,
+        period: str = "day",
+    ):
+        """Time lost to failures/errors from gold layer."""
+        from litmus.analysis.gold import GoldStore
+
+        store = GoldStore(_results_dir=project.results_dir)
+        return {"data": store.time_loss(
+            product=product, station=station, phase=phase,
+            since=since, until=until, period=period,
+        )}
+
     return router
 
 

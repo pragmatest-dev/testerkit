@@ -6,7 +6,7 @@ import traceback
 import pyarrow as pa
 from nicegui import ui
 
-from litmus.analysis import metrics, query
+from litmus.analysis import query
 from litmus.ui.shared.components import render_empty_card
 from litmus.ui.shared.layout import create_layout
 
@@ -205,8 +205,9 @@ def _refresh_dashboard(
     time_stats_container,
     preloaded_table=None,
 ):
-    """Refresh all dashboard components."""
-    # Clear all containers first
+    """Refresh all dashboard components via GoldStore (DuckDB SQL on silver)."""
+    from litmus.analysis.gold import GoldStore
+
     summary_container.clear()
     pareto_chart_container.clear()
     cpk_table_container.clear()
@@ -214,68 +215,105 @@ def _refresh_dashboard(
     time_stats_container.clear()
 
     try:
-        # Load data (or use preloaded table if provided)
-        if preloaded_table is not None:
-            table = preloaded_table
-        else:
-            table = query.load_runs(results_dir)
+        store = GoldStore(_results_dir=results_dir)
 
-        if table.num_rows == 0:
-            with summary_container:
-                ui.label("No data found in results directory").classes(
-                    "text-slate-500 italic"
-                )
-            return
+        _product = product_id or None
+        _station = station_id or None
+        _phase = phase or None
+        _since = since or None
+        _until = until or None
 
-        # Apply filters
-        table = query.apply_all_filters(
-            table,
-            phase=phase,
-            product_id=product_id,
-            station_id=station_id,
-            lot=lot,
-            since=since,
-            until=until,
+        summary_rows = store.yield_summary(
+            product=_product, station=_station, phase=_phase,
+            since=_since, until=_until, period="day",
         )
-
-        if table.num_rows == 0:
+        if not summary_rows:
             with summary_container:
                 ui.label("No data matches the selected filters").classes(
                     "text-slate-500 italic"
                 )
             return
 
-        # Convert to dicts for metrics functions
-        runs = query.deduplicate_runs(table)
-        measurements = table.to_pylist()
+        # Aggregate summary across all periods/products/stations
+        total_runs = sum(r.get("total_runs", 0) for r in summary_rows)
+        total_failed = sum(r.get("failed", 0) for r in summary_rows)
+        fp_total = sum(r.get("first_pass_total", 0) for r in summary_rows)
+        fp_passed = sum(r.get("first_pass_passed", 0) for r in summary_rows)
+        final_passed = sum(r.get("final_passed", 0) for r in summary_rows)
+        unique_serials = sum(r.get("unique_serials", 0) for r in summary_rows)
 
-        # Calculate metrics
-        fpy = metrics.calculate_fpy(runs)
-        final_yield = metrics.calculate_final_yield(runs)
-        pareto_data = metrics.pareto_analysis(measurements, top_n=10)
-        cpk_data = metrics.calculate_cpk_for_measurements(measurements)
-        trend_data = metrics.trend_by_period(runs, period="day")
-        time_stats = metrics.timing_stats(runs)
+        fpy = fp_passed / fp_total if fp_total else 0.0
+        final_yield = final_passed / unique_serials if unique_serials else 0.0
 
-        # Render components
-        _render_summary_cards(summary_container, fpy, final_yield, len(runs), measurements)
+        # Pareto — adapt to renderer shape (add cumulative_pct, rename count)
+        pareto_rows = store.pareto(
+            product=_product, station=_station, phase=_phase,
+            since=_since, until=_until, top_n=10,
+        )
+        pareto_data = []
+        total_fails = sum(r.get("fail_count", 0) for r in pareto_rows)
+        cumulative = 0.0
+        for r in pareto_rows:
+            pct = r["fail_count"] / total_fails * 100 if total_fails else 0
+            cumulative += pct
+            pareto_data.append({
+                "step_name": r.get("step_name", ""),
+                "measurement_name": r.get("measurement_name", ""),
+                "count": r.get("fail_count", 0),
+                "pct": round(pct, 1),
+                "cumulative_pct": round(cumulative, 1),
+            })
+
+        # Cpk — shape matches renderer
+        cpk_data = store.cpk(
+            product=_product, station=_station, phase=_phase,
+            since=_since, until=_until,
+        )
+
+        # Trend — shape matches renderer
+        trend_data = store.trend(
+            product=_product, station=_station, phase=_phase,
+            since=_since, until=_until, period="day",
+        )
+
+        # Time stats — aggregate from summary rows
+        durations = [
+            r["avg_duration_s"] for r in summary_rows
+            if r.get("avg_duration_s") is not None
+        ]
+        p95s = [
+            r["p95_duration_s"] for r in summary_rows
+            if r.get("p95_duration_s") is not None
+        ]
+        time_stats = {
+            "avg_s": round(sum(durations) / len(durations), 2) if durations else None,
+            "min_s": round(min(durations), 2) if durations else None,
+            "max_s": round(max(durations), 2) if durations else None,
+            "p95_s": round(max(p95s), 2) if p95s else None,
+            "count": total_runs,
+        }
+
+        # Render
+        _render_summary_cards(
+            summary_container, fpy, final_yield, total_runs, total_failed,
+        )
         _render_pareto_chart(pareto_chart_container, pareto_data)
         _render_cpk_table(cpk_table_container, cpk_data)
         _render_trend_chart(trend_chart_container, trend_data)
         _render_time_stats(time_stats_container, time_stats)
 
-    except (OSError, pa.ArrowInvalid, ValueError, KeyError) as e:
+    except Exception as e:
         with summary_container:
             ui.label(f"Error loading data: {e}").classes("text-red-600")
             with ui.expansion("Stack trace", icon="bug_report").classes("w-full"):
                 ui.code(traceback.format_exc()).classes("text-xs")
 
 
-def _render_summary_cards(container, fpy: float, final_yield: float, total_runs: int, measurements):
+def _render_summary_cards(
+    container, fpy: float, final_yield: float, total_runs: int, total_failures: int,
+):
     """Render summary metric cards."""
     container.clear()
-
-    total_failures = sum(1 for m in measurements if m.get("outcome") == "fail")
 
     with container:
         _metric_card("First Pass Yield", f"{fpy * 100:.1f}%", "check_circle", "green")

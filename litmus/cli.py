@@ -2036,32 +2036,17 @@ def instrument_cal(
 # -----------------------------------------------------------------------------
 
 
-def _common_filters(func):
-    """Shared filter options for yield commands."""
+def _base_filters(func):
+    """Shared filter options for yield and gold commands."""
     func = click.option("--results-dir", default=None, help="Results directory")(func)
     func = click.option("--phase", default=None, help="Test phase (or 'all')")(func)
     func = click.option("--since", default=None, help="Start date (ISO format)")(func)
     func = click.option("--until", "until_date", default=None, help="End date (ISO format)")(func)
     func = click.option("--product", default=None, help="Product ID")(func)
     func = click.option("--station", default=None, help="Station ID")(func)
-    func = click.option("--lot", default=None, help="Lot number")(func)
     func = click.option("--json", "as_json", is_flag=True, help="Output as JSON")(func)
     return func
 
-
-def _apply_filters(table, phase, since, until_date, product, station, lot):
-    """Apply common filters to a PyArrow table."""
-    from litmus.analysis.query import apply_all_filters
-
-    return apply_all_filters(
-        table,
-        phase=phase,
-        product_id=product,
-        station_id=station,
-        lot=lot,
-        since=since,
-        until=until_date,
-    )
 
 
 def _get_results_dir(results_dir):
@@ -2078,332 +2063,369 @@ def yield_group():
 
 
 @yield_group.command("summary")
-@_common_filters
-@click.option(
-    "--group-by", "group_by",
-    type=click.Choice(["product", "station", "lot"]), default=None,
-)
-def yield_summary(results_dir, phase, since, until_date, product, station, lot, group_by, as_json):
-    """Show yield summary (FPY, final yield, RTY)."""
-    from litmus.analysis.query import deduplicate_runs, load_runs
-
-    results_dir = _get_results_dir(results_dir)
-    table = load_runs(results_dir)
-    table = _apply_filters(table, phase, since, until_date, product, station, lot)
-    runs = deduplicate_runs(table)
-
-    if not runs:
-        if as_json:
-            click.echo("{}")
-        else:
-            click.echo("No runs found.")
-        return
-
-    if group_by:
-        _yield_summary_grouped(runs, group_by, as_json=as_json)
-    else:
-        _yield_summary_flat(runs, as_json=as_json)
-
-
-def _yield_summary_flat(runs, *, as_json=False):
-    from collections import defaultdict
-
-    from litmus.analysis.metrics import (
-        calculate_final_yield,
-        calculate_fpy,
-        calculate_rty,
+@_base_filters
+def yield_summary(results_dir, phase, since, until_date, product, station, as_json):
+    """Show yield summary (FPY, final yield, RTY). Powered by GoldStore."""
+    store = _gold_store(results_dir)
+    rows = store.yield_summary(
+        product=product, station=station, phase=phase,
+        since=since, until=until_date,
     )
 
-    fpy = calculate_fpy(runs)
-    final = calculate_final_yield(runs)
-
-    # RTY: FPY per phase
-    by_phase = defaultdict(list)
-    for r in runs:
-        p = r.get("test_phase") or "unknown"
-        by_phase[p].append(r)
-
-    fpy_by_phase = {p: calculate_fpy(phase_runs) for p, phase_runs in by_phase.items()}
-    rty = calculate_rty(fpy_by_phase)
-
-    serials = {r.get("dut_serial") for r in runs if r.get("dut_serial")}
-
-    if as_json:
-        data = {
-            "runs": len(runs),
-            "unique_serials": len(serials),
-            "first_pass_yield": fpy,
-            "final_yield": final,
-            "rolled_throughput_yield": rty,
-            "fpy_by_phase": {p: v for p, v in sorted(fpy_by_phase.items())},
-        }
-        click.echo(json.dumps(data, indent=2, default=str))
+    if not rows:
+        click.echo("[]" if as_json else "No data found.")
         return
 
-    click.echo(f"Runs: {len(runs)}  |  Unique serials: {len(serials)}")
-    click.echo(f"First-pass yield:  {fpy * 100:.1f}%")
-    click.echo(f"Final yield:       {final * 100:.1f}%")
-
-    if len(fpy_by_phase) > 1:
-        click.echo(f"Rolled throughput: {rty * 100:.1f}%")
-        for p, val in sorted(fpy_by_phase.items()):
-            click.echo(f"  {p}: {val * 100:.1f}%")
-
-
-def _yield_summary_grouped(runs, group_by, *, as_json=False):
-    from collections import defaultdict
-
-    from litmus.analysis.metrics import calculate_final_yield, calculate_fpy
-
-    key_map = {"product": "product_id", "station": "station_id", "lot": "dut_lot_number"}
-    field = key_map[group_by]
-
-    groups = defaultdict(list)
-    for r in runs:
-        g = r.get(field) or "unknown"
-        groups[g].append(r)
-
     if as_json:
-        data = {
-            "group_by": group_by,
-            "groups": [
-                {
-                    "group": g,
-                    "runs": len(groups[g]),
-                    "first_pass_yield": calculate_fpy(groups[g]),
-                    "final_yield": calculate_final_yield(groups[g]),
-                }
-                for g in sorted(groups)
-            ],
-        }
-        click.echo(json.dumps(data, indent=2, default=str))
+        click.echo(json.dumps(rows, indent=2, default=str))
         return
 
-    click.echo(f"{'Group':<25} {'Runs':>5} {'FPY':>7} {'Final':>7}")
-    click.echo("-" * 48)
-    for g in sorted(groups):
-        g_runs = groups[g]
-        fpy = calculate_fpy(g_runs)
-        final = calculate_final_yield(g_runs)
-        click.echo(f"{g:<25} {len(g_runs):>5} {fpy * 100:>6.1f}% {final * 100:>6.1f}%")
+    # Aggregate across all rows for flat display
+    total_runs = sum(r.get("total_runs", 0) for r in rows)
+    fp_total = sum(r.get("first_pass_total", 0) for r in rows)
+    fp_passed = sum(r.get("first_pass_passed", 0) for r in rows)
+    final_passed = sum(r.get("final_passed", 0) for r in rows)
+    unique_serials = sum(r.get("unique_serials", 0) for r in rows)
+    fpy = fp_passed / fp_total if fp_total else 0.0
+    final_yield = final_passed / unique_serials if unique_serials else 0.0
+
+    click.echo(f"Runs: {total_runs}  |  Serials: {unique_serials}")
+    click.echo(f"First Pass Yield: {fpy * 100:.1f}%")
+    click.echo(f"Final Yield:      {final_yield * 100:.1f}%")
+
 
 
 @yield_group.command("pareto")
-@_common_filters
+@_base_filters
 @click.option("--top", "top_n", default=10, help="Number of top failures")
-def yield_pareto(results_dir, phase, since, until_date, product, station, lot, top_n, as_json):
-    """Top failure modes (Pareto analysis)."""
-    from litmus.analysis.metrics import pareto_analysis
-    from litmus.analysis.query import load_runs
+def yield_pareto(results_dir, phase, since, until_date, product, station, top_n, as_json):
+    """Top failure modes (Pareto analysis). Powered by GoldStore."""
+    store = _gold_store(results_dir)
+    rows = store.pareto(
+        product=product, station=station, phase=phase,
+        since=since, until=until_date, top_n=top_n,
+    )
 
-    results_dir = _get_results_dir(results_dir)
-    table = load_runs(results_dir)
-    table = _apply_filters(table, phase, since, until_date, product, station, lot)
-    measurements = table.to_pylist()
-
-    if not measurements:
-        if as_json:
-            click.echo("[]")
-        else:
-            click.echo("No measurements found.")
-        return
-
-    results = pareto_analysis(measurements, top_n=top_n)
-    if not results:
-        if as_json:
-            click.echo("[]")
-        else:
-            click.echo("No failures found.")
+    if not rows:
+        click.echo("[]" if as_json else "No data found.")
         return
 
     if as_json:
-        data = {
-            "total_measurements": len(measurements),
-            "total_failures": sum(r["count"] for r in results),
-            "failures": results,
-        }
-        click.echo(json.dumps(data, indent=2, default=str))
+        click.echo(json.dumps(rows, indent=2, default=str))
         return
 
-    total_meas = len(measurements)
-    total_fails = sum(r["count"] for r in results)
-    click.echo(f"Total measurements: {total_meas}  |  Total failures: {total_fails}")
-    click.echo()
-    click.echo(f"{'#':<4} {'Step / Measurement':<40} {'Count':>6} {'%':>6} {'Cum%':>6}")
-    click.echo("-" * 66)
-    for i, r in enumerate(results, 1):
-        label = f"{r['step_name']}: {r['measurement_name']}"
+    click.echo(f"{'#':<4} {'Step / Measurement':<40} {'Count':>6} {'Rate':>7}")
+    click.echo("-" * 60)
+    for i, r in enumerate(rows, 1):
+        label = f"{r.get('step_name', '')}: {r.get('measurement_name', '')}"
         if len(label) > 38:
             label = label[:35] + "..."
-        click.echo(
-            f"{i:<4} {label:<40} {r['count']:>6}"
-            f" {r['pct']:>5.1f}% {r['cumulative_pct']:>5.1f}%"
-        )
+        click.echo(f"{i:<4} {label:<40} {r.get('fail_count', 0):>6} {r.get('fail_rate', 0):>6.1f}%")
 
 
 @yield_group.command("cpk")
-@click.argument("step_name")
-@_common_filters
-@click.option("--measurement", default=None, help="Measurement name (if step has multiple)")
-@click.option("--min-samples", default=30, help="Minimum sample count")
-def yield_cpk(
-    step_name, results_dir, phase, since, until_date,
-    product, station, lot, measurement, min_samples, as_json,
-):
-    """Process capability (Cpk) for a measurement step."""
-    from litmus.analysis.metrics import calculate_cpk
-    from litmus.analysis.query import load_runs
-
-    results_dir = _get_results_dir(results_dir)
-    table = load_runs(results_dir)
-    table = _apply_filters(table, phase, since, until_date, product, station, lot)
-    rows = table.to_pylist()
-
-    # Filter to step
-    rows = [r for r in rows if r.get("step_name") == step_name]
-    if measurement:
-        rows = [r for r in rows if r.get("measurement_name") == measurement]
+@_base_filters
+@click.option("--min-samples", default=10, help="Minimum sample count")
+def yield_cpk(results_dir, phase, since, until_date, product, station, min_samples, as_json):
+    """Process capability (Cpk) per measurement. Powered by GoldStore."""
+    store = _gold_store(results_dir)
+    rows = store.cpk(
+        product=product, station=station, phase=phase,
+        since=since, until=until_date, min_samples=min_samples,
+    )
 
     if not rows:
-        click.echo(f"No measurements found for step '{step_name}'.")
+        click.echo("[]" if as_json else "No measurements with enough samples.")
         return
-
-    # Get values and limits
-    values = [
-        r["value"] for r in rows
-        if r.get("value") is not None and isinstance(r["value"], (int, float))
-    ]
-    lsl_vals = [r["low_limit"] for r in rows if r.get("low_limit") is not None]
-    usl_vals = [r["high_limit"] for r in rows if r.get("high_limit") is not None]
-
-    lsl = lsl_vals[0] if lsl_vals else None
-    usl = usl_vals[0] if usl_vals else None
-
-    if not values:
-        click.echo("No numeric values found.")
-        return
-
-    result = calculate_cpk(values, lsl, usl, min_samples=min_samples)
-
-    meas_name = measurement or rows[0].get("measurement_name", "")
-    units = rows[0].get("units", "")
 
     if as_json:
-        data = {
-            "step_name": step_name,
-            "measurement_name": meas_name,
-            "units": units,
-            "lsl": lsl,
-            "usl": usl,
-            **result,
-        }
-        click.echo(json.dumps(data, indent=2, default=str))
+        click.echo(json.dumps(rows, indent=2, default=str))
         return
 
-    click.echo(f"Step: {step_name}")
-    if meas_name:
-        click.echo(f"Measurement: {meas_name}")
-    click.echo(f"Samples: {result['n']}")
-    click.echo(f"Mean: {result['mean']:.4f} {units}" if result["mean"] is not None else "Mean: N/A")
-    click.echo(f"Sigma: {result['sigma']:.4f}" if result["sigma"] is not None else "Sigma: N/A")
-    if lsl is not None:
-        click.echo(f"LSL: {lsl}")
-    if usl is not None:
-        click.echo(f"USL: {usl}")
-    if result["cp"] is not None:
-        click.echo(f"Cp:  {result['cp']:.3f}")
-    if result["cpk"] is not None:
-        click.echo(f"Cpk: {result['cpk']:.3f}")
-    if result.get("warning"):
-        click.echo(f"Warning: {result['warning']}")
+    click.echo(f"{'Measurement':<30} {'N':>5} {'Mean':>10} {'Sigma':>10} {'Cpk':>7} {'Cp':>7}")
+    click.echo("-" * 75)
+    for r in rows:
+        name = str(r.get("measurement_name", ""))
+        if len(name) > 28:
+            name = name[:25] + "..."
+        cpk_val = f"{r['cpk']:.3f}" if r.get("cpk") is not None else "N/A"
+        cp_val = f"{r['cp']:.3f}" if r.get("cp") is not None else "N/A"
+        click.echo(
+            f"{name:<30} {r.get('n', 0):>5} {r.get('mean', 0):>10.4f} "
+            f"{r.get('sigma', 0):>10.4f} {cpk_val:>7} {cp_val:>7}"
+        )
 
 
 @yield_group.command("trend")
-@_common_filters
+@_base_filters
 @click.option("--period", type=click.Choice(["day", "week", "month"]), default="day")
-def yield_trend(results_dir, phase, since, until_date, product, station, lot, period, as_json):
-    """Yield trend over time."""
-    from litmus.analysis.metrics import trend_by_period
-    from litmus.analysis.query import deduplicate_runs, load_runs
+def yield_trend(results_dir, phase, since, until_date, product, station, period, as_json):
+    """Yield trend over time. Powered by GoldStore."""
+    store = _gold_store(results_dir)
+    rows = store.trend(
+        product=product, station=station, phase=phase,
+        since=since, until=until_date, period=period,
+    )
 
-    results_dir = _get_results_dir(results_dir)
-    table = load_runs(results_dir)
-    table = _apply_filters(table, phase, since, until_date, product, station, lot)
-    runs = deduplicate_runs(table)
-
-    if not runs:
-        if as_json:
-            click.echo("[]")
-        else:
-            click.echo("No runs found.")
+    if not rows:
+        click.echo("[]" if as_json else "No data found.")
         return
 
-    results = trend_by_period(runs, period=period)
-
     if as_json:
-        click.echo(json.dumps(results, indent=2, default=str))
+        click.echo(json.dumps(rows, indent=2, default=str))
         return
 
     click.echo(f"{'Period':<14} {'Total':>6} {'Passed':>7} {'Yield':>7}")
     click.echo("-" * 38)
-    for r in results:
-        click.echo(f"{r['period']:<14} {r['total']:>6} {r['passed']:>7} {r['yield_pct']:>6.1f}%")
+    for r in rows:
+        click.echo(
+            f"{str(r.get('period', '')):<14} {r.get('total', 0):>6} "
+            f"{r.get('passed', 0):>7} {r.get('yield_pct', 0):>6.1f}%"
+        )
 
 
 @yield_group.command("time")
-@_common_filters
-@click.option("--by", "by_what", type=click.Choice(["run", "step"]), default="run")
-def yield_time(results_dir, phase, since, until_date, product, station, lot, by_what, as_json):
-    """Test time analysis."""
-    from litmus.analysis.metrics import timing_stats
-    from litmus.analysis.query import deduplicate_runs, load_runs
-
-    results_dir = _get_results_dir(results_dir)
-    table = load_runs(results_dir)
-    table = _apply_filters(table, phase, since, until_date, product, station, lot)
-
-    if by_what == "step":
-        rows = table.to_pylist()
-    else:
-        rows = deduplicate_runs(table)
+@_base_filters
+def yield_time(results_dir, phase, since, until_date, product, station, as_json):
+    """Time lost to failures and errors. Powered by GoldStore."""
+    store = _gold_store(results_dir)
+    rows = store.time_loss(
+        product=product, station=station, phase=phase,
+        since=since, until=until_date,
+    )
 
     if not rows:
-        if as_json:
-            click.echo("{}")
-        else:
-            click.echo("No data found.")
-        return
-
-    stats = timing_stats(rows, by=by_what)
-
-    if stats["count"] == 0:
-        if as_json:
-            click.echo("{}")
-        else:
-            click.echo("No timing data available.")
+        click.echo("[]" if as_json else "No data found.")
         return
 
     if as_json:
-        click.echo(json.dumps(stats, indent=2, default=str))
+        click.echo(json.dumps(rows, indent=2, default=str))
         return
 
-    label = "Run" if by_what == "run" else "Step"
-    click.echo(f"{label} time statistics ({stats['count']} samples):")
-    click.echo(f"  Avg:  {stats['avg_s']:.1f}s")
-    click.echo(f"  Min:  {stats['min_s']:.1f}s")
-    click.echo(f"  Max:  {stats['max_s']:.1f}s")
-    click.echo(f"  P95:  {stats['p95_s']:.1f}s")
+    click.echo(
+        f"{'Period':<14} {'Total(s)':>10} {'Pass(s)':>10} "
+        f"{'Fail(s)':>10} {'Error(s)':>10}"
+    )
+    click.echo("-" * 58)
+    for r in rows:
+        click.echo(
+            f"{str(r.get('period', '')):<14} "
+            f"{r.get('total_time_s', 0) or 0:>10.1f} "
+            f"{r.get('pass_time_s', 0) or 0:>10.1f} "
+            f"{r.get('fail_time_s', 0) or 0:>10.1f} "
+            f"{r.get('error_time_s', 0) or 0:>10.1f}"
+        )
 
-    if "per_step" in stats and stats["per_step"]:
-        click.echo(f"\n{'Step':<35} {'Avg':>7} {'Min':>7} {'Max':>7} {'P95':>7} {'N':>5}")
-        click.echo("-" * 72)
-        for step_name, s in stats["per_step"].items():
-            if len(step_name) > 33:
-                step_name = step_name[:30] + "..."
-            click.echo(
-                f"{step_name:<35} {s['avg_s']:>6.1f}s {s['min_s']:>6.1f}s "
-                f"{s['max_s']:>6.1f}s {s['p95_s']:>6.1f}s {s['count']:>5}"
-            )
+
+# ---------------------------------------------------------------------------
+# Gold Layer Analytics
+# ---------------------------------------------------------------------------
+
+
+def _gold_store(results_dir: str | None):
+    """Create a GoldStore with resolved results directory."""
+    from litmus.analysis.gold import GoldStore
+
+    return GoldStore(_results_dir=_get_results_dir(results_dir))
+
+
+@main.group("gold")
+def gold_group():
+    """Gold layer — pre-aggregated manufacturing analytics (DuckDB SQL on silver)."""
+    pass
+
+
+@gold_group.command("summary")
+@_base_filters
+@click.option("--period", type=click.Choice(["day", "week", "month"]), default="day")
+def gold_summary(results_dir, phase, since, until_date, product, station, period, as_json):
+    """Yield summary: FPY, final yield, run counts, duration stats."""
+    store = _gold_store(results_dir)
+    rows = store.yield_summary(
+        product=product, station=station, phase=phase,
+        since=since, until=until_date, period=period,
+    )
+
+    if not rows:
+        click.echo("[]" if as_json else "No data found.")
+        return
+
+    if as_json:
+        click.echo(json.dumps(rows, indent=2, default=str))
+        return
+
+    click.echo(
+        f"{'Period':<12} {'Product':<16} {'Station':<16} {'Runs':>5} "
+        f"{'Pass':>5} {'Fail':>5} {'FPY':>6} {'Final':>6} {'Avg(s)':>7}"
+    )
+    click.echo("-" * 96)
+    for r in rows:
+        fpt = r.get("first_pass_total", 0)
+        fpp = r.get("first_pass_passed", 0)
+        fpy = f"{fpp / fpt * 100:.1f}%" if fpt else "N/A"
+        us = r.get("unique_serials", 0)
+        fp = r.get("final_passed", 0)
+        final = f"{fp / us * 100:.1f}%" if us else "N/A"
+        avg_d = r.get("avg_duration_s")
+        avg = f"{avg_d:.1f}" if avg_d is not None else "N/A"
+        click.echo(
+            f"{str(r.get('period', '')):<12} {str(r.get('product', '')):<16} "
+            f"{str(r.get('station', '')):<16} {r.get('total_runs', 0):>5} "
+            f"{r.get('passed', 0):>5} {r.get('failed', 0):>5} "
+            f"{fpy:>6} {final:>6} {avg:>7}"
+        )
+
+
+@gold_group.command("pareto")
+@_base_filters
+@click.option("--top", "top_n", default=10, help="Number of top failures")
+def gold_pareto(results_dir, phase, since, until_date, product, station, top_n, as_json):
+    """Top failure modes (Pareto analysis)."""
+    store = _gold_store(results_dir)
+    rows = store.pareto(
+        product=product, station=station, phase=phase,
+        since=since, until=until_date, top_n=top_n,
+    )
+
+    if not rows:
+        click.echo("[]" if as_json else "No data found.")
+        return
+
+    if as_json:
+        click.echo(json.dumps(rows, indent=2, default=str))
+        return
+
+    click.echo(f"{'#':<4} {'Step / Measurement':<40} {'Count':>6} {'Rate':>7}")
+    click.echo("-" * 60)
+    for i, r in enumerate(rows, 1):
+        label = f"{r.get('step_name', '')}: {r.get('measurement_name', '')}"
+        if len(label) > 38:
+            label = label[:35] + "..."
+        click.echo(f"{i:<4} {label:<40} {r.get('fail_count', 0):>6} {r.get('fail_rate', 0):>6.1f}%")
+
+
+@gold_group.command("cpk")
+@_base_filters
+@click.option("--min-samples", default=10, help="Minimum sample count")
+def gold_cpk(results_dir, phase, since, until_date, product, station, min_samples, as_json):
+    """Process capability (Cpk/Cp) per measurement."""
+    store = _gold_store(results_dir)
+    rows = store.cpk(
+        product=product, station=station, phase=phase,
+        since=since, until=until_date, min_samples=min_samples,
+    )
+
+    if not rows:
+        click.echo("[]" if as_json else "No measurements with enough samples.")
+        return
+
+    if as_json:
+        click.echo(json.dumps(rows, indent=2, default=str))
+        return
+
+    click.echo(f"{'Measurement':<30} {'N':>5} {'Mean':>10} {'Sigma':>10} {'Cpk':>7} {'Cp':>7}")
+    click.echo("-" * 75)
+    for r in rows:
+        name = str(r.get("measurement_name", ""))
+        if len(name) > 28:
+            name = name[:25] + "..."
+        cpk_val = f"{r['cpk']:.3f}" if r.get("cpk") is not None else "N/A"
+        cp_val = f"{r['cp']:.3f}" if r.get("cp") is not None else "N/A"
+        click.echo(
+            f"{name:<30} {r.get('n', 0):>5} {r.get('mean', 0):>10.4f} "
+            f"{r.get('sigma', 0):>10.4f} {cpk_val:>7} {cp_val:>7}"
+        )
+
+
+@gold_group.command("trend")
+@_base_filters
+@click.option("--period", type=click.Choice(["day", "week", "month"]), default="day")
+def gold_trend(results_dir, phase, since, until_date, product, station, period, as_json):
+    """Yield trend over time."""
+    store = _gold_store(results_dir)
+    rows = store.trend(
+        product=product, station=station, phase=phase,
+        since=since, until=until_date, period=period,
+    )
+
+    if not rows:
+        click.echo("[]" if as_json else "No data found.")
+        return
+
+    if as_json:
+        click.echo(json.dumps(rows, indent=2, default=str))
+        return
+
+    click.echo(f"{'Period':<14} {'Total':>6} {'Passed':>7} {'Yield':>7}")
+    click.echo("-" * 38)
+    for r in rows:
+        click.echo(
+            f"{str(r.get('period', '')):<14} {r.get('total', 0):>6} "
+            f"{r.get('passed', 0):>7} {r.get('yield_pct', 0):>6.1f}%"
+        )
+
+
+@gold_group.command("retest")
+@_base_filters
+@click.option("--period", type=click.Choice(["day", "week", "month"]), default="day")
+def gold_retest(results_dir, phase, since, until_date, product, station, period, as_json):
+    """Retest rates: how often DUTs require multiple attempts."""
+    store = _gold_store(results_dir)
+    rows = store.retest(
+        product=product, station=station, phase=phase,
+        since=since, until=until_date, period=period,
+    )
+
+    if not rows:
+        click.echo("[]" if as_json else "No data found.")
+        return
+
+    if as_json:
+        click.echo(json.dumps(rows, indent=2, default=str))
+        return
+
+    click.echo(f"{'Period':<14} {'Serials':>8} {'Retested':>9} {'Rate':>7} {'Avg Att':>8}")
+    click.echo("-" * 50)
+    for r in rows:
+        click.echo(
+            f"{str(r.get('period', '')):<14} {r.get('total_serials', 0):>8} "
+            f"{r.get('retested_count', 0):>9} {r.get('retest_rate', 0):>6.1f}% "
+            f"{r.get('avg_attempts', 0):>7.1f}"
+        )
+
+
+@gold_group.command("time-loss")
+@_base_filters
+@click.option("--period", type=click.Choice(["day", "week", "month"]), default="day")
+def gold_time_loss(results_dir, phase, since, until_date, product, station, period, as_json):
+    """Time lost to failures and errors."""
+    store = _gold_store(results_dir)
+    rows = store.time_loss(
+        product=product, station=station, phase=phase,
+        since=since, until=until_date, period=period,
+    )
+
+    if not rows:
+        click.echo("[]" if as_json else "No data found.")
+        return
+
+    if as_json:
+        click.echo(json.dumps(rows, indent=2, default=str))
+        return
+
+    click.echo(
+        f"{'Period':<14} {'Total(s)':>10} {'Pass(s)':>10} "
+        f"{'Fail(s)':>10} {'Error(s)':>10}"
+    )
+    click.echo("-" * 58)
+    for r in rows:
+        click.echo(
+            f"{str(r.get('period', '')):<14} "
+            f"{r.get('total_time_s', 0) or 0:>10.1f} "
+            f"{r.get('pass_time_s', 0) or 0:>10.1f} "
+            f"{r.get('fail_time_s', 0) or 0:>10.1f} "
+            f"{r.get('error_time_s', 0) or 0:>10.1f}"
+        )
 
 
 # ---------------------------------------------------------------------------

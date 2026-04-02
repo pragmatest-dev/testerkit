@@ -499,6 +499,53 @@ def create_mcp_server() -> FastMCP:
         return channels_tool(channel_id, session_id, last_n, max_points, project)
 
     # -------------------------------------------------------------------------
+    # Tool 10: litmus_gold
+    # -------------------------------------------------------------------------
+
+    @mcp.tool(name="litmus_gold")
+    def query_gold(
+        action: str,
+        product: str | None = None,
+        station: str | None = None,
+        phase: str | None = None,
+        since: str | None = None,
+        until: str | None = None,
+        period: str = "day",
+        top_n: int = 10,
+        min_samples: int = 10,
+        project: str | None = None,
+    ) -> dict[str, Any]:
+        """Query pre-aggregated manufacturing metrics (DuckDB SQL on silver Parquet).
+
+        Fast analytics without loading all data into Python. Supports:
+        - summary: FPY, final yield, run counts, duration stats
+        - pareto: Top failure modes by count
+        - cpk: Process capability (Cpk/Cp) per measurement
+        - trend: Yield trend over time
+        - retest: Retest rates per serial
+        - time_loss: Time lost to failures and errors
+
+        Args:
+            action: One of: summary, pareto, cpk, trend, retest, time_loss.
+            product: Filter by product/part number.
+            station: Filter by station name.
+            phase: Test phase (default: exclude development, 'all' = no filter).
+            since: Start date (ISO format, inclusive).
+            until: End date (ISO format, inclusive).
+            period: Time bucket — day, week, or month.
+            top_n: Number of top failures for pareto.
+            min_samples: Minimum sample count for cpk.
+            project: Project root path.
+        """
+        from litmus.mcp.tools import gold_tool
+
+        return gold_tool(
+            action, product=product, station=station, phase=phase,
+            since=since, until=until, period=period, top_n=top_n,
+            min_samples=min_samples, project=project,
+        )
+
+    # -------------------------------------------------------------------------
     # Prompt: datasheet-to-test workflow
     # -------------------------------------------------------------------------
 
