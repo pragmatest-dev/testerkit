@@ -266,7 +266,8 @@ def get_station_capabilities(station_config: StationConfig) -> list[StationCapab
         else:
             logger.warning(
                 "Instrument '%s' (type=%s) has no catalog_ref — skipping capability resolution",
-                inst_name, inst_type,
+                inst_name,
+                inst_type,
             )
 
     return capabilities
@@ -310,8 +311,6 @@ def _add_catalog_capabilities(
     if entry:
         for cap in entry.capabilities:
             _expand_capability(cap, inst_type, inst_name, capabilities)
-
-
 
 
 # -----------------------------------------------------------------------------
@@ -439,9 +438,7 @@ def _build_operating_point(
     return point
 
 
-def get_spec_at(
-    measure: Signal, operating_point: dict[str, float | str | bool]
-) -> SpecBand | None:
+def get_spec_at(measure: Signal, operating_point: dict[str, float | str | bool]) -> SpecBand | None:
     """Find the SpecBand that applies at the given operating point.
 
     Returns None if no band matches (caller should use top-level defaults).
@@ -455,9 +452,10 @@ def get_spec_at(
     return None
 
 
-
 def _get_spec_field(
-    measure: Signal, field: str, operating_point: dict[str, float | str | bool],
+    measure: Signal,
+    field: str,
+    operating_point: dict[str, float | str | bool],
 ) -> Any:
     """Get a spec field at an operating point, falling back to top-level.
 
@@ -473,25 +471,29 @@ def _get_spec_field(
 
 
 def _get_accuracy_at(
-    measure: Signal, operating_point: dict[str, float | str | bool],
+    measure: Signal,
+    operating_point: dict[str, float | str | bool],
 ) -> AccuracySpec | None:
     return _get_spec_field(measure, "accuracy", operating_point)
 
 
 def _get_resolution_at(
-    measure: Signal, operating_point: dict[str, float | str | bool],
+    measure: Signal,
+    operating_point: dict[str, float | str | bool],
 ) -> ResolutionSpec | None:
     return _get_spec_field(measure, "resolution", operating_point)
 
 
 def _get_range_at(
-    measure: Signal, operating_point: dict[str, float | str | bool],
+    measure: Signal,
+    operating_point: dict[str, float | str | bool],
 ) -> RangeSpec | None:
     return _get_spec_field(measure, "range", operating_point)
 
 
 def _get_value_at(
-    measure: Signal, operating_point: dict[str, float | str],
+    measure: Signal,
+    operating_point: dict[str, float | str],
 ) -> float | None:
     """Get the applicable value, requiring numeric type."""
     val = _get_spec_field(measure, "value", operating_point)
@@ -551,9 +553,7 @@ def _signal_range_contains(
     - req has neither: always satisfied (no constraint)
     """
     inst_range = (
-        _get_range_at(inst_measure, operating_point)
-        if operating_point
-        else inst_measure.range
+        _get_range_at(inst_measure, operating_point) if operating_point else inst_measure.range
     )
 
     # If requirement has a fixed value, check it's within instrument range
@@ -658,7 +658,9 @@ def find_compatible_stations(product: Product) -> list[StationMatch]:
 
 
 def check_station_compatibility(
-    product_id: str, station_id: str, project: str | Path | None = None,
+    product_id: str,
+    station_id: str,
+    project: str | Path | None = None,
 ) -> dict[str, Any] | None:
     """Check if a specific station can test a specific product.
 
@@ -823,15 +825,17 @@ def recommend_from_catalog(
                     break
 
         if satisfied_indices:
-            recommendations.append({
-                "catalog_id": entry.id,
-                "manufacturer": entry.manufacturer,
-                "model": entry.model,
-                "name": entry.name,
-                "type": entry.type,
-                "satisfies": satisfied_indices,
-                "channels": len(entry.channels) or 1,
-            })
+            recommendations.append(
+                {
+                    "catalog_id": entry.id,
+                    "manufacturer": entry.manufacturer,
+                    "model": entry.model,
+                    "name": entry.name,
+                    "type": entry.type,
+                    "satisfies": satisfied_indices,
+                    "channels": len(entry.channels) or 1,
+                }
+            )
 
             for idx in satisfied_indices:
                 req = cap_reqs[idx]
@@ -916,10 +920,12 @@ def _parse_requirements(
             net=f"req_{i}",  # Synthetic physical interface
         )
 
-        reqs.append(CapabilityRequirement(
-            capability=char,
-            characteristic_name=f"req_{i}",
-        ))
+        reqs.append(
+            CapabilityRequirement(
+                capability=char,
+                characteristic_name=f"req_{i}",
+            )
+        )
         depths.append(_infer_depth(r))
     return reqs, depths
 
@@ -959,9 +965,7 @@ def find_all_station_matches(product: Product) -> dict[str, list]:
             "coverage": coverage_pct,
             "satisfied": satisfied_count,
             "total": total_count,
-            "missing": [
-                f"{r.function.value} {r.direction.value}" for r in match_result.missing
-            ],
+            "missing": [f"{r.function.value} {r.direction.value}" for r in match_result.missing],
         }
 
         if coverage_pct == 100:

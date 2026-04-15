@@ -26,9 +26,7 @@ def sequence_edit_page(sequence_id: str):
     if not config:
         with ui.column().classes("w-full p-6"):
             ui.label("Sequence not found.").classes("text-xl text-slate-600")
-            ui.link("← Back to Sequences", "/sequences").classes(
-                "text-blue-600 hover:underline"
-            )
+            ui.link("← Back to Sequences", "/sequences").classes("text-blue-600 hover:underline")
         return
 
     # Get available options for dropdowns
@@ -111,9 +109,7 @@ def sequence_edit_page(sequence_id: str):
         )
 
 
-def _render_info_tab(
-    form_data: dict, product_options: dict, phase_options: dict, saver: AutoSaver
-):
+def _render_info_tab(form_data: dict, product_options: dict, phase_options: dict, saver: AutoSaver):
     """Render the info edit tab."""
     seq = form_data["sequence"]
 
@@ -146,9 +142,7 @@ def _render_info_tab(
 
                 with ui.row().classes("gap-4 w-full"):
                     with ui.column().classes("gap-1 flex-1"):
-                        ui.label("Product Family").classes(
-                            "text-sm font-medium text-slate-700"
-                        )
+                        ui.label("Product Family").classes("text-sm font-medium text-slate-700")
                         ui.select(
                             options=product_options,
                             value=seq["product_family"],
@@ -159,9 +153,7 @@ def _render_info_tab(
                         ).props("outlined dense").classes("w-full")
 
                     with ui.column().classes("gap-1 flex-1"):
-                        ui.label("Test Phase").classes(
-                            "text-sm font-medium text-slate-700"
-                        )
+                        ui.label("Test Phase").classes("text-sm font-medium text-slate-700")
                         ui.select(
                             options=phase_options,
                             value=seq["test_phase"],
@@ -195,9 +187,7 @@ def _render_info_tab(
                     ),
                 )
                 with ui.column().classes("gap-1 w-full"):
-                    ui.label("Timeout (seconds)").classes(
-                        "text-sm font-medium text-slate-700"
-                    )
+                    ui.label("Timeout (seconds)").classes("text-sm font-medium text-slate-700")
                     ui.number(
                         value=seq.get("timeout_seconds"),
                         min=0,
@@ -245,9 +235,9 @@ def _render_steps_tab(
                             refresh_steps,
                         )
                 else:
-                    ui.label(
-                        "No steps defined. Click 'Add Step' to create one."
-                    ).classes("text-slate-500 italic")
+                    ui.label("No steps defined. Click 'Add Step' to create one.").classes(
+                        "text-slate-500 italic"
+                    )
 
         refresh_steps()
 
@@ -269,9 +259,7 @@ def _render_step_card(
             with ui.row().classes("items-center justify-between"):
                 with ui.row().classes("items-center gap-2"):
                     ui.badge(f"#{index + 1}").props("outline")
-                    ui.icon("folder" if is_sequence else "science").classes(
-                        "text-slate-500"
-                    )
+                    ui.icon("folder" if is_sequence else "science").classes("text-slate-500")
                     ui.label(step_id).classes("font-semibold font-mono")
                 with ui.row().classes("gap-1"):
                     # Move up
@@ -306,34 +294,28 @@ def _render_step_card(
                 if step.get("test"):
                     ui.chip(f"Test: {step['test']}", icon="science").props("outline")
                 if step.get("sequence"):
-                    ui.chip(f"Sequence: {step['sequence']}", icon="folder").props(
-                        "outline"
-                    )
+                    ui.chip(f"Sequence: {step['sequence']}", icon="folder").props("outline")
                 if step.get("limit_ref"):
                     ui.chip(f"Limit: {step['limit_ref']}", icon="rule").props("outline")
                 if step.get("retry"):
                     retry = step["retry"]
-                    ui.chip(
-                        f"Retry: {retry.get('max_attempts', 1)}x", icon="refresh"
-                    ).props("outline")
+                    ui.chip(f"Retry: {retry.get('max_attempts', 1)}x", icon="refresh").props(
+                        "outline"
+                    )
                 if step.get("vectors"):
                     vecs = step["vectors"]
                     if isinstance(vecs, list):
                         ui.chip(f"{len(vecs)} vectors", icon="loop").props("outline")
                     elif isinstance(vecs, dict):
-                        ui.chip(
-                            f"Vectors: {vecs.get('expand', 'product')}", icon="loop"
-                        ).props("outline")
+                        ui.chip(f"Vectors: {vecs.get('expand', 'product')}", icon="loop").props(
+                            "outline"
+                        )
                 if step.get("limits"):
                     n = len(step["limits"])
-                    ui.chip(f"{n} limit{'s' if n != 1 else ''}", icon="rule").props(
-                        "outline"
-                    )
+                    ui.chip(f"{n} limit{'s' if n != 1 else ''}", icon="rule").props("outline")
                 if step.get("mocks"):
                     n = len(step["mocks"])
-                    ui.chip(f"{n} mock{'s' if n != 1 else ''}", icon="memory").props(
-                        "outline"
-                    )
+                    ui.chip(f"{n} mock{'s' if n != 1 else ''}", icon="memory").props("outline")
 
         # Edit in expansion
         with ui.expansion("Edit Step", icon="edit").classes("w-full"):
@@ -351,9 +333,7 @@ def _render_step_card(
 
                 with ui.row().classes("gap-4 w-full"):
                     with ui.column().classes("gap-1 flex-1"):
-                        ui.label("Test Path").classes(
-                            "text-sm font-medium text-slate-700"
-                        )
+                        ui.label("Test Path").classes("text-sm font-medium text-slate-700")
                         ui.select(
                             options=[""] + test_options,
                             value=step.get("test", ""),
@@ -362,9 +342,7 @@ def _render_step_card(
                         ).props("outlined dense").classes("w-full")
 
                     with ui.column().classes("gap-1 flex-1"):
-                        ui.label("Nested Sequence").classes(
-                            "text-sm font-medium text-slate-700"
-                        )
+                        ui.label("Nested Sequence").classes("text-sm font-medium text-slate-700")
                         ui.select(
                             options={"": "-- None --", **sequence_options},
                             value=step.get("sequence", ""),
@@ -424,9 +402,7 @@ def _render_step_card(
 
                         with ui.row().classes("gap-4"):
                             with ui.column().classes("gap-1"):
-                                ui.label("Strategy").classes(
-                                    "text-sm font-medium text-slate-700"
-                                )
+                                ui.label("Strategy").classes("text-sm font-medium text-slate-700")
                                 ui.select(
                                     options={
                                         "": "-- None --",
@@ -434,18 +410,14 @@ def _render_step_card(
                                         "dialog": "Dialog",
                                     },
                                     value=retry.get("strategy", ""),
-                                    on_change=lambda e, r=retry: r.update(
-                                        {"strategy": e.value}
-                                    ),
+                                    on_change=lambda e, r=retry: r.update({"strategy": e.value}),
                                 ).props("outlined dense")
 
                             _labeled_input(
                                 "Dialog Ref",
                                 retry.get("dialog_ref", ""),
                                 placeholder="Dialog ID for retry",
-                                on_change=lambda e, r=retry: r.update(
-                                    {"dialog_ref": e.value}
-                                ),
+                                on_change=lambda e, r=retry: r.update({"dialog_ref": e.value}),
                             )
 
                 # Vectors
@@ -487,9 +459,9 @@ def _render_dialogs_tab(form_data: dict, saver: AutoSaver):
                     for dialog_id, dialog in dialogs.items():
                         _render_dialog_card(dialog_id, dialog, form_data, refresh_dialogs)
                 else:
-                    ui.label(
-                        "No dialogs defined. Click 'Add Dialog' to create one."
-                    ).classes("text-slate-500 italic")
+                    ui.label("No dialogs defined. Click 'Add Dialog' to create one.").classes(
+                        "text-slate-500 italic"
+                    )
 
         refresh_dialogs()
 
@@ -529,9 +501,7 @@ def _render_dialog_card(dialog_id: str, dialog: dict, form_data: dict, refresh_c
                 )
                 with ui.row().classes("gap-4"):
                     with ui.column().classes("gap-1 flex-1"):
-                        ui.label("Dialog Type").classes(
-                            "text-sm font-medium text-slate-700"
-                        )
+                        ui.label("Dialog Type").classes("text-sm font-medium text-slate-700")
                         ui.select(
                             options={
                                 "confirm": "Confirm",
@@ -539,15 +509,11 @@ def _render_dialog_card(dialog_id: str, dialog: dict, form_data: dict, refresh_c
                                 "choice": "Choice",
                             },
                             value=dialog.get("dialog_type", "confirm"),
-                            on_change=lambda e, d=dialog: d.update(
-                                {"dialog_type": e.value}
-                            ),
+                            on_change=lambda e, d=dialog: d.update({"dialog_type": e.value}),
                         ).props("outlined dense").classes("w-full")
 
                     with ui.column().classes("gap-1 flex-1"):
-                        ui.label("Timeout (seconds)").classes(
-                            "text-sm font-medium text-slate-700"
-                        )
+                        ui.label("Timeout (seconds)").classes("text-sm font-medium text-slate-700")
                         ui.number(
                             value=dialog.get("timeout_seconds"),
                             min=0,
@@ -577,12 +543,10 @@ def _render_vectors_editor(step: dict):
                 s["vectors"] = {"expand": "product"}
 
             with ui.row().classes("gap-2"):
-                ui.button("Add List", icon="add", on_click=add_list_vectors).props(
+                ui.button("Add List", icon="add", on_click=add_list_vectors).props("flat dense")
+                ui.button("Add Expansion", icon="add", on_click=add_expansion_vectors).props(
                     "flat dense"
                 )
-                ui.button(
-                    "Add Expansion", icon="add", on_click=add_expansion_vectors
-                ).props("flat dense")
             return
 
         if isinstance(vectors, list):
@@ -592,9 +556,7 @@ def _render_vectors_editor(step: dict):
                     ui.label(f"{i + 1}.").classes("text-slate-400 w-6")
                     ui.input(
                         value=str(vec),
-                        on_change=lambda e, s=step, idx=i: _update_step_vector(
-                            s, idx, e.value
-                        ),
+                        on_change=lambda e, s=step, idx=i: _update_step_vector(s, idx, e.value),
                     ).props("outlined dense").classes("flex-1")
                     ui.button(
                         icon="delete",
@@ -666,9 +628,7 @@ def _render_limits_editor(step: dict):
                             ui.label("Nominal").classes("text-xs text-slate-500")
                             ui.number(
                                 value=lim.get("nominal"),
-                                on_change=lambda e, lm=lim: lm.update(
-                                    {"nominal": e.value}
-                                ),
+                                on_change=lambda e, lm=lim: lm.update({"nominal": e.value}),
                             ).props("outlined dense").classes("w-full")
 
                         with ui.column().classes("gap-1"):
@@ -683,9 +643,7 @@ def _render_limits_editor(step: dict):
                             ui.input(
                                 value=lim.get("units", ""),
                                 placeholder="e.g., V, A",
-                                on_change=lambda e, lm=lim: lm.update(
-                                    {"units": e.value}
-                                ),
+                                on_change=lambda e, lm=lim: lm.update({"units": e.value}),
                             ).props("outlined dense").classes("w-full")
 
         # Add limit
@@ -702,9 +660,7 @@ def _render_limits_editor(step: dict):
                     s.setdefault("limits", {})[name] = {}
                     nl["value"] = ""
 
-            ui.button("Add Limit", icon="add", on_click=add_limit).props(
-                "flat dense"
-            )
+            ui.button("Add Limit", icon="add", on_click=add_limit).props("flat dense")
 
 
 def _render_mocks_editor(step: dict):
@@ -717,14 +673,10 @@ def _render_mocks_editor(step: dict):
 
         for key in list(mocks.keys()):
             with ui.row().classes("items-center gap-2 w-full"):
-                ui.input(value=key).props("outlined dense readonly").classes(
-                    "flex-1"
-                )
+                ui.input(value=key).props("outlined dense readonly").classes("flex-1")
                 ui.input(
                     value=str(mocks[key]),
-                    on_change=lambda e, k=key, m=mocks: m.update(
-                        {k: _safe_eval(e.value)}
-                    ),
+                    on_change=lambda e, k=key, m=mocks: m.update({k: _safe_eval(e.value)}),
                 ).props("outlined dense").classes("flex-1")
                 ui.button(
                     icon="delete",
@@ -800,9 +752,7 @@ def _delete_dialog(dialogs: dict, dialog_id: str, refresh_callback):
         refresh_callback()
 
 
-def _show_add_step_dialog(
-    form_data: dict, sequence_options: dict, test_options: list, container
-):
+def _show_add_step_dialog(form_data: dict, sequence_options: dict, test_options: list, container):
     """Show dialog to add a new step."""
     step_form = {
         "id": "",
@@ -832,9 +782,7 @@ def _show_add_step_dialog(
                     on_change=lambda e: step_form.update({"test": e.value}),
                 ).props("outlined dense").classes("w-full")
             with ui.column().classes("gap-1"):
-                ui.label("Or Nested Sequence").classes(
-                    "text-sm font-medium text-slate-700"
-                )
+                ui.label("Or Nested Sequence").classes("text-sm font-medium text-slate-700")
                 ui.select(
                     options={"": "-- None --", **sequence_options},
                     value="",
@@ -910,9 +858,7 @@ def _show_add_dialog_dialog(form_data: dict, container):
                     on_change=lambda e: dialog_form.update({"dialog_type": e.value}),
                 ).props("outlined dense").classes("w-full")
             with ui.column().classes("gap-1"):
-                ui.label("Timeout (seconds)").classes(
-                    "text-sm font-medium text-slate-700"
-                )
+                ui.label("Timeout (seconds)").classes("text-sm font-medium text-slate-700")
                 ui.number(
                     min=0,
                     on_change=lambda e: dialog_form.update(
@@ -967,15 +913,13 @@ def _labeled_input(
         props = "outlined dense"
         if readonly:
             props += " readonly"
-        ui.input(value=value, placeholder=placeholder, on_change=on_change).props(
-            props
-        ).classes("w-full")
+        ui.input(value=value, placeholder=placeholder, on_change=on_change).props(props).classes(
+            "w-full"
+        )
 
 
 def _labeled_textarea(label: str, value: str = "", on_change=None):
     """Create a labeled textarea."""
     with ui.column().classes("gap-1 w-full"):
         ui.label(label).classes("text-sm font-medium text-slate-700")
-        ui.textarea(value=value, on_change=on_change).props("outlined dense").classes(
-            "w-full"
-        )
+        ui.textarea(value=value, on_change=on_change).props("outlined dense").classes("w-full")

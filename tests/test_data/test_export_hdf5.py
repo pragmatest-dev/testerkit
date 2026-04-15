@@ -29,7 +29,9 @@ class TestHdf5Subscriber:
     """Test the event-driven subscriber path."""
 
     def _write_via_subscriber(
-        self, test_run: TestRun, tmp_path: Path,
+        self,
+        test_run: TestRun,
+        tmp_path: Path,
         replay: Callable[[TestRun, Any], None],
     ) -> Path:
         sub = Hdf5Subscriber(tmp_path)
@@ -40,20 +42,28 @@ class TestHdf5Subscriber:
         return tmp_path / "exports" / "hdf5" / f"{run_id}.hdf5"
 
     def test_creates_file(
-        self, realistic_test_run: TestRun, tmp_path: Path,
+        self,
+        realistic_test_run: TestRun,
+        tmp_path: Path,
         replay_events: Callable[[TestRun, Any], None],
     ):
         result = self._write_via_subscriber(
-            realistic_test_run, tmp_path, replay_events,
+            realistic_test_run,
+            tmp_path,
+            replay_events,
         )
         assert result.exists()
 
     def test_root_attrs(
-        self, realistic_test_run: TestRun, tmp_path: Path,
+        self,
+        realistic_test_run: TestRun,
+        tmp_path: Path,
         replay_events: Callable[[TestRun, Any], None],
     ):
         result = self._write_via_subscriber(
-            realistic_test_run, tmp_path, replay_events,
+            realistic_test_run,
+            tmp_path,
+            replay_events,
         )
         with h5py.File(result, "r") as f:
             assert f.attrs["station_id"] == "station_alpha"
@@ -64,22 +74,30 @@ class TestHdf5Subscriber:
             assert f.attrs["product_id"] == "PROD-100"
 
     def test_custom_metadata(
-        self, realistic_test_run: TestRun, tmp_path: Path,
+        self,
+        realistic_test_run: TestRun,
+        tmp_path: Path,
         replay_events: Callable[[TestRun, Any], None],
     ):
         result = self._write_via_subscriber(
-            realistic_test_run, tmp_path, replay_events,
+            realistic_test_run,
+            tmp_path,
+            replay_events,
         )
         with h5py.File(result, "r") as f:
             assert f.attrs["custom_batch"] == "2026-Q1"
             assert f.attrs["custom_temperature"] == 25.0
 
     def test_step_hierarchy(
-        self, realistic_test_run: TestRun, tmp_path: Path,
+        self,
+        realistic_test_run: TestRun,
+        tmp_path: Path,
         replay_events: Callable[[TestRun, Any], None],
     ):
         result = self._write_via_subscriber(
-            realistic_test_run, tmp_path, replay_events,
+            realistic_test_run,
+            tmp_path,
+            replay_events,
         )
         with h5py.File(result, "r") as f:
             assert "steps/power/output/voltage" in f
@@ -87,11 +105,15 @@ class TestHdf5Subscriber:
             assert grp.attrs["name"] == "voltage_check"
 
     def test_measurement_values(
-        self, realistic_test_run: TestRun, tmp_path: Path,
+        self,
+        realistic_test_run: TestRun,
+        tmp_path: Path,
         replay_events: Callable[[TestRun, Any], None],
     ):
         result = self._write_via_subscriber(
-            realistic_test_run, tmp_path, replay_events,
+            realistic_test_run,
+            tmp_path,
+            replay_events,
         )
         with h5py.File(result, "r") as f:
             vout = _dataset(f["steps/power/output/voltage/vectors/0/measurements/vout"])
@@ -106,12 +128,16 @@ class TestHdf5Subscriber:
             assert vout.attrs["instrument_name"] == "DMM_01"
 
     def test_inputs_as_vec_attrs(
-        self, realistic_test_run: TestRun, tmp_path: Path,
+        self,
+        realistic_test_run: TestRun,
+        tmp_path: Path,
         replay_events: Callable[[TestRun, Any], None],
     ):
         """Event inputs dict → vector group attrs."""
         result = self._write_via_subscriber(
-            realistic_test_run, tmp_path, replay_events,
+            realistic_test_run,
+            tmp_path,
+            replay_events,
         )
         with h5py.File(result, "r") as f:
             vec0 = f["steps/power/output/voltage/vectors/0"]
@@ -119,11 +145,15 @@ class TestHdf5Subscriber:
             assert vec0.attrs["in_load"] == 100.0
 
     def test_null_value_stored_as_nan(
-        self, realistic_test_run: TestRun, tmp_path: Path,
+        self,
+        realistic_test_run: TestRun,
+        tmp_path: Path,
         replay_events: Callable[[TestRun, Any], None],
     ):
         result = self._write_via_subscriber(
-            realistic_test_run, tmp_path, replay_events,
+            realistic_test_run,
+            tmp_path,
+            replay_events,
         )
         with h5py.File(result, "r") as f:
             broken = _dataset(f["steps/power/protection/vectors/0/measurements/broken_sensor"])
@@ -131,12 +161,16 @@ class TestHdf5Subscriber:
             assert broken.attrs["value_missing"] == True  # noqa: E712
 
     def test_multiple_vectors(
-        self, realistic_test_run: TestRun, tmp_path: Path,
+        self,
+        realistic_test_run: TestRun,
+        tmp_path: Path,
         replay_events: Callable[[TestRun, Any], None],
     ):
         """Step with 2 vectors has both in the hierarchy."""
         result = self._write_via_subscriber(
-            realistic_test_run, tmp_path, replay_events,
+            realistic_test_run,
+            tmp_path,
+            replay_events,
         )
         with h5py.File(result, "r") as f:
             vectors = _group(f["steps/power/output/voltage/vectors"])
@@ -144,12 +178,16 @@ class TestHdf5Subscriber:
             assert "1" in vectors
 
     def test_nominal_comparator(
-        self, realistic_test_run: TestRun, tmp_path: Path,
+        self,
+        realistic_test_run: TestRun,
+        tmp_path: Path,
         replay_events: Callable[[TestRun, Any], None],
     ):
         """EQ comparator measurement stores nominal attr."""
         result = self._write_via_subscriber(
-            realistic_test_run, tmp_path, replay_events,
+            realistic_test_run,
+            tmp_path,
+            replay_events,
         )
         with h5py.File(result, "r") as f:
             vref = f["steps/power/output/voltage/vectors/1/measurements/vref_eq"]

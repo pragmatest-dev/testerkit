@@ -44,9 +44,7 @@ def fixture_edit_page(fixture_id: str):
         create_layout("Fixture Not Found")
         with ui.column().classes("w-full p-6"):
             ui.label("Fixture not found.").classes("text-xl text-slate-600")
-            ui.link("← Back to Fixtures", "/fixtures").classes(
-                "text-blue-600 hover:underline"
-            )
+            ui.link("← Back to Fixtures", "/fixtures").classes("text-blue-600 hover:underline")
         return
 
     # Get available products and stations for dropdowns
@@ -152,6 +150,7 @@ def fixture_edit_page(fixture_id: str):
         # Actions
         with ui.row().classes("gap-2"):
             if is_new:
+
                 def handle_create():
                     fid = form_data["fixture"]["id"]
                     if not fid:
@@ -163,9 +162,7 @@ def fixture_edit_page(fixture_id: str):
                     else:
                         ui.notify("Failed to create fixture", type="negative")
 
-                ui.button("Create", icon="add", on_click=handle_create).props(
-                    "color=primary"
-                )
+                ui.button("Create", icon="add", on_click=handle_create).props("color=primary")
             else:
                 # Auto-save indicator
                 ui.label("Changes auto-saved").classes("text-sm text-slate-400 italic")
@@ -190,9 +187,7 @@ def _render_points_list(points: dict, instrument_options: list, container, saver
             return
 
         for point_name, point_data in points.items():
-            _render_point_row(
-                point_name, point_data, points, instrument_options, container, saver
-            )
+            _render_point_row(point_name, point_data, points, instrument_options, container, saver)
 
 
 def _render_point_row(
@@ -212,9 +207,7 @@ def _render_point_row(
                 def delete_handler(pn=point_name):
                     _delete_point(all_points, pn, container, instrument_options, saver)
 
-                ui.button(icon="delete", on_click=delete_handler).props(
-                    "flat dense color=red"
-                )
+                ui.button(icon="delete", on_click=delete_handler).props("flat dense color=red")
 
         with ui.card_section():
             with ui.grid(columns=4).classes("gap-4"):
@@ -293,9 +286,7 @@ def _labeled_textarea(label: str, value: str = "", on_change=None):
     """Create a labeled textarea."""
     with ui.column().classes("gap-1 w-full"):
         ui.label(label).classes("text-sm font-medium text-slate-700")
-        ui.textarea(value=value, on_change=on_change).props("outlined dense").classes(
-            "w-full"
-        )
+        ui.textarea(value=value, on_change=on_change).props("outlined dense").classes("w-full")
 
 
 def _show_add_point_dialog(instrument_options: list, on_add: Callable):

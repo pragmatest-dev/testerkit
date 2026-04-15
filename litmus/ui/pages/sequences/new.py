@@ -50,9 +50,7 @@ def new_sequence_page():
         # Header
         with ui.row().classes("items-center gap-2"):
             ui.icon("add_circle").classes("text-slate-600")
-            ui.label("Create New Test Sequence").classes(
-                "text-lg font-semibold text-slate-700"
-            )
+            ui.label("Create New Test Sequence").classes("text-lg font-semibold text-slate-700")
 
         # Form card
         with ui.card().classes("w-full max-w-xl"):
@@ -62,18 +60,20 @@ def new_sequence_page():
                 with ui.column().classes("gap-4 w-full"):
                     # Sequence ID
                     with ui.column().classes("gap-1 w-full"):
-                        ui.label("Sequence ID").classes(
-                            "text-sm font-medium text-slate-700"
-                        )
+                        ui.label("Sequence ID").classes("text-sm font-medium text-slate-700")
                         ui.label(
                             "Unique identifier (lowercase, letters/numbers/hyphens only)"
                         ).classes("text-xs text-slate-400")
-                        id_input = ui.input(
-                            placeholder="e.g., tps54302-validation",
-                        ).props("outlined dense").classes("w-full")
-                        ui.label("").classes(
-                            "text-xs text-red-500"
-                        ).bind_text_from(validation, "id_error")
+                        id_input = (
+                            ui.input(
+                                placeholder="e.g., tps54302-validation",
+                            )
+                            .props("outlined dense")
+                            .classes("w-full")
+                        )
+                        ui.label("").classes("text-xs text-red-500").bind_text_from(
+                            validation, "id_error"
+                        )
 
                         def validate_id(e):
                             value = e.value.lower().strip()
@@ -82,9 +82,7 @@ def new_sequence_page():
 
                             if not value:
                                 validation["id_error"] = "Sequence ID is required"
-                            elif not re.match(
-                                r"^[a-z0-9][a-z0-9-]*[a-z0-9]$|^[a-z0-9]$", value
-                            ):
+                            elif not re.match(r"^[a-z0-9][a-z0-9-]*[a-z0-9]$|^[a-z0-9]$", value):
                                 validation["id_error"] = (
                                     "Must start/end with letter or number, "
                                     "only contain letters, numbers, hyphens"
@@ -99,12 +97,16 @@ def new_sequence_page():
                     # Name
                     with ui.column().classes("gap-1 w-full"):
                         ui.label("Name").classes("text-sm font-medium text-slate-700")
-                        name_input = ui.input(
-                            placeholder="e.g., TPS54302 Validation Suite",
-                        ).props("outlined dense").classes("w-full")
-                        ui.label("").classes(
-                            "text-xs text-red-500"
-                        ).bind_text_from(validation, "name_error")
+                        name_input = (
+                            ui.input(
+                                placeholder="e.g., TPS54302 Validation Suite",
+                            )
+                            .props("outlined dense")
+                            .classes("w-full")
+                        )
+                        ui.label("").classes("text-xs text-red-500").bind_text_from(
+                            validation, "name_error"
+                        )
 
                         def validate_name(e):
                             value = e.value.strip()
@@ -118,12 +120,10 @@ def new_sequence_page():
 
                     # Product family
                     with ui.column().classes("gap-1 w-full"):
-                        ui.label("Product Family").classes(
-                            "text-sm font-medium text-slate-700"
+                        ui.label("Product Family").classes("text-sm font-medium text-slate-700")
+                        ui.label("Associate this sequence with a product (optional)").classes(
+                            "text-xs text-slate-400"
                         )
-                        ui.label(
-                            "Associate this sequence with a product (optional)"
-                        ).classes("text-xs text-slate-400")
                         ui.select(
                             options=product_options,
                             value="",
@@ -132,9 +132,7 @@ def new_sequence_page():
 
                     # Test phase
                     with ui.column().classes("gap-1 w-full"):
-                        ui.label("Test Phase").classes(
-                            "text-sm font-medium text-slate-700"
-                        )
+                        ui.label("Test Phase").classes("text-sm font-medium text-slate-700")
                         ui.select(
                             options=phase_options,
                             value="validation",
@@ -143,14 +141,10 @@ def new_sequence_page():
 
                     # Description
                     with ui.column().classes("gap-1 w-full"):
-                        ui.label("Description").classes(
-                            "text-sm font-medium text-slate-700"
-                        )
+                        ui.label("Description").classes("text-sm font-medium text-slate-700")
                         ui.textarea(
                             placeholder="Brief description of what this sequence tests...",
-                            on_change=lambda e: form.update(
-                                {"description": e.value.strip()}
-                            ),
+                            on_change=lambda e: form.update({"description": e.value.strip()}),
                         ).props("outlined dense").classes("w-full")
 
             with ui.card_actions().classes("justify-end"):
@@ -209,9 +203,7 @@ def new_sequence_page():
                 with ui.row().classes("items-start gap-3"):
                     ui.icon("lightbulb").classes("text-blue-500 mt-0.5")
                     with ui.column().classes("gap-1"):
-                        ui.label("What is a Sequence?").classes(
-                            "font-medium text-blue-700"
-                        )
+                        ui.label("What is a Sequence?").classes("font-medium text-blue-700")
                         ui.label(
                             "A test sequence defines the order and configuration of "
                             "tests to run. Each step can reference a test file, "
@@ -221,6 +213,4 @@ def new_sequence_page():
                             "After creating the sequence, you can edit it to add steps."
                         ).classes("text-sm text-blue-600")
 
-        ui.link("← Back to Sequences", "/sequences").classes(
-            "text-blue-600 hover:underline"
-        )
+        ui.link("← Back to Sequences", "/sequences").classes("text-blue-600 hover:underline")

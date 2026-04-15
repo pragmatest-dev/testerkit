@@ -27,10 +27,15 @@ class TestReplayToSubscriber:
         class DictCollector:
             format_name = "collector"
             event_types = {RunStarted, StepStarted, MeasurementRecorded, StepEnded, RunEnded}
-            def open(self): pass
+
+            def open(self):
+                pass
+
             def on_event(self, event: Any) -> None:
                 event_dicts.append(event.model_dump(mode="json"))
-            def close(self): pass
+
+            def close(self):
+                pass
 
         collector = DictCollector()
         collector.open()
@@ -45,10 +50,15 @@ class TestReplayToSubscriber:
         class Receiver(EventSubscriber):
             format_name = "receiver"
             event_types = {RunStarted, MeasurementRecorded, RunEnded}
-            def open(self): pass
+
+            def open(self):
+                pass
+
             def on_event(self, event: Any) -> None:
                 received.append(event)
-            def close(self): pass
+
+            def close(self):
+                pass
 
         replay_to_subscriber(Receiver(), event_dicts)
 
@@ -78,10 +88,15 @@ class TestReplayToSubscriber:
         class AllCollector:
             format_name = "all"
             event_types = {RunStarted, StepStarted, MeasurementRecorded, StepEnded, RunEnded}
-            def open(self): pass
+
+            def open(self):
+                pass
+
             def on_event(self, event: Any) -> None:
                 all_dicts.append(event.model_dump(mode="json"))
-            def close(self): pass
+
+            def close(self):
+                pass
 
         all_collector = AllCollector()
         all_collector.open()
@@ -94,10 +109,15 @@ class TestReplayToSubscriber:
         class RunOnlyReceiver(EventSubscriber):
             format_name = "run_only"
             event_types = {RunStarted}
-            def open(self): pass
+
+            def open(self):
+                pass
+
             def on_event(self, event: Any) -> None:
                 received.append(event)
-            def close(self): pass
+
+            def close(self):
+                pass
 
         replay_to_subscriber(RunOnlyReceiver(), all_dicts)
         assert len(received) == 1
@@ -112,10 +132,15 @@ class TestReplayToSubscriber:
         class Receiver(EventSubscriber):
             format_name = "receiver"
             event_types = {RunStarted}
-            def open(self): pass
+
+            def open(self):
+                pass
+
             def on_event(self, event: Any) -> None:
                 received.append(event)
-            def close(self): pass
+
+            def close(self):
+                pass
 
         bad_events = [
             {"event_type": "not.real", "garbage": True},

@@ -230,7 +230,8 @@ def realistic_test_run() -> TestRun:
 
 
 def _replay_events(
-    test_run: TestRun, subscriber: Any,
+    test_run: TestRun,
+    subscriber: Any,
 ) -> None:
     """Replay a TestRun as the event sequence a real run produces.
 
@@ -249,92 +250,102 @@ def _replay_events(
     run_id = test_run.id
 
     # RunStarted
-    subscriber.on_event(RunStarted(
-        session_id=session_id,
-        run_id=run_id,
-        occurred_at=test_run.started_at,
-        station_id=test_run.station_id,
-        station_name=test_run.station_name,
-        station_type=test_run.station_type,
-        station_location=test_run.station_location,
-        dut_serial=test_run.dut.serial,
-        dut_part_number=test_run.dut.part_number,
-        dut_revision=test_run.dut.revision,
-        dut_lot_number=test_run.dut.lot_number,
-        product_id=test_run.product_id,
-        product_name=test_run.product_name,
-        product_revision=test_run.product_revision,
-        operator_id=test_run.operator_id,
-        operator_name=test_run.operator_name,
-        fixture_id=test_run.fixture_id,
-        sequence_id=test_run.test_sequence_id,
-        test_phase=test_run.test_phase,
-        git_commit=test_run.git_commit,
-        custom_metadata=test_run.custom_metadata,
-    ))
+    subscriber.on_event(
+        RunStarted(
+            session_id=session_id,
+            run_id=run_id,
+            occurred_at=test_run.started_at,
+            station_id=test_run.station_id,
+            station_name=test_run.station_name,
+            station_type=test_run.station_type,
+            station_location=test_run.station_location,
+            dut_serial=test_run.dut.serial,
+            dut_part_number=test_run.dut.part_number,
+            dut_revision=test_run.dut.revision,
+            dut_lot_number=test_run.dut.lot_number,
+            product_id=test_run.product_id,
+            product_name=test_run.product_name,
+            product_revision=test_run.product_revision,
+            operator_id=test_run.operator_id,
+            operator_name=test_run.operator_name,
+            fixture_id=test_run.fixture_id,
+            sequence_id=test_run.test_sequence_id,
+            test_phase=test_run.test_phase,
+            git_commit=test_run.git_commit,
+            custom_metadata=test_run.custom_metadata,
+        )
+    )
 
     # Steps
     for step_idx, step in enumerate(test_run.steps):
-        subscriber.on_event(StepStarted(
-            session_id=session_id,
-            run_id=run_id,
-            occurred_at=step.started_at,
-            step_name=step.name,
-            step_index=step_idx,
-            step_path=step.step_path,
-            description=step.description,
-            node_id=step.node_id,
-            file=step.file,
-            module=step.module,
-            class_name=step.class_name,
-            function=step.function,
-        ))
+        subscriber.on_event(
+            StepStarted(
+                session_id=session_id,
+                run_id=run_id,
+                occurred_at=step.started_at,
+                step_name=step.name,
+                step_index=step_idx,
+                step_path=step.step_path,
+                description=step.description,
+                node_id=step.node_id,
+                file=step.file,
+                module=step.module,
+                class_name=step.class_name,
+                function=step.function,
+            )
+        )
 
         for vector in step.vectors:
             for meas in vector.measurements:
-                subscriber.on_event(MeasurementRecorded(
-                    session_id=session_id,
-                    run_id=run_id,
-                    step_name=step.name,
-                    step_index=step_idx,
-                    step_path=step.step_path,
-                    vector_index=vector.index,
-                    attempt=vector.attempt,
-                    measurement_name=meas.name,
-                    value=meas.value,
-                    units=meas.units,
-                    outcome=str(meas.outcome) if meas.outcome else None,
-                    low_limit=meas.low_limit,
-                    high_limit=meas.high_limit,
-                    nominal=meas.nominal,
-                    comparator=meas.comparator,
-                    spec_id=meas.spec_id,
-                    spec_ref=meas.spec_ref,
-                    meas_dut_pin=meas.dut_pin,
-                    meas_instrument=meas.instrument_name,
-                    meas_instrument_resource=meas.instrument_resource,
-                    meas_instrument_channel=meas.instrument_channel,
-                    meas_fixture_point=meas.fixture_point,
-                    inputs=vector.params,
-                    outputs=vector.observations,
-                ))
+                subscriber.on_event(
+                    MeasurementRecorded(
+                        session_id=session_id,
+                        run_id=run_id,
+                        step_name=step.name,
+                        step_index=step_idx,
+                        step_path=step.step_path,
+                        vector_index=vector.index,
+                        attempt=vector.attempt,
+                        measurement_name=meas.name,
+                        value=meas.value,
+                        units=meas.units,
+                        outcome=str(meas.outcome) if meas.outcome else None,
+                        low_limit=meas.low_limit,
+                        high_limit=meas.high_limit,
+                        nominal=meas.nominal,
+                        comparator=meas.comparator,
+                        spec_id=meas.spec_id,
+                        spec_ref=meas.spec_ref,
+                        meas_dut_pin=meas.dut_pin,
+                        meas_instrument=meas.instrument_name,
+                        meas_instrument_resource=meas.instrument_resource,
+                        meas_instrument_channel=meas.instrument_channel,
+                        meas_fixture_point=meas.fixture_point,
+                        inputs=vector.params,
+                        outputs=vector.observations,
+                    )
+                )
 
-        subscriber.on_event(StepEnded(
-            session_id=session_id,
-            run_id=run_id,
-            occurred_at=step.ended_at or step.started_at,
-            step_name=step.name,
-            step_index=step_idx,
-            step_path=step.step_path,
-            outcome=str(step.outcome),
-        ))
+        subscriber.on_event(
+            StepEnded(
+                session_id=session_id,
+                run_id=run_id,
+                occurred_at=step.ended_at or step.started_at,
+                step_name=step.name,
+                step_index=step_idx,
+                step_path=step.step_path,
+                outcome=str(step.outcome),
+            )
+        )
 
     # RunEnded
-    subscriber.on_event(RunEnded(
-        session_id=session_id,
-        run_id=run_id,
-        outcome=str(test_run.outcome),
-    ))
+    subscriber.on_event(
+        RunEnded(
+            session_id=session_id,
+            run_id=run_id,
+            outcome=str(test_run.outcome),
+        )
+    )
 
 
 @pytest.fixture

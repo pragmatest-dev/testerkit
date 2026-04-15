@@ -193,7 +193,10 @@ class TestProductInheritance:
         import tempfile
 
         with tempfile.NamedTemporaryFile(
-            mode="w", suffix=".yaml", dir=specs_dir, delete=False,
+            mode="w",
+            suffix=".yaml",
+            dir=specs_dir,
+            delete=False,
         ) as f:
             f.write("id: bad_variant\nbase: nonexistent_base\nname: Bad\n")
             f.flush()
@@ -238,7 +241,9 @@ class TestProductDriver:
         """load_product_driver loads a real class from a dotted path."""
         # Use a stdlib class as a stand-in for a driver
         product = Product(
-            id="test", name="Test", driver="collections.OrderedDict",
+            id="test",
+            name="Test",
+            driver="collections.OrderedDict",
         )
         cls = load_product_driver(product)
         from collections import OrderedDict
@@ -248,7 +253,9 @@ class TestProductDriver:
     def test_load_product_driver_bad_path(self):
         """load_product_driver returns None for an invalid import path."""
         product = Product(
-            id="test", name="Test", driver="nonexistent.module.Cls",
+            id="test",
+            name="Test",
+            driver="nonexistent.module.Cls",
         )
         assert load_product_driver(product) is None
 
@@ -263,13 +270,15 @@ class TestProductDriverInheritance:
     def test_driver_inherited_from_base(self, specs_dir):
         """Variant without driver inherits base product's driver."""
         product = load_product(
-            specs_dir / "variant_driver_inherit.yaml", products_dir=specs_dir,
+            specs_dir / "variant_driver_inherit.yaml",
+            products_dir=specs_dir,
         )
         assert product.driver == "drivers.base.BaseDriver"
 
     def test_driver_overridden_by_variant(self, specs_dir):
         """Variant with its own driver overrides base."""
         product = load_product(
-            specs_dir / "variant_driver_override.yaml", products_dir=specs_dir,
+            specs_dir / "variant_driver_override.yaml",
+            products_dir=specs_dir,
         )
         assert product.driver == "drivers.variant.VariantDriver"

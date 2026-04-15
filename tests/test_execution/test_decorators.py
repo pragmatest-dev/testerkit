@@ -113,7 +113,6 @@ class TestMeasureWithLogger:
         """Restore previous logger after each test."""
         set_current_logger(self._prev_logger)
 
-
     def test_measure_logs_to_logger(self):
         logger = TestRunLogger(
             dut_serial="SN001",

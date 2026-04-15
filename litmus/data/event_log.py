@@ -27,15 +27,17 @@ from litmus.data.events import EventBase
 
 # Schema for the index columns stored in IPC files.
 # Full event JSON is kept in the ``json`` column for lossless replay.
-_IPC_SCHEMA = pa.schema([
-    ("id", pa.string()),
-    ("event_type", pa.string()),
-    ("occurred_at", pa.timestamp("us", tz="UTC")),
-    ("received_at", pa.timestamp("us", tz="UTC")),
-    ("session_id", pa.string()),
-    ("run_id", pa.string()),
-    ("json", pa.string()),
-])
+_IPC_SCHEMA = pa.schema(
+    [
+        ("id", pa.string()),
+        ("event_type", pa.string()),
+        ("occurred_at", pa.timestamp("us", tz="UTC")),
+        ("received_at", pa.timestamp("us", tz="UTC")),
+        ("session_id", pa.string()),
+        ("run_id", pa.string()),
+        ("json", pa.string()),
+    ]
+)
 
 _DEFAULT_FLUSH_THRESHOLD = 50
 
@@ -139,15 +141,17 @@ class EventLog:
         """
         event.received_at = datetime.now(UTC)
 
-        batch = self._ipc.append({
-            "id": str(event.id),
-            "event_type": event.event_type,  # type: ignore[attr-defined]
-            "occurred_at": event.occurred_at,
-            "received_at": event.received_at,
-            "session_id": str(event.session_id),
-            "run_id": str(event.run_id) if event.run_id else None,
-            "json": event.model_dump_json(),
-        })
+        batch = self._ipc.append(
+            {
+                "id": str(event.id),
+                "event_type": event.event_type,  # type: ignore[attr-defined]
+                "occurred_at": event.occurred_at,
+                "received_at": event.received_at,
+                "session_id": str(event.session_id),
+                "run_id": str(event.run_id) if event.run_id else None,
+                "json": event.model_dump_json(),
+            }
+        )
 
         for sub in self._subscribers:
             if sub in self._failed:
@@ -159,8 +163,7 @@ class EventLog:
             except Exception as exc:
                 self._failed.add(sub)
                 warnings.warn(
-                    f"EventSubscriber '{sub.format_name}' failed on "
-                    f"{type(event).__name__}: {exc}",
+                    f"EventSubscriber '{sub.format_name}' failed on {type(event).__name__}: {exc}",
                     stacklevel=2,
                 )
 

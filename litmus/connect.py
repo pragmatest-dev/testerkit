@@ -79,7 +79,9 @@ class StationConnection:
         # Create ChannelStore directly (not as EventLog subscriber)
         results_dir = self._event_store._results_dir
         self._channel_store = ChannelStore(
-            results_dir / "channels", self._session_id, serve=True,
+            results_dir / "channels",
+            self._session_id,
+            serve=True,
         )
         self._channel_store.open()
 
@@ -120,7 +122,8 @@ class StationConnection:
         return None
 
     def start_instrument_server(
-        self, roles: set[str] | None = None,
+        self,
+        roles: set[str] | None = None,
     ) -> str:
         """Start an instrument server for shared instruments.
 
@@ -167,7 +170,8 @@ class StationConnection:
                     concurrent_roles.add(role)
 
         self._instrument_server = InstrumentServer(
-            drivers, resources=resources,
+            drivers,
+            resources=resources,
             concurrent_roles=concurrent_roles,
         )
         self._instrument_server.start()
@@ -271,12 +275,14 @@ class StationConnection:
         """
         if self._event_log is None:
             return
-        self._event_log.emit(InstrumentConfigure(
-            session_id=self._session_id,
-            instrument_role=role,
-            method=method,
-            parameters={k: v for k, v in parameters.items() if v is not None},
-        ))
+        self._event_log.emit(
+            InstrumentConfigure(
+                session_id=self._session_id,
+                instrument_role=role,
+                method=method,
+                parameters={k: v for k, v in parameters.items() if v is not None},
+            )
+        )
 
     def events(
         self,
@@ -353,7 +359,10 @@ class StationConnection:
         if self._channel_store is None:
             raise RuntimeError("ChannelStore not available")
         return self._channel_store.write(
-            key, value, units=units, sample_interval=sample_interval,
+            key,
+            value,
+            units=units,
+            sample_interval=sample_interval,
         )
 
     def sync(self, name: str, timeout: float | None = None) -> None:

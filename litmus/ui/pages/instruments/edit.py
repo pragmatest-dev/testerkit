@@ -93,9 +93,7 @@ def instrument_edit_page(instrument_type: str):
                 _render_info_tab(form_data, saver)
 
             with ui.tab_panel(caps_tab):
-                _render_capabilities_tab(
-                    form_data, direction_options, function_options, saver
-                )
+                _render_capabilities_tab(form_data, direction_options, function_options, saver)
 
             with ui.tab_panel(scpi_tab):
                 _render_scpi_tab(form_data, saver)
@@ -247,9 +245,7 @@ def _render_capability_card(
 
                 with ui.row().classes("gap-4 w-full"):
                     with ui.column().classes("gap-1 flex-1"):
-                        ui.label("Function").classes(
-                            "text-sm font-medium text-slate-700"
-                        )
+                        ui.label("Function").classes("text-sm font-medium text-slate-700")
                         ui.select(
                             options=function_options,
                             value=cap.get("function", "dc_voltage"),
@@ -257,9 +253,7 @@ def _render_capability_card(
                         ).props("outlined dense").classes("w-full")
 
                     with ui.column().classes("gap-1 flex-1"):
-                        ui.label("Direction").classes(
-                            "text-sm font-medium text-slate-700"
-                        )
+                        ui.label("Direction").classes("text-sm font-medium text-slate-700")
                         ui.select(
                             options=direction_options,
                             value=cap.get("direction", "input"),
@@ -302,16 +296,12 @@ def _render_scpi_tab(form_data: dict, saver: AutoSaver):
 
 def _render_scpi_row(cmd_name: str, cmd_value: str, form_data: dict, refresh_callback):
     """Render a SCPI command row."""
-    with ui.row().classes(
-        "items-center justify-between w-full py-2 px-3 bg-slate-50 rounded"
-    ):
+    with ui.row().classes("items-center justify-between w-full py-2 px-3 bg-slate-50 rounded"):
         with ui.row().classes("items-center gap-4 flex-1"):
             ui.label(cmd_name).classes("font-semibold font-mono w-40")
             ui.input(
                 value=cmd_value,
-                on_change=lambda e, n=cmd_name: form_data["scpi_commands"].update(
-                    {n: e.value}
-                ),
+                on_change=lambda e, n=cmd_name: form_data["scpi_commands"].update({n: e.value}),
             ).props("outlined dense").classes("flex-1")
 
         def delete_cmd(name=cmd_name):
@@ -359,15 +349,11 @@ def _render_simulation_tab(form_data: dict, saver: AutoSaver):
                 with ui.row().classes("items-center gap-4 w-full"):
                     ui.input(
                         value=key,
-                        on_change=lambda e, k=key: _rename_default(
-                            simulation, k, e.value
-                        ),
+                        on_change=lambda e, k=key: _rename_default(simulation, k, e.value),
                     ).props("outlined dense").classes("w-40")
                     ui.number(
                         value=value,
-                        on_change=lambda e, k=key: simulation["defaults"].update(
-                            {k: e.value}
-                        ),
+                        on_change=lambda e, k=key: simulation["defaults"].update({k: e.value}),
                     ).props("outlined dense").classes("flex-1")
         else:
             with defaults_container:
@@ -509,15 +495,13 @@ def _labeled_input(
         props = "outlined dense"
         if readonly:
             props += " readonly"
-        ui.input(value=value, placeholder=placeholder, on_change=on_change).props(
-            props
-        ).classes("w-full")
+        ui.input(value=value, placeholder=placeholder, on_change=on_change).props(props).classes(
+            "w-full"
+        )
 
 
 def _labeled_textarea(label: str, value: str = "", on_change=None):
     """Create a labeled textarea."""
     with ui.column().classes("gap-1 w-full"):
         ui.label(label).classes("text-sm font-medium text-slate-700")
-        ui.textarea(value=value, on_change=on_change).props("outlined dense").classes(
-            "w-full"
-        )
+        ui.textarea(value=value, on_change=on_change).props("outlined dense").classes("w-full")

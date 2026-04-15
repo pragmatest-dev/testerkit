@@ -121,7 +121,8 @@ class InstrumentServer:
             self._ref_count = max(0, self._ref_count - 1)
             if self._ref_count > 0:
                 logger.info(
-                    "Owner unregistered, %d clients remain", self._ref_count,
+                    "Owner unregistered, %d clients remain",
+                    self._ref_count,
                 )
                 return
 
@@ -188,7 +189,8 @@ class InstrumentServer:
                             logger.warning(
                                 "Lock for '%s' timed out after %.0fs — "
                                 "possible dead client, force-proceeding",
-                                role, _HEARTBEAT_TIMEOUT,
+                                role,
+                                _HEARTBEAT_TIMEOUT,
                             )
                             # Force re-create the lock (old holder is dead)
                             resource_key = self._role_to_resource.get(role)
@@ -282,6 +284,7 @@ class RemoteInstrumentProxy:
                 if st == "error":
                     raise RuntimeError(res)
                 return res
+
             return _remote_call
 
         return payload

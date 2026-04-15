@@ -132,10 +132,10 @@ Do NOT guess field names — if the schema doesn't have it, don't use it.
 
 ## Key Values (from schema)
 
-- **MeasurementFunction** enum: `{', '.join(mf_values[:10])}`, ...
+- **MeasurementFunction** enum: `{", ".join(mf_values[:10])}`, ...
   (call `litmus_schema(yaml_type="product")` for full list)
-- **Direction** enum: `{', '.join(dir_values)}`
-- **Pin roles**: `{', '.join(role_values) if role_values else 'power, ground, signal, reference'}`
+- **Direction** enum: `{", ".join(dir_values)}`
+- **Pin roles**: `{", ".join(role_values) if role_values else "power, ground, signal, reference"}`
 
 ## Examples (from demo/)
 
@@ -398,9 +398,7 @@ def create_mcp_server() -> FastMCP:
     # -------------------------------------------------------------------------
 
     @mcp.tool(name="litmus_open")
-    def open_ui(
-        type: str, id: str, base_url: str = "http://localhost:8000"
-    ) -> dict[str, Any]:
+    def open_ui(type: str, id: str, base_url: str = "http://localhost:8000") -> dict[str, Any]:
         """Get URL to view/edit an entity in the browser UI.
 
         Use this when detailed viewing or visual editing is needed.
@@ -540,9 +538,16 @@ def create_mcp_server() -> FastMCP:
         from litmus.mcp.tools import gold_tool
 
         return gold_tool(
-            action, product=product, station=station, phase=phase,
-            since=since, until=until, period=period, top_n=top_n,
-            min_samples=min_samples, project=project,
+            action,
+            product=product,
+            station=station,
+            phase=phase,
+            since=since,
+            until=until,
+            period=period,
+            top_n=top_n,
+            min_samples=min_samples,
+            project=project,
         )
 
     # -------------------------------------------------------------------------

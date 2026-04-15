@@ -29,8 +29,10 @@ class TestSignalRegistry:
 
     def test_callback_error_continues(self):
         called = []
+
         def _raise() -> None:
             raise ZeroDivisionError
+
         register_cleanup("bad", _raise)
         register_cleanup("good", lambda: called.append("ok"))
 

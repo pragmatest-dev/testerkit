@@ -40,7 +40,8 @@ class RunStore:
 
         # Flight query client (shared retry logic with EventStore)
         self._flight = FlightQueryClient(
-            self._location, "runs",
+            self._location,
+            "runs",
             reacquire=lambda: runs_duckdb_manager.acquire(self._runs_dir),
             label="RunStore",
         )

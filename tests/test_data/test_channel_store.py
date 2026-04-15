@@ -278,11 +278,14 @@ class TestWrite:
     def test_write_dict_value(self, tmp_path: Path):
         """Dict values use flexible per-channel schemas."""
         store = _make_store(tmp_path)
-        uri = store.write("scope.acquisition", {
-            "channels": [[1.0, 2.0], [3.0, 4.0]],
-            "dt": 1e-6,
-            "t0": 0.0,
-        })
+        uri = store.write(
+            "scope.acquisition",
+            {
+                "channels": [[1.0, 2.0], [3.0, 4.0]],
+                "dt": 1e-6,
+                "t0": 0.0,
+            },
+        )
         assert "channel://" in uri
 
         result = store.query("scope.acquisition")
@@ -296,6 +299,7 @@ class TestDecimation:
         store = _make_store(tmp_path)
         # Write 1000 scalar points
         import math
+
         for i in range(1000):
             store.write("sensor.temp", math.sin(i * 0.01) * 10 + 25)
 

@@ -21,6 +21,7 @@ instruments: {}
     pytester.mkdir("stations")
     # Move the yaml into stations/
     import shutil
+
     shutil.move(
         str(pytester.path / "station.yaml"),
         str(pytester.path / "stations" / "station.yaml"),

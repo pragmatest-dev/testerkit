@@ -284,27 +284,29 @@ def build_nodes(state: DesignerState) -> list[dict]:
                     elif ground_type == "shared":
                         subheader_text += " ⏚"
 
-                nodes.append({
-                    "name": f"__subheader_{channel_key}",
-                    "x": RIGHT_X,
-                    "y": y,
-                    "category": CAT_HEADER,
-                    "symbolSize": 12,
-                    "symbol": "rect",
-                    "label": {
-                        "show": True,
-                        "position": "right",
-                        "formatter": subheader_text,
-                        "fontSize": 11,
-                        "color": "#64748b",
-                    },
-                    "itemStyle": {"color": "transparent", "borderWidth": 0},
-                    "side": "instrument",
-                    "node_type": "channel_header",
-                    "interactive": False,
-                    "role": role,
-                    "channel": ch,
-                })
+                nodes.append(
+                    {
+                        "name": f"__subheader_{channel_key}",
+                        "x": RIGHT_X,
+                        "y": y,
+                        "category": CAT_HEADER,
+                        "symbolSize": 12,
+                        "symbol": "rect",
+                        "label": {
+                            "show": True,
+                            "position": "right",
+                            "formatter": subheader_text,
+                            "fontSize": 11,
+                            "color": "#64748b",
+                        },
+                        "itemStyle": {"color": "transparent", "borderWidth": 0},
+                        "side": "instrument",
+                        "node_type": "channel_header",
+                        "interactive": False,
+                        "role": role,
+                        "channel": ch,
+                    }
+                )
                 y += NODE_GAP * 0.7
 
                 # Show each terminal as a connection point
@@ -428,9 +430,7 @@ def build_nodes(state: DesignerState) -> list[dict]:
     return nodes
 
 
-def build_links(
-    state: DesignerState, nodes: list[dict]
-) -> tuple[list[dict], list[dict]]:
+def build_links(state: DesignerState, nodes: list[dict]) -> tuple[list[dict], list[dict]]:
     """Build edges with orthogonal elbow routing and subway-style coloring.
 
     Each connection becomes 3 segments via 2 invisible waypoint nodes:
@@ -538,9 +538,7 @@ def build_links(
         if n_conns <= 1:
             lane_x = MID_X
         else:
-            lane_x = corridor_right - (
-                corridor_width * idx / (n_conns - 1)
-            )
+            lane_x = corridor_right - (corridor_width * idx / (n_conns - 1))
 
         color = WIRE_COLORS[idx % len(WIRE_COLORS)]
         line_style = {

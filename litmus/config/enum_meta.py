@@ -716,15 +716,19 @@ def _build_reverse_index() -> dict[str, list[LookupResult]]:
         )
         # Index the enum value itself
         key = value.lower()
-        index.setdefault(key, []).append(LookupResult(
-            **{**result.__dict__, "matched_on": value},
-        ))
+        index.setdefault(key, []).append(
+            LookupResult(
+                **{**result.__dict__, "matched_on": value},
+            )
+        )
         # Index each abbreviation
         for abbr in meta.get("abbreviations", []):
             key = abbr.lower()
-            index.setdefault(key, []).append(LookupResult(
-                **{**result.__dict__, "matched_on": abbr},
-            ))
+            index.setdefault(key, []).append(
+                LookupResult(
+                    **{**result.__dict__, "matched_on": abbr},
+                )
+            )
 
     for value, meta in CONDITION_KEY_META.items():
         result = LookupResult(
@@ -734,14 +738,18 @@ def _build_reverse_index() -> dict[str, list[LookupResult]]:
             instrument_classes=meta.get("instrument_classes", []),
         )
         key = value.lower()
-        index.setdefault(key, []).append(LookupResult(
-            **{**result.__dict__, "matched_on": value},
-        ))
+        index.setdefault(key, []).append(
+            LookupResult(
+                **{**result.__dict__, "matched_on": value},
+            )
+        )
         for abbr in meta.get("abbreviations", []):
             key = abbr.lower()
-            index.setdefault(key, []).append(LookupResult(
-                **{**result.__dict__, "matched_on": abbr},
-            ))
+            index.setdefault(key, []).append(
+                LookupResult(
+                    **{**result.__dict__, "matched_on": abbr},
+                )
+            )
 
     return index
 

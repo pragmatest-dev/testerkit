@@ -63,19 +63,23 @@ class TestSyncCoordinatorBasics:
         assert len(callbacks) == 2  # sync.arrived + slot.completed
 
         # Simulate slot_1 arriving (first callback is sync.arrived handler)
-        callbacks[0]({
-            "event_type": "sync.arrived",
-            "name": "thermal_soak",
-            "slot_id": "slot_1",
-        })
+        callbacks[0](
+            {
+                "event_type": "sync.arrived",
+                "name": "thermal_soak",
+                "slot_id": "slot_1",
+            }
+        )
         assert len(released) == 0  # Not yet
 
         # Simulate slot_2 arriving
-        callbacks[0]({
-            "event_type": "sync.arrived",
-            "name": "thermal_soak",
-            "slot_id": "slot_2",
-        })
+        callbacks[0](
+            {
+                "event_type": "sync.arrived",
+                "name": "thermal_soak",
+                "slot_id": "slot_2",
+            }
+        )
         assert released == ["thermal_soak"]
 
         coord.stop()
@@ -102,11 +106,13 @@ class TestSyncCoordinatorBasics:
         coord.start()
 
         # slot_1 arrives
-        callbacks[0]({
-            "event_type": "sync.arrived",
-            "name": "sync_point",
-            "slot_id": "slot_1",
-        })
+        callbacks[0](
+            {
+                "event_type": "sync.arrived",
+                "name": "sync_point",
+                "slot_id": "slot_1",
+            }
+        )
 
         # slot_2 dies
         coord.mark_slot_dead("slot_2")
@@ -115,11 +121,13 @@ class TestSyncCoordinatorBasics:
         assert len(released) == 0
 
         # slot_3 arrives → 2/2, should release
-        callbacks[0]({
-            "event_type": "sync.arrived",
-            "name": "sync_point",
-            "slot_id": "slot_3",
-        })
+        callbacks[0](
+            {
+                "event_type": "sync.arrived",
+                "name": "sync_point",
+                "slot_id": "slot_3",
+            }
+        )
         assert released == ["sync_point"]
 
         coord.stop()
@@ -147,11 +155,13 @@ class TestSyncCoordinatorBasics:
         coord.start()
 
         # slot_1 arrives at sync
-        callbacks[0]({
-            "event_type": "sync.arrived",
-            "name": "sync_point",
-            "slot_id": "slot_1",
-        })
+        callbacks[0](
+            {
+                "event_type": "sync.arrived",
+                "name": "sync_point",
+                "slot_id": "slot_1",
+            }
+        )
         assert len(released) == 0
 
         # slot_2 dies → only 1 active needed, slot_1 already arrived

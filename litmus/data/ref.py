@@ -56,7 +56,7 @@ def parse_channel_uri(uri: str) -> tuple[str, str]:
     """
     if not uri.startswith("channel://"):
         raise ValueError(f"Not a channel URI: {uri!r}")
-    rest = uri[len("channel://"):]
+    rest = uri[len("channel://") :]
     if "?" in rest:
         channel_id, query = rest.split("?", 1)
         params = parse_qs(query)

@@ -175,26 +175,26 @@ class WaveformShape(StrEnum):
 class TerminalRole(StrEnum):
     """Physical terminal on an instrument channel (ATE/IVI standard names)."""
 
-    HI = "hi"              # High-side force terminal (positive)
-    LO = "lo"              # Low-side / return terminal (negative/ground)
+    HI = "hi"  # High-side force terminal (positive)
+    LO = "lo"  # Low-side / return terminal (negative/ground)
     SENSE_HI = "sense_hi"  # Remote sense high (Kelvin connection)
     SENSE_LO = "sense_lo"  # Remote sense low
-    GUARD = "guard"        # Guard terminal (triax center)
-    GROUND = "ground"      # Chassis / earth ground terminal
-    SIGNAL = "signal"      # Single-ended signal (BNC center, probe tip)
-    TRIGGER = "trigger"    # Trigger I/O
-    HCUR = "hcur"          # High current (impedance analyzer)
-    HPOT = "hpot"          # High potential (impedance analyzer)
-    LCUR = "lcur"          # Low current (impedance analyzer)
-    LPOT = "lpot"          # Low potential (impedance analyzer)
+    GUARD = "guard"  # Guard terminal (triax center)
+    GROUND = "ground"  # Chassis / earth ground terminal
+    SIGNAL = "signal"  # Single-ended signal (BNC center, probe tip)
+    TRIGGER = "trigger"  # Trigger I/O
+    HCUR = "hcur"  # High current (impedance analyzer)
+    HPOT = "hpot"  # High potential (impedance analyzer)
+    LCUR = "lcur"  # Low current (impedance analyzer)
+    LPOT = "lpot"  # Low potential (impedance analyzer)
 
 
 class GroundTopology(StrEnum):
     """How channel grounds relate to each other and earth."""
 
     FLOATING = "floating"  # Channels isolated from each other (typical PSU)
-    SHARED = "shared"      # All channels share common ground (typical scope, DMM)
-    EARTH = "earth"        # Referenced to earth ground
+    SHARED = "shared"  # All channels share common ground (typical scope, DMM)
+    EARTH = "earth"  # Referenced to earth ground
 
 
 class ConnectorType(StrEnum):
@@ -225,20 +225,24 @@ class ConnectorType(StrEnum):
 
 
 # Coaxial connectors that inherently include a shield/ground conductor
-COAXIAL_CONNECTORS: frozenset[ConnectorType] = frozenset({
-    ConnectorType.BNC,
-    ConnectorType.SMA,
-    ConnectorType.SMB,
-    ConnectorType.TYPE_N,
-    ConnectorType.APC_35,
-    ConnectorType.K_24MM,
-    ConnectorType.V_185MM,
-})
+COAXIAL_CONNECTORS: frozenset[ConnectorType] = frozenset(
+    {
+        ConnectorType.BNC,
+        ConnectorType.SMA,
+        ConnectorType.SMB,
+        ConnectorType.TYPE_N,
+        ConnectorType.APC_35,
+        ConnectorType.K_24MM,
+        ConnectorType.V_185MM,
+    }
+)
 
 # Triax connectors have both shield AND guard
-TRIAX_CONNECTORS: frozenset[ConnectorType] = frozenset({
-    ConnectorType.TRIAX,
-})
+TRIAX_CONNECTORS: frozenset[ConnectorType] = frozenset(
+    {
+        ConnectorType.TRIAX,
+    }
+)
 
 
 class CompareMode(StrEnum):

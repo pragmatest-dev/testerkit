@@ -26,14 +26,25 @@ from ruamel.yaml.scalarstring import DoubleQuotedScalarString
 
 _BLOCK_KEYS = {
     # Catalog
-    "when", "signals", "conditions", "controls", "attributes",
-    "capabilities", "channels", "catalog_entry", "specs",
+    "when",
+    "signals",
+    "conditions",
+    "controls",
+    "attributes",
+    "capabilities",
+    "channels",
+    "catalog_entry",
+    "specs",
     # Products
-    "characteristics", "vectors", "limits",
+    "characteristics",
+    "vectors",
+    "limits",
     # Sequences
     "steps",
     # Station / fixture
-    "instruments", "roles", "pins",
+    "instruments",
+    "roles",
+    "pins",
 }
 
 

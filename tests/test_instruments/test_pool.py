@@ -32,7 +32,10 @@ class TestAcquireRelease:
     def test_acquire_returns_proxy(self):
         log = CollectingLog()
         pool = InstrumentPool(
-            session_id=uuid4(), event_log=cast(EventLog, log), channel_store=None, mock_all=True,
+            session_id=uuid4(),
+            event_log=cast(EventLog, log),
+            channel_store=None,
+            mock_all=True,
         )
         record = _make_record()
         inst = pool.acquire("dmm", record)
@@ -47,7 +50,10 @@ class TestAcquireRelease:
     def test_release_disconnects(self):
         log = CollectingLog()
         pool = InstrumentPool(
-            session_id=uuid4(), event_log=cast(EventLog, log), channel_store=None, mock_all=True,
+            session_id=uuid4(),
+            event_log=cast(EventLog, log),
+            channel_store=None,
+            mock_all=True,
         )
         pool.acquire("dmm", _make_record())
         pool.release("dmm")
@@ -60,7 +66,10 @@ class TestAcquireRelease:
     def test_release_all_reverse_order(self):
         log = CollectingLog()
         pool = InstrumentPool(
-            session_id=uuid4(), event_log=cast(EventLog, log), channel_store=None, mock_all=True,
+            session_id=uuid4(),
+            event_log=cast(EventLog, log),
+            channel_store=None,
+            mock_all=True,
         )
         pool.acquire("dmm", _make_record("dmm"))
         pool.acquire("psu", _make_record("psu"))
@@ -75,7 +84,9 @@ class TestAcquireRelease:
 
     def test_release_nonexistent_noop(self):
         pool = InstrumentPool(
-            session_id=uuid4(), event_log=None, channel_store=None,
+            session_id=uuid4(),
+            event_log=None,
+            channel_store=None,
         )
         pool.release("nonexistent")  # should not raise
 
@@ -83,7 +94,10 @@ class TestAcquireRelease:
 class TestMockAll:
     def test_mock_all_overrides_record(self):
         pool = InstrumentPool(
-            session_id=uuid4(), event_log=None, channel_store=None, mock_all=True,
+            session_id=uuid4(),
+            event_log=None,
+            channel_store=None,
+            mock_all=True,
         )
         record = _make_record()
         record.mocked = False
@@ -94,7 +108,10 @@ class TestMockAll:
 class TestNoEventLog:
     def test_acquire_without_event_log(self):
         pool = InstrumentPool(
-            session_id=uuid4(), event_log=None, channel_store=None, mock_all=True,
+            session_id=uuid4(),
+            event_log=None,
+            channel_store=None,
+            mock_all=True,
         )
         inst = pool.acquire("dmm", _make_record())
         assert inst is not None

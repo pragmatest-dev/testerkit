@@ -110,7 +110,11 @@ class PyMeasureObserver(DriverObserver):
                 self.emit.set(f"{self.role}.{name}", value, attr=name)
 
     def on_call(
-        self, name: str, args: tuple[Any, ...], kwargs: dict[str, Any], result: Any,
+        self,
+        name: str,
+        args: tuple[Any, ...],
+        kwargs: dict[str, Any],
+        result: Any,
     ) -> None:
         if name not in self._channel_map:
             self._generic.on_call(name, args, kwargs, result)

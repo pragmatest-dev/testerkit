@@ -27,7 +27,9 @@ from litmus.ui.shared.event_binding import ui_subscribe
 from litmus.utils import local_time
 
 _INSTRUMENT_TYPES = {
-    "instrument.read", "instrument.set", "instrument.configure",
+    "instrument.read",
+    "instrument.set",
+    "instrument.configure",
 }
 _MAX_DETAIL_LEN = 40
 
@@ -37,7 +39,6 @@ def _truncate(val: object) -> str:
     if len(s) > _MAX_DETAIL_LEN:
         return s[: _MAX_DETAIL_LEN - 3] + "..."
     return s
-
 
 
 def create_instrument_activity(
@@ -61,11 +62,7 @@ def create_instrument_activity(
             short = sid[:4]
             for s in store.sessions():
                 if str(s.get("session_id", "")) == sid:
-                    client = (
-                        s.get("client")
-                        or s.get("session_type")
-                        or "session"
-                    )
+                    client = s.get("client") or s.get("session_type") or "session"
                     label_cache[sid] = f"{client} #{short}"
                     break
             else:
@@ -79,10 +76,7 @@ def create_instrument_activity(
         ts = evt.get("received_at") or evt.get("occurred_at") or ""
         sid = str(evt.get("session_id", ""))
         if et == "instrument.read":
-            detail = (
-                f"{evt.get('channel_id', '')} = "
-                f"{_truncate(evt.get('value', ''))}"
-            )
+            detail = f"{evt.get('channel_id', '')} = {_truncate(evt.get('value', ''))}"
         elif et == "instrument.set":
             detail = (
                 f"{evt.get('channel_id', '')}.{evt.get('attribute', '')} = "
@@ -100,22 +94,28 @@ def create_instrument_activity(
             "detail": detail,
         }
 
-    table = litmus_table([
-        table_col("time", "Time", width="80px"),
-        table_col("event", "Event", width="100px"),
-        table_col("source", "Source", width="180px"),
-        table_col("detail", "Detail"),
-    ], per_page=0)
+    table = litmus_table(
+        [
+            table_col("time", "Time", width="80px"),
+            table_col("event", "Event", width="100px"),
+            table_col("source", "Source", width="180px"),
+            table_col("detail", "Detail"),
+        ],
+        per_page=0,
+    )
     table.classes("litmus-sticky-table")
     table.style(f"height: {height}")
     table_cell_slot(table, "time", "cell-muted")
-    table.add_slot("body-cell-event", """
+    table.add_slot(
+        "body-cell-event",
+        """
         <q-td :props="props">
             <span :class="'event-badge ' + props.value.split('.')[1]">
                 {{ props.value.split('.')[1] }}
             </span>
         </q-td>
-    """)
+    """,
+    )
     table_cell_slot(table, "source", "cell-dim")
 
     max_rows = 200

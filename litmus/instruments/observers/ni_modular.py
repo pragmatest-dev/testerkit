@@ -11,10 +11,16 @@ from typing import Any
 from litmus.instruments.observer import DriverObserver, EventEmitter
 from litmus.instruments.observers.generic import GenericObserver
 
-_READ_METHODS = frozenset({
-    "read", "read_waveform", "fetch", "fetch_waveform",
-    "fetch_multiple_waveform", "measure",
-})
+_READ_METHODS = frozenset(
+    {
+        "read",
+        "read_waveform",
+        "fetch",
+        "fetch_waveform",
+        "fetch_multiple_waveform",
+        "measure",
+    }
+)
 _WRITE_METHODS = frozenset({"write_waveform", "send_software_trigger"})
 _CONFIG_METHODS = frozenset({"commit", "abort", "self_test", "self_cal"})
 
@@ -38,7 +44,11 @@ class NiModularObserver(DriverObserver):
         self._generic = GenericObserver(driver_class, role, emit, yaml_overrides)
 
     def on_call(
-        self, name: str, args: tuple[Any, ...], kwargs: dict[str, Any], result: Any,
+        self,
+        name: str,
+        args: tuple[Any, ...],
+        kwargs: dict[str, Any],
+        result: Any,
     ) -> None:
         if self._should_skip(name):
             return

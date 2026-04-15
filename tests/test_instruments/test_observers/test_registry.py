@@ -27,47 +27,50 @@ def _make_class(module: str) -> type:
 
 
 class TestDetectProtocol:
-    @pytest.mark.parametrize("module,expected", [
-        # Cross-vendor frameworks
-        ("pymeasure.instruments.keithley", "pymeasure"),
-        ("instruments.keithley", "instrumentkit"),
-        ("pyvisa.resources.serial", "visa"),
-        ("vxi11.device", "visa"),
-        ("qcodes.instrument_drivers.keysight", "qcodes"),
-        ("ophyd.device", "ophyd"),
-        ("instrumental.drivers.cameras", "instrumental"),
-        ("lantz.drivers.laser", "lantz"),
-        ("ivi.agilent", "ivi"),
-        ("slave.transport", "slave"),
-        ("easy_scpi.instrument", "easy_scpi"),
-        ("yaqc.client", "yaqc"),
-        # Vendor SDKs
-        ("RsInstrument.driver", "rsinstrument"),
-        ("tm_devices.drivers.scopes", "tektronix"),
-        ("nidaqmx.task", "nidaqmx"),
-        ("niscope.session", "ni_modular"),
-        ("nidcpower.session", "ni_modular"),
-        ("nidmm.session", "ni_modular"),
-        ("nifgen.session", "ni_modular"),
-        ("niswitch.session", "ni_modular"),
-        ("nidigital.session", "ni_modular"),
-        # Motion control
-        ("thorlabs_apt.core", "motion"),
-        ("thorlabs_apt_device.device", "motion"),
-        ("zaber_motion.ascii", "motion"),
-        ("pipython.gcs2", "motion"),
-        # Protocol libraries
-        ("pymodbus.client", "modbus"),
-        ("minimalmodbus.instrument", "modbus"),
-        # Domain-specific
-        ("epics.pv", "epics"),
-        ("lakeshore.model336", "lakeshore"),
-        ("seabreeze.spectrometers", "seabreeze"),
-        ("zhinst.toolkit", "zhinst"),
-        ("dwfpy.device", "dwfpy"),
-        ("picosdk.ps2000a", "picosdk"),
-        ("pylablib.devices.Thorlabs", "pylablib"),
-    ])
+    @pytest.mark.parametrize(
+        "module,expected",
+        [
+            # Cross-vendor frameworks
+            ("pymeasure.instruments.keithley", "pymeasure"),
+            ("instruments.keithley", "instrumentkit"),
+            ("pyvisa.resources.serial", "visa"),
+            ("vxi11.device", "visa"),
+            ("qcodes.instrument_drivers.keysight", "qcodes"),
+            ("ophyd.device", "ophyd"),
+            ("instrumental.drivers.cameras", "instrumental"),
+            ("lantz.drivers.laser", "lantz"),
+            ("ivi.agilent", "ivi"),
+            ("slave.transport", "slave"),
+            ("easy_scpi.instrument", "easy_scpi"),
+            ("yaqc.client", "yaqc"),
+            # Vendor SDKs
+            ("RsInstrument.driver", "rsinstrument"),
+            ("tm_devices.drivers.scopes", "tektronix"),
+            ("nidaqmx.task", "nidaqmx"),
+            ("niscope.session", "ni_modular"),
+            ("nidcpower.session", "ni_modular"),
+            ("nidmm.session", "ni_modular"),
+            ("nifgen.session", "ni_modular"),
+            ("niswitch.session", "ni_modular"),
+            ("nidigital.session", "ni_modular"),
+            # Motion control
+            ("thorlabs_apt.core", "motion"),
+            ("thorlabs_apt_device.device", "motion"),
+            ("zaber_motion.ascii", "motion"),
+            ("pipython.gcs2", "motion"),
+            # Protocol libraries
+            ("pymodbus.client", "modbus"),
+            ("minimalmodbus.instrument", "modbus"),
+            # Domain-specific
+            ("epics.pv", "epics"),
+            ("lakeshore.model336", "lakeshore"),
+            ("seabreeze.spectrometers", "seabreeze"),
+            ("zhinst.toolkit", "zhinst"),
+            ("dwfpy.device", "dwfpy"),
+            ("picosdk.ps2000a", "picosdk"),
+            ("pylablib.devices.Thorlabs", "pylablib"),
+        ],
+    )
     def test_protocol_detection(self, module: str, expected: str):
         assert detect_protocol(_make_class(module)) == expected
 
@@ -76,35 +79,38 @@ class TestDetectProtocol:
 
 
 class TestGetObserverClass:
-    @pytest.mark.parametrize("protocol,expected_cls", [
-        ("generic", GenericObserver),
-        ("pymeasure", PyMeasureObserver),
-        ("instrumentkit", PyMeasureObserver),
-        ("visa", VisaObserver),
-        ("rsinstrument", ScpiObserver),
-        ("easy_scpi", ScpiObserver),
-        ("qcodes", QCodesObserver),
-        ("nidaqmx", DaqmxObserver),
-        ("ni_modular", NiModularObserver),
-        ("ophyd", OphydObserver),
-        ("tektronix", TektronixObserver),
-        ("motion", MotionObserver),
-        ("modbus", ModbusObserver),
-        ("lantz", LantzObserver),
-        # Descriptor-based → PyMeasureObserver
-        ("instrumental", PyMeasureObserver),
-        ("ivi", PyMeasureObserver),
-        ("slave", PyMeasureObserver),
-        # Method-based → GenericObserver
-        ("yaqc", GenericObserver),
-        ("lakeshore", GenericObserver),
-        ("epics", GenericObserver),
-        ("seabreeze", GenericObserver),
-        ("zhinst", GenericObserver),
-        ("dwfpy", GenericObserver),
-        ("picosdk", GenericObserver),
-        ("pylablib", GenericObserver),
-    ])
+    @pytest.mark.parametrize(
+        "protocol,expected_cls",
+        [
+            ("generic", GenericObserver),
+            ("pymeasure", PyMeasureObserver),
+            ("instrumentkit", PyMeasureObserver),
+            ("visa", VisaObserver),
+            ("rsinstrument", ScpiObserver),
+            ("easy_scpi", ScpiObserver),
+            ("qcodes", QCodesObserver),
+            ("nidaqmx", DaqmxObserver),
+            ("ni_modular", NiModularObserver),
+            ("ophyd", OphydObserver),
+            ("tektronix", TektronixObserver),
+            ("motion", MotionObserver),
+            ("modbus", ModbusObserver),
+            ("lantz", LantzObserver),
+            # Descriptor-based → PyMeasureObserver
+            ("instrumental", PyMeasureObserver),
+            ("ivi", PyMeasureObserver),
+            ("slave", PyMeasureObserver),
+            # Method-based → GenericObserver
+            ("yaqc", GenericObserver),
+            ("lakeshore", GenericObserver),
+            ("epics", GenericObserver),
+            ("seabreeze", GenericObserver),
+            ("zhinst", GenericObserver),
+            ("dwfpy", GenericObserver),
+            ("picosdk", GenericObserver),
+            ("pylablib", GenericObserver),
+        ],
+    )
     def test_observer_class(self, protocol: str, expected_cls: type):
         assert get_observer_class(protocol) is expected_cls
 

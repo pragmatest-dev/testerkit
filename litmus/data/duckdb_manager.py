@@ -25,12 +25,15 @@ class DuckDBDaemonManager(DaemonManager):
 
     def _spawn_cmd(self) -> list[str]:
         return [
-            sys.executable, "-m", "litmus.data._duckdb_daemon",
+            sys.executable,
+            "-m",
+            "litmus.data._duckdb_daemon",
             str(self._dir),
         ]
 
 
 # Module-level convenience — EventStore uses these directly.
+
 
 def acquire(events_dir: Path) -> str:
     """Acquire a reference to the DuckDB daemon, starting it if needed.

@@ -223,9 +223,7 @@ class TestParquetRoundTrip:
 
         step = TestStep(name="test_voltage")
         vector = TestVector(index=0)
-        measurement = Measurement(
-            name="vout", value=3.3, units="V", outcome=Outcome.PASS
-        )
+        measurement = Measurement(name="vout", value=3.3, units="V", outcome=Outcome.PASS)
         vector.measurements.append(measurement)
         step.vectors.append(vector)
 

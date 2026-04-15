@@ -58,8 +58,11 @@ from litmus.execution import litmus_test
         "mocks": {"dmm.measure_dc_voltage": 3.3, "psu.measure_current": 0.005},
         "limits": {
             "output_voltage": {
-                "low": 3.234, "high": 3.366, "nominal": 3.3,
-                "units": "V", "ref": "output_voltage",
+                "low": 3.234,
+                "high": 3.366,
+                "nominal": 3.3,
+                "units": "V",
+                "ref": "output_voltage",
             }
         },
     }
@@ -93,8 +96,11 @@ def test_output_voltage_no_load(context, psu: PSU, dmm: DMM):
         "retry": {"max_attempts": 3, "delay_seconds": 0.5},
         "limits": {
             "output_voltage": {
-                "low": 3.201, "high": 3.399, "nominal": 3.3,
-                "units": "V", "ref": "output_voltage",
+                "low": 3.201,
+                "high": 3.399,
+                "nominal": 3.3,
+                "units": "V",
+                "ref": "output_voltage",
             }
         },
     }
@@ -126,17 +132,32 @@ def test_output_voltage_full_load(context, psu: PSU, dmm: DMM, eload: ELoad):
 @litmus_test(
     config={
         "vectors": [
-            {"vin": 5.0, "load_current": 0.1, "expected_dropout": 0,
-             "_mocks": {"dmm.measure_dc_voltage": 3.32, "psu.measure_current": 0.15}},
-            {"vin": 5.0, "load_current": 0.4, "expected_dropout": 2,
-             "_mocks": {"dmm.measure_dc_voltage": 3.30, "psu.measure_current": 0.45}},
-            {"vin": 5.0, "load_current": 0.8, "expected_dropout": 5,
-             "_mocks": {"dmm.measure_dc_voltage": 3.28, "psu.measure_current": 0.85}},
+            {
+                "vin": 5.0,
+                "load_current": 0.1,
+                "expected_dropout": 0,
+                "_mocks": {"dmm.measure_dc_voltage": 3.32, "psu.measure_current": 0.15},
+            },
+            {
+                "vin": 5.0,
+                "load_current": 0.4,
+                "expected_dropout": 2,
+                "_mocks": {"dmm.measure_dc_voltage": 3.30, "psu.measure_current": 0.45},
+            },
+            {
+                "vin": 5.0,
+                "load_current": 0.8,
+                "expected_dropout": 5,
+                "_mocks": {"dmm.measure_dc_voltage": 3.28, "psu.measure_current": 0.85},
+            },
         ],
         "limits": {
             "output_voltage": {
-                "low": 3.2, "high": 3.4, "nominal": 3.3,
-                "units": "V", "ref": "output_voltage",
+                "low": 3.2,
+                "high": 3.4,
+                "nominal": 3.3,
+                "units": "V",
+                "ref": "output_voltage",
             }
         },
     }
@@ -174,8 +195,11 @@ def test_load_regulation(context, psu: PSU, dmm: DMM, eload: ELoad):
         },
         "limits": {
             "output_voltage": {
-                "low": 3.1, "high": 3.5, "nominal": 3.3,
-                "units": "V", "ref": "output_voltage",
+                "low": 3.1,
+                "high": 3.5,
+                "nominal": 3.3,
+                "units": "V",
+                "ref": "output_voltage",
             }
         },
     }
@@ -216,8 +240,11 @@ def test_load_sweep(context, psu: PSU, dmm: DMM, eload: ELoad):
         },
         "limits": {
             "output_voltage": {
-                "low": 3.0, "high": 3.6, "nominal": 3.3,
-                "units": "V", "ref": "output_voltage",
+                "low": 3.0,
+                "high": 3.6,
+                "nominal": 3.3,
+                "units": "V",
+                "ref": "output_voltage",
             }
         },
     }
@@ -259,8 +286,11 @@ def test_temp_load_matrix(context, psu: PSU, dmm: DMM, eload: ELoad):
         },
         "limits": {
             "output_voltage": {
-                "low": 3.2, "high": 3.4, "nominal": 3.3,
-                "units": "V", "ref": "output_voltage",
+                "low": 3.2,
+                "high": 3.4,
+                "nominal": 3.3,
+                "units": "V",
+                "ref": "output_voltage",
             }
         },
     }
@@ -297,7 +327,10 @@ def test_line_regulation(context, psu: PSU, dmm: DMM, eload: ELoad):
             "input_power": {"low": 0, "high": 5.0, "nominal": 2.0, "units": "W"},
             "output_power": {"low": 0, "high": 3.0, "nominal": 1.65, "units": "W"},
             "efficiency": {
-                "low": 60, "high": 100, "nominal": 66, "units": "%",
+                "low": 60,
+                "high": 100,
+                "nominal": 66,
+                "units": "%",
                 "spec_ref": "efficiency @ vin=5V, load=0.5A",
             },
         },
@@ -351,8 +384,12 @@ def test_power_analysis(context, psu: PSU, dmm: DMM, eload: ELoad):
         "mocks": {"psu.measure_current": 0.005},
         "limits": {
             "quiescent_current": {
-                "low": 0, "high": 10, "nominal": 5, "units": "mA",
-                "comparator": "LE", "ref": "quiescent_current",
+                "low": 0,
+                "high": 10,
+                "nominal": 5,
+                "units": "mA",
+                "comparator": "LE",
+                "ref": "quiescent_current",
             }
         },
     }
@@ -379,8 +416,11 @@ def test_quiescent_current(context, psu: PSU):
         "mocks": {"dmm.measure_dc_voltage": 3.3},
         "limits": {
             "voltage": {
-                "low": 3.25, "high": 3.35, "nominal": 3.3,
-                "units": "V", "spec_ref": "output stability",
+                "low": 3.25,
+                "high": 3.35,
+                "nominal": 3.3,
+                "units": "V",
+                "spec_ref": "output stability",
             }
         },
     }
@@ -416,7 +456,10 @@ def test_stability_over_time(context, psu: PSU, dmm: DMM, eload: ELoad):
         "mocks": {"dmm.measure_dc_voltage": 0.05},
         "limits": {
             "output_voltage": {
-                "low": 0, "high": 0.1, "nominal": 0, "units": "V",
+                "low": 0,
+                "high": 0.1,
+                "nominal": 0,
+                "units": "V",
                 "ref": "output_voltage",
             }
         },
@@ -455,8 +498,12 @@ def test_thermal_shutdown(context, psu: PSU, dmm: DMM, eload: ELoad):
         },
         "limits": {
             "output_ripple": {
-                "low": 0, "high": 50, "nominal": 30, "units": "mV",
-                "comparator": "LE", "ref": "output_ripple",
+                "low": 0,
+                "high": 50,
+                "nominal": 30,
+                "units": "mV",
+                "comparator": "LE",
+                "ref": "output_ripple",
             }
         },
     }
@@ -532,18 +579,24 @@ def test_output_voltage_temp(context, psu: PSU, dmm: DMM):
 @litmus_test(
     config={
         "vectors": [
-            {"vin": 5.0, "load_current": 0.5,
-             "_mocks": {
-                 "psu.measure_voltage": 5.0,
-                 "psu.measure_current": 0.55,
-                 "dmm.measure_dc_voltage": 3.3,
-             }},
+            {
+                "vin": 5.0,
+                "load_current": 0.5,
+                "_mocks": {
+                    "psu.measure_voltage": 5.0,
+                    "psu.measure_current": 0.55,
+                    "dmm.measure_dc_voltage": 3.3,
+                },
+            },
         ],
         "limits": {
             "input_power": {"low": 0, "high": 6.0, "units": "W"},
             "output_power": {"low": 0, "high": 4.0, "units": "W"},
             "efficiency": {
-                "low": 55, "high": 100, "nominal": 60, "units": "%",
+                "low": 55,
+                "high": 100,
+                "nominal": 60,
+                "units": "%",
                 "spec_ref": "efficiency across line/load",
             },
         },
@@ -608,15 +661,39 @@ def test_efficiency_with_context(context, psu: PSU, dmm: DMM, eload: ELoad):
         },
         "mocks": {
             "scope.fetch_waveform": [
-                [3.290, 3.295, 3.305, 3.310, 3.308, 3.302, 3.295, 3.288, 3.292, 3.298,
-                 3.305, 3.312, 3.310, 3.303, 3.296, 3.290, 3.288, 3.293, 3.300, 3.308],
+                [
+                    3.290,
+                    3.295,
+                    3.305,
+                    3.310,
+                    3.308,
+                    3.302,
+                    3.295,
+                    3.288,
+                    3.292,
+                    3.298,
+                    3.305,
+                    3.312,
+                    3.310,
+                    3.303,
+                    3.296,
+                    3.290,
+                    3.288,
+                    3.293,
+                    3.300,
+                    3.308,
+                ],
                 0.00001,
             ],
         },
         "limits": {
             "output_ripple": {
-                "low": 0, "high": 50, "nominal": 25, "units": "mV",
-                "comparator": "LE", "ref": "output_ripple",
+                "low": 0,
+                "high": 50,
+                "nominal": 25,
+                "units": "mV",
+                "comparator": "LE",
+                "ref": "output_ripple",
             }
         },
     }
@@ -641,11 +718,13 @@ def test_ripple_waveform_capture(context, psu: PSU, eload: ELoad, scope: Scope):
     # Generate realistic waveform: 100 samples of 3.3V with ripple + noise
     # (Real scope would return actual captured data)
     import math
+
     t0 = time.time()  # Capture timestamp
     dt = 1e-5  # 10µs sample interval (100kHz)
     num_samples = 100
     noisy_samples = [
-        3.3 + 0.015 * math.sin(2 * math.pi * 50000 * i * dt)  # 50kHz ripple
+        3.3
+        + 0.015 * math.sin(2 * math.pi * 50000 * i * dt)  # 50kHz ripple
         + random.gauss(0, 0.005)  # noise
         for i in range(num_samples)
     ]

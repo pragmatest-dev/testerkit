@@ -178,6 +178,7 @@ def expand_vectors(config: Mapping[str, Any] | list[dict[str, Any]]) -> list[Vec
 
 # --- Public aliases kept for import compatibility ---
 
+
 def expand_product(**params: Any) -> list[Vector]:
     """Expand parameters using Cartesian product.
 

@@ -312,9 +312,7 @@ class TestEventLogIntegration:
         logger._session_id = uuid4()
 
         logger.start_step("step1")
-        logger.log_measurement(
-            Measurement(name="v", value=3.3, outcome=Outcome.PASS)
-        )
+        logger.log_measurement(Measurement(name="v", value=3.3, outcome=Outcome.PASS))
         logger.end_step()
         logger.finalize()
 

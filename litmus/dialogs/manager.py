@@ -182,16 +182,18 @@ class DialogManager:
             return
         from litmus.data.events import DialogOpened
 
-        logger.event_log.emit(DialogOpened(
-            session_id=logger._session_id,
-            run_id=logger.test_run.id,
-            dialog_id=dialog.id,
-            dialog_type=dialog.type.value,
-            title=dialog.title,
-            message=dialog.message,
-            step_name=dialog.step_name,
-            blocking=dialog.blocking,
-        ))
+        logger.event_log.emit(
+            DialogOpened(
+                session_id=logger._session_id,
+                run_id=logger.test_run.id,
+                dialog_id=dialog.id,
+                dialog_type=dialog.type.value,
+                title=dialog.title,
+                message=dialog.message,
+                step_name=dialog.step_name,
+                blocking=dialog.blocking,
+            )
+        )
 
     def _emit_dialog_responded(
         self, dialog: Dialog, response: DialogResponse, duration: float
@@ -214,16 +216,18 @@ class DialogManager:
             # Default: any non-cancelled, non-timed-out response is a confirmation
             response_type = "confirmed"
 
-        logger.event_log.emit(DialogResponded(
-            session_id=logger._session_id,
-            run_id=logger.test_run.id,
-            dialog_id=dialog.id,
-            dialog_type=dialog.type.value,
-            response_type=response_type,
-            duration_seconds=duration,
-            value=response.value,
-            choice=response.choice,
-        ))
+        logger.event_log.emit(
+            DialogResponded(
+                session_id=logger._session_id,
+                run_id=logger.test_run.id,
+                dialog_id=dialog.id,
+                dialog_type=dialog.type.value,
+                response_type=response_type,
+                duration_seconds=duration,
+                value=response.value,
+                choice=response.choice,
+            )
+        )
 
     async def show(self, dialog: Dialog) -> DialogResponse:
         """Show a dialog and wait for response.

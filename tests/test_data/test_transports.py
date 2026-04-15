@@ -47,9 +47,7 @@ def test_s3_transport_send(tmp_path: Path) -> None:
 
         local_file = tmp_path / "results.parquet"
         local_file.write_text("data")
-        config = OutputConfig(
-            transport="s3", extras={"bucket": "my-bucket", "prefix": "runs/"}
-        )
+        config = OutputConfig(transport="s3", extras={"bucket": "my-bucket", "prefix": "runs/"})
 
         mock_client = MagicMock()
         mock_boto3.client.return_value = mock_client
@@ -75,9 +73,7 @@ def test_s3_transport_with_endpoint_url(tmp_path: Path) -> None:
         )
         mock_boto3.client.return_value = MagicMock()
         S3Transport().send(local_file, config)
-        mock_boto3.client.assert_called_once_with(
-            "s3", endpoint_url="https://minio.local:9000"
-        )
+        mock_boto3.client.assert_called_once_with("s3", endpoint_url="https://minio.local:9000")
 
 
 def test_s3_transport_missing_bucket(tmp_path: Path) -> None:
@@ -135,9 +131,7 @@ def test_azure_transport_send(tmp_path: Path) -> None:
 
 
 def test_gcs_transport_send(tmp_path: Path) -> None:
-    with _fake_cloud_sdk(
-        ["google", "google.cloud", "google.cloud.storage"]
-    ) as mock_storage_mod:
+    with _fake_cloud_sdk(["google", "google.cloud", "google.cloud.storage"]) as mock_storage_mod:
         from litmus.data.transports.gcs_transport import GCSTransport
 
         local_file = tmp_path / "results.parquet"

@@ -38,7 +38,9 @@ class TestDemoTestSuites:
             CompletedProcess result
         """
         cmd = [
-            sys.executable, "-m", "pytest",
+            sys.executable,
+            "-m",
+            "pytest",
             f"tests/{test_file}",
             "--station=demo_station_001",
             "--mock-instruments",
@@ -66,8 +68,7 @@ class TestDemoTestSuites:
             print("STDERR:", result.stderr)
 
         assert result.returncode == 0, (
-            f"Power board demo tests failed:\n"
-            f"{result.stdout}\n{result.stderr}"
+            f"Power board demo tests failed:\n{result.stdout}\n{result.stderr}"
         )
 
     def test_pure_pytest_demo(self):
@@ -79,8 +80,7 @@ class TestDemoTestSuites:
             print("STDERR:", result.stderr)
 
         assert result.returncode == 0, (
-            f"Pure pytest demo tests failed:\n"
-            f"{result.stdout}\n{result.stderr}"
+            f"Pure pytest demo tests failed:\n{result.stdout}\n{result.stderr}"
         )
 
     def test_architect_demo(self):
@@ -92,6 +92,5 @@ class TestDemoTestSuites:
             print("STDERR:", result.stderr)
 
         assert result.returncode == 0, (
-            f"Architect demo tests failed:\n"
-            f"{result.stdout}\n{result.stderr}"
+            f"Architect demo tests failed:\n{result.stdout}\n{result.stderr}"
         )

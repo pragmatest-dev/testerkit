@@ -248,9 +248,7 @@ class DesignerState:
     def is_terminal_used(self, role: str, channel: str, terminal: str) -> bool:
         """Check if a specific terminal is already wired."""
         return any(
-            c["instrument"] == role
-            and c["channel"] == channel
-            and c["terminal"] == terminal
+            c["instrument"] == role and c["channel"] == channel and c["terminal"] == terminal
             for c in self.connections.values()
         )
 

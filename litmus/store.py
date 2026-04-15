@@ -128,7 +128,9 @@ def load_station(path: Path) -> StationConfig:
 
 
 def get_station(
-    station_id: str, *, project_root: Path | None = None,
+    station_id: str,
+    *,
+    project_root: Path | None = None,
 ) -> StationConfig | None:
     """Load station configuration by ID."""
     for yaml_file in find_yaml_files(get_station_paths(project_root)):
@@ -158,7 +160,9 @@ def list_stations(*, project_root: Path | None = None) -> list[StationConfig]:
 
 
 def save_station(
-    station: StationConfig, *, project_root: Path | None = None,
+    station: StationConfig,
+    *,
+    project_root: Path | None = None,
 ) -> bool:
     """Save station configuration to YAML file."""
     search_paths = get_station_paths(project_root)
@@ -177,7 +181,10 @@ def save_station(
 
     if target_file is None:
         target_file = _resolve_save_path(
-            station.id, search_paths, "stations", project_root,
+            station.id,
+            search_paths,
+            "stations",
+            project_root,
         )
 
     _write_model(target_file, station.model_dump(exclude_none=True))
@@ -185,7 +192,9 @@ def save_station(
 
 
 def find_station_config(
-    station_id: str, *, project_root: Path | None = None,
+    station_id: str,
+    *,
+    project_root: Path | None = None,
 ) -> StationConfig:
     """Find and load station config by ID.
 
@@ -262,7 +271,9 @@ def load_fixture(path: Path) -> FixtureConfig:
 
 
 def get_fixture(
-    fixture_id: str, *, project_root: Path | None = None,
+    fixture_id: str,
+    *,
+    project_root: Path | None = None,
 ) -> FixtureConfig | None:
     """Load fixture configuration by ID."""
     for yaml_file in find_yaml_files(get_fixture_paths(project_root)):
@@ -292,11 +303,16 @@ def list_fixtures(*, project_root: Path | None = None) -> list[FixtureConfig]:
 
 
 def save_fixture(
-    fixture: FixtureConfig, *, project_root: Path | None = None,
+    fixture: FixtureConfig,
+    *,
+    project_root: Path | None = None,
 ) -> bool:
     """Save fixture configuration to YAML file."""
     target_file = _resolve_save_path(
-        fixture.id, get_fixture_paths(project_root), "fixtures", project_root,
+        fixture.id,
+        get_fixture_paths(project_root),
+        "fixtures",
+        project_root,
     )
     _write_model(target_file, fixture.model_dump(exclude_none=True))
     return True
@@ -345,7 +361,9 @@ def load_sequence(path: Path) -> TestSequenceConfig:
 
 
 def get_sequence(
-    sequence_id: str, *, project_root: Path | None = None,
+    sequence_id: str,
+    *,
+    project_root: Path | None = None,
 ) -> TestSequenceConfig | None:
     """Load sequence configuration by ID."""
     for yaml_file in find_yaml_files(get_sequence_paths(project_root)):
@@ -359,7 +377,8 @@ def get_sequence(
 
 
 def list_sequences(
-    *, project_root: Path | None = None,
+    *,
+    project_root: Path | None = None,
 ) -> list[TestSequenceConfig]:
     """List all available sequences."""
     sequences: list[TestSequenceConfig] = []
@@ -377,11 +396,16 @@ def list_sequences(
 
 
 def save_sequence(
-    sequence: TestSequenceConfig, *, project_root: Path | None = None,
+    sequence: TestSequenceConfig,
+    *,
+    project_root: Path | None = None,
 ) -> bool:
     """Save sequence configuration to YAML file."""
     target_file = _resolve_save_path(
-        sequence.id, get_sequence_paths(project_root), "sequences", project_root,
+        sequence.id,
+        get_sequence_paths(project_root),
+        "sequences",
+        project_root,
     )
     _write_model(target_file, sequence.model_dump(exclude_none=True))
     return True
@@ -446,7 +470,10 @@ def load_product(path: Path, products_dir: Path | None = None) -> Product:
 
 
 def _load_product_with_inheritance(
-    path: Path, products_dir: Path, seen: set[str], depth: int,
+    path: Path,
+    products_dir: Path,
+    seen: set[str],
+    depth: int,
 ) -> dict[str, Any]:
     """Load raw YAML and recursively merge base products."""
     if depth > _MAX_PRODUCT_INHERIT_DEPTH:
@@ -462,9 +489,7 @@ def _load_product_with_inheritance(
         return data
 
     if product_id in seen:
-        raise ValueError(
-            f"Circular product inheritance: {product_id!r} already in chain {seen}"
-        )
+        raise ValueError(f"Circular product inheritance: {product_id!r} already in chain {seen}")
     seen.add(product_id)
 
     base_path = products_dir / f"{base_ref}.yaml"
@@ -481,8 +506,7 @@ def _load_product_with_inheritance(
                 continue
     if not base_path.exists():
         raise ValueError(
-            f"Base product {base_ref!r} not found "
-            f"(referenced by {product_id!r} in {path})"
+            f"Base product {base_ref!r} not found (referenced by {product_id!r} in {path})"
         )
 
     base_data = _load_product_with_inheritance(base_path, products_dir, seen, depth + 1)
@@ -490,7 +514,8 @@ def _load_product_with_inheritance(
 
 
 def _merge_product_data(
-    base: dict[str, Any], variant: dict[str, Any],
+    base: dict[str, Any],
+    variant: dict[str, Any],
 ) -> dict[str, Any]:
     """Merge base and variant product YAML with section-level override.
 
@@ -502,8 +527,13 @@ def _merge_product_data(
     # Start with base scalars, then overlay all variant keys
     merged: dict[str, Any] = {}
     scalar_keys = (
-        "name", "description", "revision", "part_number",
-        "datasheet", "schematic", "driver",
+        "name",
+        "description",
+        "revision",
+        "part_number",
+        "datasheet",
+        "schematic",
+        "driver",
     )
     for key in scalar_keys:
         if key in base:
@@ -530,7 +560,9 @@ def _get_product_paths(project_root: Path | None = None) -> list[Path]:
 
 
 def get_product(
-    product_id: str, *, project_root: Path | None = None,
+    product_id: str,
+    *,
+    project_root: Path | None = None,
 ) -> Product | None:
     """Load a Product model by ID."""
     for products_dir in _get_product_paths(project_root):
@@ -576,7 +608,9 @@ def list_products(*, project_root: Path | None = None) -> list[Product]:
 
 
 def save_product(
-    product: Product, *, project_root: Path | None = None,
+    product: Product,
+    *,
+    project_root: Path | None = None,
 ) -> bool:
     """Save product specification to YAML file."""
     target_file = None
@@ -654,7 +688,8 @@ _MAX_CATALOG_INHERIT_DEPTH = 5
 
 
 def load_catalog_entry(
-    path: Path, catalog_dir: Path | None = None,
+    path: Path,
+    catalog_dir: Path | None = None,
 ) -> InstrumentCatalogEntry:
     """Load a single catalog entry from a YAML file, resolving inheritance."""
     if catalog_dir is None:
@@ -664,7 +699,10 @@ def load_catalog_entry(
 
 
 def _load_catalog_with_inheritance(
-    path: Path, catalog_dir: Path, seen: set[str], depth: int,
+    path: Path,
+    catalog_dir: Path,
+    seen: set[str],
+    depth: int,
 ) -> dict[str, Any]:
     """Load raw YAML and recursively merge base catalog entries."""
     if depth > _MAX_CATALOG_INHERIT_DEPTH:
@@ -681,9 +719,7 @@ def _load_catalog_with_inheritance(
         return data
 
     if entry_id in seen:
-        raise ValueError(
-            f"Circular catalog inheritance: {entry_id!r} already in chain {seen}"
-        )
+        raise ValueError(f"Circular catalog inheritance: {entry_id!r} already in chain {seen}")
     seen.add(entry_id)
 
     base_path = path.parent / f"{base_ref}.yaml"
@@ -691,8 +727,7 @@ def _load_catalog_with_inheritance(
         base_path = catalog_dir / f"{base_ref}.yaml"
     if not base_path.exists():
         raise ValueError(
-            f"Base catalog entry {base_ref!r} not found "
-            f"(referenced by {entry_id!r} in {path})"
+            f"Base catalog entry {base_ref!r} not found (referenced by {entry_id!r} in {path})"
         )
 
     base_data = _load_catalog_with_inheritance(base_path, catalog_dir, seen, depth + 1)
@@ -700,7 +735,8 @@ def _load_catalog_with_inheritance(
 
 
 def _merge_catalog_data(
-    base: dict[str, Any], variant: dict[str, Any],
+    base: dict[str, Any],
+    variant: dict[str, Any],
 ) -> dict[str, Any]:
     """Merge base and variant catalog YAML dicts."""
     base_entry = dict(base)
@@ -735,7 +771,8 @@ def _cap_key(cap: dict[str, Any]) -> tuple[str, str]:
 
 
 def _merge_capabilities(
-    base_caps: list[dict[str, Any]], variant_caps: list[dict[str, Any]],
+    base_caps: list[dict[str, Any]],
+    variant_caps: list[dict[str, Any]],
 ) -> list[dict[str, Any]]:
     """Merge variant capabilities into base capabilities by (function, direction).
 
@@ -852,7 +889,9 @@ def find_catalog_dirs(*, project_root: Path | None = None) -> list[Path]:
 
 
 def resolve_catalog_ref(
-    catalog_ref: str, *, project_root: Path | None = None,
+    catalog_ref: str,
+    *,
+    project_root: Path | None = None,
 ) -> InstrumentCatalogEntry | None:
     """Resolve a catalog reference ID to a catalog entry."""
     for cat_dir in find_catalog_dirs(project_root=project_root):
@@ -918,7 +957,9 @@ def find_by_model(
 
 
 def get_catalog_entry(
-    catalog_id: str, *, project_root: Path | None = None,
+    catalog_id: str,
+    *,
+    project_root: Path | None = None,
 ) -> InstrumentCatalogEntry | None:
     """Get a catalog entry by ID or type.
 
@@ -951,7 +992,8 @@ def get_catalog_entry(
 
 
 def list_catalog_entries(
-    *, project_root: Path | None = None,
+    *,
+    project_root: Path | None = None,
 ) -> list[InstrumentCatalogEntry]:
     """List all catalog entries across all catalog directories."""
     all_entries: list[InstrumentCatalogEntry] = []
@@ -966,7 +1008,9 @@ def list_catalog_entries(
 
 
 def save_catalog_entry(
-    entry: InstrumentCatalogEntry, *, project_root: Path | None = None,
+    entry: InstrumentCatalogEntry,
+    *,
+    project_root: Path | None = None,
 ) -> bool:
     """Save a catalog entry to catalog/."""
     root = _resolve_root(project_root)
@@ -998,15 +1042,17 @@ def create_catalog_entry(
     if catalog_file.exists():
         return None
 
-    entry = InstrumentCatalogEntry.model_validate({
-        "id": instrument_type,
-        "type": instrument_type,
-        "manufacturer": manufacturer,
-        "model": name,
-        "name": name,
-        "description": description or None,
-        "capabilities": [],
-    })
+    entry = InstrumentCatalogEntry.model_validate(
+        {
+            "id": instrument_type,
+            "type": instrument_type,
+            "manufacturer": manufacturer,
+            "model": name,
+            "name": name,
+            "description": description or None,
+            "capabilities": [],
+        }
+    )
 
     _write_model(catalog_file, entry.model_dump(exclude_none=True))
     return entry
@@ -1038,7 +1084,9 @@ def load_instrument_files(instruments_dir: Path) -> dict[str, InstrumentAssetFil
 
 
 def get_instrument_asset(
-    instrument_id: str, *, project_root: Path | None = None,
+    instrument_id: str,
+    *,
+    project_root: Path | None = None,
 ) -> InstrumentAssetFile | None:
     """Load a single instrument asset file by ID."""
     for instruments_dir in get_instrument_paths(project_root):
@@ -1055,7 +1103,8 @@ def get_instrument_asset(
 
 
 def list_instrument_assets(
-    *, project_root: Path | None = None,
+    *,
+    project_root: Path | None = None,
 ) -> list[InstrumentAssetFile]:
     """List all instrument asset files."""
     assets: list[InstrumentAssetFile] = []
@@ -1094,7 +1143,10 @@ def save_instrument_asset(
         target_file = target_path
     else:
         target_file = _resolve_save_path(
-            asset.id, get_instrument_paths(project_root), "instruments", project_root,
+            asset.id,
+            get_instrument_paths(project_root),
+            "instruments",
+            project_root,
         )
 
     _write_model(target_file, asset.model_dump(exclude_none=True))
@@ -1107,7 +1159,10 @@ def save_instrument_asset(
 
 
 def save_station_type(
-    type_id: str, data: dict, *, project_root: Path | None = None,
+    type_id: str,
+    data: dict,
+    *,
+    project_root: Path | None = None,
 ) -> bool:
     """Save station type YAML to stations/types/{type_id}.yaml."""
     root = _resolve_root(project_root)
@@ -1120,7 +1175,9 @@ def save_station_type(
 
 
 def load_station_type(
-    type_id: str, *, project_root: Path | None = None,
+    type_id: str,
+    *,
+    project_root: Path | None = None,
 ) -> dict | None:
     """Load station type by ID (raw YAML — no Pydantic model yet)."""
     root = _resolve_root(project_root)

@@ -134,9 +134,7 @@ class ChannelTopology(BaseModel):
     model_config = {"extra": "forbid"}
 
     label: str | None = None  # Display name, e.g., "6V/5A Output"
-    terminals: list[TerminalRole] = Field(
-        default_factory=list
-    )
+    terminals: list[TerminalRole] = Field(default_factory=list)
     connector: ConnectorType | None = None
     connector_pin: dict[str, int | str] | None = None  # Terminal role → pin number/name
     ground: GroundTopology = GroundTopology.SHARED

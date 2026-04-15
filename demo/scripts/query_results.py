@@ -16,7 +16,6 @@ DuckDB provides SQL queries over Parquet files with glob patterns,
 making it easy to analyze test results across multiple runs.
 """
 
-
 import duckdb
 
 # Results directory (relative to demo/)
@@ -184,7 +183,7 @@ def conditions_analysis():
     print(f"Available condition columns: {[c[0] for c in cols]}")
 
     # Example: group by vin if it exists
-    if any('in_vin' in c[0] for c in cols):
+    if any("in_vin" in c[0] for c in cols):
         print("\nResults by input voltage:")
         duckdb.sql(f"""
             SELECT

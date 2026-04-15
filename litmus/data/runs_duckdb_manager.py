@@ -25,12 +25,15 @@ class RunsDuckDBManager(DaemonManager):
 
     def _spawn_cmd(self) -> list[str]:
         return [
-            sys.executable, "-m", "litmus.data._runs_duckdb_daemon",
+            sys.executable,
+            "-m",
+            "litmus.data._runs_duckdb_daemon",
             str(self._dir),
         ]
 
 
 # Module-level convenience — RunStore uses these directly.
+
 
 def acquire(runs_dir: Path) -> str:
     """Acquire a reference to the runs DuckDB daemon, starting it if needed.

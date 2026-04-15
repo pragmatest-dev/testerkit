@@ -182,9 +182,7 @@ class ProductFolder:
             Path to the saved file
         """
         file_path = self.path / filename
-        file_path.write_text(
-            dump_yaml({"product": product.model_dump(exclude_none=True)})
-        )
+        file_path.write_text(dump_yaml({"product": product.model_dump(exclude_none=True)}))
 
         self.manifest.files.spec = filename
         self.save_manifest()

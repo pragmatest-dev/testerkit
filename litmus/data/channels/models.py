@@ -40,6 +40,7 @@ class ChannelSample(BaseModel):
 
 # Arrow schemas — minimal columns, no per-row metadata duplication.
 
+
 def _infer_field_type(value: object) -> pa.DataType:
     """Infer an Arrow data type from a Python value."""
     if isinstance(value, bool):
@@ -101,17 +102,21 @@ def _infer_schema(value: object, source_method: str = "") -> pa.Schema:
 
 # Legacy schemas — kept for reading old files.
 
-SCALAR_SCHEMA = pa.schema([
-    ("timestamp", pa.timestamp("us", tz="UTC")),
-    ("value", pa.float64()),
-    ("source_method", pa.utf8()),
-    ("session_id", pa.utf8()),
-])
+SCALAR_SCHEMA = pa.schema(
+    [
+        ("timestamp", pa.timestamp("us", tz="UTC")),
+        ("value", pa.float64()),
+        ("source_method", pa.utf8()),
+        ("session_id", pa.utf8()),
+    ]
+)
 
-ARRAY_SCHEMA = pa.schema([
-    ("timestamp", pa.timestamp("us", tz="UTC")),
-    ("samples", pa.list_(pa.float64())),
-    ("sample_interval", pa.float64()),
-    ("source_method", pa.utf8()),
-    ("session_id", pa.utf8()),
-])
+ARRAY_SCHEMA = pa.schema(
+    [
+        ("timestamp", pa.timestamp("us", tz="UTC")),
+        ("samples", pa.list_(pa.float64())),
+        ("sample_interval", pa.float64()),
+        ("source_method", pa.utf8()),
+        ("session_id", pa.utf8()),
+    ]
+)

@@ -41,7 +41,10 @@ from litmus.execution import litmus_test
         "mocks": {"psu.measure_current": 0.005},
         "limits": {
             "startup_current": {
-                "low": 0, "high": 50, "nominal": 5, "units": "mA",
+                "low": 0,
+                "high": 50,
+                "nominal": 5,
+                "units": "mA",
                 "comparator": "LE",
             }
         },
@@ -72,8 +75,11 @@ def test_power_up(context, psu: PSU):
         "mocks": {"dmm.measure_dc_voltage": 3.3},
         "limits": {
             "output_voltage": {
-                "low": 3.234, "high": 3.366, "nominal": 3.3,
-                "units": "V", "ref": "output_voltage",
+                "low": 3.234,
+                "high": 3.366,
+                "nominal": 3.3,
+                "units": "V",
+                "ref": "output_voltage",
             }
         },
     }
@@ -113,7 +119,10 @@ def test_output_voltage_synced(context, psu: PSU, dmm: DMM, sync):
         },
         "limits": {
             "efficiency": {
-                "low": 55, "high": 100, "nominal": 60, "units": "%",
+                "low": 55,
+                "high": 100,
+                "nominal": 60,
+                "units": "%",
             }
         },
     }

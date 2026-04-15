@@ -10,8 +10,10 @@ from .conftest import make_observer
 
 class _FakeParameter:
     """Duck-typed QCodes Parameter."""
+
     def get(self) -> float:
         return 3.3
+
     def set(self, value: float) -> None:
         pass
 
@@ -20,6 +22,7 @@ class DescriptorDriver:
     @property
     def voltage(self) -> float:
         return 3.3
+
     @voltage.setter
     def voltage(self, v: float) -> None:
         pass

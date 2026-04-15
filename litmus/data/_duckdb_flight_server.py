@@ -29,6 +29,7 @@ _ACK = b"\x01"
 # Client: persistent do_put stream with per-batch acks
 # ---------------------------------------------------------------------------
 
+
 class FlightPutStream:
     """Persistent do_put stream with deferred delivery guarantees.
 
@@ -134,9 +135,7 @@ class DuckDBFlightServer(flight.FlightServerBase):
         """Register a named DuckDB connection."""
         self._databases[name] = conn
 
-    def register_put_hook(
-        self, db_name: str, hook: Callable[[pa.Table], None]
-    ) -> None:
+    def register_put_hook(self, db_name: str, hook: Callable[[pa.Table], None]) -> None:
         """Register a custom do_put handler for a database name.
 
         The hook receives the Arrow table and is responsible for inserting
@@ -209,9 +208,7 @@ class DuckDBFlightServer(flight.FlightServerBase):
                     hook(table)
                 elif conn is not None:
                     conn.register("_put_batch", table)
-                    conn.execute(
-                        f"INSERT INTO {table_name} BY NAME SELECT * FROM _put_batch"
-                    )
+                    conn.execute(f"INSERT INTO {table_name} BY NAME SELECT * FROM _put_batch")
                     conn.unregister("_put_batch")
 
             # Ack: batch committed, safe to query

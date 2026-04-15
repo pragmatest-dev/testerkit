@@ -45,7 +45,10 @@ class TestLoadAndConnect:
 class TestVerifyAndWrap:
     def test_returns_driver_without_event_log(self):
         record = InstrumentRecord(
-            role="dmm", instrument_id="dmm-001", resource="", mocked=True,
+            role="dmm",
+            instrument_id="dmm-001",
+            resource="",
+            mocked=True,
         )
         driver = object()
         result = verify_and_wrap(driver, "dmm", record, None, None)
@@ -57,7 +60,10 @@ class TestVerifyAndWrap:
         session_id = uuid4()
         event_log = EventLog(tmp_path / "events", session_id)
         record = InstrumentRecord(
-            role="dmm", instrument_id="dmm-001", resource="", mocked=True,
+            role="dmm",
+            instrument_id="dmm-001",
+            resource="",
+            mocked=True,
         )
         driver = object()
 
@@ -77,6 +83,7 @@ class TestDisconnect:
     def test_disconnect_method(self):
         class FakeInst:
             disconnected = False
+
             def disconnect(self):
                 self.disconnected = True
 
@@ -87,6 +94,7 @@ class TestDisconnect:
     def test_close_method(self):
         class FakeInst:
             closed = False
+
             def close(self):
                 self.closed = True
 

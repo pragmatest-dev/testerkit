@@ -115,39 +115,45 @@ class TestLoadRuns:
         runs_dir.mkdir(parents=True)
 
         # File 1: datetime timestamps (direct write path)
-        rows1 = pa.table({
-            "run_id": ["run-A"],
-            "run_started_at": pa.array(
-                [datetime(2026, 1, 1, 10, 0, tzinfo=UTC)],
-                type=pa.timestamp("us", tz="UTC"),
-            ),
-            "run_outcome": ["pass"],
-            "measurement_name": ["v1"],
-            "value": [3.3],
-        })
+        rows1 = pa.table(
+            {
+                "run_id": ["run-A"],
+                "run_started_at": pa.array(
+                    [datetime(2026, 1, 1, 10, 0, tzinfo=UTC)],
+                    type=pa.timestamp("us", tz="UTC"),
+                ),
+                "run_outcome": ["pass"],
+                "measurement_name": ["v1"],
+                "value": [3.3],
+            }
+        )
         pq.write_table(rows1, runs_dir / "file1.parquet")
 
         # File 2: string timestamps (tests coercion path)
-        rows2 = pa.table({
-            "run_id": ["run-B"],
-            "run_started_at": ["2026-01-01T11:00:00+00:00"],
-            "run_outcome": ["fail"],
-            "measurement_name": ["v1"],
-            "value": [2.8],
-        })
+        rows2 = pa.table(
+            {
+                "run_id": ["run-B"],
+                "run_started_at": ["2026-01-01T11:00:00+00:00"],
+                "run_outcome": ["fail"],
+                "measurement_name": ["v1"],
+                "value": [2.8],
+            }
+        )
         pq.write_table(rows2, runs_dir / "file2.parquet")
 
         # File 3: null types (empty run)
-        rows3 = pa.table({
-            "run_id": ["run-C"],
-            "run_started_at": pa.array(
-                [datetime(2026, 1, 1, 12, 0, tzinfo=UTC)],
-                type=pa.timestamp("us", tz="UTC"),
-            ),
-            "run_outcome": ["pass"],
-            "measurement_name": pa.array([None], type=pa.null()),
-            "value": pa.array([None], type=pa.null()),
-        })
+        rows3 = pa.table(
+            {
+                "run_id": ["run-C"],
+                "run_started_at": pa.array(
+                    [datetime(2026, 1, 1, 12, 0, tzinfo=UTC)],
+                    type=pa.timestamp("us", tz="UTC"),
+                ),
+                "run_outcome": ["pass"],
+                "measurement_name": pa.array([None], type=pa.null()),
+                "value": pa.array([None], type=pa.null()),
+            }
+        )
         pq.write_table(rows3, runs_dir / "file3.parquet")
 
         # Should concatenate without errors

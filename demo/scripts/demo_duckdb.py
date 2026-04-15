@@ -16,14 +16,15 @@ db = duckdb.connect()
 
 
 def section(title: str) -> None:
-    print(f"\n{'='*60}")
+    print(f"\n{'=' * 60}")
     print(f"  {title}")
-    print(f"{'='*60}\n")
+    print(f"{'=' * 60}\n")
 
 
 # 1. Recent runs
 section("Recent test runs")
-print(db.sql(f"""
+print(
+    db.sql(f"""
     SELECT
         dut_serial,
         station_id,
@@ -34,11 +35,13 @@ print(db.sql(f"""
     GROUP BY run_id, dut_serial, station_id, run_outcome, run_started_at
     ORDER BY run_started_at DESC
     LIMIT 10
-"""))
+""")
+)
 
 # 2. Measurement statistics
 section("Measurement statistics")
-print(db.sql(f"""
+print(
+    db.sql(f"""
     SELECT
         measurement_name,
         units,
@@ -51,11 +54,13 @@ print(db.sql(f"""
     WHERE value IS NOT NULL
     GROUP BY measurement_name, units
     ORDER BY measurement_name
-"""))
+""")
+)
 
 # 3. Pass rate by step
 section("Pass rate by step")
-print(db.sql(f"""
+print(
+    db.sql(f"""
     SELECT
         step_name,
         COUNT(*) AS total,
@@ -65,11 +70,13 @@ print(db.sql(f"""
     FROM "{parquet}"
     GROUP BY step_name
     ORDER BY pass_pct ASC
-"""))
+""")
+)
 
 # 4. Cpk (process capability) — only for measurements with limits
 section("Process capability (Cpk)")
-print(db.sql(f"""
+print(
+    db.sql(f"""
     SELECT
         measurement_name,
         ROUND(AVG(value), 4) AS mean,
@@ -89,11 +96,13 @@ print(db.sql(f"""
       AND low_limit IS NOT NULL
     GROUP BY measurement_name
     HAVING COUNT(*) >= 3
-"""))
+""")
+)
 
 # 5. Full traceability for one measurement
 section("Full traceability (last measurement)")
-print(db.sql(f"""
+print(
+    db.sql(f"""
     SELECT
         measurement_name, value, units, outcome,
         dut_serial, station_id, git_commit,
@@ -103,4 +112,5 @@ print(db.sql(f"""
     FROM "{parquet}"
     ORDER BY run_started_at DESC
     LIMIT 1
-"""))
+""")
+)

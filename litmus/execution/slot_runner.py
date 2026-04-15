@@ -107,9 +107,7 @@ class SlotRunner:
 
         missing = set(slots) - set(duts)
         if missing:
-            raise ValueError(
-                f"Missing DUT identity for slots: {', '.join(sorted(missing))}"
-            )
+            raise ValueError(f"Missing DUT identity for slots: {', '.join(sorted(missing))}")
 
         self._slots = slots
         self._duts = duts
@@ -202,7 +200,9 @@ class SlotRunner:
 
                 logger.info(
                     "Spawning slot '%s' (DUT %s): %s",
-                    slot_id, dut.serial, " ".join(cmd),
+                    slot_id,
+                    dut.serial,
+                    " ".join(cmd),
                 )
 
                 proc = subprocess.Popen(
@@ -218,11 +218,13 @@ class SlotRunner:
                 if event_log is not None:
                     from litmus.data.events import SlotStarted
 
-                    event_log.emit(SlotStarted(
-                        session_id=self._session_id,
-                        slot_id=slot_id,
-                        dut_serial=dut.serial,
-                    ))
+                    event_log.emit(
+                        SlotStarted(
+                            session_id=self._session_id,
+                            slot_id=slot_id,
+                            dut_serial=dut.serial,
+                        )
+                    )
 
                 # Monitor thread: reads stdout, waits for exit, notifies
                 # coordinator *immediately* when a child dies so sync points
@@ -245,15 +247,18 @@ class SlotRunner:
                 from litmus.data.events import SlotCompleted
 
                 for slot_id, result in results.items():
-                    event_log.emit(SlotCompleted(
-                        session_id=self._session_id,
-                        slot_id=slot_id,
-                        outcome=result.outcome,
-                        error_message=(
-                            f"exit code {result.returncode}"
-                            if result.outcome != "pass" else None
-                        ),
-                    ))
+                    event_log.emit(
+                        SlotCompleted(
+                            session_id=self._session_id,
+                            slot_id=slot_id,
+                            outcome=result.outcome,
+                            error_message=(
+                                f"exit code {result.returncode}"
+                                if result.outcome != "pass"
+                                else None
+                            ),
+                        )
+                    )
 
         finally:
             # Terminate any still-running worker processes

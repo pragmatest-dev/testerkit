@@ -32,9 +32,9 @@ def stations_page():
             with ui.card().classes("w-full p-6 text-center"):
                 ui.icon("settings_input_hdmi").classes("text-4xl text-slate-300")
                 ui.label("No stations configured.").classes("text-slate-500 mt-2")
-                ui.label(
-                    "Create a station to define your test equipment setup."
-                ).classes("text-sm text-slate-400")
+                ui.label("Create a station to define your test equipment setup.").classes(
+                    "text-sm text-slate-400"
+                )
                 ui.button(
                     "Create Station",
                     icon="add",

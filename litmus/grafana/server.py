@@ -93,8 +93,12 @@ def create_connection(results_dir: Path) -> duckdb.DuckDBPyConnection:
 
 
 _IPC_TABLES: list[tuple[str, str, str]] = [
-    ("events", "events", "occurred_at AT TIME ZONE 'UTC' AS occurred_at, "
-     "received_at AT TIME ZONE 'UTC' AS received_at"),
+    (
+        "events",
+        "events",
+        "occurred_at AT TIME ZONE 'UTC' AS occurred_at, "
+        "received_at AT TIME ZONE 'UTC' AS received_at",
+    ),
     ("channels", "channels", "timestamp AT TIME ZONE 'UTC' AS timestamp"),
 ]
 
@@ -124,8 +128,7 @@ def _load_ipc_table(
     tmp = f"_{table_name}_arrow"
     conn.register(tmp, arrow_table)
     conn.execute(
-        f"CREATE OR REPLACE TABLE {table_name} AS "
-        f"SELECT * REPLACE({replace_expr}) FROM {tmp}"
+        f"CREATE OR REPLACE TABLE {table_name} AS SELECT * REPLACE({replace_expr}) FROM {tmp}"
     )
     conn.unregister(tmp)
 
@@ -141,9 +144,7 @@ def _create_server(
     from buenavista.examples.duckdb_postgres import DuckDBPostgresRewriter
 
     rewriter = DuckDBPostgresRewriter(bv_dialects.BVPostgres(), bv_dialects.BVDuckDB())
-    server = postgres.BuenaVistaServer(
-        (host, port), DuckDBConnection(conn), rewriter=rewriter
-    )
+    server = postgres.BuenaVistaServer((host, port), DuckDBConnection(conn), rewriter=rewriter)
     return server
 
 
@@ -172,9 +173,7 @@ def serve(
             except (OSError, pa.ArrowInvalid, duckdb.Error) as exc:
                 warnings.warn(f"IPC refresh failed: {exc}", stacklevel=2)
 
-    refresh_thread = threading.Thread(
-        target=_refresh_loop, daemon=True, name="grafana-ipc-refresh"
-    )
+    refresh_thread = threading.Thread(target=_refresh_loop, daemon=True, name="grafana-ipc-refresh")
     refresh_thread.start()
 
     print(f"Litmus pgwire server listening on {host}:{port}")

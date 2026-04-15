@@ -249,9 +249,7 @@ class DaemonManager:
 
         proc.kill()
         proc.wait(timeout=2)
-        raise RuntimeError(
-            f"Daemon failed to start within 10s. dir={self._dir}, cmd={cmd}"
-        )
+        raise RuntimeError(f"Daemon failed to start within 10s. dir={self._dir}, cmd={cmd}")
 
     def _read_pid(self) -> int:
         """Read the daemon PID from its PID file."""

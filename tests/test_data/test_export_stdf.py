@@ -34,7 +34,7 @@ def _read_records(path: Path) -> list[STDR]:
         if offset + 4 > len(data):
             break
         rec_len, rec_typ, rec_sub = struct.unpack_from("<HBB", data, offset)
-        record_bytes = data[offset: offset + 4 + rec_len]
+        record_bytes = data[offset : offset + 4 + rec_len]
         offset += 4 + rec_len
 
         cls = record_map.get((rec_typ, rec_sub))
@@ -50,7 +50,9 @@ class TestStdfSubscriber:
     """Test the event-driven subscriber path."""
 
     def _write_via_subscriber(
-        self, test_run: TestRun, tmp_path: Path,
+        self,
+        test_run: TestRun,
+        tmp_path: Path,
         replay: Callable[[TestRun, Any], None],
     ) -> Path:
         sub = StdfSubscriber(tmp_path)
@@ -61,21 +63,29 @@ class TestStdfSubscriber:
         return tmp_path / "exports" / "stdf" / f"{run_id}.stdf"
 
     def test_creates_file(
-        self, realistic_test_run: TestRun, tmp_path: Path,
+        self,
+        realistic_test_run: TestRun,
+        tmp_path: Path,
         replay_events: Callable[[TestRun, Any], None],
     ):
         result = self._write_via_subscriber(
-            realistic_test_run, tmp_path, replay_events,
+            realistic_test_run,
+            tmp_path,
+            replay_events,
         )
         assert result.exists()
         assert result.stat().st_size > 0
 
     def test_record_sequence(
-        self, realistic_test_run: TestRun, tmp_path: Path,
+        self,
+        realistic_test_run: TestRun,
+        tmp_path: Path,
         replay_events: Callable[[TestRun, Any], None],
     ):
         result = self._write_via_subscriber(
-            realistic_test_run, tmp_path, replay_events,
+            realistic_test_run,
+            tmp_path,
+            replay_events,
         )
         records = _read_records(result)
         types = [r.id for r in records]
@@ -85,27 +95,31 @@ class TestStdfSubscriber:
         assert types[-1] == "MRR"
 
     def test_ptr_count(
-        self, realistic_test_run: TestRun, tmp_path: Path,
+        self,
+        realistic_test_run: TestRun,
+        tmp_path: Path,
         replay_events: Callable[[TestRun, Any], None],
     ):
         result = self._write_via_subscriber(
-            realistic_test_run, tmp_path, replay_events,
+            realistic_test_run,
+            tmp_path,
+            replay_events,
         )
         records = _read_records(result)
         ptrs = [r for r in records if r.id == "PTR"]
-        expected = sum(
-            len(v.measurements)
-            for s in realistic_test_run.steps
-            for v in s.vectors
-        )
+        expected = sum(len(v.measurements) for s in realistic_test_run.steps for v in s.vectors)
         assert len(ptrs) == expected
 
     def test_mir_metadata(
-        self, realistic_test_run: TestRun, tmp_path: Path,
+        self,
+        realistic_test_run: TestRun,
+        tmp_path: Path,
         replay_events: Callable[[TestRun, Any], None],
     ):
         result = self._write_via_subscriber(
-            realistic_test_run, tmp_path, replay_events,
+            realistic_test_run,
+            tmp_path,
+            replay_events,
         )
         records = _read_records(result)
         mir = records[1]
@@ -113,11 +127,15 @@ class TestStdfSubscriber:
         assert mir.get_value("PART_TYP") == "PN-200"
 
     def test_far_version(
-        self, realistic_test_run: TestRun, tmp_path: Path,
+        self,
+        realistic_test_run: TestRun,
+        tmp_path: Path,
         replay_events: Callable[[TestRun, Any], None],
     ):
         result = self._write_via_subscriber(
-            realistic_test_run, tmp_path, replay_events,
+            realistic_test_run,
+            tmp_path,
+            replay_events,
         )
         records = _read_records(result)
         far = records[0]
@@ -125,11 +143,15 @@ class TestStdfSubscriber:
         assert far.get_value("STDF_VER") == 4
 
     def test_ptr_values(
-        self, realistic_test_run: TestRun, tmp_path: Path,
+        self,
+        realistic_test_run: TestRun,
+        tmp_path: Path,
         replay_events: Callable[[TestRun, Any], None],
     ):
         result = self._write_via_subscriber(
-            realistic_test_run, tmp_path, replay_events,
+            realistic_test_run,
+            tmp_path,
+            replay_events,
         )
         records = _read_records(result)
         ptrs = [r for r in records if r.id == "PTR"]
@@ -143,12 +165,16 @@ class TestStdfSubscriber:
         assert first.get_value("UNITS") == "V"
 
     def test_null_value_flagged(
-        self, realistic_test_run: TestRun, tmp_path: Path,
+        self,
+        realistic_test_run: TestRun,
+        tmp_path: Path,
         replay_events: Callable[[TestRun, Any], None],
     ):
         """value=None measurements have TEST_FLG bit 1 set (invalid)."""
         result = self._write_via_subscriber(
-            realistic_test_run, tmp_path, replay_events,
+            realistic_test_run,
+            tmp_path,
+            replay_events,
         )
         records = _read_records(result)
         ptrs = [r for r in records if r.id == "PTR"]
@@ -164,11 +190,15 @@ class TestStdfSubscriber:
         assert test_flg[1] == "1"
 
     def test_prr_part_id(
-        self, realistic_test_run: TestRun, tmp_path: Path,
+        self,
+        realistic_test_run: TestRun,
+        tmp_path: Path,
         replay_events: Callable[[TestRun, Any], None],
     ):
         result = self._write_via_subscriber(
-            realistic_test_run, tmp_path, replay_events,
+            realistic_test_run,
+            tmp_path,
+            replay_events,
         )
         records = _read_records(result)
         prr = next(r for r in records if r.id == "PRR")

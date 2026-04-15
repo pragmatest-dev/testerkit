@@ -19,9 +19,7 @@ def instruments_page():
         with ui.row().classes("items-center justify-between w-full"):
             with ui.row().classes("items-center gap-2"):
                 ui.icon("precision_manufacturing").classes("text-slate-600")
-                ui.label("Instrument Catalog").classes(
-                    "text-lg font-semibold text-slate-700"
-                )
+                ui.label("Instrument Catalog").classes("text-lg font-semibold text-slate-700")
             ui.button(
                 "New Instrument",
                 icon="add",
@@ -34,9 +32,7 @@ def instruments_page():
                 with ui.row().classes("items-start gap-3"):
                     ui.icon("info", color="blue").classes("mt-1")
                     with ui.column().classes("gap-1"):
-                        ui.label("Instrument Catalog").classes(
-                            "font-semibold text-blue-900"
-                        )
+                        ui.label("Instrument Catalog").classes("font-semibold text-blue-900")
                         ui.label(
                             "Instrument definitions describe capabilities, SCPI commands, "
                             "and simulation defaults. User-defined instruments override "
@@ -50,9 +46,7 @@ def instruments_page():
         else:
             with ui.card().classes("w-full p-6 text-center"):
                 ui.icon("precision_manufacturing").classes("text-4xl text-slate-300")
-                ui.label("No instrument types defined.").classes(
-                    "text-slate-500 mt-2"
-                )
+                ui.label("No instrument types defined.").classes("text-slate-500 mt-2")
                 ui.button(
                     "Create Instrument",
                     icon="add",
@@ -79,9 +73,7 @@ def _instrument_card(entry):
                     ui.icon("device_unknown").classes("text-2xl text-slate-600")
                     with ui.column().classes("gap-0"):
                         ui.label(entry.name or entry.type).classes("text-lg font-semibold")
-                        ui.label(entry.type).classes(
-                            "text-xs text-slate-500 font-mono"
-                        )
+                        ui.label(entry.type).classes("text-xs text-slate-500 font-mono")
 
         with ui.card_section():
             ui.label(entry.description or "").classes("text-sm text-slate-600")
@@ -91,9 +83,7 @@ def _instrument_card(entry):
                 for cap in cap_names[:5]:
                     ui.badge(cap).props("outline")
                 if len(cap_names) > 5:
-                    ui.badge(f"+{len(cap_names) - 5} more").props(
-                        "outline color=grey"
-                    )
+                    ui.badge(f"+{len(cap_names) - 5} more").props("outline color=grey")
 
         with ui.card_actions():
             ui.button(
@@ -149,14 +139,16 @@ def _render_instrument_inventory():
             model = asset.info.model or ""
             identity = f"{mfr} {model}".strip() if (mfr or model) else ""
 
-            rows.append({
-                "id": asset.id,
-                "driver": asset.driver or "",
-                "identity": identity,
-                "serial": str(asset.info.serial or ""),
-                "cal_due": cal_str,
-                "cal_lab": asset.calibration.lab or "",
-            })
+            rows.append(
+                {
+                    "id": asset.id,
+                    "driver": asset.driver or "",
+                    "identity": identity,
+                    "serial": str(asset.info.serial or ""),
+                    "cal_due": cal_str,
+                    "cal_lab": asset.calibration.lab or "",
+                }
+            )
 
         table = ui.table(columns=columns, rows=rows, row_key="id").classes("w-full")
         table.on(

@@ -118,8 +118,7 @@ class SpecContext:
         char = self.product.characteristics.get(char_id)
         if char is None:
             raise KeyError(
-                f"ProductCharacteristic '{char_id}' not found "
-                f"in product '{self.product.id}'"
+                f"ProductCharacteristic '{char_id}' not found in product '{self.product.id}'"
             )
 
         from litmus.execution.limits import derive_limit

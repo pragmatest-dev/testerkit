@@ -107,10 +107,15 @@ def calculate_cpk(
     result: dict = {"n": n, "lsl": lsl, "usl": usl}
 
     if n < 2:
-        result.update({
-            "cpk": None, "cp": None, "mean": None, "sigma": None,
-            "warning": "insufficient data",
-        })
+        result.update(
+            {
+                "cpk": None,
+                "cp": None,
+                "mean": None,
+                "sigma": None,
+                "warning": "insufficient data",
+            }
+        )
         return result
 
     mean = sum(values) / n
@@ -223,13 +228,15 @@ def pareto_analysis(
     for (step, meas), count in sorted_items:
         pct = count / total_fails * 100
         cumulative += pct
-        result.append({
-            "step_name": step,
-            "measurement_name": meas,
-            "count": count,
-            "pct": round(pct, 1),
-            "cumulative_pct": round(cumulative, 1),
-        })
+        result.append(
+            {
+                "step_name": step,
+                "measurement_name": meas,
+                "count": count,
+                "pct": round(pct, 1),
+                "cumulative_pct": round(cumulative, 1),
+            }
+        )
 
     return result
 
@@ -274,12 +281,14 @@ def trend_by_period(
     for p in sorted(buckets):
         b = buckets[p]
         yield_pct = (b["passed"] / b["total"] * 100) if b["total"] > 0 else 0.0
-        result.append({
-            "period": p,
-            "total": b["total"],
-            "passed": b["passed"],
-            "yield_pct": round(yield_pct, 1),
-        })
+        result.append(
+            {
+                "period": p,
+                "total": b["total"],
+                "passed": b["passed"],
+                "yield_pct": round(yield_pct, 1),
+            }
+        )
 
     return result
 

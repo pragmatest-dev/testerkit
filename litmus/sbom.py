@@ -97,22 +97,12 @@ def generate_cyclonedx(snapshot: EnvironmentSnapshot) -> str:
     )
 
     # Environment properties
-    bom.metadata.properties.add(
-        Property(name="python:version", value=snapshot.python_version)
-    )
-    bom.metadata.properties.add(
-        Property(name="os:name", value=snapshot.os_name)
-    )
-    bom.metadata.properties.add(
-        Property(name="os:version", value=snapshot.os_version)
-    )
-    bom.metadata.properties.add(
-        Property(name="platform:machine", value=snapshot.platform_machine)
-    )
+    bom.metadata.properties.add(Property(name="python:version", value=snapshot.python_version))
+    bom.metadata.properties.add(Property(name="os:name", value=snapshot.os_name))
+    bom.metadata.properties.add(Property(name="os:version", value=snapshot.os_version))
+    bom.metadata.properties.add(Property(name="platform:machine", value=snapshot.platform_machine))
     if snapshot.lockfile_hash:
-        bom.metadata.properties.add(
-            Property(name="lockfile:hash", value=snapshot.lockfile_hash)
-        )
+        bom.metadata.properties.add(Property(name="lockfile:hash", value=snapshot.lockfile_hash))
 
     # Add each installed package as a component
     root_dep = Dependency(ref=bom.metadata.component.bom_ref)

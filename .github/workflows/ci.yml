@@ -22,6 +22,8 @@ jobs:
       - run: uv sync --all-extras --dev
       - name: Ruff lint
         run: uv run ruff check .
+      - name: Ruff format check
+        run: uv run ruff format --check .
 
   typecheck:
     runs-on: ubuntu-latest

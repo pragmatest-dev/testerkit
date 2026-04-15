@@ -47,15 +47,21 @@ class TestInstrumentAccessor:
         instruments = {"dmm1": dmm1, "dmm2": dmm2, "psu": psu}
         records = {
             "dmm1": InstrumentRecord(
-                role="dmm1", instrument_id="k2000_1", resource="FAKE",
+                role="dmm1",
+                instrument_id="k2000_1",
+                resource="FAKE",
                 driver="drivers.Keithley2000",
             ),
             "dmm2": InstrumentRecord(
-                role="dmm2", instrument_id="k2000_2", resource="FAKE",
+                role="dmm2",
+                instrument_id="k2000_2",
+                resource="FAKE",
                 driver="drivers.Keithley2000",
             ),
             "psu": InstrumentRecord(
-                role="psu", instrument_id="e3631a", resource="FAKE",
+                role="psu",
+                instrument_id="e3631a",
+                resource="FAKE",
                 driver="drivers.E3631A",
             ),
         }
@@ -68,7 +74,9 @@ class TestInstrumentAccessor:
             instruments={"dmm": object()},
             records={
                 "dmm": InstrumentRecord(
-                    role="dmm", instrument_id="k2000", resource="FAKE",
+                    role="dmm",
+                    instrument_id="k2000",
+                    resource="FAKE",
                     driver="drivers.Keithley2000",
                 ),
             },
@@ -83,11 +91,15 @@ class TestInstrumentAccessor:
             instruments={"dmm": dmm},
             records={
                 "dmm": InstrumentRecord(
-                    role="dmm", instrument_id="k2000", resource="FAKE",
+                    role="dmm",
+                    instrument_id="k2000",
+                    resource="FAKE",
                     driver="drivers.Keithley2000",
                 ),
                 "psu": InstrumentRecord(
-                    role="psu", instrument_id="e3631a", resource="FAKE",
+                    role="psu",
+                    instrument_id="e3631a",
+                    resource="FAKE",
                     driver="drivers.Keithley2000",
                 ),
             },
@@ -142,13 +154,15 @@ class TestAutoRegistration:
         )
 
         # Neutralize litmus_logger to avoid duckdb import errors in child process
-        pytester.makeconftest(textwrap.dedent("""\
+        pytester.makeconftest(
+            textwrap.dedent("""\
             import pytest
 
             @pytest.fixture(scope="session", autouse=True)
             def litmus_logger():
                 yield None
-        """))
+        """)
+        )
 
         # Create a test that uses the auto-registered fixtures
         pytester.makepyfile(
@@ -169,13 +183,15 @@ class TestAutoRegistration:
 
     def test_auto_register_no_station(self, pytester):
         """No station config → no error, no auto-registered fixtures."""
-        pytester.makeconftest(textwrap.dedent("""\
+        pytester.makeconftest(
+            textwrap.dedent("""\
             import pytest
 
             @pytest.fixture(scope="session", autouse=True)
             def litmus_logger():
                 yield None
-        """))
+        """)
+        )
 
         pytester.makepyfile(
             test_no_station=textwrap.dedent("""\
@@ -248,13 +264,15 @@ class TestAutoRegistration:
             },
         )
 
-        pytester.makeconftest(textwrap.dedent("""\
+        pytester.makeconftest(
+            textwrap.dedent("""\
             import pytest
 
             @pytest.fixture(scope="session", autouse=True)
             def litmus_logger():
                 yield None
-        """))
+        """)
+        )
 
         pytester.makepyfile(
             test_accessor=textwrap.dedent("""\
@@ -294,13 +312,15 @@ class TestAutoRegistration:
             },
         )
 
-        pytester.makeconftest(textwrap.dedent("""\
+        pytester.makeconftest(
+            textwrap.dedent("""\
             import pytest
 
             @pytest.fixture(scope="session", autouse=True)
             def litmus_logger():
                 yield None
-        """))
+        """)
+        )
 
         pytester.makepyfile(
             test_empty=textwrap.dedent("""\

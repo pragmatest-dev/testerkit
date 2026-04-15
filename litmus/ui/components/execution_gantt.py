@@ -31,8 +31,8 @@ def _parse_ts(val: Any) -> datetime | None:
 
 
 _OUTCOME_COLORS = {
-    "pass": "#10b981",   # emerald-500
-    "fail": "#ef4444",   # red-500
+    "pass": "#10b981",  # emerald-500
+    "fail": "#ef4444",  # red-500
     "error": "#f59e0b",  # amber-500
 }
 _DEFAULT_COLOR = "#94a3b8"  # slate-400
@@ -83,9 +83,7 @@ def render_execution_gantt(
                 existing["outcome"] = "error"
 
     if not slots:
-        ui.label("No multi-slot execution data available.").classes(
-            "text-slate-500 italic"
-        )
+        ui.label("No multi-slot execution data available.").classes("text-slate-500 italic")
         return None
 
     # Reference time and duration
@@ -138,32 +136,36 @@ def render_execution_gantt(
             }
 
             # Transparent offset bar
-            series.append({
-                "type": "bar",
-                "stack": stack_name,
-                "silent": True,
-                "itemStyle": {"color": "transparent", "borderWidth": 0},
-                "emphasis": {"disabled": True},
-                "tooltip": {"show": False},
-                "data": gap_data,
-            })
+            series.append(
+                {
+                    "type": "bar",
+                    "stack": stack_name,
+                    "silent": True,
+                    "itemStyle": {"color": "transparent", "borderWidth": 0},
+                    "emphasis": {"disabled": True},
+                    "tooltip": {"show": False},
+                    "data": gap_data,
+                }
+            )
 
             # Visible duration bar
-            series.append({
-                "name": info["step_name"],
-                "type": "bar",
-                "stack": stack_name,
-                "barMaxWidth": 30,
-                "data": dur_data,
-                "label": {
-                    "show": True,
-                    "position": "inside",
-                    "fontSize": 10,
-                    "color": "#fff",
-                    "formatter": info["step_name"],
-                    "overflow": "truncate",
-                },
-            })
+            series.append(
+                {
+                    "name": info["step_name"],
+                    "type": "bar",
+                    "stack": stack_name,
+                    "barMaxWidth": 30,
+                    "data": dur_data,
+                    "label": {
+                        "show": True,
+                        "position": "inside",
+                        "fontSize": 10,
+                        "color": "#fff",
+                        "formatter": info["step_name"],
+                        "overflow": "truncate",
+                    },
+                }
+            )
 
             cursor = start_sec + dur
 

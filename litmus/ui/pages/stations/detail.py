@@ -277,9 +277,7 @@ def _sequence_card(station_id: str, seq):
                 ).props("outline")
             ui.label((seq.description or "")[:60]).classes("text-sm text-slate-500 mt-1")
             if seq.product_family:
-                ui.label(f"Product: {seq.product_family}").classes(
-                    "text-xs text-slate-400 mt-1"
-                )
+                ui.label(f"Product: {seq.product_family}").classes("text-xs text-slate-400 mt-1")
         with ui.card_actions():
             ui.button(
                 "Run",

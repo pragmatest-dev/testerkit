@@ -89,9 +89,7 @@ class InstrumentPool:
             return self._acquire_remote(role, record, server_addr)
         use_mock = self._mock_all or record.mocked
         record.mocked = use_mock
-        mock_config = (
-            inst_config.mock_config if inst_config and inst_config.mock_config else {}
-        )
+        mock_config = inst_config.mock_config if inst_config and inst_config.mock_config else {}
 
         # Acquire resource lock (skip for mocks with no real resource)
         lock: BaseFileLock | None = None
@@ -109,13 +107,19 @@ class InstrumentPool:
             # Resolve driver class once — used for both connection and observer
             driver_class = _resolve_driver_class(record) if not use_mock else None
             driver = load_and_connect(
-                record, mock=use_mock, mock_config=mock_config,
+                record,
+                mock=use_mock,
+                mock_config=mock_config,
                 driver_class=driver_class,
             )
 
             # Build observer from driver class + YAML overrides
             observer = self._build_observer(
-                role, record, inst_config, driver, driver_class,
+                role,
+                record,
+                inst_config,
+                driver,
+                driver_class,
             )
 
             inst = verify_and_wrap(
@@ -252,9 +256,7 @@ class InstrumentPool:
                     if record.calibration and record.calibration.last_cal
                     else None
                 ),
-                cal_certificate=(
-                    record.calibration.certificate if record.calibration else None
-                ),
+                cal_certificate=(record.calibration.certificate if record.calibration else None),
                 cal_lab=record.calibration.lab if record.calibration else None,
                 mocked=record.mocked,
             )

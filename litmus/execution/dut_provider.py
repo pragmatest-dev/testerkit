@@ -77,8 +77,7 @@ class CLIDUTProvider:
         else:
             available = ", ".join(sorted(self._serials))
             raise DUTProviderError(
-                f"No DUT serial for slot '{slot_id}'. "
-                f"Available slots: {available}"
+                f"No DUT serial for slot '{slot_id}'. Available slots: {available}"
             )
 
         return DUT(
@@ -90,7 +89,8 @@ class CLIDUTProvider:
 
     @staticmethod
     def parse_serials(
-        raw: str, slot_ids: list[str] | None = None,
+        raw: str,
+        slot_ids: list[str] | None = None,
     ) -> dict[str, str]:
         """Parse a ``--dut-serials`` string into a slot→serial dict.
 
@@ -114,8 +114,7 @@ class CLIDUTProvider:
             for part in parts:
                 if "=" not in part:
                     raise DUTProviderError(
-                        f"Invalid --dut-serials format: '{part}'. "
-                        f"Expected 'slot_id=serial' pairs."
+                        f"Invalid --dut-serials format: '{part}'. Expected 'slot_id=serial' pairs."
                     )
                 slot, serial = part.split("=", 1)
                 serials[slot.strip()] = serial.strip()

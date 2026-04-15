@@ -83,23 +83,25 @@ def generate_enums_md() -> str:
                 lines.append(f"| `{member.value}` | {doc} |")
             lines.append("")
 
-    lines.extend([
-        "## Common Mistakes",
-        "",
-        "| Wrong | Right | Why |",
-        "|-------|-------|-----|",
-        "| `dc_voltage` for heater output | `heater_power` | Dedicated enum exists |",
-        "| `dc_current` for sensor excitation | `excitation_current` | Dedicated enum exists |",
-        "| `dc_voltage` for trigger I/O | `trigger` | Dedicated enum exists |",
-        (
-            "| Only `waveform` on a scope | "
-            "Also add `dc_voltage`, `ac_voltage`, `frequency`, `rise_time`, `fall_time`, "
-            "`pulse_width`, `duty_cycle`, `phase` | "
-            "Scopes measure all of these |"
-        ),
-        "| `dc_voltage` for 10 MHz ref | `reference_clock` | Dedicated enum exists |",
-        "",
-    ])
+    lines.extend(
+        [
+            "## Common Mistakes",
+            "",
+            "| Wrong | Right | Why |",
+            "|-------|-------|-----|",
+            "| `dc_voltage` for heater output | `heater_power` | Dedicated enum exists |",
+            "| `dc_current` for sensor excitation | `excitation_current` | Dedicated enum exists |",
+            "| `dc_voltage` for trigger I/O | `trigger` | Dedicated enum exists |",
+            (
+                "| Only `waveform` on a scope | "
+                "Also add `dc_voltage`, `ac_voltage`, `frequency`, `rise_time`, `fall_time`, "
+                "`pulse_width`, `duty_cycle`, `phase` | "
+                "Scopes measure all of these |"
+            ),
+            "| `dc_voltage` for 10 MHz ref | `reference_clock` | Dedicated enum exists |",
+            "",
+        ]
+    )
 
     return "\n".join(lines)
 

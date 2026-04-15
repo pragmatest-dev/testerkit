@@ -101,8 +101,11 @@ def _render_run_detail(run_id: str, run: dict, measurements: list, backend):
     with ui.tab_panels(tabs, value=overview_tab).classes("w-full"):
         with ui.tab_panel(overview_tab):
             _render_overview_tab(
-                total_steps, failed_steps,
-                total_measurements, passed_measurements, failed_measurements,
+                total_steps,
+                failed_steps,
+                total_measurements,
+                passed_measurements,
+                failed_measurements,
             )
 
         with ui.tab_panel(measurements_tab):
@@ -119,7 +122,8 @@ def _render_run_detail(run_id: str, run: dict, measurements: list, backend):
                     None,
                 )
                 gantt_chart = _render_timeline_tab(
-                    session_measurements, current_slot_id=current_slot_id,
+                    session_measurements,
+                    current_slot_id=current_slot_id,
                 )
 
         with ui.tab_panel(history_tab):
@@ -158,8 +162,11 @@ def _info_field_link(label: str, value: str, base_path: str):
 
 
 def _render_overview_tab(
-    total_steps: int, failed_steps: int,
-    total_meas: int, passed_meas: int, failed_meas: int,
+    total_steps: int,
+    failed_steps: int,
+    total_meas: int,
+    passed_meas: int,
+    failed_meas: int,
 ):
     """Render the overview tab."""
     with ui.card().classes("w-full"):
@@ -257,7 +264,9 @@ def _render_history_tab(run_id: str, run: dict, backend):
 
 
 def _render_timeline_tab(
-    measurements: list, *, current_slot_id: str | None = None,
+    measurements: list,
+    *,
+    current_slot_id: str | None = None,
 ) -> Any:
     """Render the execution timeline tab for multi-DUT runs."""
     from litmus.ui.components.execution_gantt import render_execution_gantt
@@ -271,7 +280,8 @@ def _render_timeline_tab(
             ).classes("text-sm text-slate-500")
         with ui.card_section().classes("w-full"):
             return render_execution_gantt(
-                measurements, current_slot_id=current_slot_id,
+                measurements,
+                current_slot_id=current_slot_id,
             )
 
 

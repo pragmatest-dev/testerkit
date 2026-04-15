@@ -17,9 +17,7 @@ def products_page():
         with ui.row().classes("items-center justify-between w-full"):
             with ui.row().classes("items-center gap-2"):
                 ui.icon("inventory_2").classes("text-slate-600")
-                ui.label("Product Specifications").classes(
-                    "text-lg font-semibold text-slate-700"
-                )
+                ui.label("Product Specifications").classes("text-lg font-semibold text-slate-700")
             ui.button(
                 "New Product",
                 icon="add",

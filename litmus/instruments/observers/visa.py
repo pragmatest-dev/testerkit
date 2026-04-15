@@ -34,12 +34,21 @@ def parse_scpi(cmd: str) -> tuple[str, bool]:
     return stem, is_query
 
 
-_QUERY_METHODS = frozenset({
-    "query", "query_ascii_values", "query_binary_values", "ask",
-})
-_WRITE_METHODS = frozenset({
-    "write", "write_ascii_values", "write_binary_values",
-})
+_QUERY_METHODS = frozenset(
+    {
+        "query",
+        "query_ascii_values",
+        "query_binary_values",
+        "ask",
+    }
+)
+_WRITE_METHODS = frozenset(
+    {
+        "write",
+        "write_ascii_values",
+        "write_binary_values",
+    }
+)
 _RAW_READ_METHODS = frozenset({"read", "read_raw", "read_bytes"})
 
 
@@ -60,7 +69,11 @@ class VisaObserver(DriverObserver):
         self._generic = GenericObserver(driver_class, role, emit, yaml_overrides)
 
     def on_call(
-        self, name: str, args: tuple[Any, ...], kwargs: dict[str, Any], result: Any,
+        self,
+        name: str,
+        args: tuple[Any, ...],
+        kwargs: dict[str, Any],
+        result: Any,
     ) -> None:
         if self._should_skip(name):
             return

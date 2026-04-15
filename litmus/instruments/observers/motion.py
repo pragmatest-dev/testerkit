@@ -10,9 +10,16 @@ from typing import Any
 from litmus.instruments.observer import EventEmitter
 from litmus.instruments.observers.descriptor import DescriptorObserver
 
-_MOVE_METHODS = frozenset({
-    "move_to", "move_absolute", "move_by", "move_relative", "move_home", "home",
-})
+_MOVE_METHODS = frozenset(
+    {
+        "move_to",
+        "move_absolute",
+        "move_by",
+        "move_relative",
+        "move_home",
+        "home",
+    }
+)
 _SILENT_METHODS = frozenset({"wait_move", "is_in_motion", "stop"})
 
 
@@ -34,7 +41,11 @@ class MotionObserver(DescriptorObserver):
         super().__init__(driver_class, role, emit, yaml_overrides, driver_instance)
 
     def on_call(
-        self, name: str, args: tuple[Any, ...], kwargs: dict[str, Any], result: Any,
+        self,
+        name: str,
+        args: tuple[Any, ...],
+        kwargs: dict[str, Any],
+        result: Any,
     ) -> None:
         if self._should_skip(name):
             return

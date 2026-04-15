@@ -109,9 +109,7 @@ class TestEventModels:
     def test_session_started_session_type(self):
         e = SessionStarted(station_id="st1")
         assert e.session_type == "test_run"
-        e2 = SessionStarted(
-            station_id="st1", session_type="characterization"
-        )
+        e2 = SessionStarted(station_id="st1", session_type="characterization")
         assert e2.session_type == "characterization"
 
     def test_session_started_from_station(self):
@@ -175,8 +173,14 @@ class TestEventModels:
         assert InstrumentConnected in FIXTURE_EVENTS
         assert MeasurementRecorded in TEST_EVENTS
         assert len(ALL_EVENTS) == (
-            len(SESSION_EVENTS) + len(RUN_EVENTS) + len(SLOT_EVENTS)
-            + len(FIXTURE_EVENTS) + len(TEST_EVENTS) + len(ROUTE_EVENTS)
-            + len(INSTRUMENT_EVENTS) + len(DIAGNOSTIC_EVENTS) + len(STREAM_EVENTS)
+            len(SESSION_EVENTS)
+            + len(RUN_EVENTS)
+            + len(SLOT_EVENTS)
+            + len(FIXTURE_EVENTS)
+            + len(TEST_EVENTS)
+            + len(ROUTE_EVENTS)
+            + len(INSTRUMENT_EVENTS)
+            + len(DIAGNOSTIC_EVENTS)
+            + len(STREAM_EVENTS)
             + len(DIALOG_EVENTS)
         )

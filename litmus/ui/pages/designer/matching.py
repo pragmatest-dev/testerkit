@@ -255,6 +255,7 @@ def _get_channels_satisfying(
                 matching_channels.append((ch, cap_direction))
         elif raw_channels and isinstance(raw_channels, str):
             from litmus.utils.ranges import expand_range
+
             for ch in expand_range(raw_channels):
                 matching_channels.append((ch, cap_direction))
         else:
@@ -263,9 +264,7 @@ def _get_channels_satisfying(
     return matching_channels
 
 
-def _signals_satisfy(
-    cap_measures: dict[str, Signal], req_measures: dict[str, Signal]
-) -> bool:
+def _signals_satisfy(cap_measures: dict[str, Signal], req_measures: dict[str, Signal]) -> bool:
     """Check if capability signals satisfy required signals.
 
     Numeric comparisons are normalised to SI base units so that e.g.
@@ -314,15 +313,35 @@ def _signals_satisfy(
 
 # SI prefix multipliers relative to the base unit
 _SI_PREFIXES: dict[str, float] = {
-    "p": 1e-12, "n": 1e-9, "u": 1e-6, "µ": 1e-6,
-    "m": 1e-3, "": 1e0, "k": 1e3, "K": 1e3,
-    "M": 1e6, "G": 1e9, "T": 1e12,
+    "p": 1e-12,
+    "n": 1e-9,
+    "u": 1e-6,
+    "µ": 1e-6,
+    "m": 1e-3,
+    "": 1e0,
+    "k": 1e3,
+    "K": 1e3,
+    "M": 1e6,
+    "G": 1e9,
+    "T": 1e12,
 }
 
 # Base unit symbols recognised for prefix stripping
 _BASE_UNITS: set[str] = {
-    "V", "A", "W", "Hz", "F", "H", "s", "S",
-    "ohm", "Ohm", "dB", "dBm", "K", "C",
+    "V",
+    "A",
+    "W",
+    "Hz",
+    "F",
+    "H",
+    "s",
+    "S",
+    "ohm",
+    "Ohm",
+    "dB",
+    "dBm",
+    "K",
+    "C",
 }
 
 
@@ -416,9 +435,11 @@ def resolve_instrument_capabilities(station_config) -> dict:
 
         # No catalog_ref — skip with warning
         import logging
+
         logging.getLogger(__name__).warning(
             "Instrument '%s' (type=%s) has no catalog_ref — skipping capability resolution",
-            _role, inst_type,
+            _role,
+            inst_type,
         )
 
     return station_config
@@ -473,7 +494,11 @@ def auto_suggest_connections(
             continue
 
         compatible = get_compatible_channels_for_pin(
-            pin_key, char_by_pin, product, instruments, dut_pins,
+            pin_key,
+            char_by_pin,
+            product,
+            instruments,
+            dut_pins,
             include_direction=True,
         )
         assert isinstance(compatible, dict)  # Type narrowing

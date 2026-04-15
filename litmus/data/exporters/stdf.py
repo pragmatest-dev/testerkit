@@ -52,7 +52,9 @@ def _make_test_flg(outcome: str | None, value: float | None) -> list[str]:
 
 
 def _make_opt_flag(
-    comparator: str | None, low: float | None, high: float | None,
+    comparator: str | None,
+    low: float | None,
+    high: float | None,
 ) -> list[str]:
     """Build OPT_FLAG 8-bit list for limit validity and exclusivity."""
     bits = ["0"] * 8
@@ -105,7 +107,8 @@ def _build_ptr(
     ptr.set_value("RESULT", value if value is not None else 0.0)
     ptr.set_value("TEST_TXT", f"{step_name}/{meas_name}")
     ptr.set_value(
-        "OPT_FLAG", _make_opt_flag(comparator, low_limit, high_limit),
+        "OPT_FLAG",
+        _make_opt_flag(comparator, low_limit, high_limit),
     )
     if low_limit is not None:
         ptr.set_value("LO_LIMIT", low_limit)
@@ -117,6 +120,7 @@ def _build_ptr(
 
 
 # ── Event subscriber ────────────────────────────────────────────────
+
 
 class StdfSubscriber(EventSubscriber):
     """EventSubscriber that writes STDF V4 binary on close."""
@@ -130,7 +134,9 @@ class StdfSubscriber(EventSubscriber):
         on_output: Callable[[OutputFile], None] | None = None,
     ) -> None:
         self.event_types: set[type] = {
-            RunStarted, MeasurementRecorded, RunEnded,
+            RunStarted,
+            MeasurementRecorded,
+            RunEnded,
         }
         self._output_dir = output_dir / "exports" / "stdf"
         self._on_output = on_output
@@ -198,11 +204,19 @@ class StdfSubscriber(EventSubscriber):
         any_fail = False
         for m in self._measurements:
             test_num = m.step_index * 1000 + (m.vector_index or 0)
-            records.append(_build_ptr(
-                test_num, m.step_name, m.measurement_name,
-                m.value, m.outcome, m.comparator,
-                m.low_limit, m.high_limit, m.units,
-            ))
+            records.append(
+                _build_ptr(
+                    test_num,
+                    m.step_name,
+                    m.measurement_name,
+                    m.value,
+                    m.outcome,
+                    m.comparator,
+                    m.low_limit,
+                    m.high_limit,
+                    m.units,
+                )
+            )
             if m.outcome == "fail":
                 any_fail = True
 

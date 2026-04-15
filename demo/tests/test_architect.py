@@ -23,7 +23,6 @@ Run with:
     pytest tests/test_architect.py --station=demo_station_001 --mock-instruments -v
 """
 
-
 from litmus.data.models import Outcome
 from litmus.execution.decorators import litmus_step, measure
 from litmus.execution.harness import TestHarness

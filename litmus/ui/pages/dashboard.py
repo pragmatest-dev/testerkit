@@ -70,9 +70,7 @@ def _getting_started_card():
     with ui.column().classes("w-full p-6 gap-6"):
         with ui.card().classes("w-full max-w-2xl mx-auto"):
             ui.label("Getting Started").classes("text-2xl font-bold text-slate-800")
-            ui.label("Set up your first test bench in three steps.").classes(
-                "text-slate-600 mt-1"
-            )
+            ui.label("Set up your first test bench in three steps.").classes("text-slate-600 mt-1")
 
             with ui.column().classes("gap-4 mt-6"):
                 # Step 1
@@ -80,9 +78,9 @@ def _getting_started_card():
                     ui.badge("1", color="blue").classes("mt-1")
                     with ui.column().classes("gap-1"):
                         ui.label("Create a station").classes("font-semibold")
-                        ui.label(
-                            "Define which instruments are at your bench."
-                        ).classes("text-sm text-slate-600")
+                        ui.label("Define which instruments are at your bench.").classes(
+                            "text-sm text-slate-600"
+                        )
                         with ui.row().classes("gap-2 mt-1"):
                             ui.button(
                                 "New Station",
@@ -120,12 +118,8 @@ def _getting_started_card():
             ui.separator().classes("mt-4")
             with ui.row().classes("items-center gap-2 mt-2"):
                 ui.icon("lightbulb", size="sm").classes("text-amber-500")
-                ui.label("Or start with a full example:").classes(
-                    "text-sm text-slate-600"
-                )
-                ui.label("litmus init --starter").classes(
-                    "text-sm font-mono text-slate-500"
-                )
+                ui.label("Or start with a full example:").classes("text-sm text-slate-600")
+                ui.label("litmus init --starter").classes("text-sm font-mono text-slate-500")
 
 
 def _render_recent_runs(runs=None):
@@ -155,8 +149,6 @@ def _render_recent_runs(runs=None):
                 for r in runs
             ]
             table = ui.table(columns=columns, rows=rows, row_key="run_id").classes("w-full")
-            table.on(
-                "row-click", lambda e: ui.navigate.to(f"/results/{e.args[1]['full_run_id']}")
-            )
+            table.on("row-click", lambda e: ui.navigate.to(f"/results/{e.args[1]['full_run_id']}"))
     else:
         ui.label("No test runs yet.").classes("text-slate-500 italic")

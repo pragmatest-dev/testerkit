@@ -47,7 +47,11 @@ class DescriptorObserver(DriverObserver):
                 self.emit.set(f"{self.role}.{name}", value, attr=name)
 
     def on_call(
-        self, name: str, args: tuple[Any, ...], kwargs: dict[str, Any], result: Any,
+        self,
+        name: str,
+        args: tuple[Any, ...],
+        kwargs: dict[str, Any],
+        result: Any,
     ) -> None:
         if self._should_skip(name):
             return
@@ -55,7 +59,11 @@ class DescriptorObserver(DriverObserver):
             self._fallback_call(name, args, kwargs, result)
 
     def _fallback_call(
-        self, name: str, args: tuple[Any, ...], kwargs: dict[str, Any], result: Any,
+        self,
+        name: str,
+        args: tuple[Any, ...],
+        kwargs: dict[str, Any],
+        result: Any,
     ) -> None:
         """Delegate unrecognized methods to prefix-based classification."""
         self._generic.on_call(name, args, kwargs, result)

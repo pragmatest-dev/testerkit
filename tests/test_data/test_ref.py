@@ -33,6 +33,7 @@ class TestClassifyValue:
     def test_numpy_array(self):
         try:
             import numpy as np
+
             assert classify_value(np.array([1, 2, 3])) == "numeric_array"
         except ImportError:
             pytest.skip("numpy not installed")

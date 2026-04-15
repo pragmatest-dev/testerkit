@@ -13,9 +13,7 @@ from litmus.ui.shared.services import (
 
 
 @ui.page("/launch")
-def launch_page(
-    product: str = "", station: str = "", sequence: str = "", mock: str = ""
-):
+def launch_page(product: str = "", station: str = "", sequence: str = "", mock: str = ""):
     """Test launch page.
 
     Args:
@@ -132,9 +130,7 @@ def launch_page(
                     with ui.column().classes("gap-1"):
                         ui.label("Test Sequence").classes("text-sm font-medium text-slate-700")
                         ui.select(
-                            options={
-                                s.id: f"{s.name or s.id} ({s.test_phase})" for s in sequences
-                            },
+                            options={s.id: f"{s.name or s.id} ({s.test_phase})" for s in sequences},
                         ).bind_value(form, "sequence_id").classes("w-full").props(
                             "outlined dense clearable"
                         )
@@ -167,9 +163,14 @@ def launch_page(
                 # 4. Station (filtered by product)
                 with ui.column().classes("gap-1"):
                     ui.label("Station").classes("text-sm font-medium text-slate-700")
-                    station_select = ui.select(
-                        options=station_options,
-                    ).bind_value(form, "station_id").classes("w-full").props("outlined dense")
+                    station_select = (
+                        ui.select(
+                            options=station_options,
+                        )
+                        .bind_value(form, "station_id")
+                        .classes("w-full")
+                        .props("outlined dense")
+                    )
                     station_hint = ui.label(
                         "Select a product to filter compatible stations"
                     ).classes("text-xs text-slate-500")

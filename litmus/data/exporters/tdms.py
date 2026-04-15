@@ -84,9 +84,7 @@ def _build_step_channels(
     in_cols: dict[str, list[float]] = {k: [] for k in all_in_keys}
     out_cols: dict[str, list[float]] = {k: [] for k in all_out_keys}
     meas_vals: dict[str, list[float]] = {n: [] for n in all_meas_names}
-    meas_outcomes: dict[str, list[str]] = {
-        n: [] for n in all_meas_names
-    }
+    meas_outcomes: dict[str, list[str]] = {n: [] for n in all_meas_names}
 
     for i, m in enumerate(measurements):
         vec_indices[i] = m.vector_index or 0
@@ -112,21 +110,31 @@ def _build_step_channels(
 
     channels: list[ChannelObject] = []
 
-    channels.append(ChannelObject(
-        grp_name, "vector_index", vec_indices,
-    ))
+    channels.append(
+        ChannelObject(
+            grp_name,
+            "vector_index",
+            vec_indices,
+        )
+    )
 
     for k in all_in_keys:
-        channels.append(ChannelObject(
-            grp_name, f"in_{k}",
-            np.array(in_cols[k], dtype=np.float64),
-        ))
+        channels.append(
+            ChannelObject(
+                grp_name,
+                f"in_{k}",
+                np.array(in_cols[k], dtype=np.float64),
+            )
+        )
 
     for k in all_out_keys:
-        channels.append(ChannelObject(
-            grp_name, f"out_{k}",
-            np.array(out_cols[k], dtype=np.float64),
-        ))
+        channels.append(
+            ChannelObject(
+                grp_name,
+                f"out_{k}",
+                np.array(out_cols[k], dtype=np.float64),
+            )
+        )
 
     # Find first measurement event per name for metadata
     first_meas: dict[str, MeasurementRecorded] = {}
@@ -148,20 +156,27 @@ def _build_step_channels(
         if fm.nominal is not None:
             props["nominal"] = fm.nominal
 
-        channels.append(ChannelObject(
-            grp_name, mname,
-            np.array(meas_vals[mname], dtype=np.float64),
-            properties=props if props else None,
-        ))
-        channels.append(ChannelObject(
-            grp_name, f"{mname}_outcome",
-            np.array(meas_outcomes[mname]),
-        ))
+        channels.append(
+            ChannelObject(
+                grp_name,
+                mname,
+                np.array(meas_vals[mname], dtype=np.float64),
+                properties=props if props else None,
+            )
+        )
+        channels.append(
+            ChannelObject(
+                grp_name,
+                f"{mname}_outcome",
+                np.array(meas_outcomes[mname]),
+            )
+        )
 
     return channels
 
 
 # ── Event subscriber ────────────────────────────────────────────────
+
 
 class TdmsSubscriber(EventSubscriber):
     """EventSubscriber that writes NI TDMS on close."""
@@ -175,8 +190,11 @@ class TdmsSubscriber(EventSubscriber):
         on_output: Callable[[OutputFile], None] | None = None,
     ) -> None:
         self.event_types: set[type] = {
-            RunStarted, StepStarted, MeasurementRecorded,
-            StepEnded, RunEnded,
+            RunStarted,
+            StepStarted,
+            MeasurementRecorded,
+            StepEnded,
+            RunEnded,
         }
         self._output_dir = output_dir / "exports" / "tdms"
         self._on_output = on_output
@@ -197,7 +215,8 @@ class TdmsSubscriber(EventSubscriber):
             self._step_starts[event.step_index] = event
         elif isinstance(event, MeasurementRecorded):
             self._meas_by_step.setdefault(
-                event.step_index, [],
+                event.step_index,
+                [],
             ).append(event)
         elif isinstance(event, StepEnded):
             self._step_ends[event.step_index] = event
@@ -248,14 +267,8 @@ class TdmsSubscriber(EventSubscriber):
             for idx in all_indices:
                 ss = self._step_starts.get(idx)
                 se = self._step_ends.get(idx)
-                step_name = (
-                    ss.step_name if ss
-                    else (se.step_name if se else f"step_{idx}")
-                )
-                step_path = (
-                    ss.step_path if ss
-                    else (se.step_path if se else "")
-                )
+                step_name = ss.step_name if ss else (se.step_name if se else f"step_{idx}")
+                step_path = ss.step_path if ss else (se.step_path if se else "")
                 grp_name = _group_name(step_path, step_name)
 
                 grp_props: dict[str, object] = {
@@ -266,13 +279,9 @@ class TdmsSubscriber(EventSubscriber):
                 if ss and ss.description:
                     grp_props["description"] = ss.description
                 if ss:
-                    grp_props["started_at"] = (
-                        ss.occurred_at.isoformat()
-                    )
+                    grp_props["started_at"] = ss.occurred_at.isoformat()
                 if se:
-                    grp_props["ended_at"] = (
-                        se.occurred_at.isoformat()
-                    )
+                    grp_props["ended_at"] = se.occurred_at.isoformat()
 
                 segments.append(
                     GroupObject(grp_name, properties=grp_props),
@@ -286,4 +295,3 @@ class TdmsSubscriber(EventSubscriber):
 
         if self._on_output:
             self._on_output(OutputFile(path=out_file, format="tdms", run_id=run_id))
-

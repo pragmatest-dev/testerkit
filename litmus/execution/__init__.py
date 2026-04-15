@@ -17,8 +17,11 @@ from litmus.execution.logger import RunContext, TestRunLogger
 try:
     from litmus.execution.plugin import get_step_outcomes
 except ImportError:
+
     def get_step_outcomes() -> dict[str, bool]:
         return {}
+
+
 from litmus.execution.vectors import (
     Vector,
     expand_product,

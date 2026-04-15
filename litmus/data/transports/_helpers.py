@@ -21,6 +21,5 @@ def require_extra(config: OutputConfig, key: str, transport_name: str) -> str:
         return config.extras[key]
     except KeyError:
         raise ValueError(
-            f"{transport_name} transport requires '{key}' in config "
-            f"(set it in litmus.yaml outputs)"
+            f"{transport_name} transport requires '{key}' in config (set it in litmus.yaml outputs)"
         ) from None

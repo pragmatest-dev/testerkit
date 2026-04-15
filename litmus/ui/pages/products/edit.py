@@ -335,5 +335,3 @@ def _show_add_char_dialog(on_add: Callable):
 
             ui.button("Add", on_click=add).props("color=primary")
     dialog.open()
-
-

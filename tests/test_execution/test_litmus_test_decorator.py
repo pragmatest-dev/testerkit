@@ -20,9 +20,7 @@ class TestLitmusTestDecorator:
 
     def test_basic_decorator(self):
         """Test basic decorator usage with return value."""
-        config = {
-            "vectors": [{"voltage": 3.3}, {"voltage": 5.0}]
-        }
+        config = {"vectors": [{"voltage": 3.3}, {"voltage": 5.0}]}
 
         @litmus_test(config=config, raise_on_fail=False)
         def test_sweep(context):
@@ -37,6 +35,7 @@ class TestLitmusTestDecorator:
 
     def test_decorator_without_parens(self):
         """Test @litmus_test without parentheses."""
+
         @litmus_test
         def test_simple(context):
             return 42
@@ -48,9 +47,7 @@ class TestLitmusTestDecorator:
 
     def test_decorator_with_yield(self):
         """Test generator pattern for multiple measurements."""
-        config = {
-            "vectors": [{"voltage": 3.3}]
-        }
+        config = {"vectors": [{"voltage": 3.3}]}
 
         @litmus_test(config=config, raise_on_fail=False)
         def test_multi(context):
@@ -85,9 +82,7 @@ class TestLitmusTestDecorator:
         """Test decorator with passing limits."""
         config = {
             "vectors": [{"voltage": 3.3}],
-            "limits": {
-                "output": {"low": 3.0, "high": 3.6, "units": "V"}
-            }
+            "limits": {"output": {"low": 3.0, "high": 3.6, "units": "V"}},
         }
 
         @litmus_test(config=config)
@@ -106,7 +101,7 @@ class TestLitmusTestDecorator:
             "limits": {
                 # Limit key must match function name (measurement name defaults to fn name)
                 "test_fails": {"low": 3.0, "high": 3.2, "units": "V"}
-            }
+            },
         }
 
         @litmus_test(config=config)
@@ -123,7 +118,7 @@ class TestLitmusTestDecorator:
             "limits": {
                 # Limit key must match function name
                 "test_no_raise": {"low": 3.0, "high": 3.2, "units": "V"}
-            }
+            },
         }
 
         @litmus_test(config=config, raise_on_fail=False)
@@ -183,9 +178,7 @@ class TestLitmusTestDecoratorWithInstruments:
 
     def test_decorator_with_extra_args(self):
         """Test decorator with additional arguments (simulating fixtures)."""
-        config = {
-            "vectors": [{"voltage": 3.3}]
-        }
+        config = {"vectors": [{"voltage": 3.3}]}
 
         class MockDMM:
             def measure(self):

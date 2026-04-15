@@ -48,9 +48,7 @@ def new_instrument_page():
         # Header
         with ui.row().classes("items-center gap-2"):
             ui.icon("add_circle").classes("text-slate-600")
-            ui.label("Create New Instrument Type").classes(
-                "text-lg font-semibold text-slate-700"
-            )
+            ui.label("Create New Instrument Type").classes("text-lg font-semibold text-slate-700")
 
         # Form card
         with ui.card().classes("w-full max-w-xl"):
@@ -64,12 +62,16 @@ def new_instrument_page():
                         ui.label(
                             "Unique identifier (lowercase, letters/numbers/underscores)"
                         ).classes("text-xs text-slate-400")
-                        type_input = ui.input(
-                            placeholder="e.g., dmm, psu, scope",
-                        ).props("outlined dense").classes("w-full")
-                        ui.label("").classes(
-                            "text-xs text-red-500"
-                        ).bind_text_from(validation, "type_error")
+                        type_input = (
+                            ui.input(
+                                placeholder="e.g., dmm, psu, scope",
+                            )
+                            .props("outlined dense")
+                            .classes("w-full")
+                        )
+                        ui.label("").classes("text-xs text-red-500").bind_text_from(
+                            validation, "type_error"
+                        )
 
                         def validate_type(e):
                             value = e.value.lower().strip()
@@ -93,12 +95,16 @@ def new_instrument_page():
                     # Name
                     with ui.column().classes("gap-1 w-full"):
                         ui.label("Name").classes("text-sm font-medium text-slate-700")
-                        name_input = ui.input(
-                            placeholder="e.g., Digital Multimeter",
-                        ).props("outlined dense").classes("w-full")
-                        ui.label("").classes(
-                            "text-xs text-red-500"
-                        ).bind_text_from(validation, "name_error")
+                        name_input = (
+                            ui.input(
+                                placeholder="e.g., Digital Multimeter",
+                            )
+                            .props("outlined dense")
+                            .classes("w-full")
+                        )
+                        ui.label("").classes("text-xs text-red-500").bind_text_from(
+                            validation, "name_error"
+                        )
 
                         def validate_name(e):
                             value = e.value.strip()
@@ -114,9 +120,7 @@ def new_instrument_page():
                     with ui.column().classes("gap-1 w-full"):
                         ui.label("Icon").classes("text-sm font-medium text-slate-700")
                         with ui.row().classes("items-center gap-2"):
-                            icon_preview = ui.icon(form["icon"]).classes(
-                                "text-2xl text-slate-600"
-                            )
+                            icon_preview = ui.icon(form["icon"]).classes("text-2xl text-slate-600")
                             ui.select(
                                 options=icon_options,
                                 value="device_unknown",
@@ -128,14 +132,10 @@ def new_instrument_page():
 
                     # Description
                     with ui.column().classes("gap-1 w-full"):
-                        ui.label("Description").classes(
-                            "text-sm font-medium text-slate-700"
-                        )
+                        ui.label("Description").classes("text-sm font-medium text-slate-700")
                         ui.textarea(
                             placeholder="Brief description of the instrument type...",
-                            on_change=lambda e: form.update(
-                                {"description": e.value.strip()}
-                            ),
+                            on_change=lambda e: form.update({"description": e.value.strip()}),
                         ).props("outlined dense").classes("w-full")
 
             with ui.card_actions().classes("justify-end"):
@@ -189,9 +189,7 @@ def new_instrument_page():
                 with ui.row().classes("items-start gap-3"):
                     ui.icon("lightbulb").classes("text-blue-500 mt-0.5")
                     with ui.column().classes("gap-1"):
-                        ui.label("About Catalog Entries").classes(
-                            "font-medium text-blue-700"
-                        )
+                        ui.label("About Catalog Entries").classes("font-medium text-blue-700")
                         ui.label(
                             "Catalog entries describe the capabilities of an instrument model. "
                             "Station configs reference these via catalog_ref."
@@ -200,6 +198,4 @@ def new_instrument_page():
                             "After creating, add capabilities and SCPI commands in the editor."
                         ).classes("text-sm text-blue-600")
 
-        ui.link("← Back to Instruments", "/instruments").classes(
-            "text-blue-600 hover:underline"
-        )
+        ui.link("← Back to Instruments", "/instruments").classes("text-blue-600 hover:underline")

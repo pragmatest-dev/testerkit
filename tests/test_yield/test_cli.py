@@ -68,14 +68,20 @@ def results_dir(tmp_path):
 
     rows = [
         _row(
-            run_id="run-001", dut_serial="SN001", run_outcome="pass",
-            value=3.3, outcome="pass",
+            run_id="run-001",
+            dut_serial="SN001",
+            run_outcome="pass",
+            value=3.3,
+            outcome="pass",
         ),
         _row(
-            run_id="run-002", dut_serial="SN002", run_outcome="fail",
+            run_id="run-002",
+            dut_serial="SN002",
+            run_outcome="fail",
             run_started_at=datetime(2026, 1, 1, 11, 0, tzinfo=UTC),
             run_ended_at=datetime(2026, 1, 1, 11, 2, tzinfo=UTC),
-            value=2.8, outcome="fail",
+            value=2.8,
+            outcome="fail",
         ),
     ]
     _write(runs_dir, rows)

@@ -163,19 +163,25 @@ class TestConflictDetection:
         """Two points sharing the same switch channel can't be simultaneous."""
         points = {
             "point_a": FixturePoint(
-                name="point_a", instrument="dmm", instrument_channel="1",
+                name="point_a",
+                instrument="dmm",
+                instrument_channel="1",
                 dut_pin="A",
                 route=SwitchRoute(switch="matrix", channels=["r0c0"]),
             ),
             "point_b": FixturePoint(
-                name="point_b", instrument="psu", instrument_channel="1",
+                name="point_b",
+                instrument="psu",
+                instrument_channel="1",
                 dut_pin="B",
                 route=SwitchRoute(switch="matrix", channels=["r0c0"]),
             ),
         }
         switch = FakeSwitch()
         instruments = {
-            "dmm": FakeInstrument(), "psu": FakeInstrument(), "matrix": switch,
+            "dmm": FakeInstrument(),
+            "psu": FakeInstrument(),
+            "matrix": switch,
         }
         rm = _make_manager(points=points, instruments=instruments)
 
@@ -187,12 +193,16 @@ class TestConflictDetection:
         """Two points targeting same instrument+channel can't be simultaneous."""
         points = {
             "point_a": FixturePoint(
-                name="point_a", instrument="dmm", instrument_channel="1",
+                name="point_a",
+                instrument="dmm",
+                instrument_channel="1",
                 dut_pin="A",
                 route=SwitchRoute(switch="matrix", channels=["r0c0"]),
             ),
             "point_b": FixturePoint(
-                name="point_b", instrument="dmm", instrument_channel="1",
+                name="point_b",
+                instrument="dmm",
+                instrument_channel="1",
                 dut_pin="B",
                 route=SwitchRoute(switch="matrix", channels=["r1c0"]),
             ),
@@ -209,12 +219,16 @@ class TestConflictDetection:
         """Different channels on different instruments can be simultaneous."""
         points = {
             "point_a": FixturePoint(
-                name="point_a", instrument="dmm", instrument_channel="1",
+                name="point_a",
+                instrument="dmm",
+                instrument_channel="1",
                 dut_pin="A",
                 route=SwitchRoute(switch="matrix", channels=["r0c0"]),
             ),
             "point_b": FixturePoint(
-                name="point_b", instrument="dmm", instrument_channel="2",
+                name="point_b",
+                instrument="dmm",
+                instrument_channel="2",
                 dut_pin="B",
                 route=SwitchRoute(switch="matrix", channels=["r1c0"]),
             ),
@@ -267,7 +281,9 @@ class TestSettling:
 
         points = {
             "vout": FixturePoint(
-                name="vout", instrument="dmm", dut_pin="VOUT",
+                name="vout",
+                instrument="dmm",
+                dut_pin="VOUT",
                 route=SwitchRoute(switch="matrix", channels=["r0c0"], settling_ms=50),
             ),
         }

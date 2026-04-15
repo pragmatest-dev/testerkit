@@ -147,7 +147,7 @@ class TestPurePytest:
 
             # Log each measurement with load context
             litmus_logger.measure(
-                name=f"vout_at_{int(load*1000)}mA",
+                name=f"vout_at_{int(load * 1000)}mA",
                 value=vout,
                 limit=Limit(low=3.1, high=3.5, nominal=3.3, units="V"),
                 dut_pin="TP_VOUT",
@@ -175,11 +175,14 @@ class TestPurePytest:
 # =============================================================================
 
 
-@pytest.mark.parametrize("vin,expected_vout", [
-    (4.75, 3.3),
-    (5.0, 3.3),
-    (5.5, 3.3),
-])
+@pytest.mark.parametrize(
+    "vin,expected_vout",
+    [
+        (4.75, 3.3),
+        (5.0, 3.3),
+        (5.5, 3.3),
+    ],
+)
 def test_line_regulation_parametrized(vin, expected_vout, psu, dmm, litmus_logger):
     """Pytest parametrize with Litmus logging.
 
@@ -201,5 +204,4 @@ def test_line_regulation_parametrized(vin, expected_vout, psu, dmm, litmus_logge
     )
 
     tolerance = 0.1
-    assert abs(vout - expected_vout) <= tolerance, \
-        f"Output {vout}V at Vin={vin}V outside tolerance"
+    assert abs(vout - expected_vout) <= tolerance, f"Output {vout}V at Vin={vin}V outside tolerance"

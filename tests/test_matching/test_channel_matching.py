@@ -359,7 +359,8 @@ class TestCatalogChannelParsing:
 
         # Find the CH1 dc_voltage output capability
         ch1_caps = [
-            c for c in entry.capabilities
+            c
+            for c in entry.capabilities
             if c.function == MeasurementFunction.DC_VOLTAGE
             and c.direction == Direction.OUTPUT
             and "1" in c.resolved_channels
@@ -372,7 +373,8 @@ class TestCatalogChannelParsing:
 
         # Find the CH2 dc_voltage output capability
         ch2_caps = [
-            c for c in entry.capabilities
+            c
+            for c in entry.capabilities
             if c.function == MeasurementFunction.DC_VOLTAGE
             and c.direction == Direction.OUTPUT
             and "2" in c.resolved_channels
@@ -444,18 +446,21 @@ class TestPinRole:
     def test_pin_role_default_signal(self):
         """Pin role defaults to signal."""
         from litmus.models.product import Pin
+
         pin = Pin(name="TP1")
         assert pin.role == "signal"
 
     def test_pin_role_ground(self):
         """Pin role can be set to ground."""
         from litmus.models.product import Pin, PinRole
+
         pin = Pin(name="J1.2", role=PinRole.GROUND)
         assert pin.role == "ground"
 
     def test_pin_role_power(self):
         """Pin role can be set to power."""
         from litmus.models.product import Pin, PinRole
+
         pin = Pin(name="J1.1", role=PinRole.POWER, net="VIN_5V")
         assert pin.role == "power"
         assert pin.net == "VIN_5V"
@@ -467,6 +472,7 @@ class TestChannelTopology:
     def test_channel_topology_defaults(self):
         """ChannelTopology has sensible defaults."""
         from litmus.models.config import ChannelTopology, GroundTopology
+
         ct = ChannelTopology()
         assert ct.terminals == []
         assert ct.ground == GroundTopology.SHARED
@@ -481,11 +487,14 @@ class TestChannelTopology:
             GroundTopology,
             TerminalRole,
         )
+
         ct = ChannelTopology(
             label="6V/5A Output",
             terminals=[
-                TerminalRole.HI, TerminalRole.LO,
-                TerminalRole.SENSE_HI, TerminalRole.SENSE_LO,
+                TerminalRole.HI,
+                TerminalRole.LO,
+                TerminalRole.SENSE_HI,
+                TerminalRole.SENSE_LO,
             ],
             connector=ConnectorType.BINDING_POST,
             ground=GroundTopology.FLOATING,
@@ -504,6 +513,7 @@ class TestChannelTopology:
             GroundTopology,
             TerminalRole,
         )
+
         entry = InstrumentCatalogEntry(
             id="test_psu",
             manufacturer="Test",
@@ -528,6 +538,7 @@ class TestChannelTopology:
     def test_catalog_entry_empty_channels(self):
         """InstrumentCatalogEntry with no channels."""
         from litmus.models.catalog import InstrumentCatalogEntry
+
         entry = InstrumentCatalogEntry(
             id="test_dmm",
             manufacturer="Test",
@@ -544,12 +555,14 @@ class TestFixturePointTerminal:
     def test_fixture_point_no_terminal(self):
         """FixturePoint without terminal (backward compat)."""
         from litmus.models.config import FixturePoint
+
         fp = FixturePoint(name="vin_psu", instrument="psu")
         assert fp.instrument_terminal is None
 
     def test_fixture_point_with_terminal(self):
         """FixturePoint with instrument_terminal."""
         from litmus.models.config import FixturePoint
+
         fp = FixturePoint(
             name="gnd_psu_lo",
             dut_pin="J1_GND",
@@ -610,6 +623,7 @@ class TestDesignerAutoSuggest:
     def test_readback_excluded_from_matching_hints(self):
         """PSU readback channels should not appear as compatible for input measurements."""
         from litmus.ui.pages.designer.matching import get_compatible_channels_for_pin
+
         instruments = self._make_instruments()
 
         compatible = get_compatible_channels_for_pin(
@@ -626,6 +640,7 @@ class TestDesignerAutoSuggest:
     def test_ground_pin_gets_lo_channels(self):
         """Ground pins should get all channels as compatible (for LO terminal wiring)."""
         from litmus.ui.pages.designer.matching import get_compatible_channels_for_pin
+
         instruments = self._make_instruments()
 
         compatible = get_compatible_channels_for_pin(

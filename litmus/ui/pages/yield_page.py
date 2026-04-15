@@ -140,7 +140,8 @@ def yield_page(
             with ui.input("Since (optional)", value=since).classes("w-40") as since_input:
                 with since_input.add_slot("append"):
                     ui.icon("event").on(
-                        "click", lambda: since_menu.open(),
+                        "click",
+                        lambda: since_menu.open(),
                     ).classes("cursor-pointer")
                 with ui.menu() as since_menu:
                     since_filter = ui.date(
@@ -151,7 +152,8 @@ def yield_page(
             with ui.input("Until (optional)", value=until).classes("w-40") as until_input:
                 with until_input.add_slot("append"):
                     ui.icon("event").on(
-                        "click", lambda: until_menu.open(),
+                        "click",
+                        lambda: until_menu.open(),
                     ).classes("cursor-pointer")
                 with ui.menu() as until_menu:
                     until_filter = ui.date(
@@ -224,14 +226,16 @@ def _refresh_dashboard(
         _until = until or None
 
         summary_rows = store.yield_summary(
-            product=_product, station=_station, phase=_phase,
-            since=_since, until=_until, period="day",
+            product=_product,
+            station=_station,
+            phase=_phase,
+            since=_since,
+            until=_until,
+            period="day",
         )
         if not summary_rows:
             with summary_container:
-                ui.label("No data matches the selected filters").classes(
-                    "text-slate-500 italic"
-                )
+                ui.label("No data matches the selected filters").classes("text-slate-500 italic")
             return
 
         # Aggregate summary across all periods/products/stations
@@ -247,8 +251,12 @@ def _refresh_dashboard(
 
         # Pareto — adapt to renderer shape (add cumulative_pct, rename count)
         pareto_rows = store.pareto(
-            product=_product, station=_station, phase=_phase,
-            since=_since, until=_until, top_n=10,
+            product=_product,
+            station=_station,
+            phase=_phase,
+            since=_since,
+            until=_until,
+            top_n=10,
         )
         pareto_data = []
         total_fails = sum(r.get("fail_count", 0) for r in pareto_rows)
@@ -256,35 +264,40 @@ def _refresh_dashboard(
         for r in pareto_rows:
             pct = r["fail_count"] / total_fails * 100 if total_fails else 0
             cumulative += pct
-            pareto_data.append({
-                "step_name": r.get("step_name", ""),
-                "measurement_name": r.get("measurement_name", ""),
-                "count": r.get("fail_count", 0),
-                "pct": round(pct, 1),
-                "cumulative_pct": round(cumulative, 1),
-            })
+            pareto_data.append(
+                {
+                    "step_name": r.get("step_name", ""),
+                    "measurement_name": r.get("measurement_name", ""),
+                    "count": r.get("fail_count", 0),
+                    "pct": round(pct, 1),
+                    "cumulative_pct": round(cumulative, 1),
+                }
+            )
 
         # Cpk — shape matches renderer
         cpk_data = store.cpk(
-            product=_product, station=_station, phase=_phase,
-            since=_since, until=_until,
+            product=_product,
+            station=_station,
+            phase=_phase,
+            since=_since,
+            until=_until,
         )
 
         # Trend — shape matches renderer
         trend_data = store.trend(
-            product=_product, station=_station, phase=_phase,
-            since=_since, until=_until, period="day",
+            product=_product,
+            station=_station,
+            phase=_phase,
+            since=_since,
+            until=_until,
+            period="day",
         )
 
         # Time stats — aggregate from summary rows
         durations = [
-            r["avg_duration_s"] for r in summary_rows
-            if r.get("avg_duration_s") is not None
+            r["avg_duration_s"] for r in summary_rows if r.get("avg_duration_s") is not None
         ]
-        p95s = [
-            r["p95_duration_s"] for r in summary_rows
-            if r.get("p95_duration_s") is not None
-        ]
+        p95s = [r["p95_duration_s"] for r in summary_rows if r.get("p95_duration_s") is not None]
         time_stats = {
             "avg_s": round(sum(durations) / len(durations), 2) if durations else None,
             "min_s": round(min(durations), 2) if durations else None,
@@ -295,7 +308,11 @@ def _refresh_dashboard(
 
         # Render
         _render_summary_cards(
-            summary_container, fpy, final_yield, total_runs, total_failed,
+            summary_container,
+            fpy,
+            final_yield,
+            total_runs,
+            total_failed,
         )
         _render_pareto_chart(pareto_chart_container, pareto_data)
         _render_cpk_table(cpk_table_container, cpk_data)
@@ -310,7 +327,11 @@ def _refresh_dashboard(
 
 
 def _render_summary_cards(
-    container, fpy: float, final_yield: float, total_runs: int, total_failures: int,
+    container,
+    fpy: float,
+    final_yield: float,
+    total_runs: int,
+    total_failures: int,
 ):
     """Render summary metric cards."""
     container.clear()
@@ -516,5 +537,3 @@ def _time_stat_card(label: str, value: str):
     with ui.card().classes("px-6 py-4"):
         ui.label(label).classes("text-sm text-slate-600")
         ui.label(value).classes("text-xl font-bold text-slate-800 mt-1")
-
-

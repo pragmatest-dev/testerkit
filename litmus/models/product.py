@@ -37,10 +37,10 @@ class PinRole(StrEnum):
     measurement channels).
     """
 
-    SIGNAL = "signal"       # Measured/stimulated signal
-    GROUND = "ground"       # Current return / reference
-    POWER = "power"         # Power input/output (VIN, VOUT)
-    REFERENCE = "reference" # Voltage reference, not driven
+    SIGNAL = "signal"  # Measured/stimulated signal
+    GROUND = "ground"  # Current return / reference
+    POWER = "power"  # Power input/output (VIN, VOUT)
+    REFERENCE = "reference"  # Voltage reference, not driven
 
 
 class Pin(BaseModel):
@@ -184,16 +184,17 @@ class ProductCharacteristic(Capability):
         Every characteristic must specify WHERE on the DUT it applies.
         This enables fixture mapping and signal routing.
         """
-        has_interface = any([
-            self.pin,
-            self.pins,
-            self.net,
-            self.signal_group,
-        ])
+        has_interface = any(
+            [
+                self.pin,
+                self.pins,
+                self.net,
+                self.signal_group,
+            ]
+        )
         if not has_interface:
             raise ValueError(
-                "Characteristic must specify physical interface: "
-                "pin, pins, net, or signal_group"
+                "Characteristic must specify physical interface: pin, pins, net, or signal_group"
             )
         return self
 

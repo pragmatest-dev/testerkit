@@ -108,7 +108,8 @@ class EventStore:
 
         # Flight query client (shared retry logic with RunStore)
         self._flight = FlightQueryClient(
-            self._location, "events",
+            self._location,
+            "events",
             reacquire=lambda: duckdb_manager.acquire(self._events_dir),
             label="EventStore",
         )
@@ -177,7 +178,8 @@ class EventStore:
         """
         if session_id not in self._event_logs:
             self._event_logs[session_id] = EventLog(
-                self._events_dir, session_id,
+                self._events_dir,
+                session_id,
                 on_emit=self._notify_subscribers,
                 on_flush=self._flight_put,
             )

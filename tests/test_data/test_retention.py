@@ -27,9 +27,7 @@ class TestPruneDateDirs:
     @pytest.fixture()
     def project_dir(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
         """Create a project dir with litmus.yaml so prune considers it owned."""
-        (tmp_path / "litmus.yaml").write_text(
-            f"name: test\nresults_dir: {tmp_path / 'data'}\n"
-        )
+        (tmp_path / "litmus.yaml").write_text(f"name: test\nresults_dir: {tmp_path / 'data'}\n")
         monkeypatch.chdir(tmp_path)
         return tmp_path / "data"
 
@@ -83,9 +81,7 @@ class TestPruneAll:
     @pytest.fixture()
     def project_dir(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
         """Create a project dir with litmus.yaml so prune considers it owned."""
-        (tmp_path / "litmus.yaml").write_text(
-            f"name: test\nresults_dir: {tmp_path / 'results'}\n"
-        )
+        (tmp_path / "litmus.yaml").write_text(f"name: test\nresults_dir: {tmp_path / 'results'}\n")
         monkeypatch.chdir(tmp_path)
         return tmp_path / "results"
 
@@ -121,5 +117,3 @@ class TestPruneAll:
         target.mkdir()
         with pytest.raises(PermissionError, match="project-owned"):
             prune_all(target, "30d")
-
-

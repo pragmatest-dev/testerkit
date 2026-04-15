@@ -17,14 +17,22 @@ def _make_slots() -> dict[str, ResolvedSlot]:
         id="test_fixture",
         slots={
             "slot_1": FixtureSlot(
-                points={"vout": FixturePoint(
-                    name="vout", instrument="dmm", instrument_channel="1",
-                )},
+                points={
+                    "vout": FixturePoint(
+                        name="vout",
+                        instrument="dmm",
+                        instrument_channel="1",
+                    )
+                },
             ),
             "slot_2": FixtureSlot(
-                points={"vout": FixturePoint(
-                    name="vout", instrument="dmm", instrument_channel="2",
-                )},
+                points={
+                    "vout": FixturePoint(
+                        name="vout",
+                        instrument="dmm",
+                        instrument_channel="2",
+                    )
+                },
             ),
         },
     )
@@ -114,8 +122,7 @@ class TestSlotRunnerExecution:
 
         # slot_2 exits with error
         script = (
-            "import os, sys; "
-            "sys.exit(1 if os.environ.get('LITMUS_SLOT_ID') == 'slot_2' else 0)"
+            "import os, sys; sys.exit(1 if os.environ.get('LITMUS_SLOT_ID') == 'slot_2' else 0)"
         )
         cmd = [sys.executable, "-c", script]
         results = runner.run(cmd, sync=False)

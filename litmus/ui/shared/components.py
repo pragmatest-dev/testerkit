@@ -148,9 +148,7 @@ def render_capability_detail(cap: dict[str, Any]) -> None:
                 if r and isinstance(r, dict):
                     fmt = _format_range(r)
                     if fmt:
-                        ui.label(f"  {name}: {fmt}").classes(
-                            "text-sm font-mono ml-2"
-                        )
+                        ui.label(f"  {name}: {fmt}").classes("text-sm font-mono ml-2")
                 else:
                     ui.label(f"  {name}: {cond}").classes("text-sm font-mono ml-2")
 
@@ -229,11 +227,14 @@ def table_cell_slot(table: ui.table, col: str, css_class: str) -> None:
 
         table_cell_slot(table, "time", "cell-muted")
     """
-    table.add_slot(f"body-cell-{col}", f"""
+    table.add_slot(
+        f"body-cell-{col}",
+        f"""
         <q-td :props="props">
             <span class="{css_class}">{{{{ props.value }}}}</span>
         </q-td>
-    """)
+    """,
+    )
 
 
 def litmus_table(
@@ -248,12 +249,16 @@ def litmus_table(
     Pass ``per_page=0`` to show all rows (no pagination limit).
     """
     pagination = {"rowsPerPage": 0} if per_page == 0 else {"rowsPerPage": per_page}
-    return ui.table(
-        columns=columns,
-        rows=rows or [],
-        row_key=row_key,
-        pagination=pagination,
-    ).classes("w-full litmus-table").props("dense flat hide-pagination")
+    return (
+        ui.table(
+            columns=columns,
+            rows=rows or [],
+            row_key=row_key,
+            pagination=pagination,
+        )
+        .classes("w-full litmus-table")
+        .props("dense flat hide-pagination")
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -291,7 +296,8 @@ class InstrumentToggle:
         # Subscribe to cross-process instrument events
         if station.event_store is not None:
             self._unsub = ui_subscribe(
-                station.event_store, self._on_instrument_event,
+                station.event_store,
+                self._on_instrument_event,
             )
         else:
             self._unsub = None
@@ -398,7 +404,7 @@ def setup_hash_sync_for_tabs(tabs: ui.tabs, tab_names: list[str]) -> None:
     tabs.on_value_change(on_tab_change)
 
     # Read initial hash and set tab on page load
-    ui.run_javascript(f'''
+    ui.run_javascript(f"""
         (function() {{
             const hash = window.location.hash.slice(1);
             if (hash) {{
@@ -419,4 +425,4 @@ def setup_hash_sync_for_tabs(tabs: ui.tabs, tab_names: list[str]) -> None:
                 }}
             }}
         }})();
-    ''')
+    """)

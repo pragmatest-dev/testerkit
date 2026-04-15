@@ -9,8 +9,11 @@ from litmus.environment import (
 class TestEnvironmentSnapshot:
     def test_roundtrip_json(self):
         snap = EnvironmentSnapshot(
-            python_version="3.12.0", os_name="Linux", os_version="6.0",
-            platform_machine="x86_64", litmus_version="0.1.0",
+            python_version="3.12.0",
+            os_name="Linux",
+            os_version="6.0",
+            platform_machine="x86_64",
+            litmus_version="0.1.0",
             dependencies=["litmus>=0.1.0", "pytest>=8.0"],
             lockfile_hash="abc123",
         )
@@ -23,8 +26,12 @@ class TestEnvironmentSnapshot:
     def test_roundtrip_json_bytes(self):
         """model_validate_json accepts bytes (as used by parquet metadata)."""
         snap = EnvironmentSnapshot(
-            python_version="3.12.0", os_name="Linux", os_version="6.0",
-            platform_machine="x86_64", litmus_version="0.1.0", dependencies=[],
+            python_version="3.12.0",
+            os_name="Linux",
+            os_version="6.0",
+            platform_machine="x86_64",
+            litmus_version="0.1.0",
+            dependencies=[],
         )
         json_bytes = snap.model_dump_json().encode("utf-8")
         restored = EnvironmentSnapshot.model_validate_json(json_bytes)

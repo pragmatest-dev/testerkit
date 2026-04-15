@@ -115,41 +115,47 @@ def discover_products() -> list[dict]:
             seen_ids.add(product_id)
 
             if spec:
-                products.append({
-                    "id": spec.id,
-                    "name": spec.name,
-                    "description": spec.description or "",
-                    "revision": spec.revision or "",
-                    "pins": None,
-                    "characteristics": {
-                        name: char.model_dump() for name, char in spec.characteristics.items()
-                    },
-                    "file": (
-                        str(folder.path / folder.manifest.files.spec)
-                        if folder.manifest.files.spec else None
-                    ),
-                    "folder_path": str(folder.path),
-                    "workflow_step": folder.current_step.value if folder.current_step else None,
-                    "completed_steps": [s.value for s in folder.manifest.completed_steps],
-                    "files": folder.manifest.files.model_dump(),
-                })
+                products.append(
+                    {
+                        "id": spec.id,
+                        "name": spec.name,
+                        "description": spec.description or "",
+                        "revision": spec.revision or "",
+                        "pins": None,
+                        "characteristics": {
+                            name: char.model_dump() for name, char in spec.characteristics.items()
+                        },
+                        "file": (
+                            str(folder.path / folder.manifest.files.spec)
+                            if folder.manifest.files.spec
+                            else None
+                        ),
+                        "folder_path": str(folder.path),
+                        "workflow_step": folder.current_step.value if folder.current_step else None,
+                        "completed_steps": [s.value for s in folder.manifest.completed_steps],
+                        "files": folder.manifest.files.model_dump(),
+                    }
+                )
             else:
-                products.append({
-                    "id": product_id,
-                    "name": folder.name,
-                    "description": folder.manifest.description or "",
-                    "revision": "",
-                    "pins": None,
-                    "characteristics": {},
-                    "file": None,
-                    "folder_path": str(folder.path),
-                    "workflow_step": folder.current_step.value if folder.current_step else None,
-                    "completed_steps": [s.value for s in folder.manifest.completed_steps],
-                    "files": folder.manifest.files.model_dump(),
-                })
+                products.append(
+                    {
+                        "id": product_id,
+                        "name": folder.name,
+                        "description": folder.manifest.description or "",
+                        "revision": "",
+                        "pins": None,
+                        "characteristics": {},
+                        "file": None,
+                        "folder_path": str(folder.path),
+                        "workflow_step": folder.current_step.value if folder.current_step else None,
+                        "completed_steps": [s.value for s in folder.manifest.completed_steps],
+                        "files": folder.manifest.files.model_dump(),
+                    }
+                )
 
         # 2. Discover all YAML files (flat and nested, no manifest required)
         from litmus.store import load_product
+
         for yaml_file in sorted(products_dir.rglob("*.yaml")):
             if yaml_file.name.startswith("_"):
                 continue
@@ -160,21 +166,23 @@ def discover_products() -> list[dict]:
             if p.id in seen_ids:
                 continue
             seen_ids.add(p.id)
-            products.append({
-                "id": p.id,
-                "name": p.name,
-                "description": p.description or "",
-                "revision": p.revision or "",
-                "pins": None,
-                "characteristics": {
-                    name: char.model_dump() for name, char in p.characteristics.items()
-                },
-                "file": str(yaml_file),
-                "folder_path": str(yaml_file.parent),
-                "workflow_step": None,
-                "completed_steps": [],
-                "files": {},
-            })
+            products.append(
+                {
+                    "id": p.id,
+                    "name": p.name,
+                    "description": p.description or "",
+                    "revision": p.revision or "",
+                    "pins": None,
+                    "characteristics": {
+                        name: char.model_dump() for name, char in p.characteristics.items()
+                    },
+                    "file": str(yaml_file),
+                    "folder_path": str(yaml_file.parent),
+                    "workflow_step": None,
+                    "completed_steps": [],
+                    "files": {},
+                }
+            )
 
     return products
 
@@ -211,12 +219,14 @@ def get_required_capabilities(product) -> list[dict]:
 
     capabilities = []
     for char_name, char in product.characteristics.items():
-        capabilities.append({
-            "characteristic": char_name,
-            "direction": char.direction.value,
-            "function": char.function.value,
-            "signals": ", ".join(char.signals.keys()) if char.signals else "",
-        })
+        capabilities.append(
+            {
+                "characteristic": char_name,
+                "direction": char.direction.value,
+                "function": char.function.value,
+                "signals": ", ".join(char.signals.keys()) if char.signals else "",
+            }
+        )
     return capabilities
 
 
@@ -297,7 +307,10 @@ def load_station_config(station_id: str):
 
 
 def create_station(
-    station_id: str, name: str, location: str = "", description: str = "",
+    station_id: str,
+    name: str,
+    location: str = "",
+    description: str = "",
 ):
     """Create a new station configuration file."""
     return store_create_station(station_id, name, location, description)
@@ -360,15 +373,17 @@ def save_catalog_entry(instrument_type: str, data: dict) -> bool:
     from litmus.models.catalog import InstrumentCatalogEntry
 
     inst = data.get("instrument", {})
-    entry = InstrumentCatalogEntry.model_validate({
-        "id": inst.get("type", instrument_type),
-        "type": inst.get("type", instrument_type),
-        "manufacturer": inst.get("manufacturer", "User"),
-        "model": inst.get("name", instrument_type),
-        "name": inst.get("name", ""),
-        "description": inst.get("description"),
-        "capabilities": data.get("capabilities", []),
-    })
+    entry = InstrumentCatalogEntry.model_validate(
+        {
+            "id": inst.get("type", instrument_type),
+            "type": inst.get("type", instrument_type),
+            "manufacturer": inst.get("manufacturer", "User"),
+            "model": inst.get("name", instrument_type),
+            "name": inst.get("name", ""),
+            "description": inst.get("description"),
+            "capabilities": data.get("capabilities", []),
+        }
+    )
     return store_save_catalog_entry(entry)
 
 
@@ -534,9 +549,7 @@ def get_compatible_stations_for_fixture(fixture_id: str):
     if not fixture:
         return []
 
-    required_instruments = {
-        p.instrument for p in fixture.points.values() if p.instrument
-    }
+    required_instruments = {p.instrument for p in fixture.points.values() if p.instrument}
 
     compatible = []
     for station in discover_stations():

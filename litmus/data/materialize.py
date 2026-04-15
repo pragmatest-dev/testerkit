@@ -19,9 +19,7 @@ import pyarrow.ipc as ipc
 from litmus.data.backends._row_helpers import REF_PATH_PREFIX
 
 
-def _save_arrow_ref(
-    ref_dir: Path, channel_id: str, session_short: str, table: pa.Table
-) -> str:
+def _save_arrow_ref(ref_dir: Path, channel_id: str, session_short: str, table: pa.Table) -> str:
     """Save Arrow IPC table to ref dir, return ``file://`` URI."""
     ref_dir.mkdir(parents=True, exist_ok=True)
     filename = f"{channel_id}_{session_short}.arrow"
@@ -31,9 +29,7 @@ def _save_arrow_ref(
     return f"file://{REF_PATH_PREFIX}{filename}"
 
 
-def materialize_channel_refs(
-    results_dir: Path, channel_dirs_to_prune: list[Path]
-) -> int:
+def materialize_channel_refs(results_dir: Path, channel_dirs_to_prune: list[Path]) -> int:
     """Materialize channel:// refs in parquet files before channel pruning.
 
     Queries RunStore (DuckDB index) to find channel refs, reads channel
@@ -75,10 +71,7 @@ def materialize_channel_refs(
             return 0
 
         # Filter to only refs in the pruning set
-        refs = [
-            r for r in refs
-            if (r["channel_id"], r["session_short"]) in pruning
-        ]
+        refs = [r for r in refs if (r["channel_id"], r["session_short"]) in pruning]
 
         count = 0
         cache: dict[tuple[str, str], pa.Table] = {}
@@ -99,11 +92,15 @@ def materialize_channel_refs(
 
                 if key not in cache:
                     cache[key] = store.query(
-                        channel_id, session_id=session_short,
+                        channel_id,
+                        session_id=session_short,
                     )
 
                 new_uri = _save_arrow_ref(
-                    ref_dir, channel_id, session_short, cache[key],
+                    ref_dir,
+                    channel_id,
+                    session_short,
+                    cache[key],
                 )
                 replacements.setdefault(ref["col_name"], {})[ref["row_idx"]] = new_uri
                 count += 1

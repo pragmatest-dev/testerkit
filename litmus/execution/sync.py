@@ -79,10 +79,7 @@ class SyncPoint:
         release_event = threading.Event()
 
         def on_event(evt: dict) -> None:
-            if (
-                evt.get("event_type") == "sync.release"
-                and evt.get("name") == name
-            ):
+            if evt.get("event_type") == "sync.release" and evt.get("name") == name:
                 release_event.set()
 
         # Subscribe BEFORE emitting arrival. on_event() replays existing
@@ -97,16 +94,19 @@ class SyncPoint:
         try:
             # Emit arrival and flush immediately so the orchestrator's
             # cross-process watcher sees it without waiting for threshold.
-            self._event_store.emit(SyncArrived(
-                session_id=self._session_id,
-                slot_id=self._slot_id,
-                name=name,
-            ))
+            self._event_store.emit(
+                SyncArrived(
+                    session_id=self._session_id,
+                    slot_id=self._slot_id,
+                    name=name,
+                )
+            )
             self._event_store.flush()
 
             logger.debug(
                 "Slot '%s' waiting at sync point '%s'",
-                self._slot_id, name,
+                self._slot_id,
+                name,
             )
 
             # Wait for release
@@ -116,21 +116,23 @@ class SyncPoint:
                 # other slots waiting at this or future sync points.
                 from litmus.data.events import SlotCompleted
 
-                self._event_store.emit(SlotCompleted(
-                    session_id=self._session_id,
-                    slot_id=self._slot_id,
-                    outcome="error",
-                    error_message=f"sync timeout at '{name}' after {timeout}s",
-                ))
+                self._event_store.emit(
+                    SlotCompleted(
+                        session_id=self._session_id,
+                        slot_id=self._slot_id,
+                        outcome="error",
+                        error_message=f"sync timeout at '{name}' after {timeout}s",
+                    )
+                )
                 self._event_store.flush()
                 raise SyncError(
-                    f"Sync point '{name}' timed out for slot '{self._slot_id}' "
-                    f"after {timeout}s"
+                    f"Sync point '{name}' timed out for slot '{self._slot_id}' after {timeout}s"
                 )
 
             logger.debug(
                 "Slot '%s' released from sync point '%s'",
-                self._slot_id, name,
+                self._slot_id,
+                name,
             )
         finally:
             unsub()
@@ -190,7 +192,10 @@ class SyncCoordinator:
 
             logger.debug(
                 "Sync coordinator: slot '%s' arrived at '%s' (%d/%d)",
-                slot_id, name, len(self._arrived[name]), self._active_slots,
+                slot_id,
+                name,
+                len(self._arrived[name]),
+                self._active_slots,
             )
 
             if len(self._arrived[name]) >= self._active_slots:
@@ -200,10 +205,12 @@ class SyncCoordinator:
         """Emit SyncRelease for a named sync point. Caller holds lock."""
         self._released.add(name)
         logger.info("Sync coordinator: releasing '%s'", name)
-        self._event_store.emit(SyncRelease(
-            session_id=self._session_id,
-            name=name,
-        ))
+        self._event_store.emit(
+            SyncRelease(
+                session_id=self._session_id,
+                name=name,
+            )
+        )
         self._event_store.flush()
 
     def _on_slot_completed(self, evt: dict) -> None:
@@ -227,7 +234,8 @@ class SyncCoordinator:
 
             logger.info(
                 "Sync coordinator: slot '%s' dead. Active: %d",
-                slot_id, self._active_slots,
+                slot_id,
+                self._active_slots,
             )
 
             # Remove dead slot from any arrivals

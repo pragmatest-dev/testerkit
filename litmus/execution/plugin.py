@@ -545,9 +545,7 @@ def pytest_sessionstart(session):
     if dut_serials:
         return
 
-    requested_phase = config.getoption("--test-phase") or os.environ.get(
-        "LITMUS_TEST_PHASE"
-    )
+    requested_phase = config.getoption("--test-phase") or os.environ.get("LITMUS_TEST_PHASE")
     test_phase = _resolve_test_phase(requested_phase)
 
     if test_phase == "development":
@@ -568,14 +566,16 @@ def pytest_collection_modifyitems(items: list[pytest.Item]) -> None:
         func_name = parts[-1] if len(parts) > 1 else item.name
         mod = getattr(item, "module", None)
         cls = getattr(item, "cls", None)
-        collected.append(CollectedItem(
-            node_id=item.nodeid,
-            file=str(item.path) if hasattr(item, "path") else None,
-            module=mod.__name__ if mod else None,
-            class_name=cls.__name__ if cls else None,
-            function=func_name,
-            markers=markers or None,
-        ))
+        collected.append(
+            CollectedItem(
+                node_id=item.nodeid,
+                file=str(item.path) if hasattr(item, "path") else None,
+                module=mod.__name__ if mod else None,
+                class_name=cls.__name__ if cls else None,
+                function=func_name,
+                markers=markers or None,
+            )
+        )
     set_collected_items(collected)
 
 
@@ -656,7 +656,6 @@ def pytest_addoption(parser):
     )
 
 
-
 def _resolve_test_phase(requested_phase: str | None) -> str:
     """Resolve test phase, enforcing development for dirty/non-git repos.
 
@@ -713,7 +712,8 @@ def _prompt_for_serial(test_phase: str, slot_id: str | None = None) -> str:
 
 
 def _prompt_for_slot_serials(
-    slot_ids: list[str], test_phase: str,
+    slot_ids: list[str],
+    test_phase: str,
 ) -> dict[str, str]:
     """Prompt for DUT serial for each slot.
 
@@ -728,7 +728,6 @@ def _prompt_for_slot_serials(
     for slot_id in slot_ids:
         serials[slot_id] = _prompt_for_serial(test_phase, slot_id)
     return serials
-
 
 
 def _require_fixture_and_instruments(
@@ -970,7 +969,9 @@ def litmus_logger(request) -> Generator[TestRunLogger, None, None]:
 
         channels_on_output = _find_format_transport_callback("channels", results_path)
         _cs = _ChannelStore(
-            results_path / "channels", session_id, serve=True,
+            results_path / "channels",
+            session_id,
+            serve=True,
             on_output=channels_on_output,
         )
         _cs.open()
@@ -998,51 +999,55 @@ def litmus_logger(request) -> Generator[TestRunLogger, None, None]:
         # SessionEnded. Workers only emit RunStarted/RunEnded.
         is_worker = env_slot_id is not None and int(os.environ.get("LITMUS_SLOT_COUNT", "1")) > 1
         if not is_worker:
-            event_log.emit(SessionStarted.from_station(
-                session_id=logger._session_id,
-                station_id=logger.test_run.station_id,
-                station_name=logger.test_run.station_name,
-                station_type=logger.test_run.station_type,
-                station_location=logger.test_run.station_location,
-                station_hostname=logger.test_run.station_hostname,
-                operator_id=logger.test_run.operator_id,
-                operator_name=logger.test_run.operator_name,
-                fixture_id=logger.test_run.fixture_id,
-            ))
+            event_log.emit(
+                SessionStarted.from_station(
+                    session_id=logger._session_id,
+                    station_id=logger.test_run.station_id,
+                    station_name=logger.test_run.station_name,
+                    station_type=logger.test_run.station_type,
+                    station_location=logger.test_run.station_location,
+                    station_hostname=logger.test_run.station_hostname,
+                    operator_id=logger.test_run.operator_id,
+                    operator_name=logger.test_run.operator_name,
+                    fixture_id=logger.test_run.fixture_id,
+                )
+            )
 
         # Compute slot_index from LITMUS_SLOT_INDEX env (set by orchestrator)
         env_slot_index_str = os.environ.get("LITMUS_SLOT_INDEX")
         env_slot_index = int(env_slot_index_str) if env_slot_index_str else None
 
-        event_log.emit(RunStarted(
-            session_id=logger._session_id,
-            run_id=logger.test_run.id,
-            slot_id=env_slot_id,
-            slot_index=env_slot_index,
-            station_id=logger.test_run.station_id,
-            station_name=logger.test_run.station_name,
-            station_type=logger.test_run.station_type,
-            station_location=logger.test_run.station_location,
-            station_hostname=logger.test_run.station_hostname,
-            dut_serial=logger.test_run.dut.serial,
-            dut_part_number=logger.test_run.dut.part_number,
-            dut_revision=logger.test_run.dut.revision,
-            dut_lot_number=logger.test_run.dut.lot_number,
-            product_id=logger.test_run.product_id,
-            product_name=logger.test_run.product_name,
-            product_revision=logger.test_run.product_revision,
-            operator_id=logger.test_run.operator_id,
-            operator_name=logger.test_run.operator_name,
-            fixture_id=logger.test_run.fixture_id,
-            sequence_id=logger.test_run.test_sequence_id,
-            test_phase=logger.test_run.test_phase,
-            git_commit=logger.test_run.git_commit,
-            git_branch=logger.test_run.git_branch,
-            git_remote=logger.test_run.git_remote,
-            environment_json=logger.test_run.environment_json,
-            custom_metadata=dict(logger.test_run.custom_metadata),
-            pid=os.getpid(),
-        ))
+        event_log.emit(
+            RunStarted(
+                session_id=logger._session_id,
+                run_id=logger.test_run.id,
+                slot_id=env_slot_id,
+                slot_index=env_slot_index,
+                station_id=logger.test_run.station_id,
+                station_name=logger.test_run.station_name,
+                station_type=logger.test_run.station_type,
+                station_location=logger.test_run.station_location,
+                station_hostname=logger.test_run.station_hostname,
+                dut_serial=logger.test_run.dut.serial,
+                dut_part_number=logger.test_run.dut.part_number,
+                dut_revision=logger.test_run.dut.revision,
+                dut_lot_number=logger.test_run.dut.lot_number,
+                product_id=logger.test_run.product_id,
+                product_name=logger.test_run.product_name,
+                product_revision=logger.test_run.product_revision,
+                operator_id=logger.test_run.operator_id,
+                operator_name=logger.test_run.operator_name,
+                fixture_id=logger.test_run.fixture_id,
+                sequence_id=logger.test_run.test_sequence_id,
+                test_phase=logger.test_run.test_phase,
+                git_commit=logger.test_run.git_commit,
+                git_branch=logger.test_run.git_branch,
+                git_remote=logger.test_run.git_remote,
+                environment_json=logger.test_run.environment_json,
+                custom_metadata=dict(logger.test_run.custom_metadata),
+                pid=os.getpid(),
+            )
+        )
 
         # Emit InstrumentConnected for each instrument
         _emit_instrument_events(logger, event_log)
@@ -1052,11 +1057,13 @@ def litmus_logger(request) -> Generator[TestRunLogger, None, None]:
 
         collected = get_collected_items()
         if collected:
-            event_log.emit(StepsDiscovered(
-                session_id=logger._session_id,
-                run_id=logger.test_run.id,
-                items=[ci.model_dump() for ci in collected],
-            ))
+            event_log.emit(
+                StepsDiscovered(
+                    session_id=logger._session_id,
+                    run_id=logger.test_run.id,
+                    items=[ci.model_dump() for ci in collected],
+                )
+            )
 
     set_current_logger(logger)
     yield logger
@@ -1081,10 +1088,12 @@ def litmus_logger(request) -> Generator[TestRunLogger, None, None]:
     )
     if logger.event_log is not None:
         if not _is_worker:
-            logger.event_log.emit(SessionEnded(
-                session_id=logger._session_id,
-                outcome=test_run.outcome.value,
-            ))
+            logger.event_log.emit(
+                SessionEnded(
+                    session_id=logger._session_id,
+                    outcome=test_run.outcome.value,
+                )
+            )
         logger.event_log.close()
 
     # Close EventStore — releases daemon ref. Event logs were already closed
@@ -1491,7 +1500,9 @@ def instrument(instruments, instrument_records) -> InstrumentAccessor:
 
 @pytest.fixture(scope="session")
 def dut(
-    spec_context, fixture_config, mock_instruments,
+    spec_context,
+    fixture_config,
+    mock_instruments,
 ) -> Generator[Any, None, None]:
     """Instantiate and yield the DUT communication driver.
 
@@ -1555,7 +1566,9 @@ def dut(
 
 @pytest.fixture(scope="session")
 def _route_manager(
-    instruments, fixture_config, litmus_logger,
+    instruments,
+    fixture_config,
+    litmus_logger,
 ) -> Generator[RouteManager | None, None, None]:
     """Session-scoped route manager for switched signal routing.
 
@@ -1754,6 +1767,7 @@ def pytest_runtest_protocol(item, nextitem):
 # Multi-slot orchestrator/worker mode
 # ---------------------------------------------------------------------------
 
+
 def _is_orchestrator_mode(config) -> bool:
     """Detect if this process should orchestrate multi-slot execution.
 
@@ -1887,7 +1901,11 @@ def pytest_runtestloop(session):
 
     # Always subprocess mode — instrument server handles all shared instruments
     _run_subprocess_mode(
-        session, slots, duts, session_id, event_store,
+        session,
+        slots,
+        duts,
+        session_id,
+        event_store,
         shared_roles=shared_roles,
         station_instruments=station_instruments,
         mock_all=session.config.getoption("--mock-instruments"),
@@ -1954,7 +1972,9 @@ def _run_subprocess_mode(
 
                 mock_config = inst_cfg.mock_config if inst_cfg else {}
                 driver = load_and_connect(
-                    record, mock=False, mock_config=mock_config,
+                    record,
+                    mock=False,
+                    mock_config=mock_config,
                 )
                 shared_drivers[role] = driver
                 served_roles.add(role)
@@ -1975,7 +1995,8 @@ def _run_subprocess_mode(
 
         if shared_drivers:
             server = InstrumentServer(
-                shared_drivers, resources=resources,
+                shared_drivers,
+                resources=resources,
                 concurrent_roles=concurrent_roles,
             )
             server.start()
@@ -2007,25 +2028,29 @@ def _run_subprocess_mode(
         fixture_id = tr.fixture_id
 
     if event_log is not None:
-        event_log.emit(SessionStarted.from_station(
-            session_id=session_id,
-            station_id=station_id,
-            station_name=station_name,
-            station_type=station_type,
-            station_location=station_location,
-            operator_id=operator_id,
-            operator_name=operator_name,
-            fixture_id=fixture_id,
-            slot_count=len(slots),
-        ))
+        event_log.emit(
+            SessionStarted.from_station(
+                session_id=session_id,
+                station_id=station_id,
+                station_name=station_name,
+                station_type=station_type,
+                station_location=station_location,
+                operator_id=operator_id,
+                operator_name=operator_name,
+                fixture_id=fixture_id,
+                slot_count=len(slots),
+            )
+        )
 
     try:
+
         def _stream_output(slot_id: str, line: str) -> None:
             sys.stdout.write(f"[{slot_id}] {line}")
             sys.stdout.flush()
 
         runner = SlotRunner(
-            slots, duts,
+            slots,
+            duts,
             session_id=session_id,
             instrument_server_address=server.address_str if server else None,
             shared_roles=served_roles if server else None,
@@ -2048,10 +2073,12 @@ def _run_subprocess_mode(
                     break
                 if r.outcome == "fail":
                     worst = "fail"
-            event_log.emit(SessionEnded(
-                session_id=session_id,
-                outcome=worst,
-            ))
+            event_log.emit(
+                SessionEnded(
+                    session_id=session_id,
+                    outcome=worst,
+                )
+            )
     finally:
         if event_log is not None:
             event_log.close()
@@ -2106,6 +2133,7 @@ def _report_slot_results(session: Any, results: dict[str, Any]) -> None:
 # ---------------------------------------------------------------------------
 # Worker-mode fixtures
 # ---------------------------------------------------------------------------
+
 
 @pytest.fixture(scope="session")
 def sync(litmus_logger):

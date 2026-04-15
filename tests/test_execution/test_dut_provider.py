@@ -53,9 +53,7 @@ class TestCLIDUTProvider:
         assert dut.lot_number == "LOT42"
 
     def test_from_cli_args_single(self):
-        provider = CLIDUTProvider.from_cli_args(
-            dut_serial="SN999", dut_serials=None
-        )
+        provider = CLIDUTProvider.from_cli_args(dut_serial="SN999", dut_serials=None)
         assert provider.get_dut("slot_1").serial == "SN999"
 
     def test_from_cli_args_multi(self):
@@ -77,9 +75,7 @@ class TestCLIDUTProvider:
 
     def test_from_cli_args_positional_without_slots_raises(self):
         with pytest.raises(ValueError, match="requires a multi-slot fixture"):
-            CLIDUTProvider.from_cli_args(
-                dut_serial=None, dut_serials="SN001,SN002"
-            )
+            CLIDUTProvider.from_cli_args(dut_serial=None, dut_serials="SN001,SN002")
 
     def test_from_cli_args_positional_count_mismatch_raises(self):
         with pytest.raises(ValueError, match="2 serial.*3 slot"):
@@ -151,22 +147,16 @@ class TestParseSerials:
         assert result == {"slot_1": "SN001", "slot_2": "SN002"}
 
     def test_positional_format(self):
-        result = CLIDUTProvider.parse_serials(
-            "SN001,SN002", slot_ids=["slot_1", "slot_2"]
-        )
+        result = CLIDUTProvider.parse_serials("SN001,SN002", slot_ids=["slot_1", "slot_2"])
         assert result == {"slot_1": "SN001", "slot_2": "SN002"}
 
     def test_positional_preserves_order(self):
-        result = CLIDUTProvider.parse_serials(
-            "A,B,C", slot_ids=["x", "y", "z"]
-        )
+        result = CLIDUTProvider.parse_serials("A,B,C", slot_ids=["x", "y", "z"])
         assert list(result.keys()) == ["x", "y", "z"]
         assert list(result.values()) == ["A", "B", "C"]
 
     def test_named_with_spaces(self):
-        result = CLIDUTProvider.parse_serials(
-            " slot_1 = SN001 , slot_2 = SN002 "
-        )
+        result = CLIDUTProvider.parse_serials(" slot_1 = SN001 , slot_2 = SN002 ")
         assert result == {"slot_1": "SN001", "slot_2": "SN002"}
 
     def test_positional_without_slot_ids_raises(self):
@@ -175,9 +165,7 @@ class TestParseSerials:
 
     def test_positional_count_mismatch_raises(self):
         with pytest.raises(ValueError, match="2 serial.*3 slot"):
-            CLIDUTProvider.parse_serials(
-                "SN001,SN002", slot_ids=["a", "b", "c"]
-            )
+            CLIDUTProvider.parse_serials("SN001,SN002", slot_ids=["a", "b", "c"])
 
     def test_mixed_named_positional_raises(self):
         with pytest.raises(ValueError, match="Invalid"):

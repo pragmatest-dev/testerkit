@@ -34,22 +34,26 @@ def _get_active_runs() -> list[dict]:
     for run_id, run_info in list(runner.runs.items()):
         if run_info.status in ("pending", "running"):
             dialog_count = len([d for d in dialogs if d.get("run_id") == run_id])
-            active.append({
-                "run_id": run_id,
-                "status": "dialog" if dialog_count > 0 else "running",
-                "dialog_count": dialog_count,
-            })
+            active.append(
+                {
+                    "run_id": run_id,
+                    "status": "dialog" if dialog_count > 0 else "running",
+                    "dialog_count": dialog_count,
+                }
+            )
             seen_run_ids.add(run_id)
 
     for dialog in dialogs:
         run_id = dialog.get("run_id")
         if run_id and run_id not in seen_run_ids:
             dialog_count = len([d for d in dialogs if d.get("run_id") == run_id])
-            active.append({
-                "run_id": run_id,
-                "status": "dialog",
-                "dialog_count": dialog_count,
-            })
+            active.append(
+                {
+                    "run_id": run_id,
+                    "status": "dialog",
+                    "dialog_count": dialog_count,
+                }
+            )
             seen_run_ids.add(run_id)
 
     return active

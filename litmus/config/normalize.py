@@ -53,8 +53,7 @@ def check_instrument_types(
         config["type"] = normalize_instrument_type(original)
         if config["type"] != original:
             warnings.append(
-                f"instruments.{name}: Normalized type "
-                f"'{original}' → '{config['type']}'"
+                f"instruments.{name}: Normalized type '{original}' → '{config['type']}'"
             )
         if config["type"] not in _KNOWN_TYPES:
             # Also check catalog entries for custom types

@@ -60,12 +60,16 @@ def new_station_page():
                         ui.label(
                             "Unique identifier (lowercase, letters/numbers/hyphens only)"
                         ).classes("text-xs text-slate-400")
-                        id_input = ui.input(
-                            placeholder="e.g., bench-1, lab-station-a",
-                        ).props("outlined dense").classes("w-full")
-                        ui.label("").classes(
-                            "text-xs text-red-500"
-                        ).bind_text_from(validation, "id_error")
+                        id_input = (
+                            ui.input(
+                                placeholder="e.g., bench-1, lab-station-a",
+                            )
+                            .props("outlined dense")
+                            .classes("w-full")
+                        )
+                        ui.label("").classes("text-xs text-red-500").bind_text_from(
+                            validation, "id_error"
+                        )
 
                         def validate_id(e):
                             value = e.value.lower().strip()
@@ -74,9 +78,7 @@ def new_station_page():
 
                             if not value:
                                 validation["id_error"] = "Station ID is required"
-                            elif not re.match(
-                                r"^[a-z0-9][a-z0-9-]*[a-z0-9]$|^[a-z0-9]$", value
-                            ):
+                            elif not re.match(r"^[a-z0-9][a-z0-9-]*[a-z0-9]$|^[a-z0-9]$", value):
                                 validation["id_error"] = (
                                     "Must start/end with letter or number, "
                                     "only contain letters, numbers, hyphens"
@@ -91,12 +93,16 @@ def new_station_page():
                     # Name
                     with ui.column().classes("gap-1 w-full"):
                         ui.label("Name").classes("text-sm font-medium text-slate-700")
-                        name_input = ui.input(
-                            placeholder="e.g., Engineering Lab Bench 1",
-                        ).props("outlined dense").classes("w-full")
-                        ui.label("").classes(
-                            "text-xs text-red-500"
-                        ).bind_text_from(validation, "name_error")
+                        name_input = (
+                            ui.input(
+                                placeholder="e.g., Engineering Lab Bench 1",
+                            )
+                            .props("outlined dense")
+                            .classes("w-full")
+                        )
+                        ui.label("").classes("text-xs text-red-500").bind_text_from(
+                            validation, "name_error"
+                        )
 
                         def validate_name(e):
                             value = e.value.strip()
@@ -111,9 +117,7 @@ def new_station_page():
                     # Location
                     with ui.column().classes("gap-1 w-full"):
                         ui.label("Location").classes("text-sm font-medium text-slate-700")
-                        ui.label("Optional - physical location").classes(
-                            "text-xs text-slate-400"
-                        )
+                        ui.label("Optional - physical location").classes("text-xs text-slate-400")
                         ui.input(
                             placeholder="e.g., Building A, Room 101",
                             on_change=lambda e: form.update({"location": e.value.strip()}),
@@ -124,9 +128,7 @@ def new_station_page():
                         ui.label("Description").classes("text-sm font-medium text-slate-700")
                         ui.textarea(
                             placeholder="Brief description of the station...",
-                            on_change=lambda e: form.update(
-                                {"description": e.value.strip()}
-                            ),
+                            on_change=lambda e: form.update({"description": e.value.strip()}),
                         ).props("outlined dense").classes("w-full")
 
             # Instruments section
@@ -239,22 +241,16 @@ def new_station_page():
                             "A station represents a physical test setup with instruments. "
                             "Products are matched to stations based on instrument capabilities."
                         ).classes("text-sm text-blue-600")
-                        ui.label(
-                            "You can add instruments now or edit the station later."
-                        ).classes("text-sm text-blue-600")
+                        ui.label("You can add instruments now or edit the station later.").classes(
+                            "text-sm text-blue-600"
+                        )
 
-        ui.link("← Back to Stations", "/stations").classes(
-            "text-blue-600 hover:underline"
-        )
+        ui.link("← Back to Stations", "/stations").classes("text-blue-600 hover:underline")
 
 
-def _render_instrument_row(
-    inst_name: str, inst_data: dict, form: dict, refresh_callback
-):
+def _render_instrument_row(inst_name: str, inst_data: dict, form: dict, refresh_callback):
     """Render an instrument row with remove button."""
-    with ui.row().classes(
-        "items-center justify-between w-full py-2 px-3 bg-slate-50 rounded"
-    ):
+    with ui.row().classes("items-center justify-between w-full py-2 px-3 bg-slate-50 rounded"):
         with ui.row().classes("items-center gap-3"):
             ui.icon("cable").classes("text-slate-400")
             with ui.column().classes("gap-0"):
@@ -300,9 +296,7 @@ def _show_add_instrument_dialog(type_options: dict, on_add: Callable):
                     on_change=lambda e: inst_form.update({"type": e.value}),
                 ).props("outlined dense").classes("w-full")
             with ui.column().classes("gap-1"):
-                ui.label("Resource (VISA address)").classes(
-                    "text-sm font-medium text-slate-700"
-                )
+                ui.label("Resource (VISA address)").classes("text-sm font-medium text-slate-700")
                 ui.input(
                     placeholder="e.g., TCPIP::192.168.1.100::INSTR",
                     on_change=lambda e: inst_form.update({"resource": e.value}),

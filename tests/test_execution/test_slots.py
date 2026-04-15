@@ -52,14 +52,22 @@ class TestMultiSlotFixture:
             id="dual",
             slots={
                 "slot_1": FixtureSlot(
-                    points={"vout": FixturePoint(
-                        name="vout", instrument="dmm", instrument_channel="1",
-                    )},
+                    points={
+                        "vout": FixturePoint(
+                            name="vout",
+                            instrument="dmm",
+                            instrument_channel="1",
+                        )
+                    },
                 ),
                 "slot_2": FixtureSlot(
-                    points={"vout": FixturePoint(
-                        name="vout", instrument="dmm", instrument_channel="2",
-                    )},
+                    points={
+                        "vout": FixturePoint(
+                            name="vout",
+                            instrument="dmm",
+                            instrument_channel="2",
+                        )
+                    },
                 ),
             },
         )
@@ -117,9 +125,11 @@ class TestFixtureConfigValidation:
             FixtureConfig(
                 id="bad",
                 points={"vout": FixturePoint(name="vout", instrument="dmm")},
-                slots={"slot_1": FixtureSlot(
-                    points={"vout": FixturePoint(name="vout", instrument="dmm")},
-                )},
+                slots={
+                    "slot_1": FixtureSlot(
+                        points={"vout": FixturePoint(name="vout", instrument="dmm")},
+                    )
+                },
             )
 
     def test_slot_count_single(self):
@@ -217,10 +227,12 @@ class TestDetectSharedInstruments:
     def test_no_shared_when_dedicated(self):
         slots = {
             "slot_1": ResolvedSlot(
-                slot_id="slot_1", instrument_roles={"dmm_left", "psu_left"},
+                slot_id="slot_1",
+                instrument_roles={"dmm_left", "psu_left"},
             ),
             "slot_2": ResolvedSlot(
-                slot_id="slot_2", instrument_roles={"dmm_right", "psu_right"},
+                slot_id="slot_2",
+                instrument_roles={"dmm_right", "psu_right"},
             ),
         }
         assert detect_shared_instruments(slots) == set()
@@ -228,10 +240,12 @@ class TestDetectSharedInstruments:
     def test_shared_dmm(self):
         slots = {
             "slot_1": ResolvedSlot(
-                slot_id="slot_1", instrument_roles={"dmm", "psu_left"},
+                slot_id="slot_1",
+                instrument_roles={"dmm", "psu_left"},
             ),
             "slot_2": ResolvedSlot(
-                slot_id="slot_2", instrument_roles={"dmm", "psu_right"},
+                slot_id="slot_2",
+                instrument_roles={"dmm", "psu_right"},
             ),
         }
         assert detect_shared_instruments(slots) == {"dmm"}
@@ -239,10 +253,12 @@ class TestDetectSharedInstruments:
     def test_multiple_shared(self):
         slots = {
             "slot_1": ResolvedSlot(
-                slot_id="slot_1", instrument_roles={"dmm", "matrix"},
+                slot_id="slot_1",
+                instrument_roles={"dmm", "matrix"},
             ),
             "slot_2": ResolvedSlot(
-                slot_id="slot_2", instrument_roles={"dmm", "matrix"},
+                slot_id="slot_2",
+                instrument_roles={"dmm", "matrix"},
             ),
         }
         assert detect_shared_instruments(slots) == {"dmm", "matrix"}
@@ -253,7 +269,8 @@ class TestDetectSharedInstruments:
     def test_single_slot(self):
         slots = {
             "slot_1": ResolvedSlot(
-                slot_id="slot_1", instrument_roles={"dmm"},
+                slot_id="slot_1",
+                instrument_roles={"dmm"},
             ),
         }
         assert detect_shared_instruments(slots) == set()
@@ -265,5 +282,3 @@ class TestDetectSharedInstruments:
             "slot_3": ResolvedSlot(slot_id="slot_3", instrument_roles={"dmm"}),
         }
         assert detect_shared_instruments(slots) == {"dmm"}
-
-

@@ -52,7 +52,9 @@ class EventReader:
                 except (json.JSONDecodeError, TypeError) as exc:
                     logger.warning(
                         "Skipping malformed event in batch %d row %d: %s",
-                        batch_idx - 1, j, exc,
+                        batch_idx - 1,
+                        j,
+                        exc,
                     )
                     continue
         self._batch_offset = batch_idx

@@ -30,13 +30,22 @@ class TestExpandRange:
     def test_expand_prefix_range_mixed(self):
         """GPIO[0:2,5,7:9] → GPIO0, GPIO1, GPIO2, GPIO5, GPIO7, GPIO8, GPIO9."""
         assert expand_range("GPIO[0:2,5,7:9]") == [
-            "GPIO0", "GPIO1", "GPIO2", "GPIO5", "GPIO7", "GPIO8", "GPIO9"
+            "GPIO0",
+            "GPIO1",
+            "GPIO2",
+            "GPIO5",
+            "GPIO7",
+            "GPIO8",
+            "GPIO9",
         ]
 
     def test_expand_prefix_with_underscore(self):
         """ai_channel[0:3] → ai_channel0, ..."""
         assert expand_range("ai_channel[0:3]") == [
-            "ai_channel0", "ai_channel1", "ai_channel2", "ai_channel3"
+            "ai_channel0",
+            "ai_channel1",
+            "ai_channel2",
+            "ai_channel3",
         ]
 
     def test_expand_prefix_lowercase(self):
@@ -127,8 +136,12 @@ class TestExpandNumericRange:
         """0,0.5:2:0.5,5 → [0, 0.5, 1.0, 1.5, 2.0, 5]."""
         result = expand_numeric_range("0,0.5:2:0.5,5")
         expected = [
-            0.0, 0.5, 1.0,
-            1.5, 2.0, 5.0,
+            0.0,
+            0.5,
+            1.0,
+            1.5,
+            2.0,
+            5.0,
         ]
         assert result == expected
 
@@ -165,14 +178,19 @@ class TestExpandNumericRange:
         """Realistic temperature sweep: -40:85:25."""
         result = expand_numeric_range("-40:85:25")
         expected = [
-            -40.0, -15.0, 10.0,
-            35.0, 60.0, 85.0,
+            -40.0,
+            -15.0,
+            10.0,
+            35.0,
+            60.0,
+            85.0,
         ]
         assert result == expected
 
     def test_voltage_sweep(self):
         """Realistic voltage sweep: 3.0:3.6:0.1."""
         import pytest
+
         result = expand_numeric_range("3.0:3.6:0.1")
         assert len(result) == 7
         assert result[0] == 3.0
@@ -220,4 +238,3 @@ class TestIntegrationWithModels:
             pin="TP_VOUT",
         )
         assert char.resolved_pins == ["TP_VOUT"]
-

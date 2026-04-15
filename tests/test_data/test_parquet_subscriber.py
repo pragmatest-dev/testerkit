@@ -24,32 +24,38 @@ class TestParquetSubscriber:
         run_id = uuid4()
         session_id = uuid4()
 
-        sub.on_event(RunStarted(
-            session_id=session_id,
-            run_id=run_id,
-            station_id="st1",
-            dut_serial="SN001",
-            occurred_at=datetime(2026, 3, 6, 14, 0, 0, tzinfo=UTC),
-        ))
+        sub.on_event(
+            RunStarted(
+                session_id=session_id,
+                run_id=run_id,
+                station_id="st1",
+                dut_serial="SN001",
+                occurred_at=datetime(2026, 3, 6, 14, 0, 0, tzinfo=UTC),
+            )
+        )
 
-        sub.on_event(MeasurementRecorded(
-            session_id=session_id,
-            run_id=run_id,
-            step_name="test_voltage",
-            step_index=0,
-            measurement_name="vout",
-            value=3.3,
-            units="V",
-            outcome="pass",
-            low_limit=3.0,
-            high_limit=3.6,
-        ))
+        sub.on_event(
+            MeasurementRecorded(
+                session_id=session_id,
+                run_id=run_id,
+                step_name="test_voltage",
+                step_index=0,
+                measurement_name="vout",
+                value=3.3,
+                units="V",
+                outcome="pass",
+                low_limit=3.0,
+                high_limit=3.6,
+            )
+        )
 
-        sub.on_event(RunEnded(
-            session_id=session_id,
-            run_id=run_id,
-            outcome="pass",
-        ))
+        sub.on_event(
+            RunEnded(
+                session_id=session_id,
+                run_id=run_id,
+                outcome="pass",
+            )
+        )
 
         # Parquet file should be written
         pq_files = list((tmp_path / "results" / "runs").rglob("*.parquet"))
@@ -71,33 +77,39 @@ class TestParquetSubscriber:
         run_id = uuid4()
         session_id = uuid4()
 
-        sub.on_event(RunStarted(
-            session_id=session_id,
-            run_id=run_id,
-            station_id="st1",
-            dut_serial="SN001",
-            occurred_at=datetime(2026, 3, 6, 14, 0, 0, tzinfo=UTC),
-        ))
+        sub.on_event(
+            RunStarted(
+                session_id=session_id,
+                run_id=run_id,
+                station_id="st1",
+                dut_serial="SN001",
+                occurred_at=datetime(2026, 3, 6, 14, 0, 0, tzinfo=UTC),
+            )
+        )
 
-        sub.on_event(InstrumentConnected(
-            session_id=session_id,
-            run_id=run_id,
-            role="dmm",
-            instrument_id="keithley_001",
-            resource="GPIB::16",
-            manufacturer="Keithley",
-            model="2000",
-        ))
+        sub.on_event(
+            InstrumentConnected(
+                session_id=session_id,
+                run_id=run_id,
+                role="dmm",
+                instrument_id="keithley_001",
+                resource="GPIB::16",
+                manufacturer="Keithley",
+                model="2000",
+            )
+        )
 
-        sub.on_event(MeasurementRecorded(
-            session_id=session_id,
-            run_id=run_id,
-            step_name="step1",
-            step_index=0,
-            measurement_name="v",
-            value=1.0,
-            outcome="pass",
-        ))
+        sub.on_event(
+            MeasurementRecorded(
+                session_id=session_id,
+                run_id=run_id,
+                step_name="step1",
+                step_index=0,
+                measurement_name="v",
+                value=1.0,
+                outcome="pass",
+            )
+        )
 
         sub.close()
 
@@ -113,20 +125,24 @@ class TestParquetSubscriber:
         sub.open()
 
         run_id = uuid4()
-        sub.on_event(RunStarted(
-            run_id=run_id,
-            station_id="st1",
-            dut_serial="SN001",
-            occurred_at=datetime(2026, 3, 6, 14, 0, 0, tzinfo=UTC),
-        ))
-        sub.on_event(MeasurementRecorded(
-            run_id=run_id,
-            step_name="s",
-            step_index=0,
-            measurement_name="v",
-            value=1.0,
-            outcome="pass",
-        ))
+        sub.on_event(
+            RunStarted(
+                run_id=run_id,
+                station_id="st1",
+                dut_serial="SN001",
+                occurred_at=datetime(2026, 3, 6, 14, 0, 0, tzinfo=UTC),
+            )
+        )
+        sub.on_event(
+            MeasurementRecorded(
+                run_id=run_id,
+                step_name="s",
+                step_index=0,
+                measurement_name="v",
+                value=1.0,
+                outcome="pass",
+            )
+        )
 
         sub.close()
 
@@ -138,12 +154,14 @@ class TestParquetSubscriber:
         sub = ParquetSubscriber(tmp_path / "results")
         sub.open()
 
-        sub.on_event(RunStarted(
-            run_id=uuid4(),
-            station_id="st1",
-            dut_serial="SN001",
-            occurred_at=datetime(2026, 3, 6, 14, 0, 0, tzinfo=UTC),
-        ))
+        sub.on_event(
+            RunStarted(
+                run_id=uuid4(),
+                station_id="st1",
+                dut_serial="SN001",
+                occurred_at=datetime(2026, 3, 6, 14, 0, 0, tzinfo=UTC),
+            )
+        )
 
         sub.close()
 
@@ -159,32 +177,55 @@ class TestParquetSubscriber:
         run_id = uuid4()
         session_id = uuid4()
 
-        sub.on_event(RunStarted(
-            session_id=session_id, run_id=run_id,
-            station_id="st1", dut_serial="SN001",
-            occurred_at=datetime(2026, 3, 6, 14, 0, 0, tzinfo=UTC),
-        ))
-        sub.on_event(StepStarted(
-            session_id=session_id, run_id=run_id,
-            step_name="test_5v_rail", step_index=0,
-            node_id="tests/test_power.py::TestPower::test_5v_rail",
-            file="tests/test_power.py",
-            module="tests.test_power",
-            class_name="TestPower",
-            function="test_5v_rail",
-        ))
-        sub.on_event(MeasurementRecorded(
-            session_id=session_id, run_id=run_id,
-            step_name="test_5v_rail", step_index=0,
-            measurement_name="vout", value=5.01, outcome="pass",
-        ))
-        sub.on_event(StepEnded(
-            session_id=session_id, run_id=run_id,
-            step_name="test_5v_rail", step_index=0, outcome="pass",
-        ))
-        sub.on_event(RunEnded(
-            session_id=session_id, run_id=run_id, outcome="pass",
-        ))
+        sub.on_event(
+            RunStarted(
+                session_id=session_id,
+                run_id=run_id,
+                station_id="st1",
+                dut_serial="SN001",
+                occurred_at=datetime(2026, 3, 6, 14, 0, 0, tzinfo=UTC),
+            )
+        )
+        sub.on_event(
+            StepStarted(
+                session_id=session_id,
+                run_id=run_id,
+                step_name="test_5v_rail",
+                step_index=0,
+                node_id="tests/test_power.py::TestPower::test_5v_rail",
+                file="tests/test_power.py",
+                module="tests.test_power",
+                class_name="TestPower",
+                function="test_5v_rail",
+            )
+        )
+        sub.on_event(
+            MeasurementRecorded(
+                session_id=session_id,
+                run_id=run_id,
+                step_name="test_5v_rail",
+                step_index=0,
+                measurement_name="vout",
+                value=5.01,
+                outcome="pass",
+            )
+        )
+        sub.on_event(
+            StepEnded(
+                session_id=session_id,
+                run_id=run_id,
+                step_name="test_5v_rail",
+                step_index=0,
+                outcome="pass",
+            )
+        )
+        sub.on_event(
+            RunEnded(
+                session_id=session_id,
+                run_id=run_id,
+                outcome="pass",
+            )
+        )
 
         pq_files = list((tmp_path / "results" / "runs").rglob("*.parquet"))
         table = pq.read_table(pq_files[0])
@@ -203,44 +244,79 @@ class TestParquetSubscriber:
         run_id = uuid4()
         session_id = uuid4()
 
-        sub.on_event(RunStarted(
-            session_id=session_id, run_id=run_id,
-            station_id="st1", dut_serial="SN001",
-            occurred_at=datetime(2026, 3, 6, 14, 0, 0, tzinfo=UTC),
-        ))
+        sub.on_event(
+            RunStarted(
+                session_id=session_id,
+                run_id=run_id,
+                station_id="st1",
+                dut_serial="SN001",
+                occurred_at=datetime(2026, 3, 6, 14, 0, 0, tzinfo=UTC),
+            )
+        )
         # Step 0: has measurement
-        sub.on_event(StepStarted(
-            session_id=session_id, run_id=run_id,
-            step_name="test_voltage", step_index=0,
-            node_id="tests/test_hw.py::test_voltage",
-            file="tests/test_hw.py", function="test_voltage",
-        ))
-        sub.on_event(MeasurementRecorded(
-            session_id=session_id, run_id=run_id,
-            step_name="test_voltage", step_index=0,
-            measurement_name="vout", value=3.3, outcome="pass",
-        ))
-        sub.on_event(StepEnded(
-            session_id=session_id, run_id=run_id,
-            step_name="test_voltage", step_index=0, outcome="pass",
-        ))
+        sub.on_event(
+            StepStarted(
+                session_id=session_id,
+                run_id=run_id,
+                step_name="test_voltage",
+                step_index=0,
+                node_id="tests/test_hw.py::test_voltage",
+                file="tests/test_hw.py",
+                function="test_voltage",
+            )
+        )
+        sub.on_event(
+            MeasurementRecorded(
+                session_id=session_id,
+                run_id=run_id,
+                step_name="test_voltage",
+                step_index=0,
+                measurement_name="vout",
+                value=3.3,
+                outcome="pass",
+            )
+        )
+        sub.on_event(
+            StepEnded(
+                session_id=session_id,
+                run_id=run_id,
+                step_name="test_voltage",
+                step_index=0,
+                outcome="pass",
+            )
+        )
         # Step 1: no measurements (action step)
-        sub.on_event(StepStarted(
-            session_id=session_id, run_id=run_id,
-            step_name="configure_dut", step_index=1,
-            node_id="tests/test_hw.py::configure_dut",
-            file="tests/test_hw.py", function="configure_dut",
-        ))
-        sub.on_event(StepEnded(
-            session_id=session_id, run_id=run_id,
-            step_name="configure_dut", step_index=1, outcome="pass",
-        ))
-        sub.on_event(RunEnded(
-            session_id=session_id, run_id=run_id, outcome="pass",
-        ))
+        sub.on_event(
+            StepStarted(
+                session_id=session_id,
+                run_id=run_id,
+                step_name="configure_dut",
+                step_index=1,
+                node_id="tests/test_hw.py::configure_dut",
+                file="tests/test_hw.py",
+                function="configure_dut",
+            )
+        )
+        sub.on_event(
+            StepEnded(
+                session_id=session_id,
+                run_id=run_id,
+                step_name="configure_dut",
+                step_index=1,
+                outcome="pass",
+            )
+        )
+        sub.on_event(
+            RunEnded(
+                session_id=session_id,
+                run_id=run_id,
+                outcome="pass",
+            )
+        )
 
         pq_files = [
-            f for f in (tmp_path / "results" / "runs").rglob("*.parquet")
+            f
+            for f in (tmp_path / "results" / "runs").rglob("*.parquet")
             if not f.stem.endswith("_steps")
         ]
         manifest = read_step_results(pq_files[0])
@@ -259,14 +335,16 @@ class TestParquetSubscriber:
         sub.open()
 
         # Measurement arrives without a preceding RunStarted
-        sub.on_event(MeasurementRecorded(
-            run_id=uuid4(),
-            step_name="s",
-            step_index=0,
-            measurement_name="v",
-            value=1.0,
-            outcome="pass",
-        ))
+        sub.on_event(
+            MeasurementRecorded(
+                run_id=uuid4(),
+                step_name="s",
+                step_index=0,
+                measurement_name="v",
+                value=1.0,
+                outcome="pass",
+            )
+        )
 
         # close() should not crash — no RunStarted means no parquet written
         sub.close()
@@ -286,27 +364,33 @@ class TestParquetSubscriber:
         run_id = uuid4()
         session_id = uuid4()
 
-        sub.on_event(RunStarted(
-            session_id=session_id,
-            run_id=run_id,
-            station_id="st1",
-            dut_serial="SN001",
-            occurred_at=datetime(2026, 3, 6, 14, 0, 0, tzinfo=UTC),
-        ))
-        sub.on_event(MeasurementRecorded(
-            session_id=session_id,
-            run_id=run_id,
-            step_name="test_v",
-            step_index=0,
-            measurement_name="vout",
-            value=3.3,
-            outcome="pass",
-        ))
-        sub.on_event(RunEnded(
-            session_id=session_id,
-            run_id=run_id,
-            outcome="pass",
-        ))
+        sub.on_event(
+            RunStarted(
+                session_id=session_id,
+                run_id=run_id,
+                station_id="st1",
+                dut_serial="SN001",
+                occurred_at=datetime(2026, 3, 6, 14, 0, 0, tzinfo=UTC),
+            )
+        )
+        sub.on_event(
+            MeasurementRecorded(
+                session_id=session_id,
+                run_id=run_id,
+                step_name="test_v",
+                step_index=0,
+                measurement_name="vout",
+                value=3.3,
+                outcome="pass",
+            )
+        )
+        sub.on_event(
+            RunEnded(
+                session_id=session_id,
+                run_id=run_id,
+                outcome="pass",
+            )
+        )
 
         assert len(outputs) == 1
         assert outputs[0].format == "parquet"

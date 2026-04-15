@@ -73,9 +73,7 @@ def daemon_run(runs_dir: Path) -> None:
     location = f"grpc://127.0.0.1:{server.port}"
     port_file = runs_dir / "_runs_duckdb_flight_port"
     port_file.write_text(location)
-    threading.Thread(
-        target=server.serve, daemon=True, name="runs-duckdb-flight"
-    ).start()
+    threading.Thread(target=server.serve, daemon=True, name="runs-duckdb-flight").start()
 
     # Signal ready and store Flight location in state
     mgr.write_ready()

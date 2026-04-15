@@ -12,9 +12,9 @@ def docs_index():
 
     with ui.column().classes("w-full max-w-4xl mx-auto p-6 gap-8"):
         ui.markdown("# Litmus Documentation").classes("text-3xl font-bold text-slate-800")
-        ui.markdown(
-            "Python-native hardware test platform for the AI-assisted era."
-        ).classes("text-lg text-slate-600")
+        ui.markdown("Python-native hardware test platform for the AI-assisted era.").classes(
+            "text-lg text-slate-600"
+        )
 
         # Section cards following Diátaxis framework
         sections = [
@@ -59,9 +59,11 @@ def docs_index():
 
         with ui.row().classes("gap-4 flex-wrap"):
             for section, icon, title, description in sections:
-                with ui.card().classes(
-                    "w-72 cursor-pointer hover:shadow-lg transition-shadow"
-                ).on("click", lambda s=section: ui.navigate.to(f"/docs/{s}")):
+                with (
+                    ui.card()
+                    .classes("w-72 cursor-pointer hover:shadow-lg transition-shadow")
+                    .on("click", lambda s=section: ui.navigate.to(f"/docs/{s}"))
+                ):
                     with ui.card_section():
                         with ui.row().classes("items-center gap-3"):
                             ui.icon(icon).classes("text-blue-500 text-2xl")
@@ -78,9 +80,7 @@ def docs_index():
                 ui.link("Installation", "/docs/tutorial/01-first-test").classes(
                     "text-blue-600 hover:underline"
                 )
-                ui.link("Quick Start", "/docs/tutorial").classes(
-                    "text-blue-600 hover:underline"
-                )
+                ui.link("Quick Start", "/docs/tutorial").classes("text-blue-600 hover:underline")
 
             with ui.column().classes("gap-2"):
                 ui.markdown("**Learn**").classes("font-medium")

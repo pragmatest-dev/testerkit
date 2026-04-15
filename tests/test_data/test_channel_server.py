@@ -23,7 +23,10 @@ from litmus.data.channels.store import ChannelStore
 
 def _make_store(tmp_path: Path, *, serve: bool = False) -> ChannelStore:
     store = ChannelStore(
-        tmp_path / "channels", uuid4(), flush_threshold=10, serve=serve,
+        tmp_path / "channels",
+        uuid4(),
+        flush_threshold=10,
+        serve=serve,
     )
     store.open()
     return store
@@ -197,7 +200,10 @@ class TestDaemonLifecycle:
         loc_a = store_a.flight_location
 
         store_b = ChannelStore(
-            tmp_path / "channels", uuid4(), flush_threshold=10, serve=True,
+            tmp_path / "channels",
+            uuid4(),
+            flush_threshold=10,
+            serve=True,
         )
         store_b.open()
         loc_b = store_b.flight_location

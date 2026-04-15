@@ -76,8 +76,11 @@ def _build_where(
     Uses aliased column names (product, station, phase, period_day).
     """
     clauses = _build_filter_clauses(
-        product=product, station=station, phase=phase,
-        since=since, until=until,
+        product=product,
+        station=station,
+        phase=phase,
+        since=since,
+        until=until,
     )
     return (" WHERE " + " AND ".join(clauses)) if clauses else ""
 
@@ -95,8 +98,11 @@ def _build_and_clauses(
     Uses raw silver column names with COALESCE wrappers.
     """
     clauses = _build_filter_clauses(
-        product=product, station=station, phase=phase,
-        since=since, until=until,
+        product=product,
+        station=station,
+        phase=phase,
+        since=since,
+        until=until,
         product_expr="COALESCE(dut_part_number, product_id, 'unknown')",
         station_expr="COALESCE(station_name, station_id, 'unknown')",
         phase_expr="COALESCE(test_phase, 'unknown')",
@@ -397,8 +403,11 @@ class GoldStore:
         Returns one row per (product, station, phase, period).
         """
         where = _build_where(
-            product=product, station=station, phase=phase,
-            since=since, until=until,
+            product=product,
+            station=station,
+            phase=phase,
+            since=since,
+            until=until,
         )
         sql = _YIELD_SQL.format(
             silver_cte=self._silver_cte(),
@@ -424,8 +433,11 @@ class GoldStore:
         sql = _PARETO_SQL.format(
             silver_cte=self._silver_cte(),
             and_clauses=_build_and_clauses(
-                product=product, station=station, phase=phase,
-                since=since, until=until,
+                product=product,
+                station=station,
+                phase=phase,
+                since=since,
+                until=until,
             ),
             top_n=int(top_n),
         )
@@ -448,8 +460,11 @@ class GoldStore:
         sql = _CPK_SQL.format(
             silver_cte=self._silver_cte(),
             and_clauses=_build_and_clauses(
-                product=product, station=station, phase=phase,
-                since=since, until=until,
+                product=product,
+                station=station,
+                phase=phase,
+                since=since,
+                until=until,
             ),
             min_samples=int(min_samples),
         )
@@ -470,8 +485,11 @@ class GoldStore:
         Returns one row per (product, station, phase, period).
         """
         where = _build_where(
-            product=product, station=station, phase=phase,
-            since=since, until=until,
+            product=product,
+            station=station,
+            phase=phase,
+            since=since,
+            until=until,
         )
         sql = _TREND_SQL.format(
             silver_cte=self._silver_cte(),
@@ -495,8 +513,11 @@ class GoldStore:
         Returns one row per (product, station, phase, period).
         """
         where = _build_where(
-            product=product, station=station, phase=phase,
-            since=since, until=until,
+            product=product,
+            station=station,
+            phase=phase,
+            since=since,
+            until=until,
         )
         sql = _RETEST_SQL.format(
             silver_cte=self._silver_cte(),
@@ -520,8 +541,11 @@ class GoldStore:
         Returns one row per (product, station, phase, period).
         """
         where = _build_where(
-            product=product, station=station, phase=phase,
-            since=since, until=until,
+            product=product,
+            station=station,
+            phase=phase,
+            since=since,
+            until=until,
         )
         sql = _TIME_LOSS_SQL.format(
             silver_cte=self._silver_cte(),
@@ -529,4 +553,3 @@ class GoldStore:
             where=where,
         )
         return self._query_dicts(sql)
-

@@ -59,14 +59,17 @@ def resolve_fixture_slots(
     if fixture_config.slots:
         slots = {
             slot_id: _build_resolved_slot(
-                slot_id, slot.points, dut_resource=slot.dut_resource,
+                slot_id,
+                slot.points,
+                dut_resource=slot.dut_resource,
             )
             for slot_id, slot in fixture_config.slots.items()
         }
     else:
         slots = {
             DEFAULT_SLOT_ID: _build_resolved_slot(
-                DEFAULT_SLOT_ID, fixture_config.points,
+                DEFAULT_SLOT_ID,
+                fixture_config.points,
                 dut_resource=fixture_config.dut_resource,
             )
         }

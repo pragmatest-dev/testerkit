@@ -37,6 +37,7 @@ def _detect_client() -> str:
 # Base
 # ---------------------------------------------------------------------------
 
+
 class EventBase(BaseModel):
     """Base for all event log events.
 
@@ -53,6 +54,7 @@ class EventBase(BaseModel):
 # ---------------------------------------------------------------------------
 # Session events
 # ---------------------------------------------------------------------------
+
 
 class SessionStarted(EventBase):
     """Emitted once at the start of a session (interactive or test orchestrator).
@@ -150,6 +152,7 @@ class SessionEnded(EventBase):
 # Run events (test run lifecycle)
 # ---------------------------------------------------------------------------
 
+
 class RunStarted(EventBase):
     """Emitted once per test run. Contains full run context.
 
@@ -216,6 +219,7 @@ class RunEnded(EventBase):
 # Slot events (multi-DUT)
 # ---------------------------------------------------------------------------
 
+
 class SlotStarted(EventBase):
     """Emitted when a DUT slot begins execution."""
 
@@ -251,6 +255,7 @@ class SyncRelease(EventBase):
 # ---------------------------------------------------------------------------
 # Fixture events
 # ---------------------------------------------------------------------------
+
 
 class InstrumentConnected(EventBase):
     """Emitted when an instrument is connected and identified."""
@@ -307,6 +312,7 @@ class InstrumentDisconnected(EventBase):
 # ---------------------------------------------------------------------------
 # Test events
 # ---------------------------------------------------------------------------
+
 
 class StepStarted(EventBase):
     event_type: Literal["test.step_started"] = "test.step_started"
@@ -408,10 +414,10 @@ class StepsDiscovered(EventBase):
     items: list[dict[str, str | None]] = Field(default_factory=list)
 
 
-
 # ---------------------------------------------------------------------------
 # Diagnostic events
 # ---------------------------------------------------------------------------
+
 
 class DiagnosticWarning(EventBase):
     event_type: Literal["diagnostic.warning"] = "diagnostic.warning"
@@ -435,6 +441,7 @@ class DiagnosticError(EventBase):
 # Route events (signal switching)
 # ---------------------------------------------------------------------------
 
+
 class RouteClosed(EventBase):
     """Emitted when switch channels are closed to activate a route."""
 
@@ -456,6 +463,7 @@ class RouteOpened(EventBase):
 # ---------------------------------------------------------------------------
 # Instrument events
 # ---------------------------------------------------------------------------
+
 
 class InstrumentRead(EventBase):
     """Emitted when a driver read method is called via proxy.
@@ -549,6 +557,7 @@ class InstrumentConfigure(EventBase):
 # Stream events (Phase 2+)
 # ---------------------------------------------------------------------------
 
+
 class StreamStarted(EventBase):
     event_type: Literal["stream.started"] = "stream.started"
     stream_id: UUID
@@ -570,6 +579,7 @@ class StreamFrameIndex(EventBase):
 # ---------------------------------------------------------------------------
 # Dialog events
 # ---------------------------------------------------------------------------
+
 
 class DialogOpened(EventBase):
     """Emitted when an operator dialog is shown, pausing test execution."""
@@ -603,7 +613,11 @@ SESSION_EVENTS = {SessionStarted, SessionEnded}
 RUN_EVENTS = {RunStarted, RunEnded}
 SLOT_EVENTS = {SlotStarted, SlotCompleted, SyncArrived, SyncRelease}
 FIXTURE_EVENTS = {
-    InstrumentConnected, IdentityVerified, CalibrationWarning, DutScanned, InstrumentDisconnected,
+    InstrumentConnected,
+    IdentityVerified,
+    CalibrationWarning,
+    DutScanned,
+    InstrumentDisconnected,
 }
 TEST_EVENTS = {StepStarted, MeasurementRecorded, RecordEvent, StepEnded, StepsDiscovered}
 ROUTE_EVENTS = {RouteClosed, RouteOpened}
@@ -612,23 +626,49 @@ DIAGNOSTIC_EVENTS = {DiagnosticWarning, DiagnosticError}
 STREAM_EVENTS = {StreamStarted, StreamEnded, StreamFrameIndex}
 DIALOG_EVENTS = {DialogOpened, DialogResponded}
 ALL_EVENTS = (
-    SESSION_EVENTS | RUN_EVENTS | SLOT_EVENTS | FIXTURE_EVENTS | TEST_EVENTS
-    | ROUTE_EVENTS | INSTRUMENT_EVENTS | DIAGNOSTIC_EVENTS | STREAM_EVENTS
+    SESSION_EVENTS
+    | RUN_EVENTS
+    | SLOT_EVENTS
+    | FIXTURE_EVENTS
+    | TEST_EVENTS
+    | ROUTE_EVENTS
+    | INSTRUMENT_EVENTS
+    | DIAGNOSTIC_EVENTS
+    | STREAM_EVENTS
     | DIALOG_EVENTS
 )
 
 # Discriminated union type for deserialization
 Event = Annotated[
-    SessionStarted | SessionEnded
-    | RunStarted | RunEnded
-    | SlotStarted | SlotCompleted | SyncArrived | SyncRelease
-    | InstrumentConnected | IdentityVerified | CalibrationWarning
-    | DutScanned | InstrumentDisconnected
-    | StepStarted | MeasurementRecorded | RecordEvent | StepEnded | StepsDiscovered
-    | RouteClosed | RouteOpened
-    | InstrumentRead | InstrumentSet | InstrumentConfigure
-    | DiagnosticWarning | DiagnosticError
-    | StreamStarted | StreamEnded | StreamFrameIndex
-    | DialogOpened | DialogResponded,
+    SessionStarted
+    | SessionEnded
+    | RunStarted
+    | RunEnded
+    | SlotStarted
+    | SlotCompleted
+    | SyncArrived
+    | SyncRelease
+    | InstrumentConnected
+    | IdentityVerified
+    | CalibrationWarning
+    | DutScanned
+    | InstrumentDisconnected
+    | StepStarted
+    | MeasurementRecorded
+    | RecordEvent
+    | StepEnded
+    | StepsDiscovered
+    | RouteClosed
+    | RouteOpened
+    | InstrumentRead
+    | InstrumentSet
+    | InstrumentConfigure
+    | DiagnosticWarning
+    | DiagnosticError
+    | StreamStarted
+    | StreamEnded
+    | StreamFrameIndex
+    | DialogOpened
+    | DialogResponded,
     Field(discriminator="event_type"),
 ]

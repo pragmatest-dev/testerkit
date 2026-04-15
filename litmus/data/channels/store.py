@@ -67,10 +67,7 @@ def _lttb_indices(values: Sequence[float], n_out: int) -> list[int]:
         best_area = -1.0
         px, py = float(prev_idx), values[prev_idx]
         for j in range(b_start, min(b_end, n)):
-            area = abs(
-                (float(j) - px) * (avg_y - py)
-                - (avg_x - px) * (values[j] - py)
-            )
+            area = abs((float(j) - px) * (avg_y - py) - (avg_x - px) * (values[j] - py))
             if area > best_area:
                 best_area = area
                 best_idx = j
@@ -240,8 +237,12 @@ class ChannelStore:
         now = datetime.now(UTC)
 
         data_type, row, sample = self._to_arrow_row(
-            channel_id, value, now, source,
-            units=units, sample_interval=sample_interval,
+            channel_id,
+            value,
+            now,
+            source,
+            units=units,
+            sample_interval=sample_interval,
         )
         if row is None:
             raise ValueError(f"Channel {channel_id}: could not classify value")
@@ -262,7 +263,11 @@ class ChannelStore:
             today = date.today().isoformat()
             path = self._channels_dir / today / f"{channel_id}_{session_short}.arrow"
             self._writers[channel_id] = _ChannelWriter(
-                channel_id, data_type, schema, path, self._flush_threshold,
+                channel_id,
+                data_type,
+                schema,
+                path,
+                self._flush_threshold,
             )
 
         self._writers[channel_id].append(row)
@@ -386,11 +391,13 @@ class ChannelStore:
         """
         if channel_id is None:
             self._global_subscribers.append(callback)
+
             def unsub() -> None:
                 try:
                     self._global_subscribers.remove(callback)
                 except ValueError:
                     pass
+
             return unsub
 
         self._subscribers.setdefault(channel_id, []).append(callback)
@@ -453,8 +460,7 @@ class ChannelStore:
             # Unflushed buffer
             if writer.buffer:
                 buf_table = pa.table(
-                    {col: [r[col] for r in writer.buffer]
-                     for col in writer.schema.names},
+                    {col: [r[col] for r in writer.buffer] for col in writer.schema.names},
                     schema=writer.schema,
                 )
                 tables.append(buf_table)
@@ -490,16 +496,21 @@ class ChannelStore:
         if start is not None or end is not None:
             timestamps = result.column("timestamp").to_pylist()
             start_utc = (
-                start.astimezone(UTC) if start and start.tzinfo
-                else start.replace(tzinfo=UTC) if start else None
+                start.astimezone(UTC)
+                if start and start.tzinfo
+                else start.replace(tzinfo=UTC)
+                if start
+                else None
             )
             end_utc = (
-                end.astimezone(UTC) if end and end.tzinfo
-                else end.replace(tzinfo=UTC) if end else None
+                end.astimezone(UTC)
+                if end and end.tzinfo
+                else end.replace(tzinfo=UTC)
+                if end
+                else None
             )
             keep = [
-                (not start_utc or ts >= start_utc)
-                and (not end_utc or ts <= end_utc)
+                (not start_utc or ts >= start_utc) and (not end_utc or ts <= end_utc)
                 for ts in timestamps
             ]
             result = result.filter(keep)
@@ -525,7 +536,9 @@ class ChannelStore:
         from litmus.data.channels import flight_manager
 
         location = flight_manager.acquire(
-            self._channels_dir, self._flight_host, self._flight_port,
+            self._channels_dir,
+            self._flight_host,
+            self._flight_port,
         )
         self._flight_location = location
 
@@ -641,9 +654,12 @@ class ChannelStore:
                 for writer in self._writers.values():
                     for ipc_path in writer.all_paths:
                         try:
-                            self._on_output(OutputFile(
-                                path=ipc_path, format="channels",
-                            ))
+                            self._on_output(
+                                OutputFile(
+                                    path=ipc_path,
+                                    format="channels",
+                                )
+                            )
                         except Exception as exc:
                             warnings.warn(
                                 f"Channel on_output callback failed for {ipc_path}: {exc}",

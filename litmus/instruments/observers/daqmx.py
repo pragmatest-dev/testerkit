@@ -11,7 +11,12 @@ from litmus.instruments.observer import DriverObserver, EventEmitter
 from litmus.instruments.observers.generic import GenericObserver
 
 _CHANNEL_ADD_PREFIXES = (
-    "add_ai_", "add_ao_", "add_di_", "add_do_", "add_ci_", "add_co_",
+    "add_ai_",
+    "add_ao_",
+    "add_di_",
+    "add_do_",
+    "add_ci_",
+    "add_co_",
 )
 
 
@@ -34,7 +39,11 @@ class DaqmxObserver(DriverObserver):
         self._generic = GenericObserver(driver_class, role, emit, yaml_overrides)
 
     def on_call(
-        self, name: str, args: tuple[Any, ...], kwargs: dict[str, Any], result: Any,
+        self,
+        name: str,
+        args: tuple[Any, ...],
+        kwargs: dict[str, Any],
+        result: Any,
     ) -> None:
         if self._should_skip(name):
             return

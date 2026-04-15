@@ -134,9 +134,7 @@ def prune_all(
 
     # Materialize channel refs before pruning channel data
     if materialize and "channels" in data_types:
-        dirs_to_prune = prune_date_dirs(
-            results_dir / "channels", cutoff, dry_run=True
-        )
+        dirs_to_prune = prune_date_dirs(results_dir / "channels", cutoff, dry_run=True)
         if dirs_to_prune:
             from litmus.data.materialize import materialize_channel_refs
 
@@ -145,5 +143,3 @@ def prune_all(
     for subdir in data_types:
         result[subdir] = prune_date_dirs(results_dir / subdir, cutoff, dry_run=dry_run)
     return result
-
-

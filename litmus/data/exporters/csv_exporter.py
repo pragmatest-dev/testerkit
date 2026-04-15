@@ -147,7 +147,9 @@ class CsvSubscriber(EventSubscriber):
 
         with out_file.open("w", newline="") as f:
             writer = csv.DictWriter(
-                f, fieldnames=fieldnames, extrasaction="ignore",
+                f,
+                fieldnames=fieldnames,
+                extrasaction="ignore",
             )
             writer.writeheader()
             for row in flat_rows:

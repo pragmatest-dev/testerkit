@@ -26,10 +26,12 @@ class InstrumentProxy:
         attr = getattr(driver, name)
 
         if callable(attr):
+
             def wrapper(*args: Any, **kwargs: Any) -> Any:
                 result = attr(*args, **kwargs)
                 observer.on_call(name, args, kwargs, result)
                 return result
+
             return wrapper
 
         return observer.on_getattr(name, attr)

@@ -93,8 +93,8 @@ def designer_page(product: str = "", station: str = "", fixture: str = ""):
             rebuild()
 
     # Load from URL params or use defaults
-    initial_station = station if station in station_options else (
-        stations[0].id if stations else None
+    initial_station = (
+        station if station in station_options else (stations[0].id if stations else None)
     )
     if initial_station:
         config = load_station_config(initial_station)
@@ -139,9 +139,7 @@ def designer_page(product: str = "", station: str = "", fixture: str = ""):
                 ui.button(
                     "Load Fixture",
                     icon="upload",
-                    on_click=lambda: _show_load_fixture_dialog(
-                        state, rebuild, update_url
-                    ),
+                    on_click=lambda: _show_load_fixture_dialog(state, rebuild, update_url),
                 ).props("flat")
 
                 ui.button(
@@ -154,14 +152,10 @@ def designer_page(product: str = "", station: str = "", fixture: str = ""):
 
         # --- IDs ---
         with ui.row().classes("w-full items-end gap-3"):
-            system_id_input = ui.input(
-                "System ID", value=state.system_id
-            ).classes("w-48")
+            system_id_input = ui.input("System ID", value=state.system_id).classes("w-48")
             system_id_input.bind_value(state, "system_id")
 
-            fixture_id_input = ui.input(
-                "Fixture ID", value=state.fixture_id
-            ).classes("w-48")
+            fixture_id_input = ui.input("Fixture ID", value=state.fixture_id).classes("w-48")
             fixture_id_input.bind_value(state, "fixture_id")
 
         # --- Status bar ---
@@ -171,9 +165,7 @@ def designer_page(product: str = "", station: str = "", fixture: str = ""):
 
         # --- Graph card ---
         with ui.card().classes("w-full"):
-            ui.label("Design Surface").classes(
-                "text-xs text-slate-500 uppercase tracking-wide"
-            )
+            ui.label("Design Surface").classes("text-xs text-slate-500 uppercase tracking-wide")
             ui.label(
                 "Click a pin to select it, then click a channel to wire. "
                 "Click a wire to disconnect."
@@ -210,31 +202,23 @@ def _rebuild_status(state: DesignerState, container, rebuild) -> None:
     with container:
         with ui.row().classes("items-center gap-2"):
             ui.icon("check_circle").classes("text-green-500 text-sm")
-            ui.label(
-                f"{state.wired_pin_count}/{state.total_pin_count} pins wired"
-            ).classes("text-sm text-slate-600")
-        with ui.row().classes("items-center gap-2"):
-            ui.icon("radio_button_unchecked").classes("text-slate-400 text-sm")
-            ui.label(f"{state.available_pin_count} available").classes(
-                "text-sm text-slate-400"
-            )
-        with ui.row().classes("items-center gap-2"):
-            ui.icon("precision_manufacturing").classes("text-purple-500 text-sm")
-            ui.label(f"{len(state.instruments)} instruments").classes(
+            ui.label(f"{state.wired_pin_count}/{state.total_pin_count} pins wired").classes(
                 "text-sm text-slate-600"
             )
+        with ui.row().classes("items-center gap-2"):
+            ui.icon("radio_button_unchecked").classes("text-slate-400 text-sm")
+            ui.label(f"{state.available_pin_count} available").classes("text-sm text-slate-400")
+        with ui.row().classes("items-center gap-2"):
+            ui.icon("precision_manufacturing").classes("text-purple-500 text-sm")
+            ui.label(f"{len(state.instruments)} instruments").classes("text-sm text-slate-600")
 
         if state.selected_pin:
-            with ui.row().classes(
-                "items-center gap-2 bg-blue-50 rounded px-3 py-1"
-            ):
+            with ui.row().classes("items-center gap-2 bg-blue-50 rounded px-3 py-1"):
                 ui.icon("radio_button_checked").classes("text-blue-500 text-sm")
                 ui.label(f"Wiring: {state.selected_pin}").classes(
                     "text-sm text-blue-700 font-medium"
                 )
-                ui.label("Click a channel to connect").classes(
-                    "text-xs text-blue-400"
-                )
+                ui.label("Click a channel to connect").classes("text-xs text-blue-400")
 
         ui.space()
         ui.checkbox("Hide Unused", value=state.hide_disconnected).bind_value(
@@ -269,9 +253,7 @@ def _rebuild_chart(
         with container:
             with ui.column().classes("w-full items-center py-12"):
                 ui.icon("design_services").classes("text-6xl text-slate-300")
-                ui.label("Select a product and load a station to begin").classes(
-                    "text-slate-400"
-                )
+                ui.label("Select a product and load a station to begin").classes("text-slate-400")
         return
 
     option = build_graph_option(state)
@@ -295,7 +277,7 @@ def _rebuild_chart(
         )
         # Connection highlighting: use JavaScript to highlight all segments on hover
         # Highlighting for connection hover (highlight all segments sharing point_name)
-        ui.run_javascript(f'''
+        ui.run_javascript(f"""
             const el = getElement({chart.id});
             if (el && el.chart) {{
                 el.chart.on('mouseover', (params) => {{
@@ -318,7 +300,7 @@ def _rebuild_chart(
                     el.chart.dispatchAction({{ type: 'downplay', seriesIndex: 0 }});
                 }});
             }}
-        ''')
+        """)
 
 
 def _handle_chart_click(event, state, drawer, rebuild) -> None:
@@ -364,9 +346,7 @@ def _handle_chart_click(event, state, drawer, rebuild) -> None:
             if state.selected_pin:
                 # Wiring mode: create or toggle connection
                 channel_key = f"{role}:{channel}"
-                existing = state.find_connection_by_link(
-                    state.selected_pin, channel_key
-                )
+                existing = state.find_connection_by_link(state.selected_pin, channel_key)
                 if existing:
                     state.remove_connection(existing)
                 else:
@@ -375,9 +355,7 @@ def _handle_chart_click(event, state, drawer, rebuild) -> None:
                     net = state.dut_pins.get(pin, {}).get("net", "")
                     term_suffix = f"_{terminal}" if terminal else ""
                     point_name = f"{pin.lower()}_{role}_ch{channel}{term_suffix}"
-                    state.add_connection(
-                        point_name, pin, role, channel, net, terminal
-                    )
+                    state.add_connection(point_name, pin, role, channel, net, terminal)
                 state.clear_selection()
                 drawer.value = False
                 _auto_save(state)  # Auto-save on connection change
@@ -388,7 +366,7 @@ def _handle_chart_click(event, state, drawer, rebuild) -> None:
         elif side == "instrument" and node_type == "header":
             role = data.get("role", data.get("name", ""))
             if role.startswith("__header_inst_"):
-                role = role[len("__header_inst_"):]
+                role = role[len("__header_inst_") :]
             state.clear_selection()
             show_instrument_properties(role, state, drawer, rebuild)
 
@@ -411,9 +389,9 @@ def _rebuild_connections_tab(state, container, drawer, rebuild) -> None:
     container.clear()
     with container:
         if not state.connections:
-            ui.label(
-                "No connections yet. Wire pins to instrument channels above."
-            ).classes("text-slate-400 text-sm py-4")
+            ui.label("No connections yet. Wire pins to instrument channels above.").classes(
+                "text-slate-400 text-sm py-4"
+            )
             return
 
         columns = [
@@ -435,22 +413,20 @@ def _rebuild_connections_tab(state, container, drawer, rebuild) -> None:
         ]
         rows = []
         for point_name, conn in state.connections.items():
-            rows.append({
-                "point": point_name,
-                "pin": conn.get("dut_pin", ""),
-                "net": conn.get("net", ""),
-                "instrument": conn.get("instrument", ""),
-                "channel": conn.get("channel", ""),
-            })
+            rows.append(
+                {
+                    "point": point_name,
+                    "pin": conn.get("dut_pin", ""),
+                    "net": conn.get("net", ""),
+                    "instrument": conn.get("instrument", ""),
+                    "channel": conn.get("channel", ""),
+                }
+            )
 
-        table = ui.table(
-            columns=columns, rows=rows, row_key="point"
-        ).classes("w-full")
+        table = ui.table(columns=columns, rows=rows, row_key="point").classes("w-full")
         table.on(
             "row-click",
-            lambda e: show_connection_properties(
-                e.args[1]["point"], state, drawer, rebuild
-            ),
+            lambda e: show_connection_properties(e.args[1]["point"], state, drawer, rebuild),
         )
 
 
@@ -459,9 +435,7 @@ def _rebuild_station_type_tab(state, container) -> None:
     container.clear()
     with container:
         if not state.instruments:
-            ui.label("No instruments added yet.").classes(
-                "text-slate-400 text-sm py-4"
-            )
+            ui.label("No instruments added yet.").classes("text-slate-400 text-sm py-4")
             return
 
         data = state.to_station_type_yaml()
@@ -474,9 +448,7 @@ def _rebuild_yaml_tab(state, container) -> None:
     container.clear()
     with container:
         if not state.connections:
-            ui.label("No connections to preview.").classes(
-                "text-slate-400 text-sm py-4"
-            )
+            ui.label("No connections to preview.").classes("text-slate-400 text-sm py-4")
             return
 
         data = state.to_fixture_yaml()
@@ -510,9 +482,7 @@ def _on_product_change(product_id, state, rebuild) -> None:
                 return
 
         rebuild()
-        ui.notify(
-            f"Loaded {product.name} ({len(state.dut_pins)} pins)", type="info"
-        )
+        ui.notify(f"Loaded {product.name} ({len(state.dut_pins)} pins)", type="info")
 
 
 def _auto_match(state, rebuild) -> None:
@@ -530,8 +500,12 @@ def _auto_match(state, rebuild) -> None:
 
     for s in suggestions:
         state.add_connection(
-            s["point_name"], s["dut_pin"], s["instrument"], s["channel"],
-            s.get("net"), s.get("terminal")
+            s["point_name"],
+            s["dut_pin"],
+            s["instrument"],
+            s["channel"],
+            s.get("net"),
+            s.get("terminal"),
         )
     _auto_save(state)  # Auto-save after auto-match
     rebuild()
@@ -560,9 +534,7 @@ def _auto_save(state, quiet: bool = True) -> bool:
 
     fixture_data = state.to_fixture_yaml()
     try:
-        save_fixture(
-            state.fixture_id, fixture_data["fixture"], fixture_data["points"]
-        )
+        save_fixture(state.fixture_id, fixture_data["fixture"], fixture_data["points"])
         if not quiet:
             ui.notify("Saved", type="positive")
         return True
@@ -583,14 +555,12 @@ def _show_load_fixture_dialog(state, rebuild, on_load=None) -> None:
             ui.label("No fixtures found.").classes("text-slate-500")
             ui.button("Close", on_click=dialog.close).props("flat")
         else:
-            fixture_options = {
-                f.id: f.name or f.id for f in fixtures
-            }
+            fixture_options = {f.id: f.name or f.id for f in fixtures}
             selected: dict = {"fixture_id": ""}
 
-            ui.select(
-                fixture_options, label="Fixture", with_input=True
-            ).classes("w-full").bind_value(selected, "fixture_id")
+            ui.select(fixture_options, label="Fixture", with_input=True).classes(
+                "w-full"
+            ).bind_value(selected, "fixture_id")
 
             with ui.row().classes("w-full justify-end gap-2 mt-2"):
                 ui.button("Cancel", on_click=dialog.close).props("flat")

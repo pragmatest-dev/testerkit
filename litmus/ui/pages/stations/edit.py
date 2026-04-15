@@ -36,8 +36,7 @@ def station_edit_page(station_id: str):
         "location": config.location or "",
         "description": config.description or "",
         "instruments": (
-            {k: v.model_dump() for k, v in config.instruments.items()}
-            if config.instruments else {}
+            {k: v.model_dump() for k, v in config.instruments.items()} if config.instruments else {}
         ),
     }
 
@@ -154,9 +153,9 @@ def _render_instruments_tab(form_data: dict, type_options: dict, saver: AutoSave
                 for inst_name, inst_data in instruments.items():
                     _render_instrument_expansion(inst_name, inst_data, saver)
             else:
-                ui.label(
-                    "No instruments configured. Click 'Add Instrument' to add one."
-                ).classes("text-slate-500 italic")
+                ui.label("No instruments configured. Click 'Add Instrument' to add one.").classes(
+                    "text-slate-500 italic"
+                )
 
 
 def _render_instrument_expansion(inst_name: str, inst_data: dict, saver: AutoSaver):
@@ -245,15 +244,17 @@ def _show_add_instrument_dialog(type_options: dict, on_add: Callable):
                 ui.label("Driver (Python import path)").classes(
                     "text-sm font-medium text-slate-700"
                 )
-                driver_input = ui.input(
-                    placeholder="e.g., demo.drivers.DMM",
-                    on_change=lambda e: inst_form.update({"driver": e.value}),
-                ).props("outlined dense").classes("w-full")
+                driver_input = (
+                    ui.input(
+                        placeholder="e.g., demo.drivers.DMM",
+                        on_change=lambda e: inst_form.update({"driver": e.value}),
+                    )
+                    .props("outlined dense")
+                    .classes("w-full")
+                )
             if type_options:
                 with ui.column().classes("gap-1"):
-                    ui.label("Or select from library").classes(
-                        "text-xs text-slate-500"
-                    )
+                    ui.label("Or select from library").classes("text-xs text-slate-500")
 
                     def on_library_select(e, di=driver_input):
                         if e.value:

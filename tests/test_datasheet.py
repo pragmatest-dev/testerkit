@@ -117,11 +117,14 @@ class TestFmtAttr:
 
 class TestBuildSignalRender:
     def test_no_specs(self):
-        render = build_signal_render("voltage", {
-            "range": {"min": 0, "max": 10, "units": "V"},
-            "accuracy": None,
-            "resolution": None,
-        })
+        render = build_signal_render(
+            "voltage",
+            {
+                "range": {"min": 0, "max": 10, "units": "V"},
+                "accuracy": None,
+                "resolution": None,
+            },
+        )
         assert render["headline"]["range"] != "—"
         assert render["tables"] == []
 
@@ -135,12 +138,14 @@ class TestBuildSignalRender:
                 {
                     "when": {"option": "503"},
                     "range": {"min": 9000, "max": 3e9, "units": "Hz"},
-                    "accuracy": None, "resolution": None,
+                    "accuracy": None,
+                    "resolution": None,
                 },
                 {
                     "when": {"option": "506"},
                     "range": {"min": 9000, "max": 6e9, "units": "Hz"},
-                    "accuracy": None, "resolution": None,
+                    "accuracy": None,
+                    "resolution": None,
                 },
             ],
         }
@@ -201,7 +206,8 @@ class TestBuildSignalRender:
                 {
                     "when": {"freq": "low"},
                     "range": {"min": 0, "max": 50, "units": "V"},
-                    "accuracy": None, "resolution": None,
+                    "accuracy": None,
+                    "resolution": None,
                 },
                 {
                     "when": {"freq": "high"},
@@ -218,17 +224,21 @@ class TestBuildSignalRender:
     def test_mixed_when_key_sets_merge_into_superset(self):
         """Bands with different when-key-sets merge into one superset table."""
         sig = {
-            "range": None, "accuracy": None, "resolution": None,
+            "range": None,
+            "accuracy": None,
+            "resolution": None,
             "specs": [
                 {
                     "when": {"freq": "low"},
                     "range": {"min": 0, "max": 50, "units": "V"},
-                    "accuracy": None, "resolution": None,
+                    "accuracy": None,
+                    "resolution": None,
                 },
                 {
                     "when": {"power": "high", "temp": "hot"},
                     "accuracy": {"absolute": 1.0, "units": "dB"},
-                    "range": None, "resolution": None,
+                    "range": None,
+                    "resolution": None,
                 },
             ],
         }
@@ -238,11 +248,13 @@ class TestBuildSignalRender:
 
 
 class TestLoadDatasheetData:
-    @pytest.fixture(params=[
-        "keysight/keysight_e8257d.yaml",
-        "keysight/keysight_m9484c.yaml",
-        "keysight/keysight_n5186a.yaml",
-    ])
+    @pytest.fixture(
+        params=[
+            "keysight/keysight_e8257d.yaml",
+            "keysight/keysight_m9484c.yaml",
+            "keysight/keysight_n5186a.yaml",
+        ]
+    )
     def catalog_path(self, request):
         path = CATALOG_DIR / request.param
         if not path.exists():
@@ -267,7 +279,7 @@ class TestLoadDatasheetData:
         data = load_datasheet_data(catalog_path)
         for cap in data["entry"]["capabilities"]:
             assert "signal_renders" in cap
-            for sig_name in (cap.get("signals") or {}):
+            for sig_name in cap.get("signals") or {}:
                 assert sig_name in cap["signal_renders"]
                 render = cap["signal_renders"][sig_name]
                 assert "headline" in render
@@ -275,11 +287,13 @@ class TestLoadDatasheetData:
 
 
 class TestGenerateDatasheet:
-    @pytest.fixture(params=[
-        "keysight/keysight_e8257d.yaml",
-        "keysight/keysight_m9484c.yaml",
-        "keysight/keysight_n5186a.yaml",
-    ])
+    @pytest.fixture(
+        params=[
+            "keysight/keysight_e8257d.yaml",
+            "keysight/keysight_m9484c.yaml",
+            "keysight/keysight_n5186a.yaml",
+        ]
+    )
     def catalog_path(self, request):
         path = CATALOG_DIR / request.param
         if not path.exists():

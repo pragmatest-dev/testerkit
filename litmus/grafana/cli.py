@@ -33,8 +33,7 @@ def serve(host: str, port: int, results_dir: Path | None, refresh_seconds: int) 
         from litmus.grafana.server import serve as _serve
     except ImportError:
         raise click.ClickException(
-            "Missing dependency: buenavista\n"
-            "Install with: pip install litmus-test[grafana]"
+            "Missing dependency: buenavista\nInstall with: pip install litmus-test[grafana]"
         )
 
     from litmus.data.results_dir import resolve_results_dir
@@ -51,7 +50,9 @@ def serve(host: str, port: int, results_dir: Path | None, refresh_seconds: int) 
     default=None,
     help="Grafana installation directory (default: auto-detect)",
 )
-@click.option("--grafana-url", default=None, help="Grafana URL for API setup (e.g. http://localhost:3000)")
+@click.option(
+    "--grafana-url", default=None, help="Grafana URL for API setup (e.g. http://localhost:3000)"
+)
 @click.option("--grafana-token", default=None, help="Grafana API token or service account token")
 @click.option("--grafana-user", default=None, help="Grafana username for basic auth")
 @click.option("--grafana-password", default=None, help="Grafana password for basic auth")
@@ -83,8 +84,9 @@ def setup(
         litmus grafana setup --grafana-url http://localhost:3000 --grafana-token glsa_xxx
     """
     if grafana_url:
-        _setup_via_api(grafana_url, grafana_token, grafana_user, grafana_password,
-                       host, port, folder)
+        _setup_via_api(
+            grafana_url, grafana_token, grafana_user, grafana_password, host, port, folder
+        )
     else:
         from litmus.grafana.bootstrap import copy_dashboards, render_provisioning
 
@@ -147,6 +149,7 @@ def _setup_via_api(
             req.add_header("Authorization", f"Bearer {token}")
         elif user and password:
             import base64
+
             creds = base64.b64encode(f"{user}:{password}".encode()).decode()
             req.add_header("Authorization", f"Basic {creds}")
         try:
@@ -158,9 +161,7 @@ def _setup_via_api(
                 f"Grafana API error {e.code} on {method} {path}: {body_text}"
             ) from e
         except URLError as e:
-            raise click.ClickException(
-                f"Cannot connect to {url}: {e.reason}"
-            ) from e
+            raise click.ClickException(f"Cannot connect to {url}: {e.reason}") from e
 
     # 1. Create or find datasource
     click.echo(f"Connecting to {url}...")
@@ -173,16 +174,20 @@ def _setup_via_api(
             break
 
     if not ds_uid:
-        ds = _request("POST", "/api/datasources", {
-            "name": "Litmus",
-            "type": "grafana-postgresql-datasource",
-            "url": f"{pgwire_host}:{pgwire_port}",
-            "access": "proxy",
-            "database": "litmus",
-            "user": "litmus",
-            "secureJsonData": {"password": "litmus"},
-            "jsonData": {"sslmode": "disable", "postgresVersion": 1500},
-        })
+        ds = _request(
+            "POST",
+            "/api/datasources",
+            {
+                "name": "Litmus",
+                "type": "grafana-postgresql-datasource",
+                "url": f"{pgwire_host}:{pgwire_port}",
+                "access": "proxy",
+                "database": "litmus",
+                "user": "litmus",
+                "secureJsonData": {"password": "litmus"},
+                "jsonData": {"sslmode": "disable", "postgresVersion": 1500},
+            },
+        )
         ds_uid = ds["datasource"]["uid"]
         click.echo(f"Created datasource: {ds_uid}")
 
@@ -219,11 +224,15 @@ def _setup_via_api(
         dashboard = json.loads(raw)
         dashboard["id"] = None
 
-        _request("POST", "/api/dashboards/db", {
-            "dashboard": dashboard,
-            "overwrite": True,
-            "folderUid": folder_uid,
-        })
+        _request(
+            "POST",
+            "/api/dashboards/db",
+            {
+                "dashboard": dashboard,
+                "overwrite": True,
+                "folderUid": folder_uid,
+            },
+        )
         imported += 1
         click.echo(f"  Imported {dashboard_file.stem}")
 

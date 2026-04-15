@@ -359,8 +359,12 @@ class TestRun(BaseModel):
             for vector in step.vectors:
                 for measurement in vector.measurements:
                     yield build_row(
-                        self, measurement, step.name, step_index,
-                        vector, step.instrument_arrays or {},
+                        self,
+                        measurement,
+                        step.name,
+                        step_index,
+                        vector,
+                        step.instrument_arrays or {},
                         step_path=step.step_path,
                         step_started_at=step.started_at,
                         step_ended_at=step.ended_at,

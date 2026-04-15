@@ -53,23 +53,17 @@ async def live_page(run_id: str):
 
         with ui.tab_panels(tabs, value=events_tab).classes("w-full"):
             with ui.tab_panel(events_tab):
-                _timeline_container, unsub_timeline = create_event_timeline(
-                    event_store
-                )
+                _timeline_container, unsub_timeline = create_event_timeline(event_store)
 
             with ui.tab_panel(channels_tab):
-                _channels_container, unsub_channels = create_channel_values_panel(
-                    event_store
-                )
+                _channels_container, unsub_channels = create_channel_values_panel(event_store)
 
             with ui.tab_panel(output_tab):
                 log = ui.log(max_lines=100).classes(
                     "w-full h-48 bg-slate-900 text-slate-100 font-mono text-sm"
                 )
 
-        results_link = ui.link("View Full Results →", f"/results/{run_id}").classes(
-            "hidden"
-        )
+        results_link = ui.link("View Full Results →", f"/results/{run_id}").classes("hidden")
 
         async def update_progress():
             try:

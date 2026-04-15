@@ -48,19 +48,27 @@ class TestMultiDutE2E:
         station_path = tmp_path / "station.yaml"
         test_file = tmp_path / "test_simple.py"
 
-        _write_fixture_yaml(fixture_path, {
-            "slot_1": {"points": {}},
-            "slot_2": {"points": {}},
-        })
+        _write_fixture_yaml(
+            fixture_path,
+            {
+                "slot_1": {"points": {}},
+                "slot_2": {"points": {}},
+            },
+        )
         _write_station_yaml(station_path)
-        _write_test_file(test_file, """\
+        _write_test_file(
+            test_file,
+            """\
             def test_always_passes():
                 assert True
-        """)
+        """,
+        )
 
         result = subprocess.run(
             [
-                sys.executable, "-m", "pytest",
+                sys.executable,
+                "-m",
+                "pytest",
                 str(test_file),
                 f"--fixture-config={fixture_path}",
                 f"--station-config={station_path}",
@@ -86,12 +94,17 @@ class TestMultiDutE2E:
         station_path = tmp_path / "station.yaml"
         test_file = tmp_path / "test_conditional.py"
 
-        _write_fixture_yaml(fixture_path, {
-            "slot_1": {"points": {}},
-            "slot_2": {"points": {}},
-        })
+        _write_fixture_yaml(
+            fixture_path,
+            {
+                "slot_1": {"points": {}},
+                "slot_2": {"points": {}},
+            },
+        )
         _write_station_yaml(station_path)
-        _write_test_file(test_file, """\
+        _write_test_file(
+            test_file,
+            """\
             import os
 
             def test_conditional():
@@ -99,11 +112,14 @@ class TestMultiDutE2E:
                 if slot_id == "slot_2":
                     assert False, "Intentional failure for slot_2"
                 assert True
-        """)
+        """,
+        )
 
         result = subprocess.run(
             [
-                sys.executable, "-m", "pytest",
+                sys.executable,
+                "-m",
+                "pytest",
                 str(test_file),
                 f"--fixture-config={fixture_path}",
                 f"--station-config={station_path}",
@@ -126,19 +142,27 @@ class TestMultiDutE2E:
         station_path = tmp_path / "station.yaml"
         test_file = tmp_path / "test_pass.py"
 
-        _write_fixture_yaml(fixture_path, {
-            "slot_1": {"points": {}},
-            "slot_2": {"points": {}},
-        })
+        _write_fixture_yaml(
+            fixture_path,
+            {
+                "slot_1": {"points": {}},
+                "slot_2": {"points": {}},
+            },
+        )
         _write_station_yaml(station_path)
-        _write_test_file(test_file, """\
+        _write_test_file(
+            test_file,
+            """\
             def test_ok():
                 pass
-        """)
+        """,
+        )
 
         result = subprocess.run(
             [
-                sys.executable, "-m", "pytest",
+                sys.executable,
+                "-m",
+                "pytest",
                 str(test_file),
                 f"--fixture-config={fixture_path}",
                 f"--station-config={station_path}",
@@ -152,6 +176,4 @@ class TestMultiDutE2E:
         )
 
         combined = result.stdout + result.stderr
-        assert "Single --dut-serial" in combined, (
-            f"Expected serial warning in output:\n{combined}"
-        )
+        assert "Single --dut-serial" in combined, f"Expected serial warning in output:\n{combined}"

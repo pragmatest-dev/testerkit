@@ -17,7 +17,9 @@ class TestMdf4Subscriber:
     """Test the event-driven subscriber path."""
 
     def _write_via_subscriber(
-        self, test_run: TestRun, tmp_path: Path,
+        self,
+        test_run: TestRun,
+        tmp_path: Path,
         replay: Callable[[TestRun, Any], None],
     ) -> Path:
         sub = Mdf4Subscriber(tmp_path)
@@ -28,31 +30,43 @@ class TestMdf4Subscriber:
         return tmp_path / "exports" / "mdf4" / f"{run_id}.mf4"
 
     def test_creates_file(
-        self, realistic_test_run: TestRun, tmp_path: Path,
+        self,
+        realistic_test_run: TestRun,
+        tmp_path: Path,
         replay_events: Callable[[TestRun, Any], None],
     ):
         result = self._write_via_subscriber(
-            realistic_test_run, tmp_path, replay_events,
+            realistic_test_run,
+            tmp_path,
+            replay_events,
         )
         assert result.exists()
 
     def test_channel_groups(
-        self, realistic_test_run: TestRun, tmp_path: Path,
+        self,
+        realistic_test_run: TestRun,
+        tmp_path: Path,
         replay_events: Callable[[TestRun, Any], None],
     ):
         result = self._write_via_subscriber(
-            realistic_test_run, tmp_path, replay_events,
+            realistic_test_run,
+            tmp_path,
+            replay_events,
         )
         mdf = MDF(result)
         # 2 steps with measurements, skip step has none
         assert len(mdf.groups) == 2
 
     def test_signal_values(
-        self, realistic_test_run: TestRun, tmp_path: Path,
+        self,
+        realistic_test_run: TestRun,
+        tmp_path: Path,
         replay_events: Callable[[TestRun, Any], None],
     ):
         result = self._write_via_subscriber(
-            realistic_test_run, tmp_path, replay_events,
+            realistic_test_run,
+            tmp_path,
+            replay_events,
         )
         mdf = MDF(result)
         sig = mdf.get("vout", group=0)
@@ -60,23 +74,31 @@ class TestMdf4Subscriber:
         assert abs(sig.samples[0] - 3.30) < 0.01
 
     def test_signal_units(
-        self, realistic_test_run: TestRun, tmp_path: Path,
+        self,
+        realistic_test_run: TestRun,
+        tmp_path: Path,
         replay_events: Callable[[TestRun, Any], None],
     ):
         result = self._write_via_subscriber(
-            realistic_test_run, tmp_path, replay_events,
+            realistic_test_run,
+            tmp_path,
+            replay_events,
         )
         mdf = MDF(result)
         sig = mdf.get("vout", group=0)
         assert sig.unit == "V"
 
     def test_signal_comment_xml(
-        self, realistic_test_run: TestRun, tmp_path: Path,
+        self,
+        realistic_test_run: TestRun,
+        tmp_path: Path,
         replay_events: Callable[[TestRun, Any], None],
     ):
         """Signal comment contains XML with limit metadata."""
         result = self._write_via_subscriber(
-            realistic_test_run, tmp_path, replay_events,
+            realistic_test_run,
+            tmp_path,
+            replay_events,
         )
         mdf = MDF(result)
         sig = mdf.get("vout", group=0)
@@ -85,23 +107,31 @@ class TestMdf4Subscriber:
         assert "GELE" in sig.comment
 
     def test_null_value_as_nan(
-        self, realistic_test_run: TestRun, tmp_path: Path,
+        self,
+        realistic_test_run: TestRun,
+        tmp_path: Path,
         replay_events: Callable[[TestRun, Any], None],
     ):
         result = self._write_via_subscriber(
-            realistic_test_run, tmp_path, replay_events,
+            realistic_test_run,
+            tmp_path,
+            replay_events,
         )
         mdf = MDF(result)
         sig = mdf.get("broken_sensor", group=1)
         assert math.isnan(sig.samples[0])
 
     def test_multiple_measurements_per_step(
-        self, realistic_test_run: TestRun, tmp_path: Path,
+        self,
+        realistic_test_run: TestRun,
+        tmp_path: Path,
         replay_events: Callable[[TestRun, Any], None],
     ):
         """Step with multiple measurements creates multiple signals."""
         result = self._write_via_subscriber(
-            realistic_test_run, tmp_path, replay_events,
+            realistic_test_run,
+            tmp_path,
+            replay_events,
         )
         mdf = MDF(result)
         channel_names = [ch.name for ch in mdf.groups[0].channels if ch.name != "time"]
@@ -110,11 +140,15 @@ class TestMdf4Subscriber:
         assert "vref_eq" in channel_names
 
     def test_timestamps_are_sequential(
-        self, realistic_test_run: TestRun, tmp_path: Path,
+        self,
+        realistic_test_run: TestRun,
+        tmp_path: Path,
         replay_events: Callable[[TestRun, Any], None],
     ):
         result = self._write_via_subscriber(
-            realistic_test_run, tmp_path, replay_events,
+            realistic_test_run,
+            tmp_path,
+            replay_events,
         )
         mdf = MDF(result)
         sig = mdf.get("vout", group=0)

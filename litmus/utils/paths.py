@@ -30,7 +30,8 @@ def _resolve_root(project_root: Path | None = None) -> Path:
 
 
 def get_search_paths(
-    resource_type: ResourceType, project_root: Path | None = None,
+    resource_type: ResourceType,
+    project_root: Path | None = None,
 ) -> list[Path]:
     """Get search paths for a resource type.
 

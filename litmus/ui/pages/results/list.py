@@ -26,8 +26,10 @@ def results_page():
                     {"name": "test", "label": "Test", "field": "test_sequence_id", "align": "left"},
                     {"name": "started", "label": "Started", "field": "started_at", "align": "left"},
                     {
-                        "name": "measurements", "label": "Measurements",
-                        "field": "measurements", "align": "center",
+                        "name": "measurements",
+                        "label": "Measurements",
+                        "field": "measurements",
+                        "align": "center",
                     },
                     {"name": "outcome", "label": "Outcome", "field": "outcome", "align": "center"},
                 ]

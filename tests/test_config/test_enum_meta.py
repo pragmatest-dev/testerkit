@@ -105,10 +105,7 @@ class TestLookup:
 
     def test_condition_lookup(self):
         results = lookup_enum("NPLC")
-        assert any(
-            r.enum_value == "nplc" and r.enum_type == "condition"
-            for r in results
-        )
+        assert any(r.enum_value == "nplc" and r.enum_type == "condition" for r in results)
 
     def test_lookup_result_type(self):
         results = lookup_enum("DCV")

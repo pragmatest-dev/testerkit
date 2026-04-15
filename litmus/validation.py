@@ -64,7 +64,6 @@ def validate_yaml(
     return _run_loader(loader, path)
 
 
-
 def _run_loader(loader: Callable, path: Path) -> list[str]:
     """Run a loader and return validation errors."""
     try:

@@ -48,13 +48,9 @@ def _render_instrument_detail(instrument_type: str, entry):
         with ui.card_section():
             with ui.row().classes("items-center justify-between w-full"):
                 with ui.row().classes("items-center gap-4"):
-                    ui.icon("device_unknown").classes(
-                        "text-3xl text-slate-600"
-                    )
+                    ui.icon("device_unknown").classes("text-3xl text-slate-600")
                     with ui.column().classes("gap-0"):
-                        ui.label(entry.name or instrument_type).classes(
-                            "text-xl font-semibold"
-                        )
+                        ui.label(entry.name or instrument_type).classes("text-xl font-semibold")
                         ui.label(entry.type or instrument_type).classes(
                             "text-sm text-slate-500 font-mono"
                         )
@@ -91,9 +87,7 @@ def _render_instrument_detail(instrument_type: str, entry):
         with ui.tab_panel("Simulation"):
             _render_simulation_tab({})
 
-    ui.link("← Back to Instruments", "/instruments").classes(
-        "text-blue-600 hover:underline mt-4"
-    )
+    ui.link("← Back to Instruments", "/instruments").classes("text-blue-600 hover:underline mt-4")
 
 
 def _render_capabilities_tab(capabilities: list):
@@ -142,10 +136,7 @@ def _render_scpi_tab(scpi_commands: dict):
                 {"name": "command", "label": "Command", "field": "command", "align": "left"},
                 {"name": "scpi", "label": "SCPI", "field": "scpi", "align": "left"},
             ]
-            rows = [
-                {"command": cmd, "scpi": scpi}
-                for cmd, scpi in scpi_commands.items()
-            ]
+            rows = [{"command": cmd, "scpi": scpi} for cmd, scpi in scpi_commands.items()]
             ui.table(columns=columns, rows=rows, row_key="command").classes("w-full")
     else:
         ui.label("No SCPI commands defined.").classes("text-slate-500 italic")
@@ -161,9 +152,7 @@ def _render_simulation_tab(simulation: dict):
 
                 defaults = simulation.get("defaults", {})
                 if defaults:
-                    ui.label("Default Values").classes(
-                        "text-xs text-slate-500 uppercase mt-4"
-                    )
+                    ui.label("Default Values").classes("text-xs text-slate-500 uppercase mt-4")
                     with ui.grid(columns=3).classes("gap-4 mt-2"):
                         for key, value in defaults.items():
                             _info_field(key, str(value))
@@ -236,13 +225,9 @@ def _render_asset_detail(instrument_id: str, asset):
                             f"{station['name']} ({station['id']})",
                             f"/stations/{station['id']}",
                         ).classes("text-blue-600 hover:underline")
-                        ui.label(f"Role: {station['role']}").classes(
-                            "text-xs text-slate-500"
-                        )
+                        ui.label(f"Role: {station['role']}").classes("text-xs text-slate-500")
 
-    ui.link("← Back to Instruments", "/instruments").classes(
-        "text-blue-600 hover:underline mt-4"
-    )
+    ui.link("← Back to Instruments", "/instruments").classes("text-blue-600 hover:underline mt-4")
 
 
 def _find_stations_for_asset(instrument_id: str) -> list[dict]:
@@ -257,17 +242,21 @@ def _find_stations_for_asset(instrument_id: str) -> list[dict]:
             # In the new format, instrument ID is in the resource or a direct reference
             inst_id = getattr(inst, "id", None)
             if isinstance(inst, str) and inst == instrument_id:
-                results.append({
-                    "id": station.id,
-                    "name": station.name or station.id,
-                    "role": role,
-                })
+                results.append(
+                    {
+                        "id": station.id,
+                        "name": station.name or station.id,
+                        "role": role,
+                    }
+                )
             elif inst_id == instrument_id:
-                results.append({
-                    "id": station.id,
-                    "name": station.name or station.id,
-                    "role": role,
-                })
+                results.append(
+                    {
+                        "id": station.id,
+                        "name": station.name or station.id,
+                        "role": role,
+                    }
+                )
     return results
 
 
@@ -275,6 +264,4 @@ def _render_not_found():
     """Render instrument not found message."""
     with ui.card().classes("w-full p-6 text-center"):
         ui.label("Instrument not found.").classes("text-xl text-slate-600")
-        ui.link("← Back to Instruments", "/instruments").classes(
-            "text-blue-600 hover:underline"
-        )
+        ui.link("← Back to Instruments", "/instruments").classes("text-blue-600 hover:underline")

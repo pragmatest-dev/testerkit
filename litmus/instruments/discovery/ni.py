@@ -45,9 +45,7 @@ def discover_ni() -> list[str]:
     try:
         with nisyscfg.Session() as session:
             for resource in session.find_hardware():
-                name = getattr(resource, "name", None) or getattr(
-                    resource, "user_alias", None
-                )
+                name = getattr(resource, "name", None) or getattr(resource, "user_alias", None)
                 if name:
                     devices.append(name)
     except Exception as exc:
@@ -72,9 +70,7 @@ def get_info_ni(device: str) -> InstrumentInfo | None:
     try:
         with nisyscfg.Session() as session:
             for resource in session.find_hardware():
-                name = getattr(resource, "name", None) or getattr(
-                    resource, "user_alias", None
-                )
+                name = getattr(resource, "name", None) or getattr(resource, "user_alias", None)
                 if name == device:
                     return InstrumentInfo(
                         manufacturer="National Instruments",
@@ -97,5 +93,3 @@ class NiDiscovery(DiscoveryProtocol):
 
     def get_info(self, resource: str) -> InstrumentInfo | None:
         return get_info_ni(resource)
-
-

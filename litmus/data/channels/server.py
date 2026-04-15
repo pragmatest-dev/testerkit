@@ -194,14 +194,16 @@ class ChannelFlightServer(flight.FlightServerBase):
 
 def _sample_schema() -> pa.Schema:
     """Default schema for ChannelSample batches over Flight."""
-    return pa.schema([
-        ("channel_id", pa.utf8()),
-        ("timestamp", pa.timestamp("us", tz="UTC")),
-        ("value", pa.utf8()),  # JSON-encoded for flexibility
-        ("source_method", pa.utf8()),
-        ("units", pa.utf8()),
-        ("sample_interval", pa.float64()),
-    ])
+    return pa.schema(
+        [
+            ("channel_id", pa.utf8()),
+            ("timestamp", pa.timestamp("us", tz="UTC")),
+            ("value", pa.utf8()),  # JSON-encoded for flexibility
+            ("source_method", pa.utf8()),
+            ("units", pa.utf8()),
+            ("sample_interval", pa.float64()),
+        ]
+    )
 
 
 def _sample_to_batch(sample: ChannelSample) -> pa.RecordBatch:

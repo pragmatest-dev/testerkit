@@ -29,24 +29,24 @@ _log(f"[ASGI] Starting reload at {time.strftime('%H:%M:%S')}")
 
 from fastapi.middleware.gzip import GZipMiddleware  # noqa: E402
 
-_log(f"[ASGI] +{(time.perf_counter() - _start)*1000:.0f}ms - fastapi imported")
+_log(f"[ASGI] +{(time.perf_counter() - _start) * 1000:.0f}ms - fastapi imported")
 
 from nicegui import core  # noqa: E402
 
-_log(f"[ASGI] +{(time.perf_counter() - _start)*1000:.0f}ms - nicegui.core imported")
+_log(f"[ASGI] +{(time.perf_counter() - _start) * 1000:.0f}ms - nicegui.core imported")
 
 from nicegui.middlewares import RedirectWithPrefixMiddleware, SetCacheControlMiddleware  # noqa: E402, I001
 
-_log(f"[ASGI] +{(time.perf_counter() - _start)*1000:.0f}ms - middlewares imported")
+_log(f"[ASGI] +{(time.perf_counter() - _start) * 1000:.0f}ms - middlewares imported")
 
 # Register UI pages on core.app (side-effect imports)
 import litmus.ui.app  # noqa: F401, E402
 
-_log(f"[ASGI] +{(time.perf_counter() - _start)*1000:.0f}ms - litmus.ui.app imported")
+_log(f"[ASGI] +{(time.perf_counter() - _start) * 1000:.0f}ms - litmus.ui.app imported")
 
 from litmus.api.app import create_api_router  # noqa: E402
 
-_log(f"[ASGI] +{(time.perf_counter() - _start)*1000:.0f}ms - api router imported")
+_log(f"[ASGI] +{(time.perf_counter() - _start) * 1000:.0f}ms - api router imported")
 
 # Add API routes
 core.app.include_router(create_api_router())
@@ -74,4 +74,4 @@ if not core.app.config.has_run_config:
     core.app.add_middleware(SetCacheControlMiddleware)
 
 app = core.app
-_log(f"[ASGI] +{(time.perf_counter() - _start)*1000:.0f}ms - READY")
+_log(f"[ASGI] +{(time.perf_counter() - _start) * 1000:.0f}ms - READY")

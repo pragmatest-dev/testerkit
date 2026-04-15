@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+from typing import cast
 from uuid import uuid4
 
+from litmus.data.event_log import EventLog
 from litmus.data.events import InstrumentConfigure, InstrumentRead, InstrumentSet
 from litmus.instruments.observer import EventEmitter
 from litmus.instruments.observers.generic import GenericObserver
@@ -53,7 +55,9 @@ def _make_proxy(driver=None) -> tuple[InstrumentProxy, CollectingLog]:  # noqa: 
     run_id = uuid4()
     d = driver or FakeDriver()
     emitter = EventEmitter(
-        event_log=log, session_id=session_id, role="dmm",  # type: ignore[arg-type]
+        event_log=cast(EventLog, log),
+        session_id=session_id,
+        role="dmm",  # type: ignore[arg-type]
         run_id=run_id,
     )
     observer = GenericObserver(type(d), "dmm", emitter)
@@ -174,7 +178,9 @@ def _make_property_proxy() -> tuple[InstrumentProxy, CollectingLog]:
     log = CollectingLog()
     session_id = uuid4()
     emitter = EventEmitter(
-        event_log=log, session_id=session_id, role="dmm",  # type: ignore[arg-type]
+        event_log=cast(EventLog, log),
+        session_id=session_id,
+        role="dmm",  # type: ignore[arg-type]
     )
     observer = PyMeasureObserver(PropertyDriver, "dmm", emitter)
     proxy = InstrumentProxy(PropertyDriver(), "dmm", observer)
@@ -228,7 +234,9 @@ class TestMixedMethodAndProperty:
 
         log = CollectingLog()
         emitter = EventEmitter(
-            event_log=log, session_id=uuid4(), role="dmm",  # type: ignore[arg-type]
+            event_log=cast(EventLog, log),
+            session_id=uuid4(),
+            role="dmm",  # type: ignore[arg-type]
         )
         observer = PyMeasureObserver(MixedDriver, "dmm", emitter)
         proxy = InstrumentProxy(MixedDriver(), "dmm", observer)

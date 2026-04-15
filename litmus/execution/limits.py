@@ -49,18 +49,13 @@ def derive_limit(
     if band is None:
         cond_str = ", ".join(f"{k}={v}" for k, v in params.items())
         avail = [dict(s.when) for s in char.specs]
-        raise ValueError(
-            f"No spec band matches: {cond_str}. "
-            f"Available when clauses: {avail}"
-        )
+        raise ValueError(f"No spec band matches: {cond_str}. Available when clauses: {avail}")
 
     # Calculate spec bounds from SpecBand
     spec_low, spec_high = _calculate_bounds(band, comparator, limit_low, limit_high)
 
     # Apply guardband (tighten limits)
-    final_low, final_high = _apply_guardband(
-        spec_low, spec_high, guardband_pct, comparator.value
-    )
+    final_low, final_high = _apply_guardband(spec_low, spec_high, guardband_pct, comparator.value)
 
     spec_id = char_id
     spec_ref = _build_spec_ref(char, params)

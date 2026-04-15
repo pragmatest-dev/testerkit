@@ -215,14 +215,15 @@ class FixtureManager:
     def _resolve_instrument(self, point_name: str, point: FixturePoint) -> Instrument:
         """Resolve a fixture point to its instrument, wrapping if routed."""
         if point.instrument not in self.instruments:
-            raise KeyError(
-                f"Instrument '{point.instrument}' for point '{point_name}' not found"
-            )
+            raise KeyError(f"Instrument '{point.instrument}' for point '{point_name}' not found")
         inst = self.instruments[point.instrument]
         return self._maybe_wrap_routed(inst, point_name, point)
 
     def _maybe_wrap_routed(
-        self, inst: Any, point_name: str, point: FixturePoint,
+        self,
+        inst: Any,
+        point_name: str,
+        point: FixturePoint,
     ) -> Instrument:
         """Wrap instrument in RoutedProxy if the point has a switch route."""
         if point.route is not None and self._route_manager is not None:

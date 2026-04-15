@@ -74,13 +74,9 @@ class InstrumentInfo(BaseModel):
         if expected.model and self.model != expected.model:
             mismatches.append(f"model: expected {expected.model!r}, got {self.model!r}")
         if expected.serial and self.serial != expected.serial:
-            mismatches.append(
-                f"serial: expected {expected.serial!r}, got {self.serial!r}"
-            )
+            mismatches.append(f"serial: expected {expected.serial!r}, got {self.serial!r}")
         if expected.firmware and self.firmware != expected.firmware:
-            mismatches.append(
-                f"firmware: expected {expected.firmware!r}, got {self.firmware!r}"
-            )
+            mismatches.append(f"firmware: expected {expected.firmware!r}, got {self.firmware!r}")
         return len(mismatches) == 0, mismatches
 
 

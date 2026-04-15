@@ -28,8 +28,7 @@ _PREFIX_TO_KIND: tuple[tuple[tuple[str, ...], ChannelKind], ...] = (
 def classify_by_prefix(name: str) -> ChannelKind | None:
     """Classify a method name by prefix, or None if unrecognized."""
     return next(
-        (kind for prefixes, kind in _PREFIX_TO_KIND
-         if any(name.startswith(p) for p in prefixes)),
+        (kind for prefixes, kind in _PREFIX_TO_KIND if any(name.startswith(p) for p in prefixes)),
         None,
     )
 
@@ -43,7 +42,7 @@ def strip_prefix(name: str, kind: ChannelKind) -> str:
     }
     for prefix in prefixes.get(kind, ()):
         if name.startswith(prefix):
-            return name[len(prefix):]
+            return name[len(prefix) :]
     return name
 
 
@@ -51,8 +50,15 @@ class GenericObserver(DriverObserver):
     """Prefix-based classification. Works for DIY drivers and Litmus convention."""
 
     observer_protocols = [
-        "generic", "yaqc", "lakeshore", "epics", "seabreeze",
-        "zhinst", "dwfpy", "picosdk", "pylablib",
+        "generic",
+        "yaqc",
+        "lakeshore",
+        "epics",
+        "seabreeze",
+        "zhinst",
+        "dwfpy",
+        "picosdk",
+        "pylablib",
     ]
 
     def __init__(
@@ -66,7 +72,11 @@ class GenericObserver(DriverObserver):
         super().__init__(driver_class, role, emit, yaml_overrides, driver_instance)
 
     def on_call(
-        self, name: str, args: tuple[Any, ...], kwargs: dict[str, Any], result: Any,
+        self,
+        name: str,
+        args: tuple[Any, ...],
+        kwargs: dict[str, Any],
+        result: Any,
     ) -> None:
         if self._should_skip(name):
             return

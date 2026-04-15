@@ -451,28 +451,30 @@ def build_step_manifest(test_run: TestRun) -> list[dict[str, Any]]:
         vector_count = len(step.vectors)
         if step.node_id:
             executed_node_ids.add(step.node_id)
-        manifest.append({
-            "index": index,
-            "name": step.name,
-            "node_id": step.node_id,
-            "file": step.file,
-            "function": step.function,
-            "class": step.class_name,
-            "module": step.module,
-            "step_path": step.step_path,
-            "description": step.description,
-            "outcome": step.outcome.value if step.outcome else None,
-            "started_at": step.started_at.isoformat() if step.started_at else None,
-            "ended_at": step.ended_at.isoformat() if step.ended_at else None,
-            "duration_s": (
-                (step.ended_at - step.started_at).total_seconds()
-                if step.started_at and step.ended_at
-                else None
-            ),
-            "has_measurements": measurement_count > 0,
-            "measurement_count": measurement_count,
-            "vector_count": vector_count,
-        })
+        manifest.append(
+            {
+                "index": index,
+                "name": step.name,
+                "node_id": step.node_id,
+                "file": step.file,
+                "function": step.function,
+                "class": step.class_name,
+                "module": step.module,
+                "step_path": step.step_path,
+                "description": step.description,
+                "outcome": step.outcome.value if step.outcome else None,
+                "started_at": step.started_at.isoformat() if step.started_at else None,
+                "ended_at": step.ended_at.isoformat() if step.ended_at else None,
+                "duration_s": (
+                    (step.ended_at - step.started_at).total_seconds()
+                    if step.started_at and step.ended_at
+                    else None
+                ),
+                "has_measurements": measurement_count > 0,
+                "measurement_count": measurement_count,
+                "vector_count": vector_count,
+            }
+        )
 
     # Append not-started entries for collected items that never executed
     _append_not_started(
@@ -499,21 +501,23 @@ def _append_not_started(
         node_id = ci.get("node_id") or ""
         if node_id in executed_node_ids:
             continue
-        manifest.append({
-            "index": next_index,
-            "name": ci.get("function") or node_id,
-            "node_id": node_id,
-            "file": ci.get("file"),
-            "function": ci.get("function"),
-            "class": ci.get("class_name"),
-            "module": ci.get("module"),
-            "step_path": "",
-            "description": None,
-            "outcome": "not_started",
-            "started_at": None,
-            "ended_at": None,
-            "has_measurements": False,
-            "measurement_count": 0,
-            "vector_count": 0,
-        })
+        manifest.append(
+            {
+                "index": next_index,
+                "name": ci.get("function") or node_id,
+                "node_id": node_id,
+                "file": ci.get("file"),
+                "function": ci.get("function"),
+                "class": ci.get("class_name"),
+                "module": ci.get("module"),
+                "step_path": "",
+                "description": None,
+                "outcome": "not_started",
+                "started_at": None,
+                "ended_at": None,
+                "has_measurements": False,
+                "measurement_count": 0,
+                "vector_count": 0,
+            }
+        )
         next_index += 1

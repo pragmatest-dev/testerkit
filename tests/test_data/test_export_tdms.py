@@ -16,7 +16,9 @@ class TestTdmsSubscriber:
     """Test the event-driven subscriber path."""
 
     def _write_via_subscriber(
-        self, test_run: TestRun, tmp_path: Path,
+        self,
+        test_run: TestRun,
+        tmp_path: Path,
         replay: Callable[[TestRun, Any], None],
     ) -> Path:
         sub = TdmsSubscriber(tmp_path)
@@ -27,20 +29,28 @@ class TestTdmsSubscriber:
         return tmp_path / "exports" / "tdms" / f"{run_id}.tdms"
 
     def test_creates_file(
-        self, realistic_test_run: TestRun, tmp_path: Path,
+        self,
+        realistic_test_run: TestRun,
+        tmp_path: Path,
         replay_events: Callable[[TestRun, Any], None],
     ):
         result = self._write_via_subscriber(
-            realistic_test_run, tmp_path, replay_events,
+            realistic_test_run,
+            tmp_path,
+            replay_events,
         )
         assert result.exists()
 
     def test_root_properties(
-        self, realistic_test_run: TestRun, tmp_path: Path,
+        self,
+        realistic_test_run: TestRun,
+        tmp_path: Path,
         replay_events: Callable[[TestRun, Any], None],
     ):
         result = self._write_via_subscriber(
-            realistic_test_run, tmp_path, replay_events,
+            realistic_test_run,
+            tmp_path,
+            replay_events,
         )
         tf = TdmsFile.read(result)
         props = dict(tf.properties)
@@ -48,11 +58,15 @@ class TestTdmsSubscriber:
         assert props["dut_serial"] == "DUT-001"
 
     def test_step_groups(
-        self, realistic_test_run: TestRun, tmp_path: Path,
+        self,
+        realistic_test_run: TestRun,
+        tmp_path: Path,
         replay_events: Callable[[TestRun, Any], None],
     ):
         result = self._write_via_subscriber(
-            realistic_test_run, tmp_path, replay_events,
+            realistic_test_run,
+            tmp_path,
+            replay_events,
         )
         tf = TdmsFile.read(result)
         names = [g.name for g in tf.groups()]
@@ -60,11 +74,15 @@ class TestTdmsSubscriber:
         assert "power.protection" in names
 
     def test_channels_rectangular(
-        self, realistic_test_run: TestRun, tmp_path: Path,
+        self,
+        realistic_test_run: TestRun,
+        tmp_path: Path,
         replay_events: Callable[[TestRun, Any], None],
     ):
         result = self._write_via_subscriber(
-            realistic_test_run, tmp_path, replay_events,
+            realistic_test_run,
+            tmp_path,
+            replay_events,
         )
         tf = TdmsFile.read(result)
         grp = tf["power.output.voltage"]
@@ -72,11 +90,15 @@ class TestTdmsSubscriber:
         assert len(set(lengths)) == 1
 
     def test_input_channels(
-        self, realistic_test_run: TestRun, tmp_path: Path,
+        self,
+        realistic_test_run: TestRun,
+        tmp_path: Path,
         replay_events: Callable[[TestRun, Any], None],
     ):
         result = self._write_via_subscriber(
-            realistic_test_run, tmp_path, replay_events,
+            realistic_test_run,
+            tmp_path,
+            replay_events,
         )
         tf = TdmsFile.read(result)
         grp = tf["power.output.voltage"]
@@ -85,11 +107,15 @@ class TestTdmsSubscriber:
         assert "in_load" in ch_names
 
     def test_measurement_properties(
-        self, realistic_test_run: TestRun, tmp_path: Path,
+        self,
+        realistic_test_run: TestRun,
+        tmp_path: Path,
         replay_events: Callable[[TestRun, Any], None],
     ):
         result = self._write_via_subscriber(
-            realistic_test_run, tmp_path, replay_events,
+            realistic_test_run,
+            tmp_path,
+            replay_events,
         )
         tf = TdmsFile.read(result)
         vout_ch = tf["power.output.voltage"]["vout"]
@@ -98,12 +124,16 @@ class TestTdmsSubscriber:
         assert props["comparator"] == "GELE"
 
     def test_groups_from_step_path(
-        self, realistic_test_run: TestRun, tmp_path: Path,
+        self,
+        realistic_test_run: TestRun,
+        tmp_path: Path,
         replay_events: Callable[[TestRun, Any], None],
     ):
         """Steps use flattened step_path (/ → .) as group names."""
         result = self._write_via_subscriber(
-            realistic_test_run, tmp_path, replay_events,
+            realistic_test_run,
+            tmp_path,
+            replay_events,
         )
         tf = TdmsFile.read(result)
         group_names = [g.name for g in tf.groups()]

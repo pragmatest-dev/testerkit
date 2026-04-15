@@ -80,9 +80,7 @@ def _render_requirements(product_id: str, product: dict):
                         }
                         for cap in capabilities
                     ]
-                    ui.table(columns=columns, rows=rows, row_key="characteristic").classes(
-                        "w-full"
-                    )
+                    ui.table(columns=columns, rows=rows, row_key="characteristic").classes("w-full")
                 else:
                     ui.label(
                         "No characteristics defined - add characteristics to generate requirements."
@@ -130,12 +128,10 @@ def _render_requirements(product_id: str, product: dict):
             if not compatible and not partial:
                 with ui.row().classes("items-center gap-2"):
                     ui.icon("info").classes("text-slate-400")
-                    ui.label("No stations have any required instruments.").classes(
-                        "text-slate-500"
-                    )
-                ui.label(
-                    "Consider creating a station or ordering instruments."
-                ).classes("text-sm text-slate-400 mt-1")
+                    ui.label("No stations have any required instruments.").classes("text-slate-500")
+                ui.label("Consider creating a station or ordering instruments.").classes(
+                    "text-sm text-slate-400 mt-1"
+                )
 
     # Action buttons
     with ui.row().classes("mt-4 gap-3"):

@@ -32,9 +32,7 @@ def create_channel_values_panel(
     container = ui.column().classes("w-full gap-2")
 
     with container:
-        placeholder = ui.label("No instrument data yet").classes(
-            "text-sm text-slate-400 italic"
-        )
+        placeholder = ui.label("No instrument data yet").classes("text-sm text-slate-400 italic")
         # Table header (hidden until first data)
         header = ui.row().classes("w-full px-3 py-1 border-b border-slate-200 hidden")
         with header:
@@ -77,21 +75,13 @@ def create_channel_values_panel(
             ts_lbl.set_text(ts_short)
         else:
             with rows_container:
-                with ui.row().classes(
-                    "w-full px-3 py-1.5 border-b border-slate-100 items-center"
-                ):
-                    ui.label(ch_id).classes(
-                        "w-1/3 text-sm font-mono text-slate-700"
-                    )
+                with ui.row().classes("w-full px-3 py-1.5 border-b border-slate-100 items-center"):
+                    ui.label(ch_id).classes("w-1/3 text-sm font-mono text-slate-700")
                     val_lbl = ui.label(f"{val:.4g}").classes(
                         "w-1/4 text-sm font-mono font-semibold"
                     )
-                    units_lbl = ui.label(units).classes(
-                        "w-1/6 text-xs text-slate-500"
-                    )
-                    ts_lbl = ui.label(ts_short).classes(
-                        "w-1/4 text-xs text-slate-400"
-                    )
+                    units_lbl = ui.label(units).classes("w-1/6 text-xs text-slate-500")
+                    ts_lbl = ui.label(ts_short).classes("w-1/4 text-xs text-slate-400")
                 channel_rows[ch_id] = (val_lbl, units_lbl, ts_lbl)
 
     unsubscribe = ui_subscribe(store, _on_event)

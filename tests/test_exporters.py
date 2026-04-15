@@ -100,9 +100,15 @@ class TestSubscriberRegistry:
         class FakeSubscriber(EventSubscriber):
             format_name = "fake"
             event_types: set[type] = set()
-            def open(self) -> None: pass
-            def on_event(self, event: object) -> None: pass
-            def close(self) -> None: pass
+
+            def open(self) -> None:
+                pass
+
+            def on_event(self, event: object) -> None:
+                pass
+
+            def close(self) -> None:
+                pass
 
         assert "fake" in list_subscribers()
         EventSubscriber._registry.pop("fake")  # cleanup
@@ -112,7 +118,6 @@ class TestSubscriberRegistry:
         assert "csv" in names
         assert "json" in names
         assert "parquet" in names
-
 
 
 class TestCsvSubscriber:
@@ -213,6 +218,7 @@ class TestTransportRegistry:
     def test_register_custom_transport(self):
         class FakeTransport(Transport):
             transport_name = "fake_t"
+
             def send(self, local_path: object, config: object) -> str:
                 return "sent"
 
@@ -249,12 +255,14 @@ class TestOutputConfig:
         assert cfg.default_output_dir() == "/custom"
 
     def test_extras_collection(self):
-        cfg = OutputConfig.model_validate({
-            "format": "stdf",
-            "transport": "s3",
-            "bucket": "my-bucket",
-            "prefix": "stdf/",
-        })
+        cfg = OutputConfig.model_validate(
+            {
+                "format": "stdf",
+                "transport": "s3",
+                "bucket": "my-bucket",
+                "prefix": "stdf/",
+            }
+        )
         assert cfg.extras["bucket"] == "my-bucket"
         assert cfg.extras["prefix"] == "stdf/"
 
@@ -310,12 +318,15 @@ class TestPluginWarnings:
         class BadSubscriber(EventSubscriber):
             format_name = "bad"
             event_types = {MeasurementRecorded}
+
             def open(self):
                 pass
+
             def on_event(self, event):
                 nonlocal call_count
                 call_count += 1
                 raise RuntimeError("boom")
+
             def close(self):
                 pass
 
@@ -351,8 +362,12 @@ class TestMeasurementRow:
         measurement = vector.measurements[0]
 
         row = build_row(
-            sample_test_run, measurement,
-            step.name, 0, vector, {},
+            sample_test_run,
+            measurement,
+            step.name,
+            0,
+            vector,
+            {},
         )
 
         assert isinstance(row, MeasurementRow)
@@ -372,8 +387,12 @@ class TestMeasurementRow:
         measurement = vector.measurements[0]
 
         row = build_row(
-            sample_test_run, measurement,
-            step.name, 0, vector, {},
+            sample_test_run,
+            measurement,
+            step.name,
+            0,
+            vector,
+            {},
         )
         flat = row.to_flat_dict()
 
@@ -406,10 +425,13 @@ class TestEventSubscriberLifecycle:
         class RecordingSub(EventSubscriber):
             format_name = "recording"
             event_types = {MeasurementRecorded}
+
             def open(self):
                 pass
+
             def on_event(self, event):
                 received.append(event)
+
             def close(self):
                 pass
 
@@ -441,10 +463,13 @@ class TestEventSubscriberLifecycle:
         class BadCloseSub(EventSubscriber):
             format_name = "bad_close"
             event_types = {MeasurementRecorded}
+
             def open(self):
                 pass
+
             def on_event(self, event):
                 pass
+
             def close(self):
                 raise RuntimeError("close failed")
 
@@ -455,8 +480,7 @@ class TestEventSubscriberLifecycle:
             event_log.close()
 
         assert any(
-            "bad_close" in str(c.message) and "close failed" in str(c.message)
-            for c in caught
+            "bad_close" in str(c.message) and "close failed" in str(c.message) for c in caught
         )
 
 
@@ -636,10 +660,13 @@ class TestHarnessLoggerIntegration:
         class RecordingSub(EventSubscriber):
             format_name = "recording"
             event_types = {MeasurementRecorded}
+
             def open(self):
                 pass
+
             def on_event(self, event):
                 received.append(event)
+
             def close(self):
                 pass
 

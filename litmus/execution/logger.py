@@ -148,7 +148,6 @@ class RunContext:
         return dict(self._test_run.custom_metadata)
 
 
-
 class TestRunLogger:
     """Accumulates measurements during test run, produces TestRun.
 
@@ -285,9 +284,7 @@ class TestRunLogger:
             return self._event_log.path
         return None
 
-    def build_instrument_arrays(
-        self, roles: list[str] | None = None
-    ) -> dict[str, list]:
+    def build_instrument_arrays(self, roles: list[str] | None = None) -> dict[str, list]:
         """Build parallel arrays for instrument identity and calibration.
 
         Args:
@@ -321,17 +318,26 @@ class TestRunLogger:
             ("instr_model", lambda role, rec: rec.info.model if rec.info else None),
             ("instr_serial", lambda role, rec: rec.info.serial if rec.info else None),
             ("instr_firmware", lambda role, rec: rec.info.firmware if rec.info else None),
-            ("instr_cal_due", lambda role, rec: (
-                rec.calibration.due_date.isoformat()
-                if rec.calibration and rec.calibration.due_date else None
-            )),
-            ("instr_cal_last", lambda role, rec: (
-                rec.calibration.last_cal.isoformat()
-                if rec.calibration and rec.calibration.last_cal else None
-            )),
-            ("instr_cal_certificate", lambda role, rec: (
-                rec.calibration.certificate if rec.calibration else None
-            )),
+            (
+                "instr_cal_due",
+                lambda role, rec: (
+                    rec.calibration.due_date.isoformat()
+                    if rec.calibration and rec.calibration.due_date
+                    else None
+                ),
+            ),
+            (
+                "instr_cal_last",
+                lambda role, rec: (
+                    rec.calibration.last_cal.isoformat()
+                    if rec.calibration and rec.calibration.last_cal
+                    else None
+                ),
+            ),
+            (
+                "instr_cal_certificate",
+                lambda role, rec: (rec.calibration.certificate if rec.calibration else None),
+            ),
             ("instr_cal_lab", lambda role, rec: rec.calibration.lab if rec.calibration else None),
             ("instr_mocked", lambda role, rec: rec.mocked),
         ]
@@ -385,10 +391,16 @@ class TestRunLogger:
         parent_path = "/".join(self._step_stack[:-1])
 
         step = TestStep(
-            name=name, description=description,
-            step_path=step_path, parent_path=parent_path,
-            node_id=node_id, file=file, module=module,
-            class_name=class_name, function=function, markers=markers,
+            name=name,
+            description=description,
+            step_path=step_path,
+            parent_path=parent_path,
+            node_id=node_id,
+            file=file,
+            module=module,
+            class_name=class_name,
+            function=function,
+            markers=markers,
         )
         self._current_step_index += 1
         self.test_run.steps.append(step)
@@ -400,20 +412,22 @@ class TestRunLogger:
         self._vector_token = _current_vector_var.set(vector)
 
         if self._event_log is not None:
-            self._event_log.emit(StepStarted(
-                session_id=self._session_id,
-                run_id=self.test_run.id,
-                step_name=name,
-                step_index=self._current_step_index,
-                step_path=step_path,
-                parent_path=parent_path,
-                description=description,
-                node_id=node_id,
-                file=file,
-                module=module,
-                class_name=class_name,
-                function=function,
-            ))
+            self._event_log.emit(
+                StepStarted(
+                    session_id=self._session_id,
+                    run_id=self.test_run.id,
+                    step_name=name,
+                    step_index=self._current_step_index,
+                    step_path=step_path,
+                    parent_path=parent_path,
+                    description=description,
+                    node_id=node_id,
+                    file=file,
+                    module=module,
+                    class_name=class_name,
+                    function=function,
+                )
+            )
 
     def register_step(self, step: TestStep) -> int:
         """Register an externally-created step. Returns step index.
@@ -486,7 +500,8 @@ class TestRunLogger:
                 # Dynamic columns (vector-specific)
                 inputs=build_input_columns(vector),
                 outputs=build_output_columns(
-                    vector, ref_saver=self._event_log.save_ref,
+                    vector,
+                    ref_saver=self._event_log.save_ref,
                 ),
                 custom=dict(self.test_run.custom_metadata),
             )
@@ -502,19 +517,21 @@ class TestRunLogger:
             vector.ended_at = _utcnow()
 
         if self._event_log is not None and step is not None:
-            self._event_log.emit(StepEnded(
-                session_id=self._session_id,
-                run_id=self.test_run.id,
-                step_name=step.name,
-                step_index=self._current_step_index,
-                step_path=step.step_path,
-                outcome=step.outcome.value,
-                node_id=step.node_id,
-                file=step.file,
-                module=step.module,
-                class_name=step.class_name,
-                function=step.function,
-            ))
+            self._event_log.emit(
+                StepEnded(
+                    session_id=self._session_id,
+                    run_id=self.test_run.id,
+                    step_name=step.name,
+                    step_index=self._current_step_index,
+                    step_path=step.step_path,
+                    outcome=step.outcome.value,
+                    node_id=step.node_id,
+                    file=step.file,
+                    module=step.module,
+                    class_name=step.class_name,
+                    function=step.function,
+                )
+            )
 
         # Pop step from hierarchy stack
         if self._step_stack:
@@ -625,14 +642,16 @@ class TestRunLogger:
         step_name = step.name if step else ""
         step_index = self._current_step_index if step else -1
         if self._event_log is not None:
-            self._event_log.emit(RecordEvent(
-                session_id=self._session_id,
-                run_id=self.test_run.id,
-                step_name=step_name,
-                step_index=step_index,
-                key=key,
-                value=value,
-            ))
+            self._event_log.emit(
+                RecordEvent(
+                    session_id=self._session_id,
+                    run_id=self.test_run.id,
+                    step_name=step_name,
+                    step_index=step_index,
+                    key=key,
+                    value=value,
+                )
+            )
 
     def finalize(self) -> TestRun:
         """Complete test run and return result.
@@ -647,10 +666,12 @@ class TestRunLogger:
         self.test_run.ended_at = _utcnow()
 
         if self._event_log is not None:
-            self._event_log.emit(RunEnded(
-                session_id=self._session_id,
-                run_id=self.test_run.id,
-                outcome=self.test_run.outcome.value,
-            ))
+            self._event_log.emit(
+                RunEnded(
+                    session_id=self._session_id,
+                    run_id=self.test_run.id,
+                    outcome=self.test_run.outcome.value,
+                )
+            )
 
         return self.test_run

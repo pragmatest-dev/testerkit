@@ -16,9 +16,7 @@ def tests_page():
     with ui.column().classes("w-full p-6 gap-6"):
         with ui.row().classes("items-center gap-2"):
             ui.icon("science").classes("text-slate-600")
-            ui.label("Test Directories").classes(
-                "text-lg font-semibold text-slate-700"
-            )
+            ui.label("Test Directories").classes("text-lg font-semibold text-slate-700")
 
         # Info card
         with ui.card().classes("w-full bg-blue-50 border-blue-200"):
@@ -26,16 +24,14 @@ def tests_page():
                 with ui.row().classes("items-start gap-3"):
                     ui.icon("info", color="blue").classes("mt-1")
                     with ui.column().classes("gap-1"):
-                        ui.label("Test Configuration").classes(
-                            "font-semibold text-blue-900"
-                        )
+                        ui.label("Test Configuration").classes("font-semibold text-blue-900")
                         ui.label(
                             "Test config (vectors, limits, mocks) is defined in sequence steps. "
                             "Use the Sequence Editor to configure tests."
                         ).classes("text-sm text-blue-800")
-                        ui.link(
-                            "Go to Sequences →", "/sequences"
-                        ).classes("text-sm text-blue-600 hover:underline")
+                        ui.link("Go to Sequences →", "/sequences").classes(
+                            "text-sm text-blue-600 hover:underline"
+                        )
 
         if tests:
             with ui.row().classes("gap-4 flex-wrap"):
@@ -44,9 +40,7 @@ def tests_page():
         else:
             with ui.card().classes("w-full p-6 text-center"):
                 ui.icon("science").classes("text-4xl text-slate-300")
-                ui.label("No test directories found.").classes(
-                    "text-slate-500 mt-2"
-                )
+                ui.label("No test directories found.").classes("text-slate-500 mt-2")
                 ui.label("Add test_*.py files to a tests/ directory.").classes(
                     "text-sm text-slate-400"
                 )

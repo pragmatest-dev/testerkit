@@ -62,9 +62,7 @@ def _render_sequence_detail(sequence_id: str, seq: TestSequenceConfig):
                             "characterization": "purple",
                             "production": "green",
                         }
-                        ui.badge(phase, color=phase_colors.get(phase, "gray")).props(
-                            "outline"
-                        )
+                        ui.badge(phase, color=phase_colors.get(phase, "gray")).props("outline")
                 with ui.row().classes("gap-2"):
                     ui.button(
                         "Back",
@@ -214,9 +212,7 @@ def _render_step_expansion(index: int, step: dict, sequence_id: str):
                 if isinstance(vectors, list):
                     config_items.append(("Vectors", f"{len(vectors)} vectors"))
                 elif isinstance(vectors, dict):
-                    config_items.append(
-                        ("Vectors", f"expand: {vectors.get('expand', 'product')}")
-                    )
+                    config_items.append(("Vectors", f"expand: {vectors.get('expand', 'product')}"))
 
             # Limits summary
             limits = step.get("limits")
@@ -307,9 +303,9 @@ def _render_requirements_tab(sequence_id: str, seq: TestSequenceConfig):
                     for station in compatible_stations:
                         _station_card(sequence_id, station)
             else:
-                ui.label(
-                    "No compatible stations found. Check instrument capabilities."
-                ).classes("text-slate-500 italic")
+                ui.label("No compatible stations found. Check instrument capabilities.").classes(
+                    "text-slate-500 italic"
+                )
 
 
 def _station_card(sequence_id: str, station: dict):

@@ -32,143 +32,152 @@ SCHEMA_VERSION = "2.0"
 
 # Canonical schema for fixed columns. Dynamic columns (in_*, out_*, instr_*, custom_*)
 # are NOT listed here — they pass through with inferred types.
-MEASUREMENT_SCHEMA = pa.schema([
-    # Identity & timing
-    ("session_id", pa.string()),
-    ("run_id", pa.string()),
-    ("slot_id", pa.string()),
-    ("run_started_at", pa.timestamp("us", tz="UTC")),
-    ("run_ended_at", pa.timestamp("us", tz="UTC")),
-    ("step_name", pa.string()),
-    ("step_index", pa.int64()),
-    ("step_path", pa.string()),
-    ("step_started_at", pa.timestamp("us", tz="UTC")),
-    ("step_ended_at", pa.timestamp("us", tz="UTC")),
-    ("step_node_id", pa.string()),
-    ("step_module", pa.string()),
-    ("step_file", pa.string()),
-    ("step_class", pa.string()),
-    ("step_function", pa.string()),
-    ("step_markers", pa.string()),
-    ("vector_index", pa.int64()),
-    ("attempt", pa.int64()),
-    ("vector_started_at", pa.timestamp("us", tz="UTC")),
-    ("vector_ended_at", pa.timestamp("us", tz="UTC")),
-    # Who
-    ("operator_id", pa.string()),
-    ("operator_name", pa.string()),
-    # DUT
-    ("dut_serial", pa.string()),
-    ("dut_part_number", pa.string()),
-    ("dut_revision", pa.string()),
-    ("dut_lot_number", pa.string()),
-    # Product
-    ("product_id", pa.string()),
-    ("product_name", pa.string()),
-    ("product_revision", pa.string()),
-    # Station
-    ("station_id", pa.string()),
-    ("station_name", pa.string()),
-    ("station_type", pa.string()),
-    ("station_location", pa.string()),
-    ("station_hostname", pa.string()),
-    # Fixture
-    ("fixture_id", pa.string()),
-    # Test context
-    ("sequence_id", pa.string()),
-    ("test_phase", pa.string()),
-    ("git_commit", pa.string()),
-    ("git_branch", pa.string()),
-    ("git_remote", pa.string()),
-    # Measurement core
-    ("measurement_name", pa.string()),
-    ("measurement_timestamp", pa.timestamp("us", tz="UTC")),
-    ("value", pa.float64()),
-    ("units", pa.string()),
-    ("outcome", pa.string()),
-    # Limits
-    ("low_limit", pa.float64()),
-    ("high_limit", pa.float64()),
-    ("nominal", pa.float64()),
-    ("comparator", pa.string()),
-    # Spec traceability
-    ("spec_id", pa.string()),
-    ("spec_ref", pa.string()),
-    # Signal path
-    ("meas_dut_pin", pa.string()),
-    ("meas_fixture_point", pa.string()),
-    ("meas_instrument", pa.string()),
-    ("meas_instrument_resource", pa.string()),
-    ("meas_instrument_channel", pa.string()),
-    # Rollup
-    ("vector_outcome", pa.string()),
-    ("run_outcome", pa.string()),
-    # Environment traceability
-    ("python_version", pa.string()),
-    ("litmus_version", pa.string()),
-    ("env_fingerprint", pa.string()),
-])
+MEASUREMENT_SCHEMA = pa.schema(
+    [
+        # Identity & timing
+        ("session_id", pa.string()),
+        ("run_id", pa.string()),
+        ("slot_id", pa.string()),
+        ("run_started_at", pa.timestamp("us", tz="UTC")),
+        ("run_ended_at", pa.timestamp("us", tz="UTC")),
+        ("step_name", pa.string()),
+        ("step_index", pa.int64()),
+        ("step_path", pa.string()),
+        ("step_started_at", pa.timestamp("us", tz="UTC")),
+        ("step_ended_at", pa.timestamp("us", tz="UTC")),
+        ("step_node_id", pa.string()),
+        ("step_module", pa.string()),
+        ("step_file", pa.string()),
+        ("step_class", pa.string()),
+        ("step_function", pa.string()),
+        ("step_markers", pa.string()),
+        ("vector_index", pa.int64()),
+        ("attempt", pa.int64()),
+        ("vector_started_at", pa.timestamp("us", tz="UTC")),
+        ("vector_ended_at", pa.timestamp("us", tz="UTC")),
+        # Who
+        ("operator_id", pa.string()),
+        ("operator_name", pa.string()),
+        # DUT
+        ("dut_serial", pa.string()),
+        ("dut_part_number", pa.string()),
+        ("dut_revision", pa.string()),
+        ("dut_lot_number", pa.string()),
+        # Product
+        ("product_id", pa.string()),
+        ("product_name", pa.string()),
+        ("product_revision", pa.string()),
+        # Station
+        ("station_id", pa.string()),
+        ("station_name", pa.string()),
+        ("station_type", pa.string()),
+        ("station_location", pa.string()),
+        ("station_hostname", pa.string()),
+        # Fixture
+        ("fixture_id", pa.string()),
+        # Test context
+        ("sequence_id", pa.string()),
+        ("test_phase", pa.string()),
+        ("git_commit", pa.string()),
+        ("git_branch", pa.string()),
+        ("git_remote", pa.string()),
+        # Measurement core
+        ("measurement_name", pa.string()),
+        ("measurement_timestamp", pa.timestamp("us", tz="UTC")),
+        ("value", pa.float64()),
+        ("units", pa.string()),
+        ("outcome", pa.string()),
+        # Limits
+        ("low_limit", pa.float64()),
+        ("high_limit", pa.float64()),
+        ("nominal", pa.float64()),
+        ("comparator", pa.string()),
+        # Spec traceability
+        ("spec_id", pa.string()),
+        ("spec_ref", pa.string()),
+        # Signal path
+        ("meas_dut_pin", pa.string()),
+        ("meas_fixture_point", pa.string()),
+        ("meas_instrument", pa.string()),
+        ("meas_instrument_resource", pa.string()),
+        ("meas_instrument_channel", pa.string()),
+        # Rollup
+        ("vector_outcome", pa.string()),
+        ("run_outcome", pa.string()),
+        # Environment traceability
+        ("python_version", pa.string()),
+        ("litmus_version", pa.string()),
+        ("env_fingerprint", pa.string()),
+    ]
+)
 
-STEP_SCHEMA = pa.schema([
-    # Step identity
-    ("index", pa.int32()),
-    ("name", pa.string()),
-    ("node_id", pa.string()),
-    ("file", pa.string()),
-    ("function", pa.string()),
-    ("class", pa.string()),
-    ("module", pa.string()),
-    ("step_path", pa.string()),
-    ("description", pa.string()),
-    ("markers", pa.string()),
-    # Execution
-    ("outcome", pa.string()),
-    ("started_at", pa.timestamp("us", tz="UTC")),
-    ("ended_at", pa.timestamp("us", tz="UTC")),
-    ("duration_s", pa.float64()),
-    # Counts
-    ("has_measurements", pa.bool_()),
-    ("measurement_count", pa.int32()),
-    ("vector_count", pa.int32()),
-    # Run context (denormalized — matches measurement schema)
-    ("run_id", pa.string()),
-    ("session_id", pa.string()),
-    ("slot_id", pa.string()),
-    ("run_started_at", pa.timestamp("us", tz="UTC")),
-    ("run_ended_at", pa.timestamp("us", tz="UTC")),
-    # Who
-    ("operator_id", pa.string()),
-    ("operator_name", pa.string()),
-    # DUT
-    ("dut_serial", pa.string()),
-    ("dut_part_number", pa.string()),
-    ("dut_revision", pa.string()),
-    ("dut_lot_number", pa.string()),
-    # Product
-    ("product_id", pa.string()),
-    ("product_name", pa.string()),
-    ("product_revision", pa.string()),
-    # Station
-    ("station_id", pa.string()),
-    ("station_name", pa.string()),
-    ("station_type", pa.string()),
-    ("station_location", pa.string()),
-    ("station_hostname", pa.string()),
-    # Fixture
-    ("fixture_id", pa.string()),
-    # Test context
-    ("sequence_id", pa.string()),
-    ("test_phase", pa.string()),
-    ("git_commit", pa.string()),
-    ("git_branch", pa.string()),
-    ("git_remote", pa.string()),
-])
+STEP_SCHEMA = pa.schema(
+    [
+        # Step identity
+        ("index", pa.int32()),
+        ("name", pa.string()),
+        ("node_id", pa.string()),
+        ("file", pa.string()),
+        ("function", pa.string()),
+        ("class", pa.string()),
+        ("module", pa.string()),
+        ("step_path", pa.string()),
+        ("description", pa.string()),
+        ("markers", pa.string()),
+        # Execution
+        ("outcome", pa.string()),
+        ("started_at", pa.timestamp("us", tz="UTC")),
+        ("ended_at", pa.timestamp("us", tz="UTC")),
+        ("duration_s", pa.float64()),
+        # Counts
+        ("has_measurements", pa.bool_()),
+        ("measurement_count", pa.int32()),
+        ("vector_count", pa.int32()),
+        # Run context (denormalized — matches measurement schema)
+        ("run_id", pa.string()),
+        ("session_id", pa.string()),
+        ("slot_id", pa.string()),
+        ("run_started_at", pa.timestamp("us", tz="UTC")),
+        ("run_ended_at", pa.timestamp("us", tz="UTC")),
+        # Who
+        ("operator_id", pa.string()),
+        ("operator_name", pa.string()),
+        # DUT
+        ("dut_serial", pa.string()),
+        ("dut_part_number", pa.string()),
+        ("dut_revision", pa.string()),
+        ("dut_lot_number", pa.string()),
+        # Product
+        ("product_id", pa.string()),
+        ("product_name", pa.string()),
+        ("product_revision", pa.string()),
+        # Station
+        ("station_id", pa.string()),
+        ("station_name", pa.string()),
+        ("station_type", pa.string()),
+        ("station_location", pa.string()),
+        ("station_hostname", pa.string()),
+        # Fixture
+        ("fixture_id", pa.string()),
+        # Test context
+        ("sequence_id", pa.string()),
+        ("test_phase", pa.string()),
+        ("git_commit", pa.string()),
+        ("git_branch", pa.string()),
+        ("git_remote", pa.string()),
+    ]
+)
 
 _SCHEMA_DICT = {f.name: f.type for f in MEASUREMENT_SCHEMA}
 
 _TIMESTAMP_COLS = {
-    "run_started_at", "run_ended_at", "vector_started_at", "vector_ended_at",
-    "measurement_timestamp", "step_started_at", "step_ended_at",
+    "run_started_at",
+    "run_ended_at",
+    "vector_started_at",
+    "vector_ended_at",
+    "measurement_timestamp",
+    "step_started_at",
+    "step_ended_at",
 }
 
 # Instrument array columns have known list types
@@ -244,9 +253,7 @@ def table_from_rows(rows: list[dict[str, Any]], schema: pa.Schema) -> pa.Table:
             if field.name in _SCHEMA_DICT:
                 continue
             types_seen = {
-                type(row.get(field.name))
-                for row in rows
-                if row.get(field.name) is not None
+                type(row.get(field.name)) for row in rows if row.get(field.name) is not None
             }
             if len(types_seen) > 1:
                 type_names = ", ".join(
@@ -322,14 +329,18 @@ def _enforce_schema(table: pa.Table) -> pa.Table:
                     parsed_ts.append(v)
             columns.append(pa.array(parsed_ts, type=target_type))
         elif target_type == pa.string():
-            columns.append(pa.array(
-                [str(v) if v is not None else None for v in values],
-                type=target_type,
-            ))
+            columns.append(
+                pa.array(
+                    [str(v) if v is not None else None for v in values],
+                    type=target_type,
+                )
+            )
         else:
             logger.warning(
                 "Cannot enforce schema for %s: %s → %s, keeping original",
-                field.name, field.type, target_type,
+                field.name,
+                field.type,
+                target_type,
             )
             columns.append(col)
 

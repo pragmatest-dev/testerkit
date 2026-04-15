@@ -65,6 +65,4 @@ def detect_protocol(driver_class: type) -> str:
 
 def get_observer_class(protocol: str) -> type[DriverObserver]:
     """Get the observer class for a protocol. Falls back to generic."""
-    return DriverObserver._registry.get(
-        protocol, DriverObserver._registry["generic"]
-    )
+    return DriverObserver._registry.get(protocol, DriverObserver._registry["generic"])

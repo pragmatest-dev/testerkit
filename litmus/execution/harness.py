@@ -23,8 +23,6 @@ if TYPE_CHECKING:
     from litmus.products.context import SpecContext
 
 
-
-
 class Context:
     """Hierarchical context with scoped inheritance.
 
@@ -350,7 +348,6 @@ class Context:
     def metadata(self) -> dict[str, Any]:
         """Access the underlying metadata dict (RunContext compatibility)."""
         return self.inputs
-
 
 
 class TestHarness:
@@ -770,9 +767,7 @@ class TestHarness:
                 resolved_instrument_channel = resolved_instrument_channel or pin_info.get(
                     "instrument_channel"
                 )
-                resolved_fixture_point = resolved_fixture_point or pin_info.get(
-                    "fixture_point"
-                )
+                resolved_fixture_point = resolved_fixture_point or pin_info.get("fixture_point")
 
         # Create measurement
         measurement = Measurement(
@@ -1001,7 +996,9 @@ class TestHarness:
         # Create vector context as child of step (or run if no step)
         parent_context = self._step_context or self._run_context
         self._vector_context = Context(
-            parent=parent_context, prev=self._prev_vector_context, harness=self,
+            parent=parent_context,
+            prev=self._prev_vector_context,
+            harness=self,
             channel_store=self._channel_store,
         )
 
@@ -1137,26 +1134,26 @@ class TestHarness:
         # Register with logger (uses register_step instead of direct append)
         if self._logger is not None:
             self._current_step_index = self._logger.register_step(step)
-            step.instrument_arrays = getattr(
-                self._logger, "_step_instrument_arrays", None
-            )
+            step.instrument_arrays = getattr(self._logger, "_step_instrument_arrays", None)
             # Emit StepStarted event (register_step doesn't emit)
             if self._logger.event_log is not None:
                 from litmus.data.events import StepStarted
 
-                self._logger.event_log.emit(StepStarted(
-                    session_id=self._logger._session_id,
-                    run_id=self._logger.test_run.id,
-                    step_name=step.name,
-                    step_index=self._current_step_index,
-                    step_path=step.step_path,
-                    description=step.description,
-                    node_id=step.node_id,
-                    file=step.file,
-                    module=step.module,
-                    class_name=step.class_name,
-                    function=step.function,
-                ))
+                self._logger.event_log.emit(
+                    StepStarted(
+                        session_id=self._logger._session_id,
+                        run_id=self._logger.test_run.id,
+                        step_name=step.name,
+                        step_index=self._current_step_index,
+                        step_path=step.step_path,
+                        description=step.description,
+                        node_id=step.node_id,
+                        file=step.file,
+                        module=step.module,
+                        class_name=step.class_name,
+                        function=step.function,
+                    )
+                )
 
         # Set contextvar for concurrency-safe resolution
         step_token = _current_step_var.set(step)
@@ -1173,19 +1170,21 @@ class TestHarness:
             if self._logger is not None and self._logger.event_log is not None:
                 from litmus.data.events import StepEnded
 
-                self._logger.event_log.emit(StepEnded(
-                    session_id=self._logger._session_id,
-                    run_id=self._logger.test_run.id,
-                    step_name=step.name,
-                    step_index=self._current_step_index,
-                    step_path=step.step_path,
-                    outcome=step.outcome.value,
-                    node_id=step.node_id,
-                    file=step.file,
-                    module=step.module,
-                    class_name=step.class_name,
-                    function=step.function,
-                ))
+                self._logger.event_log.emit(
+                    StepEnded(
+                        session_id=self._logger._session_id,
+                        run_id=self._logger.test_run.id,
+                        step_name=step.name,
+                        step_index=self._current_step_index,
+                        step_path=step.step_path,
+                        outcome=step.outcome.value,
+                        node_id=step.node_id,
+                        file=step.file,
+                        module=step.module,
+                        class_name=step.class_name,
+                        function=step.function,
+                    )
+                )
 
             _current_step_var.reset(step_token)
             self._step_context = None

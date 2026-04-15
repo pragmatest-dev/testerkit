@@ -32,11 +32,13 @@ def results_tree(tmp_path: Path) -> Path:
 
     # ChannelStore arrow files include a timestamp column
     now = datetime.now(UTC)
-    arrow_table = pa.table({
-        "timestamp": pa.array([now, now, now], type=pa.timestamp("us", tz="UTC")),
-        "value": [1.0, 2.0, 3.0],
-        "source_method": ["observe", "observe", "observe"],
-    })
+    arrow_table = pa.table(
+        {
+            "timestamp": pa.array([now, now, now], type=pa.timestamp("us", tz="UTC")),
+            "value": [1.0, 2.0, 3.0],
+            "source_method": ["observe", "observe", "observe"],
+        }
+    )
     arrow_path = channel_dir / f"{channel_id}_{session_short}.arrow"
     writer = ipc.new_stream(arrow_path, arrow_table.schema)
     writer.write_table(arrow_table)
@@ -44,17 +46,19 @@ def results_tree(tmp_path: Path) -> Path:
 
     # Create a parquet file referencing that channel
     uri = make_channel_uri(channel_id, session_id)
-    pq_table = pa.table({
-        "run_id": ["run1"],
-        "session_id": [session_id],
-        "run_started_at": ["2026-03-01T10:00:00Z"],
-        "run_ended_at": ["2026-03-01T10:05:00Z"],
-        "run_outcome": ["pass"],
-        "dut_serial": ["SN001"],
-        "station_id": ["station-1"],
-        "measurement_name": ["voltage"],
-        "out_waveform": [uri],
-    })
+    pq_table = pa.table(
+        {
+            "run_id": ["run1"],
+            "session_id": [session_id],
+            "run_started_at": ["2026-03-01T10:00:00Z"],
+            "run_ended_at": ["2026-03-01T10:05:00Z"],
+            "run_outcome": ["pass"],
+            "dut_serial": ["SN001"],
+            "station_id": ["station-1"],
+            "measurement_name": ["voltage"],
+            "out_waveform": [uri],
+        }
+    )
     runs_dir = results / "runs" / "2026-03-01"
     runs_dir.mkdir(parents=True)
     pq.write_table(pq_table, runs_dir / "test_run.parquet")

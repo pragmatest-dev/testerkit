@@ -122,6 +122,7 @@ def bind_channel_store(store: ChannelStore) -> Callable[[], None]:
 
     Call once at startup. Returns a cleanup callable.
     """
+
     def _on_sample(sample: ChannelSample) -> None:
         evt = _channel_signals.get(sample.channel_id)
         if evt is not None:

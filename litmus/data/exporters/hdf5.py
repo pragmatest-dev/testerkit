@@ -31,6 +31,7 @@ from litmus.data.subscribers._output_file import OutputFile
 
 # ── Event subscriber ────────────────────────────────────────────────
 
+
 class Hdf5Subscriber(EventSubscriber):
     """EventSubscriber that writes HDF5 on close."""
 
@@ -43,8 +44,12 @@ class Hdf5Subscriber(EventSubscriber):
         on_output: Callable[[OutputFile], None] | None = None,
     ) -> None:
         self.event_types: set[type] = {
-            RunStarted, InstrumentConnected,
-            StepStarted, MeasurementRecorded, StepEnded, RunEnded,
+            RunStarted,
+            InstrumentConnected,
+            StepStarted,
+            MeasurementRecorded,
+            StepEnded,
+            RunEnded,
         }
         self._output_dir = output_dir / "exports" / "hdf5"
         self._on_output = on_output
@@ -175,11 +180,13 @@ class Hdf5Subscriber(EventSubscriber):
                 meas_grp = vec_grp.require_group("measurements")
                 if m.value is not None:
                     ds = meas_grp.create_dataset(
-                        m.measurement_name, data=m.value,
+                        m.measurement_name,
+                        data=m.value,
                     )
                 else:
                     ds = meas_grp.create_dataset(
-                        m.measurement_name, data=float("nan"),
+                        m.measurement_name,
+                        data=float("nan"),
                     )
                     ds.attrs["value_missing"] = True
 
@@ -204,4 +211,3 @@ class Hdf5Subscriber(EventSubscriber):
 
         if self._on_output:
             self._on_output(OutputFile(path=out_file, format="hdf5", run_id=run_id))
-

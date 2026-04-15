@@ -78,9 +78,7 @@ def _signals_from_measurements(
                 "nominal": m.nominal,
             }
         val = m.value
-        meas_data[mname][vec_idx] = (
-            val if val is not None else float("nan")
-        )
+        meas_data[mname][vec_idx] = val if val is not None else float("nan")
         max_vec = max(max_vec, vec_idx)
 
     if not meas_data:
@@ -104,18 +102,21 @@ def _signals_from_measurements(
             meta["high_limit"],
             meta["nominal"],
         )
-        signals.append(Signal(
-            samples=samples,
-            timestamps=timestamps,
-            name=mname,
-            unit=meta["units"] or "",
-            comment=comment,
-        ))
+        signals.append(
+            Signal(
+                samples=samples,
+                timestamps=timestamps,
+                name=mname,
+                unit=meta["units"] or "",
+                comment=comment,
+            )
+        )
 
     return signals
 
 
 # ── Event subscriber ────────────────────────────────────────────────
+
 
 class Mdf4Subscriber(EventSubscriber):
     """EventSubscriber that writes ASAM MDF4 on close."""
@@ -129,8 +130,11 @@ class Mdf4Subscriber(EventSubscriber):
         on_output: Callable[[OutputFile], None] | None = None,
     ) -> None:
         self.event_types: set[type] = {
-            RunStarted, StepStarted, MeasurementRecorded,
-            StepEnded, RunEnded,
+            RunStarted,
+            StepStarted,
+            MeasurementRecorded,
+            StepEnded,
+            RunEnded,
         }
         self._output_dir = output_dir / "exports" / "mdf4"
         self._on_output = on_output
@@ -150,7 +154,8 @@ class Mdf4Subscriber(EventSubscriber):
             self._step_starts[event.step_index] = event
         elif isinstance(event, MeasurementRecorded):
             self._meas_by_step.setdefault(
-                event.step_index, [],
+                event.step_index,
+                [],
             ).append(event)
         elif isinstance(event, StepEnded):
             self._step_ends[event.step_index] = event
@@ -194,4 +199,3 @@ class Mdf4Subscriber(EventSubscriber):
 
         if self._on_output:
             self._on_output(OutputFile(path=out_file, format="mdf4", run_id=run_id))
-

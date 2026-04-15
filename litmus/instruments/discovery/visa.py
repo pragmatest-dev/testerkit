@@ -96,5 +96,3 @@ class VisaDiscovery(DiscoveryProtocol):
 
     def get_info(self, resource: str) -> InstrumentInfo | None:
         return get_info_visa(resource)
-
-

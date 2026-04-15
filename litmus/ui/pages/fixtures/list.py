@@ -58,9 +58,7 @@ def _fixture_card(fixture, product: dict | None):
             with ui.row().classes("items-center justify-between"):
                 with ui.row().classes("items-center gap-2"):
                     ui.icon("hub").classes("text-slate-600")
-                    ui.label(fixture.name or fixture.id).classes(
-                        "text-lg font-semibold"
-                    )
+                    ui.label(fixture.name or fixture.id).classes("text-lg font-semibold")
                 ui.badge(f"{len(points)} points").props("outline")
 
         with ui.card_section():
@@ -134,9 +132,9 @@ def _render_empty_state():
     with ui.card().classes("w-full p-8 text-center"):
         ui.icon("hub", size="xl").classes("text-slate-300")
         ui.label("No fixtures configured").classes("text-xl text-slate-600 mt-4")
-        ui.label(
-            "Create a fixture to define how DUT pins connect to instruments."
-        ).classes("text-slate-500 mt-2")
+        ui.label("Create a fixture to define how DUT pins connect to instruments.").classes(
+            "text-slate-500 mt-2"
+        )
         with ui.row().classes("justify-center mt-4"):
             ui.button(
                 "Create Fixture",

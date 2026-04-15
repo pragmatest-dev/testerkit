@@ -39,8 +39,14 @@ def init_project(
 
     # Create directories
     subdirs = [
-        "products", "stations", "sequences", "fixtures",
-        "instruments", "tests", "results", "reports",
+        "products",
+        "stations",
+        "sequences",
+        "fixtures",
+        "instruments",
+        "tests",
+        "results",
+        "reports",
     ]
     for subdir in subdirs:
         dir_path = path / subdir
@@ -67,12 +73,12 @@ addopts = "{addopts}"
 filterwarnings = ["ignore::pytest.PytestReturnNotNoneWarning"]
 '''
         else:
-            pytest_section = '''[tool.pytest.ini_options]
+            pytest_section = """[tool.pytest.ini_options]
 testpaths = ["tests"]
 python_files = ["test_*.py"]
 python_functions = ["test_*"]
 filterwarnings = ["ignore::pytest.PytestReturnNotNoneWarning"]
-'''
+"""
         pyproject_content = f'''[project]
 name = "{project_name}"
 version = "0.1.0"
@@ -153,11 +159,13 @@ Run with --mock-instruments for hardware-free testing:
 
         proj_data: dict[str, Any] = {"name": project_name}
         if starter:
-            proj_data.update({
-                "default_station": "starter_station",
-                "default_fixture": "example_fixture",
-                "mock_instruments": True,
-            })
+            proj_data.update(
+                {
+                    "default_station": "starter_station",
+                    "default_fixture": "example_fixture",
+                    "mock_instruments": True,
+                }
+            )
         proj = ProjectConfig(**proj_data)
         litmus_yaml_path.write_text(dump_yaml(proj.model_dump()))
         created_files.append("litmus.yaml")

@@ -135,7 +135,9 @@ class RouteManager:
 
         logger.debug(
             "Route activated: %s → %s channels %s",
-            point_name, route.switch, route.channels,
+            point_name,
+            route.switch,
+            route.channels,
         )
 
     def deactivate(self, point_name: str) -> None:
@@ -163,7 +165,9 @@ class RouteManager:
 
         logger.debug(
             "Route deactivated: %s → %s channels %s",
-            point_name, route.switch, route.channels,
+            point_name,
+            route.switch,
+            route.channels,
         )
 
     def deactivate_all(self) -> None:
@@ -216,7 +220,10 @@ class RouteManager:
         return self._pin_to_point[pin_name]
 
     def _check_conflicts(
-        self, point_name: str, point: FixturePoint, route: SwitchRoute,
+        self,
+        point_name: str,
+        point: FixturePoint,
+        route: SwitchRoute,
     ) -> None:
         """Check for conflicts with currently active routes."""
         # Channel overlap: another point using the same switch channels
@@ -242,9 +249,7 @@ class RouteManager:
         """Resolve a switch role to its driver instance."""
         inst = self._instruments.get(switch_role)
         if inst is None:
-            raise KeyError(
-                f"Switch instrument '{switch_role}' not found in active instruments"
-            )
+            raise KeyError(f"Switch instrument '{switch_role}' not found in active instruments")
         if not self._is_switch(inst):
             required = ("close_channels", "open_channels", "open_all")
             missing = [m for m in required if not callable(getattr(inst, m, None))]
@@ -314,8 +319,10 @@ class RouteManager:
         Returns:
             A zero-argument callable returning the driver instance.
         """
+
         def _resolver() -> Any:
             return self.resolve_instrument(role)
+
         return _resolver
 
     def _emit_route_closed(self, point_name: str, route: SwitchRoute) -> None:

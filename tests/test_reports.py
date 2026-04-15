@@ -197,8 +197,11 @@ class TestTemplateResolution:
         (tmpl_dir / "custom.html").write_text("<h1>Custom: {{ data.run_id }}</h1>")
 
         out = generate_report(
-            data, tmp_path / "report.html", fmt="html",
-            template="custom", template_dir=str(tmpl_dir),
+            data,
+            tmp_path / "report.html",
+            fmt="html",
+            template="custom",
+            template_dir=str(tmpl_dir),
         )
         html = out.read_text()
         assert "Custom:" in html
@@ -238,12 +241,19 @@ class TestCLI:
 
         runner = CliRunner()
         out_file = str(tmp_path / "report.json")
-        result = runner.invoke(main, [
-            "show", run_id,
-            "--results-dir", str(results_dir),
-            "-f", "json",
-            "-o", out_file,
-        ])
+        result = runner.invoke(
+            main,
+            [
+                "show",
+                run_id,
+                "--results-dir",
+                str(results_dir),
+                "-f",
+                "json",
+                "-o",
+                out_file,
+            ],
+        )
         assert result.exit_code == 0
         assert "Report generated" in result.output
         assert Path(out_file).exists()
@@ -254,9 +264,14 @@ class TestCLI:
         from litmus.cli import main
 
         runner = CliRunner()
-        result = runner.invoke(main, [
-            "show", run_id,
-            "--results-dir", str(results_dir),
-        ])
+        result = runner.invoke(
+            main,
+            [
+                "show",
+                run_id,
+                "--results-dir",
+                str(results_dir),
+            ],
+        )
         assert result.exit_code == 0
         assert "SN-001" in result.output

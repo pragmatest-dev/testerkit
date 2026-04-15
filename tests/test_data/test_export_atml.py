@@ -32,31 +32,43 @@ class TestAtmlSubscriber:
         return tmp_path / "exports" / "atml" / f"{run_id}.xml"
 
     def test_creates_file(
-        self, realistic_test_run: TestRun, tmp_path: Path,
+        self,
+        realistic_test_run: TestRun,
+        tmp_path: Path,
         replay_events: Callable[[TestRun, Any], None],
     ):
         result = self._write_via_subscriber(
-            realistic_test_run, tmp_path, replay_events,
+            realistic_test_run,
+            tmp_path,
+            replay_events,
         )
         assert result.exists()
 
     def test_valid_xml(
-        self, realistic_test_run: TestRun, tmp_path: Path,
+        self,
+        realistic_test_run: TestRun,
+        tmp_path: Path,
         replay_events: Callable[[TestRun, Any], None],
     ):
         result = self._write_via_subscriber(
-            realistic_test_run, tmp_path, replay_events,
+            realistic_test_run,
+            tmp_path,
+            replay_events,
         )
         tree = ET.parse(result)
         root = tree.getroot()
         assert root.tag == f"{{{_NS_TR}}}TestResultsCollection"
 
     def test_result_set_metadata(
-        self, realistic_test_run: TestRun, tmp_path: Path,
+        self,
+        realistic_test_run: TestRun,
+        tmp_path: Path,
         replay_events: Callable[[TestRun, Any], None],
     ):
         result = self._write_via_subscriber(
-            realistic_test_run, tmp_path, replay_events,
+            realistic_test_run,
+            tmp_path,
+            replay_events,
         )
         tree = ET.parse(result)
         root = tree.getroot()
@@ -66,11 +78,15 @@ class TestAtmlSubscriber:
         assert rs.get("status") == "Failed"
 
     def test_uut_from_events(
-        self, realistic_test_run: TestRun, tmp_path: Path,
+        self,
+        realistic_test_run: TestRun,
+        tmp_path: Path,
         replay_events: Callable[[TestRun, Any], None],
     ):
         result = self._write_via_subscriber(
-            realistic_test_run, tmp_path, replay_events,
+            realistic_test_run,
+            tmp_path,
+            replay_events,
         )
         tree = ET.parse(result)
         root = tree.getroot()
@@ -82,11 +98,15 @@ class TestAtmlSubscriber:
         assert uut.get("batchNumber") == "LOT-42"
 
     def test_measurements_present(
-        self, realistic_test_run: TestRun, tmp_path: Path,
+        self,
+        realistic_test_run: TestRun,
+        tmp_path: Path,
         replay_events: Callable[[TestRun, Any], None],
     ):
         result = self._write_via_subscriber(
-            realistic_test_run, tmp_path, replay_events,
+            realistic_test_run,
+            tmp_path,
+            replay_events,
         )
         tree = ET.parse(result)
         root = tree.getroot()
@@ -98,11 +118,15 @@ class TestAtmlSubscriber:
         assert "broken_sensor" in names
 
     def test_step_groups(
-        self, realistic_test_run: TestRun, tmp_path: Path,
+        self,
+        realistic_test_run: TestRun,
+        tmp_path: Path,
         replay_events: Callable[[TestRun, Any], None],
     ):
         result = self._write_via_subscriber(
-            realistic_test_run, tmp_path, replay_events,
+            realistic_test_run,
+            tmp_path,
+            replay_events,
         )
         tree = ET.parse(result)
         root = tree.getroot()
@@ -112,11 +136,15 @@ class TestAtmlSubscriber:
         assert "current_limit" in names
 
     def test_limits_from_events(
-        self, realistic_test_run: TestRun, tmp_path: Path,
+        self,
+        realistic_test_run: TestRun,
+        tmp_path: Path,
         replay_events: Callable[[TestRun, Any], None],
     ):
         result = self._write_via_subscriber(
-            realistic_test_run, tmp_path, replay_events,
+            realistic_test_run,
+            tmp_path,
+            replay_events,
         )
         tree = ET.parse(result)
         root = tree.getroot()
@@ -127,12 +155,16 @@ class TestAtmlSubscriber:
         assert limits.get("comparator") == "GELE"
 
     def test_single_bound_limit(
-        self, realistic_test_run: TestRun, tmp_path: Path,
+        self,
+        realistic_test_run: TestRun,
+        tmp_path: Path,
         replay_events: Callable[[TestRun, Any], None],
     ):
         """LE comparator produces single Limit element."""
         result = self._write_via_subscriber(
-            realistic_test_run, tmp_path, replay_events,
+            realistic_test_run,
+            tmp_path,
+            replay_events,
         )
         tree = ET.parse(result)
         root = tree.getroot()
@@ -143,12 +175,16 @@ class TestAtmlSubscriber:
         assert limit.get("comparator") == "LE"
 
     def test_nominal_comparator(
-        self, realistic_test_run: TestRun, tmp_path: Path,
+        self,
+        realistic_test_run: TestRun,
+        tmp_path: Path,
         replay_events: Callable[[TestRun, Any], None],
     ):
         """EQ comparator produces Limit with nominal datum."""
         result = self._write_via_subscriber(
-            realistic_test_run, tmp_path, replay_events,
+            realistic_test_run,
+            tmp_path,
+            replay_events,
         )
         tree = ET.parse(result)
         root = tree.getroot()
@@ -162,12 +198,16 @@ class TestAtmlSubscriber:
         assert datum.get("value") == "1.25"
 
     def test_error_measurement_included(
-        self, realistic_test_run: TestRun, tmp_path: Path,
+        self,
+        realistic_test_run: TestRun,
+        tmp_path: Path,
         replay_events: Callable[[TestRun, Any], None],
     ):
         """value=None measurement is still exported with Error status."""
         result = self._write_via_subscriber(
-            realistic_test_run, tmp_path, replay_events,
+            realistic_test_run,
+            tmp_path,
+            replay_events,
         )
         tree = ET.parse(result)
         root = tree.getroot()
@@ -176,11 +216,15 @@ class TestAtmlSubscriber:
         assert broken.get("status") == "Error"
 
     def test_operator_element(
-        self, realistic_test_run: TestRun, tmp_path: Path,
+        self,
+        realistic_test_run: TestRun,
+        tmp_path: Path,
         replay_events: Callable[[TestRun, Any], None],
     ):
         result = self._write_via_subscriber(
-            realistic_test_run, tmp_path, replay_events,
+            realistic_test_run,
+            tmp_path,
+            replay_events,
         )
         tree = ET.parse(result)
         root = tree.getroot()

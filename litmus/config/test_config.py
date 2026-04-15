@@ -321,7 +321,6 @@ class RangeConfig(BaseModel):
             raise ValueError("'count' must be >= 1")
 
 
-
 class PromptConfig(BaseModel):
     """Configuration for operator prompts.
 

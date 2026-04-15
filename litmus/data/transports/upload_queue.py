@@ -70,9 +70,7 @@ def _db_connection(results_dir: str = "results") -> Generator[Any, None, None]:
         con.close()
 
 
-def _update_status(
-    con: Any, row_id: int, new_status: str, error: str | None = None
-) -> None:
+def _update_status(con: Any, row_id: int, new_status: str, error: str | None = None) -> None:
     """Update an upload row's status and optional error. Increments attempts only on failure."""
     now = datetime.now(UTC).isoformat()
     if new_status == STATUS_FAILED:

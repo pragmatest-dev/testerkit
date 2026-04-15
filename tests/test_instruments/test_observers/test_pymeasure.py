@@ -155,7 +155,8 @@ class TestBuildChannelMap:
 
 
 def _make_observer(
-    driver_class: type, overrides: dict[str, str] | None = None,
+    driver_class: type,
+    overrides: dict[str, str] | None = None,
 ) -> tuple[PyMeasureObserver, CollectingLog]:
     log = CollectingLog()
     emitter = EventEmitter(event_log=log, session_id=uuid4(), role="dmm")  # type: ignore[arg-type]

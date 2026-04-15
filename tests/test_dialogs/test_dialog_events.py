@@ -31,9 +31,7 @@ async def test_auto_respond_emits_both_events() -> None:
     manager = DialogManager(auto_respond="confirm")
     mock_logger = _make_mock_logger()
 
-    with patch(
-        "litmus.execution.decorators.get_current_logger", return_value=mock_logger
-    ):
+    with patch("litmus.execution.decorators.get_current_logger", return_value=mock_logger):
         dialog = ConfirmDialog(title="Test", message="Ready?")
         response = await manager.show(dialog)
 
@@ -61,9 +59,7 @@ async def test_preset_response_emits_events() -> None:
     manager.preset_response(confirmed=False, cancelled=True)
     mock_logger = _make_mock_logger()
 
-    with patch(
-        "litmus.execution.decorators.get_current_logger", return_value=mock_logger
-    ):
+    with patch("litmus.execution.decorators.get_current_logger", return_value=mock_logger):
         dialog = ConfirmDialog(title="Cancel Test", message="Abort?")
         response = await manager.show(dialog)
 
@@ -79,12 +75,8 @@ async def test_no_logger_no_events() -> None:
     """When no logger is in context, events are silently skipped."""
     manager = DialogManager(auto_respond="confirm")
 
-    with patch(
-        "litmus.execution.decorators.get_current_logger", return_value=None
-    ):
-        response = await manager.show(
-            ConfirmDialog(title="Test", message="No logger")
-        )
+    with patch("litmus.execution.decorators.get_current_logger", return_value=None):
+        response = await manager.show(ConfirmDialog(title="Test", message="No logger"))
 
     assert response.confirmed  # Works fine, just no events
 
@@ -104,9 +96,7 @@ async def test_local_dialog_emits_events() -> None:
     # Clear auto-respond env var so dialog actually waits
     old_auto = os.environ.pop("LITMUS_DIALOG_AUTO", None)
     try:
-        with patch(
-            "litmus.execution.decorators.get_current_logger", return_value=mock_logger
-        ):
+        with patch("litmus.execution.decorators.get_current_logger", return_value=mock_logger):
             task = asyncio.create_task(respond_after_delay())
             response = await manager.show(dialog)
             await task
@@ -132,9 +122,7 @@ async def test_register_and_respond_emits_events() -> None:
 
     dialog = ConfirmDialog(title="API", message="From API")
 
-    with patch(
-        "litmus.execution.decorators.get_current_logger", return_value=mock_logger
-    ):
+    with patch("litmus.execution.decorators.get_current_logger", return_value=mock_logger):
         manager.register_dialog(dialog)
 
         # Verify opened event
@@ -145,9 +133,7 @@ async def test_register_and_respond_emits_events() -> None:
         ]
         assert len(opened_calls) == 1
 
-        manager.respond(
-            dialog.id, DialogResponse(dialog_id=dialog.id, confirmed=True)
-        )
+        manager.respond(dialog.id, DialogResponse(dialog_id=dialog.id, confirmed=True))
 
         responded_calls = [
             c.args[0]

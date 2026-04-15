@@ -1,6 +1,5 @@
 """Unit tests for litmus.analysis.metrics — pure computation, no I/O."""
 
-
 import pytest
 
 from litmus.analysis.metrics import (
@@ -16,6 +15,7 @@ from litmus.analysis.metrics import (
 # ---------------------------------------------------------------------------
 # FPY
 # ---------------------------------------------------------------------------
+
 
 class TestFPY:
     def test_all_pass(self):
@@ -55,6 +55,7 @@ class TestFPY:
 # Final Yield
 # ---------------------------------------------------------------------------
 
+
 class TestFinalYield:
     def test_retest_pass(self):
         """First run fails, second passes — final yield should be 100%."""
@@ -76,6 +77,7 @@ class TestFinalYield:
 # RTY
 # ---------------------------------------------------------------------------
 
+
 class TestRTY:
     def test_single_phase(self):
         assert calculate_rty({"phase1": 0.9}) == pytest.approx(0.9)
@@ -91,6 +93,7 @@ class TestRTY:
 # Cpk
 # ---------------------------------------------------------------------------
 
+
 class TestCpk:
     def test_centered_process(self):
         """Perfectly centered with tight distribution."""
@@ -101,6 +104,7 @@ class TestCpk:
 
     def test_normal_process(self):
         import random
+
         random.seed(42)
         values = [10.0 + random.gauss(0, 0.1) for _ in range(100)]
         result = calculate_cpk(values, lsl=9.5, usl=10.5)
@@ -136,6 +140,7 @@ class TestCpk:
 # Pareto
 # ---------------------------------------------------------------------------
 
+
 class TestPareto:
     def test_basic(self):
         measurements = [
@@ -157,8 +162,7 @@ class TestPareto:
 
     def test_top_n(self):
         measurements = [
-            {"step_name": f"s{i}", "measurement_name": "m", "outcome": "fail"}
-            for i in range(20)
+            {"step_name": f"s{i}", "measurement_name": "m", "outcome": "fail"} for i in range(20)
         ]
         result = pareto_analysis(measurements, top_n=5)
         assert len(result) == 5
@@ -167,6 +171,7 @@ class TestPareto:
 # ---------------------------------------------------------------------------
 # Trend
 # ---------------------------------------------------------------------------
+
 
 class TestTrend:
     def test_daily(self):
@@ -197,6 +202,7 @@ class TestTrend:
 # Test Time
 # ---------------------------------------------------------------------------
 
+
 class TestTime:
     def test_run_stats(self):
         runs = [
@@ -212,17 +218,20 @@ class TestTime:
     def test_step_stats(self):
         rows = [
             {
-                "run_id": "r1", "step_name": "s1",
+                "run_id": "r1",
+                "step_name": "s1",
                 "step_started_at": "2026-01-01T10:00:00Z",
                 "step_ended_at": "2026-01-01T10:00:30Z",
             },
             {
-                "run_id": "r1", "step_name": "s1",
+                "run_id": "r1",
+                "step_name": "s1",
                 "step_started_at": "2026-01-01T10:00:00Z",
                 "step_ended_at": "2026-01-01T10:00:30Z",
             },  # dup
             {
-                "run_id": "r1", "step_name": "s2",
+                "run_id": "r1",
+                "step_name": "s2",
                 "step_started_at": "2026-01-01T10:00:30Z",
                 "step_ended_at": "2026-01-01T10:01:00Z",
             },

@@ -235,7 +235,8 @@ class TestServerLocking:
         """Concurrent roles (switches) allow simultaneous access."""
         switch = FakeSwitch()
         server = InstrumentServer(
-            {"matrix": switch}, concurrent_roles={"matrix"},
+            {"matrix": switch},
+            concurrent_roles={"matrix"},
         )
         server.start()
         try:
@@ -251,10 +252,12 @@ class TestServerLocking:
                 results.append(name)
 
             t1 = threading.Thread(
-                target=close_channels, args=(proxy1, ["r0c0"], "p1"),
+                target=close_channels,
+                args=(proxy1, ["r0c0"], "p1"),
             )
             t2 = threading.Thread(
-                target=close_channels, args=(proxy2, ["r1c0"], "p2"),
+                target=close_channels,
+                args=(proxy2, ["r1c0"], "p2"),
             )
             t1.start()
             t2.start()
@@ -331,13 +334,18 @@ class TestPoolIntegration:
             os.environ["LITMUS_SHARED_ROLES"] = "dmm"
 
             pool = InstrumentPool(
-                session_id=uuid4(), event_log=None,
-                channel_store=None, mock_all=True,
+                session_id=uuid4(),
+                event_log=None,
+                channel_store=None,
+                mock_all=True,
             )
             record = InstrumentRecord(
-                role="dmm", instrument_id="dmm",
-                driver="demo.drivers.DMM", resource="",
-                protocol="visa", mocked=True,
+                role="dmm",
+                instrument_id="dmm",
+                driver="demo.drivers.DMM",
+                resource="",
+                protocol="visa",
+                mocked=True,
             )
 
             inst = pool.acquire("dmm", record)
@@ -367,13 +375,18 @@ class TestPoolIntegration:
         os.environ.pop("LITMUS_SHARED_ROLES", None)
 
         pool = InstrumentPool(
-            session_id=uuid4(), event_log=None,
-            channel_store=None, mock_all=True,
+            session_id=uuid4(),
+            event_log=None,
+            channel_store=None,
+            mock_all=True,
         )
         record = InstrumentRecord(
-            role="dmm", instrument_id="dmm",
-            driver="demo.drivers.DMM", resource="",
-            protocol="visa", mocked=True,
+            role="dmm",
+            instrument_id="dmm",
+            driver="demo.drivers.DMM",
+            resource="",
+            protocol="visa",
+            mocked=True,
         )
 
         inst = pool.acquire("dmm", record)
@@ -410,11 +423,13 @@ proxy._disconnect()
             # Spawn two workers concurrently
             p1 = subprocess.Popen(
                 [sys.executable, "-c", worker_script],
-                stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
             )
             p2 = subprocess.Popen(
                 [sys.executable, "-c", worker_script],
-                stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
             )
 
             out1, err1 = p1.communicate(timeout=10)
@@ -464,13 +479,15 @@ proxy._disconnect()
             # Run sequentially to prove state is shared
             p1 = subprocess.run(
                 [sys.executable, "-c", set_script],
-                capture_output=True, timeout=10,
+                capture_output=True,
+                timeout=10,
             )
             assert p1.returncode == 0, f"Set failed: {p1.stderr.decode()}"
 
             p2 = subprocess.run(
                 [sys.executable, "-c", read_script],
-                capture_output=True, timeout=10,
+                capture_output=True,
+                timeout=10,
             )
             assert p2.returncode == 0, f"Read failed: {p2.stderr.decode()}"
 

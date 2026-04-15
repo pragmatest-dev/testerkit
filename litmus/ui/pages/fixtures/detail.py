@@ -39,9 +39,7 @@ def _render_fixture_detail(fixture_id: str, config, products: dict):
             with ui.row().classes("items-center justify-between w-full"):
                 with ui.row().classes("items-center gap-4"):
                     ui.icon("hub").classes("text-2xl text-slate-600")
-                    ui.label(config.name or fixture_id).classes(
-                        "text-xl font-semibold"
-                    )
+                    ui.label(config.name or fixture_id).classes("text-xl font-semibold")
                 with ui.row().classes("gap-2"):
                     ui.button(
                         "Back",
@@ -159,9 +157,7 @@ def _render_mappings_tab(points: dict):
 def _render_stations_tab(fixture_id: str, points: dict):
     """Render compatible stations."""
     # Get required instruments
-    required_instruments = sorted(
-        {p.instrument for p in points.values() if p.instrument}
-    )
+    required_instruments = sorted({p.instrument for p in points.values() if p.instrument})
 
     if required_instruments:
         with ui.row().classes("items-center gap-2 mb-4"):
@@ -184,9 +180,7 @@ def _render_stations_tab(fixture_id: str, points: dict):
     else:
         with ui.card().classes("w-full p-6 text-center bg-amber-50"):
             ui.icon("warning", color="amber").classes("text-2xl")
-            ui.label("No compatible stations found").classes(
-                "text-amber-800 font-semibold mt-2"
-            )
+            ui.label("No compatible stations found").classes("text-amber-800 font-semibold mt-2")
             ui.label(
                 "Create a station with the required instruments, "
                 "or check existing station configurations."
@@ -195,9 +189,7 @@ def _render_stations_tab(fixture_id: str, points: dict):
 
 def _station_card(station, required_instruments: list[str]):
     """Render a compatible station card."""
-    station_instruments = (
-        set(station.instruments.keys()) if station.instruments else set()
-    )
+    station_instruments = set(station.instruments.keys()) if station.instruments else set()
 
     with ui.card().classes("w-72"):
         with ui.card_section():
@@ -293,6 +285,4 @@ def _render_not_found():
     """Render fixture not found message."""
     with ui.card().classes("w-full p-6 text-center"):
         ui.label("Fixture not found.").classes("text-xl text-slate-600")
-        ui.link("← Back to Fixtures", "/fixtures").classes(
-            "text-blue-600 hover:underline"
-        )
+        ui.link("← Back to Fixtures", "/fixtures").classes("text-blue-600 hover:underline")

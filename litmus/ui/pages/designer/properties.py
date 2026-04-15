@@ -18,9 +18,7 @@ if TYPE_CHECKING:
 
 def create_properties_drawer() -> ui.right_drawer:
     """Create the right-hand properties drawer (initially hidden)."""
-    drawer = ui.right_drawer(value=False).classes(
-        "bg-white border-l border-slate-200"
-    )
+    drawer = ui.right_drawer(value=False).classes("bg-white border-l border-slate-200")
     drawer.props("width=320 bordered overlay")
     return drawer
 
@@ -41,9 +39,7 @@ def show_pin_properties(
         with ui.column().classes("w-full p-4 gap-3"):
             # Header
             with ui.row().classes("w-full items-center justify-between"):
-                ui.label("Pin Properties").classes(
-                    "text-lg font-semibold text-slate-800"
-                )
+                ui.label("Pin Properties").classes("text-lg font-semibold text-slate-800")
                 _close_button(state, drawer, rebuild)
 
             ui.label(pin_key).classes("text-sm font-mono text-slate-500 -mt-2")
@@ -61,9 +57,7 @@ def show_pin_properties(
             ui.input(
                 "Net",
                 value=pin.get("net", ""),
-                on_change=lambda e, k=pin_key: _update_pin_field(
-                    state, k, "net", e.value, rebuild
-                ),
+                on_change=lambda e, k=pin_key: _update_pin_field(state, k, "net", e.value, rebuild),
             ).classes("w-full")
 
             ui.input(
@@ -78,9 +72,7 @@ def show_pin_properties(
             chars = state.char_by_pin.get(pin_key, [])
             if chars:
                 ui.separator()
-                ui.label("Characteristics").classes(
-                    "text-sm font-semibold text-slate-600"
-                )
+                ui.label("Characteristics").classes("text-sm font-semibold text-slate-600")
                 for char_name in chars:
                     with ui.row().classes("items-center gap-1"):
                         ui.icon("tune").classes("text-slate-400 text-sm")
@@ -90,9 +82,7 @@ def show_pin_properties(
             conns = state.find_connections_for_pin(pin_key)
             if conns:
                 ui.separator()
-                ui.label("Connected to").classes(
-                    "text-sm font-semibold text-slate-600"
-                )
+                ui.label("Connected to").classes("text-sm font-semibold text-slate-600")
                 for conn in conns:
                     conn_text = f"{conn['instrument']}:{conn['channel']}"
                     if conn.get("terminal"):
@@ -127,9 +117,7 @@ def show_instrument_properties(
         with ui.column().classes("w-full p-4 gap-3"):
             # Header
             with ui.row().classes("w-full items-center justify-between"):
-                ui.label("Instrument").classes(
-                    "text-lg font-semibold text-slate-800"
-                )
+                ui.label("Instrument").classes("text-lg font-semibold text-slate-800")
                 _close_button(state, drawer, rebuild)
 
             ui.separator()
@@ -141,18 +129,14 @@ def show_instrument_properties(
             ui.input(
                 "Driver",
                 value=inst.get("driver", ""),
-                on_change=lambda e: _update_instrument_field(
-                    state, role, "driver", e.value
-                ),
+                on_change=lambda e: _update_instrument_field(state, role, "driver", e.value),
             ).classes("w-full")
 
             # Type
             ui.input(
                 "Type",
                 value=inst.get("type", ""),
-                on_change=lambda e: _update_instrument_field(
-                    state, role, "type", e.value
-                ),
+                on_change=lambda e: _update_instrument_field(state, role, "type", e.value),
             ).classes("w-full")
 
             # Channels section with catalog details
@@ -186,7 +170,13 @@ def show_instrument_properties(
                                         ui.icon("link").classes("text-green-500 text-sm")
                                 # Ground indicator - only if there's a wirable ground terminal
                                 gnd_names = {
-                                    "lo", "gnd", "ground", "return", "com", "sense_lo", "shield"
+                                    "lo",
+                                    "gnd",
+                                    "ground",
+                                    "return",
+                                    "com",
+                                    "sense_lo",
+                                    "shield",
                                 }
                                 has_gnd = any(t.lower() in gnd_names for t in terminals)
                                 if has_gnd:
@@ -215,17 +205,13 @@ def show_instrument_properties(
                 ui.separator()
                 with ui.row().classes("items-center gap-2"):
                     ui.icon("inventory_2").classes("text-slate-400 text-sm")
-                    ui.label(f"Catalog: {catalog_ref}").classes(
-                        "text-xs text-slate-500 font-mono"
-                    )
+                    ui.label(f"Catalog: {catalog_ref}").classes("text-xs text-slate-500 font-mono")
 
             # Capabilities (read-only)
             caps = inst.get("capabilities", [])
             if caps:
                 ui.separator()
-                ui.label("Capabilities").classes(
-                    "text-sm font-semibold text-slate-600"
-                )
+                ui.label("Capabilities").classes("text-sm font-semibold text-slate-600")
                 for cap in caps:
                     name = cap.get(
                         "name",
@@ -234,21 +220,13 @@ def show_instrument_properties(
                     ui.label(name).classes("text-sm text-slate-500")
             else:
                 ui.separator()
-                ui.label("No capability data (library)").classes(
-                    "text-xs text-slate-400 italic"
-                )
+                ui.label("No capability data (library)").classes("text-xs text-slate-400 italic")
 
             # Connected pins
-            connected = [
-                conn
-                for conn in state.connections.values()
-                if conn["instrument"] == role
-            ]
+            connected = [conn for conn in state.connections.values() if conn["instrument"] == role]
             if connected:
                 ui.separator()
-                ui.label("Connected Pins").classes(
-                    "text-sm font-semibold text-slate-600"
-                )
+                ui.label("Connected Pins").classes("text-sm font-semibold text-slate-600")
                 for conn in connected:
                     target = f"CH{conn['channel']}"
                     if conn.get("terminal"):
@@ -262,9 +240,7 @@ def show_instrument_properties(
             ui.button(
                 "Delete Instrument",
                 icon="delete",
-                on_click=lambda: _delete_instrument(
-                    state, role, drawer, rebuild
-                ),
+                on_click=lambda: _delete_instrument(state, role, drawer, rebuild),
                 color="red",
             ).props("flat").classes("w-full")
 
@@ -287,44 +263,32 @@ def show_connection_properties(
         with ui.column().classes("w-full p-4 gap-3"):
             # Header
             with ui.row().classes("w-full items-center justify-between"):
-                ui.label("Connection").classes(
-                    "text-lg font-semibold text-slate-800"
-                )
+                ui.label("Connection").classes("text-lg font-semibold text-slate-800")
                 _close_button(state, drawer, rebuild)
 
             ui.separator()
 
             # Point name (readonly)
-            ui.input("Point Name", value=point_name).classes("w-full").props(
-                "readonly"
-            )
+            ui.input("Point Name", value=point_name).classes("w-full").props("readonly")
 
             # Read-only fields
-            ui.input("DUT Pin", value=conn.get("dut_pin", "")).classes(
-                "w-full"
-            ).props("readonly")
-            ui.input("Net", value=conn.get("net", "")).classes("w-full").props(
+            ui.input("DUT Pin", value=conn.get("dut_pin", "")).classes("w-full").props("readonly")
+            ui.input("Net", value=conn.get("net", "")).classes("w-full").props("readonly")
+            ui.input("Instrument", value=conn.get("instrument", "")).classes("w-full").props(
                 "readonly"
             )
-            ui.input("Instrument", value=conn.get("instrument", "")).classes(
-                "w-full"
-            ).props("readonly")
-            ui.input("Channel", value=conn.get("channel", "")).classes(
-                "w-full"
-            ).props("readonly")
+            ui.input("Channel", value=conn.get("channel", "")).classes("w-full").props("readonly")
             if conn.get("terminal"):
-                ui.input("Terminal", value=conn.get("terminal", "")).classes(
-                    "w-full"
-                ).props("readonly")
+                ui.input("Terminal", value=conn.get("terminal", "")).classes("w-full").props(
+                    "readonly"
+                )
 
             # Delete button
             ui.separator()
             ui.button(
                 "Delete Connection",
                 icon="link_off",
-                on_click=lambda: _delete_connection(
-                    state, point_name, drawer, rebuild
-                ),
+                on_click=lambda: _delete_connection(state, point_name, drawer, rebuild),
                 color="red",
             ).props("flat").classes("w-full")
 
@@ -344,17 +308,11 @@ def show_add_pin_dialog(state: DesignerState, rebuild: Callable) -> None:
         ui.label("Add DUT Pin").classes("text-lg font-semibold")
         ui.separator()
 
-        ui.input(
-            "Pin Key", placeholder="e.g. TP_VOUT"
-        ).classes("w-full").bind_value(form, "key")
+        ui.input("Pin Key", placeholder="e.g. TP_VOUT").classes("w-full").bind_value(form, "key")
 
-        ui.input(
-            "Pin Name", placeholder="e.g. TP5"
-        ).classes("w-full").bind_value(form, "name")
+        ui.input("Pin Name", placeholder="e.g. TP5").classes("w-full").bind_value(form, "name")
 
-        ui.input(
-            "Net", placeholder="e.g. VOUT_3V3"
-        ).classes("w-full").bind_value(form, "net")
+        ui.input("Net", placeholder="e.g. VOUT_3V3").classes("w-full").bind_value(form, "net")
 
         with ui.row().classes("w-full justify-end gap-2 mt-2"):
             ui.button("Cancel", on_click=dialog.close).props("flat")
@@ -365,9 +323,7 @@ def show_add_pin_dialog(state: DesignerState, rebuild: Callable) -> None:
                 elif form["key"] in state.dut_pins:
                     ui.notify("Pin key already exists", type="warning")
                 else:
-                    state.add_pin(
-                        form["key"], form["name"], form["net"]
-                    )
+                    state.add_pin(form["key"], form["name"], form["net"])
                     dialog.close()
                     rebuild()
 
@@ -406,14 +362,9 @@ def show_add_instrument_dialog(
                                 count = channels_spec.get("count", 1)
                                 naming = channels_spec.get("naming")
                                 if naming:
-                                    ch_names.update(
-                                        naming.format(n=i + 1)
-                                        for i in range(count)
-                                    )
+                                    ch_names.update(naming.format(n=i + 1) for i in range(count))
                                 else:
-                                    ch_names.update(
-                                        str(i + 1) for i in range(count)
-                                    )
+                                    ch_names.update(str(i + 1) for i in range(count))
                         if ch_names:
                             form["channels"] = ", ".join(sorted(ch_names))
                         break
@@ -424,17 +375,17 @@ def show_add_instrument_dialog(
                 on_change=_on_type_select,
             ).classes("w-full")
 
-        ui.input(
-            "Role Name", placeholder='e.g. "dmm", "psu"'
-        ).classes("w-full").bind_value(form, "role")
+        ui.input("Role Name", placeholder='e.g. "dmm", "psu"').classes("w-full").bind_value(
+            form, "role"
+        )
 
-        ui.input(
-            "Driver", placeholder="e.g. demo.drivers.DMM"
-        ).classes("w-full").bind_value(form, "driver")
+        ui.input("Driver", placeholder="e.g. demo.drivers.DMM").classes("w-full").bind_value(
+            form, "driver"
+        )
 
-        ui.input(
-            "Channels", placeholder="e.g. 1, 2 or CH1, CH2"
-        ).classes("w-full").bind_value(form, "channels")
+        ui.input("Channels", placeholder="e.g. 1, 2 or CH1, CH2").classes("w-full").bind_value(
+            form, "channels"
+        )
 
         with ui.row().classes("w-full justify-end gap-2 mt-2"):
             ui.button("Cancel", on_click=dialog.close).props("flat")
@@ -445,11 +396,7 @@ def show_add_instrument_dialog(
                 elif form["role"] in state.instruments:
                     ui.notify("Role name already exists", type="warning")
                 else:
-                    channels = [
-                        c.strip()
-                        for c in form["channels"].split(",")
-                        if c.strip()
-                    ]
+                    channels = [c.strip() for c in form["channels"].split(",") if c.strip()]
                     if not channels:
                         channels = ["1"]
 
@@ -493,13 +440,13 @@ def show_load_station_dialog(
             station_options = {s.id: s.name or s.id for s in stations}
             selected = {"station_id": ""}
 
-            ui.select(
-                station_options, label="Station", with_input=True
-            ).classes("w-full").bind_value(selected, "station_id")
+            ui.select(station_options, label="Station", with_input=True).classes(
+                "w-full"
+            ).bind_value(selected, "station_id")
 
-            ui.label(
-                "This will import all instruments from the selected station."
-            ).classes("text-xs text-slate-500")
+            ui.label("This will import all instruments from the selected station.").classes(
+                "text-xs text-slate-500"
+            )
 
             with ui.row().classes("w-full justify-end gap-2 mt-2"):
                 ui.button("Cancel", on_click=dialog.close).props("flat")
@@ -521,9 +468,7 @@ def show_load_station_dialog(
                                 type="positive",
                             )
                         else:
-                            ui.notify(
-                                "Failed to load station", type="negative"
-                            )
+                            ui.notify("Failed to load station", type="negative")
 
                 ui.button("Load", on_click=_load, color="primary")
 
@@ -535,9 +480,7 @@ def show_load_station_dialog(
 # ---------------------------------------------------------------------------
 
 
-def _close_button(
-    state: DesignerState, drawer: ui.right_drawer, rebuild: Callable
-) -> None:
+def _close_button(state: DesignerState, drawer: ui.right_drawer, rebuild: Callable) -> None:
     """Render a close button for the properties drawer."""
 
     def on_close():
@@ -545,9 +488,7 @@ def _close_button(
         drawer.value = False
         rebuild()
 
-    ui.button(icon="close", on_click=on_close).props(
-        "flat dense round"
-    ).classes("text-slate-400")
+    ui.button(icon="close", on_click=on_close).props("flat dense round").classes("text-slate-400")
 
 
 def _update_pin_field(
@@ -561,9 +502,7 @@ def _update_pin_field(
     state.edit_pin(pin_key, **{field: value})
 
 
-def _update_instrument_field(
-    state: DesignerState, role: str, field: str, value: str
-) -> None:
+def _update_instrument_field(state: DesignerState, role: str, field: str, value: str) -> None:
     """Update a single instrument field."""
     if role in state.instruments:
         state.instruments[role][field] = value

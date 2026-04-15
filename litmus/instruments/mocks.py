@@ -88,6 +88,7 @@ def _make_mock_method(value: Any):
         def dict_lookup(*args, **kwargs):
             key = args[0] if args else None
             return value.get(key)
+
         return dict_lookup
     else:
         # Simple value - ignore args
@@ -157,20 +158,19 @@ def Mock(cls: type[T], **values: Any) -> T:
             return _NOOP
         return _SENTINEL  # Signal caller to use object.__getattribute__
 
-    _PASSTHROUGH = frozenset({'set_mock_value', 'mock_values', 'connect', 'disconnect'})
+    _PASSTHROUGH = frozenset({"set_mock_value", "mock_values", "connect", "disconnect"})
 
     class MockClass(cls):  # type: ignore[valid-type,misc]
-
         def __init__(self) -> None:
             # Don't call parent __init__ - no hardware
             self._mock_values = dict(mock_values)
             self._connected = False
 
         def __getattribute__(self, name: str) -> Any:
-            if name.startswith('_') or name in _PASSTHROUGH:
+            if name.startswith("_") or name in _PASSTHROUGH:
                 return object.__getattribute__(self, name)
 
-            mock_vals = object.__getattribute__(self, '_mock_values')
+            mock_vals = object.__getattribute__(self, "_mock_values")
 
             if name in mock_vals:
                 return _resolve_configured(name, mock_vals[name])
@@ -181,7 +181,7 @@ def Mock(cls: type[T], **values: Any) -> T:
             return result
 
         def __setattr__(self, name: str, value: Any) -> None:
-            if name.startswith('_'):
+            if name.startswith("_"):
                 object.__setattr__(self, name, value)
             else:
                 self._mock_values[name] = value

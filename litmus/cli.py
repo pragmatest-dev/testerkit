@@ -267,14 +267,16 @@ def new_test(name: str):
     if import_lines:
         lines.extend(import_lines)
         lines.append("")
-    lines.extend([
-        "from litmus.execution import litmus_test",
-        "",
-        "",
-        "@litmus_test",
-        f"def test_{test_name}({sig}):",
-        f'    """Measure {test_name}."""',
-    ])
+    lines.extend(
+        [
+            "from litmus.execution import litmus_test",
+            "",
+            "",
+            "@litmus_test",
+            f"def test_{test_name}({sig}):",
+            f'    """Measure {test_name}."""',
+        ]
+    )
     # Add a helpful skeleton showing the 3-step pattern
     if roles:
         lines.append("    # 1. GET conditions from context")
@@ -479,11 +481,20 @@ def _discover_instruments(interactive: bool = True) -> dict[str, dict[str, dict[
 @main.command()
 @click.argument("paths", nargs=-1, type=click.Path(exists=True))
 @click.option(
-    "--type", "-t", "file_type",
-    type=click.Choice([
-        "catalog", "product", "station", "sequence",
-        "fixture", "instrument_asset", "project",
-    ]),
+    "--type",
+    "-t",
+    "file_type",
+    type=click.Choice(
+        [
+            "catalog",
+            "product",
+            "station",
+            "sequence",
+            "fixture",
+            "instrument_asset",
+            "project",
+        ]
+    ),
     default=None,
     help="Explicit file type (skips auto-detection).",
 )
@@ -517,8 +528,12 @@ def validate(paths, file_type, as_json):
     else:
         # Auto-scan standard directories
         scan_dirs = [
-            "catalog", "products", "stations", "sequences",
-            "fixtures", "instruments",
+            "catalog",
+            "products",
+            "stations",
+            "sequences",
+            "fixtures",
+            "instruments",
         ]
         for dirname in scan_dirs:
             d = Path.cwd() / dirname
@@ -650,16 +665,23 @@ def runs(results_dir: str | None, limit: int, as_json: bool):
 @click.argument("run_id")
 @click.option("--results-dir", default=None, help="Results directory")
 @click.option(
-    "-f", "--format", "fmt",
+    "-f",
+    "--format",
+    "fmt",
     type=click.Choice(["html", "pdf", "json", "csv"]),
-    default=None, help="Generate report in format",
+    default=None,
+    help="Generate report in format",
 )
 @click.option("-o", "--output", default=None, help="Output file or directory")
 @click.option("-t", "--template", default="default", help="Report template name")
 @click.option("--env", is_flag=True, default=False, help="Show environment snapshot")
 def show(
-    run_id: str, results_dir: str | None, fmt: str | None,
-    output: str | None, template: str, env: bool,
+    run_id: str,
+    results_dir: str | None,
+    fmt: str | None,
+    output: str | None,
+    template: str,
+    env: bool,
 ):
     """Show details for a specific test run.
 
@@ -758,7 +780,8 @@ def show(
 
 
 def _read_events_by_id(
-    id_prefix: str, results_dir: str,
+    id_prefix: str,
+    results_dir: str,
 ) -> tuple[list[dict], str]:
     """Read events matching an ID prefix from Arrow IPC files.
 
@@ -819,18 +842,25 @@ def _read_events_by_id(
 @main.command()
 @click.argument("id")
 @click.option(
-    "-f", "--format", "fmt", required=True,
+    "-f",
+    "--format",
+    "fmt",
+    required=True,
     help="Target format (csv, json, stdf, hdf5, tdms, mdf4, atml)",
 )
 @click.option("-o", "--output-dir", default=None, help="Output directory")
 @click.option("--results-dir", default=None, help="Results directory")
 @click.option(
-    "--transport", default=None,
+    "--transport",
+    default=None,
     help="Ship exported file via transport (s3, sftp, file, etc.)",
 )
 def export(
-    id: str, fmt: str, output_dir: str | None,
-    results_dir: str | None, transport: str | None,
+    id: str,
+    fmt: str,
+    output_dir: str | None,
+    results_dir: str | None,
+    transport: str | None,
 ):
     """Export a test run or session to a different format via event replay.
 
@@ -902,10 +932,7 @@ def _list_export_formats() -> list[str]:
     """List available export formats (excluding report formats)."""
     from litmus.data.subscribers import list_subscribers
 
-    return sorted(
-        f for f in list_subscribers()
-        if f not in {"html", "pdf"}
-    )
+    return sorted(f for f in list_subscribers() if f not in {"html", "pdf"})
 
 
 # -----------------------------------------------------------------------------
@@ -966,9 +993,7 @@ def schema():
 
 
 @schema.command("export")
-@click.option(
-    "--output-dir", "-o", default="schemas", help="Directory for .schema.json files"
-)
+@click.option("--output-dir", "-o", default="schemas", help="Directory for .schema.json files")
 def schema_export(output_dir: str):
     """Export JSON Schema files for all Litmus YAML types.
 
@@ -1259,8 +1284,7 @@ def setup_claude_desktop(legacy: bool, print_only: bool):
         "name": "litmus",
         "display_name": "Litmus Hardware Test Platform",
         "description": (
-            "MCP server for hardware test configuration,"
-            " instrument discovery, and test execution."
+            "MCP server for hardware test configuration, instrument discovery, and test execution."
         ),
         "version": "0.1.0",
         "author": "Litmus",
@@ -1472,8 +1496,12 @@ def setup_show():
 @click.option("--identify/--no-identify", default=True, help="Query *IDN? for each instrument")
 @click.option("--json", "as_json", is_flag=True, help="Output as JSON")
 def discover(
-    visa_only: bool, ni_only: bool, serial_only: bool,
-    lxi_only: bool, identify: bool, as_json: bool,
+    visa_only: bool,
+    ni_only: bool,
+    serial_only: bool,
+    lxi_only: bool,
+    identify: bool,
+    as_json: bool,
 ):
     """Scan for available instruments.
 
@@ -1507,10 +1535,7 @@ def discover(
 
         if as_json:
             data = {
-                proto: [
-                    {"resource": resource, "identity": info}
-                    for resource, info in items
-                ]
+                proto: [{"resource": resource, "identity": info} for resource, info in items]
                 for proto, items in results.items()
             }
             click.echo(json.dumps(data, indent=2, default=str))
@@ -1560,10 +1585,15 @@ def catalog():
 
 @catalog.command("datasheet")
 @click.argument("yaml_path", type=click.Path(exists=True))
-@click.option("-f", "--format", "fmt", default="html", type=click.Choice(["html", "pdf"]),
-              help="Output format (default: html)")
-@click.option("-o", "--output", "output", default=None, type=click.Path(),
-              help="Output file path")
+@click.option(
+    "-f",
+    "--format",
+    "fmt",
+    default="html",
+    type=click.Choice(["html", "pdf"]),
+    help="Output format (default: html)",
+)
+@click.option("-o", "--output", "output", default=None, type=click.Path(), help="Output file path")
 def catalog_datasheet(yaml_path: str, fmt: str, output: str | None):
     """Generate a formatted datasheet from a catalog YAML file.
 
@@ -2051,7 +2081,6 @@ def _base_filters(func):
     return func
 
 
-
 def _get_results_dir(results_dir):
     """Resolve results directory from option or project config."""
     from litmus.data.results_dir import resolve_results_dir
@@ -2071,8 +2100,11 @@ def yield_summary(results_dir, phase, since, until_date, product, station, as_js
     """Show yield summary (FPY, final yield, RTY). Powered by GoldStore."""
     store = _gold_store(results_dir)
     rows = store.yield_summary(
-        product=product, station=station, phase=phase,
-        since=since, until=until_date,
+        product=product,
+        station=station,
+        phase=phase,
+        since=since,
+        until=until_date,
     )
 
     if not rows:
@@ -2097,7 +2129,6 @@ def yield_summary(results_dir, phase, since, until_date, product, station, as_js
     click.echo(f"Final Yield:      {final_yield * 100:.1f}%")
 
 
-
 @yield_group.command("pareto")
 @_base_filters
 @click.option("--top", "top_n", default=10, help="Number of top failures")
@@ -2105,8 +2136,12 @@ def yield_pareto(results_dir, phase, since, until_date, product, station, top_n,
     """Top failure modes (Pareto analysis). Powered by GoldStore."""
     store = _gold_store(results_dir)
     rows = store.pareto(
-        product=product, station=station, phase=phase,
-        since=since, until=until_date, top_n=top_n,
+        product=product,
+        station=station,
+        phase=phase,
+        since=since,
+        until=until_date,
+        top_n=top_n,
     )
 
     if not rows:
@@ -2133,8 +2168,12 @@ def yield_cpk(results_dir, phase, since, until_date, product, station, min_sampl
     """Process capability (Cpk) per measurement. Powered by GoldStore."""
     store = _gold_store(results_dir)
     rows = store.cpk(
-        product=product, station=station, phase=phase,
-        since=since, until=until_date, min_samples=min_samples,
+        product=product,
+        station=station,
+        phase=phase,
+        since=since,
+        until=until_date,
+        min_samples=min_samples,
     )
 
     if not rows:
@@ -2166,8 +2205,12 @@ def yield_trend(results_dir, phase, since, until_date, product, station, period,
     """Yield trend over time. Powered by GoldStore."""
     store = _gold_store(results_dir)
     rows = store.trend(
-        product=product, station=station, phase=phase,
-        since=since, until=until_date, period=period,
+        product=product,
+        station=station,
+        phase=phase,
+        since=since,
+        until=until_date,
+        period=period,
     )
 
     if not rows:
@@ -2193,8 +2236,11 @@ def yield_time(results_dir, phase, since, until_date, product, station, as_json)
     """Time lost to failures and errors. Powered by GoldStore."""
     store = _gold_store(results_dir)
     rows = store.time_loss(
-        product=product, station=station, phase=phase,
-        since=since, until=until_date,
+        product=product,
+        station=station,
+        phase=phase,
+        since=since,
+        until=until_date,
     )
 
     if not rows:
@@ -2205,10 +2251,7 @@ def yield_time(results_dir, phase, since, until_date, product, station, as_json)
         click.echo(json.dumps(rows, indent=2, default=str))
         return
 
-    click.echo(
-        f"{'Period':<14} {'Total(s)':>10} {'Pass(s)':>10} "
-        f"{'Fail(s)':>10} {'Error(s)':>10}"
-    )
+    click.echo(f"{'Period':<14} {'Total(s)':>10} {'Pass(s)':>10} {'Fail(s)':>10} {'Error(s)':>10}")
     click.echo("-" * 58)
     for r in rows:
         click.echo(
@@ -2245,8 +2288,12 @@ def gold_summary(results_dir, phase, since, until_date, product, station, period
     """Yield summary: FPY, final yield, run counts, duration stats."""
     store = _gold_store(results_dir)
     rows = store.yield_summary(
-        product=product, station=station, phase=phase,
-        since=since, until=until_date, period=period,
+        product=product,
+        station=station,
+        phase=phase,
+        since=since,
+        until=until_date,
+        period=period,
     )
 
     if not rows:
@@ -2286,8 +2333,12 @@ def gold_pareto(results_dir, phase, since, until_date, product, station, top_n, 
     """Top failure modes (Pareto analysis)."""
     store = _gold_store(results_dir)
     rows = store.pareto(
-        product=product, station=station, phase=phase,
-        since=since, until=until_date, top_n=top_n,
+        product=product,
+        station=station,
+        phase=phase,
+        since=since,
+        until=until_date,
+        top_n=top_n,
     )
 
     if not rows:
@@ -2314,8 +2365,12 @@ def gold_cpk(results_dir, phase, since, until_date, product, station, min_sample
     """Process capability (Cpk/Cp) per measurement."""
     store = _gold_store(results_dir)
     rows = store.cpk(
-        product=product, station=station, phase=phase,
-        since=since, until=until_date, min_samples=min_samples,
+        product=product,
+        station=station,
+        phase=phase,
+        since=since,
+        until=until_date,
+        min_samples=min_samples,
     )
 
     if not rows:
@@ -2347,8 +2402,12 @@ def gold_trend(results_dir, phase, since, until_date, product, station, period, 
     """Yield trend over time."""
     store = _gold_store(results_dir)
     rows = store.trend(
-        product=product, station=station, phase=phase,
-        since=since, until=until_date, period=period,
+        product=product,
+        station=station,
+        phase=phase,
+        since=since,
+        until=until_date,
+        period=period,
     )
 
     if not rows:
@@ -2375,8 +2434,12 @@ def gold_retest(results_dir, phase, since, until_date, product, station, period,
     """Retest rates: how often DUTs require multiple attempts."""
     store = _gold_store(results_dir)
     rows = store.retest(
-        product=product, station=station, phase=phase,
-        since=since, until=until_date, period=period,
+        product=product,
+        station=station,
+        phase=phase,
+        since=since,
+        until=until_date,
+        period=period,
     )
 
     if not rows:
@@ -2404,8 +2467,12 @@ def gold_time_loss(results_dir, phase, since, until_date, product, station, peri
     """Time lost to failures and errors."""
     store = _gold_store(results_dir)
     rows = store.time_loss(
-        product=product, station=station, phase=phase,
-        since=since, until=until_date, period=period,
+        product=product,
+        station=station,
+        phase=phase,
+        since=since,
+        until=until_date,
+        period=period,
     )
 
     if not rows:
@@ -2416,10 +2483,7 @@ def gold_time_loss(results_dir, phase, since, until_date, product, station, peri
         click.echo(json.dumps(rows, indent=2, default=str))
         return
 
-    click.echo(
-        f"{'Period':<14} {'Total(s)':>10} {'Pass(s)':>10} "
-        f"{'Fail(s)':>10} {'Error(s)':>10}"
-    )
+    click.echo(f"{'Period':<14} {'Total(s)':>10} {'Pass(s)':>10} {'Fail(s)':>10} {'Error(s)':>10}")
     click.echo("-" * 58)
     for r in rows:
         click.echo(
@@ -2445,7 +2509,9 @@ def data():
 @data.command("prune")
 @click.option("--older-than", required=True, help="Retention period (e.g. 30d, 90d)")
 @click.option(
-    "--type", "data_types", multiple=True,
+    "--type",
+    "data_types",
+    multiple=True,
     help="Data types to prune (e.g. channels, events)",
 )
 @click.option("--results-dir", default=None, help="Results directory")

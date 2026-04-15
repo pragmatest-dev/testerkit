@@ -34,6 +34,7 @@ def channel_subscribe(
     Filters instrument.read/instrument.set events by channel_id.
     Works across processes since EventStore queries via Arrow Flight.
     """
+
     def _filter(evt: dict) -> None:
         if evt.get("channel_id") != channel_id:
             return

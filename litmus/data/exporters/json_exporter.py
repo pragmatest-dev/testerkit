@@ -38,8 +38,11 @@ class JsonSubscriber(EventSubscriber):
         on_output: Callable[[OutputFile], None] | None = None,
     ) -> None:
         self.event_types: set[type] = {
-            RunStarted, StepStarted, MeasurementRecorded,
-            StepEnded, RunEnded,
+            RunStarted,
+            StepStarted,
+            MeasurementRecorded,
+            StepEnded,
+            RunEnded,
         }
         self._output_dir = output_dir / "exports" / "json"
         self._on_output = on_output

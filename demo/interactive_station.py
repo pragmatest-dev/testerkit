@@ -163,7 +163,7 @@ def main_page() -> None:
 
         for i in range(0, len(readback), 2):
             with ui.row().classes("w-full gap-6"):
-                for role, ic in readback[i:i + 2]:
+                for role, ic in readback[i : i + 2]:
                     _build_readback_card(station, role, ic)
 
         for role, ic in scopes:
@@ -190,7 +190,9 @@ def main_page() -> None:
 
 
 def _build_readback_card(
-    station: StationConnection, role: str, inst_config: object,
+    station: StationConnection,
+    role: str,
+    inst_config: object,
 ) -> None:
     desc = getattr(inst_config, "description", "") or role.upper()
     inst_type = getattr(inst_config, "type", "")
@@ -213,7 +215,8 @@ def _build_readback_card(
             stem = sample.channel_id.removeprefix(f"{role}.")
             reading.text = f"{stem}: {val:.4f}"
             reading.classes(
-                remove="text-slate-400", add="text-emerald-700",
+                remove="text-slate-400",
+                add="text-emerald-700",
             )
 
         for ch in layout.reads:
@@ -243,6 +246,7 @@ def _build_readback_card(
         if layout.reads:
             with ui.row().classes("gap-2 mt-3"):
                 for ch in layout.reads:
+
                     def _read(fn: str = ch.method) -> None:
                         if not toggle.ensure():
                             return
@@ -259,7 +263,9 @@ def _build_readback_card(
 
 
 def _build_scope_card(
-    station: StationConnection, role: str, inst_config: object,
+    station: StationConnection,
+    role: str,
+    inst_config: object,
 ) -> None:
     desc = getattr(inst_config, "description", "") or role.upper()
 
@@ -268,23 +274,33 @@ def _build_scope_card(
             ui.label(desc).classes("text-lg font-semibold")
             toggle = InstrumentToggle(station, role)
 
-        chart = ui.echart({
-            "xAxis": {
-                "type": "value", "name": "Sample", "boundaryGap": False,
-            },
-            "yAxis": {
-                "type": "value", "name": "V",
-                "min": "dataMin", "max": "dataMax",
-            },
-            "series": [{
-                "type": "line", "data": [], "smooth": True,
-                "lineStyle": {"width": 2, "color": "#6366f1"},
-                "symbol": "none",
-                "areaStyle": {"opacity": 0.08, "color": "#6366f1"},
-            }],
-            "grid": {"top": 30, "bottom": 30, "left": 50, "right": 20},
-            "animation": False,
-        }).classes("w-full h-48")
+        chart = ui.echart(
+            {
+                "xAxis": {
+                    "type": "value",
+                    "name": "Sample",
+                    "boundaryGap": False,
+                },
+                "yAxis": {
+                    "type": "value",
+                    "name": "V",
+                    "min": "dataMin",
+                    "max": "dataMax",
+                },
+                "series": [
+                    {
+                        "type": "line",
+                        "data": [],
+                        "smooth": True,
+                        "lineStyle": {"width": 2, "color": "#6366f1"},
+                        "symbol": "none",
+                        "areaStyle": {"opacity": 0.08, "color": "#6366f1"},
+                    }
+                ],
+                "grid": {"top": 30, "bottom": 30, "left": 50, "right": 20},
+                "animation": False,
+            }
+        ).classes("w-full h-48")
 
         status = ui.label("No waveform").classes(
             "text-sm font-mono text-slate-400",
@@ -304,17 +320,13 @@ def _build_scope_card(
             if not samples:
                 return
             acq_count[0] += 1
-            chart.options["series"][0]["data"] = [
-                [i, v] for i, v in enumerate(samples)
-            ]
+            chart.options["series"][0]["data"] = [[i, v] for i, v in enumerate(samples)]
             chart.update()
             vpp = (max(samples) - min(samples)) * 1000
-            status.text = (
-                f"Acq #{acq_count[0]}: {len(samples)} pts, "
-                f"{vpp:.1f} mVpp, dt={dt:.1e}s"
-            )
+            status.text = f"Acq #{acq_count[0]}: {len(samples)} pts, {vpp:.1f} mVpp, dt={dt:.1e}s"
             status.classes(
-                remove="text-slate-400", add="text-indigo-700",
+                remove="text-slate-400",
+                add="text-indigo-700",
             )
 
         ui_channel_data(f"{role}.waveform").subscribe(_on_waveform)
@@ -328,7 +340,9 @@ def _build_scope_card(
                     await asyncio.sleep(0.1)
                     continue
                 await loop.run_in_executor(
-                    None, toggle.driver.fetch_waveform, "CH1",
+                    None,
+                    toggle.driver.fetch_waveform,
+                    "CH1",
                 )
                 await asyncio.sleep(0.05)
 
@@ -352,6 +366,7 @@ def _build_scope_card(
             acq_count[0] = 0
 
         with ui.row().classes("gap-2 mt-2"):
+
             def _single() -> None:
                 if not toggle.ensure():
                     return
@@ -363,9 +378,7 @@ def _build_scope_card(
             )
             run_btn = ui.button(
                 "Run",
-                on_click=lambda: (
-                    _stop() if running["active"] else _start()
-                ),
+                on_click=lambda: (_stop() if running["active"] else _start()),
             ).props("color=green dense")
 
 

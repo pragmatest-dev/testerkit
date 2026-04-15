@@ -218,11 +218,13 @@ class TestExpandVectors:
 
     def test_indices_and_prev_chain(self):
         """All expansion modes should set _index and _prev."""
-        result = expand_vectors({
-            "expand": "product",
-            "a": [1, 2],
-            "b": [3, 4],
-        })
+        result = expand_vectors(
+            {
+                "expand": "product",
+                "a": [1, 2],
+                "b": [3, 4],
+            }
+        )
         assert result[0]["_index"] == 0
         assert result[1]["_index"] == 1
         assert result[2]["_index"] == 2
@@ -233,11 +235,13 @@ class TestExpandVectors:
 
     def test_changed_detection_in_product(self):
         """Verify .changed() correctly detects outer loop transitions in product."""
-        result = expand_vectors({
-            "expand": "product",
-            "temperature": [-40, 25],
-            "voltage": [3.3, 5.0, 12.0],
-        })
+        result = expand_vectors(
+            {
+                "expand": "product",
+                "temperature": [-40, 25],
+                "voltage": [3.3, 5.0, 12.0],
+            }
+        )
         assert len(result) == 6
 
         # First vector: everything is "changed"

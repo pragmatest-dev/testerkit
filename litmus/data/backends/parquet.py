@@ -208,6 +208,7 @@ class ParquetBackend:
         instrument_arrays: dict[str, list] | None = None,
     ) -> list[dict[str, Any]]:
         """Build one row per measurement with all metadata denormalized."""
+
         def ref_saver(vector_id: str, key: str, value: Any) -> str:
             return self._save_file(parquet_path, vector_id, key, value)
 
@@ -417,9 +418,7 @@ class ParquetBackend:
         try:
             pf = pq.ParquetFile(pq_file)
             raw_metadata = pf.schema_arrow.metadata or {}
-            return {
-                k.decode("utf-8"): v.decode("utf-8") for k, v in raw_metadata.items()
-            }
+            return {k.decode("utf-8"): v.decode("utf-8") for k, v in raw_metadata.items()}
         except (OSError, pa.ArrowInvalid):
             return None
 
@@ -492,6 +491,7 @@ class ParquetBackend:
 
         return parquet_path
 
+
 class ParquetSubscriber(EventSubscriber):
     """EventSubscriber that accumulates measurements and writes Parquet on close.
 
@@ -519,8 +519,13 @@ class ParquetSubscriber(EventSubscriber):
         )
 
         self.event_types: set[type] = {
-            RunStarted, InstrumentConnected, StepsDiscovered,
-            StepStarted, MeasurementRecorded, StepEnded, RunEnded,
+            RunStarted,
+            InstrumentConnected,
+            StepsDiscovered,
+            StepStarted,
+            MeasurementRecorded,
+            StepEnded,
+            RunEnded,
         }
         self._output_dir = output_dir
         self._on_output = on_output
@@ -600,16 +605,25 @@ class ParquetSubscriber(EventSubscriber):
                 "session_id": str(event.session_id),
                 "run_id": str(event.run_id) if event.run_id else "",
                 "slot_id": None,
-                "run_started_at": None, "run_ended_at": None,
-                "operator_id": None, "operator_name": None,
-                "dut_serial": "unknown", "dut_part_number": None,
-                "dut_revision": None, "dut_lot_number": None,
-                "product_id": None, "product_name": None,
+                "run_started_at": None,
+                "run_ended_at": None,
+                "operator_id": None,
+                "operator_name": None,
+                "dut_serial": "unknown",
+                "dut_part_number": None,
+                "dut_revision": None,
+                "dut_lot_number": None,
+                "product_id": None,
+                "product_name": None,
                 "product_revision": None,
-                "station_id": "unknown", "station_name": None,
-                "station_type": None, "station_location": None,
-                "station_hostname": None, "fixture_id": None,
-                "sequence_id": None, "test_phase": None,
+                "station_id": "unknown",
+                "station_name": None,
+                "station_type": None,
+                "station_location": None,
+                "station_hostname": None,
+                "fixture_id": None,
+                "sequence_id": None,
+                "test_phase": None,
                 "git_commit": None,
                 **env,
             }
@@ -740,6 +754,7 @@ class ParquetSubscriber(EventSubscriber):
 
         # Build all rows now — all events are in, step times are known
         from litmus.data.models import _utcnow
+
         ended_at = _utcnow()
         final_outcome = outcome if outcome is not None else "error"
 
@@ -795,68 +810,66 @@ class ParquetSubscriber(EventSubscriber):
             if isinstance(ended_at, str):
                 ended_at = datetime.fromisoformat(ended_at)
             duration_s = (
-                (ended_at - started_at).total_seconds()
-                if started_at and ended_at
-                else None
+                (ended_at - started_at).total_seconds() if started_at and ended_at else None
             )
-            rows.append({
-                # Step identity
-                "index": entry.get("index"),
-                "name": entry.get("name"),
-                "node_id": entry.get("node_id"),
-                "file": entry.get("file"),
-                "function": entry.get("function"),
-                "class": entry.get("class"),
-                "module": entry.get("module"),
-                "step_path": entry.get("step_path"),
-                "description": entry.get("description"),
-                "markers": entry.get("markers"),
-                # Execution
-                "outcome": entry.get("outcome"),
-                "started_at": started_at,
-                "ended_at": ended_at,
-                "duration_s": duration_s,
-                # Counts
-                "has_measurements": entry.get("has_measurements", False),
-                "measurement_count": entry.get("measurement_count", 0),
-                "vector_count": entry.get("vector_count", 0),
-                # Run context
-                "run_id": str(s.run_id) if s.run_id else None,
-                "session_id": str(s.session_id),
-                "slot_id": s.slot_id,
-                "run_started_at": s.occurred_at,
-                "run_ended_at": None,  # filled by caller if available
-                # Who
-                "operator_id": s.operator_id,
-                "operator_name": s.operator_name,
-                # DUT
-                "dut_serial": s.dut_serial,
-                "dut_part_number": s.dut_part_number,
-                "dut_revision": s.dut_revision,
-                "dut_lot_number": s.dut_lot_number,
-                # Product
-                "product_id": s.product_id,
-                "product_name": s.product_name,
-                "product_revision": s.product_revision,
-                # Station
-                "station_id": s.station_id,
-                "station_name": s.station_name,
-                "station_type": s.station_type,
-                "station_location": s.station_location,
-                "station_hostname": s.station_hostname,
-                # Fixture & test context
-                "fixture_id": s.fixture_id,
-                "sequence_id": s.sequence_id,
-                "test_phase": s.test_phase,
-                "git_commit": s.git_commit,
-                "git_branch": s.git_branch,
-                "git_remote": s.git_remote,
-            })
+            rows.append(
+                {
+                    # Step identity
+                    "index": entry.get("index"),
+                    "name": entry.get("name"),
+                    "node_id": entry.get("node_id"),
+                    "file": entry.get("file"),
+                    "function": entry.get("function"),
+                    "class": entry.get("class"),
+                    "module": entry.get("module"),
+                    "step_path": entry.get("step_path"),
+                    "description": entry.get("description"),
+                    "markers": entry.get("markers"),
+                    # Execution
+                    "outcome": entry.get("outcome"),
+                    "started_at": started_at,
+                    "ended_at": ended_at,
+                    "duration_s": duration_s,
+                    # Counts
+                    "has_measurements": entry.get("has_measurements", False),
+                    "measurement_count": entry.get("measurement_count", 0),
+                    "vector_count": entry.get("vector_count", 0),
+                    # Run context
+                    "run_id": str(s.run_id) if s.run_id else None,
+                    "session_id": str(s.session_id),
+                    "slot_id": s.slot_id,
+                    "run_started_at": s.occurred_at,
+                    "run_ended_at": None,  # filled by caller if available
+                    # Who
+                    "operator_id": s.operator_id,
+                    "operator_name": s.operator_name,
+                    # DUT
+                    "dut_serial": s.dut_serial,
+                    "dut_part_number": s.dut_part_number,
+                    "dut_revision": s.dut_revision,
+                    "dut_lot_number": s.dut_lot_number,
+                    # Product
+                    "product_id": s.product_id,
+                    "product_name": s.product_name,
+                    "product_revision": s.product_revision,
+                    # Station
+                    "station_id": s.station_id,
+                    "station_name": s.station_name,
+                    "station_type": s.station_type,
+                    "station_location": s.station_location,
+                    "station_hostname": s.station_hostname,
+                    # Fixture & test context
+                    "fixture_id": s.fixture_id,
+                    "sequence_id": s.sequence_id,
+                    "test_phase": s.test_phase,
+                    "git_commit": s.git_commit,
+                    "git_branch": s.git_branch,
+                    "git_remote": s.git_remote,
+                }
+            )
 
         table = pa.Table.from_pylist(rows, schema=STEP_SCHEMA)
-        steps_path = measurements_path.with_name(
-            measurements_path.stem + "_steps.parquet"
-        )
+        steps_path = measurements_path.with_name(measurements_path.stem + "_steps.parquet")
         atomic_write_table(table, steps_path)
 
     def _build_file_metadata(self) -> dict[bytes, bytes]:
@@ -945,14 +958,14 @@ def load_file(parquet_path: Path, ref: str) -> Any:
     # Normalize: strip file:// prefix if present
     raw = ref
     if raw.startswith("file://"):
-        raw = raw[len("file://"):]
+        raw = raw[len("file://") :]
 
     if not raw.startswith(REF_PATH_PREFIX):
         return ref  # Not a file reference, return as-is
 
     # Get path relative to parquet file
     ref_dir = parquet_path.parent / (parquet_path.stem + "_ref")
-    filename = raw[len(REF_PATH_PREFIX):]
+    filename = raw[len(REF_PATH_PREFIX) :]
     path = ref_dir / filename
     ext = path.suffix.lower()
 
@@ -1014,9 +1027,7 @@ def read_step_results(parquet_path: Path) -> list[dict[str, Any]]:
     Returns an empty list if no step results are stored.
     """
     # Try sibling _steps.parquet first
-    steps_path = parquet_path.with_name(
-        parquet_path.stem + "_steps.parquet"
-    )
+    steps_path = parquet_path.with_name(parquet_path.stem + "_steps.parquet")
     if steps_path.exists():
         try:
             table = pq.read_table(steps_path)
@@ -1069,6 +1080,7 @@ def load_ref(
         if channel_store is None:
             return value
         from litmus.data.ref import parse_channel_uri
+
         channel_id, session_id = parse_channel_uri(value)
         return channel_store.query(channel_id, session_id=session_id or None)
 
@@ -1085,7 +1097,6 @@ def is_file_reference(value: Any) -> bool:
     if is_ref(value) and ref_scheme(value) == "file":
         return True
     return False
-
 
 
 def reconstruct_test_run_from_file(pq_file: Path) -> TestRun:

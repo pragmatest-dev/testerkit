@@ -63,8 +63,7 @@ class RoutedProxy:
             if rm is None:
                 pn = object.__getattribute__(self, "_point_name")
                 raise ValueError(
-                    f"RoutedProxy for '{pn}' has no route_manager — "
-                    f"cannot activate route"
+                    f"RoutedProxy for '{pn}' has no route_manager — cannot activate route"
                 )
             pn = object.__getattribute__(self, "_point_name")
             rm.activate(pn)

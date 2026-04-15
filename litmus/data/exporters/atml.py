@@ -39,9 +39,16 @@ _OUTCOME_MAP: dict[str, str] = {
 
 # Comparator → ATML comparator attribute (1:1, our enum is ATML-sourced)
 _COMPARATOR_MAP = {
-    "EQ": "EQ", "NE": "NE", "LT": "LT", "LE": "LE",
-    "GT": "GT", "GE": "GE", "GELE": "GELE", "GELT": "GELT",
-    "GTLE": "GTLE", "GTLT": "GTLT",
+    "EQ": "EQ",
+    "NE": "NE",
+    "LT": "LT",
+    "LE": "LE",
+    "GT": "GT",
+    "GE": "GE",
+    "GELE": "GELE",
+    "GELT": "GELT",
+    "GTLE": "GTLE",
+    "GTLT": "GTLT",
 }
 
 
@@ -96,7 +103,8 @@ def _add_limit(
         if low is not None or high is not None:
             limits_el = ET.SubElement(parent, _c("Limits"))
             limits_el.set(
-                "comparator", _COMPARATOR_MAP.get(comp, comp),
+                "comparator",
+                _COMPARATOR_MAP.get(comp, comp),
             )
             if low is not None:
                 lo = ET.SubElement(limits_el, _c("LimitLow"))
@@ -132,6 +140,7 @@ def _get_or_create_group(
 
 # ── Event subscriber ────────────────────────────────────────────────
 
+
 class AtmlSubscriber(EventSubscriber):
     """EventSubscriber that writes IEEE 1636.1 ATML XML on close."""
 
@@ -144,8 +153,12 @@ class AtmlSubscriber(EventSubscriber):
         on_output: Callable[[OutputFile], None] | None = None,
     ) -> None:
         self.event_types: set[type] = {
-            RunStarted, InstrumentConnected,
-            StepStarted, MeasurementRecorded, StepEnded, RunEnded,
+            RunStarted,
+            InstrumentConnected,
+            StepStarted,
+            MeasurementRecorded,
+            StepEnded,
+            RunEnded,
         }
         self._output_dir = output_dir / "exports" / "atml"
         self._on_output = on_output
@@ -189,7 +202,8 @@ class AtmlSubscriber(EventSubscriber):
         ET.register_namespace("tr", _NS_TR)
         ET.register_namespace("c", _NS_C)
         ET.register_namespace(
-            "xsi", "http://www.w3.org/2001/XMLSchema-instance",
+            "xsi",
+            "http://www.w3.org/2001/XMLSchema-instance",
         )
 
         root = ET.Element(_tr("TestResultsCollection"))
@@ -204,7 +218,8 @@ class AtmlSubscriber(EventSubscriber):
         result_set.set("startDateTime", s.occurred_at.isoformat())
         final_outcome = outcome or "error"
         result_set.set(
-            "status", _OUTCOME_MAP.get(final_outcome, "Unknown"),
+            "status",
+            _OUTCOME_MAP.get(final_outcome, "Unknown"),
         )
 
         # UUT
@@ -226,7 +241,8 @@ class AtmlSubscriber(EventSubscriber):
         # Test equipment from InstrumentConnected events
         if self._instruments:
             equip_el = ET.SubElement(
-                result_set, _tr("TestEquipment"),
+                result_set,
+                _tr("TestEquipment"),
             )
             for inst in self._instruments:
                 item = ET.SubElement(equip_el, _tr("Equipment"))
@@ -260,7 +276,9 @@ class AtmlSubscriber(EventSubscriber):
             if ss.step_path:
                 path_parts = ss.step_path.split("/")
                 parent_el = _get_or_create_group(
-                    result_set, path_parts, group_cache,
+                    result_set,
+                    path_parts,
+                    group_cache,
                 )
             else:
                 parent_el = result_set
@@ -289,13 +307,15 @@ class AtmlSubscriber(EventSubscriber):
                 test_el.set("callerName", m.spec_id)
 
             m_outcome = _OUTCOME_MAP.get(
-                m.outcome or "", "Unknown",
+                m.outcome or "",
+                "Unknown",
             )
             test_el.set("status", m_outcome)
 
             result_el = ET.SubElement(test_el, _tr("TestResult"))
             result_el.set(
-                "xsi:type", "tr:NumericLimitTestResult",
+                "xsi:type",
+                "tr:NumericLimitTestResult",
             )
 
             if m.value is not None:
@@ -306,8 +326,12 @@ class AtmlSubscriber(EventSubscriber):
                     datum.set("nonStandardUnit", m.units)
 
             _add_limit(
-                result_el, m.low_limit, m.high_limit,
-                m.nominal, m.comparator, m.units,
+                result_el,
+                m.low_limit,
+                m.high_limit,
+                m.nominal,
+                m.comparator,
+                m.units,
             )
 
             if m.meas_dut_pin:

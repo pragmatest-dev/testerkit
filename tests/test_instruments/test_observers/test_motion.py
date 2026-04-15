@@ -12,6 +12,7 @@ class PositionDriver:
     @property
     def position(self) -> float:
         return 0.0
+
     @position.setter
     def position(self, v: float) -> None:
         pass

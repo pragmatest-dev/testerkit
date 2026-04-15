@@ -17,9 +17,14 @@ class OphydObserver(DriverObserver):
 
     observer_protocols = ["ophyd"]
 
-    _silent_methods = frozenset({
-        "describe", "read_configuration", "describe_configuration", "summary",
-    })
+    _silent_methods = frozenset(
+        {
+            "describe",
+            "read_configuration",
+            "describe_configuration",
+            "summary",
+        }
+    )
 
     def __init__(
         self,
@@ -33,7 +38,11 @@ class OphydObserver(DriverObserver):
         self._generic = GenericObserver(driver_class, role, emit, yaml_overrides)
 
     def on_call(
-        self, name: str, args: tuple[Any, ...], kwargs: dict[str, Any], result: Any,
+        self,
+        name: str,
+        args: tuple[Any, ...],
+        kwargs: dict[str, Any],
+        result: Any,
     ) -> None:
         if self._should_skip(name):
             return

@@ -24,6 +24,7 @@ from litmus.models.product import Product, ProductCharacteristic
 # Helpers to build test objects with new wrapper API
 # ---------------------------------------------------------------------------
 
+
 def _make_station_cap(
     function=MeasurementFunction.DC_VOLTAGE,
     direction=Direction.INPUT,
@@ -483,27 +484,32 @@ class TestGetStationCapabilities:
             model="DMM-1000",
             type="dmm",
             capabilities=[
-                InstrumentCapability.model_validate({
-                    "function": "dc_voltage",
-                    "direction": "input",
-                    "signals": {
-                        "voltage": {"range": {"min": 0, "max": 1000, "units": "V"}},
-                    },
-                }),
-                InstrumentCapability.model_validate({
-                    "function": "dc_current",
-                    "direction": "input",
-                    "signals": {
-                        "current": {"range": {"min": 0, "max": 10, "units": "A"}},
-                    },
-                }),
+                InstrumentCapability.model_validate(
+                    {
+                        "function": "dc_voltage",
+                        "direction": "input",
+                        "signals": {
+                            "voltage": {"range": {"min": 0, "max": 1000, "units": "V"}},
+                        },
+                    }
+                ),
+                InstrumentCapability.model_validate(
+                    {
+                        "function": "dc_current",
+                        "direction": "input",
+                        "signals": {
+                            "current": {"range": {"min": 0, "max": 10, "units": "A"}},
+                        },
+                    }
+                ),
             ],
         )
 
         import litmus.matching.service as matching_svc
 
         monkeypatch.setattr(
-            matching_svc, "resolve_catalog_ref",
+            matching_svc,
+            "resolve_catalog_ref",
             lambda ref: mock_entry if ref == "test_dmm" else None,
         )
 

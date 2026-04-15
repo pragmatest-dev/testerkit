@@ -250,7 +250,6 @@ def _fmt_attr_band_value(band: dict[str, Any], parent_units: str = "") -> str:
     return _fmt_value(v, band.get("units") or parent_units)
 
 
-
 def _when_keys(bands: list[dict[str, Any]]) -> list[str]:
     """Get the union of all when-clause keys across bands."""
     keys: dict[str, int] = {}
@@ -355,8 +354,10 @@ def _emit_table(
         v1 = _unique_values(bands, keys[1])
         grid_size = len(v0) * len(v1)
         if grid_size > 0 and len(bands) / grid_size >= _GRID_DENSITY_THRESHOLD:
+
             def cell_fn(b, f=present_fields[0]):
                 return _fmt_output_cell(b, f)
+
             tbl = _build_2d_generic(bands, keys, sig_name, cell_fn)
             tbl["title"] = f"{fmt_key(sig_name)} {fmt_key(present_fields[0])}"
             tables.append(tbl)
@@ -370,25 +371,29 @@ def _emit_table(
         for band in bands:
             label = fmt_when_value(band.get("when", {}).get(key), key)
             rows.append({"label": label, "value": _fmt_output_cell(band, field)})
-        tables.append({
-            "kind": "1d",
-            "title": _field_title(field, sig_name),
-            "row_key": fmt_key(key),
-            "value_label": fmt_key(field),
-            "rows": rows,
-        })
+        tables.append(
+            {
+                "kind": "1d",
+                "title": _field_title(field, sig_name),
+                "row_key": fmt_key(key),
+                "value_label": fmt_key(field),
+                "rows": rows,
+            }
+        )
         return
 
     # Multi-column: condition columns + output field columns
-    tables.append(_build_multi_col_table(
-        bands, keys, sig_name,
-        output_fields=present_fields,
-    ))
+    tables.append(
+        _build_multi_col_table(
+            bands,
+            keys,
+            sig_name,
+            output_fields=present_fields,
+        )
+    )
 
 
-def build_signal_render(
-    sig_name: str, sig: dict[str, Any]
-) -> dict[str, Any]:
+def build_signal_render(sig_name: str, sig: dict[str, Any]) -> dict[str, Any]:
     """Build render structures for a signal's spec bands.
 
     Groups bands by their when-key signature and produces one table per group,
@@ -431,8 +436,7 @@ def build_signal_render(
     output_groups: dict[frozenset[str], list[dict[str, Any]]] = defaultdict(list)
     for band in conditional:
         out_sig = frozenset(
-            f for f in ("range", "accuracy", "resolution")
-            if _has_output_field(band, f)
+            f for f in ("range", "accuracy", "resolution") if _has_output_field(band, f)
         )
         output_groups[out_sig].append(band)
 
@@ -464,9 +468,7 @@ def _hashable(v: Any) -> Any:
     return v
 
 
-def build_attr_render(
-    attr_name: str, attr: dict[str, Any]
-) -> dict[str, Any]:
+def build_attr_render(attr_name: str, attr: dict[str, Any]) -> dict[str, Any]:
     """Build render structures for an attribute's spec bands.
 
     Returns a dict with:
@@ -485,9 +487,7 @@ def build_attr_render(
     def _cell(band: dict[str, Any]) -> str:
         return _fmt_attr_band_value(band, parent_units)
 
-    tables = _build_tables_from_bands(
-        specs, attr_name, "value", _cell
-    )
+    tables = _build_tables_from_bands(specs, attr_name, "value", _cell)
 
     return {"headline": headline, "tables": tables}
 
@@ -514,13 +514,15 @@ def _build_tables_from_bands(
             for band in cluster:
                 label = fmt_when_value(band["when"].get(key), key)
                 rows.append({"label": label, "value": cell_fn(band)})
-            tables.append({
-                "kind": "1d",
-                "title": fmt_key(name),
-                "row_key": fmt_key(key),
-                "value_label": fmt_key(value_label),
-                "rows": rows,
-            })
+            tables.append(
+                {
+                    "kind": "1d",
+                    "title": fmt_key(name),
+                    "row_key": fmt_key(key),
+                    "value_label": fmt_key(value_label),
+                    "rows": rows,
+                }
+            )
         elif ndim == 2:
             v0 = _unique_values(cluster, keys[0])
             v1 = _unique_values(cluster, keys[1])
@@ -528,15 +530,25 @@ def _build_tables_from_bands(
             if grid_size > 0 and len(cluster) / grid_size >= _GRID_DENSITY_THRESHOLD:
                 tables.append(_build_2d_generic(cluster, keys, name, cell_fn))
             else:
-                tables.append(_build_multi_col_table(
-                    cluster, keys, name,
-                    value_label=value_label, cell_fn=cell_fn,
-                ))
+                tables.append(
+                    _build_multi_col_table(
+                        cluster,
+                        keys,
+                        name,
+                        value_label=value_label,
+                        cell_fn=cell_fn,
+                    )
+                )
         else:
-            tables.append(_build_multi_col_table(
-                cluster, keys, name,
-                value_label=value_label, cell_fn=cell_fn,
-            ))
+            tables.append(
+                _build_multi_col_table(
+                    cluster,
+                    keys,
+                    name,
+                    value_label=value_label,
+                    cell_fn=cell_fn,
+                )
+            )
 
     return tables
 
@@ -602,9 +614,7 @@ def _build_multi_col_table(
         value_cols = [fmt_key(f) for f in output_fields]
         rows = []
         for band in bands:
-            condition_cells = [
-                fmt_when_value(band.get("when", {}).get(k), k) for k in keys
-            ]
+            condition_cells = [fmt_when_value(band.get("when", {}).get(k), k) for k in keys]
             values = [_fmt_output_cell(band, f) for f in output_fields]
             rows.append({"conditions": condition_cells, "cells": values})
         return {
@@ -618,13 +628,13 @@ def _build_multi_col_table(
         # Attribute mode: single value column
         rows = []
         for band in bands:
-            condition_cells = [
-                fmt_when_value(band.get("when", {}).get(k), k) for k in keys
-            ]
-            rows.append({
-                "conditions": condition_cells,
-                "cells": [cell_fn(band) if cell_fn else ""],
-            })
+            condition_cells = [fmt_when_value(band.get("when", {}).get(k), k) for k in keys]
+            rows.append(
+                {
+                    "conditions": condition_cells,
+                    "cells": [cell_fn(band) if cell_fn else ""],
+                }
+            )
         return {
             "kind": "multi_col",
             "title": fmt_key(name),
@@ -636,10 +646,7 @@ def _build_multi_col_table(
 
 def _visible_fields(items: dict[str, dict[str, Any]], fields: list[str]) -> dict[str, bool]:
     """Determine which optional fields have at least one non-None value across items."""
-    return {
-        f: any(item.get(f) is not None for item in items.values())
-        for f in fields
-    }
+    return {f: any(item.get(f) is not None for item in items.values()) for f in fields}
 
 
 def preprocess_capabilities(caps: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -660,17 +667,14 @@ def preprocess_capabilities(caps: list[dict[str, Any]]) -> list[dict[str, Any]]:
 
         # Which optional columns have data?
         if cap.get("signals"):
-            cap["visible_signals"] = _visible_fields(
-                cap["signals"], ["qualifier"]
-            )
+            cap["visible_signals"] = _visible_fields(cap["signals"], ["qualifier"])
         if cap.get("controls"):
-            cap["visible_controls"] = _visible_fields(
-                cap["controls"], ["resolution", "default"]
-            )
+            cap["visible_controls"] = _visible_fields(cap["controls"], ["resolution", "default"])
         if cap.get("attributes"):
             # For constant attrs (no spec bands), check qualifier
             const_attrs = {
-                k: v for k, v in cap["attributes"].items()
+                k: v
+                for k, v in cap["attributes"].items()
                 if not attr_renders.get(k, {}).get("tables")
             }
             cap["visible_attrs"] = _visible_fields(const_attrs, ["qualifier"])
@@ -812,12 +816,14 @@ def generate_datasheet(
         vdata = load_datasheet_data(vpath)
         ventry = vdata["entry"]
         vout = output.parent / f"{ventry['id']}.{ext}"
-        variant_links.append({
-            "label": "Variant",
-            "name": ventry.get("name", ventry["id"]),
-            "model": ventry.get("model", ""),
-            "href": vout.name,
-        })
+        variant_links.append(
+            {
+                "label": "Variant",
+                "name": ventry.get("name", ventry["id"]),
+                "model": ventry.get("model", ""),
+                "href": vout.name,
+            }
+        )
 
     # Render base first so variants can link back to it
     _render_datasheet(data, output, fmt, related=variant_links)

@@ -117,14 +117,16 @@ def create_api_router() -> APIRouter:
         runner = get_runner()
         active = []
         for run_id, run_info in runner.runs.items():
-            active.append({
-                "run_id": run_id,
-                "status": run_info.status,
-                "progress_pct": run_info.progress_pct,
-                "current_step": run_info.current_step,
-                "dut_serial": run_info.request.dut_serial,
-                "station_id": run_info.request.station_id,
-            })
+            active.append(
+                {
+                    "run_id": run_id,
+                    "status": run_info.status,
+                    "progress_pct": run_info.progress_pct,
+                    "current_step": run_info.current_step,
+                    "dut_serial": run_info.request.dut_serial,
+                    "station_id": run_info.request.station_id,
+                }
+            )
         return {"active_runs": active, "count": len(active)}
 
     # -------------------------------------------------------------------------
@@ -175,9 +177,7 @@ def create_api_router() -> APIRouter:
         manager = get_dialog_manager()
 
         # Check if dialog exists
-        dialog = next(
-            (d for d in manager.get_pending_dialogs() if d.id == uuid), None
-        )
+        dialog = next((d for d in manager.get_pending_dialogs() if d.id == uuid), None)
 
         if not dialog:
             # Maybe already responded
@@ -237,7 +237,12 @@ def create_api_router() -> APIRouter:
 
         _rdir = Path(project.results_dir) if project.results_dir else None
         return events_query(
-            session_id, type, role, since, limit, results_dir=_rdir,
+            session_id,
+            type,
+            role,
+            since,
+            limit,
+            results_dir=_rdir,
         )
 
     @router.get("/sessions")
@@ -405,13 +410,9 @@ def create_api_router() -> APIRouter:
             # Validate station exists, then find its match result
             config = store_get_station(station_id)
             if not config:
-                raise HTTPException(
-                    status_code=404, detail=f"Station '{station_id}' not found"
-                )
+                raise HTTPException(status_code=404, detail=f"Station '{station_id}' not found")
             matches = find_compatible_stations(product)
-            match = next(
-                (m for m in matches if m.station_id == station_id), None
-            )
+            match = next((m for m in matches if m.station_id == station_id), None)
             return {
                 "product_id": product_id,
                 "station_id": station_id,
@@ -446,9 +447,7 @@ def create_api_router() -> APIRouter:
 
         result = store_get_catalog_entry(entry_id)
         if not result:
-            raise HTTPException(
-                status_code=404, detail=f"Catalog entry '{entry_id}' not found"
-            )
+            raise HTTPException(status_code=404, detail=f"Catalog entry '{entry_id}' not found")
         return result.model_dump()
 
     @router.get("/instruments/assets")
@@ -466,9 +465,7 @@ def create_api_router() -> APIRouter:
 
         result = get_instrument_asset(asset_id)
         if not result:
-            raise HTTPException(
-                status_code=404, detail=f"Instrument asset '{asset_id}' not found"
-            )
+            raise HTTPException(status_code=404, detail=f"Instrument asset '{asset_id}' not found")
         return result.model_dump()
 
     # -------------------------------------------------------------------------
@@ -500,10 +497,16 @@ def create_api_router() -> APIRouter:
         from litmus.analysis.gold import GoldStore
 
         store = GoldStore(_results_dir=project.results_dir)
-        return {"data": store.yield_summary(
-            product=product, station=station, phase=phase,
-            since=since, until=until, period=period,
-        )}
+        return {
+            "data": store.yield_summary(
+                product=product,
+                station=station,
+                phase=phase,
+                since=since,
+                until=until,
+                period=period,
+            )
+        }
 
     @router.get("/gold/pareto")
     def gold_pareto(
@@ -518,10 +521,16 @@ def create_api_router() -> APIRouter:
         from litmus.analysis.gold import GoldStore
 
         store = GoldStore(_results_dir=project.results_dir)
-        return {"data": store.pareto(
-            product=product, station=station, phase=phase,
-            since=since, until=until, top_n=top_n,
-        )}
+        return {
+            "data": store.pareto(
+                product=product,
+                station=station,
+                phase=phase,
+                since=since,
+                until=until,
+                top_n=top_n,
+            )
+        }
 
     @router.get("/gold/cpk")
     def gold_cpk(
@@ -536,10 +545,16 @@ def create_api_router() -> APIRouter:
         from litmus.analysis.gold import GoldStore
 
         store = GoldStore(_results_dir=project.results_dir)
-        return {"data": store.cpk(
-            product=product, station=station, phase=phase,
-            since=since, until=until, min_samples=min_samples,
-        )}
+        return {
+            "data": store.cpk(
+                product=product,
+                station=station,
+                phase=phase,
+                since=since,
+                until=until,
+                min_samples=min_samples,
+            )
+        }
 
     @router.get("/gold/trend")
     def gold_trend(
@@ -554,10 +569,16 @@ def create_api_router() -> APIRouter:
         from litmus.analysis.gold import GoldStore
 
         store = GoldStore(_results_dir=project.results_dir)
-        return {"data": store.trend(
-            product=product, station=station, phase=phase,
-            since=since, until=until, period=period,
-        )}
+        return {
+            "data": store.trend(
+                product=product,
+                station=station,
+                phase=phase,
+                since=since,
+                until=until,
+                period=period,
+            )
+        }
 
     @router.get("/gold/retest")
     def gold_retest(
@@ -572,10 +593,16 @@ def create_api_router() -> APIRouter:
         from litmus.analysis.gold import GoldStore
 
         store = GoldStore(_results_dir=project.results_dir)
-        return {"data": store.retest(
-            product=product, station=station, phase=phase,
-            since=since, until=until, period=period,
-        )}
+        return {
+            "data": store.retest(
+                product=product,
+                station=station,
+                phase=phase,
+                since=since,
+                until=until,
+                period=period,
+            )
+        }
 
     @router.get("/gold/time-loss")
     def gold_time_loss(
@@ -590,10 +617,16 @@ def create_api_router() -> APIRouter:
         from litmus.analysis.gold import GoldStore
 
         store = GoldStore(_results_dir=project.results_dir)
-        return {"data": store.time_loss(
-            product=product, station=station, phase=phase,
-            since=since, until=until, period=period,
-        )}
+        return {
+            "data": store.time_loss(
+                product=product,
+                station=station,
+                phase=phase,
+                since=since,
+                until=until,
+                period=period,
+            )
+        }
 
     return router
 

@@ -253,11 +253,14 @@ class TestMockDictValues:
             def query(self, cmd):
                 pass
 
-        inst = Mock(FakeVisa, query={
-            "MEAS:VOLT:DC?": "3.3",
-            "MEAS:CURR:DC?": "0.1",
-            "*IDN?": "Keithley,2400,SN123,1.0",
-        })
+        inst = Mock(
+            FakeVisa,
+            query={
+                "MEAS:VOLT:DC?": "3.3",
+                "MEAS:CURR:DC?": "0.1",
+                "*IDN?": "Keithley,2400,SN123,1.0",
+            },
+        )
 
         assert inst.query("MEAS:VOLT:DC?") == "3.3"
         assert inst.query("MEAS:CURR:DC?") == "0.1"
@@ -302,6 +305,7 @@ class TestMockCallableValues:
                 pass
 
         calls = []
+
         def track_calls(param, value):
             calls.append((param, value))
             return "OK"

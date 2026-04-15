@@ -79,22 +79,42 @@ def results_dir(tmp_path: Path) -> Path:
     """
     runs_dir = tmp_path / "runs"
     rows = [
-        _row(run_id="run-1", dut_serial="SN001", run_outcome="pass",
-             run_started_at="2026-01-01T10:00:00",
-             run_ended_at="2026-01-01T10:05:00",
-             value=3.3, outcome="pass"),
-        _row(run_id="run-2", dut_serial="SN002", run_outcome="fail",
-             run_started_at="2026-01-01T11:00:00",
-             run_ended_at="2026-01-01T11:03:00",
-             value=2.5, outcome="fail"),
-        _row(run_id="run-3", dut_serial="SN001", run_outcome="pass",
-             run_started_at="2026-01-01T12:00:00",
-             run_ended_at="2026-01-01T12:04:00",
-             value=3.31, outcome="pass"),
-        _row(run_id="run-4", dut_serial="SN002", run_outcome="pass",
-             run_started_at="2026-01-01T13:00:00",
-             run_ended_at="2026-01-01T13:06:00",
-             value=3.29, outcome="pass"),
+        _row(
+            run_id="run-1",
+            dut_serial="SN001",
+            run_outcome="pass",
+            run_started_at="2026-01-01T10:00:00",
+            run_ended_at="2026-01-01T10:05:00",
+            value=3.3,
+            outcome="pass",
+        ),
+        _row(
+            run_id="run-2",
+            dut_serial="SN002",
+            run_outcome="fail",
+            run_started_at="2026-01-01T11:00:00",
+            run_ended_at="2026-01-01T11:03:00",
+            value=2.5,
+            outcome="fail",
+        ),
+        _row(
+            run_id="run-3",
+            dut_serial="SN001",
+            run_outcome="pass",
+            run_started_at="2026-01-01T12:00:00",
+            run_ended_at="2026-01-01T12:04:00",
+            value=3.31,
+            outcome="pass",
+        ),
+        _row(
+            run_id="run-4",
+            dut_serial="SN002",
+            run_outcome="pass",
+            run_started_at="2026-01-01T13:00:00",
+            run_ended_at="2026-01-01T13:06:00",
+            value=3.29,
+            outcome="pass",
+        ),
     ]
     _write_silver(runs_dir, rows)
     return tmp_path
@@ -117,14 +137,10 @@ class TestYieldSummary:
         gold_fpy = fp_passed / fp_total if fp_total else 0.0
 
         python_runs = [
-            {"dut_serial": "SN001", "run_outcome": "pass",
-             "run_started_at": "2026-01-01T10:00:00"},
-            {"dut_serial": "SN002", "run_outcome": "fail",
-             "run_started_at": "2026-01-01T11:00:00"},
-            {"dut_serial": "SN001", "run_outcome": "pass",
-             "run_started_at": "2026-01-01T12:00:00"},
-            {"dut_serial": "SN002", "run_outcome": "pass",
-             "run_started_at": "2026-01-01T13:00:00"},
+            {"dut_serial": "SN001", "run_outcome": "pass", "run_started_at": "2026-01-01T10:00:00"},
+            {"dut_serial": "SN002", "run_outcome": "fail", "run_started_at": "2026-01-01T11:00:00"},
+            {"dut_serial": "SN001", "run_outcome": "pass", "run_started_at": "2026-01-01T12:00:00"},
+            {"dut_serial": "SN002", "run_outcome": "pass", "run_started_at": "2026-01-01T13:00:00"},
         ]
         python_fpy = calculate_fpy(python_runs)
         assert gold_fpy == pytest.approx(python_fpy, abs=0.01)
@@ -160,9 +176,12 @@ class TestPareto:
 
     def test_no_failures(self, tmp_path: Path):
         runs_dir = tmp_path / "runs"
-        _write_silver(runs_dir, [
-            _row(run_id="r1", value=3.3, outcome="pass"),
-        ])
+        _write_silver(
+            runs_dir,
+            [
+                _row(run_id="r1", value=3.3, outcome="pass"),
+            ],
+        )
         store = GoldStore(_results_dir=tmp_path)
         assert store.pareto(phase="all") == []
 
@@ -188,10 +207,13 @@ class TestCpk:
 
     def test_min_samples_filter(self, tmp_path: Path):
         runs_dir = tmp_path / "runs"
-        _write_silver(runs_dir, [
-            _row(run_id="r1", value=3.3, outcome="pass"),
-            _row(run_id="r2", dut_serial="SN002", value=3.31, outcome="pass"),
-        ])
+        _write_silver(
+            runs_dir,
+            [
+                _row(run_id="r1", value=3.3, outcome="pass"),
+                _row(run_id="r2", dut_serial="SN002", value=3.31, outcome="pass"),
+            ],
+        )
         store = GoldStore(_results_dir=tmp_path)
         assert store.cpk(phase="all", min_samples=10) == []
 

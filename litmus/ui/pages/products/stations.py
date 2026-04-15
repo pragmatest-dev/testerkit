@@ -55,26 +55,20 @@ def _render_station_compatibility(product_id: str, product: dict):
             )
             if product_model:
                 char_count = len(product_model.characteristics)
-                ui.label(
-                    f"Matching stations against {char_count} characteristic(s)"
-                ).classes("text-sm text-slate-500")
+                ui.label(f"Matching stations against {char_count} characteristic(s)").classes(
+                    "text-sm text-slate-500"
+                )
 
         with ui.card_section():
             with ui.row().classes("gap-6"):
                 with ui.column().classes("items-center"):
-                    ui.label(str(len(compatible))).classes(
-                        "text-2xl font-bold text-emerald-600"
-                    )
+                    ui.label(str(len(compatible))).classes("text-2xl font-bold text-emerald-600")
                     ui.label("Ready").classes("text-xs text-slate-500")
                 with ui.column().classes("items-center"):
-                    ui.label(str(len(partial))).classes(
-                        "text-2xl font-bold text-amber-600"
-                    )
+                    ui.label(str(len(partial))).classes("text-2xl font-bold text-amber-600")
                     ui.label("Partial").classes("text-xs text-slate-500")
                 with ui.column().classes("items-center"):
-                    ui.label(str(len(incompatible))).classes(
-                        "text-2xl font-bold text-slate-400"
-                    )
+                    ui.label(str(len(incompatible))).classes("text-2xl font-bold text-slate-400")
                     ui.label("None").classes("text-xs text-slate-500")
 
     # Fully compatible stations
@@ -84,9 +78,9 @@ def _render_station_compatibility(product_id: str, product: dict):
                 with ui.row().classes("items-center gap-2"):
                     ui.icon("check_circle").classes("text-emerald-500")
                     ui.label("Ready to Test").classes("text-lg font-semibold text-emerald-600")
-                ui.label(
-                    "These stations have all required instruments."
-                ).classes("text-sm text-slate-500")
+                ui.label("These stations have all required instruments.").classes(
+                    "text-sm text-slate-500"
+                )
 
             with ui.card_section():
                 for station in compatible:
@@ -112,26 +106,24 @@ def _render_station_compatibility(product_id: str, product: dict):
     # Incompatible stations (if any exist)
     if incompatible:
         with ui.expansion("Incompatible Stations", icon="block").classes("w-full mt-4"):
-            ui.label(
-                "These stations have none of the required instruments."
-            ).classes("text-sm text-slate-500 mb-2")
+            ui.label("These stations have none of the required instruments.").classes(
+                "text-sm text-slate-500 mb-2"
+            )
             for station in incompatible:
                 with ui.row().classes("items-center gap-3 py-2 border-b border-slate-100"):
                     ui.icon("block").classes("text-slate-300")
                     ui.label(station["name"]).classes("text-slate-500")
                     if station.get("location"):
-                        ui.label(f"({station['location']})").classes(
-                            "text-xs text-slate-400"
-                        )
+                        ui.label(f"({station['location']})").classes("text-xs text-slate-400")
 
     # No stations at all
     if not compatible and not partial and not incompatible:
         with ui.card().classes("w-full mt-4 p-6 text-center"):
             ui.icon("search_off").classes("text-4xl text-slate-300")
             ui.label("No stations found").classes("text-lg text-slate-500 mt-2")
-            ui.label(
-                "Create a station configuration to enable testing."
-            ).classes("text-sm text-slate-400")
+            ui.label("Create a station configuration to enable testing.").classes(
+                "text-sm text-slate-400"
+            )
             ui.button(
                 "Create Station",
                 icon="add",
@@ -161,9 +153,7 @@ def _render_station_compatibility(product_id: str, product: dict):
 
 def _render_compatible_station(product_id: str, station: dict):
     """Render a fully compatible station row."""
-    with ui.row().classes(
-        "items-center justify-between py-3 border-b border-slate-100 w-full"
-    ):
+    with ui.row().classes("items-center justify-between py-3 border-b border-slate-100 w-full"):
         with ui.column().classes("flex-1"):
             ui.label(station["name"]).classes("font-semibold")
             if station.get("location"):
@@ -181,9 +171,7 @@ def _render_compatible_station(product_id: str, station: dict):
 
 def _render_partial_station(product_id: str, station: dict):
     """Render a partially compatible station row."""
-    with ui.row().classes(
-        "items-center justify-between py-3 border-b border-slate-100 w-full"
-    ):
+    with ui.row().classes("items-center justify-between py-3 border-b border-slate-100 w-full"):
         with ui.column().classes("flex-1"):
             ui.label(station["name"]).classes("font-semibold")
             if station.get("location"):

@@ -25,6 +25,7 @@ from litmus.data.events import MeasurementRecorded, SessionStarted
 # Fixtures — ONE daemon per module
 # ---------------------------------------------------------------------------
 
+
 @pytest.fixture(scope="module")
 def event_store(tmp_path_factory: pytest.TempPathFactory) -> Generator[EventStore]:
     d = tmp_path_factory.mktemp("perf_events")
@@ -59,6 +60,7 @@ def _make_measurement(session_id, i: int) -> MeasurementRecorded:
 # EventStore benchmarks
 # ---------------------------------------------------------------------------
 
+
 class TestEventStorePerf:
     """Benchmark emit and query at various scales."""
 
@@ -91,10 +93,14 @@ class TestEventStorePerf:
     def test_query_by_type_10k(self, event_store: EventStore, benchmark):
         """Filter by event_type over 10k events."""
         sid = uuid4()
-        event_store.emit(SessionStarted(
-            session_id=sid, station_id="bench",
-            session_type="test", pid=1,
-        ))
+        event_store.emit(
+            SessionStarted(
+                session_id=sid,
+                station_id="bench",
+                session_type="test",
+                pid=1,
+            )
+        )
         for i in range(10_000):
             event_store.emit(_make_measurement(sid, i))
 
@@ -125,6 +131,7 @@ class TestEventStorePerf:
 # ---------------------------------------------------------------------------
 # ChannelStore benchmarks
 # ---------------------------------------------------------------------------
+
 
 class TestChannelStorePerf:
     """Benchmark write and query for channel data."""
@@ -178,6 +185,7 @@ class TestChannelStorePerf:
     def test_write_array_channel(self, tmp_path: Path, benchmark):
         """Write array (waveform-like) data — 1k writes of 1k-sample arrays."""
         import random
+
         store = ChannelStore(tmp_path / "ch", uuid4(), flush_threshold=50)
         store.open()
         waveform = [random.gauss(0, 1) for _ in range(1000)]
@@ -193,6 +201,7 @@ class TestChannelStorePerf:
 # ---------------------------------------------------------------------------
 # Parquet _enforce_schema benchmark
 # ---------------------------------------------------------------------------
+
 
 class TestEnforceSchemaPerf:
     """Benchmark Arrow-native type coercion."""

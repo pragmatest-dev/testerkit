@@ -72,11 +72,13 @@ def _find_litmus_test_functions(source: str) -> list[dict]:
                 annotation = ast.unparse(arg.annotation)
             params.append({"name": arg.arg, "annotation": annotation})
 
-        results.append({
-            "name": node.name,
-            "lineno": node.lineno,
-            "params": params,
-        })
+        results.append(
+            {
+                "name": node.name,
+                "lineno": node.lineno,
+                "params": params,
+            }
+        )
 
     return results
 
@@ -155,14 +157,14 @@ def compute_type_edits(
             for i in range(def_lineno, min(def_lineno + 20, len(lines))):
                 line = lines[i]
                 # Match the parameter name as a word boundary, not already annotated
-                pattern = rf'\b({re.escape(pname)})\s*([,\):])'
+                pattern = rf"\b({re.escape(pname)})\s*([,\):])"
                 match = re.search(pattern, line)
                 if match:
                     # Check it's not already annotated (colon after name)
-                    if match.group(2) == ':':
+                    if match.group(2) == ":":
                         break
                     # Replace with annotated version
-                    replacement = rf'\1: {class_name}\2'
+                    replacement = rf"\1: {class_name}\2"
                     lines[i] = re.sub(pattern, replacement, line, count=1)
                     break
 
@@ -186,8 +188,10 @@ def compute_type_edits(
             if stripped.startswith(("import ", "from ")):
                 in_imports = True
                 insert_idx = i + 1
-            elif stripped.startswith("__") or stripped.startswith("@") or (
-                stripped.startswith("def ") or stripped.startswith("class ")
+            elif (
+                stripped.startswith("__")
+                or stripped.startswith("@")
+                or (stripped.startswith("def ") or stripped.startswith("class "))
             ):
                 if in_imports:
                     break

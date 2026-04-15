@@ -25,12 +25,27 @@ logger = logging.getLogger(__name__)
 
 # Columns needed for analysis (subset of full schema)
 _ANALYSIS_COLUMNS = [
-    "run_id", "run_started_at", "run_ended_at", "run_outcome",
-    "dut_serial", "dut_part_number", "dut_lot_number",
-    "product_id", "station_id", "station_name",
-    "test_phase", "step_name", "step_started_at", "step_ended_at",
-    "measurement_name", "value", "units", "outcome",
-    "low_limit", "high_limit", "nominal",
+    "run_id",
+    "run_started_at",
+    "run_ended_at",
+    "run_outcome",
+    "dut_serial",
+    "dut_part_number",
+    "dut_lot_number",
+    "product_id",
+    "station_id",
+    "station_name",
+    "test_phase",
+    "step_name",
+    "step_started_at",
+    "step_ended_at",
+    "measurement_name",
+    "value",
+    "units",
+    "outcome",
+    "low_limit",
+    "high_limit",
+    "nominal",
 ]
 
 
@@ -60,8 +75,7 @@ def load_runs(results_dir: str | Path) -> pa.Table:
         try:
             runs = run_store.list_runs(limit=10000)
             parquet_files = [
-                Path(r["_file"]) for r in runs
-                if r.get("_file") and Path(r["_file"]).exists()
+                Path(r["_file"]) for r in runs if r.get("_file") and Path(r["_file"]).exists()
             ]
         finally:
             run_store.close()
@@ -70,10 +84,7 @@ def load_runs(results_dir: str | Path) -> pa.Table:
 
     # Fallback: direct file scan if RunStore found nothing (mixed schemas, etc.)
     if not parquet_files:
-        parquet_files = [
-            f for f in runs_dir.rglob("*.parquet")
-            if "_ref" not in f.parent.name
-        ]
+        parquet_files = [f for f in runs_dir.rglob("*.parquet") if "_ref" not in f.parent.name]
 
     if not parquet_files:
         return pa.table({})
@@ -189,7 +200,10 @@ def filter_by_date_range(
 
 
 def _filter_by_column(
-    table: pa.Table, value: str, primary_col: str, fallback_col: str,
+    table: pa.Table,
+    value: str,
+    primary_col: str,
+    fallback_col: str,
 ) -> pa.Table:
     """Filter table by value in primary column, falling back to fallback column.
 

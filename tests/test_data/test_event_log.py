@@ -47,10 +47,13 @@ class TestEventLog:
         class Sub(EventSubscriber):
             format_name = "test"
             event_types = {MeasurementRecorded}
+
             def open(self):
                 pass
+
             def on_event(self, event):
                 received.append(event)
+
             def close(self):
                 pass
 
@@ -61,9 +64,14 @@ class TestEventLog:
         assert len(received) == 0
 
         # Should dispatch
-        log.emit(MeasurementRecorded(
-            step_name="s", step_index=0, measurement_name="v", value=1.0,
-        ))
+        log.emit(
+            MeasurementRecorded(
+                step_name="s",
+                step_index=0,
+                measurement_name="v",
+                value=1.0,
+            )
+        )
         assert len(received) == 1
         log.close()
 
@@ -76,12 +84,15 @@ class TestEventLog:
         class BadSub(EventSubscriber):
             format_name = "bad"
             event_types = {MeasurementRecorded}
+
             def open(self):
                 pass
+
             def on_event(self, event):
                 nonlocal call_count
                 call_count += 1
                 raise RuntimeError("boom")
+
             def close(self):
                 pass
 
@@ -89,12 +100,22 @@ class TestEventLog:
 
         with w.catch_warnings(record=True):
             w.simplefilter("always")
-            log.emit(MeasurementRecorded(
-                step_name="s", step_index=0, measurement_name="m1", value=1.0,
-            ))
-            log.emit(MeasurementRecorded(
-                step_name="s", step_index=0, measurement_name="m2", value=2.0,
-            ))
+            log.emit(
+                MeasurementRecorded(
+                    step_name="s",
+                    step_index=0,
+                    measurement_name="m1",
+                    value=1.0,
+                )
+            )
+            log.emit(
+                MeasurementRecorded(
+                    step_name="s",
+                    step_index=0,
+                    measurement_name="m2",
+                    value=2.0,
+                )
+            )
 
         assert call_count == 1
         log.close()
@@ -114,10 +135,15 @@ class TestEventLog:
         log = EventLog(tmp_path / "events", run_id)
 
         log.emit(RunStarted(run_id=run_id, station_id="st1", dut_serial="SN001"))
-        log.emit(MeasurementRecorded(
-            run_id=run_id, step_name="s", step_index=0,
-            measurement_name="v", value=1.0,
-        ))
+        log.emit(
+            MeasurementRecorded(
+                run_id=run_id,
+                step_name="s",
+                step_index=0,
+                measurement_name="v",
+                value=1.0,
+            )
+        )
         log.emit(RunEnded(run_id=run_id, outcome="pass"))
         log.close()
 

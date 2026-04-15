@@ -48,15 +48,13 @@ def check_calibration(role: str, calibration: CalibrationInfo) -> None:
         return
     if days_until < 0:
         warnings.warn(
-            f"{role}: CALIBRATION EXPIRED (due {calibration.due_date}, "
-            f"{-days_until} days overdue)",
+            f"{role}: CALIBRATION EXPIRED (due {calibration.due_date}, {-days_until} days overdue)",
             UserWarning,
             stacklevel=3,
         )
     elif days_until < _CALIBRATION_WARNING_DAYS:
         warnings.warn(
-            f"{role}: calibration due soon ({calibration.due_date}, "
-            f"{days_until} days remaining)",
+            f"{role}: calibration due soon ({calibration.due_date}, {days_until} days remaining)",
             UserWarning,
             stacklevel=3,
         )

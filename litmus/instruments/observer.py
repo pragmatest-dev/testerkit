@@ -17,12 +17,24 @@ from litmus.data.event_log import EventLog
 from litmus.data.events import InstrumentConfigure, InstrumentRead, InstrumentSet
 from litmus.data.ref import classify_value
 
-LIFECYCLE_METHODS = frozenset({
-    "connect", "disconnect", "close", "shutdown", "reset",
-    "__enter__", "__exit__", "__init__", "__del__",
-    "__repr__", "__str__", "__hash__", "__eq__",
-    "set_mock_value",
-})
+LIFECYCLE_METHODS = frozenset(
+    {
+        "connect",
+        "disconnect",
+        "close",
+        "shutdown",
+        "reset",
+        "__enter__",
+        "__exit__",
+        "__init__",
+        "__del__",
+        "__repr__",
+        "__str__",
+        "__hash__",
+        "__eq__",
+        "set_mock_value",
+    }
+)
 """Methods the observer should never emit events for."""
 
 
@@ -59,39 +71,45 @@ class EventEmitter:
     def read(self, channel: str, value: Any, method: str = "") -> None:
         """Emit an InstrumentRead event."""
         event_value = self._store_value(channel, value, method)
-        self._event_log.emit(InstrumentRead(
-            session_id=self._session_id,
-            run_id=self._run_id,
-            instrument_role=self._role,
-            channel_id=channel,
-            method=method,
-            value=event_value,
-            resource=self._resource,
-        ))
+        self._event_log.emit(
+            InstrumentRead(
+                session_id=self._session_id,
+                run_id=self._run_id,
+                instrument_role=self._role,
+                channel_id=channel,
+                method=method,
+                value=event_value,
+                resource=self._resource,
+            )
+        )
 
     def set(self, channel: str, value: Any, attr: str = "") -> None:
         """Emit an InstrumentSet event."""
         event_value = self._store_value(channel, value, attr)
-        self._event_log.emit(InstrumentSet(
-            session_id=self._session_id,
-            run_id=self._run_id,
-            instrument_role=self._role,
-            channel_id=channel,
-            attribute=attr,
-            value=event_value,
-            resource=self._resource,
-        ))
+        self._event_log.emit(
+            InstrumentSet(
+                session_id=self._session_id,
+                run_id=self._run_id,
+                instrument_role=self._role,
+                channel_id=channel,
+                attribute=attr,
+                value=event_value,
+                resource=self._resource,
+            )
+        )
 
     def configure(self, method: str, parameters: dict[str, Any]) -> None:
         """Emit an InstrumentConfigure event."""
-        self._event_log.emit(InstrumentConfigure(
-            session_id=self._session_id,
-            run_id=self._run_id,
-            instrument_role=self._role,
-            method=method,
-            parameters=parameters,
-            resource=self._resource,
-        ))
+        self._event_log.emit(
+            InstrumentConfigure(
+                session_id=self._session_id,
+                run_id=self._run_id,
+                instrument_role=self._role,
+                method=method,
+                parameters=parameters,
+                resource=self._resource,
+            )
+        )
 
 
 class DriverObserver:
@@ -135,11 +153,7 @@ class DriverObserver:
 
     def _should_skip(self, name: str) -> bool:
         """True for private, lifecycle, or observer-specific silent methods."""
-        return (
-            name.startswith("_")
-            or name in LIFECYCLE_METHODS
-            or name in self._silent_methods
-        )
+        return name.startswith("_") or name in LIFECYCLE_METHODS or name in self._silent_methods
 
     def on_getattr(self, name: str, value: Any) -> Any:
         """Called on every non-callable attribute access.
@@ -155,7 +169,11 @@ class DriverObserver:
         """
 
     def on_call(
-        self, name: str, args: tuple[Any, ...], kwargs: dict[str, Any], result: Any,
+        self,
+        name: str,
+        args: tuple[Any, ...],
+        kwargs: dict[str, Any],
+        result: Any,
     ) -> None:
         """Called after every method call with the result.
 

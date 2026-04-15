@@ -63,7 +63,7 @@ def _create_docs_layout(section: str | None = None, page: str | None = None):
 
     ui.add_head_html('<link rel="stylesheet" href="/static/global.css">')
     # Add Mermaid.js for diagram rendering
-    ui.add_head_html('''
+    ui.add_head_html("""
         <script type="module">
             import mermaid from 'https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs';
             mermaid.initialize({ startOnLoad: false, theme: 'neutral' });
@@ -84,7 +84,7 @@ def _create_docs_layout(section: str | None = None, page: str | None = None):
                 }, 100);
             });
         </script>
-    ''')
+    """)
     ui.query("body").classes("bg-slate-50")
 
     create_sidebar()
@@ -96,17 +96,13 @@ def _create_docs_layout(section: str | None = None, page: str | None = None):
             if section:
                 ui.icon("chevron_right").classes("text-xs text-slate-400")
                 if page:
-                    ui.link(
-                        _get_section_title(section), f"/docs/{section}"
-                    ).classes("text-slate-500 hover:text-blue-600")
+                    ui.link(_get_section_title(section), f"/docs/{section}").classes(
+                        "text-slate-500 hover:text-blue-600"
+                    )
                     ui.icon("chevron_right").classes("text-xs text-slate-400")
-                    ui.label(page.replace("-", " ").title()).classes(
-                        "text-slate-800 font-medium"
-                    )
+                    ui.label(page.replace("-", " ").title()).classes("text-slate-800 font-medium")
                 else:
-                    ui.label(_get_section_title(section)).classes(
-                        "text-slate-800 font-medium"
-                    )
+                    ui.label(_get_section_title(section)).classes("text-slate-800 font-medium")
 
 
 def _render_sidebar_nav(section: str, current_page: str | None = None):
@@ -184,12 +180,10 @@ def _render_doc_page_content(section: str, page: str):
             else:
                 with ui.column().classes("gap-4"):
                     ui.icon("warning").classes("text-amber-500 text-4xl")
-                    ui.label(f"Page not found: {section}/{page}").classes(
-                        "text-lg text-slate-700"
+                    ui.label(f"Page not found: {section}/{page}").classes("text-lg text-slate-700")
+                    ui.link(f"Back to {_get_section_title(section)}", f"/docs/{section}").classes(
+                        "text-blue-600 hover:underline"
                     )
-                    ui.link(
-                        f"Back to {_get_section_title(section)}", f"/docs/{section}"
-                    ).classes("text-blue-600 hover:underline")
 
 
 def _render_section_index_content(section: str):
@@ -208,9 +202,7 @@ def _render_section_index_content(section: str):
             # Generate a section listing
             with ui.row().classes("items-center gap-3 mb-6"):
                 ui.icon(_get_section_icon(section)).classes("text-blue-500 text-3xl")
-                ui.label(_get_section_title(section)).classes(
-                    "text-2xl font-bold text-slate-800"
-                )
+                ui.label(_get_section_title(section)).classes("text-2xl font-bold text-slate-800")
 
             # List pages in section
             if section_dir.exists():
@@ -242,9 +234,13 @@ def _render_section_index_content(section: str):
                         title = page_name.replace("-", " ").title()
                         description = ""
 
-                    with ui.card().classes(
-                        "w-full mb-3 cursor-pointer hover:shadow transition-shadow"
-                    ).on("click", lambda p=page_name, s=section: ui.navigate.to(f"/docs/{s}/{p}")):
+                    with (
+                        ui.card()
+                        .classes("w-full mb-3 cursor-pointer hover:shadow transition-shadow")
+                        .on(
+                            "click", lambda p=page_name, s=section: ui.navigate.to(f"/docs/{s}/{p}")
+                        )
+                    ):
                         with ui.card_section():
                             ui.label(title).classes("font-medium text-slate-800")
                             if description:

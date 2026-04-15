@@ -1,6 +1,5 @@
 """Tests for instrument discovery module."""
 
-
 from litmus.instruments.discovery import (
     DiscoveryProtocol,
     get_protocol,

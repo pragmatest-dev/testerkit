@@ -24,8 +24,13 @@ from litmus.models.project import ProjectConfig
 from litmus.models.station import StationConfig
 
 FileType = Literal[
-    "catalog", "product", "station", "sequence",
-    "fixture", "instrument_asset", "project",
+    "catalog",
+    "product",
+    "station",
+    "sequence",
+    "fixture",
+    "instrument_asset",
+    "project",
 ]
 
 SCHEMA_MAP: dict[FileType, type[BaseModel]] = {

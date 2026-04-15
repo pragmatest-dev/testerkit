@@ -30,7 +30,11 @@ class TektronixObserver(DescriptorObserver):
         super().__init__(driver_class, role, emit, yaml_overrides, driver_instance)
 
     def on_call(
-        self, name: str, args: tuple[Any, ...], kwargs: dict[str, Any], result: Any,
+        self,
+        name: str,
+        args: tuple[Any, ...],
+        kwargs: dict[str, Any],
+        result: Any,
     ) -> None:
         if self._should_skip(name):
             return

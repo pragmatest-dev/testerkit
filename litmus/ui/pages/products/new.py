@@ -45,12 +45,16 @@ def new_product_page():
                         ui.label(
                             "Unique identifier (lowercase, letters/numbers/hyphens only)"
                         ).classes("text-xs text-slate-400")
-                        id_input = ui.input(
-                            placeholder="e.g., tps54302",
-                        ).props("outlined dense").classes("w-full")
-                        ui.label("").classes(
-                            "text-xs text-red-500"
-                        ).bind_text_from(validation, "id_error")
+                        id_input = (
+                            ui.input(
+                                placeholder="e.g., tps54302",
+                            )
+                            .props("outlined dense")
+                            .classes("w-full")
+                        )
+                        ui.label("").classes("text-xs text-red-500").bind_text_from(
+                            validation, "id_error"
+                        )
 
                         def validate_id(e):
                             value = e.value.lower().strip()
@@ -74,12 +78,16 @@ def new_product_page():
                     # Name
                     with ui.column().classes("gap-1 w-full"):
                         ui.label("Name").classes("text-sm font-medium text-slate-700")
-                        name_input = ui.input(
-                            placeholder="e.g., TPS54302 Buck Converter",
-                        ).props("outlined dense").classes("w-full")
-                        ui.label("").classes(
-                            "text-xs text-red-500"
-                        ).bind_text_from(validation, "name_error")
+                        name_input = (
+                            ui.input(
+                                placeholder="e.g., TPS54302 Buck Converter",
+                            )
+                            .props("outlined dense")
+                            .classes("w-full")
+                        )
+                        ui.label("").classes("text-xs text-red-500").bind_text_from(
+                            validation, "name_error"
+                        )
 
                         def validate_name(e):
                             value = e.value.strip()
@@ -96,9 +104,13 @@ def new_product_page():
                     with ui.column().classes("gap-1 w-full"):
                         ui.label("Description").classes("text-sm font-medium text-slate-700")
                         ui.label("Optional").classes("text-xs text-slate-400")
-                        desc_input = ui.textarea(
-                            placeholder="Brief description of the product...",
-                        ).props("outlined dense").classes("w-full")
+                        desc_input = (
+                            ui.textarea(
+                                placeholder="Brief description of the product...",
+                            )
+                            .props("outlined dense")
+                            .classes("w-full")
+                        )
 
                         def update_description(e):
                             value = e.sender.value if hasattr(e.sender, "value") else ""
@@ -156,9 +168,7 @@ def new_product_page():
                 with ui.row().classes("items-start gap-3"):
                     ui.icon("lightbulb").classes("text-blue-500 mt-0.5")
                     with ui.column().classes("gap-1"):
-                        ui.label("What happens next?").classes(
-                            "font-medium text-blue-700"
-                        )
+                        ui.label("What happens next?").classes("font-medium text-blue-700")
                         ui.label(
                             "After creating the product, you'll be taken to the edit page "
                             "where you can add characteristics, test requirements, and more."
@@ -167,6 +177,4 @@ def new_product_page():
                             "You can also upload a datasheet to help extract specifications."
                         ).classes("text-sm text-blue-600")
 
-        ui.link("← Back to Products", "/products").classes(
-            "text-blue-600 hover:underline"
-        )
+        ui.link("← Back to Products", "/products").classes("text-blue-600 hover:underline")

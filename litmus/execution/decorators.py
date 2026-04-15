@@ -17,12 +17,8 @@ if TYPE_CHECKING:
     from litmus.models.config import Limit, MeasurementLimitConfig, RetryConfig
 
 # Contextvars for concurrency-safe logger/harness resolution.
-_current_logger_var: ContextVar[TestRunLogger | None] = ContextVar(
-    "_current_logger", default=None
-)
-_current_harness_var: ContextVar[TestHarness | None] = ContextVar(
-    "_current_harness", default=None
-)
+_current_logger_var: ContextVar[TestRunLogger | None] = ContextVar("_current_logger", default=None)
+_current_harness_var: ContextVar[TestHarness | None] = ContextVar("_current_harness", default=None)
 
 
 def set_current_logger(logger: TestRunLogger | None):
@@ -79,6 +75,7 @@ def litmus_step(func: Callable[..., Any]) -> Callable[..., Any]:
 
     # Handle async functions
     if inspect.iscoroutinefunction(func):
+
         @wraps(func)
         async def async_wrapper(*args: Any, **kwargs: Any) -> Any:
             step_name = func.__name__
@@ -92,6 +89,7 @@ def litmus_step(func: Callable[..., Any]) -> Callable[..., Any]:
                 _logger = get_current_logger()
                 if _logger is not None:
                     _logger.end_step()
+
         return async_wrapper
 
     return wrapper
@@ -189,6 +187,7 @@ def _resolve_test_config(
             resolved_limits = _step_cfg["limits"]
         if _step_cfg.get("retry"):
             from litmus.models.config import RetryConfig as _RC
+
             r = _step_cfg["retry"]
             resolved_retry = r if isinstance(r, _RC) else _RC.model_validate(r)
         if "raise_on_fail" in _step_cfg:
@@ -338,10 +337,17 @@ def litmus_test(
                 harness = get_current_harness()
             if harness is None:
                 (
-                    resolved_config, resolved_limits,
-                    resolved_retry, resolved_raise_on_fail,
+                    resolved_config,
+                    resolved_limits,
+                    resolved_retry,
+                    resolved_raise_on_fail,
                 ) = _resolve_test_config(
-                    fn, config, config_file, limits, retry, raise_on_fail,
+                    fn,
+                    config,
+                    config_file,
+                    limits,
+                    retry,
+                    raise_on_fail,
                 )
                 instruments_fixture = _resolve_instruments(kwargs)
 
@@ -360,8 +366,7 @@ def litmus_test(
 
                 # Detect mock mode by checking if instruments have set_mock_value
                 using_mocks = any(
-                    hasattr(inst, "set_mock_value")
-                    for inst in (instruments_fixture or {}).values()
+                    hasattr(inst, "set_mock_value") for inst in (instruments_fixture or {}).values()
                 )
 
                 # Get spec_context for spec-driven limit resolution (ref:)
@@ -386,9 +391,7 @@ def litmus_test(
             # Strip context sentinel from args/kwargs - we inject the real context
             from litmus.execution.plugin import _PYTEST_CONTEXT_SENTINEL
 
-            fixture_args = tuple(
-                arg for arg in args if arg is not _PYTEST_CONTEXT_SENTINEL
-            )
+            fixture_args = tuple(arg for arg in args if arg is not _PYTEST_CONTEXT_SENTINEL)
             kwargs.pop("context", None)
 
             # Check if function expects 'context' parameter
@@ -424,9 +427,7 @@ def litmus_test(
                             m = failed_measurements[0]
                             if m.name == "assert":
                                 # From a user assert statement
-                                raise AssertionError(
-                                    tv.error_message or "assertion failed"
-                                )
+                                raise AssertionError(tv.error_message or "assertion failed")
                             raise AssertionError(
                                 f"Measurement '{m.name}' FAILED at vector {tv.index}: "
                                 f"{m.value} not in [{m.low_limit}, {m.high_limit}]"

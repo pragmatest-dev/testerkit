@@ -27,7 +27,9 @@ def _make_station(**instruments) -> StationConfig:
     inst_configs = {}
     for role, resource in instruments.items():
         inst_configs[role] = StationInstrumentConfig(
-            type="generic", resource=resource, mock=True,
+            type="generic",
+            resource=resource,
+            mock=True,
         )
     return StationConfig(id="test-station", name="Test Station", instruments=inst_configs)
 
@@ -114,7 +116,9 @@ class TestStationConnection:
         log_path = None
         with pytest.raises(ValueError):
             with StationConnection(
-                station, results_dir=tmp_path / "results", mock=True,
+                station,
+                results_dir=tmp_path / "results",
+                mock=True,
             ) as conn:
                 assert conn.event_log is not None
                 log_path = conn.event_log.path
@@ -132,7 +136,9 @@ class TestSessionStartedFields:
 
         station = _make_station()
         with StationConnection(
-            station, results_dir=tmp_path / "results", mock=True,
+            station,
+            results_dir=tmp_path / "results",
+            mock=True,
         ) as conn:
             assert conn.event_log is not None
             log_path = conn.event_log.path
@@ -144,7 +150,9 @@ class TestSessionStartedFields:
     def test_session_type_interactive(self, tmp_path):
         station = _make_station()
         with StationConnection(
-            station, results_dir=tmp_path / "results", mock=True,
+            station,
+            results_dir=tmp_path / "results",
+            mock=True,
         ) as conn:
             assert conn.event_log is not None
             log_path = conn.event_log.path
@@ -156,7 +164,9 @@ class TestSessionStartedFields:
     def test_session_started_no_run_id(self, tmp_path):
         station = _make_station()
         with StationConnection(
-            station, results_dir=tmp_path / "results", mock=True,
+            station,
+            results_dir=tmp_path / "results",
+            mock=True,
         ) as conn:
             assert conn.event_log is not None
             log_path = conn.event_log.path
@@ -168,7 +178,9 @@ class TestSessionStartedFields:
     def test_session_ended_no_run_id(self, tmp_path):
         station = _make_station()
         with StationConnection(
-            station, results_dir=tmp_path / "results", mock=True,
+            station,
+            results_dir=tmp_path / "results",
+            mock=True,
         ) as conn:
             assert conn.event_log is not None
             log_path = conn.event_log.path
@@ -181,7 +193,9 @@ class TestSessionStartedFields:
         """Interactive sessions emit session events but no run events."""
         station = _make_station(dmm="GPIB::16::INSTR")
         with StationConnection(
-            station, results_dir=tmp_path / "results", mock=True,
+            station,
+            results_dir=tmp_path / "results",
+            mock=True,
         ) as conn:
             conn.instrument("dmm")
             assert conn.event_log is not None

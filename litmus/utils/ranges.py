@@ -62,7 +62,7 @@ def expand_range(spec: str | list | int) -> list[str]:
         return [str(spec)]
 
     # Check for prefix[range] pattern: GPIO[0:7], CH[1:4], ai[0:15]
-    prefix_match = re.match(r'^([A-Za-z_][A-Za-z0-9_.]*)\[(.+)\]$', spec)
+    prefix_match = re.match(r"^([A-Za-z_][A-Za-z0-9_.]*)\[(.+)\]$", spec)
     if prefix_match:
         prefix = prefix_match.group(1)
         range_part = prefix_match.group(2)
@@ -71,14 +71,14 @@ def expand_range(spec: str | list | int) -> list[str]:
 
     # Pure numeric range with optional step: 1:4 or 1:10:2 or 1,3:5
     # Must start with digit or negative sign
-    if re.match(r'^-?[\d]', spec) and ':' in spec:
+    if re.match(r"^-?[\d]", spec) and ":" in spec:
         # Check if this looks like a numeric range (no letters except 'e' for scientific notation)
-        if re.match(r'^[\d,:\s.\-eE]+$', spec):
+        if re.match(r"^[\d,:\s.\-eE]+$", spec):
             numbers = _expand_int_range(spec)
             return [str(n) for n in numbers]
 
     # Comma-separated without colons: 1,3,5
-    if ',' in spec and ':' not in spec and re.match(r'^[\d,\s.\-]+$', spec):
+    if "," in spec and ":" not in spec and re.match(r"^[\d,\s.\-]+$", spec):
         numbers = _expand_int_range(spec)
         return [str(n) for n in numbers]
 
@@ -101,10 +101,10 @@ def _expand_int_range(spec: str) -> list[int]:
         List of integers
     """
     result = []
-    for part in spec.split(','):
+    for part in spec.split(","):
         part = part.strip()
-        if ':' in part:
-            bounds = part.split(':')
+        if ":" in part:
+            bounds = part.split(":")
             if len(bounds) == 2:
                 # Simple range: 1:4 → 1, 2, 3, 4
                 start, end = int(bounds[0]), int(bounds[1])
@@ -155,10 +155,10 @@ def expand_numeric_range(spec: str | list | int | float) -> list[float]:
 
     result: list[float] = []
 
-    for part in spec.split(','):
+    for part in spec.split(","):
         part = part.strip()
-        if ':' in part:
-            bounds = part.split(':')
+        if ":" in part:
+            bounds = part.split(":")
             if len(bounds) == 2:
                 # Simple range: 1:4 → 1, 2, 3, 4 (step=1)
                 start = float(bounds[0])

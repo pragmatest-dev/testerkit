@@ -525,10 +525,15 @@ def new_tool(arg1: str, arg2: int) -> dict[str, Any]:
 ### Setup
 
 ```bash
-# Clone and install
+# Clone and install with all optional extras (pyright needs these installed
+# to resolve imports for the exporters, transports, grafana, etc.)
 git clone <repo>
 cd litmus
-uv sync
+uv sync --all-extras
+
+# Install the pre-commit hooks once per clone. Hooks run ruff check,
+# ruff format, pyright, and a handful of safety checks on every commit.
+uv run pre-commit install
 
 # Run tests
 pytest
@@ -536,9 +541,13 @@ pytest
 # Run with coverage
 pytest --cov=litmus
 
-# Lint and format
-ruff check .
-ruff format .
+# Lint, format, type-check (all run by the pre-commit hook too)
+uv run ruff check .
+uv run ruff format .
+uv run pyright
+
+# Run all pre-commit hooks manually across the repo
+uv run pre-commit run --all-files
 ```
 
 ### Testing Your Changes

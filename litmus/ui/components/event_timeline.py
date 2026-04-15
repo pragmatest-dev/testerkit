@@ -132,11 +132,11 @@ def create_event_timeline(
 
                     return toggle
 
-                btn = ui.button(
-                    label, on_click=make_toggle(cat, badge_cls)
-                ).classes(
-                    f"text-xs px-2 py-0.5 rounded-full {badge_cls}"
-                ).props("flat dense")
+                btn = (
+                    ui.button(label, on_click=make_toggle(cat, badge_cls))
+                    .classes(f"text-xs px-2 py-0.5 rounded-full {badge_cls}")
+                    .props("flat dense")
+                )
                 chip_elements[cat] = btn
 
         # Scrollable event rows
@@ -161,27 +161,19 @@ def create_event_timeline(
         rel = _relative_time(evt, t0)
 
         with rows_container:
-            with ui.expansion().classes(
-                "w-full border-b border-slate-100"
-            ).props("dense header-class='py-1 px-2'") as exp:
+            with (
+                ui.expansion()
+                .classes("w-full border-b border-slate-100")
+                .props("dense header-class='py-1 px-2'") as exp
+            ):
                 with exp.add_slot("header"):
                     with ui.row().classes("items-center gap-2 w-full text-sm"):
-                        ui.element("div").classes(
-                            f"w-2 h-2 rounded-full {dot_cls} flex-shrink-0"
-                        )
-                        ui.label(et).classes(
-                            f"px-1.5 py-0.5 rounded text-xs font-mono {badge_cls}"
-                        )
-                        ui.label(rel).classes(
-                            "text-xs text-slate-400 flex-shrink-0"
-                        )
+                        ui.element("div").classes(f"w-2 h-2 rounded-full {dot_cls} flex-shrink-0")
+                        ui.label(et).classes(f"px-1.5 py-0.5 rounded text-xs font-mono {badge_cls}")
+                        ui.label(rel).classes("text-xs text-slate-400 flex-shrink-0")
                         if detail:
-                            ui.label(detail).classes(
-                                "text-xs text-slate-600 truncate"
-                            )
-                ui.code(json.dumps(evt, indent=2, default=str)).classes(
-                    "text-xs w-full"
-                )
+                            ui.label(detail).classes("text-xs text-slate-600 truncate")
+                ui.code(json.dumps(evt, indent=2, default=str)).classes("text-xs w-full")
 
     def _on_event(evt: dict) -> None:
         nonlocal t0

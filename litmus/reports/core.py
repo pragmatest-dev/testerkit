@@ -195,15 +195,17 @@ def _extract_instruments(rows: list[dict]) -> list[dict]:
             if key in seen:
                 continue
             seen.add(key)
-            instruments.append({
-                "name": name,
-                "id": _safe_idx(ids, i),
-                "manufacturer": _safe_idx(manufacturers, i),
-                "model": _safe_idx(models, i),
-                "serial": _safe_idx(serials, i),
-                "resource": _safe_idx(resources, i),
-                "cal_due": _safe_idx(cal_dues, i),
-            })
+            instruments.append(
+                {
+                    "name": name,
+                    "id": _safe_idx(ids, i),
+                    "manufacturer": _safe_idx(manufacturers, i),
+                    "model": _safe_idx(models, i),
+                    "serial": _safe_idx(serials, i),
+                    "resource": _safe_idx(resources, i),
+                    "cal_due": _safe_idx(cal_dues, i),
+                }
+            )
 
     return instruments
 
@@ -339,9 +341,17 @@ def _write_csv(data: ReportData, output: Path) -> None:
 
     # Use measurement columns
     columns = [
-        "step_name", "measurement_name", "value", "units",
-        "low_limit", "high_limit", "nominal", "outcome",
-        "spec_id", "dut_pin", "instrument_name",
+        "step_name",
+        "measurement_name",
+        "value",
+        "units",
+        "low_limit",
+        "high_limit",
+        "nominal",
+        "outcome",
+        "spec_id",
+        "dut_pin",
+        "instrument_name",
     ]
 
     buf = io.StringIO()
@@ -405,9 +415,7 @@ def _write_pdf(data: ReportData, output: Path, template: str, template_dir: str 
     try:
         from weasyprint import HTML
     except ImportError:
-        raise ImportError(
-            "PDF reports require weasyprint. Install with: pip install 'litmus[pdf]'"
-        )
+        raise ImportError("PDF reports require weasyprint. Install with: pip install 'litmus[pdf]'")
 
     html = _render_html(data, template, template_dir)
     HTML(string=html).write_pdf(str(output))

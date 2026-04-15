@@ -12,6 +12,7 @@ class DescriptorDriver:
     @property
     def bandwidth(self) -> float:
         return 100e6
+
     @bandwidth.setter
     def bandwidth(self, v: float) -> None:
         pass

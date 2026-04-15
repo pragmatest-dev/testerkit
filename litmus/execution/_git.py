@@ -12,7 +12,8 @@ from pathlib import Path
 
 
 def _run_git(
-    *args: str, cwd: Path | str | None = None,
+    *args: str,
+    cwd: Path | str | None = None,
 ) -> subprocess.CompletedProcess[str]:
     """Run a git command, optionally in a specific directory."""
     return subprocess.run(

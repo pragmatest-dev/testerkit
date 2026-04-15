@@ -11,23 +11,37 @@ from litmus.models.config import Limit, RetryConfig
 # Fake instrument classes for testing Mock factory
 class FakeDMM:
     """Fake DMM for testing."""
+
     def __init__(self, resource: str = ""):
         self.resource = resource
 
-    def connect(self): pass
-    def disconnect(self): pass
-    def measure_voltage(self) -> float: return 0.0
-    def query(self, cmd: str) -> str: return ""
+    def connect(self):
+        pass
+
+    def disconnect(self):
+        pass
+
+    def measure_voltage(self) -> float:
+        return 0.0
+
+    def query(self, cmd: str) -> str:
+        return ""
 
 
 class FakePSU:
     """Fake PSU for testing."""
+
     def __init__(self, resource: str = ""):
         self.resource = resource
 
-    def connect(self): pass
-    def disconnect(self): pass
-    def measure_current(self) -> float: return 0.0
+    def connect(self):
+        pass
+
+    def disconnect(self):
+        pass
+
+    def measure_current(self) -> float:
+        return 0.0
 
 
 class TestHarnessInit:
@@ -39,9 +53,7 @@ class TestHarnessInit:
         assert harness.vectors[0].params() == {}
 
     def test_init_with_explicit_vectors(self):
-        config = {
-            "vectors": [{"voltage": 3.3}, {"voltage": 5.0}, {"voltage": 12.0}]
-        }
+        config = {"vectors": [{"voltage": 3.3}, {"voltage": 5.0}, {"voltage": 12.0}]}
         harness = TestHarness(config=config)
         assert len(harness.vectors) == 3
         assert harness.vectors[0]["voltage"] == 3.3
@@ -58,27 +70,19 @@ class TestHarnessInit:
         assert len(harness.vectors) == 4
 
     def test_init_with_retry_config(self):
-        config = {
-            "retry": {"max_attempts": 3, "delay_seconds": 0.5}
-        }
+        config = {"retry": {"max_attempts": 3, "delay_seconds": 0.5}}
         harness = TestHarness(config=config)
         assert harness.retry_config.max_attempts == 3
         assert harness.retry_config.delay_seconds == 0.5
 
     def test_init_with_retry_override(self):
-        config = {
-            "retry": {"max_attempts": 3}
-        }
+        config = {"retry": {"max_attempts": 3}}
         override = RetryConfig(max_attempts=5, delay_seconds=1.0)
         harness = TestHarness(config=config, retry=override)
         assert harness.retry_config.max_attempts == 5
 
     def test_init_with_limits(self):
-        config = {
-            "limits": {
-                "voltage": {"low": 3.0, "high": 3.6, "units": "V"}
-            }
-        }
+        config = {"limits": {"voltage": {"low": 3.0, "high": 3.6, "units": "V"}}}
         harness = TestHarness(config=config)
         assert "voltage" in harness._limits
 
@@ -144,11 +148,7 @@ class TestHarnessMeasure:
         assert tv.outcome == Outcome.ERROR
 
     def test_measure_from_config_limits(self):
-        config = {
-            "limits": {
-                "voltage": {"low": 3.0, "high": 3.6, "units": "V"}
-            }
-        }
+        config = {"limits": {"voltage": {"low": 3.0, "high": 3.6, "units": "V"}}}
         harness = TestHarness(config=config)
 
         with harness.step():
@@ -220,9 +220,7 @@ class TestHarnessRunWithRetry:
     """Tests for TestHarness.run_with_retry method."""
 
     def test_retry_on_failure(self):
-        config = {
-            "retry": {"max_attempts": 3, "delay_seconds": 0}
-        }
+        config = {"retry": {"max_attempts": 3, "delay_seconds": 0}}
         harness = TestHarness(config=config)
 
         call_count = 0
@@ -242,9 +240,7 @@ class TestHarnessRunWithRetry:
         assert tv.outcome == Outcome.PASS
 
     def test_no_retry_on_pass(self):
-        config = {
-            "retry": {"max_attempts": 3, "delay_seconds": 0}
-        }
+        config = {"retry": {"max_attempts": 3, "delay_seconds": 0}}
         harness = TestHarness(config=config)
 
         call_count = 0
@@ -262,9 +258,7 @@ class TestHarnessRunWithRetry:
         assert tv.outcome == Outcome.PASS
 
     def test_retry_exhausted_returns_fail(self):
-        config = {
-            "retry": {"max_attempts": 2, "delay_seconds": 0}
-        }
+        config = {"retry": {"max_attempts": 2, "delay_seconds": 0}}
         harness = TestHarness(config=config)
 
         def test_fn(vector):
@@ -278,9 +272,7 @@ class TestHarnessRunWithRetry:
 
     def test_retry_with_generator(self):
         """Test that yield pattern works with retry."""
-        config = {
-            "retry": {"max_attempts": 2, "delay_seconds": 0}
-        }
+        config = {"retry": {"max_attempts": 2, "delay_seconds": 0}}
         harness = TestHarness(config=config)
 
         def test_fn(vector):
@@ -322,9 +314,7 @@ class TestHarnessRunAll:
     """Tests for TestHarness.run_all method."""
 
     def test_run_all_basic(self):
-        config = {
-            "vectors": [{"voltage": 3.3}, {"voltage": 5.0}]
-        }
+        config = {"vectors": [{"voltage": 3.3}, {"voltage": 5.0}]}
         harness = TestHarness(config=config)
 
         def test_fn(vector):
@@ -338,9 +328,7 @@ class TestHarnessRunAll:
         assert step.vectors[1].measurements[0].value == 5.0
 
     def test_run_all_with_generator(self):
-        config = {
-            "vectors": [{"voltage": 3.3}]
-        }
+        config = {"vectors": [{"voltage": 3.3}]}
         harness = TestHarness(config=config)
 
         def test_fn(vector):
@@ -473,9 +461,9 @@ class TestHarnessMockConfiguration:
                 with harness.run_vector(vector):
                     measurements.append(dmm.measure_voltage())
 
-        assert measurements[0] == pytest.approx(3.3)   # load=0.0
-        assert measurements[1] == pytest.approx(3.2)   # load=1.0
-        assert measurements[2] == pytest.approx(3.1)   # load=2.0
+        assert measurements[0] == pytest.approx(3.3)  # load=0.0
+        assert measurements[1] == pytest.approx(3.2)  # load=1.0
+        assert measurements[2] == pytest.approx(3.1)  # load=2.0
 
     def test_dict_mock_for_scpi(self):
         """Test that dict mock values work for SCPI-style mocking."""
@@ -537,9 +525,7 @@ class TestHarnessPrompt:
         with harness.step():
             with harness.run_vector(Vector(_index=0)):
                 result = harness.prompt(
-                    "Select option",
-                    prompt_type="choice",
-                    choices=["A", "B", "C"]
+                    "Select option", prompt_type="choice", choices=["A", "B", "C"]
                 )
 
         assert result == "A"

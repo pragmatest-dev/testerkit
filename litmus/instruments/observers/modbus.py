@@ -10,19 +10,37 @@ from typing import Any
 from litmus.instruments.observer import DriverObserver, EventEmitter
 from litmus.instruments.observers.generic import GenericObserver
 
-_BULK_READ_METHODS = frozenset({
-    "read_coils", "read_discrete_inputs",
-    "read_holding_registers", "read_input_registers",
-})
-_SINGLE_READ_METHODS = frozenset({
-    "read_register", "read_float", "read_long", "read_string",
-})
-_BULK_WRITE_METHODS = frozenset({
-    "write_coil", "write_coils", "write_register", "write_registers",
-})
-_SINGLE_WRITE_METHODS = frozenset({
-    "write_float", "write_long", "write_string",
-})
+_BULK_READ_METHODS = frozenset(
+    {
+        "read_coils",
+        "read_discrete_inputs",
+        "read_holding_registers",
+        "read_input_registers",
+    }
+)
+_SINGLE_READ_METHODS = frozenset(
+    {
+        "read_register",
+        "read_float",
+        "read_long",
+        "read_string",
+    }
+)
+_BULK_WRITE_METHODS = frozenset(
+    {
+        "write_coil",
+        "write_coils",
+        "write_register",
+        "write_registers",
+    }
+)
+_SINGLE_WRITE_METHODS = frozenset(
+    {
+        "write_float",
+        "write_long",
+        "write_string",
+    }
+)
 
 
 class ModbusObserver(DriverObserver):
@@ -44,7 +62,11 @@ class ModbusObserver(DriverObserver):
         self._generic = GenericObserver(driver_class, role, emit, yaml_overrides)
 
     def on_call(
-        self, name: str, args: tuple[Any, ...], kwargs: dict[str, Any], result: Any,
+        self,
+        name: str,
+        args: tuple[Any, ...],
+        kwargs: dict[str, Any],
+        result: Any,
     ) -> None:
         if self._should_skip(name):
             return

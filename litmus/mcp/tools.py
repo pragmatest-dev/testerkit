@@ -159,17 +159,18 @@ def _init_project(
         if root.exists():
             for item in sorted(root.iterdir()):
                 if not item.name.startswith("."):
-                    contents.append({
-                        "name": item.name,
-                        "type": "dir" if item.is_dir() else "file",
-                    })
+                    contents.append(
+                        {
+                            "name": item.name,
+                            "type": "dir" if item.is_dir() else "file",
+                        }
+                    )
 
         return {
             "project_root": str(root),
             "contents": contents,
             "message": (
-                f"Current directory: {root}."
-                " Use action='init' with path to initialize a project."
+                f"Current directory: {root}. Use action='init' with path to initialize a project."
             ),
         }
 
@@ -216,13 +217,23 @@ def _init_project(
 # =============================================================================
 
 ENTITY_TYPES = [
-    "station", "product", "fixture", "sequence",
-    "catalog", "instrument_asset", "run",
+    "station",
+    "product",
+    "fixture",
+    "sequence",
+    "catalog",
+    "instrument_asset",
+    "run",
 ]
 # Everything except "run" (read-only test results) can be saved.
 SAVEABLE_TYPES = [
-    "station", "product", "fixture", "sequence",
-    "catalog", "instrument_asset", "test",
+    "station",
+    "product",
+    "fixture",
+    "sequence",
+    "catalog",
+    "instrument_asset",
+    "test",
 ]
 
 
@@ -284,7 +295,9 @@ def _list_stations(project: str) -> list[dict[str, Any]]:
     from litmus.store import load_station
 
     return _list_yaml_entities(
-        project, "stations", load_station,
+        project,
+        "stations",
+        load_station,
         lambda s, _f: {"id": s.id, "name": s.name, "location": s.location},
     )
 
@@ -294,8 +307,10 @@ def _list_products(project: str) -> list[dict[str, Any]]:
     from litmus.store import list_products
 
     root = get_project_root(project)
-    return [{"id": p.id, "name": p.name, "description": p.description}
-            for p in list_products(project_root=root)]
+    return [
+        {"id": p.id, "name": p.name, "description": p.description}
+        for p in list_products(project_root=root)
+    ]
 
 
 def _list_fixtures(project: str) -> list[dict[str, Any]]:
@@ -303,10 +318,14 @@ def _list_fixtures(project: str) -> list[dict[str, Any]]:
     from litmus.store import load_fixture
 
     return _list_yaml_entities(
-        project, "fixtures", load_fixture,
+        project,
+        "fixtures",
+        load_fixture,
         lambda f, yf: {
-            "id": f.id, "name": f.name or yf.stem,
-            "product_id": f.product_id, "point_count": len(f.points),
+            "id": f.id,
+            "name": f.name or yf.stem,
+            "product_id": f.product_id,
+            "point_count": len(f.points),
         },
     )
 
@@ -316,7 +335,9 @@ def _list_sequences(project: str) -> list[dict[str, Any]]:
     from litmus.store import load_sequence
 
     return _list_yaml_entities(
-        project, "sequences", load_sequence,
+        project,
+        "sequences",
+        load_sequence,
         lambda s, yf: {"id": s.id, "name": s.name or yf.stem, "description": s.description},
     )
 
@@ -383,7 +404,11 @@ def _get_entity(entity_type: str, id: str, project: str) -> dict[str, Any]:
 
 
 def _get_yaml_entity(
-    entity_id: str, project: str, dir_name: str, entity_label: str, loader: Any,
+    entity_id: str,
+    project: str,
+    dir_name: str,
+    entity_label: str,
+    loader: Any,
 ) -> dict[str, Any]:
     """Load a single YAML entity by ID from a project subdirectory."""
     yaml_file = get_project_root(project) / dir_name / f"{entity_id}.yaml"
@@ -469,7 +494,8 @@ def _get_run(run_id: str, project: str) -> dict[str, Any]:
 
 
 def _validate_against_schema(
-    entity_type: str, content: dict[str, Any],
+    entity_type: str,
+    content: dict[str, Any],
 ) -> list[str]:
     """Validate content against the Pydantic model for this entity type.
 
@@ -487,10 +513,7 @@ def _validate_against_schema(
         model.model_validate(content)
         return []
     except ValidationError as e:
-        return [
-            f"{'.'.join(str(loc) for loc in err['loc'])}: {err['msg']}"
-            for err in e.errors()
-        ]
+        return [f"{'.'.join(str(loc) for loc in err['loc'])}: {err['msg']}" for err in e.errors()]
 
 
 def _schema_for_error(entity_type: str) -> dict[str, Any] | None:
@@ -504,7 +527,10 @@ def _schema_for_error(entity_type: str) -> dict[str, Any] | None:
 
 
 def _save_entity(
-    entity_type: str, id: str, content: dict[str, Any], project: str,
+    entity_type: str,
+    id: str,
+    content: dict[str, Any],
+    project: str,
 ) -> dict[str, Any]:
     """Validate and save an entity."""
     if entity_type not in SAVEABLE_TYPES:
@@ -517,8 +543,7 @@ def _save_entity(
             "success": False,
             "errors": schema_errors,
             "message": (
-                f"Content does not match the {entity_type} schema. "
-                "Fix the errors above and retry."
+                f"Content does not match the {entity_type} schema. Fix the errors above and retry."
             ),
         }
         schema = _schema_for_error(entity_type)
@@ -610,7 +635,9 @@ def _save_catalog(entry_id: str, content: dict[str, Any], project: str) -> dict[
 
 
 def _save_instrument_asset(
-    instrument_id: str, content: dict[str, Any], project: str,
+    instrument_id: str,
+    content: dict[str, Any],
+    project: str,
 ) -> dict[str, Any]:
     """Save instrument asset file via store."""
     from litmus.models.instrument_asset import InstrumentAssetFile
@@ -758,7 +785,7 @@ class {class_name}(VisaInstrument):
     #     return float(self.query("MEAS:VOLT:DC?"))
 '''
 
-INSTRUMENT_YAML_TEMPLATE = '''instrument:
+INSTRUMENT_YAML_TEMPLATE = """instrument:
   type: {instrument_type}
   name: {instrument_name}
   description: {description}
@@ -777,7 +804,7 @@ capabilities:
 scpi_commands:
   identify: "*IDN?"
   reset: "*RST"
-'''
+"""
 
 CAPABILITY_INTERFACES = """
 Available capability interfaces:
@@ -877,10 +904,12 @@ def _read_file(path: str, project: str) -> dict[str, Any]:
     if filepath.is_dir():
         contents = []
         for f in sorted(filepath.iterdir()):
-            contents.append({
-                "name": f.name,
-                "type": "dir" if f.is_dir() else "file",
-            })
+            contents.append(
+                {
+                    "name": f.name,
+                    "type": "dir" if f.is_dir() else "file",
+                }
+            )
         return {
             "type": "directory",
             "path": path,
@@ -963,7 +992,6 @@ def discover_tool(protocols: list[str] | None = None) -> dict[str, Any]:
 
     except (ImportError, OSError, RuntimeError) as e:
         return {"error": f"Discovery failed: {e}"}
-
 
 
 # =============================================================================
@@ -1068,11 +1096,13 @@ def match_tool(
                 station_instruments = set(station_config.get("instruments", {}).keys())
                 missing = required_instruments - station_instruments
 
-                compatible.append({
-                    "station_id": sid,
-                    "compatible": len(missing) == 0,
-                    "missing_instruments": list(missing) if missing else None,
-                })
+                compatible.append(
+                    {
+                        "station_id": sid,
+                        "compatible": len(missing) == 0,
+                        "missing_instruments": list(missing) if missing else None,
+                    }
+                )
 
         return {
             "fixture_id": fixture_id,
@@ -1140,7 +1170,8 @@ def run_tool(test: str, station: str, serial: str, project: str | None = None) -
         f"--dut-serial={serial}",
         f"--station={station}",
         "--results-dir=results",
-        "-v", "--tb=short",
+        "-v",
+        "--tb=short",
         "--mock-instruments",
     ]
 
@@ -1171,6 +1202,7 @@ def run_tool(test: str, station: str, serial: str, project: str | None = None) -
 
         # Get run_id from results
         from litmus.data.backends.parquet import ParquetBackend
+
         backend = ParquetBackend(results_dir=str(root / "results"))
         recent_runs = backend.list_runs(limit=1)
         run_id = recent_runs[0].get("test_run_id", "unknown") if recent_runs else "unknown"
@@ -1197,9 +1229,7 @@ def run_tool(test: str, station: str, serial: str, project: str | None = None) -
 # =============================================================================
 
 
-def open_tool(
-    entity_type: str, id: str, base_url: str = "http://localhost:8000"
-) -> dict[str, Any]:
+def open_tool(entity_type: str, id: str, base_url: str = "http://localhost:8000") -> dict[str, Any]:
     """Get URL to open entity in browser UI."""
     routes = {
         "product": f"/products/{id}",
@@ -1259,7 +1289,10 @@ def events_query(
         since_dt = datetime.fromisoformat(since) if since else None
         sid = UUID(session_id) if session_id else None
         events = store.events(
-            session_id=sid, event_type=event_type, role=role, since=since_dt,
+            session_id=sid,
+            event_type=event_type,
+            role=role,
+            since=since_dt,
         )
         return {"events": events[:limit], "count": len(events[:limit])}
     finally:
@@ -1370,7 +1403,11 @@ def events_tool(
 ) -> dict[str, Any]:
     """Query events from the event store (MCP tool wrapper)."""
     return events_query(
-        session_id, event_type, role, since, limit,
+        session_id,
+        event_type,
+        role,
+        since,
+        limit,
         results_dir=_resolve_results_dir(project),
     )
 
@@ -1389,7 +1426,10 @@ def channels_tool(
 ) -> dict[str, Any]:
     """Query channel data (MCP tool wrapper)."""
     return channels_query(
-        channel_id, session_id=session_id, last_n=last_n, max_points=max_points,
+        channel_id,
+        session_id=session_id,
+        last_n=last_n,
+        max_points=max_points,
         results_dir=_resolve_results_dir(project),
     )
 
@@ -1418,9 +1458,7 @@ def schema_tool(yaml_type: str | None = None) -> dict[str, Any]:
         }
 
     if yaml_type not in SCHEMA_MAP:
-        return {
-            "error": f"Unknown type '{yaml_type}'. Valid: {list(SCHEMA_MAP.keys())}"
-        }
+        return {"error": f"Unknown type '{yaml_type}'. Valid: {list(SCHEMA_MAP.keys())}"}
 
     model = SCHEMA_MAP[yaml_type]
     return {
@@ -1436,7 +1474,12 @@ def schema_tool(yaml_type: str | None = None) -> dict[str, Any]:
 
 GoldAction = Literal["summary", "pareto", "cpk", "trend", "retest", "time_loss"]
 _GOLD_ACTIONS: tuple[GoldAction, ...] = (
-    "summary", "pareto", "cpk", "trend", "retest", "time_loss",
+    "summary",
+    "pareto",
+    "cpk",
+    "trend",
+    "retest",
+    "time_loss",
 )
 
 
@@ -1475,8 +1518,11 @@ def gold_tool(
     store = GoldStore(_results_dir=results_dir)
 
     kwargs: dict[str, Any] = {
-        "product": product, "station": station, "phase": phase,
-        "since": since, "until": until,
+        "product": product,
+        "station": station,
+        "phase": phase,
+        "since": since,
+        "until": until,
     }
 
     match action:

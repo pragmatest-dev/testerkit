@@ -113,11 +113,7 @@ class VectorBuilder:
         )
 
         # Evaluate limits
-        has_limits = (
-            m.low_limit is not None
-            or m.high_limit is not None
-            or m.nominal is not None
-        )
+        has_limits = m.low_limit is not None or m.high_limit is not None or m.nominal is not None
         if m.value is not None and has_limits:
             m.check_limit()
         elif m.value is not None:
@@ -184,8 +180,7 @@ class StepBuilder:
             if builder._vector.outcome == Outcome.FAIL:
                 self._test_step.outcome = Outcome.FAIL
             elif (
-                builder._vector.outcome == Outcome.ERROR
-                and self._test_step.outcome != Outcome.FAIL
+                builder._vector.outcome == Outcome.ERROR and self._test_step.outcome != Outcome.FAIL
             ):
                 self._test_step.outcome = Outcome.ERROR
 

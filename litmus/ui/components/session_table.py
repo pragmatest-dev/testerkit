@@ -55,17 +55,17 @@ def create_session_table(
             if not sid:
                 continue
             ts = sess.get("occurred_at") or sess.get("received_at") or ""
-            rows.append({
-                "started": local_time(str(ts)) if ts else "",
-                "status": "ended" if sid in ended_ids else "active",
-                "client": str(
-                    sess.get("client")
-                    or sess.get("session_type")
-                    or "",
-                ),
-                "pid": str(sess.get("pid") or ""),
-                "session": sid[:4],
-            })
+            rows.append(
+                {
+                    "started": local_time(str(ts)) if ts else "",
+                    "status": "ended" if sid in ended_ids else "active",
+                    "client": str(
+                        sess.get("client") or sess.get("session_type") or "",
+                    ),
+                    "pid": str(sess.get("pid") or ""),
+                    "session": sid[:4],
+                }
+            )
         rows.reverse()
         return rows
 
@@ -84,18 +84,24 @@ def create_session_table(
     table.classes("litmus-sticky-table")
     table.style(f"height: {height}")
     table_cell_slot(table, "started", "cell-muted")
-    table.add_slot("body-cell-status", """
+    table.add_slot(
+        "body-cell-status",
+        """
         <q-td :props="props">
             <span :class="'status-dot ' + props.value"></span>
         </q-td>
-    """)
-    table.add_slot("body-cell-client", """
+    """,
+    )
+    table.add_slot(
+        "body-cell-client",
+        """
         <q-td :props="props">
             <span :class="'session-badge ' + props.value">
                 {{ props.value }}
             </span>
         </q-td>
-    """)
+    """,
+    )
     table_cell_slot(table, "session", "cell-dim font-mono")
     table_cell_slot(table, "pid", "cell-muted")
 
