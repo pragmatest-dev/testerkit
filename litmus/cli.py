@@ -232,7 +232,7 @@ def new_test(name: str):
     role_types: dict[str, tuple[str, str]] = {}
     if roles and available_roles and stations:
         try:
-            from litmus.execution.typing_utils import resolve_role_types
+            from litmus.execution.scaffold import resolve_role_types
 
             role_types = resolve_role_types(stations[0].instruments)
         except (ImportError, OSError, ValueError):
@@ -321,7 +321,7 @@ def type_tests(station: str | None, dry_run: bool):
 
         litmus type-tests --dry-run
     """
-    from litmus.execution.typing_utils import resolve_role_types, scan_test_files
+    from litmus.execution.scaffold import resolve_role_types, scan_test_files
     from litmus.store import list_stations
 
     # Find station

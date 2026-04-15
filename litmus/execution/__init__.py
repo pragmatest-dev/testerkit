@@ -7,8 +7,6 @@ from litmus.execution.decorators import (
     litmus_step,
     litmus_test,
     measure,
-    set_current_harness,
-    set_current_logger,
 )
 from litmus.execution.harness import Context, TestHarness
 from litmus.execution.logger import RunContext, TestRunLogger
@@ -46,8 +44,6 @@ __all__ = [
     "litmus_step",
     "litmus_test",
     "measure",
-    "set_current_harness",
-    "set_current_logger",
     # Logger
     "RunContext",
     "TestRunLogger",
