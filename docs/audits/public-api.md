@@ -89,12 +89,10 @@ Least-invasive first. Each change keeps the old import path working.
    functions per entity. Private helpers (`_resolve_root`, `_read_yaml`,
    `_write_model`) already start with underscore.
 
-4. **Schema namespace deduplication.** We have both `litmus.schema_export`
-   (current canonical) and no `litmus.schemas` (removed in an earlier
-   cleanup). Docs and a few callers still reference `litmus.schemas`. Add
-   a thin `litmus/schemas.py` shim that `from litmus.schema_export import *`
-   so both paths work; prefer `litmus.schema_export` going forward and
-   mark the shim as a compatibility alias.
+4. **Schema namespace.** `litmus.schema_export` is the only path. Any
+   stale `litmus.schemas` references in docs or examples get updated to
+   `litmus.schema_export` (or to `litmus.models.project` for `OutputConfig`
+   et al.). No compat shim — pre-release, no external users.
 
 5. **Docstring pass on `litmus.execution`.** Clarify which helpers are
    public (`litmus_test`, `litmus_step`, `measure`, `TestHarness`,

@@ -138,7 +138,7 @@ class MyFormatSubscriber(EventSubscriber):
 ```python
 # my_project/transports/internal_server.py
 from pathlib import Path
-from litmus.schemas import OutputConfig
+from litmus.models.project import OutputConfig
 
 class InternalServerTransport(Transport):
     transport_name = "internal_server"
