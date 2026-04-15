@@ -41,6 +41,58 @@ from litmus.utils.paths import (
     get_station_paths,
 )
 
+__all__ = [
+    # Catalog
+    "create_catalog_entry",
+    "find_by_model",
+    "find_catalog_dirs",
+    "get_catalog_entry",
+    "list_catalog_entries",
+    "load_catalog_entry",
+    "load_catalog_from_directory",
+    "resolve_catalog_ref",
+    "save_catalog_entry",
+    # Fixture
+    "create_fixture",
+    "get_fixture",
+    "list_fixtures",
+    "load_fixture",
+    "save_fixture",
+    # Instrument asset
+    "get_instrument_asset",
+    "list_instrument_assets",
+    "load_instrument_asset",
+    "load_instrument_files",
+    "save_instrument_asset",
+    # Product
+    "create_product",
+    "get_product",
+    "list_products",
+    "load_manifest",
+    "load_product",
+    "save_manifest",
+    "save_product",
+    # Project
+    "load_project",
+    # Sequence
+    "create_sequence",
+    "get_sequence",
+    "list_sequences",
+    "load_sequence",
+    "save_sequence",
+    # Station
+    "create_station",
+    "find_station_config",
+    "get_station",
+    "list_stations",
+    "load_station",
+    "load_station_type",
+    "save_station",
+    "save_station_type",
+    # Generic helpers
+    "find_yaml_files",
+]
+
 # =============================================================================
 # Internal helpers
 # =============================================================================
