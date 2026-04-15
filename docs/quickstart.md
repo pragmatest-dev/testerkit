@@ -4,7 +4,7 @@ Get up and running with Litmus in under a minute.
 
 ```bash
 # 1. Install Litmus (from source — not yet on PyPI)
-git clone https://github.com/anthropics/litmus.git
+git clone https://github.com/pragmatest-dev/litmus.git
 cd litmus && uv sync
 
 # 2. Create a starter project
@@ -22,7 +22,7 @@ That's it. You'll see tests pass with mock instruments, limits checked, and resu
 > **Note:** Litmus is not yet published to PyPI. Install from source for now.
 
 ```bash
-git clone https://github.com/anthropics/litmus.git
+git clone https://github.com/pragmatest-dev/litmus.git
 cd litmus && uv sync
 ```
 

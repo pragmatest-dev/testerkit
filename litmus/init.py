@@ -192,7 +192,7 @@ uv.lock
     if not readme_path.exists():
         readme_content = f"""# {project_name}
 
-A [Litmus](https://github.com/anthropics/litmus) hardware test project.
+A [Litmus](https://github.com/pragmatest-dev/litmus) hardware test project.
 
 ## Project Structure
 

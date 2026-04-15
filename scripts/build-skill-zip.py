@@ -47,8 +47,15 @@ def generate_enums_md() -> str:
     enum_classes = [
         ("MeasurementFunction", "What's being measured/sourced. Use the MOST SPECIFIC value."),
         ("Direction", "Signal flow direction for a capability."),
-        ("WaveformShape", "Waveform shapes (parameter of function=waveform, not separate functions)."),
-        ("ConditionKey", "Canonical keys for the `conditions` dict. Shared vocabulary for products and instruments."),
+        (
+            "WaveformShape",
+            "Waveform shapes (parameter of function=waveform, not separate functions).",
+        ),
+        (
+            "ConditionKey",
+            "Canonical keys for the `conditions` dict. "
+            "Shared vocabulary for products and instruments.",
+        ),
         ("ConnectorType", "Physical connector type on instrument."),
         ("TerminalRole", "Physical terminal on an instrument channel."),
         ("GroundTopology", "How channel grounds relate to each other and earth."),
@@ -84,7 +91,12 @@ def generate_enums_md() -> str:
         "| `dc_voltage` for heater output | `heater_power` | Dedicated enum exists |",
         "| `dc_current` for sensor excitation | `excitation_current` | Dedicated enum exists |",
         "| `dc_voltage` for trigger I/O | `trigger` | Dedicated enum exists |",
-        "| Only `waveform` on a scope | Also add `dc_voltage`, `ac_voltage`, `frequency`, `rise_time`, `fall_time`, `pulse_width`, `duty_cycle`, `phase` | Scopes measure all of these |",
+        (
+            "| Only `waveform` on a scope | "
+            "Also add `dc_voltage`, `ac_voltage`, `frequency`, `rise_time`, `fall_time`, "
+            "`pulse_width`, `duty_cycle`, `phase` | "
+            "Scopes measure all of these |"
+        ),
         "| `dc_voltage` for 10 MHz ref | `reference_clock` | Dedicated enum exists |",
         "",
     ])

@@ -10,7 +10,7 @@ A simple test that passes. Nothing fancy yet — just getting the basics working
 
 ```bash
 # Clone and install
-git clone https://github.com/anthropics/litmus.git
+git clone https://github.com/pragmatest-dev/litmus.git
 cd litmus
 uv sync
 ```

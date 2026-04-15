@@ -16,7 +16,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from litmus.config.fmt import format_file_inplace, format_file
+from litmus.config.fmt import format_file, format_file_inplace
 
 
 def main():

@@ -7,7 +7,7 @@ endpoint defined by the LXI specification.
 Requires the optional ``zeroconf`` package::
 
     pip install zeroconf
-    # or: pip install litmus[lxi]
+    # or: pip install litmus-test[lxi]
 """
 
 from __future__ import annotations

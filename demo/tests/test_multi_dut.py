@@ -28,8 +28,8 @@ Run with:
         --mock-instruments -v
 """
 
+from demo.drivers import DMM, PSU, ELoad
 from litmus.execution import litmus_test
-from demo.drivers import DMM, ELoad, PSU
 
 
 # =============================================================================

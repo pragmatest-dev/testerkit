@@ -17,9 +17,9 @@ No Grafana plugins required. Litmus includes a pgwire server (PostgreSQL wire pr
 ### 1. Install Grafana extras
 
 ```bash
-pip install litmus[grafana]
+pip install litmus-test[grafana]
 # or
-uv add litmus[grafana]
+uv add litmus-test[grafana]
 ```
 
 ### 2. Start the data server

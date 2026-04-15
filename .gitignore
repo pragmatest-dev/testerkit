@@ -14,11 +14,8 @@ demo/uv.lock
 dist/
 .playwright-mcp/
 report_*.html
-
-# Datasheets and research PDFs (large files, managed separately)
-agent-os/specs/*/research/pdfs/
-research/pdfs/
-catalog/*/pdfs/
+*.mp4
+*.pdf
 
 # Generated skill refs (built from docs/ and models.py)
 litmus/skills/refs/

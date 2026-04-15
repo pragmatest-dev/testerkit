@@ -34,7 +34,7 @@ def serve(host: str, port: int, results_dir: Path | None, refresh_seconds: int) 
     except ImportError:
         raise click.ClickException(
             "Missing dependency: buenavista\n"
-            "Install with: pip install litmus[grafana]"
+            "Install with: pip install litmus-test[grafana]"
         )
 
     from litmus.data.results_dir import resolve_results_dir

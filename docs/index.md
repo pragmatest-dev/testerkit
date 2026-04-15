@@ -105,5 +105,5 @@ litmus/
 
 ## Getting Help
 
-- **GitHub Issues:** [Report bugs and request features](https://github.com/anthropics/litmus/issues)
+- **GitHub Issues:** [Report bugs and request features](https://github.com/pragmatest-dev/litmus/issues)
 - **CLI Help:** `litmus --help`

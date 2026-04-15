@@ -86,10 +86,10 @@ litmus convert foo.parquet -f stdf -o /shared/stdf/
 |---|---|---|---|
 | csv | stdlib | *(built-in)* | Universal |
 | json | stdlib | *(built-in)* | Universal |
-| stdf | Semi-ATE-STDF | `pip install litmus[stdf]` | Semiconductor |
-| hdf5 | h5py | `pip install litmus[hdf5]` | Scientific, waveform |
-| tdms | npTDMS | `pip install litmus[tdms]` | NI/LabVIEW |
-| mdf4 | asammdf | `pip install litmus[mdf4]` | Automotive |
+| stdf | Semi-ATE-STDF | `pip install litmus-test[stdf]` | Semiconductor |
+| hdf5 | h5py | `pip install litmus-test[hdf5]` | Scientific, waveform |
+| tdms | npTDMS | `pip install litmus-test[tdms]` | NI/LabVIEW |
+| mdf4 | asammdf | `pip install litmus-test[mdf4]` | Automotive |
 | atml | lxml | *(stdlib XML)* | Aerospace/defense |
 
 ## Available Transports
@@ -97,10 +97,10 @@ litmus convert foo.parquet -f stdf -o /shared/stdf/
 | Transport | Library | Install |
 |---|---|---|
 | file | stdlib shutil | *(built-in)* |
-| s3 | boto3 | `pip install litmus[s3]` *(planned)* |
-| gcs | google-cloud-storage | `pip install litmus[gcs]` *(planned)* |
-| azure | azure-storage-blob | `pip install litmus[azure]` *(planned)* |
-| sftp | paramiko | `pip install litmus[sftp]` *(planned)* |
+| s3 | boto3 | `pip install litmus-test[s3]` *(planned)* |
+| gcs | google-cloud-storage | `pip install litmus-test[gcs]` *(planned)* |
+| azure | azure-storage-blob | `pip install litmus-test[azure]` *(planned)* |
+| sftp | paramiko | `pip install litmus-test[sftp]` *(planned)* |
 
 ## Event Subscribers (Real-Time Processing)
 
@@ -117,5 +117,5 @@ See [Subscribing to Events](guides/subscribing-to-events.md) for implementation 
 ## Bundles
 
 ```bash
-pip install litmus[all-exporters]   # stdf + hdf5 + tdms + mdf4
+pip install litmus-test[all-exporters]   # stdf + hdf5 + tdms + mdf4
 ```

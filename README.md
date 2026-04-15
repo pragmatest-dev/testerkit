@@ -1,5 +1,10 @@
 # Litmus
 
+[![PyPI](https://img.shields.io/pypi/v/litmus-test.svg)](https://pypi.org/project/litmus-test/)
+[![Python](https://img.shields.io/pypi/pyversions/litmus-test.svg)](https://pypi.org/project/litmus-test/)
+[![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](./LICENSE)
+[![CI](https://github.com/pragmatest-dev/litmus/actions/workflows/ci.yml/badge.svg)](https://github.com/pragmatest-dev/litmus/actions/workflows/ci.yml)
+
 **Python hardware test platform for electronics production and validation.**
 
 Litmus handles the parts of hardware testing that aren't your test: instrument management, result storage, limit checking, traceability, operator UI. You write pytest functions for your specific hardware. Everything else is config files and convention.
@@ -43,13 +48,17 @@ Nine test vectors. Limits from your product spec with 10% guardband. Every measu
 
 ## Quick start
 
-> **Note:** Litmus is not yet published to PyPI. Install from source for now.
+```bash
+pip install litmus-test            # or: uv add litmus-test
+litmus init quick_start --starter && cd quick_start
+pytest                             # runs with mock instruments out of the box
+```
+
+Prefer working from source:
 
 ```bash
-git clone https://github.com/anthropics/litmus.git
+git clone https://github.com/pragmatest-dev/litmus.git
 cd litmus && uv sync
-litmus init quick_start --starter && cd quick_start
-pytest                          # runs with mock instruments out of the box
 ```
 
 That's it. You have a working project with example tests, a station config, and mock instruments.
@@ -219,9 +228,9 @@ litmus setup <tool>             # AI tool integration
 
 ## Docs
 
-- [Architecture](./litmus-architecture.md) — How things connect
-- [Roadmap](./docs/ROADMAP.md) — What's next
-- [docs/](./docs/) — Guides and reference
+- [Quick start](./docs/quickstart.md) — First project in 5 minutes
+- [Architecture overview](./docs/architecture-erd.md) — How things connect
+- [docs/](./docs/) — Guides, tutorial, reference
 
 ## License
 

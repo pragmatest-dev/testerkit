@@ -236,7 +236,7 @@ Everything is organized by what it describes:
 
 ```bash
 # Install from source (not yet on PyPI)
-git clone https://github.com/anthropics/litmus.git && cd litmus && uv sync
+git clone https://github.com/pragmatest-dev/litmus.git && cd litmus && uv sync
 
 litmus init my-project --discover # Scaffold project + auto-detect instruments
 cd my-project

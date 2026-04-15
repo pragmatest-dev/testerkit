@@ -15,7 +15,7 @@ If you already have pytest tests, you can:
 
 ```bash
 # Install from source (not yet on PyPI)
-git clone https://github.com/anthropics/litmus.git && cd litmus && uv sync
+git clone https://github.com/pragmatest-dev/litmus.git && cd litmus && uv sync
 ```
 
 ### Step 2: Add to conftest.py

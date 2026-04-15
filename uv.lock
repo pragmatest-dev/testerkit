@@ -1804,7 +1804,7 @@ wheels = [
 ]
 
 [[package]]
-name = "litmus"
+name = "litmus-test"
 version = "0.1.0"
 source = { editable = "." }
 dependencies = [
@@ -1838,11 +1838,6 @@ all-exporters = [
 ]
 azure = [
     { name = "azure-storage-blob" },
-]
-dev = [
-    { name = "pytest" },
-    { name = "pytest-cov" },
-    { name = "ruff" },
 ]
 gcs = [
     { name = "google-cloud-storage" },
@@ -1892,9 +1887,13 @@ dev = [
     { name = "nisyscfg" },
     { name = "playwright" },
     { name = "pymupdf" },
+    { name = "pyright" },
     { name = "pyserial" },
+    { name = "pytest" },
     { name = "pytest-asyncio" },
     { name = "pytest-benchmark" },
+    { name = "pytest-cov" },
+    { name = "ruff" },
     { name = "weasyprint" },
     { name = "zeroconf" },
 ]
@@ -1916,7 +1915,7 @@ requires-dist = [
     { name = "h5py", marker = "extra == 'hdf5'", specifier = ">=3.0" },
     { name = "httpx", specifier = ">=0.28.1" },
     { name = "jinja2", specifier = ">=3.1" },
-    { name = "litmus", extras = ["stdf", "hdf5", "tdms", "mdf4"], marker = "extra == 'all-exporters'" },
+    { name = "litmus-test", extras = ["stdf", "hdf5", "tdms", "mdf4"], marker = "extra == 'all-exporters'" },
     { name = "nicegui", specifier = ">=2.0" },
     { name = "nidaqmx", marker = "extra == 'ni'", specifier = ">=0.9" },
     { name = "nptdms", marker = "extra == 'tdms'", specifier = ">=1.0" },
@@ -1926,21 +1925,18 @@ requires-dist = [
     { name = "pyarrow", specifier = ">=14.0" },
     { name = "pydantic", specifier = ">=2.0" },
     { name = "pymeasure", marker = "extra == 'pymeasure'", specifier = ">=0.14" },
-    { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.0" },
-    { name = "pytest-cov", marker = "extra == 'dev'", specifier = ">=4.0" },
     { name = "python-multipart", specifier = ">=0.0.9" },
     { name = "pytz", specifier = ">=2025.2" },
     { name = "pyvisa", specifier = ">=1.14" },
     { name = "pyvisa-sim", specifier = ">=0.6" },
     { name = "pyyaml", specifier = ">=6.0" },
     { name = "ruamel-yaml", specifier = ">=0.19.1" },
-    { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.4.0" },
     { name = "semi-ate-stdf", marker = "extra == 'stdf'", specifier = ">=0.1" },
     { name = "uvicorn", extras = ["standard"], specifier = ">=0.27" },
     { name = "weasyprint", marker = "extra == 'pdf'", specifier = ">=62.0" },
     { name = "zeroconf", marker = "extra == 'lxi'", specifier = ">=0.80" },
 ]
-provides-extras = ["dev", "pymeasure", "ni", "lxi", "pdf", "sbom", "stdf", "hdf5", "tdms", "mdf4", "s3", "gcs", "azure", "sftp", "grafana", "all-exporters"]
+provides-extras = ["pymeasure", "ni", "lxi", "pdf", "sbom", "stdf", "hdf5", "tdms", "mdf4", "s3", "gcs", "azure", "sftp", "grafana", "all-exporters"]
 
 [package.metadata.requires-dev]
 dev = [
@@ -1949,9 +1945,13 @@ dev = [
     { name = "nisyscfg", specifier = ">=0.2" },
     { name = "playwright", specifier = ">=1.58.0" },
     { name = "pymupdf", specifier = ">=1.26.7" },
+    { name = "pyright" },
     { name = "pyserial", specifier = ">=3.5" },
+    { name = "pytest", specifier = ">=8.0" },
     { name = "pytest-asyncio", specifier = ">=1.3.0" },
     { name = "pytest-benchmark", specifier = ">=5.2.3" },
+    { name = "pytest-cov", specifier = ">=4.0" },
+    { name = "ruff", specifier = ">=0.4.0" },
     { name = "weasyprint", specifier = ">=62.0" },
     { name = "zeroconf", specifier = ">=0.80" },
 ]
@@ -2501,6 +2501,15 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/17/b0/2a8bfdb177dfe362d596a4e354329273679ef2e70bba2cba48a1177e498c/nitypes-1.0.1.tar.gz", hash = "sha256:dc20a98c009651adf9f2769ec15cdbe939375bad2f2546765abbc23982301a8b", size = 62778, upload-time = "2025-12-17T20:46:52.946Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/7b/ae/1e2081d42d0245172922de00649c43b571688c30995937c4ec5649b7e5f5/nitypes-1.0.1-py3-none-any.whl", hash = "sha256:8a0ab0cce139144850e580c9eee9e8f783dd60d530986e6478d7319bdb4a0f60", size = 88015, upload-time = "2025-12-17T20:46:51.408Z" },
+]
+
+[[package]]
+name = "nodeenv"
+version = "1.10.0"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/24/bf/d1bda4f6168e0b2e9e5958945e01910052158313224ada5ce1fb2e1113b8/nodeenv-1.10.0.tar.gz", hash = "sha256:996c191ad80897d076bdfba80a41994c2b47c68e224c542b48feba42ba00f8bb", size = 55611, upload-time = "2025-12-20T14:08:54.006Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/88/b2/d0896bdcdc8d28a7fc5717c305f1a861c26e18c05047949fb371034d98bd/nodeenv-1.10.0-py2.py3-none-any.whl", hash = "sha256:5bb13e3eed2923615535339b3c620e76779af4cb4c6a90deccc9e36b274d3827", size = 23438, upload-time = "2025-12-20T14:08:52.782Z" },
 ]
 
 [[package]]
@@ -3613,6 +3622,19 @@ dependencies = [
 ]
 wheels = [
     { url = "https://files.pythonhosted.org/packages/32/36/4c242f81fdcbfa4fb62a5645f6af79191f4097a0577bd5460c24f19cc4ef/pyqtgraph-0.14.0-py3-none-any.whl", hash = "sha256:7abb7c3e17362add64f8711b474dffac5e7b0e9245abdf992e9a44119b7aa4f5", size = 1924755, upload-time = "2025-11-16T19:43:22.251Z" },
+]
+
+[[package]]
+name = "pyright"
+version = "1.1.408"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "nodeenv" },
+    { name = "typing-extensions" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/74/b2/5db700e52554b8f025faa9c3c624c59f1f6c8841ba81ab97641b54322f16/pyright-1.1.408.tar.gz", hash = "sha256:f28f2321f96852fa50b5829ea492f6adb0e6954568d1caa3f3af3a5f555eb684", size = 4400578, upload-time = "2026-01-08T08:07:38.795Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/0c/82/a2c93e32800940d9573fb28c346772a14778b84ba7524e691b324620ab89/pyright-1.1.408-py3-none-any.whl", hash = "sha256:090b32865f4fdb1e0e6cd82bf5618480d48eecd2eb2e70f960982a3d9a4c17c1", size = 6399144, upload-time = "2026-01-08T08:07:37.082Z" },
 ]
 
 [[package]]
