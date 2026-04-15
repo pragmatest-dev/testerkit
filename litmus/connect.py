@@ -36,9 +36,9 @@ from litmus.data.events import (
     SessionEnded,
     SessionStarted,
 )
-from litmus.instruments.models import InstrumentRecord
 from litmus.instruments.pool import InstrumentPool
-from litmus.schemas import StationConfig
+from litmus.models.instrument import InstrumentRecord
+from litmus.models.station import StationConfig
 from litmus.signals import deregister_cleanup, register_cleanup
 
 

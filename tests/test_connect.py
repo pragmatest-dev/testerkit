@@ -9,7 +9,7 @@ import pyarrow.ipc as ipc
 import pytest
 
 from litmus.connect import StationConnection
-from litmus.schemas import StationConfig, StationInstrumentConfig
+from litmus.models.station import StationConfig, StationInstrumentConfig
 
 
 def _read_events_from_ipc(path: Path) -> list[dict]:

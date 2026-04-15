@@ -5,16 +5,15 @@ from litmus.config.enum_meta import (
     lookup_enum,
     render_enum_reference,
 )
+from litmus.config.enums import InstrumentConfig, InstrumentInstance, StationInstance, StationType
 from litmus.config.loader import (
     find_test_config,
     get_test_config,
     load_test_config,
 )
-from litmus.config.models import (
+from litmus.config.test_config import (
     FixtureConfig,
     FixturePoint,
-    InstrumentConfig,
-    InstrumentInstance,
     Limit,
     LimitCallableConfig,
     LimitExprConfig,
@@ -26,8 +25,6 @@ from litmus.config.models import (
     RangeConfig,
     RetryConfig,
     Specification,
-    StationInstance,
-    StationType,
     TestConfig,
     TestSequenceConfig,
     TestStepConfig,

@@ -22,7 +22,7 @@ from litmus.instruments.discovery._base import (
     parse_idn,
 )
 from litmus.instruments.discovery.visa import discover_visa, get_info_visa
-from litmus.instruments.models import InstrumentInfo
+from litmus.models.instrument import InstrumentInfo
 
 # Optional built-in protocols
 try:

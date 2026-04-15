@@ -8,10 +8,10 @@ from __future__ import annotations
 
 from typing import Any
 
-from litmus.instruments.models import ChannelKind
 from litmus.instruments.observer import DriverObserver, EventEmitter
 from litmus.instruments.observers.generic import GenericObserver
 from litmus.instruments.observers.pymeasure import build_channel_map
+from litmus.models.instrument import ChannelKind
 
 
 class DescriptorObserver(DriverObserver):

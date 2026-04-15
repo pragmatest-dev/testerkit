@@ -8,7 +8,7 @@ mechanism as instrument drivers.
 from __future__ import annotations
 
 from litmus.instruments.lifecycle import load_driver_class
-from litmus.products.models import Product
+from litmus.models.product import Product
 
 
 def resolve_product_driver(product: Product) -> str | None:

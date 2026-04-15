@@ -21,8 +21,8 @@ from __future__ import annotations
 
 from typing import Any
 
-from litmus.config.models import FixtureConfig, FixturePoint
 from litmus.instruments.base import Instrument
+from litmus.models.config import FixtureConfig, FixturePoint
 
 
 class FixtureManager:

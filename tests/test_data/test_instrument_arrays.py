@@ -3,7 +3,7 @@
 from datetime import date
 
 from litmus.data.models import DUT, Measurement, Outcome, TestRun, TestStep, TestVector
-from litmus.instruments.models import CalibrationInfo, InstrumentInfo, InstrumentRecord
+from litmus.models.instrument import CalibrationInfo, InstrumentInfo, InstrumentRecord
 
 
 def _make_record(

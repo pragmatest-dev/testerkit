@@ -35,10 +35,10 @@ _current_step_var: ContextVar[TestStep | None] = ContextVar("_current_step", def
 _current_vector_var: ContextVar[TestVector | None] = ContextVar("_current_vector", default=None)
 
 if TYPE_CHECKING:
-    from litmus.config.models import Limit
     from litmus.data.event_log import EventLog
     from litmus.environment import EnvironmentSnapshot
-    from litmus.instruments.models import InstrumentRecord
+    from litmus.models.config import Limit
+    from litmus.models.instrument import InstrumentRecord
 
 
 # Canonical list of instrument identity array keys.

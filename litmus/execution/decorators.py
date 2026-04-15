@@ -11,10 +11,10 @@ from typing import TYPE_CHECKING, Any
 from litmus.data.models import Measurement, Outcome
 
 if TYPE_CHECKING:
-    from litmus.config.models import Limit, MeasurementLimitConfig, RetryConfig
     from litmus.execution.harness import TestHarness
     from litmus.execution.logger import TestRunLogger
     from litmus.execution.vectors import Vector
+    from litmus.models.config import Limit, MeasurementLimitConfig, RetryConfig
 
 # Contextvars for concurrency-safe logger/harness resolution.
 _current_logger_var: ContextVar[TestRunLogger | None] = ContextVar(
@@ -188,7 +188,7 @@ def _resolve_test_config(
         if "limits" in _step_cfg:
             resolved_limits = _step_cfg["limits"]
         if _step_cfg.get("retry"):
-            from litmus.config.models import RetryConfig as _RC
+            from litmus.models.config import RetryConfig as _RC
             r = _step_cfg["retry"]
             resolved_retry = r if isinstance(r, _RC) else _RC.model_validate(r)
         if "raise_on_fail" in _step_cfg:

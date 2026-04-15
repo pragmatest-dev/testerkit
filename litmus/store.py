@@ -26,16 +26,14 @@ from typing import Any, Literal
 import yaml
 from pydantic import ValidationError
 
-from litmus.catalog.models import InstrumentCatalogEntry
 from litmus.config.fmt import dump_yaml
-from litmus.config.models import FixtureConfig, TestSequenceConfig
-from litmus.products.manifest import ProductManifest
-from litmus.products.models import Product
-from litmus.schemas import (
-    InstrumentAssetFile,
-    ProjectConfig,
-    StationConfig,
-)
+from litmus.models.catalog import InstrumentCatalogEntry
+from litmus.models.config import FixtureConfig, TestSequenceConfig
+from litmus.models.instrument_asset import InstrumentAssetFile
+from litmus.models.product import Product
+from litmus.models.product_manifest import ProductManifest
+from litmus.models.project import ProjectConfig
+from litmus.models.station import StationConfig
 from litmus.utils.paths import (
     get_fixture_paths,
     get_instrument_paths,

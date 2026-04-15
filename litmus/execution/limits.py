@@ -6,8 +6,8 @@ characteristics and spec bands, including guardband application.
 
 from typing import Any
 
-from litmus.config.models import Comparator, Limit, SpecBand
-from litmus.products.models import ProductCharacteristic
+from litmus.models.config import Comparator, Limit, SpecBand
+from litmus.models.product import ProductCharacteristic
 
 
 def derive_limit(

@@ -7,7 +7,7 @@ the type doesn't appear in InstrumentType or any catalog entry.
 
 from __future__ import annotations
 
-from litmus.config.models import InstrumentType
+from litmus.config.enums import InstrumentType
 
 # Aliases map old/informal names to canonical InstrumentType values
 _TYPE_ALIASES: dict[str, str] = {

@@ -2,7 +2,7 @@
 
 import pytest
 
-from litmus.config.models import (
+from litmus.models.config import (
     Capability,
     Condition,
     Control,

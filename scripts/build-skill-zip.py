@@ -38,11 +38,11 @@ DOCS_TO_COPY = {
 
 
 def generate_enums_md() -> str:
-    """Generate enums.md from litmus.config.models enums."""
+    """Generate enums.md from litmus.models.config enums."""
     sys.path.insert(0, str(REPO_ROOT))
-    models = importlib.import_module("litmus.config.models")
+    models = importlib.import_module("litmus.models.config")
 
-    lines = ["# Enum Reference", "", "Generated from `litmus/config/models.py`.", ""]
+    lines = ["# Enum Reference", "", "Generated from `litmus/models/config.py`.", ""]
 
     enum_classes = [
         ("MeasurementFunction", "What's being measured/sourced. Use the MOST SPECIFIC value."),

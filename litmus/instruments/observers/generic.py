@@ -10,8 +10,8 @@ from __future__ import annotations
 
 from typing import Any
 
-from litmus.instruments.models import ChannelKind
 from litmus.instruments.observer import DriverObserver, EventEmitter
+from litmus.models.instrument import ChannelKind
 
 _READ_PREFIXES = ("measure_", "read_", "get_", "query_", "fetch_")
 _SET_PREFIXES = ("set_", "write_")

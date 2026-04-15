@@ -9,7 +9,7 @@ from typing import TYPE_CHECKING
 from litmus.data.transports._base import Transport
 
 if TYPE_CHECKING:
-    from litmus.schemas import OutputConfig
+    from litmus.models.project import OutputConfig
 
 
 class FileTransport(Transport):

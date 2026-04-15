@@ -297,7 +297,7 @@ class DesignerState:
 
     def _pin_is_output(self, pin_key: str) -> bool:
         """Check if a DUT pin is an output (provides signal)."""
-        from litmus.config.models import Direction
+        from litmus.models.config import Direction
 
         char_names = self.char_by_pin.get(pin_key, [])
         if char_names and self.product:
@@ -310,7 +310,7 @@ class DesignerState:
 
     def _channel_is_output(self, role: str, channel: str) -> bool:
         """Check if a channel is an OUTPUT (source) channel."""
-        from litmus.config.models import Direction
+        from litmus.models.config import Direction
 
         inst = self.instruments.get(role)
         if not inst:

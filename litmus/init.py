@@ -149,7 +149,7 @@ Run with --mock-instruments for hardware-free testing:
     litmus_yaml_path = path / "litmus.yaml"
     if not litmus_yaml_path.exists():
         from litmus.config.fmt import dump_yaml
-        from litmus.schemas import ProjectConfig
+        from litmus.models.project import ProjectConfig
 
         proj_data: dict[str, Any] = {"name": project_name}
         if starter:
@@ -215,7 +215,7 @@ A [Litmus](https://github.com/pragmatest-dev/litmus) hardware test project.
     if not settings_path.exists():
         import json
 
-        from litmus.schemas import export_schemas
+        from litmus.schema_export import export_schemas
 
         schemas_dir = vscode_dir / "schemas"
         try:
@@ -237,7 +237,7 @@ A [Litmus](https://github.com/pragmatest-dev/litmus) hardware test project.
     # Write station file if instruments were discovered
     if station and station.get("instruments"):
         from litmus.config.fmt import dump_yaml
-        from litmus.schemas import StationConfig, StationInstrumentConfig
+        from litmus.models.station import StationConfig, StationInstrumentConfig
 
         stations_dir = path / "stations"
         stations_dir.mkdir(exist_ok=True)

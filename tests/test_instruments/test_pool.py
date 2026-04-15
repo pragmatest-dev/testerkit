@@ -5,8 +5,8 @@ from __future__ import annotations
 from uuid import uuid4
 
 from litmus.data.events import InstrumentConnected, InstrumentDisconnected
-from litmus.instruments.models import InstrumentRecord
 from litmus.instruments.pool import InstrumentPool
+from litmus.models.instrument import InstrumentRecord
 
 
 class CollectingLog:

@@ -2,7 +2,8 @@
 
 import pytest
 
-from litmus.config.models import (
+from litmus.execution.limits import derive_limit
+from litmus.models.config import (
     AccuracySpec,
     Comparator,
     Direction,
@@ -11,8 +12,7 @@ from litmus.config.models import (
     RangeSpec,
     SpecBand,
 )
-from litmus.execution.limits import derive_limit
-from litmus.products.models import ProductCharacteristic
+from litmus.models.product import ProductCharacteristic
 
 
 class TestDeriveLimit:

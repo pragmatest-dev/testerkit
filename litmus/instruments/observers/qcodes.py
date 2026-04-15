@@ -12,9 +12,9 @@ from __future__ import annotations
 
 from typing import Any
 
-from litmus.instruments.models import ChannelKind
 from litmus.instruments.observer import EventEmitter
 from litmus.instruments.observers.descriptor import DescriptorObserver
+from litmus.models.instrument import ChannelKind
 
 
 class QCodesObserver(DescriptorObserver):

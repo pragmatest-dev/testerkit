@@ -9,7 +9,7 @@ from litmus.data.transports._base import Transport
 from litmus.data.transports._helpers import build_blob_name, require_extra
 
 if TYPE_CHECKING:
-    from litmus.schemas import OutputConfig
+    from litmus.models.project import OutputConfig
 
 
 class GCSTransport(Transport):

@@ -5,12 +5,12 @@ from unittest.mock import MagicMock
 import pytest
 import yaml
 
-from litmus.config.models import TestStepConfig
 from litmus.execution.plugin import (
     InstrumentAccessor,
     _load_step_aliases_and_configs,
     set_current_step_aliases,
 )
+from litmus.models.config import TestStepConfig
 
 
 class TestStepConfigAliases:

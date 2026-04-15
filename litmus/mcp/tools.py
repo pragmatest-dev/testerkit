@@ -477,7 +477,7 @@ def _validate_against_schema(
     """
     from pydantic import ValidationError
 
-    from litmus.schemas import SCHEMA_MAP, FileType
+    from litmus.schema_export import SCHEMA_MAP, FileType
 
     model = SCHEMA_MAP.get(cast(FileType, entity_type))
     if model is None:
@@ -495,7 +495,7 @@ def _validate_against_schema(
 
 def _schema_for_error(entity_type: str) -> dict[str, Any] | None:
     """Return the JSON Schema for an entity type, or None."""
-    from litmus.schemas import SCHEMA_MAP, FileType
+    from litmus.schema_export import SCHEMA_MAP, FileType
 
     model = SCHEMA_MAP.get(cast(FileType, entity_type))
     if model is None:
@@ -541,7 +541,7 @@ def _save_entity(
 def _save_station(station_id: str, content: dict[str, Any], project: str) -> dict[str, Any]:
     """Save station configuration via store."""
     from litmus.config.normalize import check_instrument_types
-    from litmus.schemas import StationConfig
+    from litmus.models.station import StationConfig
     from litmus.store import save_station
 
     station = StationConfig.model_validate(content)
@@ -563,7 +563,7 @@ def _save_station(station_id: str, content: dict[str, Any], project: str) -> dic
 
 def _save_product(product_id: str, content: dict[str, Any], project: str) -> dict[str, Any]:
     """Save product specification via store."""
-    from litmus.products.models import Product
+    from litmus.models.product import Product
     from litmus.store import save_product
 
     product = Product.model_validate(content)
@@ -575,7 +575,7 @@ def _save_product(product_id: str, content: dict[str, Any], project: str) -> dic
 
 def _save_fixture(fixture_id: str, content: dict[str, Any], project: str) -> dict[str, Any]:
     """Save fixture configuration via store."""
-    from litmus.config.models import FixtureConfig
+    from litmus.models.config import FixtureConfig
     from litmus.store import save_fixture
 
     fixture = FixtureConfig.model_validate(content)
@@ -587,7 +587,7 @@ def _save_fixture(fixture_id: str, content: dict[str, Any], project: str) -> dic
 
 def _save_sequence(sequence_id: str, content: dict[str, Any], project: str) -> dict[str, Any]:
     """Save test sequence via store."""
-    from litmus.config.models import TestSequenceConfig
+    from litmus.models.config import TestSequenceConfig
     from litmus.store import save_sequence
 
     sequence = TestSequenceConfig.model_validate(content)
@@ -599,7 +599,7 @@ def _save_sequence(sequence_id: str, content: dict[str, Any], project: str) -> d
 
 def _save_catalog(entry_id: str, content: dict[str, Any], project: str) -> dict[str, Any]:
     """Save catalog entry via store."""
-    from litmus.catalog.models import InstrumentCatalogEntry
+    from litmus.models.catalog import InstrumentCatalogEntry
     from litmus.store import save_catalog_entry
 
     entry = InstrumentCatalogEntry.model_validate(content)
@@ -613,7 +613,7 @@ def _save_instrument_asset(
     instrument_id: str, content: dict[str, Any], project: str,
 ) -> dict[str, Any]:
     """Save instrument asset file via store."""
-    from litmus.schemas import InstrumentAssetFile
+    from litmus.models.instrument_asset import InstrumentAssetFile
     from litmus.store import save_instrument_asset
 
     asset = InstrumentAssetFile.model_validate(content)
@@ -1408,7 +1408,7 @@ def schema_tool(yaml_type: str | None = None) -> dict[str, Any]:
     Returns:
         The JSON Schema dict, or list of available types.
     """
-    from litmus.schemas import SCHEMA_MAP
+    from litmus.schema_export import SCHEMA_MAP
 
     if yaml_type is None:
         return {

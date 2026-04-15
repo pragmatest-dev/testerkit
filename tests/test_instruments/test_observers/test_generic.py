@@ -5,9 +5,9 @@ from __future__ import annotations
 from uuid import uuid4
 
 from litmus.data.events import InstrumentConfigure, InstrumentRead, InstrumentSet
-from litmus.instruments.models import ChannelKind
 from litmus.instruments.observer import EventEmitter
 from litmus.instruments.observers.generic import GenericObserver, classify_by_prefix, strip_prefix
+from litmus.models.instrument import ChannelKind
 
 
 class CollectingLog:

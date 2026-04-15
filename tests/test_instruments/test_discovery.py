@@ -7,7 +7,7 @@ from litmus.instruments.discovery import (
     list_protocols,
     parse_idn,
 )
-from litmus.instruments.models import InstrumentInfo
+from litmus.models.instrument import InstrumentInfo
 
 
 class TestParseIdn:

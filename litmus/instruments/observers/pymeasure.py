@@ -9,9 +9,9 @@ from __future__ import annotations
 
 from typing import Any
 
-from litmus.instruments.models import ChannelKind
 from litmus.instruments.observer import LIFECYCLE_METHODS, DriverObserver, EventEmitter
 from litmus.instruments.observers.generic import GenericObserver
+from litmus.models.instrument import ChannelKind
 
 
 def _classify_descriptor(attr: Any) -> ChannelKind | None:

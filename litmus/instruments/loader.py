@@ -7,8 +7,9 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from litmus.instruments.models import CalibrationInfo, InstrumentInfo, InstrumentRecord
-from litmus.schemas import InstrumentAssetFile, StationConfig
+from litmus.models.instrument import CalibrationInfo, InstrumentInfo, InstrumentRecord
+from litmus.models.instrument_asset import InstrumentAssetFile
+from litmus.models.station import StationConfig
 
 
 def resolve_station_instruments(

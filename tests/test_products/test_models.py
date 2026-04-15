@@ -1,13 +1,13 @@
 """Tests for product specification models."""
 
-from litmus.config.models import (
+from litmus.models.config import (
     AccuracySpec,
     Direction,
     MeasurementFunction,
     RangeSpec,
     SpecBand,
 )
-from litmus.products.models import (
+from litmus.models.product import (
     Product,
     ProductCharacteristic,
 )

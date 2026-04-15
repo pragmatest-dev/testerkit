@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Literal
 
 from litmus.api.models import LaunchRequest, RunStatus
-from litmus.config.models import TestSequenceConfig
+from litmus.models.config import TestSequenceConfig
 
 
 @dataclass

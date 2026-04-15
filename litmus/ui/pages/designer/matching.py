@@ -14,7 +14,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from litmus.config.models import (
+from litmus.models.config import (
     Capability,
     Direction,
     InstrumentCapability,
@@ -23,7 +23,7 @@ from litmus.config.models import (
 )
 
 if TYPE_CHECKING:
-    from litmus.products.models import Product
+    from litmus.models.product import Product
 
 
 def build_pin_characteristic_map(product: Product) -> dict[str, list[str]]:
@@ -363,7 +363,7 @@ def resolve_instrument_capabilities(station_config) -> dict:
     with capabilities from the catalog. This is the designer's model→dict
     boundary — the designer uses mutable dicts internally for NiceGUI binding.
     """
-    from litmus.schemas import StationConfig
+    from litmus.models.station import StationConfig
 
     if isinstance(station_config, StationConfig):
         station_config = station_config.model_dump()

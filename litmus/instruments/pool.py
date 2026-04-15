@@ -28,10 +28,10 @@ from litmus.instruments.locks import (
     acquire_resource,
     release_resource,
 )
-from litmus.instruments.models import InstrumentRecord
 from litmus.instruments.observer import DriverObserver, EventEmitter
 from litmus.instruments.observers import detect_protocol, get_observer_class
-from litmus.schemas import StationInstrumentConfig
+from litmus.models.instrument import InstrumentRecord
+from litmus.models.station import StationInstrumentConfig
 
 
 class InstrumentPool:

@@ -16,7 +16,7 @@ from typing import Any
 
 from pydantic import BaseModel
 
-from litmus.schemas import OutputConfig
+from litmus.models.project import OutputConfig
 
 # -- Status constants (used in SQL and Python) --
 STATUS_PENDING = "pending"

@@ -4,10 +4,10 @@ from pathlib import Path
 
 import pytest
 
-from litmus.config.models import Comparator, Direction, MeasurementFunction
 from litmus.execution.limits import derive_limit
+from litmus.models.config import Comparator, Direction, MeasurementFunction
+from litmus.models.product import Product
 from litmus.products.loader import load_product_driver, resolve_product_driver
-from litmus.products.models import Product
 from litmus.store import load_product
 
 

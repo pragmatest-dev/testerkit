@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from litmus.schemas import SCHEMA_MAP, export_schemas
+from litmus.schema_export import SCHEMA_MAP, export_schemas
 
 
 @pytest.fixture

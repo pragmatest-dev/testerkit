@@ -5,10 +5,7 @@ from typing import Any
 
 import yaml
 
-from litmus.config.models import (
-    Limit,
-    RetryConfig,
-)
+from litmus.config.test_config import Limit, RetryConfig
 
 
 def load_test_config(path: Path) -> dict[str, dict[str, Any]]:

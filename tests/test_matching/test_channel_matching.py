@@ -1,19 +1,19 @@
 """Tests for channel-aware capability matching."""
 
-from litmus.config.models import (
-    Direction,
-    InstrumentCapability,
-    MeasurementFunction,
-    RangeSpec,
-    Signal,
-)
 from litmus.matching.service import (
     CapabilityRequirement,
     StationCapability,
     capability_satisfies,
     match_capabilities,
 )
-from litmus.products.models import ProductCharacteristic
+from litmus.models.config import (
+    Direction,
+    InstrumentCapability,
+    MeasurementFunction,
+    RangeSpec,
+    Signal,
+)
+from litmus.models.product import ProductCharacteristic
 
 
 def _make_station_cap(
@@ -437,19 +437,19 @@ class TestPinRole:
 
     def test_pin_role_default_signal(self):
         """Pin role defaults to signal."""
-        from litmus.products.models import Pin
+        from litmus.models.product import Pin
         pin = Pin(name="TP1")
         assert pin.role == "signal"
 
     def test_pin_role_ground(self):
         """Pin role can be set to ground."""
-        from litmus.products.models import Pin, PinRole
+        from litmus.models.product import Pin, PinRole
         pin = Pin(name="J1.2", role=PinRole.GROUND)
         assert pin.role == "ground"
 
     def test_pin_role_power(self):
         """Pin role can be set to power."""
-        from litmus.products.models import Pin, PinRole
+        from litmus.models.product import Pin, PinRole
         pin = Pin(name="J1.1", role=PinRole.POWER, net="VIN_5V")
         assert pin.role == "power"
         assert pin.net == "VIN_5V"
@@ -460,7 +460,7 @@ class TestChannelTopology:
 
     def test_channel_topology_defaults(self):
         """ChannelTopology has sensible defaults."""
-        from litmus.config.models import ChannelTopology, GroundTopology
+        from litmus.models.config import ChannelTopology, GroundTopology
         ct = ChannelTopology()
         assert ct.terminals == []
         assert ct.ground == GroundTopology.SHARED
@@ -469,7 +469,7 @@ class TestChannelTopology:
 
     def test_channel_topology_custom(self):
         """ChannelTopology with custom values."""
-        from litmus.config.models import (
+        from litmus.models.config import (
             ChannelTopology,
             ConnectorType,
             GroundTopology,
@@ -491,8 +491,8 @@ class TestChannelTopology:
 
     def test_catalog_entry_structured_channels(self):
         """InstrumentCatalogEntry with structured channel dict."""
-        from litmus.catalog.models import InstrumentCatalogEntry
-        from litmus.config.models import (
+        from litmus.models.catalog import InstrumentCatalogEntry
+        from litmus.models.config import (
             ChannelTopology,
             ConnectorType,
             GroundTopology,
@@ -521,7 +521,7 @@ class TestChannelTopology:
 
     def test_catalog_entry_empty_channels(self):
         """InstrumentCatalogEntry with no channels."""
-        from litmus.catalog.models import InstrumentCatalogEntry
+        from litmus.models.catalog import InstrumentCatalogEntry
         entry = InstrumentCatalogEntry(
             id="test_dmm",
             manufacturer="Test",
@@ -537,13 +537,13 @@ class TestFixturePointTerminal:
 
     def test_fixture_point_no_terminal(self):
         """FixturePoint without terminal (backward compat)."""
-        from litmus.config.models import FixturePoint
+        from litmus.models.config import FixturePoint
         fp = FixturePoint(name="vin_psu", instrument="psu")
         assert fp.instrument_terminal is None
 
     def test_fixture_point_with_terminal(self):
         """FixturePoint with instrument_terminal."""
-        from litmus.config.models import FixturePoint
+        from litmus.models.config import FixturePoint
         fp = FixturePoint(
             name="gnd_psu_lo",
             dut_pin="J1_GND",

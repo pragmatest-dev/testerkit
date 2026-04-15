@@ -264,7 +264,7 @@ def get_all_station_matches_for_product(product_id: str) -> dict[str, list]:
 
 def save_product(product_id: str, product_data: dict) -> bool:
     """Save product specification to YAML file."""
-    from litmus.products.models import Product
+    from litmus.models.product import Product
 
     product_dict = {
         "id": product_data.get("id", product_id),
@@ -306,7 +306,7 @@ def create_station(
 def save_station(station_id: str, station_data: dict, instruments_data: dict) -> bool:
     """Save station configuration to YAML file."""
     from litmus.config.normalize import check_instrument_types
-    from litmus.schemas import StationConfig
+    from litmus.models.station import StationConfig
 
     check_instrument_types(instruments_data)
     station_dict = {**station_data, "instruments": instruments_data}
@@ -357,7 +357,7 @@ def load_catalog_entry_by_type(instrument_type: str):
 
 def save_catalog_entry(instrument_type: str, data: dict) -> bool:
     """Save a catalog entry to catalog/."""
-    from litmus.catalog.models import InstrumentCatalogEntry
+    from litmus.models.catalog import InstrumentCatalogEntry
 
     inst = data.get("instrument", {})
     entry = InstrumentCatalogEntry.model_validate({
@@ -453,7 +453,7 @@ def load_sequence_config(sequence_id: str):
 
 def save_sequence(sequence_id: str, sequence_data: dict, steps: list, dialogs: dict) -> bool:
     """Save sequence configuration to YAML file."""
-    from litmus.config.models import TestSequenceConfig
+    from litmus.models.config import TestSequenceConfig
 
     seq_dict = {**sequence_data, "steps": steps}
     if dialogs:
@@ -490,7 +490,7 @@ def create_fixture(
 
 def save_fixture(fixture_id: str, fixture_data: dict, points_data: dict) -> bool:
     """Save fixture configuration to YAML file."""
-    from litmus.config.models import FixtureConfig
+    from litmus.models.config import FixtureConfig
 
     fixture_dict = {**fixture_data, "points": points_data}
     fixture = FixtureConfig.model_validate(fixture_dict)

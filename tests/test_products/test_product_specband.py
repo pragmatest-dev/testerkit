@@ -4,7 +4,7 @@ Covers PointSpec and ListSpec when-clauses in band_matches().
 """
 
 from litmus.config.capability import band_matches
-from litmus.config.models import (
+from litmus.models.config import (
     AccuracySpec,
     ListSpec,
     PointSpec,

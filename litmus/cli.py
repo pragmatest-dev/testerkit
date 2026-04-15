@@ -884,7 +884,7 @@ def export(
 
         if transport:
             from litmus.data.transports import get_transport
-            from litmus.schemas import OutputConfig
+            from litmus.models.project import OutputConfig
 
             t = get_transport(transport)
             cfg = OutputConfig(format=fmt, transport=transport, output_dir=output_dir)
@@ -976,7 +976,7 @@ def schema_export(output_dir: str):
         litmus schema export
         litmus schema export -o litmus/schemas
     """
-    from litmus.schemas import export_schemas
+    from litmus.schema_export import export_schemas
 
     paths = export_schemas(Path(output_dir))
     for p in paths:
@@ -1641,8 +1641,8 @@ def station_init(station_id: str, name: str, location: str | None):
             )
 
             # Create instrument file
-            from litmus.instruments.models import InstrumentInfo
-            from litmus.schemas import InstrumentAssetFile
+            from litmus.models.instrument import InstrumentInfo
+            from litmus.models.instrument_asset import InstrumentAssetFile
             from litmus.store import save_instrument_asset
 
             asset = InstrumentAssetFile(

@@ -10,7 +10,7 @@ from litmus.instruments.lifecycle import (
     load_driver_class,
     verify_and_wrap,
 )
-from litmus.instruments.models import InstrumentInfo, InstrumentRecord
+from litmus.models.instrument import InstrumentInfo, InstrumentRecord
 
 
 class TestLoadDriverClass:

@@ -47,12 +47,12 @@ from litmus.instruments.discovery import (
     parse_idn,
 )
 from litmus.instruments.mocks import Mock
-from litmus.instruments.models import (
+from litmus.instruments.visa import VisaInstrument
+from litmus.models.instrument import (
     CalibrationInfo,
     InstrumentInfo,
     InstrumentRecord,
 )
-from litmus.instruments.visa import VisaInstrument
 
 __all__ = [
     # Base classes

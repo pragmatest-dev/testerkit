@@ -8,7 +8,7 @@ from pathlib import Path
 import yaml
 from pydantic import ValidationError
 
-from litmus.schemas import FileType
+from litmus.schema_export import FileType
 from litmus.store import FILE_LOADERS
 
 

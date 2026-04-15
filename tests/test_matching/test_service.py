@@ -1,14 +1,5 @@
 """Tests for the capability matching service."""
 
-from litmus.config.models import (
-    AccuracySpec,
-    Direction,
-    InstrumentCapability,
-    MeasurementFunction,
-    RangeSpec,
-    Signal,
-    SpecBand,
-)
 from litmus.matching.service import (
     CapabilityRequirement,
     StationCapability,
@@ -18,7 +9,16 @@ from litmus.matching.service import (
     get_station_capabilities,
     match_capabilities,
 )
-from litmus.products.models import Product, ProductCharacteristic
+from litmus.models.config import (
+    AccuracySpec,
+    Direction,
+    InstrumentCapability,
+    MeasurementFunction,
+    RangeSpec,
+    Signal,
+    SpecBand,
+)
+from litmus.models.product import Product, ProductCharacteristic
 
 # ---------------------------------------------------------------------------
 # Helpers to build test objects with new wrapper API
@@ -474,8 +474,8 @@ class TestGetStationCapabilities:
 
     def test_extracts_capabilities_from_catalog_ref(self, monkeypatch):
         """Capabilities are extracted from catalog_ref on station instruments."""
-        from litmus.catalog.models import InstrumentCatalogEntry
-        from litmus.config.models import InstrumentCapability
+        from litmus.models.catalog import InstrumentCatalogEntry
+        from litmus.models.config import InstrumentCapability
 
         mock_entry = InstrumentCatalogEntry(
             id="test_dmm",
@@ -507,7 +507,7 @@ class TestGetStationCapabilities:
             lambda ref: mock_entry if ref == "test_dmm" else None,
         )
 
-        from litmus.schemas import StationConfig, StationInstrumentConfig
+        from litmus.models.station import StationConfig, StationInstrumentConfig
 
         station_config = StationConfig(
             id="test_station",

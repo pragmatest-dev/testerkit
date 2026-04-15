@@ -19,7 +19,7 @@ from litmus.data.subscribers._base import get_subscriber_class, list_subscribers
 from litmus.data.transports import get_transport
 from litmus.data.transports._base import Transport
 from litmus.data.transports.file_transport import FileTransport
-from litmus.schemas import OutputConfig, ProjectConfig
+from litmus.models.project import OutputConfig, ProjectConfig
 from tests.test_data.conftest import _replay_events
 
 

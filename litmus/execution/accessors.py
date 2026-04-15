@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from litmus.instruments.models import InstrumentRecord
+from litmus.models.instrument import InstrumentRecord
 
 
 def _instrument_not_found(alias: str, target: str, instruments: dict[str, Any]) -> KeyError:

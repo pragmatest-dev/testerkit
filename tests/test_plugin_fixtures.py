@@ -5,7 +5,7 @@ import textwrap
 import pytest
 
 from litmus.execution.plugin import InstrumentAccessor
-from litmus.instruments.models import InstrumentRecord
+from litmus.models.instrument import InstrumentRecord
 
 pytest_plugins = ["pytester"]
 

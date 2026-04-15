@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from litmus.schemas import OutputConfig
+    from litmus.models.project import OutputConfig
 
 
 def build_blob_name(config: OutputConfig, local_path: Path) -> str:

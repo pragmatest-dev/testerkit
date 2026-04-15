@@ -1,7 +1,8 @@
 """Pydantic models for Litmus configuration.
 
-Re-exports from split modules for backwards compatibility.
-All imports from litmus.config.models continue to work.
+Aggregation shim: re-exports capability, enum, and test-config types from the
+split ``litmus.config.*`` submodules so callers can import them from a single
+namespace.
 """
 
 # Enums

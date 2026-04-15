@@ -4,7 +4,7 @@ from datetime import date
 from textwrap import dedent
 
 from litmus.instruments.loader import resolve_station_instruments
-from litmus.instruments.models import CalibrationInfo, InstrumentInfo
+from litmus.models.instrument import CalibrationInfo, InstrumentInfo
 from litmus.store import (
     load_instrument_asset as load_instrument_file,
 )
@@ -155,7 +155,7 @@ class TestResolveStationInstruments:
 
     def test_resolves_with_asset_files(self, tmp_path):
         """Resolve StationConfig instruments enriched by asset files."""
-        from litmus.schemas import StationConfig
+        from litmus.models.station import StationConfig
 
         # Create instrument asset file
         inst_content = dedent("""
@@ -199,7 +199,7 @@ class TestResolveStationInstruments:
 
     def test_resolves_without_asset_files(self):
         """Resolve StationConfig instruments with no asset files."""
-        from litmus.schemas import StationConfig
+        from litmus.models.station import StationConfig
 
         station_config = StationConfig(
             id="test_station",
@@ -223,7 +223,7 @@ class TestResolveStationInstruments:
 
     def test_asset_file_enriches_calibration(self, tmp_path):
         """Asset file provides calibration and identity info."""
-        from litmus.schemas import StationConfig
+        from litmus.models.station import StationConfig
 
         inst_content = dedent("""
             id: dmm_asset
@@ -260,7 +260,7 @@ class TestResolveStationInstruments:
 
     def test_multiple_instruments(self, tmp_path):
         """Multiple instruments in one station."""
-        from litmus.schemas import StationConfig
+        from litmus.models.station import StationConfig
 
         station_config = StationConfig(
             id="test_station",

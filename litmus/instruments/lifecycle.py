@@ -13,8 +13,8 @@ from typing import Any
 from uuid import UUID
 
 from litmus.data.event_log import EventLog
-from litmus.instruments.models import CalibrationInfo, InstrumentInfo, InstrumentRecord
 from litmus.instruments.observer import DriverObserver
+from litmus.models.instrument import CalibrationInfo, InstrumentInfo, InstrumentRecord
 
 
 def load_driver_class(driver_path: str | None) -> type | None:

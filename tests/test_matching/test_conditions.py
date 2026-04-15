@@ -1,6 +1,14 @@
 """Tests for condition-aware matching (SpecBand, accuracy, resolution, compare modes)."""
 
-from litmus.config.models import (
+from litmus.matching.service import (
+    CapabilityRequirement,
+    StationCapability,
+    _accuracy_sufficient,
+    _resolution_sufficient,
+    capability_satisfies,
+    get_spec_at,
+)
+from litmus.models.config import (
     AccuracySpec,
     Condition,
     Control,
@@ -15,15 +23,7 @@ from litmus.config.models import (
     Signal,
     SpecBand,
 )
-from litmus.matching.service import (
-    CapabilityRequirement,
-    StationCapability,
-    _accuracy_sufficient,
-    _resolution_sufficient,
-    capability_satisfies,
-    get_spec_at,
-)
-from litmus.products.models import ProductCharacteristic
+from litmus.models.product import ProductCharacteristic
 
 # ---------------------------------------------------------------------------
 # SpecBand lookup

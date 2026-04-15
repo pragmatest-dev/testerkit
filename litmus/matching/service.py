@@ -19,13 +19,13 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
-    from litmus.catalog.models import InstrumentCatalogEntry
-    from litmus.schemas import StationConfig
+    from litmus.models.catalog import InstrumentCatalogEntry
+    from litmus.models.station import StationConfig
 
 from pydantic import BaseModel, Field
 
 from litmus.config.capability import band_matches
-from litmus.config.models import (
+from litmus.models.config import (
     AccuracySpec,
     Attribute,
     Condition,
@@ -39,7 +39,7 @@ from litmus.config.models import (
     Signal,
     SpecBand,
 )
-from litmus.products.models import Product, ProductCharacteristic
+from litmus.models.product import Product, ProductCharacteristic
 from litmus.store import (
     get_product,
     get_station,

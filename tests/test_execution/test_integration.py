@@ -1,9 +1,9 @@
 """Integration tests for the full measurement flow."""
 
-from litmus.config.models import Limit
 from litmus.data.models import Outcome
 from litmus.execution.decorators import measure
 from litmus.instruments import Mock
+from litmus.models.config import Limit
 
 
 class FakeDMM:

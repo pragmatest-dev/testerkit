@@ -22,11 +22,12 @@ from litmus.execution.decorators import set_current_logger
 from litmus.execution.harness import Context
 from litmus.execution.logger import RunContext, TestRunLogger
 from litmus.fixtures.manager import FixtureManager, PinAccessor
-from litmus.instruments.models import InstrumentRecord
 from litmus.instruments.pool import InstrumentPool
 from litmus.instruments.route_manager import RouteManager
+from litmus.models.instrument import InstrumentRecord
+from litmus.models.project import OutputConfig, ProjectConfig
+from litmus.models.station import StationConfig
 from litmus.products.context import SpecContext
-from litmus.schemas import OutputConfig, ProjectConfig, StationConfig
 
 # ---------------------------------------------------------------------------
 # ContextVars — ALL mutable module state lives here.
@@ -1924,8 +1925,8 @@ def _run_subprocess_mode(
     served_roles: set[str] = set()
     if shared_roles:
         from litmus.instruments.lifecycle import load_and_connect
-        from litmus.instruments.models import InstrumentRecord
         from litmus.instruments.server import InstrumentServer
+        from litmus.models.instrument import InstrumentRecord
 
         concurrent_roles: set[str] = set()
         resources: dict[str, str] = {}

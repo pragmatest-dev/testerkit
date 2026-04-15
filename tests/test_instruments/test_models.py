@@ -2,7 +2,7 @@
 
 from datetime import date, timedelta
 
-from litmus.instruments.models import (
+from litmus.models.instrument import (
     CalibrationInfo,
     InstrumentInfo,
     InstrumentRecord,

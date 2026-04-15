@@ -2,7 +2,7 @@
 
 from pathlib import Path
 
-from litmus.schemas import ProjectConfig
+from litmus.models.project import ProjectConfig
 
 
 def load_project_config(path: Path | str | None = None) -> ProjectConfig:

@@ -66,7 +66,7 @@ def _build_instructions() -> str:
     - Behavioral rules are literal strings
     """
     # Get enum values from the schema so instructions stay current
-    from litmus.schemas import SCHEMA_MAP
+    from litmus.schema_export import SCHEMA_MAP
 
     product_schema = SCHEMA_MAP["product"].model_json_schema()
     defs = product_schema.get("$defs", {})

@@ -9,7 +9,7 @@ from pathlib import Path
 from types import ModuleType
 from unittest.mock import MagicMock
 
-from litmus.schemas import OutputConfig
+from litmus.models.project import OutputConfig
 
 # ---------------------------------------------------------------------------
 # Shared test helpers

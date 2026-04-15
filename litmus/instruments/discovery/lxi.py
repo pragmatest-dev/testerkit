@@ -16,7 +16,7 @@ import xml.etree.ElementTree as ET
 from urllib.request import urlopen
 
 from litmus.instruments.discovery._base import DiscoveryProtocol, check_import
-from litmus.instruments.models import InstrumentInfo
+from litmus.models.instrument import InstrumentInfo
 
 _LXI_SERVICE_TYPE = "_lxi._tcp.local."
 

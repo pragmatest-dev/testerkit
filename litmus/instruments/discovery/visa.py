@@ -9,7 +9,7 @@ from litmus.instruments.discovery._base import (
     check_import,
     parse_idn,
 )
-from litmus.instruments.models import InstrumentInfo
+from litmus.models.instrument import InstrumentInfo
 
 logger = logging.getLogger(__name__)
 

@@ -24,10 +24,10 @@ Run with:
 """
 
 
-from litmus.config.models import Limit
 from litmus.data.models import Outcome
 from litmus.execution.decorators import litmus_step, measure
 from litmus.execution.harness import TestHarness
+from litmus.models.config import Limit
 
 # =============================================================================
 # Pattern A: @measure Decorator
@@ -389,7 +389,7 @@ class TestCustomRetry:
 
     def test_with_custom_retry(self, psu, dmm, litmus_logger):
         """Configure retry at harness level."""
-        from litmus.config.models import RetryConfig
+        from litmus.models.config import RetryConfig
 
         harness = TestHarness(
             config={

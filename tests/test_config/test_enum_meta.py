@@ -7,7 +7,7 @@ from litmus.config.enum_meta import (
     lookup_enum,
     render_enum_reference,
 )
-from litmus.config.models import ConditionKey, MeasurementFunction
+from litmus.models.config import ConditionKey, MeasurementFunction
 
 
 class TestRegistryCompleteness:

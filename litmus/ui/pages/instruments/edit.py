@@ -42,7 +42,7 @@ def instrument_edit_page(instrument_type: str):
         "simulation": {},
     }
 
-    from litmus.config.models import Direction, MeasurementFunction
+    from litmus.models.config import Direction, MeasurementFunction
 
     # Function and direction options — derived from model enums
     direction_options = [d.value for d in Direction]

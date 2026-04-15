@@ -19,7 +19,7 @@ Run with:
 
 import pytest
 
-from litmus.config.models import Limit
+from litmus.models.config import Limit
 
 
 class TestPurePytest:

@@ -13,7 +13,7 @@ from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from litmus.data.models import TestRun
-    from litmus.schemas import OutputConfig
+    from litmus.models.project import OutputConfig
 
 
 def run_outputs(

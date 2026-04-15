@@ -184,8 +184,8 @@ class TestIntegrationWithModels:
 
     def test_characteristic_resolved_pins_with_range(self):
         """Characteristic.resolved_pins expands range syntax."""
-        from litmus.config.models import Direction, MeasurementFunction
-        from litmus.products.models import ProductCharacteristic
+        from litmus.models.config import Direction, MeasurementFunction
+        from litmus.models.product import ProductCharacteristic
 
         char = ProductCharacteristic(
             function=MeasurementFunction.DC_VOLTAGE,
@@ -197,8 +197,8 @@ class TestIntegrationWithModels:
 
     def test_characteristic_resolved_pins_with_list(self):
         """Characteristic.resolved_pins works with explicit list."""
-        from litmus.config.models import Direction, MeasurementFunction
-        from litmus.products.models import ProductCharacteristic
+        from litmus.models.config import Direction, MeasurementFunction
+        from litmus.models.product import ProductCharacteristic
 
         char = ProductCharacteristic(
             function=MeasurementFunction.DC_VOLTAGE,
@@ -210,8 +210,8 @@ class TestIntegrationWithModels:
 
     def test_characteristic_resolved_pins_with_single(self):
         """Characteristic.resolved_pins works with single pin."""
-        from litmus.config.models import Direction, MeasurementFunction
-        from litmus.products.models import ProductCharacteristic
+        from litmus.models.config import Direction, MeasurementFunction
+        from litmus.models.product import ProductCharacteristic
 
         char = ProductCharacteristic(
             function=MeasurementFunction.DC_VOLTAGE,

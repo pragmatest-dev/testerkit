@@ -297,7 +297,7 @@ def _show_add_pin_dialog(on_add: Callable):
 
 def _show_add_char_dialog(on_add: Callable):
     """Show dialog to add a new characteristic."""
-    from litmus.config.models import Direction, MeasurementFunction
+    from litmus.models.config import Direction, MeasurementFunction
 
     function_options = [f.value for f in MeasurementFunction]
     char_form = {"name": "", "function": "dc_voltage", "direction": "output", "units": "V"}

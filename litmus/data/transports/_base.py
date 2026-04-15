@@ -18,7 +18,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
-    from litmus.schemas import OutputConfig
+    from litmus.models.project import OutputConfig
 
 
 class Transport:

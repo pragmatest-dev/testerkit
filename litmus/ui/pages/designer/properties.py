@@ -12,7 +12,7 @@ from typing import TYPE_CHECKING
 from nicegui import ui
 
 if TYPE_CHECKING:
-    from litmus.schemas import StationConfig
+    from litmus.models.station import StationConfig
     from litmus.ui.pages.designer.state import DesignerState
 
 

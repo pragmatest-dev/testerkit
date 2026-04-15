@@ -9,7 +9,7 @@ Subclass ``DiscoveryProtocol``, set ``name``, and declare an entry point::
 
     # my_package/discovery.py
     from litmus.instruments.discovery import DiscoveryProtocol
-    from litmus.instruments.models import InstrumentInfo
+    from litmus.models.instrument import InstrumentInfo
 
     class SrsDiscovery(DiscoveryProtocol):
         name = "srs"
@@ -27,7 +27,7 @@ import abc
 import logging
 from typing import Any
 
-from litmus.instruments.models import InstrumentInfo
+from litmus.models.instrument import InstrumentInfo
 
 logger = logging.getLogger(__name__)
 

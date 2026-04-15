@@ -313,8 +313,8 @@ class TestPoolIntegration:
         """Pool.acquire() returns RemoteInstrumentProxy for shared roles."""
         from uuid import uuid4
 
-        from litmus.instruments.models import InstrumentRecord
         from litmus.instruments.pool import InstrumentPool
+        from litmus.models.instrument import InstrumentRecord
 
         driver = FakeDriver()
         server = InstrumentServer({"dmm": driver})
@@ -353,8 +353,8 @@ class TestPoolIntegration:
         """Pool.acquire() falls back to local connection without env vars."""
         from uuid import uuid4
 
-        from litmus.instruments.models import InstrumentRecord
         from litmus.instruments.pool import InstrumentPool
+        from litmus.models.instrument import InstrumentRecord
 
         # Ensure env vars are NOT set
         os.environ.pop("LITMUS_INSTRUMENT_SERVER", None)
