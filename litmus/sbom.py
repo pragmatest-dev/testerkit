@@ -1,11 +1,20 @@
+# pyright: reportAttributeAccessIssue=false, reportCallIssue=false
 """CycloneDX SBOM generation and environment extraction from Parquet files.
 
 Uses cyclonedx-python-lib for proper SBOM generation with schema validation.
-Install with: uv pip install 'litmus[sbom]'
+Install with: uv pip install 'litmus-test[sbom]'
 
 SBOM needs the full installed-package list, which is intentionally excluded
 from ``EnvironmentSnapshot`` (the snapshot stores only top-level deps and
 a lockfile hash).  This module captures the full list on demand.
+
+Pyright note: ``cyclonedx-python-lib`` decorates all its models with
+``@serializable.serializable_class`` which produces a union return type
+(``Bom | _JsonSerializable | _XmlSerializable``). Pyright then rejects
+every attribute access and kwarg on the resulting classes, even though
+the runtime types are correct. We disable the two affected rules at
+file scope — this is an upstream stub-shape issue, not a Litmus bug.
+Upstream tracking: https://github.com/CycloneDX/cyclonedx-python-lib
 """
 
 from __future__ import annotations

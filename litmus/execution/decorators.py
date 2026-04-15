@@ -6,9 +6,9 @@ import inspect
 from collections.abc import Callable, Mapping
 from contextvars import ContextVar
 from functools import wraps
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, overload
 
-from litmus.data.models import Measurement, Outcome
+from litmus.data.models import Measurement, Outcome, TestStep
 
 if TYPE_CHECKING:
     from litmus.execution.harness import TestHarness
@@ -242,6 +242,26 @@ def _resolve_instruments(kwargs: dict[str, Any]) -> dict[str, Any]:
     return instruments_fixture
 
 
+@overload
+def litmus_test(func: Callable[..., Any]) -> Callable[..., TestStep]:
+    """``@litmus_test`` bare form — returns the decorated function directly."""
+    ...
+
+
+@overload
+def litmus_test(
+    func: None = None,
+    *,
+    config: Mapping[str, Any] | None = None,
+    config_file: str | None = None,
+    retry: RetryConfig | None = None,
+    limits: dict[str, MeasurementLimitConfig | Limit] | None = None,
+    raise_on_fail: bool = True,
+) -> Callable[[Callable[..., Any]], Callable[..., TestStep]]:
+    """``@litmus_test(...)`` with options — returns a decorator."""
+    ...
+
+
 def litmus_test(
     func: Callable[..., Any] | None = None,
     *,
@@ -250,7 +270,7 @@ def litmus_test(
     retry: RetryConfig | None = None,
     limits: dict[str, MeasurementLimitConfig | Limit] | None = None,
     raise_on_fail: bool = True,
-) -> Callable[..., None] | Callable[[Callable[..., Any]], Callable[..., None]]:
+) -> Callable[..., TestStep] | Callable[[Callable[..., Any]], Callable[..., TestStep]]:
     """Decorator for vector-based test functions.
 
     Automatically loops over expanded vectors, handles retries, and logs

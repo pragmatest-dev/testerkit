@@ -238,6 +238,7 @@ class TestLitmusTestDecoratorWithInstruments:
         assert step.outcome == Outcome.FAIL
         tv = step.vectors[0]
         assert tv.outcome == Outcome.FAIL
+        assert tv.error_message is not None
         assert "voltage too low" in tv.error_message
         # Should have an "assert" measurement logged
         assert any(m.name == "assert" for m in tv.measurements)

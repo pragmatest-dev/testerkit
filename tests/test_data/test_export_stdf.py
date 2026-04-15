@@ -7,12 +7,13 @@ from pathlib import Path
 from typing import Any
 
 from Semi_ATE.STDF import FAR, MIR, MRR, PIR, PRR, PTR
+from Semi_ATE.STDF.STDR import STDR
 
 from litmus.data.exporters.stdf import StdfSubscriber
 from litmus.data.models import TestRun
 
 
-def _read_records(path: Path) -> list[object]:
+def _read_records(path: Path) -> list[STDR]:
     """Parse STDF binary into record objects using Semi-ATE-STDF."""
     import struct
 
@@ -133,8 +134,12 @@ class TestStdfSubscriber:
         records = _read_records(result)
         ptrs = [r for r in records if r.id == "PTR"]
         first = ptrs[0]
-        assert abs(first.get_value("RESULT") - 3.30) < 0.01
-        assert "vout" in first.get_value("TEST_TXT")
+        result_value = first.get_value("RESULT")
+        test_txt = first.get_value("TEST_TXT")
+        assert isinstance(result_value, float)
+        assert isinstance(test_txt, str)
+        assert abs(result_value - 3.30) < 0.01
+        assert "vout" in test_txt
         assert first.get_value("UNITS") == "V"
 
     def test_null_value_flagged(
@@ -147,8 +152,15 @@ class TestStdfSubscriber:
         )
         records = _read_records(result)
         ptrs = [r for r in records if r.id == "PTR"]
-        broken = next(p for p in ptrs if "broken_sensor" in p.get_value("TEST_TXT"))
+
+        def _txt(p: STDR) -> str:
+            t = p.get_value("TEST_TXT")
+            assert isinstance(t, str)
+            return t
+
+        broken = next(p for p in ptrs if "broken_sensor" in _txt(p))
         test_flg = broken.get_value("TEST_FLG")
+        assert isinstance(test_flg, list)
         assert test_flg[1] == "1"
 
     def test_prr_part_id(

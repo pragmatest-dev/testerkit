@@ -68,7 +68,7 @@ pymeasure = ["pymeasure>=0.14"]
 ni = ["nidaqmx>=0.9"]
 lxi = ["zeroconf>=0.80"]
 pdf = ["weasyprint>=62.0"]
-sbom = ["cyclonedx-python-lib>=11.0"]
+sbom = ["cyclonedx-python-lib>=11.7"]
 # Format exporters
 stdf = ["Semi-ATE-STDF>=0.1"]
 hdf5 = ["h5py>=3.0"]

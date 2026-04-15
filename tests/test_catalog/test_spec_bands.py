@@ -2,8 +2,15 @@
 
 from pathlib import Path
 
+from litmus.config.capability import RangeSpec
 from litmus.models.config import Signal
 from litmus.store import load_catalog_entry
+
+
+def _range(cond: object) -> RangeSpec:
+    """Narrow a union-typed ``when``-clause entry to RangeSpec for assertions."""
+    assert isinstance(cond, RangeSpec), f"expected RangeSpec, got {type(cond).__name__}"
+    return cond
 
 
 def test_parse_parameter_with_specs():
@@ -25,9 +32,14 @@ def test_parse_parameter_with_specs():
     param = Signal(**data)
     assert param.specs is not None
     assert len(param.specs) == 2
-    assert param.specs[0].when["frequency"].min == 3
-    assert param.specs[0].accuracy.pct_reading == 0.35
-    assert param.specs[1].when["frequency"].max == 300
+
+    spec0 = param.specs[0]
+    assert spec0.accuracy is not None
+    assert _range(spec0.when["frequency"]).min == 3
+    assert spec0.accuracy.pct_reading == 0.35
+
+    spec1 = param.specs[1]
+    assert _range(spec1.when["frequency"]).max == 300
 
 
 def test_parse_parameter_without_specs():
@@ -64,8 +76,10 @@ def test_parse_34461a_ac_voltage_bands():
 
     # First band: 3-5 Hz, worst accuracy
     band0 = voltage_param.specs[0]
-    assert band0.when["frequency"].min == 3
-    assert band0.when["frequency"].max == 5
+    assert band0.accuracy is not None
+    band0_freq = _range(band0.when["frequency"])
+    assert band0_freq.min == 3
+    assert band0_freq.max == 5
     assert band0.accuracy.pct_reading == 0.35
 
     # Frequency should be in conditions dict

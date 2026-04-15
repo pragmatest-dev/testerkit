@@ -25,6 +25,15 @@ from litmus.models.config import (
 )
 from litmus.models.product import ProductCharacteristic
 
+
+def _spec_with_units(cond: object) -> RangeSpec | PointSpec | ListSpec:
+    """Narrow a union-typed ``when``-clause entry to a spec type that has ``units``."""
+    assert isinstance(cond, RangeSpec | PointSpec | ListSpec), (
+        f"expected RangeSpec/PointSpec/ListSpec, got {type(cond).__name__}"
+    )
+    return cond
+
+
 # ---------------------------------------------------------------------------
 # SpecBand lookup
 # ---------------------------------------------------------------------------
@@ -47,6 +56,7 @@ def test_spec_band_lookup_finds_matching_band():
     )
     band = get_spec_at(param, {"frequency": 100})
     assert band is not None
+    assert band.accuracy is not None
     assert band.accuracy.pct_reading == 0.07
 
 
@@ -212,8 +222,10 @@ def test_spec_band_string_match():
             ),
         ],
     )
-    assert get_spec_at(param, {"rate": "SLOW"}) is not None
-    assert get_spec_at(param, {"rate": "SLOW"}).accuracy.pct_reading == 0.35
+    band = get_spec_at(param, {"rate": "SLOW"})
+    assert band is not None
+    assert band.accuracy is not None
+    assert band.accuracy.pct_reading == 0.35
 
 
 def test_spec_band_string_no_match():
@@ -340,8 +352,10 @@ def test_pointspec_match():
             ),
         ],
     )
-    assert get_spec_at(param, {"frequency": 1e8}) is not None
-    assert get_spec_at(param, {"frequency": 1e8}).accuracy.pct_reading == 0.01
+    band = get_spec_at(param, {"frequency": 1e8})
+    assert band is not None
+    assert band.accuracy is not None
+    assert band.accuracy.pct_reading == 0.01
     assert get_spec_at(param, {"frequency": 2e8}) is None
 
 
@@ -429,8 +443,10 @@ def test_units_inheritance_rangespec():
             "frequency": Condition(range=RangeSpec(min=20, max=100000, units="Hz")),
         },
     )
-    band = cap.signals["voltage"].specs[0]
-    assert band.when["frequency"].units == "Hz"
+    specs = cap.signals["voltage"].specs
+    assert specs is not None
+    band = specs[0]
+    assert _spec_with_units(band.when["frequency"]).units == "Hz"
 
 
 def test_units_inheritance_pointspec():
@@ -453,8 +469,10 @@ def test_units_inheritance_pointspec():
             "frequency": Condition(range=RangeSpec(min=20, max=100000, units="Hz")),
         },
     )
-    band = cap.signals["voltage"].specs[0]
-    assert band.when["frequency"].units == "Hz"
+    specs = cap.signals["voltage"].specs
+    assert specs is not None
+    band = specs[0]
+    assert _spec_with_units(band.when["frequency"]).units == "Hz"
 
 
 def test_units_inheritance_listspec():
@@ -477,8 +495,10 @@ def test_units_inheritance_listspec():
             "impedance": Control(range=RangeSpec(min=50, max=600, units="ohm")),
         },
     )
-    band = cap.signals["voltage"].specs[0]
-    assert band.when["impedance"].units == "ohm"
+    specs = cap.signals["voltage"].specs
+    assert specs is not None
+    band = specs[0]
+    assert _spec_with_units(band.when["impedance"]).units == "ohm"
 
 
 def test_units_inheritance_skips_when_already_set():
@@ -501,5 +521,7 @@ def test_units_inheritance_skips_when_already_set():
             "frequency": Condition(range=RangeSpec(min=20, max=100000, units="Hz")),
         },
     )
-    band = cap.signals["voltage"].specs[0]
-    assert band.when["frequency"].units == "kHz"
+    specs = cap.signals["voltage"].specs
+    assert specs is not None
+    band = specs[0]
+    assert _spec_with_units(band.when["frequency"]).units == "kHz"
