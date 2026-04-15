@@ -16,8 +16,8 @@ class FakeDMM:
 
     def connect(self): pass
     def disconnect(self): pass
-    def measure_voltage(self) -> float: pass
-    def query(self, cmd: str) -> str: pass
+    def measure_voltage(self) -> float: return 0.0
+    def query(self, cmd: str) -> str: return ""
 
 
 class FakePSU:
@@ -27,7 +27,7 @@ class FakePSU:
 
     def connect(self): pass
     def disconnect(self): pass
-    def measure_current(self) -> float: pass
+    def measure_current(self) -> float: return 0.0
 
 
 class TestHarnessInit:
@@ -193,13 +193,16 @@ class TestHarnessRunVector:
         harness = TestHarness()
         vector = Vector(_index=0)
 
+        captured_tv = None
         with harness.step():
             with pytest.raises(ValueError):
                 with harness.run_vector(vector) as tv:
+                    captured_tv = tv
                     raise ValueError("Test error")
 
-        assert tv.outcome == Outcome.ERROR
-        assert tv.error_message == "Test error"
+        assert captured_tv is not None
+        assert captured_tv.outcome == Outcome.ERROR
+        assert captured_tv.error_message == "Test error"
 
     def test_run_vector_added_to_step(self):
         harness = TestHarness()
@@ -517,6 +520,7 @@ class TestHarnessPrompt:
             with harness.run_vector(Vector(temp=25, _index=0)):
                 harness.prompt("Set temperature to {temp}C")
 
+        assert captured_config is not None
         assert captured_config.message == "Set temperature to 25C"
 
     def test_prompt_type_choice(self):

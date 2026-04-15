@@ -29,9 +29,43 @@ Example usage:
     smu = Mock(Keithley2400, voltage=5.0, current=1.5e-6)
 """
 
-from typing import Any, TypeVar, cast
+from typing import Any, Protocol, TypeVar, cast, runtime_checkable
 
 T = TypeVar("T")
+
+
+@runtime_checkable
+class MockCtrl(Protocol):
+    """Mock-specific control surface added by :func:`Mock` on top of the
+    real class's interface. Use ``as_mock(instance)`` to access these from
+    tests; the factory return type stays as ``T`` so normal driver methods
+    keep their real signatures.
+    """
+
+    _connected: bool
+
+    def connect(self) -> None: ...
+    def disconnect(self) -> None: ...
+    def set_mock_value(self, name: str, value: Any) -> None: ...
+    @property
+    def mock_values(self) -> dict[str, Any]: ...
+    def __enter__(self) -> "MockCtrl": ...
+    def __exit__(self, *args: Any) -> None: ...
+
+
+def as_mock(instance: object) -> MockCtrl:
+    """Narrow a :func:`Mock` instance to its mock-control surface.
+
+    Tests use this to reach ``set_mock_value`` / ``__enter__`` / ``_connected``
+    etc. without fighting the driver's declared type. Raises ``TypeError`` if
+    the object isn't a mock (missing ``set_mock_value``).
+    """
+    if not isinstance(instance, MockCtrl):
+        raise TypeError(
+            f"{type(instance).__name__} is not a Mock instance "
+            "(missing set_mock_value); was it created via Mock(cls, ...)?"
+        )
+    return instance
 
 
 def _make_mock_method(value: Any):

@@ -7,13 +7,16 @@ from litmus.sbom import environment_from_parquet, format_environment_table, gene
 
 
 def _make_snapshot(**overrides) -> EnvironmentSnapshot:
-    defaults = dict(
-        python_version="3.12.0", os_name="Linux", os_version="6.0",
-        platform_machine="x86_64", litmus_version="0.1.0",
-        dependencies=["alpha>=1.0", "beta>=2.0"],
-    )
-    defaults.update(overrides)
-    return EnvironmentSnapshot(**defaults)
+    fields: dict[str, object] = {
+        "python_version": "3.12.0",
+        "os_name": "Linux",
+        "os_version": "6.0",
+        "platform_machine": "x86_64",
+        "litmus_version": "0.1.0",
+        "dependencies": ["alpha>=1.0", "beta>=2.0"],
+    }
+    fields.update(overrides)
+    return EnvironmentSnapshot(**fields)  # type: ignore[arg-type]
 
 
 class TestFormatEnvironmentTable:

@@ -1,6 +1,6 @@
 """Tests for mock instrument factory."""
 
-from litmus.instruments.mocks import Mock
+from litmus.instruments.mocks import Mock, as_mock
 
 
 class FakeDMM:
@@ -97,14 +97,15 @@ class TestMockDMM:
         dmm = Mock(FakeDMM, measure_voltage=3.3)
         assert dmm.measure_voltage() == 3.3
 
-        dmm.set_mock_value("measure_voltage", 5.0)
+        as_mock(dmm).set_mock_value("measure_voltage", 5.0)
         assert dmm.measure_voltage() == 5.0
 
     def test_context_manager(self):
-        with Mock(FakeDMM, measure_voltage=5.0) as dmm:
-            assert dmm._connected
+        dmm = Mock(FakeDMM, measure_voltage=5.0)
+        with as_mock(dmm) as ctrl:
+            assert ctrl._connected
             assert dmm.measure_voltage() == 5.0
-        assert not dmm._connected
+        assert not as_mock(dmm)._connected
 
     def test_inherits_from_class(self):
         """Mock should inherit from the original class."""
@@ -141,7 +142,8 @@ class TestMockPSU:
         assert psu.measure_voltage() == 5.0
 
     def test_context_manager(self):
-        with Mock(FakePSU, measure_voltage=12.0) as psu:
+        psu = Mock(FakePSU, measure_voltage=12.0)
+        with as_mock(psu):
             assert psu.measure_voltage() == 12.0
 
     def test_set_mock_value(self):
@@ -149,7 +151,7 @@ class TestMockPSU:
         psu = Mock(FakePSU, measure_voltage=5.0)
         assert psu.measure_voltage() == 5.0
 
-        psu.set_mock_value("measure_voltage", 12.0)
+        as_mock(psu).set_mock_value("measure_voltage", 12.0)
         assert psu.measure_voltage() == 12.0
 
     def test_inherits_from_class(self):
@@ -182,7 +184,7 @@ class TestMockELoad:
         eload = Mock(FakeELoad, measure_voltage=5.0)
         assert eload.measure_voltage() == 5.0
 
-        eload.set_mock_value("measure_voltage", 3.3)
+        as_mock(eload).set_mock_value("measure_voltage", 3.3)
         assert eload.measure_voltage() == 3.3
 
     def test_inherits_from_class(self):
@@ -198,6 +200,9 @@ class TestMockPropertyBased:
         """Mock works with property-based classes."""
 
         class FakeInstrument:
+            _voltage: float = 0.0
+            _current: float = 0.0
+
             def __init__(self, resource):
                 pass
 
@@ -235,7 +240,7 @@ class TestMockPropertyBased:
 
         inst.voltage = 3.3
         assert inst.voltage == 3.3
-        assert inst.mock_values["voltage"] == 3.3
+        assert as_mock(inst).mock_values["voltage"] == 3.3
 
 
 class TestMockDictValues:
@@ -269,7 +274,7 @@ class TestMockDictValues:
         inst = Mock(FakeVisa, query={"MEAS:VOLT?": "3.3"})
         assert inst.query("MEAS:VOLT?") == "3.3"
 
-        inst.set_mock_value("query", {"MEAS:VOLT?": "5.0", "MEAS:CURR?": "0.5"})
+        as_mock(inst).set_mock_value("query", {"MEAS:VOLT?": "5.0", "MEAS:CURR?": "0.5"})
         assert inst.query("MEAS:VOLT?") == "5.0"
         assert inst.query("MEAS:CURR?") == "0.5"
 

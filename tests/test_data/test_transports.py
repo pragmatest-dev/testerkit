@@ -47,7 +47,9 @@ def test_s3_transport_send(tmp_path: Path) -> None:
 
         local_file = tmp_path / "results.parquet"
         local_file.write_text("data")
-        config = OutputConfig(transport="s3", bucket="my-bucket", prefix="runs/")
+        config = OutputConfig(
+            transport="s3", extras={"bucket": "my-bucket", "prefix": "runs/"}
+        )
 
         mock_client = MagicMock()
         mock_boto3.client.return_value = mock_client
@@ -68,7 +70,8 @@ def test_s3_transport_with_endpoint_url(tmp_path: Path) -> None:
         local_file = tmp_path / "data.parquet"
         local_file.write_text("data")
         config = OutputConfig(
-            transport="s3", bucket="b", endpoint_url="https://minio.local:9000"
+            transport="s3",
+            extras={"bucket": "b", "endpoint_url": "https://minio.local:9000"},
         )
         mock_boto3.client.return_value = MagicMock()
         S3Transport().send(local_file, config)
@@ -104,9 +107,11 @@ def test_azure_transport_send(tmp_path: Path) -> None:
         local_file.write_bytes(b"data")
         config = OutputConfig(
             transport="azure",
-            container="test-container",
-            prefix="litmus/",
-            connection_string="DefaultEndpointsProtocol=https;AccountName=test",
+            extras={
+                "container": "test-container",
+                "prefix": "litmus/",
+                "connection_string": "DefaultEndpointsProtocol=https;AccountName=test",
+            },
         )
 
         mock_client = MagicMock()
@@ -137,7 +142,9 @@ def test_gcs_transport_send(tmp_path: Path) -> None:
 
         local_file = tmp_path / "results.parquet"
         local_file.write_text("data")
-        config = OutputConfig(transport="gcs", bucket="my-gcs-bucket", prefix="runs/")
+        config = OutputConfig(
+            transport="gcs", extras={"bucket": "my-gcs-bucket", "prefix": "runs/"}
+        )
 
         mock_client = MagicMock()
         mock_storage_mod.Client.return_value = mock_client
@@ -197,7 +204,7 @@ def test_upload_queue_drain_failure(tmp_path: Path) -> None:
     results_dir = str(tmp_path)
     local_file = tmp_path / "test.parquet"
     local_file.write_text("data")
-    config = OutputConfig(transport="s3", bucket="nonexistent")
+    config = OutputConfig(transport="s3", extras={"bucket": "nonexistent"})
 
     enqueue(local_file, "s3", config, results_dir)
 

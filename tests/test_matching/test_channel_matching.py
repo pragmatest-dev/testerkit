@@ -24,7 +24,6 @@ def _make_station_cap(
     instrument_name="dmm_main",
     channel=None,
     readback=False,
-    modes=None,
 ) -> StationCapability:
     return StationCapability(
         capability=InstrumentCapability(
@@ -32,7 +31,6 @@ def _make_station_cap(
             direction=direction,
             signals=signals or {},
             channels=[channel] if channel else [],
-            modes=modes or [],
             readback=readback,
         ),
         instrument_type=instrument_type,
@@ -213,7 +211,8 @@ class TestPerChannelExpansion:
         assert all(m.satisfied for m in result.matches)
 
         # Should be allocated to different channels
-        channels = [m.matched_by.channel for m in result.matches]
+        assert all(m.matched_by is not None for m in result.matches)
+        channels = [m.matched_by.channel for m in result.matches if m.matched_by]
         assert len(set(channels)) == 2  # Two different channels
         assert "1" not in channels  # CH1 (6V) should not be used
 
@@ -273,7 +272,8 @@ class TestPerChannelExpansion:
         assert all(m.satisfied for m in result.matches)
 
         # Both allocated to different channels
-        channels = [m.matched_by.channel for m in result.matches]
+        assert all(m.matched_by is not None for m in result.matches)
+        channels = [m.matched_by.channel for m in result.matches if m.matched_by]
         assert len(set(channels)) == 2
 
 
@@ -302,7 +302,9 @@ class TestStationCapabilityChannel:
         result = match_capabilities(required, available)
 
         assert result.compatible is True
-        assert result.matches[0].matched_by.channel == "1"
+        matched_by = result.matches[0].matched_by
+        assert matched_by is not None
+        assert matched_by.channel == "1"
 
     def test_none_channel_default(self):
         """Channel defaults to None when not specified."""
@@ -364,7 +366,9 @@ class TestCatalogChannelParsing:
             and "2" not in c.resolved_channels
         ]
         assert len(ch1_caps) == 1
-        assert ch1_caps[0].signals["voltage"].range.max == 6
+        ch1_range = ch1_caps[0].signals["voltage"].range
+        assert ch1_range is not None
+        assert ch1_range.max == 6
 
         # Find the CH2 dc_voltage output capability
         ch2_caps = [
@@ -374,7 +378,9 @@ class TestCatalogChannelParsing:
             and "2" in c.resolved_channels
         ]
         assert len(ch2_caps) == 1
-        assert ch2_caps[0].signals["voltage"].range.max == 25
+        ch2_range = ch2_caps[0].signals["voltage"].range
+        assert ch2_range is not None
+        assert ch2_range.max == 25
 
 
 class TestReadbackFiltering:

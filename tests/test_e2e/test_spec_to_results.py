@@ -14,6 +14,7 @@ from pathlib import Path
 
 import pytest
 
+from litmus.config.capability import RangeSpec
 from litmus.data.models import Outcome
 from litmus.execution.harness import TestHarness
 from litmus.products.context import SpecContext
@@ -445,6 +446,14 @@ def _find_testable_characteristic(spec: SpecContext) -> tuple[str | None, dict]:
         if char.specs:
             # Use first SpecBand's when clause, converting RangeSpec to scalar values
             band = char.specs[0]
-            conditions = {k: v.min for k, v in band.when.items()} if band.when else {}
+            conditions = (
+                {
+                    k: v.min
+                    for k, v in band.when.items()
+                    if isinstance(v, RangeSpec) and v.min is not None
+                }
+                if band.when
+                else {}
+            )
             return char_id, conditions
     return None, {}

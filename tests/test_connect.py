@@ -80,6 +80,7 @@ class TestStationConnection:
         with StationConnection(station, results_dir=tmp_path / "results", mock=True) as conn:
             conn.instrument("dmm")
             conn.release("dmm")
+            assert conn.event_log is not None
             log_path = conn.event_log.path
 
         events = _read_events_from_ipc(log_path)
@@ -115,9 +116,11 @@ class TestStationConnection:
             with StationConnection(
                 station, results_dir=tmp_path / "results", mock=True,
             ) as conn:
+                assert conn.event_log is not None
                 log_path = conn.event_log.path
                 raise ValueError("test error")
 
+        assert log_path is not None
         events = _read_events_from_ipc(log_path)
         ended = [e for e in events if e["event_type"] == "session.ended"]
         assert ended[0]["outcome"] == "error"
@@ -131,6 +134,7 @@ class TestSessionStartedFields:
         with StationConnection(
             station, results_dir=tmp_path / "results", mock=True,
         ) as conn:
+            assert conn.event_log is not None
             log_path = conn.event_log.path
 
         events = _read_events_from_ipc(log_path)
@@ -142,6 +146,7 @@ class TestSessionStartedFields:
         with StationConnection(
             station, results_dir=tmp_path / "results", mock=True,
         ) as conn:
+            assert conn.event_log is not None
             log_path = conn.event_log.path
 
         events = _read_events_from_ipc(log_path)
@@ -153,6 +158,7 @@ class TestSessionStartedFields:
         with StationConnection(
             station, results_dir=tmp_path / "results", mock=True,
         ) as conn:
+            assert conn.event_log is not None
             log_path = conn.event_log.path
 
         events = _read_events_from_ipc(log_path)
@@ -164,6 +170,7 @@ class TestSessionStartedFields:
         with StationConnection(
             station, results_dir=tmp_path / "results", mock=True,
         ) as conn:
+            assert conn.event_log is not None
             log_path = conn.event_log.path
 
         events = _read_events_from_ipc(log_path)
@@ -177,6 +184,7 @@ class TestSessionStartedFields:
             station, results_dir=tmp_path / "results", mock=True,
         ) as conn:
             conn.instrument("dmm")
+            assert conn.event_log is not None
             log_path = conn.event_log.path
 
         events = _read_events_from_ipc(log_path)

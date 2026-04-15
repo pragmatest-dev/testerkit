@@ -13,6 +13,18 @@ from litmus.data.exporters.hdf5 import Hdf5Subscriber
 from litmus.data.models import TestRun
 
 
+def _dataset(obj: object) -> h5py.Dataset:
+    """Narrow h5py's Group|Dataset|Datatype union to a Dataset at read sites."""
+    assert isinstance(obj, h5py.Dataset), f"expected Dataset, got {type(obj).__name__}"
+    return obj
+
+
+def _group(obj: object) -> h5py.Group:
+    """Narrow h5py's Group|Dataset|Datatype union to a Group at read sites."""
+    assert isinstance(obj, h5py.Group), f"expected Group, got {type(obj).__name__}"
+    return obj
+
+
 class TestHdf5Subscriber:
     """Test the event-driven subscriber path."""
 
@@ -82,7 +94,7 @@ class TestHdf5Subscriber:
             realistic_test_run, tmp_path, replay_events,
         )
         with h5py.File(result, "r") as f:
-            vout = f["steps/power/output/voltage/vectors/0/measurements/vout"]
+            vout = _dataset(f["steps/power/output/voltage/vectors/0/measurements/vout"])
             assert abs(float(vout[()]) - 3.30) < 0.01
             assert vout.attrs["units"] == "V"
             assert vout.attrs["comparator"] == "GELE"
@@ -114,7 +126,7 @@ class TestHdf5Subscriber:
             realistic_test_run, tmp_path, replay_events,
         )
         with h5py.File(result, "r") as f:
-            broken = f["steps/power/protection/vectors/0/measurements/broken_sensor"]
+            broken = _dataset(f["steps/power/protection/vectors/0/measurements/broken_sensor"])
             assert math.isnan(float(broken[()]))
             assert broken.attrs["value_missing"] == True  # noqa: E712
 
@@ -127,7 +139,7 @@ class TestHdf5Subscriber:
             realistic_test_run, tmp_path, replay_events,
         )
         with h5py.File(result, "r") as f:
-            vectors = f["steps/power/output/voltage/vectors"]
+            vectors = _group(f["steps/power/output/voltage/vectors"])
             assert "0" in vectors
             assert "1" in vectors
 
