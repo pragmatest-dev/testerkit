@@ -36,8 +36,10 @@ class TestLoadCatalogEntry:
         assert len(dc_v_caps) >= 1
         cap = dc_v_caps[0]
         assert "voltage" in cap.signals
-        assert cap.signals["voltage"].range is not None
-        assert cap.signals["voltage"].range.max >= 1000
+        voltage_range = cap.signals["voltage"].range
+        assert voltage_range is not None
+        assert voltage_range.max is not None
+        assert voltage_range.max >= 1000
 
     def test_load_keysight_e36312a(self):
         """Load the Keysight E36312A PSU catalog entry."""

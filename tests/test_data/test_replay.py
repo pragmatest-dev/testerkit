@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from litmus.data.event_log import EventSubscriber
 from litmus.data.models import TestRun
 from litmus.data.subscribers.replay import replay_to_subscriber
 from tests.test_data.conftest import _replay_events
@@ -41,7 +42,7 @@ class TestReplayToSubscriber:
         # Now replay those dicts through another subscriber
         received: list[Any] = []
 
-        class Receiver:
+        class Receiver(EventSubscriber):
             format_name = "receiver"
             event_types = {RunStarted, MeasurementRecorded, RunEnded}
             def open(self): pass
@@ -90,7 +91,7 @@ class TestReplayToSubscriber:
         # Replay but receiver only wants RunStarted
         received: list[Any] = []
 
-        class RunOnlyReceiver:
+        class RunOnlyReceiver(EventSubscriber):
             format_name = "run_only"
             event_types = {RunStarted}
             def open(self): pass
@@ -108,7 +109,7 @@ class TestReplayToSubscriber:
 
         received: list[Any] = []
 
-        class Receiver:
+        class Receiver(EventSubscriber):
             format_name = "receiver"
             event_types = {RunStarted}
             def open(self): pass

@@ -23,20 +23,17 @@ jobs:
       - name: Ruff lint
         run: uv run ruff check .
 
-  # Pyright is intentionally disabled for 0.1.0 while pre-existing type errors
-  # are cleaned up as part of the post-release design-review track. Re-enable
-  # once `uv run pyright` is clean on main.
-  # typecheck:
-  #   runs-on: ubuntu-latest
-  #   steps:
-  #     - uses: actions/checkout@v4
-  #     - uses: astral-sh/setup-uv@v5
-  #       with:
-  #         python-version: "3.12"
-  #         enable-cache: true
-  #     - run: uv sync --all-extras --dev
-  #     - name: Pyright
-  #       run: uv run pyright
+  typecheck:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.12"
+          enable-cache: true
+      - run: uv sync --all-extras --dev
+      - name: Pyright
+        run: uv run pyright
 
   test:
     runs-on: ${{ matrix.os }}
@@ -57,7 +54,7 @@ jobs:
 
   build:
     runs-on: ubuntu-latest
-    needs: [lint, test]
+    needs: [lint, typecheck, test]
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v5

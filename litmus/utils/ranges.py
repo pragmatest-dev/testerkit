@@ -116,7 +116,7 @@ def _expand_int_range(spec: str) -> list[int]:
     return result
 
 
-def expand_numeric_range(spec: str | list) -> list[float]:
+def expand_numeric_range(spec: str | list | int | float) -> list[float]:
     """Expand a numeric range specification to a list of float values.
 
     Supports:

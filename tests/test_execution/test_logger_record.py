@@ -31,7 +31,7 @@ class TestLoggerRecord:
             test_sequence_id="seq1",
         )
         fake_log = _FakeEventLog()
-        logger._event_log = fake_log
+        logger._event_log = fake_log  # type: ignore[assignment]
         logger._session_id = logger.test_run.id
         return logger, fake_log
 

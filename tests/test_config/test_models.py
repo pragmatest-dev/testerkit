@@ -266,6 +266,7 @@ class TestTestStepConfig:
             measurement_name="rail_5v_voltage",
             limit=Limit(low=4.75, high=5.25, units="V"),
         )
+        assert step.limit is not None
         assert step.limit.low == 4.75
 
     def test_step_with_limit_ref(self):
@@ -279,6 +280,7 @@ class TestTestStepConfig:
         )
         assert step.limit_ref == "specs.product_a.rail_5v"
         assert step.pre_dialog == "connect_dut"
+        assert step.retry is not None
         assert step.retry.max_attempts == 3
 
     def test_step_requires_test_or_sequence_or_sync(self):

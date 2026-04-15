@@ -92,7 +92,7 @@ class TestEventStorePerf:
         """Filter by event_type over 10k events."""
         sid = uuid4()
         event_store.emit(SessionStarted(
-            session_id=sid, station_id="bench", dut_serial="X",
+            session_id=sid, station_id="bench",
             session_type="test", pid=1,
         ))
         for i in range(10_000):

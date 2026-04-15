@@ -15,7 +15,7 @@ Architecture:
 """
 
 from abc import ABC, abstractmethod
-from typing import Any
+from typing import Any, Self
 
 
 class Instrument(ABC):
@@ -72,7 +72,7 @@ class Instrument(ABC):
         """
         ...
 
-    def __enter__(self) -> "Instrument":
+    def __enter__(self) -> Self:
         """Context manager entry - connects to instrument."""
         self.connect()
         return self

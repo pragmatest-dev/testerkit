@@ -1,6 +1,7 @@
 """Tests for explicit Arrow schema on the Parquet write path."""
 
 import pyarrow as pa
+import pyarrow.parquet as pq
 import pytest
 
 from litmus.data.backends.parquet import ParquetBackend
@@ -144,7 +145,7 @@ class TestRoundTripExplicitSchema:
         backend = ParquetBackend(results_dir=tmp_path)
         path = backend.save_test_run(run)
 
-        table = pa.parquet.read_table(path)
+        table = pq.read_table(path)
         assert table.schema.field("value").type == pa.float64()
         assert table.schema.field("low_limit").type == pa.float64()
         assert table.schema.field("run_id").type == pa.string()
@@ -175,7 +176,7 @@ class TestRoundTripExplicitSchema:
         backend = ParquetBackend(results_dir=tmp_path)
         path = backend.save_test_run(run)
 
-        table = pa.parquet.read_table(path)
+        table = pq.read_table(path)
         assert "in_voltage" in table.column_names
         assert "in_mode" in table.column_names
         assert table.schema.field("in_voltage").type == pa.float64()

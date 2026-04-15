@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+from typing import cast
 from uuid import uuid4
 
+from litmus.data.event_log import EventLog
 from litmus.data.events import InstrumentConnected, InstrumentDisconnected
 from litmus.instruments.pool import InstrumentPool
 from litmus.models.instrument import InstrumentRecord
@@ -30,7 +32,7 @@ class TestAcquireRelease:
     def test_acquire_returns_proxy(self):
         log = CollectingLog()
         pool = InstrumentPool(
-            session_id=uuid4(), event_log=log, channel_store=None, mock_all=True,
+            session_id=uuid4(), event_log=cast(EventLog, log), channel_store=None, mock_all=True,
         )
         record = _make_record()
         inst = pool.acquire("dmm", record)
@@ -45,7 +47,7 @@ class TestAcquireRelease:
     def test_release_disconnects(self):
         log = CollectingLog()
         pool = InstrumentPool(
-            session_id=uuid4(), event_log=log, channel_store=None, mock_all=True,
+            session_id=uuid4(), event_log=cast(EventLog, log), channel_store=None, mock_all=True,
         )
         pool.acquire("dmm", _make_record())
         pool.release("dmm")
@@ -58,7 +60,7 @@ class TestAcquireRelease:
     def test_release_all_reverse_order(self):
         log = CollectingLog()
         pool = InstrumentPool(
-            session_id=uuid4(), event_log=log, channel_store=None, mock_all=True,
+            session_id=uuid4(), event_log=cast(EventLog, log), channel_store=None, mock_all=True,
         )
         pool.acquire("dmm", _make_record("dmm"))
         pool.acquire("psu", _make_record("psu"))

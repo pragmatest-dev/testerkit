@@ -13,6 +13,12 @@ from litmus.instruments.server import (
 )
 
 
+def _addr(server: InstrumentServer) -> tuple[str, int]:
+    """Return server.address after asserting start() has populated it."""
+    assert server.address is not None, "server not started"
+    return server.address
+
+
 class FakeDriver:
     """Minimal instrument driver for testing."""
 
@@ -100,7 +106,7 @@ class TestRemoteInstrumentProxy:
 
     def test_method_call(self, server_and_driver):
         server, driver = server_and_driver
-        proxy = RemoteInstrumentProxy(server.address, "dmm")
+        proxy = RemoteInstrumentProxy(_addr(server), "dmm")
         try:
             result = proxy.measure_voltage()
             assert result == pytest.approx(3.3)
@@ -109,7 +115,7 @@ class TestRemoteInstrumentProxy:
 
     def test_method_with_args(self, server_and_driver):
         server, driver = server_and_driver
-        proxy = RemoteInstrumentProxy(server.address, "dmm")
+        proxy = RemoteInstrumentProxy(_addr(server), "dmm")
         try:
             proxy.set_voltage(5.0)
             assert driver.voltage == pytest.approx(5.0)
@@ -118,7 +124,7 @@ class TestRemoteInstrumentProxy:
 
     def test_property_write(self, server_and_driver):
         server, driver = server_and_driver
-        proxy = RemoteInstrumentProxy(server.address, "dmm")
+        proxy = RemoteInstrumentProxy(_addr(server), "dmm")
         try:
             proxy.output_enabled = True
             assert driver.output_enabled is True
@@ -127,7 +133,7 @@ class TestRemoteInstrumentProxy:
 
     def test_repr(self, server_and_driver):
         server, driver = server_and_driver
-        proxy = RemoteInstrumentProxy(server.address, "dmm")
+        proxy = RemoteInstrumentProxy(_addr(server), "dmm")
         try:
             r = repr(proxy)
             assert "RemoteInstrumentProxy" in r
@@ -137,7 +143,7 @@ class TestRemoteInstrumentProxy:
 
     def test_dir_returns_driver_attributes(self, server_and_driver):
         server, driver = server_and_driver
-        proxy = RemoteInstrumentProxy(server.address, "dmm")
+        proxy = RemoteInstrumentProxy(_addr(server), "dmm")
         try:
             d = dir(proxy)
             assert "measure_voltage" in d
@@ -147,7 +153,7 @@ class TestRemoteInstrumentProxy:
 
     def test_unknown_role_returns_error(self, server_and_driver):
         server, _ = server_and_driver
-        proxy = RemoteInstrumentProxy(server.address, "nonexistent")
+        proxy = RemoteInstrumentProxy(_addr(server), "nonexistent")
         try:
             with pytest.raises(RuntimeError, match="Unknown role"):
                 proxy.measure_voltage()
@@ -164,8 +170,8 @@ class TestServerLocking:
         server = InstrumentServer({"dmm": driver})
         server.start()
         try:
-            proxy1 = RemoteInstrumentProxy(server.address, "dmm")
-            proxy2 = RemoteInstrumentProxy(server.address, "dmm")
+            proxy1 = RemoteInstrumentProxy(_addr(server), "dmm")
+            proxy2 = RemoteInstrumentProxy(_addr(server), "dmm")
 
             results = []
 
@@ -233,8 +239,8 @@ class TestServerLocking:
         )
         server.start()
         try:
-            proxy1 = RemoteInstrumentProxy(server.address, "matrix")
-            proxy2 = RemoteInstrumentProxy(server.address, "matrix")
+            proxy1 = RemoteInstrumentProxy(_addr(server), "matrix")
+            proxy2 = RemoteInstrumentProxy(_addr(server), "matrix")
 
             barrier = threading.Barrier(2, timeout=5)
             results = []
@@ -272,7 +278,7 @@ class TestRefCounting:
         server = InstrumentServer({"dmm": driver})
         server.start()
 
-        proxy = RemoteInstrumentProxy(server.address, "dmm")
+        proxy = RemoteInstrumentProxy(_addr(server), "dmm")
 
         # Ensure the proxy connection is fully accepted by the server
         # before the owner stops (otherwise ref_count race)

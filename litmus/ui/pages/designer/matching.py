@@ -12,7 +12,7 @@ Phase 3: Report unmatched pins
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Literal, overload
 
 from litmus.models.config import (
     Capability,
@@ -39,6 +39,30 @@ def build_pin_characteristic_map(product: Product) -> dict[str, list[str]]:
                 result[pin_key] = []
             result[pin_key].append(char_name)
     return result
+
+
+@overload
+def get_compatible_channels_for_pin(
+    pin_key: str,
+    char_by_pin: dict[str, list[str]],
+    product: Product | None,
+    instruments: dict[str, dict],
+    dut_pins: dict[str, dict] | None = None,
+    *,
+    include_direction: Literal[True],
+) -> dict[str, Direction]: ...
+
+
+@overload
+def get_compatible_channels_for_pin(
+    pin_key: str,
+    char_by_pin: dict[str, list[str]],
+    product: Product | None,
+    instruments: dict[str, dict],
+    dut_pins: dict[str, dict] | None = None,
+    *,
+    include_direction: Literal[False] = False,
+) -> set[str]: ...
 
 
 def get_compatible_channels_for_pin(

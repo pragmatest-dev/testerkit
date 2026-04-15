@@ -294,20 +294,20 @@ class TestPluginWarnings:
             ):
                 with w.catch_warnings(record=True) as caught:
                     w.simplefilter("always")
-                    _run_configured_outputs(None, "run123", "results")
+                    _run_configured_outputs(None, "run123", "results")  # type: ignore[arg-type]
 
                 assert any("Output processing failed" in str(c.message) for c in caught)
 
     def test_event_subscriber_warns_on_error(self, tmp_path):
         """Event subscriber failure emits a warning and disables the subscriber."""
-        from litmus.data.event_log import EventLog
+        from litmus.data.event_log import EventLog, EventSubscriber
         from litmus.data.events import MeasurementRecorded
 
         event_log = EventLog(tmp_path / "events", uuid4())
 
         call_count = 0
 
-        class BadSubscriber:
+        class BadSubscriber(EventSubscriber):
             format_name = "bad"
             event_types = {MeasurementRecorded}
             def open(self):
@@ -396,14 +396,14 @@ class TestMeasurementRow:
 class TestEventSubscriberLifecycle:
     def test_subscriber_receives_events(self, tmp_path):
         """EventSubscriber receives events when wired to EventLog."""
-        from litmus.data.event_log import EventLog
+        from litmus.data.event_log import EventLog, EventSubscriber
         from litmus.data.events import MeasurementRecorded
 
         event_log = EventLog(tmp_path / "events", uuid4())
 
         received = []
 
-        class RecordingSub:
+        class RecordingSub(EventSubscriber):
             format_name = "recording"
             event_types = {MeasurementRecorded}
             def open(self):
@@ -433,12 +433,12 @@ class TestEventSubscriberLifecycle:
 
     def test_subscriber_close_warns(self, tmp_path):
         """EventLog.close() warns when subscriber close() raises."""
-        from litmus.data.event_log import EventLog
+        from litmus.data.event_log import EventLog, EventSubscriber
         from litmus.data.events import MeasurementRecorded
 
         event_log = EventLog(tmp_path / "events", uuid4())
 
-        class BadCloseSub:
+        class BadCloseSub(EventSubscriber):
             format_name = "bad_close"
             event_types = {MeasurementRecorded}
             def open(self):
@@ -620,7 +620,7 @@ class TestHarnessLoggerIntegration:
 
     def test_harness_measure_emits_event(self, tmp_path):
         """harness.measure() emits MeasurementRecorded to event log."""
-        from litmus.data.event_log import EventLog
+        from litmus.data.event_log import EventLog, EventSubscriber
         from litmus.data.events import MeasurementRecorded
         from litmus.execution.harness import TestHarness
         from litmus.execution.logger import TestRunLogger
@@ -633,7 +633,7 @@ class TestHarnessLoggerIntegration:
 
         received = []
 
-        class RecordingSub:
+        class RecordingSub(EventSubscriber):
             format_name = "recording"
             event_types = {MeasurementRecorded}
             def open(self):

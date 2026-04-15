@@ -155,7 +155,7 @@ class TestResolveStationInstruments:
 
     def test_resolves_with_asset_files(self, tmp_path):
         """Resolve StationConfig instruments enriched by asset files."""
-        from litmus.models.station import StationConfig
+        from litmus.models.station import StationConfig, StationInstrumentConfig
 
         # Create instrument asset file
         inst_content = dedent("""
@@ -178,11 +178,11 @@ class TestResolveStationInstruments:
             id="test_station",
             name="Test Station",
             instruments={
-                "dmm": {
-                    "type": "dmm",
-                    "driver": "pymeasure.instruments.keithley.Keithley2000",
-                    "resource": "GPIB::16::INSTR",
-                },
+                "dmm": StationInstrumentConfig(
+                    type="dmm",
+                    driver="pymeasure.instruments.keithley.Keithley2000",
+                    resource="GPIB::16::INSTR",
+                ),
             },
         )
 
@@ -199,17 +199,17 @@ class TestResolveStationInstruments:
 
     def test_resolves_without_asset_files(self):
         """Resolve StationConfig instruments with no asset files."""
-        from litmus.models.station import StationConfig
+        from litmus.models.station import StationConfig, StationInstrumentConfig
 
         station_config = StationConfig(
             id="test_station",
             name="Test Station",
             instruments={
-                "dmm": {
-                    "type": "dmm",
-                    "driver": "pymeasure.instruments.keithley.Keithley2000",
-                    "resource": "GPIB::16::INSTR",
-                },
+                "dmm": StationInstrumentConfig(
+                    type="dmm",
+                    driver="pymeasure.instruments.keithley.Keithley2000",
+                    resource="GPIB::16::INSTR",
+                ),
             },
         )
 
@@ -223,7 +223,7 @@ class TestResolveStationInstruments:
 
     def test_asset_file_enriches_calibration(self, tmp_path):
         """Asset file provides calibration and identity info."""
-        from litmus.models.station import StationConfig
+        from litmus.models.station import StationConfig, StationInstrumentConfig
 
         inst_content = dedent("""
             id: dmm_asset
@@ -244,11 +244,11 @@ class TestResolveStationInstruments:
             id="test_station",
             name="Test Station",
             instruments={
-                "dmm": {
-                    "type": "dmm",
-                    "driver": "pymeasure.instruments.keithley.Keithley2000",
-                    "resource": "GPIB::16::INSTR",
-                },
+                "dmm": StationInstrumentConfig(
+                    type="dmm",
+                    driver="pymeasure.instruments.keithley.Keithley2000",
+                    resource="GPIB::16::INSTR",
+                ),
             },
         )
 
@@ -260,22 +260,22 @@ class TestResolveStationInstruments:
 
     def test_multiple_instruments(self, tmp_path):
         """Multiple instruments in one station."""
-        from litmus.models.station import StationConfig
+        from litmus.models.station import StationConfig, StationInstrumentConfig
 
         station_config = StationConfig(
             id="test_station",
             name="Test Station",
             instruments={
-                "dmm": {
-                    "type": "dmm",
-                    "driver": "mydriver.DMM",
-                    "resource": "GPIB::16::INSTR",
-                },
-                "psu": {
-                    "type": "psu",
-                    "driver": "mydriver.PSU",
-                    "resource": "GPIB::17::INSTR",
-                },
+                "dmm": StationInstrumentConfig(
+                    type="dmm",
+                    driver="mydriver.DMM",
+                    resource="GPIB::16::INSTR",
+                ),
+                "psu": StationInstrumentConfig(
+                    type="psu",
+                    driver="mydriver.PSU",
+                    resource="GPIB::17::INSTR",
+                ),
             },
         )
 

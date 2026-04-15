@@ -872,7 +872,10 @@ def export(
     kind = "session" if matched_col == "session_id" else "run"
     click.echo(f"Matched {kind} {id} ({len(events)} events)")
 
-    sub = cls(Path(output_dir))
+    # Subscriber subclasses define their own __init__ signature (typically
+    # taking an output directory); the base class has none, so pyright can't
+    # verify the call statically.
+    sub = cls(Path(output_dir))  # type: ignore[call-arg]
     replay_to_subscriber(sub, events)
 
     # Find the output file(s)

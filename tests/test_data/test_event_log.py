@@ -6,7 +6,7 @@ from uuid import uuid4
 import pyarrow as pa
 import pyarrow.ipc as ipc
 
-from litmus.data.event_log import EventLog
+from litmus.data.event_log import EventLog, EventSubscriber
 from litmus.data.events import MeasurementRecorded, RunEnded, RunStarted, SessionStarted
 
 
@@ -44,7 +44,7 @@ class TestEventLog:
         log = EventLog(tmp_path / "events", uuid4())
         received = []
 
-        class Sub:
+        class Sub(EventSubscriber):
             format_name = "test"
             event_types = {MeasurementRecorded}
             def open(self):
@@ -73,7 +73,7 @@ class TestEventLog:
         log = EventLog(tmp_path / "events", uuid4())
         call_count = 0
 
-        class BadSub:
+        class BadSub(EventSubscriber):
             format_name = "bad"
             event_types = {MeasurementRecorded}
             def open(self):

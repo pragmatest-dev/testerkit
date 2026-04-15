@@ -26,6 +26,7 @@ class TestLoadProduct:
         assert product.id == "power_board_v1"
         assert product.name == "DC-DC Power Board Rev A"
         assert product.revision == "A"
+        assert product.description is not None
         assert "buck converter" in product.description
 
     def test_load_product_characteristics(self, power_board_path):
@@ -63,6 +64,7 @@ class TestLoadProduct:
         band = char.get_spec_at({"temperature": 25, "load": 0.1, "input_voltage": 5.0})
         assert band is not None
         assert band.value == 3.3
+        assert band.accuracy is not None
         assert band.accuracy.pct_reading == 3.0
 
     def test_quiescent_current_specs(self, power_board_path):
@@ -172,6 +174,7 @@ class TestProductInheritance:
         assert product.part_number == "VAR-002"
         assert product.revision == "B"
         char = product.characteristics["output_voltage"]
+        assert char.specs[0].accuracy is not None
         assert char.specs[0].accuracy.pct_reading == 2.0
         assert "VIN" in product.pins
 

@@ -163,6 +163,7 @@ class TestDeriveLimit:
             conditions={"temperature": 25, "load": 0.1},
         )
 
+        assert limit.spec_ref is not None
         assert "DS-001 Section 7.3" in limit.spec_ref
         assert "temperature=25" in limit.spec_ref
         assert "load=0.1" in limit.spec_ref

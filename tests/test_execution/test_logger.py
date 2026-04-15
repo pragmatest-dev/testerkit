@@ -92,7 +92,9 @@ class TestTestRunLogger:
         m = Measurement(name="voltage", value=6.0, outcome=Outcome.FAIL)
         logger.log_measurement(m)
 
-        assert _current_step_var.get().outcome == Outcome.FAIL
+        step_1 = _current_step_var.get()
+        assert step_1 is not None
+        assert step_1.outcome == Outcome.FAIL
         assert logger.test_run.outcome == Outcome.FAIL
 
     def test_log_measurement_error_propagates(self):
@@ -106,7 +108,9 @@ class TestTestRunLogger:
         m = Measurement(name="voltage", value=None, outcome=Outcome.ERROR)
         logger.log_measurement(m)
 
-        assert _current_step_var.get().outcome == Outcome.ERROR
+        step_2 = _current_step_var.get()
+        assert step_2 is not None
+        assert step_2.outcome == Outcome.ERROR
         assert logger.test_run.outcome == Outcome.ERROR
 
     def test_error_overrides_fail(self):
@@ -123,7 +127,9 @@ class TestTestRunLogger:
         logger.log_measurement(m2)
 
         # ERROR overrides FAIL — can't trust results from untrusted state
-        assert _current_step_var.get().outcome == Outcome.ERROR
+        step_3 = _current_step_var.get()
+        assert step_3 is not None
+        assert step_3.outcome == Outcome.ERROR
         assert logger.test_run.outcome == Outcome.ERROR
 
     def test_end_step(self):
@@ -243,6 +249,7 @@ class TestTestRunLogger:
         )
         logger.start_step("test_step")
         vector = _current_vector_var.get()
+        assert vector is not None
 
         m = Measurement(name="voltage", value=5.0, outcome=Outcome.PASS)
         # Pre-append (simulating what harness.measure() does)

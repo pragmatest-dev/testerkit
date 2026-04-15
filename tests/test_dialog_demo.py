@@ -89,6 +89,7 @@ async def test_with_choice_dialog():
         pytest.skip("Operator did not make a selection")
 
     fixture_index = response.choice
+    assert fixture_index is not None, "choice is required"
     fixtures = ["Fixture A", "Fixture B", "Fixture C"]
     print(f"Operator selected: {fixtures[fixture_index]}")
     assert fixture_index in [0, 1, 2], "Invalid selection"
