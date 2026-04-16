@@ -8,11 +8,14 @@ Extend via entry points in pyproject.toml::
 
 from __future__ import annotations
 
+import logging
 from importlib.metadata import entry_points as _entry_points
 
 # Import built-in transports (triggers __init_subclass__ registration)
 import litmus.data.transports.file_transport  # noqa: F401
 from litmus.data.transports._base import Transport, get_transport, list_transports
+
+logger = logging.getLogger(__name__)
 
 # Optional transports
 try:
@@ -32,8 +35,8 @@ except ImportError:
 for _ep in _entry_points(group="litmus.transports"):
     try:
         _ep.load()
-    except Exception:
-        pass
+    except Exception as _exc:
+        logger.debug("Transport plugin %s failed to load: %s", _ep.name, _exc)
 
 __all__ = [
     "Transport",

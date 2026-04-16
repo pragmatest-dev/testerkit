@@ -43,7 +43,7 @@ def resolve_results_dir(path: Path | str | None = None) -> Path:
                 d = root / project.results_dir
                 d.mkdir(parents=True, exist_ok=True)
                 return d
-    except Exception:
+    except (ImportError, AttributeError, FileNotFoundError):
         pass
 
     # Global default

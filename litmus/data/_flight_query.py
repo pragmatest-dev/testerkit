@@ -44,10 +44,6 @@ class FlightQueryClient:
     def location(self) -> str:
         return self._location
 
-    @location.setter
-    def location(self, value: str) -> None:
-        self._location = value
-
     def get_client(self) -> flight.FlightClient:
         """Get or create a Flight client."""
         if self._client is None:

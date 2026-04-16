@@ -195,6 +195,24 @@ class ChannelStore:
         if self._serve:
             self._connect_or_serve()
 
+    def list_channel_info(self) -> list[tuple[ChannelDescriptor, pa.Schema]]:
+        """Return (descriptor, schema) for each registered channel."""
+        result: list[tuple[ChannelDescriptor, pa.Schema]] = []
+        for cid, desc in self._registry.items():
+            writer = self._writers.get(cid)
+            schema = writer.schema if writer else SCALAR_SCHEMA
+            result.append((desc, schema))
+        return result
+
+    def get_channel_schema(self, channel_id: str) -> pa.Schema | None:
+        """Return the Arrow schema for a channel, or None if unknown."""
+        writer = self._writers.get(channel_id)
+        if writer is not None:
+            return writer.schema
+        if channel_id in self._registry:
+            return SCALAR_SCHEMA
+        return None
+
     def write(
         self,
         channel_id: str,

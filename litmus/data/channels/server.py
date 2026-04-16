@@ -145,12 +145,10 @@ class ChannelFlightServer(flight.FlightServerBase):
     ) -> list[flight.FlightInfo]:
         """List active channels with their schemas."""
         result = []
-        for cid, desc in self._store._registry.items():
-            writer = self._store._writers.get(cid)
-            schema = writer.schema if writer else _sample_schema()
+        for desc, schema in self._store.list_channel_info():
             fi = flight.FlightInfo(
                 schema,
-                flight.FlightDescriptor.for_command(cid.encode("utf-8")),
+                flight.FlightDescriptor.for_command(desc.channel_id.encode("utf-8")),
                 [],
                 -1,
                 -1,
@@ -165,10 +163,9 @@ class ChannelFlightServer(flight.FlightServerBase):
     ) -> flight.FlightInfo:
         """Return schema and metadata for a channel."""
         channel_id = descriptor.command.decode("utf-8")
-        writer = self._store._writers.get(channel_id)
-        if writer is None and channel_id not in self._store._registry:
+        schema = self._store.get_channel_schema(channel_id)
+        if schema is None:
             raise flight.FlightUnavailableError(f"Unknown channel: {channel_id}")
-        schema = writer.schema if writer else _sample_schema()
         return flight.FlightInfo(
             schema,
             descriptor,

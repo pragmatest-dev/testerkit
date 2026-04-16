@@ -15,6 +15,7 @@ from typing import TYPE_CHECKING, Any
 from pydantic import BaseModel, ConfigDict, Field
 
 from litmus.data.ref import classify_value
+from litmus.environment import EnvironmentSnapshot
 
 if TYPE_CHECKING:
     from litmus.data.models import Measurement, TestRun, TestVector
@@ -193,8 +194,6 @@ def _env_columns(environment_json: str | None) -> dict[str, str | None]:
     """Extract queryable environment columns from the JSON snapshot."""
     if not environment_json:
         return {"python_version": None, "litmus_version": None, "env_fingerprint": None}
-
-    from litmus.environment import EnvironmentSnapshot
 
     snapshot = EnvironmentSnapshot.model_validate_json(environment_json)
     return {

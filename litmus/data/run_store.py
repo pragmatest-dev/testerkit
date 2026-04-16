@@ -7,6 +7,7 @@ ParquetBackend keeps the write path; RunStore owns reads + ref management.
 
 from __future__ import annotations
 
+import logging
 import os
 from pathlib import Path
 from typing import Any
@@ -18,6 +19,8 @@ import pyarrow.parquet as pq
 from litmus.data import runs_duckdb_manager
 from litmus.data._flight_query import FlightQueryClient
 from litmus.data._sql_helpers import sql_escape as _sql_escape
+
+logger = logging.getLogger(__name__)
 
 
 class RunStore:
@@ -121,7 +124,8 @@ class RunStore:
                 "total_measurements": table.num_rows,
                 "_file": str(pq_file),
             }
-        except Exception:
+        except Exception as exc:
+            logger.debug("Failed to read run file %s: %s", pq_file, exc)
             return None
 
     def find_session_files(self, session_id: str) -> list[Path]:
@@ -141,7 +145,8 @@ class RunStore:
             try:
                 table = pq.read_table(pq_file)
                 all_measurements.extend(table.to_pylist())
-            except Exception:
+            except Exception as exc:
+                logger.debug("Skipping unreadable file %s: %s", pq_file, exc)
                 continue
         return all_measurements
 
@@ -158,7 +163,8 @@ class RunStore:
         try:
             table = pq.read_table(pq_file)
             return table.to_pylist()
-        except Exception:
+        except Exception as exc:
+            logger.debug("Failed to read measurements from %s: %s", pq_file, exc)
             return []
 
     # --- Ref management (for materialize) ---

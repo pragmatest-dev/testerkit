@@ -69,7 +69,7 @@ def parse_channel_uri(uri: str) -> tuple[str, str]:
 
 def is_ref(value: object) -> bool:
     """Check if a value is a URI reference (has ``://`` scheme)."""
-    return isinstance(value, str) and "://" in value
+    return isinstance(value, str) and value.split("://", 1)[0] in ("channel", "file")
 
 
 def ref_scheme(value: str) -> str:

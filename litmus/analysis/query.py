@@ -79,8 +79,8 @@ def load_runs(results_dir: str | Path) -> pa.Table:
             ]
         finally:
             run_store.close()
-    except Exception:
-        pass
+    except Exception as exc:
+        logger.debug("RunStore index failed, using filesystem scan: %s", exc)
 
     # Fallback: direct file scan if RunStore found nothing (mixed schemas, etc.)
     if not parquet_files:

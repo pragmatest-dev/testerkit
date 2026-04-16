@@ -6,6 +6,7 @@ Extend via entry points in pyproject.toml::
     myformat = "my_package.exporters:MyFormatSubscriber"
 """
 
+import logging
 from importlib.metadata import entry_points as _entry_points
 
 # Import built-in subscribers (triggers __init_subclass__ registration)
@@ -16,6 +17,8 @@ from litmus.data.event_log import EventSubscriber
 from litmus.data.subscribers._base import get_subscriber_class, list_subscribers
 from litmus.data.subscribers._output_file import OutputFile
 from litmus.data.subscribers.replay import replay_to_subscriber
+
+logger = logging.getLogger(__name__)
 
 # Optional subscribers (may not have deps installed)
 try:
@@ -43,8 +46,8 @@ except ImportError:
 for _ep in _entry_points(group="litmus.subscribers"):
     try:
         _ep.load()
-    except Exception:
-        pass
+    except Exception as _exc:
+        logger.debug("Subscriber plugin %s failed to load: %s", _ep.name, _exc)
 
 __all__ = [
     "EventSubscriber",

@@ -93,7 +93,10 @@ class EventSubscriber:
             EventSubscriber._registry[cls.format_name] = cls
 
     def open(self) -> None: ...
-    def on_event(self, event: EventBase) -> None: ...
+
+    def on_event(self, event: EventBase) -> None:  # noqa: ARG002
+        raise NotImplementedError
+
     def close(self) -> None: ...
 
 
