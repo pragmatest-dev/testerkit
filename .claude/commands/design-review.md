@@ -1,6 +1,6 @@
 ---
 description: Iterative design review of a subsystem. Audits for dead code, logical inconsistencies, duplication, separation of concerns, consistent patterns, and pythonic style. Repeats until clean.
-argument-hint: "<file or directory path>"
+argument-hint: "Context for what to review: a file/directory path, a description of the module and its purpose, a commit SHA, 'uncommitted changes', a link to a plan file, focus areas, or any combination. The more context provided, the better the audit."
 ---
 
 # Design Review Skill
