@@ -40,3 +40,12 @@ repos:
         types: [python]
         pass_filenames: false
         require_serial: true
+
+      - id: pytest
+        name: pytest
+        entry: uv run pytest -q
+        language: system
+        types: [python]
+        pass_filenames: false
+        require_serial: true
+        stages: [pre-commit]
