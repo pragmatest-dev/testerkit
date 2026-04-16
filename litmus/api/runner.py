@@ -123,6 +123,8 @@ class TestRunner:
 
     async def _run_tests(self, run_info: RunInfo) -> None:
         """Execute pytest in subprocess."""
+        import os
+
         run_info.status = "running"
         req = run_info.request
 
@@ -172,8 +174,6 @@ class TestRunner:
             cmd.append(f"--test-phase={sequence_test_phase}")
 
         # Set up environment for subprocess
-        import os
-
         env = os.environ.copy()
         # Pass server URL so dialogs can communicate back
         env["LITMUS_SERVER_URL"] = os.environ.get("LITMUS_SERVER_URL", "http://localhost:8000")

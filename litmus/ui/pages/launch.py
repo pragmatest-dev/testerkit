@@ -91,7 +91,7 @@ def launch_page(product: str = "", station: str = "", sequence: str = "", mock: 
             return
 
         from litmus.api.models import LaunchRequest
-        from litmus.execution.runner import get_runner
+        from litmus.api.runner import get_runner
 
         request = LaunchRequest(
             product_id=form["product_id"] or None,

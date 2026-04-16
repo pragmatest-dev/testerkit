@@ -14,7 +14,7 @@ from contextlib import contextmanager
 from typing import TYPE_CHECKING, Any
 
 from litmus.data.models import Measurement, Outcome, TestStep, TestVector, _utcnow, escalate_outcome
-from litmus.execution.logger import _current_step_var, _current_vector_var
+from litmus.execution._state import current_step_var, current_vector_var
 from litmus.execution.vectors import Vector, expand_vectors
 from litmus.models.config import Limit, MeasurementLimitConfig, PromptConfig, RetryConfig
 
@@ -415,7 +415,7 @@ class TestHarness:
         self._instruments = instruments or {}
         self._mock_instruments = mock_instruments
         self._channel_store = channel_store
-        self._test_level_mock = self._config.get("mocks", self._config.get("_mock", {}))
+        self._test_level_mock = self._config.get("mocks", {})
 
         # Parse retry config
         if retry is not None:
@@ -476,15 +476,6 @@ class TestHarness:
     def retry_config(self) -> RetryConfig:
         """Retry configuration."""
         return self._retry
-
-    @property
-    def vector_context(self) -> Context:
-        """Current vector context for logging in_*/out_* data.
-
-        Deprecated: Use `context` property instead for the active context
-        at any scope (vector > step > run).
-        """
-        return self.context
 
     @property
     def context(self) -> Context:
@@ -578,9 +569,9 @@ class TestHarness:
                 if isinstance(vl, dict):
                     # Try as MeasurementLimitConfig first, then direct Limit
                     config = MeasurementLimitConfig.model_validate(vl)
-                    return self._resolve_limit_config(config, name)
+                    return self._resolve_limit_config(config)
                 if isinstance(vl, MeasurementLimitConfig):
-                    return self._resolve_limit_config(vl, name)
+                    return self._resolve_limit_config(vl)
 
         # Check test-level explicit limits
         if name in self._limits:
@@ -592,7 +583,7 @@ class TestHarness:
 
             # MeasurementLimitConfig - resolve based on type
             if isinstance(limit_config, MeasurementLimitConfig):
-                result = self._resolve_limit_config(limit_config, name)
+                result = self._resolve_limit_config(limit_config)
                 if result is not None:
                     return result
 
@@ -609,12 +600,11 @@ class TestHarness:
 
         return None
 
-    def _resolve_limit_config(self, config: MeasurementLimitConfig, name: str) -> Limit | None:
+    def _resolve_limit_config(self, config: MeasurementLimitConfig) -> Limit | None:
         """Resolve a MeasurementLimitConfig to a Limit.
 
         Args:
             config: The limit configuration to resolve.
-            name: Measurement name (for spec context fallback).
 
         Returns:
             Resolved Limit or None.
@@ -697,6 +687,11 @@ class TestHarness:
 
     def _eval_inline_limit(self, code: str) -> Limit:
         """Evaluate inline Python code to produce a Limit.
+
+        .. warning::
+            Executes arbitrary Python via ``eval``/``exec``.  Only use with
+            trusted config files written by the test engineer — never with
+            user-supplied or network-sourced strings.
 
         Args:
             code: Python expression or statements that return a Limit.
@@ -789,7 +784,7 @@ class TestHarness:
         measurement.check_limit()
 
         # Add to current vector (resolved from contextvar)
-        current_tv = _current_vector_var.get()
+        current_tv = current_vector_var.get()
         if current_tv is not None:
             current_tv.measurements.append(measurement)
 
@@ -894,7 +889,7 @@ class TestHarness:
                 load = context.get_in("load_current", 0) if context else 0
                 return str(3.3 - load * 0.1)
 
-            _mock:
+            _mocks:
               inst.query: !callable dynamic_voltage
         """
         for key, value in mock_config.items():
@@ -932,16 +927,15 @@ class TestHarness:
         """Get mock configuration for a vector.
 
         Resolution order:
-        1. Vector-level _mock (per-vector config)
-        2. Test-level _mock (constant for all vectors)
+        1. Vector-level _mocks (per-vector config)
+        2. Test-level mocks (constant for all vectors)
         3. Limit nominal values (fallback)
         """
-        # Check for vector-level _mocks (new) or _mock (legacy)
-        vector_mock = vector.get("_mocks", vector.get("_mock", {}))
+        vector_mock = vector.get("_mocks", {})
         if vector_mock:
             return vector_mock
 
-        # Fall back to test-level _mock
+        # Fall back to test-level mocks
         if self._test_level_mock:
             return self._test_level_mock
 
@@ -1014,12 +1008,12 @@ class TestHarness:
             started_at=_utcnow(),
         )
         # Add to current step if logging
-        current_step = _current_step_var.get()
+        current_step = current_step_var.get()
         if current_step is not None:
             current_step.vectors.append(test_vector)
 
         # Set contextvar for concurrency-safe resolution
-        vector_token = _current_vector_var.set(test_vector)
+        vector_token = current_vector_var.set(test_vector)
         try:
             yield test_vector
         except AssertionError as e:
@@ -1040,7 +1034,7 @@ class TestHarness:
             test_vector.params = self._vector_context.inputs
             test_vector.observations = self._vector_context.outputs
             test_vector.ended_at = _utcnow()
-            _current_vector_var.reset(vector_token)
+            current_vector_var.reset(vector_token)
             # Save current context for next vector's change detection
             self._prev_vector_context = self._vector_context
             self._vector_context = None
@@ -1066,11 +1060,11 @@ class TestHarness:
         for attempt in range(1, self._retry.max_attempts + 1):
             self._attempt = attempt
 
-            with self.run_vector(vector) as test_vector:
-                test_vector.attempt = attempt
-                last_vector = test_vector
+            try:
+                with self.run_vector(vector) as test_vector:
+                    test_vector.attempt = attempt
+                    last_vector = test_vector
 
-                try:
                     result = test_fn(vector)
 
                     # Handle generator (streaming measurements via yield)
@@ -1079,26 +1073,10 @@ class TestHarness:
                             self._record_result(item)
                     else:
                         self._record_result(result)
+            except Exception:
+                pass  # run_vector already recorded outcome + error
 
-                except AssertionError as e:
-                    # User assert → FAIL (not ERROR)
-                    test_vector.outcome = Outcome.FAIL
-                    msg = str(e) or "assertion failed"
-                    test_vector.error_message = msg
-                    # Log as a failed measurement so it appears in results
-                    m = Measurement(
-                        name="assert",
-                        value=None,
-                        outcome=Outcome.FAIL,
-                    )
-                    test_vector.measurements.append(m)
-                    if self._logger is not None:
-                        self._logger.log_measurement(m)
-
-                except Exception as e:
-                    test_vector.outcome = Outcome.ERROR
-                    test_vector.error_message = str(e)
-
+            assert last_vector is not None
             # Check if passed
             if last_vector.outcome == Outcome.PASS:
                 break
@@ -1107,7 +1085,8 @@ class TestHarness:
             if attempt < self._retry.max_attempts and self._retry.delay_seconds > 0:
                 time.sleep(self._retry.delay_seconds)
 
-        return last_vector  # type: ignore
+        assert last_vector is not None
+        return last_vector
 
     @contextmanager
     def step(self, name: str | None = None, description: str | None = None) -> Iterator[TestStep]:
@@ -1131,32 +1110,14 @@ class TestHarness:
         # Create step context as child of run context
         self._step_context = self._run_context.child()
 
-        # Register with logger (uses register_step instead of direct append)
+        # Register with logger and emit event via public API
         if self._logger is not None:
             self._current_step_index = self._logger.register_step(step)
-            step.instrument_arrays = getattr(self._logger, "_step_instrument_arrays", None)
-            # Emit StepStarted event (register_step doesn't emit)
-            if self._logger.event_log is not None:
-                from litmus.data.events import StepStarted
-
-                self._logger.event_log.emit(
-                    StepStarted(
-                        session_id=self._logger._session_id,
-                        run_id=self._logger.test_run.id,
-                        step_name=step.name,
-                        step_index=self._current_step_index,
-                        step_path=step.step_path,
-                        description=step.description,
-                        node_id=step.node_id,
-                        file=step.file,
-                        module=step.module,
-                        class_name=step.class_name,
-                        function=step.function,
-                    )
-                )
+            step.instrument_arrays = self._logger.step_instrument_arrays
+            self._logger.emit_step_started(step, self._current_step_index)
 
         # Set contextvar for concurrency-safe resolution
-        step_token = _current_step_var.set(step)
+        step_token = current_step_var.set(step)
         try:
             yield step
         finally:
@@ -1166,27 +1127,11 @@ class TestHarness:
             for tv in step.vectors:
                 step.outcome = escalate_outcome(step.outcome, tv.outcome)
 
-            # Emit StepEnded event
-            if self._logger is not None and self._logger.event_log is not None:
-                from litmus.data.events import StepEnded
+            # Emit StepEnded event via public API
+            if self._logger is not None:
+                self._logger.emit_step_ended(step, self._current_step_index)
 
-                self._logger.event_log.emit(
-                    StepEnded(
-                        session_id=self._logger._session_id,
-                        run_id=self._logger.test_run.id,
-                        step_name=step.name,
-                        step_index=self._current_step_index,
-                        step_path=step.step_path,
-                        outcome=step.outcome.value,
-                        node_id=step.node_id,
-                        file=step.file,
-                        module=step.module,
-                        class_name=step.class_name,
-                        function=step.function,
-                    )
-                )
-
-            _current_step_var.reset(step_token)
+            current_step_var.reset(step_token)
             self._step_context = None
 
     def run_all(

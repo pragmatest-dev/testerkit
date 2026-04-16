@@ -6,7 +6,7 @@ import hashlib
 import os
 import socket
 from collections.abc import Callable
-from contextvars import ContextVar, Token
+from contextvars import Token
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 from uuid import UUID, uuid4
@@ -28,11 +28,7 @@ from litmus.data.models import (
     _utcnow,
     escalate_outcome,
 )
-
-# Module-level contextvars for concurrency-safe step/vector resolution.
-# All execution paths (harness, decorator, fixture) set these; log_measurement() reads them.
-_current_step_var: ContextVar[TestStep | None] = ContextVar("_current_step", default=None)
-_current_vector_var: ContextVar[TestVector | None] = ContextVar("_current_vector", default=None)
+from litmus.execution._state import current_step_var, current_vector_var
 
 if TYPE_CHECKING:
     from litmus.data.event_log import EventLog
@@ -252,8 +248,8 @@ class TestRunLogger:
         # Both start_step() and log_measurement() may set it; reset in end_step().
         self._vector_token: Token[TestVector | None] | None = None
         # Clear contextvars — each logger owns its execution context
-        _current_step_var.set(None)
-        _current_vector_var.set(None)
+        current_step_var.set(None)
+        current_vector_var.set(None)
         self._run_context = RunContext(self.test_run)
         self._instruments: dict[str, InstrumentRecord] = instruments or {}
         self._step_instrument_arrays: dict[str, list] | None = None
@@ -380,7 +376,7 @@ class TestRunLogger:
     ):
         """Begin a new test step. Supports nesting via step_path."""
         # Auto-close any prior step that wasn't explicitly ended
-        if _current_step_var.get() is not None:
+        if current_step_var.get() is not None:
             self.end_step()
         # Clear per-step instrument arrays so they don't leak between steps
         self._step_instrument_arrays = None
@@ -408,8 +404,8 @@ class TestRunLogger:
         vector = TestVector()
         step.vectors.append(vector)
         # Token-based set for proper reset in end_step()
-        self._step_token = _current_step_var.set(step)
-        self._vector_token = _current_vector_var.set(vector)
+        self._step_token = current_step_var.set(step)
+        self._vector_token = current_vector_var.set(vector)
 
         if self._event_log is not None:
             self._event_log.emit(
@@ -439,6 +435,54 @@ class TestRunLogger:
         self._current_step_index += 1
         return self._current_step_index
 
+    @property
+    def session_id(self) -> UUID:
+        """Session ID for event correlation."""
+        return self._session_id
+
+    @property
+    def step_instrument_arrays(self) -> dict[str, list] | None:
+        """Per-step instrument arrays, if set."""
+        return self._step_instrument_arrays
+
+    def emit_step_started(self, step: TestStep, step_index: int) -> None:
+        """Emit a StepStarted event if an event log is wired."""
+        if self._event_log is not None:
+            self._event_log.emit(
+                StepStarted(
+                    session_id=self._session_id,
+                    run_id=self.test_run.id,
+                    step_name=step.name,
+                    step_index=step_index,
+                    step_path=step.step_path,
+                    description=step.description,
+                    node_id=step.node_id,
+                    file=step.file,
+                    module=step.module,
+                    class_name=step.class_name,
+                    function=step.function,
+                )
+            )
+
+    def emit_step_ended(self, step: TestStep, step_index: int) -> None:
+        """Emit a StepEnded event if an event log is wired."""
+        if self._event_log is not None:
+            self._event_log.emit(
+                StepEnded(
+                    session_id=self._session_id,
+                    run_id=self.test_run.id,
+                    step_name=step.name,
+                    step_index=step_index,
+                    step_path=step.step_path,
+                    outcome=step.outcome.value,
+                    node_id=step.node_id,
+                    file=step.file,
+                    module=step.module,
+                    class_name=step.class_name,
+                    function=step.function,
+                )
+            )
+
     def log_measurement(self, measurement: Measurement):
         """Add measurement to current step.
 
@@ -446,18 +490,18 @@ class TestRunLogger:
         auto-created from the measurement name.
         """
         # Resolve step: contextvar only → auto-create
-        step = _current_step_var.get()
+        step = current_step_var.get()
         if step is None:
             self.start_step(measurement.name)
-            step = _current_step_var.get()
+            step = current_step_var.get()
         assert step is not None
 
         # Resolve vector: contextvar only → auto-create
-        vector = _current_vector_var.get()
+        vector = current_vector_var.get()
         if vector is None:
             vector = TestVector()
             step.vectors.append(vector)
-            self._vector_token = _current_vector_var.set(vector)
+            self._vector_token = current_vector_var.set(vector)
 
         # Guard against double-append (harness.measure() appends before calling us)
         if measurement not in vector.measurements:
@@ -509,10 +553,10 @@ class TestRunLogger:
 
     def end_step(self):
         """Finalize current step."""
-        step = _current_step_var.get()
+        step = current_step_var.get()
         if step is not None:
             step.ended_at = _utcnow()
-        vector = _current_vector_var.get()
+        vector = current_vector_var.get()
         if vector is not None:
             vector.ended_at = _utcnow()
 
@@ -539,10 +583,10 @@ class TestRunLogger:
 
         # Reset via tokens for proper contextvar hygiene
         if self._step_token is not None:
-            _current_step_var.reset(self._step_token)
+            current_step_var.reset(self._step_token)
             self._step_token = None
         if self._vector_token is not None:
-            _current_vector_var.reset(self._vector_token)
+            current_vector_var.reset(self._vector_token)
             self._vector_token = None
 
     def measure(
@@ -638,7 +682,7 @@ class TestRunLogger:
             key: Record key (e.g., "firmware_version", "calibration_date").
             value: Record value (must be JSON-serializable).
         """
-        step = _current_step_var.get()
+        step = current_step_var.get()
         step_name = step.name if step else ""
         step_index = self._current_step_index if step else -1
         if self._event_log is not None:
@@ -660,7 +704,7 @@ class TestRunLogger:
         responsible for emitting SessionEnded and closing the log.
         """
         # Close any unclosed step before finalizing
-        if _current_step_var.get() is not None:
+        if current_step_var.get() is not None:
             self.end_step()
 
         self.test_run.ended_at = _utcnow()

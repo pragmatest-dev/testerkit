@@ -16,7 +16,7 @@ async def live_page(run_id: str):
     """Live test progress page with streaming event log."""
     create_layout(f"Test Run: {run_id}")
 
-    from litmus.execution.runner import get_runner
+    from litmus.api.runner import get_runner
     from litmus.ui.shared.dialogs import create_dialog_container
 
     runner = get_runner()

@@ -3,7 +3,8 @@
 from __future__ import annotations
 
 import inspect
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Iterator, Mapping
+from contextlib import contextmanager
 from contextvars import ContextVar
 from functools import wraps
 from typing import TYPE_CHECKING, Any, overload
@@ -41,6 +42,20 @@ def get_current_harness() -> TestHarness | None:
     return _current_harness_var.get()
 
 
+@contextmanager
+def _step_context(step_name: str, code_identity: dict[str, Any]) -> Iterator[None]:
+    """Start/end a logger step around the wrapped body."""
+    _logger = get_current_logger()
+    if _logger is not None:
+        _logger.start_step(step_name, **code_identity)
+    try:
+        yield
+    finally:
+        _logger = get_current_logger()
+        if _logger is not None:
+            _logger.end_step()
+
+
 def litmus_step(func: Callable[..., Any]) -> Callable[..., Any]:
     """Decorator that tracks a test as a step without requiring measurements.
 
@@ -54,43 +69,24 @@ def litmus_step(func: Callable[..., Any]) -> Callable[..., Any]:
             assert response.confirmed
     """
 
-    _code_identity = {
+    _code_identity: dict[str, Any] = {
         "function": func.__name__,
         "module": getattr(func, "__module__", None),
     }
 
-    @wraps(func)
-    def wrapper(*args: Any, **kwargs: Any) -> Any:
-        step_name = func.__name__
-        _logger = get_current_logger()
-        if _logger is not None:
-            _logger.start_step(step_name, **_code_identity)
-        try:
-            result = func(*args, **kwargs)
-            return result
-        finally:
-            _logger = get_current_logger()
-            if _logger is not None:
-                _logger.end_step()
-
-    # Handle async functions
     if inspect.iscoroutinefunction(func):
 
         @wraps(func)
         async def async_wrapper(*args: Any, **kwargs: Any) -> Any:
-            step_name = func.__name__
-            _logger = get_current_logger()
-            if _logger is not None:
-                _logger.start_step(step_name, **_code_identity)
-            try:
-                result = await func(*args, **kwargs)
-                return result
-            finally:
-                _logger = get_current_logger()
-                if _logger is not None:
-                    _logger.end_step()
+            with _step_context(func.__name__, _code_identity):
+                return await func(*args, **kwargs)
 
         return async_wrapper
+
+    @wraps(func)
+    def wrapper(*args: Any, **kwargs: Any) -> Any:
+        with _step_context(func.__name__, _code_identity):
+            return func(*args, **kwargs)
 
     return wrapper
 

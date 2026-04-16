@@ -92,7 +92,7 @@ def create_api_router() -> APIRouter:
     @router.post("/runs")
     async def start_run(request: LaunchRequest):
         """Start a new test run."""
-        from litmus.execution.runner import get_runner
+        from litmus.api.runner import get_runner
 
         runner = get_runner()
         run_id = await runner.start(request)
@@ -101,7 +101,7 @@ def create_api_router() -> APIRouter:
     @router.get("/runs/{run_id}/status")
     def get_run_status(run_id: str):
         """Get status of a running test."""
-        from litmus.execution.runner import get_runner
+        from litmus.api.runner import get_runner
 
         runner = get_runner()
         status = runner.get_status(run_id)
@@ -112,7 +112,7 @@ def create_api_router() -> APIRouter:
     @router.get("/active")
     def list_active_runs():
         """List currently running tests."""
-        from litmus.execution.runner import get_runner
+        from litmus.api.runner import get_runner
 
         runner = get_runner()
         active = []

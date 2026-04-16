@@ -603,7 +603,7 @@ else:
 # Per-vector in config.yaml
 vectors:
   - vin: 5.0
-    _mock:
+    _mocks:
       dmm.measure_voltage: 3.3
 ```
 

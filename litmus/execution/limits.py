@@ -60,8 +60,7 @@ def derive_limit(
     spec_id = char_id
     spec_ref = _build_spec_ref(char, params)
 
-    # band.value can be float | str | None, only use if float
-    nominal = band.value if isinstance(band.value, float) else None
+    nominal = float(band.value) if isinstance(band.value, (int, float)) else None
 
     return Limit(
         low=final_low,

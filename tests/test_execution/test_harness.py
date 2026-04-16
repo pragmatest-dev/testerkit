@@ -366,7 +366,7 @@ class TestHarnessMockConfiguration:
 
         config = {
             "vectors": [
-                {"vin": 5.0, "_mock": {"dmm.measure_voltage": 3.3}},
+                {"vin": 5.0, "_mocks": {"dmm.measure_voltage": 3.3}},
             ]
         }
         harness = TestHarness(config=config, instruments=instruments, mock_instruments=True)
@@ -384,9 +384,9 @@ class TestHarnessMockConfiguration:
 
         config = {
             "vectors": [
-                {"load": 0.1, "_mock": {"dmm.measure_voltage": 3.32}},
-                {"load": 0.5, "_mock": {"dmm.measure_voltage": 3.30}},
-                {"load": 0.8, "_mock": {"dmm.measure_voltage": 3.28}},
+                {"load": 0.1, "_mocks": {"dmm.measure_voltage": 3.32}},
+                {"load": 0.5, "_mocks": {"dmm.measure_voltage": 3.30}},
+                {"load": 0.8, "_mocks": {"dmm.measure_voltage": 3.28}},
             ]
         }
         harness = TestHarness(config=config, instruments=instruments, mock_instruments=True)
@@ -424,7 +424,7 @@ class TestHarnessMockConfiguration:
         instruments = {"dmm": dmm}
 
         config = {
-            "vectors": [{"vin": 5.0, "_mock": {"dmm.measure_voltage": 3.3}}],
+            "vectors": [{"vin": 5.0, "_mocks": {"dmm.measure_voltage": 3.3}}],
         }
         # mock_instruments=False
         harness = TestHarness(config=config, instruments=instruments, mock_instruments=False)
@@ -448,9 +448,9 @@ class TestHarnessMockConfiguration:
 
         config = {
             "vectors": [
-                {"load": 0.0, "_mock": {"dmm.measure_voltage": dynamic_voltage}},
-                {"load": 1.0, "_mock": {"dmm.measure_voltage": dynamic_voltage}},
-                {"load": 2.0, "_mock": {"dmm.measure_voltage": dynamic_voltage}},
+                {"load": 0.0, "_mocks": {"dmm.measure_voltage": dynamic_voltage}},
+                {"load": 1.0, "_mocks": {"dmm.measure_voltage": dynamic_voltage}},
+                {"load": 2.0, "_mocks": {"dmm.measure_voltage": dynamic_voltage}},
             ],
         }
         harness = TestHarness(config=config, instruments=instruments, mock_instruments=True)
@@ -708,13 +708,6 @@ class TestHarnessContext:
         """Test that harness has context property."""
         harness = TestHarness()
         assert isinstance(harness.context, Context)
-
-    def test_vector_context_property_available(self):
-        """Test that harness has vector_context property (backwards compat)."""
-        harness = TestHarness()
-        assert isinstance(harness.vector_context, Context)
-        # Should return the same as context
-        assert harness.vector_context is harness.context
 
     def test_run_context_persists_across_steps(self):
         """Test that run context is available across steps."""

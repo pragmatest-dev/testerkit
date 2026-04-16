@@ -16,7 +16,7 @@ from litmus.ui.shared.services import (
 
 def _load_full_sequence(sequence_id: str):
     """Load full sequence configuration from YAML."""
-    from litmus.execution.runner import get_runner
+    from litmus.api.runner import get_runner
 
     runner = get_runner()
     return runner._load_sequence(sequence_id)
@@ -24,7 +24,7 @@ def _load_full_sequence(sequence_id: str):
 
 def _expand_sequence(sequence_id: str) -> list[str]:
     """Expand sequence to list of test paths."""
-    from litmus.execution.runner import get_runner
+    from litmus.api.runner import get_runner
 
     runner = get_runner()
     return runner._expand_sequence(sequence_id)
