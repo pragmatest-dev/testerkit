@@ -49,9 +49,7 @@ class InstrumentInfo(BaseModel):
     @classmethod
     def _coerce_to_str(cls, v: Any) -> str | None:
         """Coerce numeric values to string (YAML loads 2400 as int)."""
-        if v is None:
-            return None
-        return str(v)
+        return str(v) if v is not None else None
 
     def __bool__(self) -> bool:
         """Return True if any identity field is populated."""
@@ -118,6 +116,8 @@ class InstrumentRecord(BaseModel):
     Used by the fixture/logger to track everything about an instrument
     in a test session.
     """
+
+    model_config = {"extra": "forbid"}
 
     # Station role (e.g., "dmm", "psu")
     role: str

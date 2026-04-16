@@ -35,6 +35,8 @@ class OutputConfig(BaseModel):
     will raise ``KeyError`` at runtime when the output is executed.
     """
 
+    model_config = {"extra": "allow"}
+
     format: str | None = None
     transport: str | None = None
     output_dir: str | None = None

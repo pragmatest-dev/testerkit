@@ -30,15 +30,18 @@ from litmus.models.config import (
 )
 from litmus.models.instrument import (
     CalibrationInfo,
+    ChannelKind,
     InstrumentInfo,
     InstrumentRecord,
 )
 from litmus.models.instrument_asset import InstrumentAssetFile
 from litmus.models.product import (
+    BusSignal,
     Pin,
     PinRole,
     Product,
     ProductCharacteristic,
+    SignalGroup,
 )
 from litmus.models.product_manifest import (
     FileReferences,
@@ -63,15 +66,18 @@ __all__ = [
     "VectorConfig",
     # Instrument identity
     "CalibrationInfo",
+    "ChannelKind",
     "InstrumentAssetFile",
     "InstrumentInfo",
     "InstrumentRecord",
     # Product
+    "BusSignal",
     "FileReferences",
     "Pin",
     "PinRole",
     "Product",
     "ProductCharacteristic",
+    "SignalGroup",
     "ProductManifest",
     "WorkflowStep",
     # Project-level

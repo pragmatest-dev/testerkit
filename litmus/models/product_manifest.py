@@ -33,6 +33,8 @@ WORKFLOW_STEP_ORDER = [
 class FileReferences(BaseModel):
     """References to files in the product folder."""
 
+    model_config = {"extra": "forbid"}
+
     datasheet: str | None = None  # Relative path to datasheet
     spec: str | None = None  # Relative path to spec.yaml
     requirements: str | None = None  # Relative path to requirements.yaml
@@ -57,6 +59,8 @@ class ProductManifest(BaseModel):
           spec: spec.yaml
     """
 
+    model_config = {"extra": "forbid"}
+
     product_id: str
     name: str
     description: str | None = None
@@ -74,8 +78,7 @@ class ProductManifest(BaseModel):
         if step_index < len(WORKFLOW_STEP_ORDER) - 1:
             self.current_step = WORKFLOW_STEP_ORDER[step_index + 1]
         else:
-            # At the last step, keep current_step as is (workflow complete)
-            self.current_step = step
+            self.current_step = None
 
     def is_step_completed(self, step: WorkflowStep) -> bool:
         """Check if a step has been completed."""
