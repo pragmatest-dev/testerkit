@@ -5,7 +5,6 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
-import yaml
 from jinja2 import Environment
 
 from litmus.store import load_catalog_entry
@@ -707,20 +706,9 @@ def load_datasheet_data(path: Path) -> dict[str, Any]:
 
 def _find_variant_files(base_path: Path) -> list[Path]:
     """Find variant YAML files that inherit from this base entry."""
-    base_id = base_path.stem
-    variants = []
-    for candidate in sorted(base_path.parent.glob("*.yaml")):
-        if candidate == base_path or ".variants." in candidate.name:
-            continue
-        try:
-            with open(candidate) as f:
-                raw = yaml.safe_load(f)
-            entry = raw.get("catalog_entry", {})
-            if entry.get("base") == base_id:
-                variants.append(candidate)
-        except (OSError, yaml.YAMLError):
-            continue
-    return variants
+    from litmus.store import find_catalog_variants
+
+    return find_catalog_variants(base_path)
 
 
 def _render_datasheet(

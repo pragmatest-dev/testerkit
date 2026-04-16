@@ -9,7 +9,7 @@ import yaml
 from pydantic import ValidationError
 
 from litmus.schema_export import FileType
-from litmus.store import FILE_LOADERS
+from litmus.store import FILE_LOADERS, detect_file_type
 
 
 def validate_yaml(
@@ -29,38 +29,19 @@ def validate_yaml(
     Returns:
         List of error strings (empty means valid).
     """
-    # Explicit type — skip auto-detection
-    if file_type == "catalog":
+    resolved_type = file_type or detect_file_type(path)
+
+    if resolved_type is None:
+        if not path.exists():
+            return [f"File not found: {path}"]
+        return ["Could not determine file type from YAML structure"]
+
+    if resolved_type == "catalog":
         return _validate_catalog(path, catalog_dir)
-    if file_type == "product":
-        return _validate_with_product_loader(path)
-    if file_type is not None:
-        loader = FILE_LOADERS.get(file_type)
-        if loader is None:
-            return [f"Unknown file type: {file_type!r}"]
-        return _run_loader(loader, path)
 
-    # Auto-detect from file contents
-    try:
-        with open(path) as f:
-            data = yaml.safe_load(f)
-    except yaml.YAMLError as exc:
-        return [f"YAML parse error: {exc}"]
-    except FileNotFoundError:
-        return [f"File not found: {path}"]
-
-    if not isinstance(data, dict):
-        return ["File does not contain a YAML mapping"]
-
-    if "catalog_entry" in data:
-        return _validate_catalog(path, catalog_dir)
-    if "product" in data:
-        return _validate_with_product_loader(path)
-
-    loader = _detect_loader(data)
+    loader = FILE_LOADERS.get(resolved_type)
     if loader is None:
-        return [f"Could not determine file type from keys: {', '.join(data.keys())}"]
-
+        return [f"Unknown file type: {resolved_type!r}"]
     return _run_loader(loader, path)
 
 
@@ -73,23 +54,6 @@ def _run_loader(loader: Callable, path: Path) -> list[str]:
         return _format_validation_error(exc)
     except (yaml.YAMLError, OSError, ValueError) as exc:
         return [str(exc)]
-
-
-def _detect_loader(data: dict) -> Callable | None:
-    """Return the appropriate loader function for the given YAML data."""
-    for key in ("station", "sequence", "fixture", "project"):
-        if key in data:
-            return FILE_LOADERS.get(key)
-    if "id" in data and ("protocol" in data or "driver" in data):
-        return FILE_LOADERS.get("instrument_asset")
-    return None
-
-
-def _validate_with_product_loader(path: Path) -> list[str]:
-    """Validate a product spec through the product loader (handles inheritance)."""
-    from litmus.store import load_product
-
-    return _run_loader(load_product, path)
 
 
 def _validate_catalog(path: Path, catalog_dir: Path | None) -> list[str]:

@@ -168,8 +168,8 @@ def _resolve_test_config(
     """
     from pathlib import Path
 
-    from litmus.config.loader import get_test_config
     from litmus.execution.plugin import get_current_step_config
+    from litmus.store import get_test_config
 
     resolved_config: dict[str, Any] = {}
     resolved_limits = limits
@@ -193,7 +193,7 @@ def _resolve_test_config(
         file_config = None
 
         if config_file:
-            from litmus.config.loader import load_test_config
+            from litmus.store import load_test_config
 
             config_path = test_file.parent / config_file
             if config_path.exists():

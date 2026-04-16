@@ -189,7 +189,7 @@ pytest tests/ --station-config=stations/bench_1.yaml --mock-instruments --dut-se
 ```python
 # tests/conftest.py
 import pytest
-from litmus.config.loader import load_station
+from litmus.store import load_station
 
 @pytest.fixture(scope="session")
 def station(request):

@@ -5,6 +5,7 @@ NO direct yaml.safe_load or Path I/O here — all persistence goes through litmu
 
 from typing import Literal
 
+from litmus.config.enums import StationType
 from litmus.instruments.loader import resolve_station_instruments
 from litmus.matching import service as matching_service
 from litmus.products.folder import ProductFolder
@@ -517,12 +518,12 @@ def save_fixture(fixture_id: str, fixture_data: dict, points_data: dict) -> bool
 # -----------------------------------------------------------------------------
 
 
-def save_station_type(type_id: str, data: dict) -> bool:
+def save_station_type(station_type: StationType) -> bool:
     """Save station type YAML."""
-    return store_save_station_type(type_id, data)
+    return store_save_station_type(station_type)
 
 
-def load_station_type(type_id: str) -> dict | None:
+def load_station_type(type_id: str) -> StationType | None:
     """Load station type by ID."""
     return store_load_station_type(type_id)
 

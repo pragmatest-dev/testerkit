@@ -6,11 +6,6 @@ from litmus.config.enum_meta import (
     render_enum_reference,
 )
 from litmus.config.enums import InstrumentConfig, InstrumentInstance, StationInstance, StationType
-from litmus.config.loader import (
-    find_test_config,
-    get_test_config,
-    load_test_config,
-)
 from litmus.config.test_config import (
     FixtureConfig,
     FixturePoint,
@@ -58,8 +53,4 @@ __all__ = [
     "LookupResult",
     "lookup_enum",
     "render_enum_reference",
-    # Loader functions
-    "find_test_config",
-    "get_test_config",
-    "load_test_config",
 ]

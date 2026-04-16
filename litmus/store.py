@@ -21,11 +21,12 @@ import copy
 import warnings
 from collections.abc import Callable, Iterator
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any, Literal, Protocol, TypeVar
 
 import yaml
 from pydantic import ValidationError
 
+from litmus.config.enums import StationType
 from litmus.config.fmt import dump_yaml
 from litmus.models.catalog import InstrumentCatalogEntry
 from litmus.models.config import FixtureConfig, TestSequenceConfig
@@ -37,15 +38,25 @@ from litmus.models.station import StationConfig
 from litmus.utils.paths import (
     get_fixture_paths,
     get_instrument_paths,
+    get_product_paths,
     get_sequence_paths,
     get_station_paths,
 )
+
+
+class _HasId(Protocol):
+    @property
+    def id(self) -> str: ...
+
+
+_T = TypeVar("_T", bound=_HasId)
 
 __all__ = [
     # Catalog
     "create_catalog_entry",
     "find_by_model",
     "find_catalog_dirs",
+    "find_catalog_variants",
     "get_catalog_entry",
     "list_catalog_entries",
     "load_catalog_entry",
@@ -89,8 +100,12 @@ __all__ = [
     "load_station_type",
     "save_station",
     "save_station_type",
+    # Test config
+    "find_test_config",
+    "get_test_config",
+    "load_test_config",
     # Generic helpers
-    "find_yaml_files",
+    "detect_file_type",
 ]
 
 # =============================================================================
@@ -107,6 +122,30 @@ def _read_yaml(path: Path) -> dict[str, Any]:
     """Read a YAML file and return parsed dict (or empty dict)."""
     with open(path) as f:
         return yaml.safe_load(f) or {}
+
+
+def detect_file_type(path: Path) -> str | None:
+    """Auto-detect the Litmus file type from YAML structure.
+
+    Returns a FILE_LOADERS key ("station", "sequence", "fixture",
+    "product", "catalog", "instrument_asset", "project") or None.
+    """
+    try:
+        data = _read_yaml(path)
+    except (yaml.YAMLError, OSError):
+        return None
+    if not isinstance(data, dict):
+        return None
+    if "catalog_entry" in data:
+        return "catalog"
+    for key in ("station", "sequence", "fixture", "project"):
+        if key in data:
+            return key
+    if "id" in data and ("protocol" in data or "driver" in data):
+        return "instrument_asset"
+    if "id" in data and "characteristics" in data:
+        return "product"
+    return None
 
 
 def find_yaml_files(
@@ -159,36 +198,33 @@ def _write_model(path: Path, model_data: dict[str, Any]) -> None:
     path.write_text(dump_yaml(model_data))
 
 
-T = Any  # Generic entity model — kept as Any to avoid TypeVar ceremony
-
-
 def _get_by_id(
     entity_id: str,
-    loader: Callable[[Path], T],
+    loader: Callable[[Path], _T],
     search_paths: list[Path],
-) -> T | None:
+) -> _T | None:
     """Look up a YAML-backed entity by ID or filename stem."""
     for yaml_file in find_yaml_files(search_paths):
         try:
             entity = loader(yaml_file)
             if entity.id == entity_id or yaml_file.stem == entity_id:
                 return entity
-        except (yaml.YAMLError, ValidationError, OSError):
+        except (yaml.YAMLError, ValidationError, OSError, ValueError):
             continue
     return None
 
 
 def _list_all(
-    loader: Callable[[Path], T],
+    loader: Callable[[Path], _T],
     search_paths: list[Path],
-) -> list[T]:
+) -> list[_T]:
     """Discover all entities across *search_paths*, deduplicating by ID."""
-    entities: list[T] = []
+    entities: list[_T] = []
     seen_ids: set[str] = set()
     for yaml_file in find_yaml_files(search_paths):
         try:
             entity = loader(yaml_file)
-        except (yaml.YAMLError, ValidationError, OSError):
+        except (yaml.YAMLError, ValidationError, OSError, ValueError):
             continue
         if entity.id in seen_ids:
             continue
@@ -473,7 +509,7 @@ def create_sequence(
         name=name,
         test_phase=test_phase,
         product_family=product_family or None,
-        description=description or "No description",
+        description=description,
     )
     _write_model(sequence_file, seq.model_dump(exclude_none=True))
     return seq
@@ -483,7 +519,12 @@ def create_sequence(
 # Product: load / get / list / save / create
 # =============================================================================
 
-_MAX_PRODUCT_INHERIT_DEPTH = 5
+_MAX_INHERIT_DEPTH = 5
+
+
+def _check_inherit_depth(depth: int, entity_type: str, path: Path) -> None:
+    if depth > _MAX_INHERIT_DEPTH:
+        raise ValueError(f"{entity_type} inheritance depth exceeds {_MAX_INHERIT_DEPTH} for {path}")
 
 
 def load_product(path: Path, products_dir: Path | None = None) -> Product:
@@ -512,10 +553,7 @@ def _load_product_with_inheritance(
     depth: int,
 ) -> dict[str, Any]:
     """Load raw YAML and recursively merge base products."""
-    if depth > _MAX_PRODUCT_INHERIT_DEPTH:
-        raise ValueError(
-            f"Product inheritance depth exceeds {_MAX_PRODUCT_INHERIT_DEPTH} for {path}"
-        )
+    _check_inherit_depth(depth, "Product", path)
 
     data = _read_yaml(path)
     product_id = data.get("id", path.stem)
@@ -586,22 +624,13 @@ def _merge_product_data(
     return merged
 
 
-def _get_product_paths(project_root: Path | None = None) -> list[Path]:
-    """Get search paths for product folders (relative to project root)."""
-    root = _resolve_root(project_root)
-    products_dir = root / "products"
-    if products_dir.is_dir():
-        return [products_dir]
-    return []
-
-
 def get_product(
     product_id: str,
     *,
     project_root: Path | None = None,
 ) -> Product | None:
     """Load a Product model by ID."""
-    for products_dir in _get_product_paths(project_root):
+    for products_dir in get_product_paths(project_root):
         if not products_dir.exists():
             continue
         # Try flat file first (canonical convention)
@@ -626,7 +655,7 @@ def list_products(*, project_root: Path | None = None) -> list[Product]:
     """List all available products as Product models."""
     products: list[Product] = []
     seen_ids: set[str] = set()
-    for products_dir in _get_product_paths(project_root):
+    for products_dir in get_product_paths(project_root):
         if not products_dir.exists():
             continue
         for yaml_file in sorted(products_dir.rglob("*.yaml")):
@@ -650,7 +679,7 @@ def save_product(
 ) -> bool:
     """Save product specification to YAML file."""
     target_file = None
-    for products_dir in _get_product_paths(project_root):
+    for products_dir in get_product_paths(project_root):
         if not products_dir.exists():
             continue
         # Preserve existing file location (flat or nested)
@@ -720,8 +749,6 @@ def save_manifest(manifest: ProductManifest, path: Path) -> None:
 # Catalog: load / get / list / save / create  (+ helpers)
 # =============================================================================
 
-_MAX_CATALOG_INHERIT_DEPTH = 5
-
 
 def load_catalog_entry(
     path: Path,
@@ -741,10 +768,7 @@ def _load_catalog_with_inheritance(
     depth: int,
 ) -> dict[str, Any]:
     """Load raw YAML and recursively merge base catalog entries."""
-    if depth > _MAX_CATALOG_INHERIT_DEPTH:
-        raise ValueError(
-            f"Catalog inheritance depth exceeds {_MAX_CATALOG_INHERIT_DEPTH} for {path}"
-        )
+    _check_inherit_depth(depth, "Catalog", path)
 
     data = _read_yaml(path)
 
@@ -900,6 +924,22 @@ def load_catalog_from_directory(catalog_dir: Path) -> dict[str, InstrumentCatalo
     return entries
 
 
+def find_catalog_variants(base_path: Path) -> list[Path]:
+    """Find catalog YAML files that inherit from the given base entry."""
+    base_id = base_path.stem
+    variants = []
+    for candidate in sorted(base_path.parent.glob("*.yaml")):
+        if candidate == base_path or ".variants." in candidate.name:
+            continue
+        try:
+            data = _read_yaml(candidate)
+            if data.get("base") == base_id:
+                variants.append(candidate)
+        except (yaml.YAMLError, OSError):
+            continue
+    return variants
+
+
 def find_catalog_dirs(*, project_root: Path | None = None) -> list[Path]:
     """Find catalog directories relative to project root.
 
@@ -1021,7 +1061,7 @@ def get_catalog_entry(
                 continue
 
         # Slow path: full scan for type-based lookup
-        for entry_id, entry in load_catalog_from_directory(cat_dir).items():
+        for entry in load_catalog_from_directory(cat_dir).values():
             if entry.type == catalog_id:
                 return entry
     return None
@@ -1035,7 +1075,7 @@ def list_catalog_entries(
     all_entries: list[InstrumentCatalogEntry] = []
     seen_ids: set[str] = set()
     for cat_dir in find_catalog_dirs(project_root=project_root):
-        for entry_id, entry in load_catalog_from_directory(cat_dir).items():
+        for entry in load_catalog_from_directory(cat_dir).values():
             if not entry.id or entry.id in seen_ids:
                 continue
             seen_ids.add(entry.id)
@@ -1166,23 +1206,22 @@ def save_instrument_asset(
 
 
 # =============================================================================
-# Station Type (raw YAML — no Pydantic model yet)
+# Station Type: load / save
 # =============================================================================
 
 
 def save_station_type(
-    type_id: str,
-    data: dict,
+    station_type: StationType,
     *,
     project_root: Path | None = None,
 ) -> bool:
-    """Save station type YAML to stations/types/{type_id}.yaml."""
+    """Save station type YAML to stations/types/{id}.yaml."""
     root = _resolve_root(project_root)
     types_dir = root / "stations" / "types"
     types_dir.mkdir(parents=True, exist_ok=True)
 
-    target_file = types_dir / f"{type_id}.yaml"
-    _write_model(target_file, data)
+    target_file = types_dir / f"{station_type.id}.yaml"
+    _write_model(target_file, station_type.model_dump(exclude_none=True))
     return True
 
 
@@ -1190,8 +1229,8 @@ def load_station_type(
     type_id: str,
     *,
     project_root: Path | None = None,
-) -> dict | None:
-    """Load station type by ID (raw YAML — no Pydantic model yet)."""
+) -> StationType | None:
+    """Load station type by ID."""
     root = _resolve_root(project_root)
     types_dir = root / "stations" / "types"
     if not types_dir.is_dir():
@@ -1200,9 +1239,111 @@ def load_station_type(
     if not yaml_file.exists():
         return None
     try:
-        return _read_yaml(yaml_file)
-    except (yaml.YAMLError, OSError):
+        return StationType.model_validate(_read_yaml(yaml_file))
+    except (yaml.YAMLError, ValidationError, OSError):
         return None
+
+
+# =============================================================================
+# Test Config: load / get / find (per-test YAML config files)
+# =============================================================================
+
+
+def load_test_config(path: Path) -> dict[str, dict[str, Any]]:
+    """Load test configuration from YAML.
+
+    Expected YAML format:
+        test_voltage_sweep:
+          vectors:
+            expand: product
+            voltage: [3.3, 5.0, 12.0]
+          limits:
+            output_voltage:
+              low: 3.0
+              high: 3.6
+              units: V
+          retry:
+            max_attempts: 3
+            delay_seconds: 0.5
+
+    Returns:
+        Dictionary mapping test function name to config dict.
+    """
+    from litmus.config.test_config import Limit, RetryConfig
+
+    data = _read_yaml(path)
+    if not data:
+        return {}
+
+    configs: dict[str, dict[str, Any]] = {}
+    for test_name, test_data in data.items():
+        if test_data is None:
+            continue
+
+        config: dict[str, Any] = {}
+
+        if "vectors" in test_data:
+            config["vectors"] = test_data["vectors"]
+
+        if "limits" in test_data:
+            limits: dict[str, Any] = {}
+            for name, limit_data in test_data["limits"].items():
+                if isinstance(limit_data, dict):
+                    if "callable" in limit_data:
+                        limits[name] = limit_data
+                    else:
+                        limit_dict = dict(limit_data)
+                        for key in ["low", "high", "nominal"]:
+                            if key in limit_dict and limit_dict[key] is not None:
+                                limit_dict[key] = float(limit_dict[key])
+                        limits[name] = Limit.model_validate(limit_dict)
+                else:
+                    limits[name] = limit_data
+            config["limits"] = limits
+
+        if "retry" in test_data:
+            config["retry"] = RetryConfig.model_validate(test_data["retry"])
+
+        if "mocks" in test_data:
+            config["mocks"] = test_data["mocks"]
+
+        configs[test_name] = config
+
+    return configs
+
+
+def find_test_config(test_file: Path) -> Path | None:
+    """Find config file for a test file.
+
+    Looks for config.yaml in the same directory as the test file.
+    """
+    config_path = test_file.parent / "config.yaml"
+    if config_path.exists():
+        return config_path
+    return None
+
+
+_test_config_cache: dict[Path, dict[str, dict[str, Any]]] = {}
+
+
+def get_test_config(test_name: str, test_file: Path) -> dict[str, Any] | None:
+    """Get config for a specific test function.
+
+    Args:
+        test_name: Name of the test function.
+        test_file: Path to the test file.
+
+    Returns:
+        Config dict for the test, or None if not found.
+    """
+    config_path = find_test_config(test_file)
+    if config_path is None:
+        return None
+
+    if config_path not in _test_config_cache:
+        _test_config_cache[config_path] = load_test_config(config_path)
+
+    return _test_config_cache.get(config_path, {}).get(test_name)
 
 
 # =============================================================================
@@ -1215,4 +1356,6 @@ FILE_LOADERS: dict[str, Callable[[Path], object]] = {
     "fixture": load_fixture,
     "instrument_asset": load_instrument_asset,
     "project": load_project,
+    "product": load_product,
+    "catalog": load_catalog_entry,
 }

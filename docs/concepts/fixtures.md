@@ -196,7 +196,7 @@ This enables runtime validation that the correct fixture is in place.
 In Python:
 
 ```python
-from litmus.config.loader import load_fixture
+from litmus.store import load_fixture
 
 fixture = load_fixture("fixtures/power_board_fixture.yaml")
 print(fixture.id)

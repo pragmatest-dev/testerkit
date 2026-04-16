@@ -286,7 +286,7 @@ Usually capabilities are derived from instrument types, but explicit declaration
 Station configuration is validated by Pydantic models when loaded:
 
 ```python
-from litmus.config.loader import load_station_instance
+from litmus.store import load_station
 
 # Raises ValidationError if config is invalid
 station = load_station_instance("stations/bench_1.yaml")

@@ -1,6 +1,6 @@
 """Tests for Litmus configuration loader."""
 
-from litmus.config.loader import (
+from litmus.store import (
     find_test_config,
     get_test_config,
     load_test_config,
