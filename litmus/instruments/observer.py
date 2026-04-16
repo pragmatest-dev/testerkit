@@ -10,12 +10,15 @@ and session plumbing so observers just call ``emit.read("voltage", 3.3)``.
 
 from __future__ import annotations
 
+import logging
 from typing import Any
 from uuid import UUID
 
 from litmus.data.event_log import EventLog
 from litmus.data.events import InstrumentConfigure, InstrumentRead, InstrumentSet
 from litmus.data.ref import classify_value
+
+logger = logging.getLogger(__name__)
 
 LIFECYCLE_METHODS = frozenset(
     {
@@ -64,8 +67,8 @@ class EventEmitter:
             if vtype != "blob":
                 try:
                     return self._channel_store.write(channel_id, value, source=source)
-                except (OSError, ValueError, TypeError):
-                    pass
+                except (OSError, ValueError, TypeError) as exc:
+                    logger.debug("Channel store write failed for %s: %s", channel_id, exc)
         return value
 
     def read(self, channel: str, value: Any, method: str = "") -> None:

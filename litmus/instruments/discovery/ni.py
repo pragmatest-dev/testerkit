@@ -48,7 +48,7 @@ def discover_ni() -> list[str]:
                 name = getattr(resource, "name", None) or getattr(resource, "user_alias", None)
                 if name:
                     devices.append(name)
-    except Exception as exc:
+    except (OSError, RuntimeError) as exc:
         logger.debug("NI discovery failed: %s", exc)
     return devices
 
@@ -78,7 +78,7 @@ def get_info_ni(device: str) -> InstrumentInfo | None:
                         serial=str(getattr(resource, "serial_number", "")),
                         firmware=getattr(resource, "firmware_revision", None),
                     )
-    except Exception as exc:
+    except (OSError, RuntimeError) as exc:
         logger.debug("NI get_info failed for %s: %s", device, exc)
     return None
 

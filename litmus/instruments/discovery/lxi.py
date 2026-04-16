@@ -12,11 +12,14 @@ Requires the optional ``zeroconf`` package::
 
 from __future__ import annotations
 
+import logging
 import xml.etree.ElementTree as ET
 from urllib.request import urlopen
 
 from litmus.instruments.discovery._base import DiscoveryProtocol, check_import
 from litmus.models.instrument import InstrumentInfo
+
+logger = logging.getLogger(__name__)
 
 _LXI_SERVICE_TYPE = "_lxi._tcp.local."
 
@@ -103,7 +106,8 @@ def get_info_lxi(resource: str, timeout: float = 5.0) -> InstrumentInfo | None:
         url = f"http://{ip}:{port}/lxi/identification"
         with urlopen(url, timeout=timeout) as resp:  # noqa: S310
             xml_bytes = resp.read()
-    except (OSError, ValueError):
+    except (OSError, ValueError) as exc:
+        logger.debug("LXI get_info failed for %s: %s", resource, exc)
         return None
 
     return _parse_identification_xml(xml_bytes)

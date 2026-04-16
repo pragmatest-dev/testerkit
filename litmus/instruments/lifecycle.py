@@ -8,6 +8,7 @@ calibration checking, and proxy wrapping logic in one place.
 from __future__ import annotations
 
 import importlib
+import logging
 import warnings
 from typing import Any
 from uuid import UUID
@@ -15,6 +16,8 @@ from uuid import UUID
 from litmus.data.event_log import EventLog
 from litmus.instruments.observer import DriverObserver
 from litmus.models.instrument import CalibrationInfo, InstrumentInfo, InstrumentRecord
+
+logger = logging.getLogger(__name__)
 
 
 def load_driver_class(driver_path: str | None) -> type | None:
@@ -96,8 +99,8 @@ def get_instrument_info(inst: Any) -> InstrumentInfo | None:
 
             idn = inst.query("*IDN?")
             return parse_idn(idn)
-        except (TimeoutError, RuntimeError, OSError, ValueError):
-            pass
+        except (TimeoutError, RuntimeError, OSError, ValueError) as exc:
+            logger.debug("Could not query instrument info: %s", exc)
     return None
 
 

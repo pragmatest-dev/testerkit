@@ -6,6 +6,7 @@ Extend via entry points in pyproject.toml::
     mydriver = "my_package.observers:MyDriverObserver"
 """
 
+import logging
 from importlib.metadata import entry_points as _entry_points
 
 # Import built-in observers (triggers __init_subclass__ registration)
@@ -23,11 +24,13 @@ import litmus.instruments.observers.tektronix  # noqa: F401
 import litmus.instruments.observers.visa  # noqa: F401
 from litmus.instruments.observers._base import detect_protocol, get_observer_class
 
+logger = logging.getLogger(__name__)
+
 # Load third-party observer plugins via entry points
 for _ep in _entry_points(group="litmus.observers"):
     try:
         _ep.load()
-    except Exception:
-        pass
+    except Exception as _exc:
+        logger.debug("Observer plugin %s failed to load: %s", _ep.name, _exc)
 
 __all__ = ["detect_protocol", "get_observer_class"]

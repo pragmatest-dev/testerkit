@@ -14,6 +14,7 @@ from litmus.matching.service import (
     find_partial_stations,
     get_required_capabilities,
     get_station_capabilities,
+    list_products_summary,
     match_capabilities,
 )
 
@@ -31,5 +32,6 @@ __all__ = [
     "find_partial_stations",
     "get_required_capabilities",
     "get_station_capabilities",
+    "list_products_summary",
     "match_capabilities",
 ]

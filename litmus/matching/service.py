@@ -491,15 +491,6 @@ def _get_range_at(
     return _get_spec_field(measure, "range", operating_point)
 
 
-def _get_value_at(
-    measure: Signal,
-    operating_point: dict[str, float | str],
-) -> float | None:
-    """Get the applicable value, requiring numeric type."""
-    val = _get_spec_field(measure, "value", operating_point)
-    return val if isinstance(val, (int, float)) else None
-
-
 def _accuracy_sufficient(inst: AccuracySpec, req: AccuracySpec) -> bool:
     """Check if instrument accuracy is better than (<=) required.
 
@@ -938,7 +929,7 @@ def _catalog_entry_to_capabilities(entry: InstrumentCatalogEntry) -> list[Statio
     return caps
 
 
-def find_all_station_matches(product: Product) -> dict[str, list]:
+def find_all_station_matches(product: Product) -> dict[str, list[dict[str, Any]]]:
     """Find all stations categorized by compatibility level.
 
     Returns:

@@ -242,6 +242,8 @@ class InstrumentServer:
             return dir(driver)
 
         # Method call: action is the method name
+        if action.startswith("_"):
+            raise ValueError(f"Cannot invoke private method via RPC: {action!r}")
         args = rest[0] if rest else ()
         kwargs = rest[1] if len(rest) > 1 else {}
         attr = getattr(driver, action)
@@ -326,7 +328,7 @@ class RemoteInstrumentProxy:
     def __del__(self) -> None:
         try:
             self._disconnect()
-        except Exception:
+        except (OSError, EOFError):
             pass
 
 

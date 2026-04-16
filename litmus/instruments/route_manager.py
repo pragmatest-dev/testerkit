@@ -11,7 +11,7 @@ from __future__ import annotations
 import logging
 import os
 import time
-from collections.abc import Callable, Generator
+from collections.abc import Generator
 from contextlib import contextmanager
 from datetime import UTC, datetime
 from typing import Any
@@ -28,6 +28,9 @@ logger = logging.getLogger(__name__)
 
 class RouteConflictError(Exception):
     """Raised when a route activation would conflict with an active route."""
+
+
+_SWITCH_METHODS = ("close_channels", "open_channels", "open_all")
 
 
 class RouteManager:
@@ -251,8 +254,7 @@ class RouteManager:
         if inst is None:
             raise KeyError(f"Switch instrument '{switch_role}' not found in active instruments")
         if not self._is_switch(inst):
-            required = ("close_channels", "open_channels", "open_all")
-            missing = [m for m in required if not callable(getattr(inst, m, None))]
+            missing = [m for m in _SWITCH_METHODS if not callable(getattr(inst, m, None))]
             raise TypeError(
                 f"Instrument '{switch_role}' does not implement SwitchDriver protocol. "
                 f"Got {type(inst).__name__}. Missing: {', '.join(missing)}"
@@ -293,37 +295,7 @@ class RouteManager:
         """Check if an instrument implements the SwitchDriver protocol."""
         if isinstance(inst, SwitchDriver):
             return True
-        required = ("close_channels", "open_channels", "open_all")
-        return all(callable(getattr(inst, m, None)) for m in required)
-
-    def resolve_instrument(self, role: str) -> Any:
-        """Resolve an instrument by role.
-
-        Args:
-            role: Instrument role name.
-
-        Returns:
-            The instrument driver instance, or None if not found.
-        """
-        return self._instruments.get(role)
-
-    def get_resolver(self, role: str) -> Callable[[], Any]:
-        """Return a callable that resolves an instrument by role.
-
-        Used by FixtureManager to create RoutedProxy resolver callbacks
-        for shared instruments whose drivers are connected on-demand.
-
-        Args:
-            role: Instrument role name.
-
-        Returns:
-            A zero-argument callable returning the driver instance.
-        """
-
-        def _resolver() -> Any:
-            return self.resolve_instrument(role)
-
-        return _resolver
+        return all(callable(getattr(inst, m, None)) for m in _SWITCH_METHODS)
 
     def _emit_route_closed(self, point_name: str, route: SwitchRoute) -> None:
         """Emit a RouteClosed event."""

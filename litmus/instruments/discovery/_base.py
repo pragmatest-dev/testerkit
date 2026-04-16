@@ -138,7 +138,8 @@ def discover(protocols: list[str] | None = None) -> dict[str, list[str]]:
     for name, proto in _iter_protocols(protocols):
         try:
             results[name] = proto.discover()
-        except Exception:
+        except Exception as exc:
+            logger.debug("Discovery protocol %s failed: %s", name, exc)
             results[name] = []
     return results
 
@@ -167,6 +168,7 @@ def discover_and_identify(
         try:
             resources = proto.discover()
             results[name] = [(r, proto.get_info(r)) for r in resources]
-        except Exception:
+        except Exception as exc:
+            logger.debug("Discovery protocol %s failed: %s", name, exc)
             results[name] = []
     return results

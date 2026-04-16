@@ -305,16 +305,3 @@ class TestSettling:
         rm.activate("vout_measure")
 
         assert len(sleep_calls) == 0
-
-
-class TestResolveInstrument:
-    """RouteManager.resolve_instrument lookup."""
-
-    def test_resolve_instrument_finds_dedicated(self):
-        dmm = FakeInstrument()
-        rm = RouteManager(points={}, instruments={"dmm": dmm})
-        assert rm.resolve_instrument("dmm") is dmm
-
-    def test_resolve_instrument_returns_none_for_unknown(self):
-        rm = _make_manager()
-        assert rm.resolve_instrument("nonexistent") is None
