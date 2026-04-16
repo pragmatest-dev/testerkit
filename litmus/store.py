@@ -159,6 +159,44 @@ def _write_model(path: Path, model_data: dict[str, Any]) -> None:
     path.write_text(dump_yaml(model_data))
 
 
+T = Any  # Generic entity model — kept as Any to avoid TypeVar ceremony
+
+
+def _get_by_id(
+    entity_id: str,
+    loader: Callable[[Path], T],
+    search_paths: list[Path],
+) -> T | None:
+    """Look up a YAML-backed entity by ID or filename stem."""
+    for yaml_file in find_yaml_files(search_paths):
+        try:
+            entity = loader(yaml_file)
+            if entity.id == entity_id or yaml_file.stem == entity_id:
+                return entity
+        except (yaml.YAMLError, ValidationError, OSError):
+            continue
+    return None
+
+
+def _list_all(
+    loader: Callable[[Path], T],
+    search_paths: list[Path],
+) -> list[T]:
+    """Discover all entities across *search_paths*, deduplicating by ID."""
+    entities: list[T] = []
+    seen_ids: set[str] = set()
+    for yaml_file in find_yaml_files(search_paths):
+        try:
+            entity = loader(yaml_file)
+        except (yaml.YAMLError, ValidationError, OSError):
+            continue
+        if entity.id in seen_ids:
+            continue
+        seen_ids.add(entity.id)
+        entities.append(entity)
+    return entities
+
+
 # =============================================================================
 # Project
 # =============================================================================
@@ -185,30 +223,12 @@ def get_station(
     project_root: Path | None = None,
 ) -> StationConfig | None:
     """Load station configuration by ID."""
-    for yaml_file in find_yaml_files(get_station_paths(project_root)):
-        try:
-            station = load_station(yaml_file)
-            if station.id == station_id or yaml_file.stem == station_id:
-                return station
-        except (yaml.YAMLError, ValidationError, OSError):
-            continue
-    return None
+    return _get_by_id(station_id, load_station, get_station_paths(project_root))
 
 
 def list_stations(*, project_root: Path | None = None) -> list[StationConfig]:
     """List all available stations."""
-    stations: list[StationConfig] = []
-    seen_ids: set[str] = set()
-    for yaml_file in find_yaml_files(get_station_paths(project_root)):
-        try:
-            station = load_station(yaml_file)
-        except (yaml.YAMLError, ValidationError, OSError):
-            continue
-        if station.id in seen_ids:
-            continue
-        seen_ids.add(station.id)
-        stations.append(station)
-    return stations
+    return _list_all(load_station, get_station_paths(project_root))
 
 
 def save_station(
@@ -328,30 +348,12 @@ def get_fixture(
     project_root: Path | None = None,
 ) -> FixtureConfig | None:
     """Load fixture configuration by ID."""
-    for yaml_file in find_yaml_files(get_fixture_paths(project_root)):
-        try:
-            fixture = load_fixture(yaml_file)
-            if fixture.id == fixture_id or yaml_file.stem == fixture_id:
-                return fixture
-        except (yaml.YAMLError, ValidationError, OSError):
-            continue
-    return None
+    return _get_by_id(fixture_id, load_fixture, get_fixture_paths(project_root))
 
 
 def list_fixtures(*, project_root: Path | None = None) -> list[FixtureConfig]:
     """List all available fixtures."""
-    fixtures: list[FixtureConfig] = []
-    seen_ids: set[str] = set()
-    for yaml_file in find_yaml_files(get_fixture_paths(project_root)):
-        try:
-            fixture = load_fixture(yaml_file)
-        except (yaml.YAMLError, ValidationError, OSError):
-            continue
-        if fixture.id in seen_ids:
-            continue
-        seen_ids.add(fixture.id)
-        fixtures.append(fixture)
-    return fixtures
+    return _list_all(load_fixture, get_fixture_paths(project_root))
 
 
 def save_fixture(
@@ -418,14 +420,7 @@ def get_sequence(
     project_root: Path | None = None,
 ) -> TestSequenceConfig | None:
     """Load sequence configuration by ID."""
-    for yaml_file in find_yaml_files(get_sequence_paths(project_root)):
-        try:
-            seq = load_sequence(yaml_file)
-            if seq.id == sequence_id or yaml_file.stem == sequence_id:
-                return seq
-        except (yaml.YAMLError, ValidationError, OSError):
-            continue
-    return None
+    return _get_by_id(sequence_id, load_sequence, get_sequence_paths(project_root))
 
 
 def list_sequences(
@@ -433,18 +428,7 @@ def list_sequences(
     project_root: Path | None = None,
 ) -> list[TestSequenceConfig]:
     """List all available sequences."""
-    sequences: list[TestSequenceConfig] = []
-    seen_ids: set[str] = set()
-    for yaml_file in find_yaml_files(get_sequence_paths(project_root)):
-        try:
-            seq = load_sequence(yaml_file)
-        except (yaml.YAMLError, ValidationError, OSError):
-            continue
-        if seq.id in seen_ids:
-            continue
-        seen_ids.add(seq.id)
-        sequences.append(seq)
-    return sequences
+    return _list_all(load_sequence, get_sequence_paths(project_root))
 
 
 def save_sequence(
@@ -1141,17 +1125,7 @@ def get_instrument_asset(
     project_root: Path | None = None,
 ) -> InstrumentAssetFile | None:
     """Load a single instrument asset file by ID."""
-    for instruments_dir in get_instrument_paths(project_root):
-        if not instruments_dir.exists():
-            continue
-        for yaml_file in instruments_dir.glob("*.yaml"):
-            try:
-                asset = load_instrument_asset(yaml_file)
-                if asset.id == instrument_id:
-                    return asset
-            except (yaml.YAMLError, ValidationError, OSError):
-                continue
-    return None
+    return _get_by_id(instrument_id, load_instrument_asset, get_instrument_paths(project_root))
 
 
 def list_instrument_assets(
@@ -1159,21 +1133,7 @@ def list_instrument_assets(
     project_root: Path | None = None,
 ) -> list[InstrumentAssetFile]:
     """List all instrument asset files."""
-    assets: list[InstrumentAssetFile] = []
-    seen_ids: set[str] = set()
-    for instruments_dir in get_instrument_paths(project_root):
-        if not instruments_dir.exists():
-            continue
-        for yaml_file in instruments_dir.glob("*.yaml"):
-            try:
-                asset = load_instrument_asset(yaml_file)
-            except (yaml.YAMLError, ValidationError, OSError):
-                continue
-            if asset.id in seen_ids:
-                continue
-            seen_ids.add(asset.id)
-            assets.append(asset)
-    return assets
+    return _list_all(load_instrument_asset, get_instrument_paths(project_root))
 
 
 def save_instrument_asset(
