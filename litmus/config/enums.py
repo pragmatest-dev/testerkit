@@ -7,8 +7,6 @@ in which direction (Direction), and with what physical properties.
 
 from enum import StrEnum
 
-from pydantic import BaseModel, Field
-
 # =============================================================================
 # Core Capability Enums
 # =============================================================================
@@ -364,42 +362,3 @@ class InstrumentType(StrEnum):
     CURRENT_SOURCE = "current_source"
     PULSE_GENERATOR = "pulse_generator"
     GAUSSMETER = "gaussmeter"
-
-
-# =============================================================================
-# Station/Instrument infrastructure models (also used by enums consumers)
-# =============================================================================
-
-
-class InstrumentConfig(BaseModel):
-    """Configuration for a single instrument (template)."""
-
-    type: str  # e.g., "dmm", "scope", "power_supply"
-    driver: str  # e.g., "pyvisa", "serial", "custom"
-    resource: str | None = None  # VISA resource string or COM port
-    settings: dict = Field(default_factory=dict)  # Instrument-specific settings
-
-
-class InstrumentInstance(BaseModel):
-    """Physical instrument at a station."""
-
-    type: str
-    resource: str  # VISA address
-
-
-class StationType(BaseModel):
-    """Abstract station type (template)."""
-
-    id: str
-    description: str
-    instruments: dict[str, InstrumentConfig]  # Instrument configs WITHOUT addresses
-    capabilities: list[str] = Field(default_factory=list)
-
-
-class StationInstance(BaseModel):
-    """Concrete station instance (deployed)."""
-
-    id: str
-    station_type: str  # Reference to StationType
-    location: str | None = None
-    instruments: dict[str, InstrumentInstance] = Field(default_factory=dict)

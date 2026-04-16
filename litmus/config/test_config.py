@@ -4,9 +4,9 @@ Models for test limits, specifications, fixtures, vectors,
 sequences, and all test-runner configuration.
 """
 
-from typing import Any, Literal
+from typing import Any, Literal, Self
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 from litmus.config.enums import Comparator
 
@@ -240,8 +240,8 @@ class FixtureConfig(BaseModel):
 
     description: str | None = None
 
-    def model_post_init(self, _: Any) -> None:
-        """Validate fixture configuration."""
+    @model_validator(mode="after")
+    def _validate_points_or_slots(self) -> Self:
         if self.points and self.slots:
             raise ValueError(
                 "FixtureConfig cannot have both 'points' and 'slots'. "
@@ -250,6 +250,7 @@ class FixtureConfig(BaseModel):
         for slot_id in self.slots:
             if not slot_id or not slot_id.strip():
                 raise ValueError(f"Slot ID must be a non-empty string, got {slot_id!r}")
+        return self
 
     @property
     def slot_count(self) -> int:
@@ -260,22 +261,6 @@ class FixtureConfig(BaseModel):
     def is_multi_slot(self) -> bool:
         """True if this fixture has multiple DUT slots."""
         return len(self.slots) > 1
-
-    def matches_product(self, product_id: str, revision: str | None = None) -> bool:
-        """Check if this fixture matches a product."""
-        # Exact product match
-        if self.product_id and self.product_id == product_id:
-            if self.product_revision and revision:
-                return self.product_revision == revision
-            return True
-
-        # Family match (less specific)
-        if self.product_family:
-            # Would need product lookup to check family membership
-            # For now, direct ID comparison as fallback
-            return self.product_family == product_id
-
-        return False
 
 
 class RetryConfig(BaseModel):
@@ -311,14 +296,15 @@ class RangeConfig(BaseModel):
     step: float | None = None
     count: int | None = None
 
-    def model_post_init(self, _: Any) -> None:
-        """Validate step/count constraints."""
+    @model_validator(mode="after")
+    def _validate_step_or_count(self) -> Self:
         if (self.step is None) == (self.count is None):
             raise ValueError("Exactly one of 'step' or 'count' must be provided")
         if self.step is not None and self.step <= 0:
             raise ValueError("'step' must be positive")
         if self.count is not None and self.count < 1:
             raise ValueError("'count' must be >= 1")
+        return self
 
 
 class PromptConfig(BaseModel):
@@ -608,13 +594,14 @@ class TestStepConfig(BaseModel):
     raise_on_fail: bool | None = None  # None = inherit from sequence/decorator
     skip_on: list[str] | None = None  # Skip if these tests failed
 
-    def model_post_init(self, _: Any) -> None:
-        """Validate that step has exactly one of test, sequence, or sync."""
+    @model_validator(mode="after")
+    def _validate_exactly_one_action(self) -> Self:
         action_count = sum(1 for x in (self.test, self.sequence, self.sync) if x)
         if action_count == 0:
             raise ValueError("Step must have one of 'test', 'sequence', or 'sync'")
         if action_count > 1:
             raise ValueError("Step must have only one of 'test', 'sequence', or 'sync'")
+        return self
 
 
 class TestSequenceConfig(BaseModel):

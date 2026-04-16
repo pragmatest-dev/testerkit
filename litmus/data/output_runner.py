@@ -32,7 +32,7 @@ def run_outputs(
     never fail the test run.
     """
     try:
-        from litmus.config.project import load_project_config
+        from litmus.store import load_project_config
 
         config = load_project_config()
     except FileNotFoundError:

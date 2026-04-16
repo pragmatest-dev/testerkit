@@ -2,9 +2,9 @@
 
 from nicegui import ui
 
-from litmus.config.project import load_project_config
 from litmus.data.backends.parquet import ParquetBackend
 from litmus.models.config import TestSequenceConfig
+from litmus.store import load_project_config
 from litmus.ui.shared.components import format_datetime, setup_hash_sync_for_tabs
 from litmus.ui.shared.layout import create_layout
 from litmus.ui.shared.services import (

@@ -60,7 +60,7 @@ def create_api_router() -> APIRouter:
     """Create the JSON API router."""
     router = APIRouter(prefix="/api", tags=["api"])
 
-    from litmus.config.project import load_project_config
+    from litmus.store import load_project_config
 
     project = load_project_config()
     backend = ParquetBackend(results_dir=project.results_dir)

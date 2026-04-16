@@ -489,6 +489,12 @@ class Capability(BaseModel):
         for sig_name, sig in self.signals.items():
             _check_specs(f"signal '{sig_name}'", sig.specs)
             _resolve_when_units(sig.specs)
+        for cond_name, cond in self.conditions.items():
+            _check_specs(f"condition '{cond_name}'", cond.specs)
+            _resolve_when_units(cond.specs)
+        for ctrl_name, ctrl in self.controls.items():
+            _check_specs(f"control '{ctrl_name}'", ctrl.specs)
+            _resolve_when_units(ctrl.specs)
         for attr_name, attr in self.attributes.items():
             _check_specs(f"attribute '{attr_name}'", attr.specs)
             _resolve_when_units(attr.specs)

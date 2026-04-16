@@ -1,56 +1,10 @@
-"""Litmus configuration system - Pydantic models and YAML loading."""
+"""Litmus configuration — enums, capability models, test config schemas.
 
-from litmus.config.enum_meta import (
-    LookupResult,
-    lookup_enum,
-    render_enum_reference,
-)
-from litmus.config.enums import InstrumentConfig, InstrumentInstance, StationInstance, StationType
-from litmus.config.test_config import (
-    FixtureConfig,
-    FixturePoint,
-    Limit,
-    LimitCallableConfig,
-    LimitExprConfig,
-    LimitLookupConfig,
-    LimitRefConfig,
-    LimitStepConfig,
-    MeasurementLimitConfig,
-    PromptConfig,
-    RangeConfig,
-    RetryConfig,
-    Specification,
-    TestConfig,
-    TestSequenceConfig,
-    TestStepConfig,
-    VectorConfig,
-)
+Submodule imports (direct):
+    from litmus.config.enums import Direction, MeasurementFunction
+    from litmus.config.capability import Capability, SpecBand
+    from litmus.config.test_config import TestConfig, FixtureConfig
 
-__all__ = [
-    # Models
-    "FixtureConfig",
-    "FixturePoint",
-    "InstrumentConfig",
-    "InstrumentInstance",
-    "Limit",
-    "LimitCallableConfig",
-    "LimitExprConfig",
-    "LimitLookupConfig",
-    "LimitRefConfig",
-    "LimitStepConfig",
-    "MeasurementLimitConfig",
-    "PromptConfig",
-    "RangeConfig",
-    "RetryConfig",
-    "Specification",
-    "StationInstance",
-    "StationType",
-    "TestConfig",
-    "TestSequenceConfig",
-    "TestStepConfig",
-    "VectorConfig",
-    # Enum metadata
-    "LookupResult",
-    "lookup_enum",
-    "render_enum_reference",
-]
+Re-export hub (convenience, preferred):
+    from litmus.models.config import Direction, TestConfig
+"""

@@ -596,7 +596,7 @@ def pytest_sessionfinish(session, exitstatus):
 def _load_project_defaults() -> ProjectConfig:
     """Load ProjectConfig from litmus.yaml, falling back to defaults."""
     try:
-        from litmus.config.project import load_project_config
+        from litmus.store import load_project_config
 
         return load_project_config()
     except Exception:
@@ -810,7 +810,7 @@ def _find_format_transport_callback(
 ) -> Callable[[Any], None] | None:
     """If litmus.yaml has an output entry for this format with transport, wire it."""
     try:
-        from litmus.config.project import load_project_config
+        from litmus.store import load_project_config
 
         config = load_project_config()
     except Exception:
@@ -979,7 +979,7 @@ def litmus_logger(request) -> Generator[TestRunLogger, None, None]:
 
         # Wire additional configured subscriber formats
         try:
-            from litmus.config.project import load_project_config
+            from litmus.store import load_project_config
 
             config = load_project_config()
             for output_cfg in config.outputs:

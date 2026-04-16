@@ -2,8 +2,8 @@
 
 from nicegui import ui
 
-from litmus.config.project import load_project_config
 from litmus.data.backends.parquet import ParquetBackend
+from litmus.store import load_project_config
 from litmus.ui.shared.components import format_datetime
 from litmus.ui.shared.layout import create_layout
 from litmus.ui.shared.services import discover_stations

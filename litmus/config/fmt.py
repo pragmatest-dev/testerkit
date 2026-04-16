@@ -16,10 +16,8 @@ quotes any string value that would be misinterpreted by a plain YAML load.
 from __future__ import annotations
 
 from io import StringIO
-from pathlib import Path
 from typing import Any
 
-import yaml
 from ruamel.yaml import YAML
 from ruamel.yaml.comments import CommentedMap, CommentedSeq
 from ruamel.yaml.scalarstring import DoubleQuotedScalarString
@@ -98,22 +96,3 @@ def dump_yaml(data: dict[str, Any]) -> str:
     buf = StringIO()
     ry.dump(styled, buf)
     return buf.getvalue()
-
-
-def format_file(path: Path) -> str:
-    """Load a YAML file and return it formatted.
-
-    Strips comments and enforces consistent style.
-    """
-    plain = yaml.safe_load(path.read_text())
-    return dump_yaml(plain)
-
-
-def format_file_inplace(path: Path) -> bool:
-    """Format a YAML file in-place. Returns True if changed."""
-    original = path.read_text()
-    formatted = format_file(path)
-    if formatted != original:
-        path.write_text(formatted)
-        return True
-    return False

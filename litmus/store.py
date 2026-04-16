@@ -26,8 +26,8 @@ from typing import Any, Literal, Protocol, TypeVar
 import yaml
 from pydantic import ValidationError
 
-from litmus.config.enums import StationType
 from litmus.config.fmt import dump_yaml
+from litmus.config.station_types import StationType
 from litmus.models.catalog import InstrumentCatalogEntry
 from litmus.models.config import FixtureConfig, TestSequenceConfig
 from litmus.models.instrument_asset import InstrumentAssetFile
@@ -85,6 +85,7 @@ __all__ = [
     "save_product",
     # Project
     "load_project",
+    "load_project_config",
     # Sequence
     "create_sequence",
     "get_sequence",
@@ -104,6 +105,9 @@ __all__ = [
     "find_test_config",
     "get_test_config",
     "load_test_config",
+    # YAML formatting
+    "format_file",
+    "format_file_inplace",
     # Generic helpers
     "detect_file_type",
 ]
@@ -241,6 +245,26 @@ def _list_all(
 def load_project(path: Path) -> ProjectConfig:
     """Load and validate a litmus.yaml project config file."""
     return ProjectConfig.model_validate(_read_yaml(path))
+
+
+def load_project_config(path: Path | str | None = None) -> ProjectConfig:
+    """Load project configuration from litmus.yaml.
+
+    Args:
+        path: Path to litmus.yaml. If None, looks in cwd.
+
+    Returns:
+        Validated ProjectConfig model, or default if file not found.
+    """
+    if path is None:
+        path = Path.cwd() / "litmus.yaml"
+    else:
+        path = Path(path)
+
+    if not path.exists():
+        return ProjectConfig(name="litmus")
+
+    return load_project(path)
 
 
 # =============================================================================
@@ -1344,6 +1368,27 @@ def get_test_config(test_name: str, test_file: Path) -> dict[str, Any] | None:
         _test_config_cache[config_path] = load_test_config(config_path)
 
     return _test_config_cache.get(config_path, {}).get(test_name)
+
+
+# =============================================================================
+# YAML formatting (file I/O wrappers around litmus.config.fmt)
+# =============================================================================
+
+
+def format_file(path: Path) -> str:
+    """Load a YAML file and return it formatted with Litmus conventions."""
+    plain = _read_yaml(path)
+    return dump_yaml(plain)
+
+
+def format_file_inplace(path: Path) -> bool:
+    """Format a YAML file in-place. Returns True if changed."""
+    original = path.read_text()
+    formatted = format_file(path)
+    if formatted != original:
+        path.write_text(formatted)
+        return True
+    return False
 
 
 # =============================================================================

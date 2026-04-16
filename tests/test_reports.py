@@ -215,14 +215,14 @@ class TestTemplateResolution:
 
 class TestProjectConfig:
     def test_load_missing(self, tmp_path):
-        from litmus.config.project import load_project_config
+        from litmus.store import load_project_config
 
         config = load_project_config(tmp_path / "litmus.yaml")
         assert config.results_dir is None
         assert config.outputs == []
 
     def test_load_valid(self, tmp_path):
-        from litmus.config.project import load_project_config
+        from litmus.store import load_project_config
 
         (tmp_path / "litmus.yaml").write_text(
             "name: test\nresults_dir: my_results\noutputs:\n  - format: html\n"

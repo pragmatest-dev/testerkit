@@ -234,7 +234,7 @@ NOTHING else exits the loop. No exceptions. No judgment calls.
 
 After ALL sections are processed, format and validate:
 ```
-uv run python -c "from litmus.config.fmt import format_file_inplace; format_file_inplace(Path('YAML_PATH'))"
+uv run python -c "from litmus.store import format_file_inplace; from pathlib import Path; format_file_inplace(Path('YAML_PATH'))"
 uv run litmus validate --type catalog YAML_PATH
 ```
 

@@ -79,5 +79,14 @@ def _known_catalog_types() -> set[str]:
                 if entry.type:
                     types.add(entry.type.lower())
         return types | _KNOWN_TYPES
-    except (ImportError, OSError):
+    except ImportError:
+        return _KNOWN_TYPES
+    except OSError as exc:
+        import warnings
+
+        warnings.warn(
+            f"Could not load instrument catalog: {exc}",
+            RuntimeWarning,
+            stacklevel=2,
+        )
         return _KNOWN_TYPES
