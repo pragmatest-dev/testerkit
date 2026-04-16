@@ -2,6 +2,8 @@
 
 from nicegui import ui
 
+from litmus.dialogs import DialogResponse, DialogType, get_dialog_manager
+
 
 def create_dialog_container(run_id: str | None = None):
     """Create a container for operator dialogs.
@@ -9,7 +11,6 @@ def create_dialog_container(run_id: str | None = None):
     This sets up a timer that polls for pending dialogs and displays them.
     Uses in-process DialogManager directly (same process as server).
     """
-    from litmus.dialogs import DialogResponse, DialogType, get_dialog_manager
 
     dialog_container = ui.column().classes("hidden")
     state = {"current_dialog_id": None, "choice": 0, "input": ""}
@@ -20,8 +21,8 @@ def create_dialog_container(run_id: str | None = None):
 
         if dialog and str(dialog.id) != state["current_dialog_id"]:
             state["current_dialog_id"] = str(dialog.id)
-            state["choice"] = getattr(dialog, "default_choice", 0) or 0
-            state["input"] = getattr(dialog, "default_value", "") or ""
+            state["choice"] = getattr(dialog, "default_choice", 0)
+            state["input"] = getattr(dialog, "default_value", "")
             dialog_container.classes(remove="hidden")
             dialog_container.clear()
 

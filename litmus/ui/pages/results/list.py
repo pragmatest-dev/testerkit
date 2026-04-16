@@ -1,11 +1,14 @@
 """Results list page."""
 
+import logging
+
 from nicegui import ui
 
-from litmus.data.backends.parquet import ParquetBackend
-from litmus.store import load_project_config
 from litmus.ui.shared.components import format_datetime
 from litmus.ui.shared.layout import create_layout
+from litmus.ui.shared.services import get_recent_runs
+
+logger = logging.getLogger(__name__)
 
 
 @ui.page("/results")
@@ -13,8 +16,11 @@ def results_page():
     """Results listing page."""
     create_layout("Test Results")
 
-    backend = ParquetBackend(results_dir=load_project_config().results_dir)
-    runs = backend.list_runs(limit=50)
+    try:
+        runs = get_recent_runs(limit=50)
+    except (OSError, ValueError) as exc:
+        logger.warning("Failed to load results: %s", exc)
+        runs = []
 
     with ui.column().classes("w-full p-6 gap-6"):
         if runs:

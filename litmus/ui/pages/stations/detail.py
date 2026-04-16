@@ -4,7 +4,7 @@ from nicegui import ui
 
 from litmus.data.backends.parquet import ParquetBackend
 from litmus.store import load_project_config
-from litmus.ui.shared.components import format_datetime, setup_hash_sync_for_tabs
+from litmus.ui.shared.components import format_datetime, info_field, setup_hash_sync_for_tabs
 from litmus.ui.shared.layout import create_layout
 from litmus.ui.shared.services import (
     discover_sequences,
@@ -59,9 +59,9 @@ def _render_station_detail(station_id: str, config):
 
         with ui.card_section():
             with ui.grid(columns=3).classes("gap-6"):
-                _info_field("Station ID", config.id or "")
-                _info_field("Name", config.name or "")
-                _info_field("Location", config.location or "")
+                info_field("Station ID", config.id or "")
+                info_field("Name", config.name or "")
+                info_field("Location", config.location or "")
                 with ui.column().classes("gap-1 col-span-3"):
                     ui.label("Description").classes("text-xs text-slate-500 uppercase")
                     ui.label(config.description or "").classes("font-semibold")
@@ -102,13 +102,6 @@ def _render_station_detail(station_id: str, config):
         ui.link("← Back to Stations", "/stations").classes(
             "text-blue-600 hover:underline self-center"
         )
-
-
-def _info_field(label: str, value: str):
-    """Render an info field."""
-    with ui.column().classes("gap-1"):
-        ui.label(label).classes("text-xs text-slate-500 uppercase")
-        ui.label(value).classes("font-semibold")
 
 
 def _render_instruments_tab(station_id: str, instruments: dict):

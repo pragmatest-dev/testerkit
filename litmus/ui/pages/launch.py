@@ -1,7 +1,11 @@
 """Launch test page."""
 
+import logging
+
 from nicegui import ui
 
+from litmus.api.models import LaunchRequest
+from litmus.api.runner import get_runner
 from litmus.ui.shared.layout import create_layout
 from litmus.ui.shared.services import (
     discover_products,
@@ -10,6 +14,8 @@ from litmus.ui.shared.services import (
     discover_tests,
     get_compatible_stations_for_product,
 )
+
+logger = logging.getLogger(__name__)
 
 
 @ui.page("/launch")
@@ -49,6 +55,7 @@ def launch_page(product: str = "", station: str = "", sequence: str = "", mock: 
     def update_station_options():
         """Update station dropdown based on selected product."""
         nonlocal station_options
+        compatible: list | None = None
         if form["product_id"]:
             compatible = get_compatible_stations_for_product(form["product_id"])
             if compatible:
@@ -66,17 +73,15 @@ def launch_page(product: str = "", station: str = "", sequence: str = "", mock: 
 
         # Update hint
         if station_hint:
-            if form["product_id"]:
-                compatible = get_compatible_stations_for_product(form["product_id"])
-                if compatible:
-                    station_hint.text = f"{len(compatible)} compatible station(s)"
-                    station_hint.classes(replace="text-xs text-emerald-600")
-                else:
-                    station_hint.text = "No compatible stations - consider mock mode"
-                    station_hint.classes(replace="text-xs text-amber-600")
-            else:
-                station_hint.text = "Select a product to filter compatible stations"
+            if not form["product_id"]:
+                station_hint.text = "Showing all stations. Select a product to filter."
                 station_hint.classes(replace="text-xs text-slate-500")
+            elif compatible:
+                station_hint.text = f"{len(compatible)} compatible station(s)"
+                station_hint.classes(replace="text-xs text-emerald-600")
+            else:
+                station_hint.text = "No compatible stations - consider mock mode"
+                station_hint.classes(replace="text-xs text-amber-600")
             station_hint.update()
 
     # Initialize station options
@@ -90,9 +95,6 @@ def launch_page(product: str = "", station: str = "", sequence: str = "", mock: 
             ui.notify("Select a test sequence or test suite", type="warning")
             return
 
-        from litmus.api.models import LaunchRequest
-        from litmus.api.runner import get_runner
-
         request = LaunchRequest(
             product_id=form["product_id"] or None,
             dut_serial=form["dut_serial"],
@@ -103,7 +105,12 @@ def launch_page(product: str = "", station: str = "", sequence: str = "", mock: 
             mock_instruments=form["mock"],
         )
         runner = get_runner()
-        run_id = await runner.start(request)
+        try:
+            run_id = await runner.start(request)
+        except (OSError, ValueError, RuntimeError) as exc:
+            logger.exception("Failed to start test run")
+            ui.notify(f"Failed to start test run: {exc}", type="negative")
+            return
         ui.navigate.to(f"/live/{run_id}")
 
     with ui.column().classes("w-full max-w-xl p-6 gap-6"):
@@ -172,7 +179,7 @@ def launch_page(product: str = "", station: str = "", sequence: str = "", mock: 
                         .props("outlined dense")
                     )
                     station_hint = ui.label(
-                        "Select a product to filter compatible stations"
+                        "Showing all stations. Select a product to filter."
                     ).classes("text-xs text-slate-500")
 
                 # 5. Simulate checkbox

@@ -4,18 +4,20 @@ from typing import Any
 
 from nicegui import ui
 
-from litmus.data.backends.parquet import ParquetBackend
-from litmus.store import load_project_config
-from litmus.ui.shared.components import format_datetime
+from litmus.ui.shared.components import format_datetime, info_field, info_field_link
 from litmus.ui.shared.layout import create_layout
+from litmus.ui.shared.services import (
+    aggregate_run_stats,
+    get_run_detail,
+    get_session_measurements,
+    list_all_runs,
+)
 
 
 @ui.page("/results/{run_id}")
 def result_detail_page(run_id: str):
     """Single result detail page with tabbed interface."""
-    backend = ParquetBackend(results_dir=load_project_config().results_dir)
-    run = backend.get_run(run_id)
-    measurements = backend.get_measurements(run_id, _file=run.get("_file")) if run else []
+    run, measurements = get_run_detail(run_id)
 
     if run:
         create_layout(f"Run {run.get('test_run_id', '')[:8]}")
@@ -24,33 +26,21 @@ def result_detail_page(run_id: str):
 
     with ui.column().classes("w-full p-6 gap-6"):
         if run:
-            _render_run_detail(run_id, run, measurements, backend)
+            _render_run_detail(run_id, run, measurements)
         else:
             _render_not_found()
 
 
-def _render_run_detail(run_id: str, run: dict, measurements: list, backend):
+def _render_run_detail(run_id: str, run: dict, measurements: list):
     """Render the run detail view."""
     run_outcome = run.get("outcome") or ""
 
-    # Calculate stats from measurements
-    total_measurements = len(measurements)
-    failed_measurements = sum(1 for m in measurements if m.get("outcome") == "fail")
-    passed_measurements = sum(1 for m in measurements if m.get("outcome") == "pass")
-
-    # Calculate step stats (a step fails if any measurement in it fails)
-    steps: dict[str, str] = {}  # step_name -> worst outcome
-    for m in measurements:
-        step = m.get("step_name", "")
-        meas_outcome = m.get("outcome") or ""
-        if step not in steps:
-            steps[step] = meas_outcome
-        elif meas_outcome == "fail":
-            steps[step] = "fail"
-        elif meas_outcome == "error" and steps[step] != "fail":
-            steps[step] = "error"
-    total_steps = len(steps)
-    failed_steps = sum(1 for o in steps.values() if o == "fail")
+    stats = aggregate_run_stats(measurements)
+    total_measurements = stats["total_measurements"]
+    passed_measurements = stats["passed_measurements"]
+    failed_measurements = stats["failed_measurements"]
+    total_steps = stats["total_steps"]
+    failed_steps = stats["failed_steps"]
 
     # Summary card
     with ui.card().classes("w-full"):
@@ -74,16 +64,16 @@ def _render_run_detail(run_id: str, run: dict, measurements: list, backend):
 
         with ui.card_section():
             with ui.grid(columns=3).classes("gap-6"):
-                _info_field("DUT Serial", run.get("dut_serial", ""))
-                _info_field_link("Station", run.get("station_id", ""), "/stations")
-                _info_field_link("Test Sequence", run.get("test_sequence_id", ""), "/sequences")
-                _info_field("Started", format_datetime(run.get("started_at")))
-                _info_field("Ended", format_datetime(run.get("ended_at")))
+                info_field("DUT Serial", run.get("dut_serial", ""))
+                info_field_link("Station", run.get("station_id", ""), "/stations")
+                info_field_link("Test Sequence", run.get("test_sequence_id", ""), "/sequences")
+                info_field("Started", format_datetime(run.get("started_at")))
+                info_field("Ended", format_datetime(run.get("ended_at")))
                 results_summary = (
                     f"{total_steps} steps, {total_measurements} measurements, "
                     f"{failed_measurements} failed"
                 )
-                _info_field("Results", results_summary)
+                info_field("Results", results_summary)
 
     # Check if this is a multi-slot run (slot_id present in measurements)
     has_slots = any(m.get("slot_id") for m in measurements)
@@ -115,7 +105,7 @@ def _render_run_detail(run_id: str, run: dict, measurements: list, backend):
         if has_slots and timeline_tab is not None and session_id:
             with ui.tab_panel(timeline_tab):
                 # Load measurements from ALL sibling runs in the same session
-                session_measurements = backend.get_session_measurements(session_id)
+                session_measurements = get_session_measurements(session_id)
                 # Identify which slot this run belongs to
                 current_slot_id = next(
                     (m.get("slot_id") for m in measurements if m.get("slot_id")),
@@ -127,7 +117,7 @@ def _render_run_detail(run_id: str, run: dict, measurements: list, backend):
                 )
 
         with ui.tab_panel(history_tab):
-            _render_history_tab(run_id, run, backend)
+            _render_history_tab(run_id, run)
 
     # ECharts in hidden tabs can't compute layout — resize on tab switch
     if gantt_chart is not None:
@@ -140,25 +130,6 @@ def _render_run_detail(run_id: str, run: dict, measurements: list, backend):
         )
 
     ui.link("← Back to Results", "/results").classes("text-blue-600 hover:underline")
-
-
-def _info_field(label: str, value: str):
-    """Render an info field."""
-    with ui.column().classes("gap-1"):
-        ui.label(label).classes("text-xs text-slate-500 uppercase")
-        ui.label(value).classes("font-semibold")
-
-
-def _info_field_link(label: str, value: str, base_path: str):
-    """Render an info field with a link."""
-    with ui.column().classes("gap-1"):
-        ui.label(label).classes("text-xs text-slate-500 uppercase")
-        if value:
-            ui.link(value, f"{base_path}/{value}").classes(
-                "font-semibold text-blue-600 hover:underline"
-            )
-        else:
-            ui.label("-").classes("font-semibold")
 
 
 def _render_overview_tab(
@@ -227,10 +198,10 @@ def _render_measurements_tab(measurements: list):
         ui.label("No measurements recorded.").classes("text-slate-500 italic")
 
 
-def _render_history_tab(run_id: str, run: dict, backend):
+def _render_history_tab(run_id: str, run: dict):
     """Render the DUT history tab."""
     dut_serial = run.get("dut_serial", "")
-    all_runs = backend.list_runs(limit=100)
+    all_runs = list_all_runs(limit=100)
     dut_runs = [
         r for r in all_runs if r.get("dut_serial") == dut_serial and r.get("test_run_id") != run_id
     ]

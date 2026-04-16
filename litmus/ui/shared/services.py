@@ -3,11 +3,21 @@
 NO direct yaml.safe_load or Path I/O here — all persistence goes through litmus.store.
 """
 
-from typing import Literal
+from pathlib import Path
+from typing import Any, Literal
 
+import pyarrow as pa
+
+from litmus.analysis import query
+from litmus.config.normalize import check_instrument_types
 from litmus.config.station_types import StationType
+from litmus.data.backends.parquet import ParquetBackend
 from litmus.instruments.loader import resolve_station_instruments
 from litmus.matching import service as matching_service
+from litmus.models.catalog import InstrumentCatalogEntry
+from litmus.models.config import FixtureConfig, TestSequenceConfig
+from litmus.models.product import Product
+from litmus.models.station import StationConfig
 from litmus.products.folder import ProductFolder
 from litmus.store import (
     create_catalog_entry as store_create_catalog_entry,
@@ -28,6 +38,8 @@ from litmus.store import (
     find_catalog_dirs,
     load_catalog_from_directory,
     load_instrument_files,
+    load_product,
+    load_project_config,
 )
 from litmus.store import (
     get_catalog_entry as store_get_catalog_entry,
@@ -80,8 +92,6 @@ from litmus.store import (
 from litmus.store import (
     save_station_type as store_save_station_type,
 )
-
-# Re-export for backwards compatibility with UI pages
 from litmus.utils.paths import get_instrument_paths
 
 # -----------------------------------------------------------------------------
@@ -95,8 +105,6 @@ def discover_products() -> list[dict]:
     Flat files (products/id.yaml) are the canonical convention.
     Manifest-based folders and other nested layouts are also supported via rglob.
     """
-    from pathlib import Path
-
     products = []
     seen_ids: set[str] = set()
 
@@ -155,8 +163,6 @@ def discover_products() -> list[dict]:
                 )
 
         # 2. Discover all YAML files (flat and nested, no manifest required)
-        from litmus.store import load_product
-
         for yaml_file in sorted(products_dir.rglob("*.yaml")):
             if yaml_file.name.startswith("_"):
                 continue
@@ -201,7 +207,6 @@ def create_product(product_id: str, name: str, description: str = "") -> dict | 
     product = store_create_product(product_id, name, description)
     if product is None:
         return None
-    from pathlib import Path
 
     products_dir = Path.cwd() / "products"
     folder_path = products_dir / product_id
@@ -275,8 +280,6 @@ def get_all_station_matches_for_product(product_id: str) -> dict[str, list]:
 
 def save_product(product_id: str, product_data: dict) -> bool:
     """Save product specification to YAML file."""
-    from litmus.models.product import Product
-
     product_dict = {
         "id": product_data.get("id", product_id),
         "name": product_data.get("name", ""),
@@ -319,9 +322,6 @@ def create_station(
 
 def save_station(station_id: str, station_data: dict, instruments_data: dict) -> bool:
     """Save station configuration to YAML file."""
-    from litmus.config.normalize import check_instrument_types
-    from litmus.models.station import StationConfig
-
     check_instrument_types(instruments_data)
     station_dict = {**station_data, "instruments": instruments_data}
     station = StationConfig.model_validate(station_dict)
@@ -371,8 +371,6 @@ def load_catalog_entry_by_type(instrument_type: str):
 
 def save_catalog_entry(instrument_type: str, data: dict) -> bool:
     """Save a catalog entry to catalog/."""
-    from litmus.models.catalog import InstrumentCatalogEntry
-
     inst = data.get("instrument", {})
     entry = InstrumentCatalogEntry.model_validate(
         {
@@ -428,8 +426,6 @@ def create_catalog_entry(
 
 def discover_tests() -> list[dict]:
     """Discover available test directories."""
-    from pathlib import Path
-
     tests = []
     search_paths = [Path.cwd() / "tests"]
 
@@ -469,8 +465,6 @@ def load_sequence_config(sequence_id: str):
 
 def save_sequence(sequence_id: str, sequence_data: dict, steps: list, dialogs: dict) -> bool:
     """Save sequence configuration to YAML file."""
-    from litmus.models.config import TestSequenceConfig
-
     seq_dict = {**sequence_data, "steps": steps}
     if dialogs:
         seq_dict["dialogs"] = dialogs
@@ -506,8 +500,6 @@ def create_fixture(
 
 def save_fixture(fixture_id: str, fixture_data: dict, points_data: dict) -> bool:
     """Save fixture configuration to YAML file."""
-    from litmus.models.config import FixtureConfig
-
     fixture_dict = {**fixture_data, "points": points_data}
     fixture = FixtureConfig.model_validate(fixture_dict)
     return store_save_fixture(fixture)
@@ -561,3 +553,101 @@ def get_compatible_stations_for_fixture(fixture_id: str):
             compatible.append(station)
 
     return compatible
+
+
+# -----------------------------------------------------------------------------
+# Test Run Services
+# -----------------------------------------------------------------------------
+
+
+def _results_backend() -> ParquetBackend:
+    """Build a ParquetBackend using the configured project results_dir."""
+    project = load_project_config()
+    return ParquetBackend(results_dir=project.results_dir)
+
+
+def get_recent_runs(limit: int = 10) -> list[dict]:
+    """Return the most recent test runs as list-row dicts."""
+    return _results_backend().list_runs(limit=limit)
+
+
+def get_run_detail(run_id: str) -> tuple[dict | None, list[dict]]:
+    """Return (run, measurements) for a given run id."""
+    backend = _results_backend()
+    run = backend.get_run(run_id)
+    if run is None:
+        return None, []
+    measurements = backend.get_measurements(run_id, _file=run.get("_file"))
+    return run, measurements
+
+
+def get_session_measurements(session_id: str) -> list[dict]:
+    """Return measurements for all runs in a session (parallel execution timeline)."""
+    return _results_backend().get_session_measurements(session_id)
+
+
+def list_all_runs(limit: int = 100) -> list[dict]:
+    """List more runs for cross-run views (DUT history etc.)."""
+    return _results_backend().list_runs(limit=limit)
+
+
+def aggregate_run_stats(measurements: list[dict]) -> dict[str, Any]:
+    """Compute run-level stats (steps + measurements) from a measurements list.
+
+    Returned keys: total_measurements, passed_measurements, failed_measurements,
+    total_steps, failed_steps.
+    """
+    total_measurements = len(measurements)
+    failed_measurements = sum(1 for m in measurements if m.get("outcome") == "fail")
+    passed_measurements = sum(1 for m in measurements if m.get("outcome") == "pass")
+
+    # A step fails if any of its measurements fail
+    steps: dict[str, str] = {}
+    for m in measurements:
+        step = m.get("step_name", "")
+        meas_outcome = m.get("outcome") or ""
+        if step not in steps:
+            steps[step] = meas_outcome
+        elif meas_outcome == "fail":
+            steps[step] = "fail"
+        elif meas_outcome == "error" and steps[step] != "fail":
+            steps[step] = "error"
+    total_steps = len(steps)
+    failed_steps = sum(1 for o in steps.values() if o == "fail")
+
+    return {
+        "total_measurements": total_measurements,
+        "passed_measurements": passed_measurements,
+        "failed_measurements": failed_measurements,
+        "total_steps": total_steps,
+        "failed_steps": failed_steps,
+    }
+
+
+# -----------------------------------------------------------------------------
+# Yield Services
+# -----------------------------------------------------------------------------
+
+
+def load_yield_runs_table(results_dir: str) -> pa.Table | None:
+    """Load the runs arrow table for the yield dashboard (or None on error)."""
+    try:
+        return query.load_runs(results_dir)
+    except (OSError, pa.ArrowInvalid):
+        return None
+
+
+def get_yield_filter_options(table: pa.Table | None) -> dict[str, list[str]]:
+    """Return dropdown options for the yield page (products + stations).
+
+    Falls back to id-columns if the ``*_name`` columns have no values.
+    """
+    if table is None:
+        return {"products": [], "stations": []}
+    products = query.get_unique_column_values(table, "dut_part_number")
+    if not products:
+        products = query.get_unique_column_values(table, "product_id")
+    stations = query.get_unique_column_values(table, "station_name")
+    if not stations:
+        stations = query.get_unique_column_values(table, "station_id")
+    return {"products": products, "stations": stations}

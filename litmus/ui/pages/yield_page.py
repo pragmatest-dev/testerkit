@@ -2,15 +2,27 @@
 
 import logging
 import traceback
+from typing import TypedDict
 
-import pyarrow as pa
 from nicegui import ui
 
-from litmus.analysis import query
+from litmus.analysis.gold import GoldStore
 from litmus.ui.shared.components import render_empty_card
 from litmus.ui.shared.layout import create_layout
+from litmus.ui.shared.services import get_yield_filter_options, load_yield_runs_table
 
 logger = logging.getLogger(__name__)
+
+
+class YieldDashboardData(TypedDict):
+    fpy: float
+    final_yield: float
+    total_runs: int
+    total_failed: int
+    pareto_data: list[dict]
+    cpk_data: list[dict]
+    trend_data: list[dict]
+    time_stats: dict
 
 
 @ui.page("/yield")
@@ -42,19 +54,12 @@ def yield_page(
     create_layout("Yield Analytics")
 
     # Load initial data to populate dropdowns (reuse for initial render to avoid double-load)
-    try:
-        initial_table = query.load_runs(results_dir)
-        products = query.get_unique_column_values(initial_table, "dut_part_number")
-        if not products:
-            products = query.get_unique_column_values(initial_table, "product_id")
-        stations = query.get_unique_column_values(initial_table, "station_name")
-        if not stations:
-            stations = query.get_unique_column_values(initial_table, "station_id")
-    except (OSError, pa.ArrowInvalid) as exc:
-        logger.warning("Failed to load initial data: %s", exc)
-        initial_table = None
-        products = []
-        stations = []
+    initial_table = load_yield_runs_table(results_dir)
+    if initial_table is None:
+        logger.warning("Failed to load initial yield table from %s", results_dir)
+    filter_options = get_yield_filter_options(initial_table)
+    products = filter_options["products"]
+    stations = filter_options["stations"]
 
     def update_url():
         """Update URL with current filter values."""
@@ -92,7 +97,6 @@ def yield_page(
                 phase_filter.value,
                 None if product_filter.value == "All" else product_filter.value,
                 None if station_filter.value == "All" else station_filter.value,
-                lot_filter.value or None,
                 since_filter.value or None,
                 until_filter.value or None,
                 summary_container,
@@ -174,13 +178,11 @@ def yield_page(
         trend_chart_container = ui.column().classes("w-full")
         time_stats_container = ui.column().classes("w-full")
 
-    # Initial load (reuse already-loaded table to avoid double-load)
     _refresh_dashboard(
         results_dir,
         phase if phase in ["production", "qual", "development", "all"] else "production",
         product if product else None,
         station if station else None,
-        lot if lot else None,
         since if since else None,
         until if until else None,
         summary_container,
@@ -188,8 +190,113 @@ def yield_page(
         cpk_table_container,
         trend_chart_container,
         time_stats_container,
-        preloaded_table=initial_table,
     )
+
+
+def _fetch_yield_data(
+    results_dir: str,
+    phase: str | None,
+    product_id: str | None,
+    station_id: str | None,
+    since: str | None,
+    until: str | None,
+) -> YieldDashboardData | None:
+    """Compute all yield dashboard data (pure — no UI).
+
+    Returns a dict with keys: fpy, final_yield, total_runs, total_failed,
+    pareto_data, cpk_data, trend_data, time_stats. Returns None when the
+    filters match no data so the caller can render an empty-state.
+    """
+    store = GoldStore(_results_dir=results_dir)
+
+    _product = product_id or None
+    _station = station_id or None
+    _phase = phase or None
+    _since = since or None
+    _until = until or None
+
+    summary_rows = store.yield_summary(
+        product=_product,
+        station=_station,
+        phase=_phase,
+        since=_since,
+        until=_until,
+        period="day",
+    )
+    if not summary_rows:
+        return None
+
+    total_runs = sum(r.get("total_runs", 0) for r in summary_rows)
+    total_failed = sum(r.get("failed", 0) for r in summary_rows)
+    fp_total = sum(r.get("first_pass_total", 0) for r in summary_rows)
+    fp_passed = sum(r.get("first_pass_passed", 0) for r in summary_rows)
+    final_passed = sum(r.get("final_passed", 0) for r in summary_rows)
+    unique_serials = sum(r.get("unique_serials", 0) for r in summary_rows)
+
+    fpy = fp_passed / fp_total if fp_total else 0.0
+    final_yield = final_passed / unique_serials if unique_serials else 0.0
+
+    pareto_rows = store.pareto(
+        product=_product,
+        station=_station,
+        phase=_phase,
+        since=_since,
+        until=_until,
+        top_n=10,
+    )
+    pareto_data = []
+    total_fails = sum(r.get("fail_count", 0) for r in pareto_rows)
+    cumulative = 0.0
+    for r in pareto_rows:
+        pct = r["fail_count"] / total_fails * 100 if total_fails else 0
+        cumulative += pct
+        pareto_data.append(
+            {
+                "step_name": r.get("step_name", ""),
+                "measurement_name": r.get("measurement_name", ""),
+                "count": r.get("fail_count", 0),
+                "pct": round(pct, 1),
+                "cumulative_pct": round(cumulative, 1),
+            }
+        )
+
+    cpk_data = store.cpk(
+        product=_product,
+        station=_station,
+        phase=_phase,
+        since=_since,
+        until=_until,
+    )
+
+    trend_data = store.trend(
+        product=_product,
+        station=_station,
+        phase=_phase,
+        since=_since,
+        until=_until,
+        period="day",
+    )
+
+    durations = [r["avg_duration_s"] for r in summary_rows if r.get("avg_duration_s") is not None]
+    p95s = [r["p95_duration_s"] for r in summary_rows if r.get("p95_duration_s") is not None]
+    time_stats = {
+        "avg_s": round(sum(durations) / len(durations), 2) if durations else None,
+        "min_s": round(min(durations), 2) if durations else None,
+        "max_s": round(max(durations), 2) if durations else None,
+        "p95_s": round(max(p95s), 2) if p95s else None,
+        "count": total_runs,
+    }
+
+    return {
+        "fpy": fpy,
+        "final_yield": final_yield,
+        "total_runs": total_runs,
+        "total_failed": total_failed,
+        "pareto_data": pareto_data,
+        "cpk_data": cpk_data,
+        "trend_data": trend_data,
+        "time_stats": time_stats,
+    }
 
 
 def _refresh_dashboard(
@@ -197,7 +304,6 @@ def _refresh_dashboard(
     phase: str | None,
     product_id: str | None,
     station_id: str | None,
-    lot: str | None,
     since: str | None,
     until: str | None,
     summary_container,
@@ -205,11 +311,8 @@ def _refresh_dashboard(
     cpk_table_container,
     trend_chart_container,
     time_stats_container,
-    preloaded_table=None,
 ):
     """Refresh all dashboard components via GoldStore (DuckDB SQL on silver)."""
-    from litmus.analysis.gold import GoldStore
-
     summary_container.clear()
     pareto_chart_container.clear()
     cpk_table_container.clear()
@@ -217,113 +320,37 @@ def _refresh_dashboard(
     time_stats_container.clear()
 
     try:
-        store = GoldStore(_results_dir=results_dir)
-
-        _product = product_id or None
-        _station = station_id or None
-        _phase = phase or None
-        _since = since or None
-        _until = until or None
-
-        summary_rows = store.yield_summary(
-            product=_product,
-            station=_station,
-            phase=_phase,
-            since=_since,
-            until=_until,
-            period="day",
+        data = _fetch_yield_data(
+            results_dir,
+            phase,
+            product_id,
+            station_id,
+            since,
+            until,
         )
-        if not summary_rows:
-            with summary_container:
-                ui.label("No data matches the selected filters").classes("text-slate-500 italic")
-            return
-
-        # Aggregate summary across all periods/products/stations
-        total_runs = sum(r.get("total_runs", 0) for r in summary_rows)
-        total_failed = sum(r.get("failed", 0) for r in summary_rows)
-        fp_total = sum(r.get("first_pass_total", 0) for r in summary_rows)
-        fp_passed = sum(r.get("first_pass_passed", 0) for r in summary_rows)
-        final_passed = sum(r.get("final_passed", 0) for r in summary_rows)
-        unique_serials = sum(r.get("unique_serials", 0) for r in summary_rows)
-
-        fpy = fp_passed / fp_total if fp_total else 0.0
-        final_yield = final_passed / unique_serials if unique_serials else 0.0
-
-        # Pareto — adapt to renderer shape (add cumulative_pct, rename count)
-        pareto_rows = store.pareto(
-            product=_product,
-            station=_station,
-            phase=_phase,
-            since=_since,
-            until=_until,
-            top_n=10,
-        )
-        pareto_data = []
-        total_fails = sum(r.get("fail_count", 0) for r in pareto_rows)
-        cumulative = 0.0
-        for r in pareto_rows:
-            pct = r["fail_count"] / total_fails * 100 if total_fails else 0
-            cumulative += pct
-            pareto_data.append(
-                {
-                    "step_name": r.get("step_name", ""),
-                    "measurement_name": r.get("measurement_name", ""),
-                    "count": r.get("fail_count", 0),
-                    "pct": round(pct, 1),
-                    "cumulative_pct": round(cumulative, 1),
-                }
-            )
-
-        # Cpk — shape matches renderer
-        cpk_data = store.cpk(
-            product=_product,
-            station=_station,
-            phase=_phase,
-            since=_since,
-            until=_until,
-        )
-
-        # Trend — shape matches renderer
-        trend_data = store.trend(
-            product=_product,
-            station=_station,
-            phase=_phase,
-            since=_since,
-            until=_until,
-            period="day",
-        )
-
-        # Time stats — aggregate from summary rows
-        durations = [
-            r["avg_duration_s"] for r in summary_rows if r.get("avg_duration_s") is not None
-        ]
-        p95s = [r["p95_duration_s"] for r in summary_rows if r.get("p95_duration_s") is not None]
-        time_stats = {
-            "avg_s": round(sum(durations) / len(durations), 2) if durations else None,
-            "min_s": round(min(durations), 2) if durations else None,
-            "max_s": round(max(durations), 2) if durations else None,
-            "p95_s": round(max(p95s), 2) if p95s else None,
-            "count": total_runs,
-        }
-
-        # Render
-        _render_summary_cards(
-            summary_container,
-            fpy,
-            final_yield,
-            total_runs,
-            total_failed,
-        )
-        _render_pareto_chart(pareto_chart_container, pareto_data)
-        _render_cpk_table(cpk_table_container, cpk_data)
-        _render_trend_chart(trend_chart_container, trend_data)
-        _render_time_stats(time_stats_container, time_stats)
-
-    except Exception as e:
+    except (OSError, ValueError, RuntimeError) as e:
         with summary_container:
             ui.label(f"Error loading data: {e}").classes("text-red-600")
             with ui.expansion("Stack trace", icon="bug_report").classes("w-full"):
                 ui.code(traceback.format_exc()).classes("text-xs")
+        return
+
+    if data is None:
+        with summary_container:
+            ui.label("No data matches the selected filters").classes("text-slate-500 italic")
+        return
+
+    _render_summary_cards(
+        summary_container,
+        data["fpy"],
+        data["final_yield"],
+        data["total_runs"],
+        data["total_failed"],
+    )
+    _render_pareto_chart(pareto_chart_container, data["pareto_data"])
+    _render_cpk_table(cpk_table_container, data["cpk_data"])
+    _render_trend_chart(trend_chart_container, data["trend_data"])
+    _render_time_stats(time_stats_container, data["time_stats"])
 
 
 def _render_summary_cards(

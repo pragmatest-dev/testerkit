@@ -2,7 +2,12 @@
 
 from nicegui import ui
 
-from litmus.ui.shared.components import AutoSaver, setup_hash_sync_for_tabs
+from litmus.ui.shared.components import (
+    AutoSaver,
+    labeled_input,
+    labeled_textarea,
+    setup_hash_sync_for_tabs,
+)
 from litmus.ui.shared.layout import create_layout
 from litmus.ui.shared.services import (
     discover_products,
@@ -118,12 +123,12 @@ def _render_info_tab(form_data: dict, product_options: dict, phase_options: dict
             ui.label("Basic Information").classes("font-semibold mb-4")
 
             with ui.column().classes("gap-4 w-full max-w-xl"):
-                _labeled_input(
+                labeled_input(
                     "Sequence ID",
                     seq["id"],
                     readonly=True,
                 )
-                _labeled_input(
+                labeled_input(
                     "Name",
                     seq["name"],
                     on_change=lambda e: (
@@ -131,7 +136,7 @@ def _render_info_tab(form_data: dict, product_options: dict, phase_options: dict
                         saver.trigger(),
                     ),
                 )
-                _labeled_textarea(
+                labeled_textarea(
                     "Description",
                     seq["description"],
                     on_change=lambda e: (
@@ -168,7 +173,7 @@ def _render_info_tab(form_data: dict, product_options: dict, phase_options: dict
             ui.label("Requirements").classes("font-semibold mb-4")
 
             with ui.column().classes("gap-4 w-full max-w-xl"):
-                _labeled_input(
+                labeled_input(
                     "Required Fixture",
                     seq.get("required_fixture", ""),
                     placeholder="e.g., power_board_fixture_v1",
@@ -177,7 +182,7 @@ def _render_info_tab(form_data: dict, product_options: dict, phase_options: dict
                         saver.trigger(),
                     ),
                 )
-                _labeled_input(
+                labeled_input(
                     "Required Station Type",
                     seq.get("required_station_type", ""),
                     placeholder="e.g., power_test_station",
@@ -320,12 +325,12 @@ def _render_step_card(
         # Edit in expansion
         with ui.expansion("Edit Step", icon="edit").classes("w-full"):
             with ui.column().classes("gap-4 p-2"):
-                _labeled_input(
+                labeled_input(
                     "Step ID",
                     step.get("id", ""),
                     on_change=lambda e, s=step: s.update({"id": e.value}),
                 )
-                _labeled_input(
+                labeled_input(
                     "Description",
                     step.get("description", ""),
                     on_change=lambda e, s=step: s.update({"description": e.value}),
@@ -349,7 +354,7 @@ def _render_step_card(
                             on_change=lambda e, s=step: s.update({"sequence": e.value}),
                         ).props("outlined dense").classes("w-full")
 
-                _labeled_input(
+                labeled_input(
                     "Limit Reference",
                     step.get("limit_ref", ""),
                     placeholder="e.g., specs.power_board.rail_5v",
@@ -357,13 +362,13 @@ def _render_step_card(
                 )
 
                 with ui.row().classes("gap-4 w-full"):
-                    _labeled_input(
+                    labeled_input(
                         "Pre-Dialog",
                         step.get("pre_dialog", ""),
                         placeholder="Dialog ID",
                         on_change=lambda e, s=step: s.update({"pre_dialog": e.value}),
                     )
-                    _labeled_input(
+                    labeled_input(
                         "Post-Dialog",
                         step.get("post_dialog", ""),
                         placeholder="Dialog ID",
@@ -413,7 +418,7 @@ def _render_step_card(
                                     on_change=lambda e, r=retry: r.update({"strategy": e.value}),
                                 ).props("outlined dense")
 
-                            _labeled_input(
+                            labeled_input(
                                 "Dialog Ref",
                                 retry.get("dialog_ref", ""),
                                 placeholder="Dialog ID for retry",
@@ -489,12 +494,12 @@ def _render_dialog_card(dialog_id: str, dialog: dict, form_data: dict, refresh_c
 
         with ui.expansion("Edit Dialog", icon="edit").classes("w-full"):
             with ui.column().classes("gap-4 p-2"):
-                _labeled_input(
+                labeled_input(
                     "Dialog ID",
                     dialog.get("id", dialog_id),
                     readonly=True,
                 )
-                _labeled_textarea(
+                labeled_textarea(
                     "Message",
                     dialog.get("message", ""),
                     on_change=lambda e, d=dialog: d.update({"message": e.value}),
@@ -765,11 +770,11 @@ def _show_add_step_dialog(form_data: dict, sequence_options: dict, test_options:
         with ui.card_section():
             ui.label("Add Step").classes("text-lg font-semibold")
         with ui.card_section().classes("flex flex-col gap-4"):
-            _labeled_input(
+            labeled_input(
                 "Step ID",
                 on_change=lambda e: step_form.update({"id": e.value}),
             )
-            _labeled_input(
+            labeled_input(
                 "Description",
                 on_change=lambda e: step_form.update({"description": e.value}),
             )
@@ -838,11 +843,11 @@ def _show_add_dialog_dialog(form_data: dict, container):
         with ui.card_section():
             ui.label("Add Dialog").classes("text-lg font-semibold")
         with ui.card_section().classes("flex flex-col gap-4"):
-            _labeled_input(
+            labeled_input(
                 "Dialog ID",
                 on_change=lambda e: dialog_form.update({"id": e.value}),
             )
-            _labeled_textarea(
+            labeled_textarea(
                 "Message",
                 on_change=lambda e: dialog_form.update({"message": e.value}),
             )
@@ -893,33 +898,3 @@ def _show_add_dialog_dialog(form_data: dict, container):
 
             ui.button("Add", on_click=add).props("color=primary")
     dialog.open()
-
-
-# -----------------------------------------------------------------------------
-# Form Components
-# -----------------------------------------------------------------------------
-
-
-def _labeled_input(
-    label: str,
-    value: str = "",
-    placeholder: str = "",
-    readonly: bool = False,
-    on_change=None,
-):
-    """Create a labeled input field."""
-    with ui.column().classes("gap-1 flex-1"):
-        ui.label(label).classes("text-sm font-medium text-slate-700")
-        props = "outlined dense"
-        if readonly:
-            props += " readonly"
-        ui.input(value=value, placeholder=placeholder, on_change=on_change).props(props).classes(
-            "w-full"
-        )
-
-
-def _labeled_textarea(label: str, value: str = "", on_change=None):
-    """Create a labeled textarea."""
-    with ui.column().classes("gap-1 w-full"):
-        ui.label(label).classes("text-sm font-medium text-slate-700")
-        ui.textarea(value=value, on_change=on_change).props("outlined dense").classes("w-full")

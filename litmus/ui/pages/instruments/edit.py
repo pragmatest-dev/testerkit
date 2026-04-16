@@ -2,7 +2,12 @@
 
 from nicegui import ui
 
-from litmus.ui.shared.components import AutoSaver, setup_hash_sync_for_tabs
+from litmus.ui.shared.components import (
+    AutoSaver,
+    labeled_input,
+    labeled_textarea,
+    setup_hash_sync_for_tabs,
+)
 from litmus.ui.shared.layout import create_layout
 from litmus.ui.shared.services import (
     load_catalog_entry_by_type,
@@ -115,12 +120,12 @@ def _render_info_tab(form_data: dict, saver: AutoSaver):
             ui.label("Basic Information").classes("font-semibold mb-4")
 
             with ui.column().classes("gap-4 w-full max-w-xl"):
-                _labeled_input(
+                labeled_input(
                     "Type",
                     inst["type"],
                     readonly=True,
                 )
-                _labeled_input(
+                labeled_input(
                     "Name",
                     inst["name"],
                     on_change=lambda e: (
@@ -128,7 +133,7 @@ def _render_info_tab(form_data: dict, saver: AutoSaver):
                         saver.trigger(),
                     ),
                 )
-                _labeled_textarea(
+                labeled_textarea(
                     "Description",
                     inst["description"],
                     on_change=lambda e: (
@@ -136,7 +141,7 @@ def _render_info_tab(form_data: dict, saver: AutoSaver):
                         saver.trigger(),
                     ),
                 )
-                _labeled_input(
+                labeled_input(
                     "Icon",
                     inst["icon"],
                     placeholder="Material icon name (e.g., speed, power)",
@@ -145,7 +150,7 @@ def _render_info_tab(form_data: dict, saver: AutoSaver):
                         saver.trigger(),
                     ),
                 )
-                _labeled_input(
+                labeled_input(
                     "Driver Class",
                     inst.get("driver_class", ""),
                     placeholder="e.g., litmus.instruments.dmm.DMM",
@@ -232,12 +237,12 @@ def _render_capability_card(
 
         with ui.expansion("Edit Capability", icon="edit").classes("w-full"):
             with ui.column().classes("gap-4 p-2"):
-                _labeled_input(
+                labeled_input(
                     "Name",
                     cap.get("name", ""),
                     on_change=lambda e, c=cap: c.update({"name": e.value}),
                 )
-                _labeled_input(
+                labeled_input(
                     "Description",
                     cap.get("description", ""),
                     on_change=lambda e, c=cap: c.update({"description": e.value}),
@@ -320,7 +325,7 @@ def _render_simulation_tab(form_data: dict, saver: AutoSaver):
             ui.label("Simulation Configuration").classes("font-semibold mb-4")
 
             with ui.column().classes("gap-4 w-full max-w-xl"):
-                _labeled_input(
+                labeled_input(
                     "IDN Response",
                     simulation.get("idn", ""),
                     placeholder="e.g., Litmus,SimDMM,SN001,1.0",
@@ -394,11 +399,11 @@ def _show_add_capability_dialog(
         with ui.card_section():
             ui.label("Add Capability").classes("text-lg font-semibold")
         with ui.card_section().classes("flex flex-col gap-4"):
-            _labeled_input(
+            labeled_input(
                 "Name",
                 on_change=lambda e: cap_form.update({"name": e.value}),
             )
-            _labeled_input(
+            labeled_input(
                 "Description",
                 on_change=lambda e: cap_form.update({"description": e.value}),
             )
@@ -448,12 +453,12 @@ def _show_add_scpi_dialog(form_data: dict, container):
         with ui.card_section():
             ui.label("Add SCPI Command").classes("text-lg font-semibold")
         with ui.card_section().classes("flex flex-col gap-4"):
-            _labeled_input(
+            labeled_input(
                 "Command Name",
                 placeholder="e.g., measure_voltage_dc",
                 on_change=lambda e: cmd_form.update({"name": e.value}),
             )
-            _labeled_input(
+            labeled_input(
                 "SCPI Command",
                 placeholder="e.g., MEAS:VOLT:DC?",
                 on_change=lambda e: cmd_form.update({"command": e.value}),
@@ -475,33 +480,3 @@ def _show_add_scpi_dialog(form_data: dict, container):
 
             ui.button("Add", on_click=add).props("color=primary")
     dialog.open()
-
-
-# -----------------------------------------------------------------------------
-# Form Components
-# -----------------------------------------------------------------------------
-
-
-def _labeled_input(
-    label: str,
-    value: str = "",
-    placeholder: str = "",
-    readonly: bool = False,
-    on_change=None,
-):
-    """Create a labeled input field."""
-    with ui.column().classes("gap-1 flex-1"):
-        ui.label(label).classes("text-sm font-medium text-slate-700")
-        props = "outlined dense"
-        if readonly:
-            props += " readonly"
-        ui.input(value=value, placeholder=placeholder, on_change=on_change).props(props).classes(
-            "w-full"
-        )
-
-
-def _labeled_textarea(label: str, value: str = "", on_change=None):
-    """Create a labeled textarea."""
-    with ui.column().classes("gap-1 w-full"):
-        ui.label(label).classes("text-sm font-medium text-slate-700")
-        ui.textarea(value=value, on_change=on_change).props("outlined dense").classes("w-full")

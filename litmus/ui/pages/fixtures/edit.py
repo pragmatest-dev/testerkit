@@ -4,7 +4,7 @@ from collections.abc import Callable
 
 from nicegui import ui
 
-from litmus.ui.shared.components import AutoSaver
+from litmus.ui.shared.components import AutoSaver, labeled_input, labeled_textarea
 from litmus.ui.shared.layout import create_layout
 from litmus.ui.shared.services import (
     discover_products,
@@ -79,7 +79,7 @@ def fixture_edit_page(fixture_id: str):
 
             with ui.card_section().classes("flex flex-col gap-4"):
                 with ui.row().classes("gap-4"):
-                    _labeled_input(
+                    labeled_input(
                         "Fixture ID",
                         form_data["fixture"]["id"],
                         readonly=not is_new,
@@ -88,7 +88,7 @@ def fixture_edit_page(fixture_id: str):
                             saver.trigger() if saver else None,
                         ),
                     )
-                    _labeled_input(
+                    labeled_input(
                         "Name",
                         form_data["fixture"]["name"],
                         on_change=lambda e: (
@@ -108,7 +108,7 @@ def fixture_edit_page(fixture_id: str):
                                 saver.trigger() if saver else None,
                             ),
                         ).props("outlined dense").classes("w-full")
-                    _labeled_input(
+                    labeled_input(
                         "Revision (optional)",
                         form_data["fixture"]["product_revision"],
                         on_change=lambda e: (
@@ -117,7 +117,7 @@ def fixture_edit_page(fixture_id: str):
                         ),
                     )
 
-                _labeled_textarea(
+                labeled_textarea(
                     "Description",
                     form_data["fixture"]["description"],
                     on_change=lambda e: (
@@ -137,7 +137,12 @@ def fixture_edit_page(fixture_id: str):
                         on_click=lambda: _show_add_point_dialog(
                             instrument_options,
                             lambda name, data: _add_point(
-                                form_data, name, data, points_container, saver
+                                form_data,
+                                name,
+                                data,
+                                instrument_options,
+                                points_container,
+                                saver,
                             ),
                         ),
                     ).props("flat color=primary")
@@ -253,10 +258,17 @@ def _render_point_row(
                     ).props("outlined dense").classes("w-full")
 
 
-def _add_point(form_data: dict, name: str, data: dict, container, saver=None):
+def _add_point(
+    form_data: dict,
+    name: str,
+    data: dict,
+    instrument_options: list,
+    container,
+    saver=None,
+):
     """Add a new point to the fixture."""
     form_data["points"][name] = data
-    _render_points_list(form_data["points"], list(data.keys()), container, saver)
+    _render_points_list(form_data["points"], instrument_options, container, saver)
     container.update()
     if saver:
         saver.trigger()
@@ -270,23 +282,6 @@ def _delete_point(points: dict, name: str, container, instrument_options: list, 
     container.update()
     if saver:
         saver.trigger()
-
-
-def _labeled_input(label: str, value: str = "", readonly: bool = False, on_change=None):
-    """Create a labeled input field."""
-    with ui.column().classes("gap-1 flex-1"):
-        ui.label(label).classes("text-sm font-medium text-slate-700")
-        props = "outlined dense"
-        if readonly:
-            props += " readonly"
-        ui.input(value=value, on_change=on_change).props(props).classes("w-full")
-
-
-def _labeled_textarea(label: str, value: str = "", on_change=None):
-    """Create a labeled textarea."""
-    with ui.column().classes("gap-1 w-full"):
-        ui.label(label).classes("text-sm font-medium text-slate-700")
-        ui.textarea(value=value, on_change=on_change).props("outlined dense").classes("w-full")
 
 
 def _show_add_point_dialog(instrument_options: list, on_add: Callable):

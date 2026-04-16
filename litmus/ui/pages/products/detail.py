@@ -3,7 +3,11 @@
 from nicegui import ui
 
 from litmus.models.config import TestSequenceConfig
-from litmus.ui.shared.components import render_capability_detail, setup_hash_sync_for_tabs
+from litmus.ui.shared.components import (
+    info_field,
+    render_capability_detail,
+    setup_hash_sync_for_tabs,
+)
 from litmus.ui.shared.layout import create_layout
 from litmus.ui.shared.services import (
     discover_products,
@@ -56,8 +60,8 @@ def _render_product_detail(product_id: str, product: dict):
 
         with ui.card_section():
             with ui.grid(columns=2).classes("gap-6"):
-                _info_field("Product ID", product["id"])
-                _info_field("Name", product["name"])
+                info_field("Product ID", product["id"])
+                info_field("Name", product["name"])
                 with ui.column().classes("gap-1 col-span-2"):
                     ui.label("Description").classes("text-xs text-slate-500 uppercase")
                     ui.label(product.get("description", "")).classes("font-semibold")
@@ -84,13 +88,6 @@ def _render_product_detail(product_id: str, product: dict):
             _render_sequences_tab(product_id)
 
     ui.link("← Back to Products", "/products").classes("text-blue-600 hover:underline mt-4")
-
-
-def _info_field(label: str, value: str):
-    """Render an info field."""
-    with ui.column().classes("gap-1"):
-        ui.label(label).classes("text-xs text-slate-500 uppercase")
-        ui.label(value).classes("font-semibold")
 
 
 def _render_pins_tab(pins: list):

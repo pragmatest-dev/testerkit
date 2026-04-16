@@ -4,8 +4,11 @@ import logging
 
 from nicegui import ui
 
+from litmus.api.runner import get_runner
+from litmus.data.event_store import EventStore
 from litmus.ui.components.channel_values import create_channel_values_panel
 from litmus.ui.components.event_timeline import create_event_timeline
+from litmus.ui.shared.dialogs import create_dialog_container
 from litmus.ui.shared.layout import create_layout
 
 logger = logging.getLogger(__name__)
@@ -15,9 +18,6 @@ logger = logging.getLogger(__name__)
 async def live_page(run_id: str):
     """Live test progress page with streaming event log."""
     create_layout(f"Test Run: {run_id}")
-
-    from litmus.api.runner import get_runner
-    from litmus.ui.shared.dialogs import create_dialog_container
 
     runner = get_runner()
 
@@ -42,8 +42,6 @@ async def live_page(run_id: str):
                 step_label = ui.label("").classes("text-sm text-slate-600 mt-2")
 
         # Tabbed content — EventStore provides push-based subscriptions
-        from litmus.data.event_store import EventStore
-
         event_store = EventStore(_results_dir=runner.results_dir)
 
         with ui.tabs().classes("w-full") as tabs:
@@ -86,11 +84,16 @@ async def live_page(run_id: str):
                             status_label.classes(add="bg-red-100 text-red-800")
                         results_link.classes(remove="hidden")
                         break
-            except Exception:
+            except (OSError, RuntimeError, ValueError) as exc:
                 logger.exception("Live page stream error for run %s", run_id)
                 status_label.set_text("ERROR")
                 status_label.classes(remove="bg-blue-100 text-blue-800")
                 status_label.classes(add="bg-red-100 text-red-800")
+                ui.notify(
+                    f"Stream error ({type(exc).__name__}): {exc}",
+                    type="negative",
+                    multi_line=True,
+                )
             finally:
                 unsub_timeline()
                 unsub_channels()

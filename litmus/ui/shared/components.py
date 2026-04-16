@@ -5,6 +5,7 @@ This module contains shared UI components used across pages.
 
 from __future__ import annotations
 
+import re
 from collections.abc import Callable
 from datetime import datetime
 from typing import TYPE_CHECKING, Any
@@ -22,6 +23,87 @@ def format_datetime(dt: datetime | str | None) -> str:
     if isinstance(dt, datetime):
         return dt.strftime("%Y-%m-%d %H:%M")
     return str(dt)[:16]
+
+
+def info_field(label: str, value: str) -> None:
+    """Render a read-only label/value pair (small label on top, bold value below)."""
+    with ui.column().classes("gap-1"):
+        ui.label(label).classes("text-xs text-slate-500 uppercase")
+        ui.label(value).classes("font-semibold")
+
+
+def info_field_link(label: str, value: str | None, base_path: str) -> None:
+    """Render a read-only label/value pair where value is a link."""
+    with ui.column().classes("gap-1"):
+        ui.label(label).classes("text-xs text-slate-500 uppercase")
+        if value:
+            ui.link(value, f"{base_path}/{value}").classes(
+                "font-semibold text-blue-600 hover:underline"
+            )
+        else:
+            ui.label("-").classes("font-semibold")
+
+
+def labeled_input(
+    label: str,
+    value: str = "",
+    *,
+    readonly: bool = False,
+    on_change: Callable[..., Any] | None = None,
+    placeholder: str = "",
+) -> ui.input:
+    """Render a labeled text input that grows to fill its parent column."""
+    with ui.column().classes("gap-1 flex-1"):
+        ui.label(label).classes("text-sm font-medium text-slate-700")
+        props = "outlined dense"
+        if readonly:
+            props += " readonly"
+        return (
+            ui.input(value=value, placeholder=placeholder, on_change=on_change)
+            .props(props)
+            .classes("w-full")
+        )
+
+
+def labeled_textarea(
+    label: str,
+    value: str = "",
+    *,
+    on_change: Callable[..., Any] | None = None,
+) -> ui.textarea:
+    """Render a labeled textarea."""
+    with ui.column().classes("gap-1 w-full"):
+        ui.label(label).classes("text-sm font-medium text-slate-700")
+        return (
+            ui.textarea(value=value, on_change=on_change).props("outlined dense").classes("w-full")
+        )
+
+
+_RESOURCE_ID_PATTERN = r"^[a-z0-9][a-z0-9-]*[a-z0-9]$|^[a-z0-9]$"
+
+
+def validate_resource_id(
+    value: str,
+    existing_ids: set[str],
+    entity_label: str,
+    *,
+    pattern: str = _RESOURCE_ID_PATTERN,
+    pattern_message: str = (
+        "Must start/end with letter or number, only contain letters, numbers, hyphens"
+    ),
+) -> str:
+    """Validate a resource ID against a regex pattern and uniqueness.
+
+    Returns the error message, or an empty string if valid. Callers pass the
+    message directly to a reactive error field.
+    """
+    if not value:
+        return f"{entity_label} is required"
+    if not re.match(pattern, value):
+        return pattern_message
+    if value in existing_ids:
+        return f"{entity_label} already exists"
+    return ""
 
 
 def render_empty_card(container: Any, title: str, message: str) -> None:
@@ -71,7 +153,7 @@ class AutoSaver:
         try:
             self.save_fn()
             self._dirty = False
-        except Exception as e:
+        except (OSError, ValueError, RuntimeError) as e:
             self.on_error(e)
 
     def save_now(self) -> None:
@@ -346,8 +428,8 @@ class InstrumentToggle:
             self._station.instrument(self.role)
             self._sync()
             return True
-        except Exception as e:
-            ui.notify(f"Connection failed: {e}", type="negative")
+        except (OSError, RuntimeError, ValueError, KeyError) as e:
+            ui.notify(f"Connection failed ({type(e).__name__}): {e}", type="negative")
             return False
 
     def _toggle(self) -> None:
@@ -356,8 +438,8 @@ class InstrumentToggle:
         else:
             try:
                 self._station.instrument(self.role)
-            except Exception as e:
-                ui.notify(f"Connection failed: {e}", type="negative")
+            except (OSError, RuntimeError, ValueError, KeyError) as e:
+                ui.notify(f"Connection failed ({type(e).__name__}): {e}", type="negative")
         self._sync()
 
     def _sync(self) -> None:

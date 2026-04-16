@@ -120,22 +120,24 @@ def create_instrument_activity(
 
     max_rows = 200
     all_rows: list[dict] = []
-    row_idx = [0]
-    dirty = [False]
+    row_idx = 0
+    dirty = False
 
     def _on_activity(evt: dict) -> None:
+        nonlocal row_idx, dirty
         row = _format_row(evt)
         if row is None:
             return
-        row["idx"] = row_idx[0]
-        row_idx[0] += 1
+        row["idx"] = row_idx
+        row_idx += 1
         all_rows.insert(0, row)
         del all_rows[max_rows:]
-        dirty[0] = True
+        dirty = True
 
     def _flush_table() -> None:
-        if dirty[0]:
-            dirty[0] = False
+        nonlocal dirty
+        if dirty:
+            dirty = False
             table.update_rows(all_rows)
 
     ui.timer(0.5, _flush_table)

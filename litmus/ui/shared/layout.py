@@ -30,10 +30,15 @@ def _get_active_runs() -> list[dict]:
     seen_run_ids = set()
 
     dialogs = _get_pending_dialogs()
+    dialog_count_by_run: dict[str, int] = {}
+    for d in dialogs:
+        rid = d.get("run_id")
+        if rid:
+            dialog_count_by_run[rid] = dialog_count_by_run.get(rid, 0) + 1
 
     for run_id, run_info in list(runner.runs.items()):
         if run_info.status in ("pending", "running"):
-            dialog_count = len([d for d in dialogs if d.get("run_id") == run_id])
+            dialog_count = dialog_count_by_run.get(run_id, 0)
             active.append(
                 {
                     "run_id": run_id,
@@ -43,10 +48,8 @@ def _get_active_runs() -> list[dict]:
             )
             seen_run_ids.add(run_id)
 
-    for dialog in dialogs:
-        run_id = dialog.get("run_id")
-        if run_id and run_id not in seen_run_ids:
-            dialog_count = len([d for d in dialogs if d.get("run_id") == run_id])
+    for run_id, dialog_count in dialog_count_by_run.items():
+        if run_id not in seen_run_ids:
             active.append(
                 {
                     "run_id": run_id,

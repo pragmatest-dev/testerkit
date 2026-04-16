@@ -1,9 +1,8 @@
 """New product creation page."""
 
-import re
-
 from nicegui import ui
 
+from litmus.ui.shared.components import validate_resource_id
 from litmus.ui.shared.layout import create_layout
 from litmus.ui.shared.services import create_product, discover_products
 
@@ -60,18 +59,9 @@ def new_product_page():
                             value = e.value.lower().strip()
                             form["product_id"] = value
                             id_input.value = value
-
-                            if not value:
-                                validation["id_error"] = "Product ID is required"
-                            elif not re.match(r"^[a-z0-9][a-z0-9-]*[a-z0-9]$|^[a-z0-9]$", value):
-                                validation["id_error"] = (
-                                    "Must start/end with letter or number, "
-                                    "only contain letters, numbers, hyphens"
-                                )
-                            elif value in existing_ids:
-                                validation["id_error"] = "Product ID already exists"
-                            else:
-                                validation["id_error"] = ""
+                            validation["id_error"] = validate_resource_id(
+                                value, existing_ids, "Product ID"
+                            )
 
                         id_input.on("change", validate_id)
 
@@ -113,8 +103,8 @@ def new_product_page():
                         )
 
                         def update_description(e):
-                            value = e.sender.value if hasattr(e.sender, "value") else ""
-                            form["description"] = value.strip() if value else ""
+                            value = e.value or ""
+                            form["description"] = value.strip()
 
                         desc_input.on("change", update_description)
 

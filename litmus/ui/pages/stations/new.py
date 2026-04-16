@@ -1,10 +1,10 @@
 """New station creation page."""
 
-import re
 from collections.abc import Callable
 
 from nicegui import ui
 
+from litmus.ui.shared.components import validate_resource_id
 from litmus.ui.shared.layout import create_layout
 from litmus.ui.shared.services import (
     create_station,
@@ -75,18 +75,9 @@ def new_station_page():
                             value = e.value.lower().strip()
                             form["station_id"] = value
                             id_input.value = value
-
-                            if not value:
-                                validation["id_error"] = "Station ID is required"
-                            elif not re.match(r"^[a-z0-9][a-z0-9-]*[a-z0-9]$|^[a-z0-9]$", value):
-                                validation["id_error"] = (
-                                    "Must start/end with letter or number, "
-                                    "only contain letters, numbers, hyphens"
-                                )
-                            elif value in existing_ids:
-                                validation["id_error"] = "Station ID already exists"
-                            else:
-                                validation["id_error"] = ""
+                            validation["id_error"] = validate_resource_id(
+                                value, existing_ids, "Station ID"
+                            )
 
                         id_input.on("change", validate_id)
 

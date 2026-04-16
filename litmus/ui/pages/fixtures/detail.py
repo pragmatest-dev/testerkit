@@ -2,7 +2,7 @@
 
 from nicegui import ui
 
-from litmus.ui.shared.components import setup_hash_sync_for_tabs
+from litmus.ui.shared.components import info_field, setup_hash_sync_for_tabs
 from litmus.ui.shared.layout import create_layout
 from litmus.ui.shared.services import (
     discover_products,
@@ -54,9 +54,9 @@ def _render_fixture_detail(fixture_id: str, config, products: dict):
 
         with ui.card_section():
             with ui.grid(columns=3).classes("gap-6"):
-                _info_field("Fixture ID", config.id or fixture_id)
-                _info_field("Product Family", config.product_family or "")
-                _info_field("Points", str(len(points)))
+                info_field("Fixture ID", config.id or fixture_id)
+                info_field("Product Family", config.product_family or "")
+                info_field("Points", str(len(points)))
 
             if config.description:
                 with ui.column().classes("gap-1 mt-4"):
@@ -101,13 +101,6 @@ def _render_fixture_detail(fixture_id: str, config, products: dict):
         ui.link("← Back to Fixtures", "/fixtures").classes(
             "text-blue-600 hover:underline self-center"
         )
-
-
-def _info_field(label: str, value: str):
-    """Render an info field."""
-    with ui.column().classes("gap-1"):
-        ui.label(label).classes("text-xs text-slate-500 uppercase")
-        ui.label(value).classes("font-semibold")
 
 
 def _render_mappings_tab(points: dict):

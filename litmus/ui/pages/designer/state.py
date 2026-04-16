@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from litmus.models.product import Product
 
 
 class DesignerState:
@@ -21,10 +23,9 @@ class DesignerState:
         self.fixture_id: str = ""
 
         # --- Product side ---
-        self.product: Any = None  # Product model (loaded later)
+        self.product: Product | None = None
         self.dut_pins: dict[str, dict] = {}  # pin_key -> {name, net, type, description}
         self.char_by_pin: dict[str, list[str]] = {}  # pin_key -> [characteristic names]
-        self.pins_modified: bool = False
 
         # --- Instrument side ---
         # role -> {type, driver, capabilities, channels}
@@ -36,15 +37,8 @@ class DesignerState:
 
         # --- UI state ---
         self.selected_pin: str | None = None
-        self.selected_entity: dict | None = None  # {type, key} for drawer
         self.compatible_channels: set[str] = set()  # "role:channel" keys
-        self.on_change: Callable | None = None
         self.hide_disconnected: bool = False  # Hide instruments with no connections
-
-    def _notify(self) -> None:
-        """Trigger UI rebuild if callback is set."""
-        if self.on_change:
-            self.on_change()
 
     # -------------------------------------------------------------------------
     # Pin CRUD
@@ -63,13 +57,11 @@ class DesignerState:
             "net": net,
             "description": description or "",
         }
-        self.pins_modified = True
 
     def edit_pin(self, key: str, **updates: Any) -> None:
         """Update fields on an existing pin."""
         if key in self.dut_pins:
             self.dut_pins[key].update(updates)
-            self.pins_modified = True
 
     def remove_pin(self, key: str) -> None:
         """Remove a pin and any connections referencing it."""
@@ -79,7 +71,6 @@ class DesignerState:
         to_remove = [name for name, conn in self.connections.items() if conn["dut_pin"] == key]
         for name in to_remove:
             del self.connections[name]
-        self.pins_modified = True
 
     # -------------------------------------------------------------------------
     # Instrument CRUD
@@ -213,27 +204,13 @@ class DesignerState:
     def select_pin(self, pin_key: str) -> None:
         """Select a pin and compute compatible channels."""
         self.selected_pin = pin_key
-        self.selected_entity = {"type": "pin", "key": pin_key}
         # compatible_channels is set externally by matching.py
         # since it needs product + instrument data
-
-    def select_instrument(self, role: str) -> None:
-        """Select an instrument role for property editing."""
-        self.selected_pin = None
-        self.compatible_channels = set()
-        self.selected_entity = {"type": "instrument", "key": role}
-
-    def select_connection(self, point_name: str) -> None:
-        """Select a connection for property editing."""
-        self.selected_pin = None
-        self.compatible_channels = set()
-        self.selected_entity = {"type": "connection", "key": point_name}
 
     def clear_selection(self) -> None:
         """Clear all selection state."""
         self.selected_pin = None
         self.compatible_channels = set()
-        self.selected_entity = None
 
     def is_pin_connected(self, pin_key: str) -> bool:
         """Check if a pin has a connection."""
@@ -455,8 +432,6 @@ class DesignerState:
             self.system_id = f"{product.id}_system"
         if not self.fixture_id:
             self.fixture_id = f"{product.id}_fixture_v1"
-
-        self.pins_modified = False
 
     def load_fixture(self, fixture_config: Any) -> None:
         """Load existing fixture data into connections."""

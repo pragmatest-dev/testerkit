@@ -4,7 +4,12 @@ from collections.abc import Callable
 
 from nicegui import ui
 
-from litmus.ui.shared.components import AutoSaver, setup_hash_sync_for_tabs
+from litmus.ui.shared.components import (
+    AutoSaver,
+    labeled_input,
+    labeled_textarea,
+    setup_hash_sync_for_tabs,
+)
 from litmus.ui.shared.layout import create_layout
 from litmus.ui.shared.services import (
     discover_instrument_types,
@@ -98,12 +103,12 @@ def _render_info_tab(form_data: dict, saver: AutoSaver):
         with ui.card_section():
             ui.label("Basic Information").classes("font-semibold mb-4")
             with ui.column().classes("gap-4 w-full max-w-xl"):
-                _labeled_input(
+                labeled_input(
                     "Station ID",
                     form_data["id"],
                     readonly=True,
                 )
-                _labeled_input(
+                labeled_input(
                     "Name",
                     form_data["name"],
                     on_change=lambda e: (
@@ -111,7 +116,7 @@ def _render_info_tab(form_data: dict, saver: AutoSaver):
                         saver.trigger(),
                     ),
                 )
-                _labeled_input(
+                labeled_input(
                     "Location",
                     form_data["location"],
                     on_change=lambda e: (
@@ -119,7 +124,7 @@ def _render_info_tab(form_data: dict, saver: AutoSaver):
                         saver.trigger(),
                     ),
                 )
-                _labeled_textarea(
+                labeled_textarea(
                     "Description",
                     form_data["description"],
                     on_change=lambda e: (
@@ -164,7 +169,7 @@ def _render_instrument_expansion(inst_name: str, inst_data: dict, saver: AutoSav
     with ui.expansion(inst_name, icon="cable").classes("w-full"):
         with ui.column().classes("gap-4 p-2"):
             with ui.row().classes("gap-4 items-end"):
-                _labeled_input(
+                labeled_input(
                     "Driver",
                     inst_data.get("driver", ""),
                     on_change=lambda e, d=inst_data: (
@@ -192,28 +197,6 @@ def _render_instrument_expansion(inst_name: str, inst_data: dict, saver: AutoSav
                 )
             if inst_data.get("description"):
                 ui.label(inst_data["description"]).classes("text-sm text-slate-500")
-
-
-# -----------------------------------------------------------------------------
-# Form Components
-# -----------------------------------------------------------------------------
-
-
-def _labeled_input(label: str, value: str = "", readonly: bool = False, on_change=None):
-    """Create a labeled input field."""
-    with ui.column().classes("gap-1 w-full"):
-        ui.label(label).classes("text-sm font-medium text-slate-700")
-        props = "outlined dense"
-        if readonly:
-            props += " readonly"
-        ui.input(value=value, on_change=on_change).props(props).classes("w-full")
-
-
-def _labeled_textarea(label: str, value: str = "", on_change=None):
-    """Create a labeled textarea."""
-    with ui.column().classes("gap-1 w-full"):
-        ui.label(label).classes("text-sm font-medium text-slate-700")
-        ui.textarea(value=value, on_change=on_change).props("outlined dense").classes("w-full")
 
 
 # -----------------------------------------------------------------------------

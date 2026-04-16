@@ -5,7 +5,12 @@ from nicegui import ui
 from litmus.data.backends.parquet import ParquetBackend
 from litmus.models.config import TestSequenceConfig
 from litmus.store import load_project_config
-from litmus.ui.shared.components import format_datetime, setup_hash_sync_for_tabs
+from litmus.ui.shared.components import (
+    format_datetime,
+    info_field,
+    info_field_link,
+    setup_hash_sync_for_tabs,
+)
 from litmus.ui.shared.layout import create_layout
 from litmus.ui.shared.services import (
     get_compatible_stations_for_product,
@@ -77,9 +82,9 @@ def _render_sequence_detail(sequence_id: str, seq: TestSequenceConfig):
 
         with ui.card_section():
             with ui.grid(columns=3).classes("gap-6"):
-                _info_field("Sequence ID", seq.id)
-                _info_field_link("Product Family", seq.product_family, "/products")
-                _info_field("Test Phase", seq.test_phase or "-")
+                info_field("Sequence ID", seq.id)
+                info_field_link("Product Family", seq.product_family, "/products")
+                info_field("Test Phase", seq.test_phase or "-")
                 with ui.column().classes("gap-1 col-span-3"):
                     ui.label("Description").classes("text-xs text-slate-500 uppercase")
                     ui.label(seq.description or "").classes("font-semibold")
@@ -110,25 +115,6 @@ def _render_sequence_detail(sequence_id: str, seq: TestSequenceConfig):
             _render_runs_tab(sequence_id)
 
     ui.link("← Back to Sequences", "/sequences").classes("text-blue-600 hover:underline mt-4")
-
-
-def _info_field(label: str, value: str):
-    """Render an info field."""
-    with ui.column().classes("gap-1"):
-        ui.label(label).classes("text-xs text-slate-500 uppercase")
-        ui.label(value).classes("font-semibold")
-
-
-def _info_field_link(label: str, value: str | None, base_path: str):
-    """Render an info field with a link."""
-    with ui.column().classes("gap-1"):
-        ui.label(label).classes("text-xs text-slate-500 uppercase")
-        if value:
-            ui.link(value, f"{base_path}/{value}").classes(
-                "font-semibold text-blue-600 hover:underline"
-            )
-        else:
-            ui.label("-").classes("font-semibold")
 
 
 def _render_steps_tab(sequence_id: str, steps: list):
@@ -248,12 +234,12 @@ def _render_requirements_tab(sequence_id: str, seq: TestSequenceConfig):
             ui.label("Station & Fixture Requirements").classes("font-semibold")
         with ui.card_section():
             with ui.grid(columns=2).classes("gap-6"):
-                _info_field("Required Fixture", seq.required_fixture or "-")
-                _info_field("Required Station Type", seq.required_station_type or "-")
+                info_field("Required Fixture", seq.required_fixture or "-")
+                info_field("Required Station Type", seq.required_station_type or "-")
                 timeout = seq.timeout_seconds
-                _info_field("Timeout", f"{timeout}s" if timeout else "-")
+                info_field("Timeout", f"{timeout}s" if timeout else "-")
                 args = seq.pytest_args
-                _info_field("pytest Args", " ".join(args) if args else "-")
+                info_field("pytest Args", " ".join(args) if args else "-")
 
     # Required capabilities from product
     product_family = seq.product_family

@@ -1,12 +1,14 @@
 """Dashboard page."""
 
+import logging
+
 from nicegui import ui
 
-from litmus.data.backends.parquet import ParquetBackend
-from litmus.store import load_project_config
 from litmus.ui.shared.components import format_datetime
 from litmus.ui.shared.layout import create_layout
-from litmus.ui.shared.services import discover_stations
+from litmus.ui.shared.services import discover_stations, get_recent_runs
+
+logger = logging.getLogger(__name__)
 
 
 @ui.page("/")
@@ -15,9 +17,11 @@ def dashboard_page():
     create_layout("Dashboard")
 
     stations = discover_stations()
-    project = load_project_config()
-    backend = ParquetBackend(results_dir=project.results_dir)
-    runs = backend.list_runs(limit=10)
+    try:
+        runs = get_recent_runs(limit=10)
+    except (OSError, ValueError) as exc:
+        logger.warning("Failed to load recent runs: %s", exc)
+        runs = []
 
     if not stations and not runs:
         _getting_started_card()
@@ -122,12 +126,8 @@ def _getting_started_card():
                 ui.label("litmus init --starter").classes("text-sm font-mono text-slate-500")
 
 
-def _render_recent_runs(runs=None):
+def _render_recent_runs(runs: list[dict]) -> None:
     """Render recent runs table."""
-    if runs is None:
-        backend = ParquetBackend(results_dir=load_project_config().results_dir)
-        runs = backend.list_runs(limit=10)
-
     if runs:
         with ui.card().classes("w-full"):
             columns = [

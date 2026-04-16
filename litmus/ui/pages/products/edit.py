@@ -4,7 +4,12 @@ from collections.abc import Callable
 
 from nicegui import ui
 
-from litmus.ui.shared.components import AutoSaver, setup_hash_sync_for_tabs
+from litmus.ui.shared.components import (
+    AutoSaver,
+    labeled_input,
+    labeled_textarea,
+    setup_hash_sync_for_tabs,
+)
 from litmus.ui.shared.layout import create_layout
 from litmus.ui.shared.services import discover_products, save_product
 
@@ -92,8 +97,8 @@ def _render_info_tab(product_id: str, form_data: dict, saver: AutoSaver):
         with ui.card_section():
             ui.label("Basic Information").classes("font-semibold mb-4")
             with ui.column().classes("gap-4 w-full max-w-xl"):
-                _labeled_input("Product ID", product_id, readonly=True)
-                _labeled_input(
+                labeled_input("Product ID", product_id, readonly=True)
+                labeled_input(
                     "Name",
                     form_data["name"],
                     on_change=lambda e: (
@@ -101,7 +106,7 @@ def _render_info_tab(product_id: str, form_data: dict, saver: AutoSaver):
                         saver.trigger(),
                     ),
                 )
-                _labeled_input(
+                labeled_input(
                     "Revision",
                     form_data["revision"],
                     on_change=lambda e: (
@@ -109,7 +114,7 @@ def _render_info_tab(product_id: str, form_data: dict, saver: AutoSaver):
                         saver.trigger(),
                     ),
                 )
-                _labeled_textarea(
+                labeled_textarea(
                     "Description",
                     form_data["description"],
                     on_change=lambda e: (
@@ -178,9 +183,9 @@ def _render_characteristics_tab(form_data: dict, saver: AutoSaver):
                     with ui.expansion(char_name, icon="tune").classes("w-full"):
                         with ui.grid(columns=3).classes("gap-4 p-2"):
                             direction = char_data.get("direction", "")
-                            _labeled_input("Function", char_data.get("function", ""), readonly=True)
-                            _labeled_input("Direction", direction, readonly=True)
-                            _labeled_input("Units", char_data.get("units", ""), readonly=True)
+                            labeled_input("Function", char_data.get("function", ""), readonly=True)
+                            labeled_input("Direction", direction, readonly=True)
+                            labeled_input("Units", char_data.get("units", ""), readonly=True)
 
                         conditions = char_data.get("conditions", [])
                         if conditions:
@@ -220,42 +225,11 @@ def _render_condition(index: int, cond: dict):
                             ui.chip(f"{key}: {spec}").props("outline")
 
 
-# -----------------------------------------------------------------------------
-# Form Components (local to this page)
-# -----------------------------------------------------------------------------
-
-
-def _labeled_input(label: str, value: str = "", readonly: bool = False, on_change=None):
-    """Create a labeled input field."""
-    with ui.column().classes("gap-1 w-full"):
-        ui.label(label).classes("text-sm font-medium text-slate-700")
-        props = "outlined dense"
-        if readonly:
-            props += " readonly"
-        ui.input(value=value, on_change=on_change).props(props).classes("w-full")
-
-
-def _labeled_textarea(label: str, value: str = "", on_change=None):
-    """Create a labeled textarea."""
-    with ui.column().classes("gap-1 w-full"):
-        ui.label(label).classes("text-sm font-medium text-slate-700")
-        ui.textarea(value=value, on_change=on_change).props("outlined dense").classes("w-full")
-
-
 def _labeled_select(label: str, options, value=None, on_change=None):
     """Create a labeled select."""
     with ui.column().classes("gap-1 w-full"):
         ui.label(label).classes("text-sm font-medium text-slate-700")
         ui.select(options=options, value=value, on_change=on_change).props(
-            "outlined dense"
-        ).classes("w-full")
-
-
-def _labeled_number(label: str, value: float = 0, min_val=None, max_val=None, on_change=None):
-    """Create a labeled number input."""
-    with ui.column().classes("gap-1 w-full"):
-        ui.label(label).classes("text-sm font-medium text-slate-700")
-        ui.number(value=value, min=min_val, max=max_val, on_change=on_change).props(
             "outlined dense"
         ).classes("w-full")
 
@@ -273,14 +247,14 @@ def _show_add_pin_dialog(on_add: Callable):
         with ui.card_section():
             ui.label("Add Pin").classes("text-lg font-semibold")
         with ui.card_section().classes("flex flex-col gap-4"):
-            _labeled_input("Name", on_change=lambda e: pin_form.update({"name": e.value}))
+            labeled_input("Name", on_change=lambda e: pin_form.update({"name": e.value}))
             _labeled_select(
                 "Type",
                 options=["signal", "power", "ground", "nc"],
                 value="signal",
                 on_change=lambda e: pin_form.update({"type": e.value}),
             )
-            _labeled_input("Net", on_change=lambda e: pin_form.update({"net": e.value}))
+            labeled_input("Net", on_change=lambda e: pin_form.update({"net": e.value}))
         with ui.card_actions().classes("justify-end"):
             ui.button("Cancel", on_click=dialog.close).props("flat")
 
@@ -306,7 +280,7 @@ def _show_add_char_dialog(on_add: Callable):
         with ui.card_section():
             ui.label("Add Characteristic").classes("text-lg font-semibold")
         with ui.card_section().classes("flex flex-col gap-4"):
-            _labeled_input("Name", on_change=lambda e: char_form.update({"name": e.value}))
+            labeled_input("Name", on_change=lambda e: char_form.update({"name": e.value}))
             _labeled_select(
                 "Function",
                 options=function_options,
@@ -319,7 +293,7 @@ def _show_add_char_dialog(on_add: Callable):
                 value="output",
                 on_change=lambda e: char_form.update({"direction": e.value}),
             )
-            _labeled_input(
+            labeled_input(
                 "Units", value="V", on_change=lambda e: char_form.update({"units": e.value})
             )
         with ui.card_actions().classes("justify-end"):
