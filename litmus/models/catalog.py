@@ -21,8 +21,12 @@ class InstrumentCatalogEntry(BaseModel):
     """Structured capability data for a specific instrument make/model.
 
     This is the universal tier — it describes what an instrument MODEL can do,
-    not what a specific unit is or where it lives. Driver information is
-    deliberately excluded because drivers are project-local (station config).
+    not what a specific unit is or where it lives.
+
+    The optional ``driver`` field is a catalog-level default for the instrument
+    driver class (e.g., ``"pymeasure.instruments.keithley.Keithley2400"``).
+    Station config can override it; if absent there, the catalog value is used
+    as a fallback by the instrument pool loader.
 
     Channels use structured ``ChannelTopology`` dicts describing physical
     terminals, connector types, and ground topology.

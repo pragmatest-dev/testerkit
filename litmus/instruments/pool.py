@@ -285,15 +285,11 @@ def _resolve_driver_class(record: InstrumentRecord) -> type | None:
 def _resolve_from_catalog(catalog_ref: str) -> type | None:
     """Load catalog entry and resolve its driver class, if any."""
     try:
-        from litmus.store import find_catalog_dirs, load_catalog_entry
+        from litmus.store import resolve_catalog_ref
 
-        for catalog_dir in find_catalog_dirs():
-            path = catalog_dir / f"{catalog_ref}.yaml"
-            if path.exists():
-                entry = load_catalog_entry(path, catalog_dir)
-                if entry.driver:
-                    return load_driver_class(entry.driver)
-                return None
+        entry = resolve_catalog_ref(catalog_ref)
+        if entry and entry.driver:
+            return load_driver_class(entry.driver)
     except (ImportError, OSError, ValueError, KeyError):
         pass
     return None

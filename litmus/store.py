@@ -51,12 +51,13 @@ class _HasId(Protocol):
 
 _T = TypeVar("_T", bound=_HasId)
 
+_YAML_LOAD_ERRORS = (yaml.YAMLError, ValidationError, OSError, ValueError)
+
 __all__ = [
     # Catalog
     "create_catalog_entry",
     "find_by_model",
     "find_catalog_dirs",
-    "find_catalog_variants",
     "get_catalog_entry",
     "list_catalog_entries",
     "load_catalog_entry",
@@ -213,7 +214,7 @@ def _get_by_id(
             entity = loader(yaml_file)
             if entity.id == entity_id or yaml_file.stem == entity_id:
                 return entity
-        except (yaml.YAMLError, ValidationError, OSError, ValueError):
+        except _YAML_LOAD_ERRORS:
             continue
     return None
 
@@ -228,7 +229,7 @@ def _list_all(
     for yaml_file in find_yaml_files(search_paths):
         try:
             entity = loader(yaml_file)
-        except (yaml.YAMLError, ValidationError, OSError, ValueError):
+        except _YAML_LOAD_ERRORS:
             continue
         if entity.id in seen_ids:
             continue
@@ -566,8 +567,7 @@ def load_product(path: Path, products_dir: Path | None = None) -> Product:
             products_dir = path.parent
 
     data = _load_product_with_inheritance(path, products_dir, seen=set(), depth=0)
-    data.setdefault("id", path.stem)
-    return Product.model_validate(data)
+    return Product.model_validate({"id": path.stem} | data)
 
 
 def _load_product_with_inheritance(
@@ -662,7 +662,7 @@ def get_product(
         if flat_file.exists():
             try:
                 return load_product(flat_file)
-            except (yaml.YAMLError, ValidationError, OSError, ValueError):
+            except _YAML_LOAD_ERRORS:
                 pass
         # Fallback: search by filename in subdirectories
         for yaml_file in products_dir.rglob(f"{product_id}.yaml"):
@@ -670,7 +670,7 @@ def get_product(
                 continue
             try:
                 return load_product(yaml_file)
-            except (yaml.YAMLError, ValidationError, OSError, ValueError):
+            except _YAML_LOAD_ERRORS:
                 continue
     return None
 
@@ -687,7 +687,7 @@ def list_products(*, project_root: Path | None = None) -> list[Product]:
                 continue
             try:
                 product = load_product(yaml_file)
-            except (yaml.YAMLError, ValidationError, OSError, ValueError):
+            except _YAML_LOAD_ERRORS:
                 continue
             if product.id in seen_ids:
                 continue
@@ -823,22 +823,20 @@ def _merge_catalog_data(
     variant: dict[str, Any],
 ) -> dict[str, Any]:
     """Merge base and variant catalog YAML dicts."""
-    base_entry = dict(base)
-    variant_entry = dict(variant)
     merged_entry: dict[str, Any] = {}
 
     for key in ("manufacturer", "type", "name", "description"):
-        if key in base_entry:
-            merged_entry[key] = base_entry[key]
+        if key in base:
+            merged_entry[key] = base[key]
 
-    merged_entry.update(variant_entry)
+    merged_entry.update(variant)
 
     for section in ("channels", "attributes", "interfaces"):
-        if section not in variant_entry and section in base_entry:
-            merged_entry[section] = base_entry[section]
+        if section not in variant and section in base:
+            merged_entry[section] = base[section]
 
-    base_caps = base_entry.get("capabilities") or []
-    variant_caps = variant_entry.get("capabilities") or []
+    base_caps = base.get("capabilities") or []
+    variant_caps = variant.get("capabilities") or []
 
     if variant_caps and base_caps:
         merged_entry["capabilities"] = _merge_capabilities(base_caps, variant_caps)
@@ -866,11 +864,7 @@ def _merge_capabilities(
     are appended.
     """
     merged: list[dict[str, Any]] = [copy.deepcopy(c) for c in base_caps]
-    base_index: dict[tuple[str, str], int] = {}
-    for i, cap in enumerate(base_caps):
-        key = _cap_key(cap)
-        if key not in base_index:
-            base_index[key] = i
+    base_index: dict[tuple[str, str], int] = {_cap_key(cap): i for i, cap in enumerate(base_caps)}
 
     for vcap in variant_caps:
         key = _cap_key(vcap)
@@ -915,14 +909,12 @@ def _deep_merge_cap(base_cap: dict[str, Any], variant_cap: dict[str, Any]) -> No
 
 def _build_catalog_entry(data: dict[str, Any], path: Path) -> InstrumentCatalogEntry:
     """Build an InstrumentCatalogEntry from merged raw YAML data."""
-    parsed: dict[str, Any] = dict(data)
-    parsed.setdefault("id", path.stem)
-    if not parsed.get("name"):
-        mfr = parsed.get("manufacturer", "")
-        model = parsed.get("model", "")
-        parsed["name"] = f"{mfr} {model}".strip() or path.stem
-    parsed["model"] = str(parsed.get("model", ""))
-    return InstrumentCatalogEntry.model_validate(parsed)
+    defaults: dict[str, Any] = {"id": path.stem}
+    if not data.get("name"):
+        mfr = data.get("manufacturer", "")
+        model = data.get("model", "")
+        defaults["name"] = f"{mfr} {model}".strip() or path.stem
+    return InstrumentCatalogEntry.model_validate(defaults | data)
 
 
 def load_catalog_from_directory(catalog_dir: Path) -> dict[str, InstrumentCatalogEntry]:
@@ -931,14 +923,12 @@ def load_catalog_from_directory(catalog_dir: Path) -> dict[str, InstrumentCatalo
         return {}
 
     entries: dict[str, InstrumentCatalogEntry] = {}
-    for path in sorted(catalog_dir.rglob("*.yaml")):
-        if path.name.startswith("_") or ".variants." in path.name:
-            continue
+    for path in _iter_catalog_files(catalog_dir):
         try:
             entry = load_catalog_entry(path, catalog_dir=catalog_dir)
             if entry.id:
                 entries[entry.id] = entry
-        except (yaml.YAMLError, ValidationError, OSError, ValueError) as exc:
+        except _YAML_LOAD_ERRORS as exc:
             warnings.warn(
                 f"catalog: failed to load {path.name}: {exc}",
                 stacklevel=2,
@@ -948,7 +938,19 @@ def load_catalog_from_directory(catalog_dir: Path) -> dict[str, InstrumentCatalo
     return entries
 
 
-def find_catalog_variants(base_path: Path) -> list[Path]:
+def _skip_catalog_file(path: Path) -> bool:
+    """Return True for catalog YAML files that should never be loaded directly."""
+    return path.name.startswith("_") or ".variants." in path.name
+
+
+def _iter_catalog_files(cat_dir: Path) -> Iterator[Path]:
+    """Yield all loadable catalog YAML files in a directory tree, sorted."""
+    for path in sorted(cat_dir.rglob("*.yaml")):
+        if not _skip_catalog_file(path):
+            yield path
+
+
+def _find_catalog_variants(base_path: Path) -> list[Path]:
     """Find catalog YAML files that inherit from the given base entry."""
     base_id = base_path.stem
     variants = []
@@ -988,6 +990,30 @@ def find_catalog_dirs(*, project_root: Path | None = None) -> list[Path]:
     return dirs
 
 
+def _catalog_file_candidates(cat_dir: Path, name: str) -> list[Path]:
+    """Return candidate paths for a catalog entry by filename stem.
+
+    Direct match is tried first; rglob finds subdirectory hits. Paths are
+    deduplicated so a file at ``cat_dir/{name}.yaml`` never appears twice.
+    """
+    seen: set[Path] = set()
+    results: list[Path] = []
+
+    direct = cat_dir / f"{name}.yaml"
+    if direct.exists():
+        seen.add(direct.resolve())
+        results.append(direct)
+
+    for path in cat_dir.rglob(f"{name}.yaml"):
+        if _skip_catalog_file(path):
+            continue
+        if path.resolve() not in seen:
+            seen.add(path.resolve())
+            results.append(path)
+
+    return results
+
+
 def resolve_catalog_ref(
     catalog_ref: str,
     *,
@@ -995,35 +1021,14 @@ def resolve_catalog_ref(
 ) -> InstrumentCatalogEntry | None:
     """Resolve a catalog reference ID to a catalog entry."""
     for cat_dir in find_catalog_dirs(project_root=project_root):
-        # Try direct filename match first
-        direct_path = cat_dir / f"{catalog_ref}.yaml"
-        if direct_path.exists():
-            try:
-                return load_catalog_entry(direct_path, catalog_dir=cat_dir)
-            except (yaml.YAMLError, ValidationError, OSError, ValueError) as exc:
-                warnings.warn(
-                    f"catalog: failed to load {direct_path.name}: {exc}",
-                    stacklevel=2,
-                )
-                # Fall through to rglob and other catalog dirs
-
-        # Fallback: search subdirectories
-        for path in cat_dir.rglob(f"{catalog_ref}.yaml"):
-            if path.name.startswith("_") or ".variants." in path.name:
-                continue
+        for path in _catalog_file_candidates(cat_dir, catalog_ref):
             try:
                 return load_catalog_entry(path, catalog_dir=cat_dir)
-            except (yaml.YAMLError, ValidationError, OSError, ValueError) as exc:
+            except _YAML_LOAD_ERRORS as exc:
                 warnings.warn(
                     f"catalog: failed to load {path.name}: {exc}",
                     stacklevel=2,
                 )
-                continue
-
-        # NOTE: "Last resort" full scan removed - was loading ALL catalog files
-        # to check IDs, causing 100+ file loads per lookup. If direct path and
-        # rglob by filename don't work, the catalog_ref is simply wrong.
-
     return None
 
 
@@ -1038,12 +1043,14 @@ def find_by_model(
     model_lower = model.lower()
 
     for cat_dir in find_catalog_dirs(project_root=project_root):
-        for path in sorted(cat_dir.rglob("*.yaml")):
-            if path.name.startswith("_") or ".variants." in path.name:
-                continue
+        for path in _iter_catalog_files(cat_dir):
             try:
                 entry = load_catalog_entry(path, catalog_dir=cat_dir)
-            except (yaml.YAMLError, ValidationError, OSError, ValueError):
+            except _YAML_LOAD_ERRORS as exc:
+                warnings.warn(
+                    f"catalog: failed to load {path.name}: {exc}",
+                    stacklevel=2,
+                )
                 continue
             if (
                 entry.manufacturer
@@ -1063,25 +1070,19 @@ def get_catalog_entry(
 ) -> InstrumentCatalogEntry | None:
     """Get a catalog entry by ID or type.
 
-    Tries direct filename match first, then rglob by filename, then falls
-    back to full scan (needed for type-based lookup).
+    Tries direct filename match first, then rglob by filename (fast paths),
+    then falls back to a full directory scan for type-based lookup.
+    Project-local catalog entries take precedence over bundled ones.
     """
     for cat_dir in find_catalog_dirs(project_root=project_root):
-        # Fast path: direct filename match
-        direct_path = cat_dir / f"{catalog_id}.yaml"
-        if direct_path.exists():
-            try:
-                return load_catalog_entry(direct_path, catalog_dir=cat_dir)
-            except (yaml.YAMLError, ValidationError, OSError, ValueError):
-                pass
-
-        # Fast path: rglob by filename (subdirectory match)
-        for path in cat_dir.rglob(f"{catalog_id}.yaml"):
-            if path.name.startswith("_") or ".variants." in path.name:
-                continue
+        for path in _catalog_file_candidates(cat_dir, catalog_id):
             try:
                 return load_catalog_entry(path, catalog_dir=cat_dir)
-            except (yaml.YAMLError, ValidationError, OSError, ValueError):
+            except _YAML_LOAD_ERRORS as exc:
+                warnings.warn(
+                    f"catalog: failed to load {path.name}: {exc}",
+                    stacklevel=2,
+                )
                 continue
 
         # Slow path: full scan for type-based lookup

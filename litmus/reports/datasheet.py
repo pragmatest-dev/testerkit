@@ -712,9 +712,9 @@ def load_datasheet_data(path: Path) -> DatasheetData:
 
 def _find_variant_files(base_path: Path) -> list[Path]:
     """Find variant YAML files that inherit from this base entry."""
-    from litmus.store import find_catalog_variants
+    from litmus.store import _find_catalog_variants
 
-    return find_catalog_variants(base_path)
+    return _find_catalog_variants(base_path)
 
 
 def _render_datasheet(
