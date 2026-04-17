@@ -61,7 +61,7 @@ class TestSpecContext:
         char_id, conditions = _find_testable_characteristic(spec_no_gb)
 
         if char_id is None:
-            pytest.skip("No characteristic with tolerance-based limits found")
+            pytest.fail("No characteristic with tolerance-based limits found")
 
         limit_no_gb = spec_no_gb.get_limit(char_id, **conditions)
         limit_with_gb = spec_with_gb.get_limit(char_id, **conditions)
@@ -122,7 +122,7 @@ class TestHarnessSpecIntegration:
         # Find a characteristic with conditions
         char_id, conditions = _find_testable_characteristic(spec)
         if char_id is None:
-            pytest.skip("No testable characteristic found")
+            pytest.fail("No testable characteristic found")
 
         # Get expected limit
         expected_limit = spec.get_limit(char_id, **conditions)
@@ -160,7 +160,7 @@ class TestHarnessSpecIntegration:
                 break
 
         if char_id is None:
-            pytest.skip("No characteristic with dut_pin found")
+            pytest.fail("No characteristic with dut_pin found")
 
         expected_pin_info = spec.get_pin_info(char_id)
         harness = TestHarness(step_name="test_pin", spec_context=spec)
@@ -177,7 +177,7 @@ class TestHarnessSpecIntegration:
 
         char_id, conditions = _find_testable_characteristic(spec)
         if char_id is None:
-            pytest.skip("No testable characteristic found")
+            pytest.fail("No testable characteristic found")
 
         limit = spec.get_limit(char_id, **conditions)
 
@@ -207,7 +207,7 @@ class TestHarnessSpecIntegration:
 
         char_id, conditions = _find_testable_characteristic(spec)
         if char_id is None:
-            pytest.skip("No testable characteristic found")
+            pytest.fail("No testable characteristic found")
 
         limit = spec.get_limit(char_id, **conditions)
 
@@ -226,7 +226,7 @@ class TestHarnessSpecIntegration:
                     elif limit.low:
                         test_value = limit.low * 0.1
                     else:
-                        pytest.skip("No testable limit bounds")
+                        pytest.fail("No testable limit bounds")
 
                     m = harness.measure(char_id, test_value)
                     assert m.outcome == Outcome.FAIL
@@ -269,7 +269,7 @@ class TestEndToEndWorkflow:
         # Find testable characteristics
         char_id, conditions = _find_testable_characteristic(spec)
         if char_id is None:
-            pytest.skip("No testable characteristic found")
+            pytest.fail("No testable characteristic found")
 
         limit = spec.get_limit(char_id, **conditions)
 
@@ -305,7 +305,7 @@ class TestEndToEndWorkflow:
 
         char_id, conditions = _find_testable_characteristic(spec)
         if char_id is None:
-            pytest.skip("No testable characteristic found")
+            pytest.fail("No testable characteristic found")
 
         limit = spec.get_limit(char_id, **conditions)
 
@@ -332,7 +332,7 @@ class TestEndToEndWorkflow:
 
         char_id, conditions = _find_testable_characteristic(spec)
         if char_id is None:
-            pytest.skip("No testable characteristic found")
+            pytest.fail("No testable characteristic found")
 
         limit = spec.get_limit(char_id, **conditions)
 
@@ -364,7 +364,7 @@ class TestEndToEndWorkflow:
 
         char_id, conditions = _find_testable_characteristic(spec)
         if char_id is None:
-            pytest.skip("No testable characteristic found")
+            pytest.fail("No testable characteristic found")
 
         limit = spec.get_limit(char_id, **conditions)
 
@@ -383,7 +383,7 @@ class TestEndToEndWorkflow:
                     elif limit.low:
                         bad_value = 0.0
                     else:
-                        pytest.skip("No testable limit bounds")
+                        pytest.fail("No testable limit bounds")
 
                     harness.measure(char_id, bad_value)
 
@@ -392,7 +392,6 @@ class TestEndToEndWorkflow:
         assert step.outcome == Outcome.FAIL
 
 
-@pytest.mark.skipif(not MINIMAL_SPEC_PATH.exists(), reason="minimal_board spec not found")
 class TestMinimalSpec:
     """Test with minimal spec to verify simple specs work."""
 

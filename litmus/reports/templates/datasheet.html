@@ -173,7 +173,7 @@ document.querySelectorAll('.related-link').forEach(row => {
 
 {# ── Capabilities ── #}
 <h2>Capabilities</h2>
-{% for cap in data.capabilities %}
+{% for cap in cap_renders %}
 <div class="cap-card" id="cap-{{ loop.index }}">
   <div class="cap-header">
     <span>

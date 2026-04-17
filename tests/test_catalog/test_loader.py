@@ -8,26 +8,22 @@ import pytest
 from litmus.models.config import Direction, MeasurementFunction
 from litmus.store import load_catalog_entry, load_catalog_from_directory
 
-CATALOG_DIR = Path(__file__).parent.parent.parent / "catalog"
+CATALOG_DIR = Path(__file__).parent.parent.parent / "demo" / "catalog"
 
 
 class TestLoadCatalogEntry:
     """Tests for loading individual catalog entries."""
 
-    def test_load_keysight_34461a(self):
-        """Load the Keysight 34461A DMM catalog entry."""
-        path = CATALOG_DIR / "keysight_34461a.yaml"
-        if not path.exists():
-            return  # Skip if catalog not present
+    def test_load_generic_dmm(self):
+        """Load the generic DMM catalog entry."""
+        path = CATALOG_DIR / "generic_dmm.yaml"
         entry = load_catalog_entry(path)
 
-        assert entry.id == "keysight_34461a"
-        assert entry.manufacturer == "Keysight"
-        assert entry.model == "34461A"
+        assert entry.id == "generic_dmm"
+        assert entry.manufacturer == "Generic"
         assert entry.type == "dmm"
         assert len(entry.capabilities) > 0
 
-        # Should have dc_voltage input capability
         dc_v_caps = [
             c
             for c in entry.capabilities
@@ -36,23 +32,16 @@ class TestLoadCatalogEntry:
         assert len(dc_v_caps) >= 1
         cap = dc_v_caps[0]
         assert "voltage" in cap.signals
-        voltage_range = cap.signals["voltage"].range
-        assert voltage_range is not None
-        assert voltage_range.max is not None
-        assert voltage_range.max >= 1000
 
-    def test_load_keysight_e36312a(self):
-        """Load the Keysight E36312A PSU catalog entry."""
-        path = CATALOG_DIR / "keysight_e36312a.yaml"
-        if not path.exists():
-            return
+    def test_load_generic_psu(self):
+        """Load the generic PSU catalog entry."""
+        path = CATALOG_DIR / "generic_psu.yaml"
         entry = load_catalog_entry(path)
 
-        assert entry.id == "keysight_e36312a"
-        assert entry.type == "dc_power"
+        assert entry.id == "generic_psu"
+        assert entry.type == "psu"
         assert len(entry.capabilities) > 0
 
-        # Should have dc_voltage output capability
         dc_v_out = [
             c
             for c in entry.capabilities
@@ -60,17 +49,14 @@ class TestLoadCatalogEntry:
         ]
         assert len(dc_v_out) >= 1
 
-    def test_load_rigol_ds1054z(self):
-        """Load the Rigol DS1054Z scope catalog entry."""
-        path = CATALOG_DIR / "rigol_ds1054z.yaml"
-        if not path.exists():
-            return
+    def test_load_generic_oscilloscope(self):
+        """Load the generic oscilloscope catalog entry."""
+        path = CATALOG_DIR / "generic_oscilloscope.yaml"
         entry = load_catalog_entry(path)
 
-        assert entry.id == "rigol_ds1054z"
+        assert entry.id == "generic_oscilloscope"
         assert entry.type == "scope"
 
-        # Should have waveform input capability
         waveform_caps = [
             c for c in entry.capabilities if c.function == MeasurementFunction.WAVEFORM
         ]
@@ -81,13 +67,11 @@ class TestLoadCatalogFromDirectory:
     """Tests for loading all catalog entries from a directory."""
 
     def test_load_all_entries(self):
-        """Load all seed catalog entries."""
-        if not CATALOG_DIR.exists():
-            return
+        """Load all demo catalog entries."""
         entries = load_catalog_from_directory(CATALOG_DIR)
 
-        assert len(entries) >= 4  # At least the seed entries
-        assert "keysight_34461a" in entries
+        assert len(entries) >= 3
+        assert "generic_dmm" in entries
 
     def test_empty_directory(self, tmp_path):
         """Loading from empty directory returns empty dict."""
@@ -357,8 +341,6 @@ class TestCatalogInheritance:
 
 def _catalog_yaml_files():
     """Collect all catalog YAML files for parametrized test."""
-    if not CATALOG_DIR.exists():
-        return []
     return sorted(
         p
         for p in CATALOG_DIR.glob("**/*.yaml")

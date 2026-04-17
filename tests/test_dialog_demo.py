@@ -34,7 +34,7 @@ async def test_with_confirm_dialog():
     )
 
     if response.timed_out:
-        pytest.skip("Operator did not respond in time")
+        pytest.fail("Operator did not respond in time")
 
     if not response.confirmed:
         pytest.fail("Operator indicated DUT is not ready")
@@ -61,7 +61,7 @@ async def test_with_input_dialog():
     )
 
     if response.timed_out or response.cancelled:
-        pytest.skip("Operator did not provide input")
+        pytest.fail("Operator did not provide input")
 
     serial = response.value
     assert serial, "Serial number was empty"
@@ -86,7 +86,7 @@ async def test_with_choice_dialog():
     )
 
     if response.timed_out or response.cancelled:
-        pytest.skip("Operator did not make a selection")
+        pytest.fail("Operator did not make a selection")
 
     fixture_index = response.choice
     assert fixture_index is not None, "choice is required"

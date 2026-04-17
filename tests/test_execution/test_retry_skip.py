@@ -11,9 +11,7 @@ from litmus.execution.plugin import get_step_outcomes
 
 @pytest.fixture(autouse=True)
 def _require_litmus_plugin(request):
-    """Skip tests in this module when the litmus plugin is not loaded."""
-    if not request.config.pluginmanager.has_plugin("litmus"):
-        pytest.skip("Requires litmus plugin")
+    assert request.config.pluginmanager.has_plugin("litmus"), "Litmus plugin must be loaded"
 
 
 class TestRetryLogic:
@@ -60,11 +58,12 @@ class TestSkipOnFailure:
         """This test fails intentionally to trigger skip."""
         pytest.fail("Intentional failure for skip testing")
 
-    @pytest.mark.litmus_skip_on(["test_dependency_that_fails"])
-    def test_skipped_due_to_failure(self):
-        """This test should be skipped because dependency failed."""
-        # This would pass if run, but should be skipped
-        assert True
+    def test_skip_on_failure_recorded(self):
+        """Verify that the failed dependency was recorded as False in step outcomes."""
+        outcomes = get_step_outcomes()
+        dep_key = next((k for k in outcomes if "test_dependency_that_fails" in k), None)
+        assert dep_key is not None, "test_dependency_that_fails outcome not found"
+        assert outcomes[dep_key] is False, "Failed dependency must be recorded as False"
 
     @pytest.mark.litmus_skip_on(["test_dependency_that_passes"])
     def test_not_skipped_when_dependency_passes(self):
@@ -95,8 +94,7 @@ class TestStepOutcomesTracking:
                 assert value is True, f"Expected True for passing test, got {value}"
                 break
         # Note: This may not find it if running in isolation
-        if not found:
-            pytest.skip("Dependency test not found in get_step_outcomes() (run full suite)")
+        assert found, "Dependency test not found in get_step_outcomes() — run full suite"
 
     def test_failed_test_recorded_as_false(self):
         """Check that failed tests are recorded with False."""
@@ -106,8 +104,7 @@ class TestStepOutcomesTracking:
                 found = True
                 assert value is False, f"Expected False for failing test, got {value}"
                 break
-        if not found:
-            pytest.skip("Dependency test not found in get_step_outcomes() (run full suite)")
+        assert found, "Dependency test not found in get_step_outcomes() — run full suite"
 
 
 class TestMultipleDependencies:
@@ -122,7 +119,9 @@ class TestMultipleDependencies:
         """Second dependency - fails."""
         pytest.fail("Second dependency fails")
 
-    @pytest.mark.litmus_skip_on(["test_first_dep", "test_second_dep"])
-    def test_with_multiple_deps(self):
-        """Should skip because test_second_dep failed."""
-        assert True
+    def test_multiple_deps_failure_recorded(self):
+        """Verify that the second failing dependency was recorded as False."""
+        outcomes = get_step_outcomes()
+        dep_key = next((k for k in outcomes if "test_second_dep" in k), None)
+        assert dep_key is not None, "test_second_dep outcome not found"
+        assert outcomes[dep_key] is False, "Failed dependency must be recorded as False"

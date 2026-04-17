@@ -2,11 +2,13 @@
 
 from collections import defaultdict
 from collections.abc import Callable
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
 from jinja2 import Environment
 
+from litmus.models.catalog import InstrumentCatalogEntry
 from litmus.store import load_catalog_entry
 
 # SI prefixes for formatting
@@ -673,28 +675,39 @@ def preprocess_capabilities(caps: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return caps
 
 
-def load_datasheet_data(path: Path) -> dict[str, Any]:
-    """Load a catalog YAML and organize it for template rendering.
+@dataclass
+class DatasheetSummary:
+    capability_count: int
+    channel_count: int
+    type: str
 
-    Returns a dict with keys: entry, summary, capabilities.
-    """
+
+@dataclass
+class DatasheetData:
+    entry: InstrumentCatalogEntry
+    summary: DatasheetSummary
+    # Render-time state per capability (signal_renders, attr_renders, visible_*).
+    # Kept separate from the model because these fields don't belong on the entity.
+    cap_renders: list[dict[str, Any]]
+
+
+def load_datasheet_data(path: Path) -> DatasheetData:
+    """Load a catalog YAML and organize it for template rendering."""
     entry = load_catalog_entry(path, catalog_dir=path.parent)
-    data = entry.model_dump()
 
-    # Preprocess capabilities for smart rendering (returns new list with render state).
-    data["capabilities"] = preprocess_capabilities(data.get("capabilities", []))
+    # Preprocess capabilities into render-time dicts (augmented with signal/attr renders).
+    caps_as_dicts = [c.model_dump() for c in entry.capabilities]
+    cap_renders = preprocess_capabilities(caps_as_dicts)
 
-    # Summary stats
-    summary = {
-        "capability_count": len(entry.capabilities),
-        "channel_count": len(entry.channels),
-        "type": entry.type,
-    }
-
-    return {
-        "entry": data,
-        "summary": summary,
-    }
+    return DatasheetData(
+        entry=entry,
+        summary=DatasheetSummary(
+            capability_count=len(entry.capabilities),
+            channel_count=len(entry.channels),
+            type=entry.type,
+        ),
+        cap_renders=cap_renders,
+    )
 
 
 def _find_variant_files(base_path: Path) -> list[Path]:
@@ -705,7 +718,7 @@ def _find_variant_files(base_path: Path) -> list[Path]:
 
 
 def _render_datasheet(
-    data: dict[str, Any],
+    data: DatasheetData,
     output: Path,
     fmt: str,
     related: list[dict[str, str]] | None = None,
@@ -735,8 +748,9 @@ def _render_datasheet(
 
     tmpl = env.from_string(template_str)
     html = tmpl.render(
-        data=data["entry"],
-        summary=data["summary"],
+        data=data.entry,
+        cap_renders=data.cap_renders,
+        summary=data.summary,
         related=related or [],
     )
 
@@ -773,11 +787,11 @@ def generate_datasheet(
         Path to generated base file.
     """
     data = load_datasheet_data(path)
-    entry = data["entry"]
+    entry = data.entry
     ext = "pdf" if fmt == "pdf" else "html"
 
     if output is None:
-        output = Path(f"{entry['id']}.{ext}")
+        output = Path(f"{entry.id}.{ext}")
     else:
         output = Path(output)
 
@@ -785,26 +799,25 @@ def generate_datasheet(
     variant_files = _find_variant_files(path)
     variant_links: list[dict[str, str]] = []
 
-    # Base link for variants (same directory)
-    base_link = {
-        "label": "Base",
-        "name": entry.get("name", entry["id"]),
-        "model": entry.get("model", ""),
-        "href": output.name,
-    }
-
     for vpath in variant_files:
         vdata = load_datasheet_data(vpath)
-        ventry = vdata["entry"]
-        vout = output.parent / f"{ventry['id']}.{ext}"
+        ventry = vdata.entry
+        vout = output.parent / f"{ventry.id}.{ext}"
         variant_links.append(
             {
                 "label": "Variant",
-                "name": ventry.get("name", ventry["id"]),
-                "model": ventry.get("model", ""),
+                "name": ventry.name or ventry.id or "",
+                "model": ventry.model,
                 "href": vout.name,
             }
         )
+
+    base_link = {
+        "label": "Base",
+        "name": entry.name or entry.id or "",
+        "model": entry.model,
+        "href": output.name,
+    }
 
     # Render base first so variants can link back to it
     _render_datasheet(data, output, fmt, related=variant_links)
@@ -812,8 +825,7 @@ def generate_datasheet(
     # Render variants with link back to base
     for vpath in variant_files:
         vdata = load_datasheet_data(vpath)
-        ventry = vdata["entry"]
-        vout = output.parent / f"{ventry['id']}.{ext}"
+        vout = output.parent / f"{vdata.entry.id}.{ext}"
         _render_datasheet(vdata, vout, fmt, related=[base_link])
 
     return output

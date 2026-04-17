@@ -31,12 +31,9 @@ class TestClassifyValue:
         assert classify_value(([1.0, 2.0], 1e-5)) == "numeric_array"
 
     def test_numpy_array(self):
-        try:
-            import numpy as np
+        import numpy as np
 
-            assert classify_value(np.array([1, 2, 3])) == "numeric_array"
-        except ImportError:
-            pytest.skip("numpy not installed")
+        assert classify_value(np.array([1, 2, 3])) == "numeric_array"
 
     def test_dict_is_channel(self):
         assert classify_value({"key": "val"}) == "channel"

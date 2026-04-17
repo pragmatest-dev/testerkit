@@ -14,8 +14,9 @@ from litmus.reports.datasheet import (
     generate_datasheet,
     load_datasheet_data,
 )
+from litmus.store import load_catalog_entry
 
-CATALOG_DIR = Path(__file__).parent.parent / "catalog"
+CATALOG_DIR = Path(__file__).parent.parent / "demo" / "catalog"
 
 
 class TestFmtSi:
@@ -250,38 +251,32 @@ class TestBuildSignalRender:
 class TestLoadDatasheetData:
     @pytest.fixture(
         params=[
-            "keysight/keysight_e8257d.yaml",
-            "keysight/keysight_m9484c.yaml",
-            "keysight/keysight_n5186a.yaml",
+            "generic_dmm.yaml",
+            "generic_psu.yaml",
+            "generic_oscilloscope.yaml",
         ]
     )
     def catalog_path(self, request):
         path = CATALOG_DIR / request.param
-        if not path.exists():
-            pytest.skip(f"Catalog file not found: {path}")
+        assert path.exists(), f"Catalog file not found: {path}"
         return path
 
     def test_loads_successfully(self, catalog_path):
         data = load_datasheet_data(catalog_path)
-        assert "entry" in data
-        assert "summary" in data
-        assert data["entry"]["manufacturer"].lower() == "keysight"
-        assert data["summary"]["capability_count"] >= 0
+        assert data.entry.manufacturer is not None
+        assert data.summary.capability_count >= 0
 
     def test_entry_has_expected_keys(self, catalog_path):
         data = load_datasheet_data(catalog_path)
-        entry = data["entry"]
-        assert "id" in entry
-        assert "model" in entry
-        assert "capabilities" in entry
+        assert data.entry.id is not None
+        assert data.entry.model is not None
+        assert data.entry.capabilities is not None
 
     def test_signal_renders_present(self, catalog_path):
         data = load_datasheet_data(catalog_path)
-        for cap in data["entry"]["capabilities"]:
-            assert "signal_renders" in cap
-            for sig_name in cap.get("signals") or {}:
-                assert sig_name in cap["signal_renders"]
-                render = cap["signal_renders"][sig_name]
+        for cap_render in data.cap_renders:
+            for sig_name in cap_render.get("signal_renders") or {}:
+                render = cap_render["signal_renders"][sig_name]
                 assert "headline" in render
                 assert "tables" in render
 
@@ -289,23 +284,23 @@ class TestLoadDatasheetData:
 class TestGenerateDatasheet:
     @pytest.fixture(
         params=[
-            "keysight/keysight_e8257d.yaml",
-            "keysight/keysight_m9484c.yaml",
-            "keysight/keysight_n5186a.yaml",
+            "generic_dmm.yaml",
+            "generic_psu.yaml",
+            "generic_oscilloscope.yaml",
         ]
     )
     def catalog_path(self, request):
         path = CATALOG_DIR / request.param
-        if not path.exists():
-            pytest.skip(f"Catalog file not found: {path}")
+        assert path.exists(), f"Catalog file not found: {path}"
         return path
 
     def test_generates_html(self, catalog_path, tmp_path):
+        entry = load_catalog_entry(catalog_path)
         out = generate_datasheet(catalog_path, tmp_path / "test.html")
         assert out.exists()
         html = out.read_text()
         assert "<!DOCTYPE html>" in html
-        assert "Keysight" in html
+        assert entry.model in html
 
     def test_html_has_sections(self, catalog_path, tmp_path):
         out = generate_datasheet(catalog_path, tmp_path / "test.html")

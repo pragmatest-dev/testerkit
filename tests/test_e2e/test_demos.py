@@ -19,9 +19,7 @@ class TestDemoTestSuites:
 
     @pytest.fixture(autouse=True)
     def check_demo_exists(self):
-        """Skip if demo directory doesn't exist."""
-        if not DEMO_DIR.exists():
-            pytest.skip("Demo directory not found")
+        assert DEMO_DIR.exists(), f"Demo directory not found: {DEMO_DIR}"
 
     def _run_demo_tests(
         self,
