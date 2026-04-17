@@ -486,6 +486,7 @@ def _get_instrument_asset(instrument_id: str, project: str) -> dict[str, Any]:
 
 def _get_run(run_id: str, project: str) -> dict[str, Any]:
     """Get test run details."""
+    from litmus.api.schemas import build_run_view
     from litmus.data.backends.parquet import ParquetBackend
 
     results_dir = str(get_project_root(project) / "results")
@@ -495,9 +496,11 @@ def _get_run(run_id: str, project: str) -> dict[str, Any]:
     if not run:
         return {"error": f"Run '{run_id}' not found"}
 
-    result = run.model_dump(exclude={"file_path"})
-    result["measurements"] = backend.get_measurements(run_id)
-    return result
+    rows = backend.get_measurements(run_id)
+    view = build_run_view(rows)
+    if view.outcome is None:
+        view.outcome = run.outcome
+    return view.model_dump(mode="json")
 
 
 # =============================================================================

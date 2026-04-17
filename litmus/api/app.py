@@ -9,6 +9,7 @@ from uuid import UUID
 from fastapi import APIRouter, HTTPException
 
 from litmus.api.models import DialogCreate, DialogRespondRequest, LaunchRequest, SaveRequest
+from litmus.api.schemas import RunView, build_run_view
 from litmus.data.backends.parquet import ParquetBackend
 
 
@@ -81,13 +82,18 @@ def create_api_router() -> APIRouter:
         runs = backend.list_runs(limit=limit)
         return {"runs": [r.model_dump(exclude={"file_path"}) for r in runs]}
 
-    @router.get("/runs/{run_id}")
+    @router.get("/runs/{run_id}", response_model=RunView)
     def get_run(run_id: str):
-        """Get a specific test run."""
+        """Get a specific test run with steps, instruments, and measurements."""
         run = backend.get_run(run_id)
         if not run:
             raise HTTPException(status_code=404, detail="Run not found")
-        return run.model_dump(exclude={"file_path"})
+        rows = backend.get_measurements(run_id)
+        view = build_run_view(rows)
+        # Backfill outcome from RunSummary if not present in measurements
+        if view.outcome is None:
+            view.outcome = run.outcome
+        return view
 
     @router.get("/runs/{run_id}/measurements")
     def get_measurements(run_id: str):
