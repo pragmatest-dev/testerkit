@@ -13,6 +13,7 @@ Usage (standalone):
 from __future__ import annotations
 
 import logging
+import re
 import threading
 import warnings
 from pathlib import Path
@@ -112,6 +113,11 @@ def _load_all_ipc_tables(conn: duckdb.DuckDBPyConnection, results_dir: Path) -> 
         _load_ipc_table(conn, results_dir / subdir, table_name, replace_expr)
 
 
+def _replace_expr_columns(replace_expr: str) -> list[str]:
+    """Extract column names from a SQL REPLACE clause (e.g. 'col AT TIME ZONE ...')."""
+    return re.findall(r"\b(\w+)\s+AT\s+TIME\s+ZONE", replace_expr)
+
+
 def _load_ipc_table(
     conn: duckdb.DuckDBPyConnection,
     directory: Path,
@@ -128,6 +134,18 @@ def _load_ipc_table(
     arrow_table = _read_ipc_files(directory)
     if arrow_table is None:
         return
+
+    # Validate that columns named in replace_expr exist in the Arrow schema.
+    schema_cols = set(arrow_table.schema.names)
+    for col in _replace_expr_columns(replace_expr):
+        if col not in schema_cols:
+            _log.warning(
+                "IPC table '%s': column '%s' not found in Arrow schema "
+                "— time zone conversion will fail",
+                table_name,
+                col,
+            )
+
     tmp = f"_{table_name}_arrow"
     conn.register(tmp, arrow_table)
     conn.execute(

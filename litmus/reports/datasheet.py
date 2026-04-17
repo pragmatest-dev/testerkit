@@ -447,12 +447,7 @@ def build_signal_render(sig_name: str, sig: dict[str, Any]) -> dict[str, Any]:
         # Within each output group, cluster bands by when-key overlap.
         # Merge groups with subset/superset key relationships; keep disjoint groups separate.
         for cluster in _cluster_by_key_overlap(bands):
-            all_keys: dict[str, None] = {}
-            for band in cluster:
-                for k in band["when"]:
-                    all_keys.setdefault(k, None)
-            keys = list(all_keys)
-
+            keys = _when_keys(cluster)
             _emit_table(tables, cluster, keys, present_fields, sig_name)
 
     return {"headline": headline, "tables": tables}
@@ -505,13 +500,11 @@ def _build_tables_from_bands(
         keys = _when_keys(cluster)
         ndim = len(keys)
 
-        if ndim == 0:
-            pass  # Unconditional bands are handled upstream; nothing to tabulate
-        elif ndim == 1:
+        if ndim == 1:
             key = keys[0]
             rows = []
             for band in cluster:
-                label = fmt_when_value(band["when"].get(key), key)
+                label = fmt_when_value(band.get("when", {}).get(key), key)
                 rows.append({"label": label, "value": cell_fn(band)})
             tables.append(
                 {
@@ -572,8 +565,8 @@ def _build_2d_generic(
 
     lookup: dict[tuple[Any, Any], str] = {}
     for band in bands:
-        rv = band["when"].get(row_key)
-        cv = band["when"].get(col_key)
+        rv = band.get("when", {}).get(row_key)
+        cv = band.get("when", {}).get(col_key)
         lookup[(_hashable(rv), _hashable(cv))] = cell_fn(band)
 
     return {

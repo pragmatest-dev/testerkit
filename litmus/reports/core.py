@@ -56,11 +56,9 @@ class ReportData:
     git_remote: str = ""
 
     # Flat dicts with step context added (step_name, step_index, step_path).
-    # Values come from MeasurementView.model_dump(mode="json") — no raw parquet
-    # instr_*/in_*/out_*/custom_* columns leak through.
+    # Stored as dicts (not MeasurementView/InstrumentView) because Jinja2 templates
+    # are a write boundary — model_dump(mode="json") is the correct conversion point.
     measurements: list[dict[str, Any]] = field(default_factory=list)
-
-    # Deduplicated instruments across all steps (InstrumentView.model_dump()).
     instruments: list[dict[str, Any]] = field(default_factory=list)
 
     # Summary stats
@@ -73,6 +71,11 @@ class ReportData:
     pass_rate: float = 0.0
 
 
+def _str_field(row: dict[str, Any], key: str) -> str:
+    """Extract a string field from a parquet row, defaulting to empty string."""
+    return str(row.get(key) or "")
+
+
 def _find_parquet(run_id: str, results_dir: str = "results") -> Path | None:
     """Find a Parquet file matching a run ID.
 
@@ -80,6 +83,8 @@ def _find_parquet(run_id: str, results_dir: str = "results") -> Path | None:
     - Current: results/runs/{date}/{timestamp}_{serial}.parquet
     - Legacy: results/runs/{date}/{run_id}/measurements.parquet
     """
+    import pyarrow.parquet as pq
+
     runs_dir = Path(results_dir) / "runs"
     if not runs_dir.exists():
         return None
@@ -91,8 +96,6 @@ def _find_parquet(run_id: str, results_dir: str = "results") -> Path | None:
         for f in date_dir.iterdir():
             if f.suffix == ".parquet" and not f.is_dir():
                 try:
-                    import pyarrow.parquet as pq
-
                     table = pq.read_table(f, columns=["run_id"])
                     if table.num_rows > 0:
                         file_run_id = str(table.column("run_id")[0])
@@ -156,7 +159,7 @@ def load_run_data(run_id: str, results_dir: str = "results") -> ReportData:
             key = f"{instr.role}:{instr.instrument_id}"
             if key not in seen_instr:
                 seen_instr.add(key)
-                instruments.append(instr.model_dump())
+                instruments.append(instr.model_dump(mode="json"))
 
     # Compute stats
     outcomes = [m.get("outcome") or "" for m in measurements]
@@ -168,27 +171,27 @@ def load_run_data(run_id: str, results_dir: str = "results") -> ReportData:
     step_names = sorted(s.step_name for s in run_view.steps if s.step_name)
 
     return ReportData(
-        run_id=str(first.get("run_id") or ""),
+        run_id=_str_field(first, "run_id"),
         started_at=_fmt_dt_raw(first.get("run_started_at")),
         ended_at=_fmt_dt_raw(first.get("run_ended_at")),
         outcome=run_view.outcome or "",
-        dut_serial=str(first.get("dut_serial") or ""),
-        dut_part_number=str(first.get("dut_part_number") or ""),
-        dut_revision=str(first.get("dut_revision") or ""),
-        dut_lot_number=str(first.get("dut_lot_number") or ""),
-        product_id=str(first.get("product_id") or ""),
-        product_name=str(first.get("product_name") or ""),
-        product_revision=str(first.get("product_revision") or ""),
-        station_id=str(first.get("station_id") or ""),
-        station_type=str(first.get("station_type") or ""),
-        station_location=str(first.get("station_location") or ""),
-        fixture_id=str(first.get("fixture_id") or ""),
-        operator_id=str(first.get("operator_id") or ""),
-        sequence_id=str(first.get("sequence_id") or ""),
-        test_phase=str(first.get("test_phase") or ""),
-        git_commit=str(first.get("git_commit") or ""),
-        git_branch=str(first.get("git_branch") or ""),
-        git_remote=str(first.get("git_remote") or ""),
+        dut_serial=_str_field(first, "dut_serial"),
+        dut_part_number=_str_field(first, "dut_part_number"),
+        dut_revision=_str_field(first, "dut_revision"),
+        dut_lot_number=_str_field(first, "dut_lot_number"),
+        product_id=_str_field(first, "product_id"),
+        product_name=_str_field(first, "product_name"),
+        product_revision=_str_field(first, "product_revision"),
+        station_id=_str_field(first, "station_id"),
+        station_type=_str_field(first, "station_type"),
+        station_location=_str_field(first, "station_location"),
+        fixture_id=_str_field(first, "fixture_id"),
+        operator_id=_str_field(first, "operator_id"),
+        sequence_id=_str_field(first, "sequence_id"),
+        test_phase=_str_field(first, "test_phase"),
+        git_commit=_str_field(first, "git_commit"),
+        git_branch=_str_field(first, "git_branch"),
+        git_remote=_str_field(first, "git_remote"),
         measurements=measurements,
         instruments=instruments,
         total_measurements=total,
@@ -294,7 +297,7 @@ def _write_json(data: ReportData, output: Path) -> None:
             "pass_rate": data.pass_rate,
         },
         # Measurements are already JSON-safe: model_dump(mode="json") serializes
-        # datetimes to ISO strings and structured inputs/outputs/custom dicts.
+        # datetimes to ISO strings and nested inputs/outputs/custom dicts.
         "measurements": data.measurements,
         "instruments": data.instruments,
     }
@@ -403,7 +406,11 @@ def _filter_fmt_dt(val: str) -> str:
 
 
 def _filter_fmt_value(val: Any) -> str:
-    """Format a measurement value."""
+    """Format a measurement value for display in HTML reports.
+
+    Distinct from datasheet.py's _fmt_value: operates on scalar floats only,
+    no SI prefix — just decimal precision scaling by magnitude.
+    """
     if val is None:
         return "—"
     if isinstance(val, float):

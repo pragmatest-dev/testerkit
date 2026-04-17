@@ -265,7 +265,12 @@ def _setup_via_api(
 ) -> None:
     """Set up Grafana dashboards and datasource via the HTTP API."""
     url = grafana_url.rstrip("/")
-    auth = {"token": token, "user": user, "password": password}
+    auth: dict[str, str] = {}
+    if token:
+        auth["token"] = token
+    elif user and password:
+        auth["user"] = user
+        auth["password"] = password
 
     click.echo(f"Connecting to {url}...")
     ds_uid = _create_or_find_datasource(url, pgwire_host, pgwire_port, auth)

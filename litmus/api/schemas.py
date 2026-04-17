@@ -109,29 +109,6 @@ class RunView(BaseModel):
     steps: list[StepView] = []
 
 
-# ---------------------------------------------------------------------------
-# Instrument column → InstrumentView field mapping
-# Mirrors the flatten done in logger.set_step_instruments / build_instrument_arrays.
-# ---------------------------------------------------------------------------
-
-_INSTR_FIELD_MAP = {
-    "instr_name": "role",
-    "instr_id": "instrument_id",
-    "instr_driver": "driver",
-    "instr_resource": "resource",
-    "instr_protocol": "protocol",
-    "instr_manufacturer": "manufacturer",
-    "instr_model": "model",
-    "instr_serial": "serial",
-    "instr_firmware": "firmware",
-    "instr_cal_due": "cal_due",
-    "instr_cal_last": "cal_last",
-    "instr_cal_certificate": "cal_certificate",
-    "instr_cal_lab": "cal_lab",
-    "instr_mocked": "mocked",
-}
-
-
 def _instruments_from_step_rows(rows: list[dict[str, Any]]) -> list[InstrumentView]:
     """Reconstruct InstrumentView list from per-step instr_* parallel arrays.
 
