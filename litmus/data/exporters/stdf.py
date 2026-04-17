@@ -17,7 +17,7 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
-from Semi_ATE.STDF import FAR, MIR, MRR, PIR, PRR, PTR
+from Semi_ATE.STDF import FAR, MIR, MRR, PIR, PRR, PTR  # pyright: ignore[reportMissingImports]
 
 from litmus.data.event_log import EventSubscriber
 from litmus.data.events import (

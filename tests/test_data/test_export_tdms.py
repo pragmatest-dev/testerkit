@@ -6,7 +6,10 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
-from nptdms import TdmsFile
+import pytest
+
+pytest.importorskip("nptdms")
+from nptdms import TdmsFile  # pyright: ignore[reportMissingImports]
 
 from litmus.data.exporters.tdms import TdmsSubscriber
 from litmus.data.models import TestRun

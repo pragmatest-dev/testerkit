@@ -6,11 +6,12 @@ with ChannelStore's ``_ChannelWriter``.
 
 Subscribers are dispatched immediately on emit; IPC writes are batched.
 
-Storage: ``results/events/{date}/{session_id}.arrow``
+Storage: ``results/events/{date}/{session_id}-{pid}[_{segment}].arrow``
 """
 
 from __future__ import annotations
 
+import os
 import warnings
 from collections.abc import Callable
 from datetime import UTC, date, datetime
@@ -42,18 +43,48 @@ _IPC_SCHEMA = pa.schema(
 _DEFAULT_FLUSH_THRESHOLD = 50
 
 
+_DEFAULT_MAX_ROWS_PER_SEGMENT = 10_000
+
+
 class _EventIPCWriter(BufferedIPCWriter):
-    """IPC writer that calls on_flush after each batch is written."""
+    """IPC writer with segment rotation and an optional post-flush callback.
+
+    Rotation: when a flush brings the cumulative row count for the current
+    segment to or above ``max_rows_per_segment``, the stream is closed
+    (writing a valid Arrow EOS) and the next flush opens a new segment file.
+    Crash loss is bounded to rows written since the last rotation.
+
+    Each process keeps its own writer (path includes PID) so concurrent
+    orchestrator + worker processes never clobber each other's streams.
+    """
 
     def __init__(
         self,
         path: Path,
         schema: pa.Schema,
         flush_threshold: int = 50,
+        max_rows_per_segment: int = _DEFAULT_MAX_ROWS_PER_SEGMENT,
         on_flush: Callable[[pa.RecordBatch], None] | None = None,
     ) -> None:
         super().__init__(path, schema, flush_threshold=flush_threshold)
         self._on_flush_cb = on_flush
+        self._path_template = path
+        self._segment = 0
+        self._closed_paths: list[Path] = []
+        self._max_rows_per_segment = max_rows_per_segment
+
+    @property
+    def path(self) -> Path:
+        """Current segment path."""
+        if self._segment == 0:
+            return self._path_template
+        stem = self._path_template.stem
+        return self._path_template.with_name(f"{stem}_{self._segment:04d}.arrow")
+
+    @property
+    def all_paths(self) -> list[Path]:
+        """Closed segment paths (each has a valid Arrow EOS and is fully readable)."""
+        return list(self._closed_paths)
 
     def _on_flush(self, batch: pa.RecordBatch) -> None:
         if self._on_flush_cb is not None:
@@ -61,6 +92,13 @@ class _EventIPCWriter(BufferedIPCWriter):
                 self._on_flush_cb(batch)
             except Exception as exc:
                 warnings.warn(f"on_flush callback failed: {exc}", stacklevel=2)
+        # Rotate when the current segment hits the row limit.
+        if self._max_rows_per_segment > 0 and self._row_count >= self._max_rows_per_segment:
+            if self._writer is not None:
+                self._closed_paths.append(self.path)
+                self._writer.close()
+                self._writer = None
+                self._segment += 1
 
 
 class EventSubscriber:
@@ -103,9 +141,10 @@ class EventSubscriber:
 class EventLog:
     """Buffers events, flushes as batched Arrow IPC writes.
 
-    One file per session, date-partitioned. Each event gets
-    ``received_at`` stamped on emit. IPC writes are batched at
-    ``flush_threshold`` rows via shared ``BufferedIPCWriter``.
+    Files are date-partitioned and scoped to the writing process:
+    ``{date}/{session_id}-{pid}.arrow``. Each process gets its own file,
+    so concurrent orchestrator + worker processes never clobber each other.
+    Large sessions rotate into numbered segments to bound crash loss.
     """
 
     def __init__(
@@ -123,7 +162,7 @@ class EventLog:
         date_dir = self.log_dir / date.today().isoformat()
         date_dir.mkdir(parents=True, exist_ok=True)
         self._ipc = _EventIPCWriter(
-            path=date_dir / f"{session_id}.arrow",
+            path=date_dir / f"{session_id}-{os.getpid()}.arrow",
             schema=_IPC_SCHEMA,
             flush_threshold=flush_threshold,
             on_flush=on_flush,
@@ -217,12 +256,22 @@ class EventLog:
 
         events: list[dict] = []
 
-        # Read flushed IPC data
-        table = read_ipc_batches(self._ipc.path)
-        if table is not None:
+        # Read all closed segments (each has a valid Arrow EOS) plus the
+        # current (possibly still-open) segment.
+        seg_paths = self._ipc.all_paths + [self._ipc.path]
+        seen: set[str] = set()
+        for seg_path in seg_paths:
+            table = read_ipc_batches(seg_path)
+            if table is None:
+                continue
             json_col = table.column("json")
             type_col = table.column("event_type")
+            id_col = table.column("id")
             for j in range(table.num_rows):
+                row_id = id_col[j].as_py()
+                if row_id in seen:
+                    continue
+                seen.add(row_id)
                 if event_type and type_col[j].as_py() != event_type:
                     continue
                 try:

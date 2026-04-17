@@ -7,7 +7,10 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
-from asammdf import MDF
+import pytest
+
+pytest.importorskip("asammdf")
+from asammdf import MDF  # pyright: ignore[reportMissingImports]
 
 from litmus.data.exporters.mdf4 import Mdf4Subscriber
 from litmus.data.models import TestRun

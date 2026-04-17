@@ -7,6 +7,7 @@ from pathlib import Path
 from uuid import UUID
 
 from fastapi import APIRouter, HTTPException
+from fastapi.responses import ORJSONResponse
 
 from litmus.api.models import DialogCreate, DialogRespondRequest, LaunchRequest, SaveRequest
 from litmus.api.schemas import RunView, build_run_view
@@ -82,7 +83,7 @@ def create_api_router() -> APIRouter:
         runs = backend.list_runs(limit=limit)
         return {"runs": [r.model_dump(exclude={"file_path"}) for r in runs]}
 
-    @router.get("/runs/{run_id}", response_model=RunView)
+    @router.get("/runs/{run_id}", response_model=RunView, response_class=ORJSONResponse)
     def get_run(run_id: str):
         """Get a specific test run with steps, instruments, and measurements."""
         run = backend.get_run(run_id)

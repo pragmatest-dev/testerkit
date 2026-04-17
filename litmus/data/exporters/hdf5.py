@@ -16,7 +16,7 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
-import h5py
+import h5py  # pyright: ignore[reportMissingImports]
 
 from litmus.data.event_log import EventSubscriber
 from litmus.data.events import (

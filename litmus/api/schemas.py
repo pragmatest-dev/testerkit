@@ -183,6 +183,12 @@ def build_run_view(rows: list[dict[str, Any]]) -> RunView:
 
     first = rows[0]
 
+    # Pre-compute prefix key lists once — schema is uniform across all rows in a run,
+    # so scanning for startswith() once beats doing it per-row (5k× for large runs).
+    in_keys: list[str] = [k for k in first if k.startswith("in_")]
+    out_keys: list[str] = [k for k in first if k.startswith("out_")]
+    custom_keys: list[str] = [k for k in first if k.startswith("custom_")]
+
     # Group by step_index preserving insertion order
     step_map: dict[int, list[dict[str, Any]]] = defaultdict(list)
     for row in rows:
@@ -211,13 +217,9 @@ def build_run_view(rows: list[dict[str, Any]]) -> RunView:
                 meas_instrument=row.get("meas_instrument"),
                 meas_instrument_resource=row.get("meas_instrument_resource"),
                 meas_instrument_channel=row.get("meas_instrument_channel"),
-                inputs={k[3:]: v for k, v in row.items() if k.startswith("in_") and v is not None},
-                outputs={
-                    k[4:]: v for k, v in row.items() if k.startswith("out_") and v is not None
-                },
-                custom={
-                    k[7:]: v for k, v in row.items() if k.startswith("custom_") and v is not None
-                },
+                inputs={k[3:]: row[k] for k in in_keys if row[k] is not None},
+                outputs={k[4:]: row[k] for k in out_keys if row[k] is not None},
+                custom={k[7:]: row[k] for k in custom_keys if row[k] is not None},
             )
             for row in step_rows
         ]

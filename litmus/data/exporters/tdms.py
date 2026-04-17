@@ -24,7 +24,12 @@ from pathlib import Path
 from typing import Any
 
 import numpy as np
-from nptdms import ChannelObject, GroupObject, RootObject, TdmsWriter
+from nptdms import (  # pyright: ignore[reportMissingImports]
+    ChannelObject,
+    GroupObject,
+    RootObject,
+    TdmsWriter,
+)
 
 from litmus.data.event_log import EventSubscriber
 from litmus.data.events import (

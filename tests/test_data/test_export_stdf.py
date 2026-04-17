@@ -6,8 +6,11 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
-from Semi_ATE.STDF import FAR, MIR, MRR, PIR, PRR, PTR
-from Semi_ATE.STDF.STDR import STDR
+import pytest
+
+pytest.importorskip("Semi_ATE")
+from Semi_ATE.STDF import FAR, MIR, MRR, PIR, PRR, PTR  # pyright: ignore[reportMissingImports]
+from Semi_ATE.STDF.STDR import STDR  # pyright: ignore[reportMissingImports]
 
 from litmus.data.exporters.stdf import StdfSubscriber
 from litmus.data.models import TestRun

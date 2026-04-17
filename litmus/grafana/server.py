@@ -26,7 +26,7 @@ import pyarrow.ipc as ipc
 _log = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
-    from buenavista import postgres
+    from buenavista import postgres  # pyright: ignore[reportMissingImports]
 
 
 def _sql_path(p: Path) -> str:
@@ -160,9 +160,11 @@ def _create_server(
     port: int = 5433,
 ) -> postgres.BuenaVistaServer:
     """Create a Buena Vista pgwire server wrapping a DuckDB connection."""
-    from buenavista import bv_dialects, postgres
-    from buenavista.backends.duckdb import DuckDBConnection
-    from buenavista.examples.duckdb_postgres import DuckDBPostgresRewriter
+    from buenavista import bv_dialects, postgres  # pyright: ignore[reportMissingImports]
+    from buenavista.backends.duckdb import DuckDBConnection  # pyright: ignore[reportMissingImports]
+    from buenavista.examples.duckdb_postgres import (  # pyright: ignore[reportMissingImports]
+        DuckDBPostgresRewriter,
+    )
 
     rewriter = DuckDBPostgresRewriter(bv_dialects.BVPostgres(), bv_dialects.BVDuckDB())
     server = postgres.BuenaVistaServer((host, port), DuckDBConnection(conn), rewriter=rewriter)

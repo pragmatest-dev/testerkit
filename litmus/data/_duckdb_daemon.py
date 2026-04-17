@@ -1,14 +1,19 @@
 """DuckDB event index daemon.
 
 Spawned as a detached process by ``DuckDBDaemonManager.acquire()``.
-Maintains an in-memory DuckDB index rebuilt from Arrow IPC files on startup.
-Clients push new events via ``do_put`` and query via ``do_get``.
+Maintains a persistent DuckDB index rebuilt incrementally from Arrow IPC
+files. Clients push new events via ``do_put`` and query via ``do_get``.
+
+Startup is O(new files since last run): the daemon opens the existing
+``_index.duckdb``, signals ready immediately, then ingests only files not
+yet recorded in the ``_ingested`` table via a background thread.
 
 Usage: python -m litmus.data._duckdb_daemon <events_dir>
 """
 
 from __future__ import annotations
 
+import os
 import sys
 import threading
 import warnings
@@ -16,17 +21,21 @@ from pathlib import Path
 
 import duckdb
 import pyarrow as pa
-import pyarrow.ipc as ipc
 
 from litmus.data._duckdb_flight_server import DuckDBFlightServer
+from litmus.data._ipc_writer import read_ipc_batches
 from litmus.data.duckdb_manager import DuckDBDaemonManager
 
 _EVENT_COLUMNS = ["id", "event_type", "occurred_at", "received_at", "session_id", "run_id", "json"]
 
+# ON CONFLICT DO NOTHING deduplicates events that arrived via do_put during
+# the previous session and are now also present in the IPC files.
 _INSERT_SQL = (
     "INSERT INTO events (id, event_type, occurred_at, received_at, session_id, run_id, json) "
-    "VALUES (?, ?, ?, ?, ?, ?, ?)"
+    "VALUES (?, ?, ?, ?, ?, ?, ?) ON CONFLICT (id) DO NOTHING"
 )
+
+_SCHEMA_VERSION = 1
 
 
 def _table_to_rows(table: pa.Table) -> list[tuple]:
@@ -39,14 +48,33 @@ def _table_to_rows(table: pa.Table) -> list[tuple]:
     return list(zip(*cols))
 
 
-def daemon_run(events_dir: Path) -> None:
-    """Entry point for the daemon process. Blocks until idle timeout."""
-    mgr = DuckDBDaemonManager(events_dir)
+# ── Schema management ────────────────────────────────────────────────
 
-    conn = duckdb.connect()  # in-memory, no file
+
+def _open_index(index_path: Path) -> duckdb.DuckDBPyConnection:
+    """Open or create the persistent DuckDB index; rebuild on schema mismatch."""
+    conn = duckdb.connect(str(index_path))
+    needs_rebuild = False
+    try:
+        row = conn.execute("SELECT v FROM _schema_version LIMIT 1").fetchone()
+        needs_rebuild = row is None or row[0] != _SCHEMA_VERSION
+    except Exception:
+        needs_rebuild = True
+    if needs_rebuild:
+        _rebuild_schema(conn)
+    return conn
+
+
+def _rebuild_schema(conn: duckdb.DuckDBPyConnection) -> None:
+    """Drop all managed tables and recreate with current schema."""
+    conn.execute("DROP TABLE IF EXISTS events")
+    conn.execute("DROP TABLE IF EXISTS _ingested")
+    conn.execute("DROP TABLE IF EXISTS _schema_version")
+    conn.execute("CREATE TABLE _schema_version (v INTEGER PRIMARY KEY)")
+    conn.execute(f"INSERT INTO _schema_version VALUES ({_SCHEMA_VERSION})")
     conn.execute("""
         CREATE TABLE events (
-            id VARCHAR NOT NULL,
+            id VARCHAR PRIMARY KEY,
             event_type VARCHAR NOT NULL,
             occurred_at TIMESTAMPTZ NOT NULL,
             received_at TIMESTAMPTZ,
@@ -55,44 +83,106 @@ def daemon_run(events_dir: Path) -> None:
             json VARCHAR,
         )
     """)
+    conn.execute("""
+        CREATE TABLE _ingested (
+            path VARCHAR PRIMARY KEY,
+            mtime DOUBLE NOT NULL,
+            size BIGINT NOT NULL,
+            row_count BIGINT NOT NULL DEFAULT 0,
+            status VARCHAR NOT NULL DEFAULT 'ok',
+            error VARCHAR,
+            last_attempt TIMESTAMPTZ NOT NULL DEFAULT now()
+        )
+    """)
 
-    # Bulk rebuild from Arrow IPC files using SQL params (not Arrow register).
-    # Insert per-file so one corrupt file doesn't block the rest.
-    # Bad files are moved to _quarantine/ so the daemon won't crash on
-    # every restart, but data is preserved for manual recovery.
-    quarantine = events_dir / "_quarantine"
-    ipc_files = sorted(events_dir.glob("*/*.arrow"))
-    for fpath in ipc_files:
-        try:
-            data = fpath.read_bytes()
-            if data[:6] == b"ARROW1":
-                # Old file-format IPC; incompatible with open_stream.
-                warnings.warn(f"Quarantining legacy file-format Arrow: {fpath.name}", stacklevel=2)
-                quarantine.mkdir(parents=True, exist_ok=True)
-                fpath.rename(quarantine / fpath.name)
+
+# ── Background ingest ────────────────────────────────────────────────
+
+
+def _ingest_ipc_files(index_path: Path, events_dir: Path) -> None:
+    """Background thread: ingest new/changed IPC files into the events index.
+
+    Opens its own connection so the Flight server's connection is never
+    blocked by bulk ingest I/O.
+    """
+    conn = duckdb.connect(str(index_path))
+    try:
+        for fpath in sorted(events_dir.glob("*/*.arrow")):
+            try:
+                stat = fpath.stat()
+            except OSError:
                 continue
-            reader = ipc.open_stream(data)
-            table = reader.read_all().select(_EVENT_COLUMNS)
-        except Exception as exc:
-            warnings.warn(f"Quarantining unreadable {fpath.name}: {exc}", stacklevel=2)
-            quarantine.mkdir(parents=True, exist_ok=True)
-            fpath.rename(quarantine / fpath.name)
-            continue
+            # Skip files already processed with the same mtime + size.
+            row = conn.execute(
+                "SELECT 1 FROM _ingested WHERE path = ? AND mtime = ? AND size = ?",
+                [str(fpath), stat.st_mtime, stat.st_size],
+            ).fetchone()
+            if row is not None:
+                continue
+            _ingest_one_file(conn, fpath, stat)
+    finally:
         try:
-            rows = _table_to_rows(table)
-            conn.executemany(_INSERT_SQL, rows)
-        except Exception as exc:
-            warnings.warn(f"Quarantining bad data in {fpath.name}: {exc}", stacklevel=2)
-            quarantine.mkdir(parents=True, exist_ok=True)
-            fpath.rename(quarantine / fpath.name)
+            conn.close()
+        except Exception:
+            pass
+
+
+def _ingest_one_file(
+    conn: duckdb.DuckDBPyConnection,
+    fpath: Path,
+    stat: os.stat_result,
+) -> None:
+    """Ingest a single IPC file. Records status in _ingested."""
+    path_str = str(fpath)
+
+    def _mark(status: str, error: str | None = None, row_count: int = 0) -> None:
+        conn.execute(
+            "INSERT INTO _ingested (path, mtime, size, row_count, status, error, last_attempt) "
+            "VALUES (?, ?, ?, ?, ?, ?, now()) "
+            "ON CONFLICT (path) DO UPDATE SET "
+            "mtime=excluded.mtime, size=excluded.size, row_count=excluded.row_count, "
+            "status=excluded.status, error=excluded.error, last_attempt=now()",
+            [path_str, stat.st_mtime, stat.st_size, row_count, status, error],
+        )
+
+    table = read_ipc_batches(fpath)
+    if table is None:
+        warnings.warn(f"Skipping unreadable IPC file: {fpath.name}", stacklevel=2)
+        _mark("quarantined", "no valid batches")
+        return
+
+    try:
+        table = table.select(_EVENT_COLUMNS)
+    except Exception as exc:
+        warnings.warn(f"Skipping bad schema in {fpath.name}: {exc}", stacklevel=2)
+        _mark("quarantined", str(exc))
+        return
+
+    try:
+        rows = _table_to_rows(table)
+        conn.executemany(_INSERT_SQL, rows)
+        _mark("ok", row_count=len(rows))
+    except Exception as exc:
+        warnings.warn(f"Skipping bad data in {fpath.name}: {exc}", stacklevel=2)
+        _mark("quarantined", str(exc))
+
+
+# ── Daemon entry point ───────────────────────────────────────────────
+
+
+def daemon_run(events_dir: Path) -> None:
+    """Entry point for the daemon process. Blocks until idle timeout."""
+    mgr = DuckDBDaemonManager(events_dir)
+
+    index_path = events_dir / "_index.duckdb"
+    conn = _open_index(index_path)
 
     # Start Flight server for cross-process queries and inserts.
-    # Use a put hook to insert via SQL params instead of Arrow register
-    # (DuckDB segfaults on large Arrow strings via the register path).
     server = DuckDBFlightServer("grpc://127.0.0.1:0")
     server.register("events", conn)
 
     def _events_put_hook(table: pa.Table) -> None:
+        # Tuple-bind path: safe with large strings (register+INSERT segfaults).
         rows = _table_to_rows(table)
         conn.executemany(_INSERT_SQL, rows)
 
@@ -102,9 +192,18 @@ def daemon_run(events_dir: Path) -> None:
     port_file.write_text(location)
     threading.Thread(target=server.serve, daemon=True, name="duckdb-flight").start()
 
-    # Signal ready and store Flight location in state
+    # Signal ready BEFORE background ingest so callers are never blocked by
+    # the O(new-files) ingest scan.
     mgr.write_ready()
     mgr.update_state(location=location)
+
+    # Ingest IPC files that aren't yet in the index via a background thread.
+    threading.Thread(
+        target=_ingest_ipc_files,
+        args=(index_path, events_dir),
+        daemon=True,
+        name="duckdb-ingest",
+    ).start()
 
     # Block until idle timeout
     mgr.monitor_refs()

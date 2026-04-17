@@ -15,7 +15,7 @@ from pathlib import Path
 from typing import Any
 
 import numpy as np
-from asammdf import MDF, Signal
+from asammdf import MDF, Signal  # pyright: ignore[reportMissingImports]
 
 from litmus.data.event_log import EventSubscriber
 from litmus.data.events import (
