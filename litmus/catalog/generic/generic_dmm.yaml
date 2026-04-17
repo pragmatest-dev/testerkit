@@ -5,7 +5,6 @@ name: Generic Digital Multimeter
 description: General-purpose DMM for DC/AC voltage, current, and resistance measurement
 type: dmm
 scaffold: true
-source: generic
 channels:
   '1':
     terminals:

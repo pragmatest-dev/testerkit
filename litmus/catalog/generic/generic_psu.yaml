@@ -5,7 +5,6 @@ name: Generic DC Power Supply
 description: Programmable DC power supply for sourcing voltage and current to DUT
 type: psu
 scaffold: true
-source: generic
 channels:
   CH1:
     terminals:

@@ -5,7 +5,6 @@ name: Generic Digital Oscilloscope
 description: Multi-channel oscilloscope for time-domain voltage waveform capture
 type: scope
 scaffold: true
-source: generic
 channels:
   CH1:
     terminals:

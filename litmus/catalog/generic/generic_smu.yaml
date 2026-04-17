@@ -5,7 +5,6 @@ name: Generic Source Measure Unit
 description: Single-channel SMU for precision voltage/current sourcing and measurement
 type: smu
 scaffold: true
-source: generic
 channels:
   '1':
     terminals:

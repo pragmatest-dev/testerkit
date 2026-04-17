@@ -5,7 +5,6 @@ name: Generic DC Electronic Load
 description: Programmable DC electronic load for sinking current from DUT outputs
 type: eload
 scaffold: true
-source: generic
 channels:
   '1':
     terminals:

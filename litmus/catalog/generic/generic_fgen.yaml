@@ -5,7 +5,6 @@ name: Generic Function Generator
 description: Arbitrary waveform and function generator for signal sourcing
 type: fgen
 scaffold: true
-source: generic
 channels:
   CH1:
     terminals:
