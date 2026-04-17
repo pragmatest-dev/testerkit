@@ -2,9 +2,43 @@
 
 from __future__ import annotations
 
+import base64
+import json
 from pathlib import Path
+from urllib.error import HTTPError, URLError
+from urllib.request import Request, urlopen
 
 import click
+
+
+def _grafana_request(
+    url: str,
+    path: str,
+    method: str = "GET",
+    body: dict | None = None,
+    token: str | None = None,
+    user: str | None = None,
+    password: str | None = None,
+) -> dict:
+    """Make an authenticated request to the Grafana HTTP API."""
+    data = json.dumps(body).encode() if body else None
+    req = Request(f"{url}{path}", data=data, method=method)
+    req.add_header("Content-Type", "application/json")
+    if token:
+        req.add_header("Authorization", f"Bearer {token}")
+    elif user and password:
+        creds = base64.b64encode(f"{user}:{password}".encode()).decode()
+        req.add_header("Authorization", f"Basic {creds}")
+    try:
+        with urlopen(req) as resp:
+            return json.loads(resp.read())
+    except HTTPError as e:
+        body_text = e.read().decode()
+        raise click.ClickException(
+            f"Grafana API error {e.code} on {method} {path}: {body_text}"
+        ) from e
+    except URLError as e:
+        raise click.ClickException(f"Cannot connect to {url}: {e.reason}") from e
 
 
 @click.group()
@@ -124,6 +158,102 @@ def export_cmd(output_dir: Path) -> None:
     click.echo("  provisioning/    — Jinja2 templates for datasource + dashboard config")
 
 
+def _create_or_find_datasource(
+    url: str,
+    pgwire_host: str,
+    pgwire_port: int,
+    auth: dict,
+) -> str:
+    """Return the UID of the Litmus datasource, creating it if absent."""
+    datasources = _grafana_request(url, "/api/datasources", **auth)
+    for ds in datasources:
+        if ds.get("name") == "Litmus":
+            uid = ds["uid"]
+            click.echo(f"Found existing datasource: {uid}")
+            return uid
+
+    ds = _grafana_request(
+        url,
+        "/api/datasources",
+        method="POST",
+        body={
+            "name": "Litmus",
+            "type": "grafana-postgresql-datasource",
+            "url": f"{pgwire_host}:{pgwire_port}",
+            "access": "proxy",
+            "database": "litmus",
+            "user": "litmus",
+            "secureJsonData": {"password": "litmus"},
+            "jsonData": {"sslmode": "disable", "postgresVersion": 1500},
+        },
+        **auth,
+    )
+    uid = ds["datasource"]["uid"]
+    click.echo(f"Created datasource: {uid}")
+    return uid
+
+
+def _create_or_find_folder(url: str, folder: str, auth: dict) -> str:
+    """Return the UID of the named folder, creating it if absent."""
+    folders = _grafana_request(url, "/api/folders", **auth)
+    for f in folders:
+        if f["title"] == folder:
+            return f["uid"]
+
+    result = _grafana_request(url, "/api/folders", method="POST", body={"title": folder}, **auth)
+    click.echo(f"Created folder: {folder}")
+    return result["uid"]
+
+
+def _import_dashboards(
+    url: str,
+    ds_uid: str,
+    folder_uid: str,
+    auth: dict,
+) -> int:
+    """Import all dashboard JSON files into Grafana. Returns count of imported dashboards."""
+    dashboards_dir = Path(__file__).parent / "dashboards"
+    imported = 0
+    skipped: list[str] = []
+
+    for dashboard_file in sorted(dashboards_dir.glob("*.json")):
+        with open(dashboard_file) as fh:
+            try:
+                dashboard = json.load(fh)
+            except json.JSONDecodeError as exc:
+                skipped.append(f"{dashboard_file.stem}: invalid JSON ({exc})")
+                continue
+
+        if "panels" not in dashboard:
+            skipped.append(f"{dashboard_file.stem}: not a dashboard (no panels)")
+            continue
+
+        raw = json.dumps(dashboard).replace("${DS_LITMUS}", ds_uid)
+        dashboard = json.loads(raw)
+        dashboard["id"] = None
+
+        _grafana_request(
+            url,
+            "/api/dashboards/db",
+            method="POST",
+            body={
+                "dashboard": dashboard,
+                "overwrite": True,
+                "folderUid": folder_uid,
+            },
+            **auth,
+        )
+        imported += 1
+        click.echo(f"  Imported {dashboard_file.stem}")
+
+    if skipped:
+        click.echo(f"\nSkipped {len(skipped)} file(s):")
+        for msg in skipped:
+            click.echo(f"  {msg}")
+
+    return imported
+
+
 def _setup_via_api(
     grafana_url: str,
     token: str | None,
@@ -134,107 +264,13 @@ def _setup_via_api(
     folder: str,
 ) -> None:
     """Set up Grafana dashboards and datasource via the HTTP API."""
-    import json
-    from urllib.error import HTTPError, URLError
-    from urllib.request import Request, urlopen
-
     url = grafana_url.rstrip("/")
+    auth = {"token": token, "user": user, "password": password}
 
-    def _request(method: str, path: str, body: dict | None = None) -> dict:
-        """Make an authenticated request to the Grafana HTTP API."""
-        data = json.dumps(body).encode() if body else None
-        req = Request(f"{url}{path}", data=data, method=method)
-        req.add_header("Content-Type", "application/json")
-        if token:
-            req.add_header("Authorization", f"Bearer {token}")
-        elif user and password:
-            import base64
-
-            creds = base64.b64encode(f"{user}:{password}".encode()).decode()
-            req.add_header("Authorization", f"Basic {creds}")
-        try:
-            with urlopen(req) as resp:
-                return json.loads(resp.read())
-        except HTTPError as e:
-            body_text = e.read().decode()
-            raise click.ClickException(
-                f"Grafana API error {e.code} on {method} {path}: {body_text}"
-            ) from e
-        except URLError as e:
-            raise click.ClickException(f"Cannot connect to {url}: {e.reason}") from e
-
-    # 1. Create or find datasource
     click.echo(f"Connecting to {url}...")
-    datasources = _request("GET", "/api/datasources")
-    ds_uid = None
-    for ds in datasources:
-        if ds.get("name") == "Litmus":
-            ds_uid = ds["uid"]
-            click.echo(f"Found existing datasource: {ds_uid}")
-            break
-
-    if not ds_uid:
-        ds = _request(
-            "POST",
-            "/api/datasources",
-            {
-                "name": "Litmus",
-                "type": "grafana-postgresql-datasource",
-                "url": f"{pgwire_host}:{pgwire_port}",
-                "access": "proxy",
-                "database": "litmus",
-                "user": "litmus",
-                "secureJsonData": {"password": "litmus"},
-                "jsonData": {"sslmode": "disable", "postgresVersion": 1500},
-            },
-        )
-        ds_uid = ds["datasource"]["uid"]
-        click.echo(f"Created datasource: {ds_uid}")
-
-    # 2. Create or find folder
-    folders = _request("GET", "/api/folders")
-    folder_uid = None
-    for f in folders:
-        if f["title"] == folder:
-            folder_uid = f["uid"]
-            break
-
-    if not folder_uid:
-        result = _request("POST", "/api/folders", {"title": folder})
-        folder_uid = result["uid"]
-        click.echo(f"Created folder: {folder}")
-
-    # 3. Import dashboards
-    dashboards_dir = Path(__file__).parent / "dashboards"
-    imported = 0
-    for dashboard_file in sorted(dashboards_dir.glob("*.json")):
-        with open(dashboard_file) as fh:
-            try:
-                dashboard = json.load(fh)
-            except json.JSONDecodeError as exc:
-                click.echo(f"  Skipping {dashboard_file.stem}: invalid JSON ({exc})")
-                continue
-
-        if "panels" not in dashboard:
-            click.echo(f"  Skipping {dashboard_file.stem}: not a dashboard (no panels)")
-            continue
-
-        # Replace datasource variable with actual UID
-        raw = json.dumps(dashboard).replace("${DS_LITMUS}", ds_uid)
-        dashboard = json.loads(raw)
-        dashboard["id"] = None
-
-        _request(
-            "POST",
-            "/api/dashboards/db",
-            {
-                "dashboard": dashboard,
-                "overwrite": True,
-                "folderUid": folder_uid,
-            },
-        )
-        imported += 1
-        click.echo(f"  Imported {dashboard_file.stem}")
+    ds_uid = _create_or_find_datasource(url, pgwire_host, pgwire_port, auth)
+    folder_uid = _create_or_find_folder(url, folder, auth)
+    imported = _import_dashboards(url, ds_uid, folder_uid, auth)
 
     click.echo(
         f"\nDone! {imported} dashboards imported to '{folder}' folder.\n"

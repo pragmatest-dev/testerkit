@@ -40,7 +40,7 @@ def fmt_si(value: float | int | None, units: str = "") -> str:
         return "—"
 
     # Only apply SI prefixes for known SI-compatible units
-    base_unit = units.rstrip("s") if units else ""  # strip plural
+    base_unit = (units[:-1] if units.endswith("s") else units) if units else ""
     if base_unit not in _SI_UNITS and units not in _SI_UNITS:
         if isinstance(value, float) and value == int(value) and abs(value) < 1e15:
             return f"{int(value)} {units}".strip()
@@ -688,8 +688,8 @@ def load_datasheet_data(path: Path) -> dict[str, Any]:
     entry = load_catalog_entry(path, catalog_dir=path.parent)
     data = entry.model_dump()
 
-    # Preprocess capabilities for smart rendering
-    preprocess_capabilities(data.get("capabilities", []))
+    # Preprocess capabilities for smart rendering (returns new list with render state).
+    data["capabilities"] = preprocess_capabilities(data.get("capabilities", []))
 
     # Summary stats
     summary = {

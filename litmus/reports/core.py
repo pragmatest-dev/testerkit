@@ -1,5 +1,8 @@
 """Report generation core: data loading, formatting, and output.
 
+Generate test reports in HTML, PDF, CSV, JSON formats from parquet test run
+data. Provides both CLI and library interfaces.
+
 Note: pyarrow.parquet and weasyprint are optional dependencies,
 imported inline where needed to avoid hard requirements.
 """
@@ -11,6 +14,8 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
 from typing import Any
+
+from litmus.api.schemas import build_run_view
 
 
 @dataclass
@@ -50,10 +55,12 @@ class ReportData:
     git_branch: str = ""
     git_remote: str = ""
 
-    # Raw measurement rows
+    # Flat dicts with step context added (step_name, step_index, step_path).
+    # Values come from MeasurementView.model_dump(mode="json") — no raw parquet
+    # instr_*/in_*/out_*/custom_* columns leak through.
     measurements: list[dict[str, Any]] = field(default_factory=list)
 
-    # Deduplicated instruments
+    # Deduplicated instruments across all steps (InstrumentView.model_dump()).
     instruments: list[dict[str, Any]] = field(default_factory=list)
 
     # Summary stats
@@ -61,6 +68,7 @@ class ReportData:
     passed_measurements: int = 0
     failed_measurements: int = 0
     skipped_measurements: int = 0
+    error_measurements: int = 0
     step_names: list[str] = field(default_factory=list)
     pass_rate: float = 0.0
 
@@ -79,10 +87,9 @@ def _find_parquet(run_id: str, results_dir: str = "results") -> Path | None:
     for date_dir in sorted(runs_dir.iterdir(), reverse=True):
         if not date_dir.is_dir():
             continue
-        # New layout: flat parquet files in date dir
+        # Current layout: flat parquet files in date dir
         for f in date_dir.iterdir():
             if f.suffix == ".parquet" and not f.is_dir():
-                # Check if run_id is in the file content
                 try:
                     import pyarrow.parquet as pq
 
@@ -93,7 +100,7 @@ def _find_parquet(run_id: str, results_dir: str = "results") -> Path | None:
                             return f
                 except (OSError, IndexError):
                     continue
-        # Old layout: run_id subdirectory
+        # Legacy layout: run_id subdirectory
         for run_dir in date_dir.iterdir():
             if run_dir.is_dir() and run_id in run_dir.name:
                 mf = run_dir / "measurements.parquet"
@@ -129,23 +136,42 @@ def load_run_data(run_id: str, results_dir: str = "results") -> ReportData:
         raise FileNotFoundError(f"Parquet file is empty for run '{run_id}'")
 
     first = rows[0]
+    run_view = build_run_view(rows)
 
-    # Extract instruments from instr_* parallel arrays
-    instruments = _extract_instruments(rows)
+    # Flatten steps → per-measurement dicts, adding step context for template compat.
+    measurements: list[dict[str, Any]] = []
+    for step in run_view.steps:
+        for meas in step.measurements:
+            flat = meas.model_dump(mode="json")
+            flat["step_name"] = step.step_name
+            flat["step_path"] = step.step_path
+            flat["step_index"] = step.step_index
+            measurements.append(flat)
+
+    # Deduplicate instruments across all steps.
+    seen_instr: set[str] = set()
+    instruments: list[dict[str, Any]] = []
+    for step in run_view.steps:
+        for instr in step.instruments:
+            key = f"{instr.role}:{instr.instrument_id}"
+            if key not in seen_instr:
+                seen_instr.add(key)
+                instruments.append(instr.model_dump())
 
     # Compute stats
-    outcomes = [r.get("outcome", "") for r in rows]
+    outcomes = [m.get("outcome") or "" for m in measurements]
     passed = sum(1 for o in outcomes if o == "pass")
     failed = sum(1 for o in outcomes if o == "fail")
     skipped = sum(1 for o in outcomes if o == "skip")
-    total = len(rows)
-    step_names = sorted({r.get("step_name", "") for r in rows if r.get("step_name")})
+    errored = sum(1 for o in outcomes if o == "error")
+    total = len(measurements)
+    step_names = sorted(s.step_name for s in run_view.steps if s.step_name)
 
     return ReportData(
         run_id=str(first.get("run_id") or ""),
         started_at=_fmt_dt_raw(first.get("run_started_at")),
         ended_at=_fmt_dt_raw(first.get("run_ended_at")),
-        outcome=str(first.get("run_outcome") or first.get("outcome") or ""),
+        outcome=run_view.outcome or "",
         dut_serial=str(first.get("dut_serial") or ""),
         dut_part_number=str(first.get("dut_part_number") or ""),
         dut_revision=str(first.get("dut_revision") or ""),
@@ -163,59 +189,16 @@ def load_run_data(run_id: str, results_dir: str = "results") -> ReportData:
         git_commit=str(first.get("git_commit") or ""),
         git_branch=str(first.get("git_branch") or ""),
         git_remote=str(first.get("git_remote") or ""),
-        measurements=rows,
+        measurements=measurements,
         instruments=instruments,
         total_measurements=total,
         passed_measurements=passed,
         failed_measurements=failed,
         skipped_measurements=skipped,
+        error_measurements=errored,
         step_names=step_names,
         pass_rate=round(passed / total * 100, 1) if total > 0 else 0.0,
     )
-
-
-def _extract_instruments(rows: list[dict]) -> list[dict]:
-    """Deduplicate instruments from instr_* parallel arrays across all rows."""
-    seen: set[str] = set()
-    instruments: list[dict] = []
-
-    for row in rows:
-        names = row.get("instr_name") or []
-        if not isinstance(names, list):
-            continue
-        ids = row.get("instr_id") or []
-        manufacturers = row.get("instr_manufacturer") or []
-        models = row.get("instr_model") or []
-        serials = row.get("instr_serial") or []
-        resources = row.get("instr_resource") or []
-        cal_dues = row.get("instr_cal_due") or []
-
-        for i, name in enumerate(names):
-            key = f"{name}:{_safe_idx(ids, i)}"
-            if key in seen:
-                continue
-            seen.add(key)
-            instruments.append(
-                {
-                    "name": name,
-                    "id": _safe_idx(ids, i),
-                    "manufacturer": _safe_idx(manufacturers, i),
-                    "model": _safe_idx(models, i),
-                    "serial": _safe_idx(serials, i),
-                    "resource": _safe_idx(resources, i),
-                    "cal_due": _safe_idx(cal_dues, i),
-                }
-            )
-
-    return instruments
-
-
-def _safe_idx(lst: list, i: int, default: str = "") -> str:
-    try:
-        v = lst[i]
-        return str(v) if v is not None else default
-    except (IndexError, TypeError):
-        return default
 
 
 def _fmt_dt_raw(val: Any) -> str:
@@ -307,30 +290,15 @@ def _write_json(data: ReportData, output: Path) -> None:
             "passed": data.passed_measurements,
             "failed": data.failed_measurements,
             "skipped": data.skipped_measurements,
+            "error": data.error_measurements,
             "pass_rate": data.pass_rate,
         },
-        "measurements": _serialize_measurements(data.measurements),
+        # Measurements are already JSON-safe: model_dump(mode="json") serializes
+        # datetimes to ISO strings and structured inputs/outputs/custom dicts.
+        "measurements": data.measurements,
         "instruments": data.instruments,
     }
     output.write_text(json.dumps(obj, indent=2, default=str) + "\n")
-
-
-def _serialize_measurements(rows: list[dict]) -> list[dict]:
-    """Clean measurement rows for JSON serialization."""
-    result = []
-    for row in rows:
-        clean = {}
-        for k, v in row.items():
-            if v is None:
-                continue
-            if isinstance(v, datetime):
-                clean[k] = v.isoformat()
-            elif isinstance(v, list):
-                clean[k] = [str(x) if isinstance(x, datetime) else x for x in v]
-            else:
-                clean[k] = v
-        result.append(clean)
-    return result
 
 
 def _write_csv(data: ReportData, output: Path) -> None:
@@ -339,7 +307,6 @@ def _write_csv(data: ReportData, output: Path) -> None:
         output.write_text("")
         return
 
-    # Use measurement columns
     columns = [
         "step_name",
         "measurement_name",
@@ -350,8 +317,8 @@ def _write_csv(data: ReportData, output: Path) -> None:
         "nominal",
         "outcome",
         "spec_id",
-        "dut_pin",
-        "instrument_name",
+        "meas_dut_pin",
+        "meas_instrument",
     ]
 
     buf = io.StringIO()

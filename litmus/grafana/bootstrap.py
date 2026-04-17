@@ -11,6 +11,12 @@ _TEMPLATES_DIR = Path(__file__).parent / "provisioning"
 _DASHBOARDS_DIR = Path(__file__).parent / "dashboards"
 
 
+def _copy_dir(src: Path, dst: Path) -> None:
+    """Replace dst with a fresh copy of src."""
+    shutil.rmtree(dst, ignore_errors=True)
+    shutil.copytree(src, dst)
+
+
 def render_provisioning(
     grafana_home: Path,
     pgwire_host: str = "127.0.0.1",
@@ -44,19 +50,12 @@ def render_provisioning(
 def copy_dashboards(grafana_home: Path) -> Path:
     """Copy dashboard JSON files to Grafana's provisioned dashboards path."""
     dest = grafana_home / "conf" / "provisioning" / "dashboards" / "litmus"
-    shutil.rmtree(dest, ignore_errors=True)
-    shutil.copytree(_DASHBOARDS_DIR, dest)
+    _copy_dir(_DASHBOARDS_DIR, dest)
     return dest
 
 
 def export_bundle(output_dir: Path) -> None:
     """Export dashboards + provisioning templates for manual setup."""
     output_dir.mkdir(parents=True, exist_ok=True)
-
-    dash_dest = output_dir / "dashboards"
-    shutil.rmtree(dash_dest, ignore_errors=True)
-    shutil.copytree(_DASHBOARDS_DIR, dash_dest)
-
-    prov_dest = output_dir / "provisioning"
-    shutil.rmtree(prov_dest, ignore_errors=True)
-    shutil.copytree(_TEMPLATES_DIR, prov_dest)
+    _copy_dir(_DASHBOARDS_DIR, output_dir / "dashboards")
+    _copy_dir(_TEMPLATES_DIR, output_dir / "provisioning")

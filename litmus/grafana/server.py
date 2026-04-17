@@ -12,6 +12,7 @@ Usage (standalone):
 
 from __future__ import annotations
 
+import logging
 import threading
 import warnings
 from pathlib import Path
@@ -20,6 +21,8 @@ from typing import TYPE_CHECKING
 import duckdb
 import pyarrow as pa
 import pyarrow.ipc as ipc
+
+_log = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
     from buenavista import postgres
@@ -167,11 +170,22 @@ def serve(
     stop_event = threading.Event()
 
     def _refresh_loop() -> None:
+        consecutive_failures = 0
         while not stop_event.wait(refresh_seconds):
             try:
                 _refresh_ipc_tables(conn, results_dir)
+                consecutive_failures = 0
             except (OSError, pa.ArrowInvalid, duckdb.Error) as exc:
-                warnings.warn(f"IPC refresh failed: {exc}", stacklevel=2)
+                consecutive_failures += 1
+                if consecutive_failures >= 5:
+                    _log.error(
+                        "IPC refresh failing repeatedly (%d times): %s — "
+                        "Grafana may see stale data. Restart with: litmus grafana serve",
+                        consecutive_failures,
+                        exc,
+                    )
+                else:
+                    warnings.warn(f"IPC refresh failed: {exc}", stacklevel=2)
 
     refresh_thread = threading.Thread(target=_refresh_loop, daemon=True, name="grafana-ipc-refresh")
     refresh_thread.start()
