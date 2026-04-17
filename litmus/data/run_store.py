@@ -19,6 +19,7 @@ import pyarrow.parquet as pq
 from litmus.data import runs_duckdb_manager
 from litmus.data._flight_query import FlightQueryClient
 from litmus.data._sql_helpers import sql_escape as _sql_escape
+from litmus.data.models import RunSummary
 
 logger = logging.getLogger(__name__)
 
@@ -55,7 +56,7 @@ class RunStore:
 
     # --- Query API ---
 
-    def list_runs(self, limit: int = 50) -> list[dict]:
+    def list_runs(self, limit: int = 50) -> list[RunSummary]:
         """List recent test runs, most recent first."""
         rows = self._flight_query(f"""
             SELECT file_path, run_id, session_id, dut_serial, station_id,
@@ -66,16 +67,16 @@ class RunStore:
         """)
 
         return [
-            {
-                "test_run_id": r["run_id"],
-                "session_id": r.get("session_id"),
-                "started_at": r["started_at"],
-                "dut_serial": r["dut_serial"],
-                "station_id": r["station_id"],
-                "outcome": r["outcome"],
-                "total_measurements": r["num_measurements"],
-                "_file": r["file_path"],
-            }
+            RunSummary(
+                test_run_id=r["run_id"],
+                session_id=r.get("session_id"),
+                started_at=r["started_at"],
+                dut_serial=r["dut_serial"],
+                station_id=r["station_id"],
+                outcome=r["outcome"],
+                total_measurements=r["num_measurements"],
+                file_path=r["file_path"],
+            )
             for r in rows
         ]
 
@@ -95,7 +96,7 @@ class RunStore:
         p = Path(rows[0]["file_path"])
         return p if p.exists() else None
 
-    def get_run(self, run_id: str) -> dict | None:
+    def get_run(self, run_id: str) -> RunSummary | None:
         """Get a specific test run summary by ID (prefix match)."""
         pq_file = self.find_run_file(run_id)
         if pq_file is None:
@@ -106,24 +107,24 @@ class RunStore:
             if table.num_rows == 0:
                 return None
             row = table.to_pylist()[0]
-            return {
-                "test_run_id": row.get("run_id"),
-                "session_id": row.get("session_id"),
-                "slot_id": row.get("slot_id"),
-                "started_at": row.get("run_started_at"),
-                "ended_at": row.get("run_ended_at"),
-                "dut_serial": row.get("dut_serial"),
-                "dut_part_number": row.get("dut_part_number"),
-                "product_id": row.get("product_id"),
-                "station_id": row.get("station_id"),
-                "station_type": row.get("station_type"),
-                "test_sequence_id": row.get("sequence_id"),
-                "test_phase": row.get("test_phase"),
-                "operator": row.get("operator_id"),
-                "outcome": row.get("run_outcome"),
-                "total_measurements": table.num_rows,
-                "_file": str(pq_file),
-            }
+            return RunSummary(
+                test_run_id=row.get("run_id"),
+                session_id=row.get("session_id"),
+                slot_id=row.get("slot_id"),
+                started_at=row.get("run_started_at"),
+                ended_at=row.get("run_ended_at"),
+                dut_serial=row.get("dut_serial"),
+                dut_part_number=row.get("dut_part_number"),
+                product_id=row.get("product_id"),
+                station_id=row.get("station_id"),
+                station_type=row.get("station_type"),
+                test_sequence_id=row.get("sequence_id"),
+                test_phase=row.get("test_phase"),
+                operator=row.get("operator_id"),
+                outcome=row.get("run_outcome"),
+                total_measurements=table.num_rows,
+                file_path=str(pq_file),
+            )
         except Exception as exc:
             logger.debug("Failed to read run file %s: %s", pq_file, exc)
             return None

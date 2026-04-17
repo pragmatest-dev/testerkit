@@ -287,6 +287,29 @@ class DUT(BaseModel):
     lot_number: str | None = None
 
 
+class RunSummary(BaseModel):
+    """Lightweight run header read from parquet index (no steps/measurements)."""
+
+    __test__ = False
+
+    test_run_id: str
+    session_id: str | None = None
+    slot_id: str | None = None
+    started_at: datetime | None = None
+    ended_at: datetime | None = None
+    dut_serial: str | None = None
+    dut_part_number: str | None = None
+    product_id: str | None = None
+    station_id: str | None = None
+    station_type: str | None = None
+    test_sequence_id: str | None = None
+    test_phase: str | None = None
+    operator: str | None = None
+    outcome: str | None = None
+    total_measurements: int = 0
+    file_path: str | None = None  # internal: parquet file location for fast measurement lookup
+
+
 class TestRun(BaseModel):
     """A complete test run with steps and measurements."""
 

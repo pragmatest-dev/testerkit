@@ -379,7 +379,7 @@ def _list_runs(project: str) -> list[dict[str, Any]]:
 
     results_dir = str(get_project_root(project) / "results")
     backend = ParquetBackend(results_dir=results_dir)
-    return backend.list_runs(limit=50)
+    return [r.model_dump(exclude={"file_path"}) for r in backend.list_runs(limit=50)]
 
 
 # =============================================================================
@@ -495,8 +495,9 @@ def _get_run(run_id: str, project: str) -> dict[str, Any]:
     if not run:
         return {"error": f"Run '{run_id}' not found"}
 
-    run["measurements"] = backend.get_measurements(run_id)
-    return run
+    result = run.model_dump(exclude={"file_path"})
+    result["measurements"] = backend.get_measurements(run_id)
+    return result
 
 
 # =============================================================================
@@ -1189,7 +1190,7 @@ def run_tool(test: str, station: str, serial: str, project: str | None = None) -
 
         backend = ParquetBackend(results_dir=str(root / "results"))
         recent_runs = backend.list_runs(limit=1)
-        run_id = recent_runs[0].get("test_run_id", "unknown") if recent_runs else "unknown"
+        run_id = recent_runs[0].test_run_id or "unknown" if recent_runs else "unknown"
 
         return {
             "run_id": run_id,

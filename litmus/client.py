@@ -47,7 +47,7 @@ from typing import Any
 from uuid import UUID
 
 from litmus.data.backends.parquet import ParquetBackend
-from litmus.data.models import DUT, Measurement, Outcome, TestRun, TestStep, TestVector
+from litmus.data.models import DUT, Measurement, Outcome, RunSummary, TestRun, TestStep, TestVector
 
 
 def _to_float(value: float | int | str | None) -> float | None:
@@ -408,7 +408,7 @@ class LitmusClient:
             test_phase=test_phase,
         )
 
-    def list_runs(self, limit: int = 50) -> list[dict]:
+    def list_runs(self, limit: int = 50) -> list[RunSummary]:
         """List recent test runs.
 
         Args:
@@ -419,7 +419,7 @@ class LitmusClient:
         """
         return self._backend.list_runs(limit=limit)
 
-    def get_run(self, run_id: str) -> dict | None:
+    def get_run(self, run_id: str) -> RunSummary | None:
         """Get a test run by ID.
 
         Args:

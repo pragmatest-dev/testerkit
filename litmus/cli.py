@@ -647,17 +647,18 @@ def runs(results_dir: str | None, limit: int, as_json: bool):
         return
 
     if as_json:
-        click.echo(json.dumps(test_runs, indent=2, default=str))
+        runs_data = [r.model_dump(exclude={"file_path"}) for r in test_runs]
+        click.echo(json.dumps(runs_data, indent=2, default=str))
         return
 
     click.echo(f"{'Run ID':<10} {'DUT Serial':<15} {'Station':<20} {'Outcome':<10}")
     click.echo("-" * 60)
 
     for run in test_runs:
-        run_id = run.get("test_run_id", "")[:8]
-        dut = run.get("dut_serial", "")
-        station = run.get("station_id", "")
-        outcome = run.get("outcome", "")
+        run_id = (run.test_run_id or "")[:8]
+        dut = run.dut_serial or ""
+        station = run.station_id or ""
+        outcome = run.outcome or ""
         click.echo(f"{run_id:<10} {dut:<15} {station:<20} {outcome:<10}")
 
 

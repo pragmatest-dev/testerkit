@@ -285,7 +285,7 @@ def _render_runs_tab(station_id: str):
     """Render the recent runs tab."""
     backend = ParquetBackend(results_dir=load_project_config().results_dir)
     all_runs = backend.list_runs(limit=100)
-    station_runs = [r for r in all_runs if r.get("station_id") == station_id]
+    station_runs = [r for r in all_runs if r.station_id == station_id]
 
     if station_runs:
         with ui.card().classes("w-full"):
@@ -298,12 +298,12 @@ def _render_runs_tab(station_id: str):
             ]
             rows = [
                 {
-                    "run_id": r.get("test_run_id", "")[:8],
-                    "full_run_id": r.get("test_run_id", ""),
-                    "dut": r.get("dut_serial", ""),
-                    "sequence": r.get("test_sequence_id", ""),
-                    "started": format_datetime(r.get("started_at")),
-                    "outcome": r.get("outcome", ""),
+                    "run_id": (r.test_run_id or "")[:8],
+                    "full_run_id": r.test_run_id or "",
+                    "dut": r.dut_serial or "",
+                    "sequence": r.test_sequence_id or "",
+                    "started": format_datetime(r.started_at),
+                    "outcome": r.outcome or "",
                 }
                 for r in station_runs[:20]
             ]

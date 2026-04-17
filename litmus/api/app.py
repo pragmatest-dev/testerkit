@@ -79,7 +79,7 @@ def create_api_router() -> APIRouter:
     def list_runs(limit: int = 50):
         """List recent test runs."""
         runs = backend.list_runs(limit=limit)
-        return {"runs": runs}
+        return {"runs": [r.model_dump(exclude={"file_path"}) for r in runs]}
 
     @router.get("/runs/{run_id}")
     def get_run(run_id: str):
@@ -87,7 +87,7 @@ def create_api_router() -> APIRouter:
         run = backend.get_run(run_id)
         if not run:
             raise HTTPException(status_code=404, detail="Run not found")
-        return run
+        return run.model_dump(exclude={"file_path"})
 
     @router.get("/runs/{run_id}/measurements")
     def get_measurements(run_id: str):

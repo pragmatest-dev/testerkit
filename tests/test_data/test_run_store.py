@@ -73,7 +73,7 @@ def test_list_runs(runs_store: RunStore) -> None:
     runs = runs_store.list_runs()
     assert len(runs) >= 2
     # Most recent first
-    ids = [r["test_run_id"] for r in runs]
+    ids = [r.test_run_id for r in runs]
     assert "run-002-def" in ids
     assert "run-001-abc" in ids
     idx_002 = ids.index("run-002-def")
@@ -85,9 +85,9 @@ def test_get_run(runs_store: RunStore) -> None:
     """RunStore.get_run returns run details with prefix match."""
     run = runs_store.get_run("run-001-")
     assert run is not None
-    assert run["test_run_id"] == "run-001-abc"
-    assert run["dut_serial"] == "SN001"
-    assert run["outcome"] == "pass"
+    assert run.test_run_id == "run-001-abc"
+    assert run.dut_serial == "SN001"
+    assert run.outcome == "pass"
 
 
 def test_get_run_not_found(runs_store: RunStore) -> None:
@@ -179,7 +179,7 @@ def test_notify_new_run(tmp_path: Path) -> None:
         store.notify_new_run(pq_file2)
 
         runs = store.list_runs()
-        ids = [r["test_run_id"] for r in runs]
+        ids = [r.test_run_id for r in runs]
         assert "run-099-xyz" in ids
         assert "run-100-abc" in ids
     finally:

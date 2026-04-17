@@ -42,7 +42,7 @@ from litmus.data.backends._row_helpers import (
     save_ref_to_dir,
 )
 from litmus.data.event_log import EventSubscriber
-from litmus.data.models import TestRun, Waveform
+from litmus.data.models import RunSummary, TestRun, Waveform
 from litmus.data.ref import is_ref, ref_scheme
 from litmus.data.schemas import (
     SCHEMA_VERSION,
@@ -298,7 +298,7 @@ class ParquetBackend:
             step_results=build_step_manifest(test_run),
         )
 
-    def list_runs(self, limit: int = 50) -> list[dict]:
+    def list_runs(self, limit: int = 50) -> list[RunSummary]:
         """List recent test runs. Delegates to RunStore."""
         from litmus.data.run_store import RunStore
 
@@ -318,7 +318,7 @@ class ParquetBackend:
         finally:
             run_store.close()
 
-    def get_run(self, run_id: str) -> dict | None:
+    def get_run(self, run_id: str) -> RunSummary | None:
         """Get a specific test run by ID. Delegates to RunStore."""
         from litmus.data.run_store import RunStore
 

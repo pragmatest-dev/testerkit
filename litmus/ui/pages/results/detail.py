@@ -4,6 +4,7 @@ from typing import Any
 
 from nicegui import ui
 
+from litmus.data.models import RunSummary
 from litmus.ui.shared.components import format_datetime, info_field, info_field_link
 from litmus.ui.shared.layout import create_layout
 from litmus.ui.shared.services import (
@@ -20,7 +21,7 @@ def result_detail_page(run_id: str):
     run, measurements = get_run_detail(run_id)
 
     if run:
-        create_layout(f"Run {run.get('test_run_id', '')[:8]}")
+        create_layout(f"Run {(run.test_run_id or '')[:8]}")
     else:
         create_layout("Run Not Found")
 
@@ -31,9 +32,9 @@ def result_detail_page(run_id: str):
             _render_not_found()
 
 
-def _render_run_detail(run_id: str, run: dict, measurements: list):
+def _render_run_detail(run_id: str, run: RunSummary, measurements: list):
     """Render the run detail view."""
-    run_outcome = run.get("outcome") or ""
+    run_outcome = run.outcome or ""
 
     stats = aggregate_run_stats(measurements)
     total_measurements = stats["total_measurements"]
@@ -64,11 +65,11 @@ def _render_run_detail(run_id: str, run: dict, measurements: list):
 
         with ui.card_section():
             with ui.grid(columns=3).classes("gap-6"):
-                info_field("DUT Serial", run.get("dut_serial", ""))
-                info_field_link("Station", run.get("station_id", ""), "/stations")
-                info_field_link("Test Sequence", run.get("test_sequence_id", ""), "/sequences")
-                info_field("Started", format_datetime(run.get("started_at")))
-                info_field("Ended", format_datetime(run.get("ended_at")))
+                info_field("DUT Serial", run.dut_serial or "")
+                info_field_link("Station", run.station_id or "", "/stations")
+                info_field_link("Test Sequence", run.test_sequence_id or "", "/sequences")
+                info_field("Started", format_datetime(run.started_at))
+                info_field("Ended", format_datetime(run.ended_at))
                 results_summary = (
                     f"{total_steps} steps, {total_measurements} measurements, "
                     f"{failed_measurements} failed"
@@ -77,7 +78,7 @@ def _render_run_detail(run_id: str, run: dict, measurements: list):
 
     # Check if this is a multi-slot run (slot_id present in measurements)
     has_slots = any(m.get("slot_id") for m in measurements)
-    session_id = run.get("session_id")
+    session_id = run.session_id
 
     # Tabbed content
     timeline_tab = None
@@ -198,13 +199,11 @@ def _render_measurements_tab(measurements: list):
         ui.label("No measurements recorded.").classes("text-slate-500 italic")
 
 
-def _render_history_tab(run_id: str, run: dict):
+def _render_history_tab(run_id: str, run: RunSummary):
     """Render the DUT history tab."""
-    dut_serial = run.get("dut_serial", "")
+    dut_serial = run.dut_serial or ""
     all_runs = list_all_runs(limit=100)
-    dut_runs = [
-        r for r in all_runs if r.get("dut_serial") == dut_serial and r.get("test_run_id") != run_id
-    ]
+    dut_runs = [r for r in all_runs if r.dut_serial == dut_serial and r.test_run_id != run_id]
 
     if dut_runs:
         with ui.card().classes("w-full"):
@@ -217,11 +216,11 @@ def _render_history_tab(run_id: str, run: dict):
             ]
             rows = [
                 {
-                    "run_id": r.get("test_run_id", "")[:8],
-                    "full_run_id": r.get("test_run_id", ""),
-                    "sequence": r.get("test_sequence_id", ""),
-                    "started": format_datetime(r.get("started_at")),
-                    "outcome": r.get("outcome", ""),
+                    "run_id": (r.test_run_id or "")[:8],
+                    "full_run_id": r.test_run_id or "",
+                    "sequence": r.test_sequence_id or "",
+                    "started": format_datetime(r.started_at),
+                    "outcome": r.outcome or "",
                 }
                 for r in dut_runs[:10]
             ]

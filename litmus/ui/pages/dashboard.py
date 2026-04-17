@@ -126,7 +126,7 @@ def _getting_started_card():
                 ui.label("litmus init --starter").classes("text-sm font-mono text-slate-500")
 
 
-def _render_recent_runs(runs: list[dict]) -> None:
+def _render_recent_runs(runs: list) -> None:
     """Render recent runs table."""
     if runs:
         with ui.card().classes("w-full"):
@@ -139,12 +139,12 @@ def _render_recent_runs(runs: list[dict]) -> None:
             ]
             rows = [
                 {
-                    "run_id": r.get("test_run_id", "")[:8],
-                    "full_run_id": r.get("test_run_id", ""),
-                    "dut_serial": r.get("dut_serial", ""),
-                    "station_id": r.get("station_id", ""),
-                    "started_at": format_datetime(r.get("started_at")),
-                    "outcome": r.get("outcome", ""),
+                    "run_id": (r.test_run_id or "")[:8],
+                    "full_run_id": r.test_run_id or "",
+                    "dut_serial": r.dut_serial or "",
+                    "station_id": r.station_id or "",
+                    "started_at": format_datetime(r.started_at),
+                    "outcome": r.outcome or "",
                 }
                 for r in runs
             ]

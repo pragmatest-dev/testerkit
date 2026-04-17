@@ -75,7 +75,7 @@ def load_runs(results_dir: str | Path) -> pa.Table:
         try:
             runs = run_store.list_runs(limit=10000)
             parquet_files = [
-                Path(r["_file"]) for r in runs if r.get("_file") and Path(r["_file"]).exists()
+                Path(r.file_path) for r in runs if r.file_path and Path(r.file_path).exists()
             ]
         finally:
             run_store.close()

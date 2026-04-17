@@ -12,6 +12,7 @@ from litmus.analysis import query
 from litmus.config.normalize import check_instrument_types
 from litmus.config.station_types import StationType
 from litmus.data.backends.parquet import ParquetBackend
+from litmus.data.models import RunSummary
 from litmus.instruments.loader import resolve_station_instruments
 from litmus.matching import service as matching_service
 from litmus.models.catalog import InstrumentCatalogEntry
@@ -566,18 +567,18 @@ def _results_backend() -> ParquetBackend:
     return ParquetBackend(results_dir=project.results_dir)
 
 
-def get_recent_runs(limit: int = 10) -> list[dict]:
+def get_recent_runs(limit: int = 10) -> list[RunSummary]:
     """Return the most recent test runs as list-row dicts."""
     return _results_backend().list_runs(limit=limit)
 
 
-def get_run_detail(run_id: str) -> tuple[dict | None, list[dict]]:
+def get_run_detail(run_id: str) -> tuple[RunSummary | None, list[dict]]:
     """Return (run, measurements) for a given run id."""
     backend = _results_backend()
     run = backend.get_run(run_id)
     if run is None:
         return None, []
-    measurements = backend.get_measurements(run_id, _file=run.get("_file"))
+    measurements = backend.get_measurements(run_id, _file=run.file_path)
     return run, measurements
 
 
@@ -586,7 +587,7 @@ def get_session_measurements(session_id: str) -> list[dict]:
     return _results_backend().get_session_measurements(session_id)
 
 
-def list_all_runs(limit: int = 100) -> list[dict]:
+def list_all_runs(limit: int = 100) -> list[RunSummary]:
     """List more runs for cross-run views (DUT history etc.)."""
     return _results_backend().list_runs(limit=limit)
 

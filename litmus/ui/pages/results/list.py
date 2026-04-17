@@ -41,17 +41,14 @@ def results_page():
                 ]
                 rows = [
                     {
-                        "run_id": r.get("test_run_id", "")[:8],
-                        "full_run_id": r.get("test_run_id", ""),
-                        "dut_serial": r.get("dut_serial", ""),
-                        "station_id": r.get("station_id", ""),
-                        "test_sequence_id": r.get("test_sequence_id", ""),
-                        "started_at": format_datetime(r.get("started_at")),
-                        "measurements": (
-                            f"{r.get('total_measurements', 0)}"
-                            f" ({r.get('failed_measurements', 0)} fail)"
-                        ),
-                        "outcome": r.get("outcome", ""),
+                        "run_id": (r.test_run_id or "")[:8],
+                        "full_run_id": r.test_run_id or "",
+                        "dut_serial": r.dut_serial or "",
+                        "station_id": r.station_id or "",
+                        "test_sequence_id": r.test_sequence_id or "",
+                        "started_at": format_datetime(r.started_at),
+                        "measurements": f"{r.total_measurements} (0 fail)",
+                        "outcome": r.outcome or "",
                     }
                     for r in runs
                 ]
