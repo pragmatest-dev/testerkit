@@ -1,6 +1,7 @@
 """Async test runner with progress streaming."""
 
 import asyncio
+import logging
 import uuid
 from collections.abc import AsyncIterator
 from dataclasses import dataclass, field
@@ -9,6 +10,8 @@ from typing import Literal
 
 from litmus.api.models import LaunchRequest, RunStatus
 from litmus.models.config import TestSequenceConfig
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -90,7 +93,8 @@ class TestRunner:
                 try:
                     seq = load_sequence(yaml_path)
                     sequences[seq.id] = seq
-                except Exception:
+                except (OSError, ValueError, KeyError) as e:
+                    logger.debug("Failed to load %s: %s", yaml_path, e)
                     continue
 
         return sequences

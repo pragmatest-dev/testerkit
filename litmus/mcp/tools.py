@@ -8,9 +8,18 @@ Tools:
 - litmus_open: Get browser URL
 """
 
+import json
 import logging
+import subprocess
+import sys
+from collections.abc import Callable
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Literal, cast
+from uuid import UUID, uuid4
+
+from litmus.config.enum_meta import lookup_enum as _lookup_enum_fn
+from litmus.config.enum_meta import render_enum_reference as _render_enum_reference_fn
 
 logger = logging.getLogger(__name__)
 
@@ -40,15 +49,13 @@ def get_project_root(project: str | None = None) -> Path:
 
 def _lookup_enum(term: str) -> dict[str, Any]:
     """Look up enum value by abbreviation."""
-    from litmus.config.enum_meta import lookup_enum
-
     if not term:
         return {
             "error": "Provide a term via 'id' parameter, "
             "e.g. litmus(action='lookup_enum', id='FRES')"
         }
 
-    results = lookup_enum(term)
+    results = _lookup_enum_fn(term)
     if not results:
         return {"term": term, "candidates": [], "message": f"No matches for '{term}'"}
 
@@ -69,9 +76,7 @@ def _lookup_enum(term: str) -> dict[str, Any]:
 
 def _enum_reference() -> dict[str, Any]:
     """Return full enum reference as markdown."""
-    from litmus.config.enum_meta import render_enum_reference
-
-    return {"markdown": render_enum_reference()}
+    return {"markdown": _render_enum_reference_fn()}
 
 
 def litmus_tool(
@@ -262,8 +267,8 @@ def _list_entities(entity_type: str, project: str) -> dict[str, Any]:
 def _list_yaml_entities(
     project: str,
     dir_name: str,
-    loader: Any,
-    extractor: Any,
+    loader: Callable[[Path], Any],
+    extractor: Callable[[Any, Path], dict[str, Any]],
 ) -> list[dict[str, Any]]:
     """List entities from a YAML directory.
 
@@ -308,7 +313,13 @@ def _list_products(project: str) -> list[dict[str, Any]]:
 
     root = get_project_root(project)
     return [
-        {"id": p.id, "name": p.name, "description": p.description}
+        {
+            "id": p.id,
+            "name": p.name,
+            "description": p.description,
+            "revision": p.revision,
+            "characteristics_count": len(p.characteristics),
+        }
         for p in list_products(project_root=root)
     ]
 
@@ -526,6 +537,21 @@ def _schema_for_error(entity_type: str) -> dict[str, Any] | None:
     return model.model_json_schema()
 
 
+def _save_generic_yaml(
+    model_class: type,
+    save_fn: Callable[..., Any],
+    dir_name: str,
+    entity_id: str,
+    content: dict[str, Any],
+    project: str,
+) -> dict[str, Any]:
+    """Shared save logic for uniform YAML entities."""
+    obj = model_class.model_validate(content)
+    root = get_project_root(project)
+    save_fn(obj, project_root=root)
+    return {"success": True, "path": str(root / dir_name / f"{entity_id}.yaml")}
+
+
 def _save_entity(
     entity_type: str,
     id: str,
@@ -551,103 +577,59 @@ def _save_entity(
             result["schema"] = schema
         return result
 
-    handlers: dict[str, Any] = {
-        "station": _save_station,
-        "product": _save_product,
-        "fixture": _save_fixture,
-        "sequence": _save_sequence,
-        "catalog": _save_catalog,
-        "instrument_asset": _save_instrument_asset,
-        "test": _save_test,
-    }
-    return handlers[entity_type](id, content, project)
+    if entity_type == "station":
+        from litmus.config.normalize import check_instrument_types
+        from litmus.models.station import StationConfig
+        from litmus.store import save_station
 
+        station = StationConfig.model_validate(content)
+        _, type_warnings = check_instrument_types(
+            {k: v.model_dump() for k, v in station.instruments.items()}
+        )
+        root = get_project_root(project)
+        save_station(station, project_root=root)
+        res: dict[str, Any] = {"success": True, "path": str(root / "stations" / f"{id}.yaml")}
+        if type_warnings:
+            res["warnings"] = type_warnings
+        return res
 
-def _save_station(station_id: str, content: dict[str, Any], project: str) -> dict[str, Any]:
-    """Save station configuration via store."""
-    from litmus.config.normalize import check_instrument_types
-    from litmus.models.station import StationConfig
-    from litmus.store import save_station
+    if entity_type == "product":
+        from litmus.models.product import Product
+        from litmus.store import save_product
 
-    station = StationConfig.model_validate(content)
-    _, type_warnings = check_instrument_types(
-        {k: v.model_dump() for k, v in station.instruments.items()}
-    )
+        return _save_generic_yaml(Product, save_product, "products", id, content, project)
 
-    root = get_project_root(project)
-    save_station(station, project_root=root)
+    if entity_type == "fixture":
+        from litmus.models.config import FixtureConfig
+        from litmus.store import save_fixture
 
-    result: dict[str, Any] = {
-        "success": True,
-        "path": str(root / "stations" / f"{station_id}.yaml"),
-    }
-    if type_warnings:
-        result["warnings"] = type_warnings
-    return result
+        return _save_generic_yaml(FixtureConfig, save_fixture, "fixtures", id, content, project)
 
+    if entity_type == "sequence":
+        from litmus.models.config import TestSequenceConfig
+        from litmus.store import save_sequence
 
-def _save_product(product_id: str, content: dict[str, Any], project: str) -> dict[str, Any]:
-    """Save product specification via store."""
-    from litmus.models.product import Product
-    from litmus.store import save_product
+        return _save_generic_yaml(
+            TestSequenceConfig, save_sequence, "sequences", id, content, project
+        )
 
-    product = Product.model_validate(content)
-    root = get_project_root(project)
-    save_product(product, project_root=root)
+    if entity_type == "catalog":
+        from litmus.models.catalog import InstrumentCatalogEntry
+        from litmus.store import save_catalog_entry
 
-    return {"success": True, "path": str(root / "products" / f"{product_id}.yaml")}
+        return _save_generic_yaml(
+            InstrumentCatalogEntry, save_catalog_entry, "catalog", id, content, project
+        )
 
+    if entity_type == "instrument_asset":
+        from litmus.models.instrument_asset import InstrumentAssetFile
+        from litmus.store import save_instrument_asset
 
-def _save_fixture(fixture_id: str, content: dict[str, Any], project: str) -> dict[str, Any]:
-    """Save fixture configuration via store."""
-    from litmus.models.config import FixtureConfig
-    from litmus.store import save_fixture
+        return _save_generic_yaml(
+            InstrumentAssetFile, save_instrument_asset, "instruments", id, content, project
+        )
 
-    fixture = FixtureConfig.model_validate(content)
-    root = get_project_root(project)
-    save_fixture(fixture, project_root=root)
-
-    return {"success": True, "path": str(root / "fixtures" / f"{fixture_id}.yaml")}
-
-
-def _save_sequence(sequence_id: str, content: dict[str, Any], project: str) -> dict[str, Any]:
-    """Save test sequence via store."""
-    from litmus.models.config import TestSequenceConfig
-    from litmus.store import save_sequence
-
-    sequence = TestSequenceConfig.model_validate(content)
-    root = get_project_root(project)
-    save_sequence(sequence, project_root=root)
-
-    return {"success": True, "path": str(root / "sequences" / f"{sequence_id}.yaml")}
-
-
-def _save_catalog(entry_id: str, content: dict[str, Any], project: str) -> dict[str, Any]:
-    """Save catalog entry via store."""
-    from litmus.models.catalog import InstrumentCatalogEntry
-    from litmus.store import save_catalog_entry
-
-    entry = InstrumentCatalogEntry.model_validate(content)
-    root = get_project_root(project)
-    save_catalog_entry(entry, project_root=root)
-
-    return {"success": True, "path": str(root / "catalog" / f"{entry_id}.yaml")}
-
-
-def _save_instrument_asset(
-    instrument_id: str,
-    content: dict[str, Any],
-    project: str,
-) -> dict[str, Any]:
-    """Save instrument asset file via store."""
-    from litmus.models.instrument_asset import InstrumentAssetFile
-    from litmus.store import save_instrument_asset
-
-    asset = InstrumentAssetFile.model_validate(content)
-    root = get_project_root(project)
-    save_instrument_asset(asset, project_root=root)
-
-    return {"success": True, "path": str(root / "instruments" / f"{instrument_id}.yaml")}
+    return _save_test(id, content, project)
 
 
 def _save_test(path: str, content: dict[str, Any], project: str) -> dict[str, Any]:
@@ -659,11 +641,17 @@ def _save_test(path: str, content: dict[str, Any], project: str) -> dict[str, An
     if not path.endswith(".py"):
         path = f"{path}.py"
 
+    root = get_project_root(project)
+
     # Support both absolute-ish paths and relative paths
     if path.startswith("products/") or path.startswith("tests/"):
-        filepath = get_project_root(project) / path
+        filepath = root / path
     else:
-        filepath = get_project_root(project) / "tests" / path
+        filepath = root / "tests" / path
+
+    # Guard against path traversal (e.g. ../../etc/passwd.py)
+    if not filepath.resolve().is_relative_to(root.resolve()):
+        return {"success": False, "errors": ["Path must be within the project directory"]}
 
     filepath.parent.mkdir(parents=True, exist_ok=True)
 
@@ -1127,10 +1115,6 @@ def run_tool(test: str, station: str, serial: str, project: str | None = None) -
         serial: DUT serial number
         project: Project root path (required)
     """
-    import subprocess
-    import sys
-    from datetime import UTC, datetime
-
     if not project:
         return {
             "error": "project parameter is required"
@@ -1220,7 +1204,7 @@ def run_tool(test: str, station: str, serial: str, project: str | None = None) -
 
     except subprocess.TimeoutExpired:
         return {"error": "Test execution timed out"}
-    except Exception as e:
+    except (OSError, RuntimeError) as e:
         return {"error": f"Failed to run tests: {e}"}
 
 
@@ -1279,9 +1263,6 @@ def events_query(
         limit: Max events to return (default 100).
         results_dir: Explicit results directory (takes precedence).
     """
-    from datetime import datetime
-    from uuid import UUID
-
     from litmus.data.event_store import EventStore
 
     store = EventStore(_results_dir=results_dir)
@@ -1342,8 +1323,8 @@ def session_detail_query(
 def channels_query(
     channel_id: str,
     session_id: str | None = None,
-    start: str | None = None,
-    end: str | None = None,
+    since: str | None = None,
+    until: str | None = None,
     last_n: int | None = None,
     max_points: int | None = None,
     *,
@@ -1353,9 +1334,6 @@ def channels_query(
 
     Shared implementation for HTTP API and MCP tool.
     """
-    from datetime import datetime
-    from uuid import uuid4
-
     from litmus.data.channels.store import ChannelStore
 
     channels_dir = (results_dir / "channels") if results_dir else Path("results/channels")
@@ -1363,13 +1341,13 @@ def channels_query(
         return {"channel_id": channel_id, "data": []}
 
     store = ChannelStore(channels_dir, uuid4())
-    start_dt = datetime.fromisoformat(start) if start else None
-    end_dt = datetime.fromisoformat(end) if end else None
+    since_dt = datetime.fromisoformat(since) if since else None
+    until_dt = datetime.fromisoformat(until) if until else None
     table = store.query(
         channel_id,
         session_id=session_id,
-        start=start_dt,
-        end=end_dt,
+        start=since_dt,
+        end=until_dt,
         last_n=last_n,
         max_points=max_points,
     )
@@ -1381,13 +1359,11 @@ def channels_list_query(*, results_dir: Path | None = None) -> dict[str, Any]:
 
     Shared implementation for HTTP API and MCP tool.
     """
-    import json as json_mod
-
     channels_dir = (results_dir / "channels") if results_dir else Path("results/channels")
     registry_path = channels_dir / "_registry.json"
     if not registry_path.exists():
         return {"channels": {}}
-    return {"channels": json_mod.loads(registry_path.read_text())}
+    return {"channels": json.loads(registry_path.read_text())}
 
 
 # Thin wrappers for MCP tools (resolve project → results_dir)

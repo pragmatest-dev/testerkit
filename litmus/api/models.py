@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import BaseModel
 
@@ -56,3 +56,10 @@ class DialogRespondRequest(BaseModel):
     choices: list[int] | None = None
     value: str | None = None
     cancelled: bool = False
+
+
+class SaveRequest(BaseModel):
+    """Request body for saving an entity via the unified save endpoint."""
+
+    content: dict[str, Any]
+    project: str | None = None

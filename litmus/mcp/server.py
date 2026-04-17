@@ -1,6 +1,6 @@
 """MCP server for AI-assisted test generation workflows.
 
-This server exposes 9 tools:
+This server exposes 10 tools:
 - litmus: Unified CRUD operations (init, list, get, save, read)
 - litmus_discover: Scan for VISA instruments
 - litmus_match: Check compatibility between products/stations/fixtures
@@ -10,11 +10,13 @@ This server exposes 9 tools:
 - litmus_events: Query events from the event store
 - litmus_sessions: List known sessions
 - litmus_channels: Query channel data
+- litmus_gold: Query pre-aggregated manufacturing metrics
 
 The platform does NOT call LLMs - it exposes these tools so that AI agents
 (Claude Code, etc.) can orchestrate the full datasheet-to-test workflow.
 """
 
+from pathlib import Path
 from typing import Any
 
 from fastmcp import FastMCP
@@ -23,6 +25,7 @@ from litmus.mcp.tools import (
     channels_tool,
     discover_tool,
     events_tool,
+    gold_tool,
     litmus_tool,
     match_tool,
     open_tool,
@@ -30,6 +33,7 @@ from litmus.mcp.tools import (
     schema_tool,
     sessions_tool,
 )
+from litmus.schema_export import SCHEMA_MAP
 
 
 def _load_demo_snippet(relative_path: str, max_lines: int = 40) -> str:
@@ -38,8 +42,6 @@ def _load_demo_snippet(relative_path: str, max_lines: int = 40) -> str:
     Reads from the installed package's demo/ directory so examples
     always match the current code version.
     """
-    from pathlib import Path
-
     # demo/ is at repo root, same level as litmus/
     demo_dir = Path(__file__).parent.parent.parent / "demo"
     path = demo_dir / relative_path
@@ -66,8 +68,6 @@ def _build_instructions() -> str:
     - Behavioral rules are literal strings
     """
     # Get enum values from the schema so instructions stay current
-    from litmus.schema_export import SCHEMA_MAP
-
     product_schema = SCHEMA_MAP["product"].model_json_schema()
     defs = product_schema.get("$defs", {})
 
@@ -535,8 +535,6 @@ def create_mcp_server() -> FastMCP:
             min_samples: Minimum sample count for cpk.
             project: Project root path.
         """
-        from litmus.mcp.tools import gold_tool
-
         return gold_tool(
             action,
             product=product,

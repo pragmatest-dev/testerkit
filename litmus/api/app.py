@@ -8,7 +8,7 @@ from uuid import UUID
 
 from fastapi import APIRouter, HTTPException
 
-from litmus.api.models import DialogCreate, DialogRespondRequest, LaunchRequest
+from litmus.api.models import DialogCreate, DialogRespondRequest, LaunchRequest, SaveRequest
 from litmus.data.backends.parquet import ParquetBackend
 
 
@@ -64,6 +64,12 @@ def create_api_router() -> APIRouter:
 
     project = load_project_config()
     backend = ParquetBackend(results_dir=project.results_dir)
+    _rdir: Path | None = Path(project.results_dir) if project.results_dir else None
+
+    def _gold_store():
+        from litmus.analysis.gold import GoldStore
+
+        return GoldStore(_results_dir=project.results_dir)
 
     # -------------------------------------------------------------------------
     # Runs
@@ -235,7 +241,6 @@ def create_api_router() -> APIRouter:
         """Query events from the event store."""
         from litmus.mcp.tools import events_query
 
-        _rdir = Path(project.results_dir) if project.results_dir else None
         return events_query(
             session_id,
             type,
@@ -250,7 +255,6 @@ def create_api_router() -> APIRouter:
         """List known sessions."""
         from litmus.mcp.tools import sessions_query
 
-        _rdir = Path(project.results_dir) if project.results_dir else None
         return sessions_query(results_dir=_rdir)
 
     @router.get("/sessions/{session_id}")
@@ -258,7 +262,6 @@ def create_api_router() -> APIRouter:
         """Get events for a specific session."""
         from litmus.mcp.tools import session_detail_query
 
-        _rdir = Path(project.results_dir) if project.results_dir else None
         result = session_detail_query(session_id, results_dir=_rdir)
         if result["events"] is None:
             raise HTTPException(status_code=404, detail="Session not found")
@@ -273,27 +276,25 @@ def create_api_router() -> APIRouter:
         """List known channels from the channel registry."""
         from litmus.mcp.tools import channels_list_query
 
-        _rdir = Path(project.results_dir) if project.results_dir else None
         return channels_list_query(results_dir=_rdir)
 
     @router.get("/channels/{channel_id}")
     def get_channel_data(
         channel_id: str,
         session_id: str | None = None,
-        start: str | None = None,
-        end: str | None = None,
+        since: str | None = None,
+        until: str | None = None,
         last_n: int | None = None,
         max_points: int | None = None,
     ):
         """Query channel data."""
         from litmus.mcp.tools import channels_query
 
-        _rdir = Path(project.results_dir) if project.results_dir else None
         return channels_query(
             channel_id,
             session_id=session_id,
-            start=start,
-            end=end,
+            since=since,
+            until=until,
             last_n=last_n,
             max_points=max_points,
             results_dir=_rdir,
@@ -494,11 +495,8 @@ def create_api_router() -> APIRouter:
         period: str = "day",
     ):
         """Yield summary from gold layer (DuckDB SQL on silver)."""
-        from litmus.analysis.gold import GoldStore
-
-        store = GoldStore(_results_dir=project.results_dir)
         return {
-            "data": store.yield_summary(
+            "data": _gold_store().yield_summary(
                 product=product,
                 station=station,
                 phase=phase,
@@ -518,17 +516,9 @@ def create_api_router() -> APIRouter:
         top_n: int = 10,
     ):
         """Top failure modes from gold layer."""
-        from litmus.analysis.gold import GoldStore
-
-        store = GoldStore(_results_dir=project.results_dir)
         return {
-            "data": store.pareto(
-                product=product,
-                station=station,
-                phase=phase,
-                since=since,
-                until=until,
-                top_n=top_n,
+            "data": _gold_store().pareto(
+                product=product, station=station, phase=phase, since=since, until=until, top_n=top_n
             )
         }
 
@@ -542,11 +532,8 @@ def create_api_router() -> APIRouter:
         min_samples: int = 10,
     ):
         """Process capability from gold layer."""
-        from litmus.analysis.gold import GoldStore
-
-        store = GoldStore(_results_dir=project.results_dir)
         return {
-            "data": store.cpk(
+            "data": _gold_store().cpk(
                 product=product,
                 station=station,
                 phase=phase,
@@ -566,11 +553,8 @@ def create_api_router() -> APIRouter:
         period: str = "day",
     ):
         """Yield trend from gold layer."""
-        from litmus.analysis.gold import GoldStore
-
-        store = GoldStore(_results_dir=project.results_dir)
         return {
-            "data": store.trend(
+            "data": _gold_store().trend(
                 product=product,
                 station=station,
                 phase=phase,
@@ -590,11 +574,8 @@ def create_api_router() -> APIRouter:
         period: str = "day",
     ):
         """Retest rates from gold layer."""
-        from litmus.analysis.gold import GoldStore
-
-        store = GoldStore(_results_dir=project.results_dir)
         return {
-            "data": store.retest(
+            "data": _gold_store().retest(
                 product=product,
                 station=station,
                 phase=phase,
@@ -614,11 +595,8 @@ def create_api_router() -> APIRouter:
         period: str = "day",
     ):
         """Time lost to failures/errors from gold layer."""
-        from litmus.analysis.gold import GoldStore
-
-        store = GoldStore(_results_dir=project.results_dir)
         return {
-            "data": store.time_loss(
+            "data": _gold_store().time_loss(
                 product=product,
                 station=station,
                 phase=phase,
@@ -627,6 +605,95 @@ def create_api_router() -> APIRouter:
                 period=period,
             )
         }
+
+    # -------------------------------------------------------------------------
+    # MCP parity endpoints (litmus_discover, litmus_open, litmus_schema, save)
+    # -------------------------------------------------------------------------
+
+    @router.get("/discover")
+    def discover_instruments(protocols: list[str] | None = None):
+        """Scan for connected instruments across all protocols.
+
+        HTTP equivalent of the litmus_discover MCP tool.
+        """
+        from litmus.mcp.tools import discover_tool
+
+        return discover_tool(protocols)
+
+    @router.get("/open")
+    def open_entity(type: str, id: str, base_url: str = "http://localhost:8000"):
+        """Get URL to view/edit an entity in the browser UI.
+
+        HTTP equivalent of the litmus_open MCP tool.
+        """
+        from litmus.mcp.tools import open_tool
+
+        return open_tool(type, id, base_url)
+
+    @router.get("/schema/{yaml_type}")
+    def get_yaml_schema(yaml_type: str):
+        """Get JSON Schema for a Litmus YAML file type.
+
+        HTTP equivalent of the litmus_schema MCP tool.
+        """
+        from litmus.mcp.tools import schema_tool
+
+        return schema_tool(yaml_type)
+
+    @router.post("/save/{entity_type}/{entity_id}")
+    def save_entity(entity_type: str, entity_id: str, request: SaveRequest):
+        """Create or update an entity (station, product, sequence, fixture, etc.).
+
+        HTTP equivalent of litmus(action='save', ...) MCP tool action.
+        Returns validation errors if content does not match the schema.
+        """
+        from litmus.mcp.tools import litmus_tool
+
+        result = litmus_tool(
+            action="save",
+            type=entity_type,
+            id=entity_id,
+            content=request.content,
+            project=request.project,
+        )
+        if isinstance(result, dict) and result.get("success") is False:
+            raise HTTPException(status_code=422, detail=result)
+        return result
+
+    @router.get("/read")
+    def read_file(path: str, project: str | None = None):
+        """Read a project file or template.
+
+        HTTP equivalent of litmus(action='read', ...) MCP tool action.
+        Use path='template:test' to get the test file template.
+        """
+        from litmus.mcp.tools import litmus_tool
+
+        result = litmus_tool(action="read", path=path, project=project)
+        if isinstance(result, dict) and "error" in result:
+            raise HTTPException(status_code=400, detail=result["error"])
+        return result
+
+    @router.get("/enum/{abbrev}")
+    def lookup_enum(abbrev: str):
+        """Resolve a datasheet abbreviation to its MeasurementFunction enum value(s).
+
+        HTTP equivalent of litmus(action='lookup_enum', id=abbrev) MCP tool action.
+        Example: GET /enum/FRES → resistance_4w
+        """
+        from litmus.mcp.tools import litmus_tool
+
+        return litmus_tool(action="lookup_enum", id=abbrev)
+
+    @router.get("/enum-reference")
+    def enum_reference():
+        """Get the full abbreviation-to-enum reference table as markdown.
+
+        HTTP equivalent of litmus(action='enum_reference') MCP tool action.
+        """
+        from litmus.mcp.tools import litmus_tool
+
+        return litmus_tool(action="enum_reference")
 
     return router
 
