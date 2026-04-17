@@ -170,6 +170,17 @@ class RunStore:
 
     # --- Ref management (for materialize) ---
 
+    def get_steps(self, run_id: str) -> list[dict[str, Any]]:
+        """Get indexed step results for a run (from the steps table)."""
+        prefix = run_id[:8] if len(run_id) >= 8 else run_id
+        return self._flight_query(f"""
+            SELECT step_index, step_name, step_path, outcome, started_at, ended_at,
+                   duration_s, has_measurements, measurement_count, vector_count, markers
+            FROM steps
+            WHERE run_id LIKE '{_sql_escape(prefix)}%'
+            ORDER BY step_index
+        """)
+
     def find_channel_refs(self, session_shorts: set[str]) -> list[dict]:
         """Query run_channel_refs WHERE session_short IN (...)."""
         if not session_shorts:
@@ -219,9 +230,8 @@ class RunStore:
 
         # Preserve parquet file-level metadata
         orig_meta = pq.read_metadata(file_path)
-        file_meta = orig_meta.metadata if orig_meta.metadata else None
-        if file_meta:
-            new_table = new_table.replace_schema_metadata(file_meta)
+        if orig_meta.metadata:
+            new_table = new_table.replace_schema_metadata(orig_meta.metadata)
 
         tmp_path = file_path.with_suffix(".tmp.parquet")
         pq.write_table(new_table, tmp_path)
@@ -233,17 +243,18 @@ class RunStore:
         return file_path.parent / (file_path.stem + "_ref")
 
     def notify_new_run(self, parquet_path: Path) -> None:
-        """Notify the daemon of a new parquet file via do_put.
-
-        Sends the file path so the daemon can read and index it immediately.
-        """
+        """Notify the daemon of a new parquet file (and sibling steps file) via do_put."""
+        paths = [str(parquet_path)]
+        steps_path = parquet_path.with_name(parquet_path.stem + "_steps.parquet")
+        if steps_path.exists():
+            paths.append(str(steps_path))
         try:
             client = self._flight.get_client()
             descriptor = flight.FlightDescriptor.for_command(b"runs\0runs")
-            table = pa.table({"file_path": [str(parquet_path)]})
-            batch = table.to_batches()[0]
-            writer, _ = client.do_put(descriptor, batch.schema)
-            writer.write_batch(batch)
+            table = pa.table({"file_path": paths})
+            writer, _ = client.do_put(descriptor, table.schema)
+            for batch in table.to_batches():
+                writer.write_batch(batch)
             writer.close()
         except Exception:
             # Non-fatal: daemon will pick up on restart

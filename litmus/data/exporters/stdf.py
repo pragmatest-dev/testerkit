@@ -239,7 +239,7 @@ class StdfSubscriber(EventSubscriber):
         mrr.set_value("FINISH_T", _dt_to_epoch(None))
         records.append(_pack_record(mrr))
 
-        run_id = str(s.run_id)[:8] if s.run_id else "unknown"
+        run_id = self._short_run_id(s.run_id)
         out_file = self._output_dir / f"{run_id}.stdf"
         out_file.write_bytes(b"".join(records))
 

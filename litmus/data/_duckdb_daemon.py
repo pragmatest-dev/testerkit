@@ -58,7 +58,8 @@ def _open_index(index_path: Path) -> duckdb.DuckDBPyConnection:
     try:
         row = conn.execute("SELECT v FROM _schema_version LIMIT 1").fetchone()
         needs_rebuild = row is None or row[0] != _SCHEMA_VERSION
-    except Exception:
+    except duckdb.Error:
+        warnings.warn("Schema version check failed — rebuilding event index", stacklevel=2)
         needs_rebuild = True
     if needs_rebuild:
         _rebuild_schema(conn)
@@ -112,9 +113,12 @@ def _ingest_ipc_files(index_path: Path, events_dir: Path) -> None:
                 stat = fpath.stat()
             except OSError:
                 continue
-            # Skip files already processed with the same mtime + size.
+            # Skip files already successfully processed with the same mtime + size.
+            # Quarantined files (status != 'ok') are retried so that ingest-code
+            # fixes take effect on the next daemon start without a schema rebuild.
             row = conn.execute(
-                "SELECT 1 FROM _ingested WHERE path = ? AND mtime = ? AND size = ?",
+                "SELECT 1 FROM _ingested"
+                " WHERE path = ? AND mtime = ? AND size = ? AND status = 'ok'",
                 [str(fpath), stat.st_mtime, stat.st_size],
             ).fetchone()
             if row is not None:
@@ -123,8 +127,8 @@ def _ingest_ipc_files(index_path: Path, events_dir: Path) -> None:
     finally:
         try:
             conn.close()
-        except Exception:
-            pass
+        except Exception as exc:
+            warnings.warn(f"Ingest connection close failed: {exc}", stacklevel=2)
 
 
 def _ingest_one_file(

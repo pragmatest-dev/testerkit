@@ -77,7 +77,7 @@ def create_api_router() -> APIRouter:
     # Runs
     # -------------------------------------------------------------------------
 
-    @router.get("/runs")
+    @router.get("/runs", response_class=ORJSONResponse)
     def list_runs(limit: int = 50):
         """List recent test runs."""
         runs = backend.list_runs(limit=limit)
@@ -96,7 +96,7 @@ def create_api_router() -> APIRouter:
             view.outcome = run.outcome
         return view
 
-    @router.get("/runs/{run_id}/measurements")
+    @router.get("/runs/{run_id}/measurements", response_class=ORJSONResponse)
     def get_measurements(run_id: str):
         """Get measurements for a test run."""
         measurements = backend.get_measurements(run_id)
@@ -237,7 +237,7 @@ def create_api_router() -> APIRouter:
     # Events & Sessions
     # -------------------------------------------------------------------------
 
-    @router.get("/events")
+    @router.get("/events", response_class=ORJSONResponse)
     def list_events(
         session_id: str | None = None,
         type: str | None = None,
@@ -257,14 +257,14 @@ def create_api_router() -> APIRouter:
             results_dir=_rdir,
         )
 
-    @router.get("/sessions")
+    @router.get("/sessions", response_class=ORJSONResponse)
     def list_sessions():
         """List known sessions."""
         from litmus.mcp.tools import sessions_query
 
         return sessions_query(results_dir=_rdir)
 
-    @router.get("/sessions/{session_id}")
+    @router.get("/sessions/{session_id}", response_class=ORJSONResponse)
     def get_session(session_id: str):
         """Get events for a specific session."""
         from litmus.mcp.tools import session_detail_query
@@ -278,14 +278,14 @@ def create_api_router() -> APIRouter:
     # Channels
     # -------------------------------------------------------------------------
 
-    @router.get("/channels")
+    @router.get("/channels", response_class=ORJSONResponse)
     def list_channels():
         """List known channels from the channel registry."""
         from litmus.mcp.tools import channels_list_query
 
         return channels_list_query(results_dir=_rdir)
 
-    @router.get("/channels/{channel_id}")
+    @router.get("/channels/{channel_id}", response_class=ORJSONResponse)
     def get_channel_data(
         channel_id: str,
         session_id: str | None = None,
@@ -492,7 +492,7 @@ def create_api_router() -> APIRouter:
     # Gold Analytics
     # -------------------------------------------------------------------------
 
-    @router.get("/gold/summary")
+    @router.get("/gold/summary", response_class=ORJSONResponse)
     def gold_summary(
         product: str | None = None,
         station: str | None = None,
@@ -513,7 +513,7 @@ def create_api_router() -> APIRouter:
             )
         }
 
-    @router.get("/gold/pareto")
+    @router.get("/gold/pareto", response_class=ORJSONResponse)
     def gold_pareto(
         product: str | None = None,
         station: str | None = None,
@@ -529,7 +529,7 @@ def create_api_router() -> APIRouter:
             )
         }
 
-    @router.get("/gold/cpk")
+    @router.get("/gold/cpk", response_class=ORJSONResponse)
     def gold_cpk(
         product: str | None = None,
         station: str | None = None,
@@ -550,7 +550,7 @@ def create_api_router() -> APIRouter:
             )
         }
 
-    @router.get("/gold/trend")
+    @router.get("/gold/trend", response_class=ORJSONResponse)
     def gold_trend(
         product: str | None = None,
         station: str | None = None,
@@ -571,7 +571,7 @@ def create_api_router() -> APIRouter:
             )
         }
 
-    @router.get("/gold/retest")
+    @router.get("/gold/retest", response_class=ORJSONResponse)
     def gold_retest(
         product: str | None = None,
         station: str | None = None,
@@ -592,7 +592,7 @@ def create_api_router() -> APIRouter:
             )
         }
 
-    @router.get("/gold/time-loss")
+    @router.get("/gold/time-loss", response_class=ORJSONResponse)
     def gold_time_loss(
         product: str | None = None,
         station: str | None = None,

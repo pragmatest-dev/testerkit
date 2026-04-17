@@ -41,6 +41,26 @@ def daemon_run(runs_dir: Path) -> None:
         )
     """)
     conn.execute("""
+        CREATE TABLE steps (
+            file_path VARCHAR NOT NULL,
+            run_id VARCHAR,
+            session_id VARCHAR,
+            step_index INTEGER,
+            step_name VARCHAR,
+            step_path VARCHAR,
+            outcome VARCHAR,
+            started_at VARCHAR,
+            ended_at VARCHAR,
+            duration_s DOUBLE,
+            has_measurements BOOLEAN,
+            measurement_count INTEGER,
+            vector_count INTEGER,
+            markers VARCHAR,
+            dut_serial VARCHAR,
+            station_id VARCHAR
+        )
+    """)
+    conn.execute("""
         CREATE TABLE run_channel_refs (
             file_path VARCHAR NOT NULL,
             col_name VARCHAR NOT NULL,
@@ -51,19 +71,24 @@ def daemon_run(runs_dir: Path) -> None:
         )
     """)
 
-    # Bulk rebuild from parquet files
+    # Bulk rebuild from parquet files — route by filename suffix
     for pq_file in sorted(runs_dir.rglob("*.parquet")):
-        if "_ref" in pq_file.parent.name:
-            continue
         if pq_file.name.endswith(".tmp.parquet"):
             continue
-        _index_parquet_file(conn, str(pq_file))
+        if _is_steps_file(pq_file.name):
+            _index_steps_file(conn, str(pq_file))
+        else:
+            _index_parquet_file(conn, str(pq_file))
 
     # Custom do_put hook: receives a table with a single "file_path" column
     def _on_put(table: pa.Table) -> None:
         for row in table.to_pylist():
             fpath = row.get("file_path", "")
-            if fpath:
+            if not fpath:
+                continue
+            if _is_steps_file(fpath):
+                _index_steps_file(conn, fpath)
+            else:
                 _index_parquet_file(conn, fpath)
 
     # Start Flight server
@@ -93,8 +118,13 @@ def daemon_run(runs_dir: Path) -> None:
     mgr.cleanup_state_files()
 
 
+def _is_steps_file(filename: str) -> bool:
+    """Return True if *filename* is a steps parquet sidecar."""
+    return filename.endswith("_steps.parquet")
+
+
 def _index_parquet_file(conn: duckdb.DuckDBPyConnection, fkey: str) -> bool:
-    """Index a single parquet file into the runs and run_channel_refs tables."""
+    """Index a measurement parquet file into the runs and run_channel_refs tables."""
     escaped = _sql_escape(fkey)
     try:
         result = conn.execute(f"""
@@ -127,7 +157,8 @@ def _index_parquet_file(conn: duckdb.DuckDBPyConnection, fkey: str) -> bool:
                 WHERE name LIKE 'out\\_%' ESCAPE '\\'
             """).fetchall()
             out_cols = [r[0] for r in schema_rows]
-        except Exception:
+        except duckdb.Error as exc:
+            warnings.warn(f"Could not read schema for {fkey}: {exc}", stacklevel=2)
             out_cols = []
 
         for col_name in out_cols:
@@ -142,22 +173,60 @@ def _index_parquet_file(conn: duckdb.DuckDBPyConnection, fkey: str) -> bool:
 
                 for row_idx, uri in rows:
                     try:
-                        channel_id, session_id = parse_channel_uri(uri)
-                        session_short = session_id[:8]
+                        channel_id, uri_session_id = parse_channel_uri(uri)
+                        session_short = uri_session_id[:8]
                         conn.execute(
                             "INSERT INTO run_channel_refs VALUES (?, ?, ?, ?, ?, ?)",
                             [fkey, col_name, row_idx, uri, channel_id, session_short],
                         )
                     except ValueError:
                         continue
-            except Exception:
+            except duckdb.Error as exc:
+                warnings.warn(f"Could not scan column '{col_name}' in {fkey}: {exc}", stacklevel=2)
                 continue
 
         return True
-    except duckdb.IOException:
-        return False
     except Exception as exc:
-        warnings.warn(f"Error ingesting {fkey}: {exc}", stacklevel=2)
+        if not isinstance(exc, duckdb.IOException):
+            warnings.warn(f"Error ingesting {fkey}: {exc}", stacklevel=2)
+        return False
+
+
+def _index_steps_file(conn: duckdb.DuckDBPyConnection, fkey: str) -> bool:
+    """Index a steps parquet file into the steps table."""
+    escaped = _sql_escape(fkey)
+    try:
+        rows = conn.execute(f"""
+            SELECT
+                run_id,
+                CAST(session_id AS VARCHAR) AS session_id,
+                "index" AS step_index,
+                name AS step_name,
+                step_path,
+                outcome,
+                CAST(started_at AS VARCHAR) AS started_at,
+                CAST(ended_at AS VARCHAR) AS ended_at,
+                duration_s,
+                has_measurements,
+                measurement_count,
+                vector_count,
+                markers,
+                CAST(dut_serial AS VARCHAR) AS dut_serial,
+                CAST(station_id AS VARCHAR) AS station_id
+            FROM read_parquet('{escaped}')
+        """).fetchall()
+
+        if not rows:
+            return False
+
+        conn.executemany(
+            "INSERT INTO steps VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            [[fkey, *row] for row in rows],
+        )
+        return True
+    except Exception as exc:
+        if not isinstance(exc, duckdb.IOException):
+            warnings.warn(f"Error ingesting steps file {fkey}: {exc}", stacklevel=2)
         return False
 
 

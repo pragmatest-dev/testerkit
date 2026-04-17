@@ -135,22 +135,30 @@ def _load_ipc_table(
     if arrow_table is None:
         return
 
-    # Validate that columns named in replace_expr exist in the Arrow schema.
+    # Filter replace_expr to only include columns present in the Arrow schema.
+    # Missing columns are skipped (with a warning) rather than failing the load.
     schema_cols = set(arrow_table.schema.names)
-    for col in _replace_expr_columns(replace_expr):
-        if col not in schema_cols:
-            _log.warning(
-                "IPC table '%s': column '%s' not found in Arrow schema "
-                "— time zone conversion will fail",
-                table_name,
-                col,
-            )
+    missing = [col for col in _replace_expr_columns(replace_expr) if col not in schema_cols]
+    for col in missing:
+        _log.warning(
+            "IPC table '%s': column '%s' not found in Arrow schema — skipping time zone conversion",
+            table_name,
+            col,
+        )
+    if missing:
+        missing_set = set(missing)
+        parts = [p.strip() for p in replace_expr.split(",")]
+        parts = [p for p in parts if not any(p.startswith(c) for c in missing_set)]
+        replace_expr = ", ".join(parts)
 
     tmp = f"_{table_name}_arrow"
     conn.register(tmp, arrow_table)
-    conn.execute(
-        f"CREATE OR REPLACE TABLE {table_name} AS SELECT * REPLACE({replace_expr}) FROM {tmp}"
-    )
+    if replace_expr:
+        conn.execute(
+            f"CREATE OR REPLACE TABLE {table_name} AS SELECT * REPLACE({replace_expr}) FROM {tmp}"
+        )
+    else:
+        conn.execute(f"CREATE OR REPLACE TABLE {table_name} AS SELECT * FROM {tmp}")
     conn.unregister(tmp)
 
 

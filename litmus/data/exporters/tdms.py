@@ -241,7 +241,7 @@ class TdmsSubscriber(EventSubscriber):
         if not s:
             return
 
-        run_id = str(s.run_id)[:8] if s.run_id else "unknown"
+        run_id = self._short_run_id(s.run_id)
         out_file = self._output_dir / f"{run_id}.tdms"
 
         root_props: dict[str, object] = {

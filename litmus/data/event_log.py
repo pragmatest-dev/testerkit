@@ -11,6 +11,7 @@ Storage: ``results/events/{date}/{session_id}-{pid}[_{segment}].arrow``
 
 from __future__ import annotations
 
+import json
 import os
 import warnings
 from collections.abc import Callable
@@ -52,7 +53,8 @@ class _EventIPCWriter(BufferedIPCWriter):
     Rotation: when a flush brings the cumulative row count for the current
     segment to or above ``max_rows_per_segment``, the stream is closed
     (writing a valid Arrow EOS) and the next flush opens a new segment file.
-    Crash loss is bounded to rows written since the last rotation.
+    Crash loss is bounded to at most ``max_rows_per_segment + flush_threshold - 1``
+    rows (one flush batch beyond the threshold before rotation triggers).
 
     Each process keeps its own writer (path includes PID) so concurrent
     orchestrator + worker processes never clobber each other's streams.
@@ -129,6 +131,11 @@ class EventSubscriber:
         super().__init_subclass__(**kwargs)
         if hasattr(cls, "format_name") and cls.format_name:
             EventSubscriber._registry[cls.format_name] = cls
+
+    @staticmethod
+    def _short_run_id(run_id: UUID | None) -> str:
+        """Return the first 8 characters of a run ID, for use in output filenames."""
+        return str(run_id)[:8] if run_id else "unknown"
 
     def open(self) -> None: ...
 
@@ -252,8 +259,6 @@ class EventLog:
         Returns:
             List of event dicts, oldest first.
         """
-        import json
-
         events: list[dict] = []
 
         # Read all closed segments (each has a valid Arrow EOS) plus the
@@ -285,12 +290,12 @@ class EventLog:
         # Include unflushed buffer
         for row in self._ipc.buffer:
             json_str = row.get("json")
-            if not json_str:
+            if not isinstance(json_str, str) or not json_str:
                 continue
             if event_type and row.get("event_type") != event_type:
                 continue
             try:
-                evt = json.loads(str(json_str))
+                evt = json.loads(json_str)
             except (json.JSONDecodeError, TypeError):
                 continue
             if role and not event_matches_role(evt, role):

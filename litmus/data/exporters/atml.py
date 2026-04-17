@@ -339,7 +339,7 @@ class AtmlSubscriber(EventSubscriber):
             if m.meas_instrument:
                 test_el.set("instrumentName", m.meas_instrument)
 
-        run_id = str(s.run_id)[:8] if s.run_id else "unknown"
+        run_id = self._short_run_id(s.run_id)
         out_file = self._output_dir / f"{run_id}.xml"
         tree = ET.ElementTree(root)
         ET.indent(tree, space="  ")
