@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import sys
 from pathlib import Path
 
 import click
@@ -130,7 +131,7 @@ def init(name: str | None, no_git: bool, discover: bool, starter: bool | None, a
 
     # AI tool setup
     if ai is None:
-        # Detect installed tools and prompt
+        # Detect installed tools and prompt (only when stdin is a TTY)
         ai_tools: list[tuple[str, str]] = []
         if check_command("claude"):
             ai_tools.append(("claude-code", "Claude Code"))
@@ -138,7 +139,7 @@ def init(name: str | None, no_git: bool, discover: bool, starter: bool | None, a
         if (project_path / ".vscode").exists() or check_command("code"):
             ai_tools.append(("copilot", "GitHub Copilot"))
 
-        if ai_tools:
+        if ai_tools and sys.stdin.isatty():
             choices = [name for name, _ in ai_tools]
             labels = [label for _, label in ai_tools]
             click.echo(f"\nDetected AI tools: {', '.join(labels)}")

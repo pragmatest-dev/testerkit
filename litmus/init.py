@@ -84,19 +84,14 @@ name = "{project_name}"
 version = "0.1.0"
 requires-python = ">=3.11"
 dependencies = [
-    # Install from local path during development:
-    # "litmus @ file:///path/to/litmus"
-    # Or from git:
-    # "litmus @ git+https://github.com/your-org/litmus"
-    # Or from PyPI when available:
-    # "litmus-hw",
+    "litmus-test>=0.1.0",
     "pytest>=8.0",
 ]
 
 {pytest_section}
 [tool.uv.sources]
-# Uncomment and adjust path for local development:
-# litmus = {{ path = "../litmus", editable = true }}
+# Override with a local editable install during development:
+# litmus-test = {{ path = "../litmus", editable = true }}
 '''
         pyproject_path.write_text(pyproject_content)
         created_files.append("pyproject.toml")

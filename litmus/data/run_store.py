@@ -24,6 +24,19 @@ from litmus.data.models import RunSummary
 logger = logging.getLogger(__name__)
 
 
+class DataUnavailable(Exception):
+    """Raised when a run's parquet data is not locally accessible.
+
+    The run's metadata (outcome, started_at, measurement stats) remains
+    queryable from the index.  Raw scalars and ref data require the file.
+    """
+
+    def __init__(self, file_path: str, *, status: str = "missing") -> None:
+        self.file_path = file_path
+        self.status = status
+        super().__init__(f"Run data not available locally (status={status!r}): {file_path}")
+
+
 class RunStore:
     """Query API for parquet test run data.
 
@@ -182,20 +195,23 @@ class RunStore:
         """)
 
     def find_channel_refs(self, session_shorts: set[str]) -> list[dict]:
-        """Query run_channel_refs WHERE session_short IN (...)."""
+        """Query measurement_refs WHERE session_short IN (...)."""
         if not session_shorts:
             return []
 
         quoted = ", ".join(f"'{_sql_escape(s)}'" for s in session_shorts)
         rows = self._flight_query(f"""
-            SELECT file_path, col_name, row_idx, uri, channel_id, session_short
-            FROM run_channel_refs
+            SELECT file_path, step_index, measurement_name, col_name,
+                   row_idx, uri, channel_id, session_short
+            FROM measurement_refs
             WHERE session_short IN ({quoted})
         """)
 
         return [
             {
                 "file_path": r["file_path"],
+                "step_index": r["step_index"],
+                "measurement_name": r["measurement_name"],
                 "col_name": r["col_name"],
                 "row_idx": r["row_idx"],
                 "uri": r["uri"],
@@ -204,6 +220,39 @@ class RunStore:
             }
             for r in rows
         ]
+
+    def get_measurement(
+        self,
+        file_path: str | Path,
+        measurement_name: str,
+        *,
+        step_index: int | None = None,
+    ) -> list[dict]:
+        """Get rows for a specific measurement name, with predicate pushdown.
+
+        Uses pyarrow row-group filters so only matching row groups are read.
+        Raises DataUnavailable if the file is missing or marked non-ok in the index.
+        """
+        pq_file = Path(file_path)
+        if not pq_file.exists():
+            status_rows = self._flight_query(
+                f"SELECT status FROM _ingested WHERE path = '{_sql_escape(str(pq_file))}'"
+            )
+            status = status_rows[0]["status"] if status_rows else "missing"
+            raise DataUnavailable(str(pq_file), status=status)
+
+        filters: list[tuple] = [("measurement_name", "=", measurement_name)]
+        if step_index is not None:
+            filters.append(("step_index", "=", step_index))
+
+        try:
+            table = pq.read_table(pq_file, filters=filters)
+            return table.to_pylist()
+        except Exception as exc:
+            logger.debug(
+                "Failed to read measurement %r from %s: %s", measurement_name, pq_file, exc
+            )
+            return []
 
     def rewrite_refs(self, file_path: Path, replacements: dict[str, dict[int, str]]) -> None:
         """Atomic parquet column rewrite. Reads, replaces URIs, write-tmp, os.replace."""

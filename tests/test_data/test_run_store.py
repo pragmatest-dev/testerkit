@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Generator
+from datetime import datetime
 from pathlib import Path
 
 import pyarrow as pa
@@ -11,6 +12,10 @@ import pytest
 
 from litmus.data.ref import make_channel_uri
 from litmus.data.run_store import RunStore
+
+
+def _dt(iso: str) -> datetime:
+    return datetime.fromisoformat(iso.replace("Z", "+00:00"))
 
 
 @pytest.fixture(scope="module")
@@ -24,46 +29,58 @@ def runs_store(tmp_path_factory: pytest.TempPathFactory) -> Generator[RunStore]:
     uri = make_channel_uri("scope.ch1.waveform", session_id)
 
     pq1 = runs_dir / "20260301T100000Z_SN001.parquet"
-    table = pa.table(
-        {
-            "run_id": ["run-001-abc"],
-            "session_id": [session_id],
-            "run_started_at": ["2026-03-01T10:00:00Z"],
-            "run_ended_at": ["2026-03-01T10:05:00Z"],
-            "run_outcome": ["pass"],
-            "dut_serial": ["SN001"],
-            "station_id": ["station-1"],
-            "measurement_name": ["voltage"],
-            "value": [3.3],
-            "outcome": ["pass"],
-            "out_waveform": [uri],
-        }
+    pq.write_table(
+        pa.table(
+            {
+                "run_id": ["run-001-abc"],
+                "session_id": [session_id],
+                "run_started_at": [_dt("2026-03-01T10:00:00Z")],
+                "run_ended_at": [_dt("2026-03-01T10:05:00Z")],
+                "run_outcome": ["pass"],
+                "dut_serial": ["SN001"],
+                "station_id": ["station-1"],
+                "step_index": [0],
+                "step_name": ["test_voltage"],
+                "measurement_name": ["voltage"],
+                "value": [3.3],
+                "outcome": ["pass"],
+                "units": ["V"],
+                "low_limit": [3.1],
+                "high_limit": [3.5],
+                "nominal": [3.3],
+                "out_waveform": [uri],
+            }
+        ),
+        pq1,
     )
-    pq.write_table(table, pq1)
 
     pq2 = runs_dir / "20260301T110000Z_SN002.parquet"
-    table2 = pa.table(
-        {
-            "run_id": ["run-002-def"],
-            "session_id": [session_id],
-            "run_started_at": ["2026-03-01T11:00:00Z"],
-            "run_ended_at": ["2026-03-01T11:05:00Z"],
-            "run_outcome": ["fail"],
-            "dut_serial": ["SN002"],
-            "station_id": ["station-1"],
-            "measurement_name": ["voltage"],
-            "value": [2.8],
-            "outcome": ["fail"],
-            "out_waveform": [None],
-        }
+    pq.write_table(
+        pa.table(
+            {
+                "run_id": ["run-002-def"],
+                "session_id": [session_id],
+                "run_started_at": [_dt("2026-03-01T11:00:00Z")],
+                "run_ended_at": [_dt("2026-03-01T11:05:00Z")],
+                "run_outcome": ["fail"],
+                "dut_serial": ["SN002"],
+                "station_id": ["station-1"],
+                "step_index": [0],
+                "step_name": ["test_voltage"],
+                "measurement_name": ["voltage"],
+                "value": [2.8],
+                "outcome": ["fail"],
+                "units": ["V"],
+                "low_limit": [3.1],
+                "high_limit": [3.5],
+                "nominal": [3.3],
+                "out_waveform": pa.array([None], type=pa.string()),
+            }
+        ),
+        pq2,
     )
-    pq.write_table(table2, pq2)
 
     store = RunStore(_results_dir=results)
-
-    # Parquet files exist before daemon started, so they're already indexed
-    # via the bulk rebuild on daemon startup.
-
     yield store
     store.close()
 
@@ -72,13 +89,10 @@ def test_list_runs(runs_store: RunStore) -> None:
     """RunStore.list_runs returns indexed runs sorted by time."""
     runs = runs_store.list_runs()
     assert len(runs) >= 2
-    # Most recent first
     ids = [r.test_run_id for r in runs]
     assert "run-002-def" in ids
     assert "run-001-abc" in ids
-    idx_002 = ids.index("run-002-def")
-    idx_001 = ids.index("run-001-abc")
-    assert idx_002 < idx_001  # run-002 is more recent
+    assert ids.index("run-002-def") < ids.index("run-001-abc")  # most recent first
 
 
 def test_get_run(runs_store: RunStore) -> None:
@@ -139,42 +153,44 @@ def test_notify_new_run(tmp_path: Path) -> None:
     runs_dir.mkdir(parents=True)
 
     pq_file = runs_dir / "20260308T120000Z_SN099.parquet"
-    table = pa.table(
-        {
-            "run_id": ["run-099-xyz"],
-            "session_id": ["sess-099"],
-            "run_started_at": ["2026-03-08T12:00:00Z"],
-            "run_ended_at": ["2026-03-08T12:01:00Z"],
-            "run_outcome": ["pass"],
-            "dut_serial": ["SN099"],
-            "station_id": ["station-2"],
-            "measurement_name": ["current"],
-            "value": [1.5],
-            "outcome": ["pass"],
-        }
+    pq.write_table(
+        pa.table(
+            {
+                "run_id": ["run-099-xyz"],
+                "session_id": ["sess-099"],
+                "run_started_at": [_dt("2026-03-08T12:00:00Z")],
+                "run_ended_at": [_dt("2026-03-08T12:01:00Z")],
+                "run_outcome": ["pass"],
+                "dut_serial": ["SN099"],
+                "station_id": ["station-2"],
+                "measurement_name": ["current"],
+                "value": [1.5],
+                "outcome": ["pass"],
+            }
+        ),
+        pq_file,
     )
-    pq.write_table(table, pq_file)
 
     store = RunStore(_results_dir=results)
     try:
-        # File exists before daemon start, so it's already indexed.
-        # But let's also test notify_new_run for a second file.
         pq_file2 = runs_dir / "20260308T130000Z_SN100.parquet"
-        table2 = pa.table(
-            {
-                "run_id": ["run-100-abc"],
-                "session_id": ["sess-100"],
-                "run_started_at": ["2026-03-08T13:00:00Z"],
-                "run_ended_at": ["2026-03-08T13:01:00Z"],
-                "run_outcome": ["fail"],
-                "dut_serial": ["SN100"],
-                "station_id": ["station-2"],
-                "measurement_name": ["current"],
-                "value": [0.5],
-                "outcome": ["fail"],
-            }
+        pq.write_table(
+            pa.table(
+                {
+                    "run_id": ["run-100-abc"],
+                    "session_id": ["sess-100"],
+                    "run_started_at": [_dt("2026-03-08T13:00:00Z")],
+                    "run_ended_at": [_dt("2026-03-08T13:01:00Z")],
+                    "run_outcome": ["fail"],
+                    "dut_serial": ["SN100"],
+                    "station_id": ["station-2"],
+                    "measurement_name": ["current"],
+                    "value": [0.5],
+                    "outcome": ["fail"],
+                }
+            ),
+            pq_file2,
         )
-        pq.write_table(table2, pq_file2)
 
         store.notify_new_run(pq_file2)
 

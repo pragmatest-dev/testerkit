@@ -57,10 +57,11 @@ def _open_index(index_path: Path) -> duckdb.DuckDBPyConnection:
     needs_rebuild = False
     try:
         row = conn.execute("SELECT v FROM _schema_version LIMIT 1").fetchone()
-        needs_rebuild = row is None or row[0] != _SCHEMA_VERSION
+        if row is None or row[0] != _SCHEMA_VERSION:
+            warnings.warn("Schema version mismatch — rebuilding event index", stacklevel=2)
+            needs_rebuild = True
     except duckdb.Error:
-        warnings.warn("Schema version check failed — rebuilding event index", stacklevel=2)
-        needs_rebuild = True
+        needs_rebuild = True  # Fresh DB or corrupt — rebuild silently
     if needs_rebuild:
         _rebuild_schema(conn)
     return conn

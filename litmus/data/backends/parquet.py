@@ -338,6 +338,22 @@ class ParquetBackend:
         finally:
             run_store.close()
 
+    def get_measurement(
+        self,
+        file_path: str,
+        measurement_name: str,
+        *,
+        step_index: int | None = None,
+    ) -> list[dict]:
+        """Get rows for a specific measurement name with row-group pushdown."""
+        from litmus.data.run_store import RunStore
+
+        run_store = RunStore(_results_dir=self.results_dir)
+        try:
+            return run_store.get_measurement(file_path, measurement_name, step_index=step_index)
+        finally:
+            run_store.close()
+
     def get_session_measurements(self, session_id: str) -> list[dict]:
         """Get measurements from all runs sharing a session_id.
 

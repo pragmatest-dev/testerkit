@@ -46,15 +46,20 @@ def results_tree(tmp_path: Path) -> Path:
 
     # Create a parquet file referencing that channel
     uri = make_channel_uri(channel_id, session_id)
+
+    def _dt(iso: str) -> datetime:
+        return datetime.fromisoformat(iso.replace("Z", "+00:00"))
+
     pq_table = pa.table(
         {
             "run_id": ["run1"],
             "session_id": [session_id],
-            "run_started_at": ["2026-03-01T10:00:00Z"],
-            "run_ended_at": ["2026-03-01T10:05:00Z"],
+            "run_started_at": [_dt("2026-03-01T10:00:00Z")],
+            "run_ended_at": [_dt("2026-03-01T10:05:00Z")],
             "run_outcome": ["pass"],
             "dut_serial": ["SN001"],
             "station_id": ["station-1"],
+            "step_index": [0],
             "measurement_name": ["voltage"],
             "out_waveform": [uri],
         }

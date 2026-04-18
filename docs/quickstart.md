@@ -3,27 +3,23 @@
 Get up and running with Litmus in under a minute.
 
 ```bash
-# 1. Install Litmus (from source — not yet on PyPI)
-git clone https://github.com/pragmatest-dev/litmus.git
-cd litmus && uv sync
+# 1. Install Litmus
+pip install litmus-test
 
 # 2. Create a starter project
 litmus init quick_start --starter
 cd quick_start
 
 # 3. Run the tests
-pytest
+uv sync && pytest
 ```
 
 That's it. You'll see tests pass with mock instruments, limits checked, and results recorded.
 
 ## How to Install
 
-> **Note:** Litmus is not yet published to PyPI. Install from source for now.
-
 ```bash
-git clone https://github.com/pragmatest-dev/litmus.git
-cd litmus && uv sync
+pip install litmus-test
 ```
 
 ## Project Structure
