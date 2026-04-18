@@ -69,6 +69,11 @@ class RunStore:
 
     # --- Query API ---
 
+    @staticmethod
+    def _id_prefix(run_id: str, length: int = 8) -> str:
+        """Return an 8-char (or shorter) prefix for LIKE matching against the index."""
+        return run_id[:length] if len(run_id) >= length else run_id
+
     def list_runs(self, limit: int = 50) -> list[RunSummary]:
         """List recent test runs, most recent first."""
         rows = self._flight_query(f"""
@@ -96,8 +101,8 @@ class RunStore:
     def find_run_file(self, run_id: str) -> Path | None:
         """Find the parquet file for a run_id (prefix match)."""
         # Safe: run_id comes from internal UUIDs. Flight do_get
-        # does not support parameterized queries.
-        prefix = run_id[:8] if len(run_id) >= 8 else run_id
+        # does not support parameterized queries; prefix truncation is safe.
+        prefix = self._id_prefix(run_id)
         rows = self._flight_query(f"""
             SELECT file_path FROM runs
             WHERE run_id LIKE '{_sql_escape(prefix)}%'
@@ -188,7 +193,7 @@ class RunStore:
 
     def get_steps(self, run_id: str) -> list[dict[str, Any]]:
         """Get indexed step results for a run (from the steps table)."""
-        prefix = run_id[:8] if len(run_id) >= 8 else run_id
+        prefix = self._id_prefix(run_id)
         return self._flight_query(f"""
             SELECT step_index, step_name, step_path, outcome, started_at, ended_at,
                    duration_s, has_measurements, measurement_count, vector_count, markers
@@ -203,26 +208,12 @@ class RunStore:
             return []
 
         quoted = ", ".join(f"'{_sql_escape(s)}'" for s in session_shorts)
-        rows = self._flight_query(f"""
+        return self._flight_query(f"""
             SELECT file_path, step_index, measurement_name, col_name,
                    row_idx, uri, channel_id, session_short
             FROM measurement_refs
             WHERE session_short IN ({quoted})
         """)
-
-        return [
-            {
-                "file_path": r["file_path"],
-                "step_index": r["step_index"],
-                "measurement_name": r["measurement_name"],
-                "col_name": r["col_name"],
-                "row_idx": r["row_idx"],
-                "uri": r["uri"],
-                "channel_id": r["channel_id"],
-                "session_short": r["session_short"],
-            }
-            for r in rows
-        ]
 
     def get_measurement(
         self,
@@ -280,7 +271,7 @@ class RunStore:
             else:
                 new_columns.append(table.column(name))
 
-        new_table = pa.table(dict(zip(table.column_names, new_columns)))
+        new_table = pa.table({name: col for name, col in zip(table.column_names, new_columns)})
 
         # Preserve parquet file-level metadata
         orig_meta = pq.read_metadata(file_path)

@@ -206,34 +206,35 @@ def _ingest_parquet_files(index_path: Path, runs_dir: Path) -> None:
                 "size": pa.array([e[2] for e in disk_entries], type=pa.int64()),
             }
         )
+        gone: list[tuple] = []
         conn.register("_disk_snapshot", disk_table)
+        try:
+            # Files that need ingest: absent from _ingested with matching (path, mtime, size, ok).
+            needs_ingest = conn.execute("""
+                SELECT d.path
+                FROM _disk_snapshot d
+                LEFT JOIN _ingested i
+                    ON d.path = i.path
+                   AND d.mtime = i.mtime
+                   AND d.size = i.size
+                   AND i.status = 'ok'
+                WHERE i.path IS NULL
+            """).fetchall()
 
-        # Files that need ingest: absent from _ingested with matching (path, mtime, size, ok).
-        needs_ingest = conn.execute("""
-            SELECT d.path
-            FROM _disk_snapshot d
-            LEFT JOIN _ingested i
-                ON d.path = i.path
-               AND d.mtime = i.mtime
-               AND d.size = i.size
-               AND i.status = 'ok'
-            WHERE i.path IS NULL
-        """).fetchall()
+            stat_map = {e[0]: e[3] for e in disk_entries}
+            for (path_str,) in needs_ingest:
+                stat = stat_map.get(path_str)
+                if stat is not None:
+                    _ingest_one_file(conn, Path(path_str), stat)
 
-        stat_map = {e[0]: e[3] for e in disk_entries}
-        for (path_str,) in needs_ingest:
-            stat = stat_map.get(path_str)
-            if stat is not None:
-                _ingest_one_file(conn, Path(path_str), stat)
-
-        # Health check: previously-ok files that have vanished.
-        gone = conn.execute("""
-            SELECT i.path FROM _ingested i
-            LEFT JOIN _disk_snapshot d ON i.path = d.path
-            WHERE i.status = 'ok' AND d.path IS NULL
-        """).fetchall()
-
-        conn.unregister("_disk_snapshot")
+            # Health check: previously-ok files that have vanished.
+            gone = conn.execute("""
+                SELECT i.path FROM _ingested i
+                LEFT JOIN _disk_snapshot d ON i.path = d.path
+                WHERE i.status = 'ok' AND d.path IS NULL
+            """).fetchall()
+        finally:
+            conn.unregister("_disk_snapshot")
 
         for (path_str,) in gone:
             conn.execute(
@@ -440,17 +441,18 @@ def _index_parquet_file(conn: duckdb.DuckDBPyConnection, fkey: str) -> str | Non
 
         # --- measurement_io_schema: which steps used each I/O column ---
         for col_name, category in io_cols:
-            escaped_col = col_name.replace('"', '""')
-            esc_col_name = _sql_escape(col_name)
-            esc_category = _sql_escape(category)
+            escaped_col = col_name.replace('"', '""')  # identifier escaping for double-quoted SQL
             try:
-                conn.execute(f"""
+                conn.execute(
+                    f"""
                     INSERT INTO measurement_io_schema
-                    SELECT '{escaped}', step_index, '{esc_col_name}', '{esc_category}'
+                    SELECT ?, step_index, ?, ?
                     FROM read_parquet('{escaped}')
                     WHERE "{escaped_col}" IS NOT NULL
                     GROUP BY step_index
-                """)
+                """,
+                    [fkey, col_name, category],
+                )
             except duckdb.Error as exc:
                 warnings.warn(
                     f"Could not index I/O column '{col_name}' in {fkey}: {exc}", stacklevel=2
@@ -460,16 +462,16 @@ def _index_parquet_file(conn: duckdb.DuckDBPyConnection, fkey: str) -> str | Non
         # URI parsing done in SQL via regexp_extract to avoid a Python loop.
         out_cols = [col for col, _ in io_cols if col.startswith("out_")]
         for col_name in out_cols:
-            escaped_col = col_name.replace('"', '""')
-            esc_col_name = _sql_escape(col_name)
+            escaped_col = col_name.replace('"', '""')  # identifier escaping for double-quoted SQL
             try:
-                conn.execute(f"""
+                conn.execute(
+                    f"""
                     INSERT INTO measurement_refs
                     SELECT
-                        '{escaped}' AS file_path,
+                        ? AS file_path,
                         step_index,
                         measurement_name,
-                        '{esc_col_name}' AS col_name,
+                        ? AS col_name,
                         (row_number() OVER ()) - 1 AS row_idx,
                         "{escaped_col}" AS uri,
                         regexp_extract("{escaped_col}", 'channel://([^?]+)', 1) AS channel_id,
@@ -479,7 +481,9 @@ def _index_parquet_file(conn: duckdb.DuckDBPyConnection, fkey: str) -> str | Non
                     WHERE "{escaped_col}" IS NOT NULL
                       AND "{escaped_col}" LIKE 'channel://%'
                       AND regexp_extract("{escaped_col}", 'channel://([^?]+)', 1) != ''
-                """)
+                """,
+                    [fkey, col_name],
+                )
             except duckdb.Error as exc:
                 warnings.warn(
                     f"Could not scan refs in '{col_name}' for {fkey}: {exc}", stacklevel=2

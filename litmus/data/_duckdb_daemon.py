@@ -181,7 +181,7 @@ def _ingest_one_file(
 
     try:
         table = table.select(_EVENT_COLUMNS)
-    except Exception as exc:
+    except (KeyError, pa.ArrowInvalid) as exc:
         warnings.warn(f"Skipping bad schema in {fpath.name}: {exc}", stacklevel=2)
         _mark("quarantined", str(exc))
         return
@@ -190,7 +190,7 @@ def _ingest_one_file(
         rows = _table_to_rows(table)
         conn.executemany(_INSERT_SQL, rows)
         _mark("ok", row_count=len(rows))
-    except Exception as exc:
+    except duckdb.Error as exc:
         warnings.warn(f"Skipping bad data in {fpath.name}: {exc}", stacklevel=2)
         _mark("quarantined", str(exc))
 
