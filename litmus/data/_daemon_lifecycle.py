@@ -32,6 +32,27 @@ _POLL_INTERVAL = 2  # seconds between daemon ref-count checks
 _acquired: dict[str, DaemonManager] = {}
 
 
+def _installed_version() -> str:
+    """Return the installed litmus version string."""
+    from litmus import __version__
+
+    return __version__
+
+
+def _version_tuple(v: str) -> tuple[int, ...]:
+    """Parse a version string into a comparable tuple of ints."""
+    parts: list[int] = []
+    for segment in v.split("."):
+        digits = ""
+        for ch in segment:
+            if ch.isdigit():
+                digits += ch
+            else:
+                break
+        parts.append(int(digits) if digits else 0)
+    return tuple(parts)
+
+
 def _pid_alive(pid: int) -> bool:
     """Check if a process is alive (cross-platform)."""
     try:
@@ -64,18 +85,31 @@ class DaemonManager:
         lock = FileLock(self._dir / self._lock_name, timeout=10)
         state = self._dir / self._state_name
 
+        my_version = _installed_version()
+
         with lock:
             if state.exists():
                 try:
                     data = json.loads(state.read_text())
                     if _pid_alive(data["pid"]):
-                        refs: list[int] = data.get("refs", [])
-                        if os.getpid() not in refs:
-                            refs.append(os.getpid())
-                        data["refs"] = refs
-                        state.write_text(json.dumps(data))
-                        self._register_cleanup()
-                        return
+                        daemon_version = data.get("litmus_version", "0.0.0")
+                        if _version_tuple(daemon_version) < _version_tuple(my_version):
+                            warnings.warn(
+                                f"Upgrading daemon from {daemon_version} to {my_version}",
+                                stacklevel=2,
+                            )
+                            self._kill_daemon(data["pid"])
+                            state.unlink(missing_ok=True)
+                            (self._dir / self._ready_name).unlink(missing_ok=True)
+                            (self._dir / self._pid_name).unlink(missing_ok=True)
+                        else:
+                            refs: list[int] = data.get("refs", [])
+                            if os.getpid() not in refs:
+                                refs.append(os.getpid())
+                            data["refs"] = refs
+                            state.write_text(json.dumps(data))
+                            self._register_cleanup()
+                            return
                 except (json.JSONDecodeError, OSError, KeyError, TypeError) as exc:
                     warnings.warn(
                         f"Stale daemon state, respawning: {exc}",
@@ -86,7 +120,7 @@ class DaemonManager:
             self._spawn()
             pid = self._read_pid()
 
-            data = {"pid": pid, "refs": [os.getpid()]}
+            data = {"pid": pid, "refs": [os.getpid()], "litmus_version": my_version}
             data.update(self._post_spawn_state())
             state.write_text(json.dumps(data))
 
@@ -122,6 +156,19 @@ class DaemonManager:
             return json.loads(state.read_text())
         except (json.JSONDecodeError, OSError):
             return {}
+
+    @staticmethod
+    def _kill_daemon(pid: int) -> None:
+        """Kill a daemon process and wait for it to exit."""
+        try:
+            os.kill(pid, signal.SIGTERM)
+            for _ in range(20):
+                time.sleep(0.1)
+                if not _pid_alive(pid):
+                    return
+            os.kill(pid, signal.SIGKILL)
+        except (OSError, PermissionError):
+            pass
 
     # -- Subclass hooks ------------------------------------------------------
 

@@ -188,8 +188,14 @@ def _render_measurements_tab(measurements: list):
                 {
                     "step_name": m.get("step_name", ""),
                     "name": m.get("measurement_name", ""),
-                    "value": f"{m.get('value', '-')} {m.get('units', '')}".strip(),
-                    "limits": f"{m.get('low_limit', '')} – {m.get('high_limit', '')}",
+                    "value": (
+                        f"{m.get('value', '-')}{' ' + m.get('units', '') if m.get('units') else ''}"
+                    ),
+                    "limits": (
+                        f"{m.get('low_limit', '—')} – {m.get('high_limit', '—')}"
+                        if m.get("low_limit") is not None or m.get("high_limit") is not None
+                        else "—"
+                    ),
                     "outcome": m.get("outcome", ""),
                 }
                 for m in measurements

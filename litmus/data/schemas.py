@@ -78,6 +78,7 @@ MEASUREMENT_SCHEMA = pa.schema(
         # Test context
         ("sequence_id", pa.string()),
         ("test_phase", pa.string()),
+        ("project_name", pa.string()),
         ("git_commit", pa.string()),
         ("git_branch", pa.string()),
         ("git_remote", pa.string()),
@@ -162,6 +163,7 @@ STEP_SCHEMA = pa.schema(
         # Test context
         ("sequence_id", pa.string()),
         ("test_phase", pa.string()),
+        ("project_name", pa.string()),
         ("git_commit", pa.string()),
         ("git_branch", pa.string()),
         ("git_remote", pa.string()),

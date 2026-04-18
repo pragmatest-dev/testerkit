@@ -78,7 +78,9 @@ class RunStore:
         """List recent test runs, most recent first."""
         rows = self._flight_query(f"""
             SELECT file_path, run_id, session_id, dut_serial, station_id,
-                   outcome, started_at, num_measurements
+                   outcome, started_at, num_measurements,
+                   sequence_id, test_phase, product_id, operator_id,
+                   project_name
             FROM runs
             ORDER BY started_at DESC
             LIMIT {limit}
@@ -88,12 +90,17 @@ class RunStore:
             RunSummary(
                 test_run_id=r["run_id"],
                 session_id=r.get("session_id"),
-                started_at=r["started_at"],
-                dut_serial=r["dut_serial"],
-                station_id=r["station_id"],
-                outcome=r["outcome"],
-                total_measurements=r["num_measurements"],
-                file_path=r["file_path"],
+                started_at=r.get("started_at"),
+                dut_serial=r.get("dut_serial"),
+                station_id=r.get("station_id"),
+                outcome=r.get("outcome"),
+                total_measurements=r.get("num_measurements", 0),
+                test_sequence_id=r.get("sequence_id"),
+                test_phase=r.get("test_phase"),
+                product_id=r.get("product_id"),
+                operator=r.get("operator_id"),
+                project_name=r.get("project_name"),
+                file_path=r.get("file_path"),
             )
             for r in rows
         ]

@@ -307,6 +307,7 @@ class RunSummary(BaseModel):
     operator: str | None = None
     outcome: str | None = None
     total_measurements: int = 0
+    project_name: str | None = None
     file_path: str | None = None  # internal: parquet file location for fast measurement lookup
 
 
@@ -350,6 +351,7 @@ class TestRun(BaseModel):
     git_commit: str | None = None
     git_branch: str | None = None
     git_remote: str | None = None
+    project_name: str | None = None
 
     # Results
     outcome: Outcome = Outcome.PASS

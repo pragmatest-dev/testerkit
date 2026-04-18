@@ -743,24 +743,27 @@ def show(
             for entry in manifest:
                 mc = entry.get("measurement_count")
                 meas_info = f" ({mc} measurements)" if mc else ""
-                loc = entry.get("file") or ""
-                if loc and entry.get("function"):
-                    loc = f" [{loc}::{entry['function']}]"
-                elif loc:
-                    loc = f" [{loc}]"
-                click.echo(
-                    f"  {entry['index']:>2}. {entry['name']}: "
-                    f"{entry.get('outcome', '?')}{meas_info}{loc}"
-                )
+                outcome = entry.get("outcome", "?")
+                if outcome == "not_started":
+                    func = entry.get("function", "")
+                    loc = f" [{func}]" if func else ""
+                else:
+                    loc = entry.get("file") or ""
+                    if loc and entry.get("function"):
+                        loc = f" [{loc}::{entry['function']}]"
+                    elif loc:
+                        loc = f" [{loc}]"
+                click.echo(f"  {entry['index']:>2}. {entry['name']}: {outcome}{meas_info}{loc}")
 
     if data.measurements and not env:
         click.echo("\nMeasurements:")
         for m in data.measurements:
             name = m.get("measurement_name", "")
             value = m.get("value", "")
-            units = m.get("units", "")
+            units = m.get("units")
             outcome = m.get("outcome", "")
-            click.echo(f"  {name}: {value} {units} [{outcome}]")
+            units_str = f" {units}" if units else ""
+            click.echo(f"  {name}: {value}{units_str} [{outcome}]")
 
     if env:
         from litmus.sbom import environment_from_parquet, format_environment_table

@@ -28,7 +28,7 @@ class YieldDashboardData(TypedDict):
 @ui.page("/yield")
 def yield_page(
     results_dir: str = "",
-    phase: str = "production",
+    phase: str = "",
     product: str = "",
     station: str = "",
     lot: str = "",
@@ -66,7 +66,7 @@ def yield_page(
         params = []
         if results_dir_input.value != results_dir:
             params.append(f"results_dir={results_dir_input.value}")
-        if phase_filter.value != "production":
+        if phase_filter.value:
             params.append(f"phase={phase_filter.value}")
         if product_filter.value and product_filter.value != "All":
             params.append(f"product={product_filter.value}")
@@ -116,7 +116,7 @@ def yield_page(
             valid_phases = ["production", "qual", "development", "all"]
             phase_filter = ui.select(
                 valid_phases,
-                value=phase if phase in valid_phases else "production",
+                value=phase if phase in valid_phases else "all",
                 label="Phase",
                 on_change=lambda _: _do_refresh(),
             ).classes("w-40")
@@ -180,7 +180,7 @@ def yield_page(
 
     _refresh_dashboard(
         results_dir,
-        phase if phase in ["production", "qual", "development", "all"] else "production",
+        phase if phase in ["production", "qual", "development", "all"] else "all",
         product if product else None,
         station if station else None,
         since if since else None,

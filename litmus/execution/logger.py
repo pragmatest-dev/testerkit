@@ -183,6 +183,7 @@ class TestRunLogger:
         git_commit: str | None = None,
         git_branch: str | None = None,
         git_remote: str | None = None,
+        project_name: str | None = None,
         # Project directory — used for auto-detection (git, etc.)
         project_dir: str | Path | None = None,
         # Results storage
@@ -200,17 +201,21 @@ class TestRunLogger:
 
         _session_id = session_id if session_id is not None else uuid4()
 
-        # Auto-detect git info when not provided
-        if git_commit is None or git_branch is None or git_remote is None:
-            from litmus.execution._git import get_git_info
+        # Auto-detect git info and project name when not provided
+        if git_commit is None or git_branch is None or git_remote is None or project_name is None:
+            from litmus.execution._git import get_git_info, get_project_name
 
-            info = get_git_info(project_dir)
-            if git_commit is None:
-                git_commit = info.commit
-            if git_branch is None:
-                git_branch = info.branch
-            if git_remote is None:
-                git_remote = info.remote
+            if git_commit is None or git_branch is None or git_remote is None:
+                info = get_git_info(project_dir)
+                if git_commit is None:
+                    git_commit = info.commit
+                if git_branch is None:
+                    git_branch = info.branch
+                if git_remote is None:
+                    git_remote = info.remote
+
+            if project_name is None:
+                project_name = get_project_name(project_dir)
 
         self.test_run = TestRun(
             id=run_id,
@@ -237,6 +242,7 @@ class TestRunLogger:
             git_commit=git_commit,
             git_branch=git_branch,
             git_remote=git_remote,
+            project_name=project_name,
         )
         # Serialize environment eagerly so every event has it
         if environment is not None:

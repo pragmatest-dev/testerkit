@@ -6,9 +6,14 @@ to control which repository is inspected (defaults to process cwd).
 
 from __future__ import annotations
 
+import logging
 import subprocess
 from dataclasses import dataclass
 from pathlib import Path
+
+from litmus.store import load_project_config
+
+logger = logging.getLogger(__name__)
 
 
 def _run_git(
@@ -108,6 +113,62 @@ def get_git_remote(cwd: Path | str | None = None) -> str | None:
     except (subprocess.TimeoutExpired, FileNotFoundError):
         pass
     return None
+
+
+def _git_repo_root(cwd: Path | str | None = None) -> Path | None:
+    """Return the git repo root directory, or None if not in a repo."""
+    try:
+        result = _run_git("rev-parse", "--show-toplevel", cwd=cwd)
+        if result.returncode == 0:
+            return Path(result.stdout.strip())
+    except (subprocess.TimeoutExpired, FileNotFoundError):
+        pass
+    return None
+
+
+def _remote_leaf_name(remote_url: str) -> str | None:
+    """Extract the repository name from a git remote URL.
+
+    Handles HTTPS (``https://github.com/org/repo.git``) and SSH
+    (``git@github.com:org/repo.git``) URLs.
+    """
+    from posixpath import basename
+
+    name = basename(remote_url.rstrip("/"))
+    if name.endswith(".git"):
+        name = name[:-4]
+    return name or None
+
+
+def get_project_name(cwd: Path | str | None = None) -> str:
+    """Resolve a human-readable project name.
+
+    Resolution chain (first non-None wins):
+    1. ``litmus.yaml`` → ``name`` field
+    2. Git remote leaf name (e.g. ``github.com/org/board_a.git`` → ``board_a``)
+    3. Git repo root folder name
+    4. CWD folder name
+    """
+    resolved_cwd = Path(cwd) if cwd is not None else Path.cwd()
+
+    try:
+        config = load_project_config(resolved_cwd / "litmus.yaml")
+        if config.name != "litmus":
+            return config.name
+    except Exception:
+        logger.debug("Could not read litmus.yaml for project name", exc_info=True)
+
+    remote = get_git_remote(cwd)
+    if remote:
+        leaf = _remote_leaf_name(remote)
+        if leaf:
+            return leaf
+
+    root = _git_repo_root(cwd)
+    if root:
+        return root.name
+
+    return resolved_cwd.name
 
 
 def is_git_clean(cwd: Path | str | None = None) -> bool:
