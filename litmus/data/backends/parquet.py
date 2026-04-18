@@ -22,10 +22,14 @@ Schema design:
 import json
 import logging
 import pickle
-from collections.abc import Callable
+from collections.abc import Callable, Generator
+from contextlib import contextmanager
 from datetime import datetime
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from litmus.data.run_store import RunStore
 
 import pyarrow as pa
 import pyarrow.parquet as pq
@@ -188,16 +192,22 @@ class ParquetBackend:
 
         return parquet_path
 
+    @contextmanager
+    def _run_store_ctx(self) -> Generator["RunStore", None, None]:
+        """Yield a configured RunStore, closing it on exit."""
+        from litmus.data.run_store import RunStore
+
+        store = RunStore(_results_dir=self.results_dir)
+        try:
+            yield store
+        finally:
+            store.close()
+
     def _notify_daemon(self, parquet_path: Path) -> None:
         """Best-effort notification to the runs DuckDB daemon."""
         try:
-            from litmus.data.run_store import RunStore
-
-            run_store = RunStore(_results_dir=self.results_dir)
-            try:
-                run_store.notify_new_run(parquet_path)
-            finally:
-                run_store.close()
+            with self._run_store_ctx() as store:
+                store.notify_new_run(parquet_path)
         except Exception:  # Intentionally broad: notification must not fail writes
             logger.debug("Failed to notify runs daemon", exc_info=True)
 
@@ -300,43 +310,23 @@ class ParquetBackend:
 
     def list_runs(self, limit: int = 50) -> list[RunSummary]:
         """List recent test runs. Delegates to RunStore."""
-        from litmus.data.run_store import RunStore
-
-        run_store = RunStore(_results_dir=self.results_dir)
-        try:
-            return run_store.list_runs(limit=limit)
-        finally:
-            run_store.close()
+        with self._run_store_ctx() as store:
+            return store.list_runs(limit=limit)
 
     def find_run_file(self, run_id: str) -> Path | None:
         """Find parquet file for a run_id. Delegates to RunStore."""
-        from litmus.data.run_store import RunStore
-
-        run_store = RunStore(_results_dir=self.results_dir)
-        try:
-            return run_store.find_run_file(run_id)
-        finally:
-            run_store.close()
+        with self._run_store_ctx() as store:
+            return store.find_run_file(run_id)
 
     def get_run(self, run_id: str) -> RunSummary | None:
         """Get a specific test run by ID. Delegates to RunStore."""
-        from litmus.data.run_store import RunStore
+        with self._run_store_ctx() as store:
+            return store.get_run(run_id)
 
-        run_store = RunStore(_results_dir=self.results_dir)
-        try:
-            return run_store.get_run(run_id)
-        finally:
-            run_store.close()
-
-    def get_measurements(self, run_id: str, *, _file: str | None = None) -> list[dict]:
+    def get_measurements(self, run_id: str, *, _file: str | None = None) -> list[dict[str, Any]]:
         """Get all measurements for a specific test run. Delegates to RunStore."""
-        from litmus.data.run_store import RunStore
-
-        run_store = RunStore(_results_dir=self.results_dir)
-        try:
-            return run_store.get_measurements(run_id, _file=_file)
-        finally:
-            run_store.close()
+        with self._run_store_ctx() as store:
+            return store.get_measurements(run_id, _file=_file)
 
     def get_measurement(
         self,
@@ -344,30 +334,20 @@ class ParquetBackend:
         measurement_name: str,
         *,
         step_index: int | None = None,
-    ) -> list[dict]:
+    ) -> list[dict[str, Any]]:
         """Get rows for a specific measurement name with row-group pushdown."""
-        from litmus.data.run_store import RunStore
+        with self._run_store_ctx() as store:
+            return store.get_measurement(file_path, measurement_name, step_index=step_index)
 
-        run_store = RunStore(_results_dir=self.results_dir)
-        try:
-            return run_store.get_measurement(file_path, measurement_name, step_index=step_index)
-        finally:
-            run_store.close()
-
-    def get_session_measurements(self, session_id: str) -> list[dict]:
+    def get_session_measurements(self, session_id: str) -> list[dict[str, Any]]:
         """Get measurements from all runs sharing a session_id.
 
         For multi-DUT runs, each worker writes its own parquet file but
         they share a session_id. This collects measurements across all
         sibling runs for combined views like the execution timeline.
         """
-        from litmus.data.run_store import RunStore
-
-        run_store = RunStore(_results_dir=self.results_dir)
-        try:
-            return run_store.get_session_measurements(session_id)
-        finally:
-            run_store.close()
+        with self._run_store_ctx() as store:
+            return store.get_session_measurements(session_id)
 
     def get_vectors(self, run_id: str) -> list[dict]:
         """Get unique test vectors for a specific test run."""
@@ -394,40 +374,23 @@ class ParquetBackend:
                     "station_id": m.get("station_id"),
                     "sequence_id": m.get("sequence_id"),
                 }
-                # Extract params (in_* columns, excluding signal-path metadata)
-                params = {}
-                for k, v in m.items():
-                    if _is_param_column(k):
-                        params[k[3:]] = v
-                vector_info["params"] = params
+                vector_info["params"] = {k[3:]: v for k, v in m.items() if _is_param_column(k)}
                 vectors_seen[key] = vector_info
 
         return list(vectors_seen.values())
 
     def get_steps(self, run_id: str) -> list[dict[str, Any]]:
         """Get step results for a run from _steps.parquet or metadata."""
-        from litmus.data.run_store import RunStore
-
-        run_store = RunStore(_results_dir=self.results_dir)
-        try:
-            pq_file = run_store.find_run_file(run_id)
-        finally:
-            run_store.close()
-
+        with self._run_store_ctx() as store:
+            pq_file = store.find_run_file(run_id)
         if pq_file is None:
             return []
         return read_step_results(Path(pq_file))
 
     def get_run_metadata(self, run_id: str) -> dict[str, str] | None:
         """Get file-level metadata (config snapshots) for a run."""
-        from litmus.data.run_store import RunStore
-
-        run_store = RunStore(_results_dir=self.results_dir)
-        try:
-            pq_file = run_store.find_run_file(run_id)
-        finally:
-            run_store.close()
-
+        with self._run_store_ctx() as store:
+            pq_file = store.find_run_file(run_id)
         if pq_file is None:
             return None
 

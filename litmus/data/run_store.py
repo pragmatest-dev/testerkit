@@ -34,7 +34,7 @@ class DataUnavailable(Exception):
     def __init__(self, file_path: str, *, status: str = "missing") -> None:
         self.file_path = file_path
         self.status = status
-        super().__init__(f"Run data not available locally (status={status!r}): {file_path}")
+        super().__init__(f"Run data {status}: {file_path}")
 
 
 class RunStore:
@@ -63,9 +63,9 @@ class RunStore:
             label="RunStore",
         )
 
-    def _flight_query(self, sql: str, *, _retries: int = 2) -> list[dict[str, Any]]:
+    def _flight_query(self, sql: str) -> list[dict[str, Any]]:
         """Execute a SQL query via Flight and return list of dicts."""
-        return self._flight.query(sql, _retries=_retries)
+        return self._flight.query(sql)
 
     # --- Query API ---
 
@@ -164,8 +164,11 @@ class RunStore:
                 continue
         return all_measurements
 
-    def get_measurements(self, run_id: str, *, _file: str | None = None) -> list[dict]:
-        """Get all measurements for a specific test run."""
+    def get_measurements(self, run_id: str, *, _file: str | None = None) -> list[dict[str, Any]]:
+        """Get all measurements for a specific test run.
+
+        _file: bypass index lookup and read directly from this path (testing/internal use).
+        """
         if _file:
             pq_file = Path(_file)
         else:
@@ -194,7 +197,7 @@ class RunStore:
             ORDER BY step_index
         """)
 
-    def find_channel_refs(self, session_shorts: set[str]) -> list[dict]:
+    def find_channel_refs(self, session_shorts: set[str]) -> list[dict[str, Any]]:
         """Query measurement_refs WHERE session_short IN (...)."""
         if not session_shorts:
             return []
@@ -227,11 +230,13 @@ class RunStore:
         measurement_name: str,
         *,
         step_index: int | None = None,
-    ) -> list[dict]:
+    ) -> list[dict[str, Any]]:
         """Get rows for a specific measurement name, with predicate pushdown.
 
         Uses pyarrow row-group filters so only matching row groups are read.
         Raises DataUnavailable if the file is missing or marked non-ok in the index.
+        Returns [] if the parquet file exists but lacks a measurement_name column
+        (e.g. a file written by an older schema version).
         """
         pq_file = Path(file_path)
         if not pq_file.exists():
@@ -306,7 +311,7 @@ class RunStore:
                 writer.write_batch(batch)
             writer.close()
         except Exception:
-            # Non-fatal: daemon will pick up on restart
+            logger.debug("Failed to notify runs daemon of new run %s", parquet_path, exc_info=True)
             self._flight.reset()
 
     def close(self) -> None:

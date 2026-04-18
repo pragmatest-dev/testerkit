@@ -104,27 +104,50 @@ def _rebuild_schema(conn: duckdb.DuckDBPyConnection) -> None:
 def _ingest_ipc_files(index_path: Path, events_dir: Path) -> None:
     """Background thread: ingest new/changed IPC files into the events index.
 
-    Opens its own connection so the Flight server's connection is never
-    blocked by bulk ingest I/O.
+    Uses a single batched anti-join against _ingested (O(1) round trips
+    regardless of file count). Opens its own connection so the Flight
+    server's connection is never blocked by bulk ingest I/O.
     """
     conn = duckdb.connect(str(index_path))
     try:
+        disk_entries: list[tuple[str, float, int, os.stat_result]] = []
         for fpath in sorted(events_dir.glob("*/*.arrow")):
             try:
                 stat = fpath.stat()
+                disk_entries.append((str(fpath), stat.st_mtime, stat.st_size, stat))
             except OSError:
                 continue
-            # Skip files already successfully processed with the same mtime + size.
-            # Quarantined files (status != 'ok') are retried so that ingest-code
-            # fixes take effect on the next daemon start without a schema rebuild.
-            row = conn.execute(
-                "SELECT 1 FROM _ingested"
-                " WHERE path = ? AND mtime = ? AND size = ? AND status = 'ok'",
-                [str(fpath), stat.st_mtime, stat.st_size],
-            ).fetchone()
-            if row is not None:
-                continue
-            _ingest_one_file(conn, fpath, stat)
+
+        if not disk_entries:
+            return
+
+        disk_table = pa.table(
+            {
+                "path": [e[0] for e in disk_entries],
+                "mtime": pa.array([e[1] for e in disk_entries], type=pa.float64()),
+                "size": pa.array([e[2] for e in disk_entries], type=pa.int64()),
+            }
+        )
+        conn.register("_disk_snapshot", disk_table)
+
+        needs_ingest = conn.execute("""
+            SELECT d.path
+            FROM _disk_snapshot d
+            LEFT JOIN _ingested i
+                ON d.path = i.path
+               AND d.mtime = i.mtime
+               AND d.size = i.size
+               AND i.status = 'ok'
+            WHERE i.path IS NULL
+        """).fetchall()
+
+        stat_map = {e[0]: e[3] for e in disk_entries}
+        for (path_str,) in needs_ingest:
+            stat = stat_map.get(path_str)
+            if stat is not None:
+                _ingest_one_file(conn, Path(path_str), stat)
+
+        conn.unregister("_disk_snapshot")
     finally:
         try:
             conn.close()
@@ -197,8 +220,11 @@ def daemon_run(events_dir: Path) -> None:
     port_file.write_text(location)
     threading.Thread(target=server.serve, daemon=True, name="duckdb-flight").start()
 
-    # Signal ready BEFORE background ingest so callers are never blocked by
-    # the O(new-files) ingest scan.
+    # Signal ready BEFORE background ingest. Events are write-heavy and
+    # callers emit new events immediately — blocking on a historical replay
+    # of potentially hundreds of IPC files would blow the 10 s deadline.
+    # The runs daemon inverts this only on a fresh/rebuild start because its
+    # first query is typically list_runs(), which needs the index populated.
     mgr.write_ready()
     mgr.update_state(location=location)
 

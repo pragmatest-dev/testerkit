@@ -13,6 +13,7 @@ Usage: python -m litmus.data._runs_duckdb_daemon <runs_dir>
 
 from __future__ import annotations
 
+import logging
 import os
 import sys
 import threading
@@ -26,7 +27,9 @@ from litmus.data._duckdb_flight_server import DuckDBFlightServer
 from litmus.data._sql_helpers import sql_escape as _sql_escape
 from litmus.data.runs_duckdb_manager import RunsDuckDBManager
 
-_SCHEMA_VERSION = 2
+logger = logging.getLogger(__name__)
+
+_SCHEMA_VERSION = 1
 
 
 # ── Schema management ────────────────────────────────────────────────
@@ -60,7 +63,6 @@ def _rebuild_schema(conn: duckdb.DuckDBPyConnection) -> None:
         "measurements",
         "measurement_io_schema",
         "measurement_refs",
-        "run_channel_refs",  # run_channel_refs: v1 name
         "_ingested",
         "_schema_version",
     ):
@@ -163,6 +165,7 @@ def _rebuild_schema(conn: duckdb.DuckDBPyConnection) -> None:
     conn.execute("CREATE INDEX idx_meas_run ON measurements(run_id)")
     conn.execute("CREATE INDEX idx_meas_fp ON measurements(file_path)")
     conn.execute("CREATE INDEX idx_mrefs_name ON measurement_refs(measurement_name)")
+    conn.execute("CREATE INDEX idx_mrefs_session ON measurement_refs(session_short)")
     conn.execute("CREATE INDEX idx_mio_fp ON measurement_io_schema(file_path)")
 
 
@@ -248,11 +251,11 @@ def _ingest_parquet_files(index_path: Path, runs_dir: Path) -> None:
 
 def _ingest_one_file(
     conn: duckdb.DuckDBPyConnection,
-    pq_file: Path,
+    fpath: Path,
     stat: os.stat_result,
 ) -> None:
     """Ingest a single parquet file. Records status in _ingested."""
-    path_str = str(pq_file)
+    path_str = str(fpath)
 
     def _mark(status: str, error: str | None = None, row_count: int = 0) -> None:
         conn.execute(
@@ -264,12 +267,12 @@ def _ingest_one_file(
             [path_str, stat.st_mtime, stat.st_size, row_count, status, error],
         )
 
-    if _is_steps_file(pq_file.name):
-        ok = _index_steps_file(conn, path_str)
+    if _is_steps_file(fpath.name):
+        error = _index_steps_file(conn, path_str)
     else:
-        ok = _index_parquet_file(conn, path_str)
+        error = _index_parquet_file(conn, path_str)
 
-    _mark("ok" if ok else "quarantined", error=None if ok else "index returned no rows")
+    _mark("ok" if error is None else "quarantined", error=error)
 
 
 # ── Daemon entry point ───────────────────────────────────────────────
@@ -341,8 +344,11 @@ def _is_steps_file(filename: str) -> bool:
     return filename.endswith("_steps.parquet")
 
 
-def _index_parquet_file(conn: duckdb.DuckDBPyConnection, fkey: str) -> bool:
-    """Index a measurement parquet file into all index tables."""
+def _index_parquet_file(conn: duckdb.DuckDBPyConnection, fkey: str) -> str | None:
+    """Index a measurement parquet file into all index tables.
+
+    Returns None on success or an error string describing the failure.
+    """
     escaped = _sql_escape(fkey)
     try:
         # --- runs: one summary row per file ---
@@ -361,7 +367,7 @@ def _index_parquet_file(conn: duckdb.DuckDBPyConnection, fkey: str) -> bool:
         """).fetchone()
 
         if result is None:
-            return False
+            return "no rows in parquet file"
 
         run_id, session_id, dut_serial, station_id, outcome, started_at, num_meas = result
         conn.execute(
@@ -479,15 +485,20 @@ def _index_parquet_file(conn: duckdb.DuckDBPyConnection, fkey: str) -> bool:
                     f"Could not scan refs in '{col_name}' for {fkey}: {exc}", stacklevel=2
                 )
 
-        return True
+        return None
+    except duckdb.IOException as exc:
+        logger.debug("File gone during ingest (will retry next run): %s — %s", fkey, exc)
+        return f"file unavailable: {exc}"
     except Exception as exc:
-        if not isinstance(exc, duckdb.IOException):
-            warnings.warn(f"Error ingesting {fkey}: {exc}", stacklevel=2)
-        return False
+        warnings.warn(f"Error ingesting {fkey}: {exc}", stacklevel=2)
+        return str(exc)
 
 
-def _index_steps_file(conn: duckdb.DuckDBPyConnection, fkey: str) -> bool:
-    """Index a steps parquet file into the steps table."""
+def _index_steps_file(conn: duckdb.DuckDBPyConnection, fkey: str) -> str | None:
+    """Index a steps parquet file into the steps table.
+
+    Returns None on success or an error string describing the failure.
+    """
     escaped = _sql_escape(fkey)
     try:
         rows = conn.execute(f"""
@@ -511,17 +522,19 @@ def _index_steps_file(conn: duckdb.DuckDBPyConnection, fkey: str) -> bool:
         """).fetchall()
 
         if not rows:
-            return False
+            return "no rows in steps file"
 
         conn.executemany(
             "INSERT INTO steps VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             [[fkey, *row] for row in rows],
         )
-        return True
+        return None
+    except duckdb.IOException as exc:
+        logger.debug("File gone during ingest (will retry next run): %s — %s", fkey, exc)
+        return f"file unavailable: {exc}"
     except Exception as exc:
-        if not isinstance(exc, duckdb.IOException):
-            warnings.warn(f"Error ingesting steps file {fkey}: {exc}", stacklevel=2)
-        return False
+        warnings.warn(f"Error ingesting steps file {fkey}: {exc}", stacklevel=2)
+        return str(exc)
 
 
 if __name__ == "__main__":
