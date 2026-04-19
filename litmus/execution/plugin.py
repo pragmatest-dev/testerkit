@@ -49,6 +49,7 @@ _sequence_test_phase_var: ContextVar[str | None] = ContextVar("_sequence_test_ph
 _sequence_required_fixture_var: ContextVar[str | None] = ContextVar("_sequence_required_fixture")
 _channel_store_var: ContextVar[Any] = ContextVar("_channel_store")
 _collected_items_var: ContextVar[list[CollectedItem]] = ContextVar("_collected_items")
+_current_code_identity_var: ContextVar[dict[str, str | None]] = ContextVar("_current_code_identity")
 _event_store_var: ContextVar[Any] = ContextVar("_event_store")
 
 
@@ -248,6 +249,19 @@ def get_collected_items() -> list[CollectedItem]:
 def set_collected_items(value: list[CollectedItem]) -> None:
     """Set value. Returns None."""
     _collected_items_var.set(value)
+
+
+def get_current_code_identity() -> dict[str, str | None]:
+    """Return code identity for the currently running test item."""
+    try:
+        return _current_code_identity_var.get()
+    except LookupError:
+        return {}
+
+
+def set_current_code_identity(value: dict[str, str | None]) -> None:
+    """Set code identity for the currently running test item."""
+    _current_code_identity_var.set(value)
 
 
 def _load_sequence_steps(config):
@@ -533,6 +547,20 @@ def pytest_configure(config):
     config.pluginmanager.register(_InstrumentFixtures(), "litmus_instrument_fixtures")
 
 
+def pytest_report_header(config):
+    """Show litmus results location in the pytest header."""
+    from litmus.data.results_dir import resolve_results_dir
+
+    results_dir = config.getoption("--results-dir", default=None)
+    resolved = resolve_results_dir(results_dir)
+    if results_dir:
+        return (
+            f"litmus: results → {resolved}"
+            " (local — remove results_dir from litmus.yaml for global storage)"
+        )
+    return f"litmus: results → {resolved}"
+
+
 def pytest_sessionstart(session):
     """Clear outcomes at session start and validate DUT serial."""
     set_step_outcomes({})
@@ -621,7 +649,7 @@ def pytest_addoption(parser):
     group.addoption("--operator", default=None, help="Operator name")
     group.addoption(
         "--results-dir",
-        default=None,
+        default=project.results_dir,
         help="Directory for Parquet results (default: platform data dir)",
     )
     group.addoption("--spec", default=None, help="Path to product spec YAML file")
@@ -870,8 +898,10 @@ def _build_run_metadata(request: pytest.FixtureRequest) -> dict[str, Any]:
     dut_revision = cli_revision or (spec_context.product.revision if spec_context else None)
 
     from litmus.environment import capture_environment
+    from litmus.execution._git import get_project_name
 
     env = capture_environment()
+    project_name = get_project_name(request.config.rootpath)
 
     return {
         "dut_serial": request.config.getoption("--dut-serial"),
@@ -888,6 +918,7 @@ def _build_run_metadata(request: pytest.FixtureRequest) -> dict[str, Any]:
         "product_name": product_name,
         "product_revision": product_revision,
         "fixture_id": fixture_id,
+        "project_name": project_name,
         "project_dir": request.config.rootpath,
         "results_dir": results_dir,
         "test_phase": test_phase,
@@ -1704,6 +1735,8 @@ def pytest_runtest_setup(item):
             break
     set_current_step_aliases(step_aliases)
     set_current_step_config(step_config)
+
+    set_current_code_identity(_extract_code_identity(item))
 
     # Reset mock state for clean test isolation
     for inst in get_active_instruments().values():

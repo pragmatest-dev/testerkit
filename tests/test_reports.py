@@ -10,7 +10,6 @@ import pytest
 from litmus.data.backends.parquet import ParquetBackend
 from litmus.data.models import DUT, Measurement, Outcome, TestRun, TestStep, TestVector
 from litmus.reports.core import (
-    _find_parquet,
     generate_report,
     load_run_data,
 )
@@ -95,20 +94,6 @@ def results_dir(tmp_path, sample_run):
 @pytest.fixture
 def run_id(sample_run):
     return str(sample_run.id)
-
-
-class TestFindParquet:
-    def test_finds_new_layout(self, results_dir, run_id):
-        path = _find_parquet(run_id, str(results_dir))
-        assert path is not None
-        assert path.suffix == ".parquet"
-
-    def test_partial_id(self, results_dir, run_id):
-        path = _find_parquet(run_id[:8], str(results_dir))
-        assert path is not None
-
-    def test_missing_returns_none(self, results_dir):
-        assert _find_parquet("nonexistent", str(results_dir)) is None
 
 
 class TestLoadRunData:

@@ -14,6 +14,10 @@ from typing import Any
 import pyarrow.flight as flight
 
 
+class IndexOutOfDate(Exception):
+    """Raised when the DuckDB index schema doesn't match the current code."""
+
+
 class FlightQueryClient:
     """Lazy Flight client with retrying SQL queries.
 
@@ -66,6 +70,9 @@ class FlightQueryClient:
                 table = reader.read_all()
                 return table.to_pylist()
             except Exception as exc:
+                err_msg = str(exc)
+                if "silver" in err_msg and "does not exist" in err_msg:
+                    return []
                 last_exc = exc
                 self._client = None
                 if attempt < _retries:
@@ -75,6 +82,10 @@ class FlightQueryClient:
                             self._location = self._reacquire()
                         except (ValueError, OSError):
                             pass
+        if last_exc and "Binder Error" in str(last_exc):
+            raise IndexOutOfDate(
+                "Index is out of date. Run `litmus data reindex` to rebuild."
+            ) from last_exc
         warnings.warn(
             f"{self._label} Flight query failed after {_retries + 1} attempts: {last_exc}",
             stacklevel=3,

@@ -44,7 +44,15 @@ def main():
     default=None,
     help="Set up AI tool integration (MCP server + project instructions)",
 )
-def init(name: str | None, no_git: bool, discover: bool, starter: bool | None, ai: str | None):
+@click.option("--name", "project_name", default=None, help="Project name (overrides auto-detect)")
+def init(
+    name: str | None,
+    no_git: bool,
+    discover: bool,
+    starter: bool | None,
+    ai: str | None,
+    project_name: str | None,
+):
     """Initialize a new Litmus project.
 
     With NAME: creates a new directory and scaffolds inside it.
@@ -101,9 +109,8 @@ def init(name: str | None, no_git: bool, discover: bool, starter: bool | None, a
         # Explicit --discover flag
         station = _discover_instruments(interactive=False)
     elif starter is False:
-        # Explicit --no-starter flag, prompt for discovery
-        if click.confirm("Discover instruments?", default=False):
-            station = _discover_instruments(interactive=True)
+        # Explicit --no-starter flag — skip prompts (use --discover for instruments)
+        pass
     else:
         # No flags provided - prompt interactively
         if click.confirm("Create starter example files?", default=True):
@@ -111,7 +118,13 @@ def init(name: str | None, no_git: bool, discover: bool, starter: bool | None, a
         elif click.confirm("Discover instruments?", default=False):
             station = _discover_instruments(interactive=True)
 
-    result = init_project(project_path, git=not no_git, station=station, starter=use_starter)
+    result = init_project(
+        project_path,
+        git=not no_git,
+        station=station,
+        starter=use_starter,
+        name=project_name,
+    )
 
     # Print summary
     if cwd_mode:
@@ -633,12 +646,16 @@ def serve(host: str, port: int, reload: bool):
 @click.option("--json", "as_json", is_flag=True, help="Output as JSON")
 def runs(results_dir: str | None, limit: int, as_json: bool):
     """List recent test runs."""
+    from litmus.data._flight_query import IndexOutOfDate
     from litmus.data.backends.parquet import ParquetBackend
 
     results_dir = _get_results_dir(results_dir)
 
     backend = ParquetBackend(results_dir=results_dir)
-    test_runs = backend.list_runs(limit=limit)
+    try:
+        test_runs = backend.list_runs(limit=limit)
+    except IndexOutOfDate as exc:
+        raise click.ClickException(str(exc)) from None
 
     if not test_runs:
         if as_json:
@@ -652,15 +669,16 @@ def runs(results_dir: str | None, limit: int, as_json: bool):
         click.echo(json.dumps(runs_data, indent=2, default=str))
         return
 
-    click.echo(f"{'Run ID':<10} {'DUT Serial':<15} {'Station':<20} {'Outcome':<10}")
-    click.echo("-" * 60)
+    click.echo(f"{'Run ID':<10} {'DUT Serial':<15} {'Test':<20} {'Station':<20} {'Outcome':<10}")
+    click.echo("-" * 80)
 
     for run in test_runs:
         run_id = (run.test_run_id or "")[:8]
         dut = run.dut_serial or ""
+        test = run.test_sequence_id or ""
         station = run.station_id or ""
         outcome = run.outcome or ""
-        click.echo(f"{run_id:<10} {dut:<15} {station:<20} {outcome:<10}")
+        click.echo(f"{run_id:<10} {dut:<15} {test:<20} {station:<20} {outcome:<10}")
 
 
 @main.command()
@@ -758,12 +776,13 @@ def show(
     if data.measurements and not env:
         click.echo("\nMeasurements:")
         for m in data.measurements:
-            name = m.get("measurement_name", "")
-            value = m.get("value", "")
+            name = m.get("measurement_name") or ""
+            value = m.get("value")
             units = m.get("units")
-            outcome = m.get("outcome", "")
+            outcome = m.get("outcome") or ""
+            value_str = str(value) if value is not None else "—"
             units_str = f" {units}" if units else ""
-            click.echo(f"  {name}: {value}{units_str} [{outcome}]")
+            click.echo(f"  {name}: {value_str}{units_str} [{outcome}]")
 
     if env:
         from litmus.sbom import environment_from_parquet, format_environment_table
@@ -2198,8 +2217,8 @@ def yield_cpk(results_dir, phase, since, until_date, product, station, min_sampl
         cpk_val = f"{r['cpk']:.3f}" if r.get("cpk") is not None else "N/A"
         cp_val = f"{r['cp']:.3f}" if r.get("cp") is not None else "N/A"
         click.echo(
-            f"{name:<30} {r.get('n', 0):>5} {r.get('mean', 0):>10.4f} "
-            f"{r.get('sigma', 0):>10.4f} {cpk_val:>7} {cp_val:>7}"
+            f"{name:<30} {r.get('n') or 0:>5} {r.get('mean') or 0:>10.4f} "
+            f"{r.get('sigma') or 0:>10.4f} {cpk_val:>7} {cp_val:>7}"
         )
 
 
@@ -2395,8 +2414,8 @@ def gold_cpk(results_dir, phase, since, until_date, product, station, min_sample
         cpk_val = f"{r['cpk']:.3f}" if r.get("cpk") is not None else "N/A"
         cp_val = f"{r['cp']:.3f}" if r.get("cp") is not None else "N/A"
         click.echo(
-            f"{name:<30} {r.get('n', 0):>5} {r.get('mean', 0):>10.4f} "
-            f"{r.get('sigma', 0):>10.4f} {cpk_val:>7} {cp_val:>7}"
+            f"{name:<30} {r.get('n') or 0:>5} {r.get('mean') or 0:>10.4f} "
+            f"{r.get('sigma') or 0:>10.4f} {cpk_val:>7} {cp_val:>7}"
         )
 
 
@@ -2550,6 +2569,32 @@ def data_prune(
         click.echo(f"\n{total} directories would be removed.")
     else:
         click.echo(f"\n{total} directories removed.")
+
+
+@data.command("reindex")
+@click.option("--results-dir", default=None, help="Results directory")
+def data_reindex(results_dir: str | None) -> None:
+    """Kill index daemons and rebuild on next access.
+
+    Use this when the index is out of date (e.g. after upgrading litmus).
+    """
+    from litmus.data.duckdb_manager import DuckDBDaemonManager
+    from litmus.data.runs_duckdb_manager import RunsDuckDBManager
+
+    results = Path(_get_results_dir(results_dir))
+
+    for subdir, mgr_cls in [
+        ("events", DuckDBDaemonManager),
+        ("runs", RunsDuckDBManager),
+    ]:
+        d = results / subdir
+        if d.exists():
+            mgr_cls(d).force_restart()
+            idx = d / "_index.duckdb"
+            if idx.exists():
+                idx.unlink()
+
+    click.echo("Index daemons stopped. Index will rebuild on next query.")
 
 
 # ---------------------------------------------------------------------------

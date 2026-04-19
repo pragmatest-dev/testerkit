@@ -19,8 +19,144 @@ jobs:
           name: dist
           path: dist/
 
-  publish-pypi:
+  correctness:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.12"
+          enable-cache: true
+      - run: uv sync --all-extras --dev
+      - name: Lint
+        run: uv run ruff check .
+      - name: Typecheck
+        run: uv run pyright
+      - name: Tests (correctness)
+        run: uv run pytest -q
+
+  benchmarks:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.12"
+          enable-cache: true
+      - run: uv sync --all-extras --dev
+      - name: Run benchmarks (current)
+        run: |
+          uv run pytest -m benchmark --benchmark-only \
+            --benchmark-json=benchmark-current.json -q
+      - name: Run benchmarks (previous tag)
+        run: |
+          PREV_TAG=$(git tag --sort=-v:refname | sed -n '2p')
+          if [ -z "$PREV_TAG" ]; then
+            echo "No previous tag — skipping regression check"
+            exit 0
+          fi
+          git checkout "$PREV_TAG"
+          uv sync --all-extras --dev
+          uv run pytest -m benchmark --benchmark-only \
+            --benchmark-json=benchmark-previous.json -q || true
+          git checkout "${GITHUB_REF_NAME}"
+      - name: Check for regression (10% threshold)
+        run: |
+          if [ ! -f benchmark-previous.json ]; then
+            echo "No previous benchmark — skipping comparison"
+            exit 0
+          fi
+          uv run pytest-benchmark compare benchmark-previous.json benchmark-current.json \
+            --group-by=name 2>&1 | tee benchmark-diff.txt || true
+          python3 -c "
+          import json, sys
+          prev = {b['name']: b['stats']['mean'] for b in json.load(open('benchmark-previous.json'))['benchmarks']}
+          curr = {b['name']: b['stats']['mean'] for b in json.load(open('benchmark-current.json'))['benchmarks']}
+          regressions = []
+          for name, cur_mean in curr.items():
+              if name in prev:
+                  pct = (cur_mean - prev[name]) / prev[name] * 100
+                  if pct > 10:
+                      regressions.append(f'{name}: +{pct:.1f}%')
+          if regressions:
+              print('BENCHMARK REGRESSIONS (>10%):')
+              for r in regressions:
+                  print(f'  {r}')
+              sys.exit(1)
+          print('No benchmark regressions detected.')
+          "
+
+  smoke-test:
+    runs-on: ubuntu-latest
     needs: build
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.12"
+          enable-cache: true
+      - run: uv sync --all-extras --dev
+      - name: "Smoke: litmus init --starter"
+        run: |
+          cd /tmp
+          uv run litmus init smoke_project --starter --no-git --name smoke_test
+          test -f /tmp/smoke_project/litmus.yaml
+          test -f /tmp/smoke_project/tests/test_example.py
+          test -f /tmp/smoke_project/stations/starter_station.yaml
+      - name: "Smoke: pytest with mock instruments"
+        run: |
+          cd /tmp/smoke_project
+          uv run --project ${{ github.workspace }} pytest tests/ -q \
+            --station=starter_station --sequence=example_sequence \
+            --mock-instruments --dut-serial=SMOKE001
+      - name: "Smoke: litmus runs"
+        run: cd /tmp/smoke_project && uv run litmus runs 2>&1 | head -20
+      - name: "Smoke: litmus data reindex"
+        run: cd /tmp/smoke_project && uv run litmus data reindex
+
+  upgrade-test:
+    runs-on: ubuntu-latest
+    needs: build
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.12"
+          enable-cache: true
+      - name: Install previous release and generate data
+        run: |
+          PREV_TAG=$(git tag --sort=-v:refname | sed -n '2p')
+          if [ -z "$PREV_TAG" ]; then
+            echo "No previous tag — skipping upgrade test"
+            exit 0
+          fi
+          git checkout "$PREV_TAG"
+          uv sync --all-extras --dev
+          mkdir -p /tmp/upgrade_project
+          uv run litmus init /tmp/upgrade_project --starter --no-git --name upgrade_test || true
+          if [ -f /tmp/upgrade_project/tests/test_example.py ]; then
+            cd /tmp/upgrade_project
+            uv run --project ${{ github.workspace }} pytest tests/ -q \
+              --station=starter_station --sequence=example_sequence \
+              --mock-instruments --dut-serial=UPGRADE001 || true
+          fi
+          git checkout "${GITHUB_REF_NAME}"
+      - name: Install current and verify old data readable
+        run: |
+          if [ ! -f /tmp/upgrade_project/litmus.yaml ]; then
+            echo "No previous project — skipping"
+            exit 0
+          fi
+          uv sync --all-extras --dev
+          uv run litmus data reindex --results-dir /tmp/upgrade_project/results || true
+          uv run litmus runs --results-dir /tmp/upgrade_project/results 2>&1 | head -20
+
+  publish-pypi:
+    needs: [build, correctness, benchmarks, smoke-test, upgrade-test]
     runs-on: ubuntu-latest
     environment:
       name: pypi

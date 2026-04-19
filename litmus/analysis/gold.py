@@ -1,12 +1,16 @@
-"""Gold layer analytics — DuckDB SQL on silver Parquet.
+"""Gold layer analytics — SQL on silver daemon view.
 
-Pre-aggregated manufacturing metrics computed on-the-fly from silver
-measurement Parquet files.  Each ``GoldStore`` method opens an ephemeral
-DuckDB connection, scans silver via ``read_parquet(glob)``, runs an
-aggregate SQL query, and returns ``list[dict]``.
+Pre-aggregated manufacturing metrics computed on-the-fly.  Each
+``GoldStore`` method sends an analytics SQL query to the runs DuckDB
+daemon via Arrow Flight.  The daemon exposes a ``silver`` VIEW that
+lazily reads raw measurement parquet (``read_parquet(glob,
+union_by_name=true)``), so gold always sees current data without
+maintaining its own DuckDB connection.
 
-No materialized files, no daemon changes, no refresh step — always
-reads current silver data.
+Bronze → Silver → Gold:
+  - Bronze: raw parquet files written by the test runner
+  - Silver: DuckDB daemon indexes runs + exposes ``silver`` view
+  - Gold: analytics queries through silver daemon (this module)
 """
 
 from __future__ import annotations
@@ -15,8 +19,8 @@ import logging
 from pathlib import Path
 from typing import Any
 
-import duckdb
-
+from litmus.data import runs_duckdb_manager
+from litmus.data._flight_query import FlightQueryClient
 from litmus.data._sql_helpers import sql_escape
 from litmus.data.results_dir import resolve_results_dir
 
@@ -121,20 +125,11 @@ def _period_col(period: str) -> str:
 
 
 # ---------------------------------------------------------------------------
-# SQL templates
+# SQL templates — reference the daemon's ``silver`` VIEW directly
 # ---------------------------------------------------------------------------
 
-_SILVER_CTE = """
-WITH silver AS (
-    SELECT * FROM read_parquet('{glob}', union_by_name=true, filename=true)
-    WHERE filename NOT LIKE '%\\_steps.parquet' ESCAPE '\\'
-      AND filename NOT LIKE '%\\_ref/%' ESCAPE '\\'
-)"""
-
 _YIELD_SQL = """
-{silver_cte},
--- Deduplicate: one row per run_id (silver has one row per measurement)
-runs AS (
+WITH runs AS (
     SELECT DISTINCT ON (run_id)
         run_id,
         COALESCE(dut_part_number, product_id, 'unknown') AS product,
@@ -193,7 +188,6 @@ ORDER BY period_day
 """
 
 _PARETO_SQL = """
-{silver_cte}
 SELECT
     COALESCE(dut_part_number, product_id, 'unknown') AS product,
     COALESCE(station_name, station_id, 'unknown') AS station,
@@ -213,7 +207,6 @@ LIMIT {top_n}
 """
 
 _CPK_SQL = """
-{silver_cte}
 SELECT
     COALESCE(dut_part_number, product_id, 'unknown') AS product,
     COALESCE(station_name, station_id, 'unknown') AS station,
@@ -246,8 +239,7 @@ ORDER BY cpk ASC NULLS LAST
 """
 
 _TREND_SQL = """
-{silver_cte},
-runs AS (
+WITH runs AS (
     SELECT DISTINCT ON (run_id)
         run_id,
         COALESCE(dut_part_number, product_id, 'unknown') AS product,
@@ -274,8 +266,7 @@ ORDER BY period_day
 """
 
 _RETEST_SQL = """
-{silver_cte},
-runs AS (
+WITH runs AS (
     SELECT DISTINCT ON (run_id)
         run_id,
         COALESCE(dut_part_number, product_id, 'unknown') AS product,
@@ -310,8 +301,7 @@ ORDER BY period_day
 """
 
 _TIME_LOSS_SQL = """
-{silver_cte},
-runs AS (
+WITH runs AS (
     SELECT DISTINCT ON (run_id)
         run_id,
         COALESCE(dut_part_number, product_id, 'unknown') AS product,
@@ -346,47 +336,39 @@ ORDER BY period_day
 
 
 class GoldStore:
-    """Query pre-aggregated manufacturing metrics via DuckDB SQL on silver Parquet.
+    """Query pre-aggregated manufacturing metrics via the runs DuckDB daemon.
 
-    Opens an ephemeral in-memory DuckDB connection per query.  No daemon,
-    no materialized files, no refresh — always reads current silver data.
+    Queries go through Arrow Flight to the runs daemon, which exposes a
+    ``silver`` VIEW over raw measurement parquet files.
 
     Usage::
 
         store = GoldStore()
         rows = store.yield_summary(product="PN-123", period="week")
-        store.close()  # optional — no persistent resources
+        store.close()
     """
 
     def __init__(self, *, _results_dir: Path | str | None = None) -> None:
         results_dir = resolve_results_dir(_results_dir)
         self._runs_dir = results_dir / "runs"
-        self._glob = str(self._runs_dir / "**" / "*.parquet")
+        self._runs_dir.mkdir(parents=True, exist_ok=True)
+
+        location = runs_duckdb_manager.acquire(self._runs_dir)
+        self._flight = FlightQueryClient(
+            location,
+            "runs",
+            reacquire=lambda: runs_duckdb_manager.acquire(self._runs_dir),
+            label="GoldStore",
+        )
 
     def _query_dicts(self, sql: str) -> list[dict[str, Any]]:
-        """Execute SQL and return list of dicts with column names."""
-        if not self._runs_dir.exists():
-            logger.debug("Runs directory does not exist: %s", self._runs_dir)
-            return []
-        try:
-            conn = duckdb.connect()
-            try:
-                result = conn.execute(sql)
-                columns = [desc[0] for desc in result.description]
-                rows = result.fetchall()
-                return [dict(zip(columns, row)) for row in rows]
-            finally:
-                conn.close()
-        except (duckdb.IOException, duckdb.CatalogException) as exc:
-            logger.debug("No parquet data or missing columns: %s", exc)
-            return []
-        except duckdb.Error as exc:
-            logger.warning("DuckDB error in gold query: %s", exc)
-            return []
+        """Execute SQL via Flight and return list of dicts."""
+        return self._flight.query(sql)
 
-    def _silver_cte(self) -> str:
-        """Build the silver CTE with the glob path."""
-        return _SILVER_CTE.format(glob=sql_escape(self._glob))
+    def close(self) -> None:
+        """Release daemon ref and close Flight client."""
+        self._flight.close()
+        runs_duckdb_manager.release(self._runs_dir)
 
     def yield_summary(
         self,
@@ -410,7 +392,6 @@ class GoldStore:
             until=until,
         )
         sql = _YIELD_SQL.format(
-            silver_cte=self._silver_cte(),
             period_expr=_period_col(period),
             where=where,
         )
@@ -431,7 +412,6 @@ class GoldStore:
         Returns one row per (product, station, step, measurement).
         """
         sql = _PARETO_SQL.format(
-            silver_cte=self._silver_cte(),
             and_clauses=_build_and_clauses(
                 product=product,
                 station=station,
@@ -458,7 +438,6 @@ class GoldStore:
         Returns one row per (product, station, measurement_name).
         """
         sql = _CPK_SQL.format(
-            silver_cte=self._silver_cte(),
             and_clauses=_build_and_clauses(
                 product=product,
                 station=station,
@@ -492,7 +471,6 @@ class GoldStore:
             until=until,
         )
         sql = _TREND_SQL.format(
-            silver_cte=self._silver_cte(),
             period_expr=_period_col(period),
             where=where,
         )
@@ -520,7 +498,6 @@ class GoldStore:
             until=until,
         )
         sql = _RETEST_SQL.format(
-            silver_cte=self._silver_cte(),
             period_expr=_period_col(period),
             where=where,
         )
@@ -548,7 +525,6 @@ class GoldStore:
             until=until,
         )
         sql = _TIME_LOSS_SQL.format(
-            silver_cte=self._silver_cte(),
             period_expr=_period_col(period),
             where=where,
         )

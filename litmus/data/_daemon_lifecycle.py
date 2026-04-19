@@ -25,7 +25,7 @@ from pathlib import Path
 
 from filelock import FileLock
 
-_IDLE_TIMEOUT = 10  # seconds daemon waits after refs=0 before exiting
+_IDLE_TIMEOUT = int(os.environ.get("LITMUS_DAEMON_IDLE_TIMEOUT", "10"))
 _POLL_INTERVAL = 2  # seconds between daemon ref-count checks
 
 # Track acquired managers so atexit/signal can release them all
@@ -169,6 +169,24 @@ class DaemonManager:
             os.kill(pid, signal.SIGKILL)
         except (OSError, PermissionError):
             pass
+
+    def force_restart(self) -> None:
+        """Kill a running daemon unconditionally so it rebuilds on next access."""
+        lock = FileLock(self._dir / self._lock_name, timeout=10)
+        state = self._dir / self._state_name
+
+        with lock:
+            if state.exists():
+                try:
+                    data = json.loads(state.read_text())
+                    pid = data.get("pid")
+                    if pid and _pid_alive(pid):
+                        self._kill_daemon(pid)
+                except (json.JSONDecodeError, OSError, KeyError, TypeError):
+                    pass
+                state.unlink(missing_ok=True)
+            (self._dir / self._ready_name).unlink(missing_ok=True)
+            (self._dir / self._pid_name).unlink(missing_ok=True)
 
     # -- Subclass hooks ------------------------------------------------------
 

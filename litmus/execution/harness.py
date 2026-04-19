@@ -1102,10 +1102,23 @@ class TestHarness:
         Yields:
             TestStep object.
         """
+        try:
+            from litmus.execution.plugin import get_current_code_identity
+
+            identity = get_current_code_identity()
+        except ImportError:
+            identity = {}
+
         step = TestStep(
             name=name or self._step_name,
             description=description,
             started_at=_utcnow(),
+            node_id=identity.get("node_id"),
+            file=identity.get("file"),
+            module=identity.get("module"),
+            class_name=identity.get("class_name"),
+            function=identity.get("function"),
+            markers=identity.get("markers"),
         )
         # Create step context as child of run context
         self._step_context = self._run_context.child()

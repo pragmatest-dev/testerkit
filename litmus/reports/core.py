@@ -76,43 +76,6 @@ def _str_field(row: dict[str, Any], key: str) -> str:
     return str(row.get(key) or "")
 
 
-def _find_parquet(run_id: str, results_dir: str = "results") -> Path | None:
-    """Find a Parquet file matching a run ID.
-
-    Supports two layouts:
-    - Current: results/runs/{date}/{timestamp}_{serial}.parquet
-    - Legacy: results/runs/{date}/{run_id}/measurements.parquet
-    """
-    import pyarrow.parquet as pq
-
-    runs_dir = Path(results_dir) / "runs"
-    if not runs_dir.exists():
-        return None
-
-    for date_dir in sorted(runs_dir.iterdir(), reverse=True):
-        if not date_dir.is_dir():
-            continue
-        # Current layout: flat parquet files in date dir
-        for f in date_dir.iterdir():
-            if f.suffix == ".parquet" and not f.is_dir():
-                try:
-                    table = pq.read_table(f, columns=["run_id"])
-                    if table.num_rows > 0:
-                        file_run_id = str(table.column("run_id")[0])
-                        if run_id in file_run_id or file_run_id.startswith(run_id):
-                            return f
-                except (OSError, IndexError):
-                    continue
-        # Legacy layout: run_id subdirectory
-        for run_dir in date_dir.iterdir():
-            if run_dir.is_dir() and run_id in run_dir.name:
-                mf = run_dir / "measurements.parquet"
-                if mf.exists():
-                    return mf
-
-    return None
-
-
 def load_run_data(run_id: str, results_dir: str = "results") -> ReportData:
     """Load a test run from Parquet into ReportData.
 
@@ -128,7 +91,10 @@ def load_run_data(run_id: str, results_dir: str = "results") -> ReportData:
     """
     import pyarrow.parquet as pq
 
-    parquet_path = _find_parquet(run_id, results_dir)
+    from litmus.data.backends.parquet import ParquetBackend
+
+    backend = ParquetBackend(results_dir=results_dir)
+    parquet_path = backend.find_run_file(run_id)
     if parquet_path is None:
         raise FileNotFoundError(f"No Parquet file found for run '{run_id}' in {results_dir}/")
 

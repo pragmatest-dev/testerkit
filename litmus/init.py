@@ -9,6 +9,27 @@ from pathlib import Path
 from typing import Any
 
 
+def _sanitize_name(name: str) -> str:
+    return name.replace("-", "_").replace(" ", "_")
+
+
+def _resolve_project_name(path: Path) -> str:
+    """Resolve project name: git remote leaf → git repo root → folder name."""
+    from litmus.execution._git import _git_repo_root, _remote_leaf_name, get_git_remote
+
+    remote = get_git_remote(path)
+    if remote:
+        leaf = _remote_leaf_name(remote)
+        if leaf:
+            return _sanitize_name(leaf)
+
+    root = _git_repo_root(path)
+    if root:
+        return _sanitize_name(root.name)
+
+    return _sanitize_name(path.name)
+
+
 def check_command(cmd: str) -> bool:
     """Check if a command is available on the system."""
     return shutil.which(cmd) is not None
@@ -19,6 +40,7 @@ def init_project(
     git: bool = True,
     station: dict[str, Any] | None = None,
     starter: bool = False,
+    name: str | None = None,
 ) -> dict[str, Any]:
     """Initialize a new Litmus project.
 
@@ -29,6 +51,8 @@ def init_project(
             ``instruments`` mapping role names to dicts with
             ``resource`` and optional ``info`` keys.
         starter: Whether to create starter example files.
+        name: Explicit project name (from CLI arg). If None, resolves
+            via git remote leaf → git root folder → directory name.
 
     Returns:
         Dict with created_dirs, created_files, warnings, and git_initialized.
@@ -54,7 +78,7 @@ def init_project(
             dir_path.mkdir()
             created_dirs.append(subdir)
 
-    project_name = path.name.replace("-", "_").replace(" ", "_")
+    project_name = _sanitize_name(name) if name else _resolve_project_name(path)
 
     # Create pyproject.toml
     pyproject_path = path / "pyproject.toml"
@@ -159,6 +183,7 @@ Run with --mock-instruments for hardware-free testing:
                     "default_station": "starter_station",
                     "default_fixture": "example_fixture",
                     "mock_instruments": True,
+                    "results_dir": "results",
                 }
             )
         proj = ProjectConfig(**proj_data)

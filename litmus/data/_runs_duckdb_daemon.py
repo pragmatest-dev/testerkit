@@ -598,6 +598,31 @@ def _index_steps_file(conn: duckdb.DuckDBPyConnection, fkey: str) -> str | None:
         return str(exc)
 
 
+# ── Silver view (gold-layer analytics) ───────────────────────────────
+
+
+def _create_silver_view(conn: duckdb.DuckDBPyConnection, runs_dir: Path) -> None:
+    """Register the ``silver`` view for gold-layer analytics.
+
+    Gold queries reference this view instead of reading raw parquet directly,
+    keeping the medallion layering: bronze (parquet) → silver (daemon) → gold.
+
+    If no parquet files exist yet, the view is not created — it will be
+    created after the first file is ingested via ``_on_put``.
+    """
+    glob = _sql_escape(str(runs_dir / "**" / "*.parquet"))
+    try:
+        conn.execute(f"""
+            CREATE OR REPLACE VIEW silver AS
+            SELECT * FROM read_parquet('{glob}',
+                union_by_name=true, filename=true)
+            WHERE filename NOT LIKE '%\\_steps.parquet' ESCAPE '\\'
+              AND filename NOT LIKE '%\\_ref/%' ESCAPE '\\'
+        """)
+    except duckdb.IOException:
+        logger.debug("No parquet files yet in %s — silver view deferred", runs_dir)
+
+
 # ── Daemon entry point ───────────────────────────────────────────────
 
 
@@ -607,6 +632,7 @@ def daemon_run(runs_dir: Path) -> None:
 
     index_path = runs_dir / "_index.duckdb"
     conn, is_fresh = _open_index(index_path)
+    _create_silver_view(conn, runs_dir)
 
     def _on_put(table: pa.Table) -> None:
         for row in table.to_pylist():
@@ -618,6 +644,7 @@ def daemon_run(runs_dir: Path) -> None:
             except OSError:
                 continue
             _ingest_one_file(conn, Path(fpath), stat)
+        _create_silver_view(conn, runs_dir)
 
     server = DuckDBFlightServer("grpc://127.0.0.1:0")
     server.register("runs", conn)
@@ -629,6 +656,7 @@ def daemon_run(runs_dir: Path) -> None:
 
     if is_fresh:
         _ingest_parquet_files(index_path, runs_dir)
+        _create_silver_view(conn, runs_dir)
 
     mgr.write_ready()
     mgr.update_state(location=location)
