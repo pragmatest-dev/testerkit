@@ -163,10 +163,10 @@ def test_stability_over_time(context, psu: PSU, dmm: DMM, eload: ELoad):
 
 ## 5. Pure Pytest (No Decorator)
 
-Full control. Use `litmus_logger` directly. Results still go to Parquet.
+Full control. Use `logger` directly. Results still go to Parquet.
 
 ```python
-def test_basic_measurement(self, psu, dmm, litmus_logger):
+def test_basic_measurement(self, psu, dmm, logger):
     limit = Limit(low=3.2, high=3.4, nominal=3.3, units="V")
 
     psu.set_voltage(5.0)
@@ -174,7 +174,7 @@ def test_basic_measurement(self, psu, dmm, litmus_logger):
 
     vout = float(dmm.measure_dc_voltage())
 
-    litmus_logger.measure(
+    logger.measure(
         name="output_voltage",
         value=vout,
         limit=limit,

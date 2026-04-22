@@ -66,13 +66,13 @@ def measure_input_current(psu):
 class TestMeasureDecorator:
     """Tests using @measure decorated functions."""
 
-    def test_reusable_measurement(self, psu, dmm, litmus_logger):
+    def test_reusable_measurement(self, psu, dmm, logger):
         """Use @measure decorated function for measurement.
 
         The @measure decorator:
         1. Calls the function to get a value
         2. Creates a Measurement with the embedded limit
-        3. Logs to litmus_logger automatically
+        3. Logs to logger automatically
         4. Returns the Measurement object
         """
         psu.set_voltage(5.0)
@@ -86,7 +86,7 @@ class TestMeasureDecorator:
         assert result.name == "output_voltage"
         assert result.units == "V"
 
-    def test_multiple_decorated_measurements(self, psu, dmm, litmus_logger):
+    def test_multiple_decorated_measurements(self, psu, dmm, logger):
         """Call multiple @measure functions in one test."""
         psu.set_voltage(5.0)
         psu.set_current_limit(1.0)
@@ -100,7 +100,7 @@ class TestMeasureDecorator:
         power = (voltage.value or 0.0) * (current.value or 0.0)
 
         # Log derived value manually (not decorated)
-        litmus_logger.measure(
+        logger.measure(
             name="output_power",
             value=power,
             limit=Limit(low=0.0, high=5.0, units="W"),
@@ -154,7 +154,7 @@ def configure_for_full_load(psu, eload):
 class TestLitmusStep:
     """Tests using @litmus_step decorated functions."""
 
-    def test_with_step_functions(self, psu, dmm, eload, litmus_logger, mock_instruments):
+    def test_with_step_functions(self, psu, dmm, eload, logger, mock_instruments):
         """Combine @litmus_step with measurements.
 
         Steps are tracked in the test run even though they don't
@@ -189,7 +189,7 @@ class TestLitmusStep:
 class TestDirectHarness:
     """Tests using TestHarness directly for maximum control."""
 
-    def test_explicit_vector_loop(self, psu, dmm, eload, litmus_logger):
+    def test_explicit_vector_loop(self, psu, dmm, eload, logger):
         """Manual iteration over vectors with harness.
 
         This pattern gives you full control over:
@@ -214,7 +214,7 @@ class TestDirectHarness:
                     }
                 },
             },
-            logger=litmus_logger,
+            logger=logger,
             step_name="explicit_loop_test",
         )
 
@@ -241,7 +241,7 @@ class TestDirectHarness:
 
             eload.disable()
 
-    def test_with_change_detection(self, psu, dmm, eload, litmus_logger):
+    def test_with_change_detection(self, psu, dmm, eload, logger):
         """Use vector.changed() to optimize slow operations.
 
         Product expansion where outer param changes slowly - only
@@ -258,7 +258,7 @@ class TestDirectHarness:
                     "vout": {"low": 3.1, "high": 3.5, "nominal": 3.3, "units": "V"},
                 },
             },
-            logger=litmus_logger,
+            logger=logger,
             step_name="change_detection_test",
         )
 
@@ -278,7 +278,7 @@ class TestDirectHarness:
 
             eload.disable()
 
-    def test_with_prompts(self, psu, dmm, litmus_logger):
+    def test_with_prompts(self, psu, dmm, logger):
         """Use harness.prompt() for operator interaction.
 
         Prompts can be formatted with vector parameters.
@@ -290,7 +290,7 @@ class TestDirectHarness:
                     {"condition": "with_load"},
                 ],
             },
-            logger=litmus_logger,
+            logger=logger,
             step_name="prompt_test",
             # Custom prompt handler for testing (doesn't block)
             prompt_handler=lambda p: True,  # Auto-confirm
@@ -321,7 +321,7 @@ class TestDirectHarness:
 class TestSpecDriven:
     """Tests using SpecContext for spec-driven limit derivation."""
 
-    def test_spec_derived_limits(self, psu, dmm, spec_context, litmus_logger):
+    def test_spec_derived_limits(self, psu, dmm, spec_context, logger):
         """Limits derived automatically from product spec.
 
         With SpecContext:
@@ -336,7 +336,7 @@ class TestSpecDriven:
                     {"temperature": 25, "load": 0.8},
                 ],
             },
-            logger=litmus_logger,
+            logger=logger,
             step_name="spec_driven_test",
             spec_context=spec_context,  # Enable spec-driven limits
         )
@@ -351,7 +351,7 @@ class TestSpecDriven:
                 # current vector conditions (temperature, load)
                 harness.measure("output_voltage", dmm.measure_dc_voltage())
 
-    def test_explicit_limit_from_spec(self, psu, dmm, spec_context, litmus_logger):
+    def test_explicit_limit_from_spec(self, psu, dmm, spec_context, logger):
         """Explicitly get limit from spec for custom logic."""
         psu.set_voltage(5.0)
         psu.enable_output()
@@ -367,7 +367,7 @@ class TestSpecDriven:
         vout = float(dmm.measure_dc_voltage())
 
         # Log with explicit limit
-        litmus_logger.measure(
+        logger.measure(
             name="output_voltage",
             value=vout,
             limit=limit,
@@ -386,7 +386,7 @@ class TestSpecDriven:
 class TestCustomRetry:
     """Tests with custom retry and error handling."""
 
-    def test_with_custom_retry(self, psu, dmm, litmus_logger):
+    def test_with_custom_retry(self, psu, dmm, logger):
         """Configure retry at harness level."""
         from litmus.models.config import RetryConfig
 
@@ -397,7 +397,7 @@ class TestCustomRetry:
                     "vout": {"low": 3.2, "high": 3.4, "nominal": 3.3, "units": "V"},
                 },
             },
-            logger=litmus_logger,
+            logger=logger,
             step_name="custom_retry_test",
             retry=RetryConfig(
                 max_attempts=3,
@@ -412,7 +412,7 @@ class TestCustomRetry:
             with harness.run_vector(vector):
                 harness.measure("vout", dmm.measure_dc_voltage())
 
-    def test_run_all_convenience(self, psu, dmm, litmus_logger):
+    def test_run_all_convenience(self, psu, dmm, logger):
         """Use harness.run_all() for simple cases.
 
         run_all() handles vector iteration and step creation.
@@ -427,7 +427,7 @@ class TestCustomRetry:
                     "vout": {"low": 3.2, "high": 3.4, "nominal": 3.3, "units": "V"},
                 },
             },
-            logger=litmus_logger,
+            logger=logger,
         )
 
         psu.set_voltage(5.0)

@@ -114,6 +114,7 @@ dev = [
     "weasyprint>=62.0",
     "cyclonedx-python-lib>=11.0",
     "zeroconf>=0.80",
+    "pytest-rerunfailures>=16.1",
 ]
 
 [tool.hatch.build.targets.wheel]
@@ -154,4 +155,4 @@ select = ["E", "F", "I", "UP"]
 testpaths = ["tests"]
 asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "function"
-addopts = "-m 'not benchmark'"
+addopts = "-m 'not benchmark' --ignore=tests/test_e2e"

@@ -372,10 +372,10 @@ def test_adaptive_sampling(context, dmm):
 For test architects who need explicit control:
 
 ```python
-def test_explicit_control(psu, dmm, litmus_logger):
+def test_explicit_control(psu, dmm, logger):
     harness = TestHarness(
         config={"vectors": [{"load": 0.1}, {"load": 0.8}]},
-        logger=litmus_logger,
+        logger=logger,
     )
 
     # Run-level setup

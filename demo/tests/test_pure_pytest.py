@@ -9,7 +9,7 @@ Use this approach when you need:
 - Integration with existing test suites
 - Gradual migration to Litmus
 
-The litmus_logger fixture provides manual measurement logging.
+The logger fixture provides manual measurement logging.
 Results are still saved to Parquet with full traceability.
 
 Run with:
@@ -25,7 +25,7 @@ from litmus.models.config import Limit
 class TestPurePytest:
     """Pure pytest tests with manual Litmus logging.
 
-    These tests use the litmus_logger fixture directly instead of
+    These tests use the logger fixture directly instead of
     the @litmus_test decorator. This gives you full control while
     still getting Litmus benefits:
     - Structured measurement logging
@@ -33,13 +33,13 @@ class TestPurePytest:
     - Traceability fields
     """
 
-    def test_basic_measurement(self, psu, dmm, litmus_logger):
+    def test_basic_measurement(self, psu, dmm, logger):
         """Basic measurement with manual limit checking.
 
         Shows the explicit pattern:
         1. Set up stimulus
         2. Signal
-        3. Log with litmus_logger.measure()
+        3. Log with logger.measure()
         4. Assert manually
         """
         # Define limit (could also load from config)
@@ -60,7 +60,7 @@ class TestPurePytest:
         vout = float(dmm.measure_dc_voltage())
 
         # Log measurement (this is what @litmus_test does automatically)
-        litmus_logger.measure(
+        logger.measure(
             name="output_voltage",
             value=vout,
             limit=limit,
@@ -71,7 +71,7 @@ class TestPurePytest:
         assert limit.low is not None and limit.high is not None
         assert limit.low <= vout <= limit.high, f"Output {vout}V out of range"
 
-    def test_multiple_measurements(self, psu, dmm, eload, litmus_logger):
+    def test_multiple_measurements(self, psu, dmm, eload, logger):
         """Log multiple measurements in one test.
 
         Shows how to log several values with their own limits.
@@ -87,14 +87,14 @@ class TestPurePytest:
         v_in = float(psu.measure_voltage())
         i_in = float(psu.measure_current())
 
-        litmus_logger.measure(
+        logger.measure(
             name="input_voltage",
             value=v_in,
             limit=Limit(low=4.8, high=5.2, nominal=5.0, units="V"),
             dut_pin="TP_VIN",
         )
 
-        litmus_logger.measure(
+        logger.measure(
             name="input_current",
             value=i_in,
             limit=Limit(low=0, high=1.0, nominal=0.5, units="A"),
@@ -104,7 +104,7 @@ class TestPurePytest:
         # Log output measurement
         v_out = float(dmm.measure_dc_voltage())
 
-        litmus_logger.measure(
+        logger.measure(
             name="output_voltage",
             value=v_out,
             limit=Limit(low=3.2, high=3.4, nominal=3.3, units="V"),
@@ -116,7 +116,7 @@ class TestPurePytest:
         # Calculate and log derived value
         efficiency = (v_out * 0.5) / (v_in * i_in) * 100 if (v_in * i_in) > 0 else 0
 
-        litmus_logger.measure(
+        logger.measure(
             name="efficiency",
             value=efficiency,
             limit=Limit(low=60, high=100, nominal=66, units="%"),
@@ -126,7 +126,7 @@ class TestPurePytest:
         assert v_out >= 3.2, f"Output voltage {v_out}V below minimum"
         assert efficiency >= 60, f"Efficiency {efficiency}% below spec"
 
-    def test_parametrized_sweep(self, psu, dmm, eload, litmus_logger):
+    def test_parametrized_sweep(self, psu, dmm, eload, logger):
         """Manual sweep without decorator.
 
         Shows how to implement vector-like behavior manually.
@@ -146,7 +146,7 @@ class TestPurePytest:
             vout = float(dmm.measure_dc_voltage())
 
             # Log each measurement with load context
-            litmus_logger.measure(
+            logger.measure(
                 name=f"vout_at_{int(load * 1000)}mA",
                 value=vout,
                 limit=Limit(low=3.1, high=3.5, nominal=3.3, units="V"),
@@ -161,7 +161,7 @@ class TestPurePytest:
         voltages = [r["vout"] for r in results]
         regulation_mv = (max(voltages) - min(voltages)) * 1000
 
-        litmus_logger.measure(
+        logger.measure(
             name="load_regulation",
             value=regulation_mv,
             limit=Limit(low=0, high=50, nominal=10, units="mV"),
@@ -183,10 +183,10 @@ class TestPurePytest:
         (5.5, 3.3),
     ],
 )
-def test_line_regulation_parametrized(vin, expected_vout, psu, dmm, litmus_logger):
+def test_line_regulation_parametrized(vin, expected_vout, psu, dmm, logger):
     """Pytest parametrize with Litmus logging.
 
-    Shows how to use pytest's native parametrize with litmus_logger.
+    Shows how to use pytest's native parametrize with logger.
     Each parameter combination runs as a separate test.
     """
     psu.set_voltage(vin)
@@ -196,7 +196,7 @@ def test_line_regulation_parametrized(vin, expected_vout, psu, dmm, litmus_logge
     vout = float(dmm.measure_dc_voltage())
 
     # Log with context from parametrize
-    litmus_logger.measure(
+    logger.measure(
         name="output_voltage",
         value=vout,
         limit=Limit(low=3.2, high=3.4, nominal=expected_vout, units="V"),

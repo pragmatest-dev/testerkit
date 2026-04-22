@@ -57,6 +57,17 @@ INSTRUMENT_ARRAY_KEYS = (
 )
 
 
+class DuplicateMeasurementError(AssertionError):
+    """Raised when a measurement name is recorded twice in one step.
+
+    Subclasses :class:`AssertionError` so pytest surfaces it as a test
+    failure (and the typical streaming-loop users still see a helpful
+    message). The dedup rule is enforced in
+    :meth:`TestRunLogger.measure`; bypass explicitly via
+    ``allow_repeat=True``.
+    """
+
+
 def _parse_uuid(value: str) -> UUID:
     """Parse a string as UUID, falling back to deterministic md5 hash."""
     try:
@@ -249,6 +260,12 @@ class TestRunLogger:
             self.test_run.environment_json = environment.model_dump_json()
         self._current_step_index: int = -1
         self._step_stack: list[str] = []  # Path components for nested steps
+        # Per-step set of measurement names that have been written. Reset in
+        # start_step() so each step starts with a clean slate; used by
+        # ``measure()`` to raise DuplicateMeasurementError on accidental
+        # double-logs within a step.
+        self._step_seen_names: set[str] = set()
+        self._step_seen_repeatable: set[str] = set()
         self._step_token: Token[TestStep | None] | None = None
         # _vector_token tracks current vector context for this step.
         # Both start_step() and log_measurement() may set it; reset in end_step().
@@ -386,6 +403,9 @@ class TestRunLogger:
             self.end_step()
         # Clear per-step instrument arrays so they don't leak between steps
         self._step_instrument_arrays = None
+        # Reset per-step dedup sets — each step starts with a clean slate.
+        self._step_seen_names = set()
+        self._step_seen_repeatable = set()
 
         # Build hierarchy path
         self._step_stack.append(name)
@@ -599,8 +619,19 @@ class TestRunLogger:
         self,
         name: str,
         value: float | int | None,
+        *,
+        # Inline limit (terse form)
+        low: float | None = None,
+        high: float | None = None,
+        nominal: float | None = None,
+        comparator: Any = None,
+        # Explicit Limit (for sidecar/spec-resolved or prebuilt limits)
         limit: Limit | None = None,
+        # Units (overrides limit.units if both present)
         units: str | None = None,
+        # Behavior
+        allow_repeat: bool = False,
+        # Traceability overrides (ambient ContextVars fill the rest)
         dut_pin: str | None = None,
         instrument_name: str | None = None,
         instrument_resource: str | None = None,
@@ -610,62 +641,86 @@ class TestRunLogger:
     ) -> Measurement:
         """Log a measurement with optional limit checking.
 
-        This is a convenience method that creates a Measurement and logs it.
-        Use this instead of constructing Measurement objects manually.
+        **Limit resolution chain** (first match wins):
+
+        1. Inline ``low=/high=/nominal=/comparator=`` kwargs, if any are set.
+        2. Explicit ``limit=Limit(...)`` kwarg.
+        3. :func:`litmus.execution.plugin.get_active_limits` — the sidecar
+           ``limits:`` block pushed by the pytest_native plugin.
+        4. :func:`litmus.execution.plugin.get_active_spec_context` —
+           product YAML characteristic with the same name.
+        5. Record unchecked (no limit, no outcome set).
+
+        **Duplicate-name dedup:** each step tracks names that have been
+        written. A second write with the same name raises
+        :class:`DuplicateMeasurementError` unless both the first and
+        second call pass ``allow_repeat=True`` (e.g. inner streaming
+        loop). This catches the common bug where a caller invokes
+        ``logger.measure`` *and* ``spec.check`` on the same name.
 
         Args:
-            name: Measurement name (e.g., "output_voltage")
-            value: Measured value
-            limit: Optional Limit object with low/high/nominal/units/spec_ref
-            units: Units (overrides limit.units if provided)
-            dut_pin: DUT pin measured (e.g., "TP_VOUT")
-            instrument_name: Station config instrument name (e.g., "dmm_main")
-            instrument_resource: VISA address or connection string
-            instrument_channel: Channel on instrument (e.g., "CH1")
-            fixture_point: Fixture routing point name
-            spec_ref: Spec reference (overrides limit.spec_ref if provided)
+            name: Measurement name (e.g. ``"output_voltage"``).
+            value: Measured value; ``None`` is recorded with no outcome.
+            low, high, nominal, comparator: Inline limit fields —
+                convenient terse form for ad-hoc checks.
+            limit: Prebuilt Limit object (mutually exclusive with the
+                inline form; the inline form wins if both are given).
+            units: Unit string — overrides ``limit.units`` when present.
+            allow_repeat: Opt-in for naive same-name loops; both the
+                first and subsequent calls must set it.
+            dut_pin, instrument_name, instrument_resource,
+            instrument_channel, fixture_point, spec_ref: Traceability
+                overrides. Unset fields fall back to active ContextVars.
 
         Returns:
-            The Measurement object created and logged.
+            The :class:`Measurement` created and logged.
 
-        Example:
-            litmus_logger.measure(
-                name="output_voltage",
-                value=3.31,
-                limit=Limit(low=3.2, high=3.4, units="V"),
-                dut_pin="TP_VOUT",
-            )
+        Raises:
+            DuplicateMeasurementError: When ``name`` was already recorded
+                in the current step without ``allow_repeat=True``.
         """
-        # Extract limit fields if provided
-        low_limit = None
-        high_limit = None
-        nominal = None
-        comparator = None
+        inline_any = any(x is not None for x in (low, high, nominal, comparator))
+        if inline_any and limit is not None:
+            raise ValueError(
+                "measure(): pass either inline low/high/nominal/comparator or limit=, not both"
+            )
 
-        if limit is not None:
-            low_limit = limit.low
-            high_limit = limit.high
-            nominal = limit.nominal
-            if units is None:
-                units = limit.units
-            if spec_ref is None:
-                spec_ref = limit.spec_ref
-            comparator = getattr(limit, "comparator", None)
-            if comparator is not None:
-                comparator = (
-                    str(comparator.value) if hasattr(comparator, "value") else str(comparator)
-                )
+        resolved_limit = self._resolve_limit(
+            name, inline_any, low, high, nominal, comparator, limit, units
+        )
 
-        # Create measurement
+        # Dedup check against per-step seen_names
+        self._guard_duplicate(name, allow_repeat)
+
+        # Extract limit fields for the Measurement row
+        low_limit: float | None = None
+        high_limit: float | None = None
+        nom: float | None = None
+        cmp_str: str | None = None
+        meas_units = units
+        meas_spec_ref = spec_ref
+
+        if resolved_limit is not None:
+            low_limit = resolved_limit.low
+            high_limit = resolved_limit.high
+            nom = resolved_limit.nominal
+            if meas_units is None:
+                meas_units = resolved_limit.units
+            if meas_spec_ref is None:
+                meas_spec_ref = resolved_limit.spec_ref
+            cmp_raw = getattr(resolved_limit, "comparator", None)
+            if cmp_raw is not None:
+                cmp_str = str(cmp_raw.value) if hasattr(cmp_raw, "value") else str(cmp_raw)
+
         measurement = Measurement(
             name=name,
             value=float(value) if value is not None else None,
-            units=units,
+            units=meas_units,
             low_limit=low_limit,
             high_limit=high_limit,
-            nominal=nominal,
-            comparator=comparator,
-            spec_ref=spec_ref,
+            nominal=nom,
+            comparator=cmp_str,
+            spec_ref=meas_spec_ref,
             dut_pin=dut_pin,
             instrument_name=instrument_name,
             instrument_resource=instrument_resource,
@@ -673,13 +728,91 @@ class TestRunLogger:
             fixture_point=fixture_point,
         )
 
-        # Check limits and set outcome
         measurement.check_limit()
-
-        # Log it
         self.log_measurement(measurement)
-
         return measurement
+
+    def _resolve_limit(
+        self,
+        name: str,
+        inline_any: bool,
+        low: float | None,
+        high: float | None,
+        nominal: float | None,
+        comparator: Any,
+        limit: Limit | None,
+        units: str | None,
+    ) -> Limit | None:
+        """Return a Limit or None per the resolution chain documented on ``measure``."""
+        from litmus.config.enums import Comparator
+        from litmus.config.test_config import Limit as LimitModel
+
+        if inline_any:
+            cmp_val: Comparator
+            if comparator is None:
+                cmp_val = Comparator.GELE
+            elif isinstance(comparator, Comparator):
+                cmp_val = comparator
+            else:
+                cmp_val = Comparator(comparator)
+            return LimitModel(
+                low=low,
+                high=high,
+                nominal=nominal,
+                units=units or "",
+                comparator=cmp_val,
+            )
+        if limit is not None:
+            return limit
+
+        # Sidecar-pushed limits
+        try:
+            from litmus.execution.plugin import get_active_limits
+
+            sidecar_limit = get_active_limits().get(name)
+            if sidecar_limit is not None:
+                return sidecar_limit
+        except ImportError:
+            pass
+
+        # Active spec context
+        try:
+            from litmus.execution.plugin import get_active_spec_context
+
+            spec = get_active_spec_context()
+            if spec is not None:
+                try:
+                    return spec.get_limit(name)
+                except KeyError:
+                    return None
+        except ImportError:
+            pass
+
+        return None
+
+    def _guard_duplicate(self, name: str, allow_repeat: bool) -> None:
+        """Raise :class:`DuplicateMeasurementError` on same-name double-write.
+
+        Each step tracks names that have been written. A second write
+        with the same name is an error unless both the first and second
+        call opt in via ``allow_repeat=True``.
+        """
+        if name in self._step_seen_names:
+            first_was_repeatable = name in self._step_seen_repeatable
+            if not (allow_repeat and first_was_repeatable):
+                step = current_step_var.get()
+                step_label = step.name if step else "<no-step>"
+                raise DuplicateMeasurementError(
+                    f"Measurement {name!r} already recorded in step "
+                    f"{step_label!r}. spec.check() calls logger.measure() "
+                    "internally — call one, not both. For a genuine "
+                    "inner-loop stream, pass allow_repeat=True on every "
+                    "call (or use logger.series())."
+                )
+        else:
+            self._step_seen_names.add(name)
+            if allow_repeat:
+                self._step_seen_repeatable.add(name)
 
     def record(self, key: str, value: Any) -> None:
         """Emit a key/value record event to the event log.

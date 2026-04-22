@@ -263,7 +263,7 @@ class SpecContext:
    └── pytest_configure() registers markers
 
 2. Session starts
-   ├── litmus_logger fixture creates TestRunLogger
+   ├── logger fixture creates TestRunLogger
    ├── instruments fixture connects to hardware (or mocks)
    └── spec_context fixture loads product spec
 
@@ -281,7 +281,7 @@ class SpecContext:
    └── Results accumulated in TestStep
 
 4. Session ends
-   ├── litmus_logger.finalize() completes TestRun
+   ├── logger.finalize() completes TestRun
    └── ParquetBackend.save_test_run() writes results
 ```
 

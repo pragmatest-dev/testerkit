@@ -36,7 +36,7 @@ class FakeDMM:
 class TestFullFlow:
     """Integration tests using mock instruments."""
 
-    def test_measure_with_mocked_dmm(self, litmus_logger, litmus_step):
+    def test_measure_with_mocked_dmm(self, logger, litmus_step):
         """Integration test: measure with limit check, log to parquet."""
         limit = Limit(low=4.5, high=5.5, units="V")
 
@@ -50,7 +50,7 @@ class TestFullFlow:
             assert result.outcome == Outcome.PASS
             assert result.value == 5.0
 
-    def test_multiple_measurements(self, litmus_logger, litmus_step):
+    def test_multiple_measurements(self, logger, litmus_step):
         """Test multiple measurements in a single step."""
         voltage_limit = Limit(low=4.5, high=5.5, units="V")
         current_limit = Limit(low=0.05, high=0.15, units="A")
@@ -71,7 +71,7 @@ class TestFullFlow:
             assert v_result.outcome == Outcome.PASS
             assert i_result.outcome == Outcome.PASS
 
-    def test_measurement_failure(self, litmus_logger, litmus_step):
+    def test_measurement_failure(self, logger, litmus_step):
         """Test that measurement failure is properly logged."""
         limit = Limit(low=4.5, high=5.5, units="V")
 
@@ -84,5 +84,5 @@ class TestFullFlow:
             result = measure_voltage()
             assert result.outcome == Outcome.FAIL
             # Check the current step's outcome (last step in shared session logger)
-            current_step = litmus_logger.test_run.steps[-1]
+            current_step = logger.test_run.steps[-1]
             assert current_step.outcome == Outcome.FAIL

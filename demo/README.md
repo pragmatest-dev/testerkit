@@ -31,7 +31,7 @@ demo/
 │   ├── conftest.py             # Instrument fixtures
 │   ├── config.yaml             # Test configuration (vectors, limits)
 │   ├── test_power_board.py     # @litmus_test decorator examples
-│   └── test_pure_pytest.py     # Pure pytest with litmus_logger
+│   └── test_pure_pytest.py     # Pure pytest with logger
 ├── reports/                    # Generated reports (gitignored)
 ├── results/                    # Output (Parquet files, gitignored)
 └── litmus.yaml                 # Project configuration
@@ -79,18 +79,18 @@ test_output_voltage:
       spec_ref: "output_voltage @ 25C"
 ```
 
-### 2. Pure Pytest with `litmus_logger`
+### 2. Pure Pytest with `logger`
 
 Full control with manual logging:
 
 ```python
 # tests/test_pure_pytest.py
-def test_basic(psu, dmm, litmus_logger):
+def test_basic(psu, dmm, logger):
     psu.set_voltage(5.0)
     psu.enable_output()
     vout = dmm.measure_dc_voltage()
 
-    litmus_logger.measure(
+    logger.measure(
         name="output_voltage",
         value=vout,
         limit=Limit(low=3.2, high=3.4, units="V"),
@@ -119,10 +119,10 @@ def verify_dut_connection(psu):
     assert current < 0.001, "DUT shorted!"
 
 # TestHarness: Explicit vector control
-def test_explicit_control(psu, dmm, litmus_logger):
+def test_explicit_control(psu, dmm, logger):
     harness = TestHarness(
         config={"vectors": [{"load": 0.1}, {"load": 0.8}]},
-        logger=litmus_logger,
+        logger=logger,
     )
     for vector in harness.vectors:
         with harness.run_vector(vector):
@@ -441,7 +441,7 @@ table = dataset.to_table(filter=ds.field("step_name") == "test_load_sweep")
 | Waveform capture | `test_power_board.py` | `test_output_ripple` |
 | Callable limits | `config.yaml` | `test_output_voltage_temp` |
 | Context API | `test_power_board.py` | `test_efficiency_with_context` |
-| Pure pytest | `test_pure_pytest.py` | Manual litmus_logger |
+| Pure pytest | `test_pure_pytest.py` | Manual logger |
 | @measure decorator | `test_architect.py` | Reusable measurement functions |
 | @litmus_step | `test_architect.py` | Non-measurement step tracking |
 | TestHarness direct | `test_architect.py` | Explicit vector control |

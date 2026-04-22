@@ -215,7 +215,7 @@ def measure_output_voltage(dmm):
     return dmm.measure_dc_voltage()
 
 # Usage
-def test_voltage(dmm, litmus_logger):
+def test_voltage(dmm, logger):
     result = measure_output_voltage(dmm)  # Returns Measurement object
     assert result.outcome == Outcome.PASS
 ```
@@ -285,7 +285,7 @@ def configure_test_equipment(psu, eload):
     eload.enable()
 
 # Usage
-def test_with_steps(psu, dmm, eload, litmus_logger):
+def test_with_steps(psu, dmm, eload, logger):
     verify_dut_connection(psu)      # Tracked as step
     configure_test_equipment(psu, eload)  # Tracked as step
     result = measure_output_voltage(dmm)  # Measurement logged

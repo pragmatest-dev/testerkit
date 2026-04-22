@@ -10,6 +10,7 @@ from functools import wraps
 from typing import TYPE_CHECKING, Any, overload
 
 from litmus.data.models import Measurement, Outcome, TestStep
+from litmus.execution.harness import Context
 
 if TYPE_CHECKING:
     from litmus.execution.harness import TestHarness
@@ -384,10 +385,9 @@ def litmus_test(
                     channel_store=get_channel_store(),
                 )
 
-            # Strip context sentinel from args/kwargs - we inject the real context
-            from litmus.execution.plugin import _PYTEST_CONTEXT_SENTINEL
-
-            fixture_args = tuple(arg for arg in args if arg is not _PYTEST_CONTEXT_SENTINEL)
+            # Strip any Context injected by the pytest ``context`` fixture —
+            # we replace it with ``harness.context`` for @litmus_test tests.
+            fixture_args = tuple(arg for arg in args if not isinstance(arg, Context))
             kwargs.pop("context", None)
 
             # Check if function expects 'context' parameter

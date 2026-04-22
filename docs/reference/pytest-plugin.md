@@ -2,6 +2,13 @@
 
 Litmus provides a pytest plugin for hardware testing with automatic measurement capture, limit checking, and result storage.
 
+> **New in this release:** the pytest-native three-object split
+> (`context` / `spec` / `logger`) is the preferred authoring style for new
+> tests. See [pytest-native reference](pytest-native.md) for the
+> `LitmusSequence` base class, unified sidecar YAML, and limit resolution
+> chain. The `@litmus_test` decorator described below still works and is
+> not deprecated.
+
 ## Installation
 
 The plugin is automatically registered when you install Litmus:
@@ -380,7 +387,7 @@ with harness.step():
         # tv.params includes: operator, fixture.id, temp
 ```
 
-### `litmus_logger` Fixture (session-scoped, autouse)
+### `logger` Fixture (session-scoped, autouse)
 
 The underlying logger that captures all measurements. Automatically active for all tests. You rarely need to access it directly -- use `run_context` for custom metadata or `@litmus_test` for measurement capture.
 
