@@ -544,13 +544,13 @@ def test_output_voltage(psu, dmm, temp_probe, harness):
     ctx.observe_all({"temp_probe.temperature": 24.8, "temp_probe.humidity": 45})
 
     # Direct set (aliases)
-    ctx.set_inputs({"psu.voltage": 5.0})
-    ctx.set_outputs({"temp_probe.temperature": 24.8})
+    ctx.set_params({"psu.voltage": 5.0})
+    ctx.set_observations({"temp_probe.temperature": 24.8})
 
     # Read back (includes inherited values from parent contexts)
-    voltage = ctx.get_in("psu.voltage")
-    all_inputs = ctx.inputs     # Dict of all in_* values (merged with parents)
-    all_outputs = ctx.outputs   # Dict of all out_* values (merged with parents)
+    voltage = ctx.get_param("psu.voltage")
+    all_inputs = ctx.params     # Dict of all in_* values (merged with parents)
+    all_outputs = ctx.observations   # Dict of all out_* values (merged with parents)
 
     return dmm.measure_dc_voltage()
 ```
@@ -567,12 +567,12 @@ with harness.step():
 
     with harness.run_vector(Vector(temp=25)):
         # Vector context inherits from step and run
-        harness.context.inputs
+        harness.context.params
         # → {"operator": "jane", "fixture.id": "FIX-01", "temp": 25}
 
     with harness.run_vector(Vector(temp=85)):
         # Fresh vector context, still inherits step and run
-        harness.context.inputs
+        harness.context.params
         # → {"operator": "jane", "fixture.id": "FIX-01", "temp": 85}
 ```
 

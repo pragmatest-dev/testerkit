@@ -36,7 +36,7 @@ class TestDualPowerBoardSmoke(LitmusSequence):
         logger: TestRunLogger,
     ) -> None:
         """Power up each board independently (no sync needed)."""
-        vin = context.get_in("vin")
+        vin = context.get_param("vin")
         psu.set_voltage(vin)
         psu.set_current_limit(0.1)
         psu.enable_output()
@@ -60,7 +60,7 @@ class TestDualPowerBoardSmoke(LitmusSequence):
         Waiting before the measurement guarantees every DUT is powered
         — relevant when boards share a bus or thermal environment.
         """
-        vin = context.get_in("vin")
+        vin = context.get_param("vin")
         psu.set_voltage(vin)
         psu.set_current_limit(0.5)
         psu.enable_output()
@@ -79,8 +79,8 @@ class TestDualPowerBoardSmoke(LitmusSequence):
         spec: SpecContext,
     ) -> None:
         """Measure efficiency — spec-driven per slot, no sync."""
-        vin = context.get_in("vin")
-        load = context.get_in("load_current")
+        vin = context.get_param("vin")
+        load = context.get_param("load_current")
 
         psu.set_voltage(vin)
         psu.set_current_limit(1.0)

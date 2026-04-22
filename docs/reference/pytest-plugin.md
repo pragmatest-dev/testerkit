@@ -82,8 +82,8 @@ Every `@litmus_test` function receives a `context` parameter containing the curr
 @litmus_test
 def test_sweep(context, psu, dmm):
     # Access context parameters
-    voltage = context.inputs["voltage"]
-    load = context.get_in("load", 0.1)  # With default
+    voltage = context.params["voltage"]
+    load = context.get_param("load", 0.1)  # With default
 
     psu.set_voltage(voltage)
     return dmm.measure_dc_voltage()
@@ -93,17 +93,17 @@ def test_sweep(context, psu, dmm):
 
 **Access parameters:**
 ```python
-context.inputs["voltage"]     # Get parameter value from merged dict
-context.get_in("temp", 25)    # Get with default (checks parent chain)
-context.inputs                # All inputs as dict (includes inherited)
-context.inputs.get("_index")  # 0-based index in expansion
+context.params["voltage"]     # Get parameter value from merged dict
+context.get_param("temp", 25)    # Get with default (checks parent chain)
+context.params                # All inputs as dict (includes inherited)
+context.params.get("_index")  # 0-based index in expansion
 ```
 
 **Change detection (for nested loops):**
 ```python
 if context.changed("temperature"):
     # Temperature changed since last context
-    set_chamber_temp(context.inputs["temperature"])
+    set_chamber_temp(context.params["temperature"])
 ```
 
 ## Test Configuration
@@ -657,7 +657,7 @@ def test_input_voltage(context, dmm):
 @litmus_test
 def test_output_sweep(context, dmm):
     """Sweep load conditions."""
-    # context.inputs["load_percent"] contains current load value
+    # context.params["load_percent"] contains current load value
     return dmm.measure_voltage()
 ```
 

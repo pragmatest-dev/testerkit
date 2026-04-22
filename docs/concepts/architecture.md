@@ -341,16 +341,16 @@ products/tps54302.yaml              tests/config.yaml            tests/test_*.py
 │   for vector in vectors:  # {temp:25, load:0.5}, {temp:25, load:3.0}, ...  │
 │       # Create vector context and populate with vector params               │
 │       context = Context(parent=step_context, prev=prev_vector_context)      │
-│       context.set_inputs(vector.params())  # temp, load → context.inputs    │
+│       context.set_params(vector.params())  # temp, load → context.params    │
 │                                                                             │
 │       # Resolve limit (may be callable using context)                       │
 │       limit = spec.get_limit("output_voltage", ctx=context)                 │
 │                                                                             │
 │       # Call test with context (vector params inside)                       │
-│       value = test_func(context, dmm)  # context.inputs["temp"], ["load"]   │
+│       value = test_func(context, dmm)  # context.params["temp"], ["load"]   │
 │                                                                             │
 │       result = check(value, limit)  # PASS/FAIL                            │
-│       store(Measurement(value, limit, result, params=context.inputs))       │
+│       store(Measurement(value, limit, result, params=context.params))       │
 │                                                                             │
 └─────────────────────────────────────────────────────────────────────────────┘
 ```

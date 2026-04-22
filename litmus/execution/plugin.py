@@ -655,7 +655,6 @@ def pytest_sessionfinish(session, exitstatus):
     set_collected_items([])
     set_channel_store(None)
     set_event_store(None)
-    _PREV_CONTEXTS.clear()
     _PREREQ_STATE.clear()
 
 
@@ -2347,7 +2346,7 @@ def pytest_generate_tests(metafunc: pytest.Metafunc) -> None:
 def _direct_exposable_keys(metafunc: pytest.Metafunc, vectors: list[Vector]) -> list[str]:
     """Vector keys the test signature accepts as direct parameters.
 
-    Sidecar values are always available via ``context.get_in(key)`` and
+    Sidecar values are always available via ``context.get_param(key)`` and
     additionally exposed as direct arguments when the test function
     declares them in its signature.
     """
@@ -2476,7 +2475,7 @@ def _litmus_method_vec(request: pytest.FixtureRequest) -> Vector:
 
 @pytest.fixture
 def context() -> Context:
-    """Context exposed to tests for ``context.get_in("...")`` / ``.changed()``."""
+    """Context exposed to tests for ``context.get_param("...")`` / ``.changed()``."""
     return Context()
 
 
@@ -2494,12 +2493,13 @@ def spec(request: pytest.FixtureRequest) -> Any:
     return request.getfixturevalue("spec_context")
 
 
-# Class-scoped tracker of the previous Context per test method, keyed by
-# ``(cls, method_name)``. Populated by ``_litmus_push_params`` after each
-# test fires so the *next* parametrize case can read it via
-# ``context.changed("vin")``. Not cleaned up — a fresh test session starts
-# fresh anyway, and keeping entries bounded by (cls, method) count is cheap.
-_PREV_CONTEXTS: dict[tuple[Any, str], Context] = {}
+# StashKey for the previous-Context map, stored on each test's parent node
+# (class node for class-based tests, module node for loose functions).
+# Pytest auto-discards the stash when it finishes with that parent, so we
+# don't manage teardown ourselves. Keyed by ``originalname`` — stable
+# across parametrize cases of the same method so ``context.changed(...)``
+# compares across cases rather than within a single case's retries.
+_PREV_STASH_KEY: pytest.StashKey[dict[str, Context]] = pytest.StashKey()
 
 
 @pytest.fixture(autouse=True)
@@ -2518,12 +2518,14 @@ def _litmus_push_params(
     For ``LitmusSequence`` subclasses only, also chains ``Context._prev``
     to the previous parametrize case of the same ``(class, method)`` so
     ``context.changed("vin")`` behaves like it did under the old
-    ``@litmus_test`` vector loop.
+    ``@litmus_test`` vector loop. The lookup is keyed by ``originalname``
+    on the parent node's stash, so two classes that share a method name
+    do not cross-contaminate.
     """
     ctx: Context = request.getfixturevalue("context")
 
-    ctx.set_inputs(_litmus_class_vec.params())
-    ctx.set_inputs(_litmus_method_vec.params())
+    ctx.set_params(_litmus_class_vec.params())
+    ctx.set_params(_litmus_method_vec.params())
 
     callspec = getattr(request.node, "callspec", None)
     if callspec is not None:
@@ -2533,13 +2535,17 @@ def _litmus_push_params(
             if k not in ("_litmus_class_vec", "_litmus_method_vec") and not k.startswith("_")
         }
         if extras:
-            ctx.set_inputs(extras)
+            ctx.set_params(extras)
 
     cls = getattr(request, "cls", None)
     if _is_litmus_sequence(cls):
-        method_name = request.node.function.__name__
-        key = (cls, method_name)
-        prev = _PREV_CONTEXTS.get(key)
+        parent = request.node.parent
+        if parent is None:
+            yield
+            return
+        prev_map = parent.stash.setdefault(_PREV_STASH_KEY, {})
+        key = request.node.originalname
+        prev = prev_map.get(key)
         if prev is not None:
             ctx._prev = prev
         try:
@@ -2550,7 +2556,7 @@ def _litmus_push_params(
             # latest state via ``context.changed(...)``. On retry the
             # second attempt overwrites the first, which matches the
             # "compare against whatever just ran" semantics callers expect.
-            _PREV_CONTEXTS[key] = ctx
+            prev_map[key] = ctx
     else:
         yield
 

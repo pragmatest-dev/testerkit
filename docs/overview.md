@@ -55,7 +55,7 @@ The `@litmus_test` decorator adds everything hardware tests need on top of stand
 ```python
 @litmus_test
 def test_output_voltage(context, psu, dmm):
-    psu.set_voltage(context.get_in("vin"))
+    psu.set_voltage(context.get_param("vin"))
     return dmm.measure_dc_voltage()  # Just return the value
 ```
 

@@ -78,7 +78,7 @@ def test_regulation(context, psu, dmm):
     return dmm.measure_voltage()
 ```
 
-Each variant runs as a separate test item within the same test run. This works, but parametrize parameters are opaque to Litmus — they don't appear in results as input columns and aren't available via `context.get_in()`.
+Each variant runs as a separate test item within the same test run. This works, but parametrize parameters are opaque to Litmus — they don't appear in results as input columns and aren't available via `context.get_param()`.
 
 For full traceability, Litmus vectors are the structured alternative:
 
@@ -95,7 +95,7 @@ steps:
 ```python
 @litmus_test
 def test_regulation(context, psu, dmm):
-    psu.set_voltage(context.get_in("voltage"))
+    psu.set_voltage(context.get_param("voltage"))
     return dmm.measure_voltage()
 ```
 

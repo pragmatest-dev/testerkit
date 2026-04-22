@@ -88,12 +88,12 @@ class Context:
     # Configure inputs (become in_* columns in Parquet)
     def configure(key: str, value: Any) -> None
     def set_in(key: str, value: Any) -> None
-    def get_in(key: str, default=None) -> Any
+    def get_param(key: str, default=None) -> Any
 
     # Record observations (become out_* columns)
     def observe(key: str, value: Any) -> None
     def set_out(key: str, value: Any) -> None
-    def get_out(key: str, default=None) -> Any
+    def get_observation(key: str, default=None) -> Any
 
     # Change detection for optimized loops
     def changed(key: str) -> bool
@@ -106,7 +106,7 @@ class Context:
     @property outputs -> dict[str, Any]  # Merged with parent chain
 ```
 
-**Parent chain lookup**: When you call `context.get_in("temperature")`, it searches the current context first, then walks up the parent chain (vector → step → run) until it finds a value.
+**Parent chain lookup**: When you call `context.get_param("temperature")`, it searches the current context first, then walks up the parent chain (vector → step → run) until it finds a value.
 
 ### Vector vs Context
 
@@ -229,7 +229,7 @@ Limits can come from multiple sources. Resolution order in `TestHarness._resolve
 ```yaml
 limits:
   output_voltage:
-    callable: "Limit(low=ctx.get_in('vin') * 0.65, high=ctx.get_in('vin') * 0.68, units='V')"
+    callable: "Limit(low=ctx.get_param('vin') * 0.65, high=ctx.get_param('vin') * 0.68, units='V')"
 ```
 
 ### SpecContext (Spec-Driven Testing)
@@ -319,7 +319,7 @@ Context created for vector
         Vector params → context._inputs
                 │
                 ▼
-        context.get_in("key") checks:
+        context.get_param("key") checks:
         1. This context._inputs
         2. Parent context._inputs (recursive)
         3. Return default
@@ -612,7 +612,7 @@ vectors:
 1. **Check vector expansion**: Print `harness.vectors` to see expanded params
 2. **Trace limit resolution**: Add logging to `_resolve_limit()`
 3. **Mock behavior**: Check `mock.mock_write_log` for SCPI commands sent
-4. **Context inheritance**: Print `context.inputs` at each level
+4. **Context inheritance**: Print `context.params` at each level
 
 ---
 

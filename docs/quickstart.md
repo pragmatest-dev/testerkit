@@ -134,7 +134,7 @@ def test_output_voltage(context, psu, dmm):
     4. Records results to Parquet
     """
     # Get conditions from context (not hardcoded!)
-    vin = context.get_in("vin", 5.0)
+    vin = context.get_param("vin", 5.0)
 
     # Set up stimulus
     psu.set_voltage(vin)
@@ -195,7 +195,7 @@ Every Litmus test follows this pattern:
 ```python
 @litmus_test
 def test_something(context, psu, dmm):
-    vin = context.get_in("vin", 5.0)  # GET from context
+    vin = context.get_param("vin", 5.0)  # GET from context
     psu.set_voltage(vin)              # SET UP
     psu.enable_output()
     return dmm.measure_dc_voltage()   # MEASURE and RETURN

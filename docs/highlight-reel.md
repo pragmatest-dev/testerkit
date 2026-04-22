@@ -24,7 +24,7 @@ from litmus.execution import litmus_test
     }
 )
 def test_output_voltage_no_load(context, psu: PSU, dmm: DMM):
-    psu.set_voltage(context.get_in("vin", 5.0))
+    psu.set_voltage(context.get_param("vin", 5.0))
     psu.set_current_limit(0.1)
     psu.enable_output()
 
@@ -56,9 +56,9 @@ Return a dict. Each key gets checked against its own limit.
     }
 )
 def test_power_analysis(context, psu: PSU, dmm: DMM, eload: ELoad):
-    psu.set_voltage(context.get_in("vin", 5.0))
+    psu.set_voltage(context.get_param("vin", 5.0))
     psu.enable_output()
-    eload.set_current(context.get_in("load_current", 0.5))
+    eload.set_current(context.get_param("load_current", 0.5))
     eload.enable()
 
     v_in = float(psu.measure_voltage())
@@ -95,10 +95,10 @@ def test_power_analysis(context, psu: PSU, dmm: DMM, eload: ELoad):
 )
 def test_load_sweep(context, psu: PSU, dmm: DMM, eload: ELoad):
     if context.changed("vin"):          # only when VIN changes
-        psu.set_voltage(context.inputs["vin"])
+        psu.set_voltage(context.params["vin"])
         psu.enable_output()
 
-    eload.set_current(context.inputs["load_current"])
+    eload.set_current(context.params["load_current"])
     eload.enable()
     vout = dmm.measure_dc_voltage()
     eload.disable()
@@ -119,8 +119,8 @@ Range strings anywhere a value list is expected — `"start:stop:step"`:
     }
 )
 def test_full_sweep(context, psu: PSU, dmm: DMM, eload: ELoad):
-    psu.set_voltage(context.inputs["vin"])
-    eload.set_current(context.inputs["load_current"])
+    psu.set_voltage(context.params["vin"])
+    eload.set_current(context.params["load_current"])
     ...
 ```
 
@@ -147,12 +147,12 @@ decorator to collect all samples regardless of pass/fail.
     }
 )
 def test_stability_over_time(context, psu: PSU, dmm: DMM, eload: ELoad):
-    psu.set_voltage(context.get_in("vin", 5.0))
+    psu.set_voltage(context.get_param("vin", 5.0))
     psu.enable_output()
     eload.set_current(0.5)
     eload.enable()
 
-    for i in range(context.get_in("sample_count", 5)):
+    for i in range(context.get_param("sample_count", 5)):
         yield {"voltage": float(dmm.measure_dc_voltage())}
         time.sleep(0.1)
 
@@ -337,7 +337,7 @@ This is the key insight: **the test function has zero hardcoded values**.
 ```python
 @litmus_test
 def test_output_voltage_no_load(context, psu: PSU, dmm: DMM):
-    psu.set_voltage(context.get_in("vin", 5.0))
+    psu.set_voltage(context.get_param("vin", 5.0))
     psu.set_current_limit(0.1)
     psu.enable_output()
     return dmm.measure_dc_voltage()
@@ -781,7 +781,7 @@ needed.
 ```python
 @litmus_test(config={...})
 def test_output_voltage_synced(context, psu: PSU, dmm: DMM, sync):
-    psu.set_voltage(context.get_in("vin", 5.0))
+    psu.set_voltage(context.get_param("vin", 5.0))
     psu.enable_output()
 
     if sync is not None:               # multi-slot: wait for all boards

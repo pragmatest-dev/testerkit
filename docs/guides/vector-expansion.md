@@ -14,8 +14,8 @@ A **Vector** is a dict of parameters for a single test iteration:
     limits={"test_output_voltage": {"low": 3.135, "high": 3.465}},
 )
 def test_output_voltage(context, psu, dmm):
-    vin = context.get_in("vin", 5.0)
-    load = context.get_in("load", 0.1)
+    vin = context.get_param("vin", 5.0)
+    load = context.get_param("load", 0.1)
 
     psu.set_voltage(vin)
     psu.enable_output()
@@ -182,8 +182,8 @@ When iterating through vectors, use `context.changed()` to detect when outer-loo
 ```python
 @litmus_test
 def test_with_temperature(context, psu, dmm, chamber):
-    temp = context.inputs["temperature"]
-    vin = context.inputs["vin"]
+    temp = context.params["temperature"]
+    vin = context.params["vin"]
 
     # Only change chamber when temperature changes
     if context.changed("temperature"):
@@ -255,9 +255,9 @@ steps:
 # tests/test_power.py
 @litmus_test
 def test_load_regulation(context, psu, dmm, eload, chamber):
-    temp = context.inputs["temperature"]
-    vin = context.inputs["vin"]
-    load = context.inputs["load_current"]
+    temp = context.params["temperature"]
+    vin = context.params["vin"]
+    load = context.params["load_current"]
 
     # Expensive: only when temperature changes
     if context.changed("temperature"):

@@ -29,7 +29,7 @@ from litmus.execution import litmus_test
     limits={"output_voltage": {"low": 3.135, "high": 3.465, "nominal": 3.3, "units": "V"}},
 )
 def test_output_voltage(context, psu, dmm):
-    psu.set_voltage(context.get_in("vin", 5.0))
+    psu.set_voltage(context.get_param("vin", 5.0))
     psu.enable_output()
     return dmm.measure_dc_voltage()
 ```
@@ -95,8 +95,8 @@ This runs the test 9 times (3 voltages × 3 loads):
 ```python
 @litmus_test
 def test_voltage_sweep(context, dmm):
-    vin = context.inputs["input_voltage"]
-    load = context.inputs["load_percent"]
+    vin = context.params["input_voltage"]
+    load = context.params["load_percent"]
     print(f"Testing at {vin}V, {load}% load")
     return dmm.measure_voltage()
 ```
@@ -107,22 +107,22 @@ def test_voltage_sweep(context, dmm):
 @litmus_test
 def test_sweep(context, psu, dmm):
     # Get required parameter
-    vin = context.inputs["input_voltage"]
+    vin = context.params["input_voltage"]
 
     # Get optional parameter with default
-    load = context.get_in("load_percent", 0)
+    load = context.get_param("load_percent", 0)
 
     # Get all parameters
-    print(context.inputs)  # {"input_voltage": 5.0, "load_percent": 50}
+    print(context.params)  # {"input_voltage": 5.0, "load_percent": 50}
 
     psu.set_voltage(vin)
     return dmm.measure_voltage()
 ```
 
 The context provides:
-- `context.inputs["key"]` - Required parameter (raises KeyError if missing)
-- `context.get_in("key", default)` - Optional parameter with default
-- `context.inputs` - All parameters as a dict
+- `context.params["key"]` - Required parameter (raises KeyError if missing)
+- `context.get_param("key", default)` - Optional parameter with default
+- `context.params` - All parameters as a dict
 
 ## Expansion Modes
 
@@ -191,7 +191,7 @@ vectors:
 def test_temp_sweep(context, chamber, dmm):
     if context.changed("temperature"):
         # Only reconfigure when temperature changes
-        chamber.set_temp(context.inputs["temperature"])
+        chamber.set_temp(context.params["temperature"])
         time.sleep(60)  # Wait for stabilization
 
     return dmm.measure_voltage()
@@ -263,7 +263,7 @@ def test_load_sweep(context, psu, dmm, eload):
     """Multiple vectors with limits."""
     psu.set_voltage(5.0)
     psu.enable_output()
-    eload.set_current(context.inputs["load_percent"] / 100.0)
+    eload.set_current(context.params["load_percent"] / 100.0)
     eload.enable()
     voltage = dmm.measure_voltage()
     eload.disable()
@@ -284,7 +284,7 @@ pytest tests/ --sequence=power_board_smoke --station=bench_1 -v
 - Config lives in sequence steps (primary) or inline decorators (fallback)
 - Sequence step config replaces decorator config entirely
 - Vector expansion modes (product, zip, range strings, recursive sub-blocks)
-- Accessing vector parameters via context.inputs and context.get_in()
+- Accessing vector parameters via context.params and context.get_param()
 - Using context.changed() for product sweeps
 - Retry configuration
 

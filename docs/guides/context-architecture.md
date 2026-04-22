@@ -49,7 +49,7 @@ Both inherit from parent contexts using the same lookup chain.
 
 ## Value Lookup (Inheritance)
 
-When you call `context.get_in("key")`, Litmus searches:
+When you call `context.get_param("key")`, Litmus searches:
 
 1. **This context's inputs** (`_inputs`)
 2. **Parent's inputs** (if parent exists)
@@ -57,7 +57,7 @@ When you call `context.get_in("key")`, Litmus searches:
 4. **Default value** (if provided)
 
 ```python
-def get_in(self, key: str, default: Any = None) -> Any:
+def get_param(self, key: str, default: Any = None) -> Any:
     """Get input value with inheritance."""
     # Check local inputs first
     if key in self._inputs:
@@ -65,13 +65,13 @@ def get_in(self, key: str, default: Any = None) -> Any:
 
     # Check parent if available
     if self._parent:
-        return self._parent.get_in(key, default)
+        return self._parent.get_param(key, default)
 
     # Return default if not found
     return default
 ```
 
-The same logic applies to `get_out()` for outputs.
+The same logic applies to `get_observation()` for outputs.
 
 ## Lifecycle: How Contexts Are Created
 
@@ -130,7 +130,7 @@ parent_context = self._step_context or self._run_context
 self._vector_context = Context(parent=parent_context, prev=self._prev_vector_context)
 
 # Pre-populate with vector params
-self._vector_context.set_inputs(vector.params())
+self._vector_context.set_params(vector.params())
 ```
 
 The vector context:
@@ -146,9 +146,9 @@ def test_sweep(context, psu):
     # context is the VECTOR context
     # It has vector params + step data + run data
 
-    vin = context.inputs["vin"]  # From vector params
-    fixture = context.get_in("fixture_serial")  # From run context
-    test_type = context.get_in("test_type")  # From step context
+    vin = context.params["vin"]  # From vector params
+    fixture = context.get_param("fixture_serial")  # From run context
+    test_type = context.get_param("test_type")  # From step context
 ```
 
 ### 4. Context Cleanup
@@ -180,23 +180,23 @@ step1_context.configure("step_name", "test_voltage")
 
 # Vector 1 of step 1
 vector1_context = Context(parent=step1_context, prev=None)
-vector1_context.set_inputs({"vin": 5.0, "load": 0.1})
+vector1_context.set_params({"vin": 5.0, "load": 0.1})
 
 # What can vector1_context see?
-vector1_context.get_in("vin")  # 5.0 (from vector params)
-vector1_context.get_in("load")  # 0.1 (from vector params)
-vector1_context.get_in("step_name")  # "test_voltage" (from step)
-vector1_context.get_in("fixture_serial")  # "FIX-001" (from run)
-vector1_context.get_out("lab_temp")  # 23.5 (from run)
+vector1_context.get_param("vin")  # 5.0 (from vector params)
+vector1_context.get_param("load")  # 0.1 (from vector params)
+vector1_context.get_param("step_name")  # "test_voltage" (from step)
+vector1_context.get_param("fixture_serial")  # "FIX-001" (from run)
+vector1_context.get_observation("lab_temp")  # 23.5 (from run)
 
 # Vector 2 of step 1
 vector2_context = Context(parent=step1_context, prev=vector1_context)
-vector2_context.set_inputs({"vin": 5.0, "load": 0.5})
+vector2_context.set_params({"vin": 5.0, "load": 0.5})
 
 # What can vector2_context see?
-vector2_context.get_in("vin")  # 5.0
-vector2_context.get_in("load")  # 0.5 (different from vector1)
-vector2_context.get_in("step_name")  # "test_voltage" (inherited from step)
+vector2_context.get_param("vin")  # 5.0
+vector2_context.get_param("load")  # 0.5 (different from vector1)
+vector2_context.get_param("step_name")  # "test_voltage" (inherited from step)
 vector2_context.changed("vin")  # False (same as prev)
 vector2_context.changed("load")  # True (different from prev)
 ```
@@ -211,8 +211,8 @@ def changed(self, key: str) -> bool:
     if self._prev is None:
         return True  # First vector - everything is "changed"
 
-    current_value = self.get_in(key)
-    prev_value = self._prev.get_in(key)
+    current_value = self.get_param(key)
+    prev_value = self._prev.get_param(key)
     return current_value != prev_value
 ```
 
@@ -223,11 +223,11 @@ def changed(self, key: str) -> bool:
 def test_temp_sweep(context, chamber, psu, dmm):
     # Only reconfigure chamber when temperature changes
     if context.changed("temperature"):
-        chamber.set_temp(context.inputs["temperature"])
+        chamber.set_temp(context.params["temperature"])
         time.sleep(60)  # Soak time
 
     # Always reconfigure PSU (changes every vector)
-    psu.set_voltage(context.inputs["vin"])
+    psu.set_voltage(context.params["vin"])
     return dmm.measure_voltage()
 ```
 
@@ -257,19 +257,19 @@ When a vector completes, the harness snapshots the context:
 
 ```python
 # In run_vector finally block
-test_vector.params = self._vector_context.inputs      # All inputs → in_* columns
-test_vector.observations = self._vector_context.outputs  # All outputs → out_* columns
+test_vector.params = self._vector_context.params      # All inputs → in_* columns
+test_vector.observations = self._vector_context.observations  # All outputs → out_* columns
 ```
 
 The Parquet schema flattens this:
 
 | Column | Source | Example |
 |--------|--------|---------|
-| `in_vin` | `context.inputs["vin"]` | 5.0 |
-| `in_load` | `context.inputs["load"]` | 0.5 |
-| `in_fixture_serial` | `context.inputs["fixture_serial"]` (from run) | "FIX-001" |
-| `out_lab_temp` | `context.outputs["lab_temp"]` (from run) | 23.5 |
-| `out_dut_temp` | `context.outputs["dut_temp"]` | 42.3 |
+| `in_vin` | `context.params["vin"]` | 5.0 |
+| `in_load` | `context.params["load"]` | 0.5 |
+| `in_fixture_serial` | `context.params["fixture_serial"]` (from run) | "FIX-001" |
+| `out_lab_temp` | `context.observations["lab_temp"]` (from run) | 23.5 |
+| `out_dut_temp` | `context.observations["dut_temp"]` | 42.3 |
 
 All inherited values are **flattened** into each vector's row, providing complete traceability.
 
@@ -295,7 +295,7 @@ Configure per-test but shared across vectors:
 @litmus_test
 def test_efficiency(context, psu, dmm):
     # First vector only - set step-level config
-    if context.inputs.get("_index", 0) == 0:
+    if context.params.get("_index", 0) == 0:
         context.configure("test_start_time", time.time())
 
     # Runs for each vector
@@ -313,7 +313,7 @@ def test_with_probe(context, psu, dmm, temp_probe):
     context.observe("dut_temp", temp_probe.read())
 
     # Vector params
-    psu.set_voltage(context.inputs["vin"])
+    psu.set_voltage(context.params["vin"])
     return dmm.measure_voltage()
 ```
 

@@ -73,8 +73,8 @@ class Context:
         self._prev = prev
         self._harness = harness
         self._channel_store = channel_store
-        self._inputs: dict[str, Any] = {}
-        self._outputs: dict[str, Any] = {}
+        self._params: dict[str, Any] = {}
+        self._observations: dict[str, Any] = {}
 
     def child(self) -> Context:
         """Create a child context that inherits from this one.
@@ -97,7 +97,7 @@ class Context:
             key: Parameter name (e.g., "psu.voltage", "temperature").
             value: The commanded value.
         """
-        self._inputs[key] = value
+        self._params[key] = value
 
     def observe(self, key: str, value: Any) -> None:
         """Record an observation/measurement context (→ out_* column).
@@ -115,10 +115,10 @@ class Context:
             vtype = classify_value(value)
             if vtype in ("numeric_array", "channel"):
                 uri = self._channel_store.write(key, value, source="observe")
-                self._outputs[key] = uri
+                self._observations[key] = uri
                 return
 
-        self._outputs[key] = value
+        self._observations[key] = value
 
     def changed(self, key: str) -> bool:
         """Check if an input parameter changed from the previous vector.
@@ -132,8 +132,8 @@ class Context:
         if self._prev is None:
             return True  # First vector - everything is "changed"
 
-        current_value = self.get_in(key)
-        prev_value = self._prev.get_in(key)
+        current_value = self.get_param(key)
+        prev_value = self._prev.get_param(key)
         return current_value != prev_value
 
     # -------------------------------------------------------------------------
@@ -158,28 +158,28 @@ class Context:
         for key, value in values.items():
             self.observe(key, value)
 
-    def set_inputs(self, values: dict[str, Any]) -> None:
-        """Set multiple input values at once (typically from vector params).
+    def set_params(self, values: dict[str, Any]) -> None:
+        """Set multiple param values at once (typically from vector params).
 
         Args:
-            values: Dict of input parameter values.
+            values: Dict of parameter values.
         """
-        self._inputs.update(values)
+        self._params.update(values)
 
-    def set_outputs(self, values: dict[str, Any]) -> None:
-        """Set multiple output observation values at once.
+    def set_observations(self, values: dict[str, Any]) -> None:
+        """Set multiple observation values at once.
 
         Args:
             values: Dict of observation values.
         """
-        self._outputs.update(values)
+        self._observations.update(values)
 
     # -------------------------------------------------------------------------
     # Read access (with parent chain lookup)
     # -------------------------------------------------------------------------
 
-    def get_in(self, key: str, default: Any = None) -> Any:
-        """Get an input configuration value, checking parent chain.
+    def get_param(self, key: str, default: Any = None) -> Any:
+        """Get a parameter value, checking parent chain.
 
         Args:
             key: Parameter name.
@@ -188,13 +188,13 @@ class Context:
         Returns:
             The value or default.
         """
-        if key in self._inputs:
-            return self._inputs[key]
+        if key in self._params:
+            return self._params[key]
         if self._parent is not None:
-            return self._parent.get_in(key, default)
+            return self._parent.get_param(key, default)
         return default
 
-    def get_out(self, key: str, default: Any = None) -> Any:
+    def get_observation(self, key: str, default: Any = None) -> Any:
         """Get an observation value, checking parent chain.
 
         Args:
@@ -204,28 +204,28 @@ class Context:
         Returns:
             The value or default.
         """
-        if key in self._outputs:
-            return self._outputs[key]
+        if key in self._observations:
+            return self._observations[key]
         if self._parent is not None:
-            return self._parent.get_out(key, default)
+            return self._parent.get_observation(key, default)
         return default
 
     @property
-    def inputs(self) -> dict[str, Any]:
-        """All input configuration values, merged with parent chain."""
+    def params(self) -> dict[str, Any]:
+        """All parameter values, merged with parent chain."""
         result: dict[str, Any] = {}
         if self._parent is not None:
-            result.update(self._parent.inputs)
-        result.update(self._inputs)
+            result.update(self._parent.params)
+        result.update(self._params)
         return result
 
     @property
-    def outputs(self) -> dict[str, Any]:
+    def observations(self) -> dict[str, Any]:
         """All observation values, merged with parent chain."""
         result: dict[str, Any] = {}
         if self._parent is not None:
-            result.update(self._parent.outputs)
-        result.update(self._outputs)
+            result.update(self._parent.observations)
+        result.update(self._observations)
         return result
 
     # -------------------------------------------------------------------------
@@ -320,8 +320,8 @@ class Context:
             key: Field name.
             value: Field value (must be JSON-serializable for Parquet).
         """
-        # Store as input for now - custom metadata flows through inputs
-        self._inputs[key] = value
+        # Store as param for now - custom metadata flows through params
+        self._params[key] = value
 
     def get(self, key: str, default: Any = None) -> Any:
         """Get a custom metadata field (RunContext compatibility).
@@ -333,7 +333,7 @@ class Context:
         Returns:
             The stored value or default.
         """
-        return self.get_in(key, default)
+        return self.get_param(key, default)
 
     def update(self, **kwargs: Any) -> None:
         """Set multiple custom metadata fields at once (RunContext compatibility).
@@ -347,7 +347,7 @@ class Context:
     @property
     def metadata(self) -> dict[str, Any]:
         """Access the underlying metadata dict (RunContext compatibility)."""
-        return self.inputs
+        return self.params
 
 
 class TestHarness:
@@ -648,7 +648,7 @@ class TestHarness:
         Args:
             callable_str: Either a dotted module path
                 (e.g., "myproject.limits.output_voltage") or inline
-                Python code (e.g., "Limit(high=ctx.get_in('vin') * 0.01,
+                Python code (e.g., "Limit(high=ctx.get_param('vin') * 0.01,
                 units='V')")
 
         Returns:
@@ -703,7 +703,7 @@ class TestHarness:
         namespace = {
             "Limit": Limit,
             "ctx": self.context,
-            **self.context.inputs,
+            **self.context.params,
         }
 
         # Handle multi-line code (need exec + return capture)
@@ -886,7 +886,7 @@ class TestHarness:
         vector context as a keyword argument:
 
             def dynamic_voltage(cmd, *, context=None):
-                load = context.get_in("load_current", 0) if context else 0
+                load = context.get_param("load_current", 0) if context else 0
                 return str(3.3 - load * 0.1)
 
             _mocks:
@@ -997,12 +997,12 @@ class TestHarness:
         )
 
         # Pre-populate with vector params (they become in_* columns)
-        self._vector_context.set_inputs(vector.params())
+        self._vector_context.set_params(vector.params())
 
         # Create TestVector record
         test_vector = TestVector(
             index=vector.get("_index", 0),
-            params=self._vector_context.inputs,  # Includes inherited values
+            params=self._vector_context.params,  # Includes inherited values
             attempt=self._attempt,
             max_attempts=self._retry.max_attempts,
             started_at=_utcnow(),
@@ -1031,8 +1031,8 @@ class TestHarness:
             raise
         finally:
             # Snapshot context into TestVector before clearing
-            test_vector.params = self._vector_context.inputs
-            test_vector.observations = self._vector_context.outputs
+            test_vector.params = self._vector_context.params
+            test_vector.observations = self._vector_context.observations
             test_vector.ended_at = _utcnow()
             current_vector_var.reset(vector_token)
             # Save current context for next vector's change detection

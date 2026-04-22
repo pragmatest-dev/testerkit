@@ -56,7 +56,7 @@ def test_power_up(context, psu: PSU):
     In a multi-slot run, both boards power up independently (no sync needed).
     Each slot's PSU channel is routed via the fixture config.
     """
-    vin = context.get_in("vin", 5.0)
+    vin = context.get_param("vin", 5.0)
 
     psu.set_voltage(vin)
     psu.set_current_limit(0.1)
@@ -94,7 +94,7 @@ def test_output_voltage_synced(context, psu: PSU, dmm: DMM, sync):
     This ensures all boards are powered before any measurement starts,
     which matters when boards share a power bus or thermal environment.
     """
-    vin = context.get_in("vin", 5.0)
+    vin = context.get_param("vin", 5.0)
 
     psu.set_voltage(vin)
     psu.set_current_limit(0.5)
@@ -133,8 +133,8 @@ def test_efficiency(context, psu: PSU, dmm: DMM, eload: ELoad):
     No sync needed here. Each slot measures its own board at its own pace.
     File locks ensure shared instruments are accessed safely.
     """
-    vin = context.get_in("vin", 5.0)
-    load = context.get_in("load_current", 0.5)
+    vin = context.get_param("vin", 5.0)
+    load = context.get_param("load_current", 0.5)
 
     psu.set_voltage(vin)
     psu.set_current_limit(1.0)

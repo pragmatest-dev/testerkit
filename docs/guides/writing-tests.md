@@ -76,8 +76,8 @@ Every `@litmus_test` function receives a `context` parameter:
 @litmus_test
 def test_sweep(context, psu, dmm):
     # Access parameters
-    voltage = context.get_in("voltage")
-    load = context.get_in("load")
+    voltage = context.get_param("voltage")
+    load = context.get_param("load")
 
     psu.set_voltage(voltage)
     return dmm.measure_voltage()
@@ -86,13 +86,13 @@ def test_sweep(context, psu, dmm):
 ### Context Methods
 
 ```python
-context.get_in("voltage")          # Get parameter (raises if missing)
-context.get_in("temp", 25)         # Get with default
-context.inputs                     # All input parameters as dict
+context.get_param("voltage")          # Get parameter (raises if missing)
+context.get_param("temp", 25)         # Get with default
+context.params                     # All input parameters as dict
 
 # Change detection (for nested loops)
 if context.changed("temperature"):
-    set_chamber_temp(context.get_in("temperature"))
+    set_chamber_temp(context.get_param("temperature"))
 ```
 
 ## Test Configuration
@@ -143,7 +143,7 @@ Instrument roles from your station config are auto-registered as pytest fixtures
 @litmus_test
 def test_voltage(context, dmm, psu):
     """dmm and psu are auto-registered from station config."""
-    psu.set_voltage(context.get_in("vin", 5.0))
+    psu.set_voltage(context.get_param("vin", 5.0))
     psu.enable_output()
     return dmm.measure_dc_voltage()
 ```
@@ -221,7 +221,7 @@ def test_with_setup(context, psu, dmm):
 ```python
 @litmus_test
 def test_conditional(context, hvps, psu, dmm):
-    if context.get_in("high_voltage", False):
+    if context.get_param("high_voltage", False):
         hvps.set_voltage(100)
     else:
         psu.set_voltage(5)

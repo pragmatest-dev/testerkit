@@ -691,7 +691,7 @@ from litmus.execution import litmus_test
 )
 def test_output_voltage(context, psu, dmm):
     """Signal output voltage under various conditions."""
-    psu.set_voltage(context.get_in("vin", 12.0))
+    psu.set_voltage(context.get_param("vin", 12.0))
     psu.enable_output()
     return dmm.measure_dc_voltage()
 
@@ -701,7 +701,7 @@ def test_output_voltage(context, psu, dmm):
 )
 def test_quiescent_current(context, psu):
     """Signal quiescent current in uA."""
-    psu.set_voltage(context.get_in("vin", 12.0))
+    psu.set_voltage(context.get_param("vin", 12.0))
     psu.enable_output()
     current_a = psu.measure_current()  # Returns float in Amps
     current_ua = current_a * 1e6  # Convert to µA
@@ -718,9 +718,9 @@ def test_quiescent_current(context, psu):
 )
 def test_load_regulation(context, psu, dmm, eload):
     """Output voltage under load."""
-    psu.set_voltage(context.get_in("vin", 12.0))
+    psu.set_voltage(context.get_param("vin", 12.0))
     psu.enable_output()
-    eload.set_current(context.inputs["load_current"])
+    eload.set_current(context.params["load_current"])
     eload.enable()
     vout = dmm.measure_dc_voltage()
     eload.disable()

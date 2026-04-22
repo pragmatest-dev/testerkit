@@ -260,11 +260,11 @@ from litmus.execution import litmus_test
 def test_output_voltage(context, psu, dmm):
     """Verify output voltage across temperature and load conditions."""
     # Get test parameters from vector
-    temperature = context.get_in("temperature", 25)
-    load = context.get_in("load", 0.5)
+    temperature = context.get_param("temperature", 25)
+    load = context.get_param("load", 0.5)
 
     # Set up stimulus
-    vin = context.get_in("vin", 12.0)
+    vin = context.get_param("vin", 12.0)
     psu.set_voltage(vin)
     psu.enable_output()
 
@@ -274,7 +274,7 @@ def test_output_voltage(context, psu, dmm):
 @litmus_test
 def test_quiescent_current(context, psu, dmm):
     """Verify quiescent current with no load."""
-    psu.set_voltage(context.get_in("vin", 12.0))
+    psu.set_voltage(context.get_param("vin", 12.0))
     psu.enable_output()
     return dmm.measure_dc_current()
 '''
@@ -387,8 +387,8 @@ This creates **2 × 3 = 6 test vectors** (combinations).
 
 Each vector is passed to the test function via `context`:
 ```python
-temperature = context.get_in("temperature", 25)  # From vector
-load = context.get_in("load", 0.5)               # From vector
+temperature = context.get_param("temperature", 25)  # From vector
+load = context.get_param("load", 0.5)               # From vector
 ```
 
 ### Limit Types (All 6 Patterns)
@@ -415,9 +415,9 @@ from litmus.execution import litmus_test
 def test_output_voltage(context, psu, dmm):
     """Measure output voltage at specified conditions."""
     # 1. Get test parameters from vector (context)
-    temperature = context.get_in("temperature", 25)
-    load = context.get_in("load", 0.5)
-    vin = context.get_in("vin", 12.0)
+    temperature = context.get_param("temperature", 25)
+    load = context.get_param("load", 0.5)
+    vin = context.get_param("vin", 12.0)
 
     # 2. Set up stimulus (instrument methods don't return anything)
     psu.set_voltage(vin)
@@ -493,7 +493,7 @@ print(result["status"])  # "PASS" or "FAIL"
 - [ ] Called `litmus(action="read", path="template:test")` to see current pattern
 - [ ] Test uses `@litmus_test` decorator
 - [ ] Test accepts `context` and instrument fixtures
-- [ ] Test gets parameters via `context.get_in("key", default)`
+- [ ] Test gets parameters via `context.get_param("key", default)`
 - [ ] Test RETURNS measured values (no assertions)
 - [ ] Test config uses `expand: product` and `ref` limits
 - [ ] Guardbands applied for manufacturing margin

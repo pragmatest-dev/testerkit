@@ -2,7 +2,7 @@
 
 Demonstrates the three-object split:
 
-* ``context`` — vector inputs (``context.get_in("vin")``).
+* ``context`` — vector params (``context.get_param("vin")``).
 * ``spec``    — product-characteristic assertions (``spec.check("output_voltage", v)``).
 * ``logger``  — ad-hoc measurements with inline or sidecar limits
   (``logger.measure("efficiency", e, low=55, high=100, units="%")``).
@@ -34,7 +34,7 @@ class TestPowerBoardSmoke(LitmusSequence):
         spec: SpecContext,
     ) -> None:
         """Verify 3.3V output at no load — spec-driven."""
-        vin = context.get_in("vin")
+        vin = context.get_param("vin")
         psu.set_voltage(vin)
         psu.set_current_limit(0.1)
         psu.enable_output()
@@ -51,8 +51,8 @@ class TestPowerBoardSmoke(LitmusSequence):
         logger: TestRunLogger,
     ) -> None:
         """Verify output under 800mA load (sidecar-driven limit, retryable)."""
-        vin = context.get_in("vin")
-        load = context.get_in("load_current")
+        vin = context.get_param("vin")
+        load = context.get_param("load_current")
 
         psu.set_voltage(vin)
         psu.set_current_limit(1.0)
@@ -75,7 +75,7 @@ class TestPowerBoardSmoke(LitmusSequence):
         spec: SpecContext,
     ) -> None:
         """Verify low standby current — spec-driven."""
-        vin = context.get_in("vin")
+        vin = context.get_param("vin")
         psu.set_voltage(vin)
         psu.set_current_limit(0.05)
         psu.enable_output()
@@ -92,8 +92,8 @@ class TestPowerBoardSmoke(LitmusSequence):
         logger: TestRunLogger,
     ) -> None:
         """Sweep VIN × load (5×5 = 25 combinations, sidecar-driven limit)."""
-        vin = context.get_in("vin")
-        load = context.get_in("load_current")
+        vin = context.get_param("vin")
+        load = context.get_param("load_current")
 
         if context.changed("vin"):
             psu.set_voltage(vin)

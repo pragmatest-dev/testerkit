@@ -529,7 +529,7 @@ def test_output_voltage(context, psu, dmm):
 
     Config (vectors, limits, mocks) comes from sequence step.
     """
-    vin = context.get_in("vin", 5.0)
+    vin = context.get_param("vin", 5.0)
     psu.set_voltage(vin)
     psu.enable_output()
     return dmm.measure_dc_voltage()

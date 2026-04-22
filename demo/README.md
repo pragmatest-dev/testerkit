@@ -59,7 +59,7 @@ Clean, declarative tests with configuration in YAML:
 # tests/test_power_board.py
 @litmus_test
 def test_output_voltage(context, psu, dmm):
-    vin = context.get_in("vin", 5.0)
+    vin = context.get_param("vin", 5.0)
     psu.set_voltage(vin)
     psu.enable_output()
     return dmm.measure_dc_voltage()  # Framework checks limit
@@ -229,7 +229,7 @@ test_output_voltage_temp:
   limits:
     test_output_voltage_temp:
       callable: |
-        temp = ctx.get_in("temperature")
+        temp = ctx.get_param("temperature")
         if temp < 0:
           return Limit(low=3.15, high=3.45, units="V")
         elif temp < 50:
@@ -246,8 +246,8 @@ Record inputs and observations for full traceability:
 @litmus_test
 def test_efficiency_with_context(context, psu, dmm, eload):
     # Record commanded values (→ in_* columns in Parquet)
-    context.configure("vin", context.inputs["vin"])
-    context.configure("load", context.inputs["load_current"])
+    context.configure("vin", context.params["vin"])
+    context.configure("load", context.params["load_current"])
 
     # Record observations (→ out_* columns in Parquet)
     context.observe("ambient_temp", 24.5)
@@ -255,7 +255,7 @@ def test_efficiency_with_context(context, psu, dmm, eload):
 
     # Measurements (→ limit checked, stored)
     pin = psu.measure_voltage() * psu.measure_current()
-    pout = dmm.measure_dc_voltage() * context.inputs["load_current"]
+    pout = dmm.measure_dc_voltage() * context.params["load_current"]
 
     return {"input_power": pin, "output_power": pout, "efficiency": pout/pin * 100}
 ```
@@ -269,9 +269,9 @@ Optimize slow operations by detecting when parameters change:
 def test_temp_sweep(context, psu, dmm):
     if context.changed("temperature"):
         # Only runs when temperature changes
-        set_chamber_temperature(context.inputs["temperature"])
+        set_chamber_temperature(context.params["temperature"])
 
-    psu.set_voltage(context.inputs["vin"])
+    psu.set_voltage(context.params["vin"])
     return dmm.measure_dc_voltage()
 ```
 

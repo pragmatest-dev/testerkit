@@ -314,7 +314,7 @@ def litmus_test(
     Example (accessing vector parameters):
         @litmus_test
         def test_sweep(context, psu, dmm):
-            vin = context.get_in("vin")  # From vectors in config.yaml
+            vin = context.get_param("vin")  # From vectors in config.yaml
             psu.set_voltage(vin)
             return dmm.measure_voltage()
 
@@ -330,7 +330,7 @@ def litmus_test(
     Example (with inline config):
         @litmus_test(config={"vectors": {"expand": "product", "v": [1, 2, 3]}})
         def test_sweep(context, dmm):
-            v = context.get_in("v")
+            v = context.get_param("v")
             return dmm.measure()
     """
 

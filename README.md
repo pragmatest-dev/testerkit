@@ -17,7 +17,7 @@ from litmus.execution import litmus_test
 @litmus_test
 def test_rail_3v3(context, psu, dmm):
     """Verify 3.3V output under load."""
-    psu.set_voltage(context.get_in("vin"))
+    psu.set_voltage(context.get_param("vin"))
     psu.enable_output()
     return dmm.measure_dc_voltage()
 ```
@@ -93,7 +93,7 @@ from litmus.execution import litmus_test
 @litmus_test
 def test_output_voltage(context, psu, dmm):
     """Verify output voltage is within spec."""
-    vin = context.get_in("vin", 5.0)
+    vin = context.get_param("vin", 5.0)
     psu.set_voltage(vin)
     psu.enable_output()
     return dmm.measure_dc_voltage()
@@ -161,7 +161,7 @@ def test_power_on(psu):
 ```python
 @litmus_test
 def test_rail_3v3(context, psu, dmm):
-    psu.set_voltage(context.get_in("vin"))
+    psu.set_voltage(context.get_param("vin"))
     psu.enable_output()
     return dmm.measure_dc_voltage()
     # Return value → limit-checked → logged to Parquet with instrument identity

@@ -425,9 +425,9 @@ harness.context.configure_all({"psu.voltage": 5.0, "eload.current": 0.8})
 harness.context.observe_all({"temp_probe.temp": 24.8, "humidity": 45.2})
 
 # Read values (checks parent chain)
-voltage = harness.context.get_in("psu.voltage")
-all_inputs = harness.context.inputs   # Merged with parent chain
-all_outputs = harness.context.outputs  # Merged with parent chain
+voltage = harness.context.get_param("psu.voltage")
+all_inputs = harness.context.params   # Merged with parent chain
+all_outputs = harness.context.observations  # Merged with parent chain
 ```
 
 ## Comparison with @litmus_test

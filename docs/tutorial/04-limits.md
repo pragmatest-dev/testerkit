@@ -203,7 +203,7 @@ steps:
     limits:
       test_output_voltage_temp:
         callable: |
-          temp = ctx.get_in("temperature")
+          temp = ctx.get_param("temperature")
           if temp < 0:
             return Limit(low=3.15, high=3.45, units="V")
           elif temp < 50:
@@ -213,8 +213,8 @@ steps:
 ```
 
 The callable has access to:
-- `ctx.get_in(key)` - Input parameters from test vectors
-- `ctx.get_out(key)` - Observations from context.observe()
+- `ctx.get_param(key)` - Input parameters from test vectors
+- `ctx.get_observation(key)` - Observations from context.observe()
 - `Limit` class - For constructing return limits
 
 ### Module Function (Complex)
@@ -227,8 +227,8 @@ from litmus.config.models import Limit
 
 def output_voltage(ctx):
     """Temperature-dependent voltage limit."""
-    temp = ctx.get_in("temperature")
-    load = ctx.get_in("load_current")
+    temp = ctx.get_param("temperature")
+    load = ctx.get_param("load_current")
 
     # Tighter limits at room temp, nominal load
     if temp >= 20 and temp <= 30 and load < 0.5:

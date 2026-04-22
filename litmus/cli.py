@@ -294,7 +294,7 @@ def new_test(name: str):
     # Add a helpful skeleton showing the 3-step pattern
     if roles:
         lines.append("    # 1. GET conditions from context")
-        lines.append('    # vin = context.get_in("vin", 5.0)')
+        lines.append('    # vin = context.get_param("vin", 5.0)')
         lines.append("    #")
         lines.append("    # 2. SET UP stimulus")
         first_role = roles[0]

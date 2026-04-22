@@ -24,7 +24,7 @@ class TestLitmusTestDecorator:
 
         @litmus_test(config=config, raise_on_fail=False)
         def test_sweep(context):
-            return context.inputs["voltage"]
+            return context.params["voltage"]
 
         step = test_sweep()
 
@@ -51,7 +51,7 @@ class TestLitmusTestDecorator:
 
         @litmus_test(config=config, raise_on_fail=False)
         def test_multi(context):
-            yield "output_voltage", context.inputs["voltage"]
+            yield "output_voltage", context.params["voltage"]
             yield "output_current", 0.1
 
         step = test_multi()
@@ -72,7 +72,7 @@ class TestLitmusTestDecorator:
 
         @litmus_test(config=config, raise_on_fail=False)
         def test_matrix(context):
-            return context.inputs["voltage"] * context.inputs["load"]
+            return context.params["voltage"] * context.params["load"]
 
         step = test_matrix()
 
@@ -166,7 +166,7 @@ class TestLitmusTestDecorator:
 
         @litmus_test(raise_on_fail=False)
         def test_with_harness(context, harness=None):
-            return context.inputs["x"]
+            return context.params["x"]
 
         step = test_with_harness(harness=harness)
 
@@ -208,7 +208,7 @@ class TestLitmusTestDecoratorWithInstruments:
         @litmus_test(config=config, raise_on_fail=False)
         def test_changed(context):
             changes.append(context.changed("temp"))
-            return context.inputs["volt"]
+            return context.params["volt"]
 
         test_changed()
 

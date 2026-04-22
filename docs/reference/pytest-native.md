@@ -10,7 +10,7 @@ from the outside via pytest hooks.
 
 | Fixture  | What it holds                                  | Verbs                                       | Source                                           |
 |----------|------------------------------------------------|---------------------------------------------|--------------------------------------------------|
-| `context`| Vector inputs + observations                   | `get_in`, `changed`, `observe`              | Sidecar YAML `vectors:` / `@pytest.mark.parametrize` |
+| `context`| Vector inputs + observations                   | `get_param`, `changed`, `observe`              | Sidecar YAML `vectors:` / `@pytest.mark.parametrize` |
 | `spec`   | Product characteristics → Limits + pin/fixture | `check(name, value, **conditions)`          | `--spec=products/<name>.yaml`                    |
 | `logger` | Event persistence                              | `measure(name, value, limit=...)`, `record` | Always present                                   |
 
@@ -35,7 +35,7 @@ class TestPowerUp(LitmusSequence):
         dmm,
         spec: SpecContext,
     ) -> None:
-        psu.set_voltage(context.get_in("vin"))
+        psu.set_voltage(context.get_param("vin"))
         psu.enable_output()
         spec.check("output_voltage", dmm.measure_dc_voltage())
 ```
@@ -78,7 +78,7 @@ When `logger.measure(name, value)` is called without an explicit `limit=`:
 
 ## Native `@pytest.mark.parametrize`
 
-`@pytest.mark.parametrize` is first-class. `context.get_in(name)` reads
+`@pytest.mark.parametrize` is first-class. `context.get_param(name)` reads
 `request.node.callspec.params` regardless of whether the vectors came from
 sidecar YAML, a `@pytest.fixture(params=[...])` declaration, or stacked
 `parametrize` markers. Range strings like `"4.5:5.5:0.5"` are accepted in

@@ -48,10 +48,10 @@ def test_method_level_vectors_parametrize_and_populate_context(pytester: pytest.
 
             class TestSeq(LitmusSequence):
                 def test_uses_vin(self, context):
-                    assert context.get_in("vin") in (4.5, 5.0)
+                    assert context.get_param("vin") in (4.5, 5.0)
 
                 def test_uses_load(self, context):
-                    assert context.get_in("load") in (0.1, 0.8)
+                    assert context.get_param("load") in (0.1, 0.8)
             """
         ),
         vectors_yaml=textwrap.dedent(
@@ -82,10 +82,10 @@ def test_class_level_vectors_rerun_whole_class(pytester: pytest.Pytester) -> Non
 
             class TestSeq(LitmusSequence):
                 def test_a(self, context):
-                    assert context.get_in("temp") in (25, 55)
+                    assert context.get_param("temp") in (25, 55)
 
                 def test_b(self, context):
-                    assert context.get_in("temp") in (25, 55)
+                    assert context.get_param("temp") in (25, 55)
             """
         ),
         vectors_yaml=textwrap.dedent(
@@ -112,11 +112,11 @@ def test_class_and_method_vectors_mix(pytester: pytest.Pytester) -> None:
 
             class TestSeq(LitmusSequence):
                 def test_only_class(self, context):
-                    assert context.get_in("temp") in (25, 55)
+                    assert context.get_param("temp") in (25, 55)
 
                 def test_sweep(self, context):
-                    assert context.get_in("temp") in (25, 55)
-                    assert context.get_in("vin") in (3.3, 5.0)
+                    assert context.get_param("temp") in (25, 55)
+                    assert context.get_param("vin") in (3.3, 5.0)
             """
         ),
         vectors_yaml=textwrap.dedent(
@@ -156,7 +156,7 @@ def test_sequence_without_sidecar_runs_once(pytester: pytest.Pytester) -> None:
 
             class TestSeq(LitmusSequence):
                 def test_defaults(self, context):
-                    assert context.get_in("missing", "dflt") == "dflt"
+                    assert context.get_param("missing", "dflt") == "dflt"
             """
         )
     )
@@ -203,8 +203,8 @@ def test_sidecar_keys_bind_to_method_signature(pytester: pytest.Pytester) -> Non
                     # Values injected as fixture args AND readable via context.
                     assert vin in (4.5, 5.0)
                     assert load in (0.1, 0.8)
-                    assert context.get_in("vin") == vin
-                    assert context.get_in("load") == load
+                    assert context.get_param("vin") == vin
+                    assert context.get_param("load") == load
             """
         ),
         vectors_yaml=textwrap.dedent(
@@ -239,7 +239,7 @@ def test_decorator_parametrize_populates_context(pytester: pytest.Pytester) -> N
             class TestSeq(LitmusSequence):
                 @pytest.mark.parametrize("vin", [4.5, 5.0])
                 def test_decorator(self, vin, context):
-                    assert context.get_in("vin") == vin
+                    assert context.get_param("vin") == vin
             """
         )
     )
@@ -261,8 +261,8 @@ def test_sidecar_and_decorator_mix(pytester: pytest.Pytester) -> None:
                     # vin from sidecar, trial from decorator — both in context.
                     assert vin in (4.5, 5.0)
                     assert trial in (1, 2)
-                    assert context.get_in("vin") == vin
-                    assert context.get_in("trial") == trial
+                    assert context.get_param("vin") == vin
+                    assert context.get_param("trial") == trial
             """
         ),
         vectors_yaml=textwrap.dedent(
@@ -355,7 +355,7 @@ def test_prereq_chain_collapses_method_level_parametrize(pytester: pytest.Pytest
 
             class TestSeq(LitmusSequence):
                 def test_a(self, context):
-                    vin = context.get_in("vin")
+                    vin = context.get_param("vin")
                     assert vin != 4.5, "intentional failure at vin=4.5"
 
                 def test_b(self, context):
@@ -628,11 +628,11 @@ def test_changed_chains_across_parametrize_cases(pytester: pytest.Pytester) -> N
 
             class TestSeq(LitmusSequence):
                 def test_sweep(self, context):
-                    vin = context.get_in("vin")
+                    vin = context.get_param("vin")
                     # First case: _prev is None → everything changed.
                     # Second case (vin=5.0 vs 4.5): vin changed.
                     # Third case (vin=5.0 vs 5.0): vin did NOT change.
-                    expected = context.get_in("expect_changed")
+                    expected = context.get_param("expect_changed")
                     assert context.changed("vin") is expected, \\
                         f"vin={vin} expected_changed={expected}"
             """

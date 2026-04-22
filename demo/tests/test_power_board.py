@@ -76,7 +76,7 @@ def test_output_voltage_no_load(context, psu: PSU, dmm: DMM):
     Inline config provides dev defaults. When run with --sequence,
     the sequence step config overrides these values entirely.
     """
-    vin = context.get_in("vin", 5.0)
+    vin = context.get_param("vin", 5.0)
 
     psu.set_voltage(vin)
     psu.set_current_limit(0.1)
@@ -110,8 +110,8 @@ def test_output_voltage_full_load(context, psu: PSU, dmm: DMM, eload: ELoad):
 
     Inline config provides dev defaults. Retry: max_attempts=3, delay=0.5s.
     """
-    vin = context.get_in("vin", 5.0)
-    load = context.get_in("load_current", 0.8)
+    vin = context.get_param("vin", 5.0)
+    load = context.get_param("load_current", 0.8)
 
     psu.set_voltage(vin)
     psu.set_current_limit(1.0)
@@ -167,8 +167,8 @@ def test_load_regulation(context, psu: PSU, dmm: DMM, eload: ELoad):
 
     3 vectors with per-vector mock values, one limit for all.
     """
-    vin = context.get_in("vin", 5.0)
-    load = context.inputs["load_current"]
+    vin = context.get_param("vin", 5.0)
+    load = context.params["load_current"]
 
     psu.set_voltage(vin)
     psu.set_current_limit(1.0)
@@ -209,8 +209,8 @@ def test_load_sweep(context, psu: PSU, dmm: DMM, eload: ELoad):
 
     5×5 = 25 vectors. Uses context.changed() to detect when parameters change.
     """
-    vin = context.inputs["vin"]
-    load = context.inputs["load_current"]
+    vin = context.params["vin"]
+    load = context.params["load_current"]
 
     # Only reconfigure PSU when VIN changes (optimization)
     if context.changed("vin"):
@@ -254,8 +254,8 @@ def test_temp_load_matrix(context, psu: PSU, dmm: DMM, eload: ELoad):
 
     4×5 = 20 vectors. Uses context.changed() for outer parameter changes.
     """
-    _temp = context.inputs["temperature"]  # Unused in demo; would set chamber temp
-    load = context.inputs["load_current"]
+    _temp = context.params["temperature"]  # Unused in demo; would set chamber temp
+    load = context.params["load_current"]
 
     # Temperature is outer loop - changes less frequently
     if context.changed("temperature"):
@@ -297,7 +297,7 @@ def test_temp_load_matrix(context, psu: PSU, dmm: DMM, eload: ELoad):
 )
 def test_line_regulation(context, psu: PSU, dmm: DMM, eload: ELoad):
     """Sweep input voltage using range string (4.5V to 5.5V, 0.1V steps)."""
-    vin = context.inputs["vin"]
+    vin = context.params["vin"]
 
     psu.set_voltage(vin)
     psu.set_current_limit(1.0)
@@ -342,8 +342,8 @@ def test_power_analysis(context, psu: PSU, dmm: DMM, eload: ELoad):
     Returns: {"input_power": W, "output_power": W, "efficiency": %}
     Each key gets checked against its own limit.
     """
-    vin = context.get_in("vin", 5.0)
-    load = context.get_in("load_current", 0.5)
+    vin = context.get_param("vin", 5.0)
+    load = context.get_param("load_current", 0.5)
 
     psu.set_voltage(vin)
     psu.set_current_limit(1.0)
@@ -396,7 +396,7 @@ def test_power_analysis(context, psu: PSU, dmm: DMM, eload: ELoad):
 )
 def test_quiescent_current(context, psu: PSU):
     """Verify quiescent current (no load). Comparator=LE for upper-bound-only."""
-    vin = context.get_in("vin", 5.0)
+    vin = context.get_param("vin", 5.0)
 
     psu.set_voltage(vin)
     psu.set_current_limit(0.05)  # Low limit - no load
@@ -427,9 +427,9 @@ def test_quiescent_current(context, psu: PSU):
 )
 def test_stability_over_time(context, psu: PSU, dmm: DMM, eload: ELoad):
     """Monitor output stability over time using yield (streaming measurements)."""
-    vin = context.get_in("vin", 5.0)
-    load = context.get_in("load_current", 0.5)
-    sample_count = context.get_in("sample_count", 5)
+    vin = context.get_param("vin", 5.0)
+    load = context.get_param("load_current", 0.5)
+    sample_count = context.get_param("sample_count", 5)
 
     psu.set_voltage(vin)
     psu.set_current_limit(1.0)
@@ -467,8 +467,8 @@ def test_stability_over_time(context, psu: PSU, dmm: DMM, eload: ELoad):
 )
 def test_thermal_shutdown(context, psu: PSU, dmm: DMM, eload: ELoad):
     """Verify thermal protection (manual test). Output should collapse."""
-    vin = context.get_in("vin", 5.0)
-    load = context.get_in("load_current", 0.5)
+    vin = context.get_param("vin", 5.0)
+    load = context.get_param("load_current", 0.5)
 
     psu.set_voltage(vin)
     psu.set_current_limit(1.0)
@@ -510,8 +510,8 @@ def test_thermal_shutdown(context, psu: PSU, dmm: DMM, eload: ELoad):
 )
 def test_output_ripple(context, psu: PSU, eload: ELoad, scope: Scope):
     """Signal output ripple using oscilloscope waveform capture."""
-    vin = context.get_in("vin", 5.0)
-    load = context.get_in("load_current", 0.5)
+    vin = context.get_param("vin", 5.0)
+    load = context.get_param("load_current", 0.5)
 
     psu.set_voltage(vin)
     psu.set_current_limit(1.0)
@@ -544,7 +544,7 @@ def test_output_ripple(context, psu: PSU, eload: ELoad, scope: Scope):
         "limits": {
             "output_voltage": {
                 "callable": (
-                    'temp = ctx.get_in("temperature")\n'
+                    'temp = ctx.get_param("temperature")\n'
                     "if temp < 0:\n"
                     "  return Limit(low=3.15, high=3.45, units='V')\n"
                     "elif temp < 50:\n"
@@ -558,8 +558,8 @@ def test_output_ripple(context, psu: PSU, eload: ELoad, scope: Scope):
 )
 def test_output_voltage_temp(context, psu: PSU, dmm: DMM):
     """Verify output voltage with temperature-dependent callable limits."""
-    temp = context.inputs["temperature"]
-    vin = context.get_in("vin", 5.0)
+    temp = context.params["temperature"]
+    vin = context.get_param("vin", 5.0)
 
     # Record conditions for traceability (and callable limit access)
     context.configure("temperature", temp)
@@ -604,8 +604,8 @@ def test_output_voltage_temp(context, psu: PSU, dmm: DMM):
 )
 def test_efficiency_with_context(context, psu: PSU, dmm: DMM, eload: ELoad):
     """Full efficiency test with context traceability (configure/observe)."""
-    vin = context.inputs["vin"]
-    load = context.inputs["load_current"]
+    vin = context.params["vin"]
+    load = context.params["load_current"]
 
     # Record commanded stimulus (→ in_vin, in_load columns)
     context.configure("vin", vin)
@@ -702,8 +702,8 @@ def test_ripple_waveform_capture(context, psu: PSU, eload: ELoad, scope: Scope):
     """Capture and observe raw waveform data (stored in _ref/ directory)."""
     from litmus.data.models import Waveform
 
-    vin = context.get_in("vin", 5.0)
-    load = context.get_in("load_current", 0.5)
+    vin = context.get_param("vin", 5.0)
+    load = context.get_param("load_current", 0.5)
 
     psu.set_voltage(vin)
     psu.set_current_limit(1.0)

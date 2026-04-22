@@ -829,7 +829,7 @@ with harness.step():
         harness.context.observe("temp_probe.temp", 24.8)
 
         # Merged inputs: {"operator": "jane", "fixture.id": "FIX-01", "temp": 25}
-        print(harness.context.inputs)
+        print(harness.context.params)
 ```
 
 ### Context API
@@ -848,12 +848,12 @@ context.configure_all({"psu.voltage": 5.0, "eload.current": 0.8})
 context.observe_all({"temp_probe.temp": 24.8, "humidity": 45.2})
 
 # Read values (checks parent chain)
-voltage = context.get_in("psu.voltage")
-temp = context.get_out("temp_probe.temp")
+voltage = context.get_param("psu.voltage")
+temp = context.get_observation("temp_probe.temp")
 
 # Merged properties
-all_inputs = context.inputs   # All inputs, merged with parent chain
-all_outputs = context.outputs  # All outputs, merged with parent chain
+all_inputs = context.params   # All inputs, merged with parent chain
+all_outputs = context.observations  # All outputs, merged with parent chain
 
 # Create child context
 child = context.child()

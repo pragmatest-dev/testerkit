@@ -199,7 +199,7 @@ from litmus.execution import litmus_test
 
 @litmus_test
 def test_output_voltage(context, psu, dmm):
-    psu.voltage = context.get_in("vin", 5.0)
+    psu.voltage = context.get_param("vin", 5.0)
     psu.output_enabled = True
     return dmm.voltage_dc
 ```

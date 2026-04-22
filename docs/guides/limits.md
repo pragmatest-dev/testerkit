@@ -34,7 +34,7 @@ from litmus.execution import litmus_test
     limits={"test_output_voltage": {"low": 3.135, "high": 3.465, "nominal": 3.3, "units": "V"}},
 )
 def test_output_voltage(context, psu, dmm):
-    psu.set_voltage(context.get_in("vin", 5.0))
+    psu.set_voltage(context.get_param("vin", 5.0))
     psu.enable_output()
     return dmm.measure_dc_voltage()
 ```
@@ -150,11 +150,11 @@ limits:
     callable: myproject.limits.output_voltage
 
   test_efficiency:
-    callable: "Limit(low=80 if ctx.get_in('load') > 0.5 else 85, units='%')"
+    callable: "Limit(low=80 if ctx.get_param('load') > 0.5 else 85, units='%')"
 
   test_ripple:
     callable: |
-      vin = ctx.get_in('vin')
+      vin = ctx.get_param('vin')
       if vin < 5.0:
         return Limit(high=vin * 0.01, units='V')
       else:
@@ -169,7 +169,7 @@ from litmus.config.models import Limit
 
 def output_voltage(context) -> Limit:
     """Temperature-dependent limits with full context access."""
-    temp = context.get_in("temperature", 25)
+    temp = context.get_param("temperature", 25)
 
     if temp < 0:
         return Limit(low=3.0, high=3.6, units="V")
@@ -180,10 +180,10 @@ def output_voltage(context) -> Limit:
 ```
 
 Callable limits have access to:
-- `ctx.get_in(key)` — Input parameters (from vectors)
-- `ctx.get_out(key)` — Observations (from `context.observe()`)
-- `ctx.inputs` — All input parameters as dict
-- `ctx.outputs` — All observations as dict
+- `ctx.get_param(key)` — Input parameters (from vectors)
+- `ctx.get_observation(key)` — Observations (from `context.observe()`)
+- `ctx.params` — All input parameters as dict
+- `ctx.observations` — All observations as dict
 - `Limit` — The Limit class for creating limits
 
 ### 4. Inline Decorator (Dev Fallback)
@@ -318,13 +318,13 @@ from litmus.execution import litmus_test
 )
 def test_output_voltage(context, psu, dmm):
     """Inline limits for dev; sequence overrides in production."""
-    psu.set_voltage(context.get_in("vin", 5.0))
+    psu.set_voltage(context.get_param("vin", 5.0))
     psu.enable_output()
     return dmm.measure_dc_voltage()
 
 @litmus_test
 def test_psu(context, psu, dmm):
-    load = context.inputs["load"]
+    load = context.params["load"]
     return {
         "voltage": psu.measure_voltage(),
         "current": psu.measure_current(),
