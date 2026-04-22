@@ -19,11 +19,10 @@ import pytest
 from demo.drivers import DMM, PSU, ELoad
 from litmus.execution.harness import Context
 from litmus.execution.logger import TestRunLogger
-from litmus.execution.plugin import LitmusSequence
 from litmus.products.context import SpecContext
 
 
-class TestPowerBoardSmoke(LitmusSequence):
+class TestPowerBoardSmoke:
     """Power-up verification for production screening."""
 
     def test_basic_power(

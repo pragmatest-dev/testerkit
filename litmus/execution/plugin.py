@@ -1705,19 +1705,19 @@ def fixture_manager(instruments, fixture_config, _route_manager) -> FixtureManag
 
 
 def pytest_runtest_makereport(item, call):
-    """Record test outcomes for the implicit LitmusSequence prereq chain.
+    """Record test outcomes for the implicit prereq chain.
 
     ``_PREREQ_STATE`` — ``{(class, class-vector-combo): {method: passed}}``
-    consumed by the implicit LitmusSequence prereq chain. Populated only
-    for ``LitmusSequence`` subclasses since that chain only applies to
-    their source-order method sequence.
+    consumed by the implicit prereq chain. Populated for every class-based
+    test (the chain only applies to source-order method sequences, so
+    loose module-level functions are skipped).
     """
     if call.when != "call":
         return
     passed = call.excinfo is None
 
     cls = getattr(item, "cls", None)
-    if cls is None or not isinstance(cls, type) or not issubclass(cls, LitmusSequence):
+    if cls is None or not isinstance(cls, type):
         return
     key = _prereq_state_key(item)
     state = _PREREQ_STATE.setdefault(key, {})
@@ -1759,14 +1759,13 @@ def pytest_runtest_setup(item):
 
 @pytest.hookimpl(hookwrapper=True, trylast=True)
 def pytest_runtest_call(item: pytest.Item) -> Iterator[None]:
-    """Open a step for ``LitmusSequence`` tests; reset dedup sets after.
+    """Open a step for every pytest-native test; reset dedup sets after.
 
-    For ``LitmusSequence`` subclasses, opens a logger step around the
-    test body (so every measurement inside the method lands in a step
-    scoped to that method). For everything else — pure-pytest usage or
-    legacy ``@litmus_test`` — just clears the per-step dedup tracking
-    after the test body, since ``logger.measure`` may have auto-created
-    a step and ``_step_seen_names`` would otherwise leak across cases.
+    For every collected test that is not a legacy ``@litmus_test``
+    (which manages its own step lifecycle), opens a logger step around
+    the test body so every measurement inside the method lands in a
+    step scoped to that test. Applies equally to class-based sequences
+    and loose module-level ``def test_*`` functions.
 
     Runs as a hookwrapper (rather than an autouse fixture) so it fires
     *after* all setup fixtures — including ones that install the logger
@@ -1780,12 +1779,16 @@ def pytest_runtest_call(item: pytest.Item) -> Iterator[None]:
     carries the required traceability fields.
     """
     logger_inst = get_current_logger()
-    cls = getattr(item, "cls", None)
-    is_seq = cls is not None and isinstance(cls, type) and issubclass(cls, LitmusSequence)
+    func = getattr(item, "function", None)
+    # ``@litmus_test`` and ``@litmus_step`` manage their own step
+    # lifecycle — don't double-wrap.
+    manages_own_step = func is not None and (
+        getattr(func, "_is_litmus_test", False) or getattr(func, "_is_litmus_step", False)
+    )
     strict = bool(item.config.getoption("--strict-traceability"))
 
-    if is_seq and logger_inst is not None:
-        func = getattr(item, "function", None)
+    if not manages_own_step and logger_inst is not None:
+        cls = getattr(item, "cls", None)
         func_name = func.__name__ if func is not None else item.name
         logger_inst.start_step(
             func_name,
@@ -2252,13 +2255,13 @@ def sync(logger):
 # ============================================================================
 # Pytest-native sequences — THE Litmus executor.
 #
-# :class:`LitmusSequence` marks a test class as a Litmus sequence. Methods on
-# subclasses get: sidecar-driven parametrize (vectors), auto-resolved limits
-# from sidecar or product spec, mock installation, implicit prereq chain
-# between methods in source order, and a logger step scoped to each method.
+# Every collected test gets Litmus conventions: sidecar-driven parametrize
+# (vectors), auto-resolved limits from sidecar or product spec, mock
+# installation, a logger step scoped to the test, and (for class-based
+# tests) an implicit prereq chain between methods in source order.
 #
-# Tests that don't inherit from :class:`LitmusSequence` are left alone — the
-# plugin coexists with plain pytest tests and @litmus_test-decorated tests.
+# Legacy ``@litmus_test``-decorated tests manage their own step lifecycle
+# and are detected via the ``_is_litmus_test`` attribute on the wrapper.
 # ============================================================================
 
 
@@ -2271,41 +2274,8 @@ from litmus.execution.expand import expand as _expand_sidecar_block  # noqa: E40
 from litmus.execution.vectors import Vector  # noqa: E402
 
 
-class LitmusSequence:
-    """Marker base class for Litmus test sequences.
-
-    Classes that inherit from :class:`LitmusSequence` are processed by
-    :func:`pytest_generate_tests`: the plugin looks for a sibling
-    ``<module>.yaml`` file and expands class-level and method-level
-    vectors into parametrize calls. Classes that do not inherit are left
-    alone.
-
-    .. note::
-       Scheduled for deprecation once plain pytest classes become the
-       default (per pytest-native plan task #69, still pending). Until
-       then, the base class is the required opt-in for step lifecycle,
-       prereq chain, and mock installation — **not** emitting a
-       DeprecationWarning yet would mislead users, so the warning
-       lands together with the gating removal.
-    """
-
-
-def _is_litmus_sequence(cls: Any) -> bool:
-    """Return True when ``cls`` is a :class:`LitmusSequence` subclass.
-
-    Centralizes the check used by every autouse fixture and hook that
-    currently gates on sequence membership, so the gate can be relaxed
-    or removed in one place when the plan retires the base class.
-    Accepts ``Any`` (not ``type | None``) so callers don't need to
-    narrow ``getattr(request, "cls", None)`` before passing it in.
-    """
-    return isinstance(cls, type) and issubclass(cls, LitmusSequence)
-
-
 def pytest_generate_tests(metafunc: pytest.Metafunc) -> None:
     """Load sidecar and parametrize class-/method-level vectors."""
-    if not _is_litmus_sequence(metafunc.cls):
-        return
 
     module_file = getattr(metafunc.module, "__file__", None)
     if module_file is None:
@@ -2513,14 +2483,14 @@ def _litmus_push_params(
     Source-agnostic: reads ``request.node.callspec.params`` so that
     sidecar vectors, native ``@pytest.mark.parametrize``, and
     ``@pytest.fixture(params=...)`` all populate ``context`` the same
-    way. Applies to every test, not just ``LitmusSequence`` subclasses.
+    way. Applies to every collected test.
 
-    For ``LitmusSequence`` subclasses only, also chains ``Context._prev``
-    to the previous parametrize case of the same ``(class, method)`` so
-    ``context.changed("vin")`` behaves like it did under the old
-    ``@litmus_test`` vector loop. The lookup is keyed by ``originalname``
-    on the parent node's stash, so two classes that share a method name
-    do not cross-contaminate.
+    Also chains ``Context._prev`` to the previous parametrize case of
+    the same ``(parent_node, method)`` so ``context.changed("vin")``
+    behaves like it did under the old ``@litmus_test`` vector loop. The
+    lookup is keyed by ``originalname`` on the parent node's stash, so
+    two classes (or modules) that share a method name do not
+    cross-contaminate.
     """
     ctx: Context = request.getfixturevalue("context")
 
@@ -2537,12 +2507,8 @@ def _litmus_push_params(
         if extras:
             ctx.set_params(extras)
 
-    cls = getattr(request, "cls", None)
-    if _is_litmus_sequence(cls):
-        parent = request.node.parent
-        if parent is None:
-            yield
-            return
+    parent = request.node.parent
+    if parent is not None:
         prev_map = parent.stash.setdefault(_PREV_STASH_KEY, {})
         key = request.node.originalname
         prev = prev_map.get(key)
@@ -2588,12 +2554,10 @@ def _litmus_push_limits(
 ) -> Iterator[None]:
     """Push sidecar ``limits:`` into ``_active_limits_var`` for this test.
 
-    Runs for *every* collected test whose module has a sidecar —
-    ``LitmusSequence`` membership is **not** required here. A plain
+    Runs for *every* collected test whose module has a sidecar. A plain
     ``def test_foo(logger)`` module-level function with a
     ``test_foo.yaml`` sidecar gets the same auto-resolution via
-    ``logger.measure(name, value)``. The ``LitmusSequence`` gate only
-    guards the per-method mock install and the implicit prereq chain.
+    ``logger.measure(name, value)`` as a class-based test does.
     """
     raw = _parse_limits_block(_litmus_sidecar.get("limits") if _litmus_sidecar else {})
     resolved = _resolve_limits(raw)
@@ -2616,10 +2580,6 @@ def _litmus_apply_mocks(
     ``request.getfixturevalue``); the attribute is replaced with a
     ``Mock(return_value=...)`` for the duration of the test.
     """
-    if not _is_litmus_sequence(getattr(request, "cls", None)):
-        yield
-        return
-
     mocks = _litmus_sidecar.get("mocks") if _litmus_sidecar else None
     if not mocks:
         yield
@@ -2691,11 +2651,15 @@ def _source_order_methods(cls: type) -> list[str]:
 
 @pytest.fixture(autouse=True)
 def _litmus_prereq_check(request: pytest.FixtureRequest) -> None:
-    """Skip when the preceding method (source order) has failed this run."""
+    """Skip when the preceding method (source order) has failed this run.
+
+    Applies to class-based tests only — the prereq chain is defined by
+    source order of methods on a class. Loose module-level ``def test_*``
+    functions are skipped (no meaningful "preceding method" to chain).
+    """
     cls = getattr(request, "cls", None)
-    if not _is_litmus_sequence(cls):
+    if cls is None or not isinstance(cls, type):
         return
-    assert isinstance(cls, type)  # narrowed by _is_litmus_sequence
     if request.node.get_closest_marker("independent") is not None:
         return
     func_name = request.node.function.__name__

@@ -2,7 +2,6 @@
 
 from litmus.data.models import Outcome
 from litmus.execution.decorators import measure
-from litmus.execution.plugin import LitmusSequence
 from litmus.instruments import Mock
 from litmus.models.config import Limit
 
@@ -34,11 +33,11 @@ class FakeDMM:
         pass
 
 
-class TestFullFlow(LitmusSequence):
+class TestFullFlow:
     """Integration tests using mock instruments.
 
-    Inheriting ``LitmusSequence`` triggers the plugin's per-method step
-    lifecycle — each ``test_*`` runs inside its own logger step.
+    Each ``test_*`` runs inside its own logger step via the pytest-native
+    plugin's per-method step lifecycle.
     """
 
     def test_measure_with_mocked_dmm(self, logger):

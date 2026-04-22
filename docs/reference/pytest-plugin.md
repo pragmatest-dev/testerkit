@@ -4,10 +4,9 @@ Litmus provides a pytest plugin for hardware testing with automatic measurement 
 
 > **New in this release:** the pytest-native three-object split
 > (`context` / `spec` / `logger`) is the preferred authoring style for new
-> tests. See [pytest-native reference](pytest-native.md) for the
-> `LitmusSequence` base class, unified sidecar YAML, and limit resolution
-> chain. The `@litmus_test` decorator described below still works and is
-> not deprecated.
+> tests. See [pytest-native reference](pytest-native.md) for the unified
+> sidecar YAML and limit resolution chain. The `@litmus_test` decorator
+> described below still works and is not deprecated.
 
 ## Installation
 

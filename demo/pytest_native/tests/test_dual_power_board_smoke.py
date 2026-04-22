@@ -22,11 +22,10 @@ from typing import Any
 from demo.drivers import DMM, PSU, ELoad
 from litmus.execution.harness import Context
 from litmus.execution.logger import TestRunLogger
-from litmus.execution.plugin import LitmusSequence
 from litmus.products.context import SpecContext
 
 
-class TestDualPowerBoardSmoke(LitmusSequence):
+class TestDualPowerBoardSmoke:
     """Parallel smoke test for two power boards; sync before output measure."""
 
     def test_power_up(

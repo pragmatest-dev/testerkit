@@ -1,10 +1,11 @@
 # pytest-native: The Three-Object Split
 
 Litmus's pytest-native mode is the default test-authoring path going forward.
-Tests inherit from `LitmusSequence` and consume up to three fixtures —
-`context`, `spec`, `logger` — each with a single, distinct responsibility.
-There is no `@litmus_test` wrapper; the plugin enforces Litmus conventions
-from the outside via pytest hooks.
+Tests are plain pytest classes (or loose module-level functions) that consume
+up to three fixtures — `context`, `spec`, `logger` — each with a single,
+distinct responsibility. There is no base class to inherit and no
+`@litmus_test` wrapper; the plugin enforces Litmus conventions from the
+outside via pytest hooks.
 
 ## The three fixtures
 
@@ -23,11 +24,10 @@ into each other.
 ```python
 from litmus.execution.harness import Context
 from litmus.execution.logger import TestRunLogger
-from litmus.execution.plugin import LitmusSequence
 from litmus.products.context import SpecContext
 
 
-class TestPowerUp(LitmusSequence):
+class TestPowerUp:
     def test_output_voltage(
         self,
         context: Context,
@@ -86,10 +86,11 @@ sidecar vectors.
 
 ## Implicit prereq chain
 
-`LitmusSequence` methods run in source order. If method `test_a` fails for
-any parametrize instance, subsequent method `test_b` is skipped for all of
-its parametrize instances. The chain is method-level; per-case matching
-via `callspec.id` is out of scope.
+Methods within a test class run in source order. If method `test_a` fails
+for any parametrize instance, subsequent method `test_b` is skipped for
+all of its parametrize instances. The chain is method-level; per-case
+matching via `callspec.id` is out of scope. Loose module-level
+`def test_*` functions are exempt from the implicit chain.
 
 ## Duplicate-name guard
 

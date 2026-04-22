@@ -167,5 +167,5 @@ The last row matters more than it seems. When an AI assistant writes or debugs y
 ## Next steps
 
 - [Writing Tests](../guides/writing-tests.md) — Patterns and best practices
-- [pytest-native Reference](../reference/pytest-native.md) — The three-object split (`context` / `spec` / `logger`) and `LitmusSequence`
+- [pytest-native Reference](../reference/pytest-native.md) — The three-object split (`context` / `spec` / `logger`)
 - [pytest Plugin Reference](../reference/pytest-plugin.md) — Full plugin documentation (includes `@litmus_test` decorator)

@@ -44,9 +44,7 @@ def test_method_level_vectors_parametrize_and_populate_context(pytester: pytest.
         pytester,
         test_body=textwrap.dedent(
             """
-            from litmus.execution.plugin import LitmusSequence
-
-            class TestSeq(LitmusSequence):
+            class TestSeq:
                 def test_uses_vin(self, context):
                     assert context.get_param("vin") in (4.5, 5.0)
 
@@ -78,9 +76,7 @@ def test_class_level_vectors_rerun_whole_class(pytester: pytest.Pytester) -> Non
         pytester,
         test_body=textwrap.dedent(
             """
-            from litmus.execution.plugin import LitmusSequence
-
-            class TestSeq(LitmusSequence):
+            class TestSeq:
                 def test_a(self, context):
                     assert context.get_param("temp") in (25, 55)
 
@@ -108,9 +104,7 @@ def test_class_and_method_vectors_mix(pytester: pytest.Pytester) -> None:
         pytester,
         test_body=textwrap.dedent(
             """
-            from litmus.execution.plugin import LitmusSequence
-
-            class TestSeq(LitmusSequence):
+            class TestSeq:
                 def test_only_class(self, context):
                     assert context.get_param("temp") in (25, 55)
 
@@ -152,9 +146,7 @@ def test_sequence_without_sidecar_runs_once(pytester: pytest.Pytester) -> None:
     pytester.makepyfile(
         test_seq=textwrap.dedent(
             """
-            from litmus.execution.plugin import LitmusSequence
-
-            class TestSeq(LitmusSequence):
+            class TestSeq:
                 def test_defaults(self, context):
                     assert context.get_param("missing", "dflt") == "dflt"
             """
@@ -196,9 +188,7 @@ def test_sidecar_keys_bind_to_method_signature(pytester: pytest.Pytester) -> Non
         pytester,
         test_body=textwrap.dedent(
             """
-            from litmus.execution.plugin import LitmusSequence
-
-            class TestSeq(LitmusSequence):
+            class TestSeq:
                 def test_direct_args(self, vin, load, context):
                     # Values injected as fixture args AND readable via context.
                     assert vin in (4.5, 5.0)
@@ -234,9 +224,7 @@ def test_decorator_parametrize_populates_context(pytester: pytest.Pytester) -> N
         test_seq=textwrap.dedent(
             """
             import pytest
-            from litmus.execution.plugin import LitmusSequence
-
-            class TestSeq(LitmusSequence):
+            class TestSeq:
                 @pytest.mark.parametrize("vin", [4.5, 5.0])
                 def test_decorator(self, vin, context):
                     assert context.get_param("vin") == vin
@@ -253,9 +241,7 @@ def test_sidecar_and_decorator_mix(pytester: pytest.Pytester) -> None:
         test_body=textwrap.dedent(
             """
             import pytest
-            from litmus.execution.plugin import LitmusSequence
-
-            class TestSeq(LitmusSequence):
+            class TestSeq:
                 @pytest.mark.parametrize("trial", [1, 2])
                 def test_mix(self, trial, vin, context):
                     # vin from sidecar, trial from decorator — both in context.
@@ -292,9 +278,7 @@ def test_prereq_chain_skips_subsequent_methods_on_failure(pytester: pytest.Pytes
     pytester.makepyfile(
         test_seq=textwrap.dedent(
             """
-            from litmus.execution.plugin import LitmusSequence
-
-            class TestSeq(LitmusSequence):
+            class TestSeq:
                 def test_a(self, context):
                     assert False, "intentional failure"
 
@@ -323,9 +307,7 @@ def test_prereq_chain_first_method_always_runs(pytester: pytest.Pytester) -> Non
     pytester.makepyfile(
         test_seq=textwrap.dedent(
             """
-            from litmus.execution.plugin import LitmusSequence
-
-            class TestSeq(LitmusSequence):
+            class TestSeq:
                 def test_a(self, context):
                     assert True
 
@@ -351,9 +333,7 @@ def test_prereq_chain_collapses_method_level_parametrize(pytester: pytest.Pytest
         pytester,
         test_body=textwrap.dedent(
             """
-            from litmus.execution.plugin import LitmusSequence
-
-            class TestSeq(LitmusSequence):
+            class TestSeq:
                 def test_a(self, context):
                     vin = context.get_param("vin")
                     assert vin != 4.5, "intentional failure at vin=4.5"
@@ -395,9 +375,7 @@ def test_prereq_chain_independent_marker_opts_out(pytester: pytest.Pytester) -> 
         test_seq=textwrap.dedent(
             """
             import pytest
-            from litmus.execution.plugin import LitmusSequence
-
-            class TestSeq(LitmusSequence):
+            class TestSeq:
                 def test_a(self, context):
                     assert False, "intentional failure"
 
@@ -417,9 +395,7 @@ def test_method_vec_id_uses_param_values(pytester: pytest.Pytester) -> None:
         pytester,
         test_body=textwrap.dedent(
             """
-            from litmus.execution.plugin import LitmusSequence
-
-            class TestSeq(LitmusSequence):
+            class TestSeq:
                 def test_foo(self, context):
                     assert True
             """
@@ -503,10 +479,9 @@ def test_measure_records_outcome_without_raising(pytester: pytest.Pytester) -> N
         pytester,
         textwrap.dedent(
             """
-            from litmus.execution.plugin import LitmusSequence
             from litmus.data.models import Outcome
 
-            class TestSeq(LitmusSequence):
+            class TestSeq:
                 def test_records(self, logger):
                     m = logger.measure(
                         "v_out", 3.5, low=3.2, high=3.4, units="V", nominal=3.3
@@ -525,9 +500,7 @@ def test_explicit_assert_fails_pytest_node(pytester: pytest.Pytester) -> None:
         pytester,
         textwrap.dedent(
             """
-            from litmus.execution.plugin import LitmusSequence
-
-            class TestSeq(LitmusSequence):
+            class TestSeq:
                 def test_fails(self, logger):
                     v = 3.5
                     logger.measure("v_out", v, low=3.2, high=3.4, units="V")
@@ -547,9 +520,7 @@ def test_duplicate_measurement_name_in_step_errors(
         pytester,
         textwrap.dedent(
             """
-            from litmus.execution.plugin import LitmusSequence
-
-            class TestSeq(LitmusSequence):
+            class TestSeq:
                 def test_dup(self, logger):
                     logger.measure("v_out", 3.3, low=3.2, high=3.4, units="V")
                     logger.measure("v_out", 3.35, low=3.2, high=3.4, units="V")
@@ -568,9 +539,7 @@ def test_allow_repeat_streams_same_name(pytester: pytest.Pytester) -> None:
         pytester,
         textwrap.dedent(
             """
-            from litmus.execution.plugin import LitmusSequence
-
-            class TestSeq(LitmusSequence):
+            class TestSeq:
                 def test_stream(self, logger):
                     for _ in range(10):
                         logger.measure(
@@ -591,9 +560,7 @@ def test_sidecar_limits_auto_resolve(pytester: pytest.Pytester) -> None:
         pytester,
         textwrap.dedent(
             """
-            from litmus.execution.plugin import LitmusSequence
-
-            class TestSeq(LitmusSequence):
+            class TestSeq:
                 def test_resolves(self, logger):
                     logger.measure("v_out", 3.25)  # no inline limit
             """
@@ -624,9 +591,7 @@ def test_changed_chains_across_parametrize_cases(pytester: pytest.Pytester) -> N
         pytester,
         test_body=textwrap.dedent(
             """
-            from litmus.execution.plugin import LitmusSequence
-
-            class TestSeq(LitmusSequence):
+            class TestSeq:
                 def test_sweep(self, context):
                     vin = context.get_param("vin")
                     # First case: _prev is None → everything changed.
@@ -665,9 +630,7 @@ def test_pure_pytest_assert_no_litmus_machinery(pytester: pytest.Pytester) -> No
     pytester.makepyfile(
         test_seq=textwrap.dedent(
             """
-            from litmus.execution.plugin import LitmusSequence
-
-            class TestSeq(LitmusSequence):
+            class TestSeq:
                 def test_asserts(self):
                     val = 3.3
                     assert 3.2 <= val <= 3.4

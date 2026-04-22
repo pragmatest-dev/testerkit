@@ -82,6 +82,7 @@ def litmus_step(func: Callable[..., Any]) -> Callable[..., Any]:
             with _step_context(func.__name__, _code_identity):
                 return await func(*args, **kwargs)
 
+        async_wrapper._is_litmus_step = True  # pyright: ignore[reportAttributeAccessIssue]
         return async_wrapper
 
     @wraps(func)
@@ -89,6 +90,7 @@ def litmus_step(func: Callable[..., Any]) -> Callable[..., Any]:
         with _step_context(func.__name__, _code_identity):
             return func(*args, **kwargs)
 
+    wrapper._is_litmus_step = True  # pyright: ignore[reportAttributeAccessIssue]
     return wrapper
 
 
@@ -453,6 +455,7 @@ def litmus_test(
 
             return step
 
+        wrapper._is_litmus_test = True  # pyright: ignore[reportAttributeAccessIssue]
         return wrapper
 
     # Handle both @litmus_test and @litmus_test(...) syntax
