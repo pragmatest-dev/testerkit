@@ -18,12 +18,8 @@ from litmus.execution.logger import RunContext, TestRunLogger
 try:
     from litmus.execution.plugin import (
         LitmusSequence,  # pyright: ignore[reportAssignmentType]
-        get_step_outcomes,
     )
 except ImportError:
-
-    def get_step_outcomes() -> dict[str, bool]:
-        return {}
 
     class LitmusSequence:  # type: ignore[no-redef]
         """Fallback when pytest is not installed."""
@@ -58,5 +54,4 @@ __all__ = [
     "TestRunLogger",
     # Plugin
     "LitmusSequence",
-    "get_step_outcomes",
 ]

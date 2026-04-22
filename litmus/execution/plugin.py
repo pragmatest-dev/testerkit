@@ -5,7 +5,6 @@ from __future__ import annotations
 import functools
 import os
 import sys
-import time
 import warnings
 from collections.abc import Callable, Generator, Iterator, Mapping
 from contextvars import ContextVar
@@ -15,7 +14,6 @@ from unittest.mock import patch
 from uuid import UUID, uuid4
 
 import pytest
-from _pytest.runner import runtestprotocol
 
 from litmus.config.test_config import FixtureConfig
 from litmus.data.models import CollectedItem, TestRun
@@ -39,7 +37,6 @@ from litmus.products.context import SpecContext
 # Per-test getters return a throwaway empty value (without storing it),
 # so stale state never leaks across tests.
 # ---------------------------------------------------------------------------
-_step_outcomes_var: ContextVar[dict[str, bool]] = ContextVar("_step_outcomes")
 _active_instruments_var: ContextVar[dict[str, Any]] = ContextVar("_active_instruments")
 _instrument_records_var: ContextVar[dict[str, InstrumentRecord]] = ContextVar("_instrument_records")
 _current_step_aliases_var: ContextVar[dict[str, str]] = ContextVar("_current_step_aliases")
@@ -78,16 +75,6 @@ _active_limits_var: ContextVar[dict[str, Any]] = ContextVar("_active_limits")
 #    object (or None) installed once per session by a setter. Getter
 #    returns None if not set. (Examples: get_active_spec_context,
 #    get_channel_store, get_event_store.)
-
-
-def get_step_outcomes() -> dict[str, bool]:
-    """Create-and-store on first access; callers mutate in place."""
-    try:
-        return _step_outcomes_var.get()
-    except LookupError:
-        d: dict[str, bool] = {}
-        _step_outcomes_var.set(d)
-        return d
 
 
 def get_active_instruments() -> dict[str, Any]:
@@ -174,11 +161,6 @@ def get_sequence_required_fixture() -> str | None:
 
 
 # --- Setters ---
-
-
-def set_step_outcomes(value: dict[str, bool]) -> None:
-    """Set value. Returns None."""
-    _step_outcomes_var.set(value)
 
 
 def set_active_instruments(value: dict[str, Any]) -> None:
@@ -486,14 +468,15 @@ def _find_fixture_file(config) -> Path | None:
 
 def pytest_configure(config):
     """Register Litmus markers and auto-register instrument role fixtures."""
-    config.addinivalue_line(
-        "markers",
-        "litmus_retry(max_attempts, delay): Retry test on failure",
-    )
-    config.addinivalue_line(
-        "markers",
-        "litmus_skip_on(dependencies): Skip if dependencies failed",
-    )
+    for marker in (
+        "litmus_vectors(**kwargs): Parametrize vector inputs inline (alternative to sidecar YAML)",
+        "litmus_limits(**kwargs): Inject limits by measurement name (merges with sidecar limits:)",
+        "litmus_spec(product): Override the session-wide spec for this test",
+        "litmus_mocks(**kwargs): Patch instrument methods/attrs for this test",
+        "litmus_independent: Skip prereq-chain propagation — failure does not "
+        "mark downstream tests as blocked",
+    ):
+        config.addinivalue_line("markers", marker)
     # @litmus_test returns TestStep for programmatic callers; suppress pytest warning
     config.addinivalue_line(
         "filterwarnings",
@@ -602,9 +585,7 @@ def pytest_report_header(config):
 
 
 def pytest_sessionstart(session):
-    """Clear outcomes at session start and validate DUT serial."""
-    set_step_outcomes({})
-
+    """Validate DUT serial at session start."""
     config = session.config
     dut_serial = config.getoption("--dut-serial")
     dut_serials = config.getoption("--dut-serials")
@@ -665,7 +646,6 @@ def pytest_collection_modifyitems(items: list[pytest.Item]) -> None:
 
 def pytest_sessionfinish(session, exitstatus):
     """Clean up all session-scoped ContextVars and module-level state."""
-    set_step_outcomes({})
     set_active_instruments({})
     set_instrument_records({})
     set_test_node_aliases({})
@@ -1726,26 +1706,16 @@ def fixture_manager(instruments, fixture_config, _route_manager) -> FixtureManag
 
 
 def pytest_runtest_makereport(item, call):
-    """Record test outcomes for skip-on-failure and LitmusSequence prereq chain.
+    """Record test outcomes for the implicit LitmusSequence prereq chain.
 
-    Two independent books, each serving a different mechanism:
-
-    * ``get_step_outcomes()`` — flat ``{name: passed, nodeid: passed}``
-      map consumed by the legacy ``@pytest.mark.litmus_skip_on``
-      marker. Populated for every test so the marker can reference any
-      prior test by name, not just LitmusSequence methods.
-    * ``_PREREQ_STATE`` — ``{(class, class-vector-combo): {method: passed}}``
-      consumed by the implicit LitmusSequence prereq chain. Populated
-      only for ``LitmusSequence`` subclasses since that chain only
-      applies to their source-order method sequence.
+    ``_PREREQ_STATE`` — ``{(class, class-vector-combo): {method: passed}}``
+    consumed by the implicit LitmusSequence prereq chain. Populated only
+    for ``LitmusSequence`` subclasses since that chain only applies to
+    their source-order method sequence.
     """
     if call.when != "call":
         return
     passed = call.excinfo is None
-
-    outcomes = get_step_outcomes()
-    outcomes[item.name] = passed
-    outcomes[item.nodeid] = passed
 
     cls = getattr(item, "cls", None)
     if cls is None or not isinstance(cls, type) or not issubclass(cls, LitmusSequence):
@@ -1761,7 +1731,7 @@ def pytest_runtest_makereport(item, call):
 
 @pytest.hookimpl(tryfirst=True)
 def pytest_runtest_setup(item):
-    """Reset mock state, set per-step aliases/config, and skip tests if dependencies failed."""
+    """Reset mock state and set per-step aliases/config."""
     # Set per-step aliases and config from sequence
     step_aliases: dict[str, str] = {}
     step_config: dict[str, Any] = {}
@@ -1786,23 +1756,6 @@ def pytest_runtest_setup(item):
     for inst in get_active_instruments().values():
         if hasattr(inst, "reset_mock_state"):
             inst.reset_mock_state()
-
-    # Check skip-on-failure dependencies
-    marker = item.get_closest_marker("litmus_skip_on")
-    if marker is None:
-        return
-
-    dependencies = marker.args[0] if marker.args else []
-
-    outcomes = get_step_outcomes()
-    for dep in dependencies:
-        # Check by exact test name or nodeid
-        if dep in outcomes and not outcomes[dep]:
-            pytest.skip(f"Dependency '{dep}' failed")
-        # Also check partial matches (test name at end of nodeid)
-        for key, passed in outcomes.items():
-            if key.endswith(dep) and not passed:
-                pytest.skip(f"Dependency '{dep}' failed")
 
 
 @pytest.hookimpl(hookwrapper=True, trylast=True)
@@ -1897,41 +1850,6 @@ def _audit_traceability(logger_inst: Any, *, strict: bool) -> None:
             "--strict-traceability: measurements missing required fields:\n  "
             + "\n  ".join(incomplete)
         )
-
-
-@pytest.hookimpl(tryfirst=True)
-def pytest_runtest_protocol(item, nextitem):
-    """Implement retry logic for tests with litmus_retry marker."""
-    marker = item.get_closest_marker("litmus_retry")
-    if marker is None:
-        return None  # Use default protocol
-
-    max_attempts = marker.kwargs.get("max_attempts", 3)
-    delay = marker.kwargs.get("delay", 0.0)
-
-    for attempt in range(max_attempts):
-        # Run the test
-        reports = runtestprotocol(item, nextitem=nextitem, log=False)
-
-        # Check if passed
-        call_report = next((r for r in reports if r.when == "call"), None)
-        if call_report and not call_report.failed:
-            # Test passed, report and exit
-            for report in reports:
-                item.ihook.pytest_runtest_logreport(report=report)
-            return True
-
-        # Test failed
-        if attempt < max_attempts - 1:
-            # More attempts remaining, sleep and retry
-            if delay > 0:
-                time.sleep(delay)
-        else:
-            # Final attempt failed, report failure
-            for report in reports:
-                item.ihook.pytest_runtest_logreport(report=report)
-
-    return True
 
 
 # ---------------------------------------------------------------------------

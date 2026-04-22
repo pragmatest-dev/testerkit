@@ -508,44 +508,42 @@ pytest tests/ \
 
 ## Markers
 
-### `@pytest.mark.litmus_retry`
+The plugin registers five Litmus markers. ``--strict-markers`` is on by
+default (set in ``pyproject.toml``), so typos fail collection.
 
-Retry failed tests automatically:
+### `@pytest.mark.litmus_vectors(**kwargs)`
 
-```python
-import pytest
+Parametrize vector inputs inline — an alternative to sidecar YAML. The
+kwargs become parametrize values. Stacks with ``@pytest.mark.parametrize``.
 
-@pytest.mark.litmus_retry(max_attempts=3, delay=0.5)
-@litmus_test
-def test_flaky_measurement(context, dmm):
-    return dmm.measure_dc_voltage()
-```
+### `@pytest.mark.litmus_limits(**kwargs)`
 
-| Parameter | Default | Description |
-|-----------|---------|-------------|
-| `max_attempts` | `3` | Maximum retry attempts |
-| `delay` | `0.0` | Delay in seconds between retries |
+Inject limits by measurement name. Values merge with sidecar ``limits:``;
+method-level markers override class-level markers by key.
 
-### `@pytest.mark.litmus_skip_on`
+### `@pytest.mark.litmus_spec(product)`
 
-Skip test if dependencies failed:
+Override the session-wide spec for this test. Loads the named product via
+``load_product`` and pushes a scoped ``SpecContext`` for the test body.
 
-```python
-import pytest
+### `@pytest.mark.litmus_mocks(**kwargs)`
 
-@litmus_test
-def test_power_on(context, psu):
-    psu.enable_output()
-    return psu.measure_voltage()
+Patch instrument methods/attrs for the scope of the test. Kwargs are
+``patch.object`` calls applied before the test body and unwound on
+teardown.
 
-@pytest.mark.litmus_skip_on(["test_power_on"])
-@litmus_test
-def test_output_voltage(context, dmm):
-    # Skipped if test_power_on failed
-    return dmm.measure_dc_voltage()
-```
+### `@pytest.mark.litmus_independent`
 
-Dependencies can be test function names or full node IDs.
+Skip prereq-chain propagation for this test — failure does not mark
+downstream tests as blocked.
+
+### Retry and dependency skipping
+
+For retries, use the ecosystem-standard
+``@pytest.mark.flaky(reruns=N, reruns_delay=T)`` from
+``pytest-rerunfailures`` (already a dependency). For explicit
+dependency-based skipping, install ``pytest-dependency`` and use
+``@pytest.mark.dependency(depends=["test_a"])``.
 
 ## Results
 
