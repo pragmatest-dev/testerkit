@@ -2,14 +2,16 @@
 
 from __future__ import annotations
 
+import functools
 import os
 import sys
 import time
 import warnings
-from collections.abc import Callable, Generator, Iterator
+from collections.abc import Callable, Generator, Iterator, Mapping
 from contextvars import ContextVar
 from pathlib import Path
 from typing import Any
+from unittest.mock import patch
 from uuid import UUID, uuid4
 
 import pytest
@@ -56,15 +58,26 @@ _active_limits_var: ContextVar[dict[str, Any]] = ContextVar("_active_limits")
 
 # --- Session-scoped getters (create-and-store on first access) ---
 #
-# Two patterns are used here:
+# Three ContextVar getter patterns are used in this module. Each getter
+# docstring states which one it follows; the convention is:
 #
-# 1. **Create-and-store** (session-scoped): First call creates a dict and
-#    stores it in the ContextVar. Callers mutate the returned dict in place.
-#    Cleanup sets the var to a fresh empty dict.
+# 1. **Create-and-store** (session-scoped dicts): First call creates a
+#    dict, stores it in the ContextVar, returns it. Callers mutate the
+#    returned dict in place. Cleanup sets the var to a fresh empty dict.
+#    (Examples: get_step_outcomes, get_active_instruments,
+#    get_instrument_records, get_test_node_aliases, get_test_node_configs.)
 #
-# 2. **Return throwaway** (per-test-scoped): First call returns a new empty
-#    dict WITHOUT storing it. This prevents stale state from leaking across
+# 2. **Return throwaway empty** (per-test dicts): First call returns a
+#    new empty dict WITHOUT storing it. Stale state cannot leak across
 #    tests — each test gets its own empty dict that is never persisted.
+#    The plugin's autouse fixtures set the dict at test start and clear
+#    on teardown. (Examples: get_current_step_aliases,
+#    get_current_step_config, get_active_limits.)
+#
+# 3. **Return None** (session singletons): The ContextVar holds a single
+#    object (or None) installed once per session by a setter. Getter
+#    returns None if not set. (Examples: get_active_spec_context,
+#    get_channel_store, get_event_store.)
 
 
 def get_step_outcomes() -> dict[str, bool]:
@@ -227,11 +240,12 @@ def set_channel_store(value: Any) -> None:
 
 
 def get_active_limits() -> dict[str, Any]:
-    """Return the currently-active limits dict (name -> Limit).
+    """Return throwaway empty; never stored. Stale state never leaks.
 
     Populated by the pytest_native plugin from the sidecar ``limits:``
-    block. Returns throwaway empty when unset so callers can treat the
-    'no sidecar' case uniformly.
+    block for the duration of one test and cleared on teardown, so the
+    'no sidecar' case surfaces as an empty dict rather than a lookup
+    error.
     """
     try:
         return _active_limits_var.get()
@@ -495,8 +509,15 @@ def pytest_configure(config):
         from litmus.store import load_station
 
         station_model = load_station(station_path)
-    except Exception:
-        # ValidationError, bad YAML, missing deps — don't crash pytest
+    except Exception as exc:
+        # ValidationError, bad YAML, missing deps — don't crash pytest,
+        # but surface the problem so a typo'd station path isn't silently
+        # ignored until the first instrument lookup fails.
+        warnings.warn(
+            f"Failed to load station config '{station_path}': {exc}. "
+            "Instrument fixtures will not be auto-registered.",
+            stacklevel=1,
+        )
         return
 
     if not station_model:
@@ -604,11 +625,27 @@ def pytest_sessionstart(session):
         config.option.dut_serial = serial
 
 
+def _join_marker_names(markers: Any, sort: bool = False) -> str | None:
+    """Return a comma-joined marker-name string, or ``None`` when empty.
+
+    Accepts anything iterable that yields objects with a ``.name``
+    attribute — ``item.iter_markers()`` or ``item.own_markers``.
+    ``sort=True`` produces deterministic output for the collection
+    manifest; leaving it unsorted preserves source order for code
+    identity (which is what the audit cares about).
+    """
+    if not markers:
+        return None
+    names = [m.name for m in markers]
+    if sort:
+        names.sort()
+    return ",".join(names) or None
+
+
 def pytest_collection_modifyitems(items: list[pytest.Item]) -> None:
     """Capture collected items so the step manifest can include not-started steps."""
     collected = []
     for item in items:
-        markers = ",".join(sorted(m.name for m in item.iter_markers()))
         parts = item.nodeid.rsplit("::", 1)
         func_name = parts[-1] if len(parts) > 1 else item.name
         mod = getattr(item, "module", None)
@@ -620,14 +657,14 @@ def pytest_collection_modifyitems(items: list[pytest.Item]) -> None:
                 module=mod.__name__ if mod else None,
                 class_name=cls.__name__ if cls else None,
                 function=func_name,
-                markers=markers or None,
+                markers=_join_marker_names(item.iter_markers(), sort=True),
             )
         )
     set_collected_items(collected)
 
 
 def pytest_sessionfinish(session, exitstatus):
-    """Clean up all session-scoped ContextVars."""
+    """Clean up all session-scoped ContextVars and module-level state."""
     set_step_outcomes({})
     set_active_instruments({})
     set_instrument_records({})
@@ -638,6 +675,8 @@ def pytest_sessionfinish(session, exitstatus):
     set_collected_items([])
     set_channel_store(None)
     set_event_store(None)
+    _PREV_CONTEXTS.clear()
+    _PREREQ_STATE.clear()
 
 
 def _load_project_defaults() -> ProjectConfig:
@@ -700,6 +739,13 @@ def pytest_addoption(parser):
         default=None,
         help="Test phase (development, validation, characterization, production). "
         "If not specified, auto-detects from git status.",
+    )
+    group.addoption(
+        "--strict-traceability",
+        action="store_true",
+        default=False,
+        help="Fail tests whose measurements lack required traceability fields "
+        "(run_id, step_name, and spec_ref/dut_pin when a spec is active).",
     )
 
 
@@ -1157,9 +1203,22 @@ def logger(request) -> Generator[TestRunLogger, None, None]:
     set_current_logger(None)
 
 
+@pytest.fixture(autouse=True)
+def _reseat_current_logger(logger: TestRunLogger) -> None:
+    """Re-install the session logger into the ContextVar for every test.
+
+    Pytester-based tests run an inner pytest session whose own teardown
+    clears ``set_current_logger(None)`` — and because ContextVars are
+    process-wide, that leaks into the outer session. Re-seating on every
+    test keeps ``get_current_logger()`` correct regardless.
+    """
+    set_current_logger(logger)
+
+
 def _emit_instrument_events(logger: TestRunLogger, event_log: Any) -> None:
     """Emit InstrumentConnected events from instrument records."""
     from litmus.data.events import InstrumentConnected
+    from litmus.execution.logger import instrument_cal_fields, instrument_info_fields
 
     records = get_instrument_records()
     for role, rec in records.items():
@@ -1171,22 +1230,8 @@ def _emit_instrument_events(logger: TestRunLogger, event_log: Any) -> None:
             driver=rec.driver,
             resource=rec.resource,
             protocol=rec.protocol,
-            manufacturer=rec.info.manufacturer if rec.info else None,
-            model=rec.info.model if rec.info else None,
-            serial=rec.info.serial if rec.info else None,
-            firmware=rec.info.firmware if rec.info else None,
-            cal_due=(
-                rec.calibration.due_date.isoformat()
-                if rec.calibration and rec.calibration.due_date
-                else None
-            ),
-            cal_last=(
-                rec.calibration.last_cal.isoformat()
-                if rec.calibration and rec.calibration.last_cal
-                else None
-            ),
-            cal_certificate=rec.calibration.certificate if rec.calibration else None,
-            cal_lab=rec.calibration.lab if rec.calibration else None,
+            **instrument_info_fields(rec),
+            **instrument_cal_fields(rec),
             mocked=rec.mocked,
         )
         event_log.emit(event)
@@ -1229,26 +1274,9 @@ def _extract_code_identity(item: Any) -> dict[str, str | None]:
     else:
         identity["file"] = None
 
-    own_markers = getattr(item, "own_markers", [])
-    if own_markers:
-        identity["markers"] = ",".join(m.name for m in own_markers)
-    else:
-        identity["markers"] = None
+    identity["markers"] = _join_marker_names(getattr(item, "own_markers", []))
 
     return identity
-
-
-@pytest.fixture
-def litmus_step(logger, request) -> Generator[None, None, None]:
-    """Create step for test function (use when NOT using @litmus_test).
-
-    Note: @litmus_test decorated tests already create their own steps.
-    Only use this fixture for tests that need step tracking without @litmus_test.
-    """
-    identity = _extract_code_identity(request.node)
-    logger.start_step(request.node.name, **identity)
-    yield
-    logger.end_step()
 
 
 @pytest.fixture(scope="session")
@@ -1700,12 +1728,16 @@ def fixture_manager(instruments, fixture_config, _route_manager) -> FixtureManag
 def pytest_runtest_makereport(item, call):
     """Record test outcomes for skip-on-failure and LitmusSequence prereq chain.
 
-    Two independent books:
+    Two independent books, each serving a different mechanism:
 
     * ``get_step_outcomes()`` — flat ``{name: passed, nodeid: passed}``
-      map consumed by the legacy ``litmus_skip_on`` marker.
+      map consumed by the legacy ``@pytest.mark.litmus_skip_on``
+      marker. Populated for every test so the marker can reference any
+      prior test by name, not just LitmusSequence methods.
     * ``_PREREQ_STATE`` — ``{(class, class-vector-combo): {method: passed}}``
-      consumed by the implicit LitmusSequence prereq chain.
+      consumed by the implicit LitmusSequence prereq chain. Populated
+      only for ``LitmusSequence`` subclasses since that chain only
+      applies to their source-order method sequence.
     """
     if call.when != "call":
         return
@@ -1790,10 +1822,15 @@ def pytest_runtest_call(item: pytest.Item) -> Iterator[None]:
     autouse fixtures is unspecified, which previously let
     ``log_measurement`` auto-create (and reset) the step before the
     wrapper could open it.
+
+    On a passing test, also runs :func:`_audit_traceability` to report
+    (or enforce, under ``--strict-traceability``) that every measurement
+    carries the required traceability fields.
     """
     logger_inst = get_current_logger()
     cls = getattr(item, "cls", None)
     is_seq = cls is not None and isinstance(cls, type) and issubclass(cls, LitmusSequence)
+    strict = bool(item.config.getoption("--strict-traceability"))
 
     if is_seq and logger_inst is not None:
         func = getattr(item, "function", None)
@@ -1807,6 +1844,7 @@ def pytest_runtest_call(item: pytest.Item) -> Iterator[None]:
         )
         try:
             yield
+            _audit_traceability(logger_inst, strict=strict)
         finally:
             logger_inst.end_step()
             logger_inst._step_seen_names.clear()
@@ -1817,8 +1855,48 @@ def pytest_runtest_call(item: pytest.Item) -> Iterator[None]:
         yield
         return
     yield
+    _audit_traceability(logger_inst, strict=strict)
     logger_inst._step_seen_names.clear()
     logger_inst._step_seen_repeatable.clear()
+
+
+def _audit_traceability(logger_inst: Any, *, strict: bool) -> None:
+    """Check the current step's measurements for traceability completeness.
+
+    Walks measurements recorded during the just-completed test and tags
+    each one with ``trace_completeness`` describing which required
+    fields were missing. In ``strict`` mode, raises ``AssertionError``
+    if any measurement is incomplete so the test fails.
+
+    Required fields:
+        * ``step_path`` — populated by the plugin's step wrapper.
+        * ``spec_ref`` OR ``dut_pin`` — only required when a product spec
+          is active for the session. Tests that don't declare a
+          ``--spec`` exercise the graceful-degradation path and are not
+          penalized for lacking pin/spec references.
+    """
+    steps = getattr(getattr(logger_inst, "test_run", None), "steps", None)
+    if not steps:
+        return
+    step = steps[-1]
+    spec_active = get_active_spec_context() is not None
+
+    incomplete: list[str] = []
+    for vec in step.vectors:
+        for m in vec.measurements:
+            missing: list[str] = []
+            if not m.step_path:
+                missing.append("step_path")
+            if spec_active and not m.spec_ref and not m.dut_pin:
+                missing.append("spec_ref/dut_pin")
+            if missing:
+                incomplete.append(f"{m.name}: missing {', '.join(missing)}")
+
+    if incomplete and strict:
+        raise AssertionError(
+            "--strict-traceability: measurements missing required fields:\n  "
+            + "\n  ".join(incomplete)
+        )
 
 
 @pytest.hookimpl(tryfirst=True)
@@ -2269,12 +2347,8 @@ def sync(logger):
 
 # Late imports: keep module top-level imports terse and avoid circular risk
 # with submodules that import this plugin.
-from collections.abc import Mapping  # noqa: E402
-from unittest.mock import patch  # noqa: E402
-
 import yaml  # noqa: E402
 
-from litmus.config.enums import Comparator  # noqa: E402
 from litmus.config.test_config import Limit  # noqa: E402
 from litmus.execution.expand import expand as _expand_sidecar_block  # noqa: E402
 from litmus.execution.vectors import Vector  # noqa: E402
@@ -2288,13 +2362,32 @@ class LitmusSequence:
     ``<module>.yaml`` file and expands class-level and method-level
     vectors into parametrize calls. Classes that do not inherit are left
     alone.
+
+    .. note::
+       Scheduled for deprecation once plain pytest classes become the
+       default (per pytest-native plan task #69, still pending). Until
+       then, the base class is the required opt-in for step lifecycle,
+       prereq chain, and mock installation — **not** emitting a
+       DeprecationWarning yet would mislead users, so the warning
+       lands together with the gating removal.
     """
+
+
+def _is_litmus_sequence(cls: Any) -> bool:
+    """Return True when ``cls`` is a :class:`LitmusSequence` subclass.
+
+    Centralizes the check used by every autouse fixture and hook that
+    currently gates on sequence membership, so the gate can be relaxed
+    or removed in one place when the plan retires the base class.
+    Accepts ``Any`` (not ``type | None``) so callers don't need to
+    narrow ``getattr(request, "cls", None)`` before passing it in.
+    """
+    return isinstance(cls, type) and issubclass(cls, LitmusSequence)
 
 
 def pytest_generate_tests(metafunc: pytest.Metafunc) -> None:
     """Load sidecar and parametrize class-/method-level vectors."""
-    cls = metafunc.cls
-    if cls is None or not issubclass(cls, LitmusSequence):
+    if not _is_litmus_sequence(metafunc.cls):
         return
 
     module_file = getattr(metafunc.module, "__file__", None)
@@ -2346,8 +2439,13 @@ def _direct_exposable_keys(metafunc: pytest.Metafunc, vectors: list[Vector]) -> 
     return sorted(k for k in all_keys if k in metafunc.fixturenames)
 
 
+@functools.cache
 def _load_sidecar(module_file: Path) -> dict[str, Any] | None:
     """Return parsed ``<module>.yaml`` next to ``module_file`` or ``None``.
+
+    Cached on ``module_file`` so a module with many parametrize cases
+    parses its YAML once per session instead of once per test. The
+    returned dict must be treated as read-only by callers.
 
     Sidecar shape::
 
@@ -2398,6 +2496,8 @@ def _parse_limits_block(
     raw: Mapping[str, Any] | None,
 ) -> dict[str, Limit | _LimitRef]:
     """Convert a sidecar ``limits:`` mapping into Limit / reference objects."""
+    from litmus.execution.logger import _limit_from_dict
+
     if not raw:
         return {}
     out: dict[str, Limit | _LimitRef] = {}
@@ -2407,22 +2507,7 @@ def _parse_limits_block(
         if "ref" in spec:
             out[name] = _LimitRef(spec["ref"])
             continue
-        cmp_raw = spec.get("comparator")
-        cmp_val = (
-            cmp_raw
-            if isinstance(cmp_raw, Comparator)
-            else Comparator(cmp_raw)
-            if cmp_raw is not None
-            else Comparator.GELE
-        )
-        out[name] = Limit(
-            low=spec.get("low"),
-            high=spec.get("high"),
-            nominal=spec.get("nominal"),
-            units=spec.get("units", ""),
-            spec_ref=spec.get("spec_ref"),
-            comparator=cmp_val,
-        )
+        out[name] = _limit_from_dict(spec)
     return out
 
 
@@ -2445,14 +2530,28 @@ def _resolve_limits(raw_map: dict[str, Limit | _LimitRef]) -> dict[str, Limit]:
 
 @pytest.fixture(scope="class")
 def _litmus_class_vec(request: pytest.FixtureRequest) -> Vector:
-    """Class-scoped indirect parametrize target for class-level vectors."""
+    """Indirect-parametrize target for class-level vectors.
+
+    Not for direct use. Populated by
+    :func:`pytest_generate_tests` when a sidecar declares class vectors —
+    the fixture is parametrized with ``indirect=True`` so pytest routes
+    the Vector here instead of to the test function. Class scope means
+    all method-level parametrize cases for one class vector run before
+    pytest moves to the next class vector.
+    """
     param = getattr(request, "param", None)
     return param if isinstance(param, Vector) else Vector()
 
 
 @pytest.fixture
 def _litmus_method_vec(request: pytest.FixtureRequest) -> Vector:
-    """Function-scoped indirect parametrize target for method-level vectors."""
+    """Indirect-parametrize target for method-level vectors.
+
+    Not for direct use. Populated by :func:`pytest_generate_tests`
+    when a sidecar declares method vectors (or when a test method uses
+    ``@pytest.mark.parametrize`` directly). Function-scoped so each
+    parametrize case gets its own Vector instance.
+    """
     param = getattr(request, "param", None)
     return param if isinstance(param, Vector) else Vector()
 
@@ -2467,9 +2566,12 @@ def context() -> Context:
 def spec(request: pytest.FixtureRequest) -> Any:
     """Spec context for ``spec.check(name, value)`` inside tests.
 
-    Resolves the ``spec_context`` session fixture. ``None`` if no
-    product spec is configured — ``spec.check`` then raises
-    ``AttributeError`` (explicit failure rather than silent skip).
+    Short public alias for the session-scoped ``spec_context`` fixture —
+    keeps test signatures terse (``def test_foo(self, spec, logger)``).
+    Returns ``None`` when no product spec is configured; a test that
+    attempts ``spec.check(...)`` in that mode raises ``AttributeError``
+    rather than silently skipping the check. Tests that want to tolerate
+    a missing spec must guard with ``if spec is not None`` explicitly.
     """
     return request.getfixturevalue("spec_context")
 
@@ -2488,27 +2590,19 @@ def _litmus_push_params(
     _litmus_class_vec: Vector,
     _litmus_method_vec: Vector,
 ) -> Iterator[None]:
-    """Merge class-/method-vector params into ``context`` for this test.
+    """Merge parametrize params into ``context`` for this test.
 
     Source-agnostic: reads ``request.node.callspec.params`` so that
-    native ``@pytest.mark.parametrize`` and ``@pytest.fixture(params=...)``
-    values populate ``context`` the same way sidecar vectors do.
+    sidecar vectors, native ``@pytest.mark.parametrize``, and
+    ``@pytest.fixture(params=...)`` all populate ``context`` the same
+    way. Applies to every test, not just ``LitmusSequence`` subclasses.
 
-    Chains ``Context._prev`` to the previous parametrize case of the
-    same ``(class, method)`` so ``context.changed("vin")`` behaves
-    like it did under the old ``@litmus_test`` vector loop.
+    For ``LitmusSequence`` subclasses only, also chains ``Context._prev``
+    to the previous parametrize case of the same ``(class, method)`` so
+    ``context.changed("vin")`` behaves like it did under the old
+    ``@litmus_test`` vector loop.
     """
-    cls = getattr(request, "cls", None)
-    if cls is None or not issubclass(cls, LitmusSequence):
-        yield
-        return
-
     ctx: Context = request.getfixturevalue("context")
-    method_name = request.node.function.__name__
-    key = (cls, method_name)
-    prev = _PREV_CONTEXTS.get(key)
-    if prev is not None:
-        ctx._prev = prev
 
     ctx.set_inputs(_litmus_class_vec.params())
     ctx.set_inputs(_litmus_method_vec.params())
@@ -2523,28 +2617,24 @@ def _litmus_push_params(
         if extras:
             ctx.set_inputs(extras)
 
-    try:
-        yield
-    finally:
-        _PREV_CONTEXTS[key] = ctx
-
-
-@pytest.fixture(autouse=True)
-def _litmus_push_limits(request: pytest.FixtureRequest) -> Iterator[None]:
-    """Push sidecar ``limits:`` into ``_active_limits_var`` for this test."""
     cls = getattr(request, "cls", None)
-    if cls is None or not issubclass(cls, LitmusSequence):
+    if _is_litmus_sequence(cls):
+        method_name = request.node.function.__name__
+        key = (cls, method_name)
+        prev = _PREV_CONTEXTS.get(key)
+        if prev is not None:
+            ctx._prev = prev
+        try:
+            yield
+        finally:
+            # Store the most recent run's context so the next parametrize
+            # case — or a @flaky retry of this same case — reads the
+            # latest state via ``context.changed(...)``. On retry the
+            # second attempt overwrites the first, which matches the
+            # "compare against whatever just ran" semantics callers expect.
+            _PREV_CONTEXTS[key] = ctx
+    else:
         yield
-        return
-
-    sidecar = _load_sidecar_for_node(request.node)
-    raw = _parse_limits_block(sidecar.get("limits") if sidecar else None)
-    resolved = _resolve_limits(raw)
-    set_active_limits(resolved)
-    try:
-        yield
-    finally:
-        set_active_limits({})
 
 
 def _load_sidecar_for_node(node: pytest.Item) -> dict[str, Any] | None:
@@ -2556,8 +2646,45 @@ def _load_sidecar_for_node(node: pytest.Item) -> dict[str, Any] | None:
     return _load_sidecar(Path(module_file))
 
 
+@pytest.fixture
+def _litmus_sidecar(request: pytest.FixtureRequest) -> dict[str, Any] | None:
+    """Function-scoped cache of the sidecar YAML for the current test.
+
+    Both ``_litmus_push_limits`` and ``_litmus_apply_mocks`` depend on
+    this fixture so the sidecar is parsed once per test, not twice.
+    Returns ``None`` when no sidecar file exists.
+    """
+    return _load_sidecar_for_node(request.node)
+
+
 @pytest.fixture(autouse=True)
-def _litmus_apply_mocks(request: pytest.FixtureRequest) -> Iterator[None]:
+def _litmus_push_limits(
+    request: pytest.FixtureRequest,
+    _litmus_sidecar: dict[str, Any] | None,
+) -> Iterator[None]:
+    """Push sidecar ``limits:`` into ``_active_limits_var`` for this test.
+
+    Runs for *every* collected test whose module has a sidecar —
+    ``LitmusSequence`` membership is **not** required here. A plain
+    ``def test_foo(logger)`` module-level function with a
+    ``test_foo.yaml`` sidecar gets the same auto-resolution via
+    ``logger.measure(name, value)``. The ``LitmusSequence`` gate only
+    guards the per-method mock install and the implicit prereq chain.
+    """
+    raw = _parse_limits_block(_litmus_sidecar.get("limits") if _litmus_sidecar else {})
+    resolved = _resolve_limits(raw)
+    set_active_limits(resolved)
+    try:
+        yield
+    finally:
+        set_active_limits({})
+
+
+@pytest.fixture(autouse=True)
+def _litmus_apply_mocks(
+    request: pytest.FixtureRequest,
+    _litmus_sidecar: dict[str, Any] | None,
+) -> Iterator[None]:
     """Install sidecar-declared mocks on fixtures around the test body.
 
     ``mocks:`` entries use dotted paths of the form ``<fixture>.<attr>``.
@@ -2565,13 +2692,11 @@ def _litmus_apply_mocks(request: pytest.FixtureRequest) -> Iterator[None]:
     ``request.getfixturevalue``); the attribute is replaced with a
     ``Mock(return_value=...)`` for the duration of the test.
     """
-    cls = getattr(request, "cls", None)
-    if cls is None or not issubclass(cls, LitmusSequence):
+    if not _is_litmus_sequence(getattr(request, "cls", None)):
         yield
         return
 
-    sidecar = _load_sidecar_for_node(request.node)
-    mocks = sidecar.get("mocks") if sidecar else None
+    mocks = _litmus_sidecar.get("mocks") if _litmus_sidecar else None
     if not mocks:
         yield
         return
@@ -2585,6 +2710,15 @@ def _litmus_apply_mocks(request: pytest.FixtureRequest) -> Iterator[None]:
             try:
                 target = request.getfixturevalue(fixture_name)
             except pytest.FixtureLookupError:
+                # Most commonly a typo in the sidecar key; warn so the
+                # user sees the misspelling instead of a silently-skipped
+                # mock that then fails the measurement on real hardware.
+                warnings.warn(
+                    f"mocks entry {dotted!r}: fixture {fixture_name!r} not "
+                    "found on this test — mock skipped. Check the sidecar "
+                    "key matches a fixture in the test's signature.",
+                    stacklevel=1,
+                )
                 continue
             p = patch.object(target, attr, return_value=return_value)
             p.start()
@@ -2618,7 +2752,14 @@ def _prereq_state_key(item: pytest.Item) -> tuple[Any, Any]:
 
 
 def _source_order_methods(cls: type) -> list[str]:
-    """Test method names on ``cls`` in class-body source order."""
+    """Test method names on ``cls`` in class-body source order.
+
+    Walks ``cls.__dict__`` only (which preserves insertion order under
+    PEP 520 / Python 3.7+) — not ``inspect.getmembers`` which sorts
+    alphabetically and defeats source-order chaining. Inherited test_*
+    methods from a parent class are intentionally skipped: the implicit
+    prereq chain is defined by the subclass's own declaration order.
+    """
     return [
         name for name, value in cls.__dict__.items() if callable(value) and name.startswith("test_")
     ]
@@ -2628,8 +2769,9 @@ def _source_order_methods(cls: type) -> list[str]:
 def _litmus_prereq_check(request: pytest.FixtureRequest) -> None:
     """Skip when the preceding method (source order) has failed this run."""
     cls = getattr(request, "cls", None)
-    if cls is None or not issubclass(cls, LitmusSequence):
+    if not _is_litmus_sequence(cls):
         return
+    assert isinstance(cls, type)  # narrowed by _is_litmus_sequence
     if request.node.get_closest_marker("independent") is not None:
         return
     func_name = request.node.function.__name__

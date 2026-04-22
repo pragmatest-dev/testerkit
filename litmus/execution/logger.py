@@ -5,7 +5,6 @@ from __future__ import annotations
 import hashlib
 import os
 import socket
-from collections.abc import Callable
 from contextvars import Token
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -55,6 +54,125 @@ INSTRUMENT_ARRAY_KEYS = (
     "instr_cal_lab",
     "instr_mocked",
 )
+
+
+def instrument_info_fields(rec: InstrumentRecord) -> dict[str, Any]:
+    """Return ``{manufacturer, model, serial, firmware}`` from a record.
+
+    Shared by :meth:`TestRunLogger.build_instrument_arrays` and the
+    plugin's ``InstrumentConnected`` event emitter — keeps the ``if
+    rec.info else None`` dance in one place.
+    """
+    info = rec.info
+    return {
+        "manufacturer": info.manufacturer if info else None,
+        "model": info.model if info else None,
+        "serial": info.serial if info else None,
+        "firmware": info.firmware if info else None,
+    }
+
+
+def _normalize_comparator(val: Any) -> Any:
+    """Coerce a comparator value (str / enum / None) to a :class:`Comparator`.
+
+    Shared by inline-kwarg resolution (:func:`_resolve_measurement_limit`)
+    and sidecar parsing (``plugin._parse_limits_block``) so both paths
+    produce identical enum values. ``None`` maps to the default ``GELE``.
+    """
+    # Inline import: breaks runtime cycle with plugin (which imports this module).
+    from litmus.config.enums import Comparator
+
+    if val is None:
+        return Comparator.GELE
+    if isinstance(val, Comparator):
+        return val
+    return Comparator(val)
+
+
+def _limit_from_dict(spec: Any, *, units_override: str | None = None) -> Limit:
+    """Build a :class:`Limit` from a mapping of low/high/nominal/units/comparator.
+
+    Shared by sidecar parsing (``plugin._parse_limits_block``) and any
+    future dict-shaped limit source. The ``units_override`` lets callers
+    prefer a caller-supplied unit when the dict itself has no ``units``.
+    """
+    from litmus.config.test_config import Limit as LimitModel
+
+    return LimitModel(
+        low=spec.get("low"),
+        high=spec.get("high"),
+        nominal=spec.get("nominal"),
+        units=spec.get("units", units_override or ""),
+        spec_ref=spec.get("spec_ref"),
+        comparator=_normalize_comparator(spec.get("comparator")),
+    )
+
+
+def _resolve_measurement_limit(
+    name: str,
+    inline_any: bool,
+    low: float | None,
+    high: float | None,
+    nominal: float | None,
+    comparator: Any,
+    limit: Limit | None,
+    units: str | None,
+) -> Limit | None:
+    """Return a Limit or None per :meth:`TestRunLogger.measure`'s resolution chain.
+
+    Chain order: inline low/high/nominal/comparator → explicit ``limit=``
+    → active sidecar limits → active spec context → unchecked (None).
+
+    Graceful degradation: both ``get_active_limits`` (sidecar) and
+    ``get_active_spec_context`` (product YAML) may be empty/None in
+    pure-pytest runs; in that case returns ``None`` and the measurement
+    is recorded unchecked. The spec read is a one-way ContextVar snapshot
+    at write time — not a runtime call on the spec module — so the
+    ``test → spec → logger`` data-flow rule from the plugin plan still
+    holds. Lives at module scope so it can be tested in isolation from
+    ``TestRunLogger`` instance state.
+    """
+    from litmus.execution.plugin import get_active_limits, get_active_spec_context
+
+    if inline_any:
+        return _limit_from_dict(
+            {
+                "low": low,
+                "high": high,
+                "nominal": nominal,
+                "units": units or "",
+                "comparator": comparator,
+            }
+        )
+    if limit is not None:
+        return limit
+
+    sidecar_limit = get_active_limits().get(name)
+    if sidecar_limit is not None:
+        return sidecar_limit
+
+    spec = get_active_spec_context()
+    if spec is not None:
+        try:
+            return spec.get_limit(name)
+        except KeyError:
+            return None
+
+    return None
+
+
+def instrument_cal_fields(rec: InstrumentRecord) -> dict[str, Any]:
+    """Return ``{cal_due, cal_last, cal_certificate, cal_lab}`` from a record.
+
+    Dates are ISO-formatted. None-safe over missing ``calibration``.
+    """
+    cal = rec.calibration
+    return {
+        "cal_due": cal.due_date.isoformat() if cal and cal.due_date else None,
+        "cal_last": cal.last_cal.isoformat() if cal and cal.last_cal else None,
+        "cal_certificate": cal.certificate if cal else None,
+        "cal_lab": cal.lab if cal else None,
+    }
 
 
 class DuplicateMeasurementError(AssertionError):
@@ -327,46 +445,26 @@ class TestRunLogger:
 
         All arrays are the same length and in the same order.
         """
-        _INSTR_FIELDS: list[tuple[str, Callable[[str, InstrumentRecord], Any]]] = [
-            ("instr_name", lambda role, rec: role),
-            ("instr_id", lambda role, rec: rec.instrument_id),
-            ("instr_driver", lambda role, rec: rec.driver),
-            ("instr_resource", lambda role, rec: rec.resource),
-            ("instr_protocol", lambda role, rec: rec.protocol),
-            ("instr_manufacturer", lambda role, rec: rec.info.manufacturer if rec.info else None),
-            ("instr_model", lambda role, rec: rec.info.model if rec.info else None),
-            ("instr_serial", lambda role, rec: rec.info.serial if rec.info else None),
-            ("instr_firmware", lambda role, rec: rec.info.firmware if rec.info else None),
-            (
-                "instr_cal_due",
-                lambda role, rec: (
-                    rec.calibration.due_date.isoformat()
-                    if rec.calibration and rec.calibration.due_date
-                    else None
-                ),
-            ),
-            (
-                "instr_cal_last",
-                lambda role, rec: (
-                    rec.calibration.last_cal.isoformat()
-                    if rec.calibration and rec.calibration.last_cal
-                    else None
-                ),
-            ),
-            (
-                "instr_cal_certificate",
-                lambda role, rec: (rec.calibration.certificate if rec.calibration else None),
-            ),
-            ("instr_cal_lab", lambda role, rec: rec.calibration.lab if rec.calibration else None),
-            ("instr_mocked", lambda role, rec: rec.mocked),
-        ]
-
-        arrays: dict[str, list] = {key: [] for key, _ in _INSTR_FIELDS}
+        arrays: dict[str, list] = {key: [] for key in INSTRUMENT_ARRAY_KEYS}
         for role, record in self._instruments.items():
             if roles is not None and role not in roles:
                 continue
-            for key, extract in _INSTR_FIELDS:
-                arrays[key].append(extract(role, record))
+            info = instrument_info_fields(record)
+            cal = instrument_cal_fields(record)
+            arrays["instr_name"].append(role)
+            arrays["instr_id"].append(record.instrument_id)
+            arrays["instr_driver"].append(record.driver)
+            arrays["instr_resource"].append(record.resource)
+            arrays["instr_protocol"].append(record.protocol)
+            arrays["instr_manufacturer"].append(info["manufacturer"])
+            arrays["instr_model"].append(info["model"])
+            arrays["instr_serial"].append(info["serial"])
+            arrays["instr_firmware"].append(info["firmware"])
+            arrays["instr_cal_due"].append(cal["cal_due"])
+            arrays["instr_cal_last"].append(cal["cal_last"])
+            arrays["instr_cal_certificate"].append(cal["cal_certificate"])
+            arrays["instr_cal_lab"].append(cal["cal_lab"])
+            arrays["instr_mocked"].append(record.mocked)
         return arrays
 
     def set_step_instruments(self, roles: list[str]) -> dict[str, list]:
@@ -529,6 +627,11 @@ class TestRunLogger:
             step.vectors.append(vector)
             self._vector_token = current_vector_var.set(vector)
 
+        # Stamp step_path from the resolved step so downstream consumers
+        # (traceability audit, parquet projection) don't see empty strings.
+        if not measurement.step_path:
+            measurement.step_path = step.step_path
+
         # Guard against double-append (harness.measure() appends before calling us)
         if measurement not in vector.measurements:
             vector.measurements.append(measurement)
@@ -663,14 +766,20 @@ class TestRunLogger:
             value: Measured value; ``None`` is recorded with no outcome.
             low, high, nominal, comparator: Inline limit fields —
                 convenient terse form for ad-hoc checks.
-            limit: Prebuilt Limit object (mutually exclusive with the
-                inline form; the inline form wins if both are given).
+            limit: Prebuilt Limit object. Mutually exclusive with the
+                inline form — passing both raises ``ValueError``.
             units: Unit string — overrides ``limit.units`` when present.
             allow_repeat: Opt-in for naive same-name loops; both the
                 first and subsequent calls must set it.
             dut_pin, instrument_name, instrument_resource,
-            instrument_channel, fixture_point, spec_ref: Traceability
-                overrides. Unset fields fall back to active ContextVars.
+            instrument_channel, fixture_point: Traceability metadata
+                written straight onto the Measurement. No ambient
+                fallback today — callers (typically ``spec.check``)
+                supply these explicitly.
+            spec_ref: Override for the spec reference. When omitted,
+                falls back to the resolved limit's ``spec_ref`` (which
+                ``derive_limit`` populates with characteristic id plus
+                any condition suffix).
 
         Returns:
             The :class:`Measurement` created and logged.
@@ -685,9 +794,17 @@ class TestRunLogger:
                 "measure(): pass either inline low/high/nominal/comparator or limit=, not both"
             )
 
-        resolved_limit = self._resolve_limit(
+        resolved_limit = _resolve_measurement_limit(
             name, inline_any, low, high, nominal, comparator, limit, units
         )
+
+        # Ensure a step exists *before* the dedup check — otherwise the
+        # check runs against stale state and ``start_step`` (auto-called
+        # from ``log_measurement``) would then reset ``_step_seen_names``,
+        # silently swallowing a real duplicate. Pytest always opens a step
+        # around the test body; this guard is for non-pytest callers.
+        if current_step_var.get() is None:
+            self.start_step(name)
 
         # Dedup check against per-step seen_names
         self._guard_duplicate(name, allow_repeat)
@@ -732,70 +849,21 @@ class TestRunLogger:
         self.log_measurement(measurement)
         return measurement
 
-    def _resolve_limit(
-        self,
-        name: str,
-        inline_any: bool,
-        low: float | None,
-        high: float | None,
-        nominal: float | None,
-        comparator: Any,
-        limit: Limit | None,
-        units: str | None,
-    ) -> Limit | None:
-        """Return a Limit or None per the resolution chain documented on ``measure``."""
-        from litmus.config.enums import Comparator
-        from litmus.config.test_config import Limit as LimitModel
-
-        if inline_any:
-            cmp_val: Comparator
-            if comparator is None:
-                cmp_val = Comparator.GELE
-            elif isinstance(comparator, Comparator):
-                cmp_val = comparator
-            else:
-                cmp_val = Comparator(comparator)
-            return LimitModel(
-                low=low,
-                high=high,
-                nominal=nominal,
-                units=units or "",
-                comparator=cmp_val,
-            )
-        if limit is not None:
-            return limit
-
-        # Sidecar-pushed limits
-        try:
-            from litmus.execution.plugin import get_active_limits
-
-            sidecar_limit = get_active_limits().get(name)
-            if sidecar_limit is not None:
-                return sidecar_limit
-        except ImportError:
-            pass
-
-        # Active spec context
-        try:
-            from litmus.execution.plugin import get_active_spec_context
-
-            spec = get_active_spec_context()
-            if spec is not None:
-                try:
-                    return spec.get_limit(name)
-                except KeyError:
-                    return None
-        except ImportError:
-            pass
-
-        return None
-
     def _guard_duplicate(self, name: str, allow_repeat: bool) -> None:
         """Raise :class:`DuplicateMeasurementError` on same-name double-write.
 
         Each step tracks names that have been written. A second write
         with the same name is an error unless both the first and second
         call opt in via ``allow_repeat=True``.
+
+        Typical causes when this fires:
+
+        - ``spec.check(name, ...)`` and ``logger.measure(name, ...)`` on
+          the same name — ``spec.check`` calls ``measure`` internally,
+          so the two are redundant.
+        - An inner-loop streaming pattern that forgot ``allow_repeat=True``.
+        - Two independent ``logger.measure`` calls accidentally sharing
+          a name; rename one or split into separate steps.
         """
         if name in self._step_seen_names:
             first_was_repeatable = name in self._step_seen_repeatable
@@ -803,11 +871,9 @@ class TestRunLogger:
                 step = current_step_var.get()
                 step_label = step.name if step else "<no-step>"
                 raise DuplicateMeasurementError(
-                    f"Measurement {name!r} already recorded in step "
-                    f"{step_label!r}. spec.check() calls logger.measure() "
-                    "internally — call one, not both. For a genuine "
-                    "inner-loop stream, pass allow_repeat=True on every "
-                    "call (or use logger.series())."
+                    f"Measurement {name!r} already recorded in step {step_label!r}. "
+                    "Each measurement name must be unique within a step; pass "
+                    "allow_repeat=True on every call when streaming samples."
                 )
         else:
             self._step_seen_names.add(name)

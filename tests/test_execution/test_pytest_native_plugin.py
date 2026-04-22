@@ -338,6 +338,50 @@ def test_prereq_chain_first_method_always_runs(pytester: pytest.Pytester) -> Non
     result.assert_outcomes(passed=2)
 
 
+def test_prereq_chain_collapses_method_level_parametrize(pytester: pytest.Pytester) -> None:
+    """A single parametrize case failure on ``test_a`` gates **all** of ``test_b``.
+
+    ``_prereq_state_key`` intentionally omits ``_litmus_method_vec`` from
+    its key so method-level cases share one pass/fail entry per (class,
+    class-vector). This guards that contract: if ``test_a[4.5]`` fails
+    and ``test_a[5.0]`` would pass, ``test_b`` still sees the prereq as
+    failed and skips every one of its parametrize cases.
+    """
+    _write_sequence(
+        pytester,
+        test_body=textwrap.dedent(
+            """
+            from litmus.execution.plugin import LitmusSequence
+
+            class TestSeq(LitmusSequence):
+                def test_a(self, context):
+                    vin = context.get_in("vin")
+                    assert vin != 4.5, "intentional failure at vin=4.5"
+
+                def test_b(self, context):
+                    assert True
+            """
+        ),
+        vectors_yaml=textwrap.dedent(
+            """
+            methods:
+              test_a:
+                list:
+                  - {vin: 4.5}
+                  - {vin: 5.0}
+              test_b:
+                list:
+                  - {vin: 4.5}
+                  - {vin: 5.0}
+            """
+        ),
+    )
+    result = pytester.runpytest("-v")
+    # test_a[4.5] fails, test_a[5.0] passes. Prereq collapses across cases,
+    # so both test_b[4.5] and test_b[5.0] skip.
+    result.assert_outcomes(passed=1, failed=1, skipped=2)
+
+
 def test_prereq_chain_independent_marker_opts_out(pytester: pytest.Pytester) -> None:
     pytester.makeini(
         textwrap.dedent(

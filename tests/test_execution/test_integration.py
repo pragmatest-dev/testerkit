@@ -2,6 +2,7 @@
 
 from litmus.data.models import Outcome
 from litmus.execution.decorators import measure
+from litmus.execution.plugin import LitmusSequence
 from litmus.instruments import Mock
 from litmus.models.config import Limit
 
@@ -33,10 +34,14 @@ class FakeDMM:
         pass
 
 
-class TestFullFlow:
-    """Integration tests using mock instruments."""
+class TestFullFlow(LitmusSequence):
+    """Integration tests using mock instruments.
 
-    def test_measure_with_mocked_dmm(self, logger, litmus_step):
+    Inheriting ``LitmusSequence`` triggers the plugin's per-method step
+    lifecycle — each ``test_*`` runs inside its own logger step.
+    """
+
+    def test_measure_with_mocked_dmm(self, logger):
         """Integration test: measure with limit check, log to parquet."""
         limit = Limit(low=4.5, high=5.5, units="V")
 
@@ -50,7 +55,7 @@ class TestFullFlow:
             assert result.outcome == Outcome.PASS
             assert result.value == 5.0
 
-    def test_multiple_measurements(self, logger, litmus_step):
+    def test_multiple_measurements(self, logger):
         """Test multiple measurements in a single step."""
         voltage_limit = Limit(low=4.5, high=5.5, units="V")
         current_limit = Limit(low=0.05, high=0.15, units="A")
@@ -71,7 +76,7 @@ class TestFullFlow:
             assert v_result.outcome == Outcome.PASS
             assert i_result.outcome == Outcome.PASS
 
-    def test_measurement_failure(self, logger, litmus_step):
+    def test_measurement_failure(self, logger):
         """Test that measurement failure is properly logged."""
         limit = Limit(low=4.5, high=5.5, units="V")
 

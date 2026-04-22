@@ -116,7 +116,14 @@ def measure(
             # Execute measurement function
             value = func(*args, **kwargs)
 
-            # Build measurement
+            # Build measurement. Comparator is stringified to match
+            # ``logger.measure`` so a Limit produces the same row shape
+            # regardless of which code path logged it.
+            cmp_raw = getattr(limit, "comparator", None) if limit else None
+            cmp_str: str | None = None
+            if cmp_raw is not None:
+                cmp_str = str(cmp_raw.value) if hasattr(cmp_raw, "value") else str(cmp_raw)
+
             measurement = Measurement(
                 name=name or func.__name__,
                 value=float(value) if value is not None else None,
@@ -124,6 +131,7 @@ def measure(
                 low_limit=limit.low if limit else None,
                 high_limit=limit.high if limit else None,
                 nominal=limit.nominal if limit else None,
+                comparator=cmp_str,
                 spec_ref=limit.spec_ref if limit else None,
             )
 
@@ -166,6 +174,10 @@ def _resolve_test_config(
     """Resolve test config from sequence step, file, or inline decorator.
 
     Resolution: step config > sequence default > decorator default.
+
+    Called only by the ``@litmus_test`` wrapper. Pytest-native tests use
+    the sidecar YAML + markers pipeline (see ``plugin._parse_limits_block``
+    and ``plugin._litmus_push_limits``) instead — not this function.
     """
     from pathlib import Path
 
@@ -333,6 +345,15 @@ def litmus_test(
             if harness is None:
                 harness = get_current_harness()
             if harness is None:
+                # Inline imports break the runtime cycle: plugin imports decorators
+                # at module load for ``set_current_logger``/``get_current_logger``;
+                # importing plugin here only fires when @litmus_test actually runs.
+                from litmus.execution.plugin import (
+                    get_active_spec_context,
+                    get_channel_store,
+                    get_instrument_records,
+                )
+
                 (
                     resolved_config,
                     resolved_limits,
@@ -351,8 +372,6 @@ def litmus_test(
                 # Set per-step instrument arrays on the logger
                 _logger = get_current_logger()
                 if _logger is not None:
-                    from litmus.execution.plugin import get_instrument_records
-
                     step_roles = [
                         name
                         for name in get_instrument_records()
@@ -361,17 +380,13 @@ def litmus_test(
                     if step_roles:
                         _logger.set_step_instruments(step_roles)
 
-                # Detect mock mode by checking if instruments have set_mock_value
-                using_mocks = any(
-                    hasattr(inst, "set_mock_value") for inst in (instruments_fixture or {}).values()
-                )
-
-                # Get spec_context for spec-driven limit resolution (ref:)
-                from litmus.execution.plugin import get_active_spec_context
+                # Mock mode is authoritative on the session-level InstrumentRecord
+                # (populated by ``--mock-instruments`` / ``LITMUS_MOCK_INSTRUMENTS``).
+                # Don't sniff instrument instances — that couples the decorator to
+                # the Mock subclass's internal interface.
+                using_mocks = any(rec.mocked for rec in get_instrument_records().values())
 
                 spec_ctx = kwargs.get("spec_context") or get_active_spec_context()
-
-                from litmus.execution.plugin import get_channel_store
 
                 harness = TestHarness(
                     config=resolved_config,

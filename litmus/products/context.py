@@ -90,10 +90,6 @@ class SpecContext:
         product = load_product(Path(spec_path))
         return cls(product, fixture, guardband_pct)
 
-    def get_characteristic(self, char_id: str) -> ProductCharacteristic | None:
-        """Get a characteristic by ID."""
-        return self.product.characteristics.get(char_id)
-
     def get_limit(
         self,
         char_id: str,
@@ -233,6 +229,13 @@ class SpecContext:
         if logger is None:
             return None
 
+        # Deliberately does NOT pass allow_repeat. spec.check is for
+        # characteristic assertions, not streaming — two spec.check calls
+        # on the same name within one step are always an error.
+        # spec_ref is intentionally omitted so the richer string built by
+        # ``derive_limit`` (e.g. ``"datasheet_ref @ temperature=25"``) is
+        # preserved — overriding with a bare ``name`` would erase the
+        # condition suffix that makes the reference traceable.
         measurement = logger.measure(
             name=name,
             value=value,
@@ -240,17 +243,25 @@ class SpecContext:
             dut_pin=pin_info.get("dut_pin"),
             fixture_point=pin_info.get("fixture_point"),
             instrument_channel=pin_info.get("instrument_channel"),
-            spec_ref=name,
         )
         _raise_if_failed(measurement)
         return measurement
 
     def check_measurement(self, measurement: Measurement) -> Measurement:
-        """Re-check an already-persisted measurement; raise on FAIL.
+        """Raise ``AssertionError`` when an already-persisted measurement FAILED.
 
         Escape hatch for the rare case where a caller logged a
-        measurement directly and now wants the spec-driven assertion
-        semantics without producing a second row.
+        measurement directly (e.g. via ``logger.measure``) and now wants
+        spec-driven assertion semantics without producing a second row.
+
+        Contract:
+        - Does **not** re-log. Pair it with exactly one prior
+          ``logger.measure`` call for ``measurement``.
+        - Do **not** call both ``spec.check(name, value)`` and
+          ``spec.check_measurement(m)`` on the same measurement in one
+          step — that's the duplicate-name scenario that
+          :class:`DuplicateMeasurementError` guards against on the
+          logger side, but this method does not enforce it.
         """
         _raise_if_failed(measurement)
         return measurement
