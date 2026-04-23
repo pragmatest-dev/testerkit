@@ -129,7 +129,11 @@ def get_current_step_aliases() -> dict[str, str]:
 
 
 def get_current_step_config() -> dict[str, Any]:
-    """Return throwaway empty; never stored. Stale state never leaks."""
+    """Return the current step config; empty dict when unset.
+
+    Set per-test in ``pytest_runtest_setup``; each new test overwrites
+    the value so stale config from a prior test cannot leak through.
+    """
     try:
         return _current_step_config_var.get()
     except LookupError:
@@ -886,6 +890,8 @@ def _find_format_transport_callback(
 
         config = load_project_config()
     except Exception:
+        # No litmus.yaml, YAML parse error, or schema mismatch — transport
+        # is an opt-in feature so missing config means "skip transport".
         return None
     for output_cfg in config.outputs:
         if output_cfg.format == format_name and output_cfg.transport:
@@ -1879,6 +1885,8 @@ def _is_orchestrator_mode(config) -> bool:
         fc = load_fixture(Path(fixture_path))
         return fc.is_multi_slot
     except Exception:
+        # Missing or invalid fixture file — fall back to single-slot mode
+        # and let the normal config-loading path surface the real error.
         return False
 
 
@@ -2286,9 +2294,10 @@ def pytest_generate_tests(metafunc: pytest.Metafunc) -> None:
     sidecar = _load_sidecar(Path(module_file)) if module_file is not None else None
     vectors_block = (sidecar.get("vectors") if sidecar else None) or {}
 
-    class_block = vectors_block.get("class") or _vectors_marker_block(
-        metafunc.cls, metafunc.definition, scope="class"
-    )
+    class_block = vectors_block.get("class")
+    if not class_block:
+        class_kwargs = _vectors_marker_kwargs(metafunc.cls, metafunc.definition, scope="class")
+        class_block = {"product": class_kwargs} if class_kwargs else None
     if class_block:
         class_vectors = _expand_sidecar_block(class_block)
         if class_vectors:
@@ -2301,9 +2310,10 @@ def pytest_generate_tests(metafunc: pytest.Metafunc) -> None:
             )
 
     methods_block = vectors_block.get("methods") or {}
-    method_cfg = methods_block.get(metafunc.function.__name__) or _vectors_marker_block(
-        metafunc.cls, metafunc.definition, scope="method"
-    )
+    method_cfg = methods_block.get(metafunc.function.__name__)
+    if method_cfg is None:
+        method_kwargs = _vectors_marker_kwargs(metafunc.cls, metafunc.definition, scope="method")
+        method_cfg = {"product": method_kwargs} if method_kwargs else None
     if method_cfg is not None:
         method_vectors = _expand_sidecar_block(method_cfg)
         if method_vectors:
@@ -2318,35 +2328,46 @@ def pytest_generate_tests(metafunc: pytest.Metafunc) -> None:
             )
 
 
-def _vectors_marker_block(
+def _markers_named(target: Any, marker_name: str) -> list[pytest.Mark]:
+    """Return every marker named ``marker_name`` attached to ``target``.
+
+    Accepts either a class (reads ``pytestmark``) or a test node (reads
+    ``own_markers``). Returns an empty list when ``target`` is ``None``.
+    Callers decide merge order: class-level markers are typically merged
+    in reverse (closest to the class definition wins), while method-level
+    own_markers are already ordered with the outermost decorator first.
+    """
+    if target is None:
+        return []
+    source = (
+        getattr(target, "pytestmark", []) or []
+        if isinstance(target, type)
+        else getattr(target, "own_markers", [])
+    )
+    return [m for m in source if getattr(m, "name", None) == marker_name]
+
+
+def _vectors_marker_kwargs(
     cls: type | None,
     node: pytest.Item | pytest.Collector,
     *,
     scope: str,
-) -> dict[str, Any] | None:
+) -> dict[str, Any]:
     """Read a ``@pytest.mark.litmus_vectors(**kwargs)`` at the given scope.
 
-    ``scope="class"`` reads the marker from ``cls``; ``scope="method"``
-    reads the marker attached directly to the test function via
-    ``node.own_markers``. Returns a product-style block, or ``None`` if
-    no marker is present.
+    ``scope="class"`` reads the marker from ``cls`` (merging all matching
+    markers with the last-written winning per key); ``scope="method"``
+    reads the first matching marker on the test function itself. Returns
+    a (possibly empty) kwargs dict — callers wrap it in a product block.
     """
     if scope == "class":
-        if cls is None:
-            return None
-        kwargs: dict[str, Any] = {}
-        for marker in reversed(getattr(cls, "pytestmark", []) or []):
-            if getattr(marker, "name", None) == "litmus_vectors":
-                kwargs.update(marker.kwargs)
-        return {"product": kwargs} if kwargs else None
-
+        merged: dict[str, Any] = {}
+        for marker in reversed(_markers_named(cls, "litmus_vectors")):
+            merged.update(marker.kwargs)
+        return merged
     if scope == "method":
-        own = getattr(node, "own_markers", [])
-        for marker in own:
-            if getattr(marker, "name", None) == "litmus_vectors":
-                return {"product": dict(marker.kwargs)}
-        return None
-
+        markers = _markers_named(node, "litmus_vectors")
+        return dict(markers[0].kwargs) if markers else {}
     raise ValueError(f"scope must be 'class' or 'method'; got {scope!r}")
 
 
@@ -2633,19 +2654,14 @@ def _limits_marker_kwargs(
     scope: str,
 ) -> dict[str, Any]:
     """Read ``@pytest.mark.litmus_limits(**kwargs)`` at the given scope."""
-    if target is None:
-        return {}
+    markers = _markers_named(target, "litmus_limits")
     if scope == "class":
         merged: dict[str, Any] = {}
-        for marker in reversed(getattr(target, "pytestmark", []) or []):
-            if getattr(marker, "name", None) == "litmus_limits":
-                merged.update(marker.kwargs)
+        for marker in reversed(markers):
+            merged.update(marker.kwargs)
         return merged
     if scope == "method":
-        for marker in getattr(target, "own_markers", []):
-            if getattr(marker, "name", None) == "litmus_limits":
-                return dict(marker.kwargs)
-        return {}
+        return dict(markers[0].kwargs) if markers else {}
     raise ValueError(f"scope must be 'class' or 'method'; got {scope!r}")
 
 
@@ -2657,14 +2673,17 @@ def _spec_marker_product(
 
     Method marker takes precedence over class marker. Returns ``None``
     when no marker is present.
+
+    Unlike ``litmus_vectors``/``litmus_limits``/``litmus_mocks`` which
+    merge across matching markers, ``litmus_spec`` is singular per test:
+    the first matching marker short-circuits the search (method first,
+    then class), so stacking multiple spec markers is unsupported.
     """
-    for marker in getattr(node, "own_markers", []):
-        if getattr(marker, "name", None) == "litmus_spec":
-            return marker.kwargs.get("product")
-    if cls is not None:
-        for marker in reversed(getattr(cls, "pytestmark", []) or []):
-            if getattr(marker, "name", None) == "litmus_spec":
-                return marker.kwargs.get("product")
+    method_markers = _markers_named(node, "litmus_spec")
+    if method_markers:
+        return method_markers[0].kwargs.get("product")
+    for marker in reversed(_markers_named(cls, "litmus_spec")):
+        return marker.kwargs.get("product")
     return None
 
 
@@ -2737,16 +2756,15 @@ def _mocks_marker_entries(
             if not isinstance(payload, Mapping):
                 raise TypeError("@pytest.mark.litmus_mocks(...) positional arg must be a mapping")
             return dict(payload)
+        # pytest always provides ``marker.kwargs`` as a ``dict`` — no
+        # validation needed in the kwargs branch.
         return dict(marker.kwargs)
 
     merged: dict[str, Any] = {}
-    if cls is not None:
-        for marker in reversed(getattr(cls, "pytestmark", []) or []):
-            if getattr(marker, "name", None) == "litmus_mocks":
-                merged.update(_read(marker))
-    for marker in getattr(node, "own_markers", []):
-        if getattr(marker, "name", None) == "litmus_mocks":
-            merged.update(_read(marker))
+    for marker in reversed(_markers_named(cls, "litmus_mocks")):
+        merged.update(_read(marker))
+    for marker in _markers_named(node, "litmus_mocks"):
+        merged.update(_read(marker))
     return merged
 
 
