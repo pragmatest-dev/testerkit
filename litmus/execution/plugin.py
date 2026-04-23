@@ -668,7 +668,7 @@ def _load_project_defaults() -> ProjectConfig:
         from litmus.store import load_project_config
 
         return load_project_config()
-    except Exception:
+    except Exception:  # noqa: BLE001 — any load failure falls back to defaults
         # Bad or missing litmus.yaml — don't crash pytest over config
         return ProjectConfig(name="litmus")
 
@@ -889,7 +889,7 @@ def _find_format_transport_callback(
         from litmus.store import load_project_config
 
         config = load_project_config()
-    except Exception:
+    except Exception:  # noqa: BLE001 — missing/invalid config means no transport
         # No litmus.yaml, YAML parse error, or schema mismatch — transport
         # is an opt-in feature so missing config means "skip transport".
         return None
@@ -1884,7 +1884,7 @@ def _is_orchestrator_mode(config) -> bool:
 
         fc = load_fixture(Path(fixture_path))
         return fc.is_multi_slot
-    except Exception:
+    except Exception:  # noqa: BLE001 — fall back to single-slot on any load error
         # Missing or invalid fixture file — fall back to single-slot mode
         # and let the normal config-loading path surface the real error.
         return False
@@ -2457,19 +2457,24 @@ def _parse_limits_block(
 
 
 def _resolve_limits(raw_map: dict[str, Limit | _LimitRef]) -> dict[str, Limit]:
-    """Resolve :class:`_LimitRef` entries against the active spec context."""
+    """Resolve :class:`_LimitRef` entries against the active spec context.
+
+    Literal :class:`Limit` entries pass through unchanged. ``_LimitRef``
+    entries look up the named characteristic on the active spec; when no
+    spec is active or the target is missing, the entry is dropped.
+    """
     resolved: dict[str, Limit] = {}
     spec = get_active_spec_context()
     for name, value in raw_map.items():
-        if isinstance(value, _LimitRef):
-            if spec is None:
-                continue
-            try:
-                resolved[name] = spec.get_limit(value.target)
-            except KeyError:
-                continue
-        else:
+        if not isinstance(value, _LimitRef):
             resolved[name] = value
+            continue
+        if spec is None:
+            continue
+        try:
+            resolved[name] = spec.get_limit(value.target)
+        except KeyError:
+            continue
     return resolved
 
 

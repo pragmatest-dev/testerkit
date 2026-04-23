@@ -11,6 +11,7 @@ from typing import TYPE_CHECKING, Any, overload
 
 from litmus.data.models import Measurement, Outcome, TestStep
 from litmus.execution.harness import Context
+from litmus.execution.logger import _stringify_comparator
 
 if TYPE_CHECKING:
     from litmus.execution.harness import TestHarness
@@ -118,13 +119,10 @@ def measure(
             # Execute measurement function
             value = func(*args, **kwargs)
 
-            # Build measurement. Comparator is stringified to match
+            # Comparator is stringified via the same helper as
             # ``logger.measure`` so a Limit produces the same row shape
             # regardless of which code path logged it.
-            cmp_raw = getattr(limit, "comparator", None) if limit else None
-            cmp_str: str | None = None
-            if cmp_raw is not None:
-                cmp_str = str(cmp_raw.value) if hasattr(cmp_raw, "value") else str(cmp_raw)
+            cmp_str = _stringify_comparator(getattr(limit, "comparator", None) if limit else None)
 
             measurement = Measurement(
                 name=name or func.__name__,

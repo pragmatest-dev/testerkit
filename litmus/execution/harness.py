@@ -1017,13 +1017,15 @@ class TestHarness:
             channel_store=self._channel_store,
         )
 
-        # Pre-populate with vector params (they become in_* columns)
+        # Seed the per-vector context with this vector's params; the
+        # ``.params`` property below then merges them with parent-chain
+        # values, which is why set() and read() look redundant but aren't.
         self._vector_context.set_params(vector.params())
 
         # Create TestVector record
         test_vector = TestVector(
             index=vector.get("_index", 0),
-            params=self._vector_context.params,  # Includes inherited values
+            params=self._vector_context.params,  # merged with parent chain
             attempt=self._attempt,
             max_attempts=self._retry.max_attempts,
             started_at=_utcnow(),

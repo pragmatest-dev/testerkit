@@ -72,6 +72,19 @@ def instrument_info_fields(rec: InstrumentRecord) -> dict[str, Any]:
     }
 
 
+def _stringify_comparator(cmp_raw: Any) -> str | None:
+    """Render a comparator value for the ``Measurement.comparator`` string field.
+
+    Accepts a :class:`Comparator` enum, a raw string, or ``None``. Enums
+    return their ``.value`` attribute; other non-``None`` values are
+    coerced via ``str(...)``. Shared by :meth:`TestRunLogger.measure` and
+    the ``@measure`` decorator so both paths produce the same row shape.
+    """
+    if cmp_raw is None:
+        return None
+    return str(cmp_raw.value) if hasattr(cmp_raw, "value") else str(cmp_raw)
+
+
 def _normalize_comparator(val: Any) -> Any:
     """Coerce a comparator value (str / enum / None) to a :class:`Comparator`.
 
@@ -825,9 +838,7 @@ class TestRunLogger:
                 meas_units = resolved_limit.units
             if meas_spec_ref is None:
                 meas_spec_ref = resolved_limit.spec_ref
-            cmp_raw = getattr(resolved_limit, "comparator", None)
-            if cmp_raw is not None:
-                cmp_str = str(cmp_raw.value) if hasattr(cmp_raw, "value") else str(cmp_raw)
+            cmp_str = _stringify_comparator(getattr(resolved_limit, "comparator", None))
 
         measurement = Measurement(
             name=name,
