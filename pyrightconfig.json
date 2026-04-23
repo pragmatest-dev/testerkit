@@ -2,6 +2,6 @@
   "venvPath": ".",
   "venv": ".venv",
   "include": ["litmus", "tests", "scripts"],
-  "exclude": ["demo"],
+  "exclude": ["examples"],
   "reportMissingImports": true
 }

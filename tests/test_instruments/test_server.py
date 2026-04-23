@@ -342,7 +342,7 @@ class TestPoolIntegration:
             record = InstrumentRecord(
                 role="dmm",
                 instrument_id="dmm",
-                driver="demo.drivers.DMM",
+                driver="examples.drivers.DMM",
                 resource="",
                 protocol="visa",
                 mocked=True,
@@ -383,7 +383,7 @@ class TestPoolIntegration:
         record = InstrumentRecord(
             role="dmm",
             instrument_id="dmm",
-            driver="demo.drivers.DMM",
+            driver="examples.drivers.DMM",
             resource="",
             protocol="visa",
             mocked=True,

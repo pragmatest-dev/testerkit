@@ -36,26 +36,24 @@ from litmus.mcp.tools import (
 from litmus.schema_export import SCHEMA_MAP
 
 
-def _load_demo_snippet(relative_path: str, max_lines: int = 40) -> str:
-    """Load a demo file as an example snippet.
+def _load_example_snippet(relative_path: str, max_lines: int = 40) -> str:
+    """Load an example file as a documentation snippet.
 
-    Reads from the installed package's demo/ directory so examples
+    Reads from the installed package's examples/ directory so examples
     always match the current code version.
     """
-    # demo/ is at repo root, same level as litmus/
-    demo_dir = Path(__file__).parent.parent.parent / "demo"
-    path = demo_dir / relative_path
+    examples_dir = Path(__file__).parent.parent.parent / "examples"
+    path = examples_dir / relative_path
     if not path.exists():
         return f"(example file {relative_path} not found)"
     lines = path.read_text().splitlines()
-    # Skip comment header, take first max_lines of content
     content_lines = []
     for line in lines:
         if not content_lines and line.startswith("#"):
-            continue  # skip leading comments
+            continue
         content_lines.append(line)
         if len(content_lines) >= max_lines:
-            content_lines.append("# ... (truncated, see demo/ for full file)")
+            content_lines.append("# ... (truncated, see examples/ for full file)")
             break
     return "\n".join(content_lines)
 
@@ -64,7 +62,7 @@ def _build_instructions() -> str:
     """Build MCP instructions dynamically.
 
     - Enum values come from the schema (single source of truth for structure)
-    - Examples come from demo/ files (single source of truth for usage)
+    - Examples come from examples/ files (single source of truth for usage)
     - Behavioral rules are literal strings
     """
     # Get enum values from the schema so instructions stay current
@@ -83,9 +81,9 @@ def _build_instructions() -> str:
     pin_role = defs.get("PinRole", {})
     role_values = pin_role.get("enum", [])
 
-    # Load examples from demo/ files (single source of truth)
-    product_example = _load_demo_snippet("products/power_board.yaml", max_lines=50)
-    station_example = _load_demo_snippet("stations/demo_station_001.yaml", max_lines=30)
+    # Load examples from examples/ files (single source of truth)
+    product_example = _load_example_snippet("products/power_board.yaml", max_lines=50)
+    station_example = _load_example_snippet("stations/demo_station_001.yaml", max_lines=30)
 
     return f"""\
 Litmus: Hardware test platform. Creates tests from datasheets.
@@ -137,7 +135,7 @@ Do NOT guess field names — if the schema doesn't have it, don't use it.
 - **Direction** enum: `{", ".join(dir_values)}`
 - **Pin roles**: `{", ".join(role_values) if role_values else "power, ground, signal, reference"}`
 
-## Examples (from demo/)
+## Examples (from examples/)
 
 ### Product Spec:
 ```yaml

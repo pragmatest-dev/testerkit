@@ -379,7 +379,7 @@ def show_add_instrument_dialog(
             form, "role"
         )
 
-        ui.input("Driver", placeholder="e.g. demo.drivers.DMM").classes("w-full").bind_value(
+        ui.input("Driver", placeholder="e.g. examples.drivers.DMM").classes("w-full").bind_value(
             form, "driver"
         )
 

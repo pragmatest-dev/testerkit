@@ -619,5 +619,5 @@ vectors:
 ## Questions?
 
 - Check existing tests in `tests/` for usage examples
-- The `demo/` directory has complete working examples
+- The `examples/` directory has complete working examples (three tiers: `01-bringup`, `02-station`, `03-profiles`)
 - Open an issue for design questions

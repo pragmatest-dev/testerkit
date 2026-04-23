@@ -6,8 +6,8 @@ This test verifies the complete datasheet-to-results workflow:
 3. Execute tests with spec-driven limits
 4. Verify results include full traceability (spec_ref, dut_pin, etc.)
 
-These tests verify BEHAVIOR, not specific values from demo specs.
-Demo specs can change freely without breaking these tests.
+These tests verify BEHAVIOR, not specific values from example specs.
+Example specs can change freely without breaking these tests.
 """
 
 from pathlib import Path
@@ -19,9 +19,10 @@ from litmus.data.models import Outcome
 from litmus.execution.harness import TestHarness
 from litmus.products.context import SpecContext
 
-# Path to demo specs (used for integration testing, not value assertions)
-SPEC_PATH = Path(__file__).parent.parent.parent / "demo" / "products" / "power_board.yaml"
-MINIMAL_SPEC_PATH = Path(__file__).parent.parent.parent / "demo" / "products" / "minimal_board.yaml"
+# Path to example specs (used for integration testing, not value assertions)
+_REPO_ROOT = Path(__file__).parent.parent.parent
+SPEC_PATH = _REPO_ROOT / "examples" / "products" / "power_board.yaml"
+MINIMAL_SPEC_PATH = _REPO_ROOT / "examples" / "products" / "minimal_board.yaml"
 
 
 class TestSpecContext:

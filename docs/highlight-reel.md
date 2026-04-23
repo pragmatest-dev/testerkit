@@ -169,20 +169,20 @@ id: demo_station_001
 name: Demo Test Station
 instruments:
   psu:
-    driver: demo.drivers.PSU
+    driver: examples.drivers.PSU
     resource: TCPIP::192.168.1.101::INSTR
     mock: true
     mock_config:
       measure_voltage: 5.0
       measure_current: 0.25
   dmm:
-    driver: demo.drivers.DMM
+    driver: examples.drivers.DMM
     resource: TCPIP::192.168.1.102::INSTR
     mock: true
     mock_config:
       measure_dc_voltage: 3.3
   eload:
-    driver: demo.drivers.ELoad
+    driver: examples.drivers.ELoad
     resource: TCPIP::192.168.1.103::INSTR
     mock: true
 ```
@@ -673,10 +673,10 @@ in a transparent proxy, and injects it as a pytest fixture.
 # stations/demo_station_001.yaml
 instruments:
   psu:
-    driver: demo.drivers.PSU
+    driver: examples.drivers.PSU
     resource: TCPIP::192.168.1.101::INSTR
   dmm:
-    driver: demo.drivers.DMM
+    driver: examples.drivers.DMM
     resource: TCPIP::192.168.1.102::INSTR
 ```
 
@@ -714,7 +714,7 @@ gets its own observer that understands its API conventions.
 ```yaml
 instruments:
   dmm:
-    driver: demo.drivers.DMM
+    driver: examples.drivers.DMM
     mock: true
     mock_config:
       measure_dc_voltage: 3.3

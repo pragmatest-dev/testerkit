@@ -604,7 +604,7 @@ def test_output_voltage(context, psu, dmm):
 def _create_bringup_files(path: Path) -> list[str]:
     """Create Tier 0/1 bringup scaffold: one test, one sidecar, no YAML layers.
 
-    Matches ``demo/bringup/`` shape. The conftest (mock instrument
+    Matches ``examples/01-bringup/`` shape. The conftest (mock instrument
     fixtures) is written by the main ``init_project`` flow; this
     function only adds the test + sidecar.
     """

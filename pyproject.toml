@@ -124,7 +124,7 @@ packages = ["litmus"]
 include = [
     "litmus",
     "tests",
-    "demo",
+    "examples",
     "docs",
     "schemas",
     "scripts",

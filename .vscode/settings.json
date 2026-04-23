@@ -9,7 +9,7 @@
     ],
     "sqltools.useNodeRuntime": true,
     "python.testing.pytestArgs": [
-        "demo"
+        "examples"
     ],
     "python.testing.unittestEnabled": false,
     "python.testing.pytestEnabled": true

@@ -181,7 +181,7 @@ if str(_ROOT) not in sys.path:
     sys.path.insert(0, str(_ROOT))
 ```
 
-Tests can now `from drivers import DMM`. No packaging ceremony. This is what `demo/advanced/conftest.py` does.
+Tests can now `from drivers import DMM`. No packaging ceremony. This is what `examples/03-profiles/conftest.py` does.
 
 **2. `pyproject.toml` package (stable).** Put drivers under `src/<project>/drivers/`, declare the project in `pyproject.toml`, and `uv sync`. Tests `from <project>.drivers import DMM`. More up-front work, but no `sys.path` surprises.
 

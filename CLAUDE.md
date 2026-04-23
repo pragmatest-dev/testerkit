@@ -55,7 +55,7 @@ Entity-aligned folders contain YAML configuration files. Code folders contain Py
 ## Documentation Updates
 
 - `docs/` has codebase descriptions and must be updated when implementing new features
-- `demo/` has working examples
+- `examples/` has three-tier working examples (01-bringup / 02-station / 03-profiles)
 - MCP tools and skills for AI workflows
 
 Do NOT bloat CLAUDE.md with implementation details — the AI can discover those from code.

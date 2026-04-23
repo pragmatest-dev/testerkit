@@ -4,13 +4,14 @@ __pycache__/
 *.egg-info/
 dist/
 /results/
-/demo/results/
+/examples/*/results/
 .ruff_cache/
 .pytest_cache/
 .coverage
 .claude/settings.local.json
 .tmp/
-demo/uv.lock
+examples/uv.lock
+examples/*/uv.lock
 dist/
 .playwright-mcp/
 report_*.html

@@ -110,7 +110,7 @@ def test_rail(dmm, verify):
 
 Rows land in parquet with `meas_value`, `meas_limit_low/high`, and `outcome` populated. Traceability columns (`meas_dut_pin`, `meas_instrument_channel`, `meas_net`, `meas_spec_ref`) stay null until you graduate to a station + product + fixture — at which point the test bodies don't change.
 
-See `demo/bringup/` for a runnable example.
+See `examples/01-bringup/` for a runnable example.
 
 ## Verify the Setup
 

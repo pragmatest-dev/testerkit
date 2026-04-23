@@ -229,7 +229,7 @@ def _show_add_instrument_dialog(type_options: dict, on_add: Callable):
                 )
                 driver_input = (
                     ui.input(
-                        placeholder="e.g., demo.drivers.DMM",
+                        placeholder="e.g., examples.drivers.DMM",
                         on_change=lambda e: inst_form.update({"driver": e.value}),
                     )
                     .props("outlined dense")

@@ -1,0 +1,80 @@
+id: demo_station_001
+name: Demo Test Station
+station_type: bench
+location: Virtual Lab
+description: Mock station for demonstrating Litmus capabilities
+instruments:
+  psu:
+    type: psu
+    driver: examples.drivers.PSU
+    resource: TCPIP::192.168.1.101::INSTR
+    catalog_ref: generic_psu
+    mock: true
+    description: Generic dual-output power supply
+    mock_config:
+      measure_voltage: 5.0
+      measure_current: 0.25
+      set_voltage: 5.0
+      set_current: 0.5
+  dmm:
+    type: dmm
+    driver: examples.drivers.DMM
+    resource: TCPIP::192.168.1.102::INSTR
+    catalog_ref: generic_dmm
+    mock: true
+    description: Generic digital multimeter
+    mock_config:
+      measure_voltage: 3.3
+      measure_dc_voltage: 3.3
+      measure_current: 0.0
+      measure_dc_current: 0.0
+      measure_resistance: 1000.0
+  eload:
+    type: eload
+    driver: examples.drivers.ELoad
+    resource: TCPIP::192.168.1.103::INSTR
+    catalog_ref: generic_eload
+    mock: true
+    description: Generic electronic load
+    mock_config:
+      measure_current: 0.5
+      measure_voltage: 3.3
+      set_current: 0.5
+  fast_dmm:
+    type: dmm
+    driver: examples.drivers.DMM
+    resource: TCPIP::192.168.1.105::INSTR
+    catalog_ref: generic_dmm
+    mock: true
+    description: Fast 4.5-digit DMM for quick screening
+    mock_config:
+      measure_voltage: 3.28
+      measure_dc_voltage: 3.28
+      measure_current: 0.0
+      measure_dc_current: 0.0
+      measure_resistance: 1000.0
+  scope:
+    type: scope
+    driver: examples.drivers.Scope
+    resource: TCPIP::192.168.1.104::INSTR
+    catalog_ref: generic_oscilloscope
+    mock: true
+    description: 4-channel oscilloscope for waveform capture
+    mock_config:
+      fetch_waveform:
+      - - 3.3
+        - 3.31
+        - 3.29
+        - 3.3
+        - 3.31
+      - 1.0e-05
+  matrix:
+    type: switch
+    driver: examples.drivers.SwitchMatrix
+    resource: TCPIP::192.168.1.106::INSTR
+    mock: true
+    description: 4x8 relay matrix for signal switching demo
+supported_phases:
+- validation
+- production
+- debug

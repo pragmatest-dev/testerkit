@@ -122,4 +122,4 @@ Least-invasive first. Each change keeps the old import path working.
   paths listed in **Stable public surface** above.
 - `uv run pyright` stays clean.
 - `uv run pytest` stays green.
-- External demo code (`demo/`) continues to work without changes.
+- Example projects (`examples/`) continue to work without changes.

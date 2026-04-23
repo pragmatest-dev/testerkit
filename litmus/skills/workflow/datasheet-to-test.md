@@ -153,7 +153,7 @@ Handle responses:
 - **Generic type** (e.g., "some DMM", "a power supply") → Use generic_dmm, generic_psu, etc.
 - **Nothing yet** → Use generics for all required types, explain this is for planning/mocking
 
-Generic instruments are in demo/catalog/:
+Generic instruments are in examples/catalog/:
 - generic_dmm, generic_psu, generic_oscilloscope, generic_eload
 
 These provide baseline capabilities sufficient for mocked testing and test development.
