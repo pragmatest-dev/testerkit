@@ -197,7 +197,7 @@ def test_something(context, psu, dmm, spec):
                dmm.measure_dc_voltage())
 ```
 
-**No hardcoded values in code.** Conditions come from `context` (populated by `litmus_vectors` markers, native `parametrize`, or sidecar YAML). Limits come from the product spec, markers, or sidecar — never inline asserts.
+**No hardcoded values in code.** Conditions come from `context` (populated by native `@pytest.mark.parametrize` or sidecar YAML). Limits come from the product spec, the `litmus_limits` marker, or sidecar — never inline asserts.
 
 For the full reference — markers, sidecar YAML, `context.changed()`, mocks, retries — see the [Writing Tests guide](guides/writing-tests.md).
 

@@ -5,7 +5,7 @@ Derive test limits and traceability from the product specification. The `spec` f
 ## The workflow
 
 1. Define the product YAML with typed characteristics, pins, and operating conditions
-2. Run with `--product=products/<name>.yaml` **or** `@pytest.mark.litmus_spec(product="...")`
+2. Run with `--product=products/<name>.yaml` (or set `default_product:` in `litmus.yaml` / active profile)
 3. Call `spec.check(name, value)` from the test body — everything else flows through
 
 ## Minimal example
@@ -39,10 +39,11 @@ characteristics:
 import pytest
 
 class TestPowerBoard:
-    @pytest.mark.litmus_vectors(temperature=[25, 85], load=[0.5, 1.0])
-    def test_output_voltage(self, context, dmm, spec, chamber, eload):
-        chamber.set_temperature(context.get_param("temperature"))
-        eload.set_current(context.get_param("load"))
+    @pytest.mark.parametrize("temperature", [25, 85])
+    @pytest.mark.parametrize("load", [0.5, 1.0])
+    def test_output_voltage(self, temperature, load, dmm, spec, chamber, eload):
+        chamber.set_temperature(temperature)
+        eload.set_current(load)
         spec.check("output_voltage", dmm.measure_dc_voltage())
 ```
 

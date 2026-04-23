@@ -12,15 +12,16 @@ Set up, measure, log. Three fixtures (`context`, `spec`, `logger`) do the work.
 ```python
 import pytest
 
-@pytest.mark.litmus_vectors([{"vin": 5.0}])
-@pytest.mark.litmus_mocks({"dmm.measure_dc_voltage": 3.3})
+@pytest.mark.parametrize("vin", [5.0])
 @pytest.mark.litmus_limits({
     "output_voltage": {
         "low": 3.234, "high": 3.366, "nominal": 3.3, "units": "V",
     }
 })
-def test_output_voltage_no_load(context, logger, psu: PSU, dmm: DMM):
-    psu.set_voltage(context.get_param("vin", 5.0))
+def test_output_voltage_no_load(vin, context, logger, psu: PSU, dmm: DMM, mocker):
+    mocker.patch.object(dmm, "measure_dc_voltage", return_value=3.3)
+
+    psu.set_voltage(vin)
     psu.set_current_limit(0.1)
     psu.enable_output()
 
@@ -44,16 +45,16 @@ no Python decoration.
 Call `logger.measure` once per measurement. Each gets checked against its own limit.
 
 ```python
-@pytest.mark.litmus_vectors([{"vin": 5.0, "load_current": 0.5}])
+@pytest.mark.parametrize("vin, load_current", [(5.0, 0.5)])
 @pytest.mark.litmus_limits({
     "input_power":  {"low": 0, "high": 5.0, "units": "W"},
     "output_power": {"low": 0, "high": 3.0, "units": "W"},
     "efficiency":   {"low": 60, "high": 100, "units": "%"},
 })
-def test_power_analysis(context, logger, psu: PSU, dmm: DMM, eload: ELoad):
-    psu.set_voltage(context.get_param("vin", 5.0))
+def test_power_analysis(vin, load_current, logger, psu: PSU, dmm: DMM, eload: ELoad):
+    psu.set_voltage(vin)
     psu.enable_output()
-    eload.set_current(context.get_param("load_current", 0.5))
+    eload.set_current(load_current)
     eload.enable()
 
     v_in = float(psu.measure_voltage())
@@ -74,42 +75,26 @@ def test_power_analysis(context, logger, psu: PSU, dmm: DMM, eload: ELoad):
 25 vectors from a Cartesian product. Only reconfigure the PSU when VIN actually changes.
 
 ```python
-@pytest.mark.litmus_vectors({
-    "expand": "product",
-    "vin": [4.5, 4.75, 5.0, 5.25, 5.5],
-    "load_current": [0.1, 0.3, 0.5, 0.7, 0.8],
-})
+@pytest.mark.parametrize("vin", [4.5, 4.75, 5.0, 5.25, 5.5])
+@pytest.mark.parametrize("load_current", [0.1, 0.3, 0.5, 0.7, 0.8])
 @pytest.mark.litmus_limits({
     "output_voltage": {"low": 3.1, "high": 3.5, "nominal": 3.3, "units": "V"}
 })
-def test_load_sweep(context, logger, psu: PSU, dmm: DMM, eload: ELoad):
+def test_load_sweep(vin, load_current, context, logger, psu: PSU, dmm: DMM, eload: ELoad):
     if context.changed("vin"):          # only when VIN changes
-        psu.set_voltage(context.params["vin"])
+        psu.set_voltage(vin)
         psu.enable_output()
 
-    eload.set_current(context.params["load_current"])
+    eload.set_current(load_current)
     eload.enable()
     logger.measure("output_voltage", dmm.measure_dc_voltage())
     eload.disable()
 ```
 
-Range strings anywhere a value list is expected — `"start:stop:step"`:
-
-```python
-@pytest.mark.litmus_vectors({
-    "expand": "product",
-    "vin": "4.5:5.5:0.1",             # 11 values, no explicit list
-    "load_current": "0.1:0.8:0.1",    # 8 values → 88 vectors total
-})
-def test_full_sweep(context, logger, psu: PSU, dmm: DMM, eload: ELoad):
-    psu.set_voltage(context.params["vin"])
-    eload.set_current(context.params["load_current"])
-    ...
-```
-
-Two expansion modes: `product` (Cartesian) and `zip` (lock-step).
-Range strings (`"start:stop:step"`) work anywhere a list is expected.
-Recursive `vectors` sub-blocks compose product and zip at different levels.
+For range-style sweeps, sidecar YAML supports `"start:stop:step"` strings
+anywhere a list is expected — see [Vector Expansion](guides/vector-expansion.md).
+Native parametrize is the primary in-code API; sidecar vectors are the
+operator-editable alternative.
 
 ---
 
@@ -120,18 +105,18 @@ checks it against limits immediately. If you need to keep collecting samples
 after a failure, use `logger.measure(..., raise_on_fail=False)`.
 
 ```python
-@pytest.mark.litmus_vectors([{"vin": 5.0, "sample_count": 5}])
+@pytest.mark.parametrize("vin, sample_count", [(5.0, 5)])
 @pytest.mark.litmus_limits({
     "voltage": {"low": 3.25, "high": 3.35, "nominal": 3.3, "units": "V"}
 })
-def test_stability_over_time(context, logger, psu: PSU, dmm: DMM, eload: ELoad):
-    psu.set_voltage(context.get_param("vin", 5.0))
+def test_stability_over_time(vin, sample_count, logger, psu: PSU, dmm: DMM, eload: ELoad):
+    psu.set_voltage(vin)
     psu.enable_output()
     eload.set_current(0.5)
     eload.enable()
 
-    for i in range(context.get_param("sample_count", 5)):
-        logger.measure("voltage", float(dmm.measure_dc_voltage()))
+    for i in range(sample_count):
+        logger.measure("voltage", float(dmm.measure_dc_voltage()), allow_repeat=True)
         time.sleep(0.1)
 
     eload.disable()
@@ -758,10 +743,10 @@ needed.
 ### Test code — identical to single-DUT
 
 ```python
-@pytest.mark.litmus_vectors([...])
+@pytest.mark.parametrize("vin", [5.0])
 @pytest.mark.litmus_limits({...})
-def test_output_voltage_synced(context, logger, psu: PSU, dmm: DMM, sync):
-    psu.set_voltage(context.get_param("vin", 5.0))
+def test_output_voltage_synced(vin, logger, psu: PSU, dmm: DMM, sync):
+    psu.set_voltage(vin)
     psu.enable_output()
 
     if sync is not None:               # multi-slot: wait for all boards

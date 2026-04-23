@@ -115,7 +115,7 @@ Callables receive the Litmus `Context` (`get_param`, `params`, `last`, `observe`
 `ref: "<char_name>"` looks up the characteristic on the active `SpecContext` and inherits its limits, units, and `spec_ref`. Works in markers and sidecar:
 
 ```python
-@pytest.mark.litmus_spec(product="power_board_v1")
+# product selected via --product=power_board_v1 or litmus.yaml / profile
 @pytest.mark.litmus_limits(output_voltage={"ref": "output_voltage"})
 def test_rails(...): ...
 ```

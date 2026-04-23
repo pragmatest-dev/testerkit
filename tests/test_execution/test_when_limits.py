@@ -1,0 +1,271 @@
+"""Condition-indexed limit bands — ``when:`` matching at measurement time.
+
+Covers the ``MeasurementLimitConfig`` list-of-bands shape: each entry in
+the list is a band with ``when:`` conditions (mirroring ``SpecBand.when``);
+at measurement time the logger picks the first band whose ``when:``
+matches the active vector params. No match → ``pytest.UsageError``.
+"""
+
+from __future__ import annotations
+
+import textwrap
+
+import pytest
+
+pytest_plugins = ["pytester"]
+
+
+_INI = textwrap.dedent(
+    """
+    [pytest]
+    addopts = -p no:litmus -p litmus.execution.plugin
+    """
+)
+
+
+def test_single_band_empty_when_always_matches(pytester: pytest.Pytester) -> None:
+    """A single band with ``when: {}`` (or omitted) matches any params."""
+    pytester.makeini(_INI)
+    pytester.makepyfile(
+        test_seq=textwrap.dedent(
+            """
+            def test_rail(verify):
+                verify("v_rail", 3.30)
+            """
+        )
+    )
+    (pytester.path / "test_seq.yaml").write_text(
+        textwrap.dedent(
+            """
+            limits:
+              v_rail:
+                - when: {}
+                  low: 3.2
+                  high: 3.4
+                  units: V
+            """
+        )
+    )
+    result = pytester.runpytest("-v")
+    result.assert_outcomes(passed=1)
+
+
+def test_multi_band_selects_matching_by_parametrize(pytester: pytest.Pytester) -> None:
+    """Multi-band list — the band matching the active parametrize row applies."""
+    pytester.makeini(_INI)
+    pytester.makepyfile(
+        test_seq=textwrap.dedent(
+            """
+            import pytest
+
+            @pytest.mark.parametrize("vin", [5.0, 3.3])
+            def test_rail(verify, vin):
+                # Under vin=5.0: band1 applies (low=3.2 high=3.4) → 3.30 passes.
+                # Under vin=3.3: band2 applies (low=3.1 high=3.5) → 3.30 passes.
+                verify("v_rail", 3.30)
+            """
+        )
+    )
+    (pytester.path / "test_seq.yaml").write_text(
+        textwrap.dedent(
+            """
+            limits:
+              v_rail:
+                - when: {vin: 5.0}
+                  low: 3.2
+                  high: 3.4
+                  units: V
+                - when: {vin: 3.3}
+                  low: 3.1
+                  high: 3.5
+                  units: V
+            """
+        )
+    )
+    result = pytester.runpytest("-v")
+    result.assert_outcomes(passed=2)
+
+
+def test_multi_band_bounds_differ_per_row(pytester: pytest.Pytester) -> None:
+    """Distinct bands impose distinct bounds — one row passes, the other fails."""
+    pytester.makeini(_INI)
+    pytester.makepyfile(
+        test_seq=textwrap.dedent(
+            """
+            import pytest
+
+            @pytest.mark.parametrize("vin", [5.0, 3.3])
+            def test_rail(verify, vin):
+                # Reading 3.30 fits the 5.0 band (3.2–3.4) but not
+                # the 3.3 band (3.35–3.40).
+                verify("v_rail", 3.30)
+            """
+        )
+    )
+    (pytester.path / "test_seq.yaml").write_text(
+        textwrap.dedent(
+            """
+            limits:
+              v_rail:
+                - when: {vin: 5.0}
+                  low: 3.2
+                  high: 3.4
+                - when: {vin: 3.3}
+                  low: 3.35
+                  high: 3.40
+            """
+        )
+    )
+    result = pytester.runpytest("-v")
+    result.assert_outcomes(passed=1, failed=1)
+
+
+def test_multi_band_two_keys_anded(pytester: pytest.Pytester) -> None:
+    """``when:`` keys are ANDed — both must match for the band to apply."""
+    pytester.makeini(_INI)
+    pytester.makepyfile(
+        test_seq=textwrap.dedent(
+            """
+            import pytest
+
+            @pytest.mark.parametrize("vin,load", [(5.0, 0.1), (5.0, 0.8)])
+            def test_rail(verify, vin, load):
+                # vin=5.0,load=0.1 → band1 (3.2–3.4): 3.30 passes.
+                # vin=5.0,load=0.8 → band2 (2.9–3.1): 3.30 fails.
+                verify("v_rail", 3.30)
+            """
+        )
+    )
+    (pytester.path / "test_seq.yaml").write_text(
+        textwrap.dedent(
+            """
+            limits:
+              v_rail:
+                - when: {vin: 5.0, load: 0.1}
+                  low: 3.2
+                  high: 3.4
+                - when: {vin: 5.0, load: 0.8}
+                  low: 2.9
+                  high: 3.1
+            """
+        )
+    )
+    result = pytester.runpytest("-v")
+    result.assert_outcomes(passed=1, failed=1)
+
+
+def test_no_band_matches_raises_usage_error(pytester: pytest.Pytester) -> None:
+    """No band matches active params → ``pytest.UsageError`` at verify time."""
+    pytester.makeini(_INI)
+    pytester.makepyfile(
+        test_seq=textwrap.dedent(
+            """
+            import pytest
+
+            @pytest.mark.parametrize("vin", [12.0])
+            def test_rail(verify, vin):
+                verify("v_rail", 3.30)
+            """
+        )
+    )
+    (pytester.path / "test_seq.yaml").write_text(
+        textwrap.dedent(
+            """
+            limits:
+              v_rail:
+                - when: {vin: 5.0}
+                  low: 3.2
+                  high: 3.4
+                - when: {vin: 3.3}
+                  low: 3.1
+                  high: 3.5
+            """
+        )
+    )
+    result = pytester.runpytest("-v")
+    # No match → the measurement call raises UsageError, which surfaces
+    # as a test error (ret != 0, not a clean pass/fail).
+    assert result.ret != 0
+
+
+def test_scalar_dict_shape_still_resolves(pytester: pytest.Pytester) -> None:
+    """A flat ``limits.<name>: {low, high}`` mapping (not a list) still works."""
+    pytester.makeini(_INI)
+    pytester.makepyfile(
+        test_seq=textwrap.dedent(
+            """
+            def test_rail(verify):
+                verify("v_rail", 3.30)
+            """
+        )
+    )
+    (pytester.path / "test_seq.yaml").write_text(
+        textwrap.dedent(
+            """
+            limits:
+              v_rail: {low: 3.2, high: 3.4, units: V}
+            """
+        )
+    )
+    result = pytester.runpytest("-v")
+    result.assert_outcomes(passed=1)
+
+
+def test_band_with_tolerance_pct_and_characteristic(pytester: pytest.Pytester) -> None:
+    """Band using ``tolerance_pct`` against a product characteristic.
+
+    The characteristic provides the nominal (3.3 V); the band applies
+    ±2% at vin=5.0, ±5% at vin=3.3. A reading of 3.30 passes at vin=5.0
+    (within 2%) but fails at vin=3.3 only when the reading strays —
+    with 3.30 == nominal, both rows pass.
+    """
+    pytester.makeini(_INI)
+    (pytester.path / "products").mkdir()
+    (pytester.path / "products" / "mini.yaml").write_text(
+        textwrap.dedent(
+            """
+            id: mini
+            name: Mini
+            revision: A
+            characteristics:
+              rail_3v3:
+                function: dc_voltage
+                direction: output
+                units: V
+                pin: TP_VOUT
+                specs:
+                  - value: 3.3
+            pins:
+              TP_VOUT:
+                name: TP1
+                net: VOUT_3V3
+            """
+        )
+    )
+    pytester.makepyfile(
+        test_seq=textwrap.dedent(
+            """
+            import pytest
+
+            @pytest.mark.parametrize("vin", [5.0, 3.3])
+            def test_rail(verify, vin):
+                verify("v_rail", 3.30)
+            """
+        )
+    )
+    (pytester.path / "test_seq.yaml").write_text(
+        textwrap.dedent(
+            """
+            limits:
+              v_rail:
+                - when: {vin: 5.0}
+                  characteristic: rail_3v3
+                  tolerance_pct: 2
+                - when: {vin: 3.3}
+                  characteristic: rail_3v3
+                  tolerance_pct: 5
+            """
+        )
+    )
+    result = pytester.runpytest("-v", "--spec=products/mini.yaml")
+    result.assert_outcomes(passed=2)

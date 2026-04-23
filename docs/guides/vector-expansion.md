@@ -4,10 +4,10 @@ Vectors define the test conditions your tests run against. Litmus expands vector
 
 Vectors can come from:
 
-- **`@pytest.mark.litmus_vectors(**kwargs)`** on a method or class — inline, code-owned
+- **Native `@pytest.mark.parametrize`** — first-class, code-owned
 - **Sidecar YAML `test_<module>.yaml`** — operator-editable, lives next to tests
 - **Sequence step `vectors:`** — operator-facing production runs (see the [sequence YAML reference](../reference/sequence-yaml.md))
-- **Native `@pytest.mark.parametrize`** — first-class, fully compatible
+- **Profiles** — `litmus.yaml` profile `vectors:` overrides by node-id
 
 All paths feed `context.get_param(...)` identically.
 
@@ -18,9 +18,10 @@ A **vector** is a dict of parameters for one test iteration. `context.get_param(
 ```python
 import pytest
 
-@pytest.mark.litmus_vectors(vin=[4.5, 5.0, 5.5], load=[0.1, 0.5, 1.0])
-def test_output_voltage(context, psu, dmm, spec):
-    psu.set_voltage(context.get_param("vin"))
+@pytest.mark.parametrize("load", [0.1, 0.5, 1.0])
+@pytest.mark.parametrize("vin", [4.5, 5.0, 5.5])
+def test_output_voltage(vin, load, context, psu, dmm, spec):
+    psu.set_voltage(vin)
     psu.enable_output()
     spec.check("output_voltage", dmm.measure_dc_voltage())
 ```
@@ -32,14 +33,6 @@ Or in a sidecar YAML:
 vectors:
   vin: [4.5, 5.0, 5.5]
   load: [0.1, 0.5, 1.0]
-```
-
-Or natively:
-
-```python
-@pytest.mark.parametrize("vin", [4.5, 5.0, 5.5])
-@pytest.mark.parametrize("load", [0.1, 0.5, 1.0])
-def test_output_voltage(context, psu, dmm, spec): ...
 ```
 
 ## Expansion modes (sidecar / sequence YAML)
@@ -105,19 +98,17 @@ Ranges are **inclusive** of both endpoints (matches SCPI, Verilog, NI DAQmx). Ra
 Hardware reconfig dominates multi-parameter sweeps. `context.changed(key)` returns `True` only when the parameter differs from the previous parametrize iteration:
 
 ```python
-@pytest.mark.litmus_vectors(
-    temperature=[-40, 25, 85],    # outer, 20-min soak per change
-    vin="4.5:5.5:0.5",            # middle, 500-ms PSU settle
-    load="0.1:1.0:0.1",           # inner, always set
-)
-def test_load_regulation(context, psu, eload, chamber, dmm, spec):
+@pytest.mark.parametrize("load", [0.1, 0.25, 0.5, 0.75, 1.0])    # inner, always set
+@pytest.mark.parametrize("vin", [4.5, 5.0, 5.5])                 # middle, 500-ms PSU settle
+@pytest.mark.parametrize("temperature", [-40, 25, 85])           # outer, 20-min soak per change
+def test_load_regulation(temperature, vin, load, context, psu, eload, chamber, dmm, spec):
     if context.changed("temperature"):
-        chamber.set_temperature(context.get_param("temperature"))
+        chamber.set_temperature(temperature)
         chamber.wait_for_stable(timeout=300)   # 20 min — skipped when temp unchanged
     if context.changed("vin"):
-        psu.set_voltage(context.get_param("vin"))
+        psu.set_voltage(vin)
         psu.enable_output()
-    eload.set_current(context.get_param("load"))
+    eload.set_current(load)
     eload.enable()
     spec.check("output_voltage", dmm.measure_dc_voltage())
 ```
@@ -131,30 +122,38 @@ With 3 × 3 × 10 = 90 vectors, the chamber changes 3 times, the PSU 9 times, th
 - Returns `False` if the value matches the previous vector
 - Prior-context memory is per-method, scoped to the class/module — stored on `request.node.parent.stash`
 
-## Native parametrize is first-class
+## Self-loop mode — `vectors` fixture
 
-`@pytest.mark.parametrize` works without wrapping:
+For tests that want to own the iteration (amortize expensive setup,
+stream samples, conditional skip of interior rows), request the
+`vectors` fixture. Litmus consolidates **every** source (native
+parametrize, sidecar, profile) into one matrix and collapses pytest
+expansion so the test runs as a single case:
 
 ```python
 @pytest.mark.parametrize("vin", [4.5, 5.0, 5.5])
-def test_rails(context, psu, dmm, spec):
-    psu.set_voltage(context.get_param("vin"))
-    spec.check("output_voltage", dmm.measure_dc_voltage())
+def test_sweep(vectors, psu, dmm, verify):
+    psu.enable_output()
+    for v in vectors:
+        psu.set_voltage(v["vin"])
+        verify("output_voltage", dmm.measure_dc_voltage())
 ```
 
-`litmus_vectors` compiles to `parametrize` internally and stacks with it — no conflict. When both sidecar and `parametrize` are present, `callspec.params` multiplies normally.
+Each iteration pushes the active row's params so `context.changed`,
+`verify`, and row stamping behave identically to parametrize mode.
 
 ## Choosing the right form
 
 | Scenario                                        | Use                                                           |
 |-------------------------------------------------|---------------------------------------------------------------|
-| Code-owned, fixed sweep                         | `@pytest.mark.litmus_vectors(...)` or native `parametrize`    |
+| Code-owned, fixed sweep                         | Native `@pytest.mark.parametrize(...)`                        |
 | Operator-edited sweep (no code deploy)          | Sidecar YAML `test_<module>.yaml` `vectors:` block            |
 | Production operator runs with dialogs/retries   | Sequence step `vectors:`                                      |
-| Related input/expected pairs                    | `expand: zip`                                                 |
-| All combinations of parameters                  | `expand: product`                                             |
-| Dense numeric sweep                             | Range string `"4.5:5.5:0.1"`                                  |
-| Multi-level with mixed product/zip              | Nested `vectors` sub-block                                    |
+| Test iterates itself (setup amortization)       | `vectors` fixture in the test signature                       |
+| Related input/expected pairs                    | `expand: zip` (sidecar/sequence)                              |
+| All combinations of parameters                  | `expand: product` (sidecar/sequence) or stacked `parametrize` |
+| Dense numeric sweep                             | Range string `"4.5:5.5:0.1"` (sidecar/sequence)               |
+| Multi-level with mixed product/zip              | Nested `vectors` sub-block (sidecar/sequence)                 |
 
 ## Performance tips
 

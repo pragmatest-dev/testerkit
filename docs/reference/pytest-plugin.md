@@ -4,9 +4,9 @@ Litmus provides a pytest plugin for hardware testing with automatic measurement 
 
 > **Status:** the pytest-native three-object split (`context` / `spec` / `logger`) is
 > the primary authoring style — see [pytest-native reference](pytest-native.md) for
-> the unified sidecar YAML, markers (`litmus_vectors`, `litmus_limits`, `litmus_spec`,
-> `litmus_mocks`, `litmus_independent`), and limit resolution chain. The `@litmus_test`
-> decorator documented below is preserved for migration of existing test suites.
+> the unified sidecar YAML, the `litmus_limits` marker, and the limit resolution
+> chain. The `@litmus_test` decorator documented below is preserved for migration of
+> existing test suites.
 
 ## Installation
 
@@ -507,42 +507,23 @@ pytest tests/ \
 
 ## Markers
 
-The plugin registers five Litmus markers. ``--strict-markers`` is on by
+The plugin registers one Litmus marker. ``--strict-markers`` is on by
 default (set in ``pyproject.toml``), so typos fail collection.
-
-### `@pytest.mark.litmus_vectors(**kwargs)`
-
-Parametrize vector inputs inline — an alternative to sidecar YAML. The
-kwargs become parametrize values. Stacks with ``@pytest.mark.parametrize``.
 
 ### `@pytest.mark.litmus_limits(**kwargs)`
 
 Inject limits by measurement name. Values merge with sidecar ``limits:``;
 method-level markers override class-level markers by key.
 
-### `@pytest.mark.litmus_spec(product)`
+For everything else, use native pytest primitives or ecosystem plugins:
 
-Override the session-wide spec for this test. Loads the named product via
-``load_product`` and pushes a scoped ``SpecContext`` for the test body.
-
-### `@pytest.mark.litmus_mocks(**kwargs)`
-
-Patch instrument methods/attrs for the scope of the test. Kwargs are
-``patch.object`` calls applied before the test body and unwound on
-teardown.
-
-### `@pytest.mark.litmus_independent`
-
-Skip prereq-chain propagation for this test — failure does not mark
-downstream tests as blocked.
-
-### Retry and dependency skipping
-
-For retries, use the ecosystem-standard
-``@pytest.mark.flaky(reruns=N, reruns_delay=T)`` from
-``pytest-rerunfailures`` (already a dependency). For explicit
-dependency-based skipping, install ``pytest-dependency`` and use
-``@pytest.mark.dependency(depends=["test_a"])``.
+| Need | Use |
+|------|-----|
+| Parametrize vector inputs | ``@pytest.mark.parametrize`` or sidecar ``vectors:`` |
+| Product selection | ``--product=<id>`` or ``default_product:`` in ``litmus.yaml`` |
+| Mock instrument methods | ``pytest-mock``'s ``mocker.patch.object(...)`` |
+| Skip when prior test fails | ``pytest-dependency``: ``@pytest.mark.dependency(depends=["test_a"])`` |
+| Retries | ``pytest-rerunfailures``: ``@pytest.mark.flaky(reruns=N, reruns_delay=T)`` |
 
 ## Results
 

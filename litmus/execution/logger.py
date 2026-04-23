@@ -237,7 +237,13 @@ def _resolve_measurement_limit(
     holds. Lives at module scope so it can be tested in isolation from
     ``TestRunLogger`` instance state.
     """
-    from litmus.execution.plugin import get_active_limits, get_active_spec_context
+    from litmus.execution.plugin import (
+        _BandSet,
+        _match_band,
+        get_active_limits,
+        get_active_spec_context,
+        get_active_vector_params,
+    )
 
     if inline_any:
         return _limit_from_dict(
@@ -254,6 +260,8 @@ def _resolve_measurement_limit(
 
     sidecar_limit = get_active_limits().get(name)
     if sidecar_limit is not None:
+        if isinstance(sidecar_limit, _BandSet):
+            return _match_band(sidecar_limit, get_active_vector_params())
         return sidecar_limit
 
     spec = get_active_spec_context()

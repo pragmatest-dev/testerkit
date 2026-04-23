@@ -476,9 +476,18 @@ class MeasurementLimitConfig(BaseModel):
     - Lookup: table keyed by vector param
     - Step function: ranges based on param value
     - Callable: Python function for complex logic
+
+    Can also appear as one band in a condition-indexed list — in that shape
+    ``when:`` names the active-vector-param values at which this band's
+    policy applies. See ``TestConfig.limits`` for the list form.
     """
 
     model_config = {"extra": "forbid"}
+
+    # Condition-indexed match keys (list-of-bands shape). An empty dict
+    # matches any active-vector-params (unconditional band). Mirrors the
+    # semantics of ``SpecBand.when`` on product characteristics.
+    when: dict[str, Any] = Field(default_factory=dict)
 
     # Direct limit values
     low: float | None = None
@@ -602,7 +611,9 @@ class TestConfig(BaseModel):
     description: str | None = None
     vectors: VectorConfig | list[dict[str, Any]] | None = None
     retry: RetryConfig | None = None
-    limits: dict[str, MeasurementLimitConfig | Limit] = Field(default_factory=dict)
+    limits: dict[str, MeasurementLimitConfig | Limit | list[MeasurementLimitConfig]] = Field(
+        default_factory=dict
+    )
     prompt_before_all: PromptConfig | None = None
     prompt_before_each: bool = False
     prompt: PromptConfig | None = None  # Template for prompt_before_each

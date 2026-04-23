@@ -2,9 +2,9 @@
 
 Exercises Litmus's simplest patterns:
 
-* A class-based test with the implicit prereq chain. The first method is
-  marked ``@pytest.mark.litmus_independent`` so its failure does not
-  cascade, but subsequent methods are skipped if the prior method fails.
+* A class-based test with three ordered methods. Tests are independent
+  by default — use ``pytest-dependency`` if you need to skip downstream
+  tests on an upstream failure.
 * Measurement labels only — no pin IDs, no characteristic IDs, no limits
   in the test source. Sidecar ``test_power_on.yaml`` binds labels to
   product characteristics via ``limits:``; the framework fills in pin,
@@ -18,8 +18,6 @@ Run::
 
 from __future__ import annotations
 
-import pytest
-
 from demo.drivers import DMM, PSU
 from litmus.execution.harness import Context
 
@@ -27,7 +25,6 @@ from litmus.execution.harness import Context
 class TestPowerOn:
     """Sequential power-on gate for the PMIC."""
 
-    @pytest.mark.litmus_independent
     def test_power_up(self, context: Context, psu: PSU, verify) -> None:
         """Apply VIN and confirm the supply reads back."""
         vin = context.get_param("vin")

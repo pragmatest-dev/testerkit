@@ -32,17 +32,17 @@ No proprietary IDE. No new test language. No vendor lock-in. Runs with `pytest`,
 | Measurement/event persistence     | `logger.measure(name, v, ...)` → parquet, traceable  |
 | Product-spec-driven limits + pins | `spec.check(name, v)` resolves from product YAML     |
 | Vector parameters + change detect | `context.get_param(k)`, `context.changed(k)`         |
-| Operator-editable sweeps          | `@pytest.mark.litmus_vectors(...)` + sidecar YAML    |
+| Operator-editable sweeps          | Sidecar `test_<module>.yaml` `vectors:` overrides    |
 | Instrument role fixtures          | Station config → `dmm`, `psu`, `scope` auto-fixtures |
-| Mock mode                         | `--mock-instruments` + `litmus_mocks` marker         |
+| Mock mode                         | `--mock-instruments`, sidecar `mocks:`, `pytest-mock` |
 | Session flags                     | `--station`, `--product`, `--operator`, `--dut-serial`, `--test-phase` |
-| Implicit prereq chain             | If `test_a` fails, `test_b` is skipped in source order (opt out via `@pytest.mark.litmus_independent`) |
+| Per-test-imposed limits           | `@pytest.mark.litmus_limits(name={...})`             |
 
 Retries and explicit test dependencies are **ecosystem plugins**, not Litmus additions — use `@pytest.mark.flaky(reruns=N)` (`pytest-rerunfailures`) and `@pytest.mark.dependency(depends=[...])` (`pytest-dependency`).
 
 ## Why this matters for AI assistants
 
-When an AI writes or debugs your tests, pytest is the framework it knows best. LLMs have read the pytest docs thousands of times. Custom sequencers require teaching the tool the API from scratch every time. By building on pytest, Litmus inherits all of that training for free — the only things the AI needs to learn are the three fixtures and five markers.
+When an AI writes or debugs your tests, pytest is the framework it knows best. LLMs have read the pytest docs thousands of times. Custom sequencers require teaching the tool the API from scratch every time. By building on pytest, Litmus inherits all of that training for free — the only things the AI needs to learn are the three fixtures (`context`, `spec`, `logger`) and one marker (`litmus_limits`).
 
 ## Next steps
 

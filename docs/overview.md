@@ -62,7 +62,7 @@ class TestPowerUp:
 
 `spec.check(name, value)` resolves the limit from the product YAML, writes a measurement with full traceability, and raises `AssertionError` on fail. For non-spec measurements, `logger.measure("name", value, low=..., high=...)` has the same semantics with inline limits.
 
-- **Sweep across conditions** — `@pytest.mark.litmus_vectors(...)` or native `@pytest.mark.parametrize(...)`; test at multiple temps, loads, and input voltages without code changes
+- **Sweep across conditions** — native `@pytest.mark.parametrize(...)` or sidecar `vectors:`; test at multiple temps, loads, and input voltages without code changes
 - **`context.changed(key)`** — skip expensive instrument reconfig across parametrize iterations
 - **Full traceability** — every measurement records what was measured, on what instrument, through which channel, from which DUT pin (see [What gets logged](#what-gets-logged) below)
 - **Mock mode** — `pytest --mock-instruments` runs your full test suite without hardware

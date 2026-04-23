@@ -35,14 +35,10 @@ class TestPowerUp:
 
 ## Parametrizing a sweep
 
-Any of these work and all feed `context.get_param(...)`:
+Two mechanisms, both feed `context.get_param(...)`:
 
 ```python
 import pytest
-
-# Litmus marker — stacks with native parametrize, discoverable in sidecar
-@pytest.mark.litmus_vectors(vin=[4.5, 5.0, 5.5], load=[0.1, 0.4, 0.8])
-def test_rails(context, spec, psu, dut_load, dmm): ...
 
 # Native pytest parametrize — first-class, no wrapping
 @pytest.mark.parametrize("vin", [4.5, 5.0, 5.5])
@@ -61,16 +57,39 @@ def test_rails(context, spec, psu, dut_load, dmm): ...
 Hardware reconfig dominates multi-parameter sweeps (PSU settle 500 ms, DMM range switch 1 s, chamber soak 5–30 min). `context.changed(key)` returns `True` only when the parameter differs from the previous parametrize iteration:
 
 ```python
-@pytest.mark.litmus_vectors(vin=[5.0, 5.5], temp=[25, 85], load=[0.1, 0.4])
-def test_rails(context, psu, chamber, dut_load, dmm, spec):
+@pytest.mark.parametrize("load", [0.1, 0.4])
+@pytest.mark.parametrize("temp", [25, 85])
+@pytest.mark.parametrize("vin", [5.0, 5.5])
+def test_rails(vin, temp, load, context, psu, chamber, dut_load, dmm, spec):
     if context.changed("temp"):
-        chamber.set_temperature(context.get_param("temp"))
+        chamber.set_temperature(temp)
         chamber.wait_for_soak()          # 20 min — skipped when temp unchanged
     if context.changed("vin"):
-        psu.set_voltage(context.get_param("vin"))
-    dut_load.set(context.get_param("load"))
+        psu.set_voltage(vin)
+    dut_load.set(load)
     spec.check("output_voltage", dmm.measure_dc_voltage())
 ```
+
+### Self-loop mode — `vectors` fixture
+
+Sometimes you want to own the iteration yourself: amortize an expensive
+per-test setup, stream samples into one measurement, or skip interior
+rows conditionally. Ask for the ``vectors`` fixture in your signature
+and Litmus consolidates **every** parameter source (native parametrize,
+sidecar `vectors:`, profile overrides) into a single matrix. The test
+executes as **one** pytest case; you iterate the matrix inside:
+
+```python
+@pytest.mark.parametrize("vin", [4.5, 5.0, 5.5])
+def test_rails_sweep(vectors, psu, dmm, verify):
+    for v in vectors:
+        psu.set_voltage(v["vin"])
+        verify("output_voltage", dmm.measure_dc_voltage())
+```
+
+Each iteration pushes the active row's params so `verify`, `context.changed`,
+and row stamping (`meas_vector_index`, `in_*` columns) behave the same
+as in parametrize mode.
 
 ## Limits
 
@@ -93,17 +112,26 @@ def test_rails(context, spec, logger, dmm):
     spec.check("efficiency", compute_eff(...))
 ```
 
-## Five markers (all registered — `--strict-markers` safe)
+## One Litmus marker (`--strict-markers` safe)
 
 | Marker                        | Scope         | Purpose                                            |
 |-------------------------------|---------------|----------------------------------------------------|
-| `litmus_vectors(**kwargs)`    | method, class | Parametrize inline (compiles to `parametrize`)     |
 | `litmus_limits(**by_name)`    | method, class | Inject limits by measurement name                  |
-| `litmus_spec(product="...")`  | method, class | Override session-wide spec for this test           |
-| `litmus_mocks({...})`         | method, class | Patch instrument methods for the test              |
-| `litmus_independent`          | method        | Opt **out** of the implicit prereq chain           |
 
 Method-level markers merge over class-level (method wins on conflicts).
+
+For everything else, use native pytest primitives or ecosystem plugins:
+
+| Concern                    | Native / ecosystem                                               |
+|----------------------------|------------------------------------------------------------------|
+| Parametrize                | `@pytest.mark.parametrize(...)` (native) + sidecar `vectors:`    |
+| Mock instrument methods    | Sidecar `mocks:` block or `pytest-mock`'s `mocker` fixture       |
+| Test-to-test dependencies  | `@pytest.mark.dependency(...)` — `pytest-dependency`             |
+| Retry transient failures   | `@pytest.mark.flaky(reruns=N)` — `pytest-rerunfailures`          |
+
+Product is session-global: pick it with `--product=<id>` or set
+`default_product:` in `litmus.yaml` / a profile. There is no per-test
+product override marker.
 
 ## Sidecar YAML
 
@@ -153,7 +181,7 @@ Litmus **does not** ship its own retry or skip-on-failure markers. Use the matur
 | Retry transient failures | `@pytest.mark.flaky(reruns=N, reruns_delay=T)` — `pytest-rerunfailures` |
 | Skip when a dep failed   | `@pytest.mark.dependency(depends=["test_a"])` — `pytest-dependency`     |
 
-The implicit Litmus prereq chain (in source order within a class, if `test_a` fails, `test_b` is skipped) is the zero-config default. Opt out per test with `@pytest.mark.litmus_independent`.
+Tests are independent by default — there is no implicit prereq chain. Reach for `pytest-dependency` when you need explicit "if test_a fails, skip test_b" behavior.
 
 ## Duplicate-name guard
 

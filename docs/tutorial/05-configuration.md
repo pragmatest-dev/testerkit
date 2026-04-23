@@ -8,9 +8,8 @@ Test configuration (vectors, limits, mocks) can come from several places,
 resolved in priority order:
 
 1. **Sequence steps** — when running with `--sequence`, step config wins
-2. **Pytest markers** — `@pytest.mark.litmus_vectors`, `litmus_limits`, `litmus_mocks`
+2. **Pytest markers** — `@pytest.mark.parametrize(...)`, `@pytest.mark.litmus_limits`
 3. **Sidecar YAML** — a `test_<module>.yaml` next to the test file
-4. **Pytest-native parametrize** — `@pytest.mark.parametrize(...)`
 
 Sequence step config **replaces** (not merges) any lower-priority source for
 the keys it sets.
@@ -57,10 +56,10 @@ For quick tweaks, markers work inline:
 import pytest
 
 
-@pytest.mark.litmus_vectors(vin=[4.5, 5.0, 5.5])
+@pytest.mark.parametrize("vin", [4.5, 5.0, 5.5])
 @pytest.mark.litmus_limits(output_voltage={"low": 3.135, "high": 3.465, "units": "V"})
-def test_output_voltage(context, psu, dmm, logger):
-    psu.set_voltage(context.get_param("vin"))
+def test_output_voltage(vin, context, psu, dmm, logger):
+    psu.set_voltage(vin)
     psu.enable_output()
     logger.measure("output_voltage", dmm.measure_dc_voltage())
 ```

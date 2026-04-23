@@ -62,16 +62,20 @@ steps:
         units: V
 ```
 
-Or via the `litmus_mocks` marker (method or class level):
+Or from a test using `pytest-mock`'s `mocker` fixture when a specific
+case needs its own patch:
 
 ```python
 import pytest
 
-@pytest.mark.litmus_mocks({"dmm.measure_dc_voltage": 3.31})
 @pytest.mark.litmus_limits(output_voltage={"low": 3.2, "high": 3.4, "units": "V"})
-def test_output_voltage(context, dmm, logger):
+def test_output_voltage(mocker, context, dmm, logger):
+    mocker.patch.object(dmm, "measure_dc_voltage", return_value=3.31)
     logger.measure("output_voltage", dmm.measure_dc_voltage())
 ```
+
+Use `pytest --no-test-mocks` to ignore all sidecar `mocks:` entries
+globally (instrument-layer `--mock-instruments` is independent).
 
 Or in a sidecar YAML:
 

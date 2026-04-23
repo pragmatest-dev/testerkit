@@ -241,9 +241,9 @@ points:
 Test config (vectors, limits, mocks) is resolved in priority order:
 
 1. **Sequence steps** (primary) — When running with `--sequence`
-2. **pytest markers** — `@pytest.mark.litmus_vectors`, `litmus_limits`, `litmus_mocks`
-3. **Sidecar YAML** — `test_<module>.yaml` next to the test file
-4. **`@pytest.mark.parametrize`** — pytest-native parametrization
+2. **Profile overrides** — From `litmus.yaml` profile when `--litmus-profile` is set
+3. **pytest markers** — `@pytest.mark.litmus_limits`, `@pytest.mark.parametrize`
+4. **Sidecar YAML** — `test_<module>.yaml` next to the test file
 
 Sequence step config **replaces** lower-priority sources for the keys it sets (not merged).
 
@@ -253,9 +253,9 @@ Sequence step config **replaces** lower-priority sources for the keys it sets (n
 import pytest
 
 
-@pytest.mark.litmus_vectors(vin=[4.5, 5.0, 5.5])
+@pytest.mark.parametrize("vin", [4.5, 5.0, 5.5])
 @pytest.mark.litmus_limits(output_voltage={"low": 3.135, "high": 3.465, "units": "V"})
-def test_example(context, dmm, logger):
+def test_example(vin, dmm, logger):
     logger.measure("output_voltage", dmm.measure_dc_voltage())
 ```
 

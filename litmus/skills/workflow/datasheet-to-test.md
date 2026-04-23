@@ -212,7 +212,7 @@ Emit: <gate-result phase="3" action="approved|revised" />
 Goal: Create pytest test code that exercises all characteristics.
 
 <step id="4.1">
-Generate **pytest-native** test code. Tests are plain pytest — no decorator, no base class. Use the three Litmus fixtures (`context`, `spec`, `logger`) and markers (`litmus_vectors`, `litmus_limits`, `litmus_spec`, `litmus_mocks`). See refs/test-writing.md for the full reference.
+Generate **pytest-native** test code. Tests are plain pytest — no decorator, no base class. Use the three Litmus fixtures (`context`, `spec`, `logger`) and the single `litmus_limits` marker. See refs/test-writing.md for the full reference.
 
 Skeleton to follow:
 
@@ -221,11 +221,12 @@ Skeleton to follow:
 import pytest
 
 class TestRails:
-    @pytest.mark.litmus_vectors(vin=[4.5, 5.0, 5.5], load=[0.1, 0.4])
-    def test_output_voltage(self, context, spec, psu, dmm, dut_load):
+    @pytest.mark.parametrize("load", [0.1, 0.4])
+    @pytest.mark.parametrize("vin", [4.5, 5.0, 5.5])
+    def test_output_voltage(self, vin, load, context, spec, psu, dmm, dut_load):
         if context.changed("vin"):
-            psu.set_voltage(context.get_param("vin"))
-        dut_load.set(context.get_param("load"))
+            psu.set_voltage(vin)
+        dut_load.set(load)
         spec.check("output_voltage", dmm.measure_dc_voltage())
 ```
 
@@ -233,7 +234,7 @@ Notes for good generation:
 - Prefer `spec.check(name, v)` when a product spec exists — DUT pin and limits resolve automatically
 - Use `logger.measure(name, v, low=..., high=...)` for procedure-only measurements
 - Use `context.changed(k)` in parametrized sweeps to skip expensive reconfig
-- Use `pytest.mark.parametrize` directly when vectors don't need to be operator-edited
+- Prefer native `@pytest.mark.parametrize` for code-owned sweeps; use sidecar `vectors:` for operator-edited sweeps
 </step>
 
 <step id="4.2">

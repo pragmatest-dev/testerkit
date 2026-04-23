@@ -16,9 +16,9 @@ decorator decisions as a user lives with them for a non-trivial product.
    no routing code. The framework does all of it via
    `_active_point_var` + `FixtureManager.route`.
 3. **Zero custom markers needed.** Full feature coverage with only
-   `@pytest.mark.litmus_independent` (Litmus) and
-   `@pytest.mark.flaky` (pytest-rerunfailures). Users stay in pytest
-   muscle memory — nothing Litmus-specific to learn.
+   `@pytest.mark.flaky` (pytest-rerunfailures) and the optional
+   `@pytest.mark.litmus_limits` for per-test limit injection. Users
+   stay in pytest muscle memory — nothing Litmus-specific to learn.
 4. **Station `mock_config` as sensible defaults.** Letting the station
    YAML declare a plausible "nominal operation" reading meant most
    tests needed no per-test mock override — one less thing to think
@@ -58,7 +58,8 @@ config error before the test runs.
 `tests.<method>.mocks` is silently ignored.
 
 I hit this trying to mock different `dmm.measure_dc_voltage` returns
-per test. Fell back to `@pytest.mark.litmus_mocks` on each method.
+per test. Fell back to `pytest-mock`'s `mocker.patch.object` on each
+method.
 
 **Proposal.** Either (a) make `_litmus_apply_mocks` merge
 `tests.<method>.mocks` on top of top-level `mocks:` (same precedence

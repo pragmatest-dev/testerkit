@@ -127,7 +127,7 @@ product spec defaults
     ↓
 sidecar test_<module>.yaml
     ↓
-class marker (litmus_vectors / _limits / _spec / _mocks)
+class marker (litmus_limits, parametrize)
     ↓
 method marker
     ↓

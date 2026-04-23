@@ -5,7 +5,7 @@ The Litmus `context` fixture is the **hierarchical roll-up of everything a test 
 ```
 session   → SessionLayer   run_id, station, operator, dut, instruments    frozen
 module    → ModuleLayer    + module markers, + spec default                frozen, inherits
-class     → ClassLayer     + class litmus_spec / vectors / limits / mocks  frozen, inherits
+class     → ClassLayer     + class litmus_limits markers                   frozen, inherits
 function  → Context        + method markers, + params, + resolved limits   fresh per test
 ```
 
@@ -44,9 +44,9 @@ def test_rails(self, dmm, spec, logger):
 context.run.id                  # session
 context.dut.serial              # session
 context.station.name            # session
-context.spec                    # module default; overridable via litmus_spec marker
+context.spec                    # session-scoped; set via --product / litmus.yaml / profile
 context.instruments             # session + station + catalog
-context.params["vin"]           # function (parametrize / litmus_vectors)
+context.params["vin"]           # function (parametrize / sidecar vectors)
 context.limits["output_v"]      # function (resolved from markers + sidecar + spec)
 context.get_param("vin")        # read a param (raises if missing, accepts default)
 context.changed("temperature")  # did this param differ from the previous iteration?
@@ -59,9 +59,9 @@ context.observe("dut_temp", 42.3)  # record an environmental observation
 | Field     | Method + class combination                          | Where merging happens                  |
 |-----------|-----------------------------------------------------|----------------------------------------|
 | `params`  | Cartesian product (pytest rejects duplicate argnames) | pytest, via `metafunc.parametrize()` |
-| `spec`    | Method marker overrides class marker; single value   | `_litmus_push_spec` autouse           |
+| `spec`    | Session-scoped (single product per run)              | `--product` / `litmus.yaml` / profile  |
 | `limits`  | Dict merge by name; method keys override class keys  | `_litmus_push_limits` autouse         |
-| `mocks`   | Same dict merge as limits                            | `_litmus_install_mocks` autouse       |
+| `mocks`   | Sidecar `mocks:` block; per-test via `pytest-mock`   | `_litmus_install_mocks` autouse       |
 
 ## Prior-context memory (for `changed()` / `last()`)
 
@@ -77,14 +77,16 @@ Stored as a dict on the method's **parent stash node** (class for class methods,
 Hardware reconfig dominates multi-parameter sweeps. `context.changed("temp")` returns `True` only when that parameter differs from the previous parametrize iteration:
 
 ```python
-@pytest.mark.litmus_vectors(temperature=[25, 85], vin=[4.5, 5.0, 5.5], load=[0.1, 0.4])
-def test_rails(context, psu, chamber, dut_load, dmm, spec):
+@pytest.mark.parametrize("temperature", [25, 85])
+@pytest.mark.parametrize("vin", [4.5, 5.0, 5.5])
+@pytest.mark.parametrize("load", [0.1, 0.4])
+def test_rails(temperature, vin, load, context, psu, chamber, dut_load, dmm, spec):
     if context.changed("temperature"):
-        chamber.set_temperature(context.get_param("temperature"))
+        chamber.set_temperature(temperature)
         chamber.wait_for_stable()     # 20 min — skipped when temp unchanged
     if context.changed("vin"):
-        psu.set_voltage(context.get_param("vin"))
-    dut_load.set(context.get_param("load"))
+        psu.set_voltage(vin)
+    dut_load.set(load)
     spec.check("output_voltage", dmm.measure_dc_voltage())
 ```
 

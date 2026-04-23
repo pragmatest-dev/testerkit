@@ -47,9 +47,8 @@ def test_output_voltage(dmm, spec):
 
 ## Classes Group Related Tests
 
-Group related tests with a plain pytest class. Methods run in source order,
-and a failure in one method skips subsequent methods for the same
-parametrize instance (the implicit prereq chain):
+Group related tests with a plain pytest class. Methods run in source order
+and are independent by default:
 
 ```python
 class TestPowerUp:
@@ -62,8 +61,9 @@ class TestPowerUp:
         spec.check("output_voltage", dmm.measure_voltage())
 ```
 
-If you want a method to stay independent of the chain, decorate it with
-`@pytest.mark.litmus_independent`.
+If a downstream test should skip when an upstream test fails, use
+`@pytest.mark.dependency(depends=["test_input_voltage"])` from the
+`pytest-dependency` plugin.
 
 ## Accessing Vector Inputs
 

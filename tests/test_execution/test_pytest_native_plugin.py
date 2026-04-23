@@ -266,130 +266,6 @@ def test_sidecar_and_decorator_mix(pytester: pytest.Pytester) -> None:
     result.assert_outcomes(passed=4)
 
 
-def test_prereq_chain_skips_subsequent_methods_on_failure(pytester: pytest.Pytester) -> None:
-    pytester.makeini(
-        textwrap.dedent(
-            """
-            [pytest]
-            addopts = -p no:litmus -p litmus.execution.plugin
-            """
-        )
-    )
-    pytester.makepyfile(
-        test_seq=textwrap.dedent(
-            """
-            class TestSeq:
-                def test_a(self, context):
-                    assert False, "intentional failure"
-
-                def test_b(self, context):
-                    assert True
-
-                def test_c(self, context):
-                    assert True
-            """
-        )
-    )
-    result = pytester.runpytest("-v")
-    # test_a fails; test_b skipped (prereq test_a); test_c skipped (prereq test_b).
-    result.assert_outcomes(failed=1, skipped=2)
-
-
-def test_prereq_chain_first_method_always_runs(pytester: pytest.Pytester) -> None:
-    pytester.makeini(
-        textwrap.dedent(
-            """
-            [pytest]
-            addopts = -p no:litmus -p litmus.execution.plugin
-            """
-        )
-    )
-    pytester.makepyfile(
-        test_seq=textwrap.dedent(
-            """
-            class TestSeq:
-                def test_a(self, context):
-                    assert True
-
-                def test_b(self, context):
-                    assert True
-            """
-        )
-    )
-    result = pytester.runpytest("-v")
-    result.assert_outcomes(passed=2)
-
-
-def test_prereq_chain_collapses_method_level_parametrize(pytester: pytest.Pytester) -> None:
-    """A single parametrize case failure on ``test_a`` gates **all** of ``test_b``.
-
-    ``_prereq_state_key`` intentionally omits ``_litmus_method_vec`` from
-    its key so method-level cases share one pass/fail entry per (class,
-    class-vector). This guards that contract: if ``test_a[4.5]`` fails
-    and ``test_a[5.0]`` would pass, ``test_b`` still sees the prereq as
-    failed and skips every one of its parametrize cases.
-    """
-    _write_sequence(
-        pytester,
-        test_body=textwrap.dedent(
-            """
-            class TestSeq:
-                def test_a(self, context):
-                    vin = context.get_param("vin")
-                    assert vin != 4.5, "intentional failure at vin=4.5"
-
-                def test_b(self, context):
-                    assert True
-            """
-        ),
-        vectors_yaml=textwrap.dedent(
-            """
-            methods:
-              test_a:
-                list:
-                  - {vin: 4.5}
-                  - {vin: 5.0}
-              test_b:
-                list:
-                  - {vin: 4.5}
-                  - {vin: 5.0}
-            """
-        ),
-    )
-    result = pytester.runpytest("-v")
-    # test_a[4.5] fails, test_a[5.0] passes. Prereq collapses across cases,
-    # so both test_b[4.5] and test_b[5.0] skip.
-    result.assert_outcomes(passed=1, failed=1, skipped=2)
-
-
-def test_prereq_chain_independent_marker_opts_out(pytester: pytest.Pytester) -> None:
-    pytester.makeini(
-        textwrap.dedent(
-            """
-            [pytest]
-            addopts = -p no:litmus -p litmus.execution.plugin
-            """
-        )
-    )
-    pytester.makepyfile(
-        test_seq=textwrap.dedent(
-            """
-            import pytest
-            class TestSeq:
-                def test_a(self, context):
-                    assert False, "intentional failure"
-
-                @pytest.mark.litmus_independent
-                def test_b(self, context):
-                    assert True
-            """
-        )
-    )
-    result = pytester.runpytest("-v")
-    # test_a fails; test_b runs despite prereq failure because of @litmus_independent.
-    result.assert_outcomes(failed=1, passed=1)
-
-
 def test_method_vec_id_uses_param_values(pytester: pytest.Pytester) -> None:
     _write_sequence(
         pytester,
@@ -650,84 +526,6 @@ def test_pure_pytest_assert_no_litmus_machinery(pytester: pytest.Pytester) -> No
     result.assert_outcomes(passed=1)
 
 
-def _write_markerless_sequence(pytester, test_body):
-    """Write a pytester project without any sidecar YAML — marker-driven only."""
-    pytester.makeini(
-        textwrap.dedent(
-            """
-            [pytest]
-            addopts = -p no:litmus -p litmus.execution.plugin
-            """
-        )
-    )
-    pytester.makeconftest("")
-    pytester.makepyfile(test_seq=test_body)
-
-
-def test_litmus_vectors_marker_on_method_parametrizes(pytester: pytest.Pytester) -> None:
-    """Method-level ``@pytest.mark.litmus_vectors(**kwargs)`` compiles to parametrize."""
-    _write_markerless_sequence(
-        pytester,
-        textwrap.dedent(
-            """
-            import pytest
-
-            class TestSeq:
-                @pytest.mark.litmus_vectors(vin=[4.5, 5.0, 5.5])
-                def test_sweeps(self, context):
-                    assert context.get_param("vin") in (4.5, 5.0, 5.5)
-            """
-        ),
-    )
-    result = pytester.runpytest("-v")
-    result.assert_outcomes(passed=3)
-
-
-def test_litmus_vectors_marker_on_class_parametrizes(pytester: pytest.Pytester) -> None:
-    """Class-level ``@pytest.mark.litmus_vectors`` applies to every method."""
-    _write_markerless_sequence(
-        pytester,
-        textwrap.dedent(
-            """
-            import pytest
-
-            @pytest.mark.litmus_vectors(vin=[4.5, 5.0])
-            class TestSeq:
-                def test_a(self, context):
-                    assert context.get_param("vin") in (4.5, 5.0)
-
-                def test_b(self, context):
-                    assert context.get_param("vin") in (4.5, 5.0)
-            """
-        ),
-    )
-    result = pytester.runpytest("-v")
-    result.assert_outcomes(passed=4)
-
-
-def test_litmus_vectors_marker_class_and_method_cross_product(
-    pytester: pytest.Pytester,
-) -> None:
-    """Class-level and method-level vector markers cross-product."""
-    _write_markerless_sequence(
-        pytester,
-        textwrap.dedent(
-            """
-            import pytest
-
-            @pytest.mark.litmus_vectors(vin=[4.5, 5.0])
-            class TestSeq:
-                @pytest.mark.litmus_vectors(load=[0.1, 0.8])
-                def test_matrix(self, context):
-                    assert context.get_param("vin") in (4.5, 5.0)
-                    assert context.get_param("load") in (0.1, 0.8)
-            """
-        ),
-    )
-    result = pytester.runpytest("-v")
-    result.assert_outcomes(passed=4)
-
-
 def test_litmus_limits_marker_on_method_resolves(pytester: pytest.Pytester) -> None:
     """Method-level ``@pytest.mark.litmus_limits`` feeds ``verify`` resolution."""
     pytester.makeini(
@@ -783,11 +581,9 @@ def test_litmus_limits_marker_method_overrides_class(pytester: pytest.Pytester) 
                 rail={"low": 3.2, "high": 3.4, "units": "V"},  # tight (class default)
             )
             class TestSeq:
-                @pytest.mark.litmus_independent
                 def test_tight_class_limit(self, verify):
                     verify("rail", 3.5)  # fails tight class limit
 
-                @pytest.mark.litmus_independent
                 @pytest.mark.litmus_limits(
                     rail={"low": 3.0, "high": 3.6, "units": "V"},  # loose override
                 )
@@ -798,62 +594,6 @@ def test_litmus_limits_marker_method_overrides_class(pytester: pytest.Pytester) 
     )
     result = pytester.runpytest("-v")
     result.assert_outcomes(passed=1, failed=1)
-
-
-def test_litmus_spec_marker_scopes_product(pytester: pytest.Pytester) -> None:
-    """``@pytest.mark.litmus_spec(product=...)`` loads a SpecContext for the test."""
-    pytester.makeini(
-        textwrap.dedent(
-            """
-            [pytest]
-            addopts = -p no:litmus -p litmus.execution.plugin
-            """
-        )
-    )
-    # Minimal product YAML: one characteristic with an inline limit.
-    products = pytester.mkdir("products")
-    (products / "test_product.yaml").write_text(
-        textwrap.dedent(
-            """
-            id: test_product
-            name: Test Product
-            revision: '1.0'
-            characteristics:
-              output_voltage:
-                function: dc_voltage
-                direction: output
-                units: V
-                pins: [VOUT]
-                specs:
-                  - value: 3.3
-                    accuracy:
-                      pct_reading: 3.0
-            pins:
-              VOUT:
-                name: TP1
-            """
-        )
-    )
-    pytester.makeconftest(_MEASURE_CONFTEST)
-    pytester.makepyfile(
-        test_seq=textwrap.dedent(
-            """
-            import pytest
-            from litmus.execution.plugin import get_active_spec_context
-
-            @pytest.mark.litmus_spec(product="test_product")
-            class TestSeq:
-                def test_spec_active(self):
-                    ctx = get_active_spec_context()
-                    assert ctx is not None
-                    limit = ctx.get_limit("output_voltage")
-                    # 3.3 ± 3% = [3.201, 3.399]
-                    assert abs(limit.nominal - 3.3) < 1e-9
-            """
-        )
-    )
-    result = pytester.runpytest("-v")
-    result.assert_outcomes(passed=1)
 
 
 def test_limits_fixture_destructured_access(pytester: pytest.Pytester) -> None:
@@ -902,8 +642,8 @@ _MOCKS_CONFTEST = textwrap.dedent(
 )
 
 
-def test_litmus_mocks_marker_patches_fixture_method(pytester: pytest.Pytester) -> None:
-    """``@pytest.mark.litmus_mocks`` patches <fixture>.<attr> for the test body."""
+def test_no_test_mocks_flag_disables_sidecar_mocks(pytester: pytest.Pytester) -> None:
+    """``--no-test-mocks`` short-circuits sidecar ``mocks:`` blocks."""
     pytester.makeini(
         textwrap.dedent(
             """
@@ -916,53 +656,25 @@ def test_litmus_mocks_marker_patches_fixture_method(pytester: pytest.Pytester) -
     pytester.makepyfile(
         test_seq=textwrap.dedent(
             """
-            import pytest
-
             class TestSeq:
-                @pytest.mark.litmus_mocks({"dmm.measure_dc_voltage": 3.3})
-                def test_patched(self, dmm):
-                    assert dmm.measure_dc_voltage() == 3.3
-
-                def test_unpatched(self, dmm):
+                def test_ignores_mock(self, dmm):
+                    # Sidecar mocks: dmm.measure_dc_voltage -> 3.3, but
+                    # --no-test-mocks short-circuits, so the real 999.0
+                    # return value reaches the test.
                     assert dmm.measure_dc_voltage() == 999.0
             """
         )
     )
-    result = pytester.runpytest("-v")
-    result.assert_outcomes(passed=2)
-
-
-def test_litmus_mocks_marker_class_level_and_method_override(
-    pytester: pytest.Pytester,
-) -> None:
-    """Class-level and method-level ``litmus_mocks`` merge; method wins on key collision."""
-    pytester.makeini(
+    (pytester.path / "test_seq.yaml").write_text(
         textwrap.dedent(
             """
-            [pytest]
-            addopts = -p no:litmus -p litmus.execution.plugin
+            mocks:
+              dmm.measure_dc_voltage: 3.3
             """
         )
     )
-    pytester.makeconftest(_MOCKS_CONFTEST)
-    pytester.makepyfile(
-        test_seq=textwrap.dedent(
-            """
-            import pytest
-
-            @pytest.mark.litmus_mocks({"dmm.measure_dc_voltage": 1.1})
-            class TestSeq:
-                def test_class_value(self, dmm):
-                    assert dmm.measure_dc_voltage() == 1.1
-
-                @pytest.mark.litmus_mocks({"dmm.measure_dc_voltage": 2.2})
-                def test_method_overrides(self, dmm):
-                    assert dmm.measure_dc_voltage() == 2.2
-            """
-        )
-    )
-    result = pytester.runpytest("-v")
-    result.assert_outcomes(passed=2)
+    result = pytester.runpytest("-v", "--no-test-mocks")
+    result.assert_outcomes(passed=1)
 
 
 def test_context_last_returns_prior_param(pytester: pytest.Pytester) -> None:
@@ -984,8 +696,8 @@ def test_context_last_returns_prior_param(pytester: pytest.Pytester) -> None:
             SEEN = []
 
             class TestSeq:
-                @pytest.mark.litmus_vectors(vin=[4.5, 5.0, 5.5])
-                def test_chain(self, context):
+                @pytest.mark.parametrize("vin", [4.5, 5.0, 5.5])
+                def test_chain(self, vin, context):
                     SEEN.append((context.get_param("vin"), context.last("vin")))
 
             def test_check_order():

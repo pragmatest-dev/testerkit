@@ -366,16 +366,16 @@ pin_info = spec.get_pin_info("output_voltage")
 
 ### In pytest-native tests
 
-The `spec` fixture is the pytest-native interface — no manual `SpecContext` wiring needed. Load a spec with `--product=...` or `@pytest.mark.litmus_spec(product="...")`:
+The `spec` fixture is the pytest-native interface — no manual `SpecContext` wiring needed. Load a spec with `--product=<id>` on the CLI or via `default_product:` in `litmus.yaml` / the active profile:
 
 ```python
 import pytest
 
-@pytest.mark.litmus_spec(product="power_board_v1")
-@pytest.mark.litmus_vectors(temperature=[25, 85], load=[0.1, 1.0])
-def test_output_voltage(context, dmm, spec, chamber, eload):
-    chamber.set_temperature(context.get_param("temperature"))
-    eload.set_current(context.get_param("load"))
+@pytest.mark.parametrize("load", [0.1, 1.0])
+@pytest.mark.parametrize("temperature", [25, 85])
+def test_output_voltage(temperature, load, context, dmm, spec, chamber, eload):
+    chamber.set_temperature(temperature)
+    eload.set_current(load)
     spec.check("output_voltage", dmm.measure_dc_voltage())
 ```
 
