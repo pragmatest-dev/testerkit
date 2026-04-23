@@ -119,30 +119,26 @@ instruments:
 
 ### Test Code (`tests/test_example.py`)
 
+Tests are **plain pytest** — no decorator, no base class. The Litmus plugin contributes three fixtures (`context`, `spec`, `logger`) and a few markers:
+
 ```python
 # tests/test_my_product.py
-from litmus.execution import litmus_test
+class TestMyProduct:
+    def test_output_voltage(self, context, psu, dmm, spec):
+        """Verify output voltage is within spec.
 
-@litmus_test
-def test_output_voltage(context, psu, dmm):
-    """Verify output voltage is within spec.
+        spec.check() resolves the limit from the product YAML,
+        records a measurement, and raises on fail.
+        """
+        vin = context.get_param("vin", 5.0)
 
-    The @litmus_test decorator:
-    1. Loads vectors and limits from the active sequence step
-    2. Captures the return value as a measurement
-    3. Checks against limits
-    4. Records results to Parquet
-    """
-    # Get conditions from context (not hardcoded!)
-    vin = context.get_param("vin", 5.0)
+        psu.set_voltage(vin)
+        psu.enable_output()
 
-    # Set up stimulus
-    psu.set_voltage(vin)
-    psu.enable_output()
-
-    # Measure and return - framework checks limits
-    return dmm.measure_dc_voltage()
+        spec.check("output_voltage", dmm.measure_dc_voltage())
 ```
+
+For measurements that don't come from the product spec, use `logger.measure(name, value, low=..., high=...)` with inline limits or a sidecar `test_<module>.yaml`.
 
 ### Sequence (`sequences/example_sequence.yaml`)
 
@@ -187,21 +183,23 @@ pytest tests/ --sequence=my_product_smoke --station=my_station --dut-serial=SN00
 
 Every Litmus test follows this pattern:
 
-1. **GET CONDITIONS** from context (not hardcoded)
+1. **GET CONDITIONS** from `context.get_param(...)` (not hardcoded)
 2. **SET UP** stimulus (PSU voltage, load current)
 3. **MEASURE** the result
-4. **RETURN** the value (framework checks limits from the active sequence step)
+4. **CHECK** with `spec.check(name, value)` or `logger.measure(name, value, ...)` — never `assert 3.0 <= v <= 3.6`
 
 ```python
-@litmus_test
-def test_something(context, psu, dmm):
-    vin = context.get_param("vin", 5.0)  # GET from context
-    psu.set_voltage(vin)              # SET UP
+def test_something(context, psu, dmm, spec):
+    vin = context.get_param("vin", 5.0)     # GET from context
+    psu.set_voltage(vin)                    # SET UP
     psu.enable_output()
-    return dmm.measure_dc_voltage()   # MEASURE and RETURN
+    spec.check("output_voltage",            # MEASURE + CHECK + RECORD
+               dmm.measure_dc_voltage())
 ```
 
-**No hardcoded values in code.** Conditions come from context (populated by test vectors), limits from sequence steps.
+**No hardcoded values in code.** Conditions come from `context` (populated by `litmus_vectors` markers, native `parametrize`, or sidecar YAML). Limits come from the product spec, markers, or sidecar — never inline asserts.
+
+For the full reference — markers, sidecar YAML, `context.changed()`, mocks, retries — see the [Writing Tests guide](guides/writing-tests.md).
 
 ## View Results
 

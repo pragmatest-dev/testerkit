@@ -62,18 +62,28 @@ steps:
         units: V
 ```
 
-Or in the inline decorator:
+Or via the `litmus_mocks` marker (method or class level):
 
 ```python
-@litmus_test(
-    config={"mocks": {"dmm.measure_voltage": 3.31}},
-    limits={"test_output_voltage": {"low": 3.2, "high": 3.4}},
-)
-def test_output_voltage(context, dmm):
-    return dmm.measure_dc_voltage()
+import pytest
+
+@pytest.mark.litmus_mocks({"dmm.measure_dc_voltage": 3.31})
+@pytest.mark.litmus_limits(output_voltage={"low": 3.2, "high": 3.4, "units": "V"})
+def test_output_voltage(context, dmm, logger):
+    logger.measure("output_voltage", dmm.measure_dc_voltage())
 ```
 
-The `mocks` key maps `instrument.method` to return values.
+Or in a sidecar YAML:
+
+```yaml
+# tests/test_power.yaml
+mocks:
+  dmm.measure_dc_voltage: 3.31
+limits:
+  output_voltage: {low: 3.2, high: 3.4, units: V}
+```
+
+All forms map `instrument.method` to return values. Patches install on test entry and unwind on teardown.
 
 ### Vector-Level (Different Values per Condition)
 

@@ -1,5 +1,10 @@
 # Test Harness Integration
 
+> **For new pytest projects, use the pytest-native three-fixture split (`context`, `spec`,
+> `logger`) documented in [pytest-native Reference](../reference/pytest-native.md).** The
+> `TestHarness` API documented here is for integrating Litmus into existing tests, non-pytest
+> runners, or custom harnesses where you need explicit lifecycle control.
+
 Add Litmus measurement tracking to existing tests without restructuring your test code.
 
 ## Overview
@@ -164,7 +169,7 @@ harness.measure("voltage", v)  # Limits from config
 harness.finish()
 ```
 
-When using `@litmus_test`, limits come from sequence steps (primary) or inline decorator config (fallback).
+In pytest-native mode, limits come from sequence step config, `@pytest.mark.litmus_limits`, sidecar YAML, or the active product spec (in that order). See [Test Configuration](../tutorial/05-configuration.md).
 
 ### With Spec-Driven Limits
 
@@ -430,17 +435,17 @@ all_inputs = harness.context.params   # Merged with parent chain
 all_outputs = harness.context.observations  # Merged with parent chain
 ```
 
-## Comparison with @litmus_test
+## Comparison with pytest-native
 
-| Feature | TestHarness | @litmus_test |
-|---------|-------------|--------------|
+| Feature | TestHarness | pytest-native |
+|---------|-------------|---------------|
 | Explicit control | ✓ | |
 | Works with any test framework | ✓ | pytest only |
 | Automatic vector expansion | | ✓ |
 | Automatic result capture | | ✓ |
 | YAML configuration | ✓ | ✓ |
 | Spec-driven limits | ✓ | ✓ |
-| Incremental adoption | Easy | Requires decorator |
+| Incremental adoption | Easy | Drop in fixtures per-test |
 
 ## When to Use TestHarness
 
@@ -449,7 +454,7 @@ all_outputs = harness.context.observations  # Merged with parent chain
 - Need explicit control over test flow
 - Gradual migration to Litmus
 
-## When to Use @litmus_test
+## When to Use pytest-native
 
 - New tests written for Litmus
 - Want automatic vector expansion
@@ -460,4 +465,4 @@ all_outputs = harness.context.observations  # Merged with parent chain
 
 - [Results API](results-api.md) — Store results from any source
 - [Instrument Drivers](instruments.md) — Use Litmus drivers
-- [pytest Plugin](../reference/pytest-plugin.md) — Full pytest integration
+- [pytest-native Reference](../reference/pytest-native.md) — Fixtures, markers, sidecar YAML

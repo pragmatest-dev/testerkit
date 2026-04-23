@@ -212,17 +212,50 @@ Emit: <gate-result phase="3" action="approved|revised" />
 Goal: Create pytest test code that exercises all characteristics.
 
 <step id="4.1">
-Generate test code based on spec.
-Refer to refs/test-writing.md for test code patterns.
+Generate **pytest-native** test code. Tests are plain pytest — no decorator, no base class. Use the three Litmus fixtures (`context`, `spec`, `logger`) and markers (`litmus_vectors`, `litmus_limits`, `litmus_spec`, `litmus_mocks`). See refs/test-writing.md for the full reference.
+
+Skeleton to follow:
+
+```python
+# tests/test_<product>.py
+import pytest
+
+class TestRails:
+    @pytest.mark.litmus_vectors(vin=[4.5, 5.0, 5.5], load=[0.1, 0.4])
+    def test_output_voltage(self, context, spec, psu, dmm, dut_load):
+        if context.changed("vin"):
+            psu.set_voltage(context.get_param("vin"))
+        dut_load.set(context.get_param("load"))
+        spec.check("output_voltage", dmm.measure_dc_voltage())
+```
+
+Notes for good generation:
+- Prefer `spec.check(name, v)` when a product spec exists — DUT pin and limits resolve automatically
+- Use `logger.measure(name, v, low=..., high=...)` for procedure-only measurements
+- Use `context.changed(k)` in parametrized sweeps to skip expensive reconfig
+- Use `pytest.mark.parametrize` directly when vectors don't need to be operator-edited
 </step>
 
 <step id="4.2">
-Create config.yaml with limits and mock values.
-Refer to refs/limits.md for config/limits structure.
+Create a **sidecar YAML** (`tests/test_<product>.yaml`) with any combination of `vectors:`, `limits:`, `mocks:`. Sidecar is for operator-editable values; inline markers are for values that belong with the code. See refs/limits.md for limit structure.
+
+Example:
+
+```yaml
+# tests/test_<product>.yaml
+vectors:
+  vin: [4.5, 5.0, 5.5]
+  load: [0.1, 0.4, 0.8]
+limits:
+  efficiency:     {low: 55, high: 100, units: "%"}
+  output_voltage: {ref: "output_voltage"}    # delegates to product spec
+mocks:
+  dmm.measure_dc_voltage: 3.3
+```
 </step>
 
 <step id="4.3">
-Show both files for review. MUST create BOTH files (test .py AND config.yaml).
+Show both files for review. MUST create BOTH files (test .py AND sidecar .yaml unless all config lives in markers).
 </step>
 
 <gate id="4">

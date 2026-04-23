@@ -88,14 +88,13 @@ Every measurement can be traced from result back to source:
 When you use the `pins` fixture, traceability is captured automatically:
 
 ```python
-@litmus_test
-def test_output_voltage(pins):
+def test_output_voltage(pins, logger):
     # pins["VOUT"] knows:
     # - meas_dut_pin (from product spec)
     # - meas_instrument (from fixture)
     # - meas_instrument_resource (from station)
     # - meas_instrument_channel (from fixture)
-    return pins["VOUT"].measure_voltage()
+    logger.measure("output_voltage", pins["VOUT"].measure_voltage())
 ```
 
 ### Manual (Direct Instruments)
@@ -103,11 +102,10 @@ def test_output_voltage(pins):
 When using instruments directly, set traceability manually:
 
 ```python
-@litmus_test
-def test_output_voltage(context, dmm, harness):
+def test_output_voltage(dmm, logger):
     voltage = dmm.measure_dc_voltage()
 
-    harness.measure(
+    logger.measure(
         "output_voltage",
         voltage,
         dut_pin="J1.3",
@@ -121,19 +119,10 @@ def test_output_voltage(context, dmm, harness):
 For spec-driven traceability:
 
 ```python
-from litmus.products import SpecContext
-
-spec = SpecContext.from_file("products/power_board.yaml")
-
-@litmus_test
-def test_output_voltage(context, dmm, harness):
-    voltage = dmm.measure_dc_voltage()
-
-    # spec_context provides spec_ref and dut_pin automatically
-    harness.measure(
-        "output_voltage",  # Characteristic name in spec
-        voltage,
-    )
+def test_output_voltage(dmm, spec):
+    # spec.check resolves the limit and traceability from the active
+    # SpecContext (configured via --spec=products/power_board.yaml)
+    spec.check("output_voltage", dmm.measure_dc_voltage())
 ```
 
 ### Hierarchical Context
@@ -164,7 +153,7 @@ with harness.step():
 Add custom traceability fields that become Parquet columns:
 
 ```python
-def test_with_context(run_context, psu, dmm):
+def test_with_context(run_context, psu, dmm, logger):
     # Custom fields for your organization's needs
     run_context.set("operator_badge", "EMP-12345")
     run_context.set("fixture_serial", "FIX-001")
@@ -173,7 +162,7 @@ def test_with_context(run_context, psu, dmm):
 
     # Normal test code...
     psu.set_voltage(5.0)
-    return dmm.measure_dc_voltage()
+    logger.measure("output_voltage", dmm.measure_dc_voltage())
 ```
 
 ## Comparators (ATML/IEEE 1671)

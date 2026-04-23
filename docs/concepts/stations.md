@@ -136,14 +136,9 @@ pytest tests/ --station=bench_1 --dut-serial=SN001
 ### Via fixtures
 
 ```python
-@pytest.fixture
-def dmm(station):
-    """Get DMM from current station."""
-    return station.instruments["dmm"]
-
-@litmus_test
-def test_voltage(context, dmm):
-    return dmm.measure_voltage()
+def test_voltage(dmm, logger):
+    """Instrument roles from station config are auto-registered as fixtures."""
+    logger.measure("voltage", dmm.measure_voltage())
 ```
 
 ### Via CLI

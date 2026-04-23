@@ -112,7 +112,7 @@ Per-step instrument identity. Only the instruments actually used by a test step 
 | `instr_cal_certificate` | list[string] | Calibration certificate numbers |
 | `instr_cal_lab` | list[string] | Calibration lab names |
 
-**Per-step tracking:** Each test step records only the instruments it uses. A test that calls `test_voltage(dmm, psu)` will have `instr_name = ["dmm", "psu"]`, not the full station inventory. This is auto-detected from the fixture parameters passed to `@litmus_test`.
+**Per-step tracking:** Each test step records only the instruments it uses. A test that calls `test_voltage(dmm, psu)` will have `instr_name = ["dmm", "psu"]`, not the full station inventory. This is auto-detected from the fixture parameters declared on the test function.
 
 **Identity source:** For real hardware, identity comes from `*IDN?` query at session start. For mock instruments, identity comes from the instrument YAML config files.
 

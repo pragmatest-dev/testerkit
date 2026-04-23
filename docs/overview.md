@@ -50,26 +50,28 @@ Matching is condition-aware: if your product needs 1% accuracy at 1 kHz but the 
 
 ### pytest integration
 
-The `@litmus_test` decorator adds everything hardware tests need on top of standard pytest:
+Litmus is a pytest plugin — tests are **plain pytest**, authored with standard classes, functions, markers, and fixtures. Litmus adds three fixtures (`context`, `spec`, `logger`) and five markers on top:
 
 ```python
-@litmus_test
-def test_output_voltage(context, psu, dmm):
-    psu.set_voltage(context.get_param("vin"))
-    return dmm.measure_dc_voltage()  # Just return the value
+class TestPowerUp:
+    def test_output_voltage(self, context, psu, dmm, spec):
+        psu.set_voltage(context.get_param("vin"))
+        psu.enable_output()
+        spec.check("output_voltage", dmm.measure_dc_voltage())
 ```
 
-Tests return values — the framework handles logging, limit checking, and traceability. Return a single value, a dict of named measurements, or yield for streaming.
+`spec.check(name, value)` resolves the limit from the product YAML, writes a measurement with full traceability, and raises `AssertionError` on fail. For non-spec measurements, `logger.measure("name", value, low=..., high=...)` has the same semantics with inline limits.
 
-- **Sweep across conditions** — test at multiple temperatures, loads, and input voltages without code changes
+- **Sweep across conditions** — `@pytest.mark.litmus_vectors(...)` or native `@pytest.mark.parametrize(...)`; test at multiple temps, loads, and input voltages without code changes
+- **`context.changed(key)`** — skip expensive instrument reconfig across parametrize iterations
 - **Full traceability** — every measurement records what was measured, on what instrument, through which channel, from which DUT pin (see [What gets logged](#what-gets-logged) below)
 - **Mock mode** — `pytest --mock-instruments` runs your full test suite without hardware
-- **Retries** — configurable per-step, with delay and max attempts
+- **Ecosystem plugins** — `pytest-rerunfailures` for retries, `pytest-dependency` for explicit test graphs
 - **Auto fixtures** — station instruments become pytest fixtures by role name (`dmm`, `psu`, `scope`)
 
 ### What gets logged
 
-Every `context.measure()` call creates a record with:
+Every `spec.check()` / `logger.measure()` call creates a record with:
 
 | Category | Fields |
 |----------|--------|
@@ -117,7 +119,7 @@ with run.step("measure_5v") as step:
 run.finish()
 ```
 
-**Starting fresh?** Use `@litmus_test` with pytest for full integration from day one.
+**Starting fresh?** Write standard pytest tests with the Litmus plugin for full integration from day one.
 
 **Not Python?** HTTP API endpoints accept results from any language.
 
@@ -179,7 +181,7 @@ Everything is organized by what it describes:
 | `fixtures/` | Wiring — which DUT pin connects where | Fixture designer UI |
 | `sequences/` | Test order — steps, vectors, retries | Test engineers |
 | `instruments/` | Asset records — serial numbers, cal dates | Lab management |
-| `tests/` | Test code — Python with `@litmus_test` | Developers, AI |
+| `tests/` | Test code — plain pytest with Litmus fixtures | Developers, AI |
 
 ## Architecture
 

@@ -342,6 +342,7 @@ class TestRun(BaseModel):
     # Sequence traceability
     test_sequence_id: str
     test_phase: str = "production"
+    profile: str | None = None  # active --litmus-profile name, if any
 
     # Operator
     operator_id: str | None = None  # from --operator

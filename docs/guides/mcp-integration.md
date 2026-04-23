@@ -254,10 +254,7 @@ template = litmus(action="read", path="template:test", project=project)
 ```python
 litmus(action="save", type="test", id="tests/test_tps54302.py", content={
     "code": '''
-from litmus.execution import litmus_test
-
-@litmus_test
-def test_output_voltage(context, psu, dmm):
+def test_output_voltage(context, psu, dmm, spec):
     """Verify output voltage across temperature and load conditions."""
     # Get test parameters from vector
     temperature = context.get_param("temperature", 25)
@@ -268,15 +265,15 @@ def test_output_voltage(context, psu, dmm):
     psu.set_voltage(vin)
     psu.enable_output()
 
-    # Measure and return - framework checks limits
-    return dmm.measure_dc_voltage()
+    # Measure and check - spec resolves the limit from the product YAML
+    spec.check("output_voltage", dmm.measure_dc_voltage())
 
-@litmus_test
-def test_quiescent_current(context, psu, dmm):
+
+def test_quiescent_current(context, psu, dmm, spec):
     """Verify quiescent current with no load."""
     psu.set_voltage(context.get_param("vin", 12.0))
     psu.enable_output()
-    return dmm.measure_dc_current()
+    spec.check("quiescent_current", dmm.measure_dc_current())
 '''
 }, project=project)
 ```
@@ -409,10 +406,7 @@ Most common: **Ref** (spec-derived) and **Direct** (static).
 ### ✅ Correct Pattern
 
 ```python
-from litmus.execution import litmus_test
-
-@litmus_test
-def test_output_voltage(context, psu, dmm):
+def test_output_voltage(context, psu, dmm, spec):
     """Measure output voltage at specified conditions."""
     # 1. Get test parameters from vector (context)
     temperature = context.get_param("temperature", 25)
@@ -423,23 +417,23 @@ def test_output_voltage(context, psu, dmm):
     psu.set_voltage(vin)
     psu.enable_output()
 
-    # 3. Measure and RETURN value
-    # Framework automatically checks against spec-derived limits
-    return dmm.measure_dc_voltage()
+    # 3. Measure and CHECK via spec.check — it resolves the limit from
+    # the product spec and raises AssertionError on FAIL
+    spec.check("output_voltage", dmm.measure_dc_voltage())
 ```
 
 ### ❌ Wrong Patterns
 
 ```python
-# WRONG: Hardcoded values
-def test_output():
-    psu.set_voltage(12.0)  # Where does 12.0 come from?
-    return dmm.measure_voltage()
+# WRONG: Hardcoded stimulus values
+def test_output(psu, dmm, spec):
+    psu.set_voltage(12.0)  # Where does 12.0 come from? Use context.get_param.
+    spec.check("output_voltage", dmm.measure_voltage())
 
-# WRONG: Assertions instead of returns
-def test_output():
+# WRONG: Hardcoded assertions instead of spec/limit resolution
+def test_output(dmm):
     value = dmm.measure_voltage()
-    assert value == 3.3  # Hardcoded!
+    assert value == 3.3  # No traceability, no limit model
 
 # WRONG: Standalone calculation
 class Converter:
@@ -491,10 +485,10 @@ print(result["status"])  # "PASS" or "FAIL"
 - [ ] Characteristics have proper `specs` list with `conditions`, `value`, `accuracy`
 - [ ] Station configured with real or mock instruments
 - [ ] Called `litmus(action="read", path="template:test")` to see current pattern
-- [ ] Test uses `@litmus_test` decorator
-- [ ] Test accepts `context` and instrument fixtures
+- [ ] Test is a plain `def test_*` function (or class method) — no `@litmus_test`
+- [ ] Test accepts `context`, `spec`/`logger`, and instrument fixtures
 - [ ] Test gets parameters via `context.get_param("key", default)`
-- [ ] Test RETURNS measured values (no assertions)
+- [ ] Test uses `spec.check(name, value)` or `logger.measure(name, value)` to record measurements
 - [ ] Test config uses `expand: product` and `ref` limits
 - [ ] Guardbands applied for manufacturing margin
 - [ ] No hardcoded specification values in test code

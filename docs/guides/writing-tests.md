@@ -1,344 +1,198 @@
 # Writing Tests
 
-This guide covers patterns and best practices for writing Litmus tests.
+Litmus tests are **plain pytest**. There is no Litmus base class, no `@litmus_test` decorator — just pytest classes or loose module-level functions that consume a few Litmus-provided fixtures. For everything that isn't Litmus-specific (parametrize, fixtures, conftest, CLI, markers), refer to the official pytest docs at <https://docs.pytest.org/>.
 
-## Basic Test Structure
+## The three fixtures
+
+| Fixture   | Role                                         | Typical verbs |
+|-----------|----------------------------------------------|---------------|
+| `context` | Vector inputs + run/dut/station metadata     | `get_param`, `changed`, `last`, `observe` |
+| `spec`    | Product characteristics → limits + pin info  | `check(name, value, **conditions)` |
+| `logger`  | Measurement/event sink                       | `measure(name, value, ...)`, `record(k, v)` |
+
+Data flow is one-way: `test → spec → logger`. Logger snapshots ambient ContextVars (run id, station, DUT, active instruments) at write time.
+
+## Minimum viable test
 
 ```python
-from litmus.execution import litmus_test
-
-@litmus_test
-def test_voltage(context, dmm):
-    """Measure and return voltage."""
-    return dmm.measure_voltage()
+class TestPowerUp:
+    def test_output_voltage(self, context, psu, dmm, spec):
+        psu.set_voltage(context.get_param("vin"))
+        psu.enable_output()
+        spec.check("output_voltage", dmm.measure_dc_voltage())
 ```
 
-## The @litmus_test Decorator
+`spec.check` resolves the limit from the product YAML, writes a measurement via `logger`, and raises `AssertionError` on fail. Instrument fixtures (`psu`, `dmm`) are auto-registered from the station config — define a same-named `conftest.py` fixture only if you need custom setup/teardown.
 
-The decorator transforms your function into a hardware test:
+## Parametrizing a sweep
 
-1. **Resolves config** from sequence step (if active) or inline decorator
-2. **Expands vectors** (runs test multiple times if configured)
-3. **Captures return values** as measurements
-4. **Checks limits** against configured limits
-5. **Records results** to Parquet
-
-### Decorator Options
+Any of these work and all feed `context.get_param(...)`:
 
 ```python
-@litmus_test(
-    config={"vectors": [{"vin": 5.0}]},  # Inline vectors
-    limits={"test_voltage": {"low": 3.0, "high": 3.6}},  # Inline limits
-    raise_on_fail=True,       # Raise if limit fails (default: True)
+import pytest
+
+# Litmus marker — stacks with native parametrize, discoverable in sidecar
+@pytest.mark.litmus_vectors(vin=[4.5, 5.0, 5.5], load=[0.1, 0.4, 0.8])
+def test_rails(context, spec, psu, dut_load, dmm): ...
+
+# Native pytest parametrize — first-class, no wrapping
+@pytest.mark.parametrize("vin", [4.5, 5.0, 5.5])
+@pytest.mark.parametrize("load", [0.1, 0.4, 0.8])
+def test_rails(context, spec, psu, dut_load, dmm): ...
+
+# Sidecar YAML (operator-editable, no code change) — test_<module>.yaml
+# vectors:
+#   vin: [4.5, 5.0, 5.5]
+#   load: [0.1, 0.4, 0.8]
+def test_rails(context, spec, psu, dut_load, dmm): ...
+```
+
+### Skip expensive reconfiguration with `context.changed()`
+
+Hardware reconfig dominates multi-parameter sweeps (PSU settle 500 ms, DMM range switch 1 s, chamber soak 5–30 min). `context.changed(key)` returns `True` only when the parameter differs from the previous parametrize iteration:
+
+```python
+@pytest.mark.litmus_vectors(vin=[5.0, 5.5], temp=[25, 85], load=[0.1, 0.4])
+def test_rails(context, psu, chamber, dut_load, dmm, spec):
+    if context.changed("temp"):
+        chamber.set_temperature(context.get_param("temp"))
+        chamber.wait_for_soak()          # 20 min — skipped when temp unchanged
+    if context.changed("vin"):
+        psu.set_voltage(context.get_param("vin"))
+    dut_load.set(context.get_param("load"))
+    spec.check("output_voltage", dmm.measure_dc_voltage())
+```
+
+## Limits
+
+When `logger.measure(name, value)` is called without `limit=`, resolution is:
+
+1. Explicit kwargs — `logger.measure("v", val, low=..., high=..., units=...)`
+2. Method-level `@pytest.mark.litmus_limits(name={...})`
+3. Class-level `litmus_limits` marker
+4. Sidecar YAML `limits:` block
+5. Product spec (`ref: "<name>"` delegation)
+6. None — unchecked, recorded anyway (characterization mode)
+
+```python
+@pytest.mark.litmus_limits(
+    output_voltage={"low": 3.234, "high": 3.366, "units": "V"},
+    efficiency={"ref": "efficiency"},          # delegate to product spec
 )
-def test_example(context, dmm):
-    return dmm.measure_dc_voltage()
+def test_rails(context, spec, logger, dmm):
+    logger.measure("output_voltage", dmm.measure_dc_voltage())
+    spec.check("efficiency", compute_eff(...))
 ```
 
-When running with `--sequence`, the sequence step config overrides inline config.
+## Five markers (all registered — `--strict-markers` safe)
 
-## Return Values
+| Marker                        | Scope         | Purpose                                            |
+|-------------------------------|---------------|----------------------------------------------------|
+| `litmus_vectors(**kwargs)`    | method, class | Parametrize inline (compiles to `parametrize`)     |
+| `litmus_limits(**by_name)`    | method, class | Inject limits by measurement name                  |
+| `litmus_spec(product="...")`  | method, class | Override session-wide spec for this test           |
+| `litmus_mocks({...})`         | method, class | Patch instrument methods for the test              |
+| `litmus_independent`          | method        | Opt **out** of the implicit prereq chain           |
 
-### Single Measurement
+Method-level markers merge over class-level (method wins on conflicts).
 
-```python
-@litmus_test
-def test_voltage(context, dmm):
-    return dmm.measure_voltage()  # Stored as "test_voltage"
-```
+## Sidecar YAML
 
-### Multiple Measurements
-
-```python
-@litmus_test
-def test_power(context, dmm):
-    return {
-        "input_voltage": dmm.measure_voltage(),
-        "input_current": dmm.measure_current(),
-    }
-```
-
-### Streaming Measurements
-
-```python
-@litmus_test
-def test_stability(context, dmm):
-    for i in range(10):
-        yield {"voltage": dmm.measure_voltage()}
-        time.sleep(1)
-```
-
-## The context Fixture
-
-Every `@litmus_test` function receives a `context` parameter:
-
-```python
-@litmus_test
-def test_sweep(context, psu, dmm):
-    # Access parameters
-    voltage = context.get_param("voltage")
-    load = context.get_param("load")
-
-    psu.set_voltage(voltage)
-    return dmm.measure_voltage()
-```
-
-### Context Methods
-
-```python
-context.get_param("voltage")          # Get parameter (raises if missing)
-context.get_param("temp", 25)         # Get with default
-context.params                     # All input parameters as dict
-
-# Change detection (for nested loops)
-if context.changed("temperature"):
-    set_chamber_temp(context.get_param("temperature"))
-```
-
-## Test Configuration
-
-Config comes from **sequence steps** (primary) or **inline decorator** (fallback).
-
-### Inline Decorator (Dev/Ad-Hoc)
-
-```python
-@litmus_test(
-    config={"vectors": {"expand": "product", "voltage": [3.3, 5.0, 12.0], "load": [0, 50, 100]}},
-    limits={"test_sweep": {"low": 3.0, "high": 3.6, "nominal": 3.3, "units": "V"}},
-    retry=RetryConfig(max_attempts=3, delay_seconds=0.5),
-)
-def test_sweep(context, dmm):
-    return dmm.measure_dc_voltage()
-```
-
-### Sequence Step (Production)
+A sibling `test_<module>.yaml` can carry any combination of three optional blocks:
 
 ```yaml
-# sequences/my_sequence.yaml
-steps:
-  - id: sweep
-    test: tests/test_power.py::test_sweep
-    vectors:
-      expand: product
-      voltage: [3.3, 5.0, 12.0]
-      load: [0, 50, 100]
-    limits:
-      test_sweep:
-        low: 3.0
-        high: 3.6
-        nominal: 3.3
-        units: V
-    retry:
-      max_attempts: 3
-      delay_seconds: 0.5
+# test_power_board.yaml
+vectors:
+  vin: [4.5, 5.0, 5.5]
+  load_current: [0.1, 0.4, 0.8]
+limits:
+  efficiency:      {low: 55, high: 100, units: "%"}
+  output_voltage:  {ref: "output_voltage"}    # delegates to product spec
+mocks:
+  dmm.measure_dc_voltage: 3.3
 ```
 
-## Instrument Fixtures
+Sidecar values merge under markers — markers win on key conflicts.
 
-### Auto-Registered Role Fixtures (Recommended)
+## Retries & test dependencies — use the pytest ecosystem
 
-Instrument roles from your station config are auto-registered as pytest fixtures. Use them directly — no conftest boilerplate:
+Litmus **does not** ship its own retry or skip-on-failure markers. Use the mature ecosystem plugins instead:
 
-```python
-@litmus_test
-def test_voltage(context, dmm, psu):
-    """dmm and psu are auto-registered from station config."""
-    psu.set_voltage(context.get_param("vin", 5.0))
-    psu.enable_output()
-    return dmm.measure_dc_voltage()
-```
+| Concern                  | Use                                                                 |
+|--------------------------|---------------------------------------------------------------------|
+| Retry transient failures | `@pytest.mark.flaky(reruns=N, reruns_delay=T)` — `pytest-rerunfailures` |
+| Skip when a dep failed   | `@pytest.mark.dependency(depends=["test_a"])` — `pytest-dependency`     |
 
-To override with custom setup/teardown, define a fixture with the same name in `conftest.py`:
+The implicit Litmus prereq chain (in source order within a class, if `test_a` fails, `test_b` is skipped) is the zero-config default. Opt out per test with `@pytest.mark.litmus_independent`.
 
-```python
-# conftest.py
-@pytest.fixture(scope="session")
-def psu(instruments):
-    """Custom PSU with default voltage."""
-    inst = instruments.get("psu")
-    inst.set_voltage(5.0)
-    return inst
-```
+## Duplicate-name guard
 
-### Instrument Accessor
+`logger.measure` maintains a `seen_names` set per step. A second call with the same name raises `DuplicateMeasurementError` — typical trigger is `spec.check("v")` followed by a stray `logger.measure("v", ...)`. For intentional streaming, opt in with `allow_repeat=True`.
 
-For programmatic or dynamic access:
+## Graceful degradation
 
-```python
-@litmus_test
-def test_voltage(context, instrument):
-    dmm = instrument("dmm")        # Get by role name
-    roles = instrument.roles()      # List all roles
-    ...
-```
+All three config sources are independent — tests work under any combination:
 
-### Station Instruments Dict
+| Sidecar | Spec | Shape                                                          |
+|---------|------|----------------------------------------------------------------|
+| —       | —    | `logger.measure("v", val, low=..., high=...)` — explicit       |
+| —       | ✓    | `spec.check("output_voltage", val)`                            |
+| ✓       | —    | `logger.measure("efficiency", eff)` — auto-resolves            |
+| ✓       | ✓    | `spec.check` for characteristics; `logger.measure` for procedure |
+| —       | —    | `assert 3.2 <= val <= 3.4` — pure pytest, no Litmus machinery  |
 
-The underlying dict of all instances, keyed by role:
+## Instrument access
+
+Three shapes — all feed the same cached instances:
 
 ```python
-@litmus_test
-def test_voltage(context, instruments):
-    dmm = instruments["dmm"]
-    psu = instruments["psu"]
-    ...
-```
+# Auto-registered role fixture (most common)
+def test_a(psu, dmm, spec): ...
 
-### Pin-Based Access
+# By role name via accessor
+def test_b(instrument):
+    dmm = instrument("dmm")
 
-For production tests with DUT traceability:
-
-```python
-@litmus_test
-def test_output(context, pins):
+# By DUT pin (requires a fixture YAML)
+def test_c(pins, spec):
     pins["VIN"].set_voltage(5.0)
-    pins["VIN"].enable_output()
-    return pins["VOUT"].measure_voltage()
+    spec.check("output_voltage", pins["VOUT"].measure_voltage())
 ```
 
-## Common Patterns
-
-### Setup and Teardown
-
-```python
-@litmus_test
-def test_with_setup(context, psu, dmm):
-    # Setup
-    psu.set_voltage(5.0)
-    psu.enable_output()
-    time.sleep(0.1)  # Settle
-
-    try:
-        # Test
-        return dmm.measure_voltage()
-    finally:
-        # Teardown
-        psu.disable_output()
-```
-
-### Conditional Logic
-
-```python
-@litmus_test
-def test_conditional(context, hvps, psu, dmm):
-    if context.get_param("high_voltage", False):
-        hvps.set_voltage(100)
-    else:
-        psu.set_voltage(5)
-
-    return dmm.measure_voltage()
-```
-
-### Multiple Conditions
-
-```python
-@litmus_test
-def test_sweep(context, psu, dmm):
-    results = {}
-
-    for voltage in [3.3, 5.0, 12.0]:
-        psu.set_voltage(voltage)
-        time.sleep(0.1)
-        results[f"output_at_{voltage}V"] = dmm.measure_voltage()
-
-    return results
-```
-
-### Error Handling
-
-```python
-@litmus_test
-def test_with_retry(context, dmm):
-    for attempt in range(3):
-        try:
-            return dmm.measure_voltage()
-        except InstrumentError:
-            time.sleep(0.5)
-    raise TestError("Measurement failed after 3 attempts")
-```
-
-## Characterization Mode
-
-When no limits are configured, measurements pass (for data collection):
-
-```python
-@litmus_test(raise_on_fail=False)
-def test_characterize(context, dmm):
-    """Collect data without pass/fail."""
-    return dmm.measure_voltage()
-```
-
-## CLI Options
+## CLI
 
 ```bash
 pytest tests/ \
-  --dut-serial=SN12345 \     # Required: DUT serial
-  --station=bench_1 \         # Station ID
-  --operator="Jane Doe" \     # Operator name
-  --test-phase=production \   # Test phase
-  --mock-instruments \        # Mock instruments mode
+  --dut-serial=SN12345 \
+  --station=bench_1 \
+  --operator="Jane Doe" \
+  --test-phase=production \
+  --mock-instruments \
   -v
 ```
 
-## Best Practices
+Everything else is standard pytest — see <https://docs.pytest.org/en/stable/reference/reference.html>.
 
-1. **One measurement focus per test** — Don't combine unrelated tests
-2. **Use descriptive names** — `test_output_voltage_at_max_load`
-3. **Document test purpose** — Docstrings explain intent
-4. **Handle cleanup** — Use try/finally or context managers
-5. **Keep tests independent** — Don't rely on test order
-6. **Use vectors for sweeps** — Don't hardcode in loops
+## Best practices
 
-## Anti-Patterns
+1. Prefer `spec.check(name, v)` when a product spec exists — limits, DUT pin, and spec ref resolve automatically
+2. Use `logger.measure` with inline kwargs or sidecar `limits:` for procedure-only measurements
+3. Use `context.changed()` to skip expensive reconfig across parametrize iterations
+4. Prefer markers for code-owned sweeps; sidecar YAML for operator-edited sweeps
+5. Keep one measurement focus per test — let parametrize expand sweeps, not in-function loops
+6. Never hardcode limits in `assert` — put them in `litmus_limits`, sidecar, or the product spec
 
-### Don't: Combine Unrelated Tests
+## Same tests, different labs
 
-```python
-# Bad
-@litmus_test
-def test_everything(context, dmm, temp_logger):
-    return {
-        "voltage": dmm.measure_voltage(),
-        "temperature": temp_logger.measure_temperature(),
-        "communication": test_i2c(),
-    }
-```
-
-### Do: Separate Tests
-
-```python
-# Good
-@litmus_test
-def test_voltage(context, dmm):
-    return dmm.measure_voltage()
-
-@litmus_test
-def test_temperature(context, temp_logger):
-    return temp_logger.measure_temperature()
-```
-
-### Don't: Hardcode Limits
-
-```python
-# Bad
-@litmus_test
-def test_voltage(context, dmm):
-    v = dmm.measure_voltage()
-    assert 3.0 < float(v) < 3.6  # Hardcoded!
-    return v
-```
-
-### Do: Use Configuration
-
-```python
-# Good — limits in decorator (dev) or sequence step (production)
-@litmus_test(limits={"test_voltage": {"low": 3.0, "high": 3.6}})
-def test_voltage(context, dmm):
-    return dmm.measure_voltage()
-```
+When the same test tree needs to run under different conditions — a quick
+validation sweep, a full production sweep with retries, a debug profile —
+declare **profiles** in `litmus.yaml` and select one with
+`--litmus-profile=<name>`. See [Profiles guide](profiles.md).
 
 ## Next Steps
 
-- [pytest Plugin Reference](../reference/pytest-plugin.md) — Full plugin docs
-- [Configuration Reference](../reference/configuration.md) — All config options
-- [Simulation Mode](simulation-mode.md) — Testing without hardware
+- [pytest-native reference](../reference/pytest-native.md) — concise reference card
+- [Profiles](profiles.md) — named config sets for the same test tree
+- [Limits guide](limits.md) — all limit forms and resolution order
+- [Simulation Mode](simulation-mode.md) — running without hardware
+- [Official pytest docs](https://docs.pytest.org/en/stable/) — parametrize, fixtures, conftest, markers

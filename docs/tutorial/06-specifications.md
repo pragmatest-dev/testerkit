@@ -273,12 +273,9 @@ steps:
 
 **tests/test_power.py:**
 ```python
-from litmus.execution import litmus_test
-
-@litmus_test
-def test_output_voltage(context, dmm):
+def test_output_voltage(dmm, spec):
     """Verify output voltage meets guardbanded spec."""
-    return dmm.measure_voltage()
+    spec.check("output_voltage", dmm.measure_voltage())
 ```
 
 ## Traceability Chain
@@ -286,7 +283,7 @@ def test_output_voltage(context, dmm):
 ```
 Datasheet → Spec → Test Requirement → Test Config → Test Code → Measurement
      ↓          ↓           ↓               ↓            ↓           ↓
-  3.3V±5%   conditions   guardband      low/high     return     3.31V PASS
+  3.3V±5%   conditions   guardband      low/high   spec.check   3.31V PASS
 ```
 
 Every measurement can be traced back to the original specification.

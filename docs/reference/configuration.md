@@ -238,37 +238,55 @@ points:
 
 ## Test Configuration
 
-Test config (vectors, limits, mocks, retry) is resolved from two sources:
+Test config (vectors, limits, mocks) is resolved in priority order:
 
 1. **Sequence steps** (primary) — When running with `--sequence`
-2. **Inline decorator** (fallback) — For ad-hoc pytest runs
+2. **pytest markers** — `@pytest.mark.litmus_vectors`, `litmus_limits`, `litmus_mocks`
+3. **Sidecar YAML** — `test_<module>.yaml` next to the test file
+4. **`@pytest.mark.parametrize`** — pytest-native parametrization
 
-Sequence step config **replaces** inline decorator config entirely (not merged).
+Sequence step config **replaces** lower-priority sources for the keys it sets (not merged).
 
-### Inline Decorator Config
+### Inline Marker Config
 
 ```python
-@litmus_test(
-    config={
-        "vectors": {
-            "expand": "product",
-            "<param>": ["values"],
-        },
-    },
-    limits={
-        "<measurement_name>": {
-            "low": 3.0,
-            "high": 3.6,
-            "nominal": 3.3,
-            "units": "V",
-            "comparator": "GELE",
-        },
-    },
-    retry=RetryConfig(max_attempts=3, delay_seconds=0.5),
-)
-def test_example(context, dmm):
-    return dmm.measure_dc_voltage()
+import pytest
+
+
+@pytest.mark.litmus_vectors(vin=[4.5, 5.0, 5.5])
+@pytest.mark.litmus_limits(output_voltage={"low": 3.135, "high": 3.465, "units": "V"})
+def test_example(context, dmm, logger):
+    logger.measure("output_voltage", dmm.measure_dc_voltage())
 ```
+
+### Sidecar YAML Config
+
+```yaml
+# test_example.yaml — same directory as the test module
+vectors:
+  vin: [4.5, 5.0, 5.5]
+
+limits:
+  output_voltage: {low: 3.135, high: 3.465, units: "V"}
+
+mocks:
+  dmm.measure_dc_voltage: 3.31
+```
+
+### Retries
+
+For retries, use ecosystem-standard markers instead of inline config:
+
+```python
+import pytest
+
+
+@pytest.mark.flaky(reruns=3, reruns_delay=0.5)  # pytest-rerunfailures
+def test_flaky(dmm, logger):
+    logger.measure("voltage", dmm.measure_dc_voltage())
+```
+
+Sequence steps can still specify `retry:` — see the sequence reference above.
 
 ### Vector Expansion Modes
 
@@ -391,6 +409,55 @@ capabilities:              # Replaces base capabilities entirely
 
 Chains are supported (A → B → C) up to depth 5. Circular references raise `ValueError`.
 
+## Project Configuration
+
+**Location:** `litmus.yaml` (project root)
+
+```yaml
+name: string                  # Required — project identifier
+results_dir: string           # Optional — override default results directory
+default_station: string       # Default station for sessions (default: "station")
+default_fixture: string       # Optional default fixture
+mock_instruments: bool        # Force mock mode for all instruments (default: false)
+
+outputs:                      # Optional list of format + transport targets
+  - format: html              # Exporter (html, pdf, csv, stdf, ...)
+    transport: s3             # Shipper (s3, snowflake, ...)
+    bucket: my-results        # Format/transport-specific extras pass through
+
+profiles:                     # Named config sets — see docs/guides/profiles.md
+  <profile_name>:
+    description: string       # Optional human-readable description
+
+    pytest:                   # Pytest-level knobs applied to the session
+      addopts: string         # Appended to PYTEST_ADDOPTS before collection
+      markexpr: string        # Like -m: "not slow and not hardware"
+      keyword: string         # Like -k: "rails"
+
+    vectors:                  # Override vectors for matched node-ids
+      "test_file.py::TestClass::test_method":
+        vin: [5.0]            # Replaces sidecar vectors for this node-id
+      "test_file.py::TestClass::*":  # fnmatch glob also supported
+        temperature: [25]
+
+    limits:                   # Override limits for matched node-ids
+      "test_file.py::TestClass::test_method":
+        output_voltage: {low: 3.25, high: 3.35, units: V}
+
+    markers:                  # Inject pytest markers onto matched node-ids
+      "test_file.py::TestSlow":
+        - skip: "not run in validation"
+      "test_file.py::TestFlaky":
+        - flaky: {reruns: 2, reruns_delay: 1}
+```
+
+**Node-ID keys** follow pytest's own format (`path::Class::method`, `path::func`)
+and support `fnmatch` globs like `TestClass::*`. Exact matches take precedence
+over globs for vectors and limits; markers accumulate across every matching pattern.
+
+**Selection:** `pytest --litmus-profile=<name>` or `LITMUS_PROFILE=<name> pytest`.
+Only one profile is active per session.
+
 ## Environment Variables
 
 Configuration values can reference environment variables:
@@ -417,5 +484,6 @@ print(product.characteristics["output_voltage"].nominal)
 
 ## Next Steps
 
-- [pytest Plugin Guide](pytest-plugin.md) — Using configuration in tests
+- [pytest-native Reference](pytest-native.md) — Fixtures, markers, sidecar YAML
+- [pytest Plugin Guide](pytest-plugin.md) — Legacy `@litmus_test` decorator reference
 - [Core Concepts](concepts.md) — Understanding the data model

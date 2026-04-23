@@ -2,6 +2,10 @@
 
 Integrate Litmus into an existing pytest test suite without rewriting your tests.
 
+> **New to Litmus?** pytest-native mode (plain tests + `context`/`spec`/`logger` fixtures) is
+> the default. See [pytest-native Reference](../reference/pytest-native.md) for the full
+> authoring contract. This page focuses on mixing Litmus into suites that already exist.
+
 ## Overview
 
 If you already have pytest tests, you can:
@@ -34,12 +38,9 @@ def pytest_addoption(parser):
 
 ```python
 # tests/test_new_feature.py
-from litmus.execution import litmus_test
-
-@litmus_test
-def test_new_voltage_check(context, dmm):
+def test_new_voltage_check(context, dmm, logger):
     """New test using Litmus."""
-    return dmm.measure_voltage()
+    logger.measure("voltage", dmm.measure_voltage())
 ```
 
 ### Step 4: Keep Existing Tests
@@ -144,17 +145,14 @@ def measure_voltage(simulate=False):
         return float(dmm.measure_voltage())
 ```
 
-### Level 4: Full @litmus_test
+### Level 4: Full pytest-native
 
-Convert tests to use the decorator:
+Convert tests to use the three-fixture split:
 
 ```python
-from litmus.execution import litmus_test
-
-@litmus_test
-def test_voltage(context, dmm):
+def test_voltage(dmm, logger):
     """Fully converted Litmus test."""
-    return dmm.measure_voltage()
+    logger.measure("voltage", dmm.measure_voltage())
 ```
 
 ## Fixture Patterns
@@ -288,10 +286,11 @@ Use pytest markers to distinguish test types:
 ```python
 import pytest
 
+
 @pytest.mark.litmus
-@litmus_test
-def test_with_litmus(context):
-    ...
+def test_with_litmus(dmm, logger):
+    logger.measure("voltage", dmm.measure_voltage())
+
 
 @pytest.mark.unit
 def test_without_litmus():
@@ -335,4 +334,4 @@ tests/
 
 - [Test Harness](harness.md) — Add tracking to existing tests
 - [Instrument Drivers](instruments.md) — Replace custom instrument code
-- [pytest Plugin](../reference/pytest-plugin.md) — Full plugin reference
+- [pytest-native Reference](../reference/pytest-native.md) — Fixtures, markers, sidecar YAML

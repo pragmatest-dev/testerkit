@@ -364,53 +364,25 @@ pin_info = spec.get_pin_info("output_voltage")
 # Returns: {dut_pin: "J1.3", net: "VOUT_3V3", ...}
 ```
 
-### With TestHarness
+### In pytest-native tests
+
+The `spec` fixture is the pytest-native interface — no manual `SpecContext` wiring needed. Load a spec with `--product=...` or `@pytest.mark.litmus_spec(product="...")`:
 
 ```python
-from litmus.execution.harness import TestHarness
-from litmus.products import SpecContext
+import pytest
 
-spec = SpecContext.from_file("products/power_board.yaml", guardband_pct=10.0)
-
-harness = TestHarness(
-    step_name="test_output",
-    spec_context=spec,
-    config={"vectors": [{"temperature": 25, "load": 0.1}]},
-)
-
-with harness.step():
-    for vector in harness.vectors:
-        with harness.run_vector(vector):
-            # Automatically resolves limits and channel info from spec
-            harness.measure("output_voltage", dmm.measure_dc_voltage())
+@pytest.mark.litmus_spec(product="power_board_v1")
+@pytest.mark.litmus_vectors(temperature=[25, 85], load=[0.1, 1.0])
+def test_output_voltage(context, dmm, spec, chamber, eload):
+    chamber.set_temperature(context.get_param("temperature"))
+    eload.set_current(context.get_param("load"))
+    spec.check("output_voltage", dmm.measure_dc_voltage())
 ```
 
-### Workflow
-
-```
-Product Spec (YAML)
-       │
-       ▼
-SpecContext.from_file()
-       │
-       ├──► get_limit() → Limit with spec_ref
-       ├──► get_pin_info() → Channel traceability
-       │
-       ▼
-TestHarness.measure()
-       │
-       ├──► Auto-resolves limit from spec
-       ├──► Auto-populates dut_pin
-       ├──► Checks value against limits
-       │
-       ▼
-Measurement (with full traceability)
-       │
-       ▼
-Parquet Storage
-```
+`spec.check(name, v)` resolves the limit at current conditions, records the measurement with pin + `spec_ref` traceability, and raises `AssertionError` on fail. See the [spec-driven testing guide](guides/spec-driven-testing.md) for details.
 
 ## Next Steps
 
 - [Configuration Reference](reference/configuration.md) — Detailed YAML schemas
-- [pytest Plugin Guide](reference/pytest-plugin.md) — Writing tests with `@litmus_test`
+- [pytest-native reference](reference/pytest-native.md) — the three-fixture card (`context` / `spec` / `logger`)
+- [Writing Tests](guides/writing-tests.md) — end-to-end patterns

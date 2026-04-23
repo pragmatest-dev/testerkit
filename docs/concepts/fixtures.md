@@ -76,26 +76,24 @@ def test_output_voltage(pins):
 You don't always need pin mapping. For simple setups, instrument roles from the station config are auto-registered as pytest fixtures:
 
 ```python
-@litmus_test
-def test_voltage(context, psu, dmm):
+def test_voltage(psu, dmm, logger):
     """Direct access by role -- auto-registered from station config."""
     psu.set_voltage(5.0)
     psu.enable_output()
-    return dmm.measure_voltage()
+    logger.measure("output_voltage", dmm.measure_voltage())
 ```
 
 Or use the `instrument` accessor for programmatic access:
 
 ```python
-@litmus_test
-def test_voltage(context, instrument):
+def test_voltage(instrument, logger):
     """Accessor with grouping support."""
     psu = instrument("psu")
     dmm = instrument("dmm")
 
     psu.set_voltage(5.0)
     psu.enable_output()
-    return dmm.measure_voltage()
+    logger.measure("output_voltage", dmm.measure_voltage())
 ```
 
 ### Instrument Aliases

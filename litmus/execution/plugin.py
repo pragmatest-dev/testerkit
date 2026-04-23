@@ -25,7 +25,7 @@ from litmus.fixtures.manager import FixtureManager, PinAccessor
 from litmus.instruments.pool import InstrumentPool
 from litmus.instruments.route_manager import RouteManager
 from litmus.models.instrument import InstrumentRecord
-from litmus.models.project import OutputConfig, ProjectConfig
+from litmus.models.project import OutputConfig, ProfileConfig, ProjectConfig
 from litmus.models.station import StationConfig
 from litmus.products.context import SpecContext
 
@@ -51,6 +51,7 @@ _collected_items_var: ContextVar[list[CollectedItem]] = ContextVar("_collected_i
 _current_code_identity_var: ContextVar[dict[str, str | None]] = ContextVar("_current_code_identity")
 _event_store_var: ContextVar[Any] = ContextVar("_event_store")
 _active_limits_var: ContextVar[dict[str, Any]] = ContextVar("_active_limits")
+_active_profile_var: ContextVar[ProfileConfig | None] = ContextVar("_active_profile")
 
 
 # --- Session-scoped getters (create-and-store on first access) ---
@@ -242,6 +243,23 @@ def get_active_limits() -> dict[str, Any]:
 def set_active_limits(value: dict[str, Any]) -> None:
     """Set the active limits dict. Returns None."""
     _active_limits_var.set(value)
+
+
+def get_active_profile() -> ProfileConfig | None:
+    """Return the active ``ProfileConfig`` selected via ``--litmus-profile``.
+
+    Returns ``None`` when no profile is active. Session-scoped: installed
+    by ``pytest_configure`` and cleared by ``pytest_sessionfinish``.
+    """
+    try:
+        return _active_profile_var.get()
+    except LookupError:
+        return None
+
+
+def set_active_profile(value: ProfileConfig | None) -> None:
+    """Set the active profile. Returns None."""
+    _active_profile_var.set(value)
 
 
 def get_event_store() -> Any:
@@ -481,6 +499,7 @@ def pytest_configure(config):
         "mark downstream tests as blocked",
     ):
         config.addinivalue_line("markers", marker)
+    _install_active_profile(config)
     # @litmus_test returns TestStep for programmatic callers; suppress pytest warning
     config.addinivalue_line(
         "filterwarnings",
@@ -627,8 +646,25 @@ def _join_marker_names(markers: Any, sort: bool = False) -> str | None:
     return ",".join(names) or None
 
 
-def pytest_collection_modifyitems(items: list[pytest.Item]) -> None:
-    """Capture collected items so the step manifest can include not-started steps."""
+def pytest_collection_modifyitems(config, items: list[pytest.Item]) -> None:
+    """Apply active-profile markers/filters, then capture the item list.
+
+    Two passes:
+
+    1. **Profile application** (only when ``--litmus-profile`` is set):
+       inject markers for matching node-ids via ``item.add_marker`` and
+       compose profile ``keyword``/``markexpr`` filters with any CLI
+       ``-k`` / ``-m`` already present (AND-composed — CLI wins on
+       conflict since its expression is appended last).
+
+    2. **Snapshot** every collected item into ``_collected_items`` so the
+       step manifest can report not-started steps.
+
+    The snapshot captures markers **after** profile injection, so the
+    manifest reflects the effective marker set.
+    """
+    _apply_profile_to_items(config, items)
+
     collected = []
     for item in items:
         parts = item.nodeid.rsplit("::", 1)
@@ -648,6 +684,34 @@ def pytest_collection_modifyitems(items: list[pytest.Item]) -> None:
     set_collected_items(collected)
 
 
+def _apply_profile_to_items(config, items: list[pytest.Item]) -> None:
+    """Inject profile markers onto items matching their node-id patterns.
+
+    Filter composition (``keyword``, ``markexpr``) happens in
+    ``_install_active_profile`` during ``pytest_configure``; this step
+    only handles per-node-id marker injection, which must happen at
+    collection time.
+    """
+    if get_active_profile() is None:
+        return
+    for item in items:
+        for spec in _profile_markers_for_node(item.nodeid):
+            name, kwargs, args = _parse_profile_marker_spec(spec)
+            marker = getattr(pytest.mark, name)
+            item.add_marker(marker(*args, **kwargs))
+
+
+def _compose_filter_expr(profile_expr: str, cli_expr: str) -> str:
+    """AND-compose a profile filter with any CLI-provided filter."""
+    profile_expr = (profile_expr or "").strip()
+    cli_expr = (cli_expr or "").strip()
+    if not profile_expr:
+        return cli_expr
+    if not cli_expr:
+        return profile_expr
+    return f"({profile_expr}) and ({cli_expr})"
+
+
 def pytest_sessionfinish(session, exitstatus):
     """Clean up all session-scoped ContextVars and module-level state."""
     set_active_instruments({})
@@ -659,6 +723,7 @@ def pytest_sessionfinish(session, exitstatus):
     set_collected_items([])
     set_channel_store(None)
     set_event_store(None)
+    set_active_profile(None)
     _PREREQ_STATE.clear()
 
 
@@ -671,6 +736,83 @@ def _load_project_defaults() -> ProjectConfig:
     except Exception:  # noqa: BLE001 — any load failure falls back to defaults
         # Bad or missing litmus.yaml — don't crash pytest over config
         return ProjectConfig(name="litmus")
+
+
+def _resolve_profile_name(profile_name: str | None) -> ProfileConfig | None:
+    """Look up ``profile_name`` in litmus.yaml ``profiles:``; raise on unknown.
+
+    Returns ``None`` when ``profile_name`` is falsy. Returns the matching
+    ``ProfileConfig`` when found. Raises ``pytest.UsageError`` for a
+    missing profile so the mistake surfaces at session start rather than
+    silently running with no overrides applied.
+    """
+    if not profile_name:
+        return None
+    project = _load_project_defaults()
+    profile = project.profiles.get(profile_name)
+    if profile is None:
+        known = ", ".join(sorted(project.profiles)) or "(none defined)"
+        raise pytest.UsageError(
+            f"Unknown --litmus-profile={profile_name!r}; known profiles: {known}"
+        )
+    return profile
+
+
+def _install_active_profile(config) -> None:
+    """Resolve ``--litmus-profile`` and install it; compose filter options.
+
+    ``keyword`` and ``markexpr`` are set on ``config.option`` **here**
+    (not in ``pytest_collection_modifyitems``) so pytest's own ``-k``/
+    ``-m`` filter — which runs via its own modifyitems hook — sees them
+    during deselection. Marker injection per node-id remains in
+    ``pytest_collection_modifyitems`` because it depends on the item
+    list that only exists at collection time.
+    """
+    profile_name = config.getoption("--litmus-profile", default=None)
+    profile = _resolve_profile_name(profile_name)
+    set_active_profile(profile)
+    if profile is None:
+        return
+    if profile.pytest.keyword:
+        existing = getattr(config.option, "keyword", None) or ""
+        config.option.keyword = _compose_filter_expr(profile.pytest.keyword, existing)
+    if profile.pytest.markexpr:
+        existing = getattr(config.option, "markexpr", None) or ""
+        config.option.markexpr = _compose_filter_expr(profile.pytest.markexpr, existing)
+
+
+def pytest_load_initial_conftests(early_config, parser, args):
+    """Apply ``profile.pytest.addopts`` via ``PYTEST_ADDOPTS`` before collection.
+
+    Setting ``PYTEST_ADDOPTS`` at this stage is the pytest-blessed path
+    for injecting CLI tokens — equivalent to exporting the variable in
+    the shell. Downstream plugins (pytest-rerunfailures, pytest-xdist,
+    pytest-timeout) see the tokens during their own configure phase.
+    Mutating ``config.option.*`` later is too fragile when plugins
+    register their own option handlers.
+    """
+    profile_name = None
+    # early_config may not have our option registered yet; scan args directly.
+    for i, tok in enumerate(args):
+        if tok == "--litmus-profile" and i + 1 < len(args):
+            profile_name = args[i + 1]
+            break
+        if tok.startswith("--litmus-profile="):
+            profile_name = tok.split("=", 1)[1]
+            break
+    profile_name = profile_name or os.environ.get("LITMUS_PROFILE")
+    if not profile_name:
+        return
+    try:
+        profile = _resolve_profile_name(profile_name)
+    except pytest.UsageError:
+        # Let pytest_configure surface the error with a clean stacktrace.
+        return
+    if profile is None or not profile.pytest.addopts:
+        return
+    existing = os.environ.get("PYTEST_ADDOPTS", "").strip()
+    merged = f"{existing} {profile.pytest.addopts}".strip()
+    os.environ["PYTEST_ADDOPTS"] = merged
 
 
 def pytest_addoption(parser):
@@ -729,6 +871,12 @@ def pytest_addoption(parser):
         default=False,
         help="Fail tests whose measurements lack required traceability fields "
         "(run_id, step_name, and spec_ref/dut_pin when a spec is active).",
+    )
+    group.addoption(
+        "--litmus-profile",
+        default=os.environ.get("LITMUS_PROFILE"),
+        help="Named profile from litmus.yaml `profiles:` "
+        "(overrides vectors, limits, markers, and filter for the session).",
     )
 
 
@@ -952,6 +1100,7 @@ def _build_run_metadata(request: pytest.FixtureRequest) -> dict[str, Any]:
 
     env = capture_environment()
     project_name = get_project_name(request.config.rootpath)
+    profile_name = request.config.getoption("--litmus-profile", default=None)
 
     return {
         "dut_serial": request.config.getoption("--dut-serial"),
@@ -972,6 +1121,7 @@ def _build_run_metadata(request: pytest.FixtureRequest) -> dict[str, Any]:
         "project_dir": request.config.rootpath,
         "results_dir": results_dir,
         "test_phase": test_phase,
+        "profile": profile_name,
         "instruments": instrument_records,
         "environment": env,
     }
@@ -2282,6 +2432,81 @@ from litmus.execution.expand import expand as _expand_sidecar_block  # noqa: E40
 from litmus.execution.vectors import Vector  # noqa: E402
 
 
+def _profile_match(nodeid: str, patterns: Mapping[str, Any]) -> Any | None:
+    """Return the first ``patterns`` value whose key fnmatches ``nodeid``.
+
+    Exact matches take precedence over glob matches so a user can pin one
+    test with its full node-id and still have a class-wide ``TestFoo::*``
+    sibling rule cover the rest.
+    """
+    if nodeid in patterns:
+        return patterns[nodeid]
+    import fnmatch
+
+    for pattern, value in patterns.items():
+        if fnmatch.fnmatchcase(nodeid, pattern):
+            return value
+    return None
+
+
+def _profile_vectors_for_node(nodeid: str) -> dict[str, list[Any]] | None:
+    """Return profile vectors for ``nodeid`` (by exact or fnmatch), or None."""
+    profile = get_active_profile()
+    if profile is None or not profile.vectors:
+        return None
+    return _profile_match(nodeid, profile.vectors)
+
+
+def _profile_limits_for_node(nodeid: str) -> dict[str, Any] | None:
+    """Return profile limits for ``nodeid`` (by exact or fnmatch), or None."""
+    profile = get_active_profile()
+    if profile is None or not profile.limits:
+        return None
+    return _profile_match(nodeid, profile.limits)
+
+
+def _profile_markers_for_node(nodeid: str) -> list[dict[str, Any] | str]:
+    """Return every profile marker spec list whose pattern matches ``nodeid``.
+
+    Unlike vectors/limits (single match wins), markers **accumulate** so
+    multiple overlapping patterns (e.g. one for the class, one for the
+    method) can each contribute markers.
+    """
+    profile = get_active_profile()
+    if profile is None or not profile.markers:
+        return []
+    import fnmatch
+
+    out: list[dict[str, Any] | str] = []
+    for pattern, specs in profile.markers.items():
+        if nodeid == pattern or fnmatch.fnmatchcase(nodeid, pattern):
+            out.extend(specs)
+    return out
+
+
+def _parse_profile_marker_spec(spec: Any) -> tuple[str, dict[str, Any], list[Any]]:
+    """Return ``(name, kwargs, args)`` from a profile marker YAML spec.
+
+    Supported shapes::
+
+        - flaky                               # bare name
+        - skip: "reason"                      # single positional arg
+        - flaky: {reruns: 2, reruns_delay: 1} # kwargs
+    """
+    if isinstance(spec, str):
+        return spec, {}, []
+    if isinstance(spec, dict):
+        if len(spec) != 1:
+            raise ValueError(
+                f"Profile marker spec must have a single top-level key; got {list(spec)}"
+            )
+        ((name, payload),) = spec.items()
+        if isinstance(payload, dict):
+            return name, dict(payload), []
+        return name, {}, [payload]
+    raise TypeError(f"Unsupported profile marker spec: {spec!r}")
+
+
 def pytest_generate_tests(metafunc: pytest.Metafunc) -> None:
     """Parametrize class-/method-level vectors from sidecar and markers.
 
@@ -2314,6 +2539,11 @@ def pytest_generate_tests(metafunc: pytest.Metafunc) -> None:
     if method_cfg is None:
         method_kwargs = _vectors_marker_kwargs(metafunc.cls, metafunc.definition, scope="method")
         method_cfg = {"product": method_kwargs} if method_kwargs else None
+
+    profile_vectors = _profile_vectors_for_node(metafunc.definition.nodeid)
+    if profile_vectors is not None:
+        method_cfg = {"product": profile_vectors}
+
     if method_cfg is not None:
         method_vectors = _expand_sidecar_block(method_cfg)
         if method_vectors:
@@ -2628,19 +2858,20 @@ def _litmus_push_limits(
     request: pytest.FixtureRequest,
     _litmus_sidecar: dict[str, Any] | None,
 ) -> Iterator[None]:
-    """Merge sidecar ``limits:`` and ``@pytest.mark.litmus_limits``
-    markers, then push into ``_active_limits_var`` for this test.
+    """Merge sidecar ``limits:``, ``@pytest.mark.litmus_limits`` markers,
+    and active-profile limits, then push into ``_active_limits_var``.
 
-    Merge order (later wins): sidecar → class marker → method marker.
-    Values at each layer may be raw ``Limit`` dicts or ``{"ref": "..."}``
-    pointers resolved via the active spec context.
+    Merge order (later wins): sidecar → class marker → method marker →
+    active profile. Values at each layer may be raw ``Limit`` dicts or
+    ``{"ref": "..."}`` pointers resolved via the active spec context.
     """
     sidecar_raw = _litmus_sidecar.get("limits") if _litmus_sidecar else None
     class_raw = _limits_marker_kwargs(getattr(request.node, "cls", None), scope="class")
     method_raw = _limits_marker_kwargs(request.node, scope="method")
+    profile_raw = _profile_limits_for_node(request.node.nodeid)
 
     merged_raw: dict[str, Any] = {}
-    for layer in (sidecar_raw, class_raw, method_raw):
+    for layer in (sidecar_raw, class_raw, method_raw, profile_raw):
         if layer:
             merged_raw.update(layer)
 

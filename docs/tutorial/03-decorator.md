@@ -1,104 +1,117 @@
-# Step 3: The @litmus_test Decorator
+# Step 3: pytest-native tests
 
-**Goal:** Use the @litmus_test decorator to log measurements automatically.
+**Goal:** Write hardware tests as plain pytest functions (or classes) that log measurements automatically.
 
 ## What You'll Build
 
-A test that automatically logs measurements to Litmus results storage.
+A test that automatically logs measurements to Litmus results storage, with pass/fail against a spec.
 
-## The Basic Pattern
+## The Three Fixtures
+
+Litmus tests are plain pytest tests. There is no base class to inherit and no
+`@litmus_test` wrapper. Up to three Litmus-provided fixtures show up as
+parameters, each with a single responsibility:
+
+| Fixture  | What it holds                                  | Verbs                                            |
+|----------|------------------------------------------------|--------------------------------------------------|
+| `context`| Vector inputs + observations                   | `get_param`, `changed`, `observe`                |
+| `spec`   | Product characteristics → limits + pin/fixture | `check(name, value, **conditions)`               |
+| `logger` | Event persistence                              | `measure(name, value, limit=...)`, `record`      |
+
+Data-flow rule: **test → spec → logger**. The three objects never call each
+other; `logger` reads ambient ContextVars at write time.
+
+See the [pytest-native reference](../reference/pytest-native.md) for the
+complete contract.
+
+## The Simplest Test
 
 ```python
 # tests/test_voltage.py
-from litmus.execution import litmus_test
-
-@litmus_test
-def test_output_voltage(context, dmm):
-    """Measure and return voltage - automatically logged."""
-    return dmm.measure_voltage()
+def test_output_voltage(dmm, logger):
+    """Measure output voltage and log it."""
+    logger.measure("output_voltage", dmm.measure_voltage())
 ```
 
-The decorator does several things:
+No decorator. No base class. `dmm` is an auto-registered fixture from the
+station config; `logger` is always present; the measurement is recorded with
+full traceability.
 
-1. **Captures the return value** as a measurement
-2. **Logs it** to Litmus results storage
-3. **Provides the `context` parameter** for test data and conditions
-
-## The context Parameter
-
-Every `@litmus_test` function receives a `context` parameter as its first argument:
+If you also have a product spec configured, prefer `spec.check` — it resolves
+the limit from the spec and raises `AssertionError` on failure:
 
 ```python
-@litmus_test
-def test_output_voltage(context, dmm):
-    # context contains test parameters and provides observation logging
-    # We'll use it extensively in later steps
-    return dmm.measure_voltage()
+def test_output_voltage(dmm, spec):
+    spec.check("output_voltage", dmm.measure_voltage())
 ```
 
-The context provides:
-- **Inputs**: Test vector parameters (configured in Step 5)
-- **Observations**: Log environmental data
-- **Configuration**: Record commanded values
+## Classes Group Related Tests
 
-For now, you can ignore it. In Step 5, we'll use it to access test conditions.
-
-## Instrument Role Fixtures
-
-When you run with `--station-config`, Litmus auto-registers each instrument role as a pytest fixture. Use them directly as function parameters:
+Group related tests with a plain pytest class. Methods run in source order,
+and a failure in one method skips subsequent methods for the same
+parametrize instance (the implicit prereq chain):
 
 ```python
-@litmus_test
-def test_output_voltage(context, dmm, psu):
-    psu.set_voltage(5.0)
+class TestPowerUp:
+    def test_input_voltage(self, psu, spec):
+        psu.set_voltage(5.0)
+        psu.enable_output()
+        spec.check("input_voltage", psu.measure_voltage())
+
+    def test_output_voltage(self, dmm, spec):
+        spec.check("output_voltage", dmm.measure_voltage())
+```
+
+If you want a method to stay independent of the chain, decorate it with
+`@pytest.mark.litmus_independent`.
+
+## Accessing Vector Inputs
+
+`@pytest.mark.parametrize` is first-class. Sidecar YAML `vectors:` is the
+Litmus-native alternative; both land in `context.get_param(...)`:
+
+```python
+import pytest
+
+@pytest.mark.parametrize("vin", [4.5, 5.0, 5.5])
+def test_output_voltage(vin, psu, dmm, spec):
+    psu.set_voltage(vin)
     psu.enable_output()
-    return dmm.measure_voltage()
+    spec.check("output_voltage", dmm.measure_voltage())
 ```
 
-## Return Value Patterns
+Or via sidecar YAML (see Step 5).
 
-### Single Value
+## Multiple Measurements
 
-Return a single measurement:
+Just call `spec.check` or `logger.measure` as many times as you need:
 
 ```python
-@litmus_test
-def test_voltage(context, dmm):
-    return dmm.measure_voltage()  # Logged as "test_voltage"
+def test_power_analysis(psu, dmm, spec):
+    spec.check("input_voltage", psu.measure_voltage())
+    spec.check("input_current", psu.measure_current())
+    spec.check("output_voltage", dmm.measure_voltage())
 ```
 
-The measurement name defaults to the function name.
+Each call records one measurement with pass/fail.
 
-### Multiple Measurements (Dict)
+## Streaming / Repeated Samples
 
-Return a dict for multiple measurements:
-
-```python
-@litmus_test
-def test_power_analysis(context, psu, dmm):
-    return {
-        "input_voltage": psu.measure_voltage(),
-        "input_current": psu.measure_current(),
-        "output_voltage": dmm.measure_voltage(),
-    }
-```
-
-Each key becomes a separate measurement.
-
-### Streaming (Yield)
-
-Yield measurements over time:
+`logger.measure` enforces unique names within a step. To record many samples
+under one name, pass `allow_repeat=True`:
 
 ```python
-@litmus_test
-def test_stability(context, dmm):
-    import time
-    for i in range(10):
-        yield {"voltage": dmm.measure_voltage()}
+import time
+
+def test_stability(dmm, logger):
+    for _ in range(10):
+        logger.measure(
+            "voltage_sample",
+            dmm.measure_voltage(),
+            allow_repeat=True,
+        )
         time.sleep(1)
 ```
-
-Each yield adds a measurement. Useful for time-series data.
 
 ## Running the Test
 
@@ -116,30 +129,12 @@ Each measurement includes:
 
 | Field | Description |
 |-------|-------------|
-| `name` | Measurement name (function name or dict key) |
+| `name` | Measurement name passed to `spec.check` / `logger.measure` |
 | `value` | The measured value |
 | `units` | Unit of measure (from limits, when configured) |
 | `outcome` | PASS, FAIL, or unchecked |
 | `timestamp` | When it was recorded |
 | `vector_index` | Which test vector (for parametrized tests) |
-
-## The Decorator Without Parentheses
-
-Both forms work:
-
-```python
-# Without parentheses - uses all defaults
-@litmus_test
-def test_voltage(context, dmm):
-    return dmm.measure_voltage()
-
-# With parentheses - can customize behavior
-@litmus_test()
-def test_voltage(context, dmm):
-    return dmm.measure_voltage()
-```
-
-We'll use the parentheses form in later steps when we add configuration.
 
 ## Complete Example
 
@@ -165,19 +160,16 @@ instruments:
 
 **tests/test_power.py:**
 ```python
-from litmus.execution import litmus_test
-
-@litmus_test
-def test_input_voltage(context, psu):
+def test_input_voltage(psu, spec):
     """Measure input voltage."""
     psu.set_voltage(5.0)
     psu.enable_output()
-    return psu.measure_voltage()
+    spec.check("input_voltage", psu.measure_voltage())
 
-@litmus_test
-def test_output_voltage(context, dmm):
+
+def test_output_voltage(dmm, spec):
     """Measure output voltage."""
-    return dmm.measure_voltage()
+    spec.check("output_voltage", dmm.measure_voltage())
 ```
 
 **Run:**
@@ -187,13 +179,15 @@ pytest tests/test_power.py --station-config=stations/my_station.yaml --mock-inst
 
 ## What You Learned
 
-- The @litmus_test decorator for automatic measurement logging
-- The `context` parameter (used extensively in later steps)
+- Tests are plain pytest functions or classes — no `@litmus_test` wrapper
+- Up to three Litmus fixtures: `context`, `spec`, `logger`
+- `spec.check(name, value)` to check against product spec limits
+- `logger.measure(name, value, ...)` when you need explicit limits
 - Instrument role fixtures from station config (e.g. `dmm`, `psu`)
-- Return value patterns: single, dict, yield
 
 ## Next Step
 
-Right now, measurements are just logged with no pass/fail criteria. Let's add limits.
+Right now, limits come from a product spec. Let's look at the `Limit` model
+and how limits are wired in.
 
 [Step 4: Add Limits →](04-limits.md)

@@ -80,6 +80,37 @@ class OutputConfig(BaseModel):
         return "results"
 
 
+class ProfilePytest(BaseModel):
+    """Pytest-level knobs a profile can apply.
+
+    ``addopts`` is appended to ``PYTEST_ADDOPTS`` before collection so
+    downstream plugins (pytest-rerunfailures, pytest-xdist, pytest-timeout)
+    parse it during their own configure phase.
+    """
+
+    model_config = {"extra": "forbid"}
+
+    addopts: str | None = None
+    markexpr: str | None = None
+    keyword: str | None = None
+
+
+class ProfileConfig(BaseModel):
+    """A named config set applied to a pytest session.
+
+    Keys under ``vectors``, ``limits``, and ``markers`` are pytest node-id
+    patterns (exact or ``fnmatch`` glob). See ``docs/guides/profiles.md``.
+    """
+
+    model_config = {"extra": "forbid"}
+
+    description: str | None = None
+    pytest: ProfilePytest = Field(default_factory=ProfilePytest)
+    vectors: dict[str, dict[str, list[Any]]] = Field(default_factory=dict)
+    limits: dict[str, dict[str, Any]] = Field(default_factory=dict)
+    markers: dict[str, list[dict[str, Any] | str]] = Field(default_factory=dict)
+
+
 class ProjectConfig(BaseModel):
     """Schema for litmus.yaml project config files — all fields at root."""
 
@@ -91,3 +122,4 @@ class ProjectConfig(BaseModel):
     default_fixture: str | None = None
     mock_instruments: bool = False
     outputs: list[OutputConfig] = Field(default_factory=list)
+    profiles: dict[str, ProfileConfig] = Field(default_factory=dict)

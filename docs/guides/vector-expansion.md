@@ -1,70 +1,59 @@
 # Vector Expansion
 
-Vectors define the test conditions your tests run against. Litmus expands vectors and iterates over them, calling your test function for each combination.
+Vectors define the test conditions your tests run against. Litmus expands vectors into `pytest.mark.parametrize` calls and iterates — every vector produces one test invocation, the same as native pytest parametrize.
 
-Vectors can be defined in **sequence steps** (primary) or **inline decorator config** (fallback for ad-hoc runs).
+Vectors can come from:
 
-## The Basics
+- **`@pytest.mark.litmus_vectors(**kwargs)`** on a method or class — inline, code-owned
+- **Sidecar YAML `test_<module>.yaml`** — operator-editable, lives next to tests
+- **Sequence step `vectors:`** — operator-facing production runs (see the [sequence YAML reference](../reference/sequence-yaml.md))
+- **Native `@pytest.mark.parametrize`** — first-class, fully compatible
 
-A **Vector** is a dict of parameters for a single test iteration:
+All paths feed `context.get_param(...)` identically.
+
+## The basics
+
+A **vector** is a dict of parameters for one test iteration. `context.get_param("name")` reads `request.node.callspec.params["name"]` regardless of source:
 
 ```python
-@litmus_test(
-    config={"vectors": [{"vin": 5.0, "load": 0.1}, {"vin": 5.0, "load": 0.5}, {"vin": 5.0, "load": 1.0}]},
-    limits={"test_output_voltage": {"low": 3.135, "high": 3.465}},
-)
-def test_output_voltage(context, psu, dmm):
-    vin = context.get_param("vin", 5.0)
-    load = context.get_param("load", 0.1)
+import pytest
 
-    psu.set_voltage(vin)
+@pytest.mark.litmus_vectors(vin=[4.5, 5.0, 5.5], load=[0.1, 0.5, 1.0])
+def test_output_voltage(context, psu, dmm, spec):
+    psu.set_voltage(context.get_param("vin"))
     psu.enable_output()
-    return dmm.measure_dc_voltage()
+    spec.check("output_voltage", dmm.measure_dc_voltage())
 ```
 
-Or in a sequence step:
+Or in a sidecar YAML:
 
 ```yaml
-# sequences/power_board_smoke.yaml
-steps:
-  - id: output_voltage
-    test: tests/test_power.py::test_output_voltage
-    vectors:
-      - vin: 5.0
-        load: 0.1
-      - vin: 5.0
-        load: 0.5
-      - vin: 5.0
-        load: 1.0
-    limits:
-      test_output_voltage:
-        low: 3.135
-        high: 3.465
+# tests/test_power.yaml
+vectors:
+  vin: [4.5, 5.0, 5.5]
+  load: [0.1, 0.5, 1.0]
 ```
 
-This runs the test 3 times -- once for each vector.
+Or natively:
 
-## Expansion Modes
+```python
+@pytest.mark.parametrize("vin", [4.5, 5.0, 5.5])
+@pytest.mark.parametrize("load", [0.1, 0.5, 1.0])
+def test_output_voltage(context, psu, dmm, spec): ...
+```
 
-Instead of listing every combination, use expansion modes to generate vectors automatically.
+## Expansion modes (sidecar / sequence YAML)
 
-### Mode 1: Explicit List (Default)
-
-Just list your vectors:
+### Explicit list
 
 ```yaml
 vectors:
-  - vin: 5.0
-    load: 0.1
-  - vin: 5.0
-    load: 0.5
-  - vin: 12.0
-    load: 1.0
+  - {vin: 5.0, load: 0.1}
+  - {vin: 5.0, load: 0.5}
+  - {vin: 12.0, load: 1.0}
 ```
 
-### Mode 2: Product (Cartesian Product)
-
-All combinations of parameters:
+### Product (cartesian)
 
 ```yaml
 vectors:
@@ -73,18 +62,9 @@ vectors:
   load: [0.1, 0.5, 1.0]
 ```
 
-Generates **9 vectors** (3 x 3):
-```
-{vin: 4.5, load: 0.1}, {vin: 4.5, load: 0.5}, {vin: 4.5, load: 1.0},
-{vin: 5.0, load: 0.1}, {vin: 5.0, load: 0.5}, {vin: 5.0, load: 1.0},
-{vin: 5.5, load: 0.1}, {vin: 5.5, load: 0.5}, {vin: 5.5, load: 1.0}
-```
+Generates 9 vectors. **First parameter is outermost** (slowest-changing); last is innermost.
 
-**Key insight:** First parameter is outermost loop (slowest changing), last is innermost (fastest changing).
-
-### Mode 3: Zip (Parallel Iteration)
-
-Pair parameters together (must have same length):
+### Zip (parallel)
 
 ```yaml
 vectors:
@@ -93,16 +73,9 @@ vectors:
   expected: [4.4, 4.9, 5.4]
 ```
 
-Generates **3 vectors**:
-```
-{vin: 4.5, expected: 4.4},
-{vin: 5.0, expected: 4.9},
-{vin: 5.5, expected: 5.4}
-```
+Generates 3 paired vectors.
 
-### Mode 4: Recursive Composition (vectors sub-blocks)
-
-For complex multi-level sweeps, nest a `vectors` sub-block inside a product or zip. The outer level is cross-producted with the inner:
+### Nested (`vectors` sub-block)
 
 ```yaml
 vectors:
@@ -114,166 +87,77 @@ vectors:
     expected: [3.2, 4.9, 11.8]
 ```
 
-Generates **9 vectors** (3 temperatures x 3 zipped pairs):
-- Temperature is outer (changes slowest)
-- Voltage/expected are zipped together (always paired)
+9 vectors: 3 temperatures × 3 zipped pairs. Product-of-product collapses to flat product.
 
-Product-of-product collapses to a flat product:
+## Range strings (SCPI-style, inclusive)
 
-```yaml
-vectors:
-  expand: product
-  temperature: [-40, 25, 85]
-  vectors:
-    expand: product
-    voltage: [3.3, 5.0]
-    load: [0.1, 0.5]
-```
+| Syntax              | Example                                      |
+|---------------------|----------------------------------------------|
+| `"start:stop"`      | `"1:4"` → `[1, 2, 3, 4]`                     |
+| `"start:stop:step"` | `"-40:85:25"` → `[-40, -15, 10, 35, 60, 85]` |
+| `"a,b,c"`           | `"3.3,5.0,12.0"` → `[3.3, 5.0, 12.0]`        |
+| `"a:b,c,d:e"`       | `"0,0.5:2:0.5,5"` → `[0, 0.5, 1.0, 1.5, 2.0, 5]` |
 
-This is equivalent to:
+Ranges are **inclusive** of both endpoints (matches SCPI, Verilog, NI DAQmx). Range strings work anywhere a list is accepted — markers, sidecar, sequence steps.
 
-```yaml
-vectors:
-  expand: product
-  temperature: [-40, 25, 85]
-  voltage: [3.3, 5.0]
-  load: [0.1, 0.5]
-```
+## `context.changed()` — skip expensive reconfig
 
-Both generate 12 vectors (3 x 2 x 2).
-
-## Range String Syntax
-
-Litmus supports a compact range syntax (SCPI-style, inclusive ranges):
-
-| Syntax | Meaning | Example |
-|--------|---------|---------|
-| `"start:stop"` | Range with step=1 | `"1:4"` -> [1, 2, 3, 4] |
-| `"start:stop:step"` | Range with custom step | `"-40:85:25"` -> [-40, -15, 10, 35, 60, 85] |
-| `"a,b,c"` | Comma-separated values | `"3.3,5.0,12.0"` -> [3.3, 5.0, 12.0] |
-| `"a:b,c,d:e"` | Mixed ranges and values | `"0,0.5:2:0.5,5"` -> [0, 0.5, 1.0, 1.5, 2.0, 5] |
-
-Range strings work anywhere you'd use a list:
-
-```yaml
-# Product with range strings
-vectors:
-  expand: product
-  voltage: "3.3:5.5:0.1"      # 23 values: 3.3, 3.4, ... 5.5
-  temperature: "-40:85:25"    # 6 values: -40, -15, 10, 35, 60, 85
-
-# Zip with range strings
-vectors:
-  expand: zip
-  vin: "4.5:5.5:0.5"          # [4.5, 5.0, 5.5]
-  expected: "4.4:5.4:0.5"     # [4.4, 4.9, 5.4]
-```
-
-**Note:** Ranges are **inclusive** of both start and stop (unlike Python's range). This matches hardware industry conventions (SCPI, Verilog, NI DAQmx).
-
-## Change Detection with `context.changed()`
-
-When iterating through vectors, use `context.changed()` to detect when outer-loop parameters change. This is useful for:
-
-- Showing operator prompts only when temperature changes
-- Re-initializing equipment on major parameter changes
-- Minimizing expensive transitions
+Hardware reconfig dominates multi-parameter sweeps. `context.changed(key)` returns `True` only when the parameter differs from the previous parametrize iteration:
 
 ```python
-@litmus_test
-def test_with_temperature(context, psu, dmm, chamber):
-    temp = context.params["temperature"]
-    vin = context.params["vin"]
-
-    # Only change chamber when temperature changes
+@pytest.mark.litmus_vectors(
+    temperature=[-40, 25, 85],    # outer, 20-min soak per change
+    vin="4.5:5.5:0.5",            # middle, 500-ms PSU settle
+    load="0.1:1.0:0.1",           # inner, always set
+)
+def test_load_regulation(context, psu, eload, chamber, dmm, spec):
     if context.changed("temperature"):
-        chamber.set_temperature(temp)
-        chamber.wait_for_stable()
-
-    psu.set_voltage(vin)
-    psu.enable_output()
-    return dmm.measure_dc_voltage()
+        chamber.set_temperature(context.get_param("temperature"))
+        chamber.wait_for_stable(timeout=300)   # 20 min — skipped when temp unchanged
+    if context.changed("vin"):
+        psu.set_voltage(context.get_param("vin"))
+        psu.enable_output()
+    eload.set_current(context.get_param("load"))
+    eload.enable()
+    spec.check("output_voltage", dmm.measure_dc_voltage())
 ```
 
-With this config:
-```yaml
-vectors:
-  expand: product
-  temperature: [-40, 25, 85]  # Outer loop (slow)
-  vin: [4.5, 5.0, 5.5]        # Inner loop (fast)
-```
+With 3 × 3 × 10 = 90 vectors, the chamber changes 3 times, the PSU 9 times, the load 90 times.
 
-The chamber only changes 3 times (once per temperature), not 9 times.
-
-### How `changed()` Works
+### How `changed()` works
 
 - Returns `True` on the first vector (no previous to compare)
 - Returns `True` if the value differs from the previous vector
-- Returns `False` if the value is the same as the previous vector
+- Returns `False` if the value matches the previous vector
+- Prior-context memory is per-method, scoped to the class/module — stored on `request.node.parent.stash`
 
-## Choosing the Right Mode
+## Native parametrize is first-class
 
-| Use Case | Mode | Why |
-|----------|------|-----|
-| Specific test points | Explicit list | Full control over each vector |
-| All combinations of parameters | Product | Comprehensive coverage |
-| Paired input/expected values | Zip | Keep related values together |
-| Single parameter sweep | Product + range string | `"4.5:5.5:0.1"` for compact numeric sweeps |
-| Multi-level sweeps with mixed modes | Recursive `vectors` sub-block | Product outer x zip inner |
+`@pytest.mark.parametrize` works without wrapping:
 
-## Performance Considerations
-
-1. **Loop order matters in Product mode:** First parameter is outermost. Put expensive-to-change parameters (temperature, fixture setup) first.
-
-2. **Use `context.changed()` for expensive transitions:** Don't reconfigure equipment that didn't change.
-
-3. **Range strings are efficient:** They're expanded at config load time, not during test execution.
-
-## Complete Example
-
-**Sequence step:**
-```yaml
-# sequences/characterization.yaml
-steps:
-  - id: load_regulation
-    test: tests/test_power.py::test_load_regulation
-    vectors:
-      expand: product
-      temperature: [-40, 25, 85]
-      vin: "4.5:5.5:0.5"
-      load_current: "0.1:1.0:0.1"    # Range string: 0.1, 0.2, ... 1.0
-    limits:
-      test_load_regulation:
-        low: 3.135
-        high: 3.465
-        nominal: 3.3
-        units: V
-```
-
-**Test code:**
 ```python
-# tests/test_power.py
-@litmus_test
-def test_load_regulation(context, psu, dmm, eload, chamber):
-    temp = context.params["temperature"]
-    vin = context.params["vin"]
-    load = context.params["load_current"]
-
-    # Expensive: only when temperature changes
-    if context.changed("temperature"):
-        chamber.set_temperature(temp)
-        chamber.wait_for_stable(timeout=300)
-
-    # Medium cost: only when vin changes
-    if context.changed("vin"):
-        psu.set_voltage(vin)
-        psu.enable_output()
-
-    # Cheap: every iteration
-    eload.set_current(load)
-    eload.enable()
-
-    return dmm.measure_dc_voltage()
+@pytest.mark.parametrize("vin", [4.5, 5.0, 5.5])
+def test_rails(context, psu, dmm, spec):
+    psu.set_voltage(context.get_param("vin"))
+    spec.check("output_voltage", dmm.measure_dc_voltage())
 ```
 
-This runs 90 tests (3 x 3 x 10) with minimal equipment transitions.
+`litmus_vectors` compiles to `parametrize` internally and stacks with it — no conflict. When both sidecar and `parametrize` are present, `callspec.params` multiplies normally.
+
+## Choosing the right form
+
+| Scenario                                        | Use                                                           |
+|-------------------------------------------------|---------------------------------------------------------------|
+| Code-owned, fixed sweep                         | `@pytest.mark.litmus_vectors(...)` or native `parametrize`    |
+| Operator-edited sweep (no code deploy)          | Sidecar YAML `test_<module>.yaml` `vectors:` block            |
+| Production operator runs with dialogs/retries   | Sequence step `vectors:`                                      |
+| Related input/expected pairs                    | `expand: zip`                                                 |
+| All combinations of parameters                  | `expand: product`                                             |
+| Dense numeric sweep                             | Range string `"4.5:5.5:0.1"`                                  |
+| Multi-level with mixed product/zip              | Nested `vectors` sub-block                                    |
+
+## Performance tips
+
+1. **Loop order matters in product mode** — put expensive-to-change parameters (temperature, fixture setup) first so they stay in the outer loop
+2. **Use `context.changed()`** for every parameter that's expensive to reconfigure
+3. **Range strings expand at load time** — no runtime cost

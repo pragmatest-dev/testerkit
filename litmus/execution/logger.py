@@ -309,6 +309,7 @@ class TestRunLogger:
         operator_id: str | None = None,
         operator_name: str | None = None,
         test_phase: str = "production",
+        profile: str | None = None,
         session_id: UUID | None = None,
         run_id: UUID | str | None = None,
         # Product traceability
@@ -377,6 +378,7 @@ class TestRunLogger:
             operator_name=operator_name,
             test_sequence_id=test_sequence_id,
             test_phase=test_phase,
+            profile=profile,
             product_id=product_id,
             product_name=product_name,
             product_revision=product_revision,

@@ -56,15 +56,12 @@ Instrument roles from the station config are auto-registered as pytest fixtures.
 
 ```python
 # tests/test_voltage.py
-from litmus.execution import litmus_test
-
-@litmus_test
-def test_output_voltage(context, dmm, psu):
+def test_output_voltage(dmm, psu, logger):
     """Measure output voltage. dmm and psu are auto-registered from station config."""
     psu.set_voltage(5.0)
     psu.enable_output()
 
-    return dmm.measure_voltage()  # Returns 3.31 in mock mode
+    logger.measure("output_voltage", dmm.measure_voltage())  # Returns 3.31 in mock mode
 ```
 
 Run it:
@@ -159,6 +156,6 @@ When running with `--mock-instruments`, values are resolved in order:
 
 ## Next Step
 
-Now let's use the @litmus_test decorator to check limits automatically.
+Now let's write pytest-native tests and check limits automatically.
 
-[Step 3: The @litmus_test Decorator →](03-decorator.md)
+[Step 3: pytest-native tests →](03-decorator.md)
