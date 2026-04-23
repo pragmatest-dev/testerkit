@@ -54,6 +54,56 @@ class Limit(BaseModel):
         },
     }
 
+    def __contains__(self, value: object) -> bool:
+        """Return True iff ``value`` satisfies this limit's comparator.
+
+        Supports ``value in limit`` — the pythonic assert form test
+        authors use for ad-hoc checks:
+
+            assert measured in limits["vout"]
+
+        Pytest's assertion rewriter renders the failure via
+        :meth:`__repr__` so failures include the limit fields inline.
+        """
+        if not isinstance(value, (int, float)) or isinstance(value, bool):
+            return False
+        v = float(value)
+        cmp = self.comparator
+        if cmp == Comparator.EQ:
+            return self.nominal is not None and v == self.nominal
+        if cmp == Comparator.NE:
+            return self.nominal is not None and v != self.nominal
+        if cmp == Comparator.LT:
+            return self.high is None or v < self.high
+        if cmp == Comparator.LE:
+            return self.high is None or v <= self.high
+        if cmp == Comparator.GT:
+            return self.low is None or v > self.low
+        if cmp == Comparator.GE:
+            return self.low is None or v >= self.low
+        if cmp == Comparator.GELE:
+            return (self.low is None or v >= self.low) and (self.high is None or v <= self.high)
+        if cmp == Comparator.GELT:
+            return (self.low is None or v >= self.low) and (self.high is None or v < self.high)
+        if cmp == Comparator.GTLE:
+            return (self.low is None or v > self.low) and (self.high is None or v <= self.high)
+        if cmp == Comparator.GTLT:
+            return (self.low is None or v > self.low) and (self.high is None or v < self.high)
+        return False
+
+    def __repr__(self) -> str:
+        parts: list[str] = []
+        if self.low is not None:
+            parts.append(f"low={self.low}")
+        if self.high is not None:
+            parts.append(f"high={self.high}")
+        if self.nominal is not None:
+            parts.append(f"nominal={self.nominal}")
+        if self.units:
+            parts.append(f"units={self.units!r}")
+        parts.append(f"comparator={self.comparator.value!r}")
+        return f"Limit({', '.join(parts)})"
+
 
 class Specification(BaseModel):
     """A product specification that limits are derived from."""

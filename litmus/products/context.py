@@ -4,8 +4,6 @@ The SpecContext bridges product specifications and test execution by:
 1. Loading and holding the product spec
 2. Providing limit derivation from characteristics
 3. Tracking channel/pin mapping for measurement traceability
-4. ``check()`` — compare a measured value against a product characteristic,
-   persist it via the active logger, and raise on FAIL.
 """
 
 from __future__ import annotations
@@ -13,8 +11,6 @@ from __future__ import annotations
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from litmus.data.models import Measurement, Outcome
-from litmus.execution.decorators import get_current_logger
 from litmus.models.config import Comparator, Limit
 from litmus.models.product import Product, ProductCharacteristic
 
@@ -184,112 +180,3 @@ class SpecContext:
     def list_pins(self) -> list[str]:
         """List all pin IDs."""
         return list(self.product.pins.keys())
-
-    def check(
-        self,
-        name: str,
-        value: float | int | None,
-        *,
-        guardband_pct: float | None = None,
-        comparator: Comparator | None = None,
-        **conditions: Any,
-    ) -> Measurement | None:
-        """Record ``value`` against characteristic ``name`` and fail on FAIL.
-
-        Pulls the Limit + pin metadata from the loaded product spec and
-        hands the measurement to the active logger. Raises
-        :class:`AssertionError` if the measurement's outcome is FAIL or
-        ERROR so pytest marks the test as failed.
-
-        Args:
-            name: ProductCharacteristic ID (e.g., ``"output_voltage"``).
-            value: Measured value; ``None`` is recorded without a check.
-            guardband_pct: Override the context's default guardband.
-            comparator: Override the default GELE comparator.
-            **conditions: Condition parameters passed through to
-                ``get_limit`` (e.g. ``temperature=25, load=0.1``).
-
-        Returns:
-            The persisted :class:`Measurement`, or ``None`` when no
-            logger is active (e.g. test is being run standalone).
-
-        Raises:
-            KeyError: If ``name`` is not defined on the product.
-            AssertionError: If the measurement outcome is FAIL or ERROR.
-        """
-        limit = self.get_limit(
-            name,
-            guardband_pct=guardband_pct,
-            comparator=comparator,
-            **conditions,
-        )
-        pin_info = self.get_pin_info(name)
-
-        logger = get_current_logger()
-        if logger is None:
-            return None
-
-        # Deliberately does NOT pass allow_repeat. spec.check is for
-        # characteristic assertions, not streaming — two spec.check calls
-        # on the same name within one step are always an error.
-        # spec_ref is intentionally omitted so the richer string built by
-        # ``derive_limit`` (e.g. ``"datasheet_ref @ temperature=25"``) is
-        # preserved — overriding with a bare ``name`` would erase the
-        # condition suffix that makes the reference traceable.
-        measurement = logger.measure(
-            name=name,
-            value=value,
-            limit=limit,
-            dut_pin=pin_info.get("dut_pin"),
-            fixture_point=pin_info.get("fixture_point"),
-            instrument_channel=pin_info.get("instrument_channel"),
-        )
-        _raise_if_failed(measurement)
-        return measurement
-
-    def check_measurement(self, measurement: Measurement) -> Measurement:
-        """Raise ``AssertionError`` when an already-persisted measurement FAILED.
-
-        Escape hatch for the rare case where a caller logged a
-        measurement directly (e.g. via ``logger.measure``) and now wants
-        spec-driven assertion semantics without producing a second row.
-
-        Contract:
-        - Does **not** re-log. Pair it with exactly one prior
-          ``logger.measure`` call for ``measurement``.
-        - Do **not** call both ``spec.check(name, value)`` and
-          ``spec.check_measurement(m)`` on the same measurement in one
-          step — that's the duplicate-name scenario that
-          :class:`DuplicateMeasurementError` guards against on the
-          logger side, but this method does not enforce it.
-        """
-        _raise_if_failed(measurement)
-        return measurement
-
-
-def _raise_if_failed(measurement: Measurement) -> None:
-    """Raise ``AssertionError`` when a measurement outcome is FAIL or ERROR."""
-    if measurement.outcome in (Outcome.FAIL, Outcome.ERROR):
-        raise AssertionError(_format_fail(measurement))
-
-
-def _format_fail(m: Measurement) -> str:
-    """Build a one-line pytest-friendly message for a failed measurement."""
-    units = f" {m.units}" if m.units else ""
-    if m.value is None:
-        return f"Measurement {m.name!r} FAILED: value is None"
-    comp = m.comparator or "GELE"
-    if comp in ("LT", "LE"):
-        op = "<" if comp == "LT" else "<="
-        return f"Measurement {m.name!r} FAILED: {m.value}{units} not {op} {m.high_limit} ({comp})"
-    if comp in ("GT", "GE"):
-        op = ">" if comp == "GT" else ">="
-        return f"Measurement {m.name!r} FAILED: {m.value}{units} not {op} {m.low_limit} ({comp})"
-    if comp in ("EQ", "NE"):
-        op = "==" if comp == "EQ" else "!="
-        return f"Measurement {m.name!r} FAILED: {m.value}{units} not {op} {m.nominal} ({comp})"
-    nominal = f" (nominal {m.nominal})" if m.nominal is not None else ""
-    return (
-        f"Measurement {m.name!r} FAILED: "
-        f"{m.value}{units} not in [{m.low_limit}, {m.high_limit}]{nominal}"
-    )

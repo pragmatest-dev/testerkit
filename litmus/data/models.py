@@ -52,6 +52,7 @@ class Outcome(StrEnum):
     ERROR = "error"
     ABORTED = "aborted"
     NOT_TESTED = "not_tested"
+    DONE = "done"  # ran, no limit evaluated (TestStand-style)
 
 
 def escalate_outcome(current: Outcome, incoming: Outcome) -> Outcome:
@@ -343,6 +344,7 @@ class TestRun(BaseModel):
     test_sequence_id: str
     test_phase: str = "production"
     profile: str | None = None  # active --litmus-profile name, if any
+    facets: dict[str, str] = Field(default_factory=dict)  # resolved profile facets
 
     # Operator
     operator_id: str | None = None  # from --operator

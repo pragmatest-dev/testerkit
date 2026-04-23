@@ -21,6 +21,7 @@ from litmus.execution.accessors import InstrumentAccessor
 from litmus.execution.decorators import get_current_logger, set_current_logger
 from litmus.execution.harness import Context
 from litmus.execution.logger import RunContext, TestRunLogger
+from litmus.execution.verify import verify  # noqa: F401 — re-exported as pytest fixture
 from litmus.fixtures.manager import FixtureManager, PinAccessor
 from litmus.instruments.pool import InstrumentPool
 from litmus.instruments.route_manager import RouteManager
@@ -52,6 +53,8 @@ _current_code_identity_var: ContextVar[dict[str, str | None]] = ContextVar("_cur
 _event_store_var: ContextVar[Any] = ContextVar("_event_store")
 _active_limits_var: ContextVar[dict[str, Any]] = ContextVar("_active_limits")
 _active_profile_var: ContextVar[ProfileConfig | None] = ContextVar("_active_profile")
+_active_facets_var: ContextVar[dict[str, str]] = ContextVar("_active_facets")
+_active_vector_params_var: ContextVar[dict[str, Any]] = ContextVar("_active_vector_params")
 
 
 # --- Session-scoped getters (create-and-store on first access) ---
@@ -260,6 +263,42 @@ def get_active_profile() -> ProfileConfig | None:
 def set_active_profile(value: ProfileConfig | None) -> None:
     """Set the active profile. Returns None."""
     _active_profile_var.set(value)
+
+
+def get_active_facets() -> dict[str, str]:
+    """Return resolved profile facets, or empty dict if none.
+
+    Populated alongside ``_active_profile_var`` at session start from
+    the profile's declared facet keys and any facet CLI flags; recorded
+    onto each run row as provenance.
+    """
+    try:
+        return _active_facets_var.get()
+    except LookupError:
+        return {}
+
+
+def set_active_facets(value: dict[str, str]) -> None:
+    """Set the active-facets dict. Returns None."""
+    _active_facets_var.set(value)
+
+
+def get_active_vector_params() -> dict[str, Any]:
+    """Return the active test's vector params (parametrize + markers + sidecar).
+
+    Returns throwaway empty; never stored. Populated by
+    ``_litmus_push_params`` at test start so ``TestRunLogger.measure``
+    can stamp ``TestVector.params`` without the harness wiring.
+    """
+    try:
+        return _active_vector_params_var.get()
+    except LookupError:
+        return {}
+
+
+def set_active_vector_params(value: dict[str, Any]) -> None:
+    """Set the active vector-params dict. Returns None."""
+    _active_vector_params_var.set(value)
 
 
 def get_event_store() -> Any:
@@ -2757,16 +2796,18 @@ def spec(request: pytest.FixtureRequest) -> Any:
 
 
 @pytest.fixture
-def limits() -> dict[str, Any]:
-    """Resolved limits for the current test (sidecar + marker merge).
+def limits() -> Mapping[str, Any]:
+    """Read-only ``name → Limit`` mapping for the active test.
 
-    Returns a snapshot of the active limits dict pushed by
-    ``_litmus_push_limits``. Empty when no sidecar / marker provided any.
-    Tests typically read this via ``context.limits`` or rely on
-    ``logger.measure(name, value)`` auto-resolution; the standalone
-    fixture is for destructured signatures that want direct access.
+    Resolves from the same chain ``verify`` uses. ``limits[name]``
+    raises ``KeyError`` when no limit is configured for ``name`` —
+    honest for ad-hoc pythonic assertions::
+
+        assert v in limits["vout"]
     """
-    return dict(get_active_limits())
+    from litmus.execution.verify import _LimitsMapping
+
+    return _LimitsMapping(dict(get_active_limits()))
 
 
 # StashKey for the previous-Context map, stored on each test's parent node
@@ -2813,6 +2854,10 @@ def _litmus_push_params(
         if extras:
             ctx.set_params(extras)
 
+    # Publish to the session-scoped ContextVar so logger.measure can
+    # stamp TestVector.params without going through the harness.
+    set_active_vector_params(dict(ctx.params))
+
     parent = request.node.parent
     if parent is not None:
         prev_map = parent.stash.setdefault(_PREV_STASH_KEY, {})
@@ -2829,8 +2874,12 @@ def _litmus_push_params(
             # second attempt overwrites the first, which matches the
             # "compare against whatever just ran" semantics callers expect.
             prev_map[key] = ctx
+            set_active_vector_params({})
     else:
-        yield
+        try:
+            yield
+        finally:
+            set_active_vector_params({})
 
 
 def _load_sidecar_for_node(node: pytest.Item) -> dict[str, Any] | None:

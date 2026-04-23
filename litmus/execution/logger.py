@@ -121,6 +121,64 @@ def _limit_from_dict(spec: Any, *, units_override: str | None = None) -> Limit:
     )
 
 
+def _auto_traceability(name: str) -> dict[str, Any]:
+    """Resolve traceability fields for ``name`` from the active SpecContext.
+
+    Returns a dict with ``dut_pin``, ``instrument_name``,
+    ``instrument_resource``, ``instrument_channel``, ``fixture_point``,
+    ``spec_id``, ``spec_ref`` — each keyed by the characteristic of the
+    same name, when the product spec is loaded. Missing keys default to
+    ``None``; callers use ``.get(...)`` so pure-pytest runs (no spec)
+    fall through silently.
+    """
+    from litmus.execution.plugin import get_active_instruments, get_active_spec_context
+
+    result: dict[str, Any] = {}
+    spec = get_active_spec_context()
+    if spec is None:
+        return result
+
+    try:
+        pin_info = spec.get_pin_info(name)
+    except KeyError:
+        return result
+    if not pin_info:
+        return result
+
+    result["dut_pin"] = pin_info.get("dut_pin")
+    result["fixture_point"] = pin_info.get("fixture_point")
+    result["instrument_channel"] = pin_info.get("instrument_channel")
+    result["spec_id"] = name
+
+    # Instrument name / resource come from the fixture point routing.
+    fp_name = pin_info.get("fixture_point")
+    if fp_name and spec.fixture is not None:
+        fp = spec.fixture.points.get(fp_name)
+        if fp is not None:
+            result["instrument_name"] = fp.instrument
+            # Resource lookup: walk active instruments dict if the
+            # fixture points at a known role.
+            instruments = get_active_instruments()
+            inst = instruments.get(fp.instrument)
+            resource = getattr(inst, "_resource", None) or getattr(inst, "resource", None)
+            if resource:
+                result["instrument_resource"] = str(resource)
+
+    return result
+
+
+def _snapshot_active_vector_params() -> dict[str, Any]:
+    """Return a copy of the active vector params ContextVar.
+
+    Used by ``start_step`` / ``log_measurement`` to stamp ``TestVector.params``
+    so parquet rows carry parametrize values. Returns an empty dict when no
+    pytest plugin is active (direct / legacy callers).
+    """
+    from litmus.execution.plugin import get_active_vector_params
+
+    return dict(get_active_vector_params())
+
+
 def _resolve_measurement_limit(
     name: str,
     inline_any: bool,
@@ -540,7 +598,7 @@ class TestRunLogger:
         self._current_step_index += 1
         self.test_run.steps.append(step)
         # Create a default vector for this step (for simple logging without harness)
-        vector = TestVector()
+        vector = TestVector(params=_snapshot_active_vector_params())
         step.vectors.append(vector)
         # Token-based set for proper reset in end_step()
         self._step_token = current_step_var.set(step)
@@ -638,7 +696,7 @@ class TestRunLogger:
         # Resolve vector: contextvar only → auto-create
         vector = current_vector_var.get()
         if vector is None:
-            vector = TestVector()
+            vector = TestVector(params=_snapshot_active_vector_params())
             step.vectors.append(vector)
             self._vector_token = current_vector_var.set(vector)
 
@@ -738,79 +796,46 @@ class TestRunLogger:
         name: str,
         value: float | int | None,
         *,
-        # Inline limit (terse form)
-        low: float | None = None,
-        high: float | None = None,
-        nominal: float | None = None,
-        comparator: Any = None,
-        # Explicit Limit (for sidecar/spec-resolved or prebuilt limits)
         limit: Limit | None = None,
-        # Units (overrides limit.units if both present)
-        units: str | None = None,
-        # Behavior
         allow_repeat: bool = False,
-        # Traceability overrides (ambient ContextVars fill the rest)
-        dut_pin: str | None = None,
-        instrument_name: str | None = None,
-        instrument_resource: str | None = None,
-        instrument_channel: str | None = None,
-        fixture_point: str | None = None,
-        spec_ref: str | None = None,
     ) -> Measurement:
-        """Log a measurement with optional limit checking.
+        """Record one measurement row. Pure recorder — no limit evaluation.
 
-        **Limit resolution chain** (first match wins):
+        A logger logs. It does not judge, compare, or raise. Use
+        :func:`litmus.execution.verify.verify` for the verb that both
+        records AND evaluates a limit.
 
-        1. Inline ``low=/high=/nominal=/comparator=`` kwargs, if any are set.
-        2. Explicit ``limit=Limit(...)`` kwarg.
-        3. :func:`litmus.execution.plugin.get_active_limits` — the sidecar
-           ``limits:`` block pushed by the pytest_native plugin.
-        4. :func:`litmus.execution.plugin.get_active_spec_context` —
-           product YAML characteristic with the same name.
-        5. Record unchecked (no limit, no outcome set).
+        **Limit resolution chain** — fields copied onto the row so
+        analysis sees what limit was active, even when nobody evaluated:
 
-        **Duplicate-name dedup:** each step tracks names that have been
-        written. A second write with the same name raises
-        :class:`DuplicateMeasurementError` unless both the first and
-        second call pass ``allow_repeat=True`` (e.g. inner streaming
-        loop). This catches the common bug where a caller invokes
-        ``logger.measure`` *and* ``spec.check`` on the same name.
+        1. ``limit=Limit(...)`` passed by the caller.
+        2. :func:`get_active_limits` — sidecar + marker + profile merge.
+        3. :func:`get_active_spec_context` — product characteristic by name.
+        4. None — row records no limit fields.
 
-        Args:
-            name: Measurement name (e.g. ``"output_voltage"``).
-            value: Measured value; ``None`` is recorded with no outcome.
-            low, high, nominal, comparator: Inline limit fields —
-                convenient terse form for ad-hoc checks.
-            limit: Prebuilt Limit object. Mutually exclusive with the
-                inline form — passing both raises ``ValueError``.
-            units: Unit string — overrides ``limit.units`` when present.
-            allow_repeat: Opt-in for naive same-name loops; both the
-                first and subsequent calls must set it.
-            dut_pin, instrument_name, instrument_resource,
-            instrument_channel, fixture_point: Traceability metadata
-                written straight onto the Measurement. No ambient
-                fallback today — callers (typically ``spec.check``)
-                supply these explicitly.
-            spec_ref: Override for the spec reference. When omitted,
-                falls back to the resolved limit's ``spec_ref`` (which
-                ``derive_limit`` populates with characteristic id plus
-                any condition suffix).
+        **Auto-traceability** — ``dut_pin`` / ``instrument_*`` /
+        ``fixture_point`` / ``spec_id`` / ``spec_ref`` are pulled from
+        the active :class:`SpecContext` by measurement name when
+        available. Callers never pass these.
+
+        **Duplicate-name dedup**: two writes with the same name in one
+        step raise :class:`DuplicateMeasurementError` unless both opt in
+        via ``allow_repeat=True``.
 
         Returns:
-            The :class:`Measurement` created and logged.
-
-        Raises:
-            DuplicateMeasurementError: When ``name`` was already recorded
-                in the current step without ``allow_repeat=True``.
+            The persisted :class:`Measurement`. ``outcome`` is always
+            ``None`` here — callers that want a verdict go through
+            ``verify``.
         """
-        inline_any = any(x is not None for x in (low, high, nominal, comparator))
-        if inline_any and limit is not None:
-            raise ValueError(
-                "measure(): pass either inline low/high/nominal/comparator or limit=, not both"
-            )
-
         resolved_limit = _resolve_measurement_limit(
-            name, inline_any, low, high, nominal, comparator, limit, units
+            name,
+            inline_any=False,
+            low=None,
+            high=None,
+            nominal=None,
+            comparator=None,
+            limit=limit,
+            units=None,
         )
 
         # Ensure a step exists *before* the dedup check — otherwise the
@@ -829,18 +854,24 @@ class TestRunLogger:
         high_limit: float | None = None
         nom: float | None = None
         cmp_str: str | None = None
-        meas_units = units
-        meas_spec_ref = spec_ref
+        meas_units: str | None = None
+        meas_spec_id: str | None = None
+        meas_spec_ref: str | None = None
 
         if resolved_limit is not None:
             low_limit = resolved_limit.low
             high_limit = resolved_limit.high
             nom = resolved_limit.nominal
-            if meas_units is None:
-                meas_units = resolved_limit.units
-            if meas_spec_ref is None:
-                meas_spec_ref = resolved_limit.spec_ref
+            meas_units = resolved_limit.units
+            meas_spec_id = resolved_limit.spec_id
+            meas_spec_ref = resolved_limit.spec_ref
             cmp_str = _stringify_comparator(getattr(resolved_limit, "comparator", None))
+
+        # Auto-fill traceability from the active SpecContext. A caller
+        # (SpecContext.check / legacy harness) may have pre-populated a
+        # Measurement; here we only set fields from the spec when they
+        # would otherwise be blank.
+        trace = _auto_traceability(name)
 
         measurement = Measurement(
             name=name,
@@ -850,15 +881,16 @@ class TestRunLogger:
             high_limit=high_limit,
             nominal=nom,
             comparator=cmp_str,
-            spec_ref=meas_spec_ref,
-            dut_pin=dut_pin,
-            instrument_name=instrument_name,
-            instrument_resource=instrument_resource,
-            instrument_channel=instrument_channel,
-            fixture_point=fixture_point,
+            spec_id=meas_spec_id or trace.get("spec_id"),
+            spec_ref=meas_spec_ref or trace.get("spec_ref"),
+            dut_pin=trace.get("dut_pin"),
+            instrument_name=trace.get("instrument_name"),
+            instrument_resource=trace.get("instrument_resource"),
+            instrument_channel=trace.get("instrument_channel"),
+            fixture_point=trace.get("fixture_point"),
         )
 
-        measurement.check_limit()
+        # Pure recorder: no check_limit(), no outcome stamping, no raise.
         self.log_measurement(measurement)
         return measurement
 

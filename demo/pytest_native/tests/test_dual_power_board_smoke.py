@@ -22,7 +22,6 @@ from typing import Any
 from demo.drivers import DMM, PSU, ELoad
 from litmus.execution.harness import Context
 from litmus.execution.logger import TestRunLogger
-from litmus.products.context import SpecContext
 
 
 class TestDualPowerBoardSmoke:
@@ -50,7 +49,7 @@ class TestDualPowerBoardSmoke:
         psu: PSU,
         dmm: DMM,
         sync: Any,
-        spec: SpecContext,
+        verify,
     ) -> None:
         """Verify 3.3V output after ALL boards are powered.
 
@@ -67,7 +66,7 @@ class TestDualPowerBoardSmoke:
         if sync is not None:
             sync.wait("all_powered", timeout=30)
 
-        spec.check("output_voltage", dmm.measure_dc_voltage(), load=0.5)
+        verify("output_voltage", dmm.measure_dc_voltage())
 
     def test_efficiency(
         self,
@@ -75,7 +74,7 @@ class TestDualPowerBoardSmoke:
         psu: PSU,
         dmm: DMM,
         eload: ELoad,
-        spec: SpecContext,
+        verify,
     ) -> None:
         """Measure efficiency — spec-driven per slot, no sync."""
         vin = context.get_param("vin")
@@ -97,4 +96,4 @@ class TestDualPowerBoardSmoke:
         p_in = v_in * i_in
         p_out = v_out * load
         efficiency = (p_out / p_in * 100) if p_in > 0 else 0
-        spec.check("efficiency", efficiency, vin=vin, load=load)
+        verify("efficiency", efficiency)

@@ -473,20 +473,27 @@ def _write_measure_test(
 
 
 def test_measure_records_outcome_without_raising(pytester: pytest.Pytester) -> None:
-    """``logger.measure`` records FAIL outcome but does not raise —
-    judgment lives on ``spec.check`` / explicit ``assert``."""
+    """``logger.measure`` is a pure recorder — no outcome stamping, no raise.
+
+    Judgment lives on ``verify`` (the one verb for test bodies).
+    """
     _write_measure_test(
         pytester,
         textwrap.dedent(
             """
-            from litmus.data.models import Outcome
+            from litmus.config.test_config import Limit
 
             class TestSeq:
                 def test_records(self, logger):
                     m = logger.measure(
-                        "v_out", 3.5, low=3.2, high=3.4, units="V", nominal=3.3
+                        "v_out", 3.5,
+                        limit=Limit(low=3.2, high=3.4, units="V", nominal=3.3),
                     )
-                    assert m.outcome == Outcome.FAIL
+                    # Pure recorder: outcome stays None, limit fields stamped
+                    # on the row for post-run analysis.
+                    assert m.outcome is None
+                    assert m.low_limit == 3.2
+                    assert m.high_limit == 3.4
             """
         ),
     )
@@ -494,17 +501,17 @@ def test_measure_records_outcome_without_raising(pytester: pytest.Pytester) -> N
     result.assert_outcomes(passed=1)
 
 
-def test_explicit_assert_fails_pytest_node(pytester: pytest.Pytester) -> None:
-    """Test authors who want fail-fast on ad-hoc limits use plain assert."""
+def test_verify_raises_on_fail(pytester: pytest.Pytester) -> None:
+    """``verify(name, value, limit=...)`` raises LimitFailure on FAIL."""
     _write_measure_test(
         pytester,
         textwrap.dedent(
             """
+            from litmus.config.test_config import Limit
+
             class TestSeq:
-                def test_fails(self, logger):
-                    v = 3.5
-                    logger.measure("v_out", v, low=3.2, high=3.4, units="V")
-                    assert 3.2 <= v <= 3.4
+                def test_fails(self, verify):
+                    verify("v_out", 3.5, Limit(low=3.2, high=3.4, units="V"))
             """
         ),
     )
@@ -520,10 +527,13 @@ def test_duplicate_measurement_name_in_step_errors(
         pytester,
         textwrap.dedent(
             """
+            from litmus.config.test_config import Limit
+
             class TestSeq:
                 def test_dup(self, logger):
-                    logger.measure("v_out", 3.3, low=3.2, high=3.4, units="V")
-                    logger.measure("v_out", 3.35, low=3.2, high=3.4, units="V")
+                    lim = Limit(low=3.2, high=3.4, units="V")
+                    logger.measure("v_out", 3.3, limit=lim)
+                    logger.measure("v_out", 3.35, limit=lim)
             """
         ),
     )
@@ -539,14 +549,13 @@ def test_allow_repeat_streams_same_name(pytester: pytest.Pytester) -> None:
         pytester,
         textwrap.dedent(
             """
+            from litmus.config.test_config import Limit
+
             class TestSeq:
                 def test_stream(self, logger):
+                    lim = Limit(low=3.2, high=3.4, units="V")
                     for _ in range(10):
-                        logger.measure(
-                            "v_sample", 3.3,
-                            low=3.2, high=3.4, units="V",
-                            allow_repeat=True,
-                        )
+                        logger.measure("v_sample", 3.3, limit=lim, allow_repeat=True)
             """
         ),
     )
@@ -720,7 +729,7 @@ def test_litmus_vectors_marker_class_and_method_cross_product(
 
 
 def test_litmus_limits_marker_on_method_resolves(pytester: pytest.Pytester) -> None:
-    """Method-level ``@pytest.mark.litmus_limits`` feeds ``logger.measure`` auto-resolution."""
+    """Method-level ``@pytest.mark.litmus_limits`` feeds ``verify`` resolution."""
     pytester.makeini(
         textwrap.dedent(
             """
@@ -734,27 +743,24 @@ def test_litmus_limits_marker_on_method_resolves(pytester: pytest.Pytester) -> N
         test_seq=textwrap.dedent(
             """
             import pytest
-            from litmus.data.models import Outcome
 
             class TestSeq:
                 @pytest.mark.litmus_limits(
                     output_voltage={"low": 3.2, "high": 3.4, "units": "V"},
                 )
-                def test_passes(self, logger):
-                    m = logger.measure("output_voltage", 3.3)
-                    assert m.outcome == Outcome.PASS
+                def test_passes(self, verify):
+                    verify("output_voltage", 3.3)
 
                 @pytest.mark.litmus_limits(
                     output_voltage={"low": 3.2, "high": 3.4, "units": "V"},
                 )
-                def test_fails(self, logger):
-                    m = logger.measure("output_voltage", 3.5)
-                    assert m.outcome == Outcome.FAIL
+                def test_fails(self, verify):
+                    verify("output_voltage", 3.5)
             """
         )
     )
     result = pytester.runpytest("-v")
-    result.assert_outcomes(passed=2)
+    result.assert_outcomes(passed=1, failed=1)
 
 
 def test_litmus_limits_marker_method_overrides_class(pytester: pytest.Pytester) -> None:
@@ -772,27 +778,26 @@ def test_litmus_limits_marker_method_overrides_class(pytester: pytest.Pytester) 
         test_seq=textwrap.dedent(
             """
             import pytest
-            from litmus.data.models import Outcome
 
             @pytest.mark.litmus_limits(
                 rail={"low": 3.2, "high": 3.4, "units": "V"},  # tight (class default)
             )
             class TestSeq:
-                def test_tight_class_limit(self, logger):
-                    m = logger.measure("rail", 3.5)
-                    assert m.outcome == Outcome.FAIL
+                @pytest.mark.litmus_independent
+                def test_tight_class_limit(self, verify):
+                    verify("rail", 3.5)  # fails tight class limit
 
+                @pytest.mark.litmus_independent
                 @pytest.mark.litmus_limits(
                     rail={"low": 3.0, "high": 3.6, "units": "V"},  # loose override
                 )
-                def test_loose_method_limit(self, logger):
-                    m = logger.measure("rail", 3.5)
-                    assert m.outcome == Outcome.PASS
+                def test_loose_method_limit(self, verify):
+                    verify("rail", 3.5)  # passes loose method limit
             """
         )
     )
     result = pytester.runpytest("-v")
-    result.assert_outcomes(passed=2)
+    result.assert_outcomes(passed=1, failed=1)
 
 
 def test_litmus_spec_marker_scopes_product(pytester: pytest.Pytester) -> None:

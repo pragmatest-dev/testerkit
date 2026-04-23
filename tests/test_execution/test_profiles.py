@@ -104,10 +104,9 @@ def test_profile_limits_beat_sidecar(pytester: pytest.Pytester) -> None:
         test_seq=textwrap.dedent(
             """
             class TestSeq:
-                def test_voltage(self, logger):
+                def test_voltage(self, verify):
                     # 3.5 is inside sidecar limit (3.0..3.6) but outside profile strict (3.25..3.35)
-                    m = logger.measure("v", 3.5)
-                    assert m.outcome.value == "pass", f"limit check failed: {m.outcome}"
+                    verify("v", 3.5)
             """
         )
     )

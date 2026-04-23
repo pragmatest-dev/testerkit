@@ -1,15 +1,15 @@
 """Pytest-native port of ``demo/sequences/power_board_smoke.yaml``.
 
-Demonstrates the three-object split:
+Demonstrates the fixture split:
 
 * ``context`` — vector params (``context.get_param("vin")``).
-* ``spec``    — product-characteristic assertions (``spec.check("output_voltage", v)``).
-* ``logger``  — ad-hoc measurements with inline or sidecar limits
-  (``logger.measure("efficiency", e, low=55, high=100, units="%")``).
+* ``verify``  — the primary verb: log + evaluate + raise on FAIL.
+* ``logger``  — pure recorder for characterization rows (no assert).
 
 Sidecar file ``test_power_board_smoke.yaml`` carries vectors + limits.
 The product spec at ``demo/products/power_board.yaml`` supplies the
-``ref:`` limits.
+``ref:`` limits — ``verify`` auto-fills pin/instrument/spec_ref from
+the active :class:`SpecContext`.
 """
 
 from __future__ import annotations
@@ -19,7 +19,6 @@ import pytest
 from demo.drivers import DMM, PSU, ELoad
 from litmus.execution.harness import Context
 from litmus.execution.logger import TestRunLogger
-from litmus.products.context import SpecContext
 
 
 class TestPowerBoardSmoke:
@@ -30,7 +29,7 @@ class TestPowerBoardSmoke:
         context: Context,
         psu: PSU,
         dmm: DMM,
-        spec: SpecContext,
+        verify,
     ) -> None:
         """Verify 3.3V output at no load — spec-driven."""
         vin = context.get_param("vin")
@@ -38,7 +37,7 @@ class TestPowerBoardSmoke:
         psu.set_current_limit(0.1)
         psu.enable_output()
 
-        spec.check("output_voltage", dmm.measure_dc_voltage(), load=0.1)
+        verify("output_voltage", dmm.measure_dc_voltage())
 
     @pytest.mark.flaky(reruns=2, reruns_delay=0.5)
     def test_load_test(
@@ -71,7 +70,7 @@ class TestPowerBoardSmoke:
         self,
         context: Context,
         psu: PSU,
-        spec: SpecContext,
+        verify,
     ) -> None:
         """Verify low standby current — spec-driven."""
         vin = context.get_param("vin")
@@ -80,7 +79,7 @@ class TestPowerBoardSmoke:
         psu.enable_output()
 
         current_ma = float(psu.measure_current()) * 1000
-        spec.check("quiescent_current", current_ma, load=0)
+        verify("quiescent_current", current_ma)
 
     def test_regulation_sweep(
         self,
