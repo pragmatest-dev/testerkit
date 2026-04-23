@@ -122,18 +122,55 @@ def _limit_from_dict(spec: Any, *, units_override: str | None = None) -> Limit:
 
 
 def _auto_traceability(name: str) -> dict[str, Any]:
-    """Resolve traceability fields for ``name`` from the active SpecContext.
+    """Resolve traceability fields for a measurement ``name``.
 
-    Returns a dict with ``dut_pin``, ``instrument_name``,
-    ``instrument_resource``, ``instrument_channel``, ``fixture_point``,
-    ``spec_id``, ``spec_ref`` — each keyed by the characteristic of the
-    same name, when the product spec is loaded. Missing keys default to
-    ``None``; callers use ``.get(...)`` so pure-pytest runs (no spec)
-    fall through silently.
+    Resolution order:
+
+    1. **Active :class:`FixturePoint`** (from ``_active_point_var``, pushed
+       by ``_PointIterator`` while the test iterates ``ctx.points``). When
+       set, this is the authoritative source for ``dut_pin`` / ``net`` /
+       ``fixture_point`` / ``instrument_name`` / ``instrument_channel`` /
+       ``instrument_terminal`` — the point IS the row's pin.
+    2. **Legacy name-match against the active SpecContext**: when no point
+       is active, fall back to ``spec.get_pin_info(name)`` for rows whose
+       measurement label happens to equal a characteristic id. This branch
+       exists for the transition period and will be dropped once demos and
+       tests have moved to the binding contract.
+
+    Returns a dict with any of ``dut_pin``, ``net``, ``fixture_point``,
+    ``instrument_name``, ``instrument_resource``, ``instrument_channel``,
+    ``instrument_terminal``, ``spec_id``, ``spec_ref`` — callers use
+    ``.get(...)`` so pure-pytest runs (no spec, no binding) fall through
+    silently.
     """
-    from litmus.execution.plugin import get_active_instruments, get_active_spec_context
+    from litmus.execution.plugin import (
+        get_active_instruments,
+        get_active_point,
+        get_active_spec_context,
+    )
 
     result: dict[str, Any] = {}
+
+    point = get_active_point()
+    if point is not None:
+        if point.dut_pin is not None:
+            result["dut_pin"] = point.dut_pin
+        if point.net is not None:
+            result["net"] = point.net
+        result["fixture_point"] = point.name
+        result["instrument_name"] = point.instrument
+        if point.instrument_channel is not None:
+            result["instrument_channel"] = point.instrument_channel
+        if point.instrument_terminal is not None:
+            result["instrument_terminal"] = point.instrument_terminal
+
+        instruments = get_active_instruments()
+        inst = instruments.get(point.instrument)
+        resource = getattr(inst, "_resource", None) or getattr(inst, "resource", None)
+        if resource:
+            result["instrument_resource"] = str(resource)
+        return result
+
     spec = get_active_spec_context()
     if spec is None:
         return result
@@ -150,14 +187,11 @@ def _auto_traceability(name: str) -> dict[str, Any]:
     result["instrument_channel"] = pin_info.get("instrument_channel")
     result["spec_id"] = name
 
-    # Instrument name / resource come from the fixture point routing.
     fp_name = pin_info.get("fixture_point")
     if fp_name and spec.fixture is not None:
         fp = spec.fixture.points.get(fp_name)
         if fp is not None:
             result["instrument_name"] = fp.instrument
-            # Resource lookup: walk active instruments dict if the
-            # fixture points at a known role.
             instruments = get_active_instruments()
             inst = instruments.get(fp.instrument)
             resource = getattr(inst, "_resource", None) or getattr(inst, "resource", None)
@@ -368,6 +402,7 @@ class TestRunLogger:
         operator_name: str | None = None,
         test_phase: str = "production",
         profile: str | None = None,
+        facets: dict[str, str] | None = None,
         session_id: UUID | None = None,
         run_id: UUID | str | None = None,
         # Product traceability
@@ -437,6 +472,7 @@ class TestRunLogger:
             test_sequence_id=test_sequence_id,
             test_phase=test_phase,
             profile=profile,
+            facets=facets or {},
             product_id=product_id,
             product_name=product_name,
             product_revision=product_revision,
@@ -455,8 +491,8 @@ class TestRunLogger:
         # start_step() so each step starts with a clean slate; used by
         # ``measure()`` to raise DuplicateMeasurementError on accidental
         # double-logs within a step.
-        self._step_seen_names: set[str] = set()
-        self._step_seen_repeatable: set[str] = set()
+        self._step_seen_names: set[tuple[str, str | None]] = set()
+        self._step_seen_repeatable: set[tuple[str, str | None]] = set()
         self._step_token: Token[TestStep | None] | None = None
         # _vector_token tracks current vector context for this step.
         # Both start_step() and log_measurement() may set it; reset in end_step().
@@ -897,9 +933,14 @@ class TestRunLogger:
     def _guard_duplicate(self, name: str, allow_repeat: bool) -> None:
         """Raise :class:`DuplicateMeasurementError` on same-name double-write.
 
-        Each step tracks names that have been written. A second write
-        with the same name is an error unless both the first and second
-        call opt in via ``allow_repeat=True``.
+        Each step tracks ``(name, active_point)`` pairs that have been
+        written. A second write with the same pair is an error unless
+        both the first and second call opt in via ``allow_repeat=True``.
+
+        Scoping the dedup key by the active :class:`FixturePoint` lets a
+        multi-pin characteristic iterate ``ctx.points`` and emit the same
+        measurement name once per point — each iteration stamps a distinct
+        row (different ``dut_pin``), so the two writes are not duplicates.
 
         Typical causes when this fires:
 
@@ -910,8 +951,12 @@ class TestRunLogger:
         - Two independent ``logger.measure`` calls accidentally sharing
           a name; rename one or split into separate steps.
         """
-        if name in self._step_seen_names:
-            first_was_repeatable = name in self._step_seen_repeatable
+        from litmus.execution.plugin import get_active_point
+
+        point = get_active_point()
+        key = (name, point.name if point is not None else None)
+        if key in self._step_seen_names:
+            first_was_repeatable = key in self._step_seen_repeatable
             if not (allow_repeat and first_was_repeatable):
                 step = current_step_var.get()
                 step_label = step.name if step else "<no-step>"
@@ -921,9 +966,9 @@ class TestRunLogger:
                     "allow_repeat=True on every call when streaming samples."
                 )
         else:
-            self._step_seen_names.add(name)
+            self._step_seen_names.add(key)
             if allow_repeat:
-                self._step_seen_repeatable.add(name)
+                self._step_seen_repeatable.add(key)
 
     def record(self, key: str, value: Any) -> None:
         """Emit a key/value record event to the event log.

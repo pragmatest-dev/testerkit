@@ -78,6 +78,40 @@ You only need `conftest.py` when you want to:
 - Add pin-based fixtures for DUT traceability
 - Define project-specific test utilities
 
+## Bench-bringup escape hatch (no station YAML)
+
+For a brand-new board where you don't yet have a station / product / fixture YAML, skip all of that and define instrument fixtures directly in `conftest.py`. `litmus init --tier=bringup` scaffolds this for you; the pattern is:
+
+```python
+# tests/conftest.py
+from unittest.mock import MagicMock
+import pytest
+
+
+@pytest.fixture
+def dmm() -> MagicMock:
+    inst = MagicMock()
+    inst.measure_dc_voltage.return_value = 3.3
+    return inst  # swap MagicMock for your PyVISA / PyMeasure driver
+```
+
+```python
+# tests/test_smoke.py
+from litmus.models.config import Limit
+
+
+def test_rail(dmm, verify):
+    verify(
+        "v_rail",
+        float(dmm.measure_dc_voltage()),
+        limit=Limit(low=3.2, high=3.4, nominal=3.3, units="V"),
+    )
+```
+
+Rows land in parquet with `meas_value`, `meas_limit_low/high`, and `outcome` populated. Traceability columns (`meas_dut_pin`, `meas_instrument_channel`, `meas_net`, `meas_spec_ref`) stay null until you graduate to a station + product + fixture — at which point the test bodies don't change.
+
+See `demo/bringup/` for a runnable example.
+
 ## Verify the Setup
 
 Run tests with verbose output:
@@ -101,6 +135,13 @@ source .venv/bin/activate  # Linux/Mac
 **"No tests collected"**
 - Check that test file starts with `test_`
 - Check that function starts with `test_`
+
+**"fixture 'dmm' not found" (or any instrument role)**
+- You don't have a station YAML yet. Either scaffold one
+  (`litmus init --tier=bench`) or use the bench-bringup escape hatch
+  above — define the fixture directly in `tests/conftest.py` with
+  `MagicMock` (or a real driver). `litmus init --tier=bringup`
+  does this for you.
 
 ## What You Learned
 

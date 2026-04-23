@@ -1,0 +1,42 @@
+# Keysight E36313A triple-output programmable power supply.
+# One channel sources VIN; the other two are unused in this demo.
+id: keysight_e36313a
+manufacturer: Keysight
+model: "E36313A"
+name: Keysight E36313A Triple-Output DC Power Supply
+description: Triple-output bench PSU — CH1 supplies VIN to the PMIC.
+type: psu
+interfaces: [lan, usb]
+driver: demo.drivers.PSU
+channels:
+  CH1:
+    terminals: [hi, lo]
+    connector: binding_post
+    ground: floating
+  CH2:
+    terminals: [hi, lo]
+    connector: binding_post
+    ground: floating
+  CH3:
+    terminals: [hi, lo]
+    connector: binding_post
+    ground: floating
+capabilities:
+  - function: dc_voltage
+    direction: output
+    signals:
+      voltage: {range: {min: 0, max: 30, units: V}}
+      current: {range: {min: 0, max: 6, units: A}}
+    channels: [CH1, CH2, CH3]
+  - function: dc_voltage
+    direction: input
+    readback: true
+    signals:
+      voltage: {range: {min: 0, max: 30, units: V}}
+    channels: [CH1, CH2, CH3]
+  - function: dc_current
+    direction: input
+    readback: true
+    signals:
+      current: {range: {min: 0, max: 6, units: A}}
+    channels: [CH1, CH2, CH3]

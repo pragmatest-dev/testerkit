@@ -1,0 +1,27 @@
+# Sidecar for test_regulation.py.
+#
+# Demonstrates:
+#   * Per-method vector expansion (product = Cartesian).
+#   * Same measurement label ("rail_3v3_under_*") across multiple cases
+#     — one sidecar limits entry handles all of them.
+#   * Different characteristics per measurement label to keep
+#     spec_ref traceable in parquet rows.
+vectors:
+  methods:
+    test_line_regulation:
+      product:
+        vin: [4.5, 4.75, 5.0, 5.25, 5.5]
+    test_load_regulation:
+      product:
+        load_current: [0.1, 0.25, 0.4, 0.6, 0.8]
+
+limits:
+  # Line regulation spec — absolute millivolt band in the product, but
+  # rail voltage itself is what's measured. Use a wider ± 5% on the 3V3
+  # rail char so the sweep passes at every VIN point.
+  rail_3v3_under_line:
+    characteristic: rail_3v3
+    tolerance_pct: 5.0
+  rail_3v3_under_load:
+    characteristic: rail_3v3
+    tolerance_pct: 5.0

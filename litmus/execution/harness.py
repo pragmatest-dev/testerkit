@@ -75,6 +75,15 @@ class Context:
         self._channel_store = channel_store
         self._params: dict[str, Any] = {}
         self._observations: dict[str, Any] = {}
+        # ``points`` iterates :class:`FixturePoint` objects the test is
+        # bound to via the sidecar ``characteristic`` / ``fixturepoints`` /
+        # ``instrument_channels`` keys. Populated by the pytest-native
+        # plugin's ``_litmus_bind_points`` autouse fixture; ``None`` when
+        # the test has no binding. Test body: ``for _ in ctx.points: ...``
+        # — iterating pushes the active :class:`FixturePoint` into
+        # ``_active_point_var`` so driver fixtures route and the logger
+        # stamps traceability from that point.
+        self.points: Any = None
 
     def child(self) -> Context:
         """Create a child context that inherits from this one.

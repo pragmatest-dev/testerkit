@@ -75,6 +75,7 @@ def _build_parquet_metadata(
     *,
     environment_json: str | None = None,
     step_results: list[dict[str, Any]] | None = None,
+    facets: dict[str, str] | None = None,
 ) -> dict[bytes, bytes]:
     """Build Parquet file-level metadata.
 
@@ -87,6 +88,8 @@ def _build_parquet_metadata(
         metadata[b"environment_json"] = environment_json.encode("utf-8")
     if step_results:
         metadata[b"step_results"] = json.dumps(step_results).encode("utf-8")
+    if facets:
+        metadata[b"facets_json"] = json.dumps(facets).encode("utf-8")
 
     metadata[b"litmus_version"] = b"1.0.0"
     metadata[b"schema_version"] = SCHEMA_VERSION.encode()
@@ -306,6 +309,7 @@ class ParquetBackend:
         return _build_parquet_metadata(
             environment_json=test_run.environment_json,
             step_results=build_step_manifest(test_run),
+            facets=test_run.facets or None,
         )
 
     def list_runs(self, limit: int = 50) -> list[RunSummary]:

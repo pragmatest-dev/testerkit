@@ -95,31 +95,6 @@ class ProfilePytest(BaseModel):
     keyword: str | None = None
 
 
-class BindingSpec(BaseModel):
-    """A measurement-name → product-characteristic binding.
-
-    Resolution: the active product (from ``facets['product']`` or the
-    ``--product`` flag) indexes into a :class:`ProfileConfig`'s ``bindings``
-    dict, producing a ``BindingSpec`` whose ``characteristic_ref`` is
-    resolved on the product spec under the given ``conditions`` and
-    narrowed by ``guardband_pct`` before stamping onto a measurement row.
-    """
-
-    model_config = {"extra": "forbid"}
-
-    characteristic_ref: str
-    conditions: dict[str, float | str] = Field(default_factory=dict)
-    guardband_pct: float | None = None
-
-    @model_validator(mode="before")
-    @classmethod
-    def _inflate_shortform(cls, data: Any) -> Any:
-        """Allow ``<product>: <characteristic_name>`` shorthand in YAML."""
-        if isinstance(data, str):
-            return {"characteristic_ref": data}
-        return data
-
-
 class ProfileConfig(BaseModel):
     """A named config set applied to a pytest session.
 
@@ -134,7 +109,6 @@ class ProfileConfig(BaseModel):
     pytest: ProfilePytest = Field(default_factory=ProfilePytest)
     vectors: dict[str, dict[str, list[Any]]] = Field(default_factory=dict)
     limits: dict[str, dict[str, Any]] = Field(default_factory=dict)
-    bindings: dict[str, dict[str, BindingSpec]] = Field(default_factory=dict)
     markers: dict[str, list[dict[str, Any] | str]] = Field(default_factory=dict)
 
 

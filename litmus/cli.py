@@ -39,6 +39,16 @@ def main():
     help="Generate starter example files (prompts if not specified)",
 )
 @click.option(
+    "--tier",
+    type=click.Choice(["bringup", "bench", "factory"], case_sensitive=False),
+    default=None,
+    help=(
+        "Scaffold tier. 'bringup' = Tier 0/1 (MagicMock fixtures, one test, "
+        "one sidecar, no station/product YAML). 'bench' = Tier 2 starter "
+        "(equivalent to --starter). 'factory' = Tier 3/4 (bench + profiles)."
+    ),
+)
+@click.option(
     "--ai",
     type=click.Choice(["claude-code", "claude-desktop", "copilot"], case_sensitive=False),
     default=None,
@@ -50,6 +60,7 @@ def init(
     no_git: bool,
     discover: bool,
     starter: bool | None,
+    tier: str | None,
     ai: str | None,
     project_name: str | None,
 ):
@@ -96,13 +107,17 @@ def init(
         click.echo("  Install: curl -LsSf https://astral.sh/uv/install.sh | sh")
 
     # Instrument discovery vs starter files
-    # - If --starter: skip discovery (starter has its own mock station)
+    # - If --tier or --starter: skip discovery (they have their own mock station)
     # - If --discover: skip starter (user wants real instruments)
     # - If neither: prompt for starter first; if declined, prompt for discovery
     station = None
     use_starter = False
+    tier_lower = tier.lower() if tier else None
 
-    if starter is True:
+    if tier_lower:
+        # Explicit --tier flag wins over --starter / --discover / prompts
+        pass
+    elif starter is True:
         # Explicit --starter flag
         use_starter = True
     elif discover:
@@ -124,6 +139,7 @@ def init(
         station=station,
         starter=use_starter,
         name=project_name,
+        tier=tier_lower,
     )
 
     # Print summary
@@ -186,7 +202,9 @@ def init(
     if not cwd_mode:
         click.echo(f"  cd {name}")
         click.echo("  uv sync")
-    if use_starter:
+    if tier_lower == "bringup":
+        click.echo("  pytest -v             # run smoke tests with MagicMock instruments")
+    elif use_starter or tier_lower == "bench":
         click.echo("  pytest                # run tests with mock instruments")
     else:
         click.echo("  pytest tests/ --mock-instruments --dut-serial=TEST001")

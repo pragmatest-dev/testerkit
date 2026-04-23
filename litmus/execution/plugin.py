@@ -8,6 +8,7 @@ import sys
 import warnings
 from collections.abc import Callable, Generator, Iterator, Mapping
 from contextvars import ContextVar
+from itertools import cycle
 from pathlib import Path
 from typing import Any
 from unittest.mock import patch
@@ -15,13 +16,21 @@ from uuid import UUID, uuid4
 
 import pytest
 
-from litmus.config.test_config import FixtureConfig
+from litmus.config.test_config import (
+    FixtureConfig,
+    FixturePoint,
+    MeasurementLimitConfig,
+    TestConfig,
+)
 from litmus.data.models import CollectedItem, TestRun
 from litmus.execution.accessors import InstrumentAccessor
 from litmus.execution.decorators import get_current_logger, set_current_logger
 from litmus.execution.harness import Context
 from litmus.execution.logger import RunContext, TestRunLogger
-from litmus.execution.verify import verify  # noqa: F401 — re-exported as pytest fixture
+from litmus.execution.verify import (  # noqa: F401 — verify re-exported as pytest fixture
+    LimitsFn,
+    verify,
+)
 from litmus.fixtures.manager import FixtureManager, PinAccessor
 from litmus.instruments.pool import InstrumentPool
 from litmus.instruments.route_manager import RouteManager
@@ -55,6 +64,7 @@ _active_limits_var: ContextVar[dict[str, Any]] = ContextVar("_active_limits")
 _active_profile_var: ContextVar[ProfileConfig | None] = ContextVar("_active_profile")
 _active_facets_var: ContextVar[dict[str, str]] = ContextVar("_active_facets")
 _active_vector_params_var: ContextVar[dict[str, Any]] = ContextVar("_active_vector_params")
+_active_point_var: ContextVar[FixturePoint | None] = ContextVar("_active_point")
 
 
 # --- Session-scoped getters (create-and-store on first access) ---
@@ -299,6 +309,26 @@ def get_active_vector_params() -> dict[str, Any]:
 def set_active_vector_params(value: dict[str, Any]) -> None:
     """Set the active vector-params dict. Returns None."""
     _active_vector_params_var.set(value)
+
+
+def get_active_point() -> FixturePoint | None:
+    """Return the currently active :class:`FixturePoint` or ``None``.
+
+    Pushed/popped by :class:`_PointIterator` as a test body iterates
+    ``ctx.points``. Read by :func:`_auto_traceability` to stamp pin /
+    channel / terminal / net on each measurement row and by
+    :meth:`FixtureManager.route` so driver fixtures route without
+    seeing pin names.
+    """
+    try:
+        return _active_point_var.get()
+    except LookupError:
+        return None
+
+
+def set_active_point(value: FixturePoint | None) -> None:
+    """Set the active :class:`FixturePoint`. Returns None."""
+    _active_point_var.set(value)
 
 
 def get_event_store() -> Any:
@@ -633,17 +663,28 @@ def pytest_configure(config):
 
 
 def pytest_report_header(config):
-    """Show litmus results location in the pytest header."""
+    """Show litmus results location (and active profile's composed addopts) in the header."""
     from litmus.data.results_dir import resolve_results_dir
 
     results_dir = config.getoption("--results-dir", default=None)
     resolved = resolve_results_dir(results_dir)
     if results_dir:
-        return (
+        lines = [
             f"litmus: results → {resolved}"
             " (local — remove results_dir from litmus.yaml for global storage)"
-        )
-    return f"litmus: results → {resolved}"
+        ]
+    else:
+        lines = [f"litmus: results → {resolved}"]
+
+    profile_name = get_active_profile()
+    if profile_name:
+        composed = os.environ.get("PYTEST_ADDOPTS", "").strip()
+        if composed:
+            lines.append(f"litmus: profile={profile_name} addopts={composed!r}")
+        else:
+            lines.append(f"litmus: profile={profile_name}")
+
+    return lines
 
 
 def pytest_sessionstart(session):
@@ -721,6 +762,276 @@ def pytest_collection_modifyitems(config, items: list[pytest.Item]) -> None:
             )
         )
     set_collected_items(collected)
+
+    _warn_uncovered_condition_keys(config, items)
+    _warn_unmatched_profile_keys(items)
+    _check_per_test_condition_coverage(config, items)
+
+
+def _warn_uncovered_condition_keys(config, items: list[pytest.Item]) -> None:
+    """Emit one warning per SpecBand condition key no test's vectors supply.
+
+    Conservative: collects the union of condition keys across every
+    ``ProductCharacteristic.specs[].when`` in the active product, the
+    union of vector-param keys across every sidecar in collection,
+    and warns for each condition key present in the former and absent
+    from the latter.
+
+    False positives possible if the user is running a filtered subset
+    on purpose; better than the silent ``ValueError: No spec band
+    matches: .`` failure mode at measure time.
+    """
+    try:
+        spec_ctx = _preview_spec_context(config)
+    except pytest.UsageError:
+        return
+    if spec_ctx is None:
+        return
+
+    condition_keys: set[str] = set()
+    for char in spec_ctx.product.characteristics.values():
+        for band in char.specs:
+            if band.when:
+                condition_keys.update(band.when.keys())
+    if not condition_keys:
+        return
+
+    vector_keys: set[str] = set()
+    seen_sidecars: set[Path] = set()
+    for item in items:
+        module_file = getattr(item, "path", None)
+        if module_file is None or module_file in seen_sidecars:
+            continue
+        seen_sidecars.add(module_file)
+        sidecar = _load_sidecar(module_file)
+        if not sidecar:
+            continue
+        vector_keys.update(_extract_vector_keys(sidecar))
+
+    missing = sorted(condition_keys - vector_keys)
+    if not missing:
+        return
+    warnings.warn(
+        "Product characteristics declare condition keys not covered by "
+        f"any test's vectors: {', '.join(missing)}. Tests binding those "
+        "characteristics will fail at measure time with 'No spec band matches'. "
+        "Add the condition key to the test's sidecar `vectors:` block.",
+        UserWarning,
+        stacklevel=1,
+    )
+
+
+_POLICY_KEYS = frozenset(
+    {"tolerance_pct", "tolerance_abs", "guardband_pct", "expr", "lookup", "steps", "callable"}
+)
+
+
+def _any_limit_binds_to_char(
+    char_id: str, top_limits: Mapping[str, Any], test_limits: Mapping[str, Any]
+) -> bool:
+    """Return True if any limit entry will invoke ``build_limit_from_char`` for ``char_id``.
+
+    A limit entry binds to a char when it's a policy-shaped mapping
+    (tolerance / guardband / expr / etc.) and either (a) has an explicit
+    ``characteristic:`` matching ``char_id``, or (b) omits
+    ``characteristic:`` and inherits the test-level char.
+    """
+    for limits_block in (test_limits, top_limits):
+        for entry in limits_block.values():
+            if not isinstance(entry, Mapping):
+                continue
+            if not any(k in entry for k in _POLICY_KEYS):
+                continue
+            explicit = entry.get("characteristic")
+            if explicit is None or explicit == char_id:
+                return True
+    return False
+
+
+def _check_per_test_condition_coverage(config, items: list[pytest.Item]) -> None:
+    """Raise ``UsageError`` when a test's char cannot match any SpecBand.
+
+    For each test that binds a ``characteristic``, compute the union of
+    that test's vector-param keys and compare against every SpecBand's
+    ``when:`` keys. If no band has all its ``when:`` keys present in the
+    test's vectors, the test will always fail at measure time with
+    ``ValueError: No spec band matches``. Surface the missing keys now.
+    """
+    try:
+        spec_ctx = _preview_spec_context(config)
+    except pytest.UsageError:
+        return
+    if spec_ctx is None:
+        return
+
+    seen_functions: set[tuple[Any, str]] = set()
+    for item in items:
+        module_file = getattr(item, "path", None)
+        func_name = getattr(item, "originalname", None) or item.name.split("[")[0]
+        key = (module_file, func_name)
+        if key in seen_functions:
+            continue
+        seen_functions.add(key)
+        if module_file is None:
+            continue
+        sidecar = _load_sidecar(module_file)
+        if not sidecar:
+            continue
+        test_entry = (sidecar.get("tests") or {}).get(func_name)
+        if not isinstance(test_entry, dict):
+            continue
+        char_id = test_entry.get("characteristic")
+        if not char_id:
+            continue
+        char = spec_ctx.product.characteristics.get(char_id)
+        if char is None or not char.specs:
+            continue
+
+        # Only validate when a policy-shaped limit entry will actually
+        # resolve against this char. Tests that bind a char purely for
+        # ``ctx.points`` iteration (no ``limits:`` policy) never call
+        # ``build_limit_from_char`` and never hit the when-matching path.
+        top_limits = sidecar.get("limits") or {}
+        test_limits = test_entry.get("limits") or {}
+        if not _any_limit_binds_to_char(char_id, top_limits, test_limits):
+            continue
+
+        class_keys = _vector_entry_keys((sidecar.get("vectors") or {}).get("class"))
+        method_cfg = (sidecar.get("vectors") or {}).get("methods", {}).get(func_name)
+        method_keys = _vector_entry_keys(method_cfg) if method_cfg is not None else set()
+        per_test_vectors = test_entry.get("vectors")
+        if per_test_vectors is not None:
+            method_keys |= _vector_entry_keys(per_test_vectors)
+        test_keys = class_keys | method_keys
+
+        missing_per_band: list[set[str]] = []
+        reachable = False
+        for band in char.specs:
+            band_keys = set(band.when.keys()) if band.when else set()
+            missing = band_keys - test_keys
+            if not missing:
+                reachable = True
+                break
+            missing_per_band.append(missing)
+        if reachable:
+            continue
+
+        shared_missing = sorted(set.intersection(*missing_per_band)) if missing_per_band else []
+        raise pytest.UsageError(
+            f"{item.nodeid}: test binds characteristic {char_id!r} but its "
+            f"vectors don't cover condition keys required by any spec band. "
+            f"Add {', '.join(shared_missing) or '<condition keys>'} to "
+            f"`tests.{func_name}.vectors:` or `vectors.methods.{func_name}:`."
+        )
+
+
+def _warn_unmatched_profile_keys(items: list[pytest.Item]) -> None:
+    """Warn when a profile's ``vectors``/``limits``/``markers`` key matches no collected test.
+
+    Profile keys are matched against pytest node IDs via exact match or
+    ``fnmatch`` glob (see :func:`_profile_match`). A silent no-op on a
+    typo is worse than a skipped mock — it's a production screen that
+    stopped running. Warn once per orphan key.
+    """
+    profile = get_active_profile()
+    if profile is None:
+        return
+    import fnmatch
+
+    nodeids = {item.nodeid for item in items}
+
+    def _orphans(patterns: Mapping[str, Any] | None, label: str) -> list[str]:
+        if not patterns:
+            return []
+        out = []
+        for pattern in patterns:
+            if pattern in nodeids:
+                continue
+            if any(fnmatch.fnmatchcase(nid, pattern) for nid in nodeids):
+                continue
+            out.append(f"  profile.{label}[{pattern!r}]")
+        return out
+
+    unmatched: list[str] = []
+    unmatched.extend(_orphans(profile.vectors, "vectors"))
+    unmatched.extend(_orphans(profile.limits, "limits"))
+    unmatched.extend(_orphans(profile.markers, "markers"))
+    if not unmatched:
+        return
+    warnings.warn(
+        "Active profile has keys that match no collected test:\n"
+        + "\n".join(unmatched)
+        + "\nUse an exact node-id, a glob like '*::test_name', or remove the entry.",
+        UserWarning,
+        stacklevel=1,
+    )
+
+
+def _preview_spec_context(config) -> SpecContext | None:
+    """Load the product a session will use, without going through the fixture.
+
+    Runs the same rules as the ``spec_context`` fixture — explicit
+    ``--spec`` wins, else ``_autodiscover_product`` applies. Does not
+    set the active ContextVar; the fixture will do that on first use.
+    """
+    spec_path = config.getoption("--spec")
+    guardband = float(config.getoption("--guardband"))
+    if spec_path:
+        return SpecContext.from_file(spec_path, guardband_pct=guardband)
+
+    part_number = config.getoption("--dut-part-number")
+    return _autodiscover_product(config, guardband, part_number)
+
+
+def _extract_vector_keys(sidecar: dict[str, Any]) -> set[str]:
+    """Return the union of vector-param keys across a sidecar's vectors block.
+
+    Covers both shapes: top-level ``vectors.methods.<name>`` (list or
+    product/zip forms) and per-test ``tests.<name>.vectors``.
+    """
+    keys: set[str] = set()
+    vectors_block = sidecar.get("vectors")
+    if isinstance(vectors_block, dict):
+        methods = vectors_block.get("methods", {})
+        if isinstance(methods, dict):
+            for entry in methods.values():
+                keys.update(_vector_entry_keys(entry))
+        cls_entry = vectors_block.get("class")
+        if cls_entry is not None:
+            keys.update(_vector_entry_keys(cls_entry))
+    tests_block = sidecar.get("tests")
+    if isinstance(tests_block, dict):
+        for entry in tests_block.values():
+            if isinstance(entry, dict):
+                keys.update(_vector_entry_keys(entry.get("vectors")))
+    return keys
+
+
+def _vector_entry_keys(entry: Any) -> set[str]:
+    """Pull vector-param keys out of one vectors entry."""
+    if not entry:
+        return set()
+    if isinstance(entry, list):
+        out: set[str] = set()
+        for row in entry:
+            if isinstance(row, dict):
+                out.update(row.keys())
+        return out
+    if isinstance(entry, dict):
+        for mode in ("list", "product", "zip"):
+            if mode in entry:
+                value = entry[mode]
+                if isinstance(value, dict):
+                    return set(value.keys())
+                if isinstance(value, list):
+                    out = set()
+                    for row in value:
+                        if isinstance(row, dict):
+                            out.update(row.keys())
+                    return out
+        # Flat form: keys other than `expand` are vector keys.
+        return {k for k in entry.keys() if k != "expand"}
+    return set()
 
 
 def _apply_profile_to_items(config, items: list[pytest.Item]) -> None:
@@ -1262,6 +1573,7 @@ def _build_run_metadata(request: pytest.FixtureRequest) -> dict[str, Any]:
     env = capture_environment()
     project_name = get_project_name(request.config.rootpath)
     profile_name = request.config.getoption("--litmus-profile", default=None)
+    facets = dict(get_active_facets())
 
     return {
         "dut_serial": request.config.getoption("--dut-serial"),
@@ -1283,6 +1595,7 @@ def _build_run_metadata(request: pytest.FixtureRequest) -> dict[str, Any]:
         "results_dir": results_dir,
         "test_phase": test_phase,
         "profile": profile_name,
+        "facets": facets,
         "instruments": instrument_records,
         "environment": env,
     }
@@ -1593,32 +1906,87 @@ def spec_context(request) -> SpecContext | None:
     """
     spec_path = request.config.getoption("--spec")
     guardband = float(request.config.getoption("--guardband"))
+    part_number = request.config.getoption("--dut-part-number")
 
     ctx = None
 
     if spec_path:
         ctx = SpecContext.from_file(spec_path, guardband_pct=guardband)
     else:
-        # Try auto-discover from products/ directory
-        # Check both rootpath and invocation directory (cwd) for nested project support
-        search_roots = [
-            request.config.rootpath,
-            Path(request.config.invocation_params.dir),  # Where pytest was invoked
-        ]
-
-        for root in search_roots:
-            products_dir = root / "products"
-            if products_dir.exists():
-                for yaml_file in sorted(products_dir.rglob("*.yaml")):
-                    if yaml_file.name.startswith("_"):
-                        continue
-                    ctx = SpecContext.from_file(yaml_file, guardband_pct=guardband)
-                    break
-            if ctx:
-                break
+        ctx = _autodiscover_product(request.config, guardband, part_number)
 
     set_active_spec_context(ctx)
     return ctx
+
+
+def _autodiscover_product(
+    config: pytest.Config,
+    guardband: float,
+    part_number: str | None,
+) -> SpecContext | None:
+    """Pick a product YAML from ``products/`` in the project or cwd.
+
+    Selection rules:
+    1. If ``--dut-part-number`` is set and exactly one product's
+       ``part_number:`` matches (case-insensitive), use it.
+    2. If ``--dut-part-number`` is set but no file matches, raise
+       ``pytest.UsageError`` — a typo in the selector is worse than a
+       silent wrong-product pick.
+    3. Otherwise, take the first sorted ``products/*.yaml`` file. If
+       the directory holds multiple products and ``--dut-part-number``
+       was not provided, raise ``pytest.UsageError`` — Rev-B flows
+       need an explicit selector.
+    """
+    search_roots = [
+        config.rootpath,
+        Path(config.invocation_params.dir),
+    ]
+
+    product_files: list[Path] = []
+    for root in search_roots:
+        products_dir = root / "products"
+        if not products_dir.exists():
+            continue
+        product_files = [
+            p for p in sorted(products_dir.rglob("*.yaml")) if not p.name.startswith("_")
+        ]
+        if product_files:
+            break
+
+    if not product_files:
+        return None
+
+    if part_number:
+        matches: list[Path] = []
+        pn_lower = part_number.lower()
+        for yaml_file in product_files:
+            try:
+                loaded = SpecContext.from_file(yaml_file, guardband_pct=guardband)
+            except (ValueError, OSError):
+                continue
+            if (loaded.product.part_number or "").lower() == pn_lower:
+                matches.append(yaml_file)
+        if len(matches) == 1:
+            return SpecContext.from_file(matches[0], guardband_pct=guardband)
+        if not matches:
+            raise pytest.UsageError(
+                f"--dut-part-number={part_number!r} did not match any product in "
+                f"products/. Available: " + ", ".join(sorted(p.stem for p in product_files))
+            )
+        raise pytest.UsageError(
+            f"--dut-part-number={part_number!r} matched multiple products: "
+            + ", ".join(sorted(str(m.relative_to(m.parents[1])) for m in matches))
+            + ". Use --spec <path> to disambiguate."
+        )
+
+    if len(product_files) > 1:
+        raise pytest.UsageError(
+            f"products/ has {len(product_files)} YAML files "
+            f"({', '.join(p.stem for p in product_files)}); "
+            "pass --dut-part-number <pn> or --spec <path> to choose one."
+        )
+
+    return SpecContext.from_file(product_files[0], guardband_pct=guardband)
 
 
 @pytest.fixture(scope="session")
@@ -2697,6 +3065,12 @@ def pytest_generate_tests(metafunc: pytest.Metafunc) -> None:
 
     methods_block = vectors_block.get("methods") or {}
     method_cfg = methods_block.get(metafunc.function.__name__)
+    if method_cfg is None and sidecar is not None:
+        tests_block = sidecar.get("tests")
+        if isinstance(tests_block, dict):
+            tests_entry = tests_block.get(metafunc.function.__name__)
+            if isinstance(tests_entry, dict):
+                method_cfg = tests_entry.get("vectors")
     if method_cfg is None:
         method_kwargs = _vectors_marker_kwargs(metafunc.cls, metafunc.definition, scope="method")
         method_cfg = {"product": method_kwargs} if method_kwargs else None
@@ -2793,6 +3167,11 @@ def _load_sidecar(module_file: Path) -> dict[str, Any] | None:
           <name>: {low: ..., high: ..., units: ...}
         mocks:
           <fixture.attr>: <value>
+        tests:
+          test_foo:            # per-method TestConfig
+            characteristic: rail_3v3_output     # ctx.points binding
+            limits:
+              <name>: {tolerance_pct: 2}
     """
     yaml_path = module_file.with_suffix(".yaml")
     if not yaml_path.exists():
@@ -2828,44 +3207,125 @@ class _LimitRef:
         self.target = target
 
 
+# Keys that signal an entry is a :class:`MeasurementLimitConfig` policy —
+# direct Limit entries use ``low`` / ``high`` / ``nominal`` / ``units`` only.
+_POLICY_LIMIT_FIELDS = frozenset({"characteristic", "tolerance_pct", "tolerance_abs"})
+
+
+class _PolicyLimit:
+    """Policy-limit entry deferred until push time.
+
+    Carries the raw :class:`MeasurementLimitConfig` plus the test-level
+    characteristic (from ``sidecar.tests.<method>.characteristic``) so
+    the resolver can derive a concrete :class:`Limit` from the product
+    spec + active vector params.
+    """
+
+    __slots__ = ("config", "test_char")
+
+    def __init__(self, config: MeasurementLimitConfig, test_char: str | None) -> None:
+        self.config = config
+        self.test_char = test_char
+
+
 def _parse_limits_block(
     raw: Mapping[str, Any] | None,
-) -> dict[str, Limit | _LimitRef]:
-    """Convert a sidecar ``limits:`` mapping into Limit / reference objects."""
+    *,
+    test_char: str | None = None,
+) -> dict[str, Limit | _LimitRef | _PolicyLimit]:
+    """Convert a sidecar ``limits:`` mapping into Limit / reference / policy objects.
+
+    Entries with ``ref:`` become :class:`_LimitRef`. Entries with any of
+    :data:`_POLICY_LIMIT_FIELDS` become :class:`_PolicyLimit` wrapping a
+    :class:`MeasurementLimitConfig` (resolution deferred to push time so
+    the active vector params + spec context are in scope). Everything
+    else is treated as a direct :class:`Limit`.
+    """
     from litmus.execution.logger import _limit_from_dict
 
     if not raw:
         return {}
-    out: dict[str, Limit | _LimitRef] = {}
+    out: dict[str, Limit | _LimitRef | _PolicyLimit] = {}
     for name, spec in raw.items():
         if not isinstance(spec, Mapping):
             raise ValueError(f"limits.{name!r} must be a mapping; got {type(spec).__name__}")
         if "ref" in spec:
             out[name] = _LimitRef(spec["ref"])
             continue
+        if _POLICY_LIMIT_FIELDS & spec.keys():
+            out[name] = _PolicyLimit(MeasurementLimitConfig.model_validate(dict(spec)), test_char)
+            continue
         out[name] = _limit_from_dict(spec)
     return out
 
 
-def _resolve_limits(raw_map: dict[str, Limit | _LimitRef]) -> dict[str, Limit]:
-    """Resolve :class:`_LimitRef` entries against the active spec context.
+def _resolve_limits(
+    raw_map: dict[str, Limit | _LimitRef | _PolicyLimit],
+) -> dict[str, Limit]:
+    """Resolve deferred entries against the active spec + vector params.
 
-    Literal :class:`Limit` entries pass through unchanged. ``_LimitRef``
-    entries look up the named characteristic on the active spec; when no
-    spec is active or the target is missing, the entry is dropped.
+    Literal :class:`Limit` entries pass through unchanged. :class:`_LimitRef`
+    entries look up the named characteristic on the active spec.
+    :class:`_PolicyLimit` entries derive a :class:`Limit` from
+    ``MeasurementLimitConfig`` policy fields (``tolerance_pct`` /
+    ``tolerance_abs``) against ``product.characteristics[char]
+    .get_spec_at(active_vector_params).value``, layered with
+    ``profile.guardband_pct``. Entries that can't be resolved (no spec,
+    missing characteristic) are dropped so the measurement records
+    unchecked.
     """
+    from litmus.execution.limits import _apply_guardband
+    from litmus.models.config import Comparator
+    from litmus.models.config import Limit as LimitModel
+
     resolved: dict[str, Limit] = {}
     spec = get_active_spec_context()
+    profile = get_active_profile()
+    guardband_pct = float(getattr(profile, "guardband_pct", 0.0) or 0.0) if profile else 0.0
+    params = get_active_vector_params()
+
     for name, value in raw_map.items():
-        if not isinstance(value, _LimitRef):
-            resolved[name] = value
+        if isinstance(value, _LimitRef):
+            if spec is None:
+                continue
+            try:
+                resolved[name] = spec.get_limit(value.target)
+            except KeyError:
+                continue
             continue
-        if spec is None:
+
+        if isinstance(value, _PolicyLimit):
+            cfg = value.config
+            char_id = cfg.characteristic or value.test_char
+            if char_id is None or spec is None:
+                continue
+            char = spec.product.characteristics.get(char_id)
+            if char is None:
+                continue
+            band = char.get_spec_at(dict(params))
+            if band is None or not isinstance(band.value, (int, float)):
+                continue
+            nominal = float(band.value)
+            if cfg.tolerance_pct is not None:
+                delta = abs(nominal) * cfg.tolerance_pct / 100.0
+            elif cfg.tolerance_abs is not None:
+                delta = float(cfg.tolerance_abs)
+            else:
+                continue
+            low, high = nominal - delta, nominal + delta
+            low, high = _apply_guardband(low, high, guardband_pct, Comparator.GELE.value)
+            resolved[name] = LimitModel(
+                low=low,
+                high=high,
+                nominal=nominal,
+                units=cfg.units or char.units or "",
+                spec_id=char_id,
+                spec_ref=char_id,
+                comparator=Comparator.GELE,
+            )
             continue
-        try:
-            resolved[name] = spec.get_limit(value.target)
-        except KeyError:
-            continue
+
+        resolved[name] = value
     return resolved
 
 
@@ -2918,7 +3378,7 @@ def spec(request: pytest.FixtureRequest) -> Any:
 
 
 @pytest.fixture
-def limits() -> Mapping[str, Any]:
+def limits() -> LimitsFn:
     """Read-only ``name → Limit`` mapping for the active test.
 
     Resolves from the same chain ``verify`` uses. ``limits[name]``
@@ -3028,31 +3488,235 @@ def _litmus_sidecar(request: pytest.FixtureRequest) -> dict[str, Any] | None:
 def _litmus_push_limits(
     request: pytest.FixtureRequest,
     _litmus_sidecar: dict[str, Any] | None,
+    _litmus_class_vec: Vector,
+    _litmus_method_vec: Vector,
+    _litmus_push_params: None,
 ) -> Iterator[None]:
-    """Merge sidecar ``limits:``, ``@pytest.mark.litmus_limits`` markers,
-    and active-profile limits, then push into ``_active_limits_var``.
+    """Merge sidecar ``limits:``, sidecar ``tests.<method>.limits``,
+    ``@pytest.mark.litmus_limits`` markers, and active-profile limits,
+    then push into ``_active_limits_var``.
 
-    Merge order (later wins): sidecar → class marker → method marker →
-    active profile. Values at each layer may be raw ``Limit`` dicts or
-    ``{"ref": "..."}`` pointers resolved via the active spec context.
+    Merge order (later wins):
+
+        sidecar.limits                        # file-level shorthand
+        sidecar.tests.<method>.limits         # per-method override
+        @pytest.mark.litmus_limits (class)    # class marker
+        @pytest.mark.litmus_limits (method)   # method marker
+        profile.limits[<node-id>]             # session-level override
+
+    Values at each layer may be raw ``Limit`` dicts, ``{"ref": ...}``
+    pointers, or :class:`MeasurementLimitConfig` policy shapes
+    (``characteristic`` / ``tolerance_pct`` / ``tolerance_abs``). Policy
+    entries derive from ``product.characteristics[char]
+    .get_spec_at(active_vector_params)`` at push time, layered with
+    ``profile.guardband_pct``. Depends on :func:`_litmus_push_params` so
+    the active vector params are populated before resolution.
     """
+    binding = _load_test_binding(request.node, _litmus_sidecar)
+    test_char = binding.characteristic if binding is not None else None
+
     sidecar_raw = _litmus_sidecar.get("limits") if _litmus_sidecar else None
+    per_test_raw = binding.limits if binding is not None and binding.limits else None
+    per_test_raw_dict = (
+        {
+            k: v.model_dump(exclude_none=True) if hasattr(v, "model_dump") else v
+            for k, v in per_test_raw.items()
+        }
+        if per_test_raw
+        else None
+    )
     class_raw = _limits_marker_kwargs(getattr(request.node, "cls", None), scope="class")
     method_raw = _limits_marker_kwargs(request.node, scope="method")
     profile_raw = _profile_limits_for_node(request.node.nodeid)
 
     merged_raw: dict[str, Any] = {}
-    for layer in (sidecar_raw, class_raw, method_raw, profile_raw):
+    for layer in (sidecar_raw, per_test_raw_dict, class_raw, method_raw, profile_raw):
         if layer:
             merged_raw.update(layer)
 
-    raw = _parse_limits_block(merged_raw)
+    raw = _parse_limits_block(merged_raw, test_char=test_char)
     resolved = _resolve_limits(raw)
     set_active_limits(resolved)
     try:
         yield
     finally:
         set_active_limits({})
+
+
+class _PointIterator:
+    """Iterator that pushes each :class:`FixturePoint` into ``_active_point_var``.
+
+    Built by :func:`_litmus_bind_points` from a test's sidecar binding
+    (``characteristic`` / ``fixturepoints`` / ``instrument_channels``).
+    ``__next__`` resets the prior token, sets the new point, and returns it.
+    The test body sees opaque handles; the framework reads the ContextVar
+    for driver routing and measurement traceability.
+    """
+
+    def __init__(self, points: list[FixturePoint]) -> None:
+        self._points = points
+        self._idx = 0
+        self._token: Any = None
+        self.started = False
+
+    def __iter__(self) -> _PointIterator:
+        return self
+
+    def __next__(self) -> FixturePoint:
+        if self._token is not None:
+            _active_point_var.reset(self._token)
+            self._token = None
+        if self._idx >= len(self._points):
+            raise StopIteration
+        point = self._points[self._idx]
+        self._idx += 1
+        self.started = True
+        self._token = _active_point_var.set(point)
+        return point
+
+    def __len__(self) -> int:
+        return len(self._points)
+
+    def cleanup(self) -> None:
+        """Pop any lingering active-point token on teardown or mid-iter exit."""
+        if self._token is not None:
+            _active_point_var.reset(self._token)
+            self._token = None
+
+
+def _load_test_binding(
+    node: pytest.Item,
+    sidecar: dict[str, Any] | None,
+) -> TestConfig | None:
+    """Parse ``sidecar.tests.<method>`` into a :class:`TestConfig` or ``None``.
+
+    Keyed by ``node.originalname`` so parametrize cases of one method
+    share the same entry. Missing ``tests:`` block returns ``None``;
+    missing entry for this method returns ``None``.
+    """
+    if not sidecar:
+        return None
+    tests = sidecar.get("tests")
+    if not isinstance(tests, dict):
+        return None
+    method = getattr(node, "originalname", None) or node.name
+    entry = tests.get(method)
+    if entry is None:
+        return None
+    if not isinstance(entry, dict):
+        raise ValueError(f"tests.{method!r} must be a mapping; got {type(entry).__name__}")
+    return TestConfig.model_validate(entry)
+
+
+def _resolve_binding_to_points(
+    binding: TestConfig,
+    spec_ctx: Any,
+    fixture_cfg: FixtureConfig | None,
+) -> list[FixturePoint]:
+    """Expand a test-level binding into an ordered list of :class:`FixturePoint`.
+
+    - ``characteristic``: product char → pins → fixture points routing those pins.
+    - ``fixturepoints``: direct point-name lookup.
+    - ``instrument_channels``: filter fixture points by instrument (and
+      optionally channel).
+
+    Returns ``[]`` when no fixture is loaded (simple path — the test runs
+    with ``ctx.points`` as an empty iterator so the body is a no-op).
+    """
+    if fixture_cfg is None:
+        return []
+
+    points_map = fixture_cfg.points
+
+    if binding.characteristic:
+        if spec_ctx is None:
+            raise pytest.UsageError(
+                f"Test binding 'characteristic: {binding.characteristic}' "
+                "requires a product spec (load via --spec or products/ auto-discovery)."
+            )
+        char = spec_ctx.product.characteristics.get(binding.characteristic)
+        if char is None:
+            raise pytest.UsageError(
+                f"Characteristic {binding.characteristic!r} not found in "
+                f"product {spec_ctx.product.id!r}."
+            )
+        points: list[FixturePoint] = []
+        for pin_id in char.resolved_pins:
+            pin = spec_ctx.product.pins.get(pin_id)
+            net = pin.net if pin else None
+            for pt in points_map.values():
+                if pt.dut_pin == pin_id or (net is not None and pt.net == net):
+                    points.append(pt)
+                    break
+        return points
+
+    if binding.fixturepoints:
+        resolved: list[FixturePoint] = []
+        for name in binding.fixturepoints:
+            pt = points_map.get(name)
+            if pt is None:
+                raise pytest.UsageError(f"Fixture point {name!r} not found in fixture config.")
+            resolved.append(pt)
+        return resolved
+
+    if binding.instrument_channels:
+        out: list[FixturePoint] = []
+        for inst_name, channels in binding.instrument_channels.items():
+            if channels == "all":
+                out.extend(pt for pt in points_map.values() if pt.instrument == inst_name)
+            else:
+                wanted = {str(c) for c in channels}
+                out.extend(
+                    pt
+                    for pt in points_map.values()
+                    if pt.instrument == inst_name and pt.instrument_channel in wanted
+                )
+        return out
+
+    return []
+
+
+@pytest.fixture(autouse=True)
+def _litmus_bind_points(
+    request: pytest.FixtureRequest,
+    _litmus_sidecar: dict[str, Any] | None,
+) -> Iterator[None]:
+    """Build :class:`_PointIterator` on ``ctx.points`` from the test's binding.
+
+    Sidecar ``tests.<method>`` is parsed as :class:`TestConfig`. If exactly
+    one of ``characteristic`` / ``fixturepoints`` / ``instrument_channels``
+    is set, the framework resolves it against the active product spec +
+    fixture and attaches an iterator. If the test body declares a binding
+    but never iterates ``ctx.points``, the test fails (silent skips are
+    worse than errors). Tests without a binding leave ``ctx.points = None``.
+    """
+    binding = _load_test_binding(request.node, _litmus_sidecar)
+    if binding is None or not (
+        binding.characteristic or binding.fixturepoints or binding.instrument_channels
+    ):
+        yield
+        return
+
+    spec_ctx = get_active_spec_context()
+    fixture_cfg = _safe_get_session_fixture(request, "fixture_config")
+    points = _resolve_binding_to_points(binding, spec_ctx, fixture_cfg)
+
+    ctx: Context = request.getfixturevalue("context")
+    iterator = _PointIterator(points)
+    ctx.points = iterator
+
+    try:
+        yield
+    except BaseException:
+        iterator.cleanup()
+        raise
+    iterator.cleanup()
+    if points and not iterator.started:
+        raise AssertionError(
+            f"Test {request.node.nodeid} declared a points binding but did "
+            "not iterate ctx.points. Declared bindings must be consumed by "
+            "the test body."
+        )
 
 
 def _limits_marker_kwargs(
@@ -3136,7 +3800,7 @@ def _litmus_push_spec(request: pytest.FixtureRequest) -> Iterator[None]:
         )
 
     guardband_opt = request.config.getoption("--guardband", default=0.0)
-    ctx = SpecContext.from_file(path, guardband_pct=float(guardband_opt))
+    ctx = SpecContext.from_file(path, guardband_pct=float(guardband_opt or 0.0))
 
     prev = get_active_spec_context()
     set_active_spec_context(ctx)
@@ -3185,15 +3849,22 @@ def _litmus_apply_mocks(
     Entries use dotted paths of the form ``<fixture>.<attr>``. The fixture
     value must already exist (resolved via ``request.getfixturevalue``);
     the attribute is replaced with a ``Mock(return_value=...)`` for the
-    duration of the test. Sidecar entries merge with marker entries;
-    marker entries win on key collision (method > class > sidecar).
+    duration of the test. Layers (later wins):
+
+        sidecar.mocks                        # file-level shorthand
+        sidecar.tests.<method>.mocks         # per-method override
+        @pytest.mark.litmus_mocks            # class/method markers
     """
     sidecar_mocks = _litmus_sidecar.get("mocks") if _litmus_sidecar else None
+    binding = _load_test_binding(request.node, _litmus_sidecar)
+    per_test_mocks = binding.mocks if binding is not None and binding.mocks else None
     marker_mocks = _mocks_marker_entries(getattr(request.node, "cls", None), request.node)
 
     mocks: dict[str, Any] = {}
     if sidecar_mocks:
         mocks.update(sidecar_mocks)
+    if per_test_mocks:
+        mocks.update(per_test_mocks)
     mocks.update(marker_mocks)
 
     if not mocks:
@@ -3219,7 +3890,14 @@ def _litmus_apply_mocks(
                     stacklevel=1,
                 )
                 continue
-            p = patch.object(target, attr, return_value=return_value)
+            if isinstance(return_value, list):
+                # List-valued mock — rotate values across calls (each
+                # ``ctx.points`` iteration or any repeated fixture call
+                # gets the next value, cycling when the list is exhausted).
+                values = cycle(return_value)
+                p = patch.object(target, attr, side_effect=lambda *_a, **_kw: next(values))
+            else:
+                p = patch.object(target, attr, return_value=return_value)
             p.start()
             patchers.append(p)
         yield

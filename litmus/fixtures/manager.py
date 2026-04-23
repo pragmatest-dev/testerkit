@@ -212,6 +212,44 @@ class FixtureManager:
         """
         return list(self.fixture_config.points.keys())
 
+    def route(self, instrument: str) -> FixturePoint | None:
+        """Resolve the active ``FixturePoint`` for a driver fixture.
+
+        Reads ``_active_point_var`` (pushed by ``ctx.points`` iteration).
+        When a point is active, confirms it routes to ``instrument`` and
+        activates the point's switch route (if any) before returning.
+        When no point is active (e.g., binding-less tests or tests that
+        bypass ``ctx.points``), returns ``None`` and the driver fixture
+        falls back to whatever default wiring it chooses.
+
+        Args:
+            instrument: Name of the driver instrument requesting routing
+                (e.g., ``"dmm"``, ``"psu"``).
+
+        Returns:
+            Active ``FixturePoint`` routed to ``instrument``, or ``None``
+            if no point is active.
+
+        Raises:
+            RuntimeError: If an active point targets a different
+                instrument than the one requesting routing — a test
+                authoring error that would otherwise silently mis-route.
+        """
+        from litmus.execution.plugin import get_active_point
+
+        point = get_active_point()
+        if point is None:
+            return None
+        if point.instrument != instrument:
+            raise RuntimeError(
+                f"Active fixture point {point.name!r} routes to instrument "
+                f"{point.instrument!r}, not {instrument!r}. Check the test's "
+                f"binding declares the correct instrument for this driver."
+            )
+        if point.route is not None and self._route_manager is not None:
+            self._route_manager.activate(point.name)
+        return point
+
     def _resolve_instrument(self, point_name: str, point: FixturePoint) -> Instrument:
         """Resolve a fixture point to its instrument, wrapping if routed."""
         if point.instrument not in self.instruments:

@@ -16,6 +16,7 @@ from litmus.execution.vectors import (
     expand_vectors,
     expand_zip,
 )
+from litmus.execution.verify import LimitFailure, LimitsFn, VerifyFn
 
 __all__ = [
     # Accessors
@@ -37,4 +38,8 @@ __all__ = [
     # Logger
     "RunContext",
     "TestRunLogger",
+    # Verify fixture types
+    "LimitFailure",
+    "LimitsFn",
+    "VerifyFn",
 ]

@@ -1,0 +1,153 @@
+# PMIC-A23 — 3-rail power management IC.
+#
+# Characteristics exercise every shape the limit/binding resolver cares about:
+#   * Single-pin simple spec   — quiescent_current
+#   * Single-pin condition-indexed spec band — rail_3v3 (by load)
+#   * Multi-pin characteristic — rail_voltage_trio (iterated via ctx.points)
+#   * Multi-pin dropout with condition — dropout_voltage
+#   * Line regulation spec, unconditional — line_regulation
+id: pmic_a23
+part_number: PMIC-A23
+name: PMIC A23 Demo (Triple-Rail Buck)
+revision: B
+description: 5V → {3V3, 1V8, 1V2} synchronous buck PMIC; 800mA per rail.
+datasheet: docs/DS-PMIC-A23.pdf
+
+characteristics:
+  # Ground quiescent current (single-pin, single-condition).
+  quiescent_current:
+    function: dc_current
+    direction: input
+    units: mA
+    pin: J1_VIN
+    datasheet_ref: PMIC-A23 §6.3
+    specs:
+      - when: {load: 0}
+        value: 2.5
+        accuracy: {absolute: 0.5}
+        note: No-load ground current
+
+  # 3V3 rail — condition-indexed by load; used for test_rails nominal check.
+  rail_3v3:
+    function: dc_voltage
+    direction: output
+    units: V
+    pin: TP_3V3
+    datasheet_ref: PMIC-A23 §6.4
+    specs:
+      - when: {load: 0.1}
+        value: 3.300
+        accuracy: {pct_reading: 1.5}
+      - when: {load: 0.5}
+        value: 3.300
+        accuracy: {pct_reading: 2.0}
+      - when: {load: 0.8}
+        value: 3.300
+        accuracy: {pct_reading: 3.0}
+
+  rail_1v8:
+    function: dc_voltage
+    direction: output
+    units: V
+    pin: TP_1V8
+    datasheet_ref: PMIC-A23 §6.4
+    specs:
+      - when: {load: 0.1}
+        value: 1.800
+        accuracy: {pct_reading: 2.0}
+
+  rail_1v2:
+    function: dc_voltage
+    direction: output
+    units: V
+    pin: TP_1V2
+    datasheet_ref: PMIC-A23 §6.4
+    specs:
+      - when: {load: 0.1}
+        value: 1.200
+        accuracy: {pct_reading: 2.0}
+
+  # Multi-pin monotonic-check char — one measurement per rail, auto-iterated
+  # by ``ctx.points`` when ``characteristic: rail_voltage_trio`` is set on a test.
+  rail_voltage_trio:
+    function: dc_voltage
+    direction: output
+    units: V
+    pins: [TP_3V3, TP_1V8, TP_1V2]
+    datasheet_ref: PMIC-A23 §6.4
+    specs:
+      - when: {load: 0.1}
+        value: 0.0  # unused — per-pin tolerance checked via rail_{3v3,1v8,1v2}
+        note: Presence/monotonic — real limits come from per-rail chars.
+
+  # Line regulation — delta-vout vs vin; unconditional spec.
+  line_regulation:
+    function: dc_voltage
+    direction: output
+    units: mV
+    pin: TP_3V3
+    datasheet_ref: PMIC-A23 §6.5
+    specs:
+      - value: 10
+        note: ±10 mV across 4.5–5.5 V input
+
+  # Load regulation on the 3V3 rail (10 mA → 800 mA).
+  load_regulation:
+    function: dc_voltage
+    direction: output
+    units: mV
+    pin: TP_3V3
+    datasheet_ref: PMIC-A23 §6.5
+    specs:
+      - when:
+          load_min: 0.01
+          load_max: 0.8
+        value: 20
+        note: ±20 mV across load step
+
+  # Dropout voltage — multi-pin (VIN→VOUT pair) at full load.
+  dropout_voltage:
+    function: dc_voltage
+    direction: output
+    units: V
+    pins: [TP_VIN_SENSE, TP_3V3]
+    datasheet_ref: PMIC-A23 §6.6
+    specs:
+      - when: {load: 0.8}
+        value: 0.25
+        note: VIN − VOUT at 800 mA
+
+pins:
+  # Board-edge input header.
+  J1_VIN:
+    name: J1.1
+    net: VIN_5V
+    role: power
+    description: 5 V input from PSU CH1 HI
+  J1_GND:
+    name: J1.2
+    net: GND
+    role: ground
+    description: Ground return
+  # DUT-side test points.
+  TP_VIN_SENSE:
+    name: TP1
+    net: VIN_5V
+    description: Kelvin VIN sense
+  TP_3V3:
+    name: TP2
+    net: VOUT_3V3
+    description: 3.3 V output test point
+  TP_1V8:
+    name: TP3
+    net: VOUT_1V8
+    description: 1.8 V output test point
+  TP_1V2:
+    name: TP4
+    net: VOUT_1V2
+    description: 1.2 V output test point
+  TP_GND:
+    name: TP5
+    net: GND
+    role: ground
+    description: Ground reference test point

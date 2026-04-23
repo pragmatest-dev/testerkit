@@ -1,0 +1,13 @@
+# Tier 1 sidecar — absolute bounds only. No product, no characteristic.
+# Parquet rows will have value / limit / outcome columns filled; pin,
+# channel, net, and spec_ref stay null until you graduate to a product.
+limits:
+  v_rail_sidecar:
+    low: 3.2
+    high: 3.4
+    nominal: 3.3
+    units: V
+  i_in:
+    low: 0.0
+    high: 0.5
+    units: A

@@ -1,0 +1,43 @@
+# Litmus project configuration for the advanced PMIC-A23 demo.
+#
+# The demo exercises every seam of Litmus in one product:
+#   * User-maintained catalog/ with vendor-specific instrument entries
+#   * Station referencing the catalog via catalog_ref
+#   * Fixture with direct-wired points and a switched scanner route
+#   * Product with single-pin chars, multi-pin chars, and condition-indexed spec bands
+#   * Sidecars driving vectors, limits, mocks, and test-level bindings
+#   * Profiles with facets, vector overrides, limit tightening, and pytest addopts
+#   * Markers: litmus_independent (prereq gate), flaky (retry), pytest.mark.parametrize
+name: pmic_a23_demo
+default_station: bench_alpha
+default_fixture: pmic_a23_bench
+mock_instruments: true
+
+profiles:
+  # Production screening: tight vectors, tight limits, fast path.
+  production:
+    description: Production screening — one nominal point per rail.
+    facets:
+      phase: production
+      coverage: screen
+    pytest:
+      addopts: --tb=short
+      markexpr: not characterization
+    # Single-point vectors in production (override sidecar sweeps).
+    vectors:
+      "tests/test_regulation.py::TestRegulation::test_line_regulation":
+        vin: [5.0]
+      "tests/test_regulation.py::TestRegulation::test_load_regulation":
+        load_current: [0.5]
+    # Tighter 1% guardband for production vs sidecar default.
+    limits: {}
+
+  # Characterization: full sweeps, wider tolerances, all markers allowed.
+  characterization:
+    description: Full-sweep characterization across VIN × load.
+    facets:
+      phase: characterization
+      coverage: full
+    pytest:
+      addopts: -v --tb=long
+    # No vector overrides — use the sidecar's full sweep.

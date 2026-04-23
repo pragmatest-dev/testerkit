@@ -485,12 +485,18 @@ class MeasurementLimitConfig(BaseModel):
     high: float | None = None
     nominal: float | None = None
     units: str | None = None
-    # TODO: review naming — ref vs spec_ref vs spec_id are confusingly similar.
-    # ref = "derive limits from this Specification" (functional, config-time lookup key)
-    # spec_id = "this measurement traces to this characteristic" (traceability)
-    # spec_ref = "human-readable note about limit origin" (documentation)
+    # spec_id = characteristic id (structured traceability, stamped on Limit)
+    # spec_ref = human-readable note about limit origin (documentation)
     spec_id: str | None = None
     spec_ref: str | None = None
+
+    # Binding to a ProductCharacteristic id on the active product.
+    # When set, the resolver reads product.characteristics[characteristic]
+    # .get_spec_at(active_vector_params) → SpecBand, using .value as the
+    # nominal against which tolerance_pct / tolerance_abs / guardband_pct
+    # are applied. Overrides the test-level characteristic only if the
+    # test-level one is absent — one characteristic per test (see plan).
+    characteristic: str | None = None
 
     # Spec reference (dotted path to a Specification, e.g. "specs.power_board.rail_3v3")
     ref: str | None = None
@@ -569,9 +575,16 @@ class TestConfig(BaseModel):
     This is the top-level config for a pytest test function that
     uses vector expansion.
 
+    Binding fields (``characteristic``, ``fixturepoints``,
+    ``instrument_channels``) declare WHAT the test is testing so the
+    framework can drive ``ctx.points`` iteration without any pin /
+    channel / fixture-point names leaking into test code. At most
+    one binding field may be set (mutually exclusive).
+
     Example YAML:
         test_voltage_sweep:
           description: "Sweep input voltage and measure output"
+          characteristic: rail_3v3_output      # test-level binding — singular
           vectors:
             expand: product
             voltage: [3.3, 5.0, 12.0]
@@ -580,9 +593,7 @@ class TestConfig(BaseModel):
             max_attempts: 3
             delay_seconds: 0.5
           limits:
-            output_voltage:
-              ref: specs.power_board.rail_3v3
-              guardband_pct: 10
+            output_voltage: {tolerance_pct: 2}
     """
 
     __test__ = False  # Prevent pytest collection
@@ -595,6 +606,34 @@ class TestConfig(BaseModel):
     prompt_before_all: PromptConfig | None = None
     prompt_before_each: bool = False
     prompt: PromptConfig | None = None  # Template for prompt_before_each
+
+    # Test-level binding — what the test is testing. The framework uses
+    # this to populate ctx.points (iteration over FixturePoints). Tests
+    # MUST NOT reference pins, characteristic ids, or fixture-point
+    # names directly in code; they declare the binding here instead.
+    # At most one of these three fields may be set per test.
+    characteristic: str | None = None
+    fixturepoints: list[str] | None = None
+    instrument_channels: dict[str, list[int] | Literal["all"]] | None = None
+
+    # Per-test mock overrides (flat mock map, same shape as on TestStepConfig).
+    mocks: dict[str, Any] | None = None
+
+    @model_validator(mode="after")
+    def _validate_single_binding(self) -> Self:
+        bindings = [
+            self.characteristic,
+            self.fixturepoints,
+            self.instrument_channels,
+        ]
+        set_count = sum(1 for b in bindings if b)
+        if set_count > 1:
+            raise ValueError(
+                "TestConfig accepts at most one of 'characteristic', "
+                "'fixturepoints', or 'instrument_channels' — they are mutually "
+                "exclusive bindings for ctx.points iteration."
+            )
+        return self
 
 
 class TestStepConfig(BaseModel):

@@ -2,6 +2,15 @@
 
 Litmus tests are **plain pytest**. There is no Litmus base class, no `@litmus_test` decorator — just pytest classes or loose module-level functions that consume a few Litmus-provided fixtures. For everything that isn't Litmus-specific (parametrize, fixtures, conftest, CLI, markers), refer to the official pytest docs at <https://docs.pytest.org/>.
 
+## `verify` vs `logger.measure` — pick one
+
+Both produce identical rows on PASS. They differ only on FAIL:
+
+- **`verify(name, value)`** — resolves a limit, stamps `outcome`, and **raises `LimitFailure`** when the value is out of range. Use this when a fail should stop the line.
+- **`logger.measure(name, value)`** — records a row with `outcome = DONE` and **never raises**. Use this for characterization sweeps where you want all points captured regardless of pass/fail.
+
+Rule of thumb: _would a fail here stop the line?_ → `verify`. Else → `logger.measure`.
+
 ## The three fixtures
 
 | Fixture   | Role                                         | Typical verbs |
@@ -113,6 +122,27 @@ mocks:
 ```
 
 Sidecar values merge under markers — markers win on key conflicts.
+
+## Structuring drivers across multiple test folders
+
+When a project has several demo or test directories that share driver wrappers, two patterns work:
+
+**1. `conftest.py` `sys.path` shim (fastest path).** Put drivers in a sibling folder (`project/drivers/`) and prepend the parent to `sys.path` from the test folder's `conftest.py`:
+
+```python
+# tests/conftest.py
+import sys
+from pathlib import Path
+_ROOT = Path(__file__).resolve().parent.parent
+if str(_ROOT) not in sys.path:
+    sys.path.insert(0, str(_ROOT))
+```
+
+Tests can now `from drivers import DMM`. No packaging ceremony. This is what `demo/advanced/conftest.py` does.
+
+**2. `pyproject.toml` package (stable).** Put drivers under `src/<project>/drivers/`, declare the project in `pyproject.toml`, and `uv sync`. Tests `from <project>.drivers import DMM`. More up-front work, but no `sys.path` surprises.
+
+The conftest shim is the fastest route from "I have a folder of tests" to "green runs." Graduate to the pyproject layout when you need the drivers reusable across projects.
 
 ## Retries & test dependencies — use the pytest ecosystem
 

@@ -17,12 +17,31 @@ pythonic assertions (``assert v in limits["vout"]``).
 from __future__ import annotations
 
 from collections.abc import Mapping
-from typing import Any
+from typing import Any, Protocol
 
 import pytest
 
 from litmus.config.test_config import Limit
 from litmus.data.models import Measurement, Outcome
+
+
+class VerifyFn(Protocol):
+    """Signature of the ``verify`` fixture callable.
+
+    Typing the fixture as this Protocol lets IDEs autocomplete
+    ``verify("label", value, limit=...)`` instead of showing ``Any``.
+    """
+
+    def __call__(
+        self,
+        name: str,
+        value: float | int | None,
+        limit: Limit | None = ...,
+    ) -> Measurement: ...
+
+
+LimitsFn = Mapping[str, Limit]
+"""Type alias for the ``limits`` fixture — a read-only ``name → Limit`` map."""
 
 
 class LimitFailure(AssertionError):
@@ -101,7 +120,7 @@ class _LimitsMapping(Mapping[str, Limit]):
 
 
 @pytest.fixture
-def verify():
+def verify() -> VerifyFn:
     """Callable fixture: ``verify(name, value[, limit=])`` — log + assert.
 
     Log unconditionally via the active logger, resolve a Limit from the

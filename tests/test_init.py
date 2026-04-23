@@ -175,3 +175,29 @@ class TestInitProject:
         cfg = self._read_litmus_yaml(project)
         assert cfg["default_station"] == "starter_station"
         assert cfg["mock_instruments"] is True
+
+    def test_tier_bringup_minimal_scaffold(self, tmp_path):
+        """--tier bringup writes conftest mocks + smoke test + sidecar, no station/product YAML."""
+        project = tmp_path / "proj"
+        project.mkdir()
+        init_project(project, git=False, tier="bringup", name="proj")
+        assert (project / "tests" / "conftest.py").exists()
+        assert (project / "tests" / "test_smoke.py").exists()
+        assert (project / "tests" / "test_smoke.yaml").exists()
+        assert "MagicMock" in (project / "tests" / "conftest.py").read_text()
+        # Bringup skips the Tier 2+ folders
+        assert not (project / "stations").exists()
+        assert not (project / "products").exists()
+        assert not (project / "fixtures").exists()
+        assert not (project / "sequences").exists()
+        # pyproject.toml has no --station addopts
+        pyproject = (project / "pyproject.toml").read_text()
+        assert "--station=" not in pyproject
+
+    def test_tier_bench_equivalent_to_starter(self, tmp_path):
+        """--tier bench produces the same scaffold as --starter."""
+        project = tmp_path / "proj"
+        project.mkdir()
+        init_project(project, git=False, tier="bench", name="proj")
+        assert (project / "stations" / "starter_station.yaml").exists()
+        assert (project / "tests" / "test_example.py").exists()

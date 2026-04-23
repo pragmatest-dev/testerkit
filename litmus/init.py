@@ -35,12 +35,16 @@ def check_command(cmd: str) -> bool:
     return shutil.which(cmd) is not None
 
 
+TIER_CHOICES = ("bringup", "bench", "factory")
+
+
 def init_project(
     path: Path,
     git: bool = True,
     station: dict[str, Any] | None = None,
     starter: bool = False,
     name: str | None = None,
+    tier: str | None = None,
 ) -> dict[str, Any]:
     """Initialize a new Litmus project.
 
@@ -51,27 +55,42 @@ def init_project(
             ``instruments`` mapping role names to dicts with
             ``resource`` and optional ``info`` keys.
         starter: Whether to create starter example files.
+            Equivalent to ``tier="bench"``.
         name: Explicit project name (from CLI arg). If None, resolves
             via git remote leaf → git root folder → directory name.
+        tier: Scaffold tier (``"bringup"``, ``"bench"``, or
+            ``"factory"``). ``"bringup"`` creates a Tier 0/1 scaffold
+            (MagicMock fixtures in conftest, one test, one sidecar — no
+            station/product/fixture YAML). ``"bench"`` is equivalent to
+            ``starter=True``. ``"factory"`` is the bench scaffold plus
+            production/characterization profile skeletons.
 
     Returns:
         Dict with created_dirs, created_files, warnings, and git_initialized.
     """
+    if tier is not None and tier not in TIER_CHOICES:
+        raise ValueError(f"tier must be one of {TIER_CHOICES}, got {tier!r}")
+    if tier == "bench":
+        starter = True
     created_dirs: list[str] = []
     created_files: list[str] = []
     warnings: list[str] = []
 
-    # Create directories
-    subdirs = [
-        "products",
-        "stations",
-        "sequences",
-        "fixtures",
-        "instruments",
-        "tests",
-        "results",
-        "reports",
-    ]
+    # Create directories. Bringup tier skips station/product/fixture/sequence —
+    # those layers are off until the user graduates to Tier 2.
+    if tier == "bringup":
+        subdirs = ["tests", "results", "reports"]
+    else:
+        subdirs = [
+            "products",
+            "stations",
+            "sequences",
+            "fixtures",
+            "instruments",
+            "tests",
+            "results",
+            "reports",
+        ]
     for subdir in subdirs:
         dir_path = path / subdir
         if not dir_path.exists():
@@ -83,7 +102,14 @@ def init_project(
     # Create pyproject.toml
     pyproject_path = path / "pyproject.toml"
     if not pyproject_path.exists():
-        if starter:
+        if tier == "bringup":
+            pytest_section = """[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_functions = ["test_*"]
+filterwarnings = ["ignore::pytest.PytestReturnNotNoneWarning"]
+"""
+        elif starter:
             # Starter mode: include pytest defaults so users can just run "pytest"
             addopts = (
                 "-v --station=starter_station --sequence=example_sequence "
@@ -123,7 +149,40 @@ dependencies = [
     # Create conftest.py
     conftest_path = path / "tests" / "conftest.py"
     if not conftest_path.exists():
-        if starter:
+        if tier == "bringup":
+            conftest_content = '''"""Bench-bringup conftest — instrument fixtures defined directly.
+
+Tier 0/1 escape hatch: no station / catalog / product YAML needed.
+Swap ``MagicMock`` for a real driver (PyVISA / PyMeasure / vendor lib)
+when you\'re ready for the bench. Graduate to Tier 2 by moving driver
+resolution into a ``stations/<id>.yaml`` and deleting these fixtures —
+test bodies don\'t change.
+"""
+
+from __future__ import annotations
+
+from unittest.mock import MagicMock
+
+import pytest
+
+
+@pytest.fixture
+def dmm() -> MagicMock:
+    """Bench DMM. Replace MagicMock with a real driver."""
+    inst = MagicMock()
+    inst.measure_dc_voltage.return_value = 3.3
+    return inst
+
+
+@pytest.fixture
+def psu() -> MagicMock:
+    """Bench PSU. Replace MagicMock with a real driver."""
+    inst = MagicMock()
+    inst.measure_voltage.return_value = 5.0
+    inst.measure_current.return_value = 0.1
+    return inst
+'''
+        elif starter:
             conftest_content = '''"""pytest configuration for Litmus tests.
 
 Instrument fixtures (psu, dmm) are AUTO-REGISTERED from station config.
@@ -287,7 +346,9 @@ A [Litmus](https://github.com/pragmatest-dev/litmus) hardware test project.
             created_files.append("stations/station.yaml")
 
     # Create starter files if requested
-    if starter:
+    if tier == "bringup":
+        created_files.extend(_create_bringup_files(path))
+    elif starter:
         starter_files = _create_starter_files(path, project_name)
         created_files.extend(starter_files)
 
@@ -536,5 +597,75 @@ def test_output_voltage(context, psu, dmm):
 '''
         test_file.write_text(test_content)
         created_files.append("tests/test_example.py")
+
+    return created_files
+
+
+def _create_bringup_files(path: Path) -> list[str]:
+    """Create Tier 0/1 bringup scaffold: one test, one sidecar, no YAML layers.
+
+    Matches ``demo/bringup/`` shape. The conftest (mock instrument
+    fixtures) is written by the main ``init_project`` flow; this
+    function only adds the test + sidecar.
+    """
+    created_files: list[str] = []
+
+    test_file = path / "tests" / "test_smoke.py"
+    if not test_file.exists():
+        test_file.write_text('''"""Tier 0/1 smoke tests for a brand-new board.
+
+Bringup scaffold: no station / product / fixture YAML. Limits live
+inline or in a same-named sidecar (``test_smoke.yaml``). When you
+graduate to Tier 2 (add a station + product), the test bodies here
+are unchanged — you just swap the sidecar shape.
+
+Run::
+
+    pytest -v
+"""
+
+from __future__ import annotations
+
+from litmus.models.config import Limit
+
+
+def test_rail_inline(dmm, verify) -> None:
+    """No YAML. Limit lives in the test source."""
+    verify(
+        "v_rail",
+        float(dmm.measure_dc_voltage()),
+        limit=Limit(low=3.2, high=3.4, nominal=3.3, units="V"),
+    )
+
+
+def test_rail_sidecar(dmm, verify) -> None:
+    """Same measurement, limit now lives in ``test_smoke.yaml``."""
+    verify("v_rail_sidecar", float(dmm.measure_dc_voltage()))
+
+
+def test_current_draw(psu, verify) -> None:
+    """A second measurement sharing the same sidecar."""
+    verify("i_in", float(psu.measure_current()))
+''')
+        created_files.append("tests/test_smoke.py")
+
+    sidecar = path / "tests" / "test_smoke.yaml"
+    if not sidecar.exists():
+        sidecar.write_text(
+            "# Tier 1 sidecar — absolute bounds only. No product, no characteristic.\n"
+            "# Graduate to Tier 2 by swapping ``low/high`` for\n"
+            "# ``characteristic: <id>`` + ``tolerance_pct: N``.\n"
+            "limits:\n"
+            "  v_rail_sidecar:\n"
+            "    low: 3.2\n"
+            "    high: 3.4\n"
+            "    nominal: 3.3\n"
+            "    units: V\n"
+            "  i_in:\n"
+            "    low: 0.0\n"
+            "    high: 0.5\n"
+            "    units: A\n"
+        )
+        created_files.append("tests/test_smoke.yaml")
 
     return created_files
