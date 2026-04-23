@@ -151,6 +151,21 @@ mocks:
 
 Sidecar values merge under markers — markers win on key conflicts.
 
+Limits that depend on the active vector params can use a **list of condition-indexed bands** instead of a flat dict:
+
+```yaml
+limits:
+  output_voltage:
+    - when: {vin: 5.0}
+      low: 3.234
+      high: 3.366
+    - when: {vin: 3.3}
+      low: 3.1
+      high: 3.5
+```
+
+The first band whose `when:` matches the current row wins; no match raises `pytest.UsageError`. See [Test Limits → Condition-indexed bands](limits.md#condition-indexed-bands-when) for details.
+
 ## Structuring drivers across multiple test folders
 
 When a project has several demo or test directories that share driver wrappers, two patterns work:

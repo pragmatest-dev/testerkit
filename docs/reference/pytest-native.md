@@ -72,9 +72,30 @@ When `logger.measure(name, value)` is called without an explicit `limit=`:
 
 1. **Explicit `limit=` kwarg** — used directly
 2. **Sidecar `limits:` entry** — pushed by the plugin into
-   `_active_limits_var` for the running test
+   `_active_limits_var` for the running test. Entries may be a flat
+   limit dict or a **list of condition-indexed bands** (see below).
 3. **Product spec** — `get_active_spec_context().get_limit(name)`
 4. **None** — recorded as unchecked
+
+### Condition-indexed bands (`when:`)
+
+A sidecar `limits:` entry may be a list; each element carries a
+`when:` clause and any policy fields a flat limit supports. At
+measurement time the first band whose `when:` matches the active
+vector params wins. No match raises `pytest.UsageError`.
+
+```yaml
+limits:
+  output_voltage:
+    - when: {vin: 5.0, load: 0.1}
+      low: 3.234
+      high: 3.366
+    - when: {vin: 3.3}        # any load at 3.3 V
+      low: 3.1
+      high: 3.5
+```
+
+See [Test Limits → Condition-indexed bands](../guides/limits.md#condition-indexed-bands-when) for the full semantics.
 
 ## Native `@pytest.mark.parametrize`
 
@@ -83,6 +104,32 @@ When `logger.measure(name, value)` is called without an explicit `limit=`:
 sidecar YAML, a `@pytest.fixture(params=[...])` declaration, or stacked
 `parametrize` markers. Range strings like `"4.5:5.5:0.5"` are accepted in
 sidecar vectors.
+
+## Self-loop mode — the `vectors` fixture
+
+When the test function's signature includes the `vectors` fixture,
+Litmus collapses the expansion into a **single** pytest case and hands
+the test an iterator over the full matrix. Every source (native
+parametrize, sidecar `vectors:`, profile overrides) feeds into the
+same matrix:
+
+```python
+@pytest.mark.parametrize("vin", [4.5, 5.0, 5.5])
+def test_rails_sweep(vectors, psu, dmm, verify):
+    for v in vectors:
+        psu.set_voltage(v["vin"])
+        verify("output_voltage", dmm.measure_dc_voltage())
+```
+
+Each `__next__` on the iterator pushes the row's params into
+`_active_vector_params_var` and bumps `_active_vector_index_var`, so
+`verify`, `context.changed`, and row stamping (`meas_vector_index`,
+`in_*` columns) behave identically to parametrize mode. A non-empty
+matrix that never iterates fails the test — silent skips are hidden
+bugs. Combining the `vectors` fixture with native parametrize on the
+same test is fine (parametrize rows feed into the consolidated
+matrix); combining it with **class-level** parametrize raises
+`UsageError` at collection.
 
 ## Implicit prereq chain
 

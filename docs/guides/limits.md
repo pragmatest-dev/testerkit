@@ -34,7 +34,7 @@ When `logger.measure(name, value)` is called without `limit=`, resolution is:
 1. **Explicit kwargs** — `logger.measure("v", val, low=..., high=..., units=...)`
 2. **Method marker** — `@pytest.mark.litmus_limits(name={...})`
 3. **Class marker** — inherited from the test class
-4. **Sidecar YAML** — `limits:` block in `test_<module>.yaml`
+4. **Sidecar YAML** — `limits:` block in `test_<module>.yaml` (supports condition-indexed bands, see below)
 5. **Product spec** — `ref: "<name>"` delegation against the active `SpecContext`
 6. **None** — characterization mode (unchecked, still recorded)
 
@@ -79,6 +79,57 @@ limits:
 ```
 
 Sidecar is the preferred home for operator-edited limits — non-developers can tune without touching Python.
+
+## Condition-indexed bands (`when:`)
+
+When a single measurement needs different limits under different conditions, replace the flat limit dict with a **list of bands**. Each band carries a `when:` mapping; at measurement time the first band whose `when:` matches the active vector params applies. This mirrors the `conditions:` selector on product-spec characteristics.
+
+```yaml
+# test_power_board.yaml
+limits:
+  output_voltage:
+    - when: {vin: 5.0, load: 0.1}
+      low: 3.234
+      high: 3.366
+      units: V
+    - when: {vin: 5.0, load: 0.8}
+      low: 3.2
+      high: 3.4
+      units: V
+    - when: {vin: 3.3}            # matches any load at vin=3.3
+      low: 3.1
+      high: 3.5
+      units: V
+    - when: {}                    # catch-all; place last
+      low: 3.0
+      high: 3.6
+      units: V
+```
+
+Matching rules:
+
+- Keys inside `when:` are **ANDed** — every key must match for the band to apply.
+- Missing keys on a band mean "don't care" (the 3.3 V band above matches every `load`).
+- Bands are scanned top-to-bottom; the **first** match wins.
+- No match → `pytest.UsageError` at `logger.measure` / `verify` time (fail loud, not silent).
+- An empty `when: {}` always matches; put it last as a default.
+
+The match is performed against the current row's vector params, so the feature composes naturally with both native `@pytest.mark.parametrize` and the `vectors` fixture self-loop mode — every iteration re-resolves against the active row.
+
+Bands can use any policy field a flat limit supports, including `tolerance_pct` against a product characteristic:
+
+```yaml
+limits:
+  output_voltage:
+    - when: {vin: 5.0}
+      characteristic: output_voltage      # nominal from product spec
+      tolerance_pct: 2.0                  # ±2% at vin=5.0
+    - when: {vin: 3.3}
+      characteristic: output_voltage
+      tolerance_pct: 5.0                  # looser at vin=3.3
+```
+
+The flat scalar shape (`output_voltage: {low: 3.2, high: 3.4}`) still works — treat it as shorthand for a single band with `when: {}`.
 
 ## Explicit `limit=` kwarg
 
