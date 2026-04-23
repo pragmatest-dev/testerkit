@@ -310,3 +310,82 @@ def test_profile_glob_pattern_matches_method(pytester: pytest.Pytester) -> None:
 
     result = pytester.runpytest("-v", "--litmus-profile=allskip")
     result.assert_outcomes(skipped=2)
+
+
+# ---------------------------------------------------------------------------
+# Facet-based selection: --<facet>=<value> auto-synthesized from profiles
+# ---------------------------------------------------------------------------
+
+
+_FACET_PROJECT = textwrap.dedent(
+    """
+    profiles:
+      validation_pb:
+        facets: {product: power_board, phase: validation}
+        markers:
+          "test_seq.py::*":
+            - skip: "validation_pb active"
+      prod_pb:
+        facets: {product: power_board, phase: production}
+        markers:
+          "test_seq.py::*":
+            - skip: "prod_pb active"
+      validation_mb:
+        facets: {product: main_board, phase: validation}
+        markers:
+          "test_seq.py::*":
+            - skip: "validation_mb active"
+    """
+)
+
+
+def _write_facet_project(pytester: pytest.Pytester) -> None:
+    _write_project(pytester, _FACET_PROJECT)
+    pytester.makepyfile(
+        test_seq=textwrap.dedent(
+            """
+            def test_one():
+                pass
+            """
+        )
+    )
+
+
+def test_facet_query_selects_unique_profile(pytester: pytest.Pytester) -> None:
+    """Passing --product + --phase picks the one matching profile."""
+    _write_facet_project(pytester)
+    result = pytester.runpytest("-v", "--product=power_board", "--phase=validation")
+    result.assert_outcomes(skipped=1)
+    result.stdout.fnmatch_lines(["*validation_pb active*"])
+
+
+def test_facet_query_ambiguous_errors(pytester: pytest.Pytester) -> None:
+    """Facet query matching >1 profile raises UsageError."""
+    _write_facet_project(pytester)
+    result = pytester.runpytest("--product=power_board")
+    assert result.ret != 0
+    result.stderr.fnmatch_lines(["*Facet query is ambiguous*validation_pb*prod_pb*"])
+
+
+def test_facet_query_no_match_errors(pytester: pytest.Pytester) -> None:
+    """Facet query with zero matches raises UsageError listing available combos."""
+    _write_facet_project(pytester)
+    result = pytester.runpytest("--product=ghost_board")
+    assert result.ret != 0
+    result.stderr.fnmatch_lines(["*No profile matches the facet query*ghost_board*"])
+
+
+def test_name_and_facet_cross_check_mismatch_errors(pytester: pytest.Pytester) -> None:
+    """Profile name + facet flag that disagrees raises UsageError."""
+    _write_facet_project(pytester)
+    result = pytester.runpytest("--litmus-profile=validation_pb", "--product=main_board")
+    assert result.ret != 0
+    result.stderr.fnmatch_lines(["*does not match facet flags*product=*main_board*"])
+
+
+def test_name_and_facet_cross_check_match_ok(pytester: pytest.Pytester) -> None:
+    """Profile name + facet flag that agrees selects the profile."""
+    _write_facet_project(pytester)
+    result = pytester.runpytest("-v", "--litmus-profile=validation_pb", "--product=power_board")
+    result.assert_outcomes(skipped=1)
+    result.stdout.fnmatch_lines(["*validation_pb active*"])

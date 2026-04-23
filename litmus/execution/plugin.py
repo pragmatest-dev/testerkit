@@ -777,6 +777,23 @@ def _load_project_defaults() -> ProjectConfig:
         return ProjectConfig(name="litmus")
 
 
+def _collect_profile_facet_keys(project: ProjectConfig) -> list[str]:
+    """Return the union of facet keys declared across all profiles.
+
+    Used to auto-synthesize one ``--<facet>`` CLI flag per declared key,
+    so operators can select profiles by facet query instead of by name.
+    """
+    keys: set[str] = set()
+    for profile in project.profiles.values():
+        keys.update(profile.facets)
+    return sorted(keys)
+
+
+def _facet_key_to_cli_flag(key: str) -> str:
+    """Map a facet key (``product``, ``instrument_set``) to its CLI flag form."""
+    return f"--{key.replace('_', '-')}"
+
+
 def _resolve_profile_name(profile_name: str | None) -> ProfileConfig | None:
     """Look up ``profile_name`` in litmus.yaml ``profiles:``; raise on unknown.
 
@@ -797,8 +814,89 @@ def _resolve_profile_name(profile_name: str | None) -> ProfileConfig | None:
     return profile
 
 
+def _resolve_active_profile(
+    profile_name: str | None,
+    facet_flags: dict[str, str],
+    project: ProjectConfig,
+) -> tuple[str | None, ProfileConfig | None, dict[str, str]]:
+    """Select a profile by name, by facet query, or by cross-checked both.
+
+    Resolution rules (see ``docs/guides/profiles.md``):
+
+    * **Name + facets** — name wins, but every flag must match the
+      profile's declared facet value. Mismatches raise ``UsageError``.
+    * **Name only** — direct lookup in ``profiles:``.
+    * **Facets only** — filter profiles matching **all** provided flags.
+      A profile that does not declare a facet key the query uses does
+      **not** match (strict "unspecified" semantics). Zero matches and
+      >1 matches both raise ``UsageError``.
+    * **Neither** — returns ``(None, None, {})``.
+
+    Returns ``(profile_name, profile, facets_dict)``. ``facets_dict`` is
+    the profile's declared facets (so a name-only selection still gets
+    provenance facets populated) plus any explicitly provided flags.
+    """
+    if not profile_name and not facet_flags:
+        return None, None, {}
+
+    if profile_name:
+        profile = project.profiles.get(profile_name)
+        if profile is None:
+            known = ", ".join(sorted(project.profiles)) or "(none defined)"
+            raise pytest.UsageError(
+                f"Unknown --litmus-profile={profile_name!r}; known profiles: {known}"
+            )
+        if facet_flags:
+            mismatches = [
+                f"--{k.replace('_', '-')}={v!r} (profile declares {k}={profile.facets.get(k)!r})"
+                for k, v in facet_flags.items()
+                if profile.facets.get(k) != v
+            ]
+            if mismatches:
+                raise pytest.UsageError(
+                    f"Profile {profile_name!r} does not match facet flags: " + ", ".join(mismatches)
+                )
+        facets = {**profile.facets, **facet_flags}
+        return profile_name, profile, facets
+
+    # Facet-only query.
+    matches = [
+        (name, profile)
+        for name, profile in project.profiles.items()
+        if all(profile.facets.get(k) == v for k, v in facet_flags.items())
+    ]
+    if len(matches) == 0:
+        known = sorted(
+            " ".join(f"{k}={v}" for k, v in p.facets.items()) or "(no facets)"
+            for p in project.profiles.values()
+        )
+        raise pytest.UsageError(
+            "No profile matches the facet query "
+            f"({', '.join(f'{k}={v}' for k, v in facet_flags.items())}); "
+            f"available facet combinations: {'; '.join(known) or '(none defined)'}"
+        )
+    if len(matches) > 1:
+        overlap = ", ".join(name for name, _ in matches)
+        raise pytest.UsageError(
+            "Facet query is ambiguous — matches multiple profiles: "
+            f"{overlap}. Disambiguate with --litmus-profile=<name>."
+        )
+    name, profile = matches[0]
+    return name, profile, {**profile.facets, **facet_flags}
+
+
+def _collect_facet_flags_from_config(config, project: ProjectConfig) -> dict[str, str]:
+    """Read user-provided facet flag values off ``config.option``."""
+    values: dict[str, str] = {}
+    for key in _collect_profile_facet_keys(project):
+        raw = config.getoption(_facet_key_to_cli_flag(key), default=None)
+        if raw:
+            values[key] = str(raw)
+    return values
+
+
 def _install_active_profile(config) -> None:
-    """Resolve ``--litmus-profile`` and install it; compose filter options.
+    """Resolve profile (name and/or facets) and install it; compose filter options.
 
     ``keyword`` and ``markexpr`` are set on ``config.option`` **here**
     (not in ``pytest_collection_modifyitems``) so pytest's own ``-k``/
@@ -807,9 +905,12 @@ def _install_active_profile(config) -> None:
     ``pytest_collection_modifyitems`` because it depends on the item
     list that only exists at collection time.
     """
+    project = _load_project_defaults()
     profile_name = config.getoption("--litmus-profile", default=None)
-    profile = _resolve_profile_name(profile_name)
+    facet_flags = _collect_facet_flags_from_config(config, project)
+    _, profile, facets = _resolve_active_profile(profile_name, facet_flags, project)
     set_active_profile(profile)
+    set_active_facets(facets)
     if profile is None:
         return
     if profile.pytest.keyword:
@@ -818,6 +919,16 @@ def _install_active_profile(config) -> None:
     if profile.pytest.markexpr:
         existing = getattr(config.option, "markexpr", None) or ""
         config.option.markexpr = _compose_filter_expr(profile.pytest.markexpr, existing)
+
+
+def _parse_flag_from_args(args, flag: str) -> str | None:
+    """Scan ``args`` for ``--flag value`` or ``--flag=value`` and return the value."""
+    for i, tok in enumerate(args):
+        if tok == flag and i + 1 < len(args):
+            return args[i + 1]
+        if tok.startswith(f"{flag}="):
+            return tok.split("=", 1)[1]
+    return None
 
 
 def pytest_load_initial_conftests(early_config, parser, args):
@@ -830,20 +941,22 @@ def pytest_load_initial_conftests(early_config, parser, args):
     Mutating ``config.option.*`` later is too fragile when plugins
     register their own option handlers.
     """
-    profile_name = None
-    # early_config may not have our option registered yet; scan args directly.
-    for i, tok in enumerate(args):
-        if tok == "--litmus-profile" and i + 1 < len(args):
-            profile_name = args[i + 1]
-            break
-        if tok.startswith("--litmus-profile="):
-            profile_name = tok.split("=", 1)[1]
-            break
-    profile_name = profile_name or os.environ.get("LITMUS_PROFILE")
-    if not profile_name:
+    # Scan args directly — our options aren't registered on early_config yet.
+    profile_name = _parse_flag_from_args(args, "--litmus-profile") or os.environ.get(
+        "LITMUS_PROFILE"
+    )
+
+    project = _load_project_defaults()
+    facet_flags: dict[str, str] = {}
+    for key in _collect_profile_facet_keys(project):
+        value = _parse_flag_from_args(args, _facet_key_to_cli_flag(key))
+        if value:
+            facet_flags[key] = value
+
+    if not profile_name and not facet_flags:
         return
     try:
-        profile = _resolve_profile_name(profile_name)
+        _, profile, _ = _resolve_active_profile(profile_name, facet_flags, project)
     except pytest.UsageError:
         # Let pytest_configure surface the error with a clean stacktrace.
         return
@@ -917,6 +1030,15 @@ def pytest_addoption(parser):
         help="Named profile from litmus.yaml `profiles:` "
         "(overrides vectors, limits, markers, and filter for the session).",
     )
+    # Auto-synthesize one --<facet> flag per declared profile facet key.
+    # Declaring `product: power_board` in any profile turns --product into
+    # a selector for this project — no generic --facet escape hatch.
+    for key in _collect_profile_facet_keys(project):
+        group.addoption(
+            _facet_key_to_cli_flag(key),
+            default=None,
+            help=f"Select profile by facet {key!r} (from litmus.yaml profiles).",
+        )
 
 
 def _resolve_test_phase(requested_phase: str | None) -> str:
