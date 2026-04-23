@@ -379,14 +379,14 @@ def test_prereq_chain_independent_marker_opts_out(pytester: pytest.Pytester) -> 
                 def test_a(self, context):
                     assert False, "intentional failure"
 
-                @pytest.mark.independent
+                @pytest.mark.litmus_independent
                 def test_b(self, context):
                     assert True
             """
         )
     )
     result = pytester.runpytest("-v")
-    # test_a fails; test_b runs despite prereq failure because of @independent.
+    # test_a fails; test_b runs despite prereq failure because of @litmus_independent.
     result.assert_outcomes(failed=1, passed=1)
 
 
@@ -639,3 +639,359 @@ def test_pure_pytest_assert_no_litmus_machinery(pytester: pytest.Pytester) -> No
     )
     result = pytester.runpytest("-v")
     result.assert_outcomes(passed=1)
+
+
+def _write_markerless_sequence(pytester, test_body):
+    """Write a pytester project without any sidecar YAML — marker-driven only."""
+    pytester.makeini(
+        textwrap.dedent(
+            """
+            [pytest]
+            addopts = -p no:litmus -p litmus.execution.plugin
+            """
+        )
+    )
+    pytester.makeconftest("")
+    pytester.makepyfile(test_seq=test_body)
+
+
+def test_litmus_vectors_marker_on_method_parametrizes(pytester: pytest.Pytester) -> None:
+    """Method-level ``@pytest.mark.litmus_vectors(**kwargs)`` compiles to parametrize."""
+    _write_markerless_sequence(
+        pytester,
+        textwrap.dedent(
+            """
+            import pytest
+
+            class TestSeq:
+                @pytest.mark.litmus_vectors(vin=[4.5, 5.0, 5.5])
+                def test_sweeps(self, context):
+                    assert context.get_param("vin") in (4.5, 5.0, 5.5)
+            """
+        ),
+    )
+    result = pytester.runpytest("-v")
+    result.assert_outcomes(passed=3)
+
+
+def test_litmus_vectors_marker_on_class_parametrizes(pytester: pytest.Pytester) -> None:
+    """Class-level ``@pytest.mark.litmus_vectors`` applies to every method."""
+    _write_markerless_sequence(
+        pytester,
+        textwrap.dedent(
+            """
+            import pytest
+
+            @pytest.mark.litmus_vectors(vin=[4.5, 5.0])
+            class TestSeq:
+                def test_a(self, context):
+                    assert context.get_param("vin") in (4.5, 5.0)
+
+                def test_b(self, context):
+                    assert context.get_param("vin") in (4.5, 5.0)
+            """
+        ),
+    )
+    result = pytester.runpytest("-v")
+    result.assert_outcomes(passed=4)
+
+
+def test_litmus_vectors_marker_class_and_method_cross_product(
+    pytester: pytest.Pytester,
+) -> None:
+    """Class-level and method-level vector markers cross-product."""
+    _write_markerless_sequence(
+        pytester,
+        textwrap.dedent(
+            """
+            import pytest
+
+            @pytest.mark.litmus_vectors(vin=[4.5, 5.0])
+            class TestSeq:
+                @pytest.mark.litmus_vectors(load=[0.1, 0.8])
+                def test_matrix(self, context):
+                    assert context.get_param("vin") in (4.5, 5.0)
+                    assert context.get_param("load") in (0.1, 0.8)
+            """
+        ),
+    )
+    result = pytester.runpytest("-v")
+    result.assert_outcomes(passed=4)
+
+
+def test_litmus_limits_marker_on_method_resolves(pytester: pytest.Pytester) -> None:
+    """Method-level ``@pytest.mark.litmus_limits`` feeds ``logger.measure`` auto-resolution."""
+    pytester.makeini(
+        textwrap.dedent(
+            """
+            [pytest]
+            addopts = -p no:litmus -p litmus.execution.plugin
+            """
+        )
+    )
+    pytester.makeconftest(_MEASURE_CONFTEST)
+    pytester.makepyfile(
+        test_seq=textwrap.dedent(
+            """
+            import pytest
+            from litmus.data.models import Outcome
+
+            class TestSeq:
+                @pytest.mark.litmus_limits(
+                    output_voltage={"low": 3.2, "high": 3.4, "units": "V"},
+                )
+                def test_passes(self, logger):
+                    m = logger.measure("output_voltage", 3.3)
+                    assert m.outcome == Outcome.PASS
+
+                @pytest.mark.litmus_limits(
+                    output_voltage={"low": 3.2, "high": 3.4, "units": "V"},
+                )
+                def test_fails(self, logger):
+                    m = logger.measure("output_voltage", 3.5)
+                    assert m.outcome == Outcome.FAIL
+            """
+        )
+    )
+    result = pytester.runpytest("-v")
+    result.assert_outcomes(passed=2)
+
+
+def test_litmus_limits_marker_method_overrides_class(pytester: pytest.Pytester) -> None:
+    """Method-level ``litmus_limits`` overrides class-level for the same name."""
+    pytester.makeini(
+        textwrap.dedent(
+            """
+            [pytest]
+            addopts = -p no:litmus -p litmus.execution.plugin
+            """
+        )
+    )
+    pytester.makeconftest(_MEASURE_CONFTEST)
+    pytester.makepyfile(
+        test_seq=textwrap.dedent(
+            """
+            import pytest
+            from litmus.data.models import Outcome
+
+            @pytest.mark.litmus_limits(
+                rail={"low": 3.2, "high": 3.4, "units": "V"},  # tight (class default)
+            )
+            class TestSeq:
+                def test_tight_class_limit(self, logger):
+                    m = logger.measure("rail", 3.5)
+                    assert m.outcome == Outcome.FAIL
+
+                @pytest.mark.litmus_limits(
+                    rail={"low": 3.0, "high": 3.6, "units": "V"},  # loose override
+                )
+                def test_loose_method_limit(self, logger):
+                    m = logger.measure("rail", 3.5)
+                    assert m.outcome == Outcome.PASS
+            """
+        )
+    )
+    result = pytester.runpytest("-v")
+    result.assert_outcomes(passed=2)
+
+
+def test_litmus_spec_marker_scopes_product(pytester: pytest.Pytester) -> None:
+    """``@pytest.mark.litmus_spec(product=...)`` loads a SpecContext for the test."""
+    pytester.makeini(
+        textwrap.dedent(
+            """
+            [pytest]
+            addopts = -p no:litmus -p litmus.execution.plugin
+            """
+        )
+    )
+    # Minimal product YAML: one characteristic with an inline limit.
+    products = pytester.mkdir("products")
+    (products / "test_product.yaml").write_text(
+        textwrap.dedent(
+            """
+            id: test_product
+            name: Test Product
+            revision: '1.0'
+            characteristics:
+              output_voltage:
+                function: dc_voltage
+                direction: output
+                units: V
+                pins: [VOUT]
+                specs:
+                  - value: 3.3
+                    accuracy:
+                      pct_reading: 3.0
+            pins:
+              VOUT:
+                name: TP1
+            """
+        )
+    )
+    pytester.makeconftest(_MEASURE_CONFTEST)
+    pytester.makepyfile(
+        test_seq=textwrap.dedent(
+            """
+            import pytest
+            from litmus.execution.plugin import get_active_spec_context
+
+            @pytest.mark.litmus_spec(product="test_product")
+            class TestSeq:
+                def test_spec_active(self):
+                    ctx = get_active_spec_context()
+                    assert ctx is not None
+                    limit = ctx.get_limit("output_voltage")
+                    # 3.3 ± 3% = [3.201, 3.399]
+                    assert abs(limit.nominal - 3.3) < 1e-9
+            """
+        )
+    )
+    result = pytester.runpytest("-v")
+    result.assert_outcomes(passed=1)
+
+
+def test_limits_fixture_destructured_access(pytester: pytest.Pytester) -> None:
+    """Top-level ``limits`` fixture exposes the resolved limit map."""
+    pytester.makeini(
+        textwrap.dedent(
+            """
+            [pytest]
+            addopts = -p no:litmus -p litmus.execution.plugin
+            """
+        )
+    )
+    pytester.makeconftest(_MEASURE_CONFTEST)
+    pytester.makepyfile(
+        test_seq=textwrap.dedent(
+            """
+            import pytest
+
+            class TestSeq:
+                @pytest.mark.litmus_limits(
+                    rail={"low": 3.2, "high": 3.4, "units": "V"},
+                )
+                def test_reads_limits(self, limits):
+                    assert "rail" in limits
+                    assert limits["rail"].low == 3.2
+                    assert limits["rail"].high == 3.4
+            """
+        )
+    )
+    result = pytester.runpytest("-v")
+    result.assert_outcomes(passed=1)
+
+
+_MOCKS_CONFTEST = textwrap.dedent(
+    """
+    import pytest
+
+    class _Dmm:
+        def measure_dc_voltage(self):
+            return 999.0
+
+    @pytest.fixture
+    def dmm():
+        return _Dmm()
+    """
+)
+
+
+def test_litmus_mocks_marker_patches_fixture_method(pytester: pytest.Pytester) -> None:
+    """``@pytest.mark.litmus_mocks`` patches <fixture>.<attr> for the test body."""
+    pytester.makeini(
+        textwrap.dedent(
+            """
+            [pytest]
+            addopts = -p no:litmus -p litmus.execution.plugin
+            """
+        )
+    )
+    pytester.makeconftest(_MOCKS_CONFTEST)
+    pytester.makepyfile(
+        test_seq=textwrap.dedent(
+            """
+            import pytest
+
+            class TestSeq:
+                @pytest.mark.litmus_mocks({"dmm.measure_dc_voltage": 3.3})
+                def test_patched(self, dmm):
+                    assert dmm.measure_dc_voltage() == 3.3
+
+                def test_unpatched(self, dmm):
+                    assert dmm.measure_dc_voltage() == 999.0
+            """
+        )
+    )
+    result = pytester.runpytest("-v")
+    result.assert_outcomes(passed=2)
+
+
+def test_litmus_mocks_marker_class_level_and_method_override(
+    pytester: pytest.Pytester,
+) -> None:
+    """Class-level and method-level ``litmus_mocks`` merge; method wins on key collision."""
+    pytester.makeini(
+        textwrap.dedent(
+            """
+            [pytest]
+            addopts = -p no:litmus -p litmus.execution.plugin
+            """
+        )
+    )
+    pytester.makeconftest(_MOCKS_CONFTEST)
+    pytester.makepyfile(
+        test_seq=textwrap.dedent(
+            """
+            import pytest
+
+            @pytest.mark.litmus_mocks({"dmm.measure_dc_voltage": 1.1})
+            class TestSeq:
+                def test_class_value(self, dmm):
+                    assert dmm.measure_dc_voltage() == 1.1
+
+                @pytest.mark.litmus_mocks({"dmm.measure_dc_voltage": 2.2})
+                def test_method_overrides(self, dmm):
+                    assert dmm.measure_dc_voltage() == 2.2
+            """
+        )
+    )
+    result = pytester.runpytest("-v")
+    result.assert_outcomes(passed=2)
+
+
+def test_context_last_returns_prior_param(pytester: pytest.Pytester) -> None:
+    """``context.last(key)`` returns the previous parametrize case's value."""
+    pytester.makeini(
+        textwrap.dedent(
+            """
+            [pytest]
+            addopts = -p no:litmus -p litmus.execution.plugin
+            """
+        )
+    )
+    pytester.makeconftest("")
+    pytester.makepyfile(
+        test_seq=textwrap.dedent(
+            """
+            import pytest
+
+            SEEN = []
+
+            class TestSeq:
+                @pytest.mark.litmus_vectors(vin=[4.5, 5.0, 5.5])
+                def test_chain(self, context):
+                    SEEN.append((context.get_param("vin"), context.last("vin")))
+
+            def test_check_order():
+                # First case: no prior, last() returns None
+                # Second case: last() == 4.5
+                # Third case: last() == 5.0
+                assert SEEN[0] == (4.5, None)
+                assert SEEN[1] == (5.0, 4.5)
+                assert SEEN[2] == (5.5, 5.0)
+            """
+        )
+    )
+    result = pytester.runpytest("-v")
+    result.assert_outcomes(passed=4)

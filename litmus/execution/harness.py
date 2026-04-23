@@ -136,6 +136,27 @@ class Context:
         prev_value = self._prev.get_param(key)
         return current_value != prev_value
 
+    def last(self, key: str, default: Any = None) -> Any:
+        """Return the value of ``key`` recorded on the previous vector.
+
+        Reads from the immediately-preceding ``Context`` (same
+        ``(parent_node, method)`` in pytest-native; same parametrize case
+        stream in the legacy harness). Looks up the key as a param first,
+        then as an observation — matches how callers want to read back
+        "what did I set / measure last time?" without caring about which
+        store holds it.
+
+        Returns ``default`` when no previous context exists (first vector)
+        or the key was never recorded.
+        """
+        if self._prev is None:
+            return default
+        if key in self._prev._params:
+            return self._prev._params[key]
+        if key in self._prev._observations:
+            return self._prev._observations[key]
+        return default
+
     # -------------------------------------------------------------------------
     # Bulk operations
     # -------------------------------------------------------------------------

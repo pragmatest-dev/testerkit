@@ -2275,17 +2275,20 @@ from litmus.execution.vectors import Vector  # noqa: E402
 
 
 def pytest_generate_tests(metafunc: pytest.Metafunc) -> None:
-    """Load sidecar and parametrize class-/method-level vectors."""
+    """Parametrize class-/method-level vectors from sidecar and markers.
+
+    Sidecar ``vectors:`` YAML and ``@pytest.mark.litmus_vectors(**kwargs)``
+    markers both feed the same compile path. Sidecar takes precedence at
+    each scope; the marker acts as the no-YAML alternative.
+    """
 
     module_file = getattr(metafunc.module, "__file__", None)
-    if module_file is None:
-        return
-    sidecar = _load_sidecar(Path(module_file))
-    if sidecar is None:
-        return
+    sidecar = _load_sidecar(Path(module_file)) if module_file is not None else None
+    vectors_block = (sidecar.get("vectors") if sidecar else None) or {}
 
-    vectors_block = sidecar.get("vectors") or sidecar
-    class_block = vectors_block.get("class")
+    class_block = vectors_block.get("class") or _vectors_marker_block(
+        metafunc.cls, metafunc.definition, scope="class"
+    )
     if class_block:
         class_vectors = _expand_sidecar_block(class_block)
         if class_vectors:
@@ -2298,7 +2301,9 @@ def pytest_generate_tests(metafunc: pytest.Metafunc) -> None:
             )
 
     methods_block = vectors_block.get("methods") or {}
-    method_cfg = methods_block.get(metafunc.function.__name__)
+    method_cfg = methods_block.get(metafunc.function.__name__) or _vectors_marker_block(
+        metafunc.cls, metafunc.definition, scope="method"
+    )
     if method_cfg is not None:
         method_vectors = _expand_sidecar_block(method_cfg)
         if method_vectors:
@@ -2311,6 +2316,38 @@ def pytest_generate_tests(metafunc: pytest.Metafunc) -> None:
                 ids=[_vec_id(v) for v in method_vectors],
                 indirect=["_litmus_method_vec"],
             )
+
+
+def _vectors_marker_block(
+    cls: type | None,
+    node: pytest.Item | pytest.Collector,
+    *,
+    scope: str,
+) -> dict[str, Any] | None:
+    """Read a ``@pytest.mark.litmus_vectors(**kwargs)`` at the given scope.
+
+    ``scope="class"`` reads the marker from ``cls``; ``scope="method"``
+    reads the marker attached directly to the test function via
+    ``node.own_markers``. Returns a product-style block, or ``None`` if
+    no marker is present.
+    """
+    if scope == "class":
+        if cls is None:
+            return None
+        kwargs: dict[str, Any] = {}
+        for marker in reversed(getattr(cls, "pytestmark", []) or []):
+            if getattr(marker, "name", None) == "litmus_vectors":
+                kwargs.update(marker.kwargs)
+        return {"product": kwargs} if kwargs else None
+
+    if scope == "method":
+        own = getattr(node, "own_markers", [])
+        for marker in own:
+            if getattr(marker, "name", None) == "litmus_vectors":
+                return {"product": dict(marker.kwargs)}
+        return None
+
+    raise ValueError(f"scope must be 'class' or 'method'; got {scope!r}")
 
 
 def _direct_exposable_keys(metafunc: pytest.Metafunc, vectors: list[Vector]) -> list[str]:
@@ -2463,6 +2500,19 @@ def spec(request: pytest.FixtureRequest) -> Any:
     return request.getfixturevalue("spec_context")
 
 
+@pytest.fixture
+def limits() -> dict[str, Any]:
+    """Resolved limits for the current test (sidecar + marker merge).
+
+    Returns a snapshot of the active limits dict pushed by
+    ``_litmus_push_limits``. Empty when no sidecar / marker provided any.
+    Tests typically read this via ``context.limits`` or rely on
+    ``logger.measure(name, value)`` auto-resolution; the standalone
+    fixture is for destructured signatures that want direct access.
+    """
+    return dict(get_active_limits())
+
+
 # StashKey for the previous-Context map, stored on each test's parent node
 # (class node for class-based tests, module node for loose functions).
 # Pytest auto-discards the stash when it finishes with that parent, so we
@@ -2552,14 +2602,23 @@ def _litmus_push_limits(
     request: pytest.FixtureRequest,
     _litmus_sidecar: dict[str, Any] | None,
 ) -> Iterator[None]:
-    """Push sidecar ``limits:`` into ``_active_limits_var`` for this test.
+    """Merge sidecar ``limits:`` and ``@pytest.mark.litmus_limits``
+    markers, then push into ``_active_limits_var`` for this test.
 
-    Runs for *every* collected test whose module has a sidecar. A plain
-    ``def test_foo(logger)`` module-level function with a
-    ``test_foo.yaml`` sidecar gets the same auto-resolution via
-    ``logger.measure(name, value)`` as a class-based test does.
+    Merge order (later wins): sidecar → class marker → method marker.
+    Values at each layer may be raw ``Limit`` dicts or ``{"ref": "..."}``
+    pointers resolved via the active spec context.
     """
-    raw = _parse_limits_block(_litmus_sidecar.get("limits") if _litmus_sidecar else {})
+    sidecar_raw = _litmus_sidecar.get("limits") if _litmus_sidecar else None
+    class_raw = _limits_marker_kwargs(getattr(request.node, "cls", None), scope="class")
+    method_raw = _limits_marker_kwargs(request.node, scope="method")
+
+    merged_raw: dict[str, Any] = {}
+    for layer in (sidecar_raw, class_raw, method_raw):
+        if layer:
+            merged_raw.update(layer)
+
+    raw = _parse_limits_block(merged_raw)
     resolved = _resolve_limits(raw)
     set_active_limits(resolved)
     try:
@@ -2568,19 +2627,150 @@ def _litmus_push_limits(
         set_active_limits({})
 
 
+def _limits_marker_kwargs(
+    target: Any,
+    *,
+    scope: str,
+) -> dict[str, Any]:
+    """Read ``@pytest.mark.litmus_limits(**kwargs)`` at the given scope."""
+    if target is None:
+        return {}
+    if scope == "class":
+        merged: dict[str, Any] = {}
+        for marker in reversed(getattr(target, "pytestmark", []) or []):
+            if getattr(marker, "name", None) == "litmus_limits":
+                merged.update(marker.kwargs)
+        return merged
+    if scope == "method":
+        for marker in getattr(target, "own_markers", []):
+            if getattr(marker, "name", None) == "litmus_limits":
+                return dict(marker.kwargs)
+        return {}
+    raise ValueError(f"scope must be 'class' or 'method'; got {scope!r}")
+
+
+def _spec_marker_product(
+    cls: type | None,
+    node: Any,
+) -> str | None:
+    """Return the ``product=`` kwarg from ``@pytest.mark.litmus_spec``.
+
+    Method marker takes precedence over class marker. Returns ``None``
+    when no marker is present.
+    """
+    for marker in getattr(node, "own_markers", []):
+        if getattr(marker, "name", None) == "litmus_spec":
+            return marker.kwargs.get("product")
+    if cls is not None:
+        for marker in reversed(getattr(cls, "pytestmark", []) or []):
+            if getattr(marker, "name", None) == "litmus_spec":
+                return marker.kwargs.get("product")
+    return None
+
+
+def _resolve_product_path(product: str, request: pytest.FixtureRequest) -> Path | None:
+    """Find ``<product>.yaml`` under any ``products/`` folder visible to pytest."""
+    candidate = Path(product)
+    if candidate.is_absolute() and candidate.exists():
+        return candidate
+    search_roots = [
+        request.config.rootpath,
+        Path(request.config.invocation_params.dir),
+    ]
+    suffixes = (".yaml", ".yml")
+    for root in search_roots:
+        for base in (root / "products", root):
+            for suffix in suffixes:
+                hit = base / f"{product}{suffix}"
+                if hit.exists():
+                    return hit
+    return None
+
+
+@pytest.fixture(autouse=True)
+def _litmus_push_spec(request: pytest.FixtureRequest) -> Iterator[None]:
+    """Scope a ``SpecContext`` from ``@pytest.mark.litmus_spec(product=...)``.
+
+    Resolves the product YAML for the duration of the test, then restores
+    the previously active spec context. When no marker is present, the
+    session-scoped spec (set by the ``spec_context`` fixture) stays in
+    effect.
+    """
+    cls = getattr(request.node, "cls", None)
+    product = _spec_marker_product(cls, request.node)
+    if product is None:
+        yield
+        return
+
+    path = _resolve_product_path(product, request)
+    if path is None:
+        pytest.fail(
+            f"@pytest.mark.litmus_spec(product={product!r}) — no matching "
+            f"products/*.yaml found under rootpath or cwd"
+        )
+
+    guardband_opt = request.config.getoption("--guardband", default=0.0)
+    ctx = SpecContext.from_file(path, guardband_pct=float(guardband_opt))
+
+    prev = get_active_spec_context()
+    set_active_spec_context(ctx)
+    try:
+        yield
+    finally:
+        set_active_spec_context(prev)
+
+
+def _mocks_marker_entries(
+    cls: type | None,
+    node: Any,
+) -> dict[str, Any]:
+    """Merge class-level + method-level ``@pytest.mark.litmus_mocks`` dicts.
+
+    Each marker accepts ``@pytest.mark.litmus_mocks({...})`` (one positional
+    mapping) or ``@pytest.mark.litmus_mocks(**kwargs)`` (kwargs form).
+    Method entries override class entries on a per-key basis.
+    """
+
+    def _read(marker: Any) -> dict[str, Any]:
+        if marker.args:
+            payload = marker.args[0]
+            if not isinstance(payload, Mapping):
+                raise TypeError("@pytest.mark.litmus_mocks(...) positional arg must be a mapping")
+            return dict(payload)
+        return dict(marker.kwargs)
+
+    merged: dict[str, Any] = {}
+    if cls is not None:
+        for marker in reversed(getattr(cls, "pytestmark", []) or []):
+            if getattr(marker, "name", None) == "litmus_mocks":
+                merged.update(_read(marker))
+    for marker in getattr(node, "own_markers", []):
+        if getattr(marker, "name", None) == "litmus_mocks":
+            merged.update(_read(marker))
+    return merged
+
+
 @pytest.fixture(autouse=True)
 def _litmus_apply_mocks(
     request: pytest.FixtureRequest,
     _litmus_sidecar: dict[str, Any] | None,
 ) -> Iterator[None]:
-    """Install sidecar-declared mocks on fixtures around the test body.
+    """Install mocks declared via sidecar ``mocks:`` or ``litmus_mocks`` markers.
 
-    ``mocks:`` entries use dotted paths of the form ``<fixture>.<attr>``.
-    The fixture value must already exist (resolved via
-    ``request.getfixturevalue``); the attribute is replaced with a
-    ``Mock(return_value=...)`` for the duration of the test.
+    Entries use dotted paths of the form ``<fixture>.<attr>``. The fixture
+    value must already exist (resolved via ``request.getfixturevalue``);
+    the attribute is replaced with a ``Mock(return_value=...)`` for the
+    duration of the test. Sidecar entries merge with marker entries;
+    marker entries win on key collision (method > class > sidecar).
     """
-    mocks = _litmus_sidecar.get("mocks") if _litmus_sidecar else None
+    sidecar_mocks = _litmus_sidecar.get("mocks") if _litmus_sidecar else None
+    marker_mocks = _mocks_marker_entries(getattr(request.node, "cls", None), request.node)
+
+    mocks: dict[str, Any] = {}
+    if sidecar_mocks:
+        mocks.update(sidecar_mocks)
+    mocks.update(marker_mocks)
+
     if not mocks:
         yield
         return
@@ -2594,13 +2784,13 @@ def _litmus_apply_mocks(
             try:
                 target = request.getfixturevalue(fixture_name)
             except pytest.FixtureLookupError:
-                # Most commonly a typo in the sidecar key; warn so the
-                # user sees the misspelling instead of a silently-skipped
-                # mock that then fails the measurement on real hardware.
+                # Most commonly a typo; warn so the user sees the
+                # misspelling instead of a silently-skipped mock that then
+                # fails the measurement on real hardware.
                 warnings.warn(
                     f"mocks entry {dotted!r}: fixture {fixture_name!r} not "
-                    "found on this test — mock skipped. Check the sidecar "
-                    "key matches a fixture in the test's signature.",
+                    "found on this test — mock skipped. Check the sidecar / "
+                    "marker key matches a fixture in the test's signature.",
                     stacklevel=1,
                 )
                 continue
@@ -2615,7 +2805,7 @@ def _litmus_apply_mocks(
 
 # ---- Implicit prereq chain ---------------------------------------------------
 # Each test method's outcome gates the next method in source order.
-# Opt out with ``@pytest.mark.independent``.
+# Opt out with ``@pytest.mark.litmus_independent``.
 
 _PREREQ_STATE: dict[tuple[Any, Any], dict[str, bool]] = {}
 
@@ -2660,7 +2850,7 @@ def _litmus_prereq_check(request: pytest.FixtureRequest) -> None:
     cls = getattr(request, "cls", None)
     if cls is None or not isinstance(cls, type):
         return
-    if request.node.get_closest_marker("independent") is not None:
+    if request.node.get_closest_marker("litmus_independent") is not None:
         return
     func_name = request.node.function.__name__
     ordered = _source_order_methods(cls)
