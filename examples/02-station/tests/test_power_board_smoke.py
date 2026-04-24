@@ -50,7 +50,7 @@ class TestPowerBoardSmoke:
     ) -> None:
         """Verify output under 800mA load (sidecar-driven limit, retryable)."""
         vin = context.get_param("vin")
-        load = context.get_param("load_current")
+        load = context.get_param("load")
 
         psu.set_voltage(vin)
         psu.set_current_limit(1.0)
@@ -91,7 +91,7 @@ class TestPowerBoardSmoke:
     ) -> None:
         """Sweep VIN × load (5×5 = 25 combinations, sidecar-driven limit)."""
         vin = context.get_param("vin")
-        load = context.get_param("load_current")
+        load = context.get_param("load")
 
         if context.changed("vin"):
             psu.set_voltage(vin)

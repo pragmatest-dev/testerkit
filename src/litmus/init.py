@@ -454,11 +454,19 @@ def _create_starter_files(path: Path, project_name: str) -> list[str]:
             "id": "example_product",
             "name": "Example Product",
             "description": "Auto-generated example product specification",
+            "pins": {
+                "TP_VOUT": {
+                    "name": "TP1",
+                    "net": "VOUT_3V3",
+                    "description": "Output voltage test point",
+                },
+            },
             "characteristics": {
                 "output_voltage": {
                     "function": "dc_voltage",
                     "direction": "output",
                     "units": "V",
+                    "pin": "TP_VOUT",
                     "specs": [
                         {
                             "value": 3.3,

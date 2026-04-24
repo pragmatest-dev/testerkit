@@ -10,17 +10,23 @@ vectors:
   methods:
     test_basic_power:
       list:
-        - {vin: 5.0}
+        - {vin: 5.0, load: 0.1, temperature: 25}
     test_load_test:
       list:
-        - {vin: 5.0, load_current: 0.8}
+        - {vin: 5.0, load: 0.8}
     test_quiescent:
       list:
-        - {vin: 5.0}
+        - {vin: 5.0, load: 0.0}
     test_regulation_sweep:
       product:
         vin: [4.5, 4.75, 5.0, 5.25, 5.5]
-        load_current: [0.1, 0.25, 0.4, 0.6, 0.8]
+        load: [0.1, 0.25, 0.4, 0.6, 0.8]
+tests:
+  test_quiescent:
+    mocks:
+      # Quiescent-current test expects near-zero load; station-wide mock
+      # returns 0.25 A which would always fail the 5 mA spec.
+      psu.measure_current: 0.005
 limits:
   # Spec-backed characteristics — resolve against the product YAML.
   output_voltage: {ref: output_voltage}

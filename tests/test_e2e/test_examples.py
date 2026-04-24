@@ -44,11 +44,6 @@ class TestExampleTiers:
             print("STDERR:", result.stderr)
         assert result.returncode == 0, f"01-bringup failed:\n{result.stdout}\n{result.stderr}"
 
-    @pytest.mark.skip(
-        reason="Pre-existing: verify() against characteristic with when-bands "
-        "doesn't read active vector params. Tracked under Task #100 "
-        "(verify contract migration).",
-    )
     def test_tier2_station(self) -> None:
         """Tier 2 — station + product + fixture."""
         result = _run_pytest(

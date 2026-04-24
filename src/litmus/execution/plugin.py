@@ -3444,8 +3444,8 @@ def _resolve_entry(
         if spec is None:
             return None
         try:
-            return spec.get_limit(value.target)
-        except KeyError:
+            return spec.get_limit(value.target, guardband_pct=guardband_pct, **params)
+        except (KeyError, ValueError):
             return None
 
     if isinstance(value, _PolicyLimit):

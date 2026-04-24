@@ -186,6 +186,12 @@ def Mock(cls: type[T], **values: Any) -> T:
             else:
                 self._mock_values[name] = value
 
+        def __delattr__(self, name: str) -> None:
+            if name.startswith("_"):
+                object.__delattr__(self, name)
+            else:
+                self._mock_values.pop(name, None)
+
         def connect(self) -> None:
             self._connected = True
 

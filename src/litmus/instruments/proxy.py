@@ -42,6 +42,10 @@ class InstrumentProxy:
         observer.on_setattr(name, value)
         setattr(driver, name, value)
 
+    def __delattr__(self, name: str) -> None:
+        driver = object.__getattribute__(self, "_driver")
+        delattr(driver, name)
+
     def __repr__(self) -> str:
         driver = object.__getattribute__(self, "_driver")
         role = object.__getattribute__(self, "_role")
