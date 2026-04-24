@@ -26,6 +26,7 @@ from typing import Any, Literal, Protocol, TypeVar
 import yaml
 from pydantic import ValidationError
 
+from litmus.config.expanders import expand_ranges
 from litmus.config.fmt import dump_yaml
 from litmus.config.station_types import StationType
 from litmus.models.catalog import InstrumentCatalogEntry
@@ -124,9 +125,15 @@ def _resolve_root(project_root: Path | None) -> Path:
 
 
 def _read_yaml(path: Path) -> dict[str, Any]:
-    """Read a YAML file and return parsed dict (or empty dict)."""
+    """Read a YAML file and return parsed dict (or empty dict).
+
+    Range-expander dicts (``{linspace: [...]}`` and friends) are expanded
+    in place before the result is handed to callers. See
+    ``litmus.config.expanders`` for the supported keys.
+    """
     with open(path) as f:
-        return yaml.safe_load(f) or {}
+        loaded = yaml.safe_load(f) or {}
+    return expand_ranges(loaded)
 
 
 def detect_file_type(path: Path) -> str | None:
