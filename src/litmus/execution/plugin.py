@@ -3905,8 +3905,11 @@ def _load_test_binding(
     """Parse ``sidecar.tests.<method>`` into a :class:`TestConfig` or ``None``.
 
     Keyed by ``node.originalname`` so parametrize cases of one method
-    share the same entry. Missing ``tests:`` block returns ``None``;
-    missing entry for this method returns ``None``.
+    share the same entry. For tests inside a class, the qualified form
+    ``tests.TestClass.test_method`` disambiguates across classes that
+    share a method name in one file; the qualified key wins over the
+    bare-method shorthand when both are present. Missing ``tests:``
+    block returns ``None``; missing entry returns ``None``.
     """
     if not sidecar:
         return None
@@ -3914,11 +3917,20 @@ def _load_test_binding(
     if not isinstance(tests, dict):
         return None
     method = getattr(node, "originalname", None) or node.name
-    entry = tests.get(method)
+    cls = getattr(node, "cls", None)
+    entry: Any = None
+    key_used = method
+    if cls is not None:
+        qualified_key = f"{cls.__name__}.{method}"
+        entry = tests.get(qualified_key)
+        if entry is not None:
+            key_used = qualified_key
+    if entry is None:
+        entry = tests.get(method)
     if entry is None:
         return None
     if not isinstance(entry, dict):
-        raise ValueError(f"tests.{method!r} must be a mapping; got {type(entry).__name__}")
+        raise ValueError(f"tests.{key_used!r} must be a mapping; got {type(entry).__name__}")
     return TestConfig.model_validate(entry)
 
 
