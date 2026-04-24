@@ -89,17 +89,56 @@ class MarkerSpec(BaseModel):
 class TestMarkers(BaseModel):
     """Container for a test / class entry in sidecars and profiles."""
 
+    __test__ = False  # Prevent pytest collection (class name starts with "Test")
+
     model_config = {"extra": "forbid"}
 
     markers: list[MarkerSpec] = Field(default_factory=list)
 
 
 class ClassMarkers(BaseModel):
-    """Container for a class entry in sidecars."""
+    """Container for a class entry in sidecars.
+
+    Class-scoped markers apply to every method of the class. Per-method
+    overrides go under ``tests.<ClassName>.<method>`` (qualified form)
+    rather than nesting inside the class block.
+    """
 
     model_config = {"extra": "forbid"}
 
     markers: list[MarkerSpec] = Field(default_factory=list)
+
+
+class SidecarConfig(BaseModel):
+    """Top-level shape of a test-module sidecar YAML.
+
+    Three scopes: file-root ``markers``, ``classes.<ClassName>``, and
+    ``tests.<name>``. Every entry is a list of :class:`MarkerSpec`.
+
+    Example::
+
+        markers:
+          - litmus_limits: {v_rail: {tolerance_pct: 5.0}}
+        classes:
+          TestRails:
+            markers:
+              - parametrize: ["vin", [4.5, 5.0, 5.5]]
+        tests:
+          TestRails.test_rail:
+            markers:
+              - litmus_limits: {v_rail: {tolerance_pct: 1.0}}
+          test_standalone:
+            markers:
+              - skipif: "not os.getenv('HAS_BENCH')"
+    """
+
+    __test__ = False  # Prevent pytest collection
+
+    model_config = {"extra": "forbid"}
+
+    markers: list[MarkerSpec] = Field(default_factory=list)
+    classes: dict[str, ClassMarkers] = Field(default_factory=dict)
+    tests: dict[str, TestMarkers] = Field(default_factory=dict)
 
 
 # =============================================================================

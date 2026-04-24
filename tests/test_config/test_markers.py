@@ -5,7 +5,7 @@ from __future__ import annotations
 import pytest
 
 from litmus.config.expanders import expand_ranges
-from litmus.config.test_config import MarkerSpec
+from litmus.config.test_config import ClassMarkers, MarkerSpec, SidecarConfig, TestMarkers
 
 
 class TestMarkerSpecFromRaw:
@@ -122,3 +122,41 @@ class TestExpandRanges:
     def test_expander_error_wrapped(self) -> None:
         with pytest.raises(ValueError, match="Range expander 'linspace' failed"):
             expand_ranges({"linspace": ["not", "numeric", "args"]})
+
+
+class TestSidecarConfig:
+    def test_empty_is_valid(self) -> None:
+        cfg = SidecarConfig()
+        assert cfg.markers == []
+        assert cfg.classes == {}
+        assert cfg.tests == {}
+
+    def test_all_three_scopes(self) -> None:
+        cfg = SidecarConfig.model_validate(
+            {
+                "markers": [{"litmus_limits": {"v_rail": {"tolerance_pct": 5.0}}}],
+                "classes": {
+                    "TestRails": {
+                        "markers": [{"parametrize": ["vin", [4.5, 5.0, 5.5]]}],
+                    },
+                },
+                "tests": {
+                    "TestRails.test_rail": {
+                        "markers": [{"litmus_limits": {"v_rail": {"tolerance_pct": 1.0}}}],
+                    },
+                    "test_standalone": {
+                        "markers": ["flaky"],
+                    },
+                },
+            }
+        )
+        assert len(cfg.markers) == 1
+        assert cfg.markers[0].name == "litmus_limits"
+        assert isinstance(cfg.classes["TestRails"], ClassMarkers)
+        assert cfg.classes["TestRails"].markers[0].name == "parametrize"
+        assert isinstance(cfg.tests["TestRails.test_rail"], TestMarkers)
+        assert cfg.tests["test_standalone"].markers[0] == MarkerSpec(name="flaky")
+
+    def test_rejects_unknown_top_level_key(self) -> None:
+        with pytest.raises(ValueError, match="extra"):
+            SidecarConfig.model_validate({"vectors": {}})
