@@ -61,10 +61,10 @@ Ask the user to confirm the instrument type if there's any ambiguity.
 
 <step id="2.1">
 Read the appropriate generic template for reference:
-- DMM: examples/catalog/generic_dmm.yaml
-- PSU: examples/catalog/generic_psu.yaml
-- Oscilloscope: examples/catalog/generic_oscilloscope.yaml
-- Electronic Load: examples/catalog/generic_eload.yaml
+- DMM: src/litmus/catalog/generic/generic_dmm.yaml
+- PSU: src/litmus/catalog/generic/generic_psu.yaml
+- Oscilloscope: src/litmus/catalog/generic/generic_oscilloscope.yaml
+- Electronic Load: src/litmus/catalog/generic/generic_eload.yaml
 </step>
 
 <step id="2.2">

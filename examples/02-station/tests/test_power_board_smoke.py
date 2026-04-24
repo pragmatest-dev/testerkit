@@ -7,16 +7,16 @@ Demonstrates the fixture split:
 * ``logger``  — pure recorder for characterization rows (no assert).
 
 Sidecar file ``test_power_board_smoke.yaml`` carries vectors + limits.
-The product spec at ``examples/products/power_board.yaml`` supplies the
-``ref:`` limits — ``verify`` auto-fills pin/instrument/spec_ref from
-the active :class:`SpecContext`.
+The product spec at ``products/power_board.yaml`` supplies the ``ref:``
+limits — ``verify`` auto-fills pin/instrument/spec_ref from the active
+:class:`SpecContext`.
 """
 
 from __future__ import annotations
 
 import pytest
+from drivers import DMM, PSU, ELoad
 
-from examples.drivers import DMM, PSU, ELoad
 from litmus.execution.harness import Context
 from litmus.execution.logger import TestRunLogger
 

@@ -7,9 +7,8 @@ every slot reaches a shared barrier. Tests themselves are slot-unaware
 
 Run with::
 
-    cd examples
-    pytest 02-station/tests/test_dual_power_board_smoke.py \\
-        --station=demo_station_001 \\
+    cd examples/02-station
+    uv run pytest tests/test_dual_power_board_smoke.py \\
         --fixture-config=fixtures/dual_power_board.yaml \\
         --dut-serials=SN001,SN002 \\
         --mock-instruments -v
@@ -19,7 +18,8 @@ from __future__ import annotations
 
 from typing import Any
 
-from examples.drivers import DMM, PSU, ELoad
+from drivers import DMM, PSU, ELoad
+
 from litmus.execution.harness import Context
 from litmus.execution.logger import TestRunLogger
 
@@ -78,7 +78,7 @@ class TestDualPowerBoardSmoke:
     ) -> None:
         """Measure efficiency — spec-driven per slot, no sync."""
         vin = context.get_param("vin")
-        load = context.get_param("load_current")
+        load = context.get_param("load")
 
         psu.set_voltage(vin)
         psu.set_current_limit(1.0)

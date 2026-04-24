@@ -7,7 +7,7 @@ name: Keysight 34465A 6.5-Digit Truevolt DMM
 description: Bench DMM used for rail voltage and quiescent-current measurements.
 type: dmm
 interfaces: [lan, usb, gpib]
-driver: examples.drivers.DMM
+driver: drivers.DMM
 channels:
   "1":
     terminals: [hi, lo]

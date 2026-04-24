@@ -2,7 +2,7 @@
 
 This defines the interface for an electronic load. Use with Mock for testing:
 
-    from examples.drivers import ELoad
+    from drivers import ELoad
     from litmus.instruments import Mock
 
     eload = Mock(ELoad, measure_voltage=5.0, measure_current=0.5)

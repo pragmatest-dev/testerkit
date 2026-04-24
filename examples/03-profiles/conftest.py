@@ -1,16 +1,9 @@
 """Conftest for the PMIC-A23 profiles example.
 
-Adds the parent ``examples/`` directory to ``sys.path`` so tests can
-``from examples.drivers import DMM, PSU, ELoad`` — this tier reuses
-the driver wrappers under ``examples/drivers/`` rather than vendoring
-a copy here.
+No setup required — instrument fixtures come from the station YAML,
+product-backed limits come from the product YAML, and the local
+``drivers/`` package is importable because pytest adds this project
+root to ``sys.path``.
 """
 
 from __future__ import annotations
-
-import sys
-from pathlib import Path
-
-_EXAMPLES_ROOT = Path(__file__).resolve().parent.parent
-if str(_EXAMPLES_ROOT.parent) not in sys.path:
-    sys.path.insert(0, str(_EXAMPLES_ROOT.parent))

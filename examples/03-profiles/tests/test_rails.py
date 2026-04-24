@@ -14,7 +14,8 @@ no spec IDs.
 
 from __future__ import annotations
 
-from examples.drivers import DMM
+from drivers import DMM
+
 from litmus.execution.harness import Context
 from litmus.execution.logger import TestRunLogger
 

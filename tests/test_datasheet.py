@@ -16,7 +16,7 @@ from litmus.reports.datasheet import (
 )
 from litmus.store import load_catalog_entry
 
-CATALOG_DIR = Path(__file__).parent.parent / "examples" / "catalog"
+CATALOG_DIR = Path(__file__).parent.parent / "src" / "litmus" / "catalog" / "generic"
 
 
 class TestFmtSi:

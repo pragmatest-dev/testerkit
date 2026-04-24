@@ -164,7 +164,9 @@ characteristics:
           min: 0.5
           max: 0.5
       value: 66
-      note: Efficiency at 5V in, 500mA out
+      accuracy:
+        pct_reading: 5.0
+      note: Efficiency at 5V in, 500mA out (±5% tolerance)
 pins:
   J1_VIN:
     name: J1.1

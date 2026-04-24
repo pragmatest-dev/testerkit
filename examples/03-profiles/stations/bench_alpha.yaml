@@ -14,7 +14,7 @@ description: 6.5-digit DMM, triple PSU, 3-channel ELoad — user-maintained cata
 instruments:
   psu:
     type: psu
-    driver: examples.drivers.PSU
+    driver: drivers.PSU
     resource: TCPIP::10.0.2.11::INSTR
     catalog_ref: keysight_e36313a
     mock: true
@@ -25,7 +25,7 @@ instruments:
       measure_current: 0.0025
   dmm:
     type: dmm
-    driver: examples.drivers.DMM
+    driver: drivers.DMM
     resource: TCPIP::10.0.2.12::INSTR
     catalog_ref: keysight_34465a
     mock: true
@@ -38,7 +38,7 @@ instruments:
       measure_current: 0.0025
   eload:
     type: eload
-    driver: examples.drivers.ELoad
+    driver: drivers.ELoad
     resource: TCPIP::10.0.2.13::INSTR
     catalog_ref: chroma_63103a
     mock: true

@@ -257,7 +257,7 @@ vout_measure:
     settling_ms: 10
 ```
 
-See `examples/fixtures/shared_dmm_board.yaml` for a complete working example with a shared DMM routed through a switch matrix.
+See the `examples/02-station/fixtures/` directory for complete working fixture examples.
 
 ## Best Practices
 

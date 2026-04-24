@@ -18,8 +18,8 @@ for screening runs; ``characterization`` uses the full sweeps.
 from __future__ import annotations
 
 import pytest
+from drivers import DMM, PSU, ELoad
 
-from examples.drivers import DMM, PSU, ELoad
 from litmus.execution.harness import Context
 
 

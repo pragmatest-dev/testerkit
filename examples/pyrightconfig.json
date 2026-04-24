@@ -1,6 +1,0 @@
-{
-  "venvPath": "..",
-  "venv": ".venv",
-  "include": ["."],
-  "reportMissingImports": true
-}

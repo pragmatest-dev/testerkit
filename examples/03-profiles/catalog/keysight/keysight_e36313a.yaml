@@ -7,7 +7,7 @@ name: Keysight E36313A Triple-Output DC Power Supply
 description: Triple-output bench PSU — CH1 supplies VIN to the PMIC.
 type: psu
 interfaces: [lan, usb]
-driver: examples.drivers.PSU
+driver: drivers.PSU
 channels:
   CH1:
     terminals: [hi, lo]

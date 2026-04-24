@@ -1,43 +1,35 @@
 # Litmus Examples
 
-Three progressively richer examples. Each opens in a fresh IDE and runs
-green against mocked instruments. Read them in order — the test bodies
-stay nearly identical across tiers; the YAML layers around them grow.
+Three standalone example projects. Each directory is a complete
+Litmus project — its own `pyproject.toml`, `conftest.py`, `drivers/`,
+YAML config, and tests. Open any one in a fresh IDE and it runs
+against mocked instruments.
 
 | Tier | Directory | What it shows |
 |------|-----------|---------------|
-| **1 — Bringup** | `01-bringup/` | One test file, one `conftest.py`, no station / product / fixture YAML. Limits inline or in a sidecar. The smallest useful Litmus project. |
-| **2 — Station** | `02-station/` | Add `stations/`, `products/`, `fixtures/`. Instrument fixtures auto-register from the station. Limits resolve from product characteristics. |
-| **3 — Profiles** | `03-profiles/` | Add `catalog/`, profiles (`production` / `characterization`), multi-pin iteration, binding-aware limits. The full production flow. |
+| **1 — Bringup** | `01-bringup/` | One test file, one sidecar, `MagicMock` fixtures in `conftest.py`. No station, product, or fixture YAML. |
+| **2 — Station** | `02-station/` | Add `drivers/` + `stations/` + `products/` + `fixtures/` + `catalog/`. Instrument fixtures auto-register from the station; spec-backed limits resolve from the product. |
+| **3 — Profiles** | `03-profiles/` | Full production flow: user-maintained catalog, profiles (`production` / `characterization`), multi-pin iteration, binding-aware limits. |
 
 ## Running
 
-Each tier is self-contained. `cd` in and run pytest:
-
 ```bash
-cd examples/01-bringup && uv run pytest -v
-cd examples/02-station && uv run pytest --station=demo_station_001 --mock-instruments -v
+cd examples/01-bringup  && uv run pytest -v
+cd examples/02-station  && uv run pytest --mock-instruments -v
 cd examples/03-profiles && uv run pytest --mock-instruments -v
 cd examples/03-profiles && uv run pytest --litmus-profile=production --mock-instruments -v
 ```
 
-## Drivers
-
-Tiers 2 and 3 share a small PyVISA-flavored driver package at
-`drivers/` (DMM, PSU, Eload, Scope — all `MagicMock`-backed for
-`--mock-instruments`). A sibling `conftest.py` inserts the repo root
-into `sys.path` so tests can `from examples.drivers import DMM`. Swap
-these for real drivers (PyMeasure, vendor libs) without touching test
-code.
+Each tier has its own `README.md` with layout details.
 
 ## Starter projects
 
-`litmus init --tier=bringup` scaffolds a Tier 1 project. `--tier=bench`
-scaffolds the Tier 2 shape. Both match the layouts here.
+`litmus init --tier=bringup` scaffolds a Tier 1 project.
+`litmus init --tier=bench` scaffolds the Tier 2 shape.
 
-## Scripts
+## Utility scripts
 
-`scripts/` contains DuckDB query examples for Parquet results
-(`demo_duckdb.py`, `query_results.py`, `demo_queries.sql`).
-`interactive_station.py` is a NiceGUI monitor that streams live events
-and channel data from any running test.
+`scripts/` — DuckDB query examples for Parquet results (`demo_duckdb.py`,
+`query_results.py`, `demo_queries.sql`). `interactive_station.py` — a
+NiceGUI monitor that streams live events and channel data from any
+running test. Both are cross-tier; run them from the repo root.

@@ -1,15 +1,10 @@
-"""Conftest for the power board station example.
+"""Conftest for the station example.
 
-Adds the repo root to ``sys.path`` so tests can ``from examples.drivers
-import DMM, PSU, ELoad`` — this tier reuses the driver wrappers under
-``examples/drivers/``.
+No setup required — instrument fixtures come from the station YAML
+(``stations/demo_station_001.yaml``), limits come from the product
+YAML (``products/power_board.yaml``), and the local ``drivers/``
+package is importable because pytest adds this project root to
+``sys.path``.
 """
 
 from __future__ import annotations
-
-import sys
-from pathlib import Path
-
-_EXAMPLES_ROOT = Path(__file__).resolve().parent.parent
-if str(_EXAMPLES_ROOT.parent) not in sys.path:
-    sys.path.insert(0, str(_EXAMPLES_ROOT.parent))

@@ -7,7 +7,7 @@ name: Chroma 63103A Programmable DC Electronic Load
 description: Three-channel electronic load; one channel per PMIC rail.
 type: eload
 interfaces: [lan, gpib]
-driver: examples.drivers.ELoad
+driver: drivers.ELoad
 channels:
   "1":
     terminals: [hi, lo]

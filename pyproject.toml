@@ -144,6 +144,18 @@ exclude = [
     "report_*.html",
 ]
 
+[tool.uv.workspace]
+members = [
+    "examples/01-bringup",
+    "examples/02-station",
+    "examples/03-profiles",
+]
+
+[tool.uv.sources]
+bringup-example = { workspace = true }
+station-example = { workspace = true }
+profiles-example = { workspace = true }
+
 [tool.ruff]
 line-length = 100
 target-version = "py311"

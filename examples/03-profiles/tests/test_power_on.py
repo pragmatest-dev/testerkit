@@ -18,7 +18,8 @@ Run::
 
 from __future__ import annotations
 
-from examples.drivers import DMM, PSU
+from drivers import DMM, PSU
+
 from litmus.execution.harness import Context
 
 
