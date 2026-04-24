@@ -1,215 +1,291 @@
 # Profiles — Named Config Sets
 
-A **profile** is a named set of pytest overrides declared in `litmus.yaml` and
-selected with `--litmus-profile=<name>`. Use profiles when you want to run the
-**same test tree** under different conditions — a quick validation sweep
-pre-merge, a full production sweep with retries, a debug profile that enables
-`-x -vv` and filters to a single class.
+A **profile** is a named set of pytest overrides that applies across a
+session. You select one per run: validation on Monday, production on
+Tuesday, a quick debug profile for bench work. Profiles live as one file
+per scenario under `profiles/*.yaml` (or inline under `litmus.yaml`) and
+are selected by **facets** — `--test-phase=production --product=tps54302`
+picks exactly one profile whose declared facets match.
 
-Profiles are purely additive. When no profile is selected, Litmus behaves
-exactly as if profiles did not exist.
+Profiles speak the **same language as sidecars**: a `markers:` list at
+the profile root, per-class `classes.<Cls>.markers`, per-test
+`tests.<name>.markers`. If you already know how to write a sidecar, you
+already know how to write a profile — same shape, session scope.
 
 ## Why profiles?
 
-Hardware test suites routinely need to run under multiple lab conditions
-without changing code:
+Hardware test suites run the same tree under many conditions:
 
-- Validation: one voltage, one temperature, fail-fast, skip slow tests
-- Production: full vectors, temperature corners, retries on flaky cases
-- Debug: single test, verbose, verbose, verbose
+- Validation: one voltage, one temperature, fail-fast, skip slow tests.
+- Production: full vectors, corner temperatures, retries on flaky cases.
+- Debug: single test, verbose, `-x -vv`.
 
-Neither CLI flags nor the per-module `test_<name>.yaml` sidecar fit this well:
+Neither CLI flags nor the per-module sidecar fit this:
 
 - CLI flags are ephemeral and can't declare per-test overrides.
-- Sidecars are code-adjacent: one set of vectors/limits per test module.
+- Sidecars are code-adjacent: one set per test module, versioned with
+  the test.
 
-Profiles sit between those two — versioned YAML in the project's `litmus.yaml`
-that *can* override specific node-ids while staying opt-in.
+Profiles sit between those two — versioned YAML, session-wide,
+overlaid on top of sidecars.
 
 ## Selecting a profile
 
+Profiles declare facets; CLI flags query facets.
+
 ```bash
-pytest --litmus-profile=validation                       # one profile
-pytest --litmus-profile=production --mock-instruments    # profile + other flags
-pytest                                                   # no profile → baseline
-LITMUS_PROFILE=validation pytest                         # env alias
+pytest --test-phase=validation                   # one facet
+pytest --test-phase=production --product=tps54302   # two facets
+pytest --test-phase=production --mock-instruments   # facet + other flags
+pytest                                           # no facets → baseline
+pytest --litmus-profile=validation               # name-based escape hatch
 ```
 
-An unknown profile name raises a clean `pytest.UsageError` listing the known
-profile names.
+Litmus auto-synthesizes a `--<facet>=<value>` CLI flag for every facet
+key declared under any profile's `facets:` block. The facet query must
+match exactly one profile:
 
-## What a profile can do
+- Zero matches → `UsageError` listing declared facet combinations.
+- More than one match → `UsageError` (tighten the query).
 
-A profile can override four concerns, each keyed by **pytest node-id**
-(`path::Class::method`, `path::func`, or an `fnmatch` glob):
+`--litmus-profile=<name>` is an escape hatch: it selects by profile name
+regardless of facets. Facet flags passed alongside cross-check against
+the named profile's declared facets and error on mismatch.
 
-### 1. Vectors — replace parametrized inputs for a test
+## Profile shape
+
+A profile is the same shape as a sidecar plus three extra fields:
+
+| Field         | Type                                 | Purpose                              |
+|---------------|--------------------------------------|--------------------------------------|
+| `facets`      | `dict[str, str]`                     | Exact-match keys for CLI selection   |
+| `extends`     | `str \| None`                        | Parent profile name (single parent)  |
+| `pytest`      | `{addopts, markexpr, keyword}`       | Session-level pytest knobs           |
+| `description` | `str \| None`                        | Shown in `litmus show <run_id>`      |
+| `markers`     | `list[MarkerSpec]`                   | Applied to **every** test            |
+| `classes`     | `dict[str, {markers: [...]}]`        | Per-class marker overrides           |
+| `tests`       | `dict[str, {markers: [...]}]`        | Per-test marker overrides            |
+
+Every `markers:` entry is one pytest marker — exactly the same shape
+you'd write inline as a decorator or in a sidecar. Examples:
 
 ```yaml
-profiles:
-  validation:
-    vectors:
-      "tests/test_power.py::TestRails::test_rails":
-        vin: [5.0]               # one voltage instead of three
-        temperature: [25]        # skip hot sweep
+markers:
+  - litmus_limits: {v_rail: {tolerance_pct: 5.0}}     # @pytest.mark.litmus_limits(...)
+  - flaky: {reruns: 2, reruns_delay: 1}               # @pytest.mark.flaky(...)
+  - skipif: "not os.getenv('HAS_BENCH')"              # @pytest.mark.skipif(...)
+  - parametrize: ["vin", [4.5, 5.0, 5.5]]             # @pytest.mark.parametrize(...)
 ```
 
-The profile's vectors **replace** the sidecar's for any node-id it matches.
-Non-matched tests keep their sidecar (or marker, or native parametrize) vectors
-unchanged.
+Ecosystem markers (`flaky`, `skipif`, `parametrize`, `dependency`, …)
+work unchanged — Litmus simply attaches them to matched items so each
+plugin's native handler fires.
 
-### 2. Limits — override guardbands for a test
-
-```yaml
-profiles:
-  production:
-    limits:
-      "tests/test_power.py::TestRails::test_output_voltage":
-        output_voltage: {ref: output_voltage, guardband_pct: 5}
-```
-
-Profile limits are the final layer in the merge chain
-(`sidecar → class marker → method marker → profile`), so profile values win on
-overlap and pass through on non-overlap.
-
-### 3. Markers — inject pytest markers onto a test
+Per-test keys disambiguate by class when a file has two classes with
+the same method name:
 
 ```yaml
-profiles:
-  smoke:
+tests:
+  TestRails.test_rail:     # qualified — binds to TestRails.test_rail
     markers:
-      "tests/test_power.py::TestSlow":
-        - skip: "not run in validation"
-
-  production:
+      - litmus_limits: {v_rail: {tolerance_pct: 1.0}}
+  test_standalone:         # bare — binds to module-level test_standalone
     markers:
-      "tests/test_power.py::TestFlaky":
-        - flaky: {reruns: 2, reruns_delay: 1}
+      - skip: "bench required"
 ```
 
-Three YAML shapes are supported per marker spec:
+The qualified form wins over the bare shorthand when both are present.
 
-| Shape                             | Equivalent marker                          |
-|-----------------------------------|--------------------------------------------|
-| `flaky`                           | `@pytest.mark.flaky`                       |
-| `skip: "reason"`                  | `@pytest.mark.skip("reason")`              |
-| `flaky: {reruns: 2, reruns_delay: 1}` | `@pytest.mark.flaky(reruns=2, reruns_delay=1)` |
+## Scenario file per combination
 
-Profile markers *accumulate* across overlapping patterns — a rule on
-`TestRails::*` adds to any rule on a specific method underneath it. Ecosystem
-markers like `flaky` (pytest-rerunfailures) and `dependency`
-(pytest-dependency) work out of the box because the profile simply calls
-`item.add_marker(...)` — no Litmus-specific parsing.
+One file per facet combination lives under `profiles/`. Each file's
+**stem** becomes the profile name:
 
-### 4. Pytest knobs — session-level filters and flags
+```
+project/
+├── litmus.yaml
+├── profiles/
+│   ├── power_family.yaml              # family base (no facets → unselectable)
+│   ├── production-tps54302.yaml       # extends: power_family
+│   ├── production-tps54303.yaml       # extends: power_family
+│   └── characterization.yaml          # standalone
+├── products/
+├── stations/
+└── tests/
+```
+
+The loader reads **both** `litmus.yaml`'s inline `profiles:` block and
+every `profiles/*.yaml` file. A name conflict across the two sources
+raises `UsageError` at project load.
+
+Families are just parent profiles with no `facets:` block — reachable
+only as an `extends:` target, never selectable from the CLI.
+
+## `extends:` chain
+
+A child profile inherits from a single parent via `extends:`. Chains
+walk parent-first; child overrides last-wins on same marker name +
+first key:
 
 ```yaml
-profiles:
-  debug:
-    pytest:
-      addopts: "-x -vv -s"
-      keyword: "test_output_voltage"
-      markexpr: "not slow"
+# profiles/power_family.yaml — shared base, unselectable directly
+description: "Shared base for all tps5430x power converters"
+pytest:
+  addopts: "--strict-markers"
+tests:
+  TestRails.test_rail:
+    markers:
+      - litmus_limits: {v_rail: {low: 3.2, high: 3.4}}
+  TestRails.test_output:
+    markers:
+      - parametrize: ["load", [0.1, 0.5, 0.9]]
 ```
 
-- `addopts` is appended to `PYTEST_ADDOPTS` **before collection**, so every
-  downstream plugin (`pytest-rerunfailures`, `pytest-xdist`, `pytest-timeout`)
-  sees the args during its own configure phase. Anything you would write on
-  the pytest command line fits here.
-- `keyword` and `markexpr` act like `-k` and `-m`. If the command line also
-  passes `-k` / `-m`, the expressions **AND-compose**: CLI-provided narrowing
-  is respected on top of the profile's narrowing.
+```yaml
+# profiles/production-tps54302.yaml
+facets: {test_phase: production, product: tps54302}
+extends: power_family
+tests:
+  TestRails.test_rail:
+    markers:
+      - litmus_limits: {v_rail: {low: 3.25, high: 3.35}}     # tightens family
+```
+
+```yaml
+# profiles/production-tps54303.yaml
+facets: {test_phase: production, product: tps54303}
+extends: power_family
+# inherits family limits; no per-variant trim
+```
+
+```yaml
+# profiles/characterization.yaml — wide sweep, no limits
+facets: {test_phase: characterization}
+tests:
+  TestRails.test_rail:
+    markers:
+      - parametrize: ["vin", [3.0, 3.3, 3.6, 4.0, 4.5, 5.0, 5.5, 6.0]]
+```
+
+`pytest --test-phase=production --product=tps54302` resolves:
+
+- Single match: `production-tps54302`.
+- Chain walked parent-first: `power_family` → `production-tps54302`.
+- `test_rail` limits: child's `{low: 3.25, high: 3.35}` wins over
+  parent's `{low: 3.2, high: 3.4}`.
+- `pytest.addopts: "--strict-markers"` inherited from family.
+
+Cycles and unknown parents raise `UsageError` at project load.
 
 ## Merge order (least → most specific)
 
 ```
-product spec defaults
+project defaults (litmus.yaml)
     ↓
-sidecar test_<module>.yaml
+file-level sidecar markers (markers: at sidecar root)
     ↓
-class marker (litmus_limits, parametrize)
+class-scoped sidecar markers (classes.<Cls>.markers)
     ↓
-method marker
+per-test sidecar markers (tests.<name>.markers)
     ↓
-active profile from litmus.yaml
+per-test inline @decorators
     ↓
-CLI flags (--mock-instruments etc.)
+selected profile chain (parent first, child last)
+    ↓
+CLI flags
 ```
 
-Profiles sit between markers and CLI: "I authored this test; the profile
-tailors it for the lab I'm running in." CLI always wins — explicit intent at
-the command line beats recorded profile config.
+Same rule at every level: later marker with the same name + key wins on
+overlap; non-overlapping keys pass through. Exactly one profile is
+selected per run; its `extends:` chain flattens before merging into the
+cascade above. CLI always wins.
 
-## Node-id matching
+## Test phase and mocks
 
-Profile keys match pytest node-ids using `fnmatch`. Exact matches always win
-over glob matches (so a class-wide `TestRails::*` rule can coexist with a
-per-method pin for one specific test). For markers, exact and glob matches
-both accumulate.
+`test_phase` is the conventional facet key for deployment stage
+(`validation` / `production` / `characterization`). Pass
+`--test-phase=production` to select a profile whose
+`facets: {test_phase: production}` matches. The raw CLI value is used
+for profile selection regardless of the run environment.
 
-```yaml
-markers:
-  "tests/test_power.py::TestRails::*":   # class-wide skip
-    - skip: "skipped in this profile"
-  "tests/test_power.py::TestRails::test_one":   # additional method-level marker
-    - flaky: {reruns: 3}
-```
+**Run record stamp.** A dirty git tree or `--mock-instruments` demotes
+the recorded `test_phase` stamp to `development` — the profile still
+applies (limits, markers, fixtures all fire as production), but the
+Parquet row is stamped `development` so production dashboards never
+treat it as a real production run. The `profile_facets` column on the
+same row holds the raw CLI facet dict for reproducibility.
 
 ## Worked example
 
 ```yaml
-# litmus.yaml
+# litmus.yaml — inline profiles (small projects)
 name: power_board_project
 default_station: bench_1
+```
 
-profiles:
-  validation:
-    description: "Quick sweep for pre-merge validation"
-    pytest:
-      addopts: "-x -vv"
-      markexpr: "not slow and not hardware"
-    vectors:
-      "tests/test_power.py::TestRails::test_rails":
-        vin: [5.0]
-        temperature: [25]
+```yaml
+# profiles/validation.yaml — quick pre-merge sweep
+description: "Quick sweep for pre-merge validation"
+facets: {test_phase: validation}
+pytest:
+  addopts: "-x -vv"
+  markexpr: "not slow and not hardware"
+tests:
+  TestRails.test_rails:
     markers:
-      "tests/test_power.py::TestSlow":
-        - skip: "not run in validation"
-
-  production:
-    description: "Full sweep, production-grade retries"
-    pytest:
-      addopts: "--reruns=2 --reruns-delay=1 -n=4"
-    vectors:
-      "tests/test_power.py::TestRails::test_rails":
-        vin: [4.5, 5.0, 5.5]
-        temperature: [25, 85]
-        load: [0.1, 0.4, 0.8]
+      - parametrize: ["vin", [5.0]]
+      - parametrize: ["temperature", [25]]
+  TestSlow.test_long_soak:
     markers:
-      "tests/test_power.py::TestRails":
-        - flaky: {reruns: 2, reruns_delay: 2}
+      - skip: "not run in validation"
+```
 
-  debug:
-    description: "Single test, verbose, fail-fast"
-    pytest:
-      addopts: "-x -vv -s"
-      keyword: "test_output_voltage"
+```yaml
+# profiles/production.yaml — full sweep, retries
+description: "Full sweep, production-grade retries"
+facets: {test_phase: production}
+pytest:
+  addopts: "--reruns=2 --reruns-delay=1 -n=4"
+tests:
+  TestRails.test_rails:
+    markers:
+      - parametrize: ["vin", [4.5, 5.0, 5.5]]
+      - parametrize: ["temperature", [25, 85]]
+      - parametrize: ["load", [0.1, 0.4, 0.8]]
+classes:
+  TestRails:
+    markers:
+      - flaky: {reruns: 2, reruns_delay: 2}
+```
+
+```yaml
+# profiles/debug.yaml — single test, verbose, fail-fast
+description: "Single test, verbose, fail-fast"
+facets: {test_phase: debug}
+pytest:
+  addopts: "-x -vv -s"
+  keyword: "test_output_voltage"
 ```
 
 ## Provenance
 
-The active profile name is recorded on the run as `profile=<name>` and shows
-up in `litmus show <run_id>`. Combined with the git commit and the per-vector
-measurement values already recorded on every run, that's enough for an
-operator to answer "what config was this test run under?" — no extra drift log
-required.
+The active profile name is recorded on the run as `profile=<name>` and
+shows up in `litmus show <run_id>`. The `profile_facets` column on the
+Parquet row holds the raw CLI facet dict. Combined with the git commit,
+that's the minimum reproducibility payload: re-run at the same SHA with
+the same facet flags and the same profile chain resolves.
 
 ## Non-goals (today)
 
-- Per-directory profile stacking — use one flat namespace in `litmus.yaml`.
-- Runtime profile switching mid-session — a profile is session-scoped.
-- Profile inheritance (`extends: base_profile`) — may be added if demanded.
-- Marker *removal* per profile (negative overrides) — not supported.
+- Wildcards / globs on facet values. Exact-match only. Family sharing
+  goes through `extends:`, not `product: "tps5430*"`.
+- Multi-parent `extends:`. Single parent per profile; chains are linear.
+- Multi-match facet composition. Exactly one profile must match the
+  query. Ambiguous = `UsageError`.
+- Per-directory profile stacking. `profiles/*.yaml` is flat.
+- Runtime profile switching mid-session. Session-scoped.
+- Marker *removal* in child profiles. Child overrides by replacement;
+  no negative markers.
 
 ## See also
 
