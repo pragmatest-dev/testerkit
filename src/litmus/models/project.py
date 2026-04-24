@@ -11,6 +11,8 @@ from typing import Any
 
 from pydantic import BaseModel, Field, model_validator
 
+from litmus.config.test_config import ClassMarkers, MarkerSpec, TestMarkers
+
 
 class OutputConfig(BaseModel):
     """A single output entry in the ``outputs`` list.
@@ -98,8 +100,11 @@ class ProfilePytest(BaseModel):
 class ProfileConfig(BaseModel):
     """A named config set applied to a pytest session.
 
-    Keys under ``vectors``, ``limits``, and ``markers`` are pytest node-id
-    patterns (exact or ``fnmatch`` glob). See ``docs/guides/profiles.md``.
+    Profiles carry pytest markers at three scopes: file-wide ``markers``
+    (applied to every test), ``classes.<ClassName>.markers`` (applied
+    to every method of a class), and ``tests.<name>.markers`` (per-test).
+    Shape matches the sidecar ``SidecarConfig`` so one vocabulary
+    spans inline decorators, sidecar YAML, and profile overrides.
 
     ``extends`` names another profile whose configuration is inherited and
     overridden last-wins by this one. Chains are walked parent-first, so a
@@ -114,9 +119,9 @@ class ProfileConfig(BaseModel):
     facets: dict[str, str] = Field(default_factory=dict)
     extends: str | None = None
     pytest: ProfilePytest = Field(default_factory=ProfilePytest)
-    vectors: dict[str, dict[str, list[Any]]] = Field(default_factory=dict)
-    limits: dict[str, dict[str, Any]] = Field(default_factory=dict)
-    markers: dict[str, list[dict[str, Any] | str]] = Field(default_factory=dict)
+    markers: list[MarkerSpec] = Field(default_factory=list)
+    classes: dict[str, ClassMarkers] = Field(default_factory=dict)
+    tests: dict[str, TestMarkers] = Field(default_factory=dict)
 
 
 class ProjectConfig(BaseModel):

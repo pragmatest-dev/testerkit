@@ -17,10 +17,13 @@ from uuid import UUID, uuid4
 import pytest
 
 from litmus.config.test_config import (
+    ClassMarkers,
     FixtureConfig,
     FixturePoint,
+    MarkerSpec,
     MeasurementLimitConfig,
     TestConfig,
+    TestMarkers,
 )
 from litmus.data.models import CollectedItem, TestRun, TestVector
 from litmus.execution._state import current_step_var, current_vector_var
@@ -943,42 +946,45 @@ def _check_per_test_condition_coverage(config, items: list[pytest.Item]) -> None
 
 
 def _warn_unmatched_profile_keys(items: list[pytest.Item]) -> None:
-    """Warn when a profile's ``vectors``/``limits``/``markers`` key matches no collected test.
+    """Warn when a profile's ``tests.<name>`` / ``classes.<Cls>`` key matches no collected test.
 
-    Profile keys are matched against pytest node IDs via exact match or
-    ``fnmatch`` glob (see :func:`_profile_match`). A silent no-op on a
-    typo is worse than a skipped mock — it's a production screen that
-    stopped running. Warn once per orphan key.
+    Keys in ``profile.tests`` may be either a bare method name
+    (``test_foo``) or a qualified form (``TestCls.test_foo``); keys in
+    ``profile.classes`` are class names. A silent no-op on a typo is
+    worse than a skipped mock — it's a production screen that stopped
+    running. Warn once per orphan key.
     """
     profile = get_active_profile()
     if profile is None:
         return
-    import fnmatch
 
-    nodeids = {item.nodeid for item in items}
-
-    def _orphans(patterns: Mapping[str, Any] | None, label: str) -> list[str]:
-        if not patterns:
-            return []
-        out = []
-        for pattern in patterns:
-            if pattern in nodeids:
-                continue
-            if any(fnmatch.fnmatchcase(nid, pattern) for nid in nodeids):
-                continue
-            out.append(f"  profile.{label}[{pattern!r}]")
-        return out
+    originalnames: set[str] = set()
+    qualified: set[str] = set()
+    class_names: set[str] = set()
+    for item in items:
+        if not isinstance(item, pytest.Function):
+            continue
+        originalnames.add(item.originalname)
+        cls = getattr(item, "cls", None)
+        if cls is not None:
+            class_names.add(cls.__name__)
+            qualified.add(f"{cls.__name__}.{item.originalname}")
 
     unmatched: list[str] = []
-    unmatched.extend(_orphans(profile.vectors, "vectors"))
-    unmatched.extend(_orphans(profile.limits, "limits"))
-    unmatched.extend(_orphans(profile.markers, "markers"))
+    for key in profile.tests:
+        if key in originalnames or key in qualified:
+            continue
+        unmatched.append(f"  profile.tests[{key!r}]")
+    for cls_name in profile.classes:
+        if cls_name in class_names:
+            continue
+        unmatched.append(f"  profile.classes[{cls_name!r}]")
     if not unmatched:
         return
     warnings.warn(
         "Active profile has keys that match no collected test:\n"
         + "\n".join(unmatched)
-        + "\nUse an exact node-id, a glob like '*::test_name', or remove the entry.",
+        + "\nUse an exact test name, a qualified 'Class.method', or remove the entry.",
         UserWarning,
         stacklevel=1,
     )
@@ -1052,20 +1058,20 @@ def _vector_entry_keys(entry: Any) -> set[str]:
 
 
 def _apply_profile_to_items(config, items: list[pytest.Item]) -> None:
-    """Inject profile markers onto items matching their node-id patterns.
+    """Inject profile markers onto items from the three profile scopes.
 
     Filter composition (``keyword``, ``markexpr``) happens in
     ``_install_active_profile`` during ``pytest_configure``; this step
-    only handles per-node-id marker injection, which must happen at
-    collection time.
+    only handles per-item marker injection, which must happen at
+    collection time. Accumulates file-level + class + per-test markers
+    via :func:`_profile_markers_for_item`.
     """
     if get_active_profile() is None:
         return
     for item in items:
-        for spec in _profile_markers_for_node(item.nodeid):
-            name, kwargs, args = _parse_profile_marker_spec(spec)
-            marker = getattr(pytest.mark, name)
-            item.add_marker(marker(*args, **kwargs))
+        for spec in _profile_markers_for_item(item):
+            marker = getattr(pytest.mark, spec.name)
+            item.add_marker(marker(*spec.args, **spec.kwargs))
 
 
 def _compose_filter_expr(profile_expr: str, cli_expr: str) -> str:
@@ -1175,9 +1181,9 @@ def _flatten_profile_chain(leaf_name: str, project: ProjectConfig) -> ProfileCon
     addopts_parts: list[str] = []
     markexpr: str | None = None
     keyword: str | None = None
-    merged_vectors: dict[str, dict[str, list[Any]]] = {}
-    merged_limits: dict[str, dict[str, Any]] = {}
-    merged_markers: dict[str, list[dict[str, Any] | str]] = {}
+    merged_markers: list[MarkerSpec] = []
+    merged_classes: dict[str, ClassMarkers] = {}
+    merged_tests: dict[str, TestMarkers] = {}
     for profile in chain:
         if profile.description is not None:
             description = profile.description
@@ -1188,9 +1194,19 @@ def _flatten_profile_chain(leaf_name: str, project: ProjectConfig) -> ProfileCon
             markexpr = profile.pytest.markexpr
         if profile.pytest.keyword is not None:
             keyword = profile.pytest.keyword
-        merged_vectors.update(profile.vectors)
-        merged_limits.update(profile.limits)
-        merged_markers.update(profile.markers)
+        merged_markers.extend(profile.markers)
+        for cls_name, cls_block in profile.classes.items():
+            existing = merged_classes.get(cls_name)
+            if existing is None:
+                merged_classes[cls_name] = ClassMarkers(markers=list(cls_block.markers))
+            else:
+                existing.markers.extend(cls_block.markers)
+        for test_name, test_block in profile.tests.items():
+            existing_t = merged_tests.get(test_name)
+            if existing_t is None:
+                merged_tests[test_name] = TestMarkers(markers=list(test_block.markers))
+            else:
+                existing_t.markers.extend(test_block.markers)
 
     return ProfileConfig(
         description=description,
@@ -1201,9 +1217,9 @@ def _flatten_profile_chain(leaf_name: str, project: ProjectConfig) -> ProfileCon
             markexpr=markexpr,
             keyword=keyword,
         ),
-        vectors=merged_vectors,
-        limits=merged_limits,
         markers=merged_markers,
+        classes=merged_classes,
+        tests=merged_tests,
     )
 
 
@@ -3014,79 +3030,44 @@ from litmus.execution.expand import expand as _expand_sidecar_block  # noqa: E40
 from litmus.execution.vectors import Vector  # noqa: E402
 
 
-def _profile_match(nodeid: str, patterns: Mapping[str, Any]) -> Any | None:
-    """Return the first ``patterns`` value whose key fnmatches ``nodeid``.
+def _profile_markers_for_item(item: pytest.Item) -> list[MarkerSpec]:
+    """Return accumulated profile markers for ``item``: file-level + class + per-test.
 
-    Exact matches take precedence over glob matches so a user can pin one
-    test with its full node-id and still have a class-wide ``TestFoo::*``
-    sibling rule cover the rest.
-    """
-    if nodeid in patterns:
-        return patterns[nodeid]
-    import fnmatch
+    Walks three scopes in order so downstream marker application can apply
+    them least- to most-specific (same cascade as sidecars):
 
-    for pattern, value in patterns.items():
-        if fnmatch.fnmatchcase(nodeid, pattern):
-            return value
-    return None
+    1. ``profile.markers`` — every test sees these
+    2. ``profile.classes[<ClassName>].markers`` — if the item is a method
+    3. ``profile.tests[<bare or qualified name>].markers`` — per-test
 
-
-def _profile_vectors_for_node(nodeid: str) -> dict[str, list[Any]] | None:
-    """Return profile vectors for ``nodeid`` (by exact or fnmatch), or None."""
-    profile = get_active_profile()
-    if profile is None or not profile.vectors:
-        return None
-    return _profile_match(nodeid, profile.vectors)
-
-
-def _profile_limits_for_node(nodeid: str) -> dict[str, Any] | None:
-    """Return profile limits for ``nodeid`` (by exact or fnmatch), or None."""
-    profile = get_active_profile()
-    if profile is None or not profile.limits:
-        return None
-    return _profile_match(nodeid, profile.limits)
-
-
-def _profile_markers_for_node(nodeid: str) -> list[dict[str, Any] | str]:
-    """Return every profile marker spec list whose pattern matches ``nodeid``.
-
-    Unlike vectors/limits (single match wins), markers **accumulate** so
-    multiple overlapping patterns (e.g. one for the class, one for the
-    method) can each contribute markers.
+    Per-test keys accept either bare method name (``test_foo``) or the
+    disambiguated form (``TestFoo.test_foo``); the qualified form wins
+    when both are present.
     """
     profile = get_active_profile()
-    if profile is None or not profile.markers:
+    if profile is None:
         return []
-    import fnmatch
+    if not isinstance(item, pytest.Function):
+        return list(profile.markers)
 
-    out: list[dict[str, Any] | str] = []
-    for pattern, specs in profile.markers.items():
-        if nodeid == pattern or fnmatch.fnmatchcase(nodeid, pattern):
-            out.extend(specs)
+    out: list[MarkerSpec] = list(profile.markers)
+    cls = getattr(item, "cls", None)
+    if cls is not None:
+        class_block = profile.classes.get(cls.__name__)
+        if class_block is not None:
+            out.extend(class_block.markers)
+
+    if cls is not None:
+        qualified = f"{cls.__name__}.{item.originalname}"
+        qualified_block = profile.tests.get(qualified)
+        if qualified_block is not None:
+            out.extend(qualified_block.markers)
+            return out
+
+    bare_block = profile.tests.get(item.originalname)
+    if bare_block is not None:
+        out.extend(bare_block.markers)
     return out
-
-
-def _parse_profile_marker_spec(spec: Any) -> tuple[str, dict[str, Any], list[Any]]:
-    """Return ``(name, kwargs, args)`` from a profile marker YAML spec.
-
-    Supported shapes::
-
-        - flaky                               # bare name
-        - skip: "reason"                      # single positional arg
-        - flaky: {reruns: 2, reruns_delay: 1} # kwargs
-    """
-    if isinstance(spec, str):
-        return spec, {}, []
-    if isinstance(spec, dict):
-        if len(spec) != 1:
-            raise ValueError(
-                f"Profile marker spec must have a single top-level key; got {list(spec)}"
-            )
-        ((name, payload),) = spec.items()
-        if isinstance(payload, dict):
-            return name, dict(payload), []
-        return name, {}, [payload]
-    raise TypeError(f"Unsupported profile marker spec: {spec!r}")
 
 
 # StashKey for the self-loop vectors matrix. Populated by
@@ -3143,10 +3124,6 @@ def pytest_generate_tests(metafunc: pytest.Metafunc) -> None:
             tests_entry = tests_block.get(metafunc.function.__name__)
             if isinstance(tests_entry, dict):
                 method_cfg = tests_entry.get("vectors")
-
-    profile_vectors = _profile_vectors_for_node(metafunc.definition.nodeid)
-    if profile_vectors is not None:
-        method_cfg = {"product": profile_vectors}
 
     method_vectors = _expand_sidecar_block(method_cfg) if method_cfg else []
 
@@ -3914,7 +3891,10 @@ def _litmus_push_limits(
     )
     class_raw = _limits_marker_kwargs(getattr(request.node, "cls", None), scope="class")
     method_raw = _limits_marker_kwargs(request.node, scope="method")
-    profile_raw = _profile_limits_for_node(request.node.nodeid)
+    profile_raw: dict[str, Any] = {}
+    for spec in _profile_markers_for_item(request.node):
+        if spec.name == "litmus_limits":
+            profile_raw.update(spec.kwargs)
 
     merged_raw: dict[str, Any] = {}
     for layer in (sidecar_raw, per_test_raw_dict, class_raw, method_raw, profile_raw):
