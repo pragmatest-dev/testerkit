@@ -1,14 +1,106 @@
 """Test execution configuration models.
 
-Models for test limits, specifications, fixtures, vectors,
+Models for test limits, specifications, fixtures, markers,
 sequences, and all test-runner configuration.
 """
+
+from __future__ import annotations
 
 from typing import Any, Literal, Self
 
 from pydantic import BaseModel, Field, model_validator
 
 from litmus.config.enums import Comparator
+
+# =============================================================================
+# Markers — the single vocabulary across inline / sidecar / profile
+# =============================================================================
+
+
+class MarkerSpec(BaseModel):
+    """One entry in a ``markers:`` list — mirrors a pytest decorator.
+
+    Four YAML shapes are parsed by :meth:`from_raw`:
+
+    ==================================== =============================================
+    YAML                                 Parsed to
+    ==================================== =============================================
+    ``- flaky``                          ``MarkerSpec(name="flaky")``
+    ``- skip: "reason"``                 ``MarkerSpec(name="skip", args=["reason"])``
+    ``- parametrize: ["vin", [1, 2]]``   ``MarkerSpec(name="parametrize",
+                                             args=["vin", [1, 2]])``
+    ``- litmus_limits: {v_rail: {...}}`` ``MarkerSpec(name="litmus_limits",
+                                             kwargs={"v_rail": {...}})``
+    ==================================== =============================================
+
+    List payloads expand to positional args; dict payloads are keyword
+    args; string/number/bool payloads become a single positional arg;
+    bare names have neither. Mirrors how pytest decorators are called,
+    so a reader who knows ``@pytest.mark.parametrize(...)`` can read the
+    YAML directly.
+    """
+
+    model_config = {"extra": "forbid"}
+
+    name: str
+    args: list[Any] = Field(default_factory=list)
+    kwargs: dict[str, Any] = Field(default_factory=dict)
+
+    @classmethod
+    def from_raw(cls, raw: Any) -> Self:
+        """Parse one YAML markers-list entry into a :class:`MarkerSpec`."""
+        if isinstance(raw, str):
+            return cls(name=raw)
+        if isinstance(raw, dict):
+            if len(raw) != 1:
+                raise ValueError(
+                    "Marker spec must be a bare name string or a single-key dict; "
+                    f"got dict with {len(raw)} keys: {sorted(raw)}"
+                )
+            ((name, payload),) = raw.items()
+            if not isinstance(name, str):
+                raise TypeError(f"Marker name must be a string; got {type(name).__name__}")
+            if payload is None:
+                return cls(name=name)
+            if isinstance(payload, dict):
+                return cls(name=name, kwargs=dict(payload))
+            if isinstance(payload, list):
+                return cls(name=name, args=list(payload))
+            return cls(name=name, args=[payload])
+        raise TypeError(
+            f"Marker entry must be a string or single-key dict; got {type(raw).__name__}: {raw!r}"
+        )
+
+    @model_validator(mode="before")
+    @classmethod
+    def _coerce(cls, data: Any) -> Any:
+        """Accept raw YAML shapes (str / single-key dict) during validation."""
+        if isinstance(data, MarkerSpec):
+            return data
+        if (
+            isinstance(data, dict)
+            and "name" in data
+            and set(data).issubset({"name", "args", "kwargs"})
+        ):
+            return data  # already structured — bare cls(name=...) or round-tripped
+        return cls.from_raw(data).model_dump()
+
+
+class TestMarkers(BaseModel):
+    """Container for a test / class entry in sidecars and profiles."""
+
+    model_config = {"extra": "forbid"}
+
+    markers: list[MarkerSpec] = Field(default_factory=list)
+
+
+class ClassMarkers(BaseModel):
+    """Container for a class entry in sidecars."""
+
+    model_config = {"extra": "forbid"}
+
+    markers: list[MarkerSpec] = Field(default_factory=list)
+
 
 # =============================================================================
 # Limits & Specifications
