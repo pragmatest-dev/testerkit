@@ -118,11 +118,11 @@ dev = [
 ]
 
 [tool.hatch.build.targets.wheel]
-packages = ["litmus"]
+packages = ["src/litmus"]
 
 [tool.hatch.build.targets.sdist]
 include = [
-    "litmus",
+    "src/litmus",
     "tests",
     "examples",
     "docs",
