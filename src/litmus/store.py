@@ -34,7 +34,7 @@ from litmus.models.config import FixtureConfig, TestSequenceConfig
 from litmus.models.instrument_asset import InstrumentAssetFile
 from litmus.models.product import Product
 from litmus.models.product_manifest import ProductManifest
-from litmus.models.project import ProjectConfig
+from litmus.models.project import ProfileConfig, ProjectConfig
 from litmus.models.station import StationConfig
 from litmus.utils.paths import (
     get_fixture_paths,
@@ -251,8 +251,24 @@ def _list_all(
 
 
 def load_project(path: Path) -> ProjectConfig:
-    """Load and validate a litmus.yaml project config file."""
-    return ProjectConfig.model_validate(_read_yaml(path))
+    """Load and validate a litmus.yaml project config file.
+
+    Also discovers one-file-per-profile YAMLs under ``<project_root>/profiles/``
+    and merges them into ``project.profiles`` keyed by filename stem. A name
+    conflict between an inline ``litmus.yaml: profiles:`` entry and a
+    ``profiles/*.yaml`` file raises ``ValueError``.
+    """
+    project = ProjectConfig.model_validate(_read_yaml(path))
+    profiles_dir = path.parent / "profiles"
+    if profiles_dir.is_dir():
+        for yaml_path in sorted(profiles_dir.glob("*.yaml")):
+            name = yaml_path.stem
+            if name in project.profiles:
+                raise ValueError(
+                    f"Profile name conflict: {name!r} is declared both in {path} and {yaml_path}"
+                )
+            project.profiles[name] = ProfileConfig.model_validate(_read_yaml(yaml_path))
+    return project
 
 
 def load_project_config(path: Path | str | None = None) -> ProjectConfig:

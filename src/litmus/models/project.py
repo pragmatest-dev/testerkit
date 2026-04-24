@@ -100,12 +100,19 @@ class ProfileConfig(BaseModel):
 
     Keys under ``vectors``, ``limits``, and ``markers`` are pytest node-id
     patterns (exact or ``fnmatch`` glob). See ``docs/guides/profiles.md``.
+
+    ``extends`` names another profile whose configuration is inherited and
+    overridden last-wins by this one. Chains are walked parent-first, so a
+    family / platform base can declare the shared 90% and each leaf profile
+    holds only deltas. Parent profiles with no ``facets`` are reachable
+    only as extends targets.
     """
 
     model_config = {"extra": "forbid"}
 
     description: str | None = None
     facets: dict[str, str] = Field(default_factory=dict)
+    extends: str | None = None
     pytest: ProfilePytest = Field(default_factory=ProfilePytest)
     vectors: dict[str, dict[str, list[Any]]] = Field(default_factory=dict)
     limits: dict[str, dict[str, Any]] = Field(default_factory=dict)

@@ -1135,6 +1135,72 @@ def _resolve_profile_name(profile_name: str | None) -> ProfileConfig | None:
     return profile
 
 
+def _flatten_profile_chain(leaf_name: str, project: ProjectConfig) -> ProfileConfig:
+    """Walk ``extends`` chain parent-first and merge into a single profile.
+
+    The leaf profile is the starting point; each ``extends`` link walks one
+    step further up the chain. The merge is parent-first so child values
+    win on conflicts — same rule as stacked pytest decorators.
+
+    Raises ``pytest.UsageError`` on an unknown parent or a cycle.
+    """
+    from litmus.models.project import ProfilePytest
+
+    chain: list[ProfileConfig] = []
+    visited: list[str] = []
+    current: str | None = leaf_name
+    while current is not None:
+        if current in visited:
+            cycle = " -> ".join(visited + [current])
+            raise pytest.UsageError(f"Cyclic profile extends chain: {cycle}")
+        profile = project.profiles.get(current)
+        if profile is None:
+            if not visited:
+                known = ", ".join(sorted(project.profiles)) or "(none defined)"
+                raise pytest.UsageError(f"Unknown profile {current!r}; known profiles: {known}")
+            raise pytest.UsageError(f"Profile {visited[-1]!r} extends unknown profile {current!r}")
+        visited.append(current)
+        chain.append(profile)
+        current = profile.extends
+    chain.reverse()
+
+    description: str | None = None
+    merged_facets: dict[str, str] = {}
+    addopts_parts: list[str] = []
+    markexpr: str | None = None
+    keyword: str | None = None
+    merged_vectors: dict[str, dict[str, list[Any]]] = {}
+    merged_limits: dict[str, dict[str, Any]] = {}
+    merged_markers: dict[str, list[dict[str, Any] | str]] = {}
+    for profile in chain:
+        if profile.description is not None:
+            description = profile.description
+        merged_facets.update(profile.facets)
+        if profile.pytest.addopts:
+            addopts_parts.append(profile.pytest.addopts)
+        if profile.pytest.markexpr is not None:
+            markexpr = profile.pytest.markexpr
+        if profile.pytest.keyword is not None:
+            keyword = profile.pytest.keyword
+        merged_vectors.update(profile.vectors)
+        merged_limits.update(profile.limits)
+        merged_markers.update(profile.markers)
+
+    return ProfileConfig(
+        description=description,
+        facets=merged_facets,
+        extends=None,
+        pytest=ProfilePytest(
+            addopts=" ".join(addopts_parts) or None,
+            markexpr=markexpr,
+            keyword=keyword,
+        ),
+        vectors=merged_vectors,
+        limits=merged_limits,
+        markers=merged_markers,
+    )
+
+
 def _resolve_active_profile(
     profile_name: str | None,
     facet_flags: dict[str, str],
@@ -1177,8 +1243,9 @@ def _resolve_active_profile(
                 raise pytest.UsageError(
                     f"Profile {profile_name!r} does not match facet flags: " + ", ".join(mismatches)
                 )
-        facets = {**profile.facets, **facet_flags}
-        return profile_name, profile, facets
+        merged = _flatten_profile_chain(profile_name, project)
+        facets = {**merged.facets, **facet_flags}
+        return profile_name, merged, facets
 
     # Facet-only query.
     matches = [
@@ -1202,8 +1269,9 @@ def _resolve_active_profile(
             "Facet query is ambiguous — matches multiple profiles: "
             f"{overlap}. Disambiguate with --litmus-profile=<name>."
         )
-    name, profile = matches[0]
-    return name, profile, {**profile.facets, **facet_flags}
+    name, _profile = matches[0]
+    merged = _flatten_profile_chain(name, project)
+    return name, merged, {**merged.facets, **facet_flags}
 
 
 def _collect_facet_flags_from_config(config, project: ProjectConfig) -> dict[str, str]:
