@@ -585,11 +585,6 @@ def pytest_configure(config):
     ):
         config.addinivalue_line("markers", marker)
     _install_active_profile(config)
-    # @litmus_test returns TestStep for programmatic callers; suppress pytest warning
-    config.addinivalue_line(
-        "filterwarnings",
-        "ignore::pytest.PytestReturnNotNoneWarning",
-    )
 
     # Auto-register instrument role fixtures from station config
     station_path = _find_station_file(config)
@@ -1642,7 +1637,8 @@ def logger(request) -> Generator[TestRunLogger, None, None]:
     """Provide test run logger for the session.
 
     This fixture is autouse=True so it's always active, enabling
-    @litmus_test decorated functions to log measurements.
+    pytest-native tests (and the ``verify`` / ``context`` fixtures) to
+    log measurements.
 
     Captures config snapshots at run start for full traceability.
     Streams events to an event log for live observability.
@@ -2445,11 +2441,10 @@ def pytest_runtest_setup(item):
 def pytest_runtest_call(item: pytest.Item) -> Iterator[None]:
     """Open a step for every pytest-native test; reset dedup sets after.
 
-    For every collected test that is not a legacy ``@litmus_test``
-    (which manages its own step lifecycle), opens a logger step around
-    the test body so every measurement inside the method lands in a
-    step scoped to that test. Applies equally to class-based sequences
-    and loose module-level ``def test_*`` functions.
+    Opens a logger step around the test body so every measurement
+    inside the method lands in a step scoped to that test. Applies
+    equally to class-based sequences and loose module-level
+    ``def test_*`` functions.
 
     Runs as a hookwrapper (rather than an autouse fixture) so it fires
     *after* all setup fixtures — including ones that install the logger
@@ -2464,14 +2459,9 @@ def pytest_runtest_call(item: pytest.Item) -> Iterator[None]:
     """
     logger_inst = get_current_logger()
     func = getattr(item, "function", None)
-    # ``@litmus_test`` and ``@litmus_step`` manage their own step
-    # lifecycle — don't double-wrap.
-    manages_own_step = func is not None and (
-        getattr(func, "_is_litmus_test", False) or getattr(func, "_is_litmus_step", False)
-    )
     strict = bool(item.config.getoption("--strict-traceability"))
 
-    if not manages_own_step and logger_inst is not None:
+    if logger_inst is not None:
         cls = getattr(item, "cls", None)
         func_name = func.__name__ if func is not None else item.name
         logger_inst.start_step(
@@ -2490,13 +2480,7 @@ def pytest_runtest_call(item: pytest.Item) -> Iterator[None]:
             logger_inst._step_seen_repeatable.clear()
         return
 
-    if logger_inst is None:
-        yield
-        return
     yield
-    _audit_traceability(logger_inst, strict=strict)
-    logger_inst._step_seen_names.clear()
-    logger_inst._step_seen_repeatable.clear()
 
 
 def _audit_traceability(logger_inst: Any, *, strict: bool) -> None:
@@ -2945,9 +2929,6 @@ def sync(logger):
 # (vectors), auto-resolved limits from sidecar or product spec, mock
 # installation, a logger step scoped to the test, and (for class-based
 # tests) an implicit prereq chain between methods in source order.
-#
-# Legacy ``@litmus_test``-decorated tests manage their own step lifecycle
-# and are detected via the ``_is_litmus_test`` attribute on the wrapper.
 # ============================================================================
 
 
@@ -3755,10 +3736,9 @@ def _litmus_push_params(
 
     Also chains ``Context._prev`` to the previous parametrize case of
     the same ``(parent_node, method)`` so ``context.changed("vin")``
-    behaves like it did under the old ``@litmus_test`` vector loop. The
-    lookup is keyed by ``originalname`` on the parent node's stash, so
-    two classes (or modules) that share a method name do not
-    cross-contaminate.
+    picks up transitions across adjacent cases. The lookup is keyed by
+    ``originalname`` on the parent node's stash, so two classes (or
+    modules) that share a method name do not cross-contaminate.
     """
     ctx: Context = request.getfixturevalue("context")
 

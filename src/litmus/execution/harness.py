@@ -279,8 +279,7 @@ class Context:
             Resolved Limit object, or None if no limit defined.
 
         Example:
-            @litmus_test
-            def test_adaptive(context, dmm):
+            def test_adaptive(context, dmm, verify):
                 limit = context.get_limit("output_voltage")
                 if limit:
                     # Take more samples if nominal is tight
@@ -318,7 +317,6 @@ class Context:
             Measurement object with outcome set.
 
         Example:
-            @litmus_test
             def test_power_supply(context, dmm, psu):
                 context.measure("output_voltage", dmm.measure_dc_voltage())
                 context.measure("quiescent_current", psu.measure_current())
@@ -399,11 +397,10 @@ class TestHarness:
             with harness.run_vector(vector):
                 harness.measure("voltage", dmm.measure_dc_voltage())
 
-    Usage (via @litmus_test decorator):
-        @litmus_test
-        def test_sweep(vector, psu, dmm):
-            psu.set_voltage(vector["voltage"])
-            return dmm.measure_dc_voltage()
+    Usage (pytest-native):
+        def test_sweep(context, psu, dmm, verify):
+            psu.set_voltage(context.get_param("voltage"))
+            verify("voltage", float(dmm.measure_dc_voltage()))
     """
 
     __test__ = False  # Prevent pytest collection (name starts with "Test")

@@ -255,63 +255,27 @@ def measure_current_ma(psu):
     return psu.measure_current() * 1000
 ```
 
-### @litmus_step Decorator
+### Non-measurement steps
 
-Track non-measurement steps (setup, verification, dialogs).
-
-#### Parameters
-
-None. This decorator takes no parameters.
-
-#### What It Does
-
-1. Registers the function execution as a step in the test run
-2. Tracks pass/fail based on whether the function raises an exception
-3. Does NOT produce measurements (use `@measure` for that)
-
-#### Basic Usage
+Litmus no longer ships a `@litmus_step` decorator. Every pytest-native
+test already opens a logger step around its body, so setup helpers and
+dialog functions don't need a decorator to be tracked. Write them as
+plain Python and call them from the test:
 
 ```python
-from litmus.execution.decorators import litmus_step
-
-@litmus_step
 def verify_dut_connection(psu):
-    """Step tracked in test run without producing measurements."""
     psu.set_voltage(0.1)
-    current = psu.measure_current()
-    assert current < 0.001, "DUT appears shorted!"
+    assert psu.measure_current() < 0.001, "DUT appears shorted!"
 
-@litmus_step
-def configure_test_equipment(psu, eload):
-    """Setup step - tracked but no measurement."""
-    psu.set_voltage(5.0)
-    psu.enable_output()
-    eload.set_current(0.5)
-    eload.enable()
-
-# Usage
-def test_with_steps(psu, dmm, eload, logger):
-    verify_dut_connection(psu)      # Tracked as step
-    configure_test_equipment(psu, eload)  # Tracked as step
-    result = measure_output_voltage(dmm)  # Measurement logged
+def test_output_voltage(psu, dmm, eload, verify):
+    verify_dut_connection(psu)
+    psu.set_voltage(5.0); psu.enable_output()
+    eload.set_current(0.5); eload.enable()
+    verify("output_voltage", float(dmm.measure_dc_voltage()))
 ```
 
-#### Use Cases
-
-- **Setup steps:** Configure instruments before measurements
-- **Verification steps:** Check DUT connection, continuity tests
-- **Operator dialogs:** Confirm DUT placement, visual inspections
-- **Cleanup steps:** Disable outputs, safe state transitions
-
-#### Async Support
-
-```python
-@litmus_step
-async def wait_for_temperature(chamber, target):
-    """Async step - works with async functions."""
-    while await chamber.read_temp() < target:
-        await asyncio.sleep(1)
-```
+Any helper can be async — pytest-asyncio handles the test itself, and
+the helper is just awaited normally.
 
 ## Advanced Features
 

@@ -6,8 +6,11 @@ points:
 - :data:`__version__` — installed package version
 - :class:`LitmusClient` — programmatic client for scripts and notebooks
 - :func:`connect` — session-scoped context manager for interactive work
-- :func:`litmus_test` — primary decorator for pytest-native tests
 - :class:`TestHarness` — direct harness construction for advanced cases
+
+Tests themselves are plain pytest functions that consume the
+``context`` / ``verify`` / ``logger`` / ``spec`` fixtures provided by
+the Litmus pytest plugin — see ``docs/reference/pytest-native.md``.
 
 Every other public API lives under a sub-namespace; see
 ``docs/audits/public-api.md`` for the stable surface.
@@ -15,7 +18,7 @@ Every other public API lives under a sub-namespace; see
 
 from litmus.client import LitmusClient
 from litmus.connect import connect
-from litmus.execution import TestHarness, litmus_test
+from litmus.execution import TestHarness
 
 __version__ = "0.1.0"
 
@@ -24,5 +27,4 @@ __all__ = [
     "TestHarness",
     "__version__",
     "connect",
-    "litmus_test",
 ]

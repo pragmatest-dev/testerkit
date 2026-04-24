@@ -162,8 +162,3 @@ The three input sources are independent. Tests work under any combination:
 | ✓       | —    | `logger.measure("efficiency", eff)` — auto-resolves       |
 | ✓       | ✓    | spec.check for characteristics; logger.measure for procedure |
 | —       | —    | `assert 3.2 <= val <= 3.4` — pure pytest, no Litmus YAML  |
-
-## Relationship to `@litmus_test`
-
-`@litmus_test` still works and is not deprecated; the plugin supports both
-authoring styles simultaneously. New work should prefer pytest-native.

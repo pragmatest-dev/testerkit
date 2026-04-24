@@ -5,8 +5,6 @@ import uuid
 
 import pytest
 
-from litmus.execution.decorators import litmus_step
-
 # Generate a unique run ID for this test session (shared across all tests in this process)
 _SESSION_RUN_ID = os.environ.get("LITMUS_RUN_ID") or str(uuid.uuid4())
 
@@ -16,7 +14,6 @@ def _get_run_id() -> str:
     return _SESSION_RUN_ID
 
 
-@litmus_step
 @pytest.mark.asyncio
 async def test_with_confirm_dialog():
     """Test that prompts operator for confirmation."""
@@ -43,7 +40,6 @@ async def test_with_confirm_dialog():
     assert True, "DUT confirmed ready"
 
 
-@litmus_step
 @pytest.mark.asyncio
 async def test_with_input_dialog():
     """Test that prompts operator for input."""
@@ -68,7 +64,6 @@ async def test_with_input_dialog():
     print(f"Operator entered serial: {serial}")
 
 
-@litmus_step
 @pytest.mark.asyncio
 async def test_with_choice_dialog():
     """Test that prompts operator to select an option."""

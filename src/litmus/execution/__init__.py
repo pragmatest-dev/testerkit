@@ -2,10 +2,7 @@
 
 from litmus.execution.accessors import InstrumentAccessor
 from litmus.execution.decorators import (
-    get_current_harness,
     get_current_logger,
-    litmus_step,
-    litmus_test,
     measure,
 )
 from litmus.execution.harness import Context, TestHarness
@@ -30,10 +27,7 @@ __all__ = [
     "expand_vectors",
     "expand_zip",
     # Decorators
-    "get_current_harness",
     "get_current_logger",
-    "litmus_step",
-    "litmus_test",
     "measure",
     # Logger
     "RunContext",

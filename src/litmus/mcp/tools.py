@@ -676,78 +676,81 @@ FILE 1: tests/test_{product_id}.py
 
 """Tests for {product_name}.
 
-Inline decorator config is used for ad-hoc pytest runs.
-When running with --sequence, sequence step config overrides decorator config.
+Tests are plain pytest functions. Vectors, limits, and mocks live in
+the sidecar YAML next to this file (``test_{product_id}.yaml``). The
+``context`` and ``verify`` fixtures come from the Litmus pytest plugin.
 """
 
-from litmus.execution import litmus_test
+import pytest
 
 
-@litmus_test(
-    config={{"vectors": {{"expand": "product", "temperature": [25, 85], "load": [0.1, 0.5, 3.0]}}}},
-    limits={{"output_voltage": {{
-        "ref": "output_voltage", "guardband_pct": 10, "comparator": "GELE"
-    }}}},
-)
-def test_output_voltage(context, psu, dmm):
-    """Signal output voltage under various conditions."""
+@pytest.mark.parametrize("temperature", [25, 85])
+@pytest.mark.parametrize("load", [0.1, 0.5, 3.0])
+def test_output_voltage(context, psu, dmm, verify) -> None:
+    """Output voltage under various conditions."""
     psu.set_voltage(context.get_param("vin", 12.0))
     psu.enable_output()
-    return dmm.measure_dc_voltage()
+    verify("output_voltage", float(dmm.measure_dc_voltage()))
 
 
-@litmus_test(
-    limits={{"quiescent_current": {{"high": 100, "comparator": "LE", "units": "uA"}}}},
-)
-def test_quiescent_current(context, psu):
-    """Signal quiescent current in uA."""
+def test_quiescent_current(context, psu, verify) -> None:
+    """Quiescent current in uA."""
     psu.set_voltage(context.get_param("vin", 12.0))
     psu.enable_output()
-    current_a = psu.measure_current()  # Returns float in Amps
-    current_ua = current_a * 1e6  # Convert to µA
-    return current_ua
+    current_a = psu.measure_current()  # amps
+    verify("quiescent_current", current_a * 1e6)  # uA
 
 
-@litmus_test(
-    config={{"vectors": [
-        {{"load_current": 0.5, "_mocks": {{"dmm.measure_dc_voltage": 5.02}}}},
-        {{"load_current": 1.0, "_mocks": {{"dmm.measure_dc_voltage": 5.00}}}},
-        {{"load_current": 2.0, "_mocks": {{"dmm.measure_dc_voltage": 4.95}}}},
-    ]}},
-    limits={{"output_voltage": {{"ref": "output_voltage", "guardband_pct": 10}}}},
-)
-def test_load_regulation(context, psu, dmm, eload):
+@pytest.mark.parametrize("load_current", [0.5, 1.0, 2.0])
+def test_load_regulation(context, psu, dmm, eload, verify) -> None:
     """Output voltage under load."""
     psu.set_voltage(context.get_param("vin", 12.0))
     psu.enable_output()
-    eload.set_current(context.params["load_current"])
+    eload.set_current(context.get_param("load_current"))
     eload.enable()
-    vout = dmm.measure_dc_voltage()
+    verify("output_voltage", float(dmm.measure_dc_voltage()))
     eload.disable()
-    return vout
 
+
+================================================================================
+FILE 2: tests/test_{product_id}.yaml
+================================================================================
+
+# Sidecar: vectors/limits/mocks keyed by test function name.
+tests:
+  test_output_voltage:
+    limits:
+      output_voltage:
+        ref: output_voltage
+        guardband_pct: 10
+        comparator: GELE
+  test_quiescent_current:
+    limits:
+      quiescent_current:
+        high: 100
+        comparator: LE
+        units: uA
+  test_load_regulation:
+    limits:
+      output_voltage:
+        ref: output_voltage
+        guardband_pct: 10
+    mocks:
+      dmm.measure_dc_voltage: 5.0
 
 ================================================================================
 NOTES
 ================================================================================
 
-Test config (vectors, limits, mocks, retry) comes from two sources:
-1. Sequence steps (primary) — when running with --sequence
-2. Inline decorator (fallback) — for ad-hoc pytest runs
-
-Sequence step config REPLACES inline decorator config entirely.
-
-Naming convention:
-- Test/step level: vectors, limits, mocks, retry
-- Inside vector dicts: _limits, _mocks (underscore = metadata)
-
-Mock values:
-- Test-level mocks: constant for all vectors
-- Per-vector _mocks: different values per condition
-
-Limits with ref: Auto-derived from SpecBand using vector conditions
-- Nominal value ± accuracy from matching SpecBand
-- Guardband applied for manufacturing margin
+- Vectors: use ``@pytest.mark.parametrize`` or sidecar ``vectors:``.
+  Sidecar overrides decorator at collection time.
+- Limits: declared per-measurement in sidecar; use ``ref:`` to derive
+  from a product characteristic, or inline ``low/high`` for direct
+  bounds. Condition-indexed bands (``when:``) also supported.
+- Mocks: sidecar ``mocks:`` installs per-test. Use
+  ``--mock-instruments`` to run without hardware.
+- The framework checks limits inside ``verify(name, value)`` and
+  records a measurement row per call.
 '''
 
 INSTRUMENT_TEMPLATE = '''"""{instrument_name} driver.
@@ -845,8 +848,8 @@ def _read_file(path: str, project: str) -> dict[str, Any]:
             "name": "test",
             "content": TEST_TEMPLATE.format(product_name="ProductName", product_id="product_id"),
             "notes": [
-                "@litmus_test decorator handles vectors, limits, and logging",
-                "Just return the measured value - limits come from config.yaml",
+                "Tests are plain pytest functions; use context/verify fixtures",
+                "Vectors, limits, and mocks live in the sidecar YAML next to the test",
             ],
         }
 

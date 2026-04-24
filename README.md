@@ -12,14 +12,11 @@ Litmus handles the parts of hardware testing that aren't your test: instrument m
 New products start fast. Results are consistent across product lines. Every measurement records which instrument took it.
 
 ```python
-from litmus.execution import litmus_test
-
-@litmus_test
-def test_rail_3v3(context, psu, dmm):
+def test_rail_3v3(context, psu, dmm, verify):
     """Verify 3.3V output under load."""
     psu.set_voltage(context.get_param("vin"))
     psu.enable_output()
-    return dmm.measure_dc_voltage()
+    verify("rail_3v3", float(dmm.measure_dc_voltage()))
 ```
 
 ```yaml
@@ -88,18 +85,16 @@ instruments:
 
 ```python
 # tests/test_example.py
-from litmus.execution import litmus_test
-
-@litmus_test
-def test_output_voltage(context, psu, dmm):
+def test_output_voltage(context, psu, dmm, verify):
     """Verify output voltage is within spec."""
     vin = context.get_param("vin", 5.0)
     psu.set_voltage(vin)
     psu.enable_output()
-    return dmm.measure_dc_voltage()
+    verify("output_voltage", float(dmm.measure_dc_voltage()))
 ```
 
-`psu` and `dmm` come from your station config. No conftest.py needed.
+`psu` and `dmm` come from your station config. `context` and `verify`
+come from the Litmus pytest plugin. No conftest.py needed.
 
 ### Next steps
 
@@ -146,7 +141,7 @@ results/*.parquet         → Measurements with full traceability
 
 Everything is files. That means it goes in git. You get diffs on limit changes, code review on test sequences, and a history of every config change.
 
-## `@litmus_test` vs plain pytest
+## `verify()` vs plain `assert`
 
 Plain `assert` for pass/fail checks:
 
@@ -156,18 +151,20 @@ def test_power_on(psu):
     assert psu.get_status() == "ON"
 ```
 
-`@litmus_test` when you need recorded measurements:
+`verify()` when you need recorded measurements:
 
 ```python
-@litmus_test
-def test_rail_3v3(context, psu, dmm):
+def test_rail_3v3(context, psu, dmm, verify):
     psu.set_voltage(context.get_param("vin"))
     psu.enable_output()
-    return dmm.measure_dc_voltage()
-    # Return value → limit-checked → logged to Parquet with instrument identity
+    verify("rail_3v3", float(dmm.measure_dc_voltage()))
+    # → limit-checked against sidecar / product spec
+    # → logged to Parquet with instrument identity
 ```
 
-The decorator adds vector expansion, limit checking, measurement recording, retries, and mock value injection. Use it when you need any of that. Skip it when you don't.
+Vectors (`@pytest.mark.parametrize` or sidecar `vectors:`), limits,
+mocks, and retries are all driven by the pytest plugin and the sidecar
+YAML next to the test — no decorator needed.
 
 ## Capability matching
 

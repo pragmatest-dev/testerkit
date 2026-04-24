@@ -54,18 +54,16 @@ All configuration uses YAML files with Pydantic validation. Edit YAML directly o
 
 ## Writing Tests
 
-Tests are standard pytest functions using the `@litmus_test` decorator:
+Tests are plain pytest functions that use the Litmus-provided ``context``
+and ``verify`` fixtures. Vectors, limits, and mocks live in a sidecar
+YAML next to the test file:
 
 ```python
-from litmus.execution import litmus_test
-
-@litmus_test
-def test_output_voltage(context, psu, dmm):
+def test_output_voltage(context, psu, dmm, verify) -> None:
     """Verify output voltage is within spec."""
     psu.set_voltage(3.3)
     psu.enable_output()
-
-    return dmm.measure_voltage()
+    verify("output_voltage", float(dmm.measure_voltage()))
 ```
 
 ## AI Agent Integration
@@ -89,7 +87,7 @@ Read these on demand — don't load them all upfront:
 
 | Topic | File |
 |-------|------|
-| Writing `@litmus_test` functions | `{LITMUS_REFS}/test-writing.md` |
+| Writing pytest-native test functions | `{LITMUS_REFS}/test-writing.md` |
 | Limits, comparators, pass/fail | `{LITMUS_REFS}/limits.md` |
 | Station YAML | `{LITMUS_REFS}/station.md` |
 | Product spec YAML | `{LITMUS_REFS}/product.md` |

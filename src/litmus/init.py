@@ -581,27 +581,24 @@ def _create_starter_files(path: Path, project_name: str) -> list[str]:
     if not test_file.exists():
         test_content = '''"""Example test demonstrating Litmus basics.
 
-The test code focuses on WHAT to do, not configuration.
-Vectors, limits, and mocks are defined in sequences/example_sequence.yaml.
+The test code focuses on WHAT to do. Vectors, limits, and mocks are
+declared in the sidecar ``test_example.yaml`` next to this file.
 
 Run with: pytest
 (All defaults configured in pyproject.toml)
 
 Instrument fixtures (psu, dmm) are auto-registered from station config.
+The ``context`` and ``verify`` fixtures are provided by the Litmus
+pytest plugin.
 """
-from litmus.execution import litmus_test
 
 
-@litmus_test
-def test_output_voltage(context, psu, dmm):
-    """Verify output voltage is within spec.
-
-    Config (vectors, limits, mocks) comes from sequence step.
-    """
+def test_output_voltage(context, psu, dmm, verify) -> None:
+    """Verify output voltage is within spec."""
     vin = context.get_param("vin", 5.0)
     psu.set_voltage(vin)
     psu.enable_output()
-    return dmm.measure_dc_voltage()
+    verify("output_voltage", float(dmm.measure_dc_voltage()))
 '''
         test_file.write_text(test_content)
         created_files.append("tests/test_example.py")

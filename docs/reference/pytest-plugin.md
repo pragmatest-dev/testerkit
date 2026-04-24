@@ -428,20 +428,6 @@ def test_output_sweep(context, dmm, logger):
 pytest tests/ --dut-serial=TEST001 -v
 ```
 
-## Legacy: `@litmus_test` decorator
-
-`@litmus_test` is the pre-pytest-native authoring style. New code should use the three-fixture pattern above. The decorator is preserved so existing suites keep running; it is not recommended for new tests.
-
-```python
-from litmus.execution import litmus_test
-
-@litmus_test
-def test_voltage(context, dmm):
-    return dmm.measure_dc_voltage()
-```
-
-Under the decorator, the test's return value is captured as the measurement; vectors/limits/retry come from a `config.yaml` keyed by test function name. See the source of `litmus.execution.decorators` for the full parameter list. For migration, replace the decorator with a plain `def` that calls `logger.measure(name, value, ...)` and move the per-test `config.yaml` block into a sidecar `test_<module>.yaml`.
-
 ## Next Steps
 
 - [pytest-native reference](pytest-native.md) — Three fixtures, sidecar YAML, limit bands, `vectors` fixture

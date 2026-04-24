@@ -28,11 +28,8 @@ instruments: {}
     )
 
     pytester.makepyfile("""
-from litmus.execution import litmus_test
-
-@litmus_test
-def test_dummy(context):
-    return 1.0
+def test_dummy(context, verify):
+    verify("dummy", 1.0)
 """)
     return pytester
 

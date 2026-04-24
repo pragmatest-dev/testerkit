@@ -206,11 +206,13 @@ This is COLLABORATIVE — propose and wait for approval at each step.
 5. **Create Station Config**: Show config, ask approval, save.
 
 6. **Create Test Files**: MUST create BOTH files
-   - `tests/test_<part>.py` — Python test using `@litmus_test` decorator
-   - `tests/config.yaml` — vectors, limits, and _mock values
+   - `tests/test_<part>.py` — plain pytest test using the ``context`` and
+     ``verify`` fixtures (no decorator)
+   - `tests/test_<part>.yaml` — sidecar: ``vectors``, ``limits``, and
+     ``mocks`` keyed by test function name
    ```python
    litmus(action="save", type="test", id="tests/test_part.py", content={
-       "code": "from litmus.execution import litmus_test\\n..."
+       "code": "def test_foo(context, verify): ..."
    }, project=project_root)
    ```
 

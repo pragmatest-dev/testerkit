@@ -345,7 +345,7 @@ class TestEventLogIntegration:
             module="tests.test_power",
             class_name="TestPower",
             function="test_5v_rail",
-            markers="litmus_test,parametrize",
+            markers="parametrize",
         )
 
         step = logger.test_run.steps[0]
@@ -354,4 +354,4 @@ class TestEventLogIntegration:
         assert step.module == "tests.test_power"
         assert step.class_name == "TestPower"
         assert step.function == "test_5v_rail"
-        assert step.markers == "litmus_test,parametrize"
+        assert step.markers == "parametrize"

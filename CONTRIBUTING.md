@@ -21,8 +21,8 @@ Litmus is a **hardware test platform** organized into distinct subsystems:
 ┌─────────────────────────────────────────────────────────────────────┐
 │                          Test Execution                              │
 │  ┌─────────────┐    ┌─────────────┐    ┌─────────────────────────┐  │
-│  │   pytest    │───▶│   plugin    │───▶│  @litmus_test decorator │  │
-│  │             │    │  (fixtures) │    │  + TestHarness          │  │
+│  │   pytest    │───▶│   plugin    │───▶│  fixtures (context,     │  │
+│  │             │    │  (hooks)    │    │  verify, logger, spec)  │  │
 │  └─────────────┘    └─────────────┘    └─────────────────────────┘  │
 │         │                  │                        │                │
 │         ▼                  ▼                        ▼                │
@@ -58,7 +58,7 @@ Litmus is a **hardware test platform** organized into distinct subsystems:
 
 ### Key Design Principles
 
-1. **Two Abstraction Levels**: Users get the simple `@litmus_test` + `context` API. Test architects can use `TestHarness` directly for full control.
+1. **Two Abstraction Levels**: Users get the simple pytest-native fixtures (`context`, `verify`, `logger`, `spec`). Test architects can construct a `TestHarness` directly for full control (non-pytest runners, custom flow).
 
 2. **Configuration-Driven**: Test behavior (vectors, limits, retries) lives in YAML, not code. This enables non-developers to modify tests.
 
@@ -115,7 +115,7 @@ Test vectors are defined in config and drive test looping. They are a subset of 
 - **Vector** (`litmus/execution/vectors.py`): A dict subclass representing one parameter set from config. The harness expands and iterates over these internally.
 - **Context** (`litmus/execution/harness.py`): The user-facing API that test functions receive. Contains vector params plus inherited run/step data, observations, and access to limits.
 
-When using `@litmus_test`, you get a fully-populated `Context`. When using `TestHarness` directly, you iterate `Vector` objects and must use `run_vector()` to construct each vector-level context (which auto-populates vector params into it).
+When using the pytest-native `context` fixture, you get a fully-populated `Context` for the active vector. When using `TestHarness` directly, you iterate `Vector` objects and must use `run_vector()` to construct each vector-level context (which auto-populates vector params into it).
 
 ### TestHarness
 
@@ -153,26 +153,23 @@ class TestHarness:
     def prompt(message: str, prompt_type: str = "confirm") -> Any
 ```
 
-### The @litmus_test Decorator
+### pytest-native Fixtures
 
-The `@litmus_test` decorator (`litmus/execution/decorators.py`) wraps test functions to:
+The pytest plugin (`litmus/execution/plugin.py`) exposes the user-facing API
+as a set of fixtures. A test function's signature declares which it wants:
 
-1. Create a `TestHarness` from config (inline or YAML file)
-2. Iterate over all vectors
-3. Inject the `context` as first parameter (or via kwargs)
-4. Handle retries
-5. Record measurements from return values
+- `context` — current-vector `Context` (params, observations, change tracking)
+- `verify` — `verify(name, value)` shortcut that resolves a limit from sidecar
+  YAML / product spec and records a checked measurement
+- `logger` — `TestRunLogger` for `measure(name, value, limit=...)` and
+  `record(...)` when you need full control
+- `spec` — `SpecContext` bound to the session's product, for
+  `spec.check(char_name, value)` against product characteristics
 
-**Config resolution order:**
-1. Inline `config={}` parameter (highest precedence)
-2. `config_file=` parameter (explicit path)
-3. Auto-discovered `config.yaml` in test file's directory
-
-**Return value handling:**
-- Single value → logged as measurement with function name
-- Dict → each key-value logged as separate measurement
-- Tuple `(name, value)` → single named measurement
-- Generator → streamed measurements
+Vector expansion is driven by `@pytest.mark.parametrize` and/or sidecar
+`vectors:` blocks in `test_<name>.yaml`. Limit resolution chain is:
+explicit `limit=` → sidecar `limits:` entry (flat or condition-indexed
+via `when:`) → active product spec → unchecked.
 
 ### Data Models
 
@@ -267,18 +264,17 @@ class SpecContext:
    ├── instruments fixture connects to hardware (or mocks)
    └── spec_context fixture loads product spec
 
-3. Each test function
-   ├── @litmus_test decorator takes over
-   │   ├── Creates TestHarness with config
-   │   ├── Expands vectors from config
-   │   └── For each vector:
-   │       ├── run_vector() creates Context
-   │       ├── Injects context into test function
-   │       ├── Test runs, returns value(s)
-   │       ├── _record_result() creates Measurements
-   │       └── Measurements checked against limits
+3. Each parametrize case / vector
+   ├── pytest_runtest_call opens a logger step
+   ├── context / verify / logger / spec fixtures resolve
+   ├── Active vector params pushed into ContextVars
+   ├── Test body runs — verify(name, value) calls:
+   │   ├── Resolve limit (sidecar → product spec → unchecked)
+   │   ├── logger.measure() creates Measurement
+   │   ├── measurement.check_limit()
+   │   └── Append to current TestVector
    │
-   └── Results accumulated in TestStep
+   └── pytest_runtest_call closes the step; outcome rolls up
 
 4. Session ends
    ├── logger.finalize() completes TestRun
@@ -338,7 +334,7 @@ The core test execution engine.
 | `plugin.py` | pytest plugin - fixtures, hooks, CLI options |
 | `harness.py` | TestHarness + Context classes |
 | `vectors.py` | Vector expansion (product, zip, nested, range) |
-| `decorators.py` | @litmus_test, @measure, @litmus_step decorators |
+| `decorators.py` | @measure decorator + current-logger ContextVar helpers |
 | `logger.py` | TestRunLogger for accumulating results |
 | `runner.py` | Async subprocess runner for UI |
 

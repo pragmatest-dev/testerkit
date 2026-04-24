@@ -485,5 +485,5 @@ print(product.characteristics["output_voltage"].nominal)
 ## Next Steps
 
 - [pytest-native Reference](pytest-native.md) — Fixtures, markers, sidecar YAML
-- [pytest Plugin Guide](pytest-plugin.md) — Legacy `@litmus_test` decorator reference
+- [pytest Plugin Guide](pytest-plugin.md) — Plugin CLI flags and fixture reference
 - [Core Concepts](concepts.md) — Understanding the data model

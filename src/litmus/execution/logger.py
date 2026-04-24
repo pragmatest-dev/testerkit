@@ -325,8 +325,7 @@ class RunContext:
 
     Allows test architects to add custom fields that become columns in Parquet:
 
-        @litmus_test
-        def test_output_voltage(vector, psu, dmm, run_context):
+        def test_output_voltage(context, psu, dmm, verify, run_context):
             # Add custom fields - become columns in Parquet
             run_context.set("operator_badge", badge_id)
             run_context.set("operator_shift", "day")
@@ -334,8 +333,8 @@ class RunContext:
             run_context.set("fixture_serial", "FIX-001")
 
             # Normal test...
-            psu.set_voltage(vector["vin"])
-            return dmm.measure_dc_voltage()
+            psu.set_voltage(context.get_param("vin"))
+            verify("output_voltage", float(dmm.measure_dc_voltage()))
 
     Custom fields are prefixed with their entity or use a `custom_` prefix:
     - `operator_badge`, `operator_shift` → grouped with operator

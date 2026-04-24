@@ -469,8 +469,8 @@ def test_changed_chains_across_parametrize_cases(pytester: pytest.Pytester) -> N
     case has the same ``vin`` as the previous case, True otherwise.
 
     Verifies the class-scoped ``_PREV_CONTEXTS`` tracker wires each case's
-    ``Context._prev`` to the prior case so ``@litmus_test``'s vector-loop
-    change-detection behavior still works under pytest parametrize.
+    ``Context._prev`` to the prior case so change-detection still works
+    across adjacent pytest parametrize cases.
     """
     _write_sequence(
         pytester,
