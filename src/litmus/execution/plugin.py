@@ -582,6 +582,12 @@ def pytest_configure(config):
     """Register Litmus markers and auto-register instrument role fixtures."""
     for marker in (
         "litmus_limits(**kwargs): Inject limits by measurement name (merges with sidecar limits:)",
+        "litmus_binding(**kwargs): Test-level binding to a product "
+        "characteristic, fixturepoints list, or instrument channels map.",
+        "litmus_prompt(**kwargs): Operator prompt hook; kwargs select "
+        "timing (before_all | before_each) and message template.",
+        "litmus_mock(**kwargs): Install a mock for the duration of a "
+        "test; kwargs follow mocker.patch.object(target, ...).",
     ):
         config.addinivalue_line("markers", marker)
     _install_active_profile(config)
