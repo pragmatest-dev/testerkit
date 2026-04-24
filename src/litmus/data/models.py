@@ -344,7 +344,9 @@ class TestRun(BaseModel):
     test_sequence_id: str
     test_phase: str = "production"
     profile: str | None = None  # active --litmus-profile name, if any
-    facets: dict[str, str] = Field(default_factory=dict)  # resolved profile facets
+    # Raw CLI facet values used to select the profile; combined with git SHA
+    # this is the minimum reproducibility payload for the run.
+    profile_facets: dict[str, str] = Field(default_factory=dict)
 
     # Operator
     operator_id: str | None = None  # from --operator

@@ -709,7 +709,7 @@ def pytest_sessionstart(session):
         return
 
     requested_phase = config.getoption("--test-phase") or os.environ.get("LITMUS_TEST_PHASE")
-    test_phase = _resolve_test_phase(requested_phase)
+    test_phase = _resolve_test_phase(requested_phase, mocks_active=_mocks_active(config))
 
     if test_phase == "development":
         return
@@ -1370,26 +1370,28 @@ def pytest_addoption(parser):
         )
 
 
-def _resolve_test_phase(requested_phase: str | None) -> str:
-    """Resolve test phase, enforcing development for dirty/non-git repos.
+def _resolve_test_phase(requested_phase: str | None, mocks_active: bool = False) -> str:
+    """Resolve the ``test_phase`` data stamp.
 
-    If git is unavailable or repo has uncommitted changes, always returns
-    "development" regardless of requested phase. This prevents non-development
-    runs from being created in untracked environments.
+    Demotes to ``"development"`` when the run cannot produce trustworthy
+    data, regardless of what the operator requested:
 
-    Args:
-        requested_phase: Explicitly requested phase, or None for auto-detect
+    * Dirty git (or git unavailable) — code under test isn't recorded.
+    * ``--mock-instruments`` active — measurements aren't real.
 
-    Returns:
-        Resolved test phase string
+    Both demotions apply to the **data stamp only**. Profile selection
+    reads the raw CLI facet value via ``_collect_facet_flags_from_config``
+    (unmodified), so ``--test-phase=production --mock-instruments`` on
+    a dev checkout still applies the production profile for test
+    execution (limits, markers, fixtures) — it just stamps the run
+    ``test_phase='development'`` so dashboards ignore it.
     """
     from litmus.execution._git import is_git_clean
 
-    if not is_git_clean():
-        # Can't run anything other than development without clean git
+    if mocks_active:
         return "development"
-
-    # Clean repo - use requested phase or default to development
+    if not is_git_clean():
+        return "development"
     return requested_phase or "development"
 
 
@@ -1574,7 +1576,7 @@ def _build_run_metadata(request: pytest.FixtureRequest) -> dict[str, Any]:
     requested_phase = request.config.getoption("--test-phase") or os.environ.get(
         "LITMUS_TEST_PHASE"
     )
-    test_phase = _resolve_test_phase(requested_phase)
+    test_phase = _resolve_test_phase(requested_phase, mocks_active=_mocks_active(request.config))
 
     instrument_records = _safe_get_session_fixture(request, "instrument_records")
 
@@ -1591,7 +1593,7 @@ def _build_run_metadata(request: pytest.FixtureRequest) -> dict[str, Any]:
     env = capture_environment()
     project_name = get_project_name(request.config.rootpath)
     profile_name = request.config.getoption("--litmus-profile", default=None)
-    facets = dict(get_active_facets())
+    profile_facets = dict(get_active_facets())
 
     return {
         "dut_serial": request.config.getoption("--dut-serial"),
@@ -1613,7 +1615,7 @@ def _build_run_metadata(request: pytest.FixtureRequest) -> dict[str, Any]:
         "results_dir": results_dir,
         "test_phase": test_phase,
         "profile": profile_name,
-        "facets": facets,
+        "profile_facets": profile_facets,
         "instruments": instrument_records,
         "environment": env,
     }
@@ -2008,32 +2010,29 @@ def _autodiscover_product(
     return SpecContext.from_file(product_files[0], guardband_pct=guardband)
 
 
+def _mocks_active(config: pytest.Config) -> bool:
+    """Return whether mock instruments are requested.
+
+    Shared by ``pytest_sessionstart``, ``_build_run_metadata``, and the
+    ``mock_instruments`` session fixture — single source of truth for
+    the combined ``--mock-instruments`` flag + ``LITMUS_MOCK_INSTRUMENTS``
+    env-var check.
+    """
+    return bool(
+        config.getoption("--mock-instruments") or os.environ.get("LITMUS_MOCK_INSTRUMENTS") == "1"
+    )
+
+
 @pytest.fixture(scope="session")
 def mock_instruments(request) -> bool:
     """Return whether to use mock instruments instead of real hardware.
 
-    Checks both:
-    - --mock-instruments pytest option
-    - LITMUS_MOCK_INSTRUMENTS environment variable (set by UI)
-
-    Raises:
-        pytest.UsageError: If mocks requested for non-dev test phase.
+    Mocks do not block any test_phase; ``_resolve_test_phase`` demotes
+    the run's data stamp to ``"development"`` when mocks are active, so
+    profile-driven limits/markers still apply but dashboards ignore
+    the row. See ``_resolve_test_phase`` for the demotion rule.
     """
-    use_mocks = (
-        request.config.getoption("--mock-instruments")
-        or os.environ.get("LITMUS_MOCK_INSTRUMENTS") == "1"
-    )
-
-    # Prevent mocks in production/validation/characterization phases
-    test_phase = get_sequence_test_phase()
-    if use_mocks and test_phase is not None and test_phase != "development":
-        raise pytest.UsageError(
-            f"Mock instruments not allowed for test_phase='{test_phase}'. "
-            f"Mocks are only permitted for test_phase='development'. "
-            f"Remove --mock-instruments or change sequence test_phase to 'development'."
-        )
-
-    return use_mocks
+    return _mocks_active(request.config)
 
 
 @pytest.fixture(scope="session")

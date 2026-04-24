@@ -409,7 +409,7 @@ class TestRunLogger:
         operator_name: str | None = None,
         test_phase: str = "production",
         profile: str | None = None,
-        facets: dict[str, str] | None = None,
+        profile_facets: dict[str, str] | None = None,
         session_id: UUID | None = None,
         run_id: UUID | str | None = None,
         # Product traceability
@@ -479,7 +479,7 @@ class TestRunLogger:
             test_sequence_id=test_sequence_id,
             test_phase=test_phase,
             profile=profile,
-            facets=facets or {},
+            profile_facets=profile_facets or {},
             product_id=product_id,
             product_name=product_name,
             product_revision=product_revision,
