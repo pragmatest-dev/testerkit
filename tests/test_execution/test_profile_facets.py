@@ -1,6 +1,6 @@
 """Profile ``extends:`` chain + ``profiles/*.yaml`` discovery.
 
-Unit tests for the pure resolver (``_flatten_profile_chain``) and for
+Unit tests for the pure resolver (``flatten_profile_chain``) and for
 ``load_project`` picking up one-file-per-profile YAMLs.
 """
 
@@ -11,7 +11,7 @@ from pathlib import Path
 import pytest
 
 from litmus.config.test_config import ClassMarkers, MarkerSpec, TestMarkers
-from litmus.execution.plugin import _flatten_profile_chain, _resolve_active_profile
+from litmus.execution.profiles import flatten_profile_chain, resolve_active_profile
 from litmus.models.project import ProfileConfig, ProfilePytest, ProjectConfig
 from litmus.store import load_project
 
@@ -35,7 +35,7 @@ class TestFlattenProfileChain:
             tests={"test_a": TestMarkers(markers=[_limits(tol=1.0)])},
         )
         project = _make_project({"char": leaf})
-        merged = _flatten_profile_chain("char", project)
+        merged = flatten_profile_chain("char", project)
         assert merged.facets == {"test_phase": "characterization"}
         assert merged.tests == {"test_a": TestMarkers(markers=[_limits(tol=1.0)])}
         assert merged.extends is None
@@ -50,7 +50,7 @@ class TestFlattenProfileChain:
             tests={"test_rail": TestMarkers(markers=[_limits(low=3.25, high=3.35)])},
         )
         project = _make_project({"family": parent, "prod-tps54302": child})
-        merged = _flatten_profile_chain("prod-tps54302", project)
+        merged = flatten_profile_chain("prod-tps54302", project)
         # Parent-first merge: both markers present; consumer picks last-wins.
         assert merged.tests["test_rail"].markers == [
             _limits(low=3.2, high=3.4),
@@ -70,7 +70,7 @@ class TestFlattenProfileChain:
             tests={"test_output": TestMarkers(markers=[_limits(tol_pct=1.0)])},
         )
         project = _make_project({"family": parent, "leaf": child})
-        merged = _flatten_profile_chain("leaf", project)
+        merged = flatten_profile_chain("leaf", project)
         assert merged.tests["test_rail"].markers == [
             _parametrize("vin", [5.0]),
             _limits(low=3.2, high=3.4),
@@ -86,7 +86,7 @@ class TestFlattenProfileChain:
             classes={"TestRails": ClassMarkers(markers=[_limits(tol=1.0)])},
         )
         project = _make_project({"family": parent, "leaf": child})
-        merged = _flatten_profile_chain("leaf", project)
+        merged = flatten_profile_chain("leaf", project)
         assert merged.classes["TestRails"].markers == [
             _parametrize("vin", [4.5, 5.0]),
             _limits(tol=1.0),
@@ -96,7 +96,7 @@ class TestFlattenProfileChain:
         parent = ProfileConfig(markers=[_limits(tolerance_pct=5.0)])
         child = ProfileConfig(extends="family", markers=[_limits(tolerance_pct=1.0)])
         project = _make_project({"family": parent, "leaf": child})
-        merged = _flatten_profile_chain("leaf", project)
+        merged = flatten_profile_chain("leaf", project)
         assert merged.markers == [
             _limits(tolerance_pct=5.0),
             _limits(tolerance_pct=1.0),
@@ -109,7 +109,7 @@ class TestFlattenProfileChain:
             pytest=ProfilePytest(addopts="-p no:cacheprovider"),
         )
         project = _make_project({"family": parent, "leaf": child})
-        merged = _flatten_profile_chain("leaf", project)
+        merged = flatten_profile_chain("leaf", project)
         assert merged.pytest.addopts == "--strict-markers -p no:cacheprovider"
 
     def test_pytest_markexpr_and_keyword_child_wins_when_set(self) -> None:
@@ -119,7 +119,7 @@ class TestFlattenProfileChain:
             pytest=ProfilePytest(markexpr="production"),
         )
         project = _make_project({"family": parent, "leaf": child})
-        merged = _flatten_profile_chain("leaf", project)
+        merged = flatten_profile_chain("leaf", project)
         assert merged.pytest.markexpr == "production"
         assert merged.pytest.keyword == "rail"
 
@@ -128,13 +128,13 @@ class TestFlattenProfileChain:
         b = ProfileConfig(extends="a")
         project = _make_project({"a": a, "b": b})
         with pytest.raises(pytest.UsageError, match="Cyclic profile extends chain"):
-            _flatten_profile_chain("a", project)
+            flatten_profile_chain("a", project)
 
     def test_self_extends_raises_usage_error(self) -> None:
         loop = ProfileConfig(extends="loop")
         project = _make_project({"loop": loop})
         with pytest.raises(pytest.UsageError, match="Cyclic profile extends chain"):
-            _flatten_profile_chain("loop", project)
+            flatten_profile_chain("loop", project)
 
     def test_unknown_parent_raises_usage_error(self) -> None:
         orphan = ProfileConfig(extends="nonexistent")
@@ -143,7 +143,7 @@ class TestFlattenProfileChain:
             pytest.UsageError,
             match="extends unknown profile 'nonexistent'",
         ):
-            _flatten_profile_chain("orphan", project)
+            flatten_profile_chain("orphan", project)
 
     def test_three_level_chain_walks_parent_first(self) -> None:
         grandparent = ProfileConfig(
@@ -158,7 +158,7 @@ class TestFlattenProfileChain:
             tests={"test_a": TestMarkers(markers=[_limits(v=99)])},
         )
         project = _make_project({"grandparent": grandparent, "parent": parent, "child": child})
-        merged = _flatten_profile_chain("child", project)
+        merged = flatten_profile_chain("child", project)
         assert merged.tests["test_a"].markers == [_limits(v=1), _limits(v=99)]
         assert merged.tests["test_b"].markers == [_limits(v=2)]
 
@@ -174,7 +174,7 @@ class TestResolveActiveProfileWithExtends:
             tests={"test_rail": TestMarkers(markers=[_limits(low=3.25)])},
         )
         project = _make_project({"family": parent, "prod-tps54302": child})
-        name, profile, facets = _resolve_active_profile(
+        name, profile, facets = resolve_active_profile(
             None, {"test_phase": "production", "product": "tps54302"}, project
         )
         assert name == "prod-tps54302"
@@ -188,14 +188,14 @@ class TestResolveActiveProfileWithExtends:
         )
         project = _make_project({"family": parent})
         with pytest.raises(pytest.UsageError, match="No profile matches the facet query"):
-            _resolve_active_profile(None, {"test_phase": "production"}, project)
+            resolve_active_profile(None, {"test_phase": "production"}, project)
 
     def test_parent_reachable_via_litmus_profile_name(self) -> None:
         parent = ProfileConfig(
             tests={"test_rail": TestMarkers(markers=[_limits(low=3.2)])},
         )
         project = _make_project({"family": parent})
-        name, profile, _facets = _resolve_active_profile("family", {}, project)
+        name, profile, _facets = resolve_active_profile("family", {}, project)
         assert name == "family"
         assert profile is not None
         assert profile.tests["test_rail"].markers == [_limits(low=3.2)]
@@ -209,7 +209,7 @@ class TestResolveActiveProfileWithExtends:
             tests={"test_rail": TestMarkers(markers=[_limits(low=3.25, high=3.35)])},
         )
         project = _make_project({"family": parent, "prod": child})
-        _name, profile, _facets = _resolve_active_profile("prod", {}, project)
+        _name, profile, _facets = resolve_active_profile("prod", {}, project)
         assert profile is not None
         assert profile.tests["test_rail"].markers == [
             _limits(low=3.2, high=3.4),
@@ -274,5 +274,5 @@ class TestProfilesDirLoader:
         project = load_project(tmp_path / "litmus.yaml")
         leaf = project.profiles["leaf"]
         assert leaf.extends == "family"
-        merged = _flatten_profile_chain("leaf", project)
+        merged = flatten_profile_chain("leaf", project)
         assert merged.tests["test_rail"].markers == [_limits(low=3.2, high=3.4)]

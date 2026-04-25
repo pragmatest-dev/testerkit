@@ -12,39 +12,39 @@ from unittest.mock import patch
 
 import pytest
 
-from litmus.execution.plugin import _resolve_test_phase
+from litmus.execution.profiles import resolve_test_phase
 
 
 class TestResolveTestPhase:
     def test_clean_git_no_mocks_honors_requested_phase(self) -> None:
         with patch("litmus.execution._git.is_git_clean", return_value=True):
-            assert _resolve_test_phase("production") == "production"
+            assert resolve_test_phase("production") == "production"
 
     def test_dirty_git_demotes_regardless_of_request(self) -> None:
         with patch("litmus.execution._git.is_git_clean", return_value=False):
-            assert _resolve_test_phase("production") == "development"
-            assert _resolve_test_phase("validation") == "development"
-            assert _resolve_test_phase("characterization") == "development"
+            assert resolve_test_phase("production") == "development"
+            assert resolve_test_phase("validation") == "development"
+            assert resolve_test_phase("characterization") == "development"
 
     def test_mocks_active_demotes_regardless_of_request(self) -> None:
         """Mocks active → stamp = development, even on a clean repo."""
         with patch("litmus.execution._git.is_git_clean", return_value=True):
-            assert _resolve_test_phase("production", mocks_active=True) == "development"
-            assert _resolve_test_phase("validation", mocks_active=True) == "development"
+            assert resolve_test_phase("production", mocks_active=True) == "development"
+            assert resolve_test_phase("validation", mocks_active=True) == "development"
 
     def test_dirty_git_plus_mocks_still_demotes(self) -> None:
         """Either dirty git OR mocks is sufficient for demotion."""
         with patch("litmus.execution._git.is_git_clean", return_value=False):
-            assert _resolve_test_phase("production", mocks_active=True) == "development"
+            assert resolve_test_phase("production", mocks_active=True) == "development"
 
     def test_none_requested_defaults_to_development(self) -> None:
         with patch("litmus.execution._git.is_git_clean", return_value=True):
-            assert _resolve_test_phase(None) == "development"
+            assert resolve_test_phase(None) == "development"
 
     def test_mocks_short_circuits_before_git_check(self) -> None:
         """Mocks-active branch should not even consult git status."""
         with patch("litmus.execution._git.is_git_clean", side_effect=AssertionError):
-            assert _resolve_test_phase("production", mocks_active=True) == "development"
+            assert resolve_test_phase("production", mocks_active=True) == "development"
 
 
 class TestMockInstrumentsNoUsageError:

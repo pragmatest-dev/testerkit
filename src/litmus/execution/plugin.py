@@ -14,11 +14,9 @@ from uuid import UUID, uuid4
 import pytest
 
 from litmus.config.test_config import (
-    ClassMarkers,
     FixtureConfig,
     FixturePoint,
     MarkerSpec,
-    TestMarkers,
 )
 from litmus.data.models import CollectedItem, TestRun, TestVector
 from litmus.execution._state import (
@@ -69,6 +67,14 @@ from litmus.execution.accessors import InstrumentAccessor
 from litmus.execution.decorators import get_current_logger, set_current_logger
 from litmus.execution.harness import Context
 from litmus.execution.logger import RunContext, TestRunLogger
+from litmus.execution.profiles import (
+    apply_profile_addopts_env,
+    collect_profile_facet_keys,
+    facet_key_to_cli_flag,
+    install_active_profile,
+    load_project_defaults,
+    resolve_test_phase,
+)
 from litmus.execution.verify import (  # noqa: F401 — verify re-exported as pytest fixture
     LimitsFn,
     verify,
@@ -77,7 +83,7 @@ from litmus.fixtures.manager import FixtureManager, PinAccessor
 from litmus.instruments.pool import InstrumentPool
 from litmus.instruments.route_manager import RouteManager
 from litmus.models.instrument import InstrumentRecord
-from litmus.models.project import OutputConfig, ProfileConfig, ProjectConfig
+from litmus.models.project import OutputConfig
 from litmus.models.station import StationConfig
 from litmus.products.context import SpecContext
 
@@ -326,7 +332,7 @@ def pytest_configure(config):
         "test; kwargs follow mocker.patch.object(target, ...).",
     ):
         config.addinivalue_line("markers", marker)
-    _install_active_profile(config)
+    install_active_profile(config)
 
     # Auto-register instrument role fixtures from station config
     station_path = _find_station_file(config)
@@ -451,7 +457,7 @@ def pytest_sessionstart(session):
         return
 
     requested_phase = config.getoption("--test-phase") or os.environ.get("LITMUS_TEST_PHASE")
-    test_phase = _resolve_test_phase(requested_phase, mocks_active=_mocks_active(config))
+    test_phase = resolve_test_phase(requested_phase, mocks_active=_mocks_active(config))
 
     if test_phase == "development":
         return
@@ -569,7 +575,7 @@ def _apply_profile_to_items(config, items: list[pytest.Item]) -> None:
     """Inject profile markers onto items from the three profile scopes.
 
     Filter composition (``keyword``, ``markexpr``) happens in
-    ``_install_active_profile`` during ``pytest_configure``; this step
+    ``install_active_profile`` during ``pytest_configure``; this step
     only handles per-item marker injection, which must happen at
     collection time. Accumulates file-level + class + per-test markers
     via :func:`_profile_markers_for_item`.
@@ -607,17 +613,6 @@ def _apply_sidecar_to_items(items: list[pytest.Item]) -> None:
             item.add_marker(marker(*spec.args, **spec.kwargs))
 
 
-def _compose_filter_expr(profile_expr: str, cli_expr: str) -> str:
-    """AND-compose a profile filter with any CLI-provided filter."""
-    profile_expr = (profile_expr or "").strip()
-    cli_expr = (cli_expr or "").strip()
-    if not profile_expr:
-        return cli_expr
-    if not cli_expr:
-        return profile_expr
-    return f"({profile_expr}) and ({cli_expr})"
-
-
 def pytest_sessionfinish(session, exitstatus):
     """Clean up all session-scoped ContextVars and module-level state."""
     set_active_instruments({})
@@ -632,288 +627,14 @@ def pytest_sessionfinish(session, exitstatus):
     set_active_profile(None)
 
 
-def _load_project_defaults() -> ProjectConfig:
-    """Load ProjectConfig from litmus.yaml, falling back to defaults."""
-    try:
-        from litmus.store import load_project_config
-
-        return load_project_config()
-    except Exception:  # noqa: BLE001 — any load failure falls back to defaults
-        # Bad or missing litmus.yaml — don't crash pytest over config
-        return ProjectConfig(name="litmus")
-
-
-def _collect_profile_facet_keys(project: ProjectConfig) -> list[str]:
-    """Return the union of facet keys declared across all profiles.
-
-    Used to auto-synthesize one ``--<facet>`` CLI flag per declared key,
-    so operators can select profiles by facet query instead of by name.
-    """
-    keys: set[str] = set()
-    for profile in project.profiles.values():
-        keys.update(profile.facets)
-    return sorted(keys)
-
-
-def _facet_key_to_cli_flag(key: str) -> str:
-    """Map a facet key (``product``, ``instrument_set``) to its CLI flag form."""
-    return f"--{key.replace('_', '-')}"
-
-
-def _resolve_profile_name(profile_name: str | None) -> ProfileConfig | None:
-    """Look up ``profile_name`` in litmus.yaml ``profiles:``; raise on unknown.
-
-    Returns ``None`` when ``profile_name`` is falsy. Returns the matching
-    ``ProfileConfig`` when found. Raises ``pytest.UsageError`` for a
-    missing profile so the mistake surfaces at session start rather than
-    silently running with no overrides applied.
-    """
-    if not profile_name:
-        return None
-    project = _load_project_defaults()
-    profile = project.profiles.get(profile_name)
-    if profile is None:
-        known = ", ".join(sorted(project.profiles)) or "(none defined)"
-        raise pytest.UsageError(
-            f"Unknown --litmus-profile={profile_name!r}; known profiles: {known}"
-        )
-    return profile
-
-
-def _flatten_profile_chain(leaf_name: str, project: ProjectConfig) -> ProfileConfig:
-    """Walk ``extends`` chain parent-first and merge into a single profile.
-
-    The leaf profile is the starting point; each ``extends`` link walks one
-    step further up the chain. The merge is parent-first so child values
-    win on conflicts — same rule as stacked pytest decorators.
-
-    Raises ``pytest.UsageError`` on an unknown parent or a cycle.
-    """
-    from litmus.models.project import ProfilePytest
-
-    chain: list[ProfileConfig] = []
-    visited: list[str] = []
-    current: str | None = leaf_name
-    while current is not None:
-        if current in visited:
-            cycle = " -> ".join(visited + [current])
-            raise pytest.UsageError(f"Cyclic profile extends chain: {cycle}")
-        profile = project.profiles.get(current)
-        if profile is None:
-            if not visited:
-                known = ", ".join(sorted(project.profiles)) or "(none defined)"
-                raise pytest.UsageError(f"Unknown profile {current!r}; known profiles: {known}")
-            raise pytest.UsageError(f"Profile {visited[-1]!r} extends unknown profile {current!r}")
-        visited.append(current)
-        chain.append(profile)
-        current = profile.extends
-    chain.reverse()
-
-    description: str | None = None
-    merged_facets: dict[str, str] = {}
-    addopts_parts: list[str] = []
-    markexpr: str | None = None
-    keyword: str | None = None
-    merged_markers: list[MarkerSpec] = []
-    merged_classes: dict[str, ClassMarkers] = {}
-    merged_tests: dict[str, TestMarkers] = {}
-    for profile in chain:
-        if profile.description is not None:
-            description = profile.description
-        merged_facets.update(profile.facets)
-        if profile.pytest.addopts:
-            addopts_parts.append(profile.pytest.addopts)
-        if profile.pytest.markexpr is not None:
-            markexpr = profile.pytest.markexpr
-        if profile.pytest.keyword is not None:
-            keyword = profile.pytest.keyword
-        merged_markers.extend(profile.markers)
-        for cls_name, cls_block in profile.classes.items():
-            existing = merged_classes.get(cls_name)
-            if existing is None:
-                merged_classes[cls_name] = ClassMarkers(markers=list(cls_block.markers))
-            else:
-                existing.markers.extend(cls_block.markers)
-        for test_name, test_block in profile.tests.items():
-            existing_t = merged_tests.get(test_name)
-            if existing_t is None:
-                merged_tests[test_name] = TestMarkers(markers=list(test_block.markers))
-            else:
-                existing_t.markers.extend(test_block.markers)
-
-    return ProfileConfig(
-        description=description,
-        facets=merged_facets,
-        extends=None,
-        pytest=ProfilePytest(
-            addopts=" ".join(addopts_parts) or None,
-            markexpr=markexpr,
-            keyword=keyword,
-        ),
-        markers=merged_markers,
-        classes=merged_classes,
-        tests=merged_tests,
-    )
-
-
-def _resolve_active_profile(
-    profile_name: str | None,
-    facet_flags: dict[str, str],
-    project: ProjectConfig,
-) -> tuple[str | None, ProfileConfig | None, dict[str, str]]:
-    """Select a profile by name, by facet query, or by cross-checked both.
-
-    Resolution rules (see ``docs/guides/profiles.md``):
-
-    * **Name + facets** — name wins, but every flag must match the
-      profile's declared facet value. Mismatches raise ``UsageError``.
-    * **Name only** — direct lookup in ``profiles:``.
-    * **Facets only** — filter profiles matching **all** provided flags.
-      A profile that does not declare a facet key the query uses does
-      **not** match (strict "unspecified" semantics). Zero matches and
-      >1 matches both raise ``UsageError``.
-    * **Neither** — returns ``(None, None, {})``.
-
-    Returns ``(profile_name, profile, facets_dict)``. ``facets_dict`` is
-    the profile's declared facets (so a name-only selection still gets
-    provenance facets populated) plus any explicitly provided flags.
-    """
-    if not profile_name and not facet_flags:
-        return None, None, {}
-
-    if profile_name:
-        profile = project.profiles.get(profile_name)
-        if profile is None:
-            known = ", ".join(sorted(project.profiles)) or "(none defined)"
-            raise pytest.UsageError(
-                f"Unknown --litmus-profile={profile_name!r}; known profiles: {known}"
-            )
-        if facet_flags:
-            mismatches = [
-                f"--{k.replace('_', '-')}={v!r} (profile declares {k}={profile.facets.get(k)!r})"
-                for k, v in facet_flags.items()
-                if profile.facets.get(k) != v
-            ]
-            if mismatches:
-                raise pytest.UsageError(
-                    f"Profile {profile_name!r} does not match facet flags: " + ", ".join(mismatches)
-                )
-        merged = _flatten_profile_chain(profile_name, project)
-        facets = {**merged.facets, **facet_flags}
-        return profile_name, merged, facets
-
-    # Facet-only query.
-    matches = [
-        (name, profile)
-        for name, profile in project.profiles.items()
-        if all(profile.facets.get(k) == v for k, v in facet_flags.items())
-    ]
-    if len(matches) == 0:
-        known = sorted(
-            " ".join(f"{k}={v}" for k, v in p.facets.items()) or "(no facets)"
-            for p in project.profiles.values()
-        )
-        raise pytest.UsageError(
-            "No profile matches the facet query "
-            f"({', '.join(f'{k}={v}' for k, v in facet_flags.items())}); "
-            f"available facet combinations: {'; '.join(known) or '(none defined)'}"
-        )
-    if len(matches) > 1:
-        overlap = ", ".join(name for name, _ in matches)
-        raise pytest.UsageError(
-            "Facet query is ambiguous — matches multiple profiles: "
-            f"{overlap}. Disambiguate with --litmus-profile=<name>."
-        )
-    name, _profile = matches[0]
-    merged = _flatten_profile_chain(name, project)
-    return name, merged, {**merged.facets, **facet_flags}
-
-
-def _collect_facet_flags_from_config(config, project: ProjectConfig) -> dict[str, str]:
-    """Read user-provided facet flag values off ``config.option``."""
-    values: dict[str, str] = {}
-    for key in _collect_profile_facet_keys(project):
-        raw = config.getoption(_facet_key_to_cli_flag(key), default=None)
-        if raw:
-            values[key] = str(raw)
-    return values
-
-
-def _install_active_profile(config) -> None:
-    """Resolve profile (name and/or facets) and install it; compose filter options.
-
-    ``keyword`` and ``markexpr`` are set on ``config.option`` **here**
-    (not in ``pytest_collection_modifyitems``) so pytest's own ``-k``/
-    ``-m`` filter — which runs via its own modifyitems hook — sees them
-    during deselection. Marker injection per node-id remains in
-    ``pytest_collection_modifyitems`` because it depends on the item
-    list that only exists at collection time.
-    """
-    project = _load_project_defaults()
-    profile_name = config.getoption("--litmus-profile", default=None)
-    facet_flags = _collect_facet_flags_from_config(config, project)
-    _, profile, facets = _resolve_active_profile(profile_name, facet_flags, project)
-    set_active_profile(profile)
-    set_active_facets(facets)
-    if profile is None:
-        return
-    if profile.pytest.keyword:
-        existing = getattr(config.option, "keyword", None) or ""
-        config.option.keyword = _compose_filter_expr(profile.pytest.keyword, existing)
-    if profile.pytest.markexpr:
-        existing = getattr(config.option, "markexpr", None) or ""
-        config.option.markexpr = _compose_filter_expr(profile.pytest.markexpr, existing)
-
-
-def _parse_flag_from_args(args, flag: str) -> str | None:
-    """Scan ``args`` for ``--flag value`` or ``--flag=value`` and return the value."""
-    for i, tok in enumerate(args):
-        if tok == flag and i + 1 < len(args):
-            return args[i + 1]
-        if tok.startswith(f"{flag}="):
-            return tok.split("=", 1)[1]
-    return None
-
-
 def pytest_load_initial_conftests(early_config, parser, args):
-    """Apply ``profile.pytest.addopts`` via ``PYTEST_ADDOPTS`` before collection.
-
-    Setting ``PYTEST_ADDOPTS`` at this stage is the pytest-blessed path
-    for injecting CLI tokens — equivalent to exporting the variable in
-    the shell. Downstream plugins (pytest-rerunfailures, pytest-xdist,
-    pytest-timeout) see the tokens during their own configure phase.
-    Mutating ``config.option.*`` later is too fragile when plugins
-    register their own option handlers.
-    """
-    # Scan args directly — our options aren't registered on early_config yet.
-    profile_name = _parse_flag_from_args(args, "--litmus-profile") or os.environ.get(
-        "LITMUS_PROFILE"
-    )
-
-    project = _load_project_defaults()
-    facet_flags: dict[str, str] = {}
-    for key in _collect_profile_facet_keys(project):
-        value = _parse_flag_from_args(args, _facet_key_to_cli_flag(key))
-        if value:
-            facet_flags[key] = value
-
-    if not profile_name and not facet_flags:
-        return
-    try:
-        _, profile, _ = _resolve_active_profile(profile_name, facet_flags, project)
-    except pytest.UsageError:
-        # Let pytest_configure surface the error with a clean stacktrace.
-        return
-    if profile is None or not profile.pytest.addopts:
-        return
-    existing = os.environ.get("PYTEST_ADDOPTS", "").strip()
-    merged = f"{existing} {profile.pytest.addopts}".strip()
-    os.environ["PYTEST_ADDOPTS"] = merged
+    """Apply ``profile.pytest.addopts`` via ``PYTEST_ADDOPTS`` before collection."""
+    apply_profile_addopts_env(args)
 
 
 def pytest_addoption(parser):
     """Add Litmus command-line options."""
-    project = _load_project_defaults()
+    project = load_project_defaults()
     group = parser.getgroup("litmus")
     group.addoption("--dut-serial", default="DUT001", help="DUT serial number")
     group.addoption(
@@ -987,39 +708,14 @@ def pytest_addoption(parser):
     # a selector for this project — no generic --facet escape hatch.
     # ``test_phase`` already has its own --test-phase flag above, so the
     # facet reuses it rather than re-registering.
-    for key in _collect_profile_facet_keys(project):
+    for key in collect_profile_facet_keys(project):
         if key == "test_phase":
             continue
         group.addoption(
-            _facet_key_to_cli_flag(key),
+            facet_key_to_cli_flag(key),
             default=None,
             help=f"Select profile by facet {key!r} (from litmus.yaml profiles).",
         )
-
-
-def _resolve_test_phase(requested_phase: str | None, mocks_active: bool = False) -> str:
-    """Resolve the ``test_phase`` data stamp.
-
-    Demotes to ``"development"`` when the run cannot produce trustworthy
-    data, regardless of what the operator requested:
-
-    * Dirty git (or git unavailable) — code under test isn't recorded.
-    * ``--mock-instruments`` active — measurements aren't real.
-
-    Both demotions apply to the **data stamp only**. Profile selection
-    reads the raw CLI facet value via ``_collect_facet_flags_from_config``
-    (unmodified), so ``--test-phase=production --mock-instruments`` on
-    a dev checkout still applies the production profile for test
-    execution (limits, markers, fixtures) — it just stamps the run
-    ``test_phase='development'`` so dashboards ignore it.
-    """
-    from litmus.execution._git import is_git_clean
-
-    if mocks_active:
-        return "development"
-    if not is_git_clean():
-        return "development"
-    return requested_phase or "development"
 
 
 def _prompt_for_serial(test_phase: str, slot_id: str | None = None) -> str:
@@ -1203,7 +899,7 @@ def _build_run_metadata(request: pytest.FixtureRequest) -> dict[str, Any]:
     requested_phase = request.config.getoption("--test-phase") or os.environ.get(
         "LITMUS_TEST_PHASE"
     )
-    test_phase = _resolve_test_phase(requested_phase, mocks_active=_mocks_active(request.config))
+    test_phase = resolve_test_phase(requested_phase, mocks_active=_mocks_active(request.config))
 
     instrument_records = _safe_get_session_fixture(request, "instrument_records")
 
@@ -1654,10 +1350,10 @@ def _mocks_active(config: pytest.Config) -> bool:
 def mock_instruments(request) -> bool:
     """Return whether to use mock instruments instead of real hardware.
 
-    Mocks do not block any test_phase; ``_resolve_test_phase`` demotes
+    Mocks do not block any test_phase; ``resolve_test_phase`` demotes
     the run's data stamp to ``"development"`` when mocks are active, so
     profile-driven limits/markers still apply but dashboards ignore
-    the row. See ``_resolve_test_phase`` for the demotion rule.
+    the row. See ``resolve_test_phase`` for the demotion rule.
     """
     return _mocks_active(request.config)
 
