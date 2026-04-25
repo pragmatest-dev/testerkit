@@ -80,10 +80,12 @@ from litmus.execution.verify import (  # noqa: F401 — verify re-exported as py
 from litmus.fixtures.manager import FixtureManager, PinAccessor
 from litmus.instruments.pool import InstrumentPool
 from litmus.instruments.route_manager import RouteManager
+from litmus.models.config import PromptConfig
 from litmus.models.instrument import InstrumentRecord
 from litmus.models.project import OutputConfig
 from litmus.models.station import StationConfig
 from litmus.products.context import SpecContext
+from litmus.prompts import ask as ask_prompt
 
 # State helpers re-exported for back-compat with consumers that import
 # from litmus.execution.plugin (logger, harness, accessors, manager, tests).
@@ -327,8 +329,10 @@ def pytest_configure(config):
         "auto-derives fixture connections from the characteristic's pins.",
         "litmus_connections(connections=[...] | instrument_channels={...}): "
         "Bind the test to explicit named connections or instrument-channel ranges.",
-        "litmus_prompt(**kwargs): Operator prompt hook; kwargs select "
-        "timing (before_all | before_each) and message template.",
+        "litmus_prompt(**kwargs): Declare named operator prompts; "
+        "each kwarg is `name=PromptConfig-shaped dict`. The `prompt` "
+        "fixture resolves them by name (or implicitly when only one is "
+        "in scope).",
         "litmus_mock(**kwargs): Install a mock for the duration of a "
         "test; kwargs follow mocker.patch.object(target, ...).",
     ):
@@ -2591,3 +2595,67 @@ def _litmus_apply_mocks(
         mocker.patch.object(fixture_value, attr, **patch_kwargs)
 
     yield
+
+
+@pytest.fixture
+def prompt(request: pytest.FixtureRequest) -> Callable[..., Any]:
+    """Operator prompt fixture.
+
+    Resolves prompts declared via ``litmus_prompt`` markers (file-level,
+    class-scoped, per-test, or inline ``@pytest.mark.litmus_prompt``).
+    Each marker carries one or more entries keyed by name::
+
+        @pytest.mark.litmus_prompt(
+            operator_setup={"message": "Insert DUT", "prompt_type": "confirm"},
+            pick_fixture={"message": "Pick fixture", "prompt_type": "choice",
+                          "choices": ["bench_01", "bench_02"]},
+        )
+        def test_setup(prompt):
+            prompt("operator_setup")          # confirm  -> True
+            chosen = prompt("pick_fixture")   # choice   -> selected string
+
+    ``prompt(key)`` looks the entry up by key. ``prompt()`` (no args)
+    works when exactly one entry is in scope. Routing of the prompt
+    itself goes through :func:`litmus.prompts.ask` — explicit handler
+    (UI runner) → ``LITMUS_PROMPT_MODE=auto-confirm`` → tty fallback.
+    """
+    # Walk listchain root-to-leaf so more-specific markers win on key
+    # conflict via ``update``. Within a node, ``own_markers`` preserves
+    # insertion order.
+    merged: dict[str, dict[str, Any]] = {}
+    for node in request.node.listchain():
+        for marker in node.own_markers:
+            if marker.name == "litmus_prompt":
+                for key, entry in marker.kwargs.items():
+                    if not isinstance(entry, dict):
+                        raise pytest.UsageError(
+                            f"litmus_prompt entry {key!r} must be a dict; got {entry!r}"
+                        )
+                    merged[key] = entry
+
+    def _ask(key: str | None = None) -> Any:
+        if key is None:
+            if not merged:
+                raise pytest.UsageError(
+                    f"prompt() called with no key but no litmus_prompt "
+                    f"markers are in scope for {request.node.nodeid}"
+                )
+            if len(merged) > 1:
+                raise pytest.UsageError(
+                    f"prompt() called with no key but {len(merged)} prompts "
+                    f"are in scope for {request.node.nodeid}: "
+                    f"{sorted(merged)}. Pass an explicit key."
+                )
+            entry = next(iter(merged.values()))
+        else:
+            if key not in merged:
+                known = sorted(merged) or "none"
+                raise pytest.UsageError(
+                    f"prompt({key!r}): no such key in litmus_prompt markers "
+                    f"for {request.node.nodeid}; known keys: {known}"
+                )
+            entry = merged[key]
+        config = PromptConfig.model_validate(entry)
+        return ask_prompt(config)
+
+    return _ask

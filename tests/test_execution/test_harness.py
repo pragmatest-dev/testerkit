@@ -494,6 +494,8 @@ class TestHarnessPrompt:
     """Tests for TestHarness.prompt method."""
 
     def test_prompt_formats_message(self):
+        from litmus.prompts import set_prompt_handler
+
         harness = TestHarness()
         captured_config = None
 
@@ -502,16 +504,20 @@ class TestHarnessPrompt:
             captured_config = config
             return True
 
-        harness._prompt_handler = mock_handler
-
-        with harness.step():
-            with harness.run_vector(Vector(temp=25, _index=0)):
-                harness.prompt("Set temperature to {temp}C")
+        set_prompt_handler(mock_handler)
+        try:
+            with harness.step():
+                with harness.run_vector(Vector(temp=25, _index=0)):
+                    harness.prompt("Set temperature to {temp}C")
+        finally:
+            set_prompt_handler(None)
 
         assert captured_config is not None
         assert captured_config.message == "Set temperature to 25C"
 
     def test_prompt_type_choice(self):
+        from litmus.prompts import set_prompt_handler
+
         harness = TestHarness()
         result = None
 
@@ -520,13 +526,15 @@ class TestHarnessPrompt:
                 return config.choices[0]
             return True
 
-        harness._prompt_handler = mock_handler
-
-        with harness.step():
-            with harness.run_vector(Vector(_index=0)):
-                result = harness.prompt(
-                    "Select option", prompt_type="choice", choices=["A", "B", "C"]
-                )
+        set_prompt_handler(mock_handler)
+        try:
+            with harness.step():
+                with harness.run_vector(Vector(_index=0)):
+                    result = harness.prompt(
+                        "Select option", prompt_type="choice", choices=["A", "B", "C"]
+                    )
+        finally:
+            set_prompt_handler(None)
 
         assert result == "A"
 

@@ -17,6 +17,7 @@ from litmus.data.models import Measurement, Outcome, TestStep, TestVector, _utcn
 from litmus.execution._state import current_step_var, current_vector_var
 from litmus.execution.vectors import Vector, expand_vectors
 from litmus.models.config import Limit, MeasurementLimitConfig, PromptConfig, RetryConfig
+from litmus.prompts import ask
 
 if TYPE_CHECKING:
     from litmus.execution.logger import TestRunLogger
@@ -412,7 +413,6 @@ class TestHarness:
         step_name: str = "test",
         retry: RetryConfig | None = None,
         limits: dict[str, MeasurementLimitConfig | Limit] | None = None,
-        prompt_handler: Callable[[PromptConfig], Any] | None = None,
         spec_context: SpecContext | None = None,
         instruments: dict[str, Any] | None = None,
         mock_instruments: bool = False,
@@ -426,8 +426,6 @@ class TestHarness:
             step_name: Name for the test step.
             retry: Retry configuration (overrides config if provided).
             limits: Limit configurations by measurement name (overrides config).
-            prompt_handler: Callback for operator prompts. If None, prompts
-                           are printed to stdout.
             spec_context: SpecContext for spec-driven limit derivation and
                          channel traceability.
             instruments: Dictionary of instrument instances for mock configuration.
@@ -437,7 +435,6 @@ class TestHarness:
         self._config = config or {}
         self._logger = logger
         self._step_name = step_name
-        self._prompt_handler = prompt_handler or self._default_prompt_handler
         self._spec_context = spec_context
         self._instruments = instruments or {}
         self._mock_instruments = mock_instruments
@@ -526,27 +523,6 @@ class TestHarness:
         """Run-level context, persists across all steps and vectors."""
         return self._run_context
 
-    def _default_prompt_handler(self, prompt: PromptConfig) -> Any:
-        """Default prompt handler - prints to stdout and waits for input."""
-        print(f"\n[Prompt] {prompt.message}")
-        if prompt.prompt_type == "confirm":
-            input("Press Enter to continue...")
-            return True
-        elif prompt.prompt_type == "choice" and prompt.choices:
-            for i, choice in enumerate(prompt.choices, 1):
-                print(f"  {i}. {choice}")
-            while True:
-                try:
-                    selection = int(input("Select option: "))
-                    if 1 <= selection <= len(prompt.choices):
-                        return prompt.choices[selection - 1]
-                except ValueError:
-                    pass
-                print("Invalid selection, try again.")
-        elif prompt.prompt_type == "input":
-            return input("Enter value: ")
-        return None
-
     def prompt(self, message: str, prompt_type: str = "confirm", **kwargs: Any) -> Any:
         """Show an operator prompt.
 
@@ -558,7 +534,6 @@ class TestHarness:
         Returns:
             Prompt result (True for confirm, selected choice, or input value).
         """
-        # Format message with current vector params
         if self._current_vector:
             message = message.format(**self._current_vector.params())
 
@@ -568,7 +543,7 @@ class TestHarness:
             choices=kwargs.get("choices"),
             timeout_seconds=kwargs.get("timeout_seconds"),
         )
-        return self._prompt_handler(config)
+        return ask(config)
 
     def _resolve_limit(self, name: str) -> Limit | None:
         """Resolve limit for a measurement name.
