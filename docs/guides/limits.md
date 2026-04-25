@@ -29,16 +29,21 @@ At least one of `low`, `high`, `nominal`, or `ref` is required.
 
 ## Where limits come from
 
-When `logger.measure(name, value)` is called without `limit=`, resolution is:
+Limits flow through `litmus_limits` markers. When
+`logger.measure(name, value)` is called without `limit=`, resolution
+walks the full marker merge cascade (least → most specific):
 
 1. **Explicit kwargs** — `logger.measure("v", val, low=..., high=..., units=...)`
-2. **Method marker** — `@pytest.mark.litmus_limits(name={...})`
-3. **Class marker** — inherited from the test class
-4. **Sidecar YAML** — `limits:` block in `test_<module>.yaml` (supports condition-indexed bands, see below)
-5. **Product spec** — `ref: "<name>"` delegation against the active `SpecContext`
-6. **None** — characterization mode (unchecked, still recorded)
+2. **Sidecar file-level marker** — `markers: [- litmus_limits: {...}]`
+3. **Sidecar class-level marker** — `classes.<Cls>.markers:`
+4. **Sidecar per-test marker** — `tests.<name>.markers:`
+5. **Inline `@pytest.mark.litmus_limits(...)`** on method / class
+6. **Profile chain markers** — parent profile first, child last
+7. **Product spec** — `ref: "<name>"` delegation against the active `SpecContext`
+8. **None** — characterization mode (unchecked, still recorded)
 
-Method-level overrides class-level key-by-key; non-conflicting keys merge. Sidecar merges **under** markers — markers win on conflicts.
+Later stages override earlier ones key-by-key. Same-marker-same-key in
+the same scope: later-declared wins.
 
 `spec.check(name, value)` bypasses this chain and reads directly from the active product spec.
 
@@ -72,11 +77,16 @@ class TestPowerBoard:
 
 ```yaml
 # tests/test_power_board.yaml
-limits:
-  output_voltage:  {low: 3.135, high: 3.465, units: V}
-  efficiency:      {ref: efficiency}           # product-spec delegation
-  startup_current: {high: 50, comparator: LE, units: mA}
+markers:
+  - litmus_limits:
+      output_voltage:  {low: 3.135, high: 3.465, units: V}
+      efficiency:      {ref: efficiency}           # product-spec delegation
+      startup_current: {high: 50, comparator: LE, units: mA}
 ```
+
+The same `litmus_limits` marker works at class scope (`classes.<Cls>.markers:`)
+and per-test scope (`tests.<name>.markers:`). Per-test overrides class
+overrides file-level, key-by-key.
 
 Sidecar is the preferred home for operator-edited limits — non-developers can tune without touching Python.
 
@@ -86,24 +96,25 @@ When a single measurement needs different limits under different conditions, rep
 
 ```yaml
 # test_power_board.yaml
-limits:
-  output_voltage:
-    - when: {vin: 5.0, load: 0.1}
-      low: 3.234
-      high: 3.366
-      units: V
-    - when: {vin: 5.0, load: 0.8}
-      low: 3.2
-      high: 3.4
-      units: V
-    - when: {vin: 3.3}            # matches any load at vin=3.3
-      low: 3.1
-      high: 3.5
-      units: V
-    - when: {}                    # catch-all; place last
-      low: 3.0
-      high: 3.6
-      units: V
+markers:
+  - litmus_limits:
+      output_voltage:
+        - when: {vin: 5.0, load: 0.1}
+          low: 3.234
+          high: 3.366
+          units: V
+        - when: {vin: 5.0, load: 0.8}
+          low: 3.2
+          high: 3.4
+          units: V
+        - when: {vin: 3.3}            # matches any load at vin=3.3
+          low: 3.1
+          high: 3.5
+          units: V
+        - when: {}                    # catch-all; place last
+          low: 3.0
+          high: 3.6
+          units: V
 ```
 
 Matching rules:
@@ -119,14 +130,15 @@ The match is performed against the current row's vector params, so the feature c
 Bands can use any policy field a flat limit supports, including `tolerance_pct` against a product characteristic:
 
 ```yaml
-limits:
-  output_voltage:
-    - when: {vin: 5.0}
-      characteristic: output_voltage      # nominal from product spec
-      tolerance_pct: 2.0                  # ±2% at vin=5.0
-    - when: {vin: 3.3}
-      characteristic: output_voltage
-      tolerance_pct: 5.0                  # looser at vin=3.3
+markers:
+  - litmus_limits:
+      output_voltage:
+        - when: {vin: 5.0}
+          ref: output_voltage                 # nominal from product spec
+          tolerance_pct: 2.0                  # ±2% at vin=5.0
+        - when: {vin: 3.3}
+          ref: output_voltage
+          tolerance_pct: 5.0                  # looser at vin=3.3
 ```
 
 The flat scalar shape (`output_voltage: {low: 3.2, high: 3.4}`) still works — treat it as shorthand for a single band with `when: {}`.
@@ -138,28 +150,6 @@ from litmus.config.models import Limit
 
 logger.measure("v", val, limit=Limit(low=3.2, high=3.4, units="V"))
 ```
-
-## Callable limits
-
-When a limit depends on other parameters:
-
-```yaml
-limits:
-  output_voltage:
-    callable: myproject.limits.output_voltage
-```
-
-```python
-# myproject/limits.py
-from litmus.config.models import Limit
-
-def output_voltage(context) -> Limit:
-    if context.get_param("temperature", 25) < 50:
-        return Limit(low=3.1, high=3.5, units="V")
-    return Limit(low=3.0, high=3.6, units="V")
-```
-
-Callables receive the Litmus `Context` (`get_param`, `params`, `last`, `observe`).
 
 ## Product-spec delegation (`ref:`)
 
@@ -202,6 +192,6 @@ Values show up in the parquet output for post-hoc analysis.
 
 1. **Prefer `spec.check(name, v)`** when a product spec exists — limits, DUT pin, and `spec_ref` all flow automatically
 2. **Use `ref:`** to delegate to product-spec characteristics instead of duplicating values
-3. **Keep operator-tuned values in sidecar YAML** so non-developers can edit them
+3. **Keep operator-tuned values in a sidecar `litmus_limits` marker** so non-developers can edit them
 4. **Match names** — the first argument to `spec.check` / `logger.measure` must match the limit key
-5. **Never hardcode** — no `assert 3.0 <= v <= 3.6` in test bodies; use markers, sidecar, or the spec
+5. **Never hardcode** — no `assert 3.0 <= v <= 3.6` in test bodies; use `litmus_limits` markers (inline, sidecar, or profile) or the product spec

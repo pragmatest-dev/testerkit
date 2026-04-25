@@ -46,9 +46,11 @@ import pytest
 def test_rails(context, spec, psu, dut_load, dmm): ...
 
 # Sidecar YAML (operator-editable, no code change) — test_<module>.yaml
-# vectors:
-#   vin: [4.5, 5.0, 5.5]
-#   load: [0.1, 0.4, 0.8]
+# tests:
+#   test_rails:
+#     markers:
+#       - parametrize: ["vin", [4.5, 5.0, 5.5]]
+#       - parametrize: ["load", [0.1, 0.4, 0.8]]
 def test_rails(context, spec, psu, dut_load, dmm): ...
 ```
 
@@ -76,8 +78,8 @@ Sometimes you want to own the iteration yourself: amortize an expensive
 per-test setup, stream samples into one measurement, or skip interior
 rows conditionally. Ask for the ``vectors`` fixture in your signature
 and Litmus consolidates **every** parameter source (native parametrize,
-sidecar `vectors:`, profile overrides) into a single matrix. The test
-executes as **one** pytest case; you iterate the matrix inside:
+sidecar `parametrize:` markers, profile markers) into a single matrix.
+The test executes as **one** pytest case; you iterate the matrix inside:
 
 ```python
 @pytest.mark.parametrize("vin", [4.5, 5.0, 5.5])
@@ -93,14 +95,15 @@ as in parametrize mode.
 
 ## Limits
 
-When `logger.measure(name, value)` is called without `limit=`, resolution is:
+When `logger.measure(name, value)` is called without `limit=`, resolution
+walks the marker merge cascade (see *Merge cascade* below) looking for
+the closest `litmus_limits` entry by measurement name, falling back to:
 
 1. Explicit kwargs — `logger.measure("v", val, low=..., high=..., units=...)`
-2. Method-level `@pytest.mark.litmus_limits(name={...})`
-3. Class-level `litmus_limits` marker
-4. Sidecar YAML `limits:` block
-5. Product spec (`ref: "<name>"` delegation)
-6. None — unchecked, recorded anyway (characterization mode)
+2. Any `litmus_limits` marker (inline decorator, sidecar, profile) whose
+   key matches `name`
+3. Product spec via `ref: "<name>"` delegation
+4. None — unchecked, recorded anyway (characterization mode)
 
 ```python
 @pytest.mark.litmus_limits(
@@ -112,22 +115,28 @@ def test_rails(context, spec, logger, dmm):
     spec.check("efficiency", compute_eff(...))
 ```
 
-## One Litmus marker (`--strict-markers` safe)
+## Four Litmus markers (`--strict-markers` safe)
 
-| Marker                        | Scope         | Purpose                                            |
-|-------------------------------|---------------|----------------------------------------------------|
-| `litmus_limits(**by_name)`    | method, class | Inject limits by measurement name                  |
+| Marker                            | Purpose                                                       |
+|-----------------------------------|---------------------------------------------------------------|
+| `litmus_limits(**by_name)`        | Limits by measurement name (supports `when:`-keyed bands)     |
+| `litmus_binding(...)`             | Test binds to a product characteristic or fixture points      |
+| `litmus_mock(target=..., ...)`    | Patch a method for the test (routes through `pytest-mock`)    |
+| `litmus_prompt(message=...)`      | Manual operator setup at a lifecycle point                    |
 
-Method-level markers merge over class-level (method wins on conflicts).
+Markers can be authored three ways and all merge into the same cascade:
+
+1. Inline Python — `@pytest.mark.litmus_limits(...)` on the method/class
+2. Sidecar YAML — `markers:` list at file / class / per-test scope
+3. Profile YAML — `markers:` list in a profile under `profiles/*.yaml`
 
 For everything else, use native pytest primitives or ecosystem plugins:
 
-| Concern                    | Native / ecosystem                                               |
-|----------------------------|------------------------------------------------------------------|
-| Parametrize                | `@pytest.mark.parametrize(...)` (native) + sidecar `vectors:`    |
-| Mock instrument methods    | Sidecar `mocks:` block or `pytest-mock`'s `mocker` fixture       |
-| Test-to-test dependencies  | `@pytest.mark.dependency(...)` — `pytest-dependency`             |
-| Retry transient failures   | `@pytest.mark.flaky(reruns=N)` — `pytest-rerunfailures`          |
+| Concern                    | Native / ecosystem                                          |
+|----------------------------|-------------------------------------------------------------|
+| Parametrize                | `@pytest.mark.parametrize(...)` or sidecar `parametrize:`   |
+| Test-to-test dependencies  | `@pytest.mark.dependency(...)` — `pytest-dependency`        |
+| Retry transient failures   | `@pytest.mark.flaky(reruns=N)` — `pytest-rerunfailures`     |
 
 Product is session-global: pick it with `--product=<id>` or set
 `default_product:` in `litmus.yaml` / a profile. There is no per-test
@@ -135,33 +144,51 @@ product override marker.
 
 ## Sidecar YAML
 
-A sibling `test_<module>.yaml` can carry any combination of three optional blocks:
+A sibling `test_<module>.yaml` carries markers at three scopes — file-root,
+per-class, per-test. Every entry is a pytest marker:
 
 ```yaml
 # test_power_board.yaml
-vectors:
-  vin: [4.5, 5.0, 5.5]
-  load_current: [0.1, 0.4, 0.8]
-limits:
-  efficiency:      {low: 55, high: 100, units: "%"}
-  output_voltage:  {ref: "output_voltage"}    # delegates to product spec
-mocks:
-  dmm.measure_dc_voltage: 3.3
+markers:                                          # applied to every test in file
+  - litmus_limits:
+      output_voltage: {ref: output_voltage}       # delegates to product spec
+  - litmus_mock: {target: "dmm.measure_dc_voltage", return_value: 3.3}
+
+classes:
+  TestPowerRails:
+    markers:
+      - parametrize: ["vin", [4.5, 5.0, 5.5]]
+      - parametrize: ["load_current", [0.1, 0.4, 0.8]]
+
+tests:
+  TestPowerRails.test_efficiency:                 # qualified: class.method
+    markers:
+      - litmus_limits:
+          efficiency: {low: 55, high: 100, units: "%"}
+  test_standalone:                                # bare: module-level test
+    markers:
+      - skipif: "not os.getenv('HAS_BENCH')"
 ```
 
-Sidecar values merge under markers — markers win on key conflicts.
+Merge order, least → most specific: file-root → class → per-test → inline
+decorators → profile chain → CLI. Later markers override earlier ones
+key-by-key.
 
-Limits that depend on the active vector params can use a **list of condition-indexed bands** instead of a flat dict:
+Limits that depend on the active parametrize values can use a **list of
+condition-indexed bands** instead of a flat dict:
 
 ```yaml
-limits:
-  output_voltage:
-    - when: {vin: 5.0}
-      low: 3.234
-      high: 3.366
-    - when: {vin: 3.3}
-      low: 3.1
-      high: 3.5
+tests:
+  test_rails:
+    markers:
+      - litmus_limits:
+          output_voltage:
+            - when: {vin: 5.0}
+              low: 3.234
+              high: 3.366
+            - when: {vin: 3.3}
+              low: 3.1
+              high: 3.5
 ```
 
 The first band whose `when:` matches the current row wins; no match raises `pytest.UsageError`. See [Test Limits → Condition-indexed bands](limits.md#condition-indexed-bands-when) for details.
@@ -249,18 +276,19 @@ Everything else is standard pytest — see <https://docs.pytest.org/en/stable/re
 ## Best practices
 
 1. Prefer `spec.check(name, v)` when a product spec exists — limits, DUT pin, and spec ref resolve automatically
-2. Use `logger.measure` with inline kwargs or sidecar `limits:` for procedure-only measurements
+2. Use `logger.measure` with inline kwargs or a sidecar `litmus_limits` marker for procedure-only measurements
 3. Use `context.changed()` to skip expensive reconfig across parametrize iterations
-4. Prefer markers for code-owned sweeps; sidecar YAML for operator-edited sweeps
+4. Prefer inline `@pytest.mark.litmus_limits` for code-owned sweeps; sidecar YAML for operator-edited sweeps
 5. Keep one measurement focus per test — let parametrize expand sweeps, not in-function loops
-6. Never hardcode limits in `assert` — put them in `litmus_limits`, sidecar, or the product spec
+6. Never hardcode limits in `assert` — put them in a `litmus_limits` marker, sidecar, or product spec
 
 ## Same tests, different labs
 
 When the same test tree needs to run under different conditions — a quick
-validation sweep, a full production sweep with retries, a debug profile —
-declare **profiles** in `litmus.yaml` and select one with
-`--litmus-profile=<name>`. See [Profiles guide](profiles.md).
+validation sweep, a full production sweep, a debug scenario — declare
+**profiles** as one-file-per-scenario under `profiles/*.yaml`. CLI facet
+flags (e.g. `--test-phase=production`) select exactly one. See
+[Profiles guide](profiles.md).
 
 ## Next Steps
 
