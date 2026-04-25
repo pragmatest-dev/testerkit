@@ -200,6 +200,48 @@ def test_qualified_test_entry_tightens_class_level(pytester: pytest.Pytester) ->
     result.assert_outcomes(passed=1, failed=1)
 
 
+def test_per_test_mock_tightens_file_level(pytester: pytest.Pytester) -> None:
+    """Per-test ``litmus_mock`` for the same target overrides file-level."""
+    pytester.makeini(_INI)
+    pytester.makepyfile(
+        test_seq=textwrap.dedent(
+            """
+            import pytest
+
+            class FakeDmm:
+                def read(self):
+                    return 0.0
+
+            @pytest.fixture
+            def dmm():
+                return FakeDmm()
+
+            def test_file_level(dmm):
+                # File-level mock returns 1.1.
+                assert dmm.read() == 1.1
+
+            def test_per_test(dmm):
+                # Per-test mock overrides file-level; returns 2.2.
+                assert dmm.read() == 2.2
+            """
+        )
+    )
+    (pytester.path / "test_seq.yaml").write_text(
+        textwrap.dedent(
+            """
+            markers:
+              - litmus_mock: {target: "dmm.read", return_value: 1.1}
+            tests:
+              test_per_test:
+                markers:
+                  - litmus_mock: {target: "dmm.read", return_value: 2.2}
+            """
+        )
+    )
+    result = pytester.runpytest("-v")
+    result.assert_outcomes(passed=2)
+
+
 def test_range_expander_in_parametrize_argvalues(pytester: pytest.Pytester) -> None:
     """``{linspace: [...]}`` in argvalues expands to a plain list."""
     pytester.makeini(_INI)

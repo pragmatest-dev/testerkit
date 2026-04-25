@@ -3841,9 +3841,14 @@ def _litmus_apply_mocks(
         yield
         return
 
-    # Closest-first iter; we want least-specific applied first so later
-    # markers with the same target win. Reverse.
-    mock_markers = list(reversed(list(request.node.iter_markers("litmus_mock"))))
+    # Walk listchain root-to-leaf so more-specific markers with the same
+    # target overwrite earlier ones in ``by_target`` below. Within a node,
+    # ``own_markers`` preserves insertion order.
+    mock_markers: list[pytest.Mark] = []
+    for node in request.node.listchain():
+        for marker in node.own_markers:
+            if marker.name == "litmus_mock":
+                mock_markers.append(marker)
     if not mock_markers:
         yield
         return
