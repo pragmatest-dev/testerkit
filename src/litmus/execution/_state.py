@@ -1,12 +1,355 @@
-"""Shared contextvars for step/vector resolution across execution modules.
+"""ContextVar-backed mutable state for the execution module.
 
-Both logger.py and harness.py need to read/write current step and vector
-state. These vars live here so neither module imports private symbols
-from the other.
+ALL mutable module state lives here so the pytest plugin and its
+collaborators (logger, harness, accessors, fixtures) share one source
+of truth without circular imports.
+
+Three ContextVar getter patterns are used:
+
+1. **Create-and-store** (session-scoped dicts): first call creates a
+   dict, stores it in the ContextVar, returns it. Callers mutate the
+   returned dict in place. Cleanup sets the var to a fresh empty dict.
+2. **Return throwaway empty** (per-test dicts): first call returns a
+   new empty dict WITHOUT storing it. Stale state cannot leak across
+   tests — each test gets its own empty dict that is never persisted.
+   The plugin's autouse fixtures set the dict at test start and clear
+   on teardown.
+3. **Return None** (session singletons): the ContextVar holds a single
+   object (or None) installed once per session by a setter. Getter
+   returns None if not set.
 """
+
+from __future__ import annotations
 
 from contextvars import ContextVar
 from typing import Any
 
+from litmus.config.test_config import FixturePoint
+from litmus.data.models import CollectedItem
+from litmus.models.instrument import InstrumentRecord
+from litmus.models.project import ProfileConfig
+
+# Step/vector — used by both logger.py and harness.py.
 current_step_var: ContextVar[Any] = ContextVar("current_step", default=None)
 current_vector_var: ContextVar[Any] = ContextVar("current_vector", default=None)
+
+_active_instruments_var: ContextVar[dict[str, Any]] = ContextVar("_active_instruments")
+_instrument_records_var: ContextVar[dict[str, InstrumentRecord]] = ContextVar("_instrument_records")
+_current_step_aliases_var: ContextVar[dict[str, str]] = ContextVar("_current_step_aliases")
+_current_step_config_var: ContextVar[dict[str, Any]] = ContextVar("_current_step_config")
+_active_spec_context_var: ContextVar[Any] = ContextVar("_active_spec_context")
+_test_node_aliases_var: ContextVar[dict[str, dict[str, str]]] = ContextVar("_test_node_aliases")
+_test_node_configs_var: ContextVar[dict[str, dict[str, Any]]] = ContextVar("_test_node_configs")
+_sequence_test_phase_var: ContextVar[str | None] = ContextVar("_sequence_test_phase")
+_sequence_required_fixture_var: ContextVar[str | None] = ContextVar("_sequence_required_fixture")
+_channel_store_var: ContextVar[Any] = ContextVar("_channel_store")
+_collected_items_var: ContextVar[list[CollectedItem]] = ContextVar("_collected_items")
+_current_code_identity_var: ContextVar[dict[str, str | None]] = ContextVar("_current_code_identity")
+_event_store_var: ContextVar[Any] = ContextVar("_event_store")
+_active_limits_var: ContextVar[dict[str, Any]] = ContextVar("_active_limits")
+_active_profile_var: ContextVar[ProfileConfig | None] = ContextVar("_active_profile")
+_active_facets_var: ContextVar[dict[str, str]] = ContextVar("_active_facets")
+_active_vector_params_var: ContextVar[dict[str, Any]] = ContextVar("_active_vector_params")
+_active_vector_index_var: ContextVar[int] = ContextVar("_active_vector_index")
+_active_point_var: ContextVar[FixturePoint | None] = ContextVar("_active_point")
+
+
+# --- Session-scoped getters (create-and-store on first access) ---
+
+
+def get_active_instruments() -> dict[str, Any]:
+    """Create-and-store on first access; callers mutate in place."""
+    try:
+        return _active_instruments_var.get()
+    except LookupError:
+        d: dict[str, Any] = {}
+        _active_instruments_var.set(d)
+        return d
+
+
+def get_instrument_records() -> dict[str, InstrumentRecord]:
+    """Create-and-store on first access; callers mutate in place."""
+    try:
+        return _instrument_records_var.get()
+    except LookupError:
+        d: dict[str, InstrumentRecord] = {}
+        _instrument_records_var.set(d)
+        return d
+
+
+def get_test_node_aliases() -> dict[str, dict[str, str]]:
+    """Create-and-store on first access; callers mutate in place."""
+    try:
+        return _test_node_aliases_var.get()
+    except LookupError:
+        d: dict[str, dict[str, str]] = {}
+        _test_node_aliases_var.set(d)
+        return d
+
+
+def get_test_node_configs() -> dict[str, dict[str, Any]]:
+    """Create-and-store on first access; callers mutate in place."""
+    try:
+        return _test_node_configs_var.get()
+    except LookupError:
+        d: dict[str, dict[str, Any]] = {}
+        _test_node_configs_var.set(d)
+        return d
+
+
+# --- Per-test getters (return throwaway empty, no storing) ---
+
+
+def get_current_step_aliases() -> dict[str, str]:
+    """Return throwaway empty; never stored. Stale state never leaks."""
+    try:
+        return _current_step_aliases_var.get()
+    except LookupError:
+        return {}
+
+
+def get_current_step_config() -> dict[str, Any]:
+    """Return the current step config; empty dict when unset.
+
+    Set per-test in ``pytest_runtest_setup``; each new test overwrites
+    the value so stale config from a prior test cannot leak through.
+    """
+    try:
+        return _current_step_config_var.get()
+    except LookupError:
+        return {}
+
+
+def get_active_spec_context() -> Any:
+    """Return None if not set."""
+    try:
+        return _active_spec_context_var.get()
+    except LookupError:
+        return None
+
+
+def get_sequence_test_phase() -> str | None:
+    """Return None if not set."""
+    try:
+        return _sequence_test_phase_var.get()
+    except LookupError:
+        return None
+
+
+def get_sequence_required_fixture() -> str | None:
+    """Return None if not set."""
+    try:
+        return _sequence_required_fixture_var.get()
+    except LookupError:
+        return None
+
+
+# --- Setters ---
+
+
+def set_active_instruments(value: dict[str, Any]) -> None:
+    """Set value. Returns None."""
+    _active_instruments_var.set(value)
+
+
+def set_instrument_records(value: dict[str, InstrumentRecord]) -> None:
+    """Set value. Returns None."""
+    _instrument_records_var.set(value)
+
+
+def set_current_step_aliases(value: dict[str, str]) -> None:
+    """Set value. Returns None."""
+    _current_step_aliases_var.set(value)
+
+
+def set_current_step_config(value: dict[str, Any]) -> None:
+    """Set value. Returns None."""
+    _current_step_config_var.set(value)
+
+
+def set_active_spec_context(value: Any) -> None:
+    """Set value. Returns None."""
+    _active_spec_context_var.set(value)
+
+
+def set_test_node_aliases(value: dict[str, dict[str, str]]) -> None:
+    """Set value. Returns None."""
+    _test_node_aliases_var.set(value)
+
+
+def set_test_node_configs(value: dict[str, dict[str, Any]]) -> None:
+    """Set value. Returns None."""
+    _test_node_configs_var.set(value)
+
+
+def set_sequence_test_phase(value: str | None) -> None:
+    """Set value. Returns None."""
+    _sequence_test_phase_var.set(value)
+
+
+def set_sequence_required_fixture(value: str | None) -> None:
+    """Set value. Returns None."""
+    _sequence_required_fixture_var.set(value)
+
+
+def get_channel_store() -> Any:
+    """Return None if not set."""
+    try:
+        return _channel_store_var.get()
+    except LookupError:
+        return None
+
+
+def set_channel_store(value: Any) -> None:
+    """Set value. Returns None."""
+    _channel_store_var.set(value)
+
+
+def get_active_limits() -> dict[str, Any]:
+    """Return throwaway empty; never stored. Stale state never leaks.
+
+    Populated by the pytest_native plugin from the sidecar ``limits:``
+    block for the duration of one test and cleared on teardown, so the
+    'no sidecar' case surfaces as an empty dict rather than a lookup
+    error.
+    """
+    try:
+        return _active_limits_var.get()
+    except LookupError:
+        return {}
+
+
+def set_active_limits(value: dict[str, Any]) -> None:
+    """Set the active limits dict. Returns None."""
+    _active_limits_var.set(value)
+
+
+def get_active_profile() -> ProfileConfig | None:
+    """Return the active ``ProfileConfig`` selected via ``--litmus-profile``.
+
+    Returns ``None`` when no profile is active. Session-scoped: installed
+    by ``pytest_configure`` and cleared by ``pytest_sessionfinish``.
+    """
+    try:
+        return _active_profile_var.get()
+    except LookupError:
+        return None
+
+
+def set_active_profile(value: ProfileConfig | None) -> None:
+    """Set the active profile. Returns None."""
+    _active_profile_var.set(value)
+
+
+def get_active_facets() -> dict[str, str]:
+    """Return resolved profile facets, or empty dict if none.
+
+    Populated alongside ``_active_profile_var`` at session start from
+    the profile's declared facet keys and any facet CLI flags; recorded
+    onto each run row as provenance.
+    """
+    try:
+        return _active_facets_var.get()
+    except LookupError:
+        return {}
+
+
+def set_active_facets(value: dict[str, str]) -> None:
+    """Set the active-facets dict. Returns None."""
+    _active_facets_var.set(value)
+
+
+def get_active_vector_params() -> dict[str, Any]:
+    """Return the active test's vector params (parametrize + markers + sidecar).
+
+    Returns throwaway empty; never stored. Populated by
+    ``_litmus_push_params`` at test start so ``TestRunLogger.measure``
+    can stamp ``TestVector.params`` without the harness wiring.
+    """
+    try:
+        return _active_vector_params_var.get()
+    except LookupError:
+        return {}
+
+
+def set_active_vector_params(value: dict[str, Any]) -> None:
+    """Set the active vector-params dict. Returns None."""
+    _active_vector_params_var.set(value)
+
+
+def get_active_vector_index() -> int:
+    """Return the active iteration index within the ``vectors`` self-loop.
+
+    Returns ``0`` outside self-loop mode (normal parametrized runs carry
+    their own ``index`` on ``TestVector``; this ContextVar only matters
+    when a test consumes the ``vectors`` fixture and the framework is
+    stamping rows from a single pytest case).
+    """
+    try:
+        return _active_vector_index_var.get()
+    except LookupError:
+        return 0
+
+
+def set_active_vector_index(value: int) -> None:
+    """Set the active vector-index. Returns None."""
+    _active_vector_index_var.set(value)
+
+
+def get_active_point() -> FixturePoint | None:
+    """Return the currently active :class:`FixturePoint` or ``None``.
+
+    Pushed/popped by :class:`_PointIterator` as a test body iterates
+    ``ctx.points``. Read by :func:`_auto_traceability` to stamp pin /
+    channel / terminal / net on each measurement row and by
+    :meth:`FixtureManager.route` so driver fixtures route without
+    seeing pin names.
+    """
+    try:
+        return _active_point_var.get()
+    except LookupError:
+        return None
+
+
+def set_active_point(value: FixturePoint | None) -> None:
+    """Set the active :class:`FixturePoint`. Returns None."""
+    _active_point_var.set(value)
+
+
+def get_event_store() -> Any:
+    """Return the session EventStore, or None if not set."""
+    try:
+        return _event_store_var.get()
+    except LookupError:
+        return None
+
+
+def set_event_store(value: Any) -> None:
+    """Set the session EventStore. Returns None."""
+    _event_store_var.set(value)
+
+
+def get_collected_items() -> list[CollectedItem]:
+    """Return collected pytest items, or empty list if not set."""
+    try:
+        return _collected_items_var.get()
+    except LookupError:
+        return []
+
+
+def set_collected_items(value: list[CollectedItem]) -> None:
+    """Set value. Returns None."""
+    _collected_items_var.set(value)
+
+
+def get_current_code_identity() -> dict[str, str | None]:
+    """Return code identity for the currently running test item."""
+    try:
+        return _current_code_identity_var.get()
+    except LookupError:
+        return {}
+
+
+def set_current_code_identity(value: dict[str, str | None]) -> None:
+    """Set code identity for the currently running test item."""
+    _current_code_identity_var.set(value)

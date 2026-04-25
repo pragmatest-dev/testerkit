@@ -9,7 +9,7 @@ exact-class form winning over the shorthand when both are present.
 from __future__ import annotations
 
 from litmus.config.test_config import MarkerSpec, SidecarConfig, TestMarkers
-from litmus.execution.plugin import _sidecar_markers_for
+from litmus.execution.sidecar import sidecar_markers_for as _sidecar_markers_for
 
 
 def _sidecar(tests: dict[str, list[MarkerSpec]]) -> SidecarConfig:

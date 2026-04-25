@@ -2,12 +2,10 @@
 
 from __future__ import annotations
 
-import functools
 import os
 import sys
 import warnings
-from collections.abc import Callable, Generator, Iterator, Mapping
-from contextvars import ContextVar
+from collections.abc import Callable, Generator, Iterator
 from itertools import cycle
 from pathlib import Path
 from typing import Any
@@ -15,18 +13,58 @@ from uuid import UUID, uuid4
 
 import pytest
 
-from litmus.config.expanders import expand_ranges
 from litmus.config.test_config import (
     ClassMarkers,
     FixtureConfig,
     FixturePoint,
     MarkerSpec,
-    MeasurementLimitConfig,
-    SidecarConfig,
     TestMarkers,
 )
 from litmus.data.models import CollectedItem, TestRun, TestVector
-from litmus.execution._state import current_step_var, current_vector_var
+from litmus.execution._state import (
+    _active_point_var,
+    _active_vector_index_var,
+    current_step_var,
+    current_vector_var,
+    get_active_facets,
+    get_active_instruments,
+    get_active_limits,
+    get_active_point,
+    get_active_profile,
+    get_active_spec_context,
+    get_active_vector_index,
+    get_active_vector_params,
+    get_channel_store,
+    get_collected_items,
+    get_current_code_identity,
+    get_current_step_aliases,
+    get_current_step_config,
+    get_event_store,
+    get_instrument_records,
+    get_sequence_required_fixture,
+    get_sequence_test_phase,
+    get_test_node_aliases,
+    get_test_node_configs,
+    set_active_facets,
+    set_active_instruments,
+    set_active_limits,
+    set_active_point,
+    set_active_profile,
+    set_active_spec_context,
+    set_active_vector_index,
+    set_active_vector_params,
+    set_channel_store,
+    set_collected_items,
+    set_current_code_identity,
+    set_current_step_aliases,
+    set_current_step_config,
+    set_event_store,
+    set_instrument_records,
+    set_sequence_required_fixture,
+    set_sequence_test_phase,
+    set_test_node_aliases,
+    set_test_node_configs,
+)
 from litmus.execution.accessors import InstrumentAccessor
 from litmus.execution.decorators import get_current_logger, set_current_logger
 from litmus.execution.harness import Context
@@ -43,355 +81,50 @@ from litmus.models.project import OutputConfig, ProfileConfig, ProjectConfig
 from litmus.models.station import StationConfig
 from litmus.products.context import SpecContext
 
-# ---------------------------------------------------------------------------
-# ContextVars — ALL mutable module state lives here.
-#
-# Session-scoped getters create and store an empty dict on first access,
-# so callers can safely mutate the returned dict without an explicit init step.
-# Per-test getters return a throwaway empty value (without storing it),
-# so stale state never leaks across tests.
-# ---------------------------------------------------------------------------
-_active_instruments_var: ContextVar[dict[str, Any]] = ContextVar("_active_instruments")
-_instrument_records_var: ContextVar[dict[str, InstrumentRecord]] = ContextVar("_instrument_records")
-_current_step_aliases_var: ContextVar[dict[str, str]] = ContextVar("_current_step_aliases")
-_current_step_config_var: ContextVar[dict[str, Any]] = ContextVar("_current_step_config")
-_active_spec_context_var: ContextVar[Any] = ContextVar("_active_spec_context")
-_test_node_aliases_var: ContextVar[dict[str, dict[str, str]]] = ContextVar("_test_node_aliases")
-_test_node_configs_var: ContextVar[dict[str, dict[str, Any]]] = ContextVar("_test_node_configs")
-_sequence_test_phase_var: ContextVar[str | None] = ContextVar("_sequence_test_phase")
-_sequence_required_fixture_var: ContextVar[str | None] = ContextVar("_sequence_required_fixture")
-_channel_store_var: ContextVar[Any] = ContextVar("_channel_store")
-_collected_items_var: ContextVar[list[CollectedItem]] = ContextVar("_collected_items")
-_current_code_identity_var: ContextVar[dict[str, str | None]] = ContextVar("_current_code_identity")
-_event_store_var: ContextVar[Any] = ContextVar("_event_store")
-_active_limits_var: ContextVar[dict[str, Any]] = ContextVar("_active_limits")
-_active_profile_var: ContextVar[ProfileConfig | None] = ContextVar("_active_profile")
-_active_facets_var: ContextVar[dict[str, str]] = ContextVar("_active_facets")
-_active_vector_params_var: ContextVar[dict[str, Any]] = ContextVar("_active_vector_params")
-_active_vector_index_var: ContextVar[int] = ContextVar("_active_vector_index")
-_active_point_var: ContextVar[FixturePoint | None] = ContextVar("_active_point")
-
-
-# --- Session-scoped getters (create-and-store on first access) ---
-#
-# Three ContextVar getter patterns are used in this module. Each getter
-# docstring states which one it follows; the convention is:
-#
-# 1. **Create-and-store** (session-scoped dicts): First call creates a
-#    dict, stores it in the ContextVar, returns it. Callers mutate the
-#    returned dict in place. Cleanup sets the var to a fresh empty dict.
-#    (Examples: get_step_outcomes, get_active_instruments,
-#    get_instrument_records, get_test_node_aliases, get_test_node_configs.)
-#
-# 2. **Return throwaway empty** (per-test dicts): First call returns a
-#    new empty dict WITHOUT storing it. Stale state cannot leak across
-#    tests — each test gets its own empty dict that is never persisted.
-#    The plugin's autouse fixtures set the dict at test start and clear
-#    on teardown. (Examples: get_current_step_aliases,
-#    get_current_step_config, get_active_limits.)
-#
-# 3. **Return None** (session singletons): The ContextVar holds a single
-#    object (or None) installed once per session by a setter. Getter
-#    returns None if not set. (Examples: get_active_spec_context,
-#    get_channel_store, get_event_store.)
-
-
-def get_active_instruments() -> dict[str, Any]:
-    """Create-and-store on first access; callers mutate in place."""
-    try:
-        return _active_instruments_var.get()
-    except LookupError:
-        d: dict[str, Any] = {}
-        _active_instruments_var.set(d)
-        return d
-
-
-def get_instrument_records() -> dict[str, InstrumentRecord]:
-    """Create-and-store on first access; callers mutate in place."""
-    try:
-        return _instrument_records_var.get()
-    except LookupError:
-        d: dict[str, InstrumentRecord] = {}
-        _instrument_records_var.set(d)
-        return d
-
-
-def get_test_node_aliases() -> dict[str, dict[str, str]]:
-    """Create-and-store on first access; callers mutate in place."""
-    try:
-        return _test_node_aliases_var.get()
-    except LookupError:
-        d: dict[str, dict[str, str]] = {}
-        _test_node_aliases_var.set(d)
-        return d
-
-
-def get_test_node_configs() -> dict[str, dict[str, Any]]:
-    """Create-and-store on first access; callers mutate in place."""
-    try:
-        return _test_node_configs_var.get()
-    except LookupError:
-        d: dict[str, dict[str, Any]] = {}
-        _test_node_configs_var.set(d)
-        return d
-
-
-# --- Per-test getters (return throwaway empty, no storing) ---
-
-
-def get_current_step_aliases() -> dict[str, str]:
-    """Return throwaway empty; never stored. Stale state never leaks."""
-    try:
-        return _current_step_aliases_var.get()
-    except LookupError:
-        return {}
-
-
-def get_current_step_config() -> dict[str, Any]:
-    """Return the current step config; empty dict when unset.
-
-    Set per-test in ``pytest_runtest_setup``; each new test overwrites
-    the value so stale config from a prior test cannot leak through.
-    """
-    try:
-        return _current_step_config_var.get()
-    except LookupError:
-        return {}
-
-
-def get_active_spec_context() -> Any:
-    """Return None if not set."""
-    try:
-        return _active_spec_context_var.get()
-    except LookupError:
-        return None
-
-
-def get_sequence_test_phase() -> str | None:
-    """Return None if not set."""
-    try:
-        return _sequence_test_phase_var.get()
-    except LookupError:
-        return None
-
-
-def get_sequence_required_fixture() -> str | None:
-    """Return None if not set."""
-    try:
-        return _sequence_required_fixture_var.get()
-    except LookupError:
-        return None
-
-
-# --- Setters ---
-
-
-def set_active_instruments(value: dict[str, Any]) -> None:
-    """Set value. Returns None."""
-    _active_instruments_var.set(value)
-
-
-def set_instrument_records(value: dict[str, InstrumentRecord]) -> None:
-    """Set value. Returns None."""
-    _instrument_records_var.set(value)
-
-
-def set_current_step_aliases(value: dict[str, str]) -> None:
-    """Set value. Returns None."""
-    _current_step_aliases_var.set(value)
-
-
-def set_current_step_config(value: dict[str, Any]) -> None:
-    """Set value. Returns None."""
-    _current_step_config_var.set(value)
-
-
-def set_active_spec_context(value: Any) -> None:
-    """Set value. Returns None."""
-    _active_spec_context_var.set(value)
-
-
-def set_test_node_aliases(value: dict[str, dict[str, str]]) -> None:
-    """Set value. Returns None."""
-    _test_node_aliases_var.set(value)
-
-
-def set_test_node_configs(value: dict[str, dict[str, Any]]) -> None:
-    """Set value. Returns None."""
-    _test_node_configs_var.set(value)
-
-
-def set_sequence_test_phase(value: str | None) -> None:
-    """Set value. Returns None."""
-    _sequence_test_phase_var.set(value)
-
-
-def set_sequence_required_fixture(value: str | None) -> None:
-    """Set value. Returns None."""
-    _sequence_required_fixture_var.set(value)
-
-
-def get_channel_store() -> Any:
-    """Return None if not set."""
-    try:
-        return _channel_store_var.get()
-    except LookupError:
-        return None
-
-
-def set_channel_store(value: Any) -> None:
-    """Set value. Returns None."""
-    _channel_store_var.set(value)
-
-
-def get_active_limits() -> dict[str, Any]:
-    """Return throwaway empty; never stored. Stale state never leaks.
-
-    Populated by the pytest_native plugin from the sidecar ``limits:``
-    block for the duration of one test and cleared on teardown, so the
-    'no sidecar' case surfaces as an empty dict rather than a lookup
-    error.
-    """
-    try:
-        return _active_limits_var.get()
-    except LookupError:
-        return {}
-
-
-def set_active_limits(value: dict[str, Any]) -> None:
-    """Set the active limits dict. Returns None."""
-    _active_limits_var.set(value)
-
-
-def get_active_profile() -> ProfileConfig | None:
-    """Return the active ``ProfileConfig`` selected via ``--litmus-profile``.
-
-    Returns ``None`` when no profile is active. Session-scoped: installed
-    by ``pytest_configure`` and cleared by ``pytest_sessionfinish``.
-    """
-    try:
-        return _active_profile_var.get()
-    except LookupError:
-        return None
-
-
-def set_active_profile(value: ProfileConfig | None) -> None:
-    """Set the active profile. Returns None."""
-    _active_profile_var.set(value)
-
-
-def get_active_facets() -> dict[str, str]:
-    """Return resolved profile facets, or empty dict if none.
-
-    Populated alongside ``_active_profile_var`` at session start from
-    the profile's declared facet keys and any facet CLI flags; recorded
-    onto each run row as provenance.
-    """
-    try:
-        return _active_facets_var.get()
-    except LookupError:
-        return {}
-
-
-def set_active_facets(value: dict[str, str]) -> None:
-    """Set the active-facets dict. Returns None."""
-    _active_facets_var.set(value)
-
-
-def get_active_vector_params() -> dict[str, Any]:
-    """Return the active test's vector params (parametrize + markers + sidecar).
-
-    Returns throwaway empty; never stored. Populated by
-    ``_litmus_push_params`` at test start so ``TestRunLogger.measure``
-    can stamp ``TestVector.params`` without the harness wiring.
-    """
-    try:
-        return _active_vector_params_var.get()
-    except LookupError:
-        return {}
-
-
-def set_active_vector_params(value: dict[str, Any]) -> None:
-    """Set the active vector-params dict. Returns None."""
-    _active_vector_params_var.set(value)
-
-
-def get_active_vector_index() -> int:
-    """Return the active iteration index within the ``vectors`` self-loop.
-
-    Returns ``0`` outside self-loop mode (normal parametrized runs carry
-    their own ``index`` on ``TestVector``; this ContextVar only matters
-    when a test consumes the ``vectors`` fixture and the framework is
-    stamping rows from a single pytest case).
-    """
-    try:
-        return _active_vector_index_var.get()
-    except LookupError:
-        return 0
-
-
-def set_active_vector_index(value: int) -> None:
-    """Set the active vector-index. Returns None."""
-    _active_vector_index_var.set(value)
-
-
-def get_active_point() -> FixturePoint | None:
-    """Return the currently active :class:`FixturePoint` or ``None``.
-
-    Pushed/popped by :class:`_PointIterator` as a test body iterates
-    ``ctx.points``. Read by :func:`_auto_traceability` to stamp pin /
-    channel / terminal / net on each measurement row and by
-    :meth:`FixtureManager.route` so driver fixtures route without
-    seeing pin names.
-    """
-    try:
-        return _active_point_var.get()
-    except LookupError:
-        return None
-
-
-def set_active_point(value: FixturePoint | None) -> None:
-    """Set the active :class:`FixturePoint`. Returns None."""
-    _active_point_var.set(value)
-
-
-def get_event_store() -> Any:
-    """Return the session EventStore, or None if not set."""
-    try:
-        return _event_store_var.get()
-    except LookupError:
-        return None
-
-
-def set_event_store(value: Any) -> None:
-    """Set the session EventStore. Returns None."""
-    _event_store_var.set(value)
-
-
-def get_collected_items() -> list[CollectedItem]:
-    """Return collected pytest items, or empty list if not set."""
-    try:
-        return _collected_items_var.get()
-    except LookupError:
-        return []
-
-
-def set_collected_items(value: list[CollectedItem]) -> None:
-    """Set value. Returns None."""
-    _collected_items_var.set(value)
-
-
-def get_current_code_identity() -> dict[str, str | None]:
-    """Return code identity for the currently running test item."""
-    try:
-        return _current_code_identity_var.get()
-    except LookupError:
-        return {}
-
-
-def set_current_code_identity(value: dict[str, str | None]) -> None:
-    """Set code identity for the currently running test item."""
-    _current_code_identity_var.set(value)
+# State helpers re-exported for back-compat with consumers that import
+# from litmus.execution.plugin (logger, harness, accessors, manager, tests).
+__all__ = [
+    "current_step_var",
+    "current_vector_var",
+    "get_active_facets",
+    "get_active_instruments",
+    "get_active_limits",
+    "get_active_point",
+    "get_active_profile",
+    "get_active_spec_context",
+    "get_active_vector_index",
+    "get_active_vector_params",
+    "get_channel_store",
+    "get_collected_items",
+    "get_current_code_identity",
+    "get_current_step_aliases",
+    "get_current_step_config",
+    "get_event_store",
+    "get_instrument_records",
+    "get_sequence_required_fixture",
+    "get_sequence_test_phase",
+    "get_test_node_aliases",
+    "get_test_node_configs",
+    "set_active_facets",
+    "set_active_instruments",
+    "set_active_limits",
+    "set_active_point",
+    "set_active_profile",
+    "set_active_spec_context",
+    "set_active_vector_index",
+    "set_active_vector_params",
+    "set_channel_store",
+    "set_collected_items",
+    "set_current_code_identity",
+    "set_current_step_aliases",
+    "set_current_step_config",
+    "set_event_store",
+    "set_instrument_records",
+    "set_sequence_required_fixture",
+    "set_sequence_test_phase",
+    "set_test_node_aliases",
+    "set_test_node_configs",
+]
 
 
 def _load_sequence_steps(config):
@@ -2827,9 +2560,6 @@ def sync(logger):
 
 # Late imports: keep module top-level imports terse and avoid circular risk
 # with submodules that import this plugin.
-import yaml  # noqa: E402
-
-from litmus.config.test_config import Limit  # noqa: E402
 from litmus.execution.vectors import Vector  # noqa: E402
 
 
@@ -3101,300 +2831,12 @@ def _parametrize_mark_rows(mark: pytest.Mark) -> list[dict[str, Any]]:
     return rows
 
 
-@functools.cache
-def _load_sidecar(module_file: Path) -> SidecarConfig | None:
-    """Return parsed ``<module>.yaml`` next to ``module_file`` or ``None``.
-
-    Cached on ``module_file`` so a module with many parametrize cases
-    parses its YAML once per session instead of once per test. The
-    returned :class:`SidecarConfig` is immutable from the caller's
-    perspective — its shape is the same as a profile block (``markers``,
-    ``classes``, ``tests``).
-    """
-    yaml_path = module_file.with_suffix(".yaml")
-    if not yaml_path.exists():
-        return None
-    with yaml_path.open() as fh:
-        data = yaml.safe_load(fh) or {}
-    if not isinstance(data, dict):
-        raise ValueError(
-            f"{yaml_path} must contain a mapping at the top level; got {type(data).__name__}"
-        )
-    data = expand_ranges(data)
-    return SidecarConfig.model_validate(data)
-
-
-def _sidecar_markers_for(
-    sidecar: SidecarConfig | None,
-    cls_name: str | None,
-    func_name: str | None,
-) -> list[MarkerSpec]:
-    """Merge sidecar markers for a test: file-level + class + per-test.
-
-    Qualified ``tests.TestCls.test_foo`` wins over bare ``tests.test_foo``
-    when both are present — same disambiguation as the profile chain in
-    :func:`_profile_markers_for_item`.
-    """
-    if sidecar is None:
-        return []
-    out: list[MarkerSpec] = list(sidecar.markers)
-    if cls_name is not None:
-        class_block = sidecar.classes.get(cls_name)
-        if class_block is not None:
-            out.extend(class_block.markers)
-    if func_name is None:
-        return out
-    if cls_name is not None:
-        qualified = f"{cls_name}.{func_name}"
-        qualified_block = sidecar.tests.get(qualified)
-        if qualified_block is not None:
-            out.extend(qualified_block.markers)
-            return out
-    bare_block = sidecar.tests.get(func_name)
-    if bare_block is not None:
-        out.extend(bare_block.markers)
-    return out
-
-
-class _LimitRef:
-    """Placeholder for ``limits.<name>.ref: <product_char_id>``.
-
-    Resolved at push time by looking up the product spec via the active
-    :class:`SpecContext`; swallows a missing spec / missing
-    characteristic silently (the measurement just records unchecked).
-    """
-
-    __slots__ = ("target",)
-
-    def __init__(self, target: str) -> None:
-        self.target = target
-
-
-# Keys that signal an entry is a :class:`MeasurementLimitConfig` policy —
-# direct Limit entries use ``low`` / ``high`` / ``nominal`` / ``units`` only.
-_POLICY_LIMIT_FIELDS = frozenset({"characteristic", "tolerance_pct", "tolerance_abs"})
-
-
-class _PolicyLimit:
-    """Policy-limit entry deferred until push time.
-
-    Carries the raw :class:`MeasurementLimitConfig` plus the test-level
-    characteristic (from ``sidecar.tests.<method>.characteristic``) so
-    the resolver can derive a concrete :class:`Limit` from the product
-    spec + active vector params.
-    """
-
-    __slots__ = ("config", "test_char")
-
-    def __init__(self, config: MeasurementLimitConfig, test_char: str | None) -> None:
-        self.config = config
-        self.test_char = test_char
-
-
-class _BandSet:
-    """Condition-indexed list of limit bands deferred until measurement time.
-
-    Carries a list of ``(when, entry)`` pairs where each ``entry`` is
-    itself a parsed band (``Limit`` / :class:`_LimitRef` / :class:`_PolicyLimit`).
-    At measurement time the logger picks the first band whose ``when``
-    matches the active vector params (same logic as
-    ``SpecBand.when`` via :func:`band_matches`). No match →
-    ``pytest.UsageError``.
-    """
-
-    __slots__ = ("bands",)
-
-    def __init__(
-        self,
-        bands: list[tuple[dict[str, Any], Limit | _LimitRef | _PolicyLimit]],
-    ) -> None:
-        self.bands = bands
-
-
-def _parse_limit_entry(
-    name: str,
-    spec: Mapping[str, Any],
-    *,
-    test_char: str | None,
-) -> Limit | _LimitRef | _PolicyLimit:
-    """Parse a single limit mapping into its deferred-or-resolved form."""
-    from litmus.execution.logger import _limit_from_dict
-
-    if "ref" in spec:
-        return _LimitRef(spec["ref"])
-    if _POLICY_LIMIT_FIELDS & spec.keys():
-        return _PolicyLimit(MeasurementLimitConfig.model_validate(dict(spec)), test_char)
-    return _limit_from_dict(spec)
-
-
-def _parse_limits_block(
-    raw: Mapping[str, Any] | None,
-    *,
-    test_char: str | None = None,
-) -> dict[str, Limit | _LimitRef | _PolicyLimit | _BandSet]:
-    """Convert a sidecar ``limits:`` mapping into Limit / reference / policy / bandset objects.
-
-    Entries with ``ref:`` become :class:`_LimitRef`. Entries with any of
-    :data:`_POLICY_LIMIT_FIELDS` become :class:`_PolicyLimit` wrapping a
-    :class:`MeasurementLimitConfig` (resolution deferred to push time so
-    the active vector params + spec context are in scope). A list-valued
-    entry is parsed as :class:`_BandSet` — condition-indexed bands matched
-    at measurement time via the entry's ``when:`` keys. Everything else
-    is treated as a direct :class:`Limit`.
-    """
-    if not raw:
-        return {}
-    out: dict[str, Limit | _LimitRef | _PolicyLimit | _BandSet] = {}
-    for name, spec in raw.items():
-        if isinstance(spec, list):
-            bands: list[tuple[dict[str, Any], Limit | _LimitRef | _PolicyLimit]] = []
-            for band_spec in spec:
-                if not isinstance(band_spec, Mapping):
-                    raise ValueError(
-                        f"limits.{name!r} bands must be mappings; got {type(band_spec).__name__}"
-                    )
-                when = dict(band_spec.get("when") or {})
-                body = {k: v for k, v in band_spec.items() if k != "when"}
-                bands.append((when, _parse_limit_entry(name, body, test_char=test_char)))
-            out[name] = _BandSet(bands)
-            continue
-        if not isinstance(spec, Mapping):
-            raise ValueError(
-                f"limits.{name!r} must be a mapping or list; got {type(spec).__name__}"
-            )
-        out[name] = _parse_limit_entry(name, spec, test_char=test_char)
-    return out
-
-
-def _resolve_entry(
-    value: Limit | _LimitRef | _PolicyLimit,
-    *,
-    spec: Any,
-    params: dict[str, Any],
-    guardband_pct: float,
-) -> Limit | None:
-    """Resolve a single parsed limit entry to a concrete :class:`Limit`.
-
-    Shared by :func:`_resolve_limits` (push-time) and the logger's
-    band-set matcher (measurement-time). Returns ``None`` if the entry
-    can't be resolved (missing spec / characteristic).
-    """
-    from litmus.execution.limits import _apply_guardband
-    from litmus.models.config import Comparator
-    from litmus.models.config import Limit as LimitModel
-
-    if isinstance(value, _LimitRef):
-        if spec is None:
-            return None
-        try:
-            return spec.get_limit(value.target, guardband_pct=guardband_pct, **params)
-        except (KeyError, ValueError):
-            return None
-
-    if isinstance(value, _PolicyLimit):
-        cfg = value.config
-        char_id = cfg.characteristic or value.test_char
-        if char_id is None or spec is None:
-            return None
-        char = spec.product.characteristics.get(char_id)
-        if char is None:
-            return None
-        band = char.get_spec_at(dict(params))
-        if band is None or not isinstance(band.value, (int, float)):
-            return None
-        nominal = float(band.value)
-        if cfg.tolerance_pct is not None:
-            delta = abs(nominal) * cfg.tolerance_pct / 100.0
-        elif cfg.tolerance_abs is not None:
-            delta = float(cfg.tolerance_abs)
-        else:
-            return None
-        low, high = nominal - delta, nominal + delta
-        low, high = _apply_guardband(low, high, guardband_pct, Comparator.GELE.value)
-        return LimitModel(
-            low=low,
-            high=high,
-            nominal=nominal,
-            units=cfg.units or char.units or "",
-            spec_id=char_id,
-            spec_ref=char_id,
-            comparator=Comparator.GELE,
-        )
-
-    return value
-
-
-def _resolve_limits(
-    raw_map: Mapping[str, Limit | _LimitRef | _PolicyLimit | _BandSet],
-) -> dict[str, Limit | _BandSet]:
-    """Resolve deferred entries against the active spec + vector params.
-
-    Literal :class:`Limit` entries pass through unchanged. :class:`_LimitRef`
-    entries look up the named characteristic on the active spec.
-    :class:`_PolicyLimit` entries derive a :class:`Limit` from
-    ``MeasurementLimitConfig`` policy fields (``tolerance_pct`` /
-    ``tolerance_abs``) against ``product.characteristics[char]
-    .get_spec_at(active_vector_params).value``, layered with
-    ``profile.guardband_pct``. :class:`_BandSet` entries pass through
-    as-is — band matching happens at measurement time against the
-    current ``_active_vector_params_var`` (needed so self-loop tests
-    resolve a distinct band per iteration). Entries that can't be
-    resolved (no spec, missing characteristic) are dropped so the
-    measurement records unchecked.
-    """
-    resolved: dict[str, Limit | _BandSet] = {}
-    spec = get_active_spec_context()
-    profile = get_active_profile()
-    guardband_pct = float(getattr(profile, "guardband_pct", 0.0) or 0.0) if profile else 0.0
-    params = get_active_vector_params()
-
-    for name, value in raw_map.items():
-        if isinstance(value, _BandSet):
-            resolved[name] = value
-            continue
-        result = _resolve_entry(value, spec=spec, params=params, guardband_pct=guardband_pct)
-        if result is not None:
-            resolved[name] = result
-    return resolved
-
-
-def _match_band(
-    bandset: _BandSet,
-    active_params: Mapping[str, Any],
-) -> Limit:
-    """Pick the matching band and resolve it to a concrete :class:`Limit`.
-
-    Iterates ``bandset.bands`` in order; picks the first whose ``when:``
-    matches ``active_params`` using :func:`band_matches` (the same logic
-    that ``ProductCharacteristic.get_spec_at`` uses). Raises
-    ``pytest.UsageError`` when no band matches — silent skips of a
-    declared limit would hide bugs.
-    """
-    from litmus.config.capability import SpecBand, band_matches
-
-    spec_ctx = get_active_spec_context()
-    profile = get_active_profile()
-    guardband_pct = float(getattr(profile, "guardband_pct", 0.0) or 0.0) if profile else 0.0
-    params = dict(active_params)
-
-    for when, entry in bandset.bands:
-        # Reuse SpecBand.when semantics by constructing a synthetic band.
-        probe = SpecBand.model_validate({"when": when}) if when else SpecBand(when={})
-        if band_matches(probe, params):
-            resolved = _resolve_entry(
-                entry, spec=spec_ctx, params=params, guardband_pct=guardband_pct
-            )
-            if resolved is None:
-                raise pytest.UsageError(
-                    f"Limit band matched (when={when!r}) but resolution yielded no Limit "
-                    "(missing spec context or characteristic)."
-                )
-            return resolved
-
-    raise pytest.UsageError(
-        f"No limit band matched active params {params!r}. "
-        f"Declared bands: {[dict(w) for w, _ in bandset.bands]!r}"
-    )
+from litmus.execution.sidecar import (  # noqa: E402, I001  (late import; keep grouped)
+    load_sidecar as _load_sidecar,
+    parse_limits_block as _parse_limits_block,
+    resolve_limits as _resolve_limits,
+    sidecar_markers_for as _sidecar_markers_for,
+)
 
 
 @pytest.fixture
@@ -3606,15 +3048,6 @@ def _litmus_push_params(
             yield
         finally:
             set_active_vector_params({})
-
-
-def _load_sidecar_for_node(node: pytest.Item) -> SidecarConfig | None:
-    """Load the sidecar next to the test item's module file."""
-    module = getattr(node, "module", None)
-    module_file = getattr(module, "__file__", None)
-    if module_file is None:
-        return None
-    return _load_sidecar(Path(module_file))
 
 
 def _node_cls_func(node: pytest.Item) -> tuple[str | None, str | None]:
