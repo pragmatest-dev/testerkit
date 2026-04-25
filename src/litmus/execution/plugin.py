@@ -218,7 +218,7 @@ def pytest_configure(config):
         "fixture resolves them by name (or implicitly when only one is "
         "in scope).",
         "litmus_mock(**kwargs): Install a mock for the duration of a "
-        "test; kwargs follow mocker.patch.object(target, ...).",
+        "test; kwargs follow unittest.mock.patch.object(target, ...).",
     ):
         config.addinivalue_line("markers", marker)
     install_active_profile(config)
@@ -2422,14 +2422,17 @@ def _litmus_apply_mocks(
     """Install mocks declared via ``litmus_mock`` markers.
 
     The marker carries a ``target: <fixture>.<attr>`` plus any kwargs
-    accepted by ``mocker.patch.object`` — ``return_value``,
+    accepted by :func:`unittest.mock.patch.object` — ``return_value``,
     ``side_effect``, ``wraps``, ``spec``, ``spec_set``, ``autospec``,
     ``new_callable``, etc. All kwargs except ``target`` are forwarded
-    verbatim, so the surface tracks pytest-mock's documentation. The
-    handler routes through ``mocker.patch.object`` so pytest-mock owns
-    teardown. Multiple markers stack; later markers with the same
-    target overwrite earlier ones (file → class → test → profile).
-    ``--no-test-mocks`` bypasses all patching.
+    verbatim, so the surface tracks the stdlib's ``mock`` documentation.
+    The handler calls ``unittest.mock.patch.object`` directly and binds
+    teardown to the test's finalizer chain — no pytest-mock dependency,
+    same lifecycle hook would work in any runner with a per-test
+    cleanup primitive (OpenHTF phase teardown, unittest ``addCleanup``,
+    Robot keyword teardown). Multiple markers stack; later markers with
+    the same target overwrite earlier ones (file → class → test →
+    profile). ``--no-test-mocks`` bypasses all patching.
     """
     if request.config.getoption("--no-test-mocks", default=False):
         yield
@@ -2447,8 +2450,6 @@ def _litmus_apply_mocks(
         yield
         return
 
-    mocker = request.getfixturevalue("mocker")
-
     # Deduplicate by target dotted path — later marker wins.
     by_target: dict[str, dict[str, Any]] = {}
     for marker in mock_markers:
@@ -2460,6 +2461,8 @@ def _litmus_apply_mocks(
                 f"'<fixture>.<attr>' string; got {kwargs!r}"
             )
         by_target[target] = kwargs
+
+    from unittest.mock import patch as _patch
 
     for target, kwargs in by_target.items():
         fixture_name, _, attr = target.partition(".")
@@ -2476,7 +2479,9 @@ def _litmus_apply_mocks(
             )
             continue
         patch_kwargs = {k: v for k, v in kwargs.items() if k != "target"}
-        mocker.patch.object(fixture_value, attr, **patch_kwargs)
+        patcher = _patch.object(fixture_value, attr, **patch_kwargs)
+        patcher.start()
+        request.addfinalizer(patcher.stop)
 
     yield
 

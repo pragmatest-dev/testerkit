@@ -243,7 +243,7 @@ def test_per_test_mock_tightens_file_level(pytester: pytest.Pytester) -> None:
 
 
 def test_litmus_mock_forwards_side_effect(pytester: pytest.Pytester) -> None:
-    """``side_effect`` and other ``mocker.patch.object`` kwargs forward verbatim."""
+    """``side_effect`` and other ``unittest.mock.patch.object`` kwargs forward verbatim."""
     pytester.makeini(_INI)
     pytester.makepyfile(
         test_seq=textwrap.dedent(
