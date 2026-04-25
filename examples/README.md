@@ -10,7 +10,7 @@ Read them in order — every stage adds exactly one concept.
 | **3** | `03-inline-limits/` | `@pytest.mark.litmus_limits` decorator. | Limit is now declarative, not an imperative `Limit(...)` object. |
 | **4** | `04-sidecar-markers/` | Markers move to a sibling `test_*.yaml`; classes for grouping. | Ops can tune limits without editing Python. |
 | **5** | `05-station-catalog/` | Station YAML + instrument catalog; `psu` / `dmm` fixtures auto-register. | No hand-rolled `conftest` fixtures. Mocks via flag. |
-| **6** | `06-product-binding/` | Product YAML, fixture routing, `litmus_binding` + `tolerance_pct`. | Spec is the source of truth; rows carry traceability. |
+| **6** | `06-product-binding/` | Product YAML, fixture routing, `litmus_spec` + `tolerance_pct`. | Spec is the source of truth; rows carry traceability. |
 | **7** | `07-profiles/` | Profiles under `profiles/*.yaml` with `extends:` chains. | Scenarios (dev / production / characterization) without per-test forking. |
 
 ## Running

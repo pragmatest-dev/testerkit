@@ -115,12 +115,13 @@ def test_rails(context, spec, logger, dmm):
     spec.check("efficiency", compute_eff(...))
 ```
 
-## Four Litmus markers (`--strict-markers` safe)
+## Five Litmus markers (`--strict-markers` safe)
 
 | Marker                            | Purpose                                                       |
 |-----------------------------------|---------------------------------------------------------------|
 | `litmus_limits(**by_name)`        | Limits by measurement name (supports `when:`-keyed bands)     |
-| `litmus_binding(...)`             | Test binds to a product characteristic or fixture points      |
+| `litmus_spec(characteristic=...)` | Bind the test to a product characteristic (spec context)      |
+| `litmus_connections(...)`         | Bind to explicit fixturepoints or instrument-channel ranges   |
 | `litmus_mock(target=..., ...)`    | Patch a method for the test (routes through `pytest-mock`)    |
 | `litmus_prompt(message=...)`      | Manual operator setup at a lifecycle point                    |
 

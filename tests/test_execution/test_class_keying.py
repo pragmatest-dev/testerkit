@@ -17,12 +17,12 @@ def _sidecar(tests: dict[str, list[MarkerSpec]]) -> SidecarConfig:
 
 
 def _binding_marker(char: str) -> MarkerSpec:
-    return MarkerSpec(name="litmus_binding", kwargs={"characteristic": char})
+    return MarkerSpec(name="litmus_spec", kwargs={"characteristic": char})
 
 
 def _first_char(markers: list[MarkerSpec]) -> str | None:
     for spec in markers:
-        if spec.name == "litmus_binding":
+        if spec.name == "litmus_spec":
             return spec.kwargs.get("characteristic")
     return None
 

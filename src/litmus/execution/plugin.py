@@ -324,8 +324,11 @@ def pytest_configure(config):
     """Register Litmus markers and auto-register instrument role fixtures."""
     for marker in (
         "litmus_limits(**kwargs): Inject limits by measurement name (merges with sidecar limits:)",
-        "litmus_binding(**kwargs): Test-level binding to a product "
-        "characteristic, fixturepoints list, or instrument channels map.",
+        "litmus_spec(characteristic=<id>): Bind the test to a product "
+        "characteristic; provides spec-relative limit context and "
+        "auto-derives fixture points from the characteristic's pins.",
+        "litmus_connections(fixturepoints=[...] | instrument_channels={...}): "
+        "Bind the test to explicit fixture points or instrument-channel ranges.",
         "litmus_prompt(**kwargs): Operator prompt hook; kwargs select "
         "timing (before_all | before_each) and message template.",
         "litmus_mock(**kwargs): Install a mock for the duration of a "
@@ -2435,8 +2438,8 @@ def _litmus_push_limits(
     active_vector_params)``. Depends on :func:`_litmus_push_params` so
     active vector params are populated before resolution.
     """
-    binding_marker = next(iter(request.node.iter_markers("litmus_binding")), None)
-    test_char = binding_marker.kwargs.get("characteristic") if binding_marker is not None else None
+    spec_marker = next(iter(request.node.iter_markers("litmus_spec")), None)
+    test_char = spec_marker.kwargs.get("characteristic") if spec_marker is not None else None
 
     merged_raw: dict[str, Any] = {}
     # Walk listchain root-to-leaf so later (more-specific) markers win
@@ -2498,55 +2501,65 @@ class _PointIterator:
             self._token = None
 
 
-def _resolve_binding_marker_to_points(
-    kwargs: dict[str, Any],
+def _resolve_spec_to_points(
+    characteristic: str,
     spec_ctx: Any,
     fixture_cfg: FixtureConfig | None,
 ) -> list[FixturePoint]:
-    """Expand a ``litmus_binding`` marker payload into fixture points.
+    """Expand a ``litmus_spec(characteristic=...)`` payload into fixture points.
 
-    Exactly one of ``characteristic`` / ``fixturepoints`` /
-    ``instrument_channels`` must be set. Returns ``[]`` when no fixture
-    is loaded (the test runs with ``ctx.points`` as empty).
+    Walks the characteristic's ``resolved_pins`` and looks up matching
+    points in the fixture config (by ``dut_pin`` or ``net``). Returns
+    ``[]`` when no fixture is loaded.
     """
-    characteristic = kwargs.get("characteristic")
+    if spec_ctx is None:
+        raise pytest.UsageError(
+            f"litmus_spec(characteristic={characteristic!r}) "
+            "requires a product spec (load via --spec or products/ auto-discovery)."
+        )
+    char = spec_ctx.product.characteristics.get(characteristic)
+    if char is None:
+        raise pytest.UsageError(
+            f"Characteristic {characteristic!r} not found in product {spec_ctx.product.id!r}."
+        )
+    if fixture_cfg is None:
+        return []
+    points_map = fixture_cfg.points
+    points: list[FixturePoint] = []
+    for pin_id in char.resolved_pins:
+        pin = spec_ctx.product.pins.get(pin_id)
+        net = pin.net if pin else None
+        for pt in points_map.values():
+            if pt.dut_pin == pin_id or (net is not None and pt.net == net):
+                points.append(pt)
+                break
+    return points
+
+
+def _resolve_connections_to_points(
+    kwargs: dict[str, Any],
+    fixture_cfg: FixtureConfig | None,
+) -> list[FixturePoint]:
+    """Expand a ``litmus_connections`` payload into fixture points.
+
+    Exactly one of ``fixturepoints`` / ``instrument_channels`` must be
+    set. Returns ``[]`` when no fixture is loaded.
+    """
     fixturepoints = kwargs.get("fixturepoints")
     instrument_channels = kwargs.get("instrument_channels")
 
-    set_count = sum(
-        1 for v in (characteristic, fixturepoints, instrument_channels) if v is not None
-    )
-    if set_count > 1:
+    if fixturepoints is not None and instrument_channels is not None:
         raise pytest.UsageError(
-            "litmus_binding must set exactly one of characteristic, "
-            "fixturepoints, or instrument_channels."
+            "litmus_connections must set exactly one of fixturepoints or instrument_channels."
+        )
+    if fixturepoints is None and instrument_channels is None:
+        raise pytest.UsageError(
+            "litmus_connections requires either fixturepoints=[...] or instrument_channels={...}."
         )
 
     if fixture_cfg is None:
         return []
-
     points_map = fixture_cfg.points
-
-    if characteristic:
-        if spec_ctx is None:
-            raise pytest.UsageError(
-                f"litmus_binding(characteristic={characteristic!r}) "
-                "requires a product spec (load via --spec or products/ auto-discovery)."
-            )
-        char = spec_ctx.product.characteristics.get(characteristic)
-        if char is None:
-            raise pytest.UsageError(
-                f"Characteristic {characteristic!r} not found in product {spec_ctx.product.id!r}."
-            )
-        points: list[FixturePoint] = []
-        for pin_id in char.resolved_pins:
-            pin = spec_ctx.product.pins.get(pin_id)
-            net = pin.net if pin else None
-            for pt in points_map.values():
-                if pt.dut_pin == pin_id or (net is not None and pt.net == net):
-                    points.append(pt)
-                    break
-        return points
 
     if fixturepoints:
         resolved: list[FixturePoint] = []
@@ -2557,42 +2570,55 @@ def _resolve_binding_marker_to_points(
             resolved.append(pt)
         return resolved
 
-    if instrument_channels:
-        out: list[FixturePoint] = []
-        for inst_name, channels in instrument_channels.items():
-            if channels == "all":
-                out.extend(pt for pt in points_map.values() if pt.instrument == inst_name)
-            else:
-                wanted = {str(c) for c in channels}
-                out.extend(
-                    pt
-                    for pt in points_map.values()
-                    if pt.instrument == inst_name and pt.instrument_channel in wanted
-                )
-        return out
-
-    return []
+    out: list[FixturePoint] = []
+    assert instrument_channels is not None
+    for inst_name, channels in instrument_channels.items():
+        if channels == "all":
+            out.extend(pt for pt in points_map.values() if pt.instrument == inst_name)
+        else:
+            wanted = {str(c) for c in channels}
+            out.extend(
+                pt
+                for pt in points_map.values()
+                if pt.instrument == inst_name and pt.instrument_channel in wanted
+            )
+    return out
 
 
 @pytest.fixture(autouse=True)
 def _litmus_bind_points(
     request: pytest.FixtureRequest,
 ) -> Iterator[None]:
-    """Build :class:`_PointIterator` on ``ctx.points`` from ``litmus_binding``.
+    """Build :class:`_PointIterator` on ``ctx.points`` from binding markers.
 
-    Reads the single ``litmus_binding`` marker (closest scope wins) from
-    the merged marker set. If the test body declares a binding but never
-    iterates ``ctx.points``, the test fails — silent skips are worse
-    than errors. Tests without a binding leave ``ctx.points = None``.
+    Reads ``litmus_spec`` (characteristic-driven points) and
+    ``litmus_connections`` (explicit fixturepoints / instrument_channels).
+    Both markers cannot be set on the same test. If the test body
+    declares a binding but never iterates ``ctx.points``, the test
+    fails — silent skips are worse than errors.
     """
-    binding_marker = next(iter(request.node.iter_markers("litmus_binding")), None)
-    if binding_marker is None:
+    spec_marker = next(iter(request.node.iter_markers("litmus_spec")), None)
+    conn_marker = next(iter(request.node.iter_markers("litmus_connections")), None)
+
+    if spec_marker is not None and conn_marker is not None:
+        raise pytest.UsageError(
+            "Cannot combine litmus_spec and litmus_connections on the same test. "
+            "Use one or the other."
+        )
+    if spec_marker is None and conn_marker is None:
         yield
         return
 
     spec_ctx = get_active_spec_context()
     fixture_cfg = _safe_get_session_fixture(request, "fixture_config")
-    points = _resolve_binding_marker_to_points(dict(binding_marker.kwargs), spec_ctx, fixture_cfg)
+    if spec_marker is not None:
+        characteristic = spec_marker.kwargs.get("characteristic")
+        if not characteristic:
+            raise pytest.UsageError("litmus_spec requires characteristic=<id>.")
+        points = _resolve_spec_to_points(characteristic, spec_ctx, fixture_cfg)
+    else:
+        assert conn_marker is not None
+        points = _resolve_connections_to_points(dict(conn_marker.kwargs), fixture_cfg)
 
     ctx: Context = request.getfixturevalue("context")
     iterator = _PointIterator(points)
