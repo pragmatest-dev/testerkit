@@ -15,6 +15,7 @@ from uuid import UUID, uuid4
 
 import pytest
 
+from litmus.config.expanders import expand_ranges
 from litmus.config.test_config import (
     ClassMarkers,
     FixtureConfig,
@@ -3119,6 +3120,7 @@ def _load_sidecar(module_file: Path) -> SidecarConfig | None:
         raise ValueError(
             f"{yaml_path} must contain a mapping at the top level; got {type(data).__name__}"
         )
+    data = expand_ranges(data)
     return SidecarConfig.model_validate(data)
 
 
@@ -3650,10 +3652,14 @@ def _litmus_push_limits(
     test_char = binding_marker.kwargs.get("characteristic") if binding_marker is not None else None
 
     merged_raw: dict[str, Any] = {}
-    # iter_markers yields closest-first (method → class → module → plugin);
-    # we want least-specific first so later wins, so reverse.
-    for marker in reversed(list(request.node.iter_markers("litmus_limits"))):
-        merged_raw.update(marker.kwargs)
+    # Walk listchain root-to-leaf so later (more-specific) markers win
+    # via ``update``. Within a node, ``own_markers`` preserves insertion
+    # order — file-level sidecar markers are added before per-test ones,
+    # so per-test correctly overrides.
+    for node in request.node.listchain():
+        for marker in node.own_markers:
+            if marker.name == "litmus_limits":
+                merged_raw.update(marker.kwargs)
 
     raw = _parse_limits_block(merged_raw, test_char=test_char)
     resolved = _resolve_limits(raw)
