@@ -1,0 +1,178 @@
+{
+  "$defs": {
+    "CalibrationInfo": {
+      "additionalProperties": false,
+      "description": "Calibration status from configuration.\n\nThis information is NOT queryable from the device - it comes from\nthe instrument configuration file and is tracked by the organization's\ncalibration management system.",
+      "properties": {
+        "due_date": {
+          "anyOf": [
+            {
+              "format": "date",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Due Date"
+        },
+        "last_cal": {
+          "anyOf": [
+            {
+              "format": "date",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Last Cal"
+        },
+        "certificate": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Certificate"
+        },
+        "lab": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Lab"
+        }
+      },
+      "title": "CalibrationInfo",
+      "type": "object"
+    },
+    "InstrumentInfo": {
+      "additionalProperties": false,
+      "description": "Instrument identity queried from device.\n\nFor VISA instruments, this is parsed from the *IDN? response.\nFor other protocols, this is populated via protocol-specific APIs.\n\nAll fields are optional because some instruments may not report\nall identity information.",
+      "properties": {
+        "manufacturer": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Manufacturer"
+        },
+        "model": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Model"
+        },
+        "serial": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Serial"
+        },
+        "firmware": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Firmware"
+        }
+      },
+      "title": "InstrumentInfo",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "description": "Schema for instruments/*.yaml asset files (per-device identity + calibration).",
+  "properties": {
+    "id": {
+      "title": "Id",
+      "type": "string"
+    },
+    "protocol": {
+      "default": "visa",
+      "title": "Protocol",
+      "type": "string"
+    },
+    "driver": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Driver"
+    },
+    "resource": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Resource"
+    },
+    "catalog_ref": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Catalog Ref"
+    },
+    "info": {
+      "$ref": "#/$defs/InstrumentInfo"
+    },
+    "calibration": {
+      "$ref": "#/$defs/CalibrationInfo"
+    }
+  },
+  "required": [
+    "id"
+  ],
+  "title": "InstrumentAssetFile",
+  "type": "object"
+}

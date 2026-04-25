@@ -154,7 +154,7 @@ For each input parameter, columns are created dynamically:
 | `in_{param}_resource` | string | VISA address at test time |
 | `in_{param}_channel` | string | Channel on instrument |
 | `in_{param}_dut_pin` | string | DUT pin driven |
-| `in_{param}_fixture_point` | string | Fixture routing point |
+| `in_{param}_fixture_connection` | string | Fixture routing connection |
 
 **Example:** For a test with `vin` and `load` inputs:
 - `in_vin`, `in_vin_instrument`, `in_vin_resource`, `in_vin_channel`
@@ -261,7 +261,7 @@ GROUP BY spec_id, product_id;
 | Column | Type | Description |
 |--------|------|-------------|
 | `meas_dut_pin` | string | DUT pin measured |
-| `meas_fixture_point` | string | Fixture routing point |
+| `meas_fixture_connection` | string | Fixture routing connection |
 | `meas_instrument` | string | Instrument name ("dmm_main") |
 | `meas_instrument_resource` | string | VISA address |
 | `meas_instrument_channel` | string | Channel ("CH1") |

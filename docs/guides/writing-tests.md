@@ -121,7 +121,7 @@ def test_rails(context, spec, logger, dmm):
 |-----------------------------------|---------------------------------------------------------------|
 | `litmus_limits(**by_name)`        | Limits by measurement name (supports `when:`-keyed bands)     |
 | `litmus_spec(characteristic=...)` | Bind the test to a product characteristic (spec context)      |
-| `litmus_connections(...)`         | Bind to explicit fixturepoints or instrument-channel ranges   |
+| `litmus_connections(...)`         | Bind to explicit fixture connections or instrument-channel ranges |
 | `litmus_mock(target=..., ...)`    | Patch a method for the test (routes through `pytest-mock`)    |
 | `litmus_prompt(message=...)`      | Manual operator setup at a lifecycle point                    |
 
@@ -142,6 +142,38 @@ For everything else, use native pytest primitives or ecosystem plugins:
 Product is session-global: pick it with `--product=<id>` or set
 `default_product:` in `litmus.yaml` / a profile. There is no per-test
 product override marker.
+
+## `litmus_spec` × `litmus_connections` resolution
+
+`litmus_spec` and `litmus_connections` are independent markers that
+compose into the iterable connection set on `ctx.connections`. Behavior depends
+on which markers are present and whether a fixture YAML is loaded for
+the run:
+
+| Case | `litmus_spec` | `litmus_connections` | Fixture loaded? | Result |
+|------|---------------|----------------------|-----------------|--------|
+| 1 | — | — | any | No markers → `ctx.connections` is `None`; test runs once with no connection context. |
+| 2 | `characteristic: X` | — | yes | Iterate every fixture connection whose `dut_pin` (or `net`) is in `X.resolved_pins`. Fixture-order. |
+| 3 | `characteristic: X` | — | no | Empty iterator (no connections to bind to). Test still iterates `ctx.connections` and gets zero rounds. |
+| 4 | — | `connections: [a, b, …]` | yes | Iterate the listed connections in user-listed order. Unknown name → `UsageError`. |
+| 5 | — | `connections: [a, b, …]` | no | `UsageError` — connection names are nonsense without a fixture YAML. |
+| 6 | — | `instrument_channels: {inst: [ch, …]}` | yes | Match each `(inst, ch)` against fixture connections; user-listed order. No match → `UsageError`. `'all'` → all connections on that instrument. |
+| 7 | — | `instrument_channels: {inst: [ch, …]}` | no | Synthesize `FixtureConnection` stubs (`name=f"{inst}_ch{ch}"`, no `dut_pin`). Iterable for early bringup. `'all'` → `UsageError` (nothing to enumerate). |
+| 8 | `characteristic: X` | `connections: [a, b, …]` | yes | Resolve as case 4, then validate every selected connection's `dut_pin` ∈ `X.resolved_pins`. Out-of-set → `UsageError`. User-listed order wins. |
+| 9 | `characteristic: X` | `connections: [a, b, …]` | no | `UsageError` (case 5 — fixture required for connection names). |
+| 10 | `characteristic: X` | `instrument_channels: {…}` | yes | Resolve as case 6, then validate every match's `dut_pin` ∈ `X.resolved_pins`. Out-of-set → `UsageError`. User-listed order wins. |
+| 11 | `characteristic: X` | `instrument_channels: {…}` | no | Synthesize stubs (case 7). No `dut_pin` mapping exists, so spec membership cannot be enforced — stubs pass through. |
+
+Invariants across the matrix:
+
+- **Missing spec context** (cases 2/3/8/10/11 with no product loaded): `UsageError`.
+- **Unknown characteristic** on the product: `UsageError`.
+- **Iteration order**: when `litmus_connections` is present, follows the
+  user-listed order; spec-only (case 2) follows fixture iteration order.
+- **Zero remaining connections** after spec × connections filtering:
+  `UsageError` (no silent skip).
+- **Declared but un-iterated**: if `litmus_connections` is present and the test body
+  never iterates `ctx.connections`, the test fails with `AssertionError`.
 
 ## Sidecar YAML
 

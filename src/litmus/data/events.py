@@ -362,7 +362,7 @@ class MeasurementRecorded(EventBase):
 
     # Signal path
     meas_dut_pin: str | None = None
-    meas_fixture_point: str | None = None
+    meas_fixture_connection: str | None = None
     meas_instrument: str | None = None
     meas_instrument_resource: str | None = None
     meas_instrument_channel: str | None = None
@@ -446,7 +446,7 @@ class RouteClosed(EventBase):
     """Emitted when switch channels are closed to activate a route."""
 
     event_type: Literal["route.closed"] = "route.closed"
-    point_name: str
+    connection_name: str
     switch_role: str
     channels: list[str]
 
@@ -455,7 +455,7 @@ class RouteOpened(EventBase):
     """Emitted when switch channels are opened to deactivate a route."""
 
     event_type: Literal["route.opened"] = "route.opened"
-    point_name: str
+    connection_name: str
     switch_role: str
     channels: list[str]
 

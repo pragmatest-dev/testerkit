@@ -24,7 +24,7 @@ from __future__ import annotations
 from contextvars import ContextVar
 from typing import Any
 
-from litmus.config.test_config import FixturePoint
+from litmus.config.test_config import FixtureConnection
 from litmus.data.models import CollectedItem
 from litmus.models.instrument import InstrumentRecord
 from litmus.models.project import ProfileConfig
@@ -51,7 +51,7 @@ _active_profile_var: ContextVar[ProfileConfig | None] = ContextVar("_active_prof
 _active_facets_var: ContextVar[dict[str, str]] = ContextVar("_active_facets")
 _active_vector_params_var: ContextVar[dict[str, Any]] = ContextVar("_active_vector_params")
 _active_vector_index_var: ContextVar[int] = ContextVar("_active_vector_index")
-_active_point_var: ContextVar[FixturePoint | None] = ContextVar("_active_point")
+_active_connection_var: ContextVar[FixtureConnection | None] = ContextVar("_active_connection")
 
 
 # --- Session-scoped getters (create-and-store on first access) ---
@@ -296,24 +296,24 @@ def set_active_vector_index(value: int) -> None:
     _active_vector_index_var.set(value)
 
 
-def get_active_point() -> FixturePoint | None:
-    """Return the currently active :class:`FixturePoint` or ``None``.
+def get_active_connection() -> FixtureConnection | None:
+    """Return the currently active :class:`FixtureConnection` or ``None``.
 
-    Pushed/popped by :class:`_PointIterator` as a test body iterates
-    ``ctx.points``. Read by :func:`_auto_traceability` to stamp pin /
+    Pushed/popped by :class:`ConnectionIterator` as a test body iterates
+    ``ctx.connections``. Read by :func:`_auto_traceability` to stamp pin /
     channel / terminal / net on each measurement row and by
     :meth:`FixtureManager.route` so driver fixtures route without
     seeing pin names.
     """
     try:
-        return _active_point_var.get()
+        return _active_connection_var.get()
     except LookupError:
         return None
 
 
-def set_active_point(value: FixturePoint | None) -> None:
-    """Set the active :class:`FixturePoint`. Returns None."""
-    _active_point_var.set(value)
+def set_active_connection(value: FixtureConnection | None) -> None:
+    """Set the active :class:`FixtureConnection`. Returns None."""
+    _active_connection_var.set(value)
 
 
 def get_event_store() -> Any:

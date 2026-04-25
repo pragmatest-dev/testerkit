@@ -2,7 +2,7 @@
 
 import pytest
 
-from litmus.config.test_config import FixturePoint, SwitchRoute
+from litmus.config.test_config import FixtureConnection, SwitchRoute
 from litmus.instruments.route_manager import RouteConflictError, RouteManager
 
 
@@ -34,10 +34,10 @@ class FakeInstrument:
         return 3.3
 
 
-def _make_points(**overrides):
-    """Build fixture points with routes for testing."""
+def _make_connections(**overrides):
+    """Build fixture connections with routes for testing."""
     defaults = {
-        "vout_measure": FixturePoint(
+        "vout_measure": FixtureConnection(
             name="vout_measure",
             instrument="dmm",
             instrument_channel="1",
@@ -49,13 +49,13 @@ def _make_points(**overrides):
     return defaults
 
 
-def _make_manager(points=None, instruments=None, **kwargs):
-    points = points or _make_points()
+def _make_manager(connections=None, instruments=None, **kwargs):
+    connections = connections or _make_connections()
     instruments = instruments or {
         "dmm": FakeInstrument(),
         "matrix": FakeSwitch(),
     }
-    return RouteManager(points=points, instruments=instruments, **kwargs)
+    return RouteManager(connections=connections, instruments=instruments, **kwargs)
 
 
 @pytest.fixture(autouse=True)
@@ -70,10 +70,10 @@ class TestHasRoutes:
         assert rm.has_routes is True
 
     def test_has_routes_false(self):
-        points = {
-            "vout": FixturePoint(name="vout", instrument="dmm", dut_pin="VOUT"),
+        connections = {
+            "vout": FixtureConnection(name="vout", instrument="dmm", dut_pin="VOUT"),
         }
-        rm = _make_manager(points=points)
+        rm = _make_manager(connections=connections)
         assert rm.has_routes is False
 
 
@@ -111,8 +111,8 @@ class TestActivateDeactivate:
 
     def test_deactivate_all(self):
         switch = FakeSwitch()
-        points = _make_points(
-            iout_measure=FixturePoint(
+        connections = _make_connections(
+            iout_measure=FixtureConnection(
                 name="iout_measure",
                 instrument="dmm",
                 instrument_channel="2",
@@ -121,7 +121,7 @@ class TestActivateDeactivate:
             ),
         )
         rm = _make_manager(
-            points=points,
+            connections=connections,
             instruments={"dmm": FakeInstrument(), "matrix": switch},
         )
         rm.activate("vout_measure")
@@ -132,16 +132,16 @@ class TestActivateDeactivate:
         assert "iout_measure" not in rm.active_routes
         assert len(switch.opened) == 2
 
-    def test_activate_nonexistent_point_raises(self):
+    def test_activate_nonexistent_connection_raises(self):
         rm = _make_manager()
         with pytest.raises(KeyError, match="not found"):
             rm.activate("nonexistent")
 
-    def test_activate_point_without_route_raises(self):
-        points = {
-            "direct": FixturePoint(name="direct", instrument="dmm", dut_pin="VIN"),
+    def test_activate_connection_without_route_raises(self):
+        connections = {
+            "direct": FixtureConnection(name="direct", instrument="dmm", dut_pin="VIN"),
         }
-        rm = _make_manager(points=points)
+        rm = _make_manager(connections=connections)
         with pytest.raises(KeyError, match="no switch route"):
             rm.activate("direct")
 
@@ -160,17 +160,17 @@ class TestActivateDeactivate:
 
 class TestConflictDetection:
     def test_channel_overlap_raises(self):
-        """Two points sharing the same switch channel can't be simultaneous."""
-        points = {
-            "point_a": FixturePoint(
-                name="point_a",
+        """Two connections sharing the same switch channel can't be simultaneous."""
+        connections = {
+            "conn_a": FixtureConnection(
+                name="conn_a",
                 instrument="dmm",
                 instrument_channel="1",
                 dut_pin="A",
                 route=SwitchRoute(switch="matrix", channels=["r0c0"]),
             ),
-            "point_b": FixturePoint(
-                name="point_b",
+            "conn_b": FixtureConnection(
+                name="conn_b",
                 instrument="psu",
                 instrument_channel="1",
                 dut_pin="B",
@@ -183,24 +183,24 @@ class TestConflictDetection:
             "psu": FakeInstrument(),
             "matrix": switch,
         }
-        rm = _make_manager(points=points, instruments=instruments)
+        rm = _make_manager(connections=connections, instruments=instruments)
 
-        rm.activate("point_a")
+        rm.activate("conn_a")
         with pytest.raises(RouteConflictError, match="r0c0"):
-            rm.activate("point_b")
+            rm.activate("conn_b")
 
     def test_instrument_channel_conflict_raises(self):
-        """Two points targeting same instrument+channel can't be simultaneous."""
-        points = {
-            "point_a": FixturePoint(
-                name="point_a",
+        """Two connections targeting same instrument+channel can't be simultaneous."""
+        connections = {
+            "conn_a": FixtureConnection(
+                name="conn_a",
                 instrument="dmm",
                 instrument_channel="1",
                 dut_pin="A",
                 route=SwitchRoute(switch="matrix", channels=["r0c0"]),
             ),
-            "point_b": FixturePoint(
-                name="point_b",
+            "conn_b": FixtureConnection(
+                name="conn_b",
                 instrument="dmm",
                 instrument_channel="1",
                 dut_pin="B",
@@ -209,24 +209,24 @@ class TestConflictDetection:
         }
         switch = FakeSwitch()
         instruments = {"dmm": FakeInstrument(), "matrix": switch}
-        rm = _make_manager(points=points, instruments=instruments)
+        rm = _make_manager(connections=connections, instruments=instruments)
 
-        rm.activate("point_a")
+        rm.activate("conn_a")
         with pytest.raises(RouteConflictError, match="instrument channel"):
-            rm.activate("point_b")
+            rm.activate("conn_b")
 
     def test_non_conflicting_simultaneous(self):
         """Different channels on different instruments can be simultaneous."""
-        points = {
-            "point_a": FixturePoint(
-                name="point_a",
+        connections = {
+            "conn_a": FixtureConnection(
+                name="conn_a",
                 instrument="dmm",
                 instrument_channel="1",
                 dut_pin="A",
                 route=SwitchRoute(switch="matrix", channels=["r0c0"]),
             ),
-            "point_b": FixturePoint(
-                name="point_b",
+            "conn_b": FixtureConnection(
+                name="conn_b",
                 instrument="dmm",
                 instrument_channel="2",
                 dut_pin="B",
@@ -235,10 +235,10 @@ class TestConflictDetection:
         }
         switch = FakeSwitch()
         instruments = {"dmm": FakeInstrument(), "matrix": switch}
-        rm = _make_manager(points=points, instruments=instruments)
+        rm = _make_manager(connections=connections, instruments=instruments)
 
-        rm.activate("point_a")
-        rm.activate("point_b")  # Should not raise
+        rm.activate("conn_a")
+        rm.activate("conn_b")  # Should not raise
 
         assert len(rm.active_routes) == 2
 
@@ -257,7 +257,7 @@ class TestForPin:
 
     def test_unknown_pin_raises(self):
         rm = _make_manager()
-        with pytest.raises(KeyError, match="No routed fixture point"):
+        with pytest.raises(KeyError, match="No routed fixture connection"):
             with rm.for_pin("NONEXISTENT"):
                 pass
 
@@ -279,8 +279,8 @@ class TestSettling:
         sleep_calls: list[float] = []
         monkeypatch.setattr("litmus.instruments.route_manager.time.sleep", sleep_calls.append)
 
-        points = {
-            "vout": FixturePoint(
+        connections = {
+            "vout": FixtureConnection(
                 name="vout",
                 instrument="dmm",
                 dut_pin="VOUT",
@@ -289,7 +289,7 @@ class TestSettling:
         }
         switch = FakeSwitch()
         rm = _make_manager(
-            points=points,
+            connections=connections,
             instruments={"dmm": FakeInstrument(), "matrix": switch},
         )
         rm.activate("vout")

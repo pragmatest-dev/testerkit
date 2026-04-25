@@ -51,7 +51,7 @@ def fixtures_page():
 
 def _fixture_card(fixture, product: dict | None):
     """Render a fixture card for a FixtureConfig model."""
-    points = fixture.points or {}
+    connections = fixture.connections or {}
 
     with ui.card().classes("w-80"):
         with ui.card_section():
@@ -59,7 +59,7 @@ def _fixture_card(fixture, product: dict | None):
                 with ui.row().classes("items-center gap-2"):
                     ui.icon("hub").classes("text-slate-600")
                     ui.label(fixture.name or fixture.id).classes("text-lg font-semibold")
-                ui.badge(f"{len(points)} points").props("outline")
+                ui.badge(f"{len(connections)} connections").props("outline")
 
         with ui.card_section():
             # Product link
@@ -87,14 +87,14 @@ def _fixture_card(fixture, product: dict | None):
             if fixture.description:
                 ui.label(fixture.description).classes("text-sm text-slate-600")
 
-            # Points preview
-            if points:
+            # Connections preview
+            if connections:
                 ui.label("Pin Mappings").classes("text-xs text-slate-500 uppercase mt-3")
                 with ui.column().classes("gap-1 mt-1"):
-                    for point_name, point in list(points.items())[:3]:
-                        _point_row(point_name, point)
-                    if len(points) > 3:
-                        ui.label(f"... and {len(points) - 3} more").classes(
+                    for connection_name, connection in list(connections.items())[:3]:
+                        _connection_row(connection_name, connection)
+                    if len(connections) > 3:
+                        ui.label(f"... and {len(connections) - 3} more").classes(
                             "text-xs text-slate-400 italic"
                         )
 
@@ -111,16 +111,16 @@ def _fixture_card(fixture, product: dict | None):
             ).props("flat")
 
 
-def _point_row(point_name: str, point):
-    """Render a fixture point row."""
+def _connection_row(connection_name: str, connection):
+    """Render a fixture connection row."""
     with ui.row().classes("items-center gap-2 text-sm"):
         # DUT pin
-        dut_pin = point.dut_pin or point_name
+        dut_pin = connection.dut_pin or connection_name
         ui.label(dut_pin).classes("font-mono text-green-700 bg-green-50 px-1 rounded")
         ui.icon("arrow_forward", size="xs").classes("text-slate-400")
         # Instrument
-        instrument = point.instrument or "?"
-        channel = point.instrument_channel
+        instrument = connection.instrument or "?"
+        channel = connection.instrument_channel
         channel_str = f":{channel}" if channel else ""
         ui.label(f"{instrument}{channel_str}").classes(
             "font-mono text-blue-700 bg-blue-50 px-1 rounded"

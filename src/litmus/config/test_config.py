@@ -307,17 +307,18 @@ class SwitchRoute(BaseModel):
     settling_ms: float = 0  # ms to wait after closing
 
 
-class FixturePoint(BaseModel):
-    """A named routing junction on a test fixture.
+class FixtureConnection(BaseModel):
+    """A named connection on a test fixture.
 
-    Maps a DUT connection point to an instrument channel and terminal,
-    enabling complete signal routing traceability. Called "Point" rather
-    than "Channel" to avoid confusion with instrument channels.
+    Maps a DUT pin to an instrument channel and terminal, enabling
+    complete signal routing traceability. Each named connection is the
+    addressable unit; an instrument channel alone is ambiguous because
+    channels span instruments.
 
     Terminology:
     - Pin: Physical DUT connection point (J1.1, TP5)
     - Net: Schematic signal name (VOUT_3V3)
-    - FixturePoint: Named routing junction (vout_measure)
+    - FixtureConnection: Named DUT-pin ↔ instrument-channel pairing (vout_measure)
     - InstrumentChannel: Physical channel on instrument (CH1, ai0)
     - InstrumentTerminal: Physical terminal (hi, lo, signal)
 
@@ -361,14 +362,14 @@ class FixturePoint(BaseModel):
 class FixtureSlot(BaseModel):
     """A DUT slot within a multi-DUT fixture.
 
-    Each slot has its own FixturePoint mappings that route DUT pins
+    Each slot has its own FixtureConnection mappings that route DUT pins
     to specific instrument channels. Slots share the same instrument
     roles but use different channels (or entirely different instruments).
 
     Example YAML:
         slot_1:
           dut_resource: /dev/ttyUSB0
-          points:
+          connections:
             vout_measure:
               name: vout_measure
               instrument: dmm
@@ -378,7 +379,7 @@ class FixtureSlot(BaseModel):
 
     model_config = {"extra": "forbid"}
 
-    points: dict[str, FixturePoint] = Field(default_factory=dict)
+    connections: dict[str, FixtureConnection] = Field(default_factory=dict)
     dut_resource: str | None = None  # Per-slot DUT connection string
     description: str | None = None
 
@@ -392,8 +393,8 @@ class FixtureConfig(BaseModel):
     - A product family (product_family) - for shared fixtures
     - A specific revision (product_revision) - optional refinement
 
-    Single-DUT fixtures use ``points`` directly. Multi-DUT fixtures
-    use ``slots``, where each slot has its own ``points`` dict mapping
+    Single-DUT fixtures use ``connections`` directly. Multi-DUT fixtures
+    use ``slots``, where each slot has its own ``connections`` dict mapping
     DUT pins to instrument channels. The two are mutually exclusive.
 
     For simple setups without formal fixtures, tests can use:
@@ -414,19 +415,19 @@ class FixtureConfig(BaseModel):
     # DUT connection string (e.g., COM3, /dev/ttyUSB0)
     dut_resource: str | None = None
 
-    # Pin-to-instrument mappings (single-DUT)
-    points: dict[str, FixturePoint] = Field(default_factory=dict)
+    # DUT-pin ↔ instrument-channel pairings (single-DUT)
+    connections: dict[str, FixtureConnection] = Field(default_factory=dict)
     # Multi-DUT slot mappings
     slots: dict[str, FixtureSlot] = Field(default_factory=dict)
 
     description: str | None = None
 
     @model_validator(mode="after")
-    def _validate_points_or_slots(self) -> Self:
-        if self.points and self.slots:
+    def _validate_connections_or_slots(self) -> Self:
+        if self.connections and self.slots:
             raise ValueError(
-                "FixtureConfig cannot have both 'points' and 'slots'. "
-                "Use 'points' for single-DUT fixtures or 'slots' for multi-DUT."
+                "FixtureConfig cannot have both 'connections' and 'slots'. "
+                "Use 'connections' for single-DUT fixtures or 'slots' for multi-DUT."
             )
         for slot_id in self.slots:
             if not slot_id or not slot_id.strip():
@@ -630,7 +631,7 @@ class MeasurementLimitConfig(BaseModel):
     spec_id: str | None = None
     spec_ref: str | None = None
 
-    # Binding to a ProductCharacteristic id on the active product.
+    # Reference to a ProductCharacteristic id on the active product.
     # When set, the resolver reads product.characteristics[characteristic]
     # .get_spec_at(active_vector_params) → SpecBand, using .value as the
     # nominal against which tolerance_pct / tolerance_abs / guardband_pct

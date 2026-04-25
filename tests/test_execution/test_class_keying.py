@@ -16,7 +16,7 @@ def _sidecar(tests: dict[str, list[MarkerSpec]]) -> SidecarConfig:
     return SidecarConfig(tests={k: TestMarkers(markers=v) for k, v in tests.items()})
 
 
-def _binding_marker(char: str) -> MarkerSpec:
+def _spec_marker(char: str) -> MarkerSpec:
     return MarkerSpec(name="litmus_spec", kwargs={"characteristic": char})
 
 
@@ -28,11 +28,11 @@ def _first_char(markers: list[MarkerSpec]) -> str | None:
 
 
 class TestQualifiedClassMethodKeying:
-    def test_two_classes_same_method_bind_distinctly(self) -> None:
+    def test_two_classes_same_method_resolve_distinctly(self) -> None:
         sidecar = _sidecar(
             {
-                "TestA.test_rail": [_binding_marker("char_a")],
-                "TestB.test_rail": [_binding_marker("char_b")],
+                "TestA.test_rail": [_spec_marker("char_a")],
+                "TestB.test_rail": [_spec_marker("char_b")],
             }
         )
         a = _sidecar_markers_for(sidecar, "TestA", "test_rail")
@@ -41,29 +41,29 @@ class TestQualifiedClassMethodKeying:
         assert _first_char(b) == "char_b"
 
     def test_shorthand_matches_module_level_test(self) -> None:
-        sidecar = _sidecar({"test_rail": [_binding_marker("bare_match")]})
+        sidecar = _sidecar({"test_rail": [_spec_marker("bare_match")]})
         markers = _sidecar_markers_for(sidecar, None, "test_rail")
         assert _first_char(markers) == "bare_match"
 
     def test_shorthand_matches_method_when_no_qualified_entry(self) -> None:
-        """Bare method name still binds a classed test when the sidecar
+        """Bare method name still applies to a classed test when the sidecar
         only has the shorthand key."""
-        sidecar = _sidecar({"test_rail": [_binding_marker("shorthand_ok")]})
+        sidecar = _sidecar({"test_rail": [_spec_marker("shorthand_ok")]})
         markers = _sidecar_markers_for(sidecar, "TestRails", "test_rail")
         assert _first_char(markers) == "shorthand_ok"
 
     def test_qualified_wins_over_shorthand_when_both_present(self) -> None:
         sidecar = _sidecar(
             {
-                "test_rail": [_binding_marker("shorthand")],
-                "TestRails.test_rail": [_binding_marker("qualified")],
+                "test_rail": [_spec_marker("shorthand")],
+                "TestRails.test_rail": [_spec_marker("qualified")],
             }
         )
         markers = _sidecar_markers_for(sidecar, "TestRails", "test_rail")
         assert _first_char(markers) == "qualified"
 
     def test_module_level_test_does_not_match_qualified_key(self) -> None:
-        sidecar = _sidecar({"Nonexistent.test_rail": [_binding_marker("no_match")]})
+        sidecar = _sidecar({"Nonexistent.test_rail": [_spec_marker("no_match")]})
         markers = _sidecar_markers_for(sidecar, None, "test_rail")
         assert _first_char(markers) is None
 

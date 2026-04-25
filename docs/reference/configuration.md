@@ -198,8 +198,8 @@ product_id: string      # Specific product (preferred)
 product_family: string  # Or product family for shared fixtures
 product_revision: string # Optional: specific revision
 
-points:
-  <name>:                 # Fixture point name
+connections:
+  <name>:                 # Fixture connection name
     dut_pin: string       # Product pin reference
     net: string           # Or schematic net name
     instrument: string    # Station instrument name
@@ -215,7 +215,7 @@ id: power_board_fixture
 name: "Power Board Test Fixture"
 product_id: power_board
 
-points:
+connections:
   VIN:
     dut_pin: VIN
     net: VIN_5V

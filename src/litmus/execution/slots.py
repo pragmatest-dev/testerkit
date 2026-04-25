@@ -1,8 +1,9 @@
 """Fixture slot resolution for multi-DUT testing.
 
 Resolves fixture slots against a station config to validate that all
-referenced instrument roles exist. Single-DUT fixtures (using ``points``
-instead of ``slots``) are normalized to a single implicit slot.
+referenced instrument roles exist. Single-DUT fixtures (using
+``connections`` instead of ``slots``) are normalized to a single
+implicit slot.
 """
 
 from __future__ import annotations
@@ -11,7 +12,7 @@ from collections import Counter
 
 from pydantic import BaseModel, Field
 
-from litmus.config.test_config import FixtureConfig, FixturePoint
+from litmus.config.test_config import FixtureConfig, FixtureConnection
 
 
 class ResolvedSlot(BaseModel):
@@ -19,13 +20,13 @@ class ResolvedSlot(BaseModel):
 
     Attributes:
         slot_id: Unique slot identifier (e.g., "slot_1").
-        points: FixturePoint mappings for this slot's DUT.
+        connections: FixtureConnection mappings for this slot's DUT.
         instrument_roles: Set of station instrument roles this slot needs.
         dut_resource: Per-slot DUT connection string (e.g., COM3, /dev/ttyUSB0).
     """
 
     slot_id: str
-    points: dict[str, FixturePoint] = Field(default_factory=dict)
+    connections: dict[str, FixtureConnection] = Field(default_factory=dict)
     instrument_roles: set[str] = Field(default_factory=set)
     dut_resource: str | None = None
 
@@ -40,27 +41,28 @@ def resolve_fixture_slots(
 ) -> dict[str, ResolvedSlot]:
     """Resolve fixture slots and validate instrument references.
 
-    For single-DUT fixtures (``points``), returns one slot with id "default".
-    For multi-DUT fixtures (``slots``), returns one slot per entry.
+    For single-DUT fixtures (``connections``), returns one slot with id
+    "default". For multi-DUT fixtures (``slots``), returns one slot per
+    entry.
 
     Args:
-        fixture_config: Fixture configuration with points or slots.
+        fixture_config: Fixture configuration with connections or slots.
         station_instruments: Set of instrument role names from station config.
-            If provided, validates that all fixture point instrument references
-            exist in the station.
+            If provided, validates that all fixture connection instrument
+            references exist in the station.
 
     Returns:
         Dict mapping slot_id → ResolvedSlot.
 
     Raises:
-        ValueError: If a fixture point references an instrument role not
-            present in the station config.
+        ValueError: If a fixture connection references an instrument
+            role not present in the station config.
     """
     if fixture_config.slots:
         slots = {
             slot_id: _build_resolved_slot(
                 slot_id,
-                slot.points,
+                slot.connections,
                 dut_resource=slot.dut_resource,
             )
             for slot_id, slot in fixture_config.slots.items()
@@ -69,7 +71,7 @@ def resolve_fixture_slots(
         slots = {
             DEFAULT_SLOT_ID: _build_resolved_slot(
                 DEFAULT_SLOT_ID,
-                fixture_config.points,
+                fixture_config.connections,
                 dut_resource=fixture_config.dut_resource,
             )
         }
@@ -82,20 +84,20 @@ def resolve_fixture_slots(
 
 def _build_resolved_slot(
     slot_id: str,
-    points: dict[str, FixturePoint],
+    connections: dict[str, FixtureConnection],
     *,
     dut_resource: str | None = None,
 ) -> ResolvedSlot:
-    """Build a ResolvedSlot from fixture points."""
-    roles = {point.instrument for point in points.values()}
+    """Build a ResolvedSlot from fixture connections."""
+    roles = {conn.instrument for conn in connections.values()}
     # Include switch roles from route configs so station validation
     # catches missing switch instruments
-    for point in points.values():
-        if point.route is not None:
-            roles.add(point.route.switch)
+    for conn in connections.values():
+        if conn.route is not None:
+            roles.add(conn.route.switch)
     return ResolvedSlot(
         slot_id=slot_id,
-        points=points,
+        connections=connections,
         instrument_roles=roles,
         dut_resource=dut_resource,
     )
@@ -123,7 +125,7 @@ def _validate_instrument_refs(
     station_instruments: set[str],
     fixture_id: str,
 ) -> None:
-    """Validate that all fixture point instrument refs exist in station."""
+    """Validate that all fixture connection instrument refs exist in station."""
     for slot_id, slot in slots.items():
         missing = slot.instrument_roles - station_instruments
         if missing:

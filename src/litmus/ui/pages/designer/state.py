@@ -31,8 +31,8 @@ class DesignerState:
         # role -> {type, driver, capabilities, channels}
         self.instruments: dict[str, dict] = {}
 
-        # --- Connections (fixture points) ---
-        # point_name -> {dut_pin, instrument, channel, terminal, net}
+        # --- Fixture connections ---
+        # connection_name -> {dut_pin, instrument, channel, terminal, net}
         self.connections: dict[str, dict] = {}
 
         # --- UI state ---
@@ -349,22 +349,22 @@ class DesignerState:
         if self.product_id:
             fixture["product_id"] = self.product_id
 
-        points = {}
-        for point_name, conn in self.connections.items():
-            point: dict[str, Any] = {
-                "name": point_name,  # Required by FixturePoint model
+        connections = {}
+        for connection_name, conn in self.connections.items():
+            entry: dict[str, Any] = {
+                "name": connection_name,  # Required by FixtureConnection model
                 "dut_pin": conn["dut_pin"],
                 "instrument": conn["instrument"],
             }
             if conn.get("channel"):
-                point["instrument_channel"] = conn["channel"]
+                entry["instrument_channel"] = conn["channel"]
             if conn.get("terminal"):
-                point["instrument_terminal"] = conn["terminal"]
+                entry["instrument_terminal"] = conn["terminal"]
             if conn.get("net"):
-                point["net"] = conn["net"]
-            points[point_name] = point
+                entry["net"] = conn["net"]
+            connections[connection_name] = entry
 
-        return {"fixture": fixture, "points": points}
+        return {"fixture": fixture, "connections": connections}
 
     def to_station_type_yaml(self) -> dict:
         """Serialize to StationType YAML format."""
@@ -443,22 +443,26 @@ class DesignerState:
             if fixture_info.get("id"):
                 self.fixture_id = fixture_info["id"]
 
-        points_attr = getattr(fixture_config, "points", None)
-        points = points_attr if points_attr is not None else fixture_config.get("points", {})
-        for point_name, point in points.items():
-            if hasattr(point, "dut_pin"):
-                self.connections[point_name] = {
-                    "dut_pin": point.dut_pin or "",
-                    "instrument": point.instrument or "",
-                    "channel": point.instrument_channel or "1",
-                    "terminal": point.instrument_terminal,
-                    "net": point.net or "",
+        connections_attr = getattr(fixture_config, "connections", None)
+        connections = (
+            connections_attr
+            if connections_attr is not None
+            else fixture_config.get("connections", {})
+        )
+        for connection_name, fc in connections.items():
+            if hasattr(fc, "dut_pin"):
+                self.connections[connection_name] = {
+                    "dut_pin": fc.dut_pin or "",
+                    "instrument": fc.instrument or "",
+                    "channel": fc.instrument_channel or "1",
+                    "terminal": fc.instrument_terminal,
+                    "net": fc.net or "",
                 }
             else:
-                self.connections[point_name] = {
-                    "dut_pin": point.get("dut_pin", ""),
-                    "instrument": point.get("instrument", ""),
-                    "channel": point.get("instrument_channel", "1"),
-                    "terminal": point.get("instrument_terminal"),
-                    "net": point.get("net", ""),
+                self.connections[connection_name] = {
+                    "dut_pin": fc.get("dut_pin", ""),
+                    "instrument": fc.get("instrument", ""),
+                    "channel": fc.get("instrument_channel", "1"),
+                    "terminal": fc.get("instrument_terminal"),
+                    "net": fc.get("net", ""),
                 }

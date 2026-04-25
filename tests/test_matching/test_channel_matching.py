@@ -549,28 +549,28 @@ class TestChannelTopology:
         assert entry.channel_names == []
 
 
-class TestFixturePointTerminal:
-    """Tests for instrument_terminal field on FixturePoint."""
+class TestFixtureConnectionTerminal:
+    """Tests for instrument_terminal field on FixtureConnection."""
 
-    def test_fixture_point_no_terminal(self):
-        """FixturePoint without terminal (backward compat)."""
-        from litmus.models.config import FixturePoint
+    def test_fixture_connection_no_terminal(self):
+        """FixtureConnection without terminal (backward compat)."""
+        from litmus.models.config import FixtureConnection
 
-        fp = FixturePoint(name="vin_psu", instrument="psu")
-        assert fp.instrument_terminal is None
+        fc = FixtureConnection(name="vin_psu", instrument="psu")
+        assert fc.instrument_terminal is None
 
-    def test_fixture_point_with_terminal(self):
-        """FixturePoint with instrument_terminal."""
-        from litmus.models.config import FixturePoint
+    def test_fixture_connection_with_terminal(self):
+        """FixtureConnection with instrument_terminal."""
+        from litmus.models.config import FixtureConnection
 
-        fp = FixturePoint(
+        fc = FixtureConnection(
             name="gnd_psu_lo",
             dut_pin="J1_GND",
             instrument="psu",
             instrument_channel="1",
             instrument_terminal="lo",
         )
-        assert fp.instrument_terminal == "lo"
+        assert fc.instrument_terminal == "lo"
 
 
 class TestDesignerAutoSuggest:

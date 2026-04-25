@@ -126,46 +126,47 @@ def _auto_traceability(name: str) -> dict[str, Any]:
 
     Resolution order:
 
-    1. **Active :class:`FixturePoint`** (from ``_active_point_var``, pushed
-       by ``_PointIterator`` while the test iterates ``ctx.points``). When
-       set, this is the authoritative source for ``dut_pin`` / ``net`` /
-       ``fixture_point`` / ``instrument_name`` / ``instrument_channel`` /
-       ``instrument_terminal`` — the point IS the row's pin.
-    2. **Legacy name-match against the active SpecContext**: when no point
-       is active, fall back to ``spec.get_pin_info(name)`` for rows whose
-       measurement label happens to equal a characteristic id. This branch
-       exists for the transition period and will be dropped once demos and
-       tests have moved to the binding contract.
+    1. **Active :class:`FixtureConnection`** (from ``_active_connection_var``,
+       pushed by ``ConnectionIterator`` while the test iterates
+       ``ctx.connections``). When set, this is the authoritative source
+       for ``dut_pin`` / ``net`` / ``fixture_connection`` /
+       ``instrument_name`` / ``instrument_channel`` /
+       ``instrument_terminal`` — the connection IS the row's pin.
+    2. **Legacy name-match against the active SpecContext**: when no
+       connection is active, fall back to ``spec.get_pin_info(name)``
+       for rows whose measurement label happens to equal a characteristic
+       id. This branch exists for the transition period and will be
+       dropped once demos and tests have moved to the spec/connections markers.
 
-    Returns a dict with any of ``dut_pin``, ``net``, ``fixture_point``,
+    Returns a dict with any of ``dut_pin``, ``net``, ``fixture_connection``,
     ``instrument_name``, ``instrument_resource``, ``instrument_channel``,
     ``instrument_terminal``, ``spec_id``, ``spec_ref`` — callers use
-    ``.get(...)`` so pure-pytest runs (no spec, no binding) fall through
+    ``.get(...)`` so pure-pytest runs (no spec, no connections) fall through
     silently.
     """
     from litmus.execution.plugin import (
+        get_active_connection,
         get_active_instruments,
-        get_active_point,
         get_active_spec_context,
     )
 
     result: dict[str, Any] = {}
 
-    point = get_active_point()
-    if point is not None:
-        if point.dut_pin is not None:
-            result["dut_pin"] = point.dut_pin
-        if point.net is not None:
-            result["net"] = point.net
-        result["fixture_point"] = point.name
-        result["instrument_name"] = point.instrument
-        if point.instrument_channel is not None:
-            result["instrument_channel"] = point.instrument_channel
-        if point.instrument_terminal is not None:
-            result["instrument_terminal"] = point.instrument_terminal
+    conn = get_active_connection()
+    if conn is not None:
+        if conn.dut_pin is not None:
+            result["dut_pin"] = conn.dut_pin
+        if conn.net is not None:
+            result["net"] = conn.net
+        result["fixture_connection"] = conn.name
+        result["instrument_name"] = conn.instrument
+        if conn.instrument_channel is not None:
+            result["instrument_channel"] = conn.instrument_channel
+        if conn.instrument_terminal is not None:
+            result["instrument_terminal"] = conn.instrument_terminal
 
         instruments = get_active_instruments()
-        inst = instruments.get(point.instrument)
+        inst = instruments.get(conn.instrument)
         resource = getattr(inst, "_resource", None) or getattr(inst, "resource", None)
         if resource:
             result["instrument_resource"] = str(resource)
@@ -183,17 +184,17 @@ def _auto_traceability(name: str) -> dict[str, Any]:
         return result
 
     result["dut_pin"] = pin_info.get("dut_pin")
-    result["fixture_point"] = pin_info.get("fixture_point")
+    result["fixture_connection"] = pin_info.get("fixture_connection")
     result["instrument_channel"] = pin_info.get("instrument_channel")
     result["spec_id"] = name
 
-    fp_name = pin_info.get("fixture_point")
-    if fp_name and spec.fixture is not None:
-        fp = spec.fixture.points.get(fp_name)
-        if fp is not None:
-            result["instrument_name"] = fp.instrument
+    fc_name = pin_info.get("fixture_connection")
+    if fc_name and spec.fixture is not None:
+        fc = spec.fixture.connections.get(fc_name)
+        if fc is not None:
+            result["instrument_name"] = fc.instrument
             instruments = get_active_instruments()
-            inst = instruments.get(fp.instrument)
+            inst = instruments.get(fc.instrument)
             resource = getattr(inst, "_resource", None) or getattr(inst, "resource", None)
             if resource:
                 result["instrument_resource"] = str(resource)
@@ -782,7 +783,7 @@ class TestRunLogger:
                 spec_id=measurement.spec_id,
                 spec_ref=measurement.spec_ref,
                 meas_dut_pin=measurement.dut_pin,
-                meas_fixture_point=measurement.fixture_point,
+                meas_fixture_connection=measurement.fixture_connection,
                 meas_instrument=measurement.instrument_name,
                 meas_instrument_resource=measurement.instrument_resource,
                 meas_instrument_channel=measurement.instrument_channel,
@@ -857,8 +858,8 @@ class TestRunLogger:
         4. None — row records no limit fields.
 
         **Auto-traceability** — ``dut_pin`` / ``instrument_*`` /
-        ``fixture_point`` / ``spec_id`` / ``spec_ref`` are pulled from
-        the active :class:`SpecContext` by measurement name when
+        ``fixture_connection`` / ``spec_id`` / ``spec_ref`` are pulled
+        from the active :class:`SpecContext` by measurement name when
         available. Callers never pass these.
 
         **Duplicate-name dedup**: two writes with the same name in one
@@ -930,7 +931,7 @@ class TestRunLogger:
             instrument_name=trace.get("instrument_name"),
             instrument_resource=trace.get("instrument_resource"),
             instrument_channel=trace.get("instrument_channel"),
-            fixture_point=trace.get("fixture_point"),
+            fixture_connection=trace.get("fixture_connection"),
         )
 
         # Pure recorder: no check_limit(), no outcome stamping, no raise.
@@ -940,14 +941,16 @@ class TestRunLogger:
     def _guard_duplicate(self, name: str, allow_repeat: bool) -> None:
         """Raise :class:`DuplicateMeasurementError` on same-name double-write.
 
-        Each step tracks ``(name, active_point)`` pairs that have been
-        written. A second write with the same pair is an error unless
-        both the first and second call opt in via ``allow_repeat=True``.
+        Each step tracks ``(name, active_connection)`` pairs that have
+        been written. A second write with the same pair is an error
+        unless both the first and second call opt in via
+        ``allow_repeat=True``.
 
-        Scoping the dedup key by the active :class:`FixturePoint` lets a
-        multi-pin characteristic iterate ``ctx.points`` and emit the same
-        measurement name once per point — each iteration stamps a distinct
-        row (different ``dut_pin``), so the two writes are not duplicates.
+        Scoping the dedup key by the active :class:`FixtureConnection`
+        lets a multi-pin characteristic iterate ``ctx.connections`` and
+        emit the same measurement name once per connection — each
+        iteration stamps a distinct row (different ``dut_pin``), so the
+        two writes are not duplicates.
 
         Typical causes when this fires:
 
@@ -958,10 +961,10 @@ class TestRunLogger:
         - Two independent ``logger.measure`` calls accidentally sharing
           a name; rename one or split into separate steps.
         """
-        from litmus.execution.plugin import get_active_point
+        from litmus.execution.plugin import get_active_connection
 
-        point = get_active_point()
-        key = (name, point.name if point is not None else None)
+        conn = get_active_connection()
+        key = (name, conn.name if conn is not None else None)
         if key in self._step_seen_names:
             first_was_repeatable = key in self._step_seen_repeatable
             if not (allow_repeat and first_was_repeatable):

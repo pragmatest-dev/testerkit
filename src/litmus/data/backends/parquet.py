@@ -60,7 +60,7 @@ logger = logging.getLogger(__name__)
 
 # Suffix patterns for stimulus signal-path columns (in_{param}_{suffix}).
 # A column like "in_vin_instrument" is metadata, not a param value.
-_STIMULUS_SUFFIXES = ("_instrument", "_resource", "_channel", "_dut_pin", "_fixture_point")
+_STIMULUS_SUFFIXES = ("_instrument", "_resource", "_channel", "_dut_pin", "_fixture_connection")
 
 # Fields in MeasurementRow that are expanded via to_flat_dict(), not stored directly.
 _DENORMALIZATION_FIELDS = frozenset({"inputs", "outputs", "instruments", "custom"})
@@ -680,7 +680,7 @@ class ParquetSubscriber(EventSubscriber):
             spec_id=event.spec_id,
             spec_ref=event.spec_ref,
             meas_dut_pin=event.meas_dut_pin,
-            meas_fixture_point=event.meas_fixture_point,
+            meas_fixture_connection=event.meas_fixture_connection,
             meas_instrument=event.meas_instrument,
             meas_instrument_resource=event.meas_instrument_resource,
             meas_instrument_channel=event.meas_instrument_channel,
@@ -1181,7 +1181,7 @@ def reconstruct_test_run_from_file(pq_file: Path) -> TestRun:
                     instrument_name=mr.get("meas_instrument"),
                     instrument_resource=mr.get("meas_instrument_resource"),
                     instrument_channel=mr.get("meas_instrument_channel"),
-                    fixture_point=mr.get("meas_fixture_point"),
+                    fixture_connection=mr.get("meas_fixture_connection"),
                 )
                 ts = mr.get("measurement_timestamp")
                 if ts is not None:

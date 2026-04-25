@@ -44,7 +44,7 @@ __all__ = [
     "StationType",
     # Test configuration
     "FixtureConfig",
-    "FixturePoint",
+    "FixtureConnection",
     "Limit",
     "LimitCallableConfig",
     "LimitExprConfig",
@@ -102,7 +102,7 @@ from litmus.config.station_types import (  # noqa: F401
 # Test configuration models
 from litmus.config.test_config import (  # noqa: F401
     FixtureConfig,
-    FixturePoint,
+    FixtureConnection,
     Limit,
     LimitCallableConfig,
     LimitExprConfig,

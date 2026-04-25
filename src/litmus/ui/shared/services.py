@@ -499,9 +499,9 @@ def create_fixture(
     return store_create_fixture(fixture_id, name, product_id, product_revision, description)
 
 
-def save_fixture(fixture_id: str, fixture_data: dict, points_data: dict) -> bool:
+def save_fixture(fixture_id: str, fixture_data: dict, connections_data: dict) -> bool:
     """Save fixture configuration to YAML file."""
-    fixture_dict = {**fixture_data, "points": points_data}
+    fixture_dict = {**fixture_data, "connections": connections_data}
     fixture = FixtureConfig.model_validate(fixture_dict)
     return store_save_fixture(fixture)
 
@@ -543,7 +543,7 @@ def get_compatible_stations_for_fixture(fixture_id: str):
     if not fixture:
         return []
 
-    required_instruments = {p.instrument for p in fixture.points.values() if p.instrument}
+    required_instruments = {c.instrument for c in fixture.connections.values() if c.instrument}
 
     compatible = []
     for station in discover_stations():

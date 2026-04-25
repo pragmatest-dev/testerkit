@@ -1,6 +1,7 @@
 {
   "$defs": {
     "StationInstrumentConfig": {
+      "additionalProperties": false,
       "description": "Single instrument entry in a station file.",
       "properties": {
         "type": {
@@ -80,6 +81,7 @@
       "type": "object"
     }
   },
+  "additionalProperties": false,
   "description": "Schema for stations/*.yaml files \u2014 all fields at root.",
   "properties": {
     "id": {

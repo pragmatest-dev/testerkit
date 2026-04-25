@@ -320,7 +320,7 @@ def _replay_events(
                         meas_instrument=meas.instrument_name,
                         meas_instrument_resource=meas.instrument_resource,
                         meas_instrument_channel=meas.instrument_channel,
-                        meas_fixture_point=meas.fixture_point,
+                        meas_fixture_connection=meas.fixture_connection,
                         inputs=vector.params,
                         outputs=vector.observations,
                     )

@@ -202,7 +202,7 @@ erDiagram
         string product_revision
     }
 
-    FixturePoint {
+    FixtureConnection {
         string name PK
         string dut_pin FK
         string net
@@ -336,7 +336,7 @@ erDiagram
         string resource
         string channel
         string dut_pin
-        string fixture_point
+        string fixture_connection
     }
 
     Measurement {
@@ -350,7 +350,7 @@ erDiagram
         string instrument_name
         string instrument_resource
         string instrument_channel
-        string fixture_point
+        string fixture_connection
     }
 
     Outcome {
@@ -415,9 +415,9 @@ erDiagram
 
     %% Fixture structure
     FixtureConfig }o--o| Product : "for"
-    FixtureConfig ||--o{ FixturePoint : "has"
-    FixturePoint }o--o| Pin : "connects"
-    FixturePoint }o--|| InstrumentInstance : "routes to"
+    FixtureConfig ||--o{ FixtureConnection : "has"
+    FixtureConnection }o--o| Pin : "connects"
+    FixtureConnection }o--|| InstrumentInstance : "routes to"
     StationInstance }o--o| FixtureConfig : "uses"
 
     %% Test configuration
@@ -513,14 +513,14 @@ erDiagram
     ────────────                    ────────────              ────────────
     ┌──────────┐                   ┌──────────────┐          ┌──────────────┐
     │ Product  │                   │StationInstance│          │ FixtureConfig│
-    │ ─ pins   │◄──────────────────│ ─ instruments │◄─────────│ ─ points     │
+    │ ─ pins   │◄──────────────────│ ─ instruments │◄─────────│ ─ connections│
     │ ─ chars  │      maps to      │ ─ location   │  routes   │ ─ product_id │
     └──────────┘                   └──────────────┘          └──────────────┘
          │                               │                          │
          │ defines                       │ has                      │ connects
          ▼                               ▼                          ▼
     ┌──────────┐                   ┌──────────────┐          ┌──────────────┐
-    │Product   │                   │InstrumentInst│          │ FixturePoint │
+    │Product   │                   │InstrumentInst│          │FixtureConnct.│
     │Charact-  │───────────────────│ ─ type       │◄─────────│ ─ dut_pin    │
     │ istics   │  requires caps    │ ─ resource   │  maps to │ ─ instrument │
     └──────────┘                   └──────────────┘          └──────────────┘
@@ -622,7 +622,7 @@ A single measurement with optional limit checking and full traceability.
 | `instrument_name` | `str | None` | `meas_instrument` | Station config name |
 | `instrument_resource` | `str | None` | `meas_instrument_resource` | VISA address |
 | `instrument_channel` | `str | None` | `meas_instrument_channel` | Channel on instrument |
-| `fixture_point` | `str | None` | `meas_fixture_point` | Fixture point name |
+| `fixture_connection` | `str | None` | `meas_fixture_connection` | Fixture connection name |
 
 **Comparators** (per ATML/IEEE 1671):
 
@@ -671,10 +671,10 @@ Records the signal path for an input stimulus (for traceability).
 | `resource` | `str | None` | VISA address at test time |
 | `channel` | `str | None` | Channel on instrument (e.g., "CH1") |
 | `dut_pin` | `str | None` | DUT pin driven |
-| `fixture_point` | `str | None` | Fixture routing point |
+| `fixture_connection` | `str | None` | Fixture routing connection |
 
 In Parquet output, each StimulusRecord becomes dynamic columns with `in_` prefix:
-- `in_vin`, `in_vin_instrument`, `in_vin_resource`, `in_vin_channel`, `in_vin_dut_pin`, `in_vin_fixture_point`
+- `in_vin`, `in_vin_instrument`, `in_vin_resource`, `in_vin_channel`, `in_vin_dut_pin`, `in_vin_fixture_connection`
 
 ### TestStep
 

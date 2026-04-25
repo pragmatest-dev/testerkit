@@ -1,4 +1,4 @@
-# Stage 6 — Product YAML + fixture binding
+# Stage 6 — Product YAML + fixture connections
 
 The product is a first-class artifact now. Characteristics declare
 the nominal spec once (`rail_3v3 = 3.3 V`); sidecar limits reference
@@ -9,7 +9,7 @@ through the bench.
 
 - Added `products/buck_3v3.yaml` — characteristics (`rail_3v3`,
   `input_voltage`, `idle_current`) + the DUT pin map
-- Added `fixtures/buck_3v3_bench.yaml` — points that route DUT pins
+- Added `fixtures/buck_3v3_bench.yaml` — connections that route DUT pins
   to station instrument channels
 - Added `default_fixture: buck_3v3_bench` to `litmus.yaml`
 - Replaced raw `low: / high:` limits in the sidecar with
@@ -20,14 +20,14 @@ through the bench.
 ## Run it
 
 ```bash
-cd examples/06-product-binding
+cd examples/06-product-spec
 uv run pytest -v
 ```
 
-## Why bind
+## Why reference the product spec
 
-Binding gives each measurement row two things it couldn't have
-otherwise:
+Pointing each test at a product characteristic gives every measurement
+row two things it couldn't have otherwise:
 
 1. **Single source of truth for the value.** Change `rail_3v3`'s
    nominal in `products/buck_3v3.yaml` and every test recomputes its

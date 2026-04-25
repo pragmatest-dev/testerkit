@@ -224,7 +224,7 @@ instruments:
 id: power_board_fixture
 product_id: power_board
 
-points:
+connections:
   VIN:
     dut_pin: VIN
     instrument: psu

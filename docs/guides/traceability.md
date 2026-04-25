@@ -27,7 +27,7 @@ Every Measurement in Litmus includes traceability fields:
 | `meas_instrument` | Station config instrument name | `"dmm"`, `"dmm_main"` |
 | `meas_instrument_resource` | VISA address or connection | `"TCPIP::192.168.1.100::INSTR"` |
 | `meas_instrument_channel` | Channel on the instrument | `"CH1"`, `"ai0"`, `"1"` |
-| `meas_fixture_point` | Fixture point name | `"VOUT"`, `"VIN_SENSE"` |
+| `meas_fixture_connection` | Fixture connection name | `"VOUT"`, `"VIN_SENSE"` |
 
 ### Stimulus Signal Path (Dynamic)
 
@@ -40,7 +40,7 @@ For each input parameter, Litmus captures the full signal path:
 | `in_{param}_resource` | VISA address | `in_vin_resource = "TCPIP::..."` |
 | `in_{param}_channel` | Channel | `in_vin_channel = "CH1"` |
 | `in_{param}_dut_pin` | DUT pin driven | `in_vin_dut_pin = "VIN"` |
-| `in_{param}_fixture_point` | Fixture routing | `in_vin_fixture_point = "vin_supply"` |
+| `in_{param}_fixture_connection` | Fixture routing | `in_vin_fixture_connection = "vin_supply"` |
 
 ## The Traceability Chain
 
@@ -58,7 +58,7 @@ Every measurement can be traced from result back to source:
 │      ├── meas_dut_pin ────► Product Pin Definition                     │
 │      │                       └── Physical location: "J1.3", net: "VOUT"│
 │      │                                                                  │
-│      ├── meas_fixture_point ► Fixture Config (fixture.yaml)            │
+│      ├── meas_fixture_connection ► Fixture Config (fixture.yaml)       │
 │      │                       └── Maps DUT pin to instrument             │
 │      │                                                                  │
 │      ├── meas_instrument ──► Station Config (station.yaml)             │
@@ -76,7 +76,7 @@ Every measurement can be traced from result back to source:
 │      ├── in_{param}_resource ► VISA address                            │
 │      ├── in_{param}_channel ► Channel on instrument                    │
 │      ├── in_{param}_dut_pin ► DUT pin driven                           │
-│      └── in_{param}_fixture_point ► Fixture routing                    │
+│      └── in_{param}_fixture_connection ► Fixture routing               │
 │                                                                         │
 └─────────────────────────────────────────────────────────────────────────┘
 ```
@@ -320,7 +320,7 @@ Requirement: output_voltage
 
 2. **Calibration Tracking** — Link measurements to instrument calibration records via `meas_instrument_resource`
 
-3. **Fixture Debugging** — Verify signal routing through the fixture via `meas_fixture_point`
+3. **Fixture Debugging** — Verify signal routing through the fixture via `meas_fixture_connection`
 
 4. **Specification Compliance** — Prove that measurements satisfy specific spec requirements via `spec_ref`
 

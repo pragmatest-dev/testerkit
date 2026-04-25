@@ -11,7 +11,7 @@ Define slots in your fixture YAML. Each slot represents one DUT position:
 id: dual_board
 slots:
   slot_1:
-    points:
+    connections:
       vout:
         instrument: dmm
         instrument_channel: "1"
@@ -19,7 +19,7 @@ slots:
         instrument: psu
         instrument_channel: "1"
   slot_2:
-    points:
+    connections:
       vout:
         instrument: dmm
         instrument_channel: "2"

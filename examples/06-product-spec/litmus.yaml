@@ -1,4 +1,4 @@
-name: product-binding-example
+name: product-spec-example
 default_station: bench_01
 default_fixture: buck_3v3_bench
 mock_instruments: true

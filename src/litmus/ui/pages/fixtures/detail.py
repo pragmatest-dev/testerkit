@@ -31,7 +31,7 @@ def fixture_detail_page(fixture_id: str):
 
 def _render_fixture_detail(fixture_id: str, config, products: dict):
     """Render the fixture detail view."""
-    points = config.points or {}
+    connections = config.connections or {}
 
     # Fixture info card
     with ui.card().classes("w-full"):
@@ -56,7 +56,7 @@ def _render_fixture_detail(fixture_id: str, config, products: dict):
             with ui.grid(columns=3).classes("gap-6"):
                 info_field("Fixture ID", config.id or fixture_id)
                 info_field("Product Family", config.product_family or "")
-                info_field("Points", str(len(points)))
+                info_field("Connections", str(len(connections)))
 
             if config.description:
                 with ui.column().classes("gap-1 mt-4"):
@@ -88,13 +88,13 @@ def _render_fixture_detail(fixture_id: str, config, products: dict):
 
     with ui.tab_panels(tabs, value=mappings_tab).classes("w-full"):
         with ui.tab_panel(mappings_tab):
-            _render_mappings_tab(points)
+            _render_mappings_tab(connections)
 
         with ui.tab_panel(stations_tab):
-            _render_stations_tab(fixture_id, points)
+            _render_stations_tab(fixture_id, connections)
 
         with ui.tab_panel(diagram_tab):
-            _render_diagram_tab(config, points)
+            _render_diagram_tab(config, connections)
 
     # Actions
     with ui.row().classes("mt-6 gap-2"):
@@ -103,15 +103,15 @@ def _render_fixture_detail(fixture_id: str, config, products: dict):
         )
 
 
-def _render_mappings_tab(points: dict):
+def _render_mappings_tab(connections: dict):
     """Render the pin mappings table."""
-    if not points:
+    if not connections:
         ui.label("No pin mappings defined.").classes("text-slate-500 italic")
         return
 
     with ui.card().classes("w-full"):
         columns = [
-            {"name": "point", "label": "Point Name", "field": "point", "align": "left"},
+            {"name": "connection", "label": "Connection", "field": "connection", "align": "left"},
             {"name": "dut_pin", "label": "DUT Pin", "field": "dut_pin", "align": "left"},
             {"name": "net", "label": "Net", "field": "net", "align": "left"},
             {
@@ -135,22 +135,22 @@ def _render_mappings_tab(points: dict):
         ]
         rows = [
             {
-                "point": name,
-                "dut_pin": pt.dut_pin or "",
-                "net": pt.net or "",
-                "instrument": pt.instrument or "",
-                "channel": pt.instrument_channel or "",
-                "description": pt.description or "",
+                "connection": name,
+                "dut_pin": fc.dut_pin or "",
+                "net": fc.net or "",
+                "instrument": fc.instrument or "",
+                "channel": fc.instrument_channel or "",
+                "description": fc.description or "",
             }
-            for name, pt in points.items()
+            for name, fc in connections.items()
         ]
-        ui.table(columns=columns, rows=rows, row_key="point").classes("w-full")
+        ui.table(columns=columns, rows=rows, row_key="connection").classes("w-full")
 
 
-def _render_stations_tab(fixture_id: str, points: dict):
+def _render_stations_tab(fixture_id: str, connections: dict):
     """Render compatible stations."""
     # Get required instruments
-    required_instruments = sorted({p.instrument for p in points.values() if p.instrument})
+    required_instruments = sorted({c.instrument for c in connections.values() if c.instrument})
 
     if required_instruments:
         with ui.row().classes("items-center gap-2 mb-4"):
@@ -214,15 +214,15 @@ def _station_card(station, required_instruments: list[str]):
             ).props("flat dense")
 
 
-def _render_diagram_tab(fixture, points: dict):
+def _render_diagram_tab(fixture, connections: dict):
     """Render a Mermaid diagram of the fixture connections."""
-    # Group points by instrument
+    # Group connections by instrument
     by_instrument: dict[str, list] = {}
-    for name, pt in points.items():
-        inst = pt.instrument or "unknown"
+    for name, fc in connections.items():
+        inst = fc.instrument or "unknown"
         if inst not in by_instrument:
             by_instrument[inst] = []
-        by_instrument[inst].append((name, pt))
+        by_instrument[inst].append((name, fc))
 
     product_family = fixture.product_family or "DUT"
 
@@ -235,20 +235,20 @@ def _render_diagram_tab(fixture, points: dict):
 
     # Add DUT pins
     pin_ids = []
-    for name, pt in points.items():
-        dut_pin = pt.dut_pin or name
+    for name, fc in connections.items():
+        dut_pin = fc.dut_pin or name
         pin_id = f"pin_{name.replace('-', '_')}"
-        pin_ids.append((pin_id, name, pt))
+        pin_ids.append((pin_id, name, fc))
         lines.append(f"        {pin_id}[{dut_pin}]")
     lines.append("    end")
 
     # Add fixture subgraph
     lines.append("    subgraph Fixture")
     fixture_ids = []
-    for pin_id, name, pt in pin_ids:
+    for pin_id, name, fc in pin_ids:
         fix_id = f"fix_{name.replace('-', '_')}"
-        inst = pt.instrument or "?"
-        channel = pt.instrument_channel or ""
+        inst = fc.instrument or "?"
+        channel = fc.instrument_channel or ""
         channel_str = f".{channel}" if channel else ""
         fixture_ids.append((fix_id, pin_id, inst))
         lines.append(f"        {fix_id}[{name} → {inst}{channel_str}]")

@@ -21,11 +21,11 @@ with:
 - Vectors matrix (base vs profile override)
 - Resolved limits per measurement label (base vs profile override,
   band match for condition-indexed limits)
-- Active facets / bindings / markers
+- Active facets / spec / connections / markers
 - Effective addopts
 
 Implementation constraint: must **share** the plugin's resolution
-helpers (`_resolve_entry`, `_load_test_binding`, etc.), not fork them
+helpers (`_resolve_entry`, `resolve_test_connections`, etc.), not fork them
 — otherwise plan output drifts from actual runs.
 
 **Why:** declarative config needs a companion "what does this

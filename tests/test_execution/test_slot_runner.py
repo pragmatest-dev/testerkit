@@ -5,7 +5,7 @@ from uuid import uuid4
 
 import pytest
 
-from litmus.config.test_config import FixtureConfig, FixturePoint, FixtureSlot
+from litmus.config.test_config import FixtureConfig, FixtureConnection, FixtureSlot
 from litmus.data.models import DUT
 from litmus.execution.slot_runner import SlotRunner
 from litmus.execution.slots import ResolvedSlot, resolve_fixture_slots
@@ -17,8 +17,8 @@ def _make_slots() -> dict[str, ResolvedSlot]:
         id="test_fixture",
         slots={
             "slot_1": FixtureSlot(
-                points={
-                    "vout": FixturePoint(
+                connections={
+                    "vout": FixtureConnection(
                         name="vout",
                         instrument="dmm",
                         instrument_channel="1",
@@ -26,8 +26,8 @@ def _make_slots() -> dict[str, ResolvedSlot]:
                 },
             ),
             "slot_2": FixtureSlot(
-                points={
-                    "vout": FixturePoint(
+                connections={
+                    "vout": FixtureConnection(
                         name="vout",
                         instrument="dmm",
                         instrument_channel="2",

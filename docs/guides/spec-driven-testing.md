@@ -109,7 +109,7 @@ Every `spec.check` records:
 | `outcome`        | PASS / FAIL                                           |
 | `spec_ref`       | e.g. `"output_voltage @ temperature=25, load=0.5"`    |
 | `dut_pin`        | pins list on the characteristic                       |
-| `fixture_point`  | from the active fixture YAML                          |
+| `fixture_connection`  | from the active fixture YAML                          |
 | `instrument_*`   | ambient ContextVars from the driver layer             |
 
 No manual threading of traceability fields — they're injected by the plugin.

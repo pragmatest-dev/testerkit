@@ -148,7 +148,7 @@ class SpecContext:
             "pins": all_pins,
             "dut_pin": None,
             "net": char.net,
-            "fixture_point": None,
+            "fixture_connection": None,
             "instrument_channel": None,
         }
 
@@ -161,10 +161,10 @@ class SpecContext:
                     result["net"] = pin.net
 
                 if self.fixture:
-                    for pt_name, pt in self.fixture.points.items():
-                        if pt.dut_pin == primary_pin_id or pt.net == pin.net:
-                            result["fixture_point"] = pt_name
-                            result["instrument_channel"] = pt.instrument_channel
+                    for fc_name, fc in self.fixture.connections.items():
+                        if fc.dut_pin == primary_pin_id or fc.net == pin.net:
+                            result["fixture_connection"] = fc_name
+                            result["instrument_channel"] = fc.instrument_channel
                             break
 
         return result

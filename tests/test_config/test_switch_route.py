@@ -1,9 +1,9 @@
-"""Tests for SwitchRoute model and FixturePoint.route field."""
+"""Tests for SwitchRoute model and FixtureConnection.route field."""
 
 import pytest
 from pydantic import ValidationError
 
-from litmus.config.test_config import FixturePoint, SwitchRoute
+from litmus.config.test_config import FixtureConnection, SwitchRoute
 
 
 class TestSwitchRoute:
@@ -34,33 +34,33 @@ class TestSwitchRoute:
             SwitchRoute(switch="matrix")  # type: ignore[call-arg]
 
 
-class TestFixturePointWithRoute:
+class TestFixtureConnectionWithRoute:
     def test_no_route_default(self):
-        point = FixturePoint(name="vout", instrument="dmm")
-        assert point.route is None
+        conn = FixtureConnection(name="vout", instrument="dmm")
+        assert conn.route is None
 
     def test_with_route(self):
-        point = FixturePoint(
+        conn = FixtureConnection(
             name="vout_measure",
             instrument="dmm",
             instrument_channel="1",
             dut_pin="VOUT",
             route=SwitchRoute(switch="matrix", channels=["r0c0"], settling_ms=5),
         )
-        assert point.route is not None
-        assert point.route.switch == "matrix"
-        assert point.route.channels == ["r0c0"]
-        assert point.route.settling_ms == 5
+        assert conn.route is not None
+        assert conn.route.switch == "matrix"
+        assert conn.route.channels == ["r0c0"]
+        assert conn.route.settling_ms == 5
 
     def test_round_trip_dict(self):
-        point = FixturePoint(
+        conn = FixtureConnection(
             name="vout_measure",
             instrument="dmm",
             dut_pin="VOUT",
             route=SwitchRoute(switch="matrix", channels=["r0c0"]),
         )
-        data = point.model_dump()
-        restored = FixturePoint.model_validate(data)
+        data = conn.model_dump()
+        restored = FixtureConnection.model_validate(data)
         assert restored.route is not None
         assert restored.route.switch == "matrix"
         assert restored.route.channels == ["r0c0"]
@@ -76,6 +76,6 @@ class TestFixturePointWithRoute:
                 "settling_ms": 10,
             },
         }
-        point = FixturePoint.model_validate(data)
-        assert point.route is not None
-        assert point.route.settling_ms == 10
+        conn = FixtureConnection.model_validate(data)
+        assert conn.route is not None
+        assert conn.route.settling_ms == 10

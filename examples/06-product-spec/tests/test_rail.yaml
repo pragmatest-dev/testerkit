@@ -1,4 +1,4 @@
-# Per-test bindings + limits that reference product characteristics.
+# Per-test spec markers + limits that reference product characteristics.
 tests:
   test_rail_within_spec:
     markers:

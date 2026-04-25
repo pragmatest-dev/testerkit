@@ -30,7 +30,7 @@ class StimulusRecord(BaseModel):
     - resource: VISA address or connection string
     - channel: Channel on instrument (e.g., "CH1")
     - dut_pin: DUT pin being driven
-    - fixture_point: Fixture routing point
+    - fixture_connection: Named fixture connection
     """
 
     param: str
@@ -40,7 +40,7 @@ class StimulusRecord(BaseModel):
     resource: str | None = None  # VISA address or connection string
     channel: str | None = None  # Channel on instrument (e.g., "CH1")
     dut_pin: str | None = None  # DUT pin being driven
-    fixture_point: str | None = None  # Fixture routing point
+    fixture_connection: str | None = None  # Named fixture connection
 
 
 class Outcome(StrEnum):
@@ -89,7 +89,7 @@ class Measurement(BaseModel):
     instrument_name: str | None = None  # Station config name (e.g., "dmm_main")
     instrument_resource: str | None = None  # VISA address or connection string
     instrument_channel: str | None = None  # Channel on instrument (e.g., "CH1")
-    fixture_point: str | None = None  # Fixture point name (e.g., "VOUT")
+    fixture_connection: str | None = None  # Fixture connection name (e.g., "VOUT")
 
     def check_limit(self) -> Outcome:
         """Evaluate value against limits using comparator, set outcome, return result.

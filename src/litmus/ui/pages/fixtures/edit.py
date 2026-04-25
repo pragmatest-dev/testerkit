@@ -29,7 +29,7 @@ def fixture_edit_page(fixture_id: str):
             "product_id": "",
             "product_revision": "",
         }
-        points_data = {}
+        connections_data = {}
     elif config:
         create_layout(f"Edit {config.name or fixture_id}")
         fixture_data = {
@@ -39,7 +39,9 @@ def fixture_edit_page(fixture_id: str):
             "product_id": config.product_id or config.product_family or "",
             "product_revision": config.product_revision or "",
         }
-        points_data = {k: v.model_dump() for k, v in config.points.items()} if config.points else {}
+        connections_data = (
+            {k: v.model_dump() for k, v in config.connections.items()} if config.connections else {}
+        )
     else:
         create_layout("Fixture Not Found")
         with ui.column().classes("w-full p-6"):
@@ -61,13 +63,13 @@ def fixture_edit_page(fixture_id: str):
     instrument_options = sorted(all_instruments) if all_instruments else default_instruments
 
     # Reactive state
-    form_data = {"fixture": dict(fixture_data), "points": dict(points_data)}
+    form_data = {"fixture": dict(fixture_data), "connections": dict(connections_data)}
 
     # Auto-save for existing fixtures
     def do_save():
         fid = form_data["fixture"]["id"]
         if fid:
-            save_fixture(fid, form_data["fixture"], form_data["points"])
+            save_fixture(fid, form_data["fixture"], form_data["connections"])
 
     saver = AutoSaver(do_save, delay=1.0) if not is_new else None
 
@@ -126,30 +128,33 @@ def fixture_edit_page(fixture_id: str):
                     ),
                 )
 
-        # Points card
+        # Connections card
         with ui.card().classes("w-full"):
             with ui.card_section():
                 with ui.row().classes("items-center justify-between"):
                     ui.label("Pin Mappings").classes("text-lg font-semibold")
                     ui.button(
-                        "Add Point",
+                        "Add Connection",
                         icon="add",
-                        on_click=lambda: _show_add_point_dialog(
+                        on_click=lambda: _show_add_connection_dialog(
                             instrument_options,
-                            lambda name, data: _add_point(
+                            lambda name, data: _add_connection(
                                 form_data,
                                 name,
                                 data,
                                 instrument_options,
-                                points_container,
+                                connections_container,
                                 saver,
                             ),
                         ),
                     ).props("flat color=primary")
 
-            with ui.card_section() as points_container:
-                _render_points_list(
-                    form_data["points"], instrument_options, points_container, saver
+            with ui.card_section() as connections_container:
+                _render_connections_list(
+                    form_data["connections"],
+                    instrument_options,
+                    connections_container,
+                    saver,
                 )
 
         # Actions
@@ -161,7 +166,7 @@ def fixture_edit_page(fixture_id: str):
                     if not fid:
                         ui.notify("Fixture ID is required", type="warning")
                         return
-                    if save_fixture(fid, form_data["fixture"], form_data["points"]):
+                    if save_fixture(fid, form_data["fixture"], form_data["connections"]):
                         ui.notify("Fixture created", type="positive")
                         ui.navigate.to(f"/fixtures/{fid}")
                     else:
@@ -181,36 +186,43 @@ def fixture_edit_page(fixture_id: str):
             ).props("flat")
 
 
-def _render_points_list(points: dict, instrument_options: list, container, saver=None):
-    """Render the list of fixture points."""
+def _render_connections_list(connections: dict, instrument_options: list, container, saver=None):
+    """Render the list of fixture connections."""
     container.clear()
     with container:
-        if not points:
-            ui.label("No pin mappings defined. Click 'Add Point' to create one.").classes(
+        if not connections:
+            ui.label("No pin mappings defined. Click 'Add Connection' to create one.").classes(
                 "text-slate-500 italic"
             )
             return
 
-        for point_name, point_data in points.items():
-            _render_point_row(point_name, point_data, points, instrument_options, container, saver)
+        for connection_name, connection_data in connections.items():
+            _render_connection_row(
+                connection_name,
+                connection_data,
+                connections,
+                instrument_options,
+                container,
+                saver,
+            )
 
 
-def _render_point_row(
-    point_name: str,
-    point_data: dict,
-    all_points: dict,
+def _render_connection_row(
+    connection_name: str,
+    connection_data: dict,
+    all_connections: dict,
     instrument_options: list,
     container,
     saver=None,
 ):
-    """Render a single point row with inline editing."""
+    """Render a single connection row with inline editing."""
     with ui.card().classes("w-full mb-2"):
         with ui.card_section():
             with ui.row().classes("items-center justify-between"):
-                ui.label(point_name).classes("font-semibold font-mono")
+                ui.label(connection_name).classes("font-semibold font-mono")
 
-                def delete_handler(pn=point_name):
-                    _delete_point(all_points, pn, container, instrument_options, saver)
+                def delete_handler(cn=connection_name):
+                    _delete_connection(all_connections, cn, container, instrument_options, saver)
 
                 ui.button(icon="delete", on_click=delete_handler).props("flat dense color=red")
 
@@ -219,9 +231,9 @@ def _render_point_row(
                 with ui.column().classes("gap-1"):
                     ui.label("DUT Pin").classes("text-xs text-slate-500")
                     ui.input(
-                        value=point_data.get("dut_pin", ""),
-                        on_change=lambda e, pd=point_data: (
-                            pd.update({"dut_pin": e.value}),
+                        value=connection_data.get("dut_pin", ""),
+                        on_change=lambda e, cd=connection_data: (
+                            cd.update({"dut_pin": e.value}),
                             saver.trigger() if saver else None,
                         ),
                     ).props("outlined dense").classes("w-full")
@@ -229,9 +241,9 @@ def _render_point_row(
                 with ui.column().classes("gap-1"):
                     ui.label("Net").classes("text-xs text-slate-500")
                     ui.input(
-                        value=point_data.get("net", ""),
-                        on_change=lambda e, pd=point_data: (
-                            pd.update({"net": e.value}),
+                        value=connection_data.get("net", ""),
+                        on_change=lambda e, cd=connection_data: (
+                            cd.update({"net": e.value}),
                             saver.trigger() if saver else None,
                         ),
                     ).props("outlined dense").classes("w-full")
@@ -240,9 +252,9 @@ def _render_point_row(
                     ui.label("Instrument").classes("text-xs text-slate-500")
                     ui.select(
                         options=instrument_options,
-                        value=point_data.get("instrument", ""),
-                        on_change=lambda e, pd=point_data: (
-                            pd.update({"instrument": e.value}),
+                        value=connection_data.get("instrument", ""),
+                        on_change=lambda e, cd=connection_data: (
+                            cd.update({"instrument": e.value}),
                             saver.trigger() if saver else None,
                         ),
                     ).props("outlined dense").classes("w-full")
@@ -250,15 +262,15 @@ def _render_point_row(
                 with ui.column().classes("gap-1"):
                     ui.label("Channel").classes("text-xs text-slate-500")
                     ui.input(
-                        value=point_data.get("instrument_channel", ""),
-                        on_change=lambda e, pd=point_data: (
-                            pd.update({"instrument_channel": e.value}),
+                        value=connection_data.get("instrument_channel", ""),
+                        on_change=lambda e, cd=connection_data: (
+                            cd.update({"instrument_channel": e.value}),
                             saver.trigger() if saver else None,
                         ),
                     ).props("outlined dense").classes("w-full")
 
 
-def _add_point(
+def _add_connection(
     form_data: dict,
     name: str,
     data: dict,
@@ -266,27 +278,29 @@ def _add_point(
     container,
     saver=None,
 ):
-    """Add a new point to the fixture."""
-    form_data["points"][name] = data
-    _render_points_list(form_data["points"], instrument_options, container, saver)
+    """Add a new connection to the fixture."""
+    form_data["connections"][name] = data
+    _render_connections_list(form_data["connections"], instrument_options, container, saver)
     container.update()
     if saver:
         saver.trigger()
 
 
-def _delete_point(points: dict, name: str, container, instrument_options: list, saver=None):
-    """Delete a point from the fixture."""
-    if name in points:
-        del points[name]
-    _render_points_list(points, instrument_options, container, saver)
+def _delete_connection(
+    connections: dict, name: str, container, instrument_options: list, saver=None
+):
+    """Delete a connection from the fixture."""
+    if name in connections:
+        del connections[name]
+    _render_connections_list(connections, instrument_options, container, saver)
     container.update()
     if saver:
         saver.trigger()
 
 
-def _show_add_point_dialog(instrument_options: list, on_add: Callable):
-    """Show dialog to add a new fixture point."""
-    point_form = {
+def _show_add_connection_dialog(instrument_options: list, on_add: Callable):
+    """Show dialog to add a new fixture connection."""
+    connection_form = {
         "name": "",
         "dut_pin": "",
         "net": "",
@@ -300,51 +314,51 @@ def _show_add_point_dialog(instrument_options: list, on_add: Callable):
 
         with ui.card_section().classes("flex flex-col gap-4"):
             with ui.column().classes("gap-1"):
-                ui.label("Point Name").classes("text-sm font-medium text-slate-700")
+                ui.label("Connection Name").classes("text-sm font-medium text-slate-700")
                 ui.input(
                     placeholder="e.g., vout_measure",
-                    on_change=lambda e: point_form.update({"name": e.value}),
+                    on_change=lambda e: connection_form.update({"name": e.value}),
                 ).props("outlined dense").classes("w-full")
 
             with ui.column().classes("gap-1"):
                 ui.label("DUT Pin").classes("text-sm font-medium text-slate-700")
                 ui.input(
                     placeholder="e.g., VOUT, J1.3",
-                    on_change=lambda e: point_form.update({"dut_pin": e.value}),
+                    on_change=lambda e: connection_form.update({"dut_pin": e.value}),
                 ).props("outlined dense").classes("w-full")
 
             with ui.column().classes("gap-1"):
                 ui.label("Net (optional)").classes("text-sm font-medium text-slate-700")
                 ui.input(
                     placeholder="e.g., VOUT_3V3",
-                    on_change=lambda e: point_form.update({"net": e.value}),
+                    on_change=lambda e: connection_form.update({"net": e.value}),
                 ).props("outlined dense").classes("w-full")
 
             with ui.column().classes("gap-1"):
                 ui.label("Instrument").classes("text-sm font-medium text-slate-700")
                 ui.select(
                     options=instrument_options,
-                    value=point_form["instrument"],
-                    on_change=lambda e: point_form.update({"instrument": e.value}),
+                    value=connection_form["instrument"],
+                    on_change=lambda e: connection_form.update({"instrument": e.value}),
                 ).props("outlined dense").classes("w-full")
 
             with ui.column().classes("gap-1"):
                 ui.label("Instrument Channel").classes("text-sm font-medium text-slate-700")
                 ui.input(
                     placeholder="e.g., 1, CH1",
-                    on_change=lambda e: point_form.update({"instrument_channel": e.value}),
+                    on_change=lambda e: connection_form.update({"instrument_channel": e.value}),
                 ).props("outlined dense").classes("w-full")
 
         with ui.card_actions().classes("justify-end"):
             ui.button("Cancel", on_click=dialog.close).props("flat")
 
             def add():
-                if not point_form["name"]:
-                    ui.notify("Point name is required", type="warning")
+                if not connection_form["name"]:
+                    ui.notify("Connection name is required", type="warning")
                     return
-                name = point_form.pop("name")
+                name = connection_form.pop("name")
                 # Only include non-empty values
-                data = {k: v for k, v in point_form.items() if v}
+                data = {k: v for k, v in connection_form.items() if v}
                 on_add(name, data)
                 dialog.close()
 

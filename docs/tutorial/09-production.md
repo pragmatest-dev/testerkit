@@ -37,7 +37,7 @@ id: power_board_fixture
 name: "Power Board Test Fixture"
 product_id: power_board
 
-points:
+connections:
   vin_supply:
     dut_pin: VIN              # From product spec
     instrument: psu           # From station config
@@ -225,7 +225,7 @@ instruments:
 id: power_board_fixture
 product_id: power_board
 
-points:
+connections:
   vin_supply:
     dut_pin: VIN
     instrument: psu

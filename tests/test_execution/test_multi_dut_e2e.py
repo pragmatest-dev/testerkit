@@ -51,8 +51,8 @@ class TestMultiDutE2E:
         _write_fixture_yaml(
             fixture_path,
             {
-                "slot_1": {"points": {}},
-                "slot_2": {"points": {}},
+                "slot_1": {"connections": {}},
+                "slot_2": {"connections": {}},
             },
         )
         _write_station_yaml(station_path)
@@ -97,8 +97,8 @@ class TestMultiDutE2E:
         _write_fixture_yaml(
             fixture_path,
             {
-                "slot_1": {"points": {}},
-                "slot_2": {"points": {}},
+                "slot_1": {"connections": {}},
+                "slot_2": {"connections": {}},
             },
         )
         _write_station_yaml(station_path)
@@ -145,8 +145,8 @@ class TestMultiDutE2E:
         _write_fixture_yaml(
             fixture_path,
             {
-                "slot_1": {"points": {}},
-                "slot_2": {"points": {}},
+                "slot_1": {"connections": {}},
+                "slot_2": {"connections": {}},
             },
         )
         _write_station_yaml(station_path)

@@ -104,7 +104,7 @@ class MeasurementRow(BaseModel):
     spec_id: str | None = None
     spec_ref: str | None = None
     meas_dut_pin: str | None = None
-    meas_fixture_point: str | None = None
+    meas_fixture_connection: str | None = None
     meas_instrument: str | None = None
     meas_instrument_resource: str | None = None
     meas_instrument_channel: str | None = None
@@ -221,7 +221,7 @@ def build_measurement_fields(measurement: Measurement) -> dict[str, Any]:
         "spec_ref": measurement.spec_ref,
         # Signal path
         "meas_dut_pin": measurement.dut_pin,
-        "meas_fixture_point": measurement.fixture_point,
+        "meas_fixture_connection": measurement.fixture_connection,
         "meas_instrument": measurement.instrument_name,
         "meas_instrument_resource": measurement.instrument_resource,
         "meas_instrument_channel": measurement.instrument_channel,
@@ -252,8 +252,8 @@ def build_input_columns(vector: TestVector) -> dict[str, Any]:
             cols[f"{param}_channel"] = stim.channel
         if stim.dut_pin:
             cols[f"{param}_dut_pin"] = stim.dut_pin
-        if stim.fixture_point:
-            cols[f"{param}_fixture_point"] = stim.fixture_point
+        if stim.fixture_connection:
+            cols[f"{param}_fixture_connection"] = stim.fixture_connection
 
     return cols
 

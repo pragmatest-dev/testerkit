@@ -19,7 +19,7 @@ from uuid import UUID, uuid4
 
 from filelock._api import BaseFileLock
 
-from litmus.config.test_config import FixturePoint, SwitchRoute
+from litmus.config.test_config import FixtureConnection, SwitchRoute
 from litmus.instruments.locks import ResourceMeta, acquire_resource
 from litmus.instruments.switch import SwitchDriver
 
@@ -36,14 +36,14 @@ _SWITCH_METHODS = ("close_channels", "open_channels", "open_all")
 class RouteManager:
     """Manages switch route lifecycle, locking, and conflict detection.
 
-    Built at session start from fixture points that have routes.
+    Built at session start from fixture connections that have routes.
     Holds locks and active channel state for the duration of the session.
 
     Lock ordering: instrument resource → switch resource (always).
     This prevents deadlocks when multiple processes share instruments.
 
     Args:
-        points: All fixture points (keyed by point name).
+        connections: All fixture connections (keyed by connection name).
         instruments: Connected instrument instances (keyed by role).
         session_id: Current session UUID (for lock metadata).
         station_id: Station identifier (for lock metadata).
@@ -52,74 +52,73 @@ class RouteManager:
 
     def __init__(
         self,
-        points: dict[str, FixturePoint],
+        connections: dict[str, FixtureConnection],
         instruments: dict[str, Any],
         session_id: UUID | None = None,
         station_id: str = "",
         event_log: Any = None,
     ) -> None:
-        self._points = points
+        self._connections = connections
         self._instruments = instruments
         self._session_id = session_id
         self._station_id = station_id
         self._event_log = event_log
 
         # Active state
-        self._active_routes: dict[str, SwitchRoute] = {}  # point_name → active route
+        self._active_routes: dict[str, SwitchRoute] = {}  # connection_name → active route
         self._held_locks: dict[str, BaseFileLock] = {}  # resource_key → held lock
-        self._channel_owners: dict[tuple[str, str], str] = {}  # (switch_role, channel) → point
-
-        # Build reverse lookup: dut_pin → point_name (for for_pin)
-        self._pin_to_point: dict[str, str] = {}
-        # Build conflict model: instrument_channel → list of point names
+        self._channel_owners: dict[tuple[str, str], str] = {}  # (switch_role, channel) → connection
+        # Build reverse lookup: dut_pin → connection_name (for for_pin)
+        self._pin_to_connection: dict[str, str] = {}
+        # Build conflict model: instrument_channel → list of connection names
         self._instrument_channel_map: dict[tuple[str, str | None], list[str]] = {}
 
-        for point_name, point in points.items():
-            if point.route is not None:
-                if point.dut_pin:
-                    self._pin_to_point[point.dut_pin] = point_name
-                key = (point.instrument, point.instrument_channel)
-                self._instrument_channel_map.setdefault(key, []).append(point_name)
+        for connection_name, connection in connections.items():
+            if connection.route is not None:
+                if connection.dut_pin:
+                    self._pin_to_connection[connection.dut_pin] = connection_name
+                key = (connection.instrument, connection.instrument_channel)
+                self._instrument_channel_map.setdefault(key, []).append(connection_name)
 
     @property
     def has_routes(self) -> bool:
-        """True if any fixture points have switch routes."""
-        return any(p.route is not None for p in self._points.values())
+        """True if any fixture connections have switch routes."""
+        return any(c.route is not None for c in self._connections.values())
 
     @property
     def active_routes(self) -> dict[str, SwitchRoute]:
-        """Currently active routes (point_name → SwitchRoute)."""
+        """Currently active routes (connection_name → SwitchRoute)."""
         return dict(self._active_routes)
 
-    def activate(self, point_name: str) -> None:
-        """Activate a switch route for a fixture point.
+    def activate(self, connection_name: str) -> None:
+        """Activate a switch route for a fixture connection.
 
         Acquires locks (instrument → switch), closes channels, waits
         for settling. No-op if the route is already active.
 
         Raises:
-            KeyError: If point not found or has no route.
+            KeyError: If connection not found or has no route.
             RouteConflictError: If activation would conflict with active routes.
         """
-        if point_name in self._active_routes:
+        if connection_name in self._active_routes:
             return  # Already active, no-op
 
-        point = self._points.get(point_name)
-        if point is None:
-            raise KeyError(f"Fixture point '{point_name}' not found")
-        route = point.route
+        connection = self._connections.get(connection_name)
+        if connection is None:
+            raise KeyError(f"Fixture connection '{connection_name}' not found")
+        route = connection.route
         if route is None:
-            raise KeyError(f"Fixture point '{point_name}' has no switch route")
+            raise KeyError(f"Fixture connection '{connection_name}' has no switch route")
 
         # Check for conflicts
-        self._check_conflicts(point_name, point, route)
+        self._check_conflicts(connection_name, connection, route)
 
         # Resolve switch instrument
         switch = self._get_switch(route.switch)
 
         # Acquire locks: instrument → switch (consistent ordering)
-        self._acquire_lock_if_needed(point.instrument, point_name)
-        self._acquire_lock_if_needed(route.switch, point_name)
+        self._acquire_lock_if_needed(connection.instrument, connection_name)
+        self._acquire_lock_if_needed(route.switch, connection_name)
 
         # Close channels
         switch.close_channels(route.channels)
@@ -129,29 +128,29 @@ class RouteManager:
             time.sleep(route.settling_ms / 1000.0)
 
         # Record active state
-        self._active_routes[point_name] = route
+        self._active_routes[connection_name] = route
         for ch in route.channels:
-            self._channel_owners[(route.switch, ch)] = point_name
+            self._channel_owners[(route.switch, ch)] = connection_name
 
         # Emit event
-        self._emit_route_closed(point_name, route)
+        self._emit_route_closed(connection_name, route)
 
         logger.debug(
             "Route activated: %s → %s channels %s",
-            point_name,
+            connection_name,
             route.switch,
             route.channels,
         )
 
-    def deactivate(self, point_name: str) -> None:
-        """Deactivate a switch route for a fixture point.
+    def deactivate(self, connection_name: str) -> None:
+        """Deactivate a switch route for a fixture connection.
 
         Opens channels and releases channel ownership.
         Locks are retained until ``deactivate_all()`` (session teardown).
 
         No-op if the route is not active.
         """
-        route = self._active_routes.pop(point_name, None)
+        route = self._active_routes.pop(connection_name, None)
         if route is None:
             return
 
@@ -164,11 +163,11 @@ class RouteManager:
             self._channel_owners.pop((route.switch, ch), None)
 
         # Emit event
-        self._emit_route_opened(point_name, route)
+        self._emit_route_opened(connection_name, route)
 
         logger.debug(
             "Route deactivated: %s → %s channels %s",
-            point_name,
+            connection_name,
             route.switch,
             route.channels,
         )
@@ -182,8 +181,8 @@ class RouteManager:
         Dict preserves insertion order (Python 3.7+).
         """
         # Deactivate all routes (open channels)
-        for point_name in list(self._active_routes):
-            self.deactivate(point_name)
+        for connection_name in list(self._active_routes):
+            self.deactivate(connection_name)
 
         # Release all locks in LIFO order (reverse of acquisition)
         for resource_key in reversed(list(self._held_locks)):
@@ -204,47 +203,47 @@ class RouteManager:
             pin_name: DUT pin name (e.g., "VOUT").
 
         Raises:
-            KeyError: If no routed fixture point for this pin.
+            KeyError: If no routed fixture connection for this pin.
         """
-        point_name = self._resolve_pin(pin_name)
-        self.activate(point_name)
+        connection_name = self._resolve_pin(pin_name)
+        self.activate(connection_name)
         try:
             yield
         finally:
-            self.deactivate(point_name)
+            self.deactivate(connection_name)
 
     def _resolve_pin(self, pin_name: str) -> str:
-        """Resolve a DUT pin name to a fixture point name."""
-        if pin_name not in self._pin_to_point:
+        """Resolve a DUT pin name to a fixture connection name."""
+        if pin_name not in self._pin_to_connection:
             raise KeyError(
-                f"No routed fixture point for DUT pin '{pin_name}'. "
-                f"Available routed pins: {sorted(self._pin_to_point.keys())}"
+                f"No routed fixture connection for DUT pin '{pin_name}'. "
+                f"Available routed pins: {sorted(self._pin_to_connection.keys())}"
             )
-        return self._pin_to_point[pin_name]
+        return self._pin_to_connection[pin_name]
 
     def _check_conflicts(
         self,
-        point_name: str,
-        point: FixturePoint,
+        connection_name: str,
+        connection: FixtureConnection,
         route: SwitchRoute,
     ) -> None:
         """Check for conflicts with currently active routes."""
-        # Channel overlap: another point using the same switch channels
+        # Channel overlap: another connection using the same switch channels
         for ch in route.channels:
             owner = self._channel_owners.get((route.switch, ch))
-            if owner is not None and owner != point_name:
+            if owner is not None and owner != connection_name:
                 raise RouteConflictError(
-                    f"Cannot activate route for '{point_name}': "
+                    f"Cannot activate route for '{connection_name}': "
                     f"switch channel ({route.switch}, {ch}) is owned by '{owner}'"
                 )
 
         # Instrument channel conflict: same instrument + channel already routed
-        inst_key = (point.instrument, point.instrument_channel)
+        inst_key = (connection.instrument, connection.instrument_channel)
         for other_name in self._instrument_channel_map.get(inst_key, []):
-            if other_name != point_name and other_name in self._active_routes:
+            if other_name != connection_name and other_name in self._active_routes:
                 raise RouteConflictError(
-                    f"Cannot activate route for '{point_name}': "
-                    f"instrument channel ({point.instrument}, {point.instrument_channel}) "
+                    f"Cannot activate route for '{connection_name}': instrument channel "
+                    f"({connection.instrument}, {connection.instrument_channel}) "
                     f"is already routed to '{other_name}'"
                 )
 
@@ -261,7 +260,7 @@ class RouteManager:
             )
         return inst  # type: ignore[return-value]
 
-    def _acquire_lock_if_needed(self, role: str, point_name: str) -> None:
+    def _acquire_lock_if_needed(self, role: str, connection_name: str) -> None:
         """Acquire a file lock for an instrument role if not already held.
 
         Non-switch instruments in ``self._instruments`` are already
@@ -297,14 +296,14 @@ class RouteManager:
             return True
         return all(callable(getattr(inst, m, None)) for m in _SWITCH_METHODS)
 
-    def _emit_route_closed(self, point_name: str, route: SwitchRoute) -> None:
+    def _emit_route_closed(self, connection_name: str, route: SwitchRoute) -> None:
         """Emit a RouteClosed event."""
         if self._event_log is None:
             return
         from litmus.data.events import RouteClosed
 
         kwargs: dict[str, Any] = {
-            "point_name": point_name,
+            "connection_name": connection_name,
             "switch_role": route.switch,
             "channels": route.channels,
         }
@@ -312,14 +311,14 @@ class RouteManager:
             kwargs["session_id"] = self._session_id
         self._event_log.emit(RouteClosed(**kwargs))
 
-    def _emit_route_opened(self, point_name: str, route: SwitchRoute) -> None:
+    def _emit_route_opened(self, connection_name: str, route: SwitchRoute) -> None:
         """Emit a RouteOpened event."""
         if self._event_log is None:
             return
         from litmus.data.events import RouteOpened
 
         kwargs: dict[str, Any] = {
-            "point_name": point_name,
+            "connection_name": connection_name,
             "switch_role": route.switch,
             "channels": route.channels,
         }

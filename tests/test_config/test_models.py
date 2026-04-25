@@ -8,7 +8,7 @@ from litmus.models.config import (
     Control,
     Direction,
     FixtureConfig,
-    FixturePoint,
+    FixtureConnection,
     InstrumentConfig,
     InstrumentInstance,
     Limit,
@@ -208,14 +208,16 @@ class TestFixtureConfig:
         config = FixtureConfig(
             id="product_a_fixture",
             product_family="product_a",
-            points={
-                "vcc": FixturePoint(name="VCC", instrument="psu", instrument_channel="CH1"),
-                "gnd": FixturePoint(name="GND", instrument="psu", instrument_channel="CH1_GND"),
+            connections={
+                "vcc": FixtureConnection(name="VCC", instrument="psu", instrument_channel="CH1"),
+                "gnd": FixtureConnection(
+                    name="GND", instrument="psu", instrument_channel="CH1_GND"
+                ),
             },
         )
         assert config.id == "product_a_fixture"
-        assert "vcc" in config.points
-        assert config.points["vcc"].instrument == "psu"
+        assert "vcc" in config.connections
+        assert config.connections["vcc"].instrument == "psu"
 
 
 class TestRetryConfig:

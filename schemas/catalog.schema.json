@@ -1,6 +1,7 @@
 {
   "$defs": {
     "AccuracySpec": {
+      "additionalProperties": false,
       "description": "Specification for measurement accuracy.",
       "properties": {
         "pct_reading": {
@@ -38,17 +39,6 @@
           ],
           "default": null,
           "title": "Absolute"
-        }
-      },
-      "title": "AccuracySpec",
-      "type": "object"
-    },
-    "Attribute": {
-      "description": "A fixed hardware fact or performance characteristic.\n\nAttributes are not adjustable \u2014 they describe inherent instrument\ncapabilities like bandwidth, sample rate, or input impedance.\nThe ``compare`` field controls matching: higher_better for bandwidth,\nlower_better for noise floor, etc.\n\nExample YAML:\n    attributes:\n      bandwidth:\n        value: 200000000\n        units: Hz\n        compare: higher_better\n      sample_rate:\n        value: 2000000000\n        units: Sa/s\n        compare: higher_better",
-      "properties": {
-        "value": {
-          "title": "Value",
-          "type": "number"
         },
         "units": {
           "anyOf": [
@@ -63,15 +53,31 @@
           "title": "Units"
         }
       },
-      "required": [
-        "value"
-      ],
-      "title": "Attribute",
+      "title": "AccuracySpec",
       "type": "object"
     },
-    "Condition": {
-      "description": "An operating condition that affects accuracy of other parameters.\n\nConditions don't have their own accuracy \u2014 they define the operating\npoint used to look up SpecBand overrides on sibling signals.\n\nExample YAML:\n    conditions:\n      frequency:\n        range: {min: 3, max: 300000, units: Hz}",
+    "Attribute": {
+      "additionalProperties": false,
+      "description": "A fixed hardware fact or performance characteristic.\n\nAttributes are not adjustable \u2014 they describe inherent instrument\ncapabilities like bandwidth, sample rate, or input impedance.\n\nWhen an attribute varies by operating condition (e.g., test current\ndepends on resistance range), use ``specs`` for condition-dependent\noverrides \u2014 same pattern as Signal.specs.\n\nExample YAML:\n    attributes:\n      bandwidth:\n        value: 200000000\n        units: Hz\n      operating_temperature:\n        range: {min: 0, max: 55, units: degC}\n      test_current:\n        value: 0.001\n        units: A\n        specs:\n          - when: {range: 100}\n            value: 0.001\n          - when: {range: 10000}\n            value: 0.0001\n      scpi_version:\n        value: \"1997.0\"\n      supported_emulations:\n        options: [\"8340\", \"8360\", \"83700\"]",
       "properties": {
+        "value": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "string"
+            },
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Value"
+        },
         "range": {
           "anyOf": [
             {
@@ -82,13 +88,158 @@
             }
           ],
           "default": null
+        },
+        "options": {
+          "anyOf": [
+            {
+              "items": {
+                "anyOf": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "boolean"
+                  }
+                ]
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Options"
+        },
+        "units": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Units"
+        },
+        "specs": {
+          "anyOf": [
+            {
+              "items": {
+                "$ref": "#/$defs/SpecBand"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Specs"
+        },
+        "qualifier": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/SpecQualifier"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "note": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Note"
         }
       },
-      "title": "Condition",
+      "title": "Attribute",
       "type": "object"
     },
-    "Control": {
-      "description": "A user-configurable knob or setting.\n\nControls are instrument settings the user can adjust, like motor position,\ntemperature setpoint, or compliance limit. They have a range of valid\nvalues or a set of discrete options.\n\nExample YAML:\n    controls:\n      position:\n        range: {min: 0, max: 300, units: mm}\n      coupling:\n        options: [\"AC\", \"DC\"]\n        default: \"DC\"",
+    "ChannelTopology": {
+      "additionalProperties": false,
+      "description": "Physical topology of a single instrument channel.\n\nDescribes the physical terminals, connector type, and ground topology\nfor a channel. Used in catalog and instrument library entries to model\nhow instruments physically connect to the DUT.\n\nExample YAML:\n    \"1\":\n      label: \"6V/5A Output\"\n      terminals: [hi, lo, sense_hi, sense_lo]\n      connector: binding_post\n      ground: floating",
+      "properties": {
+        "label": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Label"
+        },
+        "terminals": {
+          "items": {
+            "$ref": "#/$defs/TerminalRole"
+          },
+          "title": "Terminals",
+          "type": "array"
+        },
+        "connector": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ConnectorType"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "connector_pin": {
+          "anyOf": [
+            {
+              "additionalProperties": {
+                "anyOf": [
+                  {
+                    "type": "integer"
+                  },
+                  {
+                    "type": "string"
+                  }
+                ]
+              },
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Connector Pin"
+        },
+        "ground": {
+          "$ref": "#/$defs/GroundTopology",
+          "default": "shared"
+        },
+        "optional": {
+          "default": false,
+          "title": "Optional",
+          "type": "boolean"
+        }
+      },
+      "title": "ChannelTopology",
+      "type": "object"
+    },
+    "Condition": {
+      "additionalProperties": false,
+      "description": "An operating condition that affects accuracy of other parameters.\n\nConditions are NOT user-adjustable \u2014 they describe the operating\nenvironment or calibration state under which specs were characterized.\nUse controls for user-settable parameters.\n\nExample YAML (continuous):\n    conditions:\n      frequency:\n        range: {min: 3, max: 300000, units: Hz}\n\nExample YAML (discrete):\n    conditions:\n      calibration_interval:\n        options: [\"24_hour\", \"90_day\", \"1_year\", \"2_year\"]",
       "properties": {
         "range": {
           "anyOf": [
@@ -111,6 +262,9 @@
                   },
                   {
                     "type": "string"
+                  },
+                  {
+                    "type": "boolean"
                   }
                 ]
               },
@@ -144,11 +298,182 @@
               "type": "string"
             },
             {
+              "type": "boolean"
+            },
+            {
               "type": "null"
             }
           ],
           "default": null,
           "title": "Default"
+        },
+        "specs": {
+          "anyOf": [
+            {
+              "items": {
+                "$ref": "#/$defs/SpecBand"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Specs"
+        },
+        "note": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Note"
+        }
+      },
+      "title": "Condition",
+      "type": "object"
+    },
+    "ConnectorType": {
+      "description": "Physical connector type on instrument.",
+      "enum": [
+        "binding_post",
+        "banana",
+        "bnc",
+        "terminal_block",
+        "probe",
+        "triax",
+        "sma",
+        "smb",
+        "spring",
+        "pxi",
+        "screw_terminal",
+        "dsub",
+        "vhdci",
+        "apc_3.5",
+        "type_n",
+        "k_2.4mm",
+        "v_1.85mm",
+        "phoenix",
+        "tekvpi",
+        "d_sub_9",
+        "d_sub_15",
+        "proprietary"
+      ],
+      "title": "ConnectorType",
+      "type": "string"
+    },
+    "Control": {
+      "additionalProperties": false,
+      "description": "A user-configurable knob or setting.\n\nControls are instrument settings the user can adjust, like motor position,\ntemperature setpoint, or compliance limit. They have a range of valid\nvalues or a set of discrete options.\n\nExample YAML:\n    controls:\n      position:\n        range: {min: 0, max: 300, units: mm}\n      coupling:\n        options: [\"AC\", \"DC\"]\n        default: \"DC\"\n      autorange:\n        options: [true, false]\n        default: true",
+      "properties": {
+        "range": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/RangeSpec"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "options": {
+          "anyOf": [
+            {
+              "items": {
+                "anyOf": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "boolean"
+                  }
+                ]
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Options"
+        },
+        "units": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Units"
+        },
+        "default": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "string"
+            },
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Default"
+        },
+        "resolution": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ResolutionSpec"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "specs": {
+          "anyOf": [
+            {
+              "items": {
+                "$ref": "#/$defs/SpecBand"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Specs"
+        },
+        "note": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Note"
         }
       },
       "title": "Control",
@@ -164,6 +489,132 @@
       ],
       "title": "Direction",
       "type": "string"
+    },
+    "GroundTopology": {
+      "description": "How channel grounds relate to each other and earth.",
+      "enum": [
+        "floating",
+        "shared",
+        "earth"
+      ],
+      "title": "GroundTopology",
+      "type": "string"
+    },
+    "InstrumentCapability": {
+      "description": "Instrument capability + channels + operational metadata.\n\nExample YAML:\n    - function: dc_voltage\n      direction: input\n      signals:\n        voltage:\n          range: {min: 0.0001, max: 1000, units: V}\n          accuracy: {pct_reading: 0.0035, pct_range: 0.0006}\n          resolution: {digits: 6.5}\n      conditions:\n        frequency:\n          range: {min: 3, max: 300000, units: Hz}\n      channels: [\"1\"]\n      readback: false",
+      "properties": {
+        "function": {
+          "$ref": "#/$defs/MeasurementFunction"
+        },
+        "direction": {
+          "$ref": "#/$defs/Direction"
+        },
+        "signals": {
+          "additionalProperties": {
+            "$ref": "#/$defs/Signal"
+          },
+          "title": "Signals",
+          "type": "object"
+        },
+        "conditions": {
+          "additionalProperties": {
+            "$ref": "#/$defs/Condition"
+          },
+          "title": "Conditions",
+          "type": "object"
+        },
+        "controls": {
+          "additionalProperties": {
+            "$ref": "#/$defs/Control"
+          },
+          "title": "Controls",
+          "type": "object"
+        },
+        "attributes": {
+          "additionalProperties": {
+            "$ref": "#/$defs/Attribute"
+          },
+          "title": "Attributes",
+          "type": "object"
+        },
+        "units": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Units"
+        },
+        "specs": {
+          "items": {
+            "$ref": "#/$defs/SpecBand"
+          },
+          "title": "Specs",
+          "type": "array"
+        },
+        "channels": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            }
+          ],
+          "title": "Channels"
+        },
+        "readback": {
+          "default": false,
+          "title": "Readback",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "function",
+        "direction"
+      ],
+      "title": "InstrumentCapability",
+      "type": "object"
+    },
+    "ListSpec": {
+      "additionalProperties": false,
+      "description": "A discrete set of allowed values with optional units.\n\nUsed in SpecBand ``when`` clauses for membership matching\n(e.g., ``impedance: {values: [50, 600], units: ohm}``).",
+      "properties": {
+        "values": {
+          "items": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "number"
+              },
+              {
+                "type": "boolean"
+              }
+            ]
+          },
+          "title": "Values",
+          "type": "array"
+        },
+        "units": {
+          "default": "",
+          "title": "Units",
+          "type": "string"
+        }
+      },
+      "required": [
+        "values"
+      ],
+      "title": "ListSpec",
+      "type": "object"
     },
     "MeasurementFunction": {
       "description": "Named signal measurement/stimulus functions.\n\nStandards-grounded taxonomy derived from IVI Foundation instrument classes,\nIEEE 1641 signal primitives, and SCPI naming conventions. Designed for ALL\nelectronics hardware test: DC, AC, RF, mixed-signal, digital, optical, thermal.\n\nDesign principles:\n- One enum for instruments AND products (direction distinguishes measure vs source)\n- Functions describe WHAT, not HOW (dc_voltage not dmm_dc_volts)\n- Flat enum (grouped by comment only, no hierarchy)\n- Waveform shapes are parameters, not functions (use WaveformShape enum)\n- Instrument-class-neutral (both DMM and scope can measure dc_voltage)",
@@ -185,6 +636,12 @@
         "ac_power",
         "rf_power",
         "rf_cw",
+        "rf_am",
+        "rf_fm",
+        "rf_pm",
+        "rf_sweep",
+        "rf_iq",
+        "rf_pulse",
         "s_parameters",
         "spectrum",
         "phase_noise",
@@ -195,6 +652,7 @@
         "serial_data",
         "diode",
         "continuity",
+        "dc_ratio",
         "quality_factor",
         "dissipation_factor",
         "time_interval",
@@ -218,12 +676,43 @@
         "humidity",
         "charge",
         "magnetic_field",
-        "position"
+        "position",
+        "lock_in_detection",
+        "heater_power",
+        "excitation_current",
+        "pulse_generation",
+        "trigger",
+        "reference_clock",
+        "conductance",
+        "reactance",
+        "susceptance",
+        "dynamic_load"
       ],
       "title": "MeasurementFunction",
       "type": "string"
     },
+    "PointSpec": {
+      "additionalProperties": false,
+      "description": "A single numeric value with optional units.\n\nUsed in SpecBand ``when`` clauses when a point value needs explicit units\n(e.g., ``frequency: {value: 100000000, units: Hz}``).",
+      "properties": {
+        "value": {
+          "title": "Value",
+          "type": "number"
+        },
+        "units": {
+          "default": "",
+          "title": "Units",
+          "type": "string"
+        }
+      },
+      "required": [
+        "value"
+      ],
+      "title": "PointSpec",
+      "type": "object"
+    },
     "RangeSpec": {
+      "additionalProperties": false,
       "description": "Specification for measurement or output range.",
       "properties": {
         "min": {
@@ -260,6 +749,7 @@
       "type": "object"
     },
     "ResolutionSpec": {
+      "additionalProperties": false,
       "description": "Specification for measurement resolution.",
       "properties": {
         "bits": {
@@ -315,7 +805,8 @@
       "type": "object"
     },
     "Signal": {
-      "description": "A measurable/sourceable parameter \u2014 the primary signal dimension.\n\nUsed for what's being measured or sourced: range defines the operating\nenvelope, accuracy/resolution define the quality of measurement.\nTop-level accuracy/resolution are defaults; ``specs`` holds condition-dependent\noverrides (e.g., accuracy varies with frequency).\n\nExample YAML (instrument):\n    signals:\n      voltage:\n        range: {min: 0.1, max: 1000, units: V}\n        accuracy: {pct_reading: 0.0035, pct_range: 0.0006}\n        resolution: {digits: 6.5}\n        specs:\n          - conditions:\n              frequency: {min: 3, max: 5, units: Hz}\n            accuracy: {pct_reading: 0.35, pct_range: 0.03}\n\nExample YAML (product):\n    signals:\n      voltage:\n        value: 3.3\n        units: V",
+      "additionalProperties": false,
+      "description": "A measurable/sourceable parameter \u2014 the primary signal dimension.\n\nUsed for what's being measured or sourced: range defines the operating\nenvelope, accuracy/resolution define the quality of measurement.\nTop-level accuracy/resolution are defaults; ``specs`` holds condition-dependent\noverrides (e.g., accuracy varies with frequency).\n\nExample YAML (instrument):\n    signals:\n      voltage:\n        range: {min: 0.1, max: 1000, units: V}\n        accuracy: {pct_reading: 0.0035, pct_range: 0.0006}\n        resolution: {digits: 6.5}\n        specs:\n          - when:\n              frequency: {min: 3, max: 5, units: Hz}\n            accuracy: {pct_reading: 0.35, pct_range: 0.03}\n\nExample YAML (product):\n    signals:\n      voltage:\n        value: 3.3\n        units: V",
       "properties": {
         "range": {
           "anyOf": [
@@ -388,17 +879,76 @@
           ],
           "default": null,
           "title": "Specs"
+        },
+        "qualifier": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/SpecQualifier"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "note": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Note"
         }
       },
       "title": "Signal",
       "type": "object"
     },
     "SpecBand": {
+      "additionalProperties": false,
       "description": "Condition-dependent specification override for a parameter.\n\nEach band says \"at this operating point, here are the specs.\"\nThe ``when`` keys reference sibling parameter names (signals,\nconditions, or controls); multiple keys are ANDed (all must match).\nEmpty dict means unconditional (always applies).\n\nAny field that is ``None`` means \"no override \u2014 use the top-level default.\"\n\nExample YAML (accuracy varies with frequency):\n    specs:\n      - when:\n          frequency: {min: 3, max: 5, units: Hz}\n        accuracy: {pct_reading: 0.35, pct_range: 0.03}\n\nExample YAML (range derated at high frequency):\n    specs:\n      - when:\n          frequency: {min: 3e9, max: 6e9, units: Hz}\n        range: {min: -130, max: 5, units: dBm}\n        accuracy: {absolute: 0.8}",
       "properties": {
         "when": {
           "additionalProperties": {
-            "$ref": "#/$defs/RangeSpec"
+            "anyOf": [
+              {
+                "$ref": "#/$defs/RangeSpec"
+              },
+              {
+                "$ref": "#/$defs/PointSpec"
+              },
+              {
+                "$ref": "#/$defs/ListSpec"
+              },
+              {
+                "type": "string"
+              },
+              {
+                "type": "number"
+              },
+              {
+                "type": "boolean"
+              },
+              {
+                "items": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "number"
+                    },
+                    {
+                      "type": "boolean"
+                    }
+                  ]
+                },
+                "type": "array"
+              }
+            ]
           },
           "title": "When",
           "type": "object"
@@ -420,11 +970,26 @@
               "type": "number"
             },
             {
+              "type": "string"
+            },
+            {
               "type": "null"
             }
           ],
           "default": null,
           "title": "Value"
+        },
+        "units": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Units"
         },
         "accuracy": {
           "anyOf": [
@@ -447,49 +1012,69 @@
             }
           ],
           "default": null
+        },
+        "qualifier": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/SpecQualifier"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "note": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Note"
         }
       },
       "title": "SpecBand",
       "type": "object"
+    },
+    "SpecQualifier": {
+      "description": "Qualification level for a specification value.\n\nMirrors industry convention from test equipment manufacturers:\n- **guaranteed**: Warranted spec \u2014 product must meet it, guardbanded for\n  measurement uncertainty and environmental variation.\n- **typical**: Expected performance measured across multiple units, not warranted.\n- **nominal**: Design target or expected value, not warranted or tested.\n- **supplemental**: Informational performance data, not warranted.",
+      "enum": [
+        "guaranteed",
+        "typical",
+        "nominal",
+        "supplemental"
+      ],
+      "title": "SpecQualifier",
+      "type": "string"
+    },
+    "TerminalRole": {
+      "description": "Physical terminal on an instrument channel (ATE/IVI standard names).",
+      "enum": [
+        "hi",
+        "lo",
+        "sense_hi",
+        "sense_lo",
+        "guard",
+        "ground",
+        "signal",
+        "trigger",
+        "hcur",
+        "hpot",
+        "lcur",
+        "lpot"
+      ],
+      "title": "TerminalRole",
+      "type": "string"
     }
   },
-  "description": "Instrument capability + channels + operational metadata.\n\nExample YAML:\n    - function: dc_voltage\n      direction: input\n      signals:\n        voltage:\n          range: {min: 0.0001, max: 1000, units: V}\n          accuracy: {pct_reading: 0.0035, pct_range: 0.0006}\n          resolution: {digits: 6.5}\n      conditions:\n        frequency:\n          range: {min: 3, max: 300000, units: Hz}\n      channels: [\"1\"]\n      readback: false",
+  "additionalProperties": false,
+  "description": "Structured capability data for a specific instrument make/model.\n\nThis is the universal tier \u2014 it describes what an instrument MODEL can do,\nnot what a specific unit is or where it lives.\n\nThe optional ``driver`` field is a catalog-level default for the instrument\ndriver class (e.g., ``\"pymeasure.instruments.keithley.Keithley2400\"``).\nStation config can override it; if absent there, the catalog value is used\nas a fallback by the instrument pool loader.\n\nChannels use structured ``ChannelTopology`` dicts describing physical\nterminals, connector types, and ground topology.\n\nExample YAML:\n    id: keysight_34461a\n    manufacturer: Keysight\n    model: \"34461A\"\n    name: \"Keysight 34461A Digital Multimeter\"\n    type: dmm\n    interfaces: [usb, lan, gpib]\n    channels:\n      \"1\":\n        terminals: [hi, lo]\n        connector: binding_post\n        ground: shared\n    capabilities:\n      - function: dc_voltage\n        direction: input\n        signals:\n          voltage:\n            range: {min: 0.0001, max: 1000, units: V}\n            accuracy: {pct_reading: 0.0035, pct_range: 0.0006}\n            resolution: {digits: 6.5}",
   "properties": {
-    "function": {
-      "$ref": "#/$defs/MeasurementFunction"
-    },
-    "direction": {
-      "$ref": "#/$defs/Direction"
-    },
-    "signals": {
-      "additionalProperties": {
-        "$ref": "#/$defs/Signal"
-      },
-      "title": "Signals",
-      "type": "object"
-    },
-    "conditions": {
-      "additionalProperties": {
-        "$ref": "#/$defs/Condition"
-      },
-      "title": "Conditions",
-      "type": "object"
-    },
-    "controls": {
-      "additionalProperties": {
-        "$ref": "#/$defs/Control"
-      },
-      "title": "Controls",
-      "type": "object"
-    },
-    "attributes": {
-      "additionalProperties": {
-        "$ref": "#/$defs/Attribute"
-      },
-      "title": "Attributes",
-      "type": "object"
-    },
-    "units": {
+    "id": {
       "anyOf": [
         {
           "type": "string"
@@ -499,46 +1084,119 @@
         }
       ],
       "default": null,
-      "title": "Units"
+      "title": "Id"
     },
-    "specs": {
-      "items": {
-        "$ref": "#/$defs/SpecBand"
-      },
-      "title": "Specs",
-      "type": "array"
+    "manufacturer": {
+      "title": "Manufacturer",
+      "type": "string"
     },
-    "channels": {
+    "model": {
+      "title": "Model",
+      "type": "string"
+    },
+    "name": {
       "anyOf": [
         {
           "type": "string"
         },
         {
-          "items": {
-            "type": "string"
-          },
-          "type": "array"
+          "type": "null"
         }
       ],
-      "title": "Channels"
+      "default": null,
+      "title": "Name"
     },
-    "modes": {
+    "description": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Description"
+    },
+    "type": {
+      "title": "Type",
+      "type": "string"
+    },
+    "base": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Base"
+    },
+    "scaffold": {
+      "default": false,
+      "title": "Scaffold",
+      "type": "boolean"
+    },
+    "driver": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Driver"
+    },
+    "interfaces": {
       "items": {
         "type": "string"
       },
-      "title": "Modes",
+      "title": "Interfaces",
       "type": "array"
     },
-    "readback": {
-      "default": false,
-      "title": "Readback",
-      "type": "boolean"
+    "form_factor": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Form Factor"
+    },
+    "channels": {
+      "additionalProperties": {
+        "$ref": "#/$defs/ChannelTopology"
+      },
+      "title": "Channels",
+      "type": "object"
+    },
+    "attributes": {
+      "additionalProperties": {
+        "$ref": "#/$defs/Attribute"
+      },
+      "title": "Attributes",
+      "type": "object"
+    },
+    "capabilities": {
+      "items": {
+        "$ref": "#/$defs/InstrumentCapability"
+      },
+      "title": "Capabilities",
+      "type": "array"
     }
   },
   "required": [
-    "function",
-    "direction"
+    "manufacturer",
+    "model",
+    "type"
   ],
-  "title": "InstrumentCapability",
+  "title": "InstrumentCatalogEntry",
   "type": "object"
 }

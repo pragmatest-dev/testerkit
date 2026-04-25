@@ -98,7 +98,7 @@ MEASUREMENT_SCHEMA = pa.schema(
         ("spec_ref", pa.string()),
         # Signal path
         ("meas_dut_pin", pa.string()),
-        ("meas_fixture_point", pa.string()),
+        ("meas_fixture_connection", pa.string()),
         ("meas_instrument", pa.string()),
         ("meas_instrument_resource", pa.string()),
         ("meas_instrument_channel", pa.string()),

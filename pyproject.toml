@@ -152,7 +152,7 @@ members = [
     "examples/03-inline-limits",
     "examples/04-sidecar-markers",
     "examples/05-station-catalog",
-    "examples/06-product-binding",
+    "examples/06-product-spec",
     "examples/07-profiles",
 ]
 
@@ -162,7 +162,7 @@ litmus-example-02-verify = { workspace = true }
 litmus-example-03-inline-limits = { workspace = true }
 litmus-example-04-sidecar-markers = { workspace = true }
 litmus-example-05-station-catalog = { workspace = true }
-litmus-example-06-product-binding = { workspace = true }
+litmus-example-06-product-spec = { workspace = true }
 litmus-example-07-profiles = { workspace = true }
 
 [tool.ruff]

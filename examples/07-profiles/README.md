@@ -1,7 +1,7 @@
 # Stage 7 — Profiles with `extends:`
 
 Separate the *scenario* (dev vs. production vs. characterization) from
-the *bench fact* (which characteristic a test binds to). Each scenario
+the *bench fact* (which characteristic a test references). Each scenario
 lives in its own file; shared behavior factors up through an
 `extends:` chain.
 
@@ -68,7 +68,7 @@ vanilla pytest
     → litmus_limits marker
       → sidecar markers
         → station + catalog
-          → product + fixture + binding
+          → product + fixture connections
             → profiles + extends
 ```
 

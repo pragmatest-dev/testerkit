@@ -179,7 +179,7 @@ erDiagram
         string product_id FK
     }
 
-    FixturePoint {
+    FixtureConnection {
         string name PK
         string dut_pin FK
         string instrument FK
@@ -237,9 +237,9 @@ erDiagram
 
     %% Fixture (optional)
     Fixture }o--|| Product : "for"
-    Fixture ||--o{ FixturePoint : has
-    FixturePoint }o--|| Pin : connects
-    FixturePoint }o--|| Instrument : "routes to"
+    Fixture ||--o{ FixtureConnection : has
+    FixtureConnection }o--|| Pin : connects
+    FixtureConnection }o--|| Instrument : "routes to"
 
     %% Capability matching
     Characteristic ||--|| Capability : "requires (direction flipped)"

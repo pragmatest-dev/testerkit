@@ -75,15 +75,15 @@ class Context:
         self._channel_store = channel_store
         self._params: dict[str, Any] = {}
         self._observations: dict[str, Any] = {}
-        # ``points`` iterates :class:`FixturePoint` objects the test is
-        # bound to via the sidecar ``characteristic`` / ``fixturepoints`` /
-        # ``instrument_channels`` keys. Populated by the pytest-native
-        # plugin's ``_litmus_bind_points`` autouse fixture; ``None`` when
-        # the test has no binding. Test body: ``for _ in ctx.points: ...``
-        # — iterating pushes the active :class:`FixturePoint` into
-        # ``_active_point_var`` so driver fixtures route and the logger
-        # stamps traceability from that point.
-        self.points: Any = None
+        # ``connections`` iterates :class:`FixtureConnection` objects the
+        # test declares via ``litmus_spec`` / ``litmus_connections``
+        # markers. Populated by the pytest-native plugin's
+        # ``_litmus_resolve_connections`` autouse fixture; ``None`` when
+        # the test declares no spec/connections markers. Test body:
+        # ``for _ in ctx.connections: ...`` — iterating pushes the
+        # active :class:`FixtureConnection` into ``_active_connection_var``
+        # so driver fixtures route and the logger stamps traceability.
+        self.connections: Any = None
 
     def child(self) -> Context:
         """Create a child context that inherits from this one.
@@ -297,7 +297,7 @@ class Context:
         limit: Limit | None = None,
         dut_pin: str | None = None,
         instrument_channel: str | None = None,
-        fixture_point: str | None = None,
+        fixture_connection: str | None = None,
     ) -> Measurement:
         """Record an explicit measurement by name.
 
@@ -311,7 +311,7 @@ class Context:
             limit: Explicit limit (optional, overrides config lookup).
             dut_pin: DUT pin being measured (optional).
             instrument_channel: Instrument channel used (optional).
-            fixture_point: Fixture channel used (optional).
+            fixture_connection: Named fixture connection used (optional).
 
         Returns:
             Measurement object with outcome set.
@@ -330,7 +330,7 @@ class Context:
             limit=limit,
             dut_pin=dut_pin,
             instrument_channel=instrument_channel,
-            fixture_point=fixture_point,
+            fixture_connection=fixture_connection,
         )
 
     # -------------------------------------------------------------------------
@@ -754,7 +754,7 @@ class TestHarness:
         limit: Limit | None = None,
         dut_pin: str | None = None,
         instrument_channel: str | None = None,
-        fixture_point: str | None = None,
+        fixture_connection: str | None = None,
     ) -> Measurement:
         """Record a measurement for the current vector.
 
@@ -765,7 +765,7 @@ class TestHarness:
             limit: Explicit limit (optional, overrides config lookup).
             dut_pin: DUT pin being measured (optional, auto-resolved from spec).
             instrument_channel: Instrument channel used (optional).
-            fixture_point: Fixture channel used (optional).
+            fixture_connection: Named fixture connection used (optional).
 
         Returns:
             Measurement object with outcome set.
@@ -780,16 +780,18 @@ class TestHarness:
         # Resolve channel traceability from SpecContext if not provided
         resolved_dut_pin = dut_pin
         resolved_instrument_channel = instrument_channel
-        resolved_fixture_point = fixture_point
+        resolved_fixture_connection = fixture_connection
 
-        if self._spec_context and not all([dut_pin, instrument_channel, fixture_point]):
+        if self._spec_context and not all([dut_pin, instrument_channel, fixture_connection]):
             pin_info = self._spec_context.get_pin_info(name)
             if pin_info:
                 resolved_dut_pin = resolved_dut_pin or pin_info.get("dut_pin")
                 resolved_instrument_channel = resolved_instrument_channel or pin_info.get(
                     "instrument_channel"
                 )
-                resolved_fixture_point = resolved_fixture_point or pin_info.get("fixture_point")
+                resolved_fixture_connection = resolved_fixture_connection or pin_info.get(
+                    "fixture_connection"
+                )
 
         # Create measurement
         measurement = Measurement(
@@ -804,7 +806,7 @@ class TestHarness:
             spec_ref=resolved_limit.spec_ref if resolved_limit else None,
             dut_pin=resolved_dut_pin,
             instrument_channel=resolved_instrument_channel,
-            fixture_point=resolved_fixture_point,
+            fixture_connection=resolved_fixture_connection,
         )
 
         # Check limits

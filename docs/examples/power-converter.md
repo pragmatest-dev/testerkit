@@ -152,7 +152,7 @@ id: dc_converter_fixture
 name: "DC Converter Test Fixture"
 product_id: dc_converter
 
-points:
+connections:
   VIN:
     dut_pin: VIN
     instrument: psu

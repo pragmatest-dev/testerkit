@@ -1,8 +1,8 @@
-"""Integration tests for the three-layer binding → limit → traceability path.
+"""Integration tests for the three-layer spec → limit → traceability path.
 
-Exercises ``sidecar.tests.<method>.characteristic`` / ``fixturepoints``
-bindings, ``MeasurementLimitConfig`` policy resolution, and the
-``_active_point_var`` → row traceability wiring.
+Exercises ``sidecar.tests.<method>.characteristic`` / ``connections``
+markers, ``MeasurementLimitConfig`` policy resolution, and the
+``_active_connection_var`` → row traceability wiring.
 """
 
 from __future__ import annotations
@@ -67,7 +67,7 @@ def _write_fixture(pytester: pytest.Pytester) -> None:
             id: mini_fixture
             name: Mini Fixture
             product_id: mini
-            points:
+            connections:
               vin_measure:
                 name: vin_measure
                 dut_pin: TP_VIN
@@ -90,7 +90,7 @@ def _write_fixture(pytester: pytest.Pytester) -> None:
 def test_simple_path_absolute_limits_no_product(pytester: pytest.Pytester) -> None:
     """Sidecar with only absolute ``low``/``high`` — no product, no fixture.
 
-    Limit stamps on the row; ``dut_pin`` / ``fixture_point`` /
+    Limit stamps on the row; ``dut_pin`` / ``fixture_connection`` /
     ``spec_ref`` stay null. Demonstrates the "Layer 1 + Layer 2 only"
     simple path from the plan.
     """
@@ -116,8 +116,8 @@ def test_simple_path_absolute_limits_no_product(pytester: pytest.Pytester) -> No
     result.assert_outcomes(passed=1)
 
 
-def test_fixturepoints_binding_iterates_and_stamps_pin(pytester: pytest.Pytester) -> None:
-    """``tests.<method>.fixturepoints: [name]`` → ``ctx.points`` iterates and stamps."""
+def test_connections_marker_iterates_and_stamps_pin(pytester: pytest.Pytester) -> None:
+    """``tests.<method>.connections: [name]`` → ``ctx.connections`` iterates and stamps."""
     pytester.makeini(_INI)
     _write_product(pytester)
     _write_fixture(pytester)
@@ -127,9 +127,9 @@ def test_fixturepoints_binding_iterates_and_stamps_pin(pytester: pytest.Pytester
             """
             def test_rail(verify, context):
                 seen = []
-                for point in context.points:
-                    from litmus.execution.plugin import get_active_point
-                    seen.append(get_active_point().name)
+                for conn in context.connections:
+                    from litmus.execution.plugin import get_active_connection
+                    seen.append(get_active_connection().name)
                     verify("v_rail", 3.30)
                 assert seen == ["vout_measure"]
             """
@@ -141,7 +141,7 @@ def test_fixturepoints_binding_iterates_and_stamps_pin(pytester: pytest.Pytester
             tests:
               test_rail:
                 markers:
-                  - litmus_connections: {fixturepoints: [vout_measure]}
+                  - litmus_connections: {connections: [vout_measure]}
                   - litmus_limits:
                       v_rail: {low: 3.2, high: 3.4, units: V}
             """
@@ -151,7 +151,7 @@ def test_fixturepoints_binding_iterates_and_stamps_pin(pytester: pytest.Pytester
     result.assert_outcomes(passed=1)
 
 
-def test_characteristic_binding_derives_tolerance_limit(pytester: pytest.Pytester) -> None:
+def test_characteristic_spec_derives_tolerance_limit(pytester: pytest.Pytester) -> None:
     """Test-level ``characteristic`` + per-label ``tolerance_pct`` → derived limit."""
     pytester.makeini(_INI)
     _write_product(pytester)
@@ -161,7 +161,7 @@ def test_characteristic_binding_derives_tolerance_limit(pytester: pytest.Pyteste
         test_seq=textwrap.dedent(
             """
             def test_rail(verify, context, limits):
-                for _ in context.points:
+                for _ in context.connections:
                     assert 3.234 <= limits['v_rail'].low <= 3.234 + 1e-9
                     assert 3.366 - 1e-9 <= limits['v_rail'].high <= 3.366
                     assert limits['v_rail'].spec_id == 'rail_3v3'
@@ -185,8 +185,8 @@ def test_characteristic_binding_derives_tolerance_limit(pytester: pytest.Pyteste
     result.assert_outcomes(passed=1)
 
 
-def test_multi_pin_characteristic_iterates_all_points(pytester: pytest.Pytester) -> None:
-    """Multi-pin char → ``ctx.points`` yields N points, distinct pins stamped."""
+def test_multi_pin_characteristic_iterates_all_connections(pytester: pytest.Pytester) -> None:
+    """Multi-pin char → ``ctx.connections`` yields N connections, distinct pins stamped."""
     pytester.makeini(_INI)
     _write_product(pytester)
     _write_fixture(pytester)
@@ -195,10 +195,10 @@ def test_multi_pin_characteristic_iterates_all_points(pytester: pytest.Pytester)
         test_seq=textwrap.dedent(
             """
             def test_dropout(verify, context):
-                from litmus.execution.plugin import get_active_point
+                from litmus.execution.plugin import get_active_connection
                 seen = []
-                for _ in context.points:
-                    seen.append(get_active_point().dut_pin)
+                for _ in context.connections:
+                    seen.append(get_active_connection().dut_pin)
                     verify("v_drop", 1.1)
                 assert sorted(seen) == ["TP_VIN", "TP_VOUT"]
             """
@@ -220,8 +220,8 @@ def test_multi_pin_characteristic_iterates_all_points(pytester: pytest.Pytester)
     result.assert_outcomes(passed=1)
 
 
-def test_unconsumed_binding_iterator_fails_loudly(pytester: pytest.Pytester) -> None:
-    """Declaring a binding but skipping ``ctx.points`` iteration → test fails."""
+def test_unconsumed_connections_iterator_fails_loudly(pytester: pytest.Pytester) -> None:
+    """Declaring connections but skipping ``ctx.connections`` iteration → test fails."""
     pytester.makeini(_INI)
     _write_product(pytester)
     _write_fixture(pytester)
@@ -230,7 +230,7 @@ def test_unconsumed_binding_iterator_fails_loudly(pytester: pytest.Pytester) -> 
         test_seq=textwrap.dedent(
             """
             def test_rail(verify):
-                pass  # binding declared but ctx.points not iterated
+                pass  # connections declared but ctx.connections not iterated
             """
         )
     )
@@ -240,7 +240,7 @@ def test_unconsumed_binding_iterator_fails_loudly(pytester: pytest.Pytester) -> 
             tests:
               test_rail:
                 markers:
-                  - litmus_connections: {fixturepoints: [vout_measure]}
+                  - litmus_connections: {connections: [vout_measure]}
                   - litmus_limits:
                       v_rail: {low: 3.2, high: 3.4, units: V}
             """
@@ -250,14 +250,14 @@ def test_unconsumed_binding_iterator_fails_loudly(pytester: pytest.Pytester) -> 
     result.assert_outcomes(passed=1, errors=1)
 
 
-def test_no_binding_ctx_points_is_none(pytester: pytest.Pytester) -> None:
-    """Without a binding, ``ctx.points`` stays ``None`` and the test runs normally."""
+def test_no_markers_ctx_connections_is_none(pytester: pytest.Pytester) -> None:
+    """Without spec/connections markers, ``ctx.connections`` stays ``None``; test runs normally."""
     pytester.makeini(_INI)
     pytester.makepyfile(
         test_seq=textwrap.dedent(
             """
             def test_rail(context, verify):
-                assert context.points is None
+                assert context.connections is None
                 verify("v_rail", 3.30)
             """
         )

@@ -18,6 +18,7 @@
       "type": "string"
     },
     "Limit": {
+      "additionalProperties": false,
       "description": "A test limit with units and optional spec reference.\n\nThe comparator field (per ATML/IEEE 1671) defines how the measured\nvalue is compared against the limits:\n    - GELE (default): low <= value <= high (inclusive range)\n    - EQ: value == nominal\n    - LE: value <= high\n    - GE: value >= low\n    - etc.\n\nTraceability fields:\n    - spec_id: Structured identifier of the characteristic (e.g., \"output_voltage\")\n    - spec_ref: Human-readable reference with conditions (e.g., \"Table 4.2 @ temp=25\")",
       "example": {
         "comparator": "GELE",
@@ -105,6 +106,7 @@
       "type": "object"
     },
     "RetryConfig": {
+      "additionalProperties": false,
       "description": "Retry behavior configuration.",
       "properties": {
         "max_attempts": {
@@ -144,123 +146,9 @@
       "title": "RetryConfig",
       "type": "object"
     },
-    "TestSequenceConfig": {
-      "description": "Configuration for a test sequence.\n\nA test sequence is a named, ordered collection of test steps that an\noperator can select and run. Steps reference pytest node IDs explicitly,\nmaking the sequence the source of truth for test execution order.\n\nSequences can compose other sequences via step references:\n    - id: run_smoke\n      sequence: power_board_smoke  # Expands to all tests in that sequence\n\nExample YAML (sequences/power_board_smoke.yaml):\n    sequence:\n      id: power_board_smoke\n      name: \"Power Board - Smoke Test\"\n      description: \"Quick power-up verification\"\n\n      steps:\n        - id: measure_5v_rail\n          test: tests/test_power_board.py::test_measure_5v_rail\n          description: \"Verify 5V rail present\"\n\n        - id: measure_3v3_rail\n          test: tests/test_power_board.py::test_measure_3v3_rail\n          description: \"Verify 3.3V rail present\"\n          skip_on: [measure_5v_rail]\n\nExample YAML (sequences/power_board_full.yaml):\n    sequence:\n      id: power_board_full\n      name: \"Power Board - Full Test\"\n      description: \"Complete functional test\"\n      product_family: power_board\n      test_phase: production\n\n      steps:\n        - id: smoke_tests\n          sequence: power_board_smoke  # Compose smoke as first step\n\n        - id: load_test\n          test: tests/test_power_board.py::test_load_5v\n          pre_dialog: confirm_load_connected\n\n      dialogs:\n        confirm_load_connected:\n          id: confirm_load_connected\n          message: \"Connect electronic load to 5V output\"\n          dialog_type: confirm",
-      "properties": {
-        "id": {
-          "title": "Id",
-          "type": "string"
-        },
-        "name": {
-          "anyOf": [
-            {
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Name"
-        },
-        "description": {
-          "title": "Description",
-          "type": "string"
-        },
-        "product_family": {
-          "anyOf": [
-            {
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Product Family"
-        },
-        "test_phase": {
-          "anyOf": [
-            {
-              "enum": [
-                "validation",
-                "characterization",
-                "production"
-              ],
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Test Phase"
-        },
-        "required_fixture": {
-          "anyOf": [
-            {
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Required Fixture"
-        },
-        "required_station_type": {
-          "anyOf": [
-            {
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Required Station Type"
-        },
-        "steps": {
-          "items": {
-            "$ref": "#/$defs/TestStepConfig"
-          },
-          "title": "Steps",
-          "type": "array"
-        },
-        "dialogs": {
-          "additionalProperties": true,
-          "title": "Dialogs",
-          "type": "object"
-        },
-        "pytest_args": {
-          "items": {
-            "type": "string"
-          },
-          "title": "Pytest Args",
-          "type": "array"
-        },
-        "timeout_seconds": {
-          "anyOf": [
-            {
-              "type": "integer"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Timeout Seconds"
-        }
-      },
-      "required": [
-        "id",
-        "description"
-      ],
-      "title": "TestSequenceConfig",
-      "type": "object"
-    },
     "TestStepConfig": {
-      "description": "Configuration for a single test step.\n\nA step references either a test OR another sequence (mutually exclusive).\n\nExample with test:\n    - id: measure_5v\n      test: tests/test_power.py::test_5v\n      description: \"Verify 5V rail\"\n\nExample with sequence (composition):\n    - id: run_smoke\n      sequence: power_board_smoke\n      description: \"Run smoke tests first\"",
+      "additionalProperties": false,
+      "description": "Configuration for a single test step.\n\nA step references either a test, a sequence, or a sync point (mutually exclusive).\n\nExample with test:\n    - id: measure_5v\n      test: tests/test_power.py::test_5v\n      description: \"Verify 5V rail\"\n\nExample with sequence (composition):\n    - id: run_smoke\n      sequence: power_board_smoke\n      description: \"Run smoke tests first\"\n\nExample with sync point (multi-DUT):\n    - id: wait_thermal\n      sync: thermal_soak\n      timeout: 300\n      description: \"Wait for all slots to reach thermal soak\"",
       "properties": {
         "id": {
           "title": "Id",
@@ -289,6 +177,30 @@
           ],
           "default": null,
           "title": "Sequence"
+        },
+        "sync": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Sync"
+        },
+        "timeout": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Timeout"
         },
         "description": {
           "anyOf": [
@@ -369,6 +281,52 @@
           "title": "Aliases",
           "type": "object"
         },
+        "vectors": {
+          "anyOf": [
+            {
+              "items": {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              "type": "array"
+            },
+            {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Vectors"
+        },
+        "limits": {
+          "anyOf": [
+            {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Limits"
+        },
+        "mocks": {
+          "anyOf": [
+            {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Mocks"
+        },
         "retry": {
           "anyOf": [
             {
@@ -379,6 +337,18 @@
             }
           ],
           "default": null
+        },
+        "raise_on_fail": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Raise On Fail"
         },
         "skip_on": {
           "anyOf": [
@@ -403,10 +373,82 @@
       "type": "object"
     }
   },
-  "description": "Schema for sequences/*.yaml files.",
+  "additionalProperties": false,
+  "description": "Configuration for a test sequence.\n\nA test sequence is a named, ordered collection of test steps that an\noperator can select and run. Steps reference pytest node IDs explicitly,\nmaking the sequence the source of truth for test execution order.\n\nSequences can compose other sequences via step references:\n    - id: run_smoke\n      sequence: power_board_smoke  # Expands to all tests in that sequence\n\nExample YAML (sequences/power_board_smoke.yaml):\n    sequence:\n      id: power_board_smoke\n      name: \"Power Board - Smoke Test\"\n      description: \"Quick power-up verification\"\n\n      steps:\n        - id: measure_5v_rail\n          test: tests/test_power_board.py::test_measure_5v_rail\n          description: \"Verify 5V rail present\"\n\n        - id: measure_3v3_rail\n          test: tests/test_power_board.py::test_measure_3v3_rail\n          description: \"Verify 3.3V rail present\"\n          skip_on: [measure_5v_rail]\n\nExample YAML (sequences/power_board_full.yaml):\n    sequence:\n      id: power_board_full\n      name: \"Power Board - Full Test\"\n      description: \"Complete functional test\"\n      product_family: power_board\n      test_phase: production\n\n      steps:\n        - id: smoke_tests\n          sequence: power_board_smoke  # Compose smoke as first step\n\n        - id: load_test\n          test: tests/test_power_board.py::test_load_5v\n          pre_dialog: confirm_load_connected\n\n      dialogs:\n        confirm_load_connected:\n          id: confirm_load_connected\n          message: \"Connect electronic load to 5V output\"\n          dialog_type: confirm",
   "properties": {
-    "sequence": {
-      "$ref": "#/$defs/TestSequenceConfig"
+    "id": {
+      "title": "Id",
+      "type": "string"
+    },
+    "name": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Name"
+    },
+    "description": {
+      "title": "Description",
+      "type": "string"
+    },
+    "product_family": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Product Family"
+    },
+    "test_phase": {
+      "anyOf": [
+        {
+          "enum": [
+            "development",
+            "validation",
+            "characterization",
+            "production"
+          ],
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Test Phase"
+    },
+    "required_fixture": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Required Fixture"
+    },
+    "required_station_type": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Required Station Type"
     },
     "steps": {
       "items": {
@@ -414,11 +456,59 @@
       },
       "title": "Steps",
       "type": "array"
+    },
+    "dialogs": {
+      "additionalProperties": true,
+      "title": "Dialogs",
+      "type": "object"
+    },
+    "pytest_args": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Pytest Args",
+      "type": "array"
+    },
+    "timeout_seconds": {
+      "anyOf": [
+        {
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Timeout Seconds"
+    },
+    "raise_on_fail": {
+      "anyOf": [
+        {
+          "type": "boolean"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Raise On Fail"
+    },
+    "retry": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/RetryConfig"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
     }
   },
   "required": [
-    "sequence"
+    "id",
+    "description"
   ],
-  "title": "SequenceFile",
+  "title": "TestSequenceConfig",
   "type": "object"
 }

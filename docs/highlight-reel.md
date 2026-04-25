@@ -232,7 +232,7 @@ A test engineer changes this file via PR. No Python needed.
 ```yaml
 id: power_board_fixture_v1
 product_id: power_board
-points:
+connections:
   vin_supply:
     dut_pin: J1_VIN
     instrument: psu
