@@ -76,7 +76,7 @@ def init_project(
     created_files: list[str] = []
     warnings: list[str] = []
 
-    # Create directories. Bringup tier skips station/product/fixture/sequence —
+    # Create directories. Bringup tier skips station/product/fixture —
     # those layers are off until the user graduates to Tier 2.
     if tier == "bringup":
         subdirs = ["tests", "results", "reports"]
@@ -84,7 +84,6 @@ def init_project(
         subdirs = [
             "products",
             "stations",
-            "sequences",
             "fixtures",
             "instruments",
             "tests",
@@ -111,10 +110,7 @@ filterwarnings = ["ignore::pytest.PytestReturnNotNoneWarning"]
 """
         elif starter:
             # Starter mode: include pytest defaults so users can just run "pytest"
-            addopts = (
-                "-v --station=starter_station --sequence=example_sequence "
-                "--mock-instruments --dut-serial=STARTER001"
-            )
+            addopts = "-v --station=starter_station --mock-instruments --dut-serial=STARTER001"
             pytest_section = f'''[tool.pytest.ini_options]
 testpaths = ["tests"]
 python_files = ["test_*.py"]
@@ -288,7 +284,6 @@ A [Litmus](https://github.com/pragmatest-dev/litmus) hardware test project.
 | `products/` | Product specifications (YAML) |
 | `stations/` | Station configurations (YAML) |
 | `fixtures/` | Test fixture definitions (YAML) |
-| `sequences/` | Test sequences (YAML) |
 | `tests/` | Test code (Python) |
 | `instruments/` | Custom instrument definitions (YAML) |
 | `results/` | Test output (gitignored) |
@@ -480,40 +475,6 @@ def _create_starter_files(path: Path, project_name: str) -> list[str]:
         }
         product_file.write_text(dump_yaml(product_content))
         created_files.append("products/example_product.yaml")
-
-    # Create sequences/example_sequence.yaml
-    sequence_file = path / "sequences" / "example_sequence.yaml"
-    if not sequence_file.exists():
-        sequence_content = {
-            "id": "example_sequence",
-            "name": "Example Sequence",
-            "description": "Auto-generated starter sequence",
-            "product_family": "example_product",
-            "test_phase": "development",
-            "steps": [
-                {
-                    "id": "output_voltage",
-                    "test": "tests/test_example.py::test_output_voltage",
-                    "description": "Verify output voltage at nominal input",
-                    "vectors": [
-                        {"vin": 5.0},
-                    ],
-                    "mocks": {
-                        "dmm.measure_dc_voltage": 3.3,
-                    },
-                    "limits": {
-                        "output_voltage": {
-                            "low": 3.2,
-                            "high": 3.4,
-                            "nominal": 3.3,
-                            "units": "V",
-                        },
-                    },
-                },
-            ],
-        }
-        sequence_file.write_text(dump_yaml(sequence_content))
-        created_files.append("sequences/example_sequence.yaml")
 
     # Create fixtures/example_fixture.yaml
     fixture_file = path / "fixtures" / "example_fixture.yaml"

@@ -3,7 +3,7 @@
 # litmus_limits), same merge semantics.
 
 # File-wide: applied to every test in test_rail.py.
-markers:
+config:
   - litmus_limits:
       v_rail: {low: 3.2, high: 3.4, units: V}
 
@@ -12,10 +12,10 @@ markers:
 # tests: dict; a function is a leaf.
 tests:
   TestIdle:
-    markers:
+    config:
       - litmus_limits:
           i_idle: {low: 0.0, high: 0.1, units: A}
 
   test_rail_holds_across_input:
-    markers:
-      - parametrize: ["vin", [3.3, 5.0, 5.5]]
+    config:
+      - litmus_vectors: {vin: [3.3, 5.0, 5.5]}

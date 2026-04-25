@@ -477,18 +477,6 @@ def create_api_router() -> APIRouter:
         return result.model_dump()
 
     # -------------------------------------------------------------------------
-    # Sequences
-    # -------------------------------------------------------------------------
-
-    @router.get("/sequences")
-    def list_all_sequences():
-        """List available test sequences."""
-        from litmus.store import list_sequences
-
-        sequences = list_sequences()
-        return {"sequences": [s.model_dump() for s in sequences]}
-
-    # -------------------------------------------------------------------------
     # Gold Analytics
     # -------------------------------------------------------------------------
 

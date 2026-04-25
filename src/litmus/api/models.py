@@ -13,8 +13,7 @@ class LaunchRequest(BaseModel):
     product_id: str | None = None  # Product being tested
     dut_serial: str
     station_id: str
-    sequence_id: str | None = None  # Test sequence to run (from sequences/*.yaml)
-    test_path: str = "tests"  # Fallback if no sequence specified
+    test_path: str = "tests"  # pytest target — directory or node-id list
     operator: str | None = None
     mock_instruments: bool = False  # Use mock instruments instead of real hardware
 

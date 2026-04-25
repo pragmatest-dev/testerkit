@@ -38,7 +38,7 @@ def test_stacked_parametrize_cross_products(pytester: pytest.Pytester) -> None:
             """
             tests:
               test_rail:
-                markers:
+                config:
                   - parametrize: ["vin", [3.3, 5.0]]
                   - parametrize: ["load", [0.1, 0.8]]
             """
@@ -64,7 +64,7 @@ def test_overlapping_argnames_is_an_error(pytester: pytest.Pytester) -> None:
             """
             tests:
               test_rail:
-                markers:
+                config:
                   - parametrize: ["vin", [3.3, 5.0]]
                   - parametrize: ["vin", [6.0, 7.0]]
             """
@@ -91,7 +91,7 @@ def test_file_level_markers_apply_to_every_test(pytester: pytest.Pytester) -> No
     (pytester.path / "test_seq.yaml").write_text(
         textwrap.dedent(
             """
-            markers:
+            config:
               - litmus_limits:
                   v_rail: {low: 3.2, high: 3.4, units: V}
             """
@@ -120,12 +120,12 @@ def test_per_test_marker_tightens_file_level(pytester: pytest.Pytester) -> None:
     (pytester.path / "test_seq.yaml").write_text(
         textwrap.dedent(
             """
-            markers:
+            config:
               - litmus_limits:
                   v_rail: {low: 3.0, high: 3.6, units: V}
             tests:
               test_tight:
-                markers:
+                config:
                   - litmus_limits:
                       v_rail: {low: 3.2, high: 3.4, units: V}
             """
@@ -155,7 +155,7 @@ def test_class_scoped_markers_apply_to_every_method(pytester: pytest.Pytester) -
             """
             tests:
               TestRails:
-                markers:
+                config:
                   - litmus_limits:
                       v_rail: {low: 3.2, high: 3.4, units: V}
             """
@@ -185,12 +185,12 @@ def test_qualified_test_entry_tightens_class_level(pytester: pytest.Pytester) ->
             """
             tests:
               TestRails:
-                markers:
+                config:
                   - litmus_limits:
                       v_rail: {low: 3.0, high: 3.6, units: V}
                 tests:
                   test_strict:
-                    markers:
+                    config:
                       - litmus_limits:
                           v_rail: {low: 3.2, high: 3.4, units: V}
             """
@@ -229,11 +229,11 @@ def test_per_test_mock_tightens_file_level(pytester: pytest.Pytester) -> None:
     (pytester.path / "test_seq.yaml").write_text(
         textwrap.dedent(
             """
-            markers:
+            config:
               - litmus_mock: {target: "dmm.read", return_value: 1.1}
             tests:
               test_per_test:
-                markers:
+                config:
                   - litmus_mock: {target: "dmm.read", return_value: 2.2}
             """
         )
@@ -275,10 +275,10 @@ def test_litmus_mock_forwards_side_effect(pytester: pytest.Pytester) -> None:
             """
             tests:
               test_side_effect_iterable:
-                markers:
+                config:
                   - litmus_mock: {target: "dmm.read", side_effect: [1.0, 2.0, 3.0]}
               test_return_value_list_is_returned_as_list:
-                markers:
+                config:
                   - litmus_mock: {target: "dmm.read", return_value: [1.0, 2.0, 3.0]}
             """
         )
@@ -303,7 +303,7 @@ def test_range_expander_in_parametrize_argvalues(pytester: pytest.Pytester) -> N
             """
             tests:
               test_sweep:
-                markers:
+                config:
                   - parametrize: ["vin", {linspace: [4.5, 5.5, 11]}]
             """
         )

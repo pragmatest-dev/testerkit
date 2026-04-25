@@ -26,12 +26,9 @@ def tests_page():
                     with ui.column().classes("gap-1"):
                         ui.label("Test Configuration").classes("font-semibold text-blue-900")
                         ui.label(
-                            "Test config (vectors, limits, mocks) is defined in sequence steps. "
-                            "Use the Sequence Editor to configure tests."
+                            "Test config (vectors, limits, mocks) lives in sidecar YAML "
+                            "alongside each test file."
                         ).classes("text-sm text-blue-800")
-                        ui.link("Go to Sequences →", "/sequences").classes(
-                            "text-sm text-blue-600 hover:underline"
-                        )
 
         if tests:
             with ui.row().classes("gap-4 flex-wrap"):
@@ -58,10 +55,3 @@ def _test_card(test: dict):
 
         with ui.card_section():
             ui.label(test_path).classes("text-sm text-slate-500 font-mono")
-
-        with ui.card_actions():
-            ui.button(
-                "Sequences",
-                icon="format_list_numbered",
-                on_click=lambda: ui.navigate.to("/sequences"),
-            ).props("flat")

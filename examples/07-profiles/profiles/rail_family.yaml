@@ -5,5 +5,5 @@
 description: "Shared base for rail scenarios"
 tests:
   test_rail_holds_across_input:
-    markers:
-      - parametrize: ["vin", [3.3, 5.0, 5.5]]
+    config:
+      - litmus_vectors: {vin: [3.3, 5.0, 5.5]}

@@ -9,7 +9,6 @@ from litmus.api.runner import get_runner
 from litmus.ui.shared.layout import create_layout
 from litmus.ui.shared.services import (
     discover_products,
-    discover_sequences,
     discover_stations,
     discover_tests,
     get_compatible_stations_for_product,
@@ -19,13 +18,12 @@ logger = logging.getLogger(__name__)
 
 
 @ui.page("/launch")
-def launch_page(product: str = "", station: str = "", sequence: str = "", mock: str = ""):
+def launch_page(product: str = "", station: str = "", mock: str = ""):
     """Test launch page.
 
     Args:
         product: Pre-fill product ID from query param
         station: Pre-fill station ID from query param
-        sequence: Pre-fill sequence ID from query param
         mock: Pre-fill mock checkbox ("1" = checked)
     """
     create_layout("Launch Test")
@@ -33,14 +31,12 @@ def launch_page(product: str = "", station: str = "", sequence: str = "", mock: 
     products = discover_products()
     all_stations = discover_stations()
     tests = discover_tests()
-    sequences = discover_sequences()
 
     # Form state - use dict for NiceGUI binding
     # Pre-fill from query params if provided
     form = {
         "product_id": product,
         "dut_serial": "",
-        "sequence_id": sequence,
         "test_path": "",
         "station_id": station,
         "operator": "",
@@ -91,15 +87,14 @@ def launch_page(product: str = "", station: str = "", sequence: str = "", mock: 
         if not form["dut_serial"] or not form["station_id"]:
             ui.notify("Please fill in required fields", type="warning")
             return
-        if not form["sequence_id"] and not form["test_path"]:
-            ui.notify("Select a test sequence or test suite", type="warning")
+        if not form["test_path"]:
+            ui.notify("Select a test directory", type="warning")
             return
 
         request = LaunchRequest(
             product_id=form["product_id"] or None,
             dut_serial=form["dut_serial"],
             station_id=form["station_id"],
-            sequence_id=form["sequence_id"] or None,
             test_path=form["test_path"] or "tests",
             operator=form["operator"] or None,
             mock_instruments=form["mock"],
@@ -131,39 +126,15 @@ def launch_page(product: str = "", station: str = "", sequence: str = "", mock: 
                 # 2. DUT Serial
                 _labeled_input(form, "dut_serial", "DUT Serial Number", "e.g., DPB001-0001")
 
-                # 3. Test sequence selection
-                if sequences:
-                    ui.separator().classes("my-2")
-                    with ui.column().classes("gap-1"):
-                        ui.label("Test Sequence").classes("text-sm font-medium text-slate-700")
-                        ui.select(
-                            options={s.id: f"{s.name or s.id} ({s.test_phase})" for s in sequences},
-                        ).bind_value(form, "sequence_id").classes("w-full").props(
-                            "outlined dense clearable"
-                        )
-
-                    with ui.expansion("Advanced: Run by test path", icon="code").classes(
-                        "w-full text-slate-500"
-                    ):
-                        ui.label(
-                            "Run tests by pytest discovery instead of a defined sequence."
-                        ).classes("text-xs text-slate-400 mb-2")
-                        with ui.column().classes("gap-1"):
-                            ui.label("Test Path").classes("text-sm font-medium text-slate-700")
-                            ui.select(
-                                options={t["path"]: f"{t['name']} ({t['path']})" for t in tests},
-                            ).bind_value(form, "test_path").classes("w-full").props(
-                                "outlined dense clearable"
-                            )
-                else:
-                    # No sequences defined, show test path as primary
-                    with ui.column().classes("gap-1"):
-                        ui.label("Test Path").classes("text-sm font-medium text-slate-700")
-                        ui.select(
-                            options={t["path"]: f"{t['name']} ({t['path']})" for t in tests},
-                        ).bind_value(form, "test_path").classes("w-full").props(
-                            "outlined dense clearable"
-                        )
+                # 3. Test path
+                ui.separator().classes("my-2")
+                with ui.column().classes("gap-1"):
+                    ui.label("Test Path").classes("text-sm font-medium text-slate-700")
+                    ui.select(
+                        options={t["path"]: f"{t['name']} ({t['path']})" for t in tests},
+                    ).bind_value(form, "test_path").classes("w-full").props(
+                        "outlined dense clearable"
+                    )
 
                 ui.separator().classes("my-2")
 

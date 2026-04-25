@@ -4,15 +4,15 @@
 # TestIdle has no phase-specific variation so it keeps its limits here.
 tests:
   test_rail_within_spec:
-    markers:
+    config:
       - litmus_spec: {characteristic: rail_3v3}
 
   test_rail_holds_across_input:
-    markers:
+    config:
       - litmus_spec: {characteristic: rail_3v3}
 
   TestIdle:
-    markers:
+    config:
       - litmus_spec: {characteristic: rail_3v3}
       - litmus_limits:
           v_rail: {characteristic: rail_3v3, tolerance_pct: 2}

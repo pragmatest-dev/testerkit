@@ -9,7 +9,6 @@ from pathlib import Path
 from typing import Literal
 
 from litmus.api.models import LaunchRequest, RunStatus
-from litmus.models.config import TestSequenceConfig
 
 logger = logging.getLogger(__name__)
 
@@ -36,83 +35,6 @@ class TestRunner:
     def __init__(self, results_dir: Path | str = "results"):
         self.results_dir = Path(results_dir)
         self.runs: dict[str, RunInfo] = {}
-        self._sequences: dict[str, TestSequenceConfig] | None = None
-
-    def _load_sequence(self, sequence_id: str) -> TestSequenceConfig | None:
-        """Load test sequence configuration by ID."""
-        if self._sequences is None:
-            self._sequences = self._discover_sequences()
-        return self._sequences.get(sequence_id)
-
-    def _expand_sequence(self, sequence_id: str, visited: set[str] | None = None) -> list[str]:
-        """Recursively expand sequence to list of pytest node IDs.
-
-        Args:
-            sequence_id: ID of sequence to expand
-            visited: Set of already-visited sequence IDs (cycle detection)
-
-        Returns:
-            List of pytest node IDs in execution order
-        """
-        if visited is None:
-            visited = set()
-
-        # Cycle detection
-        if sequence_id in visited:
-            raise ValueError(f"Circular sequence reference detected: {sequence_id}")
-        visited.add(sequence_id)
-
-        seq = self._load_sequence(sequence_id)
-        if not seq:
-            return []
-
-        test_nodes = []
-        for step in seq.steps or []:
-            if step.test:
-                test_nodes.append(step.test)
-            elif step.sequence:
-                # Recursively expand nested sequence
-                test_nodes.extend(self._expand_sequence(step.sequence, visited))
-
-        return test_nodes
-
-    def _discover_sequences(self) -> dict[str, TestSequenceConfig]:
-        """Discover test sequences from YAML configuration files."""
-        from litmus.store import load_sequence
-
-        sequences = {}
-        search_paths = [
-            Path.cwd() / "sequences",
-            Path.cwd() / "tests" / "sequences",
-        ]
-
-        for seq_dir in search_paths:
-            if not seq_dir.exists():
-                continue
-            for yaml_path in seq_dir.glob("*.yaml"):
-                try:
-                    seq = load_sequence(yaml_path)
-                    sequences[seq.id] = seq
-                except (OSError, ValueError, KeyError) as e:
-                    logger.debug("Failed to load %s: %s", yaml_path, e)
-                    continue
-
-        return sequences
-
-    def get_available_sequences(self) -> list[dict]:
-        """Get list of available test sequences for UI."""
-        if self._sequences is None:
-            self._sequences = self._discover_sequences()
-        return [
-            {
-                "id": s.id,
-                "name": s.name or s.id,
-                "description": s.description or "",
-                "product_family": s.product_family or "",
-                "test_phase": s.test_phase or "",
-            }
-            for s in self._sequences.values()
-        ]
 
     async def start(self, request: LaunchRequest) -> str:
         """Start a test run and return run ID."""
@@ -132,21 +54,8 @@ class TestRunner:
         run_info.status = "running"
         req = run_info.request
 
-        # Determine test targets and extra args
-        test_targets: list[str] = []
-        extra_args: list[str] = []
-
-        sequence_test_phase: str | None = None
-        if req.sequence_id:
-            # Mode 1: Sequence-driven - expand steps to pytest node IDs
-            test_targets = self._expand_sequence(req.sequence_id)
-            seq = self._load_sequence(req.sequence_id)
-            if seq:
-                extra_args.extend(seq.pytest_args or [])
-                sequence_test_phase = seq.test_phase
-        else:
-            # Mode 2: Discovery fallback - pytest discovers tests in path
-            test_targets = [req.test_path]
+        # pytest discovers tests in the requested path / node-id list.
+        test_targets = [req.test_path]
 
         # Use uv run to ensure pytest (dev dependency) is available
         cmd = [
@@ -163,19 +72,8 @@ class TestRunner:
             "--tb=short",
         ]
 
-        # Pass sequence ID so plugin can load per-step aliases
-        if req.sequence_id:
-            cmd.append(f"--sequence={req.sequence_id}")
-
-        # Add extra pytest args from sequence
-        cmd.extend(extra_args)
-
         if req.operator:
             cmd.append(f"--operator={req.operator}")
-
-        # Pass test phase from sequence if specified
-        if sequence_test_phase:
-            cmd.append(f"--test-phase={sequence_test_phase}")
 
         # Set up environment for subprocess
         env = os.environ.copy()

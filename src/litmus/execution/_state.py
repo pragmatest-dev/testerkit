@@ -40,8 +40,6 @@ _current_step_config_var: ContextVar[dict[str, Any]] = ContextVar("_current_step
 _active_spec_context_var: ContextVar[Any] = ContextVar("_active_spec_context")
 _test_node_aliases_var: ContextVar[dict[str, dict[str, str]]] = ContextVar("_test_node_aliases")
 _test_node_configs_var: ContextVar[dict[str, dict[str, Any]]] = ContextVar("_test_node_configs")
-_sequence_test_phase_var: ContextVar[str | None] = ContextVar("_sequence_test_phase")
-_sequence_required_fixture_var: ContextVar[str | None] = ContextVar("_sequence_required_fixture")
 _channel_store_var: ContextVar[Any] = ContextVar("_channel_store")
 _collected_items_var: ContextVar[list[CollectedItem]] = ContextVar("_collected_items")
 _current_code_identity_var: ContextVar[dict[str, str | None]] = ContextVar("_current_code_identity")
@@ -129,22 +127,6 @@ def get_active_spec_context() -> Any:
         return None
 
 
-def get_sequence_test_phase() -> str | None:
-    """Return None if not set."""
-    try:
-        return _sequence_test_phase_var.get()
-    except LookupError:
-        return None
-
-
-def get_sequence_required_fixture() -> str | None:
-    """Return None if not set."""
-    try:
-        return _sequence_required_fixture_var.get()
-    except LookupError:
-        return None
-
-
 # --- Setters ---
 
 
@@ -181,16 +163,6 @@ def set_test_node_aliases(value: dict[str, dict[str, str]]) -> None:
 def set_test_node_configs(value: dict[str, dict[str, Any]]) -> None:
     """Set value. Returns None."""
     _test_node_configs_var.set(value)
-
-
-def set_sequence_test_phase(value: str | None) -> None:
-    """Set value. Returns None."""
-    _sequence_test_phase_var.set(value)
-
-
-def set_sequence_required_fixture(value: str | None) -> None:
-    """Set value. Returns None."""
-    _sequence_required_fixture_var.set(value)
 
 
 def get_channel_store() -> Any:

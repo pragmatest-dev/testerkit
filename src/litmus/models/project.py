@@ -11,7 +11,7 @@ from typing import Any
 
 from pydantic import BaseModel, Field, model_validator
 
-from litmus.config.test_config import MarkerSpec, TestEntry
+from litmus.config.test_config import ConfigEntry, TestEntry
 from litmus.models.config import PromptConfig
 
 
@@ -101,10 +101,10 @@ class ProfilePytest(BaseModel):
 class ProfileConfig(BaseModel):
     """A named config set applied to a pytest session.
 
-    Profiles carry pytest markers in the same recursive ``tests:`` tree as
-    sidecars: file-wide ``markers`` apply to every test, and ``tests:``
+    Profiles carry config in the same recursive ``tests:`` tree as
+    sidecars: file-wide ``config`` applies to every test, and ``tests:``
     holds :class:`TestEntry` nodes mirroring pytest's node-id structure.
-    A class is a branch (markers + nested ``tests:``); a function is a
+    A class is a branch (config + nested ``tests:``); a function is a
     leaf. One vocabulary spans inline decorators, sidecar YAML, and
     profile overrides.
 
@@ -121,7 +121,7 @@ class ProfileConfig(BaseModel):
     facets: dict[str, str] = Field(default_factory=dict)
     extends: str | None = None
     pytest: ProfilePytest = Field(default_factory=ProfilePytest)
-    markers: list[MarkerSpec] = Field(default_factory=list)
+    config: list[ConfigEntry] = Field(default_factory=list)
     tests: dict[str, TestEntry] = Field(default_factory=dict)
 
 

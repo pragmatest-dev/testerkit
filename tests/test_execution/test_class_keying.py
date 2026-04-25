@@ -29,10 +29,10 @@ class TestQualifiedClassMethodKeying:
         sidecar = SidecarConfig(
             tests={
                 "TestA": TestEntry(
-                    tests={"test_rail": TestEntry(markers=[_spec_marker("char_a")])},
+                    tests={"test_rail": TestEntry(config=[_spec_marker("char_a")])},
                 ),
                 "TestB": TestEntry(
-                    tests={"test_rail": TestEntry(markers=[_spec_marker("char_b")])},
+                    tests={"test_rail": TestEntry(config=[_spec_marker("char_b")])},
                 ),
             }
         )
@@ -43,7 +43,7 @@ class TestQualifiedClassMethodKeying:
 
     def test_shorthand_matches_module_level_test(self) -> None:
         sidecar = SidecarConfig(
-            tests={"test_rail": TestEntry(markers=[_spec_marker("bare_match")])},
+            tests={"test_rail": TestEntry(config=[_spec_marker("bare_match")])},
         )
         markers = _sidecar_markers_for(sidecar, None, "test_rail")
         assert _first_char(markers) == "bare_match"
@@ -51,7 +51,7 @@ class TestQualifiedClassMethodKeying:
     def test_shorthand_matches_method_when_no_class_branch(self) -> None:
         """Bare method name applies to a classed test when no class branch exists."""
         sidecar = SidecarConfig(
-            tests={"test_rail": TestEntry(markers=[_spec_marker("shorthand_ok")])},
+            tests={"test_rail": TestEntry(config=[_spec_marker("shorthand_ok")])},
         )
         markers = _sidecar_markers_for(sidecar, "TestRails", "test_rail")
         assert _first_char(markers) == "shorthand_ok"
@@ -59,9 +59,9 @@ class TestQualifiedClassMethodKeying:
     def test_class_branch_method_wins_over_shorthand(self) -> None:
         sidecar = SidecarConfig(
             tests={
-                "test_rail": TestEntry(markers=[_spec_marker("shorthand")]),
+                "test_rail": TestEntry(config=[_spec_marker("shorthand")]),
                 "TestRails": TestEntry(
-                    tests={"test_rail": TestEntry(markers=[_spec_marker("nested")])},
+                    tests={"test_rail": TestEntry(config=[_spec_marker("nested")])},
                 ),
             }
         )
@@ -73,7 +73,7 @@ class TestQualifiedClassMethodKeying:
         sidecar = SidecarConfig(
             tests={
                 "TestRails": TestEntry(
-                    markers=[_spec_marker("class_scope")],
+                    config=[_spec_marker("class_scope")],
                     tests={"test_rail": TestEntry()},
                 ),
             }
@@ -85,7 +85,7 @@ class TestQualifiedClassMethodKeying:
         sidecar = SidecarConfig(
             tests={
                 "Nonexistent": TestEntry(
-                    tests={"test_rail": TestEntry(markers=[_spec_marker("no_match")])},
+                    tests={"test_rail": TestEntry(config=[_spec_marker("no_match")])},
                 ),
             }
         )

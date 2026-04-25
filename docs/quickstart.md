@@ -36,11 +36,10 @@ my_project/
 │   └── my_fixture.yaml          # Pin-to-channel mappings
 ├── instruments/                 # Custom instrument drivers
 │   └── custom_dmm.yaml          # Driver definitions
-├── sequences/                   # Test config + execution order
-│   └── full_validation.yaml     # Steps with vectors, limits, mocks
-├── tests/                       # Test code
+├── tests/                       # Test code + sidecar config
 │   ├── conftest.py              # Custom fixtures (optional — roles auto-register)
-│   └── test_my_product.py       # Test functions
+│   ├── test_my_product.py       # Test functions
+│   └── test_my_product.yaml     # Sidecar (vectors, limits, mocks)
 ├── results/                     # Output (gitignored)
 │   └── measurements/            # Parquet files
 └── pyproject.toml
@@ -140,43 +139,34 @@ class TestMyProduct:
 
 For measurements that don't come from the product spec, use `logger.measure(name, value, low=..., high=...)` with inline limits or a sidecar `test_<module>.yaml`.
 
-### Sequence (`sequences/example_sequence.yaml`)
+### Sidecar (`tests/test_my_product.yaml`)
 
-Sequences are the **single source of truth** for test configuration. Each step carries its own vectors, limits, and mocks:
+Sidecar YAML carries vectors, limits, and mocks alongside the test file. Same merge rules as stacked pytest decorators — file scope, class scope, per-test:
 
 ```yaml
-# sequences/my_product_smoke.yaml
-id: my_product_smoke
-name: "My Product - Smoke Test"
-product_family: my_product
-test_phase: development  # development, validation, characterization, or production
-
-steps:
-  - id: output_voltage
-    test: tests/test_my_product.py::test_output_voltage
-    vectors:
-      - vin: 5.0
-    limits:
+# tests/test_my_product.yaml
+config:
+  - litmus_limits:
       output_voltage:
         low: 3.234
         high: 3.366
         nominal: 3.3
         units: V
-    mocks:
-      dmm.measure_dc_voltage: 3.31
+tests:
+  TestMyProduct:
+    config:
+      - litmus_vectors: {vin: [5.0]}
+      - litmus_mock: {target: dmm.measure_dc_voltage, return_value: 3.31}
 ```
 
 ### Running Tests
 
 ```bash
-# With a sequence (production pattern)
-pytest tests/ --sequence=my_product_smoke --station=my_station --mock-instruments --dut-serial=TEST001 -v
-
-# Ad-hoc run without sequence (uses inline decorator defaults)
-pytest tests/ --station-config=stations/my_station.yaml --mock-instruments --dut-serial=TEST001 -v
+# Mock-instrument run (default for development)
+pytest tests/ --station=my_station --mock-instruments --dut-serial=TEST001 -v
 
 # With real hardware
-pytest tests/ --sequence=my_product_smoke --station=my_station --dut-serial=SN001 -v
+pytest tests/ --station=my_station --dut-serial=SN001 -v
 ```
 
 > **On `--dut-serial` for early articles:** if your first DUT doesn't have
@@ -241,8 +231,7 @@ print(table.to_pandas())
 | `stations/` | Station configs (instruments + addresses) | /stations |
 | `fixtures/` | Pin-to-instrument mappings | /fixtures |
 | `instruments/` | Custom instrument drivers | /instruments |
-| `sequences/` | Test config + execution order | /sequences |
-| `tests/` | Test code | - |
+| `tests/` | Test code + sidecar config | - |
 | `results/` | Parquet output (gitignored) | /runs |
 
 ## Optional: Set Up AI Assistance

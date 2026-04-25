@@ -225,7 +225,6 @@ ENTITY_TYPES = [
     "station",
     "product",
     "fixture",
-    "sequence",
     "catalog",
     "instrument_asset",
     "run",
@@ -235,7 +234,6 @@ SAVEABLE_TYPES = [
     "station",
     "product",
     "fixture",
-    "sequence",
     "catalog",
     "instrument_asset",
     "test",
@@ -251,7 +249,6 @@ def _list_entities(entity_type: str, project: str) -> dict[str, Any]:
         "station": _list_stations,
         "product": _list_products,
         "fixture": _list_fixtures,
-        "sequence": _list_sequences,
         "catalog": _list_catalog_entries,
         "instrument_asset": _list_instrument_assets,
         "run": _list_runs,
@@ -341,18 +338,6 @@ def _list_fixtures(project: str) -> list[dict[str, Any]]:
     )
 
 
-def _list_sequences(project: str) -> list[dict[str, Any]]:
-    """List available test sequences."""
-    from litmus.store import load_sequence
-
-    return _list_yaml_entities(
-        project,
-        "sequences",
-        load_sequence,
-        lambda s, yf: {"id": s.id, "name": s.name or yf.stem, "description": s.description},
-    )
-
-
 def _list_catalog_entries(project: str) -> list[dict[str, Any]]:
     """List available catalog entries (instrument models and capabilities)."""
     from litmus.store import find_catalog_dirs, load_catalog_from_directory
@@ -396,7 +381,6 @@ def _get_entity(entity_type: str, id: str, project: str) -> dict[str, Any]:
         "station": _get_station,
         "product": _get_product,
         "fixture": _get_fixture,
-        "sequence": _get_sequence,
         "catalog": _get_catalog_entry,
         "instrument_asset": _get_instrument_asset,
         "run": _get_run,
@@ -455,13 +439,6 @@ def _get_fixture(fixture_id: str, project: str) -> dict[str, Any]:
     from litmus.store import load_fixture
 
     return _get_yaml_entity(fixture_id, project, "fixtures", "Fixture", load_fixture)
-
-
-def _get_sequence(sequence_id: str, project: str) -> dict[str, Any]:
-    """Get test sequence."""
-    from litmus.store import load_sequence
-
-    return _get_yaml_entity(sequence_id, project, "sequences", "Sequence", load_sequence)
 
 
 def _get_catalog_entry(entry_id: str, project: str) -> dict[str, Any]:
@@ -608,14 +585,6 @@ def _save_entity(
         from litmus.store import save_fixture
 
         return _save_generic_yaml(FixtureConfig, save_fixture, "fixtures", id, content, project)
-
-    if entity_type == "sequence":
-        from litmus.models.config import TestSequenceConfig
-        from litmus.store import save_sequence
-
-        return _save_generic_yaml(
-            TestSequenceConfig, save_sequence, "sequences", id, content, project
-        )
 
     if entity_type == "catalog":
         from litmus.models.catalog import InstrumentCatalogEntry
@@ -1227,7 +1196,6 @@ def open_tool(entity_type: str, id: str, base_url: str = "http://localhost:8000"
         "station": f"/stations/{id}",
         "run": f"/results/{id}",
         "fixture": f"/fixtures/{id}",
-        "sequence": f"/sequences/{id}",
     }
 
     if entity_type not in routes:
@@ -1425,7 +1393,7 @@ def schema_tool(yaml_type: str | None = None) -> dict[str, Any]:
 
     Args:
         yaml_type: A file type from SCHEMA_MAP (e.g. catalog, product,
-            station, sequence, fixture, instrument_asset, project).
+            station, fixture, instrument_asset, project).
             If None, returns the list of available types.
 
     Returns:

@@ -36,11 +36,7 @@ from litmus.execution._state import (
     get_current_step_config,
     get_event_store,
     get_instrument_records,
-    get_sequence_required_fixture,
-    get_sequence_test_phase,
     get_session_inputs,
-    get_test_node_aliases,
-    get_test_node_configs,
     set_active_connection,
     set_active_facets,
     set_active_instruments,
@@ -56,8 +52,6 @@ from litmus.execution._state import (
     set_current_step_config,
     set_event_store,
     set_instrument_records,
-    set_sequence_required_fixture,
-    set_sequence_test_phase,
     set_test_node_aliases,
     set_test_node_configs,
 )
@@ -110,11 +104,7 @@ __all__ = [
     "get_current_step_config",
     "get_event_store",
     "get_instrument_records",
-    "get_sequence_required_fixture",
-    "get_sequence_test_phase",
     "get_session_inputs",
-    "get_test_node_aliases",
-    "get_test_node_configs",
     "set_active_facets",
     "set_active_instruments",
     "set_active_connection",
@@ -130,107 +120,9 @@ __all__ = [
     "set_current_step_config",
     "set_event_store",
     "set_instrument_records",
-    "set_sequence_required_fixture",
-    "set_sequence_test_phase",
     "set_test_node_aliases",
     "set_test_node_configs",
 ]
-
-
-def _load_sequence_steps(config):
-    """Load sequence config from --sequence option.
-
-    Returns the full TestSequenceConfig, or None if no sequence.
-    Also sets the sequence test phase contextvar.
-    """
-
-    seq_option = config.getoption("--sequence", default=None)
-    if not seq_option:
-        return None
-
-    # Find the sequence file
-    seq_path = Path(seq_option)
-    if not seq_path.exists():
-        # Try sequences/ directories
-        search_roots = [
-            config.rootpath,
-            Path(config.invocation_params.dir),
-        ]
-        for root in search_roots:
-            candidate = root / "sequences" / f"{seq_option}.yaml"
-            if candidate.exists():
-                seq_path = candidate
-                break
-        else:
-            fix_hint = (
-                f"Fix: check path '{seq_option}'"
-                if Path(seq_option).is_absolute()
-                else f"Fix: create sequences/{seq_option}.yaml"
-            )
-            warnings.warn(
-                f"Sequence '{seq_option}' not found. No test ordering will be applied. {fix_hint}",
-                stacklevel=1,
-            )
-            return None
-
-    try:
-        from litmus.store import load_sequence
-
-        seq_file = load_sequence(seq_path)
-    except Exception as exc:
-        warnings.warn(
-            f"Failed to load sequence '{seq_option}': {exc}",
-            stacklevel=1,
-        )
-        return None
-
-    # Store test phase for mock validation
-    set_sequence_test_phase(seq_file.test_phase)
-    set_sequence_required_fixture(seq_file.required_fixture)
-
-    return seq_file
-
-
-def _load_step_aliases_and_configs(config):
-    """Load per-step aliases and configs from sequence in a single pass.
-
-    Applies sequence-level defaults (raise_on_fail, retry) to steps
-    that don't set their own. Resolution: step > sequence > decorator.
-
-    Returns:
-        (aliases, configs) where:
-        - aliases: dict of test node ID → {alias_name: station_role}
-        - configs: dict of test node ID → step config dict
-    """
-    seq = _load_sequence_steps(config)
-    if not seq:
-        return {}, {}
-
-    # Sequence-level defaults for params that make sense globally
-    seq_defaults: dict[str, Any] = {}
-    if seq.raise_on_fail is not None:
-        seq_defaults["raise_on_fail"] = seq.raise_on_fail
-    if seq.retry is not None:
-        seq_defaults["retry"] = seq.retry
-
-    aliases: dict[str, dict[str, str]] = {}
-    configs: dict[str, dict[str, Any]] = {}
-    for step in seq.steps:
-        test_node = step.test
-        if not test_node:
-            continue
-        if step.aliases:
-            aliases[test_node] = step.aliases
-        step_config: dict[str, Any] = {}
-        for key in ("vectors", "limits", "mocks", "retry", "raise_on_fail"):
-            val = getattr(step, key, None)
-            if val is not None:
-                step_config[key] = val
-            elif key in seq_defaults:
-                step_config[key] = seq_defaults[key]
-        if step_config:
-            configs[test_node] = step_config
-    return aliases, configs
 
 
 def _find_station_file(config) -> Path | None:
@@ -293,22 +185,6 @@ def _find_fixture_file(config) -> Path | None:
         )
         return None
 
-    # Sequence required_fixture (hard error if declared but missing)
-    seq_fixture = get_sequence_required_fixture()
-    if seq_fixture:
-        search_roots = [
-            config.rootpath,
-            Path(config.invocation_params.dir),
-        ]
-        for root in search_roots:
-            fixture_file = root / "fixtures" / f"{seq_fixture}.yaml"
-            if fixture_file.exists():
-                return fixture_file
-        raise pytest.UsageError(
-            f"Sequence requires fixture '{seq_fixture}' but "
-            f"fixtures/{seq_fixture}.yaml was not found."
-        )
-
     # Single-file fallback
     search_roots = [
         config.rootpath,
@@ -327,6 +203,10 @@ def _find_fixture_file(config) -> Path | None:
 def pytest_configure(config):
     """Register Litmus markers and auto-register instrument role fixtures."""
     for marker in (
+        "litmus_vectors(**kwargs): Declare test vectors — runner-neutral "
+        "alias for parametrize. Each kwarg is one sweep axis; multiple "
+        "kwargs cross-product. Comma-joined argnames (`**{'a,b': [...]}`) "
+        "zip across argvalues per pytest's parametrize semantics.",
         "litmus_limits(**kwargs): Inject limits by measurement name (merges with sidecar limits:)",
         "litmus_spec(characteristic=<id>): Bind the test to a product "
         "characteristic; provides spec-relative limit context and "
@@ -369,15 +249,11 @@ def pytest_configure(config):
 
     instruments_map = station_model.instruments or {}
 
-    # Load per-step aliases and configs from sequence (if --sequence provided)
-    node_aliases, node_configs = _load_step_aliases_and_configs(config)
-    set_test_node_aliases(node_aliases)
-    set_test_node_configs(node_configs)
-
-    # Collect all alias names used across all steps
+    # Sequences (deleted) used to inject per-test fixture aliases and configs.
+    # With sequences gone, both maps are empty for the lifetime of the session.
+    set_test_node_aliases({})
+    set_test_node_configs({})
     all_alias_names: set[str] = set()
-    for step_aliases in get_test_node_aliases().values():
-        all_alias_names.update(step_aliases.keys())
 
     # Build a plugin class with fixture functions per role.
     # Wrap each fixture in staticmethod to prevent Python's descriptor
@@ -630,8 +506,6 @@ def pytest_sessionfinish(session, exitstatus):
     set_instrument_records({})
     set_test_node_aliases({})
     set_test_node_configs({})
-    set_sequence_test_phase(None)
-    set_sequence_required_fixture(None)
     set_collected_items([])
     set_channel_store(None)
     set_event_store(None)
@@ -689,11 +563,6 @@ def pytest_addoption(parser):
         "--station-config",
         default=None,
         help="Path to station configuration YAML file",
-    )
-    group.addoption(
-        "--sequence",
-        default=None,
-        help="Sequence ID or path to sequence YAML (enables per-step aliases)",
     )
     group.addoption(
         "--test-phase",
@@ -1767,24 +1636,9 @@ def fixture_manager(instruments, fixture_config, _route_manager) -> FixtureManag
 
 @pytest.hookimpl(tryfirst=True)
 def pytest_runtest_setup(item):
-    """Reset mock state and set per-step aliases/config."""
-    # Set per-step aliases and config from sequence
-    step_aliases: dict[str, str] = {}
-    step_config: dict[str, Any] = {}
-    # Match sequence step node_id to pytest item. Sequence steps may use:
-    # - bare function name ("test_voltage")
-    # - partial path ("tests/test_power.py::test_voltage")
-    # We try exact substring match first, then fall back to function name.
-    node_aliases = get_test_node_aliases()
-    node_configs = get_test_node_configs()
-    item_func = item.nodeid.rsplit("::", 1)[-1]
-    for node_id in set(node_aliases) | set(node_configs):
-        if node_id in item.nodeid or node_id == item_func:
-            step_aliases = node_aliases.get(node_id, {})
-            step_config = node_configs.get(node_id, {})
-            break
-    set_current_step_aliases(step_aliases)
-    set_current_step_config(step_config)
+    """Per-test setup: clear aliases/config, capture code identity, reset mocks."""
+    set_current_step_aliases({})
+    set_current_step_config({})
 
     set_current_code_identity(_extract_code_identity(item))
 
@@ -1964,7 +1818,7 @@ def _profile_markers_for_item(item: pytest.Item) -> list[MarkerSpec]:
     if profile is None:
         return []
     if not isinstance(item, pytest.Function):
-        return list(profile.markers)
+        return list(profile.config)
     cls = getattr(item, "cls", None)
     cls_name = cls.__name__ if cls is not None else None
     return _sidecar_markers_for(profile, cls_name, item.originalname)
@@ -1979,14 +1833,38 @@ def _profile_markers_for_item(item: pytest.Item) -> list[MarkerSpec]:
 _VECTORS_MATRIX_KEY: pytest.StashKey[dict[str, list[Vector]]] = pytest.StashKey()
 
 
+def _expand_litmus_vectors(marker: MarkerSpec) -> list[MarkerSpec]:
+    """Fan a ``litmus_vectors`` marker out to N parametrize-shaped MarkerSpec.
+
+    Each top-level key in the marker's kwargs becomes one parametrize-
+    shaped marker (positional args ``[argnames, argvalues]``). Multiple
+    keys produce multiple entries; pytest cross-products them via
+    stacked :meth:`metafunc.parametrize` calls. Comma-joined argname
+    keys (``"a,b"``) zip across the inner sequences per pytest's
+    standard parametrize semantics.
+    """
+    if marker.name != "litmus_vectors":
+        return [marker]
+    if not marker.kwargs:
+        raise pytest.UsageError(
+            "litmus_vectors marker requires at least one argname=argvalues kwarg"
+        )
+    return [
+        MarkerSpec(name="parametrize", args=[argnames, argvalues])
+        for argnames, argvalues in marker.kwargs.items()
+    ]
+
+
 def _sidecar_parametrize_markers_for_metafunc(
     metafunc: pytest.Metafunc,
 ) -> list[MarkerSpec]:
-    """Collect sidecar + profile parametrize markers for a metafunc.
+    """Collect sidecar + profile parametrize / litmus_vectors markers.
 
-    Returns parametrize-named markers from, in merge order: sidecar
-    (file-level → class branch → leaf) → profile chain (same walk).
-    Inline ``@pytest.mark.parametrize`` decorators on the function are
+    Returns the expanded set of parametrize-shaped markers from, in
+    merge order: sidecar (file-level → class branch → leaf) → profile
+    chain (same walk). ``litmus_vectors`` markers fan out to one
+    parametrize-shaped entry per sweep axis. Inline
+    ``@pytest.mark.parametrize`` decorators on the function are
     intentionally excluded — pytest's built-in hook already applies
     those. This list is applied on top via :meth:`metafunc.parametrize`
     calls, stacking with different argnames per entry.
@@ -2002,7 +1880,11 @@ def _sidecar_parametrize_markers_for_metafunc(
     if profile is not None:
         merged.extend(_sidecar_markers_for(profile, cls_name, func_name))
 
-    return [m for m in merged if m.name == "parametrize"]
+    expanded: list[MarkerSpec] = []
+    for m in merged:
+        if m.name in ("parametrize", "litmus_vectors"):
+            expanded.extend(_expand_litmus_vectors(m))
+    return expanded
 
 
 @pytest.hookimpl(tryfirst=True)
@@ -2022,6 +1904,16 @@ def pytest_generate_tests(metafunc: pytest.Metafunc) -> None:
     the :func:`vectors` fixture to iterate.
     """
     sidecar_parametrize = _sidecar_parametrize_markers_for_metafunc(metafunc)
+
+    # Inline @pytest.mark.litmus_vectors(...) decorators: convert to
+    # parametrize-shaped MarkerSpecs and apply alongside sidecar/profile
+    # markers. pytest's own parametrize handler doesn't know about
+    # ``litmus_vectors`` so we own the translation.
+    inline_litmus_vectors: list[MarkerSpec] = []
+    for mark in list(metafunc.definition.iter_markers("litmus_vectors")):
+        spec = MarkerSpec(name="litmus_vectors", args=list(mark.args), kwargs=dict(mark.kwargs))
+        inline_litmus_vectors.extend(_expand_litmus_vectors(spec))
+    sidecar_parametrize = [*inline_litmus_vectors, *sidecar_parametrize]
 
     if "vectors" in metafunc.fixturenames:
         # Self-loop mode: consume inline parametrize markers + add

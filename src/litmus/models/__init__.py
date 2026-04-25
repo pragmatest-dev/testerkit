@@ -23,8 +23,6 @@ from litmus.models.config import (
     MeasurementLimitConfig,
     RetryConfig,
     Specification,
-    TestSequenceConfig,
-    TestStepConfig,
 )
 from litmus.models.instrument import (
     CalibrationInfo,
@@ -58,8 +56,6 @@ __all__ = [
     "MeasurementLimitConfig",
     "RetryConfig",
     "Specification",
-    "TestSequenceConfig",
-    "TestStepConfig",
     # Instrument identity
     "CalibrationInfo",
     "ChannelKind",

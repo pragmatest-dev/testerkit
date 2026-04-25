@@ -139,7 +139,7 @@ class TestInitProject:
         project = tmp_path / "proj"
         project.mkdir()
         init_project(project, git=False)
-        for d in ["products", "stations", "sequences", "fixtures", "instruments", "tests"]:
+        for d in ["products", "stations", "fixtures", "instruments", "tests"]:
             assert (project / d).is_dir(), f"Missing directory: {d}"
 
     def test_creates_litmus_yaml(self, tmp_path):
@@ -156,7 +156,6 @@ class TestInitProject:
         init_project(project, git=False, starter=True, name="proj")
         assert (project / "stations" / "starter_station.yaml").exists()
         assert (project / "tests" / "test_example.py").exists()
-        assert (project / "sequences" / "example_sequence.yaml").exists()
 
     def test_skip_if_exists(self, tmp_path):
         """Running init twice doesn't overwrite existing files."""
@@ -189,7 +188,6 @@ class TestInitProject:
         assert not (project / "stations").exists()
         assert not (project / "products").exists()
         assert not (project / "fixtures").exists()
-        assert not (project / "sequences").exists()
         # pyproject.toml has no --station addopts
         pyproject = (project / "pyproject.toml").read_text()
         assert "--station=" not in pyproject

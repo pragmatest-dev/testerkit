@@ -23,7 +23,7 @@ import os
 
 import pytest
 
-from litmus.config.test_config import MarkerSpec, TestEntry
+from litmus.config.test_config import ConfigEntry, TestEntry
 from litmus.execution._state import (
     set_active_facets,
     set_active_profile,
@@ -67,22 +67,22 @@ def _merge_test_entries(
 ) -> dict[str, TestEntry]:
     """Recursively merge two ``tests:`` trees parent-first, child appends.
 
-    Same rule applied at every level: same key → child markers extend
+    Same rule applied at every level: same key → child config extends
     parent's, nested ``tests:`` recurse. Parent-only keys pass through.
     """
     merged: dict[str, TestEntry] = {
-        name: TestEntry(markers=list(entry.markers), tests=dict(entry.tests))
+        name: TestEntry(config=list(entry.config), tests=dict(entry.tests))
         for name, entry in parent.items()
     }
     for name, child_entry in child.items():
         existing = merged.get(name)
         if existing is None:
             merged[name] = TestEntry(
-                markers=list(child_entry.markers),
+                config=list(child_entry.config),
                 tests=dict(child_entry.tests),
             )
         else:
-            existing.markers.extend(child_entry.markers)
+            existing.config.extend(child_entry.config)
             existing.tests = _merge_test_entries(existing.tests, child_entry.tests)
     return merged
 
@@ -119,7 +119,7 @@ def flatten_profile_chain(leaf_name: str, project: ProjectConfig) -> ProfileConf
     addopts_parts: list[str] = []
     markexpr: str | None = None
     keyword: str | None = None
-    merged_markers: list[MarkerSpec] = []
+    merged_config: list[ConfigEntry] = []
     merged_tests: dict[str, TestEntry] = {}
     for profile in chain:
         if profile.description is not None:
@@ -131,7 +131,7 @@ def flatten_profile_chain(leaf_name: str, project: ProjectConfig) -> ProfileConf
             markexpr = profile.pytest.markexpr
         if profile.pytest.keyword is not None:
             keyword = profile.pytest.keyword
-        merged_markers.extend(profile.markers)
+        merged_config.extend(profile.config)
         merged_tests = _merge_test_entries(merged_tests, profile.tests)
 
     return ProfileConfig(
@@ -143,7 +143,7 @@ def flatten_profile_chain(leaf_name: str, project: ProjectConfig) -> ProfileConf
             markexpr=markexpr,
             keyword=keyword,
         ),
-        markers=merged_markers,
+        config=merged_config,
         tests=merged_tests,
     )
 

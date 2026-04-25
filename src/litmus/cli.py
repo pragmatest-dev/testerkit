@@ -1409,9 +1409,7 @@ def setup_show():
     click.echo("  - check_station_compatibility: Check if station can test product")
     click.echo("  - derive_required_capabilities: Get capability requirements")
     click.echo("  - get_instrument_library: Get instrument definitions")
-    click.echo("  - list_sequences: List test sequences")
     click.echo("  - save_product_spec: Save a new product specification")
-    click.echo("  - save_test_sequence: Save a new test sequence")
 
 
 # -----------------------------------------------------------------------------

@@ -106,7 +106,7 @@ def test_simple_path_absolute_limits_no_product(pytester: pytest.Pytester) -> No
     (pytester.path / "test_seq.yaml").write_text(
         textwrap.dedent(
             """
-            markers:
+            config:
               - litmus_limits:
                   v_rail: {low: 3.2, high: 3.4, units: V}
             """
@@ -140,7 +140,7 @@ def test_connections_marker_iterates_and_stamps_pin(pytester: pytest.Pytester) -
             """
             tests:
               test_rail:
-                markers:
+                config:
                   - litmus_connections: {connections: [vout_measure]}
                   - litmus_limits:
                       v_rail: {low: 3.2, high: 3.4, units: V}
@@ -174,7 +174,7 @@ def test_characteristic_spec_derives_tolerance_limit(pytester: pytest.Pytester) 
             """
             tests:
               test_rail:
-                markers:
+                config:
                   - litmus_spec: {characteristic: rail_3v3}
                   - litmus_limits:
                       v_rail: {tolerance_pct: 2}
@@ -209,7 +209,7 @@ def test_multi_pin_characteristic_iterates_all_connections(pytester: pytest.Pyte
             """
             tests:
               test_dropout:
-                markers:
+                config:
                   - litmus_spec: {characteristic: dropout}
                   - litmus_limits:
                       v_drop: {tolerance_abs: 0.1}
@@ -239,7 +239,7 @@ def test_unconsumed_connections_iterator_fails_loudly(pytester: pytest.Pytester)
             """
             tests:
               test_rail:
-                markers:
+                config:
                   - litmus_connections: {connections: [vout_measure]}
                   - litmus_limits:
                       v_rail: {low: 3.2, high: 3.4, units: V}
@@ -265,7 +265,7 @@ def test_no_markers_ctx_connections_is_none(pytester: pytest.Pytester) -> None:
     (pytester.path / "test_seq.yaml").write_text(
         textwrap.dedent(
             """
-            markers:
+            config:
               - litmus_limits:
                   v_rail: {low: 3.2, high: 3.4, units: V}
             """

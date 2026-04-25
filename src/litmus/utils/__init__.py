@@ -15,7 +15,6 @@ from litmus.utils.paths import (
     get_instrument_paths,
     get_product_paths,
     get_search_paths,
-    get_sequence_paths,
     get_station_paths,
 )
 from litmus.utils.ranges import (
@@ -54,6 +53,5 @@ __all__ = [
     "get_product_paths",
     "get_station_paths",
     "get_instrument_paths",
-    "get_sequence_paths",
     "get_fixture_paths",
 ]

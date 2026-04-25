@@ -131,7 +131,6 @@ def create_sidebar():
             _nav_item("/products", "inventory_2", "Products")
             _nav_item("/fixtures", "hub", "Fixtures")
             _nav_item("/instruments", "precision_manufacturing", "Instruments")
-            _nav_item("/sequences", "list_alt", "Sequences")
             _nav_item("/tests", "science", "Tests")
 
             ui.separator().classes("bg-slate-700 my-2")

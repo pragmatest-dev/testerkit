@@ -200,7 +200,7 @@ Problems:
 - No link to product specifications
 - Different limits for different conditions (temperature, load) are awkward
 
-Solution: **sidecar YAML** and **sequence step configuration** (next step).
+Solution: **sidecar YAML** (next step).
 
 ## Dynamic Limits (Callable)
 
@@ -215,17 +215,13 @@ Sometimes limits depend on test conditions:
 
 ### Inline Python (Simple)
 
-Define limits as Python expressions in a sequence step:
+Define limits as Python expressions in a sidecar:
 
 ```yaml
-# sequences/temp_sweep.yaml
-steps:
-  - id: output_voltage_temp
-    test: tests/test_voltage.py::test_output_voltage_temp
-    vectors:
-      expand: product
-      temperature: [-40, 25, 85]
-    limits:
+# tests/test_voltage.yaml
+config:
+  - litmus_vectors: {temperature: [-40, 25, 85]}
+  - litmus_limits:
       output_voltage:
         callable: |
           temp = ctx.get_param("temperature")
@@ -310,23 +306,18 @@ instruments:
       voltage: 3.31
 ```
 
-**sequences/smoke.yaml:**
+**tests/test_limits.yaml:**
 ```yaml
-id: smoke
-name: "Smoke Test"
-test_phase: development
-
-steps:
-  - id: output_voltage
-    test: tests/test_limits.py::test_output_voltage
-    limits:
+config:
+  - litmus_limits:
       output_voltage:
         low: 3.135
         high: 3.465
         nominal: 3.3
         units: V
-    mocks:
-      dmm.measure_voltage: 3.31
+  - litmus_mock:
+      target: dmm.measure_voltage
+      return_value: 3.31
 ```
 
 **tests/test_limits.py:**
@@ -338,7 +329,7 @@ def test_output_voltage(dmm, logger):
 
 **Run:**
 ```bash
-pytest tests/test_limits.py --sequence=smoke --station=my_station --mock-instruments -v
+pytest tests/test_limits.py --station=my_station --mock-instruments -v
 ```
 
 ## What You Learned

@@ -21,7 +21,7 @@ import copy
 import warnings
 from collections.abc import Callable, Iterator
 from pathlib import Path
-from typing import Any, Literal, Protocol, TypeVar
+from typing import Any, Protocol, TypeVar
 
 import yaml
 from pydantic import ValidationError
@@ -30,7 +30,7 @@ from litmus.config.expanders import expand_ranges
 from litmus.config.fmt import dump_yaml
 from litmus.config.station_types import StationType
 from litmus.models.catalog import InstrumentCatalogEntry
-from litmus.models.config import FixtureConfig, TestSequenceConfig
+from litmus.models.config import FixtureConfig
 from litmus.models.instrument_asset import InstrumentAssetFile
 from litmus.models.product import Product
 from litmus.models.product_manifest import ProductManifest
@@ -40,7 +40,6 @@ from litmus.utils.paths import (
     get_fixture_paths,
     get_instrument_paths,
     get_product_paths,
-    get_sequence_paths,
     get_station_paths,
 )
 
@@ -88,12 +87,6 @@ __all__ = [
     # Project
     "load_project",
     "load_project_config",
-    # Sequence
-    "create_sequence",
-    "get_sequence",
-    "list_sequences",
-    "load_sequence",
-    "save_sequence",
     # Station
     "create_station",
     "find_station_config",
@@ -135,8 +128,8 @@ def _read_yaml(path: Path) -> dict[str, Any]:
 def detect_file_type(path: Path) -> str | None:
     """Auto-detect the Litmus file type from YAML structure.
 
-    Returns a FILE_LOADERS key ("station", "sequence", "fixture",
-    "product", "catalog", "instrument_asset", "project") or None.
+    Returns a FILE_LOADERS key ("station", "fixture", "product",
+    "catalog", "instrument_asset", "project") or None.
     """
     try:
         data = _read_yaml(path)
@@ -146,7 +139,7 @@ def detect_file_type(path: Path) -> str | None:
         return None
     if "catalog_entry" in data:
         return "catalog"
-    for key in ("station", "sequence", "fixture", "project"):
+    for key in ("station", "fixture", "project"):
         if key in data:
             return key
     if "id" in data and ("protocol" in data or "driver" in data):
@@ -487,76 +480,6 @@ def create_fixture(
 # =============================================================================
 # Sequence: load / get / list / save / create
 # =============================================================================
-
-
-def load_sequence(path: Path) -> TestSequenceConfig:
-    """Load and validate a sequence YAML file."""
-    return TestSequenceConfig.model_validate(_read_yaml(path))
-
-
-def get_sequence(
-    sequence_id: str,
-    *,
-    project_root: Path | None = None,
-) -> TestSequenceConfig | None:
-    """Load sequence configuration by ID."""
-    return _get_by_id(sequence_id, load_sequence, get_sequence_paths(project_root))
-
-
-def list_sequences(
-    *,
-    project_root: Path | None = None,
-) -> list[TestSequenceConfig]:
-    """List all available sequences."""
-    return _list_all(load_sequence, get_sequence_paths(project_root))
-
-
-def save_sequence(
-    sequence: TestSequenceConfig,
-    *,
-    project_root: Path | None = None,
-) -> bool:
-    """Save sequence configuration to YAML file."""
-    target_file = _resolve_save_path(
-        sequence.id,
-        get_sequence_paths(project_root),
-        "sequences",
-        project_root,
-    )
-    _write_model(target_file, sequence.model_dump(exclude_none=True))
-    return True
-
-
-def create_sequence(
-    sequence_id: str,
-    name: str,
-    product_family: str = "",
-    test_phase: Literal["validation", "characterization", "production"] = "validation",
-    description: str = "",
-    *,
-    project_root: Path | None = None,
-) -> TestSequenceConfig | None:
-    """Create a new sequence configuration file.
-
-    Returns TestSequenceConfig if successful, None if sequence already exists.
-    """
-    root = _resolve_root(project_root)
-    sequences_dir = root / "sequences"
-    sequences_dir.mkdir(exist_ok=True)
-
-    sequence_file = sequences_dir / f"{sequence_id}.yaml"
-    if sequence_file.exists():
-        return None
-
-    seq = TestSequenceConfig(
-        id=sequence_id,
-        name=name,
-        test_phase=test_phase,
-        product_family=product_family or None,
-        description=description,
-    )
-    _write_model(sequence_file, seq.model_dump(exclude_none=True))
-    return seq
 
 
 # =============================================================================
@@ -1315,7 +1238,6 @@ def format_file_inplace(path: Path) -> bool:
 
 FILE_LOADERS: dict[str, Callable[[Path], object]] = {
     "station": load_station,
-    "sequence": load_sequence,
     "fixture": load_fixture,
     "instrument_asset": load_instrument_asset,
     "project": load_project,

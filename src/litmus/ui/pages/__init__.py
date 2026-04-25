@@ -13,7 +13,6 @@ from litmus.ui.pages import (
     live,  # noqa: F401
     products,  # noqa: F401
     results,  # noqa: F401
-    sequences,  # noqa: F401
     stations,  # noqa: F401
     tests,  # noqa: F401
     yield_page,  # noqa: F401

@@ -1,20 +1,20 @@
 # Per-test spec markers + limits that reference product characteristics.
 tests:
   test_rail_within_spec:
-    markers:
+    config:
       - litmus_spec: {characteristic: rail_3v3}
       - litmus_limits:
           v_rail: {characteristic: rail_3v3, tolerance_pct: 2}
 
   test_rail_holds_across_input:
-    markers:
-      - parametrize: ["vin", [3.3, 5.0, 5.5]]
+    config:
+      - litmus_vectors: {vin: [3.3, 5.0, 5.5]}
       - litmus_spec: {characteristic: rail_3v3}
       - litmus_limits:
           v_rail: {characteristic: rail_3v3, tolerance_pct: 2}
 
   TestIdle:
-    markers:
+    config:
       - litmus_spec: {characteristic: rail_3v3}
       - litmus_limits:
           v_rail: {characteristic: rail_3v3, tolerance_pct: 2}

@@ -17,27 +17,28 @@ from litmus.config.enums import Comparator
 # =============================================================================
 
 
-class MarkerSpec(BaseModel):
-    """One entry in a ``markers:`` list — mirrors a pytest decorator.
+class ConfigEntry(BaseModel):
+    """One entry in a ``config:`` list — mirrors a pytest decorator.
 
     Four YAML shapes are parsed by :meth:`from_raw`:
 
-    ==================================== =============================================
-    YAML                                 Parsed to
-    ==================================== =============================================
-    ``- flaky``                          ``MarkerSpec(name="flaky")``
-    ``- skip: "reason"``                 ``MarkerSpec(name="skip", args=["reason"])``
-    ``- parametrize: ["vin", [1, 2]]``   ``MarkerSpec(name="parametrize",
-                                             args=["vin", [1, 2]])``
-    ``- litmus_limits: {v_rail: {...}}`` ``MarkerSpec(name="litmus_limits",
-                                             kwargs={"v_rail": {...}})``
-    ==================================== =============================================
+    ====================================== =============================================
+    YAML                                   Parsed to
+    ====================================== =============================================
+    ``- flaky``                            ``ConfigEntry(name="flaky")``
+    ``- skip: "reason"``                   ``ConfigEntry(name="skip", args=["reason"])``
+    ``- litmus_vectors: {vin: [...]}``     ``ConfigEntry(name="litmus_vectors",
+                                               kwargs={"vin": [...]})``
+    ``- litmus_limits: {v_rail: {...}}``   ``ConfigEntry(name="litmus_limits",
+                                               kwargs={"v_rail": {...}})``
+    ====================================== =============================================
 
     List payloads expand to positional args; dict payloads are keyword
     args; string/number/bool payloads become a single positional arg;
-    bare names have neither. Mirrors how pytest decorators are called,
-    so a reader who knows ``@pytest.mark.parametrize(...)`` can read the
-    YAML directly.
+    bare names have neither. Each entry maps to one pytest marker — the
+    YAML key is ``config:`` (runner-neutral vocabulary) but the entries
+    are still pytest markers under the hood, so a reader who knows
+    ``@pytest.mark.X(...)`` can read the YAML directly.
     """
 
     model_config = {"extra": "forbid"}
@@ -48,18 +49,18 @@ class MarkerSpec(BaseModel):
 
     @classmethod
     def from_raw(cls, raw: Any) -> Self:
-        """Parse one YAML markers-list entry into a :class:`MarkerSpec`."""
+        """Parse one YAML config-list entry into a :class:`ConfigEntry`."""
         if isinstance(raw, str):
             return cls(name=raw)
         if isinstance(raw, dict):
             if len(raw) != 1:
                 raise ValueError(
-                    "Marker spec must be a bare name string or a single-key dict; "
+                    "Config entry must be a bare name string or a single-key dict; "
                     f"got dict with {len(raw)} keys: {sorted(raw)}"
                 )
             ((name, payload),) = raw.items()
             if not isinstance(name, str):
-                raise TypeError(f"Marker name must be a string; got {type(name).__name__}")
+                raise TypeError(f"Config entry name must be a string; got {type(name).__name__}")
             if payload is None:
                 return cls(name=name)
             if isinstance(payload, dict):
@@ -68,14 +69,14 @@ class MarkerSpec(BaseModel):
                 return cls(name=name, args=list(payload))
             return cls(name=name, args=[payload])
         raise TypeError(
-            f"Marker entry must be a string or single-key dict; got {type(raw).__name__}: {raw!r}"
+            f"Config entry must be a string or single-key dict; got {type(raw).__name__}: {raw!r}"
         )
 
     @model_validator(mode="before")
     @classmethod
     def _coerce(cls, data: Any) -> Any:
         """Accept raw YAML shapes (str / single-key dict) during validation."""
-        if isinstance(data, MarkerSpec):
+        if isinstance(data, ConfigEntry):
             return data
         if (
             isinstance(data, dict)
@@ -86,56 +87,62 @@ class MarkerSpec(BaseModel):
         return cls.from_raw(data).model_dump()
 
 
+# Back-compat alias during the markers → config rename. Internal callers
+# that still reference ``MarkerSpec`` (and the plugin) read it as the
+# same class. The YAML user-facing surface is ``config:`` only.
+MarkerSpec = ConfigEntry
+
+
 class TestEntry(BaseModel):
     """Recursive node in a sidecar / profile ``tests:`` tree.
 
     Mirrors pytest's node-id structure: a class is a branch with its own
-    ``markers:`` (applied to every nested test) and a ``tests:`` dict
-    holding its methods; a function is a leaf with markers and an empty
+    ``config:`` (applied to every nested test) and a ``tests:`` dict
+    holding its methods; a function is a leaf with config and an empty
     ``tests:``. The same shape composes recursively for nested classes.
 
     Example::
 
         tests:
           test_rail:                       # leaf
-            markers: [- flaky]
+            config: [- flaky]
           TestRails:                       # branch
-            markers: [- parametrize: ["vin", [4.5, 5.0, 5.5]]]
+            config: [- litmus_vectors: {vin: [4.5, 5.0, 5.5]}]
             tests:
               test_rail:                   # nested leaf
-                markers: [- litmus_limits: {v_rail: {tolerance_pct: 1.0}}]
+                config: [- litmus_limits: {v_rail: {tolerance_pct: 1.0}}]
     """
 
     __test__ = False  # Prevent pytest collection (class name starts with "Test")
 
     model_config = {"extra": "forbid"}
 
-    markers: list[MarkerSpec] = Field(default_factory=list)
+    config: list[ConfigEntry] = Field(default_factory=list)
     tests: dict[str, TestEntry] = Field(default_factory=dict)
 
 
 class SidecarConfig(BaseModel):
     """Top-level shape of a test-module sidecar YAML.
 
-    File-level ``markers:`` apply to every test in the module. Tests and
+    File-level ``config:`` applies to every test in the module. Tests and
     classes both live under ``tests:`` — each value is a :class:`TestEntry`,
-    so a class branch carries its own markers plus a nested ``tests:``
+    so a class branch carries its own config plus a nested ``tests:``
     dict for its methods.
 
     Example::
 
-        markers:
+        config:
           - litmus_limits: {v_rail: {tolerance_pct: 5.0}}
         tests:
           TestRails:
-            markers:
-              - parametrize: ["vin", [4.5, 5.0, 5.5]]
+            config:
+              - litmus_vectors: {vin: [4.5, 5.0, 5.5]}
             tests:
               test_rail:
-                markers:
+                config:
                   - litmus_limits: {v_rail: {tolerance_pct: 1.0}}
           test_standalone:
-            markers:
+            config:
               - skipif: "not os.getenv('HAS_BENCH')"
     """
 
@@ -143,7 +150,7 @@ class SidecarConfig(BaseModel):
 
     model_config = {"extra": "forbid"}
 
-    markers: list[MarkerSpec] = Field(default_factory=list)
+    config: list[ConfigEntry] = Field(default_factory=list)
     tests: dict[str, TestEntry] = Field(default_factory=dict)
 
 
@@ -679,130 +686,3 @@ class MeasurementLimitConfig(BaseModel):
                 spec_ref=self.spec_ref,
             )
         return None
-
-
-class TestStepConfig(BaseModel):
-    """Configuration for a single test step.
-
-    A step references either a test, a sequence, or a sync point (mutually exclusive).
-
-    Example with test:
-        - id: measure_5v
-          test: tests/test_power.py::test_5v
-          description: "Verify 5V rail"
-
-    Example with sequence (composition):
-        - id: run_smoke
-          sequence: power_board_smoke
-          description: "Run smoke tests first"
-
-    Example with sync point (multi-DUT):
-        - id: wait_thermal
-          sync: thermal_soak
-          timeout: 300
-          description: "Wait for all slots to reach thermal soak"
-    """
-
-    __test__ = False  # Prevent pytest collection
-    model_config = {"extra": "forbid"}
-
-    id: str
-    test: str | None = None  # pytest node ID, e.g. "tests/test_power.py::test_5v"
-    sequence: str | None = None  # Reference another sequence by ID
-    sync: str | None = None  # Sync point name for multi-DUT coordination
-    timeout: float | None = None  # Timeout for sync point (seconds)
-    description: str | None = None
-    measurement_name: str | None = None
-    limit: Limit | None = None  # Inline limit (highest precedence)
-    limit_ref: str | None = None  # Spec-derived limit (second precedence)
-    pre_dialog: str | None = None  # Reference to DialogConfig
-    post_dialog: str | None = None
-    aliases: dict[str, str] = Field(
-        default_factory=dict,
-        description="Maps alias names (test fixture params) to station instrument roles",
-    )
-    vectors: list[dict[str, Any]] | dict[str, Any] | None = None
-    limits: dict[str, Any] | None = None  # Bulk limits dict (lowest precedence)
-    mocks: dict[str, Any] | None = None
-    retry: RetryConfig | None = None
-    raise_on_fail: bool | None = None  # None = inherit from sequence/decorator
-    skip_on: list[str] | None = None  # Skip if these tests failed
-
-    @model_validator(mode="after")
-    def _validate_exactly_one_action(self) -> Self:
-        action_count = sum(1 for x in (self.test, self.sequence, self.sync) if x)
-        if action_count == 0:
-            raise ValueError("Step must have one of 'test', 'sequence', or 'sync'")
-        if action_count > 1:
-            raise ValueError("Step must have only one of 'test', 'sequence', or 'sync'")
-        return self
-
-
-class TestSequenceConfig(BaseModel):
-    """Configuration for a test sequence.
-
-    A test sequence is a named, ordered collection of test steps that an
-    operator can select and run. Steps reference pytest node IDs explicitly,
-    making the sequence the source of truth for test execution order.
-
-    Sequences can compose other sequences via step references:
-        - id: run_smoke
-          sequence: power_board_smoke  # Expands to all tests in that sequence
-
-    Example YAML (sequences/power_board_smoke.yaml):
-        sequence:
-          id: power_board_smoke
-          name: "Power Board - Smoke Test"
-          description: "Quick power-up verification"
-
-          steps:
-            - id: measure_5v_rail
-              test: tests/test_power_board.py::test_measure_5v_rail
-              description: "Verify 5V rail present"
-
-            - id: measure_3v3_rail
-              test: tests/test_power_board.py::test_measure_3v3_rail
-              description: "Verify 3.3V rail present"
-              skip_on: [measure_5v_rail]
-
-    Example YAML (sequences/power_board_full.yaml):
-        sequence:
-          id: power_board_full
-          name: "Power Board - Full Test"
-          description: "Complete functional test"
-          product_family: power_board
-          test_phase: production
-
-          steps:
-            - id: smoke_tests
-              sequence: power_board_smoke  # Compose smoke as first step
-
-            - id: load_test
-              test: tests/test_power_board.py::test_load_5v
-              pre_dialog: confirm_load_connected
-
-          dialogs:
-            confirm_load_connected:
-              id: confirm_load_connected
-              message: "Connect electronic load to 5V output"
-              dialog_type: confirm
-    """
-
-    __test__ = False  # Prevent pytest collection
-    model_config = {"extra": "forbid"}
-
-    id: str
-    name: str | None = None  # Display name (defaults to id)
-    description: str
-    product_family: str | None = None  # Optional for composable sequences
-    test_phase: Literal["development", "validation", "characterization", "production"] | None = None
-    required_fixture: str | None = None  # Reference to FixtureConfig
-    required_station_type: str | None = None  # Station type required
-    steps: list[TestStepConfig] = Field(default_factory=list)
-    dialogs: dict[str, Any] = Field(default_factory=dict)  # Inline dialog definitions
-    # pytest customization
-    pytest_args: list[str] = Field(default_factory=list)  # Extra pytest arguments
-    timeout_seconds: int | None = None  # Overall sequence timeout
-    # Sequence-level defaults (step overrides these)
-    raise_on_fail: bool | None = None
-    retry: RetryConfig | None = None

@@ -17,7 +17,7 @@ from typing import Literal
 from pydantic import BaseModel
 
 from litmus.models.catalog import InstrumentCatalogEntry
-from litmus.models.config import FixtureConfig, TestSequenceConfig
+from litmus.models.config import FixtureConfig
 from litmus.models.instrument_asset import InstrumentAssetFile
 from litmus.models.product import Product
 from litmus.models.project import ProjectConfig
@@ -27,7 +27,6 @@ FileType = Literal[
     "catalog",
     "product",
     "station",
-    "sequence",
     "fixture",
     "instrument_asset",
     "project",
@@ -37,7 +36,6 @@ SCHEMA_MAP: dict[FileType, type[BaseModel]] = {
     "catalog": InstrumentCatalogEntry,
     "product": Product,
     "station": StationConfig,
-    "sequence": TestSequenceConfig,
     "fixture": FixtureConfig,
     "instrument_asset": InstrumentAssetFile,
     "project": ProjectConfig,

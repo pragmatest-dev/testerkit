@@ -116,6 +116,38 @@ rewrite to benefit from Litmus's config system, instrument layer,
 and results store. Each wrapper is a week or two of work once the
 two-wheel split lands.
 
+### Sequences for fine-grained execution control
+
+Profiles (config overlay) and pytest classes (test grouping) cover
+v1's "validate product X" use case. What they don't cover:
+operator-pickable, ordered bundles with step-level dependencies —
+"run smoke, then load only if smoke passed, with a dialog before
+load." Today the curriculum has zero examples that need this; v1
+ships without sequences and the existing `TestSequenceConfig` + UI
+get deleted on `experiment/pytest-native-sequences` rather than
+maintained as dead code.
+
+If real factory-line demand emerges post-v1, design a minimal
+sequence model that translates straight to pytest primitives:
+
+- `tests:` list (test IDs / class IDs) → pytest argument order
+- `markers:` filter expression → `-m "<expr>"`
+- `steps[].depends_on:` → `pytest-dependency` semantics injected at
+  collection time
+- `abort_on_failure:` → `-x`
+
+That's the whole shape — about 80% smaller than the deleted
+`TestSequenceConfig`. Operator UI lists sequences by `id` /
+`description`; picking one runs the translated pytest invocation
+under the active profile.
+
+**Why:** profile and sequence are orthogonal axes — profile is the
+config lens, sequence is the execution plan. Same profile (config
+for product X) supports multiple sequences (smoke / full /
+characterization) without duplicating limits or mocks. Worth
+rebuilding when there's a real operator-bundle requirement; not
+worth carrying dead model surface in the meantime.
+
 ---
 
 ## In progress

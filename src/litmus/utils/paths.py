@@ -19,7 +19,6 @@ class ResourceType(StrEnum):
     PRODUCTS = "products"  # Product YAML files
     STATIONS = "stations"  # Station configurations
     INSTRUMENTS = "instruments"  # Instrument library definitions
-    SEQUENCES = "sequences"  # Test sequences
     FIXTURES = "fixtures"  # Test fixture definitions
     TESTS = "tests"  # Test configurations
 
@@ -69,11 +68,6 @@ def get_station_paths(project_root: Path | None = None) -> list[Path]:
 def get_instrument_paths(project_root: Path | None = None) -> list[Path]:
     """Get search paths for instrument library."""
     return get_search_paths(ResourceType.INSTRUMENTS, project_root)
-
-
-def get_sequence_paths(project_root: Path | None = None) -> list[Path]:
-    """Get search paths for test sequences."""
-    return get_search_paths(ResourceType.SEQUENCES, project_root)
 
 
 def get_fixture_paths(project_root: Path | None = None) -> list[Path]:

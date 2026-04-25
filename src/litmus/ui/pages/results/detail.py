@@ -67,7 +67,7 @@ def _render_run_detail(run_id: str, run: RunSummary, measurements: list):
             with ui.grid(columns=3).classes("gap-6"):
                 info_field("DUT Serial", run.dut_serial or "")
                 info_field_link("Station", run.station_id or "", "/stations")
-                info_field_link("Test Sequence", run.test_sequence_id or "", "/sequences")
+                info_field("Test Sequence", run.test_sequence_id or "")
                 info_field("Started", format_datetime(run.started_at))
                 info_field("Ended", format_datetime(run.ended_at))
                 results_summary = (

@@ -4,7 +4,7 @@ NO direct yaml.safe_load or Path I/O here — all persistence goes through litmu
 """
 
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any
 
 import pyarrow as pa
 
@@ -16,7 +16,7 @@ from litmus.data.models import RunSummary
 from litmus.instruments.loader import resolve_station_instruments
 from litmus.matching import service as matching_service
 from litmus.models.catalog import InstrumentCatalogEntry
-from litmus.models.config import FixtureConfig, TestSequenceConfig
+from litmus.models.config import FixtureConfig
 from litmus.models.product import Product
 from litmus.models.station import StationConfig
 from litmus.products.folder import ProductFolder
@@ -28,9 +28,6 @@ from litmus.store import (
 )
 from litmus.store import (
     create_product as store_create_product,
-)
-from litmus.store import (
-    create_sequence as store_create_sequence,
 )
 from litmus.store import (
     create_station as store_create_station,
@@ -55,9 +52,6 @@ from litmus.store import (
     get_product as store_get_product,
 )
 from litmus.store import (
-    get_sequence as store_get_sequence,
-)
-from litmus.store import (
     get_station as store_get_station,
 )
 from litmus.store import (
@@ -65,9 +59,6 @@ from litmus.store import (
 )
 from litmus.store import (
     list_instrument_assets as store_list_instrument_assets,
-)
-from litmus.store import (
-    list_sequences as store_list_sequences,
 )
 from litmus.store import (
     list_stations as store_list_stations,
@@ -83,9 +74,6 @@ from litmus.store import (
 )
 from litmus.store import (
     save_product as store_save_product,
-)
-from litmus.store import (
-    save_sequence as store_save_sequence,
 )
 from litmus.store import (
     save_station as store_save_station,
@@ -441,36 +429,6 @@ def discover_tests() -> list[dict]:
             if test_entry not in tests:
                 tests.append(test_entry)
     return tests
-
-
-def discover_sequences():
-    """Discover test sequences from YAML files."""
-    return store_list_sequences()
-
-
-def create_sequence(
-    sequence_id: str,
-    name: str,
-    product_family: str = "",
-    test_phase: Literal["validation", "characterization", "production"] = "validation",
-    description: str = "",
-):
-    """Create a new sequence configuration file."""
-    return store_create_sequence(sequence_id, name, product_family, test_phase, description)
-
-
-def load_sequence_config(sequence_id: str):
-    """Load sequence configuration by ID."""
-    return store_get_sequence(sequence_id)
-
-
-def save_sequence(sequence_id: str, sequence_data: dict, steps: list, dialogs: dict) -> bool:
-    """Save sequence configuration to YAML file."""
-    seq_dict = {**sequence_data, "steps": steps}
-    if dialogs:
-        seq_dict["dialogs"] = dialogs
-    seq = TestSequenceConfig.model_validate(seq_dict)
-    return store_save_sequence(seq)
 
 
 # -----------------------------------------------------------------------------

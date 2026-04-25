@@ -7,12 +7,9 @@ from litmus.store import load_project_config
 from litmus.ui.shared.components import format_datetime, info_field, setup_hash_sync_for_tabs
 from litmus.ui.shared.layout import create_layout
 from litmus.ui.shared.services import (
-    discover_sequences,
     get_station_capabilities,
-    load_product_model,
     load_station_config,
     resolve_station_instrument_records,
-    station_compatible_with_product,
 )
 
 
@@ -226,59 +223,6 @@ def _render_sequences_tab(station_id: str, config):
                     for cap in station_caps
                 ]
                 ui.table(columns=columns, rows=rows, row_key="capability").classes("w-full")
-
-    # Compatible sequences
-    sequences = discover_sequences()
-    compatible_sequences = []
-    for seq in sequences:
-        product_family = seq.product_family
-        if product_family:
-            product = load_product_model(product_family)
-            if product and station_compatible_with_product(config, product):
-                compatible_sequences.append(seq)
-        else:
-            # Sequences without product_family are always shown
-            compatible_sequences.append(seq)
-
-    with ui.row().classes("items-center gap-2 mt-4 mb-2"):
-        ui.icon("list_alt").classes("text-slate-600")
-        ui.label("Compatible Sequences").classes("font-semibold text-slate-700")
-        ui.badge(f"{len(compatible_sequences)} found").props("outline")
-
-    if compatible_sequences:
-        with ui.row().classes("gap-4 flex-wrap"):
-            for seq in compatible_sequences:
-                _sequence_card(station_id, seq)
-    else:
-        ui.label("No compatible sequences found.").classes("text-slate-500 italic")
-
-
-def _sequence_card(station_id: str, seq):
-    """Render a sequence card."""
-    with ui.card().classes("w-72"):
-        with ui.card_section():
-            ui.label(seq.name or seq.id).classes("font-semibold")
-            if seq.test_phase:
-                phase_colors = {
-                    "validation": "blue",
-                    "characterization": "purple",
-                    "production": "green",
-                }
-                ui.badge(
-                    seq.test_phase,
-                    color=phase_colors.get(seq.test_phase, "gray"),
-                ).props("outline")
-            ui.label((seq.description or "")[:60]).classes("text-sm text-slate-500 mt-1")
-            if seq.product_family:
-                ui.label(f"Product: {seq.product_family}").classes("text-xs text-slate-400 mt-1")
-        with ui.card_actions():
-            ui.button(
-                "Run",
-                icon="play_arrow",
-                on_click=lambda _, s=seq: ui.navigate.to(
-                    f"/launch?sequence={s.id}&station={station_id}"
-                ),
-            ).props("flat dense color=primary")
 
 
 def _render_runs_tab(station_id: str):

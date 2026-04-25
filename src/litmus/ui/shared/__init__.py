@@ -11,7 +11,6 @@ from litmus.ui.shared.layout import create_layout, create_sidebar
 from litmus.ui.shared.services import (
     discover_instrument_types,
     discover_products,
-    discover_sequences,
     discover_stations,
     discover_tests,
     get_compatible_stations_for_product,
@@ -31,7 +30,6 @@ __all__ = [
     "create_sidebar",
     "discover_instrument_types",
     "discover_products",
-    "discover_sequences",
     "discover_stations",
     "discover_tests",
     "get_compatible_stations_for_product",

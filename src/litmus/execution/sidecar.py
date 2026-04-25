@@ -29,8 +29,8 @@ import yaml
 
 from litmus.config.expanders import expand_ranges
 from litmus.config.test_config import (
+    ConfigEntry,
     Limit,
-    MarkerSpec,
     MeasurementLimitConfig,
     SidecarConfig,
     TestEntry,
@@ -72,44 +72,44 @@ def sidecar_markers_for(
     root: SidecarConfig | ProfileConfig | TestEntry | None,
     cls_name: str | None,
     func_name: str | None,
-) -> list[MarkerSpec]:
-    """Walk a sidecar-shaped tree to collect markers for one test.
+) -> list[ConfigEntry]:
+    """Walk a sidecar-shaped tree to collect config entries for one test.
 
-    Yields, in order: root ``markers`` (file-level) → if the test is a
-    method, the class branch's ``markers`` → the leaf's ``markers``.
+    Yields, in order: root ``config`` (file-level) → if the test is a
+    method, the class branch's ``config`` → the leaf's ``config``.
     Leaf lookup precedence (most → least specific):
 
     1. nested ``tests[Class].tests[method]`` (preferred form)
     2. dotted shorthand ``tests["Class.method"]`` at the root
     3. bare ``tests[method]`` shorthand at the root
 
-    The first match wins; class-branch markers still apply when the leaf
-    came from a dotted or bare shorthand. Accepts either a
+    The first match wins; class-branch config still applies when the
+    leaf came from a dotted or bare shorthand. Accepts either a
     :class:`SidecarConfig` (sidecar root) or a :class:`ProfileConfig`
-    (structural duck typing — both expose ``markers`` + ``tests``).
+    (structural duck typing — both expose ``config`` + ``tests``).
     """
     if root is None:
         return []
-    out: list[MarkerSpec] = list(root.markers)
+    out: list[ConfigEntry] = list(root.config)
     if cls_name is not None:
         class_branch = root.tests.get(cls_name)
         if class_branch is not None:
-            out.extend(class_branch.markers)
+            out.extend(class_branch.config)
             if func_name is not None:
                 method_leaf = class_branch.tests.get(func_name)
                 if method_leaf is not None:
-                    out.extend(method_leaf.markers)
+                    out.extend(method_leaf.config)
                     return out
     if func_name is None:
         return out
     if cls_name is not None:
         dotted_leaf = root.tests.get(f"{cls_name}.{func_name}")
         if dotted_leaf is not None:
-            out.extend(dotted_leaf.markers)
+            out.extend(dotted_leaf.config)
             return out
     bare_leaf = root.tests.get(func_name)
     if bare_leaf is not None:
-        out.extend(bare_leaf.markers)
+        out.extend(bare_leaf.config)
     return out
 
 

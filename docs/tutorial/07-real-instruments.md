@@ -77,31 +77,24 @@ When `--mock-instruments` is set:
 
 ## Per-Test Mock Values
 
-For tests that need specific mock values, use `mocks` in the sequence step:
+For tests that need specific mock values, use `litmus_mock` in the sidecar:
 
 ```yaml
-# sequences/my_sequence.yaml
-steps:
-  - id: output_voltage
-    test: tests/test_voltage.py::test_output_voltage
-    mocks:
-      dmm.measure_voltage: 3.31
-      psu.measure_current: 0.5
-    limits:
-      test_output_voltage:
-        low: 3.2
-        high: 3.4
-        units: V
+# tests/test_voltage.yaml
+config:
+  - litmus_mock: {target: dmm.measure_voltage, return_value: 3.31}
+  - litmus_mock: {target: psu.measure_current, return_value: 0.5}
+  - litmus_limits:
+      test_output_voltage: {low: 3.2, high: 3.4, units: V}
 ```
 
 ## Mock Value Priority
 
 When running with `--mock-instruments`, values are resolved in order:
 
-1. **Vector-level `_mocks`** — Specific to this test vector
-2. **Step-level `mocks`** — Constant for all vectors in this step
-3. **Station `mock_config`** — Default for this instrument
-4. **Zero** — If nothing else configured
+1. **`litmus_mock` marker** — Per-test mock value (sidecar or inline)
+2. **Station `mock_config`** — Default for this instrument
+3. **Zero** — If nothing else configured
 
 ## CI/CD Configuration
 

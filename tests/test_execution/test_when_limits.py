@@ -37,7 +37,7 @@ def test_single_band_empty_when_always_matches(pytester: pytest.Pytester) -> Non
     (pytester.path / "test_seq.yaml").write_text(
         textwrap.dedent(
             """
-            markers:
+            config:
               - litmus_limits:
                   v_rail:
                     - when: {}
@@ -70,7 +70,7 @@ def test_multi_band_selects_matching_by_parametrize(pytester: pytest.Pytester) -
     (pytester.path / "test_seq.yaml").write_text(
         textwrap.dedent(
             """
-            markers:
+            config:
               - litmus_limits:
                   v_rail:
                     - when: {vin: 5.0}
@@ -107,7 +107,7 @@ def test_multi_band_bounds_differ_per_row(pytester: pytest.Pytester) -> None:
     (pytester.path / "test_seq.yaml").write_text(
         textwrap.dedent(
             """
-            markers:
+            config:
               - litmus_limits:
                   v_rail:
                     - when: {vin: 5.0}
@@ -142,7 +142,7 @@ def test_multi_band_two_keys_anded(pytester: pytest.Pytester) -> None:
     (pytester.path / "test_seq.yaml").write_text(
         textwrap.dedent(
             """
-            markers:
+            config:
               - litmus_limits:
                   v_rail:
                     - when: {vin: 5.0, load: 0.1}
@@ -175,7 +175,7 @@ def test_no_band_matches_raises_usage_error(pytester: pytest.Pytester) -> None:
     (pytester.path / "test_seq.yaml").write_text(
         textwrap.dedent(
             """
-            markers:
+            config:
               - litmus_limits:
                   v_rail:
                     - when: {vin: 5.0}
@@ -207,7 +207,7 @@ def test_scalar_dict_shape_still_resolves(pytester: pytest.Pytester) -> None:
     (pytester.path / "test_seq.yaml").write_text(
         textwrap.dedent(
             """
-            markers:
+            config:
               - litmus_limits:
                   v_rail: {low: 3.2, high: 3.4, units: V}
             """
@@ -262,7 +262,7 @@ def test_band_with_tolerance_pct_and_characteristic(pytester: pytest.Pytester) -
     (pytester.path / "test_seq.yaml").write_text(
         textwrap.dedent(
             """
-            markers:
+            config:
               - litmus_limits:
                   v_rail:
                     - when: {vin: 5.0}
