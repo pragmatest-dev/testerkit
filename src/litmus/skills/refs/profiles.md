@@ -25,16 +25,15 @@ pytest:
 markers:                            # applied to every test in the session
   - litmus_limits: {v_rail: {tolerance_pct: 5.0}}
 
-classes:
-  TestRails:
+tests:                              # recursive tree mirroring pytest node ids
+  TestRails:                        # class branch
     markers:                        # applied to every method of TestRails
       - parametrize: ["vin", [4.5, 5.0, 5.5]]
-
-tests:
-  TestRails.test_rail:              # qualified — disambiguates across classes
-    markers:
-      - litmus_limits: {v_rail: {low: 3.25, high: 3.35}}
-  test_standalone:                  # bare — module-level test
+    tests:
+      test_rail:                    # nested method (leaf)
+        markers:
+          - litmus_limits: {v_rail: {low: 3.25, high: 3.35}}
+  test_standalone:                  # module-level test (leaf)
     markers:
       - skip: "bench required"
 ```
@@ -179,8 +178,8 @@ a CLI flag or env var.
 
 - `litmus/models/project.py` — `ProfileConfig`, `ProfilePytest`,
   `ProjectConfig`
-- `litmus/config/test_config.py` — `MarkerSpec`, `ClassMarkers`,
-  `TestMarkers`, `SidecarConfig`
+- `litmus/config/test_config.py` — `MarkerSpec`, `TestEntry`,
+  `SidecarConfig`
 - `litmus/execution/plugin.py` — `_resolve_active_profile`,
   `_flatten_profile_chain`, `_profile_markers_for_item`,
   `_collect_profile_facet_keys`, `_collect_facet_flags_from_config`

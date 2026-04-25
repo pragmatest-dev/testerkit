@@ -22,7 +22,7 @@ from __future__ import annotations
 import functools
 from collections.abc import Mapping
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import pytest
 import yaml
@@ -33,7 +33,11 @@ from litmus.config.test_config import (
     MarkerSpec,
     MeasurementLimitConfig,
     SidecarConfig,
+    TestEntry,
 )
+
+if TYPE_CHECKING:
+    from litmus.models.project import ProfileConfig
 from litmus.execution._state import (
     get_active_profile,
     get_active_spec_context,
@@ -48,8 +52,8 @@ def load_sidecar(module_file: Path) -> SidecarConfig | None:
     Cached on ``module_file`` so a module with many parametrize cases
     parses its YAML once per session instead of once per test. The
     returned :class:`SidecarConfig` is immutable from the caller's
-    perspective — its shape is the same as a profile block (``markers``,
-    ``classes``, ``tests``).
+    perspective — its shape mirrors pytest's node-id structure
+    (file-level ``markers`` + recursive ``tests:`` tree).
     """
     yaml_path = module_file.with_suffix(".yaml")
     if not yaml_path.exists():
@@ -65,33 +69,47 @@ def load_sidecar(module_file: Path) -> SidecarConfig | None:
 
 
 def sidecar_markers_for(
-    sidecar: SidecarConfig | None,
+    root: SidecarConfig | ProfileConfig | TestEntry | None,
     cls_name: str | None,
     func_name: str | None,
 ) -> list[MarkerSpec]:
-    """Merge sidecar markers for a test: file-level + class + per-test.
+    """Walk a sidecar-shaped tree to collect markers for one test.
 
-    Qualified ``tests.TestCls.test_foo`` wins over bare ``tests.test_foo``
-    when both are present — same disambiguation as the profile chain.
+    Yields, in order: root ``markers`` (file-level) → if the test is a
+    method, the class branch's ``markers`` → the leaf's ``markers``.
+    Leaf lookup precedence (most → least specific):
+
+    1. nested ``tests[Class].tests[method]`` (preferred form)
+    2. dotted shorthand ``tests["Class.method"]`` at the root
+    3. bare ``tests[method]`` shorthand at the root
+
+    The first match wins; class-branch markers still apply when the leaf
+    came from a dotted or bare shorthand. Accepts either a
+    :class:`SidecarConfig` (sidecar root) or a :class:`ProfileConfig`
+    (structural duck typing — both expose ``markers`` + ``tests``).
     """
-    if sidecar is None:
+    if root is None:
         return []
-    out: list[MarkerSpec] = list(sidecar.markers)
+    out: list[MarkerSpec] = list(root.markers)
     if cls_name is not None:
-        class_block = sidecar.classes.get(cls_name)
-        if class_block is not None:
-            out.extend(class_block.markers)
+        class_branch = root.tests.get(cls_name)
+        if class_branch is not None:
+            out.extend(class_branch.markers)
+            if func_name is not None:
+                method_leaf = class_branch.tests.get(func_name)
+                if method_leaf is not None:
+                    out.extend(method_leaf.markers)
+                    return out
     if func_name is None:
         return out
     if cls_name is not None:
-        qualified = f"{cls_name}.{func_name}"
-        qualified_block = sidecar.tests.get(qualified)
-        if qualified_block is not None:
-            out.extend(qualified_block.markers)
+        dotted_leaf = root.tests.get(f"{cls_name}.{func_name}")
+        if dotted_leaf is not None:
+            out.extend(dotted_leaf.markers)
             return out
-    bare_block = sidecar.tests.get(func_name)
-    if bare_block is not None:
-        out.extend(bare_block.markers)
+    bare_leaf = root.tests.get(func_name)
+    if bare_leaf is not None:
+        out.extend(bare_leaf.markers)
     return out
 
 
@@ -150,7 +168,6 @@ class _BandSet:
 
 
 def _parse_limit_entry(
-    name: str,
     spec: Mapping[str, Any],
     *,
     test_char: str | None,
@@ -193,14 +210,14 @@ def parse_limits_block(
                     )
                 when = dict(band_spec.get("when") or {})
                 body = {k: v for k, v in band_spec.items() if k != "when"}
-                bands.append((when, _parse_limit_entry(name, body, test_char=test_char)))
+                bands.append((when, _parse_limit_entry(body, test_char=test_char)))
             out[name] = _BandSet(bands)
             continue
         if not isinstance(spec, Mapping):
             raise ValueError(
                 f"limits.{name!r} must be a mapping or list; got {type(spec).__name__}"
             )
-        out[name] = _parse_limit_entry(name, spec, test_char=test_char)
+        out[name] = _parse_limit_entry(spec, test_char=test_char)
     return out
 
 

@@ -35,8 +35,8 @@ walks the full marker merge cascade (least → most specific):
 
 1. **Explicit kwargs** — `logger.measure("v", val, low=..., high=..., units=...)`
 2. **Sidecar file-level marker** — `markers: [- litmus_limits: {...}]`
-3. **Sidecar class-level marker** — `classes.<Cls>.markers:`
-4. **Sidecar per-test marker** — `tests.<name>.markers:`
+3. **Sidecar class branch marker** — `tests.<Cls>.markers:`
+4. **Sidecar per-test marker** — `tests.<name>.markers:` (or nested `tests.<Cls>.tests.<method>.markers:`)
 5. **Inline `@pytest.mark.litmus_limits(...)`** on method / class
 6. **Profile chain markers** — parent profile first, child last
 7. **Product spec** — `ref: "<name>"` delegation against the active `SpecContext`
@@ -84,9 +84,10 @@ markers:
       startup_current: {high: 50, comparator: LE, units: mA}
 ```
 
-The same `litmus_limits` marker works at class scope (`classes.<Cls>.markers:`)
-and per-test scope (`tests.<name>.markers:`). Per-test overrides class
-overrides file-level, key-by-key.
+The same `litmus_limits` marker works at class-branch scope
+(`tests.<Cls>.markers:`) and per-test scope (`tests.<name>.markers:`
+or nested `tests.<Cls>.tests.<method>.markers:`). Per-test overrides
+class overrides file-level, key-by-key.
 
 Sidecar is the preferred home for operator-edited limits — non-developers can tune without touching Python.
 

@@ -5,7 +5,7 @@ from __future__ import annotations
 import pytest
 
 from litmus.config.expanders import expand_ranges
-from litmus.config.test_config import ClassMarkers, MarkerSpec, SidecarConfig, TestMarkers
+from litmus.config.test_config import MarkerSpec, SidecarConfig, TestEntry
 
 
 class TestMarkerSpecFromRaw:
@@ -128,21 +128,20 @@ class TestSidecarConfig:
     def test_empty_is_valid(self) -> None:
         cfg = SidecarConfig()
         assert cfg.markers == []
-        assert cfg.classes == {}
         assert cfg.tests == {}
 
-    def test_all_three_scopes(self) -> None:
+    def test_recursive_tree_with_class_branch_and_module_test(self) -> None:
         cfg = SidecarConfig.model_validate(
             {
                 "markers": [{"litmus_limits": {"v_rail": {"tolerance_pct": 5.0}}}],
-                "classes": {
+                "tests": {
                     "TestRails": {
                         "markers": [{"parametrize": ["vin", [4.5, 5.0, 5.5]]}],
-                    },
-                },
-                "tests": {
-                    "TestRails.test_rail": {
-                        "markers": [{"litmus_limits": {"v_rail": {"tolerance_pct": 1.0}}}],
+                        "tests": {
+                            "test_rail": {
+                                "markers": [{"litmus_limits": {"v_rail": {"tolerance_pct": 1.0}}}],
+                            },
+                        },
                     },
                     "test_standalone": {
                         "markers": ["flaky"],
@@ -152,11 +151,21 @@ class TestSidecarConfig:
         )
         assert len(cfg.markers) == 1
         assert cfg.markers[0].name == "litmus_limits"
-        assert isinstance(cfg.classes["TestRails"], ClassMarkers)
-        assert cfg.classes["TestRails"].markers[0].name == "parametrize"
-        assert isinstance(cfg.tests["TestRails.test_rail"], TestMarkers)
-        assert cfg.tests["test_standalone"].markers[0] == MarkerSpec(name="flaky")
+        rails = cfg.tests["TestRails"]
+        assert isinstance(rails, TestEntry)
+        assert rails.markers[0].name == "parametrize"
+        nested = rails.tests["test_rail"]
+        assert isinstance(nested, TestEntry)
+        assert nested.markers[0].kwargs == {"v_rail": {"tolerance_pct": 1.0}}
+        standalone = cfg.tests["test_standalone"]
+        assert isinstance(standalone, TestEntry)
+        assert standalone.markers[0] == MarkerSpec(name="flaky")
+        assert standalone.tests == {}
 
     def test_rejects_unknown_top_level_key(self) -> None:
         with pytest.raises(ValueError, match="extra"):
             SidecarConfig.model_validate({"vectors": {}})
+
+    def test_rejects_unknown_test_entry_key(self) -> None:
+        with pytest.raises(ValueError, match="extra"):
+            SidecarConfig.model_validate({"tests": {"test_x": {"markers": [], "limits": {}}}})

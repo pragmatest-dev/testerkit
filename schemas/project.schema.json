@@ -1,20 +1,5 @@
 {
   "$defs": {
-    "ClassMarkers": {
-      "additionalProperties": false,
-      "description": "Container for a class entry in sidecars.\n\nClass-scoped markers apply to every method of the class. Per-method\noverrides go under ``tests.<ClassName>.<method>`` (qualified form)\nrather than nesting inside the class block.",
-      "properties": {
-        "markers": {
-          "items": {
-            "$ref": "#/$defs/MarkerSpec"
-          },
-          "title": "Markers",
-          "type": "array"
-        }
-      },
-      "title": "ClassMarkers",
-      "type": "object"
-    },
     "MarkerSpec": {
       "additionalProperties": false,
       "description": "One entry in a ``markers:`` list \u2014 mirrors a pytest decorator.\n\nFour YAML shapes are parsed by :meth:`from_raw`:\n\n==================================== =============================================\nYAML                                 Parsed to\n==================================== =============================================\n``- flaky``                          ``MarkerSpec(name=\"flaky\")``\n``- skip: \"reason\"``                 ``MarkerSpec(name=\"skip\", args=[\"reason\"])``\n``- parametrize: [\"vin\", [1, 2]]``   ``MarkerSpec(name=\"parametrize\",\n                                         args=[\"vin\", [1, 2]])``\n``- litmus_limits: {v_rail: {...}}`` ``MarkerSpec(name=\"litmus_limits\",\n                                         kwargs={\"v_rail\": {...}})``\n==================================== =============================================\n\nList payloads expand to positional args; dict payloads are keyword\nargs; string/number/bool payloads become a single positional arg;\nbare names have neither. Mirrors how pytest decorators are called,\nso a reader who knows ``@pytest.mark.parametrize(...)`` can read the\nYAML directly.",
@@ -103,7 +88,7 @@
     },
     "ProfileConfig": {
       "additionalProperties": false,
-      "description": "A named config set applied to a pytest session.\n\nProfiles carry pytest markers at three scopes: file-wide ``markers``\n(applied to every test), ``classes.<ClassName>.markers`` (applied\nto every method of a class), and ``tests.<name>.markers`` (per-test).\nShape matches the sidecar ``SidecarConfig`` so one vocabulary\nspans inline decorators, sidecar YAML, and profile overrides.\n\n``extends`` names another profile whose configuration is inherited and\noverridden last-wins by this one. Chains are walked parent-first, so a\nfamily / platform base can declare the shared 90% and each leaf profile\nholds only deltas. Parent profiles with no ``facets`` are reachable\nonly as extends targets.",
+      "description": "A named config set applied to a pytest session.\n\nProfiles carry pytest markers in the same recursive ``tests:`` tree as\nsidecars: file-wide ``markers`` apply to every test, and ``tests:``\nholds :class:`TestEntry` nodes mirroring pytest's node-id structure.\nA class is a branch (markers + nested ``tests:``); a function is a\nleaf. One vocabulary spans inline decorators, sidecar YAML, and\nprofile overrides.\n\n``extends`` names another profile whose configuration is inherited and\noverridden last-wins by this one. Chains are walked parent-first, so a\nfamily / platform base can declare the shared 90% and each leaf profile\nholds only deltas. Parent profiles with no ``facets`` are reachable\nonly as extends targets.",
       "properties": {
         "description": {
           "anyOf": [
@@ -146,16 +131,9 @@
           "title": "Markers",
           "type": "array"
         },
-        "classes": {
-          "additionalProperties": {
-            "$ref": "#/$defs/ClassMarkers"
-          },
-          "title": "Classes",
-          "type": "object"
-        },
         "tests": {
           "additionalProperties": {
-            "$ref": "#/$defs/TestMarkers"
+            "$ref": "#/$defs/TestEntry"
           },
           "title": "Tests",
           "type": "object"
@@ -208,9 +186,61 @@
       "title": "ProfilePytest",
       "type": "object"
     },
-    "TestMarkers": {
+    "PromptConfig": {
       "additionalProperties": false,
-      "description": "Container for a test / class entry in sidecars and profiles.",
+      "description": "Configuration for operator prompts.\n\nExample YAML:\n    prompt:\n      message: \"Set chamber to {temperature}C\"\n      type: confirm",
+      "properties": {
+        "message": {
+          "title": "Message",
+          "type": "string"
+        },
+        "prompt_type": {
+          "default": "confirm",
+          "enum": [
+            "confirm",
+            "choice",
+            "input"
+          ],
+          "title": "Prompt Type",
+          "type": "string"
+        },
+        "choices": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Choices"
+        },
+        "timeout_seconds": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Timeout Seconds"
+        }
+      },
+      "required": [
+        "message"
+      ],
+      "title": "PromptConfig",
+      "type": "object"
+    },
+    "TestEntry": {
+      "additionalProperties": false,
+      "description": "Recursive node in a sidecar / profile ``tests:`` tree.\n\nMirrors pytest's node-id structure: a class is a branch with its own\n``markers:`` (applied to every nested test) and a ``tests:`` dict\nholding its methods; a function is a leaf with markers and an empty\n``tests:``. The same shape composes recursively for nested classes.\n\nExample::\n\n    tests:\n      test_rail:                       # leaf\n        markers: [- flaky]\n      TestRails:                       # branch\n        markers: [- parametrize: [\"vin\", [4.5, 5.0, 5.5]]]\n        tests:\n          test_rail:                   # nested leaf\n            markers: [- litmus_limits: {v_rail: {tolerance_pct: 1.0}}]",
       "properties": {
         "markers": {
           "items": {
@@ -218,9 +248,16 @@
           },
           "title": "Markers",
           "type": "array"
+        },
+        "tests": {
+          "additionalProperties": {
+            "$ref": "#/$defs/TestEntry"
+          },
+          "title": "Tests",
+          "type": "object"
         }
       },
-      "title": "TestMarkers",
+      "title": "TestEntry",
       "type": "object"
     }
   },
@@ -260,6 +297,18 @@
       "default": null,
       "title": "Default Fixture"
     },
+    "default_profile": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Default Profile"
+    },
     "mock_instruments": {
       "default": false,
       "title": "Mock Instruments",
@@ -277,6 +326,13 @@
         "$ref": "#/$defs/ProfileConfig"
       },
       "title": "Profiles",
+      "type": "object"
+    },
+    "required_inputs": {
+      "additionalProperties": {
+        "$ref": "#/$defs/PromptConfig"
+      },
+      "title": "Required Inputs",
       "type": "object"
     }
   },

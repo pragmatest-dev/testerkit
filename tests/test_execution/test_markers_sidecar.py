@@ -153,7 +153,7 @@ def test_class_scoped_markers_apply_to_every_method(pytester: pytest.Pytester) -
     (pytester.path / "test_seq.yaml").write_text(
         textwrap.dedent(
             """
-            classes:
+            tests:
               TestRails:
                 markers:
                   - litmus_limits:
@@ -183,16 +183,16 @@ def test_qualified_test_entry_tightens_class_level(pytester: pytest.Pytester) ->
     (pytester.path / "test_seq.yaml").write_text(
         textwrap.dedent(
             """
-            classes:
+            tests:
               TestRails:
                 markers:
                   - litmus_limits:
                       v_rail: {low: 3.0, high: 3.6, units: V}
-            tests:
-              TestRails.test_strict:
-                markers:
-                  - litmus_limits:
-                      v_rail: {low: 3.2, high: 3.4, units: V}
+                tests:
+                  test_strict:
+                    markers:
+                      - litmus_limits:
+                          v_rail: {low: 3.2, high: 3.4, units: V}
             """
         )
     )

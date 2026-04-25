@@ -13,7 +13,6 @@ tests:
       - litmus_limits:
           v_rail: {characteristic: rail_3v3, tolerance_pct: 2}
 
-classes:
   TestIdle:
     markers:
       - litmus_spec: {characteristic: rail_3v3}

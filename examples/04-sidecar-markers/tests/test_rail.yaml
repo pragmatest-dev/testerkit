@@ -7,15 +7,15 @@ markers:
   - litmus_limits:
       v_rail: {low: 3.2, high: 3.4, units: V}
 
-# Class-scoped: applied to every method of TestIdle.
-classes:
+# tests: mirrors pytest's node-id structure. A class is a branch with
+# its own markers (applied to every nested method) plus a nested
+# tests: dict; a function is a leaf.
+tests:
   TestIdle:
     markers:
       - litmus_limits:
           i_idle: {low: 0.0, high: 0.1, units: A}
 
-# Per-test: qualified name avoids collisions with TestIdle methods.
-tests:
   test_rail_holds_across_input:
     markers:
       - parametrize: ["vin", [3.3, 5.0, 5.5]]

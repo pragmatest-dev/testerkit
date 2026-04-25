@@ -2,8 +2,9 @@
 
 Markers moved out of Python into a sibling YAML file. Same
 vocabulary as pytest decorators: `parametrize`, `litmus_limits`.
-Three scopes — file-wide, class-wide, per-test — all in the same
-list-of-markers shape.
+The sidecar mirrors pytest's node-id structure: a file-level
+`markers:` list plus a recursive `tests:` tree where classes are
+branches and functions are leaves.
 
 ## Diff from stage 3
 
@@ -29,22 +30,28 @@ change without scanning test logic.
 
 ## Sidecar structure
 
-Three scopes, all shaped the same way — a `markers:` list whose
-entries mirror pytest decorators:
+A file-level `markers:` list plus a recursive `tests:` tree. Each
+entry under `tests:` is either a function (leaf — just `markers:`)
+or a class (branch — its own `markers:` plus a nested `tests:` for
+its methods). The shape mirrors pytest's `file::Class::method`
+node ids.
 
 ```yaml
-markers:                  # file-wide: applies to every test in the module
+markers:                          # file-wide: applies to every test
   - litmus_limits: ...
 
-classes:
-  TestIdle:
-    markers:              # class-wide: applies to every method in TestIdle
-      - litmus_limits: ...
-
 tests:
-  test_rail_holds_across_input:
-    markers:              # per-test: applies only to this test
+  test_rail_holds_across_input:   # module-level test (leaf)
+    markers:
       - parametrize: ...
+
+  TestIdle:                       # class branch
+    markers:                      # class-wide: applies to every TestIdle method
+      - litmus_limits: ...
+    tests:
+      test_idle_current:          # nested method (leaf)
+        markers:
+          - litmus_limits: ...    # tightens just this method
 ```
 
 ## Classes as sequences

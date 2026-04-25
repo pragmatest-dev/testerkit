@@ -86,47 +86,54 @@ class MarkerSpec(BaseModel):
         return cls.from_raw(data).model_dump()
 
 
-class TestMarkers(BaseModel):
-    """Container for a test / class entry in sidecars and profiles."""
+class TestEntry(BaseModel):
+    """Recursive node in a sidecar / profile ``tests:`` tree.
+
+    Mirrors pytest's node-id structure: a class is a branch with its own
+    ``markers:`` (applied to every nested test) and a ``tests:`` dict
+    holding its methods; a function is a leaf with markers and an empty
+    ``tests:``. The same shape composes recursively for nested classes.
+
+    Example::
+
+        tests:
+          test_rail:                       # leaf
+            markers: [- flaky]
+          TestRails:                       # branch
+            markers: [- parametrize: ["vin", [4.5, 5.0, 5.5]]]
+            tests:
+              test_rail:                   # nested leaf
+                markers: [- litmus_limits: {v_rail: {tolerance_pct: 1.0}}]
+    """
 
     __test__ = False  # Prevent pytest collection (class name starts with "Test")
 
     model_config = {"extra": "forbid"}
 
     markers: list[MarkerSpec] = Field(default_factory=list)
-
-
-class ClassMarkers(BaseModel):
-    """Container for a class entry in sidecars.
-
-    Class-scoped markers apply to every method of the class. Per-method
-    overrides go under ``tests.<ClassName>.<method>`` (qualified form)
-    rather than nesting inside the class block.
-    """
-
-    model_config = {"extra": "forbid"}
-
-    markers: list[MarkerSpec] = Field(default_factory=list)
+    tests: dict[str, TestEntry] = Field(default_factory=dict)
 
 
 class SidecarConfig(BaseModel):
     """Top-level shape of a test-module sidecar YAML.
 
-    Three scopes: file-root ``markers``, ``classes.<ClassName>``, and
-    ``tests.<name>``. Every entry is a list of :class:`MarkerSpec`.
+    File-level ``markers:`` apply to every test in the module. Tests and
+    classes both live under ``tests:`` — each value is a :class:`TestEntry`,
+    so a class branch carries its own markers plus a nested ``tests:``
+    dict for its methods.
 
     Example::
 
         markers:
           - litmus_limits: {v_rail: {tolerance_pct: 5.0}}
-        classes:
+        tests:
           TestRails:
             markers:
               - parametrize: ["vin", [4.5, 5.0, 5.5]]
-        tests:
-          TestRails.test_rail:
-            markers:
-              - litmus_limits: {v_rail: {tolerance_pct: 1.0}}
+            tests:
+              test_rail:
+                markers:
+                  - litmus_limits: {v_rail: {tolerance_pct: 1.0}}
           test_standalone:
             markers:
               - skipif: "not os.getenv('HAS_BENCH')"
@@ -137,8 +144,7 @@ class SidecarConfig(BaseModel):
     model_config = {"extra": "forbid"}
 
     markers: list[MarkerSpec] = Field(default_factory=list)
-    classes: dict[str, ClassMarkers] = Field(default_factory=dict)
-    tests: dict[str, TestMarkers] = Field(default_factory=dict)
+    tests: dict[str, TestEntry] = Field(default_factory=dict)
 
 
 # =============================================================================

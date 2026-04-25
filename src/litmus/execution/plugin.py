@@ -537,20 +537,19 @@ def pytest_collection_modifyitems(config, items: list[pytest.Item]) -> None:
 
 
 def _warn_unmatched_profile_keys(items: list[pytest.Item]) -> None:
-    """Warn when a profile's ``tests.<name>`` / ``classes.<Cls>`` key matches no collected test.
+    """Warn when a profile ``tests:`` key matches no collected test.
 
-    Keys in ``profile.tests`` may be either a bare method name
-    (``test_foo``) or a qualified form (``TestCls.test_foo``); keys in
-    ``profile.classes`` are class names. A silent no-op on a typo is
-    worse than a skipped mock — it's a production screen that stopped
-    running. Warn once per orphan key.
+    Keys in ``profile.tests`` are either a class name (with nested
+    ``tests:`` for methods) or a module-level function name. A silent
+    no-op on a typo is worse than a skipped mock — it's a production
+    screen that stopped running. Warn once per orphan key.
     """
     profile = get_active_profile()
     if profile is None:
         return
 
     originalnames: set[str] = set()
-    qualified: set[str] = set()
+    methods_by_class: dict[str, set[str]] = {}
     class_names: set[str] = set()
     for item in items:
         if not isinstance(item, pytest.Function):
@@ -559,23 +558,25 @@ def _warn_unmatched_profile_keys(items: list[pytest.Item]) -> None:
         cls = getattr(item, "cls", None)
         if cls is not None:
             class_names.add(cls.__name__)
-            qualified.add(f"{cls.__name__}.{item.originalname}")
+            methods_by_class.setdefault(cls.__name__, set()).add(item.originalname)
 
     unmatched: list[str] = []
-    for key in profile.tests:
-        if key in originalnames or key in qualified:
+    for key, entry in profile.tests.items():
+        if key in class_names:
+            for nested_key in entry.tests:
+                if nested_key in methods_by_class[key]:
+                    continue
+                unmatched.append(f"  profile.tests[{key!r}].tests[{nested_key!r}]")
+            continue
+        if key in originalnames:
             continue
         unmatched.append(f"  profile.tests[{key!r}]")
-    for cls_name in profile.classes:
-        if cls_name in class_names:
-            continue
-        unmatched.append(f"  profile.classes[{cls_name!r}]")
     if not unmatched:
         return
     warnings.warn(
         "Active profile has keys that match no collected test:\n"
         + "\n".join(unmatched)
-        + "\nUse an exact test name, a qualified 'Class.method', or remove the entry.",
+        + "\nUse an exact test name, a class name with nested method, or remove the entry.",
         UserWarning,
         stacklevel=1,
     )
@@ -1954,41 +1955,19 @@ from litmus.execution.vectors import Vector  # noqa: E402
 def _profile_markers_for_item(item: pytest.Item) -> list[MarkerSpec]:
     """Return accumulated profile markers for ``item``: file-level + class + per-test.
 
-    Walks three scopes in order so downstream marker application can apply
-    them least- to most-specific (same cascade as sidecars):
-
-    1. ``profile.markers`` — every test sees these
-    2. ``profile.classes[<ClassName>].markers`` — if the item is a method
-    3. ``profile.tests[<bare or qualified name>].markers`` — per-test
-
-    Per-test keys accept either bare method name (``test_foo``) or the
-    disambiguated form (``TestFoo.test_foo``); the qualified form wins
-    when both are present.
+    Walks the profile's recursive ``tests:`` tree (same shape and walker
+    as a sidecar): root ``markers`` → class branch's ``markers`` → leaf
+    ``markers``. A nested ``tests[Class].tests[method]`` leaf wins over
+    a bare ``tests[method]`` shorthand.
     """
     profile = get_active_profile()
     if profile is None:
         return []
     if not isinstance(item, pytest.Function):
         return list(profile.markers)
-
-    out: list[MarkerSpec] = list(profile.markers)
     cls = getattr(item, "cls", None)
-    if cls is not None:
-        class_block = profile.classes.get(cls.__name__)
-        if class_block is not None:
-            out.extend(class_block.markers)
-
-    if cls is not None:
-        qualified = f"{cls.__name__}.{item.originalname}"
-        qualified_block = profile.tests.get(qualified)
-        if qualified_block is not None:
-            out.extend(qualified_block.markers)
-            return out
-
-    bare_block = profile.tests.get(item.originalname)
-    if bare_block is not None:
-        out.extend(bare_block.markers)
-    return out
+    cls_name = cls.__name__ if cls is not None else None
+    return _sidecar_markers_for(profile, cls_name, item.originalname)
 
 
 # StashKey for the self-loop vectors matrix. Populated by
@@ -2005,13 +1984,8 @@ def _sidecar_parametrize_markers_for_metafunc(
 ) -> list[MarkerSpec]:
     """Collect sidecar + profile parametrize markers for a metafunc.
 
-    Returns parametrize-named markers from, in merge order:
-
-        sidecar.markers (file-level)
-        sidecar.classes[<Cls>].markers
-        sidecar.tests[<qualified|bare>].markers
-        profile chain .markers / .classes / .tests (qualified|bare)
-
+    Returns parametrize-named markers from, in merge order: sidecar
+    (file-level → class branch → leaf) → profile chain (same walk).
     Inline ``@pytest.mark.parametrize`` decorators on the function are
     intentionally excluded — pytest's built-in hook already applies
     those. This list is applied on top via :meth:`metafunc.parametrize`
@@ -2024,20 +1998,9 @@ def _sidecar_parametrize_markers_for_metafunc(
     func_name = metafunc.function.__name__
 
     merged: list[MarkerSpec] = list(_sidecar_markers_for(sidecar, cls_name, func_name))
-
     profile = get_active_profile()
     if profile is not None:
-        merged.extend(profile.markers)
-        if cls_name is not None:
-            class_block = profile.classes.get(cls_name)
-            if class_block is not None:
-                merged.extend(class_block.markers)
-        qualified = f"{cls_name}.{func_name}" if cls_name is not None else None
-        tests_block = profile.tests.get(qualified) if qualified is not None else None
-        if tests_block is None:
-            tests_block = profile.tests.get(func_name)
-        if tests_block is not None:
-            merged.extend(tests_block.markers)
+        merged.extend(_sidecar_markers_for(profile, cls_name, func_name))
 
     return [m for m in merged if m.name == "parametrize"]
 

@@ -8,9 +8,11 @@ are selected by **facets** — `--test-phase=production --product=tps54302`
 picks exactly one profile whose declared facets match.
 
 Profiles speak the **same language as sidecars**: a `markers:` list at
-the profile root, per-class `classes.<Cls>.markers`, per-test
-`tests.<name>.markers`. If you already know how to write a sidecar, you
-already know how to write a profile — same shape, session scope.
+the profile root and a recursive `tests:` tree mirroring pytest's
+node-id structure (classes are branches with their own `markers:` plus
+nested `tests:`; functions are leaves). If you already know how to
+write a sidecar, you already know how to write a profile — same shape,
+session scope.
 
 ## Why profiles?
 
@@ -184,9 +186,10 @@ project defaults (litmus.yaml)
     ↓
 file-level sidecar markers (markers: at sidecar root)
     ↓
-class-scoped sidecar markers (classes.<Cls>.markers)
+class-branch sidecar markers (tests.<Cls>.markers)
     ↓
-per-test sidecar markers (tests.<name>.markers)
+per-test sidecar markers (tests.<name>.markers
+                          or tests.<Cls>.tests.<method>.markers)
     ↓
 per-test inline @decorators
     ↓
@@ -231,13 +234,17 @@ pytest:
   addopts: "-x -vv"
   markexpr: "not slow and not hardware"
 tests:
-  TestRails.test_rails:
-    markers:
-      - parametrize: ["vin", [5.0]]
-      - parametrize: ["temperature", [25]]
-  TestSlow.test_long_soak:
-    markers:
-      - skip: "not run in validation"
+  TestRails:
+    tests:
+      test_rails:
+        markers:
+          - parametrize: ["vin", [5.0]]
+          - parametrize: ["temperature", [25]]
+  TestSlow:
+    tests:
+      test_long_soak:
+        markers:
+          - skip: "not run in validation"
 ```
 
 ```yaml
@@ -247,15 +254,15 @@ facets: {test_phase: production}
 pytest:
   addopts: "--reruns=2 --reruns-delay=1 -n=4"
 tests:
-  TestRails.test_rails:
+  TestRails:                              # class branch
     markers:
-      - parametrize: ["vin", [4.5, 5.0, 5.5]]
-      - parametrize: ["temperature", [25, 85]]
-      - parametrize: ["load", [0.1, 0.4, 0.8]]
-classes:
-  TestRails:
-    markers:
-      - flaky: {reruns: 2, reruns_delay: 2}
+      - flaky: {reruns: 2, reruns_delay: 2}   # class-wide retries
+    tests:
+      test_rails:                         # nested method
+        markers:
+          - parametrize: ["vin", [4.5, 5.0, 5.5]]
+          - parametrize: ["temperature", [25, 85]]
+          - parametrize: ["load", [0.1, 0.4, 0.8]]
 ```
 
 ```yaml

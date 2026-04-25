@@ -177,8 +177,11 @@ Invariants across the matrix:
 
 ## Sidecar YAML
 
-A sibling `test_<module>.yaml` carries markers at three scopes — file-root,
-per-class, per-test. Every entry is a pytest marker:
+A sibling `test_<module>.yaml` carries markers in a recursive tree
+mirroring pytest's `file::Class::method` node ids: a file-level
+`markers:` list plus a `tests:` dict where each entry is either a
+function leaf (`markers:` only) or a class branch (`markers:` plus
+nested `tests:` for its methods).
 
 ```yaml
 # test_power_board.yaml
@@ -187,18 +190,18 @@ markers:                                          # applied to every test in fil
       output_voltage: {ref: output_voltage}       # delegates to product spec
   - litmus_mock: {target: "dmm.measure_dc_voltage", return_value: 3.3}
 
-classes:
-  TestPowerRails:
+tests:
+  TestPowerRails:                                 # class branch
     markers:
       - parametrize: ["vin", [4.5, 5.0, 5.5]]
       - parametrize: ["load_current", [0.1, 0.4, 0.8]]
+    tests:
+      test_efficiency:                            # nested method
+        markers:
+          - litmus_limits:
+              efficiency: {low: 55, high: 100, units: "%"}
 
-tests:
-  TestPowerRails.test_efficiency:                 # qualified: class.method
-    markers:
-      - litmus_limits:
-          efficiency: {low: 55, high: 100, units: "%"}
-  test_standalone:                                # bare: module-level test
+  test_standalone:                                # module-level test (leaf)
     markers:
       - skipif: "not os.getenv('HAS_BENCH')"
 ```

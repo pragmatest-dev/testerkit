@@ -17,7 +17,7 @@ def _write_sequence(
     """Write a conftest/test_seq pair into the pytester tmp dir.
 
     ``sidecar_yaml`` is written verbatim — callers pass the full markers
-    sidecar shape (``markers:`` / ``classes:`` / ``tests:``).
+    sidecar shape (``markers:`` / ``tests:``).
     """
     pytester.makeconftest("")
     pytester.makepyfile(test_seq=test_body)
@@ -77,7 +77,7 @@ def test_class_level_vectors_rerun_whole_class(pytester: pytest.Pytester) -> Non
         ),
         sidecar_yaml=textwrap.dedent(
             """
-            classes:
+            tests:
               TestSeq:
                 markers:
                   - parametrize: ["temp", [25, 55]]
@@ -106,14 +106,14 @@ def test_class_and_method_vectors_mix(pytester: pytest.Pytester) -> None:
         ),
         sidecar_yaml=textwrap.dedent(
             """
-            classes:
+            tests:
               TestSeq:
                 markers:
                   - parametrize: ["temp", [25, 55]]
-            tests:
-              TestSeq.test_sweep:
-                markers:
-                  - parametrize: ["vin", [3.3, 5.0]]
+                tests:
+                  test_sweep:
+                    markers:
+                      - parametrize: ["vin", [3.3, 5.0]]
             """
         ),
     )
