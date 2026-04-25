@@ -25,6 +25,32 @@ cd examples/07-profiles && uv run pytest --test-phase=production -v
 Every stage works standalone. Each has its own `README.md` with the
 diff from the previous stage and the gap it leaves for the next one.
 
+## A pytest primer (if this is your first time)
+
+These examples are pytest projects, with Litmus loaded as a pytest
+plugin. A few conventions you'll see in every directory:
+
+- **`tests/`** — pytest auto-discovers any `test_*.py` (or `*_test.py`)
+  file by walking down from the project root. The `tests/` folder is
+  convention, not requirement; you could put tests anywhere.
+- **`conftest.py`** — pytest's hook file for shared fixtures and
+  configuration. Anything defined here is available to every test
+  in the same directory tree without an import.
+- **`pytest.ini`** — pytest's optional config file. Useful for
+  pinning the test directory (`testpaths = tests`), passing default
+  flags (`addopts = ...`), or naming registered markers. None of
+  these examples need one (vanilla has a comment-only file for
+  documentation), but real projects often grow into one. The same
+  config can also live under `[tool.pytest.ini_options]` in
+  `pyproject.toml`.
+- **`pyproject.toml`** — Python's standard project file. Lists
+  dependencies (`pytest`, `litmus-test`), build settings, and any
+  pytest config you don't want in a separate `pytest.ini`.
+
+Pytest's own docs at <https://docs.pytest.org> are the authoritative
+reference. The examples here teach Litmus *through* pytest; they
+don't re-document pytest itself.
+
 ## Utility scripts
 
 `scripts/` — DuckDB query examples for Parquet results

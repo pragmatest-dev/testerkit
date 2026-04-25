@@ -2,3 +2,9 @@ name: profiles-example
 default_station: bench_01
 default_fixture: buck_3v3_bench
 mock_instruments: true
+
+# When several profiles are declared, bare ``pytest`` (no facet flags,
+# no --litmus-profile) needs a tiebreaker. ``default_profile`` is what
+# applies in that case. Pass --no-profile to skip profile resolution
+# entirely, or pass facet flags / --litmus-profile to select one.
+default_profile: development

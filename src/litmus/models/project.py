@@ -12,6 +12,7 @@ from typing import Any
 from pydantic import BaseModel, Field, model_validator
 
 from litmus.config.test_config import ClassMarkers, MarkerSpec, TestMarkers
+from litmus.models.config import PromptConfig
 
 
 class OutputConfig(BaseModel):
@@ -133,6 +134,8 @@ class ProjectConfig(BaseModel):
     results_dir: str | None = None
     default_station: str = "station"
     default_fixture: str | None = None
+    default_profile: str | None = None
     mock_instruments: bool = False
     outputs: list[OutputConfig] = Field(default_factory=list)
     profiles: dict[str, ProfileConfig] = Field(default_factory=dict)
+    required_inputs: dict[str, PromptConfig] = Field(default_factory=dict)

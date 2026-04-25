@@ -1847,11 +1847,15 @@ name = "litmus-example-01-vanilla"
 version = "0.0.0"
 source = { editable = "examples/01-vanilla" }
 dependencies = [
+    { name = "litmus-test" },
     { name = "pytest" },
 ]
 
 [package.metadata]
-requires-dist = [{ name = "pytest" }]
+requires-dist = [
+    { name = "litmus-test", editable = "." },
+    { name = "pytest" },
+]
 
 [[package]]
 name = "litmus-example-02-verify"

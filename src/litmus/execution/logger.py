@@ -411,6 +411,7 @@ class TestRunLogger:
         test_phase: str = "production",
         profile: str | None = None,
         profile_facets: dict[str, str] | None = None,
+        session_inputs: dict[str, str] | None = None,
         session_id: UUID | None = None,
         run_id: UUID | str | None = None,
         # Product traceability
@@ -481,6 +482,7 @@ class TestRunLogger:
             test_phase=test_phase,
             profile=profile,
             profile_facets=profile_facets or {},
+            session_inputs=session_inputs or {},
             product_id=product_id,
             product_name=product_name,
             product_revision=product_revision,

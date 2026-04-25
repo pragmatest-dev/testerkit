@@ -38,6 +38,7 @@ from litmus.execution._state import (
     get_instrument_records,
     get_sequence_required_fixture,
     get_sequence_test_phase,
+    get_session_inputs,
     get_test_node_aliases,
     get_test_node_configs,
     set_active_connection,
@@ -70,7 +71,9 @@ from litmus.execution.profiles import (
     collect_profile_facet_keys,
     facet_key_to_cli_flag,
     install_active_profile,
+    install_session_inputs,
     load_project_defaults,
+    required_input_key_to_cli_flag,
     resolve_test_phase,
 )
 from litmus.execution.verify import (  # noqa: F401 — verify re-exported as pytest fixture
@@ -109,6 +112,7 @@ __all__ = [
     "get_instrument_records",
     "get_sequence_required_fixture",
     "get_sequence_test_phase",
+    "get_session_inputs",
     "get_test_node_aliases",
     "get_test_node_configs",
     "set_active_facets",
@@ -338,6 +342,7 @@ def pytest_configure(config):
     ):
         config.addinivalue_line("markers", marker)
     install_active_profile(config)
+    install_session_inputs(load_project_defaults(), config)
 
     # Auto-register instrument role fixtures from station config
     station_path = _find_station_file(config)
@@ -708,18 +713,40 @@ def pytest_addoption(parser):
         help="Named profile from litmus.yaml `profiles:` "
         "(overrides vectors, limits, markers, and filter for the session).",
     )
+    group.addoption(
+        "--no-profile",
+        action="store_true",
+        default=False,
+        help="Skip profile resolution. Use when profiles are declared "
+        "but you want to run with bare project defaults (ad-hoc runs).",
+    )
     # Auto-synthesize one --<facet> flag per declared profile facet key.
     # Declaring `product: power_board` in any profile turns --product into
     # a selector for this project — no generic --facet escape hatch.
     # ``test_phase`` already has its own --test-phase flag above, so the
     # facet reuses it rather than re-registering.
-    for key in collect_profile_facet_keys(project):
+    facet_keys = set(collect_profile_facet_keys(project))
+    for key in sorted(facet_keys):
         if key == "test_phase":
             continue
         group.addoption(
             facet_key_to_cli_flag(key),
             default=None,
             help=f"Select profile by facet {key!r} (from litmus.yaml profiles).",
+        )
+    # Auto-synthesize one --<key> flag per declared required_inputs key.
+    # Skip keys that already exist as facet flags (or are built-in like
+    # --test-phase) to avoid double-registration.
+    builtin_flags = {"--test-phase", "--operator", "--station", "--fixture"}
+    for key in sorted(project.required_inputs):
+        flag = required_input_key_to_cli_flag(key)
+        if flag in builtin_flags or key in facet_keys:
+            continue
+        prompt_cfg = project.required_inputs[key]
+        group.addoption(
+            flag,
+            default=None,
+            help=prompt_cfg.message + " (litmus.yaml: required_inputs)",
         )
 
 
@@ -922,6 +949,7 @@ def _build_run_metadata(request: pytest.FixtureRequest) -> dict[str, Any]:
     project_name = get_project_name(request.config.rootpath)
     profile_name = request.config.getoption("--litmus-profile", default=None)
     profile_facets = dict(get_active_facets())
+    session_inputs = dict(get_session_inputs())
 
     return {
         "dut_serial": request.config.getoption("--dut-serial"),
@@ -944,6 +972,7 @@ def _build_run_metadata(request: pytest.FixtureRequest) -> dict[str, Any]:
         "test_phase": test_phase,
         "profile": profile_name,
         "profile_facets": profile_facets,
+        "session_inputs": session_inputs,
         "instruments": instrument_records,
         "environment": env,
     }

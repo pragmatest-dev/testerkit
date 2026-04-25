@@ -179,6 +179,13 @@ pytest tests/ --station-config=stations/my_station.yaml --mock-instruments --dut
 pytest tests/ --sequence=my_product_smoke --station=my_station --dut-serial=SN001 -v
 ```
 
+> **On `--dut-serial` for early articles:** if your first DUT doesn't have
+> a real serial yet (engineering build, breadboard, dev unit), call it
+> whatever you like — `bob`, `proto-1`, `dev`. The serial is just the
+> identifier the run record will be filed under. Best practice once you
+> have real units is to use the value that uniquely identifies what is
+> being tested and measured (printed serial, scanned barcode, lot+sequence).
+
 ## The Pattern
 
 Every Litmus test follows this pattern:

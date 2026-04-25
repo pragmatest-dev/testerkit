@@ -5,9 +5,12 @@ build-backend = "hatchling.build"
 [project]
 name = "litmus-example-01-vanilla"
 version = "0.0.0"
-description = "Stage 1: vanilla pytest — no Litmus features"
+description = "Stage 1: plain pytest tests — Litmus plugin loaded for run records, no markers used yet"
 requires-python = ">=3.11"
-dependencies = ["pytest"]
+dependencies = ["pytest", "litmus-test"]
 
 [tool.hatch.build.targets.wheel]
 bypass-selection = true
+
+[tool.uv.sources]
+litmus-test = { workspace = true }

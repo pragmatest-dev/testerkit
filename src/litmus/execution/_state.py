@@ -49,6 +49,7 @@ _event_store_var: ContextVar[Any] = ContextVar("_event_store")
 _active_limits_var: ContextVar[dict[str, Any]] = ContextVar("_active_limits")
 _active_profile_var: ContextVar[ProfileConfig | None] = ContextVar("_active_profile")
 _active_facets_var: ContextVar[dict[str, str]] = ContextVar("_active_facets")
+_session_inputs_var: ContextVar[dict[str, str]] = ContextVar("_session_inputs")
 _active_vector_params_var: ContextVar[dict[str, Any]] = ContextVar("_active_vector_params")
 _active_vector_index_var: ContextVar[int] = ContextVar("_active_vector_index")
 _active_connection_var: ContextVar[FixtureConnection | None] = ContextVar("_active_connection")
@@ -257,6 +258,24 @@ def get_active_facets() -> dict[str, str]:
 def set_active_facets(value: dict[str, str]) -> None:
     """Set the active-facets dict. Returns None."""
     _active_facets_var.set(value)
+
+
+def get_session_inputs() -> dict[str, str]:
+    """Return resolved ``required_inputs`` for the active session.
+
+    Populated at session start from CLI flags / env vars / operator
+    prompts per the project's ``required_inputs`` declaration.
+    Stamped onto each run record for reproducibility.
+    """
+    try:
+        return _session_inputs_var.get()
+    except LookupError:
+        return {}
+
+
+def set_session_inputs(value: dict[str, str]) -> None:
+    """Set the session-inputs dict. Returns None."""
+    _session_inputs_var.set(value)
 
 
 def get_active_vector_params() -> dict[str, Any]:

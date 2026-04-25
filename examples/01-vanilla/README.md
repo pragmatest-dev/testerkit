@@ -1,13 +1,16 @@
 # Stage 1 — Vanilla pytest
 
-Pure pytest. No Litmus. This is the baseline every other stage builds on.
+Plain-pytest tests. The Litmus plugin is loaded but it stays out of
+your way: you get a DUT-serial prompt and a run record on day one
+without writing any Litmus-specific code. Every later stage layers
+measurement features on top of this same setup.
 
 ## Layout
 
 ```
 01-vanilla/
-├── pyproject.toml        # pytest as the only dep
-├── pytest.ini            # disables the Litmus plugin so this is truly vanilla
+├── pyproject.toml        # pytest + litmus
+├── pytest.ini            # plugin enabled; no Litmus markers used yet
 ├── conftest.py           # session-scoped `dut` fixture (FakeDut)
 └── tests/
     └── test_rail.py      # one direct test + one parametrized sweep
@@ -19,17 +22,23 @@ Pure pytest. No Litmus. This is the baseline every other stage builds on.
 - A `conftest.py` fixture shared across tests (`scope="session"`)
 - `@pytest.mark.parametrize` for a sweep
 - `FakeDut` stand-in so the example runs with no hardware
+- A run record stamped with the DUT serial — no measurement code yet
 
 ## Run it
 
 ```bash
 cd examples/01-vanilla
-uv run pytest -v
+uv run pytest --dut-serial=bob -v
 ```
 
-You'll see four passes. What you **won't** see: the actual voltages
-that were measured. `pytest -v` reports test names and pass/fail.
-It does not know anything called a "measurement."
+> **No real serial yet?** Use anything memorable — `bob`, `proto-1`,
+> `dev`. The value is just the identifier the run record is filed
+> under. Later, swap in whatever uniquely identifies what is being
+> tested and measured (printed serial, scanned barcode, lot+sequence).
+
+You'll see four passes. What you **won't** see in pytest's own output:
+the actual voltages that were measured. `pytest -v` reports test names
+and pass/fail. It does not know anything called a "measurement."
 
 Pytest does have `record_property` / `record_xml_attribute` for
 capturing extra data, but those write to JUnit XML as name/value

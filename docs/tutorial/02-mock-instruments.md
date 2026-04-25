@@ -145,6 +145,12 @@ When running with `--mock-instruments`, values are resolved in order:
       -v
 ```
 
+> **No real serial yet?** Use anything memorable — `bob`, `proto-1`,
+> `dev`. The `--dut-serial` value is just the identifier the run record
+> is filed under. Once you have real units, switch to whatever uniquely
+> identifies what is being tested and measured (printed serial, scanned
+> barcode, lot+sequence).
+
 ## What You Learned
 
 - `--mock-instruments` flag for hardware-free testing

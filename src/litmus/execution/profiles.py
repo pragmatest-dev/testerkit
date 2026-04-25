@@ -24,8 +24,13 @@ import os
 import pytest
 
 from litmus.config.test_config import ClassMarkers, MarkerSpec, TestMarkers
-from litmus.execution._state import set_active_facets, set_active_profile
+from litmus.execution._state import (
+    set_active_facets,
+    set_active_profile,
+    set_session_inputs,
+)
 from litmus.models.project import ProfileConfig, ProfilePytest, ProjectConfig
+from litmus.prompts import ask as ask_prompt
 
 
 def load_project_defaults() -> ProjectConfig:
@@ -236,7 +241,9 @@ def install_active_profile(config) -> None:
     """
     project = load_project_defaults()
     profile_name = config.getoption("--litmus-profile", default=None)
+    no_profile = config.getoption("--no-profile", default=False)
     facet_flags = collect_facet_flags_from_config(config, project)
+    profile_name = resolve_default_profile(profile_name, facet_flags, no_profile, project)
     _, profile, facets = resolve_active_profile(profile_name, facet_flags, project)
     set_active_profile(profile)
     set_active_facets(facets)
@@ -274,6 +281,7 @@ def apply_profile_addopts_env(args) -> None:
     profile_name = parse_flag_from_args(args, "--litmus-profile") or os.environ.get(
         "LITMUS_PROFILE"
     )
+    no_profile = "--no-profile" in args
 
     project = load_project_defaults()
     facet_flags: dict[str, str] = {}
@@ -281,6 +289,12 @@ def apply_profile_addopts_env(args) -> None:
         value = parse_flag_from_args(args, facet_key_to_cli_flag(key))
         if value:
             facet_flags[key] = value
+
+    # Apply default_profile when nothing else selected one. We don't raise
+    # here on missing default — pytest_configure surfaces that with a
+    # cleaner traceback.
+    if not profile_name and not facet_flags and not no_profile and project.default_profile:
+        profile_name = project.default_profile
 
     if not profile_name and not facet_flags:
         return
@@ -294,6 +308,108 @@ def apply_profile_addopts_env(args) -> None:
     existing = os.environ.get("PYTEST_ADDOPTS", "").strip()
     merged = f"{existing} {profile.pytest.addopts}".strip()
     os.environ["PYTEST_ADDOPTS"] = merged
+
+
+def required_input_key_to_cli_flag(key: str) -> str:
+    """Map a required-input key to its CLI flag form (``serial_number`` → ``--serial-number``)."""
+    return f"--{key.replace('_', '-')}"
+
+
+def required_input_key_to_env_var(key: str) -> str:
+    """Map a required-input key to its env-var form.
+
+    Example: ``serial_number`` → ``LITMUS_SERIAL_NUMBER``.
+    """
+    return f"LITMUS_{key.upper()}"
+
+
+def resolve_required_inputs(
+    project: ProjectConfig,
+    config,
+) -> dict[str, str]:
+    """Resolve every declared ``required_inputs`` value at session start.
+
+    For each declared key, the first source that yields a value wins:
+
+    1. CLI flag ``--<key>`` (already registered by ``pytest_addoption``).
+    2. Env var ``LITMUS_<KEY>``.
+    3. Operator prompt via :func:`litmus.prompts.ask`, using the
+       declared :class:`PromptConfig` (handler / auto-confirm / tty
+       fall-through, then ``PromptUnavailableError``).
+
+    Raises :class:`pytest.UsageError` if a value cannot be resolved —
+    fail-fast so a long sequence never runs with a missing serial.
+    """
+    if not project.required_inputs:
+        return {}
+
+    resolved: dict[str, str] = {}
+    for key, prompt_config in project.required_inputs.items():
+        flag = required_input_key_to_cli_flag(key)
+        cli_value = config.getoption(flag, default=None)
+        if cli_value:
+            resolved[key] = str(cli_value)
+            continue
+
+        env_var = required_input_key_to_env_var(key)
+        env_value = os.environ.get(env_var)
+        if env_value:
+            resolved[key] = env_value
+            continue
+
+        try:
+            value = ask_prompt(prompt_config)
+        except Exception as exc:
+            raise pytest.UsageError(
+                f"Required input {key!r} not supplied: pass {flag}=<value>, "
+                f"set {env_var}, or run interactively. ({exc})"
+            ) from exc
+        if value is None or value == "":
+            raise pytest.UsageError(
+                f"Required input {key!r}: prompt returned no value. "
+                f"Pass {flag}=<value> or set {env_var}."
+            )
+        resolved[key] = str(value)
+
+    return resolved
+
+
+def install_session_inputs(project: ProjectConfig, config) -> dict[str, str]:
+    """Resolve ``required_inputs`` and stash them in the session ContextVar."""
+    inputs = resolve_required_inputs(project, config)
+    set_session_inputs(inputs)
+    return inputs
+
+
+def resolve_default_profile(
+    profile_name: str | None,
+    facet_flags: dict[str, str],
+    no_profile: bool,
+    project: ProjectConfig,
+) -> str | None:
+    """Apply ``default_profile`` semantics for bare-``pytest`` invocations.
+
+    Returns the profile name to use, or ``None`` when no profile applies.
+    Raises :class:`pytest.UsageError` when profiles are declared but the
+    operator didn't make a selection and no ``default_profile`` is set.
+    """
+    if profile_name or facet_flags or no_profile:
+        return profile_name
+    if not project.profiles:
+        return None
+    if project.default_profile:
+        return project.default_profile
+    combos = sorted(
+        " ".join(f"{k}={v}" for k, v in p.facets.items()) or "(no facets)"
+        for p in project.profiles.values()
+    )
+    raise pytest.UsageError(
+        "Profiles are declared in litmus.yaml but no profile was "
+        "selected. Pass facet flags (e.g. --test-phase=production), "
+        "--litmus-profile=<name>, --no-profile to skip, or set "
+        "`default_profile:` in litmus.yaml.\n"
+        f"  Available facet combinations: {'; '.join(combos)}"
+    )
 
 
 def resolve_test_phase(requested_phase: str | None, mocks_active: bool = False) -> str:

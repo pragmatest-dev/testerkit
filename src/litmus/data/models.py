@@ -347,6 +347,10 @@ class TestRun(BaseModel):
     # Raw CLI facet values used to select the profile; combined with git SHA
     # this is the minimum reproducibility payload for the run.
     profile_facets: dict[str, str] = Field(default_factory=dict)
+    # Resolved required_inputs at session start (serial_number, operator, etc.).
+    # Each project declares the keys; the values come from CLI flags, env
+    # vars, or operator prompts at the start of the run.
+    session_inputs: dict[str, str] = Field(default_factory=dict)
 
     # Operator
     operator_id: str | None = None  # from --operator
