@@ -1,4 +1,0 @@
-name: station-example
-default_station: demo_station_001
-default_fixture: power_board_fixture
-mock_instruments: true

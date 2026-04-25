@@ -1,0 +1,3 @@
+name: station-catalog-example
+default_station: bench_01
+mock_instruments: true

@@ -56,10 +56,8 @@ __all__ = [
     "RangeConfig",
     "RetryConfig",
     "Specification",
-    "TestConfig",
     "TestSequenceConfig",
     "TestStepConfig",
-    "VectorConfig",
 ]
 
 from litmus.config.capability import (  # noqa: F401
@@ -116,8 +114,6 @@ from litmus.config.test_config import (  # noqa: F401
     RangeConfig,
     RetryConfig,
     Specification,
-    TestConfig,
     TestSequenceConfig,
     TestStepConfig,
-    VectorConfig,
 )

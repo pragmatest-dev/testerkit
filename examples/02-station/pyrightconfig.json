@@ -1,6 +1,0 @@
-{
-  "venvPath": "../..",
-  "venv": ".venv",
-  "include": ["drivers", "tests"],
-  "reportMissingImports": true
-}

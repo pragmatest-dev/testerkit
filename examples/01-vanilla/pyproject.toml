@@ -1,0 +1,13 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "litmus-example-01-vanilla"
+version = "0.0.0"
+description = "Stage 1: vanilla pytest — no Litmus features"
+requires-python = ">=3.11"
+dependencies = ["pytest"]
+
+[tool.hatch.build.targets.wheel]
+bypass-selection = true

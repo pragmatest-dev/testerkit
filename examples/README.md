@@ -1,35 +1,34 @@
 # Litmus Examples
 
-Three standalone example projects. Each directory is a complete
-Litmus project — its own `pyproject.toml`, `conftest.py`, `drivers/`,
-YAML config, and tests. Open any one in a fresh IDE and it runs
-against mocked instruments.
+Seven standalone example projects, each a diff off the one before.
+Read them in order — every stage adds exactly one concept.
 
-| Tier | Directory | What it shows |
-|------|-----------|---------------|
-| **1 — Bringup** | `01-bringup/` | One test file, one sidecar, `MagicMock` fixtures in `conftest.py`. No station, product, or fixture YAML. |
-| **2 — Station** | `02-station/` | Add `drivers/` + `stations/` + `products/` + `fixtures/` + `catalog/`. Instrument fixtures auto-register from the station; spec-backed limits resolve from the product. |
-| **3 — Profiles** | `03-profiles/` | Full production flow: user-maintained catalog, profiles (`production` / `characterization`), multi-pin iteration, binding-aware limits. |
+| # | Directory | What it adds | Gap it closes |
+|---|-----------|--------------|----------------|
+| **1** | `01-vanilla/` | Pure pytest — assertions, fixtures, parametrize. | Baseline. Measurements aren't captured anywhere. |
+| **2** | `02-verify/` | `verify(name, value, limit=...)` + Parquet log. | Measurements get persisted, pass/fail stays. |
+| **3** | `03-inline-limits/` | `@pytest.mark.litmus_limits` decorator. | Limit is now declarative, not an imperative `Limit(...)` object. |
+| **4** | `04-sidecar-markers/` | Markers move to a sibling `test_*.yaml`; classes for grouping. | Ops can tune limits without editing Python. |
+| **5** | `05-station-catalog/` | Station YAML + instrument catalog; `psu` / `dmm` fixtures auto-register. | No hand-rolled `conftest` fixtures. Mocks via flag. |
+| **6** | `06-product-binding/` | Product YAML, fixture routing, `litmus_binding` + `tolerance_pct`. | Spec is the source of truth; rows carry traceability. |
+| **7** | `07-profiles/` | Profiles under `profiles/*.yaml` with `extends:` chains. | Scenarios (dev / production / characterization) without per-test forking. |
 
 ## Running
 
 ```bash
-cd examples/01-bringup  && uv run pytest -v
-cd examples/02-station  && uv run pytest --mock-instruments -v
-cd examples/03-profiles && uv run pytest --mock-instruments -v
-cd examples/03-profiles && uv run pytest --litmus-profile=production --mock-instruments -v
+cd examples/01-vanilla && uv run pytest -v
+cd examples/02-verify && uv run pytest -v
+# ...
+cd examples/07-profiles && uv run pytest --test-phase=production -v
 ```
 
-Each tier has its own `README.md` with layout details.
-
-## Starter projects
-
-`litmus init --tier=bringup` scaffolds a Tier 1 project.
-`litmus init --tier=bench` scaffolds the Tier 2 shape.
+Every stage works standalone. Each has its own `README.md` with the
+diff from the previous stage and the gap it leaves for the next one.
 
 ## Utility scripts
 
-`scripts/` — DuckDB query examples for Parquet results (`demo_duckdb.py`,
-`query_results.py`, `demo_queries.sql`). `interactive_station.py` — a
-NiceGUI monitor that streams live events and channel data from any
-running test. Both are cross-tier; run them from the repo root.
+`scripts/` — DuckDB query examples for Parquet results
+(`demo_duckdb.py`, `query_results.py`, `demo_queries.sql`).
+`interactive_station.py` — a NiceGUI monitor that streams live events
+and channel data from a running test. Both are stage-agnostic; run
+them from the repo root.

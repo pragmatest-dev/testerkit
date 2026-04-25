@@ -45,13 +45,10 @@ def test_vectors_fixture_sidecar_single_case_iterates_matrix(
     (pytester.path / "test_seq.yaml").write_text(
         textwrap.dedent(
             """
-            vectors:
-              methods:
-                test_rails:
-                  list:
-                    - {vin: 4.5}
-                    - {vin: 5.0}
-                    - {vin: 5.5}
+            tests:
+              test_rails:
+                markers:
+                  - parametrize: ["vin", [4.5, 5.0, 5.5]]
             """
         )
     )
@@ -101,13 +98,10 @@ def test_vectors_fixture_change_tracking_across_iterations(
     (pytester.path / "test_seq.yaml").write_text(
         textwrap.dedent(
             """
-            vectors:
-              methods:
-                test_rails:
-                  list:
-                    - {vin: 3.3}
-                    - {vin: 5.0}
-                    - {vin: 12.0}
+            tests:
+              test_rails:
+                markers:
+                  - parametrize: ["vin", [3.3, 5.0, 12.0]]
             """
         )
     )
@@ -134,13 +128,10 @@ def test_vectors_fixture_vector_index_increments(pytester: pytest.Pytester) -> N
     (pytester.path / "test_seq.yaml").write_text(
         textwrap.dedent(
             """
-            vectors:
-              methods:
-                test_rails:
-                  list:
-                    - {vin: 3.3}
-                    - {vin: 5.0}
-                    - {vin: 12.0}
+            tests:
+              test_rails:
+                markers:
+                  - parametrize: ["vin", [3.3, 5.0, 12.0]]
             """
         )
     )
@@ -172,12 +163,10 @@ def test_vectors_fixture_active_params_pushed_per_iteration(
     (pytester.path / "test_seq.yaml").write_text(
         textwrap.dedent(
             """
-            vectors:
-              methods:
-                test_rails:
-                  list:
-                    - {vin: 3.3, load: 0.1}
-                    - {vin: 5.0, load: 0.8}
+            tests:
+              test_rails:
+                markers:
+                  - parametrize: ["vin,load", [[3.3, 0.1], [5.0, 0.8]]]
             """
         )
     )
@@ -225,12 +214,10 @@ def test_vectors_fixture_non_empty_matrix_unused_fails(pytester: pytest.Pytester
     (pytester.path / "test_seq.yaml").write_text(
         textwrap.dedent(
             """
-            vectors:
-              methods:
-                test_rails:
-                  list:
-                    - {vin: 3.3}
-                    - {vin: 5.0}
+            tests:
+              test_rails:
+                markers:
+                  - parametrize: ["vin", [3.3, 5.0]]
             """
         )
     )
@@ -286,12 +273,10 @@ def test_vectors_fixture_crosses_parametrize_and_sidecar(
     (pytester.path / "test_seq.yaml").write_text(
         textwrap.dedent(
             """
-            vectors:
-              methods:
-                test_rails:
-                  list:
-                    - {vin: 3.3}
-                    - {vin: 5.0}
+            tests:
+              test_rails:
+                markers:
+                  - parametrize: ["vin", [3.3, 5.0]]
             """
         )
     )

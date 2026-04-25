@@ -1,0 +1,7 @@
+# Characterization — wide sweep, no limits (record-only).
+facets:
+  test_phase: characterization
+tests:
+  test_rail_holds_across_input:
+    markers:
+      - parametrize: ["vin", [3.0, 3.3, 3.6, 4.0, 4.5, 5.0, 5.5, 6.0]]

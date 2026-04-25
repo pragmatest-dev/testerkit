@@ -106,8 +106,9 @@ def test_simple_path_absolute_limits_no_product(pytester: pytest.Pytester) -> No
     (pytester.path / "test_seq.yaml").write_text(
         textwrap.dedent(
             """
-            limits:
-              v_rail: {low: 3.2, high: 3.4, units: V}
+            markers:
+              - litmus_limits:
+                  v_rail: {low: 3.2, high: 3.4, units: V}
             """
         )
     )
@@ -139,9 +140,10 @@ def test_fixturepoints_binding_iterates_and_stamps_pin(pytester: pytest.Pytester
             """
             tests:
               test_rail:
-                fixturepoints: [vout_measure]
-                limits:
-                  v_rail: {low: 3.2, high: 3.4, units: V}
+                markers:
+                  - litmus_binding: {fixturepoints: [vout_measure]}
+                  - litmus_limits:
+                      v_rail: {low: 3.2, high: 3.4, units: V}
             """
         )
     )
@@ -172,9 +174,10 @@ def test_characteristic_binding_derives_tolerance_limit(pytester: pytest.Pyteste
             """
             tests:
               test_rail:
-                characteristic: rail_3v3
-                limits:
-                  v_rail: {tolerance_pct: 2}
+                markers:
+                  - litmus_binding: {characteristic: rail_3v3}
+                  - litmus_limits:
+                      v_rail: {tolerance_pct: 2}
             """
         )
     )
@@ -206,9 +209,10 @@ def test_multi_pin_characteristic_iterates_all_points(pytester: pytest.Pytester)
             """
             tests:
               test_dropout:
-                characteristic: dropout
-                limits:
-                  v_drop: {tolerance_abs: 0.1}
+                markers:
+                  - litmus_binding: {characteristic: dropout}
+                  - litmus_limits:
+                      v_drop: {tolerance_abs: 0.1}
             """
         )
     )
@@ -235,9 +239,10 @@ def test_unconsumed_binding_iterator_fails_loudly(pytester: pytest.Pytester) -> 
             """
             tests:
               test_rail:
-                fixturepoints: [vout_measure]
-                limits:
-                  v_rail: {low: 3.2, high: 3.4, units: V}
+                markers:
+                  - litmus_binding: {fixturepoints: [vout_measure]}
+                  - litmus_limits:
+                      v_rail: {low: 3.2, high: 3.4, units: V}
             """
         )
     )
@@ -260,8 +265,9 @@ def test_no_binding_ctx_points_is_none(pytester: pytest.Pytester) -> None:
     (pytester.path / "test_seq.yaml").write_text(
         textwrap.dedent(
             """
-            limits:
-              v_rail: {low: 3.2, high: 3.4, units: V}
+            markers:
+              - litmus_limits:
+                  v_rail: {low: 3.2, high: 3.4, units: V}
             """
         )
     )

@@ -11,7 +11,6 @@ from contextvars import ContextVar
 from itertools import cycle
 from pathlib import Path
 from typing import Any
-from unittest.mock import patch
 from uuid import UUID, uuid4
 
 import pytest
@@ -22,7 +21,7 @@ from litmus.config.test_config import (
     FixturePoint,
     MarkerSpec,
     MeasurementLimitConfig,
-    TestConfig,
+    SidecarConfig,
     TestMarkers,
 )
 from litmus.data.models import CollectedItem, TestRun, TestVector
@@ -763,6 +762,7 @@ def pytest_collection_modifyitems(config, items: list[pytest.Item]) -> None:
     The snapshot captures markers **after** profile injection, so the
     manifest reflects the effective marker set.
     """
+    _apply_sidecar_to_items(items)
     _apply_profile_to_items(config, items)
 
     collected = []
@@ -783,166 +783,7 @@ def pytest_collection_modifyitems(config, items: list[pytest.Item]) -> None:
         )
     set_collected_items(collected)
 
-    _warn_uncovered_condition_keys(config, items)
     _warn_unmatched_profile_keys(items)
-    _check_per_test_condition_coverage(config, items)
-
-
-def _warn_uncovered_condition_keys(config, items: list[pytest.Item]) -> None:
-    """Emit one warning per SpecBand condition key no test's vectors supply.
-
-    Conservative: collects the union of condition keys across every
-    ``ProductCharacteristic.specs[].when`` in the active product, the
-    union of vector-param keys across every sidecar in collection,
-    and warns for each condition key present in the former and absent
-    from the latter.
-
-    False positives possible if the user is running a filtered subset
-    on purpose; better than the silent ``ValueError: No spec band
-    matches: .`` failure mode at measure time.
-    """
-    try:
-        spec_ctx = _preview_spec_context(config)
-    except pytest.UsageError:
-        return
-    if spec_ctx is None:
-        return
-
-    condition_keys: set[str] = set()
-    for char in spec_ctx.product.characteristics.values():
-        for band in char.specs:
-            if band.when:
-                condition_keys.update(band.when.keys())
-    if not condition_keys:
-        return
-
-    vector_keys: set[str] = set()
-    seen_sidecars: set[Path] = set()
-    for item in items:
-        module_file = getattr(item, "path", None)
-        if module_file is None or module_file in seen_sidecars:
-            continue
-        seen_sidecars.add(module_file)
-        sidecar = _load_sidecar(module_file)
-        if not sidecar:
-            continue
-        vector_keys.update(_extract_vector_keys(sidecar))
-
-    missing = sorted(condition_keys - vector_keys)
-    if not missing:
-        return
-    warnings.warn(
-        "Product characteristics declare condition keys not covered by "
-        f"any test's vectors: {', '.join(missing)}. Tests binding those "
-        "characteristics will fail at measure time with 'No spec band matches'. "
-        "Add the condition key to the test's sidecar `vectors:` block.",
-        UserWarning,
-        stacklevel=1,
-    )
-
-
-_POLICY_KEYS = frozenset(
-    {"tolerance_pct", "tolerance_abs", "guardband_pct", "expr", "lookup", "steps", "callable"}
-)
-
-
-def _any_limit_binds_to_char(
-    char_id: str, top_limits: Mapping[str, Any], test_limits: Mapping[str, Any]
-) -> bool:
-    """Return True if any limit entry will invoke ``build_limit_from_char`` for ``char_id``.
-
-    A limit entry binds to a char when it's a policy-shaped mapping
-    (tolerance / guardband / expr / etc.) and either (a) has an explicit
-    ``characteristic:`` matching ``char_id``, or (b) omits
-    ``characteristic:`` and inherits the test-level char.
-    """
-    for limits_block in (test_limits, top_limits):
-        for entry in limits_block.values():
-            if not isinstance(entry, Mapping):
-                continue
-            if not any(k in entry for k in _POLICY_KEYS):
-                continue
-            explicit = entry.get("characteristic")
-            if explicit is None or explicit == char_id:
-                return True
-    return False
-
-
-def _check_per_test_condition_coverage(config, items: list[pytest.Item]) -> None:
-    """Raise ``UsageError`` when a test's char cannot match any SpecBand.
-
-    For each test that binds a ``characteristic``, compute the union of
-    that test's vector-param keys and compare against every SpecBand's
-    ``when:`` keys. If no band has all its ``when:`` keys present in the
-    test's vectors, the test will always fail at measure time with
-    ``ValueError: No spec band matches``. Surface the missing keys now.
-    """
-    try:
-        spec_ctx = _preview_spec_context(config)
-    except pytest.UsageError:
-        return
-    if spec_ctx is None:
-        return
-
-    seen_functions: set[tuple[Any, str]] = set()
-    for item in items:
-        module_file = getattr(item, "path", None)
-        func_name = getattr(item, "originalname", None) or item.name.split("[")[0]
-        key = (module_file, func_name)
-        if key in seen_functions:
-            continue
-        seen_functions.add(key)
-        if module_file is None:
-            continue
-        sidecar = _load_sidecar(module_file)
-        if not sidecar:
-            continue
-        test_entry = (sidecar.get("tests") or {}).get(func_name)
-        if not isinstance(test_entry, dict):
-            continue
-        char_id = test_entry.get("characteristic")
-        if not char_id:
-            continue
-        char = spec_ctx.product.characteristics.get(char_id)
-        if char is None or not char.specs:
-            continue
-
-        # Only validate when a policy-shaped limit entry will actually
-        # resolve against this char. Tests that bind a char purely for
-        # ``ctx.points`` iteration (no ``limits:`` policy) never call
-        # ``build_limit_from_char`` and never hit the when-matching path.
-        top_limits = sidecar.get("limits") or {}
-        test_limits = test_entry.get("limits") or {}
-        if not _any_limit_binds_to_char(char_id, top_limits, test_limits):
-            continue
-
-        class_keys = _vector_entry_keys((sidecar.get("vectors") or {}).get("class"))
-        method_cfg = (sidecar.get("vectors") or {}).get("methods", {}).get(func_name)
-        method_keys = _vector_entry_keys(method_cfg) if method_cfg is not None else set()
-        per_test_vectors = test_entry.get("vectors")
-        if per_test_vectors is not None:
-            method_keys |= _vector_entry_keys(per_test_vectors)
-        test_keys = class_keys | method_keys
-
-        missing_per_band: list[set[str]] = []
-        reachable = False
-        for band in char.specs:
-            band_keys = set(band.when.keys()) if band.when else set()
-            missing = band_keys - test_keys
-            if not missing:
-                reachable = True
-                break
-            missing_per_band.append(missing)
-        if reachable:
-            continue
-
-        shared_missing = sorted(set.intersection(*missing_per_band)) if missing_per_band else []
-        raise pytest.UsageError(
-            f"{item.nodeid}: test binds characteristic {char_id!r} but its "
-            f"vectors don't cover condition keys required by any spec band. "
-            f"Add {', '.join(shared_missing) or '<condition keys>'} to "
-            f"`tests.{func_name}.vectors:` or `vectors.methods.{func_name}:`."
-        )
 
 
 def _warn_unmatched_profile_keys(items: list[pytest.Item]) -> None:
@@ -990,73 +831,6 @@ def _warn_unmatched_profile_keys(items: list[pytest.Item]) -> None:
     )
 
 
-def _preview_spec_context(config) -> SpecContext | None:
-    """Load the product a session will use, without going through the fixture.
-
-    Runs the same rules as the ``spec_context`` fixture — explicit
-    ``--spec`` wins, else ``_autodiscover_product`` applies. Does not
-    set the active ContextVar; the fixture will do that on first use.
-    """
-    spec_path = config.getoption("--spec")
-    guardband = float(config.getoption("--guardband"))
-    if spec_path:
-        return SpecContext.from_file(spec_path, guardband_pct=guardband)
-
-    part_number = config.getoption("--dut-part-number")
-    return _autodiscover_product(config, guardband, part_number)
-
-
-def _extract_vector_keys(sidecar: dict[str, Any]) -> set[str]:
-    """Return the union of vector-param keys across a sidecar's vectors block.
-
-    Covers both shapes: top-level ``vectors.methods.<name>`` (list or
-    product/zip forms) and per-test ``tests.<name>.vectors``.
-    """
-    keys: set[str] = set()
-    vectors_block = sidecar.get("vectors")
-    if isinstance(vectors_block, dict):
-        methods = vectors_block.get("methods", {})
-        if isinstance(methods, dict):
-            for entry in methods.values():
-                keys.update(_vector_entry_keys(entry))
-        cls_entry = vectors_block.get("class")
-        if cls_entry is not None:
-            keys.update(_vector_entry_keys(cls_entry))
-    tests_block = sidecar.get("tests")
-    if isinstance(tests_block, dict):
-        for entry in tests_block.values():
-            if isinstance(entry, dict):
-                keys.update(_vector_entry_keys(entry.get("vectors")))
-    return keys
-
-
-def _vector_entry_keys(entry: Any) -> set[str]:
-    """Pull vector-param keys out of one vectors entry."""
-    if not entry:
-        return set()
-    if isinstance(entry, list):
-        out: set[str] = set()
-        for row in entry:
-            if isinstance(row, dict):
-                out.update(row.keys())
-        return out
-    if isinstance(entry, dict):
-        for mode in ("list", "product", "zip"):
-            if mode in entry:
-                value = entry[mode]
-                if isinstance(value, dict):
-                    return set(value.keys())
-                if isinstance(value, list):
-                    out = set()
-                    for row in value:
-                        if isinstance(row, dict):
-                            out.update(row.keys())
-                    return out
-        # Flat form: keys other than `expand` are vector keys.
-        return {k for k in entry.keys() if k != "expand"}
-    return set()
-
-
 def _apply_profile_to_items(config, items: list[pytest.Item]) -> None:
     """Inject profile markers onto items from the three profile scopes.
 
@@ -1070,6 +844,31 @@ def _apply_profile_to_items(config, items: list[pytest.Item]) -> None:
         return
     for item in items:
         for spec in _profile_markers_for_item(item):
+            marker = getattr(pytest.mark, spec.name)
+            item.add_marker(marker(*spec.args, **spec.kwargs))
+
+
+def _apply_sidecar_to_items(items: list[pytest.Item]) -> None:
+    """Attach sidecar file + class + per-test markers to each item.
+
+    Skips ``parametrize`` markers — those are consumed by
+    :func:`pytest_generate_tests` and must not be re-applied here, or
+    pytest would see two parametrize markers per axis.
+    """
+    for item in items:
+        if not isinstance(item, pytest.Function):
+            continue
+        module = getattr(item, "module", None)
+        module_file = getattr(module, "__file__", None)
+        if module_file is None:
+            continue
+        sidecar = _load_sidecar(Path(module_file))
+        if sidecar is None:
+            continue
+        cls_name, func_name = _node_cls_func(item)
+        for spec in _sidecar_markers_for(sidecar, cls_name, func_name):
+            if spec.name == "parametrize":
+                continue
             marker = getattr(pytest.mark, spec.name)
             item.add_marker(marker(*spec.args, **spec.kwargs))
 
@@ -1452,7 +1251,11 @@ def pytest_addoption(parser):
     # Auto-synthesize one --<facet> flag per declared profile facet key.
     # Declaring `product: power_board` in any profile turns --product into
     # a selector for this project — no generic --facet escape hatch.
+    # ``test_phase`` already has its own --test-phase flag above, so the
+    # facet reuses it rather than re-registering.
     for key in _collect_profile_facet_keys(project):
+        if key == "test_phase":
+            continue
         group.addoption(
             _facet_key_to_cli_flag(key),
             default=None,
@@ -3026,7 +2829,6 @@ def sync(logger):
 import yaml  # noqa: E402
 
 from litmus.config.test_config import Limit  # noqa: E402
-from litmus.execution.expand import expand as _expand_sidecar_block  # noqa: E402
 from litmus.execution.vectors import Vector  # noqa: E402
 
 
@@ -3079,82 +2881,150 @@ def _profile_markers_for_item(item: pytest.Item) -> list[MarkerSpec]:
 _VECTORS_MATRIX_KEY: pytest.StashKey[dict[str, list[Vector]]] = pytest.StashKey()
 
 
-@pytest.hookimpl(tryfirst=True)
-def pytest_generate_tests(metafunc: pytest.Metafunc) -> None:
-    """Expand vectors from every source for a test.
+def _sidecar_parametrize_markers_for_metafunc(
+    metafunc: pytest.Metafunc,
+) -> list[MarkerSpec]:
+    """Collect sidecar + profile parametrize markers for a metafunc.
 
-    Sources, cross-producted in this order:
+    Returns parametrize-named markers from, in merge order:
 
-    1. Native ``@pytest.mark.parametrize`` markers on the function
-    2. Sidecar ``vectors:`` block (method- or ``tests.<name>.vectors``)
-    3. Profile overrides by node-id
+        sidecar.markers (file-level)
+        sidecar.classes[<Cls>].markers
+        sidecar.tests[<qualified|bare>].markers
+        profile chain .markers / .classes / .tests (qualified|bare)
 
-    Two modes, switched on test signature:
-
-    * **Normal mode** — pytest expands cases via its own parametrize
-      handling; we additionally parametrize sidecar/profile rows.
-    * **Self-loop mode** (``vectors`` fixture in signature) — all
-      sources are consolidated into a single matrix stashed on the
-      node. Native parametrize markers are **consumed** (removed from
-      ``own_markers`` before pytest's built-in hook runs), so pytest
-      produces **one** test case. The ``vectors`` fixture yields each
-      row in turn and pushes active params per iteration.
+    Inline ``@pytest.mark.parametrize`` decorators on the function are
+    intentionally excluded — pytest's built-in hook already applies
+    those. This list is applied on top via :meth:`metafunc.parametrize`
+    calls, stacking with different argnames per entry.
     """
     module_file = getattr(metafunc.module, "__file__", None)
     sidecar = _load_sidecar(Path(module_file)) if module_file is not None else None
-    vectors_block = (sidecar.get("vectors") if sidecar else None) or {}
+    cls = metafunc.cls
+    cls_name = cls.__name__ if cls is not None else None
+    func_name = metafunc.function.__name__
 
-    class_block = vectors_block.get("class")
-    if class_block:
-        class_vectors = _expand_sidecar_block(class_block)
-        if class_vectors:
-            metafunc.parametrize(
-                "_litmus_class_vec",
-                class_vectors,
-                ids=[_vec_id(v) for v in class_vectors],
-                indirect=True,
-                scope="class",
-            )
+    merged: list[MarkerSpec] = list(_sidecar_markers_for(sidecar, cls_name, func_name))
 
-    methods_block = vectors_block.get("methods") or {}
-    method_cfg = methods_block.get(metafunc.function.__name__)
-    if method_cfg is None and sidecar is not None:
-        tests_block = sidecar.get("tests")
-        if isinstance(tests_block, dict):
-            tests_entry = tests_block.get(metafunc.function.__name__)
-            if isinstance(tests_entry, dict):
-                method_cfg = tests_entry.get("vectors")
+    profile = get_active_profile()
+    if profile is not None:
+        merged.extend(profile.markers)
+        if cls_name is not None:
+            class_block = profile.classes.get(cls_name)
+            if class_block is not None:
+                merged.extend(class_block.markers)
+        qualified = f"{cls_name}.{func_name}" if cls_name is not None else None
+        tests_block = profile.tests.get(qualified) if qualified is not None else None
+        if tests_block is None:
+            tests_block = profile.tests.get(func_name)
+        if tests_block is not None:
+            merged.extend(tests_block.markers)
 
-    method_vectors = _expand_sidecar_block(method_cfg) if method_cfg else []
+    return [m for m in merged if m.name == "parametrize"]
+
+
+@pytest.hookimpl(tryfirst=True)
+def pytest_generate_tests(metafunc: pytest.Metafunc) -> None:
+    """Expand parametrize markers from sidecar + profile scopes.
+
+    The sidecar and profile ``markers:`` lists may contain ``parametrize``
+    entries. This hook applies each one via :meth:`metafunc.parametrize`,
+    stacking with inline ``@pytest.mark.parametrize`` decorators (which
+    pytest's built-in hook already processes). Different argnames per
+    entry are required by pytest — overlap raises a collection-time
+    :class:`pytest.UsageError`.
+
+    Self-loop mode (``vectors`` fixture in signature): parametrize
+    markers from inline + sidecar + profile are consumed instead of
+    expanded, and the cross-product is stashed on the parent node for
+    the :func:`vectors` fixture to iterate.
+    """
+    sidecar_parametrize = _sidecar_parametrize_markers_for_metafunc(metafunc)
 
     if "vectors" in metafunc.fixturenames:
-        # Self-loop mode: consume native parametrize markers, cross with
-        # sidecar rows, stash the full matrix on the parent node (module
-        # or class) keyed by originalname — the Function item that later
-        # runs the test is a distinct pytest node from
-        # ``metafunc.definition``, so its own stash is empty. Parent
-        # stash + originalname key is the same pattern used by
-        # :data:`_PREV_STASH_KEY`.
-        parametrize_rows = _consume_parametrize_markers(metafunc)
-        full_matrix = _cross_product_vectors(parametrize_rows, method_vectors)
+        # Self-loop mode: consume inline parametrize markers + add
+        # sidecar/profile rows, cross-product into a single stash matrix.
+        inline_rows = _consume_parametrize_markers(metafunc)
+        sidecar_rows: list[dict[str, Any]] = [{}]
+        for marker in sidecar_parametrize:
+            axis = _marker_spec_parametrize_rows(marker)
+            sidecar_rows = [{**base, **row} for base in sidecar_rows for row in axis]
+        # When sidecar rows is empty dict, inline alone; otherwise cross-product.
+        if sidecar_rows == [{}]:
+            full_rows = inline_rows
+        elif not inline_rows:
+            full_rows = sidecar_rows
+        else:
+            full_rows = [{**i, **s} for i in inline_rows for s in sidecar_rows]
+        full_matrix = [Vector(**row, _index=i) for i, row in enumerate(full_rows)]
         parent = metafunc.definition.parent
         if parent is not None:
             matrix_map = parent.stash.setdefault(_VECTORS_MATRIX_KEY, {})
             matrix_map[metafunc.definition.originalname] = full_matrix
         return
 
-    if not method_vectors:
-        return
+    # Normal mode: apply each sidecar/profile parametrize marker via
+    # metafunc.parametrize. pytest's built-in hook will also expand
+    # inline @pytest.mark.parametrize decorators separately.
+    for marker in sidecar_parametrize:
+        argnames, argvalues, kwargs = _marker_spec_to_parametrize_args(marker)
+        metafunc.parametrize(argnames, argvalues, **kwargs)
 
-    direct_keys = _direct_exposable_keys(metafunc, method_vectors)
-    argnames = ["_litmus_method_vec", *direct_keys]
-    argvalues = [[vec, *[vec.get(k) for k in direct_keys]] for vec in method_vectors]
-    metafunc.parametrize(
-        argnames,
-        argvalues,
-        ids=[_vec_id(v) for v in method_vectors],
-        indirect=["_litmus_method_vec"],
+
+def _marker_spec_to_parametrize_args(
+    marker: MarkerSpec,
+) -> tuple[Any, list[Any], dict[str, Any]]:
+    """Convert a parametrize MarkerSpec into metafunc.parametrize arguments."""
+    if marker.args and len(marker.args) >= 2:
+        argnames = marker.args[0]
+        argvalues = marker.args[1]
+        extra_kwargs = dict(marker.kwargs)
+    elif "argnames" in marker.kwargs and "argvalues" in marker.kwargs:
+        extra_kwargs = dict(marker.kwargs)
+        argnames = extra_kwargs.pop("argnames")
+        argvalues = extra_kwargs.pop("argvalues")
+    else:
+        raise pytest.UsageError(
+            f"parametrize marker requires argnames and argvalues; got "
+            f"args={marker.args!r}, kwargs={marker.kwargs!r}"
+        )
+    normalized: list[Any] = []
+    for entry in argvalues:
+        if isinstance(entry, dict) and "value" in entry:
+            value = entry["value"]
+            pid = entry.get("id")
+            marks_list = entry.get("marks") or []
+            marks = [getattr(pytest.mark, name) for name in marks_list]
+            normalized.append(pytest.param(value, id=pid, marks=marks))
+        else:
+            normalized.append(entry)
+    return argnames, normalized, extra_kwargs
+
+
+def _marker_spec_parametrize_rows(marker: MarkerSpec) -> list[dict[str, Any]]:
+    """Convert a parametrize MarkerSpec into a list of row dicts.
+
+    Used by self-loop mode to cross-product parametrize markers into
+    a single vector matrix. Skips per-case ``id`` / ``marks``.
+    """
+    argnames, argvalues, _ = _marker_spec_to_parametrize_args(marker)
+    names = (
+        [n.strip() for n in argnames.split(",")] if isinstance(argnames, str) else list(argnames)
     )
+    rows: list[dict[str, Any]] = []
+    for raw in argvalues:
+        values = getattr(raw, "values", None)
+        if values is None:
+            values = raw
+        if len(names) == 1:
+            rows.append({names[0]: values})
+        else:
+            if not isinstance(values, (tuple, list)):
+                raise pytest.UsageError(
+                    f"parametrize {argnames!r} expected a tuple per row; got {values!r}"
+                )
+            rows.append(dict(zip(names, values, strict=True)))
+    return rows
 
 
 def _consume_parametrize_markers(metafunc: pytest.Metafunc) -> list[dict[str, Any]]:
@@ -3230,85 +3100,15 @@ def _parametrize_mark_rows(mark: pytest.Mark) -> list[dict[str, Any]]:
     return rows
 
 
-def _cross_product_vectors(
-    parametrize_rows: list[dict[str, Any]],
-    sidecar_vectors: list[Vector],
-) -> list[Vector]:
-    """Cross-product native parametrize rows with sidecar vectors.
-
-    Sidecar keys are the base; parametrize keys overlay on top (so an
-    overlapping key takes the parametrize value). Returns a flat list
-    of :class:`Vector` with ``_index`` stamped 0..N-1.
-    """
-    if not parametrize_rows and not sidecar_vectors:
-        return []
-    if not parametrize_rows:
-        return [Vector(**v.params(), _index=i) for i, v in enumerate(sidecar_vectors)]
-    if not sidecar_vectors:
-        return [Vector(**row, _index=i) for i, row in enumerate(parametrize_rows)]
-    out: list[Vector] = []
-    for p_row in parametrize_rows:
-        for s_vec in sidecar_vectors:
-            merged = {**s_vec.params(), **p_row}
-            out.append(Vector(**merged, _index=len(out)))
-    return out
-
-
-def _markers_named(target: Any, marker_name: str) -> list[pytest.Mark]:
-    """Return every marker named ``marker_name`` attached to ``target``.
-
-    Accepts either a class (reads ``pytestmark``) or a test node (reads
-    ``own_markers``). Returns an empty list when ``target`` is ``None``.
-    Callers decide merge order: class-level markers are typically merged
-    in reverse (closest to the class definition wins), while method-level
-    own_markers are already ordered with the outermost decorator first.
-    """
-    if target is None:
-        return []
-    source = (
-        getattr(target, "pytestmark", []) or []
-        if isinstance(target, type)
-        else getattr(target, "own_markers", [])
-    )
-    return [m for m in source if getattr(m, "name", None) == marker_name]
-
-
-def _direct_exposable_keys(metafunc: pytest.Metafunc, vectors: list[Vector]) -> list[str]:
-    """Vector keys the test signature accepts as direct parameters.
-
-    Sidecar values are always available via ``context.get_param(key)`` and
-    additionally exposed as direct arguments when the test function
-    declares them in its signature.
-    """
-    all_keys: set[str] = set()
-    for vec in vectors:
-        all_keys.update(vec.params().keys())
-    return sorted(k for k in all_keys if k in metafunc.fixturenames)
-
-
 @functools.cache
-def _load_sidecar(module_file: Path) -> dict[str, Any] | None:
+def _load_sidecar(module_file: Path) -> SidecarConfig | None:
     """Return parsed ``<module>.yaml`` next to ``module_file`` or ``None``.
 
     Cached on ``module_file`` so a module with many parametrize cases
     parses its YAML once per session instead of once per test. The
-    returned dict must be treated as read-only by callers.
-
-    Sidecar shape::
-
-        vectors:
-          class: {list: [...]}
-          methods:
-            test_foo: {list: [...]}
-        limits:
-          <name>: {low: ..., high: ..., units: ...}
-        mocks:
-          <fixture.attr>: <value>
-        tests:
-          test_foo:            # per-method TestConfig
-            characteristic: rail_3v3_output     # ctx.points binding
-            limits:
-              <name>: {tolerance_pct: 2}
+    returned :class:`SidecarConfig` is immutable from the caller's
+    perspective — its shape is the same as a profile block (``markers``,
+    ``classes``, ``tests``).
     """
     yaml_path = module_file.with_suffix(".yaml")
     if not yaml_path.exists():
@@ -3319,15 +3119,39 @@ def _load_sidecar(module_file: Path) -> dict[str, Any] | None:
         raise ValueError(
             f"{yaml_path} must contain a mapping at the top level; got {type(data).__name__}"
         )
-    return data
+    return SidecarConfig.model_validate(data)
 
 
-def _vec_id(vec: Vector) -> str:
-    """Build a readable parametrize id from a vector's params."""
-    params = vec.params()
-    if not params:
-        return "-"
-    return "-".join(f"{k}={v}" for k, v in params.items())
+def _sidecar_markers_for(
+    sidecar: SidecarConfig | None,
+    cls_name: str | None,
+    func_name: str | None,
+) -> list[MarkerSpec]:
+    """Merge sidecar markers for a test: file-level + class + per-test.
+
+    Qualified ``tests.TestCls.test_foo`` wins over bare ``tests.test_foo``
+    when both are present — same disambiguation as the profile chain in
+    :func:`_profile_markers_for_item`.
+    """
+    if sidecar is None:
+        return []
+    out: list[MarkerSpec] = list(sidecar.markers)
+    if cls_name is not None:
+        class_block = sidecar.classes.get(cls_name)
+        if class_block is not None:
+            out.extend(class_block.markers)
+    if func_name is None:
+        return out
+    if cls_name is not None:
+        qualified = f"{cls_name}.{func_name}"
+        qualified_block = sidecar.tests.get(qualified)
+        if qualified_block is not None:
+            out.extend(qualified_block.markers)
+            return out
+    bare_block = sidecar.tests.get(func_name)
+    if bare_block is not None:
+        out.extend(bare_block.markers)
+    return out
 
 
 class _LimitRef:
@@ -3383,20 +3207,6 @@ class _BandSet:
         bands: list[tuple[dict[str, Any], Limit | _LimitRef | _PolicyLimit]],
     ) -> None:
         self.bands = bands
-
-
-def _limit_entry_to_raw(value: Any) -> Any:
-    """Normalize a :class:`TestConfig.limits` entry back to raw YAML shape.
-
-    ``MeasurementLimitConfig`` / ``Limit`` → dict; a list of
-    ``MeasurementLimitConfig`` (condition-indexed bands) → list of dicts;
-    anything else passes through (already a mapping).
-    """
-    if isinstance(value, list):
-        return [v.model_dump(exclude_none=True) if hasattr(v, "model_dump") else v for v in value]
-    if hasattr(value, "model_dump"):
-        return value.model_dump(exclude_none=True)
-    return value
 
 
 def _parse_limit_entry(
@@ -3585,34 +3395,6 @@ def _match_band(
     )
 
 
-@pytest.fixture(scope="class")
-def _litmus_class_vec(request: pytest.FixtureRequest) -> Vector:
-    """Indirect-parametrize target for class-level vectors.
-
-    Not for direct use. Populated by
-    :func:`pytest_generate_tests` when a sidecar declares class vectors —
-    the fixture is parametrized with ``indirect=True`` so pytest routes
-    the Vector here instead of to the test function. Class scope means
-    all method-level parametrize cases for one class vector run before
-    pytest moves to the next class vector.
-    """
-    param = getattr(request, "param", None)
-    return param if isinstance(param, Vector) else Vector()
-
-
-@pytest.fixture
-def _litmus_method_vec(request: pytest.FixtureRequest) -> Vector:
-    """Indirect-parametrize target for method-level vectors.
-
-    Not for direct use. Populated by :func:`pytest_generate_tests`
-    when a sidecar declares method vectors (or when a test method uses
-    ``@pytest.mark.parametrize`` directly). Function-scoped so each
-    parametrize case gets its own Vector instance.
-    """
-    param = getattr(request, "param", None)
-    return param if isinstance(param, Vector) else Vector()
-
-
 @pytest.fixture
 def context() -> Context:
     """Context exposed to tests for ``context.get_param("...")`` / ``.changed()``."""
@@ -3774,15 +3556,13 @@ _PREV_STASH_KEY: pytest.StashKey[dict[str, Context]] = pytest.StashKey()
 @pytest.fixture(autouse=True)
 def _litmus_push_params(
     request: pytest.FixtureRequest,
-    _litmus_class_vec: Vector,
-    _litmus_method_vec: Vector,
 ) -> Iterator[None]:
     """Merge parametrize params into ``context`` for this test.
 
-    Source-agnostic: reads ``request.node.callspec.params`` so that
-    sidecar vectors, native ``@pytest.mark.parametrize``, and
-    ``@pytest.fixture(params=...)`` all populate ``context`` the same
-    way. Applies to every collected test.
+    Source-agnostic: reads ``request.node.callspec.params`` so inline
+    ``@pytest.mark.parametrize``, sidecar/profile parametrize markers,
+    and ``@pytest.fixture(params=...)`` all populate ``context`` the
+    same way. Applies to every collected test.
 
     Also chains ``Context._prev`` to the previous parametrize case of
     the same ``(parent_node, method)`` so ``context.changed("vin")``
@@ -3792,16 +3572,9 @@ def _litmus_push_params(
     """
     ctx: Context = request.getfixturevalue("context")
 
-    ctx.set_params(_litmus_class_vec.params())
-    ctx.set_params(_litmus_method_vec.params())
-
     callspec = getattr(request.node, "callspec", None)
     if callspec is not None:
-        extras = {
-            k: v
-            for k, v in callspec.params.items()
-            if k not in ("_litmus_class_vec", "_litmus_method_vec") and not k.startswith("_")
-        }
+        extras = {k: v for k, v in callspec.params.items() if not k.startswith("_")}
         if extras:
             ctx.set_params(extras)
 
@@ -3833,7 +3606,7 @@ def _litmus_push_params(
             set_active_vector_params({})
 
 
-def _load_sidecar_for_node(node: pytest.Item) -> dict[str, Any] | None:
+def _load_sidecar_for_node(node: pytest.Item) -> SidecarConfig | None:
     """Load the sidecar next to the test item's module file."""
     module = getattr(node, "module", None)
     module_file = getattr(module, "__file__", None)
@@ -3842,64 +3615,45 @@ def _load_sidecar_for_node(node: pytest.Item) -> dict[str, Any] | None:
     return _load_sidecar(Path(module_file))
 
 
-@pytest.fixture
-def _litmus_sidecar(request: pytest.FixtureRequest) -> dict[str, Any] | None:
-    """Function-scoped cache of the sidecar YAML for the current test.
-
-    Both ``_litmus_push_limits`` and ``_litmus_apply_mocks`` depend on
-    this fixture so the sidecar is parsed once per test, not twice.
-    Returns ``None`` when no sidecar file exists.
-    """
-    return _load_sidecar_for_node(request.node)
+def _node_cls_func(node: pytest.Item) -> tuple[str | None, str | None]:
+    """Extract (class_name, original_func_name) for a pytest node."""
+    cls = getattr(node, "cls", None)
+    cls_name = cls.__name__ if cls is not None else None
+    func_name = getattr(node, "originalname", None) or node.name.split("[")[0]
+    return cls_name, func_name
 
 
 @pytest.fixture(autouse=True)
 def _litmus_push_limits(
     request: pytest.FixtureRequest,
-    _litmus_sidecar: dict[str, Any] | None,
-    _litmus_class_vec: Vector,
-    _litmus_method_vec: Vector,
     _litmus_push_params: None,
 ) -> Iterator[None]:
-    """Merge sidecar ``limits:``, sidecar ``tests.<method>.limits``,
-    ``@pytest.mark.litmus_limits`` markers, and active-profile limits,
-    then push into ``_active_limits_var``.
+    """Merge all ``litmus_limits`` markers and push into ``_active_limits_var``.
 
-    Merge order (later wins):
+    Markers are attached to the item during collection from four sources,
+    in merge order (later wins):
 
-        sidecar.limits                        # file-level shorthand
-        sidecar.tests.<method>.limits         # per-method override
-        @pytest.mark.litmus_limits (class)    # class marker
-        @pytest.mark.litmus_limits (method)   # method marker
-        profile.limits[<node-id>]             # session-level override
+        sidecar file-level ``markers:``
+        sidecar class-scoped ``classes.<Cls>.markers:``
+        sidecar per-test ``tests.<name>.markers:``
+        inline ``@pytest.mark.litmus_limits`` decorators
+        profile chain markers (parent → child)
 
-    Values at each layer may be raw ``Limit`` dicts, ``{"ref": ...}``
-    pointers, or :class:`MeasurementLimitConfig` policy shapes
-    (``characteristic`` / ``tolerance_pct`` / ``tolerance_abs``). Policy
-    entries derive from ``product.characteristics[char]
-    .get_spec_at(active_vector_params)`` at push time, layered with
-    ``profile.guardband_pct``. Depends on :func:`_litmus_push_params` so
-    the active vector params are populated before resolution.
+    Each marker kwargs is ``{measurement_name: band_spec}`` where
+    ``band_spec`` is a raw ``Limit`` dict, ``{"ref": ...}`` pointer, or
+    :class:`MeasurementLimitConfig` policy shape. Policy entries resolve
+    at push time against ``product.characteristics[char].get_spec_at(
+    active_vector_params)``. Depends on :func:`_litmus_push_params` so
+    active vector params are populated before resolution.
     """
-    binding = _load_test_binding(request.node, _litmus_sidecar)
-    test_char = binding.characteristic if binding is not None else None
-
-    sidecar_raw = _litmus_sidecar.get("limits") if _litmus_sidecar else None
-    per_test_raw = binding.limits if binding is not None and binding.limits else None
-    per_test_raw_dict = (
-        {k: _limit_entry_to_raw(v) for k, v in per_test_raw.items()} if per_test_raw else None
-    )
-    class_raw = _limits_marker_kwargs(getattr(request.node, "cls", None), scope="class")
-    method_raw = _limits_marker_kwargs(request.node, scope="method")
-    profile_raw: dict[str, Any] = {}
-    for spec in _profile_markers_for_item(request.node):
-        if spec.name == "litmus_limits":
-            profile_raw.update(spec.kwargs)
+    binding_marker = next(iter(request.node.iter_markers("litmus_binding")), None)
+    test_char = binding_marker.kwargs.get("characteristic") if binding_marker is not None else None
 
     merged_raw: dict[str, Any] = {}
-    for layer in (sidecar_raw, per_test_raw_dict, class_raw, method_raw, profile_raw):
-        if layer:
-            merged_raw.update(layer)
+    # iter_markers yields closest-first (method → class → module → plugin);
+    # we want least-specific first so later wins, so reverse.
+    for marker in reversed(list(request.node.iter_markers("litmus_limits"))):
+        merged_raw.update(marker.kwargs)
 
     raw = _parse_limits_block(merged_raw, test_char=test_char)
     resolved = _resolve_limits(raw)
@@ -3951,73 +3705,45 @@ class _PointIterator:
             self._token = None
 
 
-def _load_test_binding(
-    node: pytest.Item,
-    sidecar: dict[str, Any] | None,
-) -> TestConfig | None:
-    """Parse ``sidecar.tests.<method>`` into a :class:`TestConfig` or ``None``.
-
-    Keyed by ``node.originalname`` so parametrize cases of one method
-    share the same entry. For tests inside a class, the qualified form
-    ``tests.TestClass.test_method`` disambiguates across classes that
-    share a method name in one file; the qualified key wins over the
-    bare-method shorthand when both are present. Missing ``tests:``
-    block returns ``None``; missing entry returns ``None``.
-    """
-    if not sidecar:
-        return None
-    tests = sidecar.get("tests")
-    if not isinstance(tests, dict):
-        return None
-    method = getattr(node, "originalname", None) or node.name
-    cls = getattr(node, "cls", None)
-    entry: Any = None
-    key_used = method
-    if cls is not None:
-        qualified_key = f"{cls.__name__}.{method}"
-        entry = tests.get(qualified_key)
-        if entry is not None:
-            key_used = qualified_key
-    if entry is None:
-        entry = tests.get(method)
-    if entry is None:
-        return None
-    if not isinstance(entry, dict):
-        raise ValueError(f"tests.{key_used!r} must be a mapping; got {type(entry).__name__}")
-    return TestConfig.model_validate(entry)
-
-
-def _resolve_binding_to_points(
-    binding: TestConfig,
+def _resolve_binding_marker_to_points(
+    kwargs: dict[str, Any],
     spec_ctx: Any,
     fixture_cfg: FixtureConfig | None,
 ) -> list[FixturePoint]:
-    """Expand a test-level binding into an ordered list of :class:`FixturePoint`.
+    """Expand a ``litmus_binding`` marker payload into fixture points.
 
-    - ``characteristic``: product char → pins → fixture points routing those pins.
-    - ``fixturepoints``: direct point-name lookup.
-    - ``instrument_channels``: filter fixture points by instrument (and
-      optionally channel).
-
-    Returns ``[]`` when no fixture is loaded (simple path — the test runs
-    with ``ctx.points`` as an empty iterator so the body is a no-op).
+    Exactly one of ``characteristic`` / ``fixturepoints`` /
+    ``instrument_channels`` must be set. Returns ``[]`` when no fixture
+    is loaded (the test runs with ``ctx.points`` as empty).
     """
+    characteristic = kwargs.get("characteristic")
+    fixturepoints = kwargs.get("fixturepoints")
+    instrument_channels = kwargs.get("instrument_channels")
+
+    set_count = sum(
+        1 for v in (characteristic, fixturepoints, instrument_channels) if v is not None
+    )
+    if set_count > 1:
+        raise pytest.UsageError(
+            "litmus_binding must set exactly one of characteristic, "
+            "fixturepoints, or instrument_channels."
+        )
+
     if fixture_cfg is None:
         return []
 
     points_map = fixture_cfg.points
 
-    if binding.characteristic:
+    if characteristic:
         if spec_ctx is None:
             raise pytest.UsageError(
-                f"Test binding 'characteristic: {binding.characteristic}' "
+                f"litmus_binding(characteristic={characteristic!r}) "
                 "requires a product spec (load via --spec or products/ auto-discovery)."
             )
-        char = spec_ctx.product.characteristics.get(binding.characteristic)
+        char = spec_ctx.product.characteristics.get(characteristic)
         if char is None:
             raise pytest.UsageError(
-                f"Characteristic {binding.characteristic!r} not found in "
-                f"product {spec_ctx.product.id!r}."
+                f"Characteristic {characteristic!r} not found in product {spec_ctx.product.id!r}."
             )
         points: list[FixturePoint] = []
         for pin_id in char.resolved_pins:
@@ -4029,18 +3755,18 @@ def _resolve_binding_to_points(
                     break
         return points
 
-    if binding.fixturepoints:
+    if fixturepoints:
         resolved: list[FixturePoint] = []
-        for name in binding.fixturepoints:
+        for name in fixturepoints:
             pt = points_map.get(name)
             if pt is None:
                 raise pytest.UsageError(f"Fixture point {name!r} not found in fixture config.")
             resolved.append(pt)
         return resolved
 
-    if binding.instrument_channels:
+    if instrument_channels:
         out: list[FixturePoint] = []
-        for inst_name, channels in binding.instrument_channels.items():
+        for inst_name, channels in instrument_channels.items():
             if channels == "all":
                 out.extend(pt for pt in points_map.values() if pt.instrument == inst_name)
             else:
@@ -4058,27 +3784,22 @@ def _resolve_binding_to_points(
 @pytest.fixture(autouse=True)
 def _litmus_bind_points(
     request: pytest.FixtureRequest,
-    _litmus_sidecar: dict[str, Any] | None,
 ) -> Iterator[None]:
-    """Build :class:`_PointIterator` on ``ctx.points`` from the test's binding.
+    """Build :class:`_PointIterator` on ``ctx.points`` from ``litmus_binding``.
 
-    Sidecar ``tests.<method>`` is parsed as :class:`TestConfig`. If exactly
-    one of ``characteristic`` / ``fixturepoints`` / ``instrument_channels``
-    is set, the framework resolves it against the active product spec +
-    fixture and attaches an iterator. If the test body declares a binding
-    but never iterates ``ctx.points``, the test fails (silent skips are
-    worse than errors). Tests without a binding leave ``ctx.points = None``.
+    Reads the single ``litmus_binding`` marker (closest scope wins) from
+    the merged marker set. If the test body declares a binding but never
+    iterates ``ctx.points``, the test fails — silent skips are worse
+    than errors. Tests without a binding leave ``ctx.points = None``.
     """
-    binding = _load_test_binding(request.node, _litmus_sidecar)
-    if binding is None or not (
-        binding.characteristic or binding.fixturepoints or binding.instrument_channels
-    ):
+    binding_marker = next(iter(request.node.iter_markers("litmus_binding")), None)
+    if binding_marker is None:
         yield
         return
 
     spec_ctx = get_active_spec_context()
     fixture_cfg = _safe_get_session_fixture(request, "fixture_config")
-    points = _resolve_binding_to_points(binding, spec_ctx, fixture_cfg)
+    points = _resolve_binding_marker_to_points(dict(binding_marker.kwargs), spec_ctx, fixture_cfg)
 
     ctx: Context = request.getfixturevalue("context")
     iterator = _PointIterator(points)
@@ -4098,86 +3819,62 @@ def _litmus_bind_points(
         )
 
 
-def _limits_marker_kwargs(
-    target: Any,
-    *,
-    scope: str,
-) -> dict[str, Any]:
-    """Read ``@pytest.mark.litmus_limits(**kwargs)`` at the given scope."""
-    markers = _markers_named(target, "litmus_limits")
-    if scope == "class":
-        merged: dict[str, Any] = {}
-        for marker in reversed(markers):
-            merged.update(marker.kwargs)
-        return merged
-    if scope == "method":
-        return dict(markers[0].kwargs) if markers else {}
-    raise ValueError(f"scope must be 'class' or 'method'; got {scope!r}")
-
-
 @pytest.fixture(autouse=True)
 def _litmus_apply_mocks(
     request: pytest.FixtureRequest,
-    _litmus_sidecar: dict[str, Any] | None,
 ) -> Iterator[None]:
-    """Install mocks declared via sidecar ``mocks:`` blocks.
+    """Install mocks declared via ``litmus_mock`` markers.
 
-    Entries use dotted paths of the form ``<fixture>.<attr>``. The fixture
-    value must already exist (resolved via ``request.getfixturevalue``);
-    the attribute is replaced with a ``Mock(return_value=...)`` for the
-    duration of the test. Layers (later wins):
-
-        sidecar.mocks                        # file-level shorthand
-        sidecar.tests.<method>.mocks         # per-method override
+    Each marker kwargs is ``{target: <fixture>.<attr>, return_value: ...}``.
+    The handler routes through ``mocker.patch.object`` so pytest-mock
+    owns teardown. The attribute is replaced with a
+    ``Mock(return_value=...)`` for the duration of the test. Multiple
+    markers stack; ``--no-test-mocks`` bypasses all patching.
     """
     if request.config.getoption("--no-test-mocks", default=False):
         yield
         return
 
-    sidecar_mocks = _litmus_sidecar.get("mocks") if _litmus_sidecar else None
-    binding = _load_test_binding(request.node, _litmus_sidecar)
-    per_test_mocks = binding.mocks if binding is not None and binding.mocks else None
-
-    mocks: dict[str, Any] = {}
-    if sidecar_mocks:
-        mocks.update(sidecar_mocks)
-    if per_test_mocks:
-        mocks.update(per_test_mocks)
-
-    if not mocks:
+    # Closest-first iter; we want least-specific applied first so later
+    # markers with the same target win. Reverse.
+    mock_markers = list(reversed(list(request.node.iter_markers("litmus_mock"))))
+    if not mock_markers:
         yield
         return
 
-    patchers: list[Any] = []
-    try:
-        for dotted, return_value in mocks.items():
-            fixture_name, _, attr = dotted.partition(".")
-            if not attr:
-                raise ValueError(f"mocks entry {dotted!r} must be <fixture>.<attr> form")
-            try:
-                target = request.getfixturevalue(fixture_name)
-            except pytest.FixtureLookupError:
-                # Most commonly a typo; warn so the user sees the
-                # misspelling instead of a silently-skipped mock that then
-                # fails the measurement on real hardware.
-                warnings.warn(
-                    f"mocks entry {dotted!r}: fixture {fixture_name!r} not "
-                    "found on this test — mock skipped. Check the sidecar / "
-                    "marker key matches a fixture in the test's signature.",
-                    stacklevel=1,
-                )
-                continue
-            if isinstance(return_value, list):
-                # List-valued mock — rotate values across calls (each
-                # ``ctx.points`` iteration or any repeated fixture call
-                # gets the next value, cycling when the list is exhausted).
-                values = cycle(return_value)
-                p = patch.object(target, attr, side_effect=lambda *_a, **_kw: next(values))
-            else:
-                p = patch.object(target, attr, return_value=return_value)
-            p.start()
-            patchers.append(p)
-        yield
-    finally:
-        for p in patchers:
-            p.stop()
+    mocker = request.getfixturevalue("mocker")
+
+    # Deduplicate by target dotted path — later marker wins.
+    by_target: dict[str, dict[str, Any]] = {}
+    for marker in mock_markers:
+        kwargs = dict(marker.kwargs)
+        target = kwargs.get("target")
+        if not target or not isinstance(target, str):
+            raise ValueError(
+                f"litmus_mock marker must supply `target:` as a "
+                f"'<fixture>.<attr>' string; got {kwargs!r}"
+            )
+        by_target[target] = kwargs
+
+    for target, kwargs in by_target.items():
+        fixture_name, _, attr = target.partition(".")
+        if not attr:
+            raise ValueError(f"litmus_mock target {target!r} must be '<fixture>.<attr>' form")
+        try:
+            fixture_value = request.getfixturevalue(fixture_name)
+        except pytest.FixtureLookupError:
+            warnings.warn(
+                f"litmus_mock target {target!r}: fixture {fixture_name!r} not "
+                "found on this test — mock skipped. Check the marker `target:` "
+                "matches a fixture in the test's signature.",
+                stacklevel=1,
+            )
+            continue
+        return_value = kwargs.get("return_value")
+        if isinstance(return_value, list):
+            values = cycle(return_value)
+            mocker.patch.object(fixture_value, attr, side_effect=lambda *_a, **_kw: next(values))
+        else:
+            mocker.patch.object(fixture_value, attr, return_value=return_value)
+
+    yield

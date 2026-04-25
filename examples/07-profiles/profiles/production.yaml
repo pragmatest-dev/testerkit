@@ -1,0 +1,13 @@
+# Production profile — tight tolerance, same parametrize sweep inherited.
+facets:
+  test_phase: production
+extends: rail_family
+tests:
+  test_rail_within_spec:
+    markers:
+      - litmus_limits:
+          v_rail: {characteristic: rail_3v3, tolerance_pct: 1}
+  test_rail_holds_across_input:
+    markers:
+      - litmus_limits:
+          v_rail: {characteristic: rail_3v3, tolerance_pct: 1}

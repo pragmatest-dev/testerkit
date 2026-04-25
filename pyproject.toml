@@ -147,15 +147,23 @@ exclude = [
 
 [tool.uv.workspace]
 members = [
-    "examples/01-bringup",
-    "examples/02-station",
-    "examples/03-profiles",
+    "examples/01-vanilla",
+    "examples/02-verify",
+    "examples/03-inline-limits",
+    "examples/04-sidecar-markers",
+    "examples/05-station-catalog",
+    "examples/06-product-binding",
+    "examples/07-profiles",
 ]
 
 [tool.uv.sources]
-bringup-example = { workspace = true }
-station-example = { workspace = true }
-profiles-example = { workspace = true }
+litmus-example-01-vanilla = { workspace = true }
+litmus-example-02-verify = { workspace = true }
+litmus-example-03-inline-limits = { workspace = true }
+litmus-example-04-sidecar-markers = { workspace = true }
+litmus-example-05-station-catalog = { workspace = true }
+litmus-example-06-product-binding = { workspace = true }
+litmus-example-07-profiles = { workspace = true }
 
 [tool.ruff]
 line-length = 100

@@ -1,0 +1,14 @@
+markers:
+  - litmus_limits:
+      v_rail: {low: 3.2, high: 3.4, units: V}
+
+classes:
+  TestIdle:
+    markers:
+      - litmus_limits:
+          i_idle: {low: 0.0, high: 0.1, units: A}
+
+tests:
+  test_rail_holds_across_input:
+    markers:
+      - parametrize: ["vin", [3.3, 5.0, 5.5]]

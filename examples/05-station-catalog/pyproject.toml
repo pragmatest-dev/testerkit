@@ -1,0 +1,16 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "litmus-example-05-station-catalog"
+version = "0.0.0"
+description = "Stage 5: station YAML + catalog replace the hand-rolled conftest fixture"
+requires-python = ">=3.11"
+dependencies = ["litmus-test", "pytest"]
+
+[tool.uv.sources]
+litmus-test = { workspace = true }
+
+[tool.hatch.build.targets.wheel]
+bypass-selection = true

@@ -12,23 +12,16 @@ pytest_plugins = ["pytester"]
 def _write_sequence(
     pytester: pytest.Pytester,
     test_body: str,
-    vectors_yaml: str,
-    wrap_vectors: bool = True,
+    sidecar_yaml: str,
 ) -> None:
     """Write a conftest/test_seq pair into the pytester tmp dir.
 
-    ``vectors_yaml`` is wrapped under a top-level ``vectors:`` block by
-    default, matching the unified-sidecar shape. Pass
-    ``wrap_vectors=False`` to inject the literal YAML (useful when the
-    test is exercising a full ``vectors:/limits:/mocks:`` shape).
+    ``sidecar_yaml`` is written verbatim — callers pass the full markers
+    sidecar shape (``markers:`` / ``classes:`` / ``tests:``).
     """
     pytester.makeconftest("")
     pytester.makepyfile(test_seq=test_body)
-    if wrap_vectors:
-        body = "vectors:\n" + textwrap.indent(vectors_yaml, "  ")
-    else:
-        body = vectors_yaml
-    (pytester.path / "test_seq.yaml").write_text(body)
+    (pytester.path / "test_seq.yaml").write_text(sidecar_yaml)
     pytester.makeini(
         textwrap.dedent(
             """
@@ -45,24 +38,22 @@ def test_method_level_vectors_parametrize_and_populate_context(pytester: pytest.
         test_body=textwrap.dedent(
             """
             class TestSeq:
-                def test_uses_vin(self, context):
+                def test_uses_vin(self, vin, context):
                     assert context.get_param("vin") in (4.5, 5.0)
 
-                def test_uses_load(self, context):
+                def test_uses_load(self, load, context):
                     assert context.get_param("load") in (0.1, 0.8)
             """
         ),
-        vectors_yaml=textwrap.dedent(
+        sidecar_yaml=textwrap.dedent(
             """
-            methods:
-              test_uses_vin:
-                list:
-                  - {vin: 4.5}
-                  - {vin: 5.0}
-              test_uses_load:
-                list:
-                  - {load: 0.1}
-                  - {load: 0.8}
+            tests:
+              TestSeq.test_uses_vin:
+                markers:
+                  - parametrize: ["vin", [4.5, 5.0]]
+              TestSeq.test_uses_load:
+                markers:
+                  - parametrize: ["load", [0.1, 0.8]]
             """
         ),
     )
@@ -77,19 +68,19 @@ def test_class_level_vectors_rerun_whole_class(pytester: pytest.Pytester) -> Non
         test_body=textwrap.dedent(
             """
             class TestSeq:
-                def test_a(self, context):
+                def test_a(self, temp, context):
                     assert context.get_param("temp") in (25, 55)
 
-                def test_b(self, context):
+                def test_b(self, temp, context):
                     assert context.get_param("temp") in (25, 55)
             """
         ),
-        vectors_yaml=textwrap.dedent(
+        sidecar_yaml=textwrap.dedent(
             """
-            class:
-              list:
-                - {temp: 25}
-                - {temp: 55}
+            classes:
+              TestSeq:
+                markers:
+                  - parametrize: ["temp", [25, 55]]
             """
         ),
     )
@@ -105,25 +96,24 @@ def test_class_and_method_vectors_mix(pytester: pytest.Pytester) -> None:
         test_body=textwrap.dedent(
             """
             class TestSeq:
-                def test_only_class(self, context):
+                def test_only_class(self, temp, context):
                     assert context.get_param("temp") in (25, 55)
 
-                def test_sweep(self, context):
+                def test_sweep(self, temp, vin, context):
                     assert context.get_param("temp") in (25, 55)
                     assert context.get_param("vin") in (3.3, 5.0)
             """
         ),
-        vectors_yaml=textwrap.dedent(
+        sidecar_yaml=textwrap.dedent(
             """
-            class:
-              list:
-                - {temp: 25}
-                - {temp: 55}
-            methods:
-              test_sweep:
-                list:
-                  - {vin: 3.3}
-                  - {vin: 5.0}
+            classes:
+              TestSeq:
+                markers:
+                  - parametrize: ["temp", [25, 55]]
+            tests:
+              TestSeq.test_sweep:
+                markers:
+                  - parametrize: ["vin", [3.3, 5.0]]
             """
         ),
     )
@@ -197,13 +187,13 @@ def test_sidecar_keys_bind_to_method_signature(pytester: pytest.Pytester) -> Non
                     assert context.get_param("load") == load
             """
         ),
-        vectors_yaml=textwrap.dedent(
+        sidecar_yaml=textwrap.dedent(
             """
-            methods:
-              test_direct_args:
-                product:
-                  vin: [4.5, 5.0]
-                  load: [0.1, 0.8]
+            tests:
+              TestSeq.test_direct_args:
+                markers:
+                  - parametrize: ["vin", [4.5, 5.0]]
+                  - parametrize: ["load", [0.1, 0.8]]
             """
         ),
     )
@@ -251,13 +241,12 @@ def test_sidecar_and_decorator_mix(pytester: pytest.Pytester) -> None:
                     assert context.get_param("trial") == trial
             """
         ),
-        vectors_yaml=textwrap.dedent(
+        sidecar_yaml=textwrap.dedent(
             """
-            methods:
-              test_mix:
-                list:
-                  - {vin: 4.5}
-                  - {vin: 5.0}
+            tests:
+              TestSeq.test_mix:
+                markers:
+                  - parametrize: ["vin", [4.5, 5.0]]
             """
         ),
     )
@@ -272,25 +261,24 @@ def test_method_vec_id_uses_param_values(pytester: pytest.Pytester) -> None:
         test_body=textwrap.dedent(
             """
             class TestSeq:
-                def test_foo(self, context):
+                def test_foo(self, vin, context):
                     assert True
             """
         ),
-        vectors_yaml=textwrap.dedent(
+        sidecar_yaml=textwrap.dedent(
             """
-            methods:
-              test_foo:
-                list:
-                  - {vin: 5.0}
-                  - {vin: 3.3}
+            tests:
+              TestSeq.test_foo:
+                markers:
+                  - parametrize: ["vin", [5.0, 3.3]]
             """
         ),
     )
 
     result = pytester.runpytest("--collect-only", "-q")
     out = result.stdout.str()
-    assert "vin=5.0" in out
-    assert "vin=3.3" in out
+    assert "5.0" in out
+    assert "3.3" in out
 
 
 # ---------------------------------------------------------------------------
@@ -452,11 +440,12 @@ def test_sidecar_limits_auto_resolve(pytester: pytest.Pytester) -> None:
         ),
         sidecar=textwrap.dedent(
             """
-            limits:
-              v_out:
-                low: 3.2
-                high: 3.4
-                units: V
+            markers:
+              - litmus_limits:
+                  v_out:
+                    low: 3.2
+                    high: 3.4
+                    units: V
             """
         ),
     )
@@ -477,24 +466,21 @@ def test_changed_chains_across_parametrize_cases(pytester: pytest.Pytester) -> N
         test_body=textwrap.dedent(
             """
             class TestSeq:
-                def test_sweep(self, context):
-                    vin = context.get_param("vin")
+                def test_sweep(self, vin, expect_changed, context):
                     # First case: _prev is None → everything changed.
                     # Second case (vin=5.0 vs 4.5): vin changed.
                     # Third case (vin=5.0 vs 5.0): vin did NOT change.
-                    expected = context.get_param("expect_changed")
-                    assert context.changed("vin") is expected, \\
-                        f"vin={vin} expected_changed={expected}"
+                    assert context.changed("vin") is expect_changed, \\
+                        f"vin={vin} expected_changed={expect_changed}"
             """
         ),
-        vectors_yaml=textwrap.dedent(
+        sidecar_yaml=textwrap.dedent(
             """
-            methods:
-              test_sweep:
-                list:
-                  - {vin: 4.5, expect_changed: true}
-                  - {vin: 5.0, expect_changed: true}
-                  - {vin: 5.0, expect_changed: false}
+            tests:
+              TestSeq.test_sweep:
+                markers:
+                  - parametrize:
+                      ["vin,expect_changed", [[4.5, true], [5.0, true], [5.0, false]]]
             """
         ),
     )
@@ -668,8 +654,10 @@ def test_no_test_mocks_flag_disables_sidecar_mocks(pytester: pytest.Pytester) ->
     (pytester.path / "test_seq.yaml").write_text(
         textwrap.dedent(
             """
-            mocks:
-              dmm.measure_dc_voltage: 3.3
+            markers:
+              - litmus_mock:
+                  target: "dmm.measure_dc_voltage"
+                  return_value: 3.3
             """
         )
     )

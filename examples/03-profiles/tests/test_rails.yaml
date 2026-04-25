@@ -1,9 +1,0 @@
-# Sidecar for test_rails.py.
-#
-# `tests.<method>.characteristic` drives `ctx.points` — the framework
-# resolves the characteristic's pins to fixture points and iterates them.
-# Test code never mentions rail names, pins, or channels.
-tests:
-  test_rail_voltages:
-    description: Per-rail voltage capture across all three PMIC outputs.
-    characteristic: rail_voltage_trio

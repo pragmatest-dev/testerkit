@@ -37,12 +37,13 @@ def test_single_band_empty_when_always_matches(pytester: pytest.Pytester) -> Non
     (pytester.path / "test_seq.yaml").write_text(
         textwrap.dedent(
             """
-            limits:
-              v_rail:
-                - when: {}
-                  low: 3.2
-                  high: 3.4
-                  units: V
+            markers:
+              - litmus_limits:
+                  v_rail:
+                    - when: {}
+                      low: 3.2
+                      high: 3.4
+                      units: V
             """
         )
     )
@@ -69,16 +70,17 @@ def test_multi_band_selects_matching_by_parametrize(pytester: pytest.Pytester) -
     (pytester.path / "test_seq.yaml").write_text(
         textwrap.dedent(
             """
-            limits:
-              v_rail:
-                - when: {vin: 5.0}
-                  low: 3.2
-                  high: 3.4
-                  units: V
-                - when: {vin: 3.3}
-                  low: 3.1
-                  high: 3.5
-                  units: V
+            markers:
+              - litmus_limits:
+                  v_rail:
+                    - when: {vin: 5.0}
+                      low: 3.2
+                      high: 3.4
+                      units: V
+                    - when: {vin: 3.3}
+                      low: 3.1
+                      high: 3.5
+                      units: V
             """
         )
     )
@@ -105,14 +107,15 @@ def test_multi_band_bounds_differ_per_row(pytester: pytest.Pytester) -> None:
     (pytester.path / "test_seq.yaml").write_text(
         textwrap.dedent(
             """
-            limits:
-              v_rail:
-                - when: {vin: 5.0}
-                  low: 3.2
-                  high: 3.4
-                - when: {vin: 3.3}
-                  low: 3.35
-                  high: 3.40
+            markers:
+              - litmus_limits:
+                  v_rail:
+                    - when: {vin: 5.0}
+                      low: 3.2
+                      high: 3.4
+                    - when: {vin: 3.3}
+                      low: 3.35
+                      high: 3.40
             """
         )
     )
@@ -139,14 +142,15 @@ def test_multi_band_two_keys_anded(pytester: pytest.Pytester) -> None:
     (pytester.path / "test_seq.yaml").write_text(
         textwrap.dedent(
             """
-            limits:
-              v_rail:
-                - when: {vin: 5.0, load: 0.1}
-                  low: 3.2
-                  high: 3.4
-                - when: {vin: 5.0, load: 0.8}
-                  low: 2.9
-                  high: 3.1
+            markers:
+              - litmus_limits:
+                  v_rail:
+                    - when: {vin: 5.0, load: 0.1}
+                      low: 3.2
+                      high: 3.4
+                    - when: {vin: 5.0, load: 0.8}
+                      low: 2.9
+                      high: 3.1
             """
         )
     )
@@ -171,14 +175,15 @@ def test_no_band_matches_raises_usage_error(pytester: pytest.Pytester) -> None:
     (pytester.path / "test_seq.yaml").write_text(
         textwrap.dedent(
             """
-            limits:
-              v_rail:
-                - when: {vin: 5.0}
-                  low: 3.2
-                  high: 3.4
-                - when: {vin: 3.3}
-                  low: 3.1
-                  high: 3.5
+            markers:
+              - litmus_limits:
+                  v_rail:
+                    - when: {vin: 5.0}
+                      low: 3.2
+                      high: 3.4
+                    - when: {vin: 3.3}
+                      low: 3.1
+                      high: 3.5
             """
         )
     )
@@ -202,8 +207,9 @@ def test_scalar_dict_shape_still_resolves(pytester: pytest.Pytester) -> None:
     (pytester.path / "test_seq.yaml").write_text(
         textwrap.dedent(
             """
-            limits:
-              v_rail: {low: 3.2, high: 3.4, units: V}
+            markers:
+              - litmus_limits:
+                  v_rail: {low: 3.2, high: 3.4, units: V}
             """
         )
     )
@@ -256,14 +262,15 @@ def test_band_with_tolerance_pct_and_characteristic(pytester: pytest.Pytester) -
     (pytester.path / "test_seq.yaml").write_text(
         textwrap.dedent(
             """
-            limits:
-              v_rail:
-                - when: {vin: 5.0}
-                  characteristic: rail_3v3
-                  tolerance_pct: 2
-                - when: {vin: 3.3}
-                  characteristic: rail_3v3
-                  tolerance_pct: 5
+            markers:
+              - litmus_limits:
+                  v_rail:
+                    - when: {vin: 5.0}
+                      characteristic: rail_3v3
+                      tolerance_pct: 2
+                    - when: {vin: 3.3}
+                      characteristic: rail_3v3
+                      tolerance_pct: 5
             """
         )
     )
