@@ -6,7 +6,6 @@ import os
 import sys
 import warnings
 from collections.abc import Callable, Generator, Iterator
-from itertools import cycle
 from pathlib import Path
 from typing import Any
 from uuid import UUID, uuid4
@@ -2536,9 +2535,11 @@ def _litmus_apply_mocks(
 
     Each marker kwargs is ``{target: <fixture>.<attr>, return_value: ...}``.
     The handler routes through ``mocker.patch.object`` so pytest-mock
-    owns teardown. The attribute is replaced with a
-    ``Mock(return_value=...)`` for the duration of the test. Multiple
-    markers stack; ``--no-test-mocks`` bypasses all patching.
+    owns teardown. ``return_value`` is passed through verbatim — lists
+    return as lists, no per-call cycling. For varying behavior across
+    calls, supply a ``side_effect`` callable in test code or use
+    parametrize. Multiple markers stack; ``--no-test-mocks`` bypasses
+    all patching.
     """
     if request.config.getoption("--no-test-mocks", default=False):
         yield
@@ -2584,11 +2585,6 @@ def _litmus_apply_mocks(
                 stacklevel=1,
             )
             continue
-        return_value = kwargs.get("return_value")
-        if isinstance(return_value, list):
-            values = cycle(return_value)
-            mocker.patch.object(fixture_value, attr, side_effect=lambda *_a, **_kw: next(values))
-        else:
-            mocker.patch.object(fixture_value, attr, return_value=return_value)
+        mocker.patch.object(fixture_value, attr, return_value=kwargs.get("return_value"))
 
     yield
