@@ -2533,13 +2533,15 @@ def _litmus_apply_mocks(
 ) -> Iterator[None]:
     """Install mocks declared via ``litmus_mock`` markers.
 
-    Each marker kwargs is ``{target: <fixture>.<attr>, return_value: ...}``.
-    The handler routes through ``mocker.patch.object`` so pytest-mock
-    owns teardown. ``return_value`` is passed through verbatim — lists
-    return as lists, no per-call cycling. For varying behavior across
-    calls, supply a ``side_effect`` callable in test code or use
-    parametrize. Multiple markers stack; ``--no-test-mocks`` bypasses
-    all patching.
+    The marker carries a ``target: <fixture>.<attr>`` plus any kwargs
+    accepted by ``mocker.patch.object`` — ``return_value``,
+    ``side_effect``, ``wraps``, ``spec``, ``spec_set``, ``autospec``,
+    ``new_callable``, etc. All kwargs except ``target`` are forwarded
+    verbatim, so the surface tracks pytest-mock's documentation. The
+    handler routes through ``mocker.patch.object`` so pytest-mock owns
+    teardown. Multiple markers stack; later markers with the same
+    target overwrite earlier ones (file → class → test → profile).
+    ``--no-test-mocks`` bypasses all patching.
     """
     if request.config.getoption("--no-test-mocks", default=False):
         yield
@@ -2585,6 +2587,7 @@ def _litmus_apply_mocks(
                 stacklevel=1,
             )
             continue
-        mocker.patch.object(fixture_value, attr, return_value=kwargs.get("return_value"))
+        patch_kwargs = {k: v for k, v in kwargs.items() if k != "target"}
+        mocker.patch.object(fixture_value, attr, **patch_kwargs)
 
     yield

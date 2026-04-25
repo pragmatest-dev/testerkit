@@ -242,6 +242,51 @@ def test_per_test_mock_tightens_file_level(pytester: pytest.Pytester) -> None:
     result.assert_outcomes(passed=2)
 
 
+def test_litmus_mock_forwards_side_effect(pytester: pytest.Pytester) -> None:
+    """``side_effect`` and other ``mocker.patch.object`` kwargs forward verbatim."""
+    pytester.makeini(_INI)
+    pytester.makepyfile(
+        test_seq=textwrap.dedent(
+            """
+            import pytest
+
+            class FakeDmm:
+                def read(self):
+                    return 0.0
+
+            @pytest.fixture
+            def dmm():
+                return FakeDmm()
+
+            def test_side_effect_iterable(dmm):
+                # side_effect as iterable yields values per call (one-shot).
+                assert dmm.read() == 1.0
+                assert dmm.read() == 2.0
+                assert dmm.read() == 3.0
+
+            def test_return_value_list_is_returned_as_list(dmm):
+                # return_value is verbatim — a list returns as a list.
+                assert dmm.read() == [1.0, 2.0, 3.0]
+            """
+        )
+    )
+    (pytester.path / "test_seq.yaml").write_text(
+        textwrap.dedent(
+            """
+            tests:
+              test_side_effect_iterable:
+                markers:
+                  - litmus_mock: {target: "dmm.read", side_effect: [1.0, 2.0, 3.0]}
+              test_return_value_list_is_returned_as_list:
+                markers:
+                  - litmus_mock: {target: "dmm.read", return_value: [1.0, 2.0, 3.0]}
+            """
+        )
+    )
+    result = pytester.runpytest("-v")
+    result.assert_outcomes(passed=2)
+
+
 def test_range_expander_in_parametrize_argvalues(pytester: pytest.Pytester) -> None:
     """``{linspace: [...]}`` in argvalues expands to a plain list."""
     pytester.makeini(_INI)
