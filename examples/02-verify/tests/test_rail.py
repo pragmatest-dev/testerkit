@@ -5,6 +5,9 @@ to ``verify(name, value, limit=...)`` writes a row with the name,
 value, units, limit, and pass/fail outcome — so you get the ``value``
 persisted, not just a pass/fail.
 
+Test vectors are introduced here too: ``@pytest.mark.litmus_vectors``
+is the runner-neutral name for declaring sweep axes. It works inline
+or in YAML; in pytest it expands to ``metafunc.parametrize`` calls.
 Limits are still inline in Python here (``Limit(low=..., high=...)``).
 Later stages move them to YAML. Start with what's familiar: Python.
 """
@@ -23,7 +26,7 @@ def test_rail_within_spec(verify, dut) -> None:
     verify("v_rail", dut.read_voltage(), limit=V_RAIL)
 
 
-@pytest.mark.parametrize("vin", [3.3, 5.0, 5.5])
+@pytest.mark.litmus_vectors(vin=[3.3, 5.0, 5.5])
 def test_rail_holds_across_input(verify, dut, vin: float) -> None:
     """Sweep input voltage; every reading becomes its own row in the log."""
     dut.set_input(vin)

@@ -5,8 +5,8 @@
 uses it. The test body doesn't import ``Limit`` anymore — the limit
 is metadata, not a Python object the body needs to hold.
 
-Same pattern as ``pytest.mark.parametrize``: configuration lives on
-the marker, the body just does work.
+Same pattern as ``@pytest.mark.litmus_vectors``: configuration lives
+on the marker, the body just does work.
 """
 
 from __future__ import annotations
@@ -20,9 +20,9 @@ def test_rail_within_spec(verify, dut) -> None:
     verify("v_rail", dut.read_voltage())
 
 
-@pytest.mark.parametrize("vin", [3.3, 5.0, 5.5])
+@pytest.mark.litmus_vectors(vin=[3.3, 5.0, 5.5])
 @pytest.mark.litmus_limits(v_rail={"low": 3.2, "high": 3.4, "units": "V"})
 def test_rail_holds_across_input(verify, dut, vin: float) -> None:
-    """Limits marker stacks cleanly with parametrize."""
+    """Vectors + limits markers stack cleanly."""
     dut.set_input(vin)
     verify("v_rail", dut.read_voltage())
