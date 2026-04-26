@@ -63,10 +63,9 @@ The same shape works in YAML — operator-editable, no code change:
 # test_rails.yaml
 tests:
   test_rails:
-    config:
-      - litmus_sweeps:
-          - {temp: [25, 85]}                # outer
-          - {vin: [4.5, 5.0, 5.5]}          # inner
+    sweeps:
+      - {temp: [25, 85]}                # outer
+      - {vin: [4.5, 5.0, 5.5]}          # inner
 ```
 
 See the [Test Vectors guide](vector-expansion.md) for the full
@@ -148,8 +147,8 @@ def test_rails(context, spec, logger, dmm):
 Markers can be authored three ways and all merge into the same cascade:
 
 1. Inline Python — `@pytest.mark.litmus_limits(...)` on the method/class
-2. Sidecar YAML — `config:` list at file / class / per-test scope
-3. Profile YAML — `config:` list in a profile under `profiles/*.yaml`
+2. Sidecar YAML — marker fields at file / class / per-test scope
+3. Profile YAML — marker fields in a profile under `profiles/*.yaml`
 
 For pytest's own markers and ecosystem plugins:
 
@@ -198,34 +197,34 @@ Invariants across the matrix:
 ## Sidecar YAML
 
 A sibling `test_<module>.yaml` carries config in a recursive tree
-mirroring pytest's `file::Class::method` node ids: a file-level
-`config:` list plus a `tests:` dict where each entry is either a
-function leaf (`config:` only) or a class branch (`config:` plus
-nested `tests:` for its methods).
+mirroring pytest's `file::Class::method` node ids: file-level marker
+fields plus a `tests:` dict where each entry is either a function leaf
+(marker fields only) or a class branch (marker fields plus nested
+`tests:` for its methods). Reserved keys at every level are `runner:`
+(opaque per-runner config) and `tests:`; everything else is a Litmus
+marker name.
 
 ```yaml
 # test_power_board.yaml
-config:                                           # applied to every test in file
-  - litmus_limits:
-      output_voltage: {ref: output_voltage}       # delegates to product spec
-  - litmus_mocks:
-      - {target: "dmm.measure_dc_voltage", return_value: 3.3}
+limits:                                           # applied to every test in file
+  output_voltage: {ref: output_voltage}           # delegates to product spec
+mocks:
+  - {target: "dmm.measure_dc_voltage", return_value: 3.3}
 
 tests:
   TestPowerRails:                                 # class branch
-    config:
-      - litmus_sweeps:
-          - {vin: [4.5, 5.0, 5.5]}                # outer loop
-          - {load_current: [0.1, 0.4, 0.8]}       # inner loop
+    sweeps:
+      - {vin: [4.5, 5.0, 5.5]}                    # outer loop
+      - {load_current: [0.1, 0.4, 0.8]}           # inner loop
     tests:
       test_efficiency:                            # nested method
-        config:
-          - litmus_limits:
-              efficiency: {low: 55, high: 100, units: "%"}
+        limits:
+          efficiency: {low: 55, high: 100, units: "%"}
 
   test_standalone:                                # module-level test (leaf)
-    config:
-      - skipif: "not os.getenv('HAS_BENCH')"
+    runner:
+      markers:
+        - skipif: "not os.getenv('HAS_BENCH')"
 ```
 
 Merge order, least → most specific: file-root → class → per-test → inline
@@ -238,12 +237,11 @@ condition-indexed bands** instead of a flat dict:
 ```yaml
 tests:
   test_rails:
-    config:
-      - litmus_limits:
-          output_voltage:
-            bands:
-              - {when: {vin: 5.0}, low: 3.234, high: 3.366}
-              - {when: {vin: 3.3}, low: 3.1,   high: 3.5}
+    limits:
+      output_voltage:
+        bands:
+          - {when: {vin: 5.0}, low: 3.234, high: 3.366}
+          - {when: {vin: 3.3}, low: 3.1,   high: 3.5}
 ```
 
 The first band whose `when:` matches the current row wins; no match raises `pytest.UsageError`. See [Test Limits → Condition-indexed bands](limits.md#condition-indexed-bands) for details.

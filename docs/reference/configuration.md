@@ -191,14 +191,15 @@ connections:
 ## Test Configuration
 
 Per-test config is one vocabulary — pytest markers — delivered three
-ways. Each entry under a `config:` list is one marker; same shape
-inline (`@pytest.mark.X(...)`), in the sidecar, or in a profile.
+ways. Marker fields live directly at each entry's root, alongside the
+reserved `runner:` and `tests:` keys; same shape inline
+(`@pytest.mark.X(...)`), in the sidecar, or in a profile.
 
 Resolution order (least → most specific):
 
-1. **Sidecar file-level** — `config:` at the top of `test_<module>.yaml`
-2. **Sidecar class-branch / per-test** — nested `tests.<Cls>.config:` /
-   `tests.<name>.config:`
+1. **Sidecar file-level** — marker fields at the top of `test_<module>.yaml`
+2. **Sidecar class-branch / per-test** — nested `tests.<Cls>.<marker>:` /
+   `tests.<name>.<marker>:`
 3. **Inline `@pytest.mark.<name>(...)`** on method or class
 4. **Profile chain** — parent profile first, child last (`extends:`)
 5. **CLI flags** — always win
@@ -226,41 +227,36 @@ to pytest, has a YAML form, supports range expanders).
 
 ```yaml
 # test_example.yaml — same directory as the test module
-config:                         # file-wide; applies to every test
-  - litmus_limits:
-      output_voltage: {low: 3.135, high: 3.465, units: V}
+limits:                         # file-wide; applies to every test
+  output_voltage: {low: 3.135, high: 3.465, units: V}
 
 tests:
   test_example:                 # leaf
-    config:
-      - litmus_sweeps:
-          - {vin: [4.5, 5.0, 5.5]}
+    sweeps:
+      - {vin: [4.5, 5.0, 5.5]}
 
   TestIdle:                     # class branch
-    config:                     # applies to every TestIdle method
-      - litmus_limits: {i_idle: {low: 0.0, high: 0.1, units: A}}
+    limits: {i_idle: {low: 0.0, high: 0.1, units: A}}   # applies to every TestIdle method
     tests:
       test_quiescent:           # nested leaf
-        config:
-          - litmus_mocks:
-              - {target: dmm.measure_dc_current, return_value: 0.05}
+        mocks:
+          - {target: dmm.measure_dc_current, return_value: 0.05}
 ```
 
 The shape mirrors pytest's `file::Class::method` node IDs: a class is a
-branch with its own `config:` plus a nested `tests:` dict; a function
-is a leaf with `config:` only. See the
+branch with its own marker fields plus a nested `tests:` dict; a function
+is a leaf with marker fields only. See the
 [pytest-native reference](pytest-native.md) for the full marker
-catalog (`litmus_sweeps`, `litmus_limits`, `litmus_mocks`,
-`litmus_spec`, `litmus_connections`, `litmus_prompts`, `litmus_retry`).
+catalog (`sweeps`, `limits`, `mocks`, `spec`, `connections`,
+`prompts`, `retry`).
 
 ### Retries
 
-Use ecosystem markers — `litmus_retry` translates to
+Use ecosystem markers — `retry` translates to
 `pytest-rerunfailures`' `flaky` at session start:
 
 ```yaml
-config:
-  - litmus_retry: {reruns: 3, reruns_delay: 0.5}
+retry: {reruns: 3, reruns_delay: 0.5}
 ```
 
 Or inline:
@@ -272,26 +268,24 @@ def test_flaky(dmm, logger): ...
 
 ### Vector shape
 
-`litmus_sweeps` payloads are always a **list of axis-group dicts**.
+`sweeps` payloads are always a **list of axis-group dicts**.
 Each top-level dict in the list is one independent loop; multi-key
 dicts inside one entry zip together; stacked entries cross-product
 (top entry = outermost / slowest loop).
 
 ```yaml
-config:
-  - litmus_sweeps:
-      - {temperature: [25, 85]}              # outer loop — slow
-      - {vin: [3.3, 5.0, 12.0]}              # middle loop
-      - {load_a: [0.1, 0.4], load_b: [10, 20]}  # zipped — same length
+sweeps:
+  - {temperature: [25, 85]}              # outer loop — slow
+  - {vin: [3.3, 5.0, 12.0]}              # middle loop
+  - {load_a: [0.1, 0.4], load_b: [10, 20]}  # zipped — same length
 ```
 
 Range expanders (`linspace`, `arange`, `logspace`, `geomspace`,
 `repeat`, `range`) substitute for argvalues:
 
 ```yaml
-config:
-  - litmus_sweeps:
-      - {voltage: {linspace: [3.0, 5.0, 5]}}   # 3.0, 3.5, 4.0, 4.5, 5.0
+sweeps:
+  - {voltage: {linspace: [3.0, 5.0, 5]}}   # 3.0, 3.5, 4.0, 4.5, 5.0
 ```
 
 See the [Test Vectors guide](../guides/vector-expansion.md) for full
@@ -400,29 +394,28 @@ profiles:                     # Named config sets — see docs/guides/profiles.m
     facets: {key: value, ...} # Exact-match keys for CLI selection
     extends: <parent_name>    # Optional single-parent inheritance
 
-    pytest:                   # Pytest-level knobs applied to the session
+    runner:                   # Pytest-level knobs applied to the session
       addopts: string         # Appended to PYTEST_ADDOPTS before collection
       markexpr: string        # Like -m: "not slow and not hardware"
       keyword: string         # Like -k: "rails"
 
-    config:                   # Session-wide config (every test in run)
-      - litmus_limits: {v_rail: {tolerance_pct: 5.0}}
+    limits:                   # Session-wide marker fields (every test in run)
+      v_rail: {tolerance_pct: 5.0}
 
     tests:                    # Recursive tree mirroring pytest node IDs
       TestRails:              # class branch
-        config:               # applied to every TestRails method
-          - litmus_sweeps:
-              - {vin: [4.5, 5.0, 5.5]}
+        sweeps:               # applied to every TestRails method
+          - {vin: [4.5, 5.0, 5.5]}
         tests:
           test_rail:          # nested leaf
-            config:
-              - litmus_limits: {v_rail: {low: 3.25, high: 3.35}}
+            limits: {v_rail: {low: 3.25, high: 3.35}}
       test_standalone:        # module-level leaf
-        config:
-          - skip: "bench required"
+        runner:
+          markers:
+            - skip: "bench required"
 ```
 
-Profiles share the `config:` / `tests:` shape with sidecars — same
+Profiles share the marker-field / `tests:` shape with sidecars — same
 vocabulary, same merge rules. Standalone files at `profiles/*.yaml`
 work too; the file stem is the profile name.
 

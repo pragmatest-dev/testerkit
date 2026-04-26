@@ -98,11 +98,12 @@ When a single measurement needs different limits under different conditions, add
 limits:
   output_voltage:
     units: V                              # default for every band
+    low: 3.0                              # catch-all (used when no band matches)
+    high: 3.6
     bands:
       - {when: {vin: 5.0, load: 0.1}, low: 3.234, high: 3.366}
       - {when: {vin: 5.0, load: 0.8}, low: 3.2,   high: 3.4}
       - {when: {vin: 3.3},            low: 3.1,   high: 3.5}   # any load at vin=3.3
-      - {when: {},                    low: 3.0,   high: 3.6}   # catch-all; last
 ```
 
 Matching rules:
@@ -110,8 +111,8 @@ Matching rules:
 - Keys inside `when:` are **ANDed** — every key must match for the band to apply.
 - Missing keys on a band mean "don't care" (the 3.3 V band above matches every `load`).
 - Bands are scanned top-to-bottom; the **first** match wins.
-- No match → `pytest.UsageError` at `logger.measure` / `verify` time (fail loud, not silent).
-- An empty `when: {}` always matches; put it last as a default.
+- Siblings to `bands:` are the catch-all by design — used when no band's `when:` matches. No `when: {}` entry needed.
+- No catch-all + no band match: the parent has no policy fields, so the measurement records in characterization mode (`outcome=DONE`, no pass/fail). Provide siblings if you want strict behavior.
 
 The match is performed against the current row's vector params, so the feature composes naturally with both native `@pytest.mark.parametrize` and Litmus sweeps — every iteration re-resolves against the active row.
 
@@ -126,7 +127,7 @@ limits:
       - {when: {vin: 3.3}, tolerance_pct: 5.0}     # looser at vin=3.3
 ```
 
-A limit without `bands:` is the flat scalar shape (`output_voltage: {low: 3.2, high: 3.4}`) — equivalent to one band with `when: {}`.
+A limit without `bands:` is the flat scalar shape (`output_voltage: {low: 3.2, high: 3.4}`) — equivalent to a single catch-all that always applies.
 
 ## Explicit `limit=` kwarg
 

@@ -19,7 +19,7 @@ expensive setup (chamber soak) only when needed.
 Three places to declare vectors, all using the same shape:
 
 - **Inline Python** — `@pytest.mark.litmus_sweeps(...)` on the test function
-- **Sidecar YAML** — `config: - litmus_sweeps: [...]` next to the test file
+- **Sidecar YAML** — `sweeps: [...]` next to the test file
 - **Profile YAML** — same shape, applied via the active profile (see [profiles guide](profiles.md))
 
 `litmus_sweeps` is the **recommended** marker for new tests.
@@ -42,9 +42,8 @@ def test_x(vin): ...
 ```
 
 ```yaml
-config:
-  - litmus_sweeps:
-      - {vin: [3.3, 5.0, 5.5]}
+sweeps:
+  - {vin: [3.3, 5.0, 5.5]}
 ```
 
 ### Paired values (one loop, two variables stepping together)
@@ -61,9 +60,8 @@ def test_x(vin, expected): ...
 ```
 
 ```yaml
-config:
-  - litmus_sweeps:
-      - {vin: [3.3, 5.0, 5.5], expected: [3.30, 3.31, 3.30]}
+sweeps:
+  - {vin: [3.3, 5.0, 5.5], expected: [3.30, 3.31, 3.30]}
 ```
 
 If you write `vin=[3, 4]` and `expected=[5, 6, 7]` (two vs three),
@@ -88,10 +86,9 @@ def test_x(temp, vin): ...
 ```
 
 ```yaml
-config:
-  - litmus_sweeps:
-      - {temp: [-40, 25, 85]}     # outer
-      - {vin: [3.3, 5.0, 5.5]}     # inner
+sweeps:
+  - {temp: [-40, 25, 85]}     # outer
+  - {vin: [3.3, 5.0, 5.5]}     # inner
 ```
 
 ### Outer simple, inner paired
@@ -107,10 +104,9 @@ def test_x(temp, vin, expected): ...
 ```
 
 ```yaml
-config:
-  - litmus_sweeps:
-      - {temp: [-40, 25, 85]}
-      - {vin: [3, 4], expected: [5, 6]}
+sweeps:
+  - {temp: [-40, 25, 85]}
+  - {vin: [3, 4], expected: [5, 6]}
 ```
 
 ---
@@ -188,11 +184,9 @@ from litmus import linspace, arange, logspace, repeat
 ```
 
 ```yaml
-config:
-  - litmus_sweeps:
-      - {vin: {linspace: [3.3, 5.5, 11]}}
-  - litmus_sweeps:
-      - {freq: {logspace: [1, 6, 6]}}
+sweeps:
+  - {vin: {linspace: [3.3, 5.5, 11]}}
+  - {freq: {logspace: [1, 6, 6]}}
 ```
 
 The dict-form generators work anywhere a list is expected — station
@@ -212,10 +206,9 @@ as its own key. The list-length check catches mistakes:
 ```
 
 ```yaml
-config:
-  - litmus_sweeps:
-      - vin:      {linspace: [3.3, 5.5, 5]}
-        expected: {linspace: [3.30, 3.32, 5]}
+sweeps:
+  - vin:      {linspace: [3.3, 5.5, 5]}
+    expected: {linspace: [3.30, 3.32, 5]}
 ```
 
 If the two generators produce different counts, you get a clear
@@ -227,10 +220,10 @@ error pointing at the mismatch.
 
 | Inline Python | YAML |
 |---|---|
-| `litmus_sweeps(vin=[3, 4])` | `litmus_sweeps:`<br>`  - {vin: [3, 4]}` |
-| `litmus_sweeps(vin=[3, 4], expected=[5, 6])` | `litmus_sweeps:`<br>`  - {vin: [3, 4], expected: [5, 6]}` |
-| Two stacked decorators | `litmus_sweeps:`<br>`  - {outer: [...]}`<br>`  - {inner: [...]}` |
-| `litmus_sweeps(vin=linspace(3, 5, 5))` | `litmus_sweeps:`<br>`  - {vin: {linspace: [3, 5, 5]}}` |
+| `litmus_sweeps(vin=[3, 4])` | `sweeps:`<br>`  - {vin: [3, 4]}` |
+| `litmus_sweeps(vin=[3, 4], expected=[5, 6])` | `sweeps:`<br>`  - {vin: [3, 4], expected: [5, 6]}` |
+| Two stacked decorators | `sweeps:`<br>`  - {outer: [...]}`<br>`  - {inner: [...]}` |
+| `litmus_sweeps(vin=linspace(3, 5, 5))` | `sweeps:`<br>`  - {vin: {linspace: [3, 5, 5]}}` |
 
 ---
 
@@ -260,7 +253,7 @@ as in normal parametrized mode.
 | Scenario | Use |
 |---|---|
 | Code-owned sweep, IDE-friendly | Inline `@pytest.mark.litmus_sweeps(...)` with `linspace` etc. |
-| Operator-edited sweep (no code deploy) | Sidecar `config: - litmus_sweeps: ...` |
+| Operator-edited sweep (no code deploy) | Sidecar `sweeps: ...` |
 | Different sweeps per scenario | Profile YAML (selected by CLI facet) |
 | Test owns the loop (amortize setup) | `vectors` fixture in the signature |
 | Input / expected pairs from a spec table | Paired values (multi-kwarg or multi-key) |

@@ -20,17 +20,14 @@ and mocks for the tests in that module:
 
 ```yaml
 # tests/test_power.yaml
-config:
-  - litmus_limits:
-      output_voltage: {low: 3.135, high: 3.465, nominal: 3.3, units: "V"}
-  - litmus_mocks:
-      - {target: dmm.measure_dc_voltage, return_value: 3.31}
+limits:
+  output_voltage: {low: 3.135, high: 3.465, nominal: 3.3, units: "V"}
+mocks:
+  - {target: dmm.measure_dc_voltage, return_value: 3.31}
 tests:
   test_output_voltage:
-    config:
-      - litmus_sweeps:
-          - {vin: [4.5, 5.0, 5.5]}
-          load_current: [0.1, 0.4, 0.8]
+    sweeps:
+      - {vin: [4.5, 5.0, 5.5], load_current: [0.1, 0.4, 0.8]}
 ```
 
 The test is then:
@@ -78,18 +75,19 @@ def test_sweep(vin, load, ...): ...
 Vectors define test conditions. They work identically inline and in sidecar.
 
 ```yaml
-config:
-  - litmus_sweeps:
-      input_voltage: [4.5, 5.0, 5.5]
-      load_percent: [0, 50, 100]
+sweeps:
+  - {input_voltage: [4.5, 5.0, 5.5]}
+  - {load_percent: [0, 50, 100]}
 ```
 
-Multiple keys cross-product (this runs the test 9 times = 3 voltages × 3
-loads). For zip semantics, comma-join the argnames:
+Each top-level dict in the list is one independent loop; multi-key dicts
+inside one entry zip together; stacked entries cross-product (top entry =
+outermost / slowest loop). For zipped variables, put both keys in one
+entry:
 
 ```yaml
-- litmus_sweeps:
-    "input_voltage,load_percent": [[4.5, 0], [5.0, 50], [5.5, 100]]
+sweeps:
+  - {input_voltage: [4.5, 5.0, 5.5], load_percent: [0, 50, 100]}
 ```
 
 ```python
@@ -127,11 +125,11 @@ Any vector argvalues position accepts a range-expander dict that fans out
 to a flat list at YAML load:
 
 ```yaml
-- litmus_sweeps:
-    voltage: {linspace: [3.0, 5.0, 5]}      # 5 evenly-spaced points
-    frequency: {logspace: [1, 6, 6]}        # 6 points 10^1 to 10^6
-    soak_count: {repeat: [5.0, 100]}        # 100 copies of 5.0
-    pin: {range: [1, 17]}                   # 1..16
+sweeps:
+  - {voltage: {linspace: [3.0, 5.0, 5]}}      # 5 evenly-spaced points
+  - {frequency: {logspace: [1, 6, 6]}}        # 6 points 10^1 to 10^6
+  - {soak_count: {repeat: [5.0, 100]}}        # 100 copies of 5.0
+  - {pin: {range: [1, 17]}}                   # 1..16
 ```
 
 Available expanders: `linspace`, `arange`, `logspace`, `geomspace`,
@@ -144,10 +142,9 @@ Put slow-changing parameters first. Use `context.changed()` to detect outer
 loop changes:
 
 ```yaml
-config:
-  - litmus_sweeps:
-      temperature: [25, 85]      # Outer (changes slowly)
-      load: [0.1, 0.5]           # Inner (changes fast)
+sweeps:
+  - {temperature: [25, 85]}      # Outer (changes slowly)
+  - {load: [0.1, 0.5]}           # Inner (changes fast)
 ```
 
 ```python

@@ -134,16 +134,14 @@ first key:
 ```yaml
 # profiles/power_family.yaml — shared base, unselectable directly
 description: "Shared base for all tps5430x power converters"
-pytest:
+runner:
   addopts: "--strict-markers"
 tests:
   TestRails.test_rail:
-    config:
-      - litmus_limits: {v_rail: {low: 3.2, high: 3.4}}
+    limits: {v_rail: {low: 3.2, high: 3.4}}
   TestRails.test_output:
-    config:
-      - litmus_sweeps:
-          - {load: [0.1, 0.5, 0.9]}
+    sweeps:
+      - {load: [0.1, 0.5, 0.9]}
 ```
 
 ```yaml
@@ -152,8 +150,7 @@ facets: {test_phase: production, product: tps54302}
 extends: power_family
 tests:
   TestRails.test_rail:
-    config:
-      - litmus_limits: {v_rail: {low: 3.25, high: 3.35}}     # tightens family
+    limits: {v_rail: {low: 3.25, high: 3.35}}     # tightens family
 ```
 
 ```yaml
@@ -168,9 +165,8 @@ extends: power_family
 facets: {test_phase: characterization}
 tests:
   TestRails.test_rail:
-    config:
-      - litmus_sweeps:
-          - {vin: [3.0, 3.3, 3.6, 4.0, 4.5, 5.0, 5.5, 6.0]}
+    sweeps:
+      - {vin: [3.0, 3.3, 3.6, 4.0, 4.5, 5.0, 5.5, 6.0]}
 ```
 
 `pytest --test-phase=production --product=tps54302` resolves:
@@ -179,7 +175,7 @@ tests:
 - Chain walked parent-first: `power_family` → `production-tps54302`.
 - `test_rail` limits: child's `{low: 3.25, high: 3.35}` wins over
   parent's `{low: 3.2, high: 3.4}`.
-- `pytest.addopts: "--strict-markers"` inherited from family.
+- `runner.addopts: "--strict-markers"` inherited from family.
 
 Cycles and unknown parents raise `UsageError` at project load.
 
@@ -188,12 +184,12 @@ Cycles and unknown parents raise `UsageError` at project load.
 ```
 project defaults (litmus.yaml)
     ↓
-file-level sidecar config (config: at sidecar root)
+file-level sidecar marker fields (at sidecar root)
     ↓
-class-branch sidecar markers (tests.<Cls>.markers)
+class-branch sidecar marker fields (tests.<Cls>.<marker>)
     ↓
-per-test sidecar markers (tests.<name>.markers
-                          or tests.<Cls>.tests.<method>.markers)
+per-test sidecar marker fields (tests.<name>.<marker>
+                                or tests.<Cls>.tests.<method>.<marker>)
     ↓
 per-test inline @decorators
     ↓
@@ -234,51 +230,48 @@ default_station: bench_1
 # profiles/validation.yaml — quick pre-merge sweep
 description: "Quick sweep for pre-merge validation"
 facets: {test_phase: validation}
-pytest:
+runner:
   addopts: "-x -vv"
   markexpr: "not slow and not hardware"
 tests:
   TestRails:
     tests:
       test_rails:
-        config:
-          - litmus_sweeps:
-              - {vin: [5.0]}
-          - litmus_sweeps:
-              - {temperature: [25]}
+        sweeps:
+          - {vin: [5.0]}
+          - {temperature: [25]}
   TestSlow:
     tests:
       test_long_soak:
-        config:
-          - skip: "not run in validation"
+        runner:
+          markers:
+            - skip: "not run in validation"
 ```
 
 ```yaml
 # profiles/production.yaml — full sweep, retries
 description: "Full sweep, production-grade retries"
 facets: {test_phase: production}
-pytest:
+runner:
   addopts: "--reruns=2 --reruns-delay=1 -n=4"
 tests:
   TestRails:                              # class branch
-    config:
-      - flaky: {reruns: 2, reruns_delay: 2}   # class-wide retries
+    runner:
+      markers:
+        - flaky: {reruns: 2, reruns_delay: 2}   # class-wide retries
     tests:
       test_rails:                         # nested method
-        config:
-          - litmus_sweeps:
-              - {vin: [4.5, 5.0, 5.5]}
-          - litmus_sweeps:
-              - {temperature: [25, 85]}
-          - litmus_sweeps:
-              - {load: [0.1, 0.4, 0.8]}
+        sweeps:
+          - {vin: [4.5, 5.0, 5.5]}
+          - {temperature: [25, 85]}
+          - {load: [0.1, 0.4, 0.8]}
 ```
 
 ```yaml
 # profiles/debug.yaml — single test, verbose, fail-fast
 description: "Single test, verbose, fail-fast"
 facets: {test_phase: debug}
-pytest:
+runner:
   addopts: "-x -vv -s"
   keyword: "test_output_voltage"
 ```

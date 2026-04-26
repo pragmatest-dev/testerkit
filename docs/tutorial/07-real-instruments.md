@@ -81,12 +81,11 @@ For tests that need specific mock values, use `litmus_mocks` in the sidecar:
 
 ```yaml
 # tests/test_voltage.yaml
-config:
-  - litmus_mocks:
-      - {target: dmm.measure_voltage, return_value: 3.31}
-      - {target: psu.measure_current, return_value: 0.5}
-  - litmus_limits:
-      test_output_voltage: {low: 3.2, high: 3.4, units: V}
+mocks:
+  - {target: dmm.measure_voltage, return_value: 3.31}
+  - {target: psu.measure_current, return_value: 0.5}
+limits:
+  test_output_voltage: {low: 3.2, high: 3.4, units: V}
 ```
 
 ## Mock Value Priority

@@ -219,18 +219,18 @@ Define limits as Python expressions in a sidecar:
 
 ```yaml
 # tests/test_voltage.yaml
-config:
-  - litmus_sweeps: {temperature: [-40, 25, 85]}
-  - litmus_limits:
-      output_voltage:
-        callable: |
-          temp = ctx.get_param("temperature")
-          if temp < 0:
-            return Limit(low=3.15, high=3.45, units="V")
-          elif temp < 50:
-            return Limit(low=3.25, high=3.35, units="V")
-          else:
-            return Limit(low=3.10, high=3.50, units="V")
+sweeps:
+  - {temperature: [-40, 25, 85]}
+limits:
+  output_voltage:
+    callable: |
+      temp = ctx.get_param("temperature")
+      if temp < 0:
+        return Limit(low=3.15, high=3.45, units="V")
+      elif temp < 50:
+        return Limit(low=3.25, high=3.35, units="V")
+      else:
+        return Limit(low=3.10, high=3.50, units="V")
 ```
 
 The callable has access to:
@@ -308,15 +308,14 @@ instruments:
 
 **tests/test_limits.yaml:**
 ```yaml
-config:
-  - litmus_limits:
-      output_voltage:
-        low: 3.135
-        high: 3.465
-        nominal: 3.3
-        units: V
-  - litmus_mocks:
-      - {target: dmm.measure_voltage, return_value: 3.31}
+limits:
+  output_voltage:
+    low: 3.135
+    high: 3.465
+    nominal: 3.3
+    units: V
+mocks:
+  - {target: dmm.measure_voltage, return_value: 3.31}
 ```
 
 **tests/test_limits.py:**

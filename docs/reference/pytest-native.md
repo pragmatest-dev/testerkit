@@ -86,13 +86,12 @@ first band whose `when:` matches the active vector params wins. No
 match raises `pytest.UsageError`.
 
 ```yaml
-config:
-  - litmus_limits:
-      output_voltage:
-        units: V
-        bands:
-          - {when: {vin: 5.0, load: 0.1}, low: 3.234, high: 3.366}
-          - {when: {vin: 3.3},            low: 3.1,   high: 3.5}    # any load at 3.3 V
+limits:
+  output_voltage:
+    units: V
+    bands:
+      - {when: {vin: 5.0, load: 0.1}, low: 3.234, high: 3.366}
+      - {when: {vin: 3.3},            low: 3.1,   high: 3.5}    # any load at 3.3 V
 ```
 
 See [Test Limits → Condition-indexed bands](../guides/limits.md#condition-indexed-bands) for the full semantics.
