@@ -1,10 +1,10 @@
-"""Test bodies take instruments as fixtures — same as stages 2–4.
+"""Test bodies take instruments as fixtures — same as stages 2-4.
 
-Only difference: ``dut`` is gone. The station YAML registers ``psu``
-and ``dmm`` as pytest fixtures automatically, so you ask for them by
-name. The Litmus plugin constructs them from the catalog + station
-config. With ``mock_instruments: true`` in ``litmus.yaml`` each
-method returns the value declared in ``stations/bench_01.yaml``.
+Only difference: no ``conftest.py``. The station YAML registers
+``psu`` and ``dmm`` as pytest fixtures automatically, so you ask for
+them by name and the Litmus plugin constructs them from the catalog
++ station config. With ``mock_instruments: true`` in ``litmus.yaml``
+each method returns the value declared in ``stations/bench_01.yaml``.
 """
 
 from __future__ import annotations
