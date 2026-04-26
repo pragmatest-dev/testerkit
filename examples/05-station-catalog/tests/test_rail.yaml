@@ -1,28 +1,23 @@
-config:
-  - litmus_limits:
-      v_rail: {low: 3.2, high: 3.4, units: V}
-      v_overvoltage: {low: 4.0, high: 5.0, units: V}    # OVP-band; lets the litmus_mocks demo prove itself
+limits:
+  v_rail: {low: 3.2, high: 3.4, units: V}
+  v_overvoltage: {low: 4.0, high: 5.0, units: V}    # OVP-band; lets the mocks demo prove itself
 
 tests:
   TestIdle:
-    config:
-      - litmus_limits:
-          i_idle: {low: 0.0, high: 0.1, units: A}
+    limits:
+      i_idle: {low: 0.0, high: 0.1, units: A}
 
   test_rail_holds_across_input:
-    config:
-      - litmus_sweeps:
-          - {vin: [3.3, 5.0, 5.5]}
+    sweeps:
+      - {vin: [3.3, 5.0, 5.5]}
 
   test_ovp_path_sidecar:
-    config:
-      - litmus_mocks:
-          - {target: dmm.measure_dc_voltage, return_value: 4.5}
+    mocks:
+      - {target: dmm.measure_dc_voltage, return_value: 4.5}
 
   test_operator_choice_sidecar:
-    config:
-      - litmus_prompts:
-          pick_fixture:
-            message: "Pick a fixture variant"
-            prompt_type: choice
-            choices: [bench_01, bench_02]
+    prompts:
+      pick_fixture:
+        message: "Pick a fixture variant"
+        prompt_type: choice
+        choices: [bench_01, bench_02]

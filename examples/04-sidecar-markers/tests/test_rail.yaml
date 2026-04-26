@@ -1,26 +1,25 @@
 # Sibling sidecar: every marker that decorated a test in stage 3 now
-# lives here as a YAML entry. Same vocabulary (litmus_sweeps,
-# litmus_limits, litmus_retry), same merge semantics.
+# lives here as a YAML entry. Same vocabulary (sweeps, limits, retry),
+# same merge semantics.
 
 # File-wide: applied to every test in test_rail.py.
-config:
-  - litmus_limits:
-      v_rail: {low: 3.2, high: 3.4, units: V}
+limits:
+  v_rail: {low: 3.2, high: 3.4, units: V}
 
 # tests: mirrors pytest's node-id structure. A class is a branch with
-# its own config (applied to every nested method) plus a nested
-# tests: dict; a function is a leaf.
+# its own marker fields (applied to every nested method) plus a
+# nested tests: dict; a function is a leaf. Litmus marker fields
+# (limits, sweeps, mocks, specs, connections, retry, prompts) live
+# at each entry's root, alongside the reserved `runner:` and `tests:`
+# keys.
 tests:
   TestIdle:
-    config:
-      - litmus_limits:
-          i_idle: {low: 0.0, high: 0.1, units: A}
+    limits:
+      i_idle: {low: 0.0, high: 0.1, units: A}
 
   test_rail_holds_across_input:
-    config:
-      - litmus_sweeps:
-          - {vin: [3.3, 5.0, 5.5]}
+    sweeps:
+      - {vin: [3.3, 5.0, 5.5]}
 
   test_intermittent_glitch:
-    config:
-      - litmus_retry: {max_attempts: 3, delay: 0.05}
+    retry: {max_attempts: 3, delay: 0.05}

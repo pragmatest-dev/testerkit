@@ -2,10 +2,10 @@
 
 Two responsibilities live here:
 
-* **Sidecar loading** (:func:`load_sidecar`, :func:`sidecar_markers_for`).
+* **Sidecar loading** (:func:`load_sidecar`, :func:`merged_test_entry`).
   Parse the ``<module>.yaml`` sitting next to a test module and merge
-  its file-level / class / per-test markers into a single ordered list
-  for the pytest plugin to attach during collection.
+  its file-level / class / per-test fields into a single typed
+  :class:`TestEntry` for the pytest plugin to attach during collection.
 * **Limit resolution** (:class:`_LimitRef`, :class:`_PolicyLimit`,
   :class:`_BandSet`, :func:`parse_limits_block`, :func:`resolve_limits`,
   :func:`match_band`). Walk a merged ``litmus_limits`` payload and turn

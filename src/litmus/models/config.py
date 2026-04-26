@@ -3,7 +3,7 @@
 Re-exports capability, enum, and test-config types from ``litmus.config.*``
 submodules so callers can import from a single namespace::
 
-    from litmus.models.config import Direction, Capability, TestConfig
+    from litmus.models.config import Direction, Capability, FixtureConfig
 """
 
 __all__ = [

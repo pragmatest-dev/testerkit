@@ -568,7 +568,7 @@ class MeasurementLimitConfig(BaseModel):
 
     Can also appear as one band in a condition-indexed list — in that shape
     ``when:`` names the active-vector-param values at which this band's
-    policy applies. See ``TestConfig.limits`` for the list form.
+    policy applies. See ``TestEntry.limits`` for the list form.
     """
 
     model_config = {"extra": "forbid"}

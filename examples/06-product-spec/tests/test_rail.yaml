@@ -1,23 +1,20 @@
-# Per-test spec markers + limits that reference product characteristics.
+# Per-test spec bindings + limits that reference product characteristics.
 tests:
   test_rail_within_spec:
-    config:
-      - litmus_specs: [rail_3v3]
-      - litmus_connections: {connections: [vout_measure]}    # narrow the auto-derived pin set; redundant for a single-pin char but shows the marker
-      - litmus_limits:
-          v_rail: {characteristic: rail_3v3, tolerance_pct: 2}
+    specs: [rail_3v3]
+    connections: {connections: [vout_measure]}    # narrow the auto-derived pin set; redundant for a single-pin char but shows the field
+    limits:
+      v_rail: {characteristic: rail_3v3, tolerance_pct: 2}
 
   test_rail_holds_across_input:
-    config:
-      - litmus_sweeps:
-          - {vin: [3.3, 5.0, 5.5]}
-      - litmus_specs: [rail_3v3]
-      - litmus_limits:
-          v_rail: {characteristic: rail_3v3, tolerance_pct: 2}
+    sweeps:
+      - {vin: [3.3, 5.0, 5.5]}
+    specs: [rail_3v3]
+    limits:
+      v_rail: {characteristic: rail_3v3, tolerance_pct: 2}
 
   TestIdle:
-    config:
-      - litmus_specs: [rail_3v3]
-      - litmus_limits:
-          v_rail: {characteristic: rail_3v3, tolerance_pct: 2}
-          i_idle: {characteristic: idle_current, tolerance_pct: 20}
+    specs: [rail_3v3]
+    limits:
+      v_rail: {characteristic: rail_3v3, tolerance_pct: 2}
+      i_idle: {characteristic: idle_current, tolerance_pct: 20}
