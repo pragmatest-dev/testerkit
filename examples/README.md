@@ -5,12 +5,12 @@ Read them in order — every stage adds exactly one concept.
 
 | # | Directory | What it adds | Gap it closes |
 |---|-----------|--------------|----------------|
-| **1** | `01-vanilla/` | Pure pytest — assertions, fixtures, parametrize. | Baseline. Measurements aren't captured anywhere. |
-| **2** | `02-verify/` | `verify(name, value, limit=...)` + Parquet log. | Measurements get persisted, pass/fail stays. |
+| **1** | `01-vanilla/` | Pure pytest + real `psu` / `dmm` driver classes; Litmus mocks them when no bench is attached. | Baseline. Measurements aren't captured anywhere. |
+| **2** | `02-verify/` | `verify(name, value, limit=...)` + Parquet log; `litmus_retry` for transient failures. | Measurements get persisted; flake handling on day one. |
 | **3** | `03-inline-limits/` | `@pytest.mark.litmus_limits` decorator. | Limit is now declarative, not an imperative `Limit(...)` object. |
 | **4** | `04-sidecar-markers/` | Markers move to a sibling `test_*.yaml`; classes for grouping. | Ops can tune limits without editing Python. |
-| **5** | `05-station-catalog/` | Station YAML + instrument catalog; `psu` / `dmm` fixtures auto-register. | No hand-rolled `conftest` fixtures. Mocks via flag. |
-| **6** | `06-product-spec/` | Product YAML, fixture routing, `litmus_spec` + `tolerance_pct`. | Spec is the source of truth; rows carry traceability. |
+| **5** | `05-station-catalog/` | Station YAML + catalog; conftest disappears; `litmus_mock` for per-test overrides; `litmus_prompt` for operator-in-the-loop. | Mock declarations in YAML; per-test fault injection; operator gates. |
+| **6** | `06-product-spec/` | Product YAML, fixture routing, `litmus_spec` + `litmus_connections` + `tolerance_pct`. | Spec is the source of truth; rows carry traceability. |
 | **7** | `07-profiles/` | Profiles under `profiles/*.yaml` with `extends:` chains. | Scenarios (dev / production / characterization) without per-test forking. |
 
 ## Running

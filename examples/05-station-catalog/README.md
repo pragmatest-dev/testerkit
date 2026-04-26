@@ -27,8 +27,12 @@ on the same fixture names.
 
 ```bash
 cd examples/05-station-catalog
-uv run pytest -v
+LITMUS_PROMPT_MODE=auto-confirm uv run pytest -v
 ```
+
+The `LITMUS_PROMPT_MODE=auto-confirm` env var lets the operator-prompt
+demo run without a tty (auto-confirms / picks the first choice). Drop
+it for an interactive bench run.
 
 ## Why station + catalog
 
@@ -48,6 +52,74 @@ Three things gain leverage:
    Ops can edit values without touching Python; the same YAML file
    stays the truth when `--no-mock-instruments` points the rig at
    real hardware.
+
+## `litmus_mock` — per-test override
+
+The station's `mock_config` declares a default return for each
+instrument method. Right shape for the happy path; useless for
+exercising fault paths. `litmus_mock` patches one method on one
+fixture for one test:
+
+```python
+@pytest.mark.litmus_mock(target="dmm.measure_dc_voltage", return_value=4.5)
+def test_ovp_path_inline(verify, psu, dmm):
+    psu.set_voltage(5.0)
+    verify("v_overvoltage", dmm.measure_dc_voltage())   # 4.5, not 3.31
+```
+
+Sidecar form (same effect, on `test_ovp_path_sidecar`):
+
+```yaml
+test_ovp_path_sidecar:
+  config:
+    - litmus_mock: {target: dmm.measure_dc_voltage, return_value: 4.5}
+```
+
+The `v_overvoltage` band (`{low: 4.0, high: 5.0}`) is what makes
+this demo *prove itself*: without the override the test sees the
+bench default 3.31 V, fails the low limit, and you know the marker
+didn't fire. The marker forwards every kwarg except `target`
+straight to `unittest.mock.patch.object`, so `side_effect`,
+`wraps`, `spec`, `autospec`, `new_callable`, etc. all work.
+
+## `litmus_prompt` — operator in the loop
+
+Hardware test routinely needs a human in the loop: confirm the DUT
+is seated, pick a fixture variant, acknowledge a high-voltage step.
+The `prompt` fixture resolves named entries declared by
+`litmus_prompt` markers anywhere in scope:
+
+```python
+@pytest.mark.litmus_prompt(
+    pick_fixture={
+        "message": "Pick a fixture variant",
+        "prompt_type": "choice",
+        "choices": ["bench_01", "bench_02"],
+    }
+)
+def test_operator_choice_inline(verify, prompt, psu, dmm):
+    chosen = prompt("pick_fixture")
+    assert chosen == "bench_01"          # auto-confirm returns first choice
+    psu.set_voltage(5.0)
+    verify("v_rail", dmm.measure_dc_voltage())
+```
+
+Sidecar form (same effect):
+
+```yaml
+test_operator_choice_sidecar:
+  config:
+    - litmus_prompt:
+        pick_fixture:
+          message: "Pick a fixture variant"
+          prompt_type: choice
+          choices: [bench_01, bench_02]
+```
+
+Each entry is a `PromptConfig`: `message`, optional `prompt_type`
+(`confirm` / `choice` / `input`), `choices`, `timeout_seconds`. CI
+runs use `LITMUS_PROMPT_MODE=auto-confirm`; bench operators see a
+tty prompt; UI runners install their own handler.
 
 ## The gap this stage leaves
 

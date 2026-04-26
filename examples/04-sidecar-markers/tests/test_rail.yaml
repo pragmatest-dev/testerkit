@@ -1,6 +1,6 @@
 # Sibling sidecar: every marker that decorated a test in stage 3 now
-# lives here as a YAML entry. Same vocabulary (parametrize,
-# litmus_limits), same merge semantics.
+# lives here as a YAML entry. Same vocabulary (litmus_vectors,
+# litmus_limits, litmus_retry), same merge semantics.
 
 # File-wide: applied to every test in test_rail.py.
 config:
@@ -8,7 +8,7 @@ config:
       v_rail: {low: 3.2, high: 3.4, units: V}
 
 # tests: mirrors pytest's node-id structure. A class is a branch with
-# its own markers (applied to every nested method) plus a nested
+# its own config (applied to every nested method) plus a nested
 # tests: dict; a function is a leaf.
 tests:
   TestIdle:
@@ -20,3 +20,7 @@ tests:
     config:
       - litmus_vectors:
           - {vin: [3.3, 5.0, 5.5]}
+
+  test_intermittent_glitch:
+    config:
+      - litmus_retry: {max_attempts: 3, delay: 0.05}
