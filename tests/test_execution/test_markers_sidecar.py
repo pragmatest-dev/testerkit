@@ -363,7 +363,13 @@ def test_litmus_retry_inline_decorator(pytester: pytest.Pytester) -> None:
 
 
 def test_litmus_retry_rejects_unknown_kwargs(pytester: pytest.Pytester) -> None:
-    """Unknown kwargs raise a clear collection-time error."""
+    """Unknown kwargs are caught by Pydantic at YAML load.
+
+    ``RetryPolicy.model_config = extra="forbid"`` rejects ``mystery_kwarg``
+    when the sidecar parses, before any test runs. The error surfaces
+    as a sidecar-load failure on the first test in the module that
+    references the bad sidecar.
+    """
     pytester.makeini(_INI)
     pytester.makepyfile(
         test_seq=textwrap.dedent(
@@ -383,4 +389,5 @@ def test_litmus_retry_rejects_unknown_kwargs(pytester: pytest.Pytester) -> None:
     )
     result = pytester.runpytest("-v")
     assert result.ret != 0
-    result.stderr.fnmatch_lines(["*unknown kwargs*mystery_kwarg*"])
+    combined = "\n".join(result.outlines + result.errlines)
+    assert "mystery_kwarg" in combined

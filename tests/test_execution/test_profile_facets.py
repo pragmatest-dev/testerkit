@@ -11,7 +11,7 @@ from typing import Any
 
 import pytest
 
-from litmus.config.test_config import TestEntry
+from litmus.config.test_config import MeasurementLimitConfig, SweepEntry, TestEntry
 from litmus.execution.profiles import flatten_profile_chain, resolve_active_profile
 from litmus.models.project import ProfileConfig, ProjectConfig
 from litmus.store import load_project
@@ -21,9 +21,21 @@ def _make_project(profiles: dict[str, ProfileConfig]) -> ProjectConfig:
     return ProjectConfig(name="p", profiles=profiles)
 
 
-def _v_rail(**kwargs: Any) -> dict[str, dict[str, Any]]:
-    """Build a ``limits={v_rail: ...}`` dict from keyword fields."""
-    return {"v_rail": dict(kwargs)}
+def _v_rail(**kwargs: Any) -> dict[str, MeasurementLimitConfig]:
+    """Build a ``limits={v_rail: MeasurementLimitConfig(...)}`` dict."""
+    return {"v_rail": MeasurementLimitConfig.model_validate(dict(kwargs))}
+
+
+def _sweep(**kwargs: Any) -> SweepEntry:
+    """Build a single :class:`SweepEntry` from kwargs."""
+    return SweepEntry.model_validate(dict(kwargs))
+
+
+def _assert_v_rail(limits: dict[str, MeasurementLimitConfig], **expected: Any) -> None:
+    """Assert ``limits['v_rail']`` carries the expected fields (typed)."""
+    actual = limits["v_rail"]
+    for key, value in expected.items():
+        assert getattr(actual, key) == value, f"{key}: got {getattr(actual, key)!r}, want {value!r}"
 
 
 class TestFlattenProfileChain:
@@ -35,7 +47,7 @@ class TestFlattenProfileChain:
         project = _make_project({"char": leaf})
         merged = flatten_profile_chain("char", project)
         assert merged.facets == {"test_phase": "characterization"}
-        assert merged.tests["test_a"].limits == {"v_rail": {"tolerance_pct": 1.0}}
+        _assert_v_rail(merged.tests["test_a"].limits, tolerance_pct=1.0)
         assert merged.extends is None
 
     def test_child_overrides_parent_on_same_key(self) -> None:
@@ -49,16 +61,14 @@ class TestFlattenProfileChain:
         )
         project = _make_project({"family": parent, "prod-tps54302": child})
         merged = flatten_profile_chain("prod-tps54302", project)
-        assert merged.tests["test_rail"].limits == {
-            "v_rail": {"low": 3.25, "high": 3.35},
-        }
+        _assert_v_rail(merged.tests["test_rail"].limits, low=3.25, high=3.35)
 
     def test_parent_only_keys_pass_through(self) -> None:
         parent = ProfileConfig(
             tests={
                 "test_rail": TestEntry(
-                    sweeps=[{"vin": [5.0]}],
-                    limits={"v_rail": {"low": 3.2, "high": 3.4}},
+                    sweeps=[_sweep(vin=[5.0])],
+                    limits=_v_rail(low=3.2, high=3.4),
                 ),
             },
         )
@@ -69,13 +79,13 @@ class TestFlattenProfileChain:
         project = _make_project({"family": parent, "leaf": child})
         merged = flatten_profile_chain("leaf", project)
         rail = merged.tests["test_rail"]
-        assert rail.sweeps == [{"vin": [5.0]}]
-        assert rail.limits == {"v_rail": {"low": 3.2, "high": 3.4}}
-        assert merged.tests["test_output"].limits == {"v_rail": {"tolerance_pct": 1.0}}
+        assert [s.root for s in rail.sweeps] == [{"vin": [5.0]}]
+        _assert_v_rail(rail.limits, low=3.2, high=3.4)
+        _assert_v_rail(merged.tests["test_output"].limits, tolerance_pct=1.0)
 
     def test_class_scoped_markers_merge(self) -> None:
         parent = ProfileConfig(
-            tests={"TestRails": TestEntry(sweeps=[{"vin": [4.5, 5.0]}])},
+            tests={"TestRails": TestEntry(sweeps=[_sweep(vin=[4.5, 5.0])])},
         )
         child = ProfileConfig(
             extends="family",
@@ -84,8 +94,8 @@ class TestFlattenProfileChain:
         project = _make_project({"family": parent, "leaf": child})
         merged = flatten_profile_chain("leaf", project)
         rails = merged.tests["TestRails"]
-        assert rails.sweeps == [{"vin": [4.5, 5.0]}]
-        assert rails.limits == {"v_rail": {"tolerance_pct": 1.0}}
+        assert [s.root for s in rails.sweeps] == [{"vin": [4.5, 5.0]}]
+        _assert_v_rail(rails.limits, tolerance_pct=1.0)
 
     def test_nested_class_method_merge(self) -> None:
         """Same recursive merge applies one level deeper for class methods."""
@@ -107,14 +117,14 @@ class TestFlattenProfileChain:
         project = _make_project({"family": parent, "leaf": child})
         merged = flatten_profile_chain("leaf", project)
         rails = merged.tests["TestRails"]
-        assert rails.tests["test_rail"].limits == {"v_rail": {"low": 3.25}}
+        _assert_v_rail(rails.tests["test_rail"].limits, low=3.25)
 
     def test_file_level_markers_merge(self) -> None:
         parent = ProfileConfig(limits=_v_rail(tolerance_pct=5.0))
         child = ProfileConfig(extends="family", limits=_v_rail(tolerance_pct=1.0))
         project = _make_project({"family": parent, "leaf": child})
         merged = flatten_profile_chain("leaf", project)
-        assert merged.limits == {"v_rail": {"tolerance_pct": 1.0}}
+        _assert_v_rail(merged.limits, tolerance_pct=1.0)
 
     def test_runner_addopts_child_appends_to_parent(self) -> None:
         parent = ProfileConfig(runner={"addopts": "--strict-markers"})
@@ -161,20 +171,20 @@ class TestFlattenProfileChain:
 
     def test_three_level_chain_walks_parent_first(self) -> None:
         grandparent = ProfileConfig(
-            tests={"test_a": TestEntry(limits={"v_rail": {"v": 1}})},
+            tests={"test_a": TestEntry(limits=_v_rail(low=1.0))},
         )
         parent = ProfileConfig(
             extends="grandparent",
-            tests={"test_b": TestEntry(limits={"v_rail": {"v": 2}})},
+            tests={"test_b": TestEntry(limits=_v_rail(low=2.0))},
         )
         child = ProfileConfig(
             extends="parent",
-            tests={"test_a": TestEntry(limits={"v_rail": {"v": 99}})},
+            tests={"test_a": TestEntry(limits=_v_rail(low=99.0))},
         )
         project = _make_project({"grandparent": grandparent, "parent": parent, "child": child})
         merged = flatten_profile_chain("child", project)
-        assert merged.tests["test_a"].limits == {"v_rail": {"v": 99}}
-        assert merged.tests["test_b"].limits == {"v_rail": {"v": 2}}
+        _assert_v_rail(merged.tests["test_a"].limits, low=99.0)
+        _assert_v_rail(merged.tests["test_b"].limits, low=2.0)
 
 
 class TestResolveActiveProfileWithExtends:
@@ -193,7 +203,7 @@ class TestResolveActiveProfileWithExtends:
         )
         assert name == "prod-tps54302"
         assert profile is not None
-        assert profile.tests["test_rail"].limits == {"v_rail": {"low": 3.25}}
+        _assert_v_rail(profile.tests["test_rail"].limits, low=3.25)
         assert facets == {"test_phase": "production", "product": "tps54302"}
 
     def test_parent_without_facets_unreachable_via_facet_query(self) -> None:
@@ -212,7 +222,7 @@ class TestResolveActiveProfileWithExtends:
         name, profile, _ = resolve_active_profile("family", {}, project)
         assert name == "family"
         assert profile is not None
-        assert profile.tests["test_rail"].limits == {"v_rail": {"low": 3.2}}
+        _assert_v_rail(profile.tests["test_rail"].limits, low=3.2)
 
     def test_name_selection_walks_extends_chain(self) -> None:
         parent = ProfileConfig(
@@ -225,9 +235,7 @@ class TestResolveActiveProfileWithExtends:
         project = _make_project({"family": parent, "prod": child})
         _, profile, _ = resolve_active_profile("prod", {}, project)
         assert profile is not None
-        assert profile.tests["test_rail"].limits == {
-            "v_rail": {"low": 3.25, "high": 3.35},
-        }
+        _assert_v_rail(profile.tests["test_rail"].limits, low=3.25, high=3.35)
 
 
 class TestProfilesDirLoader:
@@ -288,6 +296,4 @@ class TestProfilesDirLoader:
         leaf = project.profiles["leaf"]
         assert leaf.extends == "family"
         merged = flatten_profile_chain("leaf", project)
-        assert merged.tests["test_rail"].limits == {
-            "v_rail": {"low": 3.2, "high": 3.4},
-        }
+        _assert_v_rail(merged.tests["test_rail"].limits, low=3.2, high=3.4)

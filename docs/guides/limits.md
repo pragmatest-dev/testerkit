@@ -29,21 +29,20 @@ At least one of `low`, `high`, `nominal`, or `ref` is required.
 
 ## Where limits come from
 
-Limits flow through `litmus_limits` markers. When
+Limits flow through Litmus's marker cascade. When
 `logger.measure(name, value)` is called without `limit=`, resolution
-walks the full marker merge cascade (least → most specific):
+walks the full merge cascade (least → most specific):
 
 1. **Explicit kwargs** — `logger.measure("v", val, low=..., high=..., units=...)`
-2. **Sidecar file-level entry** — `config: [- litmus_limits: {...}]`
-3. **Sidecar class branch entry** — `tests.<Cls>.config:`
-4. **Sidecar per-test entry** — `tests.<name>.config:` (or nested `tests.<Cls>.tests.<method>.config:`)
+2. **Sidecar file-level field** — `limits: {...}` at the YAML root
+3. **Sidecar class branch field** — `tests.<Cls>.limits: {...}`
+4. **Sidecar per-test field** — `tests.<name>.limits: {...}` (or nested `tests.<Cls>.tests.<method>.limits: {...}`)
 5. **Inline `@pytest.mark.litmus_limits(...)`** on method / class
-6. **Profile chain markers** — parent profile first, child last
+6. **Profile chain** — parent profile first, child last
 7. **Product spec** — `ref: "<name>"` delegation against the active `SpecContext`
 8. **None** — characterization mode (unchecked, still recorded)
 
-Later stages override earlier ones key-by-key. Same-marker-same-key in
-the same scope: later-declared wins.
+Later stages override earlier ones key-by-key (per measurement name).
 
 `spec.check(name, value)` bypasses this chain and reads directly from the active product spec.
 
@@ -77,16 +76,15 @@ class TestPowerBoard:
 
 ```yaml
 # tests/test_power_board.yaml
-config:
-  - litmus_limits:
-      output_voltage:  {low: 3.135, high: 3.465, units: V}
-      efficiency:      {ref: efficiency}           # product-spec delegation
-      startup_current: {high: 50, comparator: LE, units: mA}
+limits:
+  output_voltage:  {low: 3.135, high: 3.465, units: V}
+  efficiency:      {ref: efficiency}           # product-spec delegation
+  startup_current: {high: 50, comparator: LE, units: mA}
 ```
 
-The same `litmus_limits` entry works at class-branch scope
-(`tests.<Cls>.config:`) and per-test scope (`tests.<name>.config:`
-or nested `tests.<Cls>.tests.<method>.config:`). Per-test overrides
+The same `limits:` field works at class-branch scope
+(`tests.<Cls>.limits:`) and per-test scope (`tests.<name>.limits:`
+or nested `tests.<Cls>.tests.<method>.limits:`). Per-test overrides
 class overrides file-level, key-by-key.
 
 Sidecar is the preferred home for operator-edited limits — non-developers can tune without touching Python.
@@ -97,15 +95,14 @@ When a single measurement needs different limits under different conditions, add
 
 ```yaml
 # test_power_board.yaml
-config:
-  - litmus_limits:
-      output_voltage:
-        units: V                              # default for every band
-        bands:
-          - {when: {vin: 5.0, load: 0.1}, low: 3.234, high: 3.366}
-          - {when: {vin: 5.0, load: 0.8}, low: 3.2,   high: 3.4}
-          - {when: {vin: 3.3},            low: 3.1,   high: 3.5}   # any load at vin=3.3
-          - {when: {},                    low: 3.0,   high: 3.6}   # catch-all; last
+limits:
+  output_voltage:
+    units: V                              # default for every band
+    bands:
+      - {when: {vin: 5.0, load: 0.1}, low: 3.234, high: 3.366}
+      - {when: {vin: 5.0, load: 0.8}, low: 3.2,   high: 3.4}
+      - {when: {vin: 3.3},            low: 3.1,   high: 3.5}   # any load at vin=3.3
+      - {when: {},                    low: 3.0,   high: 3.6}   # catch-all; last
 ```
 
 Matching rules:
@@ -116,18 +113,17 @@ Matching rules:
 - No match → `pytest.UsageError` at `logger.measure` / `verify` time (fail loud, not silent).
 - An empty `when: {}` always matches; put it last as a default.
 
-The match is performed against the current row's vector params, so the feature composes naturally with both native `@pytest.mark.parametrize` and `litmus_sweeps` — every iteration re-resolves against the active row.
+The match is performed against the current row's vector params, so the feature composes naturally with both native `@pytest.mark.parametrize` and Litmus sweeps — every iteration re-resolves against the active row.
 
 The default cascade keeps repetition out of the YAML. Common fields (`units`, `characteristic`, `ref`) live once at the top; bands carry only what changes. Bands can use any policy field a flat limit supports, including `tolerance_pct` against a product characteristic:
 
 ```yaml
-config:
-  - litmus_limits:
-      output_voltage:
-        ref: output_voltage                   # nominal from product spec — shared
-        bands:
-          - {when: {vin: 5.0}, tolerance_pct: 2.0}     # ±2% at vin=5.0
-          - {when: {vin: 3.3}, tolerance_pct: 5.0}     # looser at vin=3.3
+limits:
+  output_voltage:
+    ref: output_voltage                   # nominal from product spec — shared
+    bands:
+      - {when: {vin: 5.0}, tolerance_pct: 2.0}     # ±2% at vin=5.0
+      - {when: {vin: 3.3}, tolerance_pct: 5.0}     # looser at vin=3.3
 ```
 
 A limit without `bands:` is the flat scalar shape (`output_voltage: {low: 3.2, high: 3.4}`) — equivalent to one band with `when: {}`.
@@ -181,6 +177,6 @@ Values show up in the parquet output for post-hoc analysis.
 
 1. **Prefer `spec.check(name, v)`** when a product spec exists — limits, DUT pin, and `spec_ref` all flow automatically
 2. **Use `ref:`** to delegate to product-spec characteristics instead of duplicating values
-3. **Keep operator-tuned values in a sidecar `litmus_limits` marker** so non-developers can edit them
+3. **Keep operator-tuned values in a sidecar `limits:` field** so non-developers can edit them
 4. **Match names** — the first argument to `spec.check` / `logger.measure` must match the limit key
-5. **Never hardcode** — no `assert 3.0 <= v <= 3.6` in test bodies; use `litmus_limits` markers (inline, sidecar, or profile) or the product spec
+5. **Never hardcode** — no `assert 3.0 <= v <= 3.6` in test bodies; use `limits` (sidecar / profile) or `@pytest.mark.litmus_limits` (inline) or the product spec

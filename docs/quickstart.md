@@ -145,20 +145,18 @@ Sidecar YAML carries vectors, limits, and mocks alongside the test file. Same me
 
 ```yaml
 # tests/test_my_product.yaml
-config:
-  - litmus_limits:
-      output_voltage:
-        low: 3.234
-        high: 3.366
-        nominal: 3.3
-        units: V
+limits:
+  output_voltage:
+    low: 3.234
+    high: 3.366
+    nominal: 3.3
+    units: V
 tests:
   TestMyProduct:
-    config:
-      - litmus_sweeps:
-          - {vin: [5.0]}
-      - litmus_mocks:
-          - {target: dmm.measure_dc_voltage, return_value: 3.31}
+    sweeps:
+      - {vin: [5.0]}
+    mocks:
+      - {target: dmm.measure_dc_voltage, return_value: 3.31}
 ```
 
 ### Running Tests
@@ -196,7 +194,7 @@ def test_something(context, psu, dmm, spec):
                dmm.measure_dc_voltage())
 ```
 
-**No hardcoded values in code.** Conditions come from `context` (populated by native `@pytest.mark.parametrize` or sidecar YAML). Limits come from the product spec, the `litmus_limits` marker, or sidecar — never inline asserts.
+**No hardcoded values in code.** Conditions come from `context` (populated by native `@pytest.mark.parametrize` or sidecar YAML). Limits come from the product spec, an inline `@pytest.mark.litmus_limits` decorator, or the sidecar's `limits:` field — never inline asserts.
 
 For the full reference — markers, sidecar YAML, `context.changed()`, mocks, retries — see the [Writing Tests guide](guides/writing-tests.md).
 

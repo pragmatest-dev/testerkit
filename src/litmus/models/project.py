@@ -125,3 +125,11 @@ class ProjectConfig(BaseModel):
     profiles: dict[str, ProfileConfig] = Field(default_factory=dict)
     runner: dict[str, Any] = Field(default_factory=dict)
     required_inputs: dict[str, PromptConfig] = Field(default_factory=dict)
+
+
+# Resolve forward references — ProfileConfig inherits from TestEntry,
+# so it reads MeasurementLimitConfig / MockEntry / etc. from the
+# sibling module. Once that module is fully loaded, finalize the
+# schema here.
+ProfileConfig.model_rebuild()
+ProjectConfig.model_rebuild()

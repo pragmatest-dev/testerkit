@@ -95,28 +95,36 @@ def _apply_outcome(measurement: Measurement, limit: Limit | None, value: float |
 class _LimitsMapping(Mapping[str, Limit]):
     """Read-only ``name → Limit`` view for the active test.
 
-    ``limits[name]`` returns the resolved Limit for ``name``. Raises
-    ``KeyError`` when no limit is configured — the honest answer for
-    ad-hoc assertions like ``assert v in limits["vout"]``.
+    ``limits[name]`` returns the resolved :class:`Limit` for ``name``,
+    walking the same band-match-with-sibling-catch-all logic as
+    ``logger.measure`` so ad-hoc assertions like
+    ``assert v in limits["vout"]`` see the same band the measurement
+    would. Raises ``KeyError`` when nothing is configured for ``name``,
+    or when the resolved policy can't produce a Limit (characterization
+    mode — record-only, no pass/fail check).
     """
 
-    def __init__(self, resolved: dict[str, Any]):
-        self._resolved = resolved
+    def __init__(self, configs: dict[str, Any]):
+        self._configs = configs
 
     def __getitem__(self, key: str) -> Limit:
-        value = self._resolved[key]
-        if isinstance(value, Limit):
-            return value
-        raise KeyError(key)
+        from litmus.execution._state import get_active_test_characteristic
+        from litmus.execution.sidecar import resolve_limit
+
+        cfg = self._configs[key]
+        resolved = resolve_limit(cfg, test_char=get_active_test_characteristic())
+        if resolved is None:
+            raise KeyError(key)
+        return resolved
 
     def __iter__(self):
-        return iter(self._resolved)
+        return iter(self._configs)
 
     def __len__(self) -> int:
-        return len(self._resolved)
+        return len(self._configs)
 
     def __contains__(self, key: object) -> bool:
-        return key in self._resolved
+        return key in self._configs
 
 
 @pytest.fixture

@@ -146,8 +146,15 @@ def test_multi_band_two_keys_anded(pytester: pytest.Pytester) -> None:
     result.assert_outcomes(passed=1, failed=1)
 
 
-def test_no_band_matches_raises_usage_error(pytester: pytest.Pytester) -> None:
-    """No band matches active params → ``pytest.UsageError`` at verify time."""
+def test_no_band_matches_falls_back_to_siblings(pytester: pytest.Pytester) -> None:
+    """No band matches active params → sibling values act as catch-all.
+
+    The siblings to ``bands:`` *are* the catch-all by design of
+    :class:`MeasurementLimitConfig`. With ``low/high`` set at the
+    parent level, the measurement resolves against those when no
+    band matches. (vin=12.0 misses both declared bands → catch-all
+    3.0–3.6 applies → 3.30 passes.)
+    """
     pytester.makeini(_INI)
     pytester.makepyfile(
         test_seq=textwrap.dedent(
@@ -165,6 +172,9 @@ def test_no_band_matches_raises_usage_error(pytester: pytest.Pytester) -> None:
             """
             limits:
                 v_rail:
+                  low: 3.0
+                  high: 3.6
+                  units: V
                   bands:
                     - {when: {vin: 5.0}, low: 3.2, high: 3.4}
                     - {when: {vin: 3.3}, low: 3.1, high: 3.5}
@@ -172,9 +182,42 @@ def test_no_band_matches_raises_usage_error(pytester: pytest.Pytester) -> None:
         )
     )
     result = pytester.runpytest("-v")
-    # No match → the measurement call raises UsageError, which surfaces
-    # as a test error (ret != 0, not a clean pass/fail).
-    assert result.ret != 0
+    result.assert_outcomes(passed=1)
+
+
+def test_no_band_matches_no_siblings_records_unchecked(pytester: pytest.Pytester) -> None:
+    """No band matches AND no sibling fallback → measurement records unchecked.
+
+    Without parent values to fall back to, the resolver returns
+    ``None`` so the measurement records in characterization mode
+    (``outcome=DONE``) instead of raising. Authors who want strict
+    matching declare a sibling catch-all.
+    """
+    pytester.makeini(_INI)
+    pytester.makepyfile(
+        test_seq=textwrap.dedent(
+            """
+            import pytest
+
+            @pytest.mark.parametrize("vin", [12.0])
+            def test_rail(verify, vin):
+                verify("v_rail", 99.0)  # would fail any declared band
+            """
+        )
+    )
+    (pytester.path / "test_seq.yaml").write_text(
+        textwrap.dedent(
+            """
+            limits:
+                v_rail:
+                  bands:
+                    - {when: {vin: 5.0}, low: 3.2, high: 3.4}
+                    - {when: {vin: 3.3}, low: 3.1, high: 3.5}
+"""
+        )
+    )
+    result = pytester.runpytest("-v")
+    result.assert_outcomes(passed=1)
 
 
 def test_scalar_dict_shape_still_resolves(pytester: pytest.Pytester) -> None:

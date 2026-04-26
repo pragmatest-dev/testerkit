@@ -7,12 +7,12 @@ per scenario under `profiles/*.yaml` (or inline under `litmus.yaml`) and
 are selected by **facets** — `--test-phase=production --product=tps54302`
 picks exactly one profile whose declared facets match.
 
-Profiles speak the **same language as sidecars**: a `config:` list at
-the profile root and a recursive `tests:` tree mirroring pytest's
-node-id structure (classes are branches with their own `config:` plus
-nested `tests:`; functions are leaves). If you already know how to
-write a sidecar, you already know how to write a profile — same shape,
-session scope.
+Profiles speak the **same language as sidecars**: Litmus marker
+fields (`limits`, `sweeps`, …) at the profile root and a recursive
+`tests:` tree mirroring pytest's node-id structure (classes are
+branches with their own marker fields plus nested `tests:`; functions
+are leaves). If you already know how to write a sidecar, you already
+know how to write a profile — same shape, session scope.
 
 ## Why profiles?
 
@@ -56,32 +56,33 @@ the named profile's declared facets and error on mismatch.
 
 ## Profile shape
 
-A profile is the same shape as a sidecar plus three extra fields:
+A profile is a `TestEntry` (same shape sidecars use) plus three
+profile-only fields:
 
-| Field         | Type                                 | Purpose                              |
-|---------------|--------------------------------------|--------------------------------------|
-| `facets`      | `dict[str, str]`                     | Exact-match keys for CLI selection   |
-| `extends`     | `str \| None`                        | Parent profile name (single parent)  |
-| `pytest`      | `{addopts, markexpr, keyword}`       | Session-level pytest knobs           |
-| `description` | `str \| None`                        | Shown in `litmus show <run_id>`      |
-| `config`      | `list[ConfigEntry]`                  | Applied to **every** test            |
-| `tests`       | `dict[str, TestEntry]`               | Per-class / per-test config (recursive) |
+| Field         | Type                                 | Purpose                                     |
+|---------------|--------------------------------------|---------------------------------------------|
+| `facets`      | `dict[str, str]`                     | Exact-match keys for CLI selection          |
+| `extends`     | `str \| None`                        | Parent profile name (single parent)         |
+| `description` | `str \| None`                        | Shown in `litmus show <run_id>`             |
+| `runner`      | `dict[str, Any]`                     | Opaque per-runner block (validated by plugin) |
+| `limits` / `sweeps` / `mocks` / `specs` / `connections` / `retry` / `prompts` | (Litmus marker fields)               | Applied to **every** test in the session    |
+| `tests`       | `dict[str, TestEntry]`               | Per-class / per-test overrides (recursive)  |
 
-Every `config:` entry is one pytest marker — exactly the same shape
-you'd write inline as a decorator or in a sidecar. Examples:
+Litmus marker fields live directly on the profile. Ecosystem markers
+(`flaky`, `skipif`, `parametrize`, …) live under `runner.markers:`;
+the active runner plugin applies them.
 
 ```yaml
-config:
-  - litmus_limits: {v_rail: {tolerance_pct: 5.0}}      # @pytest.mark.litmus_limits(...)
-  - litmus_sweeps:                                     # nested loops
-      - {vin: [4.5, 5.0, 5.5]}
-  - flaky: {reruns: 2, reruns_delay: 1}                # @pytest.mark.flaky(...)
-  - skipif: "not os.getenv('HAS_BENCH')"               # @pytest.mark.skipif(...)
+limits:                                    # applies to every test
+  v_rail: {tolerance_pct: 5.0}
+sweeps:                                    # nested loops
+  - {vin: [4.5, 5.0, 5.5]}
+runner:
+  addopts: "--strict-markers"
+  markers:
+    - flaky: {reruns: 2, reruns_delay: 1}
+    - skipif: "not os.getenv('HAS_BENCH')"
 ```
-
-Ecosystem markers (`flaky`, `skipif`, `dependency`, …) work unchanged
-— Litmus attaches them to matched items so each plugin's native
-handler fires.
 
 Per-test keys disambiguate by class when a file has two classes with
 the same method name:
@@ -89,11 +90,12 @@ the same method name:
 ```yaml
 tests:
   TestRails.test_rail:     # qualified — binds to TestRails.test_rail
-    config:
-      - litmus_limits: {v_rail: {tolerance_pct: 1.0}}
+    limits:
+      v_rail: {tolerance_pct: 1.0}
   test_standalone:         # bare — binds to module-level test_standalone
-    config:
-      - skip: "bench required"
+    runner:
+      markers:
+        - skip: "bench required"
 ```
 
 The qualified form wins over the bare shorthand when both are present.

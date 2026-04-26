@@ -45,6 +45,7 @@ _collected_items_var: ContextVar[list[CollectedItem]] = ContextVar("_collected_i
 _current_code_identity_var: ContextVar[dict[str, str | None]] = ContextVar("_current_code_identity")
 _event_store_var: ContextVar[Any] = ContextVar("_event_store")
 _active_limits_var: ContextVar[dict[str, Any]] = ContextVar("_active_limits")
+_active_test_characteristic_var: ContextVar[str | None] = ContextVar("_active_test_characteristic")
 _active_profile_var: ContextVar[ProfileConfig | None] = ContextVar("_active_profile")
 _active_facets_var: ContextVar[dict[str, str]] = ContextVar("_active_facets")
 _session_inputs_var: ContextVar[dict[str, str]] = ContextVar("_session_inputs")
@@ -195,6 +196,26 @@ def get_active_limits() -> dict[str, Any]:
 def set_active_limits(value: dict[str, Any]) -> None:
     """Set the active limits dict. Returns None."""
     _active_limits_var.set(value)
+
+
+def get_active_test_characteristic() -> str | None:
+    """Return the active test's characteristic binding (from ``litmus_specs``), or ``None``.
+
+    Set per-test alongside :func:`set_active_limits` when the test
+    declares ``specs: [<char_id>]`` (sidecar / profile / inline marker).
+    Read at measurement time so per-label limits with a ``characteristic:``
+    field can fall back to the test-level binding when their own field
+    is omitted.
+    """
+    try:
+        return _active_test_characteristic_var.get()
+    except LookupError:
+        return None
+
+
+def set_active_test_characteristic(value: str | None) -> None:
+    """Set the active test characteristic. Returns None."""
+    _active_test_characteristic_var.set(value)
 
 
 def get_active_profile() -> ProfileConfig | None:

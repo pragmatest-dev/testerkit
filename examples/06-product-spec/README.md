@@ -14,8 +14,8 @@ through the bench.
 - Added `default_fixture: buck_3v3_bench` to `litmus.yaml`
 - Replaced raw `low: / high:` limits in the sidecar with
   `characteristic: rail_3v3, tolerance_pct: 2`
-- Added `litmus_specs: [rail_3v3]` to each test so
-  the row carries spec-ref traceability
+- Added `specs: [rail_3v3]` to each test so the row carries
+  spec-ref traceability
 
 ## Run it
 

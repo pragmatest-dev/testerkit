@@ -241,10 +241,9 @@ def _resolve_measurement_limit(
     from litmus.execution._state import (
         get_active_limits,
         get_active_spec_context,
-        get_active_vector_params,
+        get_active_test_characteristic,
     )
-    from litmus.execution.sidecar import _BandSet
-    from litmus.execution.sidecar import match_band as _match_band
+    from litmus.execution.sidecar import resolve_limit
 
     if inline_any:
         return _limit_from_dict(
@@ -259,11 +258,12 @@ def _resolve_measurement_limit(
     if limit is not None:
         return limit
 
-    sidecar_limit = get_active_limits().get(name)
-    if sidecar_limit is not None:
-        if isinstance(sidecar_limit, _BandSet):
-            return _match_band(sidecar_limit, get_active_vector_params())
-        return sidecar_limit
+    cfg = get_active_limits().get(name)
+    if cfg is not None:
+        # cfg is a MeasurementLimitConfig — resolve against active state
+        # (vector params, spec context, profile guardband) at measurement
+        # time, including band matching with sibling-as-catch-all fallback.
+        return resolve_limit(cfg, test_char=get_active_test_characteristic())
 
     spec = get_active_spec_context()
     if spec is not None:

@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from typing import Any, Literal, Self
 
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, RootModel, model_validator
 
 from litmus.config.enums import Comparator
 
@@ -21,10 +21,95 @@ from litmus.config.enums import Comparator
 # ``TestEntry`` is the recursive node; ``SidecarConfig`` is the
 # file-level root (same shape); ``ProfileConfig`` (in ``models/project``)
 # adds ``description`` / ``facets`` / ``extends`` on top of the same
-# fields. Reserved keys at any level are ``runner`` and ``tests`` —
-# everything else is a Litmus marker name (``limits``, ``sweeps``,
-# ``mocks``, ``specs``, ``connections``, ``retry``, ``prompts``).
-# ``extra="forbid"`` catches typos before they get silently ignored.
+# fields.
+#
+# Reserved keys at any level: ``runner``, ``tests``. Everything else
+# is a Litmus marker field with a typed Pydantic sub-model:
+#
+#   * ``limits``      → ``dict[str, MeasurementLimitConfig]``
+#   * ``sweeps``      → ``list[SweepEntry]``
+#   * ``mocks``       → ``list[MockEntry]``
+#   * ``specs``       → ``list[str]``
+#   * ``connections`` → ``ConnectionsBinding | None``
+#   * ``retry``       → ``RetryPolicy | None``
+#   * ``prompts``     → ``dict[str, PromptConfig]``
+#
+# Pydantic validates every field at YAML load — typos and type errors
+# fail with structured messages instead of silently passing through.
+
+
+class SweepEntry(RootModel[dict[str, list[Any]]]):
+    """One sweep level: ``{argname: argvalues, ...}``.
+
+    Single key = one parametrize axis. Multiple keys = a zipped axis;
+    every argvalues list must have the same length (enforced here at
+    YAML-load time, before the test runs).
+
+    The root is a dict of arbitrary user-named arg keys to their
+    argvalues lists, so this is a :class:`RootModel` rather than a
+    :class:`BaseModel`.
+    """
+
+    @model_validator(mode="after")
+    def _validate_zip_dim_coherent(self) -> Self:
+        groups = self.root
+        if not groups:
+            raise ValueError("sweep entry must declare at least one argname")
+        if len(groups) > 1:
+            lengths = {name: len(values) for name, values in groups.items()}
+            unique = set(lengths.values())
+            if len(unique) > 1:
+                raise ValueError(
+                    f"sweep zip requires all argvalues to have the same length; got {lengths}"
+                )
+        return self
+
+
+class MockEntry(BaseModel):
+    """One per-test mock — a target plus arbitrary ``patch.object`` kwargs.
+
+    ``target`` is ``"<fixture>.<attr>"`` — the fixture name and the
+    attribute on the resolved fixture value to patch. Every other key
+    is forwarded verbatim to :func:`unittest.mock.patch.object`
+    (``return_value``, ``side_effect``, ``wraps``, ``spec``,
+    ``spec_set``, ``autospec``, ``new_callable``, …) so the surface
+    tracks the stdlib's ``mock`` documentation. ``extra="allow"``
+    keeps the schema permissive.
+    """
+
+    model_config = ConfigDict(extra="allow")
+
+    target: str
+
+    @model_validator(mode="after")
+    def _validate_target_shape(self) -> Self:
+        if "." not in self.target:
+            raise ValueError(f"mock target {self.target!r} must be '<fixture>.<attr>' form")
+        return self
+
+    def patch_kwargs(self) -> dict[str, Any]:
+        """Return all kwargs (everything except ``target``) for ``patch.object``."""
+        # model_dump includes both declared and extra fields.
+        return {k: v for k, v in self.model_dump().items() if k != "target"}
+
+
+class ConnectionsBinding(BaseModel):
+    """Per-test fixture-connection binding — narrow to named connections or instrument channels."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    connections: list[str] | None = None
+    instrument_channels: dict[str, Any] | None = None
+
+
+class RetryPolicy(BaseModel):
+    """Runner-neutral retry policy — translates to ``flaky`` under pytest."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    max_attempts: int = Field(default=1, ge=1)
+    delay: float = Field(default=0.0, ge=0.0)
+    on: list[str] | None = None  # exception class names; None = retry on any
 
 
 class TestEntry(BaseModel):
@@ -35,9 +120,14 @@ class TestEntry(BaseModel):
     ``tests:`` dict holding its methods; a function is a leaf with the
     same fields and an empty ``tests:``.
 
+    Every Litmus-marker field is a typed Pydantic sub-model — Pydantic
+    validates at YAML load, so typos / type mismatches fail with
+    structured errors before any test runs.
+
     ``runner:`` carries an opaque per-runner config block — for pytest,
     fields like ``markers`` (ecosystem markers like ``flaky`` / ``skip``)
-    apply to this scope only. Validated by the active runner plugin.
+    apply to this scope only. Validated by the active runner plugin
+    against its own Pydantic schema.
 
     Example::
 
@@ -59,15 +149,15 @@ class TestEntry(BaseModel):
 
     __test__ = False  # Prevent pytest collection (class name starts with "Test")
 
-    model_config = {"extra": "forbid"}
+    model_config = ConfigDict(extra="forbid")
 
-    limits: dict[str, dict[str, Any]] = Field(default_factory=dict)
-    sweeps: list[dict[str, Any]] = Field(default_factory=list)
-    mocks: list[dict[str, Any]] = Field(default_factory=list)
+    limits: dict[str, MeasurementLimitConfig] = Field(default_factory=dict)
+    sweeps: list[SweepEntry] = Field(default_factory=list)
+    mocks: list[MockEntry] = Field(default_factory=list)
     specs: list[str] = Field(default_factory=list)
-    connections: dict[str, Any] | None = None
-    retry: dict[str, Any] | None = None
-    prompts: dict[str, dict[str, Any]] = Field(default_factory=dict)
+    connections: ConnectionsBinding | None = None
+    retry: RetryPolicy | None = None
+    prompts: dict[str, PromptConfig] = Field(default_factory=dict)
     runner: dict[str, Any] = Field(default_factory=dict)
     tests: dict[str, TestEntry] = Field(default_factory=dict)
 
@@ -556,27 +646,36 @@ class LimitCallableConfig(BaseModel):
 
 
 class MeasurementLimitConfig(BaseModel):
-    """Configuration for a measurement's limit (union of limit types).
+    """Per-measurement limit policy — direct, ref, characteristic-derived, or banded.
 
-    Supports multiple limit strategies:
-    - Direct limit: low/high/nominal values
-    - Spec reference: ref to specification with optional guardband
-    - Expression: formula based on vector params
-    - Lookup: table keyed by vector param
-    - Step function: ranges based on param value
-    - Callable: Python function for complex logic
+    One config supports multiple shapes (resolved at measurement time):
+      * **Direct** — ``low`` / ``high`` / ``nominal`` / ``units`` literals.
+      * **Ref** — ``ref: <product-characteristic-id>`` delegates to the
+        active spec (inherits its limits, units, spec_ref).
+      * **Characteristic policy** — ``characteristic: <id>`` plus
+        ``tolerance_pct`` / ``tolerance_abs`` derives a band from the
+        characteristic's nominal at the active vector params.
+      * **Banded** — ``bands: [...]`` is an ordered list of nested
+        :class:`MeasurementLimitConfig` entries, each with its own
+        ``when:`` predicate. The first band whose ``when:`` matches
+        the active vector params wins; **if no band matches, the
+        parent config itself is the catch-all** — its sibling fields
+        (the ones next to ``bands:``) define the fallback limit.
 
-    Can also appear as one band in a condition-indexed list — in that shape
-    ``when:`` names the active-vector-param values at which this band's
-    policy applies. See ``TestEntry.limits`` for the list form.
+    ``when`` matches against the active vector params using the same
+    rule as :class:`SpecBand.when` (every key must match; empty
+    ``when:`` always matches).
     """
 
-    model_config = {"extra": "forbid"}
+    model_config = ConfigDict(extra="forbid")
 
-    # Condition-indexed match keys (list-of-bands shape). An empty dict
-    # matches any active-vector-params (unconditional band). Mirrors the
-    # semantics of ``SpecBand.when`` on product characteristics.
+    # Condition match (list-of-bands shape). Empty = always matches.
+    # Mirrors :class:`SpecBand.when` on product characteristics.
     when: dict[str, Any] = Field(default_factory=dict)
+
+    # Nested ordered bands; checked first when present. If none match,
+    # the sibling fields on this config are the catch-all fallback.
+    bands: list[MeasurementLimitConfig] = Field(default_factory=list)
 
     # Direct limit values
     low: float | None = None
@@ -616,10 +715,7 @@ class MeasurementLimitConfig(BaseModel):
     callable: str | None = None
 
     def to_limit(self) -> Limit | None:
-        """Convert direct limit values to a Limit object.
-
-        Returns None if this is not a direct limit configuration.
-        """
+        """Convert direct limit values to a :class:`Limit`, or ``None`` if no direct values."""
         if self.low is not None or self.high is not None or self.nominal is not None:
             return Limit(
                 low=self.low,
@@ -630,3 +726,35 @@ class MeasurementLimitConfig(BaseModel):
                 spec_ref=self.spec_ref,
             )
         return None
+
+    def has_direct_policy(self) -> bool:
+        """Return True if this config carries any directly-resolvable policy.
+
+        Used by the resolver to detect whether the parent (sibling-to-
+        ``bands:``) config has its own catch-all values, vs. being a
+        pure container of bands with no fallback.
+        """
+        return any(
+            v is not None
+            for v in (
+                self.low,
+                self.high,
+                self.nominal,
+                self.ref,
+                self.tolerance_pct,
+                self.tolerance_abs,
+                self.expr,
+                self.lookup,
+                self.steps,
+                self.callable,
+            )
+        )
+
+
+# Resolve forward references — TestEntry's ``limits`` / ``prompts`` /
+# ``connections`` / ``retry`` field annotations are strings under
+# ``from __future__ import annotations`` and reference models defined
+# below this point in the module. ``model_rebuild`` finalizes the
+# schema once every referenced class is in scope.
+TestEntry.model_rebuild()
+SidecarConfig.model_rebuild()

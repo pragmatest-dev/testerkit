@@ -1,10 +1,10 @@
 # Stage 4 — Sidecar config
 
 Test config moved out of Python into a sibling YAML file. Same
-vocabulary as pytest decorators: `litmus_sweeps`, `litmus_limits`.
-The sidecar mirrors pytest's node-id structure: a file-level
-`config:` list plus a recursive `tests:` tree where classes are
-branches and functions are leaves.
+vocabulary as pytest decorators — minus the `litmus_` prefix. The
+sidecar mirrors pytest's node-id structure: file-level marker fields
+(`limits`, `sweeps`, …) plus a recursive `tests:` tree where classes
+are branches and functions are leaves.
 
 ## Diff from stage 3
 
@@ -30,37 +30,37 @@ change without scanning test logic.
 
 ## Sidecar structure
 
-A file-level `config:` list plus a recursive `tests:` tree. Each
-entry under `tests:` is either a function (leaf — just `config:`)
-or a class (branch — its own `config:` plus a nested `tests:` for
-its methods). The shape mirrors pytest's `file::Class::method`
-node ids.
+File-level marker fields plus a recursive `tests:` tree. Each entry
+under `tests:` is a function (leaf — just marker fields) or a class
+(branch — marker fields plus its own nested `tests:`). Reserved
+keys at every level are `runner:` (opaque per-runner config) and
+`tests:` (nested tree); everything else is a Litmus marker name.
 
 ```yaml
-config:                           # file-wide: applies to every test
-  - litmus_limits: ...
+limits:                           # file-wide: applies to every test
+  v_rail: ...
 
 tests:
   test_rail_holds_across_input:   # module-level test (leaf)
-    config:
-      - litmus_sweeps:
-          - {vin: [...]}
+    sweeps:
+      - {vin: [...]}
 
   TestIdle:                       # class branch
-    config:                       # class-wide: applies to every TestIdle method
-      - litmus_limits: ...
+    limits:                       # class-wide: applies to every TestIdle method
+      i_idle: ...
     tests:
       test_idle_current:          # nested method (leaf)
-        config:
-          - litmus_limits: ...    # tightens just this method
+        limits:
+          i_idle: ...              # tightens just this method
 ```
 
 ## Classes as sequences
 
 `TestIdle` is a regular pytest class. The methods share setup and a
-class-scoped `litmus_limits` entry. Think of a class as "this group
-of checks always runs together." Pytest fixture scoping, xunit-style
-setup/teardown, and `litmus_sweeps` sweeps all work as they normally do.
+class-scoped `limits` entry. Think of a class as "this group of
+checks always runs together." Pytest fixture scoping, xunit-style
+setup/teardown, and `sweeps` parametric sweeps all work as they
+normally do.
 
 ## The gap this stage leaves
 

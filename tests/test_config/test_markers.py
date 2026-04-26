@@ -1,11 +1,27 @@
-"""Tests for the flat marker-scope schema and YAML range expanders."""
+"""Tests for the flat marker-scope schema and YAML range expanders.
+
+Sub-model field validation (target shape on MockEntry, zip-coherence
+on SweepEntry, extra="forbid" rejection of unknown keys, etc.) is
+provided by Pydantic — those tests live in the model definitions, not
+here. This file exercises the higher-level shape: that TestEntry /
+SidecarConfig accept and coerce the documented YAML structure.
+"""
 
 from __future__ import annotations
 
 import pytest
 
 from litmus.config.expanders import expand_ranges
-from litmus.config.test_config import SidecarConfig, TestEntry
+from litmus.config.test_config import (
+    ConnectionsBinding,
+    MeasurementLimitConfig,
+    MockEntry,
+    PromptConfig,
+    RetryPolicy,
+    SidecarConfig,
+    SweepEntry,
+    TestEntry,
+)
 
 
 class TestTestEntryShape:
@@ -21,40 +37,47 @@ class TestTestEntryShape:
         assert entry.runner == {}
         assert entry.tests == {}
 
-    def test_limits_dict_keyed_by_measurement(self) -> None:
+    def test_limits_coerced_to_measurement_limit_config(self) -> None:
         entry = TestEntry.model_validate({"limits": {"v_rail": {"tolerance_pct": 5.0}}})
-        assert entry.limits == {"v_rail": {"tolerance_pct": 5.0}}
+        assert isinstance(entry.limits["v_rail"], MeasurementLimitConfig)
+        assert entry.limits["v_rail"].tolerance_pct == 5.0
 
-    def test_sweeps_list_of_dicts(self) -> None:
+    def test_sweeps_coerced_to_sweep_entry(self) -> None:
         entry = TestEntry.model_validate({"sweeps": [{"vin": [3.3, 5.0]}]})
-        assert entry.sweeps == [{"vin": [3.3, 5.0]}]
+        assert isinstance(entry.sweeps[0], SweepEntry)
+        assert entry.sweeps[0].root == {"vin": [3.3, 5.0]}
 
-    def test_mocks_list_of_dicts(self) -> None:
+    def test_mocks_coerced_to_mock_entry(self) -> None:
         entry = TestEntry.model_validate({"mocks": [{"target": "dmm.read", "return_value": 3.31}]})
-        assert entry.mocks[0]["target"] == "dmm.read"
+        assert isinstance(entry.mocks[0], MockEntry)
+        assert entry.mocks[0].target == "dmm.read"
+        assert entry.mocks[0].patch_kwargs() == {"return_value": 3.31}
 
     def test_specs_list_of_strings(self) -> None:
         entry = TestEntry.model_validate({"specs": ["rail_3v3"]})
         assert entry.specs == ["rail_3v3"]
 
-    def test_connections_singleton_dict(self) -> None:
+    def test_connections_coerced_to_binding(self) -> None:
         entry = TestEntry.model_validate({"connections": {"connections": ["vout"]}})
-        assert entry.connections == {"connections": ["vout"]}
+        assert isinstance(entry.connections, ConnectionsBinding)
+        assert entry.connections.connections == ["vout"]
 
-    def test_retry_singleton_dict(self) -> None:
+    def test_retry_coerced_to_policy(self) -> None:
         entry = TestEntry.model_validate({"retry": {"max_attempts": 3}})
-        assert entry.retry == {"max_attempts": 3}
+        assert isinstance(entry.retry, RetryPolicy)
+        assert entry.retry.max_attempts == 3
 
-    def test_prompts_dict_keyed_by_name(self) -> None:
+    def test_prompts_coerced_to_prompt_config(self) -> None:
         entry = TestEntry.model_validate({"prompts": {"setup": {"message": "Insert DUT"}}})
-        assert entry.prompts == {"setup": {"message": "Insert DUT"}}
+        assert isinstance(entry.prompts["setup"], PromptConfig)
+        assert entry.prompts["setup"].message == "Insert DUT"
 
     def test_runner_is_opaque_dict(self) -> None:
         entry = TestEntry.model_validate({"runner": {"markers": [{"flaky": {"reruns": 2}}]}})
         assert entry.runner == {"markers": [{"flaky": {"reruns": 2}}]}
 
     def test_unknown_top_level_key_rejected(self) -> None:
-        # litmus_X is a typo for X — caught by extra="forbid".
+        # ``litmus_X`` is the typo for ``X`` — caught by ``extra="forbid"``.
         with pytest.raises(ValueError, match="extra"):
             TestEntry.model_validate({"litmus_limits": {}})
 
@@ -137,15 +160,13 @@ class TestSidecarConfig:
                 },
             }
         )
-        assert sidecar.limits == {"v_rail": {"tolerance_pct": 5.0}}
+        assert sidecar.limits["v_rail"].tolerance_pct == 5.0
         rails = sidecar.tests["TestRails"]
         assert isinstance(rails, TestEntry)
-        assert rails.sweeps == [{"vin": [4.5, 5.0, 5.5]}]
+        assert rails.sweeps[0].root == {"vin": [4.5, 5.0, 5.5]}
         nested = rails.tests["test_rail"]
-        assert isinstance(nested, TestEntry)
-        assert nested.limits == {"v_rail": {"tolerance_pct": 1.0}}
+        assert nested.limits["v_rail"].tolerance_pct == 1.0
         standalone = sidecar.tests["test_standalone"]
-        assert isinstance(standalone, TestEntry)
         assert standalone.runner == {"markers": [{"flaky": {"reruns": 2}}]}
         assert standalone.tests == {}
 
@@ -153,11 +174,17 @@ class TestSidecarConfig:
         with pytest.raises(ValueError, match="extra"):
             SidecarConfig.model_validate({"vectors": {}})
 
-    def test_rejects_unknown_test_entry_key(self) -> None:
-        with pytest.raises(ValueError, match="extra"):
-            SidecarConfig.model_validate({"tests": {"test_x": {"litmus_limits": {}}}})
-
     def test_rejects_legacy_config_wrapper(self) -> None:
         # The old `config:` wrapper is gone — fields live at root now.
         with pytest.raises(ValueError, match="extra"):
             SidecarConfig.model_validate({"config": {"limits": {"v_rail": {}}}})
+
+    def test_sweep_zip_dim_mismatch_caught_at_load(self) -> None:
+        # Pydantic catches dim-mismatch at YAML load — no separate
+        # plugin-side validation needed.
+        with pytest.raises(ValueError, match="same length"):
+            SidecarConfig.model_validate({"sweeps": [{"vin": [3.3, 5.0], "vout": [1.0]}]})
+
+    def test_mock_target_shape_caught_at_load(self) -> None:
+        with pytest.raises(ValueError, match="<fixture>.<attr>"):
+            SidecarConfig.model_validate({"mocks": [{"target": "no_dot"}]})

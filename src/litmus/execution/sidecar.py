@@ -1,4 +1,4 @@
-"""Sidecar YAML loading + ``litmus_limits`` marker resolution.
+"""Sidecar YAML loading + ``limits`` resolution.
 
 Two responsibilities live here:
 
@@ -6,15 +6,14 @@ Two responsibilities live here:
   Parse the ``<module>.yaml`` sitting next to a test module and merge
   its file-level / class / per-test fields into a single typed
   :class:`TestEntry` for the pytest plugin to attach during collection.
-* **Limit resolution** (:class:`_LimitRef`, :class:`_PolicyLimit`,
-  :class:`_BandSet`, :func:`parse_limits_block`, :func:`resolve_limits`,
-  :func:`match_band`). Walk a merged ``litmus_limits`` payload and turn
-  each entry into either a concrete :class:`Limit` (resolved now) or a
-  deferred form (``ref:``, policy shape, or condition-indexed bandset)
-  that the logger picks the matching band from at measurement time.
+* **Limit resolution** (:func:`resolve_limits`, :func:`resolve_limit`).
+  Walk a merged ``limits`` mapping (typed :class:`MeasurementLimitConfig`
+  per measurement) and turn each entry into a concrete :class:`Limit`
+  against the active spec context + vector params, including
+  condition-indexed ``bands:`` with sibling-as-catch-all fallback.
 
-Both lived in ``plugin.py`` originally; pulled out so the pytest hooks
-file stays focused on hook registration.
+The schema is fully Pydantic-validated at YAML load — no hand-rolled
+dispatch / parse / coerce layer. The resolver only walks typed objects.
 """
 
 from __future__ import annotations
@@ -23,9 +22,6 @@ import functools
 from collections.abc import Mapping
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
-
-import pytest
-import yaml
 
 from litmus.config.expanders import expand_ranges
 from litmus.config.test_config import (
@@ -37,6 +33,8 @@ from litmus.config.test_config import (
 
 if TYPE_CHECKING:
     from litmus.models.project import ProfileConfig
+import yaml
+
 from litmus.execution._state import (
     get_active_profile,
     get_active_spec_context,
@@ -82,9 +80,9 @@ def _merge_marker_fields_into(target: TestEntry, src: TestEntry) -> None:
     if src.specs:
         target.specs = list(src.specs)
     if src.connections is not None:
-        target.connections = dict(src.connections)
+        target.connections = src.connections.model_copy(deep=True)
     if src.retry is not None:
-        target.retry = dict(src.retry)
+        target.retry = src.retry.model_copy(deep=True)
     target.prompts.update(src.prompts)
 
 
@@ -158,178 +156,44 @@ def merged_test_entry(
     return out
 
 
-class _LimitRef:
-    """Placeholder for ``limits.<name>.ref: <product_char_id>``.
-
-    Resolved at push time by looking up the product spec via the active
-    :class:`SpecContext`; swallows a missing spec / missing
-    characteristic silently (the measurement just records unchecked).
-    """
-
-    __slots__ = ("target",)
-
-    def __init__(self, target: str) -> None:
-        self.target = target
-
-
-# Keys that signal an entry is a :class:`MeasurementLimitConfig` policy —
-# direct Limit entries use ``low`` / ``high`` / ``nominal`` / ``units`` only.
-_POLICY_LIMIT_FIELDS = frozenset({"characteristic", "tolerance_pct", "tolerance_abs"})
-
-
-class _PolicyLimit:
-    """Policy-limit entry deferred until push time.
-
-    Carries the raw :class:`MeasurementLimitConfig` plus the test-level
-    characteristic (from ``sidecar.tests.<method>.characteristic``) so
-    the resolver can derive a concrete :class:`Limit` from the product
-    spec + active vector params.
-    """
-
-    __slots__ = ("config", "test_char")
-
-    def __init__(self, config: MeasurementLimitConfig, test_char: str | None) -> None:
-        self.config = config
-        self.test_char = test_char
-
-
-class _BandSet:
-    """Condition-indexed list of limit bands deferred until measurement time.
-
-    Carries a list of ``(when, entry)`` pairs where each ``entry`` is
-    itself a parsed band (``Limit`` / :class:`_LimitRef` / :class:`_PolicyLimit`).
-    At measurement time the logger picks the first band whose ``when``
-    matches the active vector params (same logic as ``SpecBand.when`` via
-    :func:`band_matches`). No match → ``pytest.UsageError``.
-    """
-
-    __slots__ = ("bands",)
-
-    def __init__(
-        self,
-        bands: list[tuple[dict[str, Any], Limit | _LimitRef | _PolicyLimit]],
-    ) -> None:
-        self.bands = bands
-
-
-def _parse_limit_entry(
-    spec: Mapping[str, Any],
+def _resolve_single(
+    cfg: MeasurementLimitConfig,
     *,
-    test_char: str | None,
-) -> Limit | _LimitRef | _PolicyLimit:
-    """Parse a single limit mapping into its deferred-or-resolved form."""
-    from litmus.execution.logger import _limit_from_dict
-
-    if "ref" in spec:
-        return _LimitRef(spec["ref"])
-    if _POLICY_LIMIT_FIELDS & spec.keys():
-        return _PolicyLimit(MeasurementLimitConfig.model_validate(dict(spec)), test_char)
-    return _limit_from_dict(spec)
-
-
-def parse_limits_block(
-    raw: Mapping[str, Any] | None,
-    *,
-    test_char: str | None = None,
-) -> dict[str, Limit | _LimitRef | _PolicyLimit | _BandSet]:
-    """Convert a ``litmus_limits:`` mapping into Limit / ref / policy / bandset objects.
-
-    Each measurement value is a **dict** — one of:
-
-    * **Direct** — ``low`` / ``high`` / ``nominal`` / ``units`` fields.
-    * **Ref** — ``ref: <characteristic>`` delegates to a product spec.
-    * **Policy** — ``characteristic`` + ``tolerance_pct`` / ``tolerance_abs``
-      derives bounds from a product characteristic at runtime.
-    * **Conditional** — adds an optional ``bands:`` list of
-      ``{when: ..., <override fields>}`` entries. The dict's top-level
-      fields become **defaults** that bands inherit; band fields
-      override the defaults per-row. Selection at measurement time
-      uses the first band whose ``when:`` matches the active sweep
-      values; no match → ``pytest.UsageError``.
-
-    The old "list-of-bands as the value" form is rejected with a
-    helpful pointer to the ``bands:`` key. Top-level dict shape is
-    uniform; no dict-or-list polymorphism on the value side.
-    """
-    if not raw:
-        return {}
-    out: dict[str, Limit | _LimitRef | _PolicyLimit | _BandSet] = {}
-    for name, spec in raw.items():
-        if isinstance(spec, list):
-            raise ValueError(
-                f"limits.{name!r} value must be a dict, not a list. "
-                "Conditional limits use a 'bands:' key inside the dict:\n"
-                f"  {name}:\n"
-                "    low: ...      # default fields\n"
-                "    high: ...\n"
-                "    bands:        # optional condition-keyed overrides\n"
-                "      - {when: {...}, low: ..., high: ...}"
-            )
-        if not isinstance(spec, Mapping):
-            raise ValueError(f"limits.{name!r} must be a dict; got {type(spec).__name__}")
-
-        bands_raw = spec.get("bands")
-        if bands_raw is None:
-            # No conditional overrides — direct/ref/policy form.
-            out[name] = _parse_limit_entry(spec, test_char=test_char)
-            continue
-
-        if not isinstance(bands_raw, list):
-            raise ValueError(
-                f"limits.{name!r}.bands must be a list of band dicts; "
-                f"got {type(bands_raw).__name__}"
-            )
-
-        # Top-level fields (excluding 'bands') are defaults inherited by bands.
-        defaults = {k: v for k, v in spec.items() if k != "bands"}
-        bands: list[tuple[dict[str, Any], Limit | _LimitRef | _PolicyLimit]] = []
-        for i, band_spec in enumerate(bands_raw):
-            if not isinstance(band_spec, Mapping):
-                raise ValueError(
-                    f"limits.{name!r}.bands[{i}] must be a dict; got {type(band_spec).__name__}"
-                )
-            when = dict(band_spec.get("when") or {})
-            # Merge defaults + band overrides; band fields win.
-            merged = dict(defaults)
-            for k, v in band_spec.items():
-                if k != "when":
-                    merged[k] = v
-            bands.append((when, _parse_limit_entry(merged, test_char=test_char)))
-        out[name] = _BandSet(bands)
-    return out
-
-
-def _resolve_entry(
-    value: Limit | _LimitRef | _PolicyLimit,
-    *,
-    spec: Any,
-    params: dict[str, Any],
+    spec_ctx: Any,
+    params: Mapping[str, Any],
     guardband_pct: float,
+    test_char: str | None,
 ) -> Limit | None:
-    """Resolve a single parsed limit entry to a concrete :class:`Limit`.
+    """Resolve one :class:`MeasurementLimitConfig` (no band recursion) to a concrete :class:`Limit`.
 
-    Shared by :func:`resolve_limits` (push-time) and :func:`match_band`
-    (measurement-time). Returns ``None`` if the entry can't be resolved
-    (missing spec / characteristic).
+    Dispatches on the policy fields the model carries:
+
+    * ``ref:`` → look up the named characteristic on the active spec
+      context, applying ``guardband_pct``.
+    * ``characteristic:`` (or fall back to the test-level binding) +
+      ``tolerance_pct`` / ``tolerance_abs`` → derive a band from the
+      product characteristic's nominal at the active vector params.
+    * Direct ``low`` / ``high`` / ``nominal`` → return as-is.
+    * Anything else (no policy declared) → ``None`` so the measurement
+      records unchecked (characterization mode).
     """
     from litmus.execution.limits import _apply_guardband
     from litmus.models.config import Comparator
     from litmus.models.config import Limit as LimitModel
 
-    if isinstance(value, _LimitRef):
-        if spec is None:
+    if cfg.ref is not None:
+        if spec_ctx is None:
             return None
         try:
-            return spec.get_limit(value.target, guardband_pct=guardband_pct, **params)
+            return spec_ctx.get_limit(cfg.ref, guardband_pct=guardband_pct, **dict(params))
         except (KeyError, ValueError):
             return None
 
-    if isinstance(value, _PolicyLimit):
-        cfg = value.config
-        char_id = cfg.characteristic or value.test_char
-        if char_id is None or spec is None:
+    char_id = cfg.characteristic or test_char
+    if char_id is not None and (cfg.tolerance_pct is not None or cfg.tolerance_abs is not None):
+        if spec_ctx is None:
             return None
-        char = spec.product.characteristics.get(char_id)
+        char = spec_ctx.product.characteristics.get(char_id)
         if char is None:
             return None
         band = char.get_spec_at(dict(params))
@@ -338,10 +202,9 @@ def _resolve_entry(
         nominal = float(band.value)
         if cfg.tolerance_pct is not None:
             delta = abs(nominal) * cfg.tolerance_pct / 100.0
-        elif cfg.tolerance_abs is not None:
-            delta = float(cfg.tolerance_abs)
         else:
-            return None
+            assert cfg.tolerance_abs is not None
+            delta = float(cfg.tolerance_abs)
         low, high = nominal - delta, nominal + delta
         low, high = _apply_guardband(low, high, guardband_pct, Comparator.GELE.value)
         return LimitModel(
@@ -354,77 +217,74 @@ def _resolve_entry(
             comparator=Comparator.GELE,
         )
 
-    return value
+    return cfg.to_limit()
 
 
-def resolve_limits(
-    raw_map: Mapping[str, Limit | _LimitRef | _PolicyLimit | _BandSet],
-) -> dict[str, Limit | _BandSet]:
-    """Resolve deferred entries against the active spec + vector params.
+def resolve_limit(
+    cfg: MeasurementLimitConfig,
+    *,
+    test_char: str | None = None,
+) -> Limit | None:
+    """Resolve one measurement's limit against active state.
 
-    Literal :class:`Limit` entries pass through unchanged. :class:`_LimitRef`
-    entries look up the named characteristic on the active spec.
-    :class:`_PolicyLimit` entries derive a :class:`Limit` from
-    ``MeasurementLimitConfig`` policy fields (``tolerance_pct`` /
-    ``tolerance_abs``) against ``product.characteristics[char]
-    .get_spec_at(active_vector_params).value``, layered with
-    ``profile.guardband_pct``. :class:`_BandSet` entries pass through
-    as-is — band matching happens at measurement time against the
-    current active vector params (needed so self-loop tests resolve a
-    distinct band per iteration). Entries that can't be resolved (no
-    spec, missing characteristic) are dropped so the measurement records
-    unchecked.
-    """
-    resolved: dict[str, Limit | _BandSet] = {}
-    spec = get_active_spec_context()
-    profile = get_active_profile()
-    guardband_pct = float(getattr(profile, "guardband_pct", 0.0) or 0.0) if profile else 0.0
-    params = get_active_vector_params()
+    Walks ``cfg.bands`` in order; the first band whose ``when:`` matches
+    the active vector params resolves. **If no band matches (or no
+    bands are declared) the parent config itself is the catch-all** —
+    its sibling-to-``bands:`` fields define the fallback limit.
 
-    for name, value in raw_map.items():
-        if isinstance(value, _BandSet):
-            resolved[name] = value
-            continue
-        result = _resolve_entry(value, spec=spec, params=params, guardband_pct=guardband_pct)
-        if result is not None:
-            resolved[name] = result
-    return resolved
+    The catch-all is by design of :class:`MeasurementLimitConfig` —
+    every band is itself a :class:`MeasurementLimitConfig` with its
+    own ``when:``, and the parent is just an empty-``when:`` band
+    sitting outside the list.
 
-
-def match_band(
-    bandset: _BandSet,
-    active_params: Mapping[str, Any],
-) -> Limit:
-    """Pick the matching band and resolve it to a concrete :class:`Limit`.
-
-    Iterates ``bandset.bands`` in order; picks the first whose ``when:``
-    matches ``active_params`` using :func:`band_matches` (the same logic
-    that ``ProductCharacteristic.get_spec_at`` uses). Raises
-    ``pytest.UsageError`` when no band matches — silent skips of a
-    declared limit would hide bugs.
+    Returns ``None`` when the resolved policy can't produce a Limit
+    (missing spec context, characterization mode, etc.) so the
+    measurement records unchecked instead of failing.
     """
     from litmus.config.capability import SpecBand, band_matches
 
     spec_ctx = get_active_spec_context()
     profile = get_active_profile()
     guardband_pct = float(getattr(profile, "guardband_pct", 0.0) or 0.0) if profile else 0.0
-    params = dict(active_params)
+    params = get_active_vector_params()
 
-    for when, entry in bandset.bands:
-        # Reuse SpecBand.when semantics by constructing a synthetic band.
-        probe = SpecBand.model_validate({"when": when}) if when else SpecBand(when={})
-        if band_matches(probe, params):
-            resolved = _resolve_entry(
-                entry, spec=spec_ctx, params=params, guardband_pct=guardband_pct
+    for band in cfg.bands:
+        probe = (
+            SpecBand.model_validate({"when": dict(band.when)}) if band.when else SpecBand(when={})
+        )
+        if band_matches(probe, dict(params)):
+            return _resolve_single(
+                band,
+                spec_ctx=spec_ctx,
+                params=params,
+                guardband_pct=guardband_pct,
+                test_char=test_char,
             )
-            if resolved is None:
-                raise pytest.UsageError(
-                    f"Limit band matched (when={when!r}) but resolution yielded no Limit "
-                    "(missing spec context or characteristic)."
-                )
-            return resolved
 
-    raise pytest.UsageError(
-        f"No limit band matched active params {params!r}. "
-        f"Declared bands: {[dict(w) for w, _ in bandset.bands]!r}"
+    # No band matched — siblings to bands: are the catch-all.
+    return _resolve_single(
+        cfg,
+        spec_ctx=spec_ctx,
+        params=params,
+        guardband_pct=guardband_pct,
+        test_char=test_char,
     )
+
+
+def resolve_limits(
+    limits: Mapping[str, MeasurementLimitConfig],
+    *,
+    test_char: str | None = None,
+) -> dict[str, Limit]:
+    """Resolve every entry in a merged ``limits`` map to a concrete :class:`Limit`.
+
+    Skips entries whose resolution returns ``None`` (no policy /
+    missing spec context) so those measurements record unchecked
+    rather than failing the whole step.
+    """
+    resolved: dict[str, Limit] = {}
+    for name, cfg in limits.items():
+        result = resolve_limit(cfg, test_char=test_char)
+        if result is not None:
+            resolved[name] = result
+    return resolved
