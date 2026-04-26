@@ -23,6 +23,7 @@ import os
 from typing import Any
 
 import pytest
+from pydantic import BaseModel, ConfigDict, Field
 
 from litmus.config.test_config import ConfigEntry, TestEntry
 from litmus.execution._state import (
@@ -32,6 +33,50 @@ from litmus.execution._state import (
 )
 from litmus.models.project import ProfileConfig, ProjectConfig
 from litmus.prompts import ask as ask_prompt
+
+
+class PytestRunner(BaseModel):
+    """Typed schema for the pytest runner's ``runner:`` block.
+
+    Tier 2 of the two-tier validation pattern: Litmus core stores the
+    ``runner:`` block as ``dict[str, Any]`` (opaque, structurally
+    validated only); the active runner plugin owns content validation
+    via this Pydantic model. ``extra="forbid"`` catches typos in field
+    names (``addopst:`` instead of ``addopts:``) at session start with
+    a clear error pointing at the offending field.
+
+    Per-test scope (a future per-test ``runner:`` overlay thread) will
+    add policy that rejects session-only fields (``addopts``,
+    ``markexpr``, ``keyword``, ``plugins``, ``parallelism``) at
+    sub-profile scopes; for v1 the model just defines all valid
+    fields. ``markers`` is a list of single-key dicts (each entry is
+    one ecosystem marker like ``parametrize`` / ``flaky`` / ``skip``)
+    — pytest's stacking semantic stays for these.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    addopts: str | None = None
+    markexpr: str | None = None
+    keyword: str | None = None
+    plugins: list[str] = Field(default_factory=list)
+    parallelism: int | None = None
+    timeout: int | None = None
+    markers: list[dict[str, Any]] = Field(default_factory=list)
+
+
+def validate_pytest_runner(block: dict[str, Any]) -> PytestRunner:
+    """Validate a ``runner:`` block from project / profile scope.
+
+    Raises ``pytest.UsageError`` with a runner-namespaced message on
+    unknown fields (``runner.<field>``), so users see exactly which
+    block to fix. Empty input returns an empty (all-defaults)
+    PytestRunner.
+    """
+    try:
+        return PytestRunner.model_validate(block)
+    except Exception as exc:  # pydantic.ValidationError — surface to user as UsageError
+        raise pytest.UsageError(f"Invalid runner: block — {exc}") from exc
 
 
 def load_project_defaults() -> ProjectConfig:
@@ -126,13 +171,13 @@ def flatten_profile_chain(leaf_name: str, project: ProjectConfig) -> ProfileConf
         if profile.description is not None:
             description = profile.description
         merged_facets.update(profile.facets)
-        runner = profile.runner
-        if runner.get("addopts"):
-            addopts_parts.append(str(runner["addopts"]))
-        if runner.get("markexpr") is not None:
-            markexpr = str(runner["markexpr"])
-        if runner.get("keyword") is not None:
-            keyword = str(runner["keyword"])
+        runner = validate_pytest_runner(profile.runner)
+        if runner.addopts:
+            addopts_parts.append(runner.addopts)
+        if runner.markexpr is not None:
+            markexpr = runner.markexpr
+        if runner.keyword is not None:
+            keyword = runner.keyword
         merged_config.extend(profile.config)
         merged_tests = _merge_test_entries(merged_tests, profile.tests)
 
@@ -268,14 +313,13 @@ def install_active_profile(config) -> None:
     set_active_facets(facets)
     if profile is None:
         return
-    runner_keyword = profile.runner.get("keyword")
-    if runner_keyword:
+    runner = validate_pytest_runner(profile.runner)
+    if runner.keyword:
         existing = getattr(config.option, "keyword", None) or ""
-        config.option.keyword = compose_filter_expr(str(runner_keyword), existing)
-    runner_markexpr = profile.runner.get("markexpr")
-    if runner_markexpr:
+        config.option.keyword = compose_filter_expr(runner.keyword, existing)
+    if runner.markexpr:
         existing = getattr(config.option, "markexpr", None) or ""
-        config.option.markexpr = compose_filter_expr(str(runner_markexpr), existing)
+        config.option.markexpr = compose_filter_expr(runner.markexpr, existing)
 
 
 def parse_flag_from_args(args, flag: str) -> str | None:
@@ -326,11 +370,11 @@ def apply_profile_addopts_env(args) -> None:
         return
     if profile is None:
         return
-    runner_addopts = profile.runner.get("addopts")
-    if not runner_addopts:
+    runner = validate_pytest_runner(profile.runner)
+    if not runner.addopts:
         return
     existing = os.environ.get("PYTEST_ADDOPTS", "").strip()
-    merged = f"{existing} {str(runner_addopts)}".strip()
+    merged = f"{existing} {runner.addopts}".strip()
     os.environ["PYTEST_ADDOPTS"] = merged
 
 
