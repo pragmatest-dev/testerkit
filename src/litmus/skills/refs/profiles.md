@@ -5,9 +5,9 @@ A **profile** is a named set of session-level overrides declared under
 `profiles/*.yaml`. Selection is by **facet query** from the CLI; a
 profile declares the facet combination it represents.
 
-Profiles speak the **same markers/classes/tests language as sidecars**.
+Profiles speak the **same `config:`/classes/tests language as sidecars**.
 One vocabulary across inline `@pytest.mark.*` decorators, sidecar YAML,
-and profile YAML.
+and profile YAML — every entry under `config:` is one pytest marker.
 
 ## Shape
 
@@ -22,23 +22,24 @@ pytest:
   markexpr: string                  # like -m
   keyword: string                   # like -k
 
-markers:                            # applied to every test in the session
+config:                             # applied to every test in the session
   - litmus_limits: {v_rail: {tolerance_pct: 5.0}}
 
 tests:                              # recursive tree mirroring pytest node ids
   TestRails:                        # class branch
-    markers:                        # applied to every method of TestRails
-      - parametrize: ["vin", [4.5, 5.0, 5.5]]
+    config:                         # applied to every method of TestRails
+      - litmus_vectors:
+          - {vin: [4.5, 5.0, 5.5]}
     tests:
       test_rail:                    # nested method (leaf)
-        markers:
+        config:
           - litmus_limits: {v_rail: {low: 3.25, high: 3.35}}
   test_standalone:                  # module-level test (leaf)
-    markers:
+    config:
       - skip: "bench required"
 ```
 
-Every entry in a `markers:` list is one pytest marker — identical shape
+Every entry in a `config:` list is one pytest marker — identical shape
 whether it appears inline, in a sidecar, or in a profile.
 
 ## Facet selection
@@ -71,7 +72,7 @@ key (measurement name for `litmus_limits`, target for `litmus_mock`, etc).
 description: "Shared base for all tps5430x power converters"
 tests:
   TestRails.test_rail:
-    markers:
+    config:
       - litmus_limits: {v_rail: {low: 3.2, high: 3.4}}
 ```
 
@@ -81,7 +82,7 @@ facets: {test_phase: production, product: tps54302}
 extends: power_family
 tests:
   TestRails.test_rail:
-    markers:
+    config:
       - litmus_limits: {v_rail: {low: 3.25, high: 3.35}}   # tightens family
 ```
 
@@ -102,22 +103,23 @@ project/
 Inline `litmus.yaml: profiles:` and `profiles/*.yaml` are both read.
 Name conflict → `UsageError` at project load.
 
-## Marker spec shapes
+## Config-entry shapes
 
-One entry per line; mirrors `@pytest.mark.<name>(...)`:
+One entry per line; each mirrors `@pytest.mark.<name>(...)`:
 
-| YAML                                 | Marker                                    |
-|--------------------------------------|-------------------------------------------|
-| `- flaky`                            | `@pytest.mark.flaky`                      |
-| `- skip: "reason"`                   | `@pytest.mark.skip("reason")`             |
-| `- skipif: "condition expr"`         | `@pytest.mark.skipif(...)`                |
-| `- parametrize: ["vin", [4.5, 5.0]]` | `@pytest.mark.parametrize("vin", [...])`  |
-| `- flaky: {reruns: 2, delay: 1}`     | `@pytest.mark.flaky(reruns=2, delay=1)`   |
-| `- litmus_limits: {v_rail: {...}}`   | `@pytest.mark.litmus_limits(v_rail={...})`|
+| YAML                                            | Marker                                       |
+|-------------------------------------------------|----------------------------------------------|
+| `- flaky`                                       | `@pytest.mark.flaky`                         |
+| `- skip: "reason"`                              | `@pytest.mark.skip("reason")`                |
+| `- skipif: "condition expr"`                    | `@pytest.mark.skipif(...)`                   |
+| `- litmus_vectors: [{vin: [4.5, 5.0]}]`         | `@pytest.mark.litmus_vectors(vin=[...])`     |
+| `- flaky: {reruns: 2, delay: 1}`                | `@pytest.mark.flaky(reruns=2, delay=1)`      |
+| `- litmus_limits: {v_rail: {...}}`              | `@pytest.mark.litmus_limits(v_rail={...})`   |
 
-Ecosystem markers (`flaky`, `skipif`, `parametrize`, `dependency`, …)
-work out of the box — each plugin's native handler fires because Litmus
-attaches the marker to the item.
+Ecosystem markers (`flaky`, `skipif`, `dependency`, …) work out of the
+box — each plugin's native handler fires because Litmus attaches the
+marker to the item. Use `litmus_vectors` (not `parametrize`) for
+sweeps; the YAML form is always a list of axis-group dicts.
 
 ## Per-test keys: qualified vs bare
 
@@ -128,16 +130,16 @@ module-level tests. Qualified form wins over bare when both are present.
 ## Merge order (least → most specific)
 
 ```
-file-level sidecar markers
-  → class-scoped sidecar markers (classes.<Cls>.markers)
-    → per-test sidecar markers (tests.<name>.markers)
+file-level sidecar config
+  → class-branch sidecar config (tests.<Cls>.config)
+    → per-test sidecar config (tests.<name>.config or nested)
       → per-test inline @decorators
         → selected profile chain (parent first, child last)
           → CLI flags
 ```
 
-Same rule at every level: later marker with the same name + first key
-wins on overlap; non-overlapping passes through. CLI always wins.
+Same rule at every level: later entry with the same marker name + first
+key wins on overlap; non-overlapping passes through. CLI always wins.
 
 ## `test_phase` convention
 
@@ -172,13 +174,13 @@ a CLI flag or env var.
 - Multi-match facet composition. Exactly one profile must match.
 - Per-directory profile stacking. `profiles/*.yaml` is flat.
 - Runtime profile switching. Session-scoped.
-- Marker *removal* in child profiles. Override by replacement only.
+- Config-entry *removal* in child profiles. Override by replacement only.
 
 ## Cross-references
 
 - `litmus/models/project.py` — `ProfileConfig`, `ProfilePytest`,
   `ProjectConfig`
-- `litmus/config/test_config.py` — `MarkerSpec`, `TestEntry`,
+- `litmus/config/test_config.py` — `ConfigEntry`, `TestEntry`,
   `SidecarConfig`
 - `litmus/execution/plugin.py` — `_resolve_active_profile`,
   `_flatten_profile_chain`, `_profile_markers_for_item`,
