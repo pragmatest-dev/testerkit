@@ -61,8 +61,27 @@ class TestMockInstrumentsNoUsageError:
 
         from litmus.execution.plugin import _mocks_active
 
-        config = cast("pytest.Config", SimpleNamespace(getoption=lambda _: True))
+        config = cast(
+            "pytest.Config",
+            SimpleNamespace(getoption=lambda _name, default=None: True),
+        )
         assert _mocks_active(config) is True
+
+    def test_helper_returns_false_when_no_mock_flag_set(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """``--no-mock-instruments`` overrides env var and YAML default."""
+        from types import SimpleNamespace
+        from typing import cast
+
+        from litmus.execution.plugin import _mocks_active
+
+        monkeypatch.setenv("LITMUS_MOCK_INSTRUMENTS", "1")  # env says yes
+        config = cast(
+            "pytest.Config",
+            SimpleNamespace(getoption=lambda _name, default=None: False),
+        )
+        assert _mocks_active(config) is False  # CLI explicit False wins
 
     def test_helper_returns_true_when_env_var_set(self, monkeypatch: pytest.MonkeyPatch) -> None:
         from types import SimpleNamespace
@@ -71,7 +90,11 @@ class TestMockInstrumentsNoUsageError:
         from litmus.execution.plugin import _mocks_active
 
         monkeypatch.setenv("LITMUS_MOCK_INSTRUMENTS", "1")
-        config = cast("pytest.Config", SimpleNamespace(getoption=lambda _: False))
+        # CLI flag unset (None) → env wins
+        config = cast(
+            "pytest.Config",
+            SimpleNamespace(getoption=lambda _name, default=None: default),
+        )
         assert _mocks_active(config) is True
 
     def test_helper_returns_false_by_default(self, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -81,7 +104,11 @@ class TestMockInstrumentsNoUsageError:
         from litmus.execution.plugin import _mocks_active
 
         monkeypatch.delenv("LITMUS_MOCK_INSTRUMENTS", raising=False)
-        config = cast("pytest.Config", SimpleNamespace(getoption=lambda _: False))
+        # CLI flag unset, env unset → falls through to project YAML (False by default).
+        config = cast(
+            "pytest.Config",
+            SimpleNamespace(getoption=lambda _name, default=None: default),
+        )
         assert _mocks_active(config) is False
 
     def test_no_longer_references_usage_error(self) -> None:

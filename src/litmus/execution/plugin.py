@@ -542,8 +542,19 @@ def pytest_addoption(parser):
     group.addoption(
         "--mock-instruments",
         action="store_true",
-        default=project.mock_instruments,
-        help="Use mock instruments instead of real hardware",
+        default=None,
+        dest="mock_instruments",
+        help="Use mock instruments instead of real hardware. "
+        "Resolution: this flag > LITMUS_MOCK_INSTRUMENTS env var > "
+        "litmus.yaml `mock_instruments:` > false.",
+    )
+    group.addoption(
+        "--no-mock-instruments",
+        action="store_false",
+        default=None,
+        dest="mock_instruments",
+        help="Use real hardware (overrides LITMUS_MOCK_INSTRUMENTS env "
+        "and litmus.yaml `mock_instruments: true`).",
     )
     group.addoption(
         "--no-test-mocks",
@@ -1240,14 +1251,24 @@ def _autodiscover_product(
 def _mocks_active(config: pytest.Config) -> bool:
     """Return whether mock instruments are requested.
 
-    Shared by ``pytest_sessionstart``, ``_build_run_metadata``, and the
-    ``mock_instruments`` session fixture — single source of truth for
-    the combined ``--mock-instruments`` flag + ``LITMUS_MOCK_INSTRUMENTS``
-    env-var check.
+    Single source of truth for every consumer (``pytest_sessionstart``,
+    ``_build_run_metadata``, the ``mock_instruments`` session fixture,
+    ``slot_runner``). Resolution order, highest priority first:
+
+    1. CLI flag — ``--mock-instruments`` (True) or ``--no-mock-instruments``
+       (False). Either explicit flag wins.
+    2. Env var ``LITMUS_MOCK_INSTRUMENTS=1`` — set by the API runner so
+       a server-launched subprocess inherits the operator's choice.
+    3. ``litmus.yaml: mock_instruments:`` — project default.
+    4. ``False`` if nothing else set.
     """
-    return bool(
-        config.getoption("--mock-instruments") or os.environ.get("LITMUS_MOCK_INSTRUMENTS") == "1"
-    )
+    cli = config.getoption("mock_instruments", default=None)
+    if cli is not None:
+        return bool(cli)
+    env = os.environ.get("LITMUS_MOCK_INSTRUMENTS")
+    if env is not None:
+        return env == "1"
+    return load_project_defaults().mock_instruments
 
 
 @pytest.fixture(scope="session")

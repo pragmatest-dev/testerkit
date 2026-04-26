@@ -610,6 +610,7 @@ def run_multi_slot_session(
     from litmus.execution._state import get_event_store, set_event_store
     from litmus.execution.decorators import get_current_logger
     from litmus.execution.dut_provider import CLIDUTProvider
+    from litmus.execution.plugin import _mocks_active
     from litmus.execution.slots import detect_shared_instruments, resolve_fixture_slots
     from litmus.store import load_fixture
 
@@ -656,7 +657,7 @@ def run_multi_slot_session(
         event_store,
         shared_roles=shared_roles,
         station_instruments=station_instruments,
-        mock_all=session.config.getoption("--mock-instruments"),
+        mock_all=_mocks_active(session.config),
     )
 
     return True
