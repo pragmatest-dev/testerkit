@@ -28,6 +28,22 @@ measurement features on top of this same setup.
   SCPI-named methods) — same shape PyVISA / PyMeasure / vendor SDK use
 - A run record stamped with the DUT serial — no measurement code yet
 
+## Where drivers come from
+
+Litmus does **not** ship instrument drivers. Use any of:
+
+- **[PyMeasure](https://pymeasure.readthedocs.io/)** — 100+ ready-made
+  drivers (`from pymeasure.instruments.keysight import Keysight34461A`)
+- **[PyVISA](https://pyvisa.readthedocs.io/)** — raw SCPI; write a thin
+  class on top
+- **Vendor SDKs** — most major instrument vendors ship Python bindings
+- **Hand-rolled** — what `drivers/dmm.py` + `drivers/psu.py` demonstrate
+  here (PyVISA-shaped placeholders with `NotImplementedError` bodies)
+
+`litmus.instruments.Mock(cls, **return_values)` works against any of
+the above — Litmus doesn't care whether `cls` came from PyMeasure or
+your `drivers/` folder.
+
 ## Drivers + optional mocks
 
 You always write tests against the real driver classes. When the bench
