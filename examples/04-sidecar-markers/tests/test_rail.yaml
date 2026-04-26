@@ -18,7 +18,7 @@ tests:
 
   test_rail_holds_across_input:
     config:
-      - litmus_vectors:
+      - litmus_sweeps:
           - {vin: [3.3, 5.0, 5.5]}
 
   test_intermittent_glitch:

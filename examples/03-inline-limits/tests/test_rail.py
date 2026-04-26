@@ -5,16 +5,17 @@
 uses it. The test body doesn't import ``Limit`` anymore — the limit
 is metadata, not a Python object the body needs to hold.
 
-``@pytest.mark.litmus_vectors`` uses the same kwargs/dict-of-named-things
-shape: each kwarg is one sweep axis. Multiple kwargs cross-product;
-stacked decorators do the same.
+``@pytest.mark.litmus_sweeps`` takes a list of sweep dicts. Each
+dict is one nesting level (top = outer, slowest loop).
 
-* **Single axis** — ``litmus_vectors(vin=[...])``. ``linspace(...)``
-  etc. from ``litmus`` are IDE-friendly numeric helpers.
-* **Cross-product** — multiple kwargs in one decorator OR stack
-  decorators. Both translate to stacked ``metafunc.parametrize`` calls.
-* **Zip / paired axis** — comma-joined argname key; YAML reads cleanly
-  with ``"a,b": [[v1, v2], ...]`` (inline uses ``**{"a,b": [...]}``).
+* **Single axis** — ``litmus_sweeps([{"vin": [...]}])``.
+  ``linspace(...)`` etc. from ``litmus`` are IDE-friendly numeric
+  helpers.
+* **Cross-product / nested loops** — multiple dicts in the list
+  (or stacked decorators). Each dict becomes one
+  ``metafunc.parametrize`` call.
+* **Zip / paired axes** — multi-key dict, keys pair together with
+  one value-list each.
 """
 
 from __future__ import annotations
@@ -32,7 +33,7 @@ def test_rail_within_spec(verify, psu, dmm) -> None:
     verify("v_rail", dmm.measure_dc_voltage())
 
 
-@pytest.mark.litmus_vectors(vin=linspace(3.3, 5.5, 5))
+@pytest.mark.litmus_sweeps([{"vin": linspace(3.3, 5.5, 5)}])
 @pytest.mark.litmus_limits(v_rail={"low": 3.2, "high": 3.4, "units": "V"})
 def test_rail_holds_across_input(verify, psu, dmm, vin: float) -> None:
     """Single-axis sweep over five vin points; ``linspace`` returns a list."""

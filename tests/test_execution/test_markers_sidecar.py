@@ -202,7 +202,7 @@ def test_qualified_test_entry_tightens_class_level(pytester: pytest.Pytester) ->
 
 
 def test_per_test_mock_tightens_file_level(pytester: pytest.Pytester) -> None:
-    """Per-test ``litmus_mock`` for the same target overrides file-level."""
+    """Per-test ``litmus_mocks`` for the same target overrides file-level."""
     pytester.makeini(_INI)
     pytester.makepyfile(
         test_seq=textwrap.dedent(
@@ -231,19 +231,21 @@ def test_per_test_mock_tightens_file_level(pytester: pytest.Pytester) -> None:
         textwrap.dedent(
             """
             config:
-              - litmus_mock: {target: "dmm.read", return_value: 1.1}
+              - litmus_mocks:
+                  - {target: "dmm.read", return_value: 1.1}
             tests:
               test_per_test:
                 config:
-                  - litmus_mock: {target: "dmm.read", return_value: 2.2}
-            """
+                  - litmus_mocks:
+                      - {target: "dmm.read", return_value: 2.2}
+"""
         )
     )
     result = pytester.runpytest("-v")
     result.assert_outcomes(passed=2)
 
 
-def test_litmus_mock_forwards_side_effect(pytester: pytest.Pytester) -> None:
+def test_litmus_mocks_forwards_side_effect(pytester: pytest.Pytester) -> None:
     """``side_effect`` and other ``unittest.mock.patch.object`` kwargs forward verbatim."""
     pytester.makeini(_INI)
     pytester.makepyfile(
@@ -277,11 +279,13 @@ def test_litmus_mock_forwards_side_effect(pytester: pytest.Pytester) -> None:
             tests:
               test_side_effect_iterable:
                 config:
-                  - litmus_mock: {target: "dmm.read", side_effect: [1.0, 2.0, 3.0]}
+                  - litmus_mocks:
+                      - {target: "dmm.read", side_effect: [1.0, 2.0, 3.0]}
               test_return_value_list_is_returned_as_list:
                 config:
-                  - litmus_mock: {target: "dmm.read", return_value: [1.0, 2.0, 3.0]}
-            """
+                  - litmus_mocks:
+                      - {target: "dmm.read", return_value: [1.0, 2.0, 3.0]}
+"""
         )
     )
     result = pytester.runpytest("-v")

@@ -34,7 +34,7 @@ def test_rail_within_spec(verify, psu, dmm) -> None:
     verify("v_rail", dmm.measure_dc_voltage(), limit=V_RAIL)
 
 
-@pytest.mark.litmus_vectors(vin=[3.3, 5.0, 5.5])
+@pytest.mark.litmus_sweeps([{"vin": [3.3, 5.0, 5.5]}])
 def test_rail_holds_across_input(verify, psu, dmm, vin: float) -> None:
     """Sweep input voltage; every reading becomes its own row in the log."""
     psu.set_voltage(vin)

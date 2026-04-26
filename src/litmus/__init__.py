@@ -8,15 +8,14 @@ points:
 - :func:`connect` — session-scoped context manager for interactive work
 - :class:`TestHarness` — direct harness construction for advanced cases
 
-Inline list-builders for ``litmus_vectors`` (Python counterparts to the
+Inline list-builders for ``litmus_sweeps`` (Python counterparts to the
 YAML range expanders) — give you IDE autocomplete + signature help:
 
 - :func:`linspace`, :func:`arange`, :func:`logspace`, :func:`geomspace`,
   :func:`repeat` — produce lists for one sweep axis
 
-For zipped (paired) axes use ``litmus_vectors``'s positional form
-directly: ``@pytest.mark.litmus_vectors("vin,vout", [(3, 5), (4, 6)])`` —
-the comma-joined argname is the visual signal that values pair.
+For zipped (paired) axes use a multi-key dict — keys pair together,
+one value-list each: ``@pytest.mark.litmus_sweeps([{"vin": [3, 4], "vout": [5, 6]}])``.
 
 Tests themselves are plain pytest functions that consume the
 ``context`` / ``verify`` / ``logger`` / ``spec`` fixtures provided by

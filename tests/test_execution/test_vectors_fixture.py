@@ -49,7 +49,7 @@ def test_vectors_fixture_sidecar_single_case_iterates_matrix(
             tests:
               test_rails:
                 config:
-                  - litmus_vectors:
+                  - litmus_sweeps:
                       - {vin: [4.5, 5.0, 5.5]}
             """
         )
@@ -103,7 +103,7 @@ def test_vectors_fixture_change_tracking_across_iterations(
             tests:
               test_rails:
                 config:
-                  - litmus_vectors:
+                  - litmus_sweeps:
                       - {vin: [3.3, 5.0, 12.0]}
             """
         )
@@ -134,7 +134,7 @@ def test_vectors_fixture_vector_index_increments(pytester: pytest.Pytester) -> N
             tests:
               test_rails:
                 config:
-                  - litmus_vectors:
+                  - litmus_sweeps:
                       - {vin: [3.3, 5.0, 12.0]}
             """
         )
@@ -170,7 +170,7 @@ def test_vectors_fixture_active_params_pushed_per_iteration(
             tests:
               test_rails:
                 config:
-                  - litmus_vectors:
+                  - litmus_sweeps:
                       - {vin: [3.3, 5.0], load: [0.1, 0.8]}
             """
         )
@@ -222,7 +222,7 @@ def test_vectors_fixture_non_empty_matrix_unused_fails(pytester: pytest.Pytester
             tests:
               test_rails:
                 config:
-                  - litmus_vectors:
+                  - litmus_sweeps:
                       - {vin: [3.3, 5.0]}
             """
         )
@@ -282,7 +282,7 @@ def test_vectors_fixture_crosses_parametrize_and_sidecar(
             tests:
               test_rails:
                 config:
-                  - litmus_vectors:
+                  - litmus_sweeps:
                       - {vin: [3.3, 5.0]}
             """
         )

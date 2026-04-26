@@ -665,10 +665,9 @@ def test_no_test_mocks_flag_disables_sidecar_mocks(pytester: pytest.Pytester) ->
         textwrap.dedent(
             """
             config:
-              - litmus_mock:
-                  target: "dmm.measure_dc_voltage"
-                  return_value: 3.3
-            """
+              - litmus_mocks:
+                  - {target: "dmm.measure_dc_voltage", return_value: 3.3}
+"""
         )
     )
     result = pytester.runpytest("-v", "--no-test-mocks")

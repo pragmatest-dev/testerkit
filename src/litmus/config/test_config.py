@@ -20,24 +20,32 @@ from litmus.config.enums import Comparator
 class ConfigEntry(BaseModel):
     """One entry in a ``config:`` list — mirrors a pytest decorator.
 
-    Four YAML shapes are parsed by :meth:`from_raw`:
+    Five YAML shapes are parsed by :meth:`from_raw`:
 
-    ====================================== =============================================
-    YAML                                   Parsed to
-    ====================================== =============================================
-    ``- flaky``                            ``ConfigEntry(name="flaky")``
-    ``- skip: "reason"``                   ``ConfigEntry(name="skip", args=["reason"])``
-    ``- litmus_vectors: {vin: [...]}``     ``ConfigEntry(name="litmus_vectors",
-                                               kwargs={"vin": [...]})``
-    ``- litmus_limits: {v_rail: {...}}``   ``ConfigEntry(name="litmus_limits",
-                                               kwargs={"v_rail": {...}})``
-    ====================================== =============================================
+    ============================================= =============================================
+    YAML                                          Parsed to
+    ============================================= =============================================
+    ``- flaky``                                   ``ConfigEntry(name="flaky")``
+    ``- skip: "reason"``                          ``ConfigEntry(name="skip", args=["reason"])``
+    ``- litmus_limits: {v_rail: {...}}``          ``ConfigEntry(name="litmus_limits",
+                                                       kwargs={"v_rail": {...}})``
+    ``- litmus_sweeps: [{vin: [...]}, ...]``      ``ConfigEntry(name="litmus_sweeps",
+                                                       args=[[{"vin": [...]}, ...]])``
+    ``- litmus_mocks: [{target: "...", ...}, ...]`` ``ConfigEntry(name="litmus_mocks",
+                                                       args=[[{"target": "...", ...}, ...]])``
+    ============================================= =============================================
 
-    List payloads expand to positional args; dict payloads are keyword
-    args; string/number/bool payloads become a single positional arg;
-    bare names have neither. Each entry maps to one pytest marker — the
-    YAML key is ``config:`` (runner-neutral vocabulary) but the entries
-    are still pytest markers under the hood, so a reader who knows
+    Dict payloads become kwargs (named-entity markers like
+    ``litmus_limits``, ``litmus_prompts``). For ``litmus_sweeps`` and
+    ``litmus_mocks`` the YAML payload is itself a list of dicts —
+    "enumerated entity" markers — so the list goes into ``args[0]``
+    intact. Other list payloads (``parametrize``) flatten into
+    positional args. String/number/bool payloads become a single
+    positional arg; bare names have neither.
+
+    Each entry maps to one pytest marker — the YAML key is ``config:``
+    (runner-neutral vocabulary) but the entries are still pytest
+    markers under the hood, so a reader who knows
     ``@pytest.mark.X(...)`` can read the YAML directly.
     """
 
@@ -63,20 +71,33 @@ class ConfigEntry(BaseModel):
                 raise TypeError(f"Config entry name must be a string; got {type(name).__name__}")
             if payload is None:
                 return cls(name=name)
-            # ``litmus_vectors`` requires a list of axis-group dicts in YAML.
-            # Single-axis case is still a list (one-element). This forces a
-            # uniform schema (no dict-or-list polymorphism) and lets Pydantic
-            # validate ``list[AxisGroup]`` cleanly without special parsing.
-            if name == "litmus_vectors" and isinstance(payload, dict):
-                raise ValueError(
-                    "litmus_vectors in YAML must be a list of axis-group dicts; "
-                    f"got dict {payload!r}. Wrap your axes in a list:\n"
-                    "  - litmus_vectors:\n"
+            # ``litmus_sweeps`` and ``litmus_mocks`` require a list of dicts
+            # in YAML — list-of-dicts is the canonical shape for "enumerated
+            # entities" markers. Single-entry case is still a list
+            # (one-element). This forces a uniform schema (no dict-or-list
+            # polymorphism) and lets Pydantic validate ``list[Dict]``
+            # cleanly without special parsing.
+            if name in ("litmus_sweeps", "litmus_mocks") and isinstance(payload, dict):
+                shape = "sweep" if name == "litmus_sweeps" else "mock"
+                example = (
                     "      - {<argname>: [<values>]}"
+                    if name == "litmus_sweeps"
+                    else "      - {target: <fixture.attr>, return_value: ...}"
+                )
+                raise ValueError(
+                    f"{name} in YAML must be a list of {shape} dicts; "
+                    f"got dict {payload!r}. Wrap your entries in a list:\n"
+                    f"  - {name}:\n"
+                    f"{example}"
                 )
             if isinstance(payload, dict):
                 return cls(name=name, kwargs=dict(payload))
             if isinstance(payload, list):
+                # litmus_sweeps and litmus_mocks: payload IS the list, treat as
+                # one positional arg. Other markers (parametrize, skip, etc.)
+                # flatten the list into positional args.
+                if name in ("litmus_sweeps", "litmus_mocks"):
+                    return cls(name=name, args=[list(payload)])
                 return cls(name=name, args=list(payload))
             return cls(name=name, args=[payload])
         raise TypeError(

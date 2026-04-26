@@ -203,10 +203,12 @@ def _find_fixture_file(config) -> Path | None:
 def pytest_configure(config):
     """Register Litmus markers and auto-register instrument role fixtures."""
     for marker in (
-        "litmus_vectors(**kwargs): Declare test vectors — runner-neutral "
-        "alias for parametrize. Each kwarg is one sweep axis; multiple "
-        "kwargs cross-product. Comma-joined argnames (`**{'a,b': [...]}`) "
-        "zip across argvalues per pytest's parametrize semantics.",
+        "litmus_sweeps([{argname: argvalues}, ...]): Declare nested "
+        "parametric sweeps — runner-neutral alias for parametrize. The "
+        "payload is a list of sweep dicts; each dict is one nesting "
+        "level (top = outer, slowest loop). Single-key dict = one axis; "
+        "multi-key dict = zipped axes (paired argvalues). Stacking "
+        "multiple markers concatenates their lists.",
         "litmus_retry(max_attempts=N, delay=S, on=[...]): Declare retry "
         "policy — runner-neutral alias for retry markers. Translates to "
         "pytest-rerunfailures' @pytest.mark.flaky in pytest; OpenHTF / "
@@ -220,12 +222,15 @@ def pytest_configure(config):
         "auto-derives fixture connections from the characteristic's pins.",
         "litmus_connections(connections=[...] | instrument_channels={...}): "
         "Bind the test to explicit named connections or instrument-channel ranges.",
-        "litmus_prompt(**kwargs): Declare named operator prompts; "
+        "litmus_prompts(**kwargs): Declare named operator prompts; "
         "each kwarg is `name=PromptConfig-shaped dict`. The `prompt` "
         "fixture resolves them by name (or implicitly when only one is "
         "in scope).",
-        "litmus_mock(**kwargs): Install a mock for the duration of a "
-        "test; kwargs follow unittest.mock.patch.object(target, ...).",
+        "litmus_mocks([{target: <fixture.attr>, **patch_kwargs}, ...]): "
+        "Install mocks for the duration of a test. The payload is a list "
+        "of mock dicts; each dict's kwargs (excluding `target`) follow "
+        "unittest.mock.patch.object(target, ...). Stacking multiple "
+        "markers concatenates their lists.",
     ):
         config.addinivalue_line("markers", marker)
     install_active_profile(config)
@@ -1909,64 +1914,74 @@ def _profile_markers_for_item(item: pytest.Item) -> list[MarkerSpec]:
 _VECTORS_MATRIX_KEY: pytest.StashKey[dict[str, list[Vector]]] = pytest.StashKey()
 
 
-def _expand_litmus_vectors(marker: MarkerSpec) -> list[MarkerSpec]:
-    """Translate a ``litmus_vectors`` marker into parametrize-shaped MarkerSpec(s).
+def _expand_litmus_sweeps(marker: MarkerSpec) -> list[MarkerSpec]:
+    """Translate a ``litmus_sweeps`` marker into parametrize-shaped MarkerSpec(s).
 
-    Two forms feed this function. **Inline** (``@pytest.mark.litmus_vectors(...)``)
-    arrives as kwargs — a single axis-group, treated as one entry.
-    **YAML** (``- litmus_vectors: [...]``) arrives as positional args —
-    a list of axis-group dicts, each becoming one axis. Each axis-group
-    becomes one ``metafunc.parametrize`` call; pytest cross-products
-    multiple parametrize calls.
+    The marker payload is a single positional list argument: a list of
+    sweep dicts where each dict is one nesting level. Inline and YAML
+    are structurally identical:
 
-    **Axis-group rules** (apply to inline kwargs and each YAML list-item):
+    * Inline: ``@pytest.mark.litmus_sweeps([{vin: [3.3, 5.0]}, {load: [0.1]}])``
+    * YAML:   ``- litmus_sweeps: [{vin: [3.3, 5.0]}, {load: [0.1]}]``
+
+    Each sweep dict becomes one ``metafunc.parametrize`` call; pytest
+    cross-products multiple parametrize calls.
+
+    **Sweep dict rules** (one dict per nesting level):
 
     * **Single key** = one plain axis. ``{vin: [3.3, 5.0, 5.5]}``
       produces ``parametrize("vin", [3.3, 5.0, 5.5])``.
 
-    * **Multi-key** = one **zipped** axis (paired). All values lists
+    * **Multi-key** = one **zipped** axis (paired). All argvalues lists
       must have the same length — dimensional coherence is enforced at
       decoration / YAML-load time. ``{vin: [3, 4], vout: [5, 6]}``
       produces ``parametrize("vin,vout", [[3, 5], [4, 6]])``.
 
-    **Cross-product** comes from stacking — either multiple decorators
-    inline, or multiple list items in one YAML entry, or both. With
-    iter order inverted in :func:`pytest_generate_tests`, top decorator
-    = outer (slowest) loop; same direction as a nested ``for`` loop.
+    **Nesting** comes from list order — top of the list = outer (slowest)
+    loop. With iter order inverted in :func:`pytest_generate_tests`,
+    multiple stacked ``litmus_sweeps`` markers concatenate their lists
+    (decorator nearest the function = innermost lists).
 
     Divergences from pytest's ``parametrize``:
 
-    1. Top decorator = outer (parametrize: bottom = outer)
-    2. Multi-kwarg = zip (parametrize: doesn't accept kwargs at all;
+    1. Top entry = outer (parametrize: bottom decorator = outer)
+    2. Multi-key dict = zip (parametrize: doesn't accept kwargs at all;
        multi-arg via comma-string)
     3. Dim check at decoration time (parametrize: silent shape errors
        at runtime)
-    4. Kwargs only inline; YAML uses list-of-dicts (parametrize:
-       positional only, no YAML form at all)
+    4. Single canonical list-of-dicts shape inline AND in YAML
+       (parametrize: positional only, no YAML form at all)
     """
-    if marker.name != "litmus_vectors":
+    if marker.name != "litmus_sweeps":
         return [marker]
 
-    axis_groups: list[dict[str, Any]] = []
-
-    # YAML list form: each positional arg is one axis-group dict.
-    for arg in marker.args:
-        if not isinstance(arg, dict):
-            raise pytest.UsageError(
-                "litmus_vectors YAML axis-group must be a dict "
-                f"(e.g. ``{{vin: [...]}}``); got {arg!r}"
-            )
-        axis_groups.append(arg)
-
-    # Inline kwargs form: all kwargs together = one axis-group.
     if marker.kwargs:
-        axis_groups.append(dict(marker.kwargs))
+        raise pytest.UsageError(
+            "litmus_sweeps does not accept keyword arguments; pass a list "
+            f"of sweep dicts as the single positional argument. Got kwargs: {dict(marker.kwargs)!r}"
+        )
+    if len(marker.args) != 1:
+        raise pytest.UsageError(
+            "litmus_sweeps takes exactly one positional argument: a list of "
+            f"sweep dicts. Got {len(marker.args)} args: {marker.args!r}"
+        )
+    payload = marker.args[0]
+    if not isinstance(payload, list):
+        raise pytest.UsageError(
+            "litmus_sweeps payload must be a list of sweep dicts; "
+            f"got {type(payload).__name__}: {payload!r}"
+        )
+
+    axis_groups: list[dict[str, Any]] = []
+    for entry in payload:
+        if not isinstance(entry, dict):
+            raise pytest.UsageError(
+                f"litmus_sweeps list entries must be dicts (e.g. ``{{vin: [...]}}``); got {entry!r}"
+            )
+        axis_groups.append(entry)
 
     if not axis_groups:
-        raise pytest.UsageError(
-            "litmus_vectors requires at least one axis-group (kwargs inline, "
-            "or list of dict entries in YAML)."
-        )
+        raise pytest.UsageError("litmus_sweeps requires at least one sweep dict in the list.")
 
     out: list[MarkerSpec] = []
     for group in axis_groups:
@@ -1977,7 +1992,7 @@ def _expand_litmus_vectors(marker: MarkerSpec) -> list[MarkerSpec]:
         bad = [(n, type(v).__name__) for n, v in group.items() if not isinstance(v, list)]
         if bad:
             raise pytest.UsageError(
-                f"litmus_vectors argvalues must be lists; got non-list types: {bad!r}"
+                f"litmus_sweeps argvalues must be lists; got non-list types: {bad!r}"
             )
 
         # Multi-key = zip; dimensional coherence required.
@@ -1986,8 +2001,7 @@ def _expand_litmus_vectors(marker: MarkerSpec) -> list[MarkerSpec]:
             if len(lengths) > 1:
                 sizes = {n: len(v) for n, v in group.items()}
                 raise pytest.UsageError(
-                    "litmus_vectors zip requires all argvalues to have the same length; "
-                    f"got {sizes}"
+                    f"litmus_sweeps zip requires all argvalues to have the same length; got {sizes}"
                 )
 
         if len(argnames) == 1:
@@ -2005,12 +2019,12 @@ def _expand_litmus_vectors(marker: MarkerSpec) -> list[MarkerSpec]:
 def _sidecar_parametrize_markers_for_metafunc(
     metafunc: pytest.Metafunc,
 ) -> list[MarkerSpec]:
-    """Collect sidecar + profile parametrize / litmus_vectors markers.
+    """Collect sidecar + profile parametrize / litmus_sweeps markers.
 
     Returns the expanded set of parametrize-shaped markers from, in
     merge order: sidecar (file-level → class branch → leaf) → profile
-    chain (same walk). ``litmus_vectors`` markers fan out to one
-    parametrize-shaped entry per sweep axis. Inline
+    chain (same walk). ``litmus_sweeps`` markers fan out to one
+    parametrize-shaped entry per sweep dict in the list. Inline
     ``@pytest.mark.parametrize`` decorators on the function are
     intentionally excluded — pytest's built-in hook already applies
     those. This list is applied on top via :meth:`metafunc.parametrize`
@@ -2029,8 +2043,10 @@ def _sidecar_parametrize_markers_for_metafunc(
 
     expanded: list[MarkerSpec] = []
     for m in merged:
-        if m.name in ("parametrize", "litmus_vectors"):
-            expanded.extend(_expand_litmus_vectors(m))
+        if m.name == "litmus_sweeps":
+            expanded.extend(_expand_litmus_sweeps(m))
+        elif m.name == "parametrize":
+            expanded.append(m)
     return expanded
 
 
@@ -2052,28 +2068,28 @@ def pytest_generate_tests(metafunc: pytest.Metafunc) -> None:
     """
     sidecar_parametrize = _sidecar_parametrize_markers_for_metafunc(metafunc)
 
-    # Inline @pytest.mark.litmus_vectors(...) decorators: convert to
+    # Inline @pytest.mark.litmus_sweeps(...) decorators: convert to
     # parametrize-shaped MarkerSpecs and apply alongside sidecar/profile
     # markers. pytest's own parametrize handler doesn't know about
-    # ``litmus_vectors`` so we own the translation — including the
+    # ``litmus_sweeps`` so we own the translation — including the
     # iteration order.
     #
     # Inversion vs pytest's parametrize: with stacked @parametrize
     # decorators, pytest registers the bottom (most-specific) marker's
-    # axis first, so bottom = outer. With stacked @litmus_vectors,
-    # we reverse the iter_markers order so the TOP decorator's axis
+    # axis first, so bottom = outer. With stacked @litmus_sweeps,
+    # we reverse the iter_markers order so the TOP decorator's list
     # registers first → top = outer (slowest-changing). That makes
     # stacked decorators read top-to-bottom as outer-to-inner, the
     # same direction as a nested ``for`` loop and the same direction
-    # as kwargs-in-one-decorator (first key = outer). Pytest's own
-    # parametrize stacking convention is unchanged for users who
-    # reach for it directly.
-    iter_top_first = reversed(list(metafunc.definition.iter_markers("litmus_vectors")))
-    inline_litmus_vectors: list[MarkerSpec] = []
+    # as the list-of-dicts payload within one decorator (first list
+    # entry = outer). Pytest's own parametrize stacking convention is
+    # unchanged for users who reach for it directly.
+    iter_top_first = reversed(list(metafunc.definition.iter_markers("litmus_sweeps")))
+    inline_litmus_sweeps: list[MarkerSpec] = []
     for mark in iter_top_first:
-        spec = MarkerSpec(name="litmus_vectors", args=list(mark.args), kwargs=dict(mark.kwargs))
-        inline_litmus_vectors.extend(_expand_litmus_vectors(spec))
-    sidecar_parametrize = [*inline_litmus_vectors, *sidecar_parametrize]
+        spec = MarkerSpec(name="litmus_sweeps", args=list(mark.args), kwargs=dict(mark.kwargs))
+        inline_litmus_sweeps.extend(_expand_litmus_sweeps(spec))
+    sidecar_parametrize = [*inline_litmus_sweeps, *sidecar_parametrize]
 
     if "vectors" in metafunc.fixturenames:
         # Self-loop mode: consume inline parametrize markers + add
@@ -2579,66 +2595,88 @@ def _litmus_resolve_connections(
 def _litmus_apply_mocks(
     request: pytest.FixtureRequest,
 ) -> Iterator[None]:
-    """Install mocks declared via ``litmus_mock`` markers.
+    """Install mocks declared via ``litmus_mocks`` markers.
 
-    The marker carries a ``target: <fixture>.<attr>`` plus any kwargs
-    accepted by :func:`unittest.mock.patch.object` — ``return_value``,
-    ``side_effect``, ``wraps``, ``spec``, ``spec_set``, ``autospec``,
-    ``new_callable``, etc. All kwargs except ``target`` are forwarded
-    verbatim, so the surface tracks the stdlib's ``mock`` documentation.
-    The handler calls ``unittest.mock.patch.object`` directly and binds
-    teardown to the test's finalizer chain — no pytest-mock dependency,
-    same lifecycle hook would work in any runner with a per-test
-    cleanup primitive (OpenHTF phase teardown, unittest ``addCleanup``,
-    Robot keyword teardown). Multiple markers stack; later markers with
-    the same target overwrite earlier ones (file → class → test →
-    profile). ``--no-test-mocks`` bypasses all patching.
+    The marker payload is a single positional list argument: a list of
+    mock dicts. Each dict carries a ``target: <fixture>.<attr>`` plus
+    any kwargs accepted by :func:`unittest.mock.patch.object` —
+    ``return_value``, ``side_effect``, ``wraps``, ``spec``,
+    ``spec_set``, ``autospec``, ``new_callable``, etc. All keys except
+    ``target`` are forwarded verbatim, so the surface tracks the
+    stdlib's ``mock`` documentation. The handler calls
+    ``unittest.mock.patch.object`` directly and binds teardown to the
+    test's finalizer chain — no pytest-mock dependency, same lifecycle
+    hook would work in any runner with a per-test cleanup primitive
+    (OpenHTF phase teardown, unittest ``addCleanup``, Robot keyword
+    teardown). Stacking multiple markers concatenates their lists;
+    later entries with the same target overwrite earlier ones
+    (file → class → test → profile). ``--no-test-mocks`` bypasses all
+    patching.
     """
     if request.config.getoption("--no-test-mocks", default=False):
         yield
         return
 
-    # Walk listchain root-to-leaf so more-specific markers with the same
-    # target overwrite earlier ones in ``by_target`` below. Within a node,
-    # ``own_markers`` preserves insertion order.
-    mock_markers: list[pytest.Mark] = []
+    # Walk listchain root-to-leaf so more-specific markers' entries
+    # overwrite earlier ones (by target) in ``by_target`` below. Within
+    # a node, ``own_markers`` preserves insertion order.
+    by_target: dict[str, dict[str, Any]] = {}
     for node in request.node.listchain():
         for marker in node.own_markers:
-            if marker.name == "litmus_mock":
-                mock_markers.append(marker)
-    if not mock_markers:
+            if marker.name != "litmus_mocks":
+                continue
+            if marker.kwargs:
+                raise ValueError(
+                    "litmus_mocks does not accept keyword arguments; pass a list "
+                    "of mock dicts as the single positional argument. "
+                    f"Got kwargs: {dict(marker.kwargs)!r}"
+                )
+            if len(marker.args) != 1:
+                raise ValueError(
+                    "litmus_mocks takes exactly one positional argument: a list "
+                    f"of mock dicts. Got {len(marker.args)} args: {marker.args!r}"
+                )
+            payload = marker.args[0]
+            if not isinstance(payload, list):
+                raise ValueError(
+                    "litmus_mocks payload must be a list of mock dicts; "
+                    f"got {type(payload).__name__}: {payload!r}"
+                )
+            for entry in payload:
+                if not isinstance(entry, dict):
+                    raise ValueError(
+                        "litmus_mocks list entries must be dicts; "
+                        f"got {type(entry).__name__}: {entry!r}"
+                    )
+                target = entry.get("target")
+                if not target or not isinstance(target, str):
+                    raise ValueError(
+                        "litmus_mocks entry must include a `target:` "
+                        f"'<fixture>.<attr>' string; got {entry!r}"
+                    )
+                by_target[target] = dict(entry)
+
+    if not by_target:
         yield
         return
 
-    # Deduplicate by target dotted path — later marker wins.
-    by_target: dict[str, dict[str, Any]] = {}
-    for marker in mock_markers:
-        kwargs = dict(marker.kwargs)
-        target = kwargs.get("target")
-        if not target or not isinstance(target, str):
-            raise ValueError(
-                f"litmus_mock marker must supply `target:` as a "
-                f"'<fixture>.<attr>' string; got {kwargs!r}"
-            )
-        by_target[target] = kwargs
-
     from unittest.mock import patch as _patch
 
-    for target, kwargs in by_target.items():
+    for target, entry in by_target.items():
         fixture_name, _, attr = target.partition(".")
         if not attr:
-            raise ValueError(f"litmus_mock target {target!r} must be '<fixture>.<attr>' form")
+            raise ValueError(f"litmus_mocks target {target!r} must be '<fixture>.<attr>' form")
         try:
             fixture_value = request.getfixturevalue(fixture_name)
         except pytest.FixtureLookupError:
             warnings.warn(
-                f"litmus_mock target {target!r}: fixture {fixture_name!r} not "
-                "found on this test — mock skipped. Check the marker `target:` "
+                f"litmus_mocks target {target!r}: fixture {fixture_name!r} not "
+                "found on this test — mock skipped. Check the entry `target:` "
                 "matches a fixture in the test's signature.",
                 stacklevel=1,
             )
             continue
-        patch_kwargs = {k: v for k, v in kwargs.items() if k != "target"}
+        patch_kwargs = {k: v for k, v in entry.items() if k != "target"}
         patcher = _patch.object(fixture_value, attr, **patch_kwargs)
         patcher.start()
         request.addfinalizer(patcher.stop)
@@ -2650,11 +2688,11 @@ def _litmus_apply_mocks(
 def prompt(request: pytest.FixtureRequest) -> Callable[..., Any]:
     """Operator prompt fixture.
 
-    Resolves prompts declared via ``litmus_prompt`` markers (file-level,
-    class-scoped, per-test, or inline ``@pytest.mark.litmus_prompt``).
+    Resolves prompts declared via ``litmus_prompts`` markers (file-level,
+    class-scoped, per-test, or inline ``@pytest.mark.litmus_prompts``).
     Each marker carries one or more entries keyed by name::
 
-        @pytest.mark.litmus_prompt(
+        @pytest.mark.litmus_prompts(
             operator_setup={"message": "Insert DUT", "prompt_type": "confirm"},
             pick_fixture={"message": "Pick fixture", "prompt_type": "choice",
                           "choices": ["bench_01", "bench_02"]},
@@ -2674,11 +2712,11 @@ def prompt(request: pytest.FixtureRequest) -> Callable[..., Any]:
     merged: dict[str, dict[str, Any]] = {}
     for node in request.node.listchain():
         for marker in node.own_markers:
-            if marker.name == "litmus_prompt":
+            if marker.name == "litmus_prompts":
                 for key, entry in marker.kwargs.items():
                     if not isinstance(entry, dict):
                         raise pytest.UsageError(
-                            f"litmus_prompt entry {key!r} must be a dict; got {entry!r}"
+                            f"litmus_prompts entry {key!r} must be a dict; got {entry!r}"
                         )
                     merged[key] = entry
 
@@ -2686,7 +2724,7 @@ def prompt(request: pytest.FixtureRequest) -> Callable[..., Any]:
         if key is None:
             if not merged:
                 raise pytest.UsageError(
-                    f"prompt() called with no key but no litmus_prompt "
+                    f"prompt() called with no key but no litmus_prompts "
                     f"markers are in scope for {request.node.nodeid}"
                 )
             if len(merged) > 1:
@@ -2700,7 +2738,7 @@ def prompt(request: pytest.FixtureRequest) -> Callable[..., Any]:
             if key not in merged:
                 known = sorted(merged) or "none"
                 raise pytest.UsageError(
-                    f"prompt({key!r}): no such key in litmus_prompt markers "
+                    f"prompt({key!r}): no such key in litmus_prompts markers "
                     f"for {request.node.nodeid}; known keys: {known}"
                 )
             entry = merged[key]

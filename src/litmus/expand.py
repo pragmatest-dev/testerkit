@@ -1,4 +1,4 @@
-"""Inline list-builders for ``litmus_vectors`` and other list positions.
+"""Inline list-builders for ``litmus_sweeps`` and other list positions.
 
 These are the Python-callable counterparts to the YAML range expanders
 (``{linspace: [start, stop, num]}`` etc.). YAML can't call functions,
@@ -7,17 +7,20 @@ helpers directly so users get IDE autocomplete + signature help::
 
     from litmus import linspace
 
-    @pytest.mark.litmus_vectors(vin=linspace(3.3, 5.5, 11))
+    @pytest.mark.litmus_sweeps([
+        {"vin": linspace(3.3, 5.5, 11)},
+    ])
     def test_x(vin): ...
 
 Each function delegates to the same underlying primitive the YAML
 expander uses, so behavior is identical across surfaces.
 
-For zipped (paired) axes, use ``litmus_vectors``'s positional form
-directly — the comma-joined argname string is the visual signal that
-values advance in lockstep::
+For zipped (paired) axes, use a multi-key dict — the keys advance
+together with one value-list each::
 
-    @pytest.mark.litmus_vectors("vin,vout", [(3.3, 3.30), (5.0, 3.30)])
+    @pytest.mark.litmus_sweeps([
+        {"vin": [3.3, 5.0], "vout": [3.30, 3.30]},
+    ])
     def test_x(vin, vout): ...
 """
 

@@ -1,6 +1,6 @@
 """Coverage for the ``prompt`` fixture and the ``litmus.prompts`` core.
 
-The fixture is purely marker-driven: ``litmus_prompt`` markers in scope
+The fixture is purely marker-driven: ``litmus_prompts`` markers in scope
 populate a name-keyed dict; ``prompt(name)`` resolves an entry, and
 ``prompt()`` works as a shortcut when exactly one entry is in scope.
 Routing of the prompt itself goes through :mod:`litmus.prompts` —
@@ -95,7 +95,7 @@ def test_prompt_fixture_single_entry_implicit_key(pytester: pytest.Pytester) -> 
             def _auto_confirm(monkeypatch):
                 monkeypatch.setenv("LITMUS_PROMPT_MODE", "auto-confirm")
 
-            @pytest.mark.litmus_prompt(only={"message": "go", "prompt_type": "confirm"})
+            @pytest.mark.litmus_prompts(only={"message": "go", "prompt_type": "confirm"})
             def test_one(prompt):
                 assert prompt() is True
             """
@@ -130,7 +130,7 @@ def test_prompt_fixture_named_lookup(pytester: pytest.Pytester) -> None:
                 finally:
                     set_prompt_handler(None)
 
-            @pytest.mark.litmus_prompt(
+            @pytest.mark.litmus_prompts(
                 op_setup={"message": "Insert DUT", "prompt_type": "confirm"},
                 pick={"message": "Pick fixture", "prompt_type": "choice",
                       "choices": ["bench_01", "bench_02"]},
@@ -157,7 +157,7 @@ def test_prompt_fixture_unknown_key_errors(pytester: pytest.Pytester) -> None:
             """
             import pytest
 
-            @pytest.mark.litmus_prompt(only={"message": "m", "prompt_type": "confirm"})
+            @pytest.mark.litmus_prompts(only={"message": "m", "prompt_type": "confirm"})
             def test_typo(prompt):
                 prompt("oonly")
             """
@@ -165,7 +165,7 @@ def test_prompt_fixture_unknown_key_errors(pytester: pytest.Pytester) -> None:
     )
     result = pytester.runpytest("-v")
     result.assert_outcomes(failed=1)
-    result.stdout.fnmatch_lines(["*no such key in litmus_prompt markers*"])
+    result.stdout.fnmatch_lines(["*no such key in litmus_prompts markers*"])
 
 
 def test_prompt_fixture_implicit_with_zero_entries_errors(
@@ -182,7 +182,7 @@ def test_prompt_fixture_implicit_with_zero_entries_errors(
     )
     result = pytester.runpytest("-v")
     result.assert_outcomes(failed=1)
-    result.stdout.fnmatch_lines(["*no litmus_prompt markers are in scope*"])
+    result.stdout.fnmatch_lines(["*no litmus_prompts markers are in scope*"])
 
 
 def test_prompt_fixture_implicit_with_multiple_entries_errors(
@@ -194,7 +194,7 @@ def test_prompt_fixture_implicit_with_multiple_entries_errors(
             """
             import pytest
 
-            @pytest.mark.litmus_prompt(
+            @pytest.mark.litmus_prompts(
                 a={"message": "a", "prompt_type": "confirm"},
                 b={"message": "b", "prompt_type": "confirm"},
             )
@@ -209,7 +209,7 @@ def test_prompt_fixture_implicit_with_multiple_entries_errors(
 
 
 def test_prompt_fixture_sidecar_yaml(pytester: pytest.Pytester) -> None:
-    """``litmus_prompt`` declared via sidecar YAML resolves identically."""
+    """``litmus_prompts`` declared via sidecar YAML resolves identically."""
     pytester.makeini(_INI)
     pytester.makepyfile(
         test_seq=textwrap.dedent(
@@ -231,7 +231,7 @@ def test_prompt_fixture_sidecar_yaml(pytester: pytest.Pytester) -> None:
             tests:
               test_sidecar:
                 config:
-                  - litmus_prompt:
+                  - litmus_prompts:
                       setup: {message: "Insert DUT", prompt_type: confirm}
             """
         )
@@ -243,7 +243,7 @@ def test_prompt_fixture_sidecar_yaml(pytester: pytest.Pytester) -> None:
 def test_prompt_fixture_per_test_overrides_file_level(
     pytester: pytest.Pytester,
 ) -> None:
-    """Per-test ``litmus_prompt`` entry with same key wins over file-level."""
+    """Per-test ``litmus_prompts`` entry with same key wins over file-level."""
     pytester.makeini(_INI)
     pytester.makepyfile(
         test_seq=textwrap.dedent(
@@ -273,12 +273,12 @@ def test_prompt_fixture_per_test_overrides_file_level(
         textwrap.dedent(
             """
             config:
-              - litmus_prompt:
+              - litmus_prompts:
                   setup: {message: "file-level message", prompt_type: confirm}
             tests:
               test_one:
                 config:
-                  - litmus_prompt:
+                  - litmus_prompts:
                       setup: {message: "per-test message", prompt_type: confirm}
             """
         )

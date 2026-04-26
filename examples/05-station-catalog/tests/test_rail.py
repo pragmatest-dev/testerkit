@@ -2,11 +2,11 @@
 
 Two new markers land here, each shown inline and in the sidecar:
 
-* ``litmus_mock`` — patch one method on one fixture for one test.
-  Use case: the station's ``mock_config`` returns a nominal value;
-  to exercise a fault path (OVP, undervoltage) you need a
+* ``litmus_mocks`` — patch one or more methods on a fixture for one
+  test. Use case: the station's ``mock_config`` returns a nominal
+  value; to exercise a fault path (OVP, undervoltage) you need a
   *different* return for one test.
-* ``litmus_prompt`` — gate the test on operator interaction (a
+* ``litmus_prompts`` — gate the test on operator interaction (a
   confirmation, a choice, an input). ``LITMUS_PROMPT_MODE=auto-confirm``
   drives the demo without a tty; production runs route through a
   UI handler or terminal.
@@ -29,10 +29,10 @@ def test_rail_holds_across_input(verify, psu, dmm, vin: float) -> None:
     verify("v_rail", dmm.measure_dc_voltage())
 
 
-# --- litmus_mock ---
+# --- litmus_mocks ---
 
 
-@pytest.mark.litmus_mock(target="dmm.measure_dc_voltage", return_value=4.5)
+@pytest.mark.litmus_mocks([{"target": "dmm.measure_dc_voltage", "return_value": 4.5}])
 def test_ovp_path_inline(verify, psu, dmm) -> None:
     """Override the bench mock so the OVP band sees a real OVP value.
 
@@ -50,10 +50,10 @@ def test_ovp_path_sidecar(verify, psu, dmm) -> None:
     verify("v_overvoltage", dmm.measure_dc_voltage())
 
 
-# --- litmus_prompt ---
+# --- litmus_prompts ---
 
 
-@pytest.mark.litmus_prompt(
+@pytest.mark.litmus_prompts(
     pick_fixture={
         "message": "Pick a fixture variant",
         "prompt_type": "choice",

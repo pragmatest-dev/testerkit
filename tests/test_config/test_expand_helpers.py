@@ -1,5 +1,5 @@
 """Tests for inline list-builders in :mod:`litmus.expand`, the YAML range
-expanders, and the kwargs-only shape of ``@pytest.mark.litmus_vectors``."""
+expanders, and the list-of-dicts shape of ``@pytest.mark.litmus_sweeps``."""
 
 from __future__ import annotations
 
@@ -48,8 +48,8 @@ def test_repeat_matches_yaml_expander() -> None:
     assert inline == [5.0, 5.0, 5.0, 5.0]
 
 
-def test_yaml_zipped_axis_via_multi_kwarg(pytester: pytest.Pytester) -> None:
-    """YAML zip via multi-kwarg with each axis using its own range expander."""
+def test_yaml_zipped_axes_via_multi_key(pytester: pytest.Pytester) -> None:
+    """YAML zip via multi-key sweep dict, each key using its own range expander."""
     pytester.makeini(
         textwrap.dedent(
             """
@@ -83,7 +83,7 @@ def test_yaml_zipped_axis_via_multi_kwarg(pytester: pytest.Pytester) -> None:
             tests:
               test_pairs:
                 config:
-                  - litmus_vectors:
+                  - litmus_sweeps:
                       - vin: {linspace: [3.3, 5.5, 5]}
                         vout: {linspace: [3.30, 3.32, 5]}
             """
@@ -93,8 +93,8 @@ def test_yaml_zipped_axis_via_multi_kwarg(pytester: pytest.Pytester) -> None:
     result.assert_outcomes(passed=6)
 
 
-def test_litmus_vectors_multi_kwarg_zips(pytester: pytest.Pytester) -> None:
-    """Multi-kwarg in one decorator zips paired axes (no comma-keys needed)."""
+def test_litmus_sweeps_multi_key_zips(pytester: pytest.Pytester) -> None:
+    """Multi-key dict in one sweep entry zips paired axes."""
     pytester.makeini(
         textwrap.dedent(
             """
@@ -111,7 +111,7 @@ def test_litmus_vectors_multi_kwarg_zips(pytester: pytest.Pytester) -> None:
 
             seen = []
 
-            @pytest.mark.litmus_vectors(vin=[3, 4, 5], vout=[5, 7, 9])
+            @pytest.mark.litmus_sweeps([{"vin": [3, 4, 5], "vout": [5, 7, 9]}])
             def test_pairs(vin, vout):
                 seen.append((vin, vout))
 
@@ -124,8 +124,8 @@ def test_litmus_vectors_multi_kwarg_zips(pytester: pytest.Pytester) -> None:
     result.assert_outcomes(passed=4)
 
 
-def test_litmus_vectors_zip_dim_mismatch_raises(pytester: pytest.Pytester) -> None:
-    """Multi-kwarg with mismatched lengths raises at decoration time."""
+def test_litmus_sweeps_zip_dim_mismatch_raises(pytester: pytest.Pytester) -> None:
+    """Multi-key sweep dict with mismatched lengths raises at decoration time."""
     pytester.makeini(
         textwrap.dedent(
             """
@@ -140,7 +140,7 @@ def test_litmus_vectors_zip_dim_mismatch_raises(pytester: pytest.Pytester) -> No
             """
             import pytest
 
-            @pytest.mark.litmus_vectors(vin=[3, 4], vout=[5, 6, 7])
+            @pytest.mark.litmus_sweeps([{"vin": [3, 4], "vout": [5, 6, 7]}])
             def test_x(vin, vout): pass
             """
         )
@@ -151,11 +151,13 @@ def test_litmus_vectors_zip_dim_mismatch_raises(pytester: pytest.Pytester) -> No
     assert "same length" in combined
 
 
-def test_litmus_vectors_stacked_top_is_outer(pytester: pytest.Pytester) -> None:
-    """Stacked litmus_vectors: TOP decorator = outer (slow); BOTTOM = inner (fast).
+def test_litmus_sweeps_stacked_top_is_outer(pytester: pytest.Pytester) -> None:
+    """Stacked litmus_sweeps: TOP decorator = outer (slow); BOTTOM = inner (fast).
 
     Inverts pytest's parametrize convention. Reads top-to-bottom as
-    outer-to-inner, the same direction as a nested ``for`` loop.
+    outer-to-inner, the same direction as a nested ``for`` loop. Same
+    direction as the list-of-dicts payload within one decorator (first
+    list entry = outer).
     """
     pytester.makeini(
         textwrap.dedent(
@@ -173,8 +175,8 @@ def test_litmus_vectors_stacked_top_is_outer(pytester: pytest.Pytester) -> None:
 
             seen = []
 
-            @pytest.mark.litmus_vectors(temp=[25, 85])      # TOP    → outer (slowest)
-            @pytest.mark.litmus_vectors(vin=[3, 5])          # BOTTOM → inner (fastest)
+            @pytest.mark.litmus_sweeps([{"temp": [25, 85]}])  # TOP    → outer (slowest)
+            @pytest.mark.litmus_sweeps([{"vin": [3, 5]}])      # BOTTOM → inner (fastest)
             def test_x(temp, vin):
                 seen.append((temp, vin))
 
@@ -193,14 +195,8 @@ def test_litmus_vectors_stacked_top_is_outer(pytester: pytest.Pytester) -> None:
     result.assert_outcomes(passed=5)
 
 
-def test_litmus_vectors_rejects_string_positional(pytester: pytest.Pytester) -> None:
-    """Old parametrize-style ``("vin", [...])`` raises a clear error.
-
-    Each positional arg must be an axis-group dict (the YAML list-of-dicts
-    shape). A bare argname string is the parametrize positional shape,
-    which ``litmus_vectors`` deliberately doesn't accept inline (kwargs
-    are canonical inline; YAML uses list-of-dicts).
-    """
+def test_litmus_sweeps_rejects_kwargs_form(pytester: pytest.Pytester) -> None:
+    """Old kwargs shape ``(vin=[...])`` raises — list-of-dicts is canonical."""
     pytester.makeini(
         textwrap.dedent(
             """
@@ -215,7 +211,7 @@ def test_litmus_vectors_rejects_string_positional(pytester: pytest.Pytester) -> 
             """
             import pytest
 
-            @pytest.mark.litmus_vectors("vin", [3, 4])
+            @pytest.mark.litmus_sweeps(vin=[3, 4])
             def test_x(vin): pass
             """
         )
@@ -223,4 +219,4 @@ def test_litmus_vectors_rejects_string_positional(pytester: pytest.Pytester) -> 
     result = pytester.runpytest("-v")
     assert result.ret != 0
     combined = "\n".join(result.outlines + result.errlines)
-    assert "axis-group must be a dict" in combined
+    assert "does not accept keyword arguments" in combined
