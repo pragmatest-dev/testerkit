@@ -23,14 +23,13 @@ and mocks for the tests in that module:
 config:
   - litmus_limits:
       output_voltage: {low: 3.135, high: 3.465, nominal: 3.3, units: "V"}
-  - litmus_mock:
-      target: dmm.measure_dc_voltage
-      return_value: 3.31
+  - litmus_mocks:
+      - {target: dmm.measure_dc_voltage, return_value: 3.31}
 tests:
   test_output_voltage:
     config:
-      - litmus_vectors:
-          vin: [4.5, 5.0, 5.5]
+      - litmus_sweeps:
+          - {vin: [4.5, 5.0, 5.5]}
           load_current: [0.1, 0.4, 0.8]
 ```
 
@@ -66,11 +65,11 @@ def test_output_voltage(vin, context, psu, dmm, logger):
     logger.measure("output_voltage", dmm.measure_dc_voltage())
 ```
 
-The `@pytest.mark.litmus_vectors(...)` form is also available for inline use
+The `@pytest.mark.litmus_sweeps(...)` form is also available for inline use
 of the runner-neutral vector vocabulary:
 
 ```python
-@pytest.mark.litmus_vectors(vin=[4.5, 5.0, 5.5], load=[0.1, 0.4, 0.8])
+@pytest.mark.litmus_sweeps(vin=[4.5, 5.0, 5.5], load=[0.1, 0.4, 0.8])
 def test_sweep(vin, load, ...): ...
 ```
 
@@ -80,7 +79,7 @@ Vectors define test conditions. They work identically inline and in sidecar.
 
 ```yaml
 config:
-  - litmus_vectors:
+  - litmus_sweeps:
       input_voltage: [4.5, 5.0, 5.5]
       load_percent: [0, 50, 100]
 ```
@@ -89,7 +88,7 @@ Multiple keys cross-product (this runs the test 9 times = 3 voltages × 3
 loads). For zip semantics, comma-join the argnames:
 
 ```yaml
-- litmus_vectors:
+- litmus_sweeps:
     "input_voltage,load_percent": [[4.5, 0], [5.0, 50], [5.5, 100]]
 ```
 
@@ -128,7 +127,7 @@ Any vector argvalues position accepts a range-expander dict that fans out
 to a flat list at YAML load:
 
 ```yaml
-- litmus_vectors:
+- litmus_sweeps:
     voltage: {linspace: [3.0, 5.0, 5]}      # 5 evenly-spaced points
     frequency: {logspace: [1, 6, 6]}        # 6 points 10^1 to 10^6
     soak_count: {repeat: [5.0, 100]}        # 100 copies of 5.0
@@ -146,7 +145,7 @@ loop changes:
 
 ```yaml
 config:
-  - litmus_vectors:
+  - litmus_sweeps:
       temperature: [25, 85]      # Outer (changes slowly)
       load: [0.1, 0.5]           # Inner (changes fast)
 ```

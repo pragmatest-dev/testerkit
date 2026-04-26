@@ -116,7 +116,7 @@ Matching rules:
 - No match → `pytest.UsageError` at `logger.measure` / `verify` time (fail loud, not silent).
 - An empty `when: {}` always matches; put it last as a default.
 
-The match is performed against the current row's vector params, so the feature composes naturally with both native `@pytest.mark.parametrize` and `litmus_vectors` — every iteration re-resolves against the active row.
+The match is performed against the current row's vector params, so the feature composes naturally with both native `@pytest.mark.parametrize` and `litmus_sweeps` — every iteration re-resolves against the active row.
 
 The default cascade keeps repetition out of the YAML. Common fields (`units`, `characteristic`, `ref`) live once at the top; bands carry only what changes. Bands can use any policy field a flat limit supports, including `tolerance_pct` against a product characteristic:
 

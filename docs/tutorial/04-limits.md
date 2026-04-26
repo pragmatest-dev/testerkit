@@ -220,7 +220,7 @@ Define limits as Python expressions in a sidecar:
 ```yaml
 # tests/test_voltage.yaml
 config:
-  - litmus_vectors: {temperature: [-40, 25, 85]}
+  - litmus_sweeps: {temperature: [-40, 25, 85]}
   - litmus_limits:
       output_voltage:
         callable: |
@@ -315,9 +315,8 @@ config:
         high: 3.465
         nominal: 3.3
         units: V
-  - litmus_mock:
-      target: dmm.measure_voltage
-      return_value: 3.31
+  - litmus_mocks:
+      - {target: dmm.measure_voltage, return_value: 3.31}
 ```
 
 **tests/test_limits.py:**

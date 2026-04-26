@@ -46,7 +46,7 @@ context.dut.serial              # session
 context.station.name            # session
 context.spec                    # session-scoped; set via --product / litmus.yaml / profile
 context.instruments             # session + station + catalog
-context.params["vin"]           # function (litmus_vectors / pytest parametrize)
+context.params["vin"]           # function (litmus_sweeps / pytest parametrize)
 context.limits["output_v"]      # function (resolved from markers + sidecar + spec)
 context.get_param("vin")        # read a param (raises if missing, accepts default)
 context.changed("temperature")  # did this param differ from the previous iteration?
@@ -77,9 +77,9 @@ Stored as a dict on the method's **parent stash node** (class for class methods,
 Hardware reconfig dominates multi-parameter sweeps. `context.changed("temp")` returns `True` only when that parameter differs from the previous sweep iteration:
 
 ```python
-@pytest.mark.litmus_vectors(temperature=[25, 85])    # outer (slow)
-@pytest.mark.litmus_vectors(vin=[4.5, 5.0, 5.5])      # middle
-@pytest.mark.litmus_vectors(load=[0.1, 0.4])          # inner (fast)
+@pytest.mark.litmus_sweeps(temperature=[25, 85])    # outer (slow)
+@pytest.mark.litmus_sweeps(vin=[4.5, 5.0, 5.5])      # middle
+@pytest.mark.litmus_sweeps(load=[0.1, 0.4])          # inner (fast)
 def test_rails(temperature, vin, load, context, psu, chamber, dut_load, dmm, spec):
     if context.changed("temperature"):
         chamber.set_temperature(temperature)

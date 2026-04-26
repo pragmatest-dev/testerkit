@@ -15,7 +15,7 @@ lives in its own file; shared behavior factors up through an
   (±1 %) limits
 - Added `profiles/characterization.yaml` — standalone, wide vectors
   sweep, no limits
-- Stripped the per-test `litmus_vectors` + `litmus_limits` out of the
+- Stripped the per-test `litmus_sweeps` + `litmus_limits` out of the
   sidecar (`tests/test_rail.yaml`) for the rail tests — they come from
   the profile now. `TestIdle` still owns its limits in the sidecar
   because idle current doesn't vary by phase.

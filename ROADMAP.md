@@ -89,16 +89,157 @@ the operator doesn't act on the wrong unit. Resolution path:
 first-class; operator prompts shouldn't require running `litmus
 serve`. Terminal is a perfectly good UI for one-operator-one-bench.
 
-### Per-runner config namespace — `runner: { <runner_name>: { ... } }`
+### YAML schema generalization — runner-neutral `config:` + per-runner `runner:` namespace
 
-Today profile YAML carries a `pytest:` block (`ProfilePytest` model)
-holding `addopts`, `markexpr`, `keyword`. That bakes pytest
-vocabulary into what's supposed to be a runner-neutral schema, and
-closes the door on third-party runners — there's no place for an
-OpenHTF or Robot wrapper to put runner-specific knobs without
-patching `ProjectConfig` / `ProfileConfig`.
+Three threads landed together: (1) profile YAML's `pytest:` block
+bakes pytest vocabulary into what's supposed to be a runner-neutral
+schema and closes the door on third-party runners; (2) the existing
+`config:` schema is a list-of-single-key-dicts with `litmus_X`
+prefixes that are noise inside an already-Litmus-scoped block;
+(3) the dict shape Pydantic naturally validates is one entry per
+concept, not a list of entries we have to inspect by name. Solve
+all three at once.
 
-Replace the single `pytest:` field with an open-world map:
+**Before** (current shape):
+
+```yaml
+config:
+  - litmus_limits:
+      v_rail: {low: 3.2, high: 3.4, units: V}
+  - litmus_sweeps:
+      - {vin: [3.3, 5.0]}
+  - litmus_mocks:
+      - {target: dmm.read, return_value: 3.31}
+  - litmus_retry: {max_attempts: 3}
+profiles:
+  production:
+    pytest:                       # pytest vocab inside the schema
+      addopts: "-x"
+      markexpr: production
+```
+
+**After** (proposed):
+
+```yaml
+config:                           # runner-neutral test config — dict-shaped
+  limits:
+    v_rail: {low: 3.2, high: 3.4, units: V}
+  sweeps:
+    - {vin: [3.3, 5.0]}
+  mocks:
+    - {target: dmm.read, return_value: 3.31}
+  retry: {max_attempts: 3}
+
+runner:                           # runner-specific — open-world map
+  pytest:
+    addopts: "-x"
+    markexpr: production
+    markers:                      # ecosystem markers (parametrize, flaky, skip) live here
+      - flaky: {reruns: 2}
+  openhtf:                        # third-party runner block; Litmus core ignores
+    output_handler: json
+```
+
+**Three structural wins:**
+
+1. **`config:` is dict-shaped** — one entry per Litmus concept
+   (`limits`, `sweeps`, `mocks`, `spec`, `connections`, `retry`,
+   `prompts`). No more list-of-single-key-dicts. Pydantic validates
+   each key against its own typed model. Reads as "the test config
+   has these aspects."
+2. **No `litmus_` prefix in YAML** — the `config:` block is
+   Litmus-scoped already; the prefix is noise. Inline decorators
+   keep `litmus_X` because `pytest.mark.*` is shared with pytest
+   and ecosystem plugins; YAML doesn't have that constraint.
+3. **`runner:` namespace** — pytest-specific knobs (`addopts`,
+   `markexpr`, ecosystem markers like `parametrize`, `flaky`,
+   `skip`) move under `runner.pytest:`. Other runners get their
+   own block. Open-world; third parties register namespaces
+   without coordinating with Litmus core.
+
+**No stacking of Litmus markers — let `parametrize` be special.**
+
+The dict shape of `config:` enforces "one Litmus marker per scope"
+by construction — you can't have two `sweeps:` keys in the same
+YAML mapping. Apply the same rule to inline decorators:
+
+```python
+# OK — one of each Litmus marker per function
+@pytest.mark.litmus_sweeps([{"vin": [3.3, 5.0]}])
+@pytest.mark.litmus_limits(v_rail={"low": 3.2, "high": 3.4})
+def test_x(...): ...
+
+# Error — two litmus_sweeps on one function
+@pytest.mark.litmus_sweeps([{"temp": [25, 85]}])
+@pytest.mark.litmus_sweeps([{"vin": [3.3, 5.0]}])    # plugin errors
+def test_x(...): ...
+
+# OK — parametrize stacks (pytest's native behavior, kept)
+@pytest.mark.parametrize("a", [1, 2])
+@pytest.mark.parametrize("b", [3, 4])
+def test_x(a, b): ...
+```
+
+If you want multiple sweeps (nested loops), put them in the one
+list payload. If you want multiple limits, put them in the one
+dict payload. Cross-scope layering (file → class → test → profile)
+still merges as before — that's the right way to compose, not
+stacking decorators on one function.
+
+LLM guidance gets simpler: "one Litmus marker of each type per
+test; use the payload to batch entries." `parametrize` is the
+exception because pytest's stacking semantic is its own design
+and useful in pytest-native code (inline decorators) that doesn't
+go through Litmus's YAML schema at all.
+
+**Inline (Python decorator) surface** stays exactly as it was after
+the recent rename — pytest namespace requires the prefix:
+
+```python
+@pytest.mark.litmus_sweeps([{"vin": [3.3, 5.0]}])
+@pytest.mark.litmus_limits(v_rail={"low": 3.2, "high": 3.4})
+@pytest.mark.flaky(reruns=2)                   # ecosystem marker, no prefix needed
+def test_x(...): ...
+```
+
+The translation rule between inline and YAML:
+- Litmus markers: inline `litmus_X` ↔ YAML `config.X`
+- Ecosystem markers: inline `pytest.mark.X` ↔ YAML `runner.pytest.markers: [- X: ...]`
+
+YAML loader's job: map `config.<key>` to `litmus_<key>` marker
+registration internally, so the plugin handlers (which look up
+markers by their registered names) don't change.
+
+**Pydantic shape** (sketch):
+
+```python
+class TestConfig(BaseModel):
+    """Runner-neutral test config — one entry per concept."""
+    model_config = {"extra": "forbid"}
+    limits: dict[str, LimitConfig] = Field(default_factory=dict)
+    sweeps: list[SweepDict] = Field(default_factory=list)
+    mocks: list[MockDict] = Field(default_factory=list)
+    spec: SpecBinding | None = None
+    connections: ConnectionsBinding | None = None
+    retry: RetryPolicy | None = None
+    prompts: dict[str, PromptConfig] = Field(default_factory=dict)
+
+class ProjectConfig(BaseModel):
+    ...
+    config: TestConfig = Field(default_factory=TestConfig)
+    runner: dict[str, dict[str, Any]] = Field(default_factory=dict)
+
+class ProfileConfig(BaseModel):
+    ...
+    config: TestConfig = Field(default_factory=TestConfig)
+    runner: dict[str, dict[str, Any]] = Field(default_factory=dict)
+```
+
+Each Litmus marker gets a typed Pydantic shape; `runner` stays
+opaque dicts (each runner validates its own block with its own
+schema). The `config:` schema is now strictly typed end to end.
+
+**The `runner:` part of the proposal — what it carries:**
 
 ```yaml
 # litmus.yaml — session-wide runner defaults
@@ -236,26 +377,59 @@ runners.
 
 **Touch points** (rough sweep, all pre-release — no shims):
 
-- `src/litmus/models/project.py` — `ProjectConfig.runner` and
-  `ProfileConfig.runner` as `dict[str, dict[str, Any]]`. Drop
-  `ProfilePytest` model; the pytest plugin owns its own validation.
-- `src/litmus/execution/plugin.py` — define `PytestRunner` Pydantic
-  model in plugin land; `pytest_configure` (or session-start hook)
-  merges project + profile blocks and validates.
-- Profile YAMLs in `examples/07-profiles/profiles/*.yaml` —
-  currently none use the old `pytest:` block, so example sweep is
-  near-zero.
-- `tests/test_execution/test_profile_*.py` — any YAML with
-  `pytest:` becomes `runner: {pytest: {...}}`.
-- `src/litmus/skills/refs/profiles.md` — example block.
-- `docs/reference/configuration.md` — profile section was just
-  rewritten; update the `pytest:` block to `runner: {pytest: ...}`
-  shape.
+- `src/litmus/config/test_config.py` — replace `ConfigEntry` /
+  list-based `SidecarConfig.config` / `TestEntry.config` with the
+  new `TestConfig` dict-shaped Pydantic model. Each key (`limits`,
+  `sweeps`, `mocks`, ...) gets its own typed sub-model.
+- `src/litmus/models/project.py` — `ProjectConfig.config: TestConfig`
+  + `ProjectConfig.runner: dict[str, dict[str, Any]]`. Same on
+  `ProfileConfig`. Drop `ProfilePytest` model; pytest plugin owns
+  its own validation.
+- `src/litmus/execution/sidecar.py` — sidecar loader produces
+  `TestConfig` instances, not lists of `ConfigEntry`. Recursive
+  `tests:` tree carries `TestConfig` at each scope.
+- `src/litmus/execution/plugin.py` — pull markers from
+  `TestConfig.<key>` instead of walking a list. Translate Litmus
+  config keys to `litmus_<key>` for pytest's marker registration
+  internally; ecosystem markers under `runner.pytest.markers`
+  apply via `node.add_marker(name, ...)` in collection-time hook.
+  Define `PytestRunner` Pydantic model; `pytest_configure` merges
+  project + profile blocks and validates. **Plugin errors on
+  duplicate `litmus_X` markers per function** (one per scope rule).
+- All YAML files across the project — full schema migration:
+  - `examples/04-sidecar-markers/tests/test_rail.yaml` and chapter
+    5/6/7 sidecars/profiles → dict-shaped `config:`, drop
+    `litmus_` prefix.
+  - `tests/test_execution/test_*.py` pytester YAMLs and
+    `tests/test_config/test_*.py` — dozens of YAML strings.
+  - `tests/fixtures/specs/*.yaml` — verify (specs use SpecBand,
+    not the config schema, so likely unaffected).
+- All test code referencing the old shapes — `tests/test_config/`,
+  `tests/test_execution/`.
+- All inline decorators stay as-is in user code; plugin enforces
+  no-stacking-Litmus rule at collection time with a clear error
+  pointing to the consolidated form.
+- `src/litmus/skills/refs/profiles.md` — schema example + marker
+  table.
+- `docs/reference/configuration.md` — profile + sidecar shape
+  rewrites. Already touched recently; needs another pass.
+- `docs/guides/*.md` — vocabulary throughout.
+- `ROADMAP.md` — this entry merges with the dropped/expanded
+  scope; nothing else to touch here.
 
-**Why now**: directly enables the alternate-runner-wrappers entry
-below. Without this, every new runner would need to patch
-`ProfileConfig` to add its own typed block (closed-world); with
-this, runners ship independently.
+**Why this all happens together**: each thread reinforces the
+others. Dict shape eliminates list-noise. Dropping prefix
+eliminates `litmus_` repetition. `runner:` namespace cleans up
+the leftover pytest vocabulary in profile YAML. Doing them
+piecemeal forces three migration passes through every YAML file
+in the project; doing them together is one pass and a single
+mental-model shift for users.
+
+**Why now**: this is the last YAML-schema polish before v1.
+Pre-release, no shim. Migration is one big sweep through tests,
+examples, and docs (all of which have already been touched
+recently for the marker rename, so this is the second pass that
+locks the v1 surface).
 
 ### Lift runner-neutral logic out of `plugin.py`
 

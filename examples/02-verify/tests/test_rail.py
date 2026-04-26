@@ -5,7 +5,7 @@ to ``verify(name, value, limit=...)`` writes a row with the name,
 value, units, limit, and pass/fail outcome — so you get the ``value``
 persisted, not just a pass/fail.
 
-Test vectors are introduced here too: ``@pytest.mark.litmus_vectors``
+Test vectors are introduced here too: ``@pytest.mark.litmus_sweeps``
 is the runner-neutral name for declaring sweep axes. Each kwarg is
 one axis; multiple kwargs cross-product — same family shape as
 ``litmus_limits``. Limits are still inline in Python here

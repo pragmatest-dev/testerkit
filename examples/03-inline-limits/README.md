@@ -22,7 +22,7 @@ uv run pytest -v
 `litmus_limits` is declarative. The limit is configuration, not
 imperative code. That matters for two reasons:
 
-1. **The marker composes.** Stack `@pytest.mark.litmus_vectors` and
+1. **The marker composes.** Stack `@pytest.mark.litmus_sweeps` and
    `@pytest.mark.litmus_limits` — pytest handles both the same way.
 2. **Configuration has a migration path.** Markers can move from
    decorator → sidecar YAML → profile YAML without touching the test

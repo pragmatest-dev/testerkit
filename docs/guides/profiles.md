@@ -73,7 +73,7 @@ you'd write inline as a decorator or in a sidecar. Examples:
 ```yaml
 config:
   - litmus_limits: {v_rail: {tolerance_pct: 5.0}}      # @pytest.mark.litmus_limits(...)
-  - litmus_vectors:                                     # nested loops
+  - litmus_sweeps:                                     # nested loops
       - {vin: [4.5, 5.0, 5.5]}
   - flaky: {reruns: 2, reruns_delay: 1}                # @pytest.mark.flaky(...)
   - skipif: "not os.getenv('HAS_BENCH')"               # @pytest.mark.skipif(...)
@@ -140,7 +140,7 @@ tests:
       - litmus_limits: {v_rail: {low: 3.2, high: 3.4}}
   TestRails.test_output:
     config:
-      - litmus_vectors:
+      - litmus_sweeps:
           - {load: [0.1, 0.5, 0.9]}
 ```
 
@@ -167,7 +167,7 @@ facets: {test_phase: characterization}
 tests:
   TestRails.test_rail:
     config:
-      - litmus_vectors:
+      - litmus_sweeps:
           - {vin: [3.0, 3.3, 3.6, 4.0, 4.5, 5.0, 5.5, 6.0]}
 ```
 
@@ -240,9 +240,9 @@ tests:
     tests:
       test_rails:
         config:
-          - litmus_vectors:
+          - litmus_sweeps:
               - {vin: [5.0]}
-          - litmus_vectors:
+          - litmus_sweeps:
               - {temperature: [25]}
   TestSlow:
     tests:
@@ -264,11 +264,11 @@ tests:
     tests:
       test_rails:                         # nested method
         config:
-          - litmus_vectors:
+          - litmus_sweeps:
               - {vin: [4.5, 5.0, 5.5]}
-          - litmus_vectors:
+          - litmus_sweeps:
               - {temperature: [25, 85]}
-          - litmus_vectors:
+          - litmus_sweeps:
               - {load: [0.1, 0.4, 0.8]}
 ```
 

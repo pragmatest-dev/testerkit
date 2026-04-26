@@ -35,7 +35,7 @@ class TestPowerUp:
 
 ## Sweeping inputs (test vectors)
 
-`@pytest.mark.litmus_vectors(...)` declares one or more nested loops
+`@pytest.mark.litmus_sweeps(...)` declares one or more nested loops
 that drive the test through every combination of conditions. Each
 combination is one **test vector** — pytest runs the test once per
 combination, and `context.get_param("name")` reads the active value:
@@ -44,16 +44,16 @@ combination, and `context.get_param("name")` reads the active value:
 import pytest
 
 # Single loop
-@pytest.mark.litmus_vectors(vin=[4.5, 5.0, 5.5])
+@pytest.mark.litmus_sweeps(vin=[4.5, 5.0, 5.5])
 def test_rails(vin, context, spec, psu, dmm): ...
 
 # Nested loops (cross-product). Top-to-bottom = outer-to-inner.
-@pytest.mark.litmus_vectors(temp=[25, 85])           # outer (slow to change)
-@pytest.mark.litmus_vectors(vin=[4.5, 5.0, 5.5])     # inner (fast to change)
+@pytest.mark.litmus_sweeps(temp=[25, 85])           # outer (slow to change)
+@pytest.mark.litmus_sweeps(vin=[4.5, 5.0, 5.5])     # inner (fast to change)
 def test_rails(temp, vin, context, spec, psu, chamber, dmm): ...
 
 # Paired values (input/expected lists step together). List lengths must match.
-@pytest.mark.litmus_vectors(vin=[3.3, 5.0, 5.5], expected=[3.30, 3.31, 3.30])
+@pytest.mark.litmus_sweeps(vin=[3.3, 5.0, 5.5], expected=[3.30, 3.31, 3.30])
 def test_rails(vin, expected, ...): ...
 ```
 
@@ -64,7 +64,7 @@ The same shape works in YAML — operator-editable, no code change:
 tests:
   test_rails:
     config:
-      - litmus_vectors:
+      - litmus_sweeps:
           - {temp: [25, 85]}                # outer
           - {vin: [4.5, 5.0, 5.5]}          # inner
 ```
@@ -78,9 +78,9 @@ note for migrating projects from `@pytest.mark.parametrize`.
 Hardware reconfig dominates multi-parameter sweeps (PSU settle 500 ms, DMM range switch 1 s, chamber soak 5–30 min). `context.changed(key)` returns `True` only when the parameter differs from the previous test case. Pair this with the top-to-bottom outer-to-inner ordering so the slow setup only runs when it actually rolls over:
 
 ```python
-@pytest.mark.litmus_vectors(temp=[25, 85])           # outer (3 changes)
-@pytest.mark.litmus_vectors(vin=[5.0, 5.5])           # middle
-@pytest.mark.litmus_vectors(load=[0.1, 0.4])          # inner
+@pytest.mark.litmus_sweeps(temp=[25, 85])           # outer (3 changes)
+@pytest.mark.litmus_sweeps(vin=[5.0, 5.5])           # middle
+@pytest.mark.litmus_sweeps(load=[0.1, 0.4])          # inner
 def test_rails(temp, vin, load, context, psu, chamber, dut_load, dmm, spec):
     if context.changed("temp"):
         chamber.set_temperature(temp)
@@ -101,7 +101,7 @@ one matrix. The test executes as **one** pytest case; you iterate the
 matrix inside:
 
 ```python
-@pytest.mark.litmus_vectors(vin=[4.5, 5.0, 5.5])
+@pytest.mark.litmus_sweeps(vin=[4.5, 5.0, 5.5])
 def test_rails_sweep(vectors, psu, dmm, verify):
     for v in vectors:
         psu.set_voltage(v["vin"])
@@ -137,12 +137,12 @@ def test_rails(context, spec, logger, dmm):
 
 | Marker                            | Purpose                                                       |
 |-----------------------------------|---------------------------------------------------------------|
-| `litmus_vectors(**by_argname)`    | Sweep one or more parameters across values (zip on multi-kwarg) |
+| `litmus_sweeps(**by_argname)`    | Sweep one or more parameters across values (zip on multi-kwarg) |
 | `litmus_limits(**by_name)`        | Limits by measurement name (supports `when:`-keyed bands)     |
 | `litmus_spec(characteristic=...)` | Bind the test to a product characteristic (spec context)      |
 | `litmus_connections(...)`         | Bind to explicit fixture connections or instrument-channel ranges |
-| `litmus_mock(target=..., ...)`    | Patch a method for the test (uses `unittest.mock.patch.object`) |
-| `litmus_prompt(message=...)`      | Manual operator setup at a lifecycle point                    |
+| `litmus_mocks([{target: ..., ...}, ...])` | Patch one or more methods for the test (uses `unittest.mock.patch.object`) |
+| `litmus_prompts(message=...)`      | Manual operator setup at a lifecycle point                    |
 | `litmus_retry(max_attempts=N)`    | Retry on transient failure (translates to `flaky` for pytest) |
 
 Markers can be authored three ways and all merge into the same cascade:
@@ -208,12 +208,13 @@ nested `tests:` for its methods).
 config:                                           # applied to every test in file
   - litmus_limits:
       output_voltage: {ref: output_voltage}       # delegates to product spec
-  - litmus_mock: {target: "dmm.measure_dc_voltage", return_value: 3.3}
+  - litmus_mocks:
+      - {target: "dmm.measure_dc_voltage", return_value: 3.3}
 
 tests:
   TestPowerRails:                                 # class branch
     config:
-      - litmus_vectors:
+      - litmus_sweeps:
           - {vin: [4.5, 5.0, 5.5]}                # outer loop
           - {load_current: [0.1, 0.4, 0.8]}       # inner loop
     tests:
@@ -333,7 +334,7 @@ Everything else is standard pytest — see <https://docs.pytest.org/en/stable/re
 2. Use `logger.measure` with inline kwargs or a sidecar `litmus_limits` marker for procedure-only measurements
 3. Use `context.changed()` to skip expensive reconfig across sweep iterations
 4. Prefer inline `@pytest.mark.litmus_limits` for code-owned sweeps; sidecar YAML for operator-edited sweeps
-5. Keep one measurement focus per test — let `litmus_vectors` expand sweeps, not in-function loops
+5. Keep one measurement focus per test — let `litmus_sweeps` expand sweeps, not in-function loops
 6. Never hardcode limits in `assert` — put them in a `litmus_limits` marker, sidecar, or product spec
 
 ## Same tests, different labs

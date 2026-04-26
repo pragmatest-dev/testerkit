@@ -53,15 +53,15 @@ Three things gain leverage:
    stays the truth when `--no-mock-instruments` points the rig at
    real hardware.
 
-## `litmus_mock` — per-test override
+## `litmus_mocks` — per-test override
 
 The station's `mock_config` declares a default return for each
 instrument method. Right shape for the happy path; useless for
-exercising fault paths. `litmus_mock` patches one method on one
-fixture for one test:
+exercising fault paths. `litmus_mocks` patches one or more methods
+on a fixture for one test:
 
 ```python
-@pytest.mark.litmus_mock(target="dmm.measure_dc_voltage", return_value=4.5)
+@pytest.mark.litmus_mocks([{"target": "dmm.measure_dc_voltage", "return_value": 4.5}])
 def test_ovp_path_inline(verify, psu, dmm):
     psu.set_voltage(5.0)
     verify("v_overvoltage", dmm.measure_dc_voltage())   # 4.5, not 3.31
@@ -72,7 +72,8 @@ Sidecar form (same effect, on `test_ovp_path_sidecar`):
 ```yaml
 test_ovp_path_sidecar:
   config:
-    - litmus_mock: {target: dmm.measure_dc_voltage, return_value: 4.5}
+    - litmus_mocks:
+        - {target: dmm.measure_dc_voltage, return_value: 4.5}
 ```
 
 The `v_overvoltage` band (`{low: 4.0, high: 5.0}`) is what makes
@@ -82,15 +83,15 @@ didn't fire. The marker forwards every kwarg except `target`
 straight to `unittest.mock.patch.object`, so `side_effect`,
 `wraps`, `spec`, `autospec`, `new_callable`, etc. all work.
 
-## `litmus_prompt` — operator in the loop
+## `litmus_prompts` — operator in the loop
 
 Hardware test routinely needs a human in the loop: confirm the DUT
 is seated, pick a fixture variant, acknowledge a high-voltage step.
 The `prompt` fixture resolves named entries declared by
-`litmus_prompt` markers anywhere in scope:
+`litmus_prompts` markers anywhere in scope:
 
 ```python
-@pytest.mark.litmus_prompt(
+@pytest.mark.litmus_prompts(
     pick_fixture={
         "message": "Pick a fixture variant",
         "prompt_type": "choice",
@@ -109,7 +110,7 @@ Sidecar form (same effect):
 ```yaml
 test_operator_choice_sidecar:
   config:
-    - litmus_prompt:
+    - litmus_prompts:
         pick_fixture:
           message: "Pick a fixture variant"
           prompt_type: choice

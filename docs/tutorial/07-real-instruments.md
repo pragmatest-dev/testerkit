@@ -77,13 +77,14 @@ When `--mock-instruments` is set:
 
 ## Per-Test Mock Values
 
-For tests that need specific mock values, use `litmus_mock` in the sidecar:
+For tests that need specific mock values, use `litmus_mocks` in the sidecar:
 
 ```yaml
 # tests/test_voltage.yaml
 config:
-  - litmus_mock: {target: dmm.measure_voltage, return_value: 3.31}
-  - litmus_mock: {target: psu.measure_current, return_value: 0.5}
+  - litmus_mocks:
+      - {target: dmm.measure_voltage, return_value: 3.31}
+      - {target: psu.measure_current, return_value: 0.5}
   - litmus_limits:
       test_output_voltage: {low: 3.2, high: 3.4, units: V}
 ```
@@ -92,7 +93,7 @@ config:
 
 When running with `--mock-instruments`, values are resolved in order:
 
-1. **`litmus_mock` marker** — Per-test mock value (sidecar or inline)
+1. **`litmus_mocks` marker** — Per-test mock values (sidecar or inline)
 2. **Station `mock_config`** — Default for this instrument
 3. **Zero** — If nothing else configured
 

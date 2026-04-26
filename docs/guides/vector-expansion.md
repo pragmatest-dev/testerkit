@@ -10,7 +10,7 @@ for temp in [-40, 25, 85]:               # outer — slow to change
             measure()
 ```
 
-`@pytest.mark.litmus_vectors` declares that nested loop without you
+`@pytest.mark.litmus_sweeps` declares that nested loop without you
 writing it. Each loop becomes one **test vector** — pytest runs your
 test once per combination, logs the values, and `context.changed("temp")`
 tells you when an outer loop just rolled over so you can do the
@@ -18,11 +18,11 @@ expensive setup (chamber soak) only when needed.
 
 Three places to declare vectors, all using the same shape:
 
-- **Inline Python** — `@pytest.mark.litmus_vectors(...)` on the test function
-- **Sidecar YAML** — `config: - litmus_vectors: [...]` next to the test file
+- **Inline Python** — `@pytest.mark.litmus_sweeps(...)` on the test function
+- **Sidecar YAML** — `config: - litmus_sweeps: [...]` next to the test file
 - **Profile YAML** — same shape, applied via the active profile (see [profiles guide](profiles.md))
 
-`litmus_vectors` is the **recommended** marker for new tests.
+`litmus_sweeps` is the **recommended** marker for new tests.
 Pytest's own `@pytest.mark.parametrize` keeps working unchanged for
 existing tests (chapter 1 of the curriculum). Don't *mix* the two on
 a single test — pick one.
@@ -36,33 +36,33 @@ a single test — pick one.
 Sweep one variable across some values. Test runs once per value:
 
 ```python
-@pytest.mark.litmus_vectors(vin=[3.3, 5.0, 5.5])
+@pytest.mark.litmus_sweeps(vin=[3.3, 5.0, 5.5])
 def test_x(vin): ...
 # 3 cases
 ```
 
 ```yaml
 config:
-  - litmus_vectors:
+  - litmus_sweeps:
       - {vin: [3.3, 5.0, 5.5]}
 ```
 
 ### Paired values (one loop, two variables stepping together)
 
 When you have a list of input/expected pairs (think: rows in a spec
-table), put both as kwargs in one `litmus_vectors`. The two lists
+table), put both as kwargs in one `litmus_sweeps`. The two lists
 **must be the same length**; mismatched lists raise a clear error
 right away, before pytest tries to run anything:
 
 ```python
-@pytest.mark.litmus_vectors(vin=[3.3, 5.0, 5.5], expected=[3.30, 3.31, 3.30])
+@pytest.mark.litmus_sweeps(vin=[3.3, 5.0, 5.5], expected=[3.30, 3.31, 3.30])
 def test_x(vin, expected): ...
 # 3 cases — vin and expected step together
 ```
 
 ```yaml
 config:
-  - litmus_vectors:
+  - litmus_sweeps:
       - {vin: [3.3, 5.0, 5.5], expected: [3.30, 3.31, 3.30]}
 ```
 
@@ -70,7 +70,7 @@ If you write `vin=[3, 4]` and `expected=[5, 6, 7]` (two vs three),
 pytest reports the mismatch at decoration time:
 
 ```
-litmus_vectors zip requires all argvalues to have the same length;
+litmus_sweeps zip requires all argvalues to have the same length;
 got {'vin': 2, 'expected': 3}
 ```
 
@@ -81,15 +81,15 @@ multiple list items in YAML. The order reads top-to-bottom as
 **outer-to-inner**:
 
 ```python
-@pytest.mark.litmus_vectors(temp=[-40, 25, 85])    # outer — changes 3 times
-@pytest.mark.litmus_vectors(vin=[3.3, 5.0, 5.5])    # inner — changes every test
+@pytest.mark.litmus_sweeps(temp=[-40, 25, 85])    # outer — changes 3 times
+@pytest.mark.litmus_sweeps(vin=[3.3, 5.0, 5.5])    # inner — changes every test
 def test_x(temp, vin): ...
 # 3 × 3 = 9 cases
 ```
 
 ```yaml
 config:
-  - litmus_vectors:
+  - litmus_sweeps:
       - {temp: [-40, 25, 85]}     # outer
       - {vin: [3.3, 5.0, 5.5]}     # inner
 ```
@@ -100,15 +100,15 @@ Combine the patterns: outer loop is a single variable, inner loop
 has paired values:
 
 ```python
-@pytest.mark.litmus_vectors(temp=[-40, 25, 85])
-@pytest.mark.litmus_vectors(vin=[3, 4], expected=[5, 6])  # paired
+@pytest.mark.litmus_sweeps(temp=[-40, 25, 85])
+@pytest.mark.litmus_sweeps(vin=[3, 4], expected=[5, 6])  # paired
 def test_x(temp, vin, expected): ...
 # 3 outer × 2 paired = 6 cases
 ```
 
 ```yaml
 config:
-  - litmus_vectors:
+  - litmus_sweeps:
       - {temp: [-40, 25, 85]}
       - {vin: [3, 4], expected: [5, 6]}
 ```
@@ -123,17 +123,17 @@ by hand. Put the **slow / expensive** parameter at the top so it
 changes least often:
 
 ```python
-@pytest.mark.litmus_vectors(temp=[-40, 25, 85])             # outer — 20-min soak per change, runs 3 times
-@pytest.mark.litmus_vectors(vin=[4.5, 5.0, 5.5])            # middle — 500-ms PSU settle, runs 9 times
-@pytest.mark.litmus_vectors(load=arange(0.0, 1.0, 0.2))     # inner — instant, runs 45 times
+@pytest.mark.litmus_sweeps(temp=[-40, 25, 85])             # outer — 20-min soak per change, runs 3 times
+@pytest.mark.litmus_sweeps(vin=[4.5, 5.0, 5.5])            # middle — 500-ms PSU settle, runs 9 times
+@pytest.mark.litmus_sweeps(load=arange(0.0, 1.0, 0.2))     # inner — instant, runs 45 times
 ```
 
 > **Note for pytest users:** this is **opposite** to
 > `@pytest.mark.parametrize`'s stacking convention, which puts the
 > bottom decorator at the outer loop. The pytest convention is a
-> well-known footgun; `litmus_vectors` flips it so your code reads
+> well-known footgun; `litmus_sweeps` flips it so your code reads
 > the way you'd write the equivalent nested `for` loop. (One of the
-> reasons `litmus_vectors` is its own marker rather than a rename.)
+> reasons `litmus_sweeps` is its own marker rather than a rename.)
 
 ### Skip expensive setup with `context.changed()`
 
@@ -142,9 +142,9 @@ differs from the previous test case. Pair this with the outer-to-inner
 ordering to set up expensive things only when they actually change:
 
 ```python
-@pytest.mark.litmus_vectors(temp=[-40, 25, 85])
-@pytest.mark.litmus_vectors(vin=[4.5, 5.0, 5.5])
-@pytest.mark.litmus_vectors(load=arange(0.0, 1.0, 0.2))
+@pytest.mark.litmus_sweeps(temp=[-40, 25, 85])
+@pytest.mark.litmus_sweeps(vin=[4.5, 5.0, 5.5])
+@pytest.mark.litmus_sweeps(load=arange(0.0, 1.0, 0.2))
 def test_load_regulation(temp, vin, load, context, psu, eload, chamber, dmm, spec):
     if context.changed("temp"):                       # 3 times in 45 cases
         chamber.set_temperature(temp)
@@ -180,24 +180,24 @@ and type checking) and equivalent dict-form generators for YAML:
 ```python
 from litmus import linspace, arange, logspace, repeat
 
-@pytest.mark.litmus_vectors(vin=linspace(3.3, 5.5, 11))     # 11 evenly-spaced
-@pytest.mark.litmus_vectors(freq=logspace(1, 6, 6))          # 10 Hz to 1 MHz
-@pytest.mark.litmus_vectors(load=arange(0.0, 1.0, 0.1))      # 0.0..0.9 step 0.1
-@pytest.mark.litmus_vectors(soak=repeat(5.0, 100))           # 100 copies of 5.0
-@pytest.mark.litmus_vectors(channel=list(range(1, 17)))      # channels 1..16
+@pytest.mark.litmus_sweeps(vin=linspace(3.3, 5.5, 11))     # 11 evenly-spaced
+@pytest.mark.litmus_sweeps(freq=logspace(1, 6, 6))          # 10 Hz to 1 MHz
+@pytest.mark.litmus_sweeps(load=arange(0.0, 1.0, 0.1))      # 0.0..0.9 step 0.1
+@pytest.mark.litmus_sweeps(soak=repeat(5.0, 100))           # 100 copies of 5.0
+@pytest.mark.litmus_sweeps(channel=list(range(1, 17)))      # channels 1..16
 ```
 
 ```yaml
 config:
-  - litmus_vectors:
+  - litmus_sweeps:
       - {vin: {linspace: [3.3, 5.5, 11]}}
-  - litmus_vectors:
+  - litmus_sweeps:
       - {freq: {logspace: [1, 6, 6]}}
 ```
 
 The dict-form generators work anywhere a list is expected — station
 channel arrays, fixture pin arrays, product spec conditions — not
-just inside `litmus_vectors`.
+just inside `litmus_sweeps`.
 
 ### Generated paired values
 
@@ -205,7 +205,7 @@ When two paired variables both come from generators, just put each
 as its own key. The list-length check catches mistakes:
 
 ```python
-@pytest.mark.litmus_vectors(
+@pytest.mark.litmus_sweeps(
     vin=linspace(3.3, 5.5, 5),           # 5 points
     expected=linspace(3.30, 3.32, 5),    # 5 points — pairs cleanly
 )
@@ -213,7 +213,7 @@ as its own key. The list-length check catches mistakes:
 
 ```yaml
 config:
-  - litmus_vectors:
+  - litmus_sweeps:
       - vin:      {linspace: [3.3, 5.5, 5]}
         expected: {linspace: [3.30, 3.32, 5]}
 ```
@@ -227,10 +227,10 @@ error pointing at the mismatch.
 
 | Inline Python | YAML |
 |---|---|
-| `litmus_vectors(vin=[3, 4])` | `litmus_vectors:`<br>`  - {vin: [3, 4]}` |
-| `litmus_vectors(vin=[3, 4], expected=[5, 6])` | `litmus_vectors:`<br>`  - {vin: [3, 4], expected: [5, 6]}` |
-| Two stacked decorators | `litmus_vectors:`<br>`  - {outer: [...]}`<br>`  - {inner: [...]}` |
-| `litmus_vectors(vin=linspace(3, 5, 5))` | `litmus_vectors:`<br>`  - {vin: {linspace: [3, 5, 5]}}` |
+| `litmus_sweeps(vin=[3, 4])` | `litmus_sweeps:`<br>`  - {vin: [3, 4]}` |
+| `litmus_sweeps(vin=[3, 4], expected=[5, 6])` | `litmus_sweeps:`<br>`  - {vin: [3, 4], expected: [5, 6]}` |
+| Two stacked decorators | `litmus_sweeps:`<br>`  - {outer: [...]}`<br>`  - {inner: [...]}` |
+| `litmus_sweeps(vin=linspace(3, 5, 5))` | `litmus_sweeps:`<br>`  - {vin: {linspace: [3, 5, 5]}}` |
 
 ---
 
@@ -242,7 +242,7 @@ the `vectors` fixture; Litmus pre-builds the full table and your
 test iterates it as one pytest case:
 
 ```python
-@pytest.mark.litmus_vectors(vin=linspace(3.3, 5.5, 5))
+@pytest.mark.litmus_sweeps(vin=linspace(3.3, 5.5, 5))
 def test_sweep(vectors, psu, dmm, verify):
     psu.enable_output()
     for v in vectors:
@@ -259,8 +259,8 @@ as in normal parametrized mode.
 
 | Scenario | Use |
 |---|---|
-| Code-owned sweep, IDE-friendly | Inline `@pytest.mark.litmus_vectors(...)` with `linspace` etc. |
-| Operator-edited sweep (no code deploy) | Sidecar `config: - litmus_vectors: ...` |
+| Code-owned sweep, IDE-friendly | Inline `@pytest.mark.litmus_sweeps(...)` with `linspace` etc. |
+| Operator-edited sweep (no code deploy) | Sidecar `config: - litmus_sweeps: ...` |
 | Different sweeps per scenario | Profile YAML (selected by CLI facet) |
 | Test owns the loop (amortize setup) | `vectors` fixture in the signature |
 | Input / expected pairs from a spec table | Paired values (multi-kwarg or multi-key) |

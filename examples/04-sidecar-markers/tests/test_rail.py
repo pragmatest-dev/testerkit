@@ -4,7 +4,7 @@ Compare ``tests/test_rail.py`` (this file) to ``tests/test_rail.yaml``.
 The YAML declares:
 
 * a file-wide ``litmus_limits`` for ``v_rail``
-* a per-test ``litmus_vectors`` on ``vin`` for the sweep
+* a per-test ``litmus_sweeps`` on ``vin`` for the sweep
 * a class-level ``litmus_limits`` for ``i_idle`` that every method in ``TestIdle`` inherits
 * a per-test ``litmus_retry`` on ``test_intermittent_glitch`` (sidecar
   form of the marker introduced inline in stage 2)

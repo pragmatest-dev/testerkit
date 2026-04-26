@@ -155,8 +155,10 @@ config:
 tests:
   TestMyProduct:
     config:
-      - litmus_vectors: {vin: [5.0]}
-      - litmus_mock: {target: dmm.measure_dc_voltage, return_value: 3.31}
+      - litmus_sweeps:
+          - {vin: [5.0]}
+      - litmus_mocks:
+          - {target: dmm.measure_dc_voltage, return_value: 3.31}
 ```
 
 ### Running Tests

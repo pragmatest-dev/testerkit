@@ -1,7 +1,7 @@
 # Stage 4 — Sidecar config
 
 Test config moved out of Python into a sibling YAML file. Same
-vocabulary as pytest decorators: `litmus_vectors`, `litmus_limits`.
+vocabulary as pytest decorators: `litmus_sweeps`, `litmus_limits`.
 The sidecar mirrors pytest's node-id structure: a file-level
 `config:` list plus a recursive `tests:` tree where classes are
 branches and functions are leaves.
@@ -43,7 +43,7 @@ config:                           # file-wide: applies to every test
 tests:
   test_rail_holds_across_input:   # module-level test (leaf)
     config:
-      - litmus_vectors:
+      - litmus_sweeps:
           - {vin: [...]}
 
   TestIdle:                       # class branch
@@ -60,7 +60,7 @@ tests:
 `TestIdle` is a regular pytest class. The methods share setup and a
 class-scoped `litmus_limits` entry. Think of a class as "this group
 of checks always runs together." Pytest fixture scoping, xunit-style
-setup/teardown, and `litmus_vectors` sweeps all work as they normally do.
+setup/teardown, and `litmus_sweeps` sweeps all work as they normally do.
 
 ## The gap this stage leaves
 

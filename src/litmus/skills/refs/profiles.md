@@ -28,7 +28,7 @@ config:                             # applied to every test in the session
 tests:                              # recursive tree mirroring pytest node ids
   TestRails:                        # class branch
     config:                         # applied to every method of TestRails
-      - litmus_vectors:
+      - litmus_sweeps:
           - {vin: [4.5, 5.0, 5.5]}
     tests:
       test_rail:                    # nested method (leaf)
@@ -65,7 +65,7 @@ alongside cross-check against the named profile's declared facets.
 
 A child profile inherits from a single parent via `extends:`. The chain
 walks parent-first; child markers last-wins on same marker name + first
-key (measurement name for `litmus_limits`, target for `litmus_mock`, etc).
+key (measurement name for `litmus_limits`, target for `litmus_mocks`, etc).
 
 ```yaml
 # profiles/power_family.yaml — parent; no facets → unselectable directly
@@ -112,13 +112,13 @@ One entry per line; each mirrors `@pytest.mark.<name>(...)`:
 | `- flaky`                                       | `@pytest.mark.flaky`                         |
 | `- skip: "reason"`                              | `@pytest.mark.skip("reason")`                |
 | `- skipif: "condition expr"`                    | `@pytest.mark.skipif(...)`                   |
-| `- litmus_vectors: [{vin: [4.5, 5.0]}]`         | `@pytest.mark.litmus_vectors(vin=[...])`     |
+| `- litmus_sweeps: [{vin: [4.5, 5.0]}]`         | `@pytest.mark.litmus_sweeps(vin=[...])`     |
 | `- flaky: {reruns: 2, delay: 1}`                | `@pytest.mark.flaky(reruns=2, delay=1)`      |
 | `- litmus_limits: {v_rail: {...}}`              | `@pytest.mark.litmus_limits(v_rail={...})`   |
 
 Ecosystem markers (`flaky`, `skipif`, `dependency`, …) work out of the
 box — each plugin's native handler fires because Litmus attaches the
-marker to the item. Use `litmus_vectors` (not `parametrize`) for
+marker to the item. Use `litmus_sweeps` (not `parametrize`) for
 sweeps; the YAML form is always a list of axis-group dicts.
 
 ## Per-test keys: qualified vs bare

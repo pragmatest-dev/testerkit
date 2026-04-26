@@ -212,14 +212,14 @@ key wins on overlap; non-overlapping passes through.
 import pytest
 
 
-@pytest.mark.litmus_vectors(vin=[4.5, 5.0, 5.5])
+@pytest.mark.litmus_sweeps(vin=[4.5, 5.0, 5.5])
 @pytest.mark.litmus_limits(output_voltage={"low": 3.135, "high": 3.465, "units": "V"})
 def test_example(vin, dmm, logger):
     logger.measure("output_voltage", dmm.measure_dc_voltage())
 ```
 
 Native `@pytest.mark.parametrize` keeps working unchanged. Use
-`litmus_vectors` when you want runner-neutral payloads (translates 1:1
+`litmus_sweeps` when you want runner-neutral payloads (translates 1:1
 to pytest, has a YAML form, supports range expanders).
 
 ### Sidecar YAML form
@@ -233,7 +233,7 @@ config:                         # file-wide; applies to every test
 tests:
   test_example:                 # leaf
     config:
-      - litmus_vectors:
+      - litmus_sweeps:
           - {vin: [4.5, 5.0, 5.5]}
 
   TestIdle:                     # class branch
@@ -242,15 +242,16 @@ tests:
     tests:
       test_quiescent:           # nested leaf
         config:
-          - litmus_mock: {target: dmm.measure_dc_current, return_value: 0.05}
+          - litmus_mocks:
+              - {target: dmm.measure_dc_current, return_value: 0.05}
 ```
 
 The shape mirrors pytest's `file::Class::method` node IDs: a class is a
 branch with its own `config:` plus a nested `tests:` dict; a function
 is a leaf with `config:` only. See the
 [pytest-native reference](pytest-native.md) for the full marker
-catalog (`litmus_vectors`, `litmus_limits`, `litmus_mock`,
-`litmus_spec`, `litmus_connections`, `litmus_prompt`, `litmus_retry`).
+catalog (`litmus_sweeps`, `litmus_limits`, `litmus_mocks`,
+`litmus_spec`, `litmus_connections`, `litmus_prompts`, `litmus_retry`).
 
 ### Retries
 
@@ -271,14 +272,14 @@ def test_flaky(dmm, logger): ...
 
 ### Vector shape
 
-`litmus_vectors` payloads are always a **list of axis-group dicts**.
+`litmus_sweeps` payloads are always a **list of axis-group dicts**.
 Each top-level dict in the list is one independent loop; multi-key
 dicts inside one entry zip together; stacked entries cross-product
 (top entry = outermost / slowest loop).
 
 ```yaml
 config:
-  - litmus_vectors:
+  - litmus_sweeps:
       - {temperature: [25, 85]}              # outer loop — slow
       - {vin: [3.3, 5.0, 12.0]}              # middle loop
       - {load_a: [0.1, 0.4], load_b: [10, 20]}  # zipped — same length
@@ -289,7 +290,7 @@ Range expanders (`linspace`, `arange`, `logspace`, `geomspace`,
 
 ```yaml
 config:
-  - litmus_vectors:
+  - litmus_sweeps:
       - {voltage: {linspace: [3.0, 5.0, 5]}}   # 3.0, 3.5, 4.0, 4.5, 5.0
 ```
 
@@ -410,7 +411,7 @@ profiles:                     # Named config sets — see docs/guides/profiles.m
     tests:                    # Recursive tree mirroring pytest node IDs
       TestRails:              # class branch
         config:               # applied to every TestRails method
-          - litmus_vectors:
+          - litmus_sweeps:
               - {vin: [4.5, 5.0, 5.5]}
         tests:
           test_rail:          # nested leaf
