@@ -187,6 +187,57 @@ class SidecarConfig(BaseModel):
 
 
 # =============================================================================
+# Typed test config (forthcoming — replaces ConfigEntry list shape)
+# =============================================================================
+#
+# These models define the dict-shaped ``config:`` schema that will replace
+# the current ``list[ConfigEntry]`` shape. They are additive at this
+# point — no caller imports them yet. Subsequent commits will wire them
+# through sidecar.py / plugin.py / examples / docs.
+#
+# Schema shape matches the ROADMAP entry "YAML schema generalization":
+#   * `config:` becomes a dict of typed Litmus-marker entries
+#   * `runner:` is opaque dict[str, Any] validated by the active runner
+#   * sidecar/profile/test-entry all carry both `config:` and `runner:`
+#
+# Per-Litmus-marker validation details (band resolution for limits,
+# range expansion for sweeps, etc.) stay in the plugin layer — these
+# Pydantic models enforce structural shape only, mirroring the
+# Litmus-core/runner-plugin two-tier validation pattern.
+
+
+class TestConfig(BaseModel):
+    """Runner-neutral test config — one entry per Litmus concept.
+
+    Key/value shapes match the marker family rule:
+      * **Named entities** (user-typed identifiers) → dict-keyed-by-name:
+        ``limits``, ``prompts``.
+      * **Anonymous / positional entries** → list of dicts:
+        ``sweeps``, ``mocks``.
+      * **Single config / policy** → singleton dict (or ``None``):
+        ``connections``, ``retry``.
+      * **List of identifier strings** → list of strings: ``specs``.
+
+    Detailed per-entry validation (limit-band parsing, mock-target
+    extraction, etc.) happens in plugin handlers; this model enforces
+    structural shape only. Top-level ``extra="forbid"`` catches typos
+    in marker names before they get silently ignored.
+    """
+
+    __test__ = False  # Prevent pytest collection
+
+    model_config = {"extra": "forbid"}
+
+    limits: dict[str, dict[str, Any]] = Field(default_factory=dict)
+    sweeps: list[dict[str, Any]] = Field(default_factory=list)
+    mocks: list[dict[str, Any]] = Field(default_factory=list)
+    specs: list[str] = Field(default_factory=list)
+    connections: dict[str, Any] | None = None
+    retry: dict[str, Any] | None = None
+    prompts: dict[str, dict[str, Any]] = Field(default_factory=dict)
+
+
+# =============================================================================
 # Limits & Specifications
 # =============================================================================
 
