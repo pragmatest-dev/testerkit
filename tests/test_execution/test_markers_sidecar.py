@@ -1,4 +1,4 @@
-"""End-to-end coverage of the sidecar ``markers:`` shape.
+"""End-to-end coverage of the sidecar marker-scope shape.
 
 File-level / class-level / per-test scopes, marker merging across
 scopes, stacked parametrize cross-product, and collection-time errors
@@ -24,7 +24,7 @@ _INI = textwrap.dedent(
 
 
 def test_stacked_parametrize_cross_products(pytester: pytest.Pytester) -> None:
-    """Two ``parametrize:`` entries with distinct argnames cross-product."""
+    """Two ``parametrize:`` runner.markers entries with distinct argnames cross-product."""
     pytester.makeini(_INI)
     pytester.makepyfile(
         test_seq=textwrap.dedent(
@@ -39,9 +39,10 @@ def test_stacked_parametrize_cross_products(pytester: pytest.Pytester) -> None:
             """
             tests:
               test_rail:
-                config:
-                  - parametrize: ["vin", [3.3, 5.0]]
-                  - parametrize: ["load", [0.1, 0.8]]
+                runner:
+                  markers:
+                    - parametrize: ["vin", [3.3, 5.0]]
+                    - parametrize: ["load", [0.1, 0.8]]
             """
         )
     )
@@ -65,9 +66,10 @@ def test_overlapping_argnames_is_an_error(pytester: pytest.Pytester) -> None:
             """
             tests:
               test_rail:
-                config:
-                  - parametrize: ["vin", [3.3, 5.0]]
-                  - parametrize: ["vin", [6.0, 7.0]]
+                runner:
+                  markers:
+                    - parametrize: ["vin", [3.3, 5.0]]
+                    - parametrize: ["vin", [6.0, 7.0]]
             """
         )
     )
@@ -76,7 +78,7 @@ def test_overlapping_argnames_is_an_error(pytester: pytest.Pytester) -> None:
 
 
 def test_file_level_markers_apply_to_every_test(pytester: pytest.Pytester) -> None:
-    """A file-root ``markers:`` list applies to every test in the module."""
+    """A file-root ``config.limits`` applies to every test in the module."""
     pytester.makeini(_INI)
     pytester.makepyfile(
         test_seq=textwrap.dedent(
@@ -92,9 +94,8 @@ def test_file_level_markers_apply_to_every_test(pytester: pytest.Pytester) -> No
     (pytester.path / "test_seq.yaml").write_text(
         textwrap.dedent(
             """
-            config:
-              - litmus_limits:
-                  v_rail: {low: 3.2, high: 3.4, units: V}
+            limits:
+              v_rail: {low: 3.2, high: 3.4, units: V}
             """
         )
     )
@@ -103,7 +104,7 @@ def test_file_level_markers_apply_to_every_test(pytester: pytest.Pytester) -> No
 
 
 def test_per_test_marker_tightens_file_level(pytester: pytest.Pytester) -> None:
-    """Per-test ``litmus_limits`` for the same name overrides file-level."""
+    """Per-test ``limits`` for the same name overrides file-level."""
     pytester.makeini(_INI)
     pytester.makepyfile(
         test_seq=textwrap.dedent(
@@ -121,14 +122,12 @@ def test_per_test_marker_tightens_file_level(pytester: pytest.Pytester) -> None:
     (pytester.path / "test_seq.yaml").write_text(
         textwrap.dedent(
             """
-            config:
-              - litmus_limits:
-                  v_rail: {low: 3.0, high: 3.6, units: V}
+            limits:
+              v_rail: {low: 3.0, high: 3.6, units: V}
             tests:
               test_tight:
-                config:
-                  - litmus_limits:
-                      v_rail: {low: 3.2, high: 3.4, units: V}
+                limits:
+                  v_rail: {low: 3.2, high: 3.4, units: V}
             """
         )
     )
@@ -137,7 +136,7 @@ def test_per_test_marker_tightens_file_level(pytester: pytest.Pytester) -> None:
 
 
 def test_class_scoped_markers_apply_to_every_method(pytester: pytest.Pytester) -> None:
-    """``classes.TestX.markers`` applies to every method of TestX."""
+    """``tests.TestX.config`` applies to every method of TestX."""
     pytester.makeini(_INI)
     pytester.makepyfile(
         test_seq=textwrap.dedent(
@@ -156,9 +155,8 @@ def test_class_scoped_markers_apply_to_every_method(pytester: pytest.Pytester) -
             """
             tests:
               TestRails:
-                config:
-                  - litmus_limits:
-                      v_rail: {low: 3.2, high: 3.4, units: V}
+                limits:
+                  v_rail: {low: 3.2, high: 3.4, units: V}
             """
         )
     )
@@ -167,7 +165,7 @@ def test_class_scoped_markers_apply_to_every_method(pytester: pytest.Pytester) -
 
 
 def test_qualified_test_entry_tightens_class_level(pytester: pytest.Pytester) -> None:
-    """``tests.TestRails.test_strict`` overrides the class-level band."""
+    """``tests.TestRails.tests.test_strict`` overrides the class-level band."""
     pytester.makeini(_INI)
     pytester.makepyfile(
         test_seq=textwrap.dedent(
@@ -186,14 +184,12 @@ def test_qualified_test_entry_tightens_class_level(pytester: pytest.Pytester) ->
             """
             tests:
               TestRails:
-                config:
-                  - litmus_limits:
-                      v_rail: {low: 3.0, high: 3.6, units: V}
+                limits:
+                  v_rail: {low: 3.0, high: 3.6, units: V}
                 tests:
                   test_strict:
-                    config:
-                      - litmus_limits:
-                          v_rail: {low: 3.2, high: 3.4, units: V}
+                    limits:
+                      v_rail: {low: 3.2, high: 3.4, units: V}
             """
         )
     )
@@ -202,7 +198,7 @@ def test_qualified_test_entry_tightens_class_level(pytester: pytest.Pytester) ->
 
 
 def test_per_test_mock_tightens_file_level(pytester: pytest.Pytester) -> None:
-    """Per-test ``litmus_mocks`` for the same target overrides file-level."""
+    """Per-test ``mocks`` for the same target overrides file-level."""
     pytester.makeini(_INI)
     pytester.makepyfile(
         test_seq=textwrap.dedent(
@@ -230,14 +226,12 @@ def test_per_test_mock_tightens_file_level(pytester: pytest.Pytester) -> None:
     (pytester.path / "test_seq.yaml").write_text(
         textwrap.dedent(
             """
-            config:
-              - litmus_mocks:
-                  - {target: "dmm.read", return_value: 1.1}
+            mocks:
+              - {target: "dmm.read", return_value: 1.1}
             tests:
               test_per_test:
-                config:
-                  - litmus_mocks:
-                      - {target: "dmm.read", return_value: 2.2}
+                mocks:
+                  - {target: "dmm.read", return_value: 2.2}
 """
         )
     )
@@ -278,13 +272,11 @@ def test_litmus_mocks_forwards_side_effect(pytester: pytest.Pytester) -> None:
             """
             tests:
               test_side_effect_iterable:
-                config:
-                  - litmus_mocks:
-                      - {target: "dmm.read", side_effect: [1.0, 2.0, 3.0]}
+                mocks:
+                  - {target: "dmm.read", side_effect: [1.0, 2.0, 3.0]}
               test_return_value_list_is_returned_as_list:
-                config:
-                  - litmus_mocks:
-                      - {target: "dmm.read", return_value: [1.0, 2.0, 3.0]}
+                mocks:
+                  - {target: "dmm.read", return_value: [1.0, 2.0, 3.0]}
 """
         )
     )
@@ -308,8 +300,9 @@ def test_range_expander_in_parametrize_argvalues(pytester: pytest.Pytester) -> N
             """
             tests:
               test_sweep:
-                config:
-                  - parametrize: ["vin", {linspace: [4.5, 5.5, 11]}]
+                runner:
+                  markers:
+                    - parametrize: ["vin", {linspace: [4.5, 5.5, 11]}]
             """
         )
     )
@@ -318,7 +311,7 @@ def test_range_expander_in_parametrize_argvalues(pytester: pytest.Pytester) -> N
 
 
 def test_litmus_retry_translates_to_flaky(pytester: pytest.Pytester) -> None:
-    """``litmus_retry`` translates to pytest-rerunfailures' ``flaky`` marker."""
+    """``retry`` translates to pytest-rerunfailures' ``flaky`` marker."""
     pytester.makeini(_INI)
     pytester.makepyfile(
         test_seq=textwrap.dedent(
@@ -337,8 +330,7 @@ def test_litmus_retry_translates_to_flaky(pytester: pytest.Pytester) -> None:
             """
             tests:
               test_eventually_passes:
-                config:
-                  - litmus_retry: {max_attempts: 3}
+                retry: {max_attempts: 3}
             """
         )
     )
@@ -385,8 +377,7 @@ def test_litmus_retry_rejects_unknown_kwargs(pytester: pytest.Pytester) -> None:
             """
             tests:
               test_x:
-                config:
-                  - litmus_retry: {max_attempts: 3, mystery_kwarg: 1}
+                retry: {max_attempts: 3, mystery_kwarg: 1}
             """
         )
     )

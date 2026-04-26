@@ -14,7 +14,7 @@ import pytest
 
 from litmus.config.test_config import (
     FixtureConfig,
-    MarkerSpec,
+    TestEntry,
 )
 from litmus.data.models import CollectedItem, TestRun, TestVector
 from litmus.execution._state import (
@@ -402,8 +402,7 @@ def pytest_collection_modifyitems(config, items: list[pytest.Item]) -> None:
     The snapshot captures markers **after** profile injection, so the
     manifest reflects the effective marker set.
     """
-    _apply_sidecar_to_items(items)
-    _apply_profile_to_items(config, items)
+    _apply_cascade_to_items(items)
     _translate_retry_markers(items)
 
     collected = []
@@ -520,46 +519,112 @@ def _warn_unmatched_profile_keys(items: list[pytest.Item]) -> None:
     )
 
 
-def _apply_profile_to_items(config, items: list[pytest.Item]) -> None:
-    """Inject profile markers onto items from the three profile scopes.
+_LITMUS_MARKER_NAMES: tuple[str, ...] = (
+    "litmus_limits",
+    "litmus_sweeps",
+    "litmus_mocks",
+    "litmus_specs",
+    "litmus_connections",
+    "litmus_retry",
+    "litmus_prompts",
+)
 
-    Filter composition (``keyword``, ``markexpr``) happens in
-    ``install_active_profile`` during ``pytest_configure``; this step
-    only handles per-item marker injection, which must happen at
-    collection time. Accumulates file-level + class + per-test markers
-    via :func:`_profile_markers_for_item`.
+
+def _enforce_no_inline_stacking(item: pytest.Item) -> None:
+    """Raise ``pytest.UsageError`` if an item carries duplicate inline ``litmus_X`` decorators.
+
+    Counts only ``own_markers`` (function-level decorators). Class-level
+    ``pytestmark`` and method-level decorators are different scopes and
+    legitimately stack via the cascade. ``parametrize`` is exempt —
+    pytest's native stacking semantic stays.
     """
-    if get_active_profile() is None:
-        return
-    for item in items:
-        for spec in _profile_markers_for_item(item):
-            marker = getattr(pytest.mark, spec.name)
-            item.add_marker(marker(*spec.args, **spec.kwargs))
+    counts: dict[str, int] = {}
+    for marker in item.own_markers:
+        if marker.name in _LITMUS_MARKER_NAMES:
+            counts[marker.name] = counts.get(marker.name, 0) + 1
+    duplicates = [name for name, n in counts.items() if n > 1]
+    if duplicates:
+        raise pytest.UsageError(
+            f"{item.nodeid}: stacked Litmus markers not allowed: "
+            f"{sorted(duplicates)}. Consolidate into one marker per type — "
+            "multi-entry payloads (list of dicts for sweeps/mocks, multiple "
+            "kwargs for limits/prompts) are supported on a single marker."
+        )
 
 
-def _apply_sidecar_to_items(items: list[pytest.Item]) -> None:
-    """Attach sidecar file + class + per-test markers to each item.
+def _apply_entry_markers(item: pytest.Item, entry: TestEntry) -> None:
+    """Inject one marker per non-empty Litmus field plus runner.markers.
 
-    Skips ``parametrize`` markers — those are consumed by
-    :func:`pytest_generate_tests` and must not be re-applied here, or
-    pytest would see two parametrize markers per axis.
+    Each Litmus field maps to a single ``litmus_X`` marker on the item.
+    The ``runner.markers`` list (ecosystem markers from the active
+    runner's namespace) is applied per entry, except ``parametrize``
+    which is consumed by :func:`pytest_generate_tests`.
     """
+    if entry.limits:
+        item.add_marker(pytest.mark.litmus_limits(**entry.limits))
+    if entry.sweeps:
+        item.add_marker(pytest.mark.litmus_sweeps(list(entry.sweeps)))
+    if entry.mocks:
+        item.add_marker(pytest.mark.litmus_mocks(list(entry.mocks)))
+    if entry.specs:
+        item.add_marker(pytest.mark.litmus_specs(list(entry.specs)))
+    if entry.connections is not None:
+        item.add_marker(pytest.mark.litmus_connections(**entry.connections))
+    if entry.retry is not None:
+        item.add_marker(pytest.mark.litmus_retry(**entry.retry))
+    if entry.prompts:
+        item.add_marker(pytest.mark.litmus_prompts(**entry.prompts))
+
+    for marker_entry in entry.runner.get("markers", []) or []:
+        if not isinstance(marker_entry, dict) or len(marker_entry) != 1:
+            raise pytest.UsageError(
+                f"runner.markers entries must be single-key dicts; got {marker_entry!r}"
+            )
+        ((name, payload),) = marker_entry.items()
+        if name == "parametrize":
+            continue  # consumed by pytest_generate_tests
+        marker = getattr(pytest.mark, name)
+        if isinstance(payload, dict):
+            item.add_marker(marker(**payload))
+        elif isinstance(payload, list):
+            item.add_marker(marker(*payload))
+        elif payload is None:
+            item.add_marker(marker)
+        else:
+            item.add_marker(marker(payload))
+
+
+def _cascade_for_item(item: pytest.Item) -> TestEntry:
+    """Return the merged :class:`TestEntry` for ``item`` from sidecar + profile cascade.
+
+    Sidecar walks file → class → leaf; profile walks root → class →
+    leaf with last-wins per field. Profile cascade applies after
+    sidecar so profile selections override sidecar defaults.
+    """
+    merged = TestEntry()
+
+    if isinstance(item, pytest.Function):
+        module = getattr(item, "module", None)
+        module_file = getattr(module, "__file__", None)
+        cls_name, func_name = _node_cls_func(item)
+        if module_file is not None:
+            sidecar = _load_sidecar(Path(module_file))
+            if sidecar is not None:
+                _merge_entry_into(merged, _merged_test_entry(sidecar, cls_name, func_name))
+
+        profile = get_active_profile()
+        if profile is not None:
+            _merge_entry_into(merged, _merged_test_entry(profile, cls_name, func_name))
+    return merged
+
+
+def _apply_cascade_to_items(items: list[pytest.Item]) -> None:
+    """Apply sidecar + profile cascade as Litmus + ecosystem markers per item."""
     for item in items:
         if not isinstance(item, pytest.Function):
             continue
-        module = getattr(item, "module", None)
-        module_file = getattr(module, "__file__", None)
-        if module_file is None:
-            continue
-        sidecar = _load_sidecar(Path(module_file))
-        if sidecar is None:
-            continue
-        cls_name, func_name = _node_cls_func(item)
-        for spec in _sidecar_markers_for(sidecar, cls_name, func_name):
-            if spec.name == "parametrize":
-                continue
-            marker = getattr(pytest.mark, spec.name)
-            item.add_marker(marker(*spec.args, **spec.kwargs))
+        _enforce_no_inline_stacking(item)
+        _apply_entry_markers(item, _cascade_for_item(item))
 
 
 def pytest_sessionfinish(session, exitstatus):
@@ -1888,25 +1953,6 @@ def sync(logger):
 # with submodules that import this plugin.
 from litmus.execution.vectors import Vector  # noqa: E402
 
-
-def _profile_markers_for_item(item: pytest.Item) -> list[MarkerSpec]:
-    """Return accumulated profile markers for ``item``: file-level + class + per-test.
-
-    Walks the profile's recursive ``tests:`` tree (same shape and walker
-    as a sidecar): root ``markers`` → class branch's ``markers`` → leaf
-    ``markers``. A nested ``tests[Class].tests[method]`` leaf wins over
-    a bare ``tests[method]`` shorthand.
-    """
-    profile = get_active_profile()
-    if profile is None:
-        return []
-    if not isinstance(item, pytest.Function):
-        return list(profile.config)
-    cls = getattr(item, "cls", None)
-    cls_name = cls.__name__ if cls is not None else None
-    return _sidecar_markers_for(profile, cls_name, item.originalname)
-
-
 # StashKey for the self-loop vectors matrix. Populated by
 # :func:`pytest_generate_tests` whenever the test signature asks for the
 # ``vectors`` fixture: the full pre-expanded matrix (native parametrize ×
@@ -1916,121 +1962,111 @@ def _profile_markers_for_item(item: pytest.Item) -> list[MarkerSpec]:
 _VECTORS_MATRIX_KEY: pytest.StashKey[dict[str, list[Vector]]] = pytest.StashKey()
 
 
-def _expand_litmus_sweeps(marker: MarkerSpec) -> list[MarkerSpec]:
-    """Translate a ``litmus_sweeps`` marker into parametrize-shaped MarkerSpec(s).
+def _normalize_inline_list_payload(
+    name: str, args: tuple[Any, ...], kwargs: dict[str, Any]
+) -> list[dict[str, Any]]:
+    """Normalize varargs-of-dicts or single-list-arg into a canonical list of dicts.
 
-    The marker payload is a single positional list argument: a list of
-    sweep dicts where each dict is one nesting level. Inline and YAML
-    are structurally identical:
+    Used by inline ``@pytest.mark.litmus_sweeps`` / ``litmus_mocks`` /
+    ``litmus_specs`` payload extraction. YAML produces the canonical
+    list shape directly; inline accepts either a single list or
+    pytest-style varargs (parametrize-style) for ergonomic stacking
+    of single-entry markers.
+    """
+    if kwargs:
+        raise pytest.UsageError(
+            f"{name} does not accept keyword arguments; pass a list of "
+            "dicts as one positional argument or varargs of dicts."
+        )
+    if not args:
+        raise pytest.UsageError(f"{name} requires at least one entry.")
+    if len(args) == 1 and isinstance(args[0], list):
+        payload = args[0]
+    elif all(isinstance(a, dict) for a in args):
+        payload = list(args)
+    else:
+        raise pytest.UsageError(
+            f"{name} payload must be a single list of dicts or varargs of dicts; got {args!r}"
+        )
+    for entry in payload:
+        if not isinstance(entry, dict):
+            raise pytest.UsageError(f"{name} entries must be dicts; got {entry!r}")
+    return list(payload)
 
-    * Inline: ``@pytest.mark.litmus_sweeps([{vin: [3.3, 5.0]}, {load: [0.1]}])``
-    * YAML:   ``- litmus_sweeps: [{vin: [3.3, 5.0]}, {load: [0.1]}]``
 
-    Each sweep dict becomes one ``metafunc.parametrize`` call; pytest
-    cross-products multiple parametrize calls.
+def _sweeps_to_parametrize_calls(
+    sweeps: list[dict[str, Any]],
+) -> list[tuple[str, list[Any]]]:
+    """Translate sweep dicts to ``(argnames_str, argvalues)`` parametrize args.
 
     **Sweep dict rules** (one dict per nesting level):
 
     * **Single key** = one plain axis. ``{vin: [3.3, 5.0, 5.5]}``
       produces ``parametrize("vin", [3.3, 5.0, 5.5])``.
-
     * **Multi-key** = one **zipped** axis (paired). All argvalues lists
-      must have the same length — dimensional coherence is enforced at
-      decoration / YAML-load time. ``{vin: [3, 4], vout: [5, 6]}``
-      produces ``parametrize("vin,vout", [[3, 5], [4, 6]])``.
-
-    **Nesting** comes from list order — top of the list = outer (slowest)
-    loop. With iter order inverted in :func:`pytest_generate_tests`,
-    multiple stacked ``litmus_sweeps`` markers concatenate their lists
-    (decorator nearest the function = innermost lists).
-
-    Divergences from pytest's ``parametrize``:
-
-    1. Top entry = outer (parametrize: bottom decorator = outer)
-    2. Multi-key dict = zip (parametrize: doesn't accept kwargs at all;
-       multi-arg via comma-string)
-    3. Dim check at decoration time (parametrize: silent shape errors
-       at runtime)
-    4. Single canonical list-of-dicts shape inline AND in YAML
-       (parametrize: positional only, no YAML form at all)
+      must have the same length — dim coherence is enforced at
+      decoration / YAML-load time.
     """
-    if marker.name != "litmus_sweeps":
-        return [marker]
-
-    if marker.kwargs:
-        raise pytest.UsageError(
-            "litmus_sweeps does not accept keyword arguments; pass a list "
-            f"of sweep dicts as the single positional argument. Got kwargs: {dict(marker.kwargs)!r}"
-        )
-    if len(marker.args) != 1:
-        raise pytest.UsageError(
-            "litmus_sweeps takes exactly one positional argument: a list of "
-            f"sweep dicts. Got {len(marker.args)} args: {marker.args!r}"
-        )
-    payload = marker.args[0]
-    if not isinstance(payload, list):
-        raise pytest.UsageError(
-            "litmus_sweeps payload must be a list of sweep dicts; "
-            f"got {type(payload).__name__}: {payload!r}"
-        )
-
-    axis_groups: list[dict[str, Any]] = []
-    for entry in payload:
-        if not isinstance(entry, dict):
-            raise pytest.UsageError(
-                f"litmus_sweeps list entries must be dicts (e.g. ``{{vin: [...]}}``); got {entry!r}"
-            )
-        axis_groups.append(entry)
-
-    if not axis_groups:
-        raise pytest.UsageError("litmus_sweeps requires at least one sweep dict in the list.")
-
-    out: list[MarkerSpec] = []
-    for group in axis_groups:
+    out: list[tuple[str, list[Any]]] = []
+    for group in sweeps:
         argnames = list(group.keys())
         argvalues_lists = list(group.values())
-
-        # All argvalues must be lists.
         bad = [(n, type(v).__name__) for n, v in group.items() if not isinstance(v, list)]
         if bad:
-            raise pytest.UsageError(
-                f"litmus_sweeps argvalues must be lists; got non-list types: {bad!r}"
-            )
-
-        # Multi-key = zip; dimensional coherence required.
+            raise pytest.UsageError(f"sweeps argvalues must be lists; got non-list types: {bad!r}")
         if len(argnames) > 1:
             lengths = {len(v) for v in argvalues_lists}
             if len(lengths) > 1:
                 sizes = {n: len(v) for n, v in group.items()}
                 raise pytest.UsageError(
-                    f"litmus_sweeps zip requires all argvalues to have the same length; got {sizes}"
+                    f"sweeps zip requires all argvalues to have the same length; got {sizes}"
                 )
-
         if len(argnames) == 1:
-            argname_str = argnames[0]
-            argvalues: list = argvalues_lists[0]
+            out.append((argnames[0], list(argvalues_lists[0])))
         else:
             argname_str = ",".join(argnames)
             argvalues = [list(t) for t in zip(*argvalues_lists, strict=True)]
-
-        out.append(MarkerSpec(name="parametrize", args=[argname_str, argvalues]))
-
+            out.append((argname_str, argvalues))
     return out
 
 
-def _sidecar_parametrize_markers_for_metafunc(
-    metafunc: pytest.Metafunc,
-) -> list[MarkerSpec]:
-    """Collect sidecar + profile parametrize / litmus_sweeps markers.
+def _runner_parametrize_calls(
+    runner: dict[str, Any],
+) -> list[tuple[Any, list[Any], dict[str, Any]]]:
+    """Extract ``parametrize`` entries from a merged ``runner.markers`` list.
 
-    Returns the expanded set of parametrize-shaped markers from, in
-    merge order: sidecar (file-level → class branch → leaf) → profile
-    chain (same walk). ``litmus_sweeps`` markers fan out to one
-    parametrize-shaped entry per sweep dict in the list. Inline
-    ``@pytest.mark.parametrize`` decorators on the function are
-    intentionally excluded — pytest's built-in hook already applies
-    those. This list is applied on top via :meth:`metafunc.parametrize`
-    calls, stacking with different argnames per entry.
+    Runner markers are single-key dicts; for ``parametrize`` the payload
+    is either ``[argnames, argvalues]`` or ``{argnames, argvalues, ...}``.
+    Returns ``(argnames, argvalues, extra_kwargs)`` triples in declared
+    order.
+    """
+    out: list[tuple[Any, list[Any], dict[str, Any]]] = []
+    for entry in runner.get("markers", []) or []:
+        if not isinstance(entry, dict) or len(entry) != 1:
+            continue
+        ((name, payload),) = entry.items()
+        if name != "parametrize":
+            continue
+        if isinstance(payload, list) and len(payload) >= 2:
+            out.append((payload[0], list(payload[1]), {}))
+        elif isinstance(payload, dict):
+            argnames = payload.get("argnames")
+            argvalues = payload.get("argvalues")
+            extra = {k: v for k, v in payload.items() if k not in ("argnames", "argvalues")}
+            if argnames is not None and argvalues is not None:
+                out.append((argnames, list(argvalues), extra))
+    return out
+
+
+def _cascade_parametrize_for_metafunc(
+    metafunc: pytest.Metafunc,
+) -> list[tuple[Any, list[Any], dict[str, Any]]]:
+    """Collect sidecar + profile parametrize calls (sweeps + runner.markers parametrize).
+
+    Returns ``(argnames, argvalues, extra_kwargs)`` triples ordered for
+    sequential :meth:`metafunc.parametrize` application. Sidecar entries
+    come before profile entries; within each origin, sweeps come before
+    explicit runner.markers parametrize entries.
     """
     module_file = getattr(metafunc.module, "__file__", None)
     sidecar = _load_sidecar(Path(module_file)) if module_file is not None else None
@@ -2038,70 +2074,67 @@ def _sidecar_parametrize_markers_for_metafunc(
     cls_name = cls.__name__ if cls is not None else None
     func_name = metafunc.function.__name__
 
-    merged: list[MarkerSpec] = list(_sidecar_markers_for(sidecar, cls_name, func_name))
+    s_entry = _merged_test_entry(sidecar, cls_name, func_name)
     profile = get_active_profile()
-    if profile is not None:
-        merged.extend(_sidecar_markers_for(profile, cls_name, func_name))
+    p_entry = (
+        _merged_test_entry(profile, cls_name, func_name) if profile is not None else TestEntry()
+    )
 
-    expanded: list[MarkerSpec] = []
-    for m in merged:
-        if m.name == "litmus_sweeps":
-            expanded.extend(_expand_litmus_sweeps(m))
-        elif m.name == "parametrize":
-            expanded.append(m)
-    return expanded
+    out: list[tuple[Any, list[Any], dict[str, Any]]] = []
+    for argnames, argvalues in _sweeps_to_parametrize_calls(list(s_entry.sweeps)):
+        out.append((argnames, argvalues, {}))
+    out.extend(_runner_parametrize_calls(s_entry.runner))
+    for argnames, argvalues in _sweeps_to_parametrize_calls(list(p_entry.sweeps)):
+        out.append((argnames, argvalues, {}))
+    out.extend(_runner_parametrize_calls(p_entry.runner))
+    return out
 
 
 @pytest.hookimpl(tryfirst=True)
 def pytest_generate_tests(metafunc: pytest.Metafunc) -> None:
-    """Expand parametrize markers from sidecar + profile scopes.
+    """Expand parametrize entries from inline + sidecar + profile scopes.
 
-    The sidecar and profile ``markers:`` lists may contain ``parametrize``
-    entries. This hook applies each one via :meth:`metafunc.parametrize`,
-    stacking with inline ``@pytest.mark.parametrize`` decorators (which
-    pytest's built-in hook already processes). Different argnames per
-    entry are required by pytest — overlap raises a collection-time
+    Sources:
+      * Inline ``@pytest.mark.litmus_sweeps(...)`` decorators.
+      * Sidecar ``config.sweeps`` and ``runner.markers`` parametrize entries.
+      * Profile ``config.sweeps`` and ``runner.markers`` parametrize entries.
+
+    This hook applies each as :meth:`metafunc.parametrize`, stacking
+    with inline ``@pytest.mark.parametrize`` decorators (which pytest's
+    built-in hook already processes). Different argnames per entry are
+    required by pytest — overlap raises a collection-time
     :class:`pytest.UsageError`.
 
     Self-loop mode (``vectors`` fixture in signature): parametrize
-    markers from inline + sidecar + profile are consumed instead of
+    calls from inline + sidecar + profile are consumed instead of
     expanded, and the cross-product is stashed on the parent node for
     the :func:`vectors` fixture to iterate.
     """
-    sidecar_parametrize = _sidecar_parametrize_markers_for_metafunc(metafunc)
-
-    # Inline @pytest.mark.litmus_sweeps(...) decorators: convert to
-    # parametrize-shaped MarkerSpecs and apply alongside sidecar/profile
-    # markers. pytest's own parametrize handler doesn't know about
-    # ``litmus_sweeps`` so we own the translation — including the
-    # iteration order.
-    #
-    # Inversion vs pytest's parametrize: with stacked @parametrize
-    # decorators, pytest registers the bottom (most-specific) marker's
-    # axis first, so bottom = outer. With stacked @litmus_sweeps,
-    # we reverse the iter_markers order so the TOP decorator's list
-    # registers first → top = outer (slowest-changing). That makes
-    # stacked decorators read top-to-bottom as outer-to-inner, the
-    # same direction as a nested ``for`` loop and the same direction
-    # as the list-of-dicts payload within one decorator (first list
-    # entry = outer). Pytest's own parametrize stacking convention is
-    # unchanged for users who reach for it directly.
+    # Inline @pytest.mark.litmus_sweeps decorators. Reverse iter_markers
+    # so the TOP decorator's list registers first → top = outer
+    # (slowest-changing). Stacked decorators read top-to-bottom as
+    # outer-to-inner, matching nested ``for`` loops and the within-list
+    # ordering convention.
     iter_top_first = reversed(list(metafunc.definition.iter_markers("litmus_sweeps")))
-    inline_litmus_sweeps: list[MarkerSpec] = []
+    inline_sweeps: list[dict[str, Any]] = []
     for mark in iter_top_first:
-        spec = MarkerSpec(name="litmus_sweeps", args=list(mark.args), kwargs=dict(mark.kwargs))
-        inline_litmus_sweeps.extend(_expand_litmus_sweeps(spec))
-    sidecar_parametrize = [*inline_litmus_sweeps, *sidecar_parametrize]
+        inline_sweeps.extend(
+            _normalize_inline_list_payload("litmus_sweeps", mark.args, dict(mark.kwargs))
+        )
+
+    parametrize_calls: list[tuple[Any, list[Any], dict[str, Any]]] = []
+    for argnames, argvalues in _sweeps_to_parametrize_calls(inline_sweeps):
+        parametrize_calls.append((argnames, argvalues, {}))
+    parametrize_calls.extend(_cascade_parametrize_for_metafunc(metafunc))
 
     if "vectors" in metafunc.fixturenames:
-        # Self-loop mode: consume inline parametrize markers + add
-        # sidecar/profile rows, cross-product into a single stash matrix.
+        # Self-loop mode: consume inline @pytest.mark.parametrize + add
+        # cascade rows, cross-product into a single stash matrix.
         inline_rows = _consume_parametrize_markers(metafunc)
         sidecar_rows: list[dict[str, Any]] = [{}]
-        for marker in sidecar_parametrize:
-            axis = _marker_spec_parametrize_rows(marker)
+        for argnames, argvalues, _extra in parametrize_calls:
+            axis = _parametrize_call_rows(argnames, argvalues)
             sidecar_rows = [{**base, **row} for base in sidecar_rows for row in axis]
-        # When sidecar rows is empty dict, inline alone; otherwise cross-product.
         if sidecar_rows == [{}]:
             full_rows = inline_rows
         elif not inline_rows:
@@ -2115,51 +2148,28 @@ def pytest_generate_tests(metafunc: pytest.Metafunc) -> None:
             matrix_map[metafunc.definition.originalname] = full_matrix
         return
 
-    # Normal mode: apply each sidecar/profile parametrize marker via
-    # metafunc.parametrize. pytest's built-in hook will also expand
-    # inline @pytest.mark.parametrize decorators separately.
-    for marker in sidecar_parametrize:
-        argnames, argvalues, kwargs = _marker_spec_to_parametrize_args(marker)
-        metafunc.parametrize(argnames, argvalues, **kwargs)
+    for argnames, argvalues, extra in parametrize_calls:
+        normalized = _normalize_parametrize_argvalues(argvalues)
+        metafunc.parametrize(argnames, normalized, **extra)
 
 
-def _marker_spec_to_parametrize_args(
-    marker: MarkerSpec,
-) -> tuple[Any, list[Any], dict[str, Any]]:
-    """Convert a parametrize MarkerSpec into metafunc.parametrize arguments."""
-    if marker.args and len(marker.args) >= 2:
-        argnames = marker.args[0]
-        argvalues = marker.args[1]
-        extra_kwargs = dict(marker.kwargs)
-    elif "argnames" in marker.kwargs and "argvalues" in marker.kwargs:
-        extra_kwargs = dict(marker.kwargs)
-        argnames = extra_kwargs.pop("argnames")
-        argvalues = extra_kwargs.pop("argvalues")
-    else:
-        raise pytest.UsageError(
-            f"parametrize marker requires argnames and argvalues; got "
-            f"args={marker.args!r}, kwargs={marker.kwargs!r}"
-        )
-    normalized: list[Any] = []
+def _normalize_parametrize_argvalues(argvalues: list[Any]) -> list[Any]:
+    """Convert ``{value, id, marks}`` dict entries to ``pytest.param`` values."""
+    out: list[Any] = []
     for entry in argvalues:
         if isinstance(entry, dict) and "value" in entry:
             value = entry["value"]
             pid = entry.get("id")
             marks_list = entry.get("marks") or []
             marks = [getattr(pytest.mark, name) for name in marks_list]
-            normalized.append(pytest.param(value, id=pid, marks=marks))
+            out.append(pytest.param(value, id=pid, marks=marks))
         else:
-            normalized.append(entry)
-    return argnames, normalized, extra_kwargs
+            out.append(entry)
+    return out
 
 
-def _marker_spec_parametrize_rows(marker: MarkerSpec) -> list[dict[str, Any]]:
-    """Convert a parametrize MarkerSpec into a list of row dicts.
-
-    Used by self-loop mode to cross-product parametrize markers into
-    a single vector matrix. Skips per-case ``id`` / ``marks``.
-    """
-    argnames, argvalues, _ = _marker_spec_to_parametrize_args(marker)
+def _parametrize_call_rows(argnames: Any, argvalues: list[Any]) -> list[dict[str, Any]]:
+    """Convert a parametrize call into row dicts (for self-loop cross-product)."""
     names = (
         [n.strip() for n in argnames.split(",")] if isinstance(argnames, str) else list(argnames)
     )
@@ -2253,10 +2263,11 @@ def _parametrize_mark_rows(mark: pytest.Mark) -> list[dict[str, Any]]:
 
 
 from litmus.execution.sidecar import (  # noqa: E402, I001  (late import; keep grouped)
+    _merge_entry_into,
     load_sidecar as _load_sidecar,
+    merged_test_entry as _merged_test_entry,
     parse_limits_block as _parse_limits_block,
     resolve_limits as _resolve_limits,
-    sidecar_markers_for as _sidecar_markers_for,
 )
 
 

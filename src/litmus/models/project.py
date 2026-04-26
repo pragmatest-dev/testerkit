@@ -11,7 +11,7 @@ from typing import Any
 
 from pydantic import BaseModel, Field, model_validator
 
-from litmus.config.test_config import ConfigEntry, TestEntry
+from litmus.config.test_config import TestEntry
 from litmus.models.config import PromptConfig
 
 
@@ -83,15 +83,13 @@ class OutputConfig(BaseModel):
         return "results"
 
 
-class ProfileConfig(BaseModel):
+class ProfileConfig(TestEntry):
     """A named config set applied to a pytest session.
 
-    Profiles carry config in the same recursive ``tests:`` tree as
-    sidecars: file-wide ``config`` applies to every test, and ``tests:``
-    holds :class:`TestEntry` nodes mirroring pytest's node-id structure.
-    A class is a branch (config + nested ``tests:``); a function is a
-    leaf. One vocabulary spans inline decorators, sidecar YAML, and
-    profile overrides.
+    Same flat shape as a :class:`TestEntry` (file-level Litmus-marker
+    fields apply to every test in the session, recursive ``tests:``
+    carries per-class / per-test overrides), plus profile-only
+    ``description`` / ``facets`` / ``extends``.
 
     ``runner:`` is a flat per-runner config block — opaque to Litmus
     core (validated by the active runner's plugin against its own
@@ -100,21 +98,16 @@ class ProfileConfig(BaseModel):
     one schema validates the whole block; profiles authored for a
     different runner fail fast on unknown fields.
 
-    ``extends`` names another profile whose configuration is inherited and
-    overridden last-wins by this one. Chains are walked parent-first, so a
-    family / platform base can declare the shared 90% and each leaf profile
-    holds only deltas. Parent profiles with no ``facets`` are reachable
-    only as extends targets.
+    ``extends`` names another profile whose configuration is inherited
+    and overridden last-wins by this one. Chains are walked parent-first,
+    so a family / platform base can declare the shared 90% and each leaf
+    profile holds only deltas. Parent profiles with no ``facets`` are
+    reachable only as extends targets.
     """
-
-    model_config = {"extra": "forbid"}
 
     description: str | None = None
     facets: dict[str, str] = Field(default_factory=dict)
     extends: str | None = None
-    runner: dict[str, Any] = Field(default_factory=dict)
-    config: list[ConfigEntry] = Field(default_factory=list)
-    tests: dict[str, TestEntry] = Field(default_factory=dict)
 
 
 class ProjectConfig(BaseModel):

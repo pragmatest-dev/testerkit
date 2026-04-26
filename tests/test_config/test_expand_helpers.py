@@ -82,10 +82,9 @@ def test_yaml_zipped_axes_via_multi_key(pytester: pytest.Pytester) -> None:
             """
             tests:
               test_pairs:
-                config:
-                  - litmus_sweeps:
-                      - vin: {linspace: [3.3, 5.5, 5]}
-                        vout: {linspace: [3.30, 3.32, 5]}
+                sweeps:
+                  - vin: {linspace: [3.3, 5.5, 5]}
+                    vout: {linspace: [3.30, 3.32, 5]}
             """
         )
     )
@@ -152,12 +151,12 @@ def test_litmus_sweeps_zip_dim_mismatch_raises(pytester: pytest.Pytester) -> Non
 
 
 def test_litmus_sweeps_stacked_top_is_outer(pytester: pytest.Pytester) -> None:
-    """Stacked litmus_sweeps: TOP decorator = outer (slow); BOTTOM = inner (fast).
+    """Single-marker litmus_sweeps: first list entry = outer (slow), last = inner (fast).
 
-    Inverts pytest's parametrize convention. Reads top-to-bottom as
-    outer-to-inner, the same direction as a nested ``for`` loop. Same
-    direction as the list-of-dicts payload within one decorator (first
-    list entry = outer).
+    Reads top-to-bottom in the list as outer-to-inner, matching a
+    nested ``for`` loop. Stacking multiple ``@pytest.mark.litmus_sweeps``
+    decorators is rejected (tested separately) — multi-axis sweeps go
+    in the single payload list.
     """
     pytester.makeini(
         textwrap.dedent(
@@ -175,8 +174,10 @@ def test_litmus_sweeps_stacked_top_is_outer(pytester: pytest.Pytester) -> None:
 
             seen = []
 
-            @pytest.mark.litmus_sweeps([{"temp": [25, 85]}])  # TOP    → outer (slowest)
-            @pytest.mark.litmus_sweeps([{"vin": [3, 5]}])      # BOTTOM → inner (fastest)
+            @pytest.mark.litmus_sweeps([
+                {"temp": [25, 85]},   # outer (slowest)
+                {"vin": [3, 5]},      # inner (fastest)
+            ])
             def test_x(temp, vin):
                 seen.append((temp, vin))
 
@@ -193,6 +194,38 @@ def test_litmus_sweeps_stacked_top_is_outer(pytester: pytest.Pytester) -> None:
     )
     result = pytester.runpytest("-v")
     result.assert_outcomes(passed=5)
+
+
+def test_stacked_litmus_sweeps_decorators_rejected(pytester: pytest.Pytester) -> None:
+    """Stacking two ``@pytest.mark.litmus_sweeps`` decorators raises ``UsageError``.
+
+    One marker per Litmus type per function — multi-axis goes in the
+    list payload of a single marker.
+    """
+    pytester.makeini(
+        textwrap.dedent(
+            """
+            [pytest]
+            addopts = -p no:litmus -p litmus.execution.plugin
+            asyncio_default_fixture_loop_scope = function
+            """
+        )
+    )
+    pytester.makepyfile(
+        test_seq=textwrap.dedent(
+            """
+            import pytest
+
+            @pytest.mark.litmus_sweeps([{"temp": [25, 85]}])
+            @pytest.mark.litmus_sweeps([{"vin": [3, 5]}])
+            def test_x(temp, vin): pass
+            """
+        )
+    )
+    result = pytester.runpytest("-v")
+    assert result.ret != 0
+    combined = "\n".join(result.outlines + result.errlines)
+    assert "stacked Litmus markers not allowed" in combined
 
 
 def test_litmus_sweeps_rejects_kwargs_form(pytester: pytest.Pytester) -> None:

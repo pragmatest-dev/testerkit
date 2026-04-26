@@ -1,75 +1,62 @@
-"""Tests for MarkerSpec parsing and YAML range expanders."""
+"""Tests for the flat marker-scope schema and YAML range expanders."""
 
 from __future__ import annotations
 
 import pytest
 
 from litmus.config.expanders import expand_ranges
-from litmus.config.test_config import MarkerSpec, SidecarConfig, TestEntry
+from litmus.config.test_config import SidecarConfig, TestEntry
 
 
-class TestMarkerSpecFromRaw:
-    def test_bare_name_string(self) -> None:
-        spec = MarkerSpec.from_raw("flaky")
-        assert spec == MarkerSpec(name="flaky")
+class TestTestEntryShape:
+    def test_empty_is_valid(self) -> None:
+        entry = TestEntry()
+        assert entry.limits == {}
+        assert entry.sweeps == []
+        assert entry.mocks == []
+        assert entry.specs == []
+        assert entry.connections is None
+        assert entry.retry is None
+        assert entry.prompts == {}
+        assert entry.runner == {}
+        assert entry.tests == {}
 
-    def test_single_key_dict_with_none_payload(self) -> None:
-        spec = MarkerSpec.from_raw({"skip": None})
-        assert spec == MarkerSpec(name="skip")
+    def test_limits_dict_keyed_by_measurement(self) -> None:
+        entry = TestEntry.model_validate({"limits": {"v_rail": {"tolerance_pct": 5.0}}})
+        assert entry.limits == {"v_rail": {"tolerance_pct": 5.0}}
 
-    def test_scalar_payload_becomes_single_positional(self) -> None:
-        spec = MarkerSpec.from_raw({"skip": "reason text"})
-        assert spec == MarkerSpec(name="skip", args=["reason text"])
+    def test_sweeps_list_of_dicts(self) -> None:
+        entry = TestEntry.model_validate({"sweeps": [{"vin": [3.3, 5.0]}]})
+        assert entry.sweeps == [{"vin": [3.3, 5.0]}]
 
-    def test_list_payload_spreads_into_args(self) -> None:
-        spec = MarkerSpec.from_raw({"parametrize": ["vin", [4.5, 5.0, 5.5]]})
-        assert spec == MarkerSpec(name="parametrize", args=["vin", [4.5, 5.0, 5.5]])
+    def test_mocks_list_of_dicts(self) -> None:
+        entry = TestEntry.model_validate({"mocks": [{"target": "dmm.read", "return_value": 3.31}]})
+        assert entry.mocks[0]["target"] == "dmm.read"
 
-    def test_dict_payload_becomes_kwargs(self) -> None:
-        spec = MarkerSpec.from_raw({"litmus_limits": {"v_rail": {"tolerance_pct": 5.0}}})
-        assert spec == MarkerSpec(
-            name="litmus_limits",
-            kwargs={"v_rail": {"tolerance_pct": 5.0}},
-        )
+    def test_specs_list_of_strings(self) -> None:
+        entry = TestEntry.model_validate({"specs": ["rail_3v3"]})
+        assert entry.specs == ["rail_3v3"]
 
-    def test_numeric_payload_becomes_single_positional(self) -> None:
-        spec = MarkerSpec.from_raw({"custom": 42})
-        assert spec == MarkerSpec(name="custom", args=[42])
+    def test_connections_singleton_dict(self) -> None:
+        entry = TestEntry.model_validate({"connections": {"connections": ["vout"]}})
+        assert entry.connections == {"connections": ["vout"]}
 
-    def test_multi_key_dict_rejected(self) -> None:
-        with pytest.raises(ValueError, match="single-key dict"):
-            MarkerSpec.from_raw({"skip": "a", "xfail": "b"})
+    def test_retry_singleton_dict(self) -> None:
+        entry = TestEntry.model_validate({"retry": {"max_attempts": 3}})
+        assert entry.retry == {"max_attempts": 3}
 
-    def test_non_string_name_rejected(self) -> None:
-        with pytest.raises(TypeError, match="Config entry name must be a string"):
-            MarkerSpec.from_raw({42: "oops"})
+    def test_prompts_dict_keyed_by_name(self) -> None:
+        entry = TestEntry.model_validate({"prompts": {"setup": {"message": "Insert DUT"}}})
+        assert entry.prompts == {"setup": {"message": "Insert DUT"}}
 
-    def test_top_level_type_rejected(self) -> None:
-        with pytest.raises(TypeError, match="string or single-key dict"):
-            MarkerSpec.from_raw(42)
+    def test_runner_is_opaque_dict(self) -> None:
+        entry = TestEntry.model_validate({"runner": {"markers": [{"flaky": {"reruns": 2}}]}})
+        assert entry.runner == {"markers": [{"flaky": {"reruns": 2}}]}
 
-
-class TestMarkerSpecValidator:
-    """The before-validator accepts raw YAML shapes when feeding into Pydantic."""
-
-    def test_pydantic_validate_bare_string(self) -> None:
-        spec = MarkerSpec.model_validate("flaky")
-        assert spec.name == "flaky"
-        assert spec.args == []
-        assert spec.kwargs == {}
-
-    def test_pydantic_validate_dict_form(self) -> None:
-        spec = MarkerSpec.model_validate({"parametrize": ["vin", [1, 2]]})
-        assert spec.name == "parametrize"
-        assert spec.args == ["vin", [1, 2]]
-
-    def test_pydantic_validate_structured_form_roundtrip(self) -> None:
-        spec = MarkerSpec.model_validate(
-            {"name": "skipif", "args": ["cond"], "kwargs": {"reason": "r"}}
-        )
-        assert spec.name == "skipif"
-        assert spec.args == ["cond"]
-        assert spec.kwargs == {"reason": "r"}
+    def test_unknown_top_level_key_rejected(self) -> None:
+        # litmus_X is a typo for X — caught by extra="forbid".
+        with pytest.raises(ValueError, match="extra"):
+            TestEntry.model_validate({"litmus_limits": {}})
 
 
 class TestExpandRanges:
@@ -126,40 +113,40 @@ class TestExpandRanges:
 
 class TestSidecarConfig:
     def test_empty_is_valid(self) -> None:
-        cfg = SidecarConfig()
-        assert cfg.config == []
-        assert cfg.tests == {}
+        sidecar = SidecarConfig()
+        assert sidecar.limits == {}
+        assert sidecar.runner == {}
+        assert sidecar.tests == {}
 
     def test_recursive_tree_with_class_branch_and_module_test(self) -> None:
-        cfg = SidecarConfig.model_validate(
+        sidecar = SidecarConfig.model_validate(
             {
-                "config": [{"litmus_limits": {"v_rail": {"tolerance_pct": 5.0}}}],
+                "limits": {"v_rail": {"tolerance_pct": 5.0}},
                 "tests": {
                     "TestRails": {
-                        "config": [{"parametrize": ["vin", [4.5, 5.0, 5.5]]}],
+                        "sweeps": [{"vin": [4.5, 5.0, 5.5]}],
                         "tests": {
                             "test_rail": {
-                                "config": [{"litmus_limits": {"v_rail": {"tolerance_pct": 1.0}}}],
+                                "limits": {"v_rail": {"tolerance_pct": 1.0}},
                             },
                         },
                     },
                     "test_standalone": {
-                        "config": ["flaky"],
+                        "runner": {"markers": [{"flaky": {"reruns": 2}}]},
                     },
                 },
             }
         )
-        assert len(cfg.config) == 1
-        assert cfg.config[0].name == "litmus_limits"
-        rails = cfg.tests["TestRails"]
+        assert sidecar.limits == {"v_rail": {"tolerance_pct": 5.0}}
+        rails = sidecar.tests["TestRails"]
         assert isinstance(rails, TestEntry)
-        assert rails.config[0].name == "parametrize"
+        assert rails.sweeps == [{"vin": [4.5, 5.0, 5.5]}]
         nested = rails.tests["test_rail"]
         assert isinstance(nested, TestEntry)
-        assert nested.config[0].kwargs == {"v_rail": {"tolerance_pct": 1.0}}
-        standalone = cfg.tests["test_standalone"]
+        assert nested.limits == {"v_rail": {"tolerance_pct": 1.0}}
+        standalone = sidecar.tests["test_standalone"]
         assert isinstance(standalone, TestEntry)
-        assert standalone.config[0] == MarkerSpec(name="flaky")
+        assert standalone.runner == {"markers": [{"flaky": {"reruns": 2}}]}
         assert standalone.tests == {}
 
     def test_rejects_unknown_top_level_key(self) -> None:
@@ -168,4 +155,9 @@ class TestSidecarConfig:
 
     def test_rejects_unknown_test_entry_key(self) -> None:
         with pytest.raises(ValueError, match="extra"):
-            SidecarConfig.model_validate({"tests": {"test_x": {"config": [], "limits": {}}}})
+            SidecarConfig.model_validate({"tests": {"test_x": {"litmus_limits": {}}}})
+
+    def test_rejects_legacy_config_wrapper(self) -> None:
+        # The old `config:` wrapper is gone — fields live at root now.
+        with pytest.raises(ValueError, match="extra"):
+            SidecarConfig.model_validate({"config": {"limits": {"v_rail": {}}}})

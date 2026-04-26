@@ -13,218 +13,51 @@ from pydantic import BaseModel, Field, model_validator
 from litmus.config.enums import Comparator
 
 # =============================================================================
-# Markers — the single vocabulary across inline / sidecar / profile
+# Marker-scope schema — runner-neutral Litmus-marker fields, flat
 # =============================================================================
-
-
-class ConfigEntry(BaseModel):
-    """One entry in a ``config:`` list — mirrors a pytest decorator.
-
-    Five YAML shapes are parsed by :meth:`from_raw`:
-
-    ============================================= =============================================
-    YAML                                          Parsed to
-    ============================================= =============================================
-    ``- flaky``                                   ``ConfigEntry(name="flaky")``
-    ``- skip: "reason"``                          ``ConfigEntry(name="skip", args=["reason"])``
-    ``- litmus_limits: {v_rail: {...}}``          ``ConfigEntry(name="litmus_limits",
-                                                       kwargs={"v_rail": {...}})``
-    ``- litmus_sweeps: [{vin: [...]}, ...]``      ``ConfigEntry(name="litmus_sweeps",
-                                                       args=[[{"vin": [...]}, ...]])``
-    ``- litmus_mocks: [{target: "...", ...}, ...]`` ``ConfigEntry(name="litmus_mocks",
-                                                       args=[[{"target": "...", ...}, ...]])``
-    ============================================= =============================================
-
-    Dict payloads become kwargs (named-entity markers like
-    ``litmus_limits``, ``litmus_prompts``). For ``litmus_sweeps`` and
-    ``litmus_mocks`` the YAML payload is itself a list of dicts —
-    "enumerated entity" markers — so the list goes into ``args[0]``
-    intact. Other list payloads (``parametrize``) flatten into
-    positional args. String/number/bool payloads become a single
-    positional arg; bare names have neither.
-
-    Each entry maps to one pytest marker — the YAML key is ``config:``
-    (runner-neutral vocabulary) but the entries are still pytest
-    markers under the hood, so a reader who knows
-    ``@pytest.mark.X(...)`` can read the YAML directly.
-    """
-
-    model_config = {"extra": "forbid"}
-
-    name: str
-    args: list[Any] = Field(default_factory=list)
-    kwargs: dict[str, Any] = Field(default_factory=dict)
-
-    @classmethod
-    def from_raw(cls, raw: Any) -> Self:
-        """Parse one YAML config-list entry into a :class:`ConfigEntry`."""
-        if isinstance(raw, str):
-            return cls(name=raw)
-        if isinstance(raw, dict):
-            if len(raw) != 1:
-                raise ValueError(
-                    "Config entry must be a bare name string or a single-key dict; "
-                    f"got dict with {len(raw)} keys: {sorted(raw)}"
-                )
-            ((name, payload),) = raw.items()
-            if not isinstance(name, str):
-                raise TypeError(f"Config entry name must be a string; got {type(name).__name__}")
-            if payload is None:
-                return cls(name=name)
-            # ``litmus_sweeps`` and ``litmus_mocks`` require a list of dicts
-            # in YAML — list-of-dicts is the canonical shape for "enumerated
-            # entities" markers. Single-entry case is still a list
-            # (one-element). This forces a uniform schema (no dict-or-list
-            # polymorphism) and lets Pydantic validate ``list[Dict]``
-            # cleanly without special parsing.
-            if name in ("litmus_sweeps", "litmus_mocks") and isinstance(payload, dict):
-                shape = "sweep" if name == "litmus_sweeps" else "mock"
-                example = (
-                    "      - {<argname>: [<values>]}"
-                    if name == "litmus_sweeps"
-                    else "      - {target: <fixture.attr>, return_value: ...}"
-                )
-                raise ValueError(
-                    f"{name} in YAML must be a list of {shape} dicts; "
-                    f"got dict {payload!r}. Wrap your entries in a list:\n"
-                    f"  - {name}:\n"
-                    f"{example}"
-                )
-            if isinstance(payload, dict):
-                return cls(name=name, kwargs=dict(payload))
-            if isinstance(payload, list):
-                # litmus_sweeps and litmus_mocks: payload IS the list, treat as
-                # one positional arg. Other markers (parametrize, skip, etc.)
-                # flatten the list into positional args.
-                if name in ("litmus_sweeps", "litmus_mocks"):
-                    return cls(name=name, args=[list(payload)])
-                return cls(name=name, args=list(payload))
-            return cls(name=name, args=[payload])
-        raise TypeError(
-            f"Config entry must be a string or single-key dict; got {type(raw).__name__}: {raw!r}"
-        )
-
-    @model_validator(mode="before")
-    @classmethod
-    def _coerce(cls, data: Any) -> Any:
-        """Accept raw YAML shapes (str / single-key dict) during validation."""
-        if isinstance(data, ConfigEntry):
-            return data
-        if (
-            isinstance(data, dict)
-            and "name" in data
-            and set(data).issubset({"name", "args", "kwargs"})
-        ):
-            return data  # already structured — bare cls(name=...) or round-tripped
-        return cls.from_raw(data).model_dump()
-
-
-# Back-compat alias during the markers → config rename. Internal callers
-# that still reference ``MarkerSpec`` (and the plugin) read it as the
-# same class. The YAML user-facing surface is ``config:`` only.
-MarkerSpec = ConfigEntry
+#
+# A "marker scope" is any node that carries Litmus-marker fields,
+# an opaque ``runner:`` overlay, and a recursive ``tests:`` tree.
+# ``TestEntry`` is the recursive node; ``SidecarConfig`` is the
+# file-level root (same shape); ``ProfileConfig`` (in ``models/project``)
+# adds ``description`` / ``facets`` / ``extends`` on top of the same
+# fields. Reserved keys at any level are ``runner`` and ``tests`` —
+# everything else is a Litmus marker name (``limits``, ``sweeps``,
+# ``mocks``, ``specs``, ``connections``, ``retry``, ``prompts``).
+# ``extra="forbid"`` catches typos before they get silently ignored.
 
 
 class TestEntry(BaseModel):
     """Recursive node in a sidecar / profile ``tests:`` tree.
 
-    Mirrors pytest's node-id structure: a class is a branch with its own
-    ``config:`` (applied to every nested test) and a ``tests:`` dict
-    holding its methods; a function is a leaf with config and an empty
-    ``tests:``. The same shape composes recursively for nested classes.
+    Mirrors pytest's node-id structure: a class is a branch carrying
+    its own Litmus-marker fields (applied to every nested test) and a
+    ``tests:`` dict holding its methods; a function is a leaf with the
+    same fields and an empty ``tests:``.
+
+    ``runner:`` carries an opaque per-runner config block — for pytest,
+    fields like ``markers`` (ecosystem markers like ``flaky`` / ``skip``)
+    apply to this scope only. Validated by the active runner plugin.
 
     Example::
 
         tests:
-          test_rail:                       # leaf
-            config: [- flaky]
-          TestRails:                       # branch
-            config: [- litmus_vectors: {vin: [4.5, 5.0, 5.5]}]
+          test_rail:                          # leaf
+            limits:
+              v_rail: {tolerance_pct: 1.0}
+          TestRails:                          # branch
+            sweeps:
+              - {vin: [4.5, 5.0, 5.5]}
             tests:
-              test_rail:                   # nested leaf
-                config: [- litmus_limits: {v_rail: {tolerance_pct: 1.0}}]
+              test_rail:                      # nested leaf
+                limits:
+                  v_rail: {tolerance_pct: 1.0}
+                runner:
+                  markers:
+                    - flaky: {reruns: 2}
     """
 
     __test__ = False  # Prevent pytest collection (class name starts with "Test")
-
-    model_config = {"extra": "forbid"}
-
-    config: list[ConfigEntry] = Field(default_factory=list)
-    tests: dict[str, TestEntry] = Field(default_factory=dict)
-
-
-class SidecarConfig(BaseModel):
-    """Top-level shape of a test-module sidecar YAML.
-
-    File-level ``config:`` applies to every test in the module. Tests and
-    classes both live under ``tests:`` — each value is a :class:`TestEntry`,
-    so a class branch carries its own config plus a nested ``tests:``
-    dict for its methods.
-
-    Example::
-
-        config:
-          - litmus_limits: {v_rail: {tolerance_pct: 5.0}}
-        tests:
-          TestRails:
-            config:
-              - litmus_vectors: {vin: [4.5, 5.0, 5.5]}
-            tests:
-              test_rail:
-                config:
-                  - litmus_limits: {v_rail: {tolerance_pct: 1.0}}
-          test_standalone:
-            config:
-              - skipif: "not os.getenv('HAS_BENCH')"
-    """
-
-    __test__ = False  # Prevent pytest collection
-
-    model_config = {"extra": "forbid"}
-
-    config: list[ConfigEntry] = Field(default_factory=list)
-    tests: dict[str, TestEntry] = Field(default_factory=dict)
-
-
-# =============================================================================
-# Typed test config (forthcoming — replaces ConfigEntry list shape)
-# =============================================================================
-#
-# These models define the dict-shaped ``config:`` schema that will replace
-# the current ``list[ConfigEntry]`` shape. They are additive at this
-# point — no caller imports them yet. Subsequent commits will wire them
-# through sidecar.py / plugin.py / examples / docs.
-#
-# Schema shape matches the ROADMAP entry "YAML schema generalization":
-#   * `config:` becomes a dict of typed Litmus-marker entries
-#   * `runner:` is opaque dict[str, Any] validated by the active runner
-#   * sidecar/profile/test-entry all carry both `config:` and `runner:`
-#
-# Per-Litmus-marker validation details (band resolution for limits,
-# range expansion for sweeps, etc.) stay in the plugin layer — these
-# Pydantic models enforce structural shape only, mirroring the
-# Litmus-core/runner-plugin two-tier validation pattern.
-
-
-class TestConfig(BaseModel):
-    """Runner-neutral test config — one entry per Litmus concept.
-
-    Key/value shapes match the marker family rule:
-      * **Named entities** (user-typed identifiers) → dict-keyed-by-name:
-        ``limits``, ``prompts``.
-      * **Anonymous / positional entries** → list of dicts:
-        ``sweeps``, ``mocks``.
-      * **Single config / policy** → singleton dict (or ``None``):
-        ``connections``, ``retry``.
-      * **List of identifier strings** → list of strings: ``specs``.
-
-    Detailed per-entry validation (limit-band parsing, mock-target
-    extraction, etc.) happens in plugin handlers; this model enforces
-    structural shape only. Top-level ``extra="forbid"`` catches typos
-    in marker names before they get silently ignored.
-    """
-
-    __test__ = False  # Prevent pytest collection
 
     model_config = {"extra": "forbid"}
 
@@ -235,6 +68,34 @@ class TestConfig(BaseModel):
     connections: dict[str, Any] | None = None
     retry: dict[str, Any] | None = None
     prompts: dict[str, dict[str, Any]] = Field(default_factory=dict)
+    runner: dict[str, Any] = Field(default_factory=dict)
+    tests: dict[str, TestEntry] = Field(default_factory=dict)
+
+
+class SidecarConfig(TestEntry):
+    """Top-level shape of a test-module sidecar YAML.
+
+    Same flat shape as a :class:`TestEntry`: file-level Litmus-marker
+    fields apply to every test in the module, nested ``tests:`` carries
+    per-class / per-test overrides recursively.
+
+    Example::
+
+        limits:
+          v_rail: {tolerance_pct: 5.0}
+        tests:
+          TestRails:
+            sweeps:
+              - {vin: [4.5, 5.0, 5.5]}
+            tests:
+              test_rail:
+                limits:
+                  v_rail: {tolerance_pct: 1.0}
+          test_standalone:
+            runner:
+              markers:
+                - skipif: "not os.getenv('HAS_BENCH')"
+    """
 
 
 # =============================================================================

@@ -25,12 +25,13 @@ from typing import Any
 import pytest
 from pydantic import BaseModel, ConfigDict, Field
 
-from litmus.config.test_config import ConfigEntry, TestEntry
+from litmus.config.test_config import TestEntry
 from litmus.execution._state import (
     set_active_facets,
     set_active_profile,
     set_session_inputs,
 )
+from litmus.execution.sidecar import _merge_entry_into
 from litmus.models.project import ProfileConfig, ProjectConfig
 from litmus.prompts import ask as ask_prompt
 
@@ -107,28 +108,37 @@ def facet_key_to_cli_flag(key: str) -> str:
     return f"--{key.replace('_', '-')}"
 
 
+def _clone_test_entry(entry: TestEntry) -> TestEntry:
+    """Deep-clone a TestEntry so merge mutations don't leak into source models.
+
+    Pydantic's ``model_copy(deep=True)`` covers the marker fields plus
+    the ``runner:`` dict; the recursive ``tests:`` map is rebuilt with
+    fresh clones so children can be mutated independently.
+    """
+    cloned = entry.model_copy(deep=True)
+    cloned.tests = {k: _clone_test_entry(v) for k, v in entry.tests.items()}
+    return cloned
+
+
 def _merge_test_entries(
     parent: dict[str, TestEntry],
     child: dict[str, TestEntry],
 ) -> dict[str, TestEntry]:
-    """Recursively merge two ``tests:`` trees parent-first, child appends.
+    """Recursively merge two ``tests:`` trees parent-first, child overrides.
 
-    Same rule applied at every level: same key → child config extends
-    parent's, nested ``tests:`` recurse. Parent-only keys pass through.
+    Same rule applied at every level: same key → child marker fields
+    merge into parent's (last-wins), nested ``tests:`` recurse.
+    Parent-only keys pass through.
     """
     merged: dict[str, TestEntry] = {
-        name: TestEntry(config=list(entry.config), tests=dict(entry.tests))
-        for name, entry in parent.items()
+        name: _clone_test_entry(entry) for name, entry in parent.items()
     }
     for name, child_entry in child.items():
         existing = merged.get(name)
         if existing is None:
-            merged[name] = TestEntry(
-                config=list(child_entry.config),
-                tests=dict(child_entry.tests),
-            )
+            merged[name] = _clone_test_entry(child_entry)
         else:
-            existing.config.extend(child_entry.config)
+            _merge_entry_into(existing, child_entry)
             existing.tests = _merge_test_entries(existing.tests, child_entry.tests)
     return merged
 
@@ -160,43 +170,52 @@ def flatten_profile_chain(leaf_name: str, project: ProjectConfig) -> ProfileConf
         current = profile.extends
     chain.reverse()
 
-    description: str | None = None
-    merged_facets: dict[str, str] = {}
+    merged = ProfileConfig()
     addopts_parts: list[str] = []
     markexpr: str | None = None
     keyword: str | None = None
-    merged_config: list[ConfigEntry] = []
-    merged_tests: dict[str, TestEntry] = {}
     for profile in chain:
         if profile.description is not None:
-            description = profile.description
-        merged_facets.update(profile.facets)
-        runner = validate_pytest_runner(profile.runner)
+            merged.description = profile.description
+        merged.facets.update(profile.facets)
+        runner_block = dict(profile.runner)
+        # Validate to catch typos early; addopts is concatenated specially.
+        runner = validate_pytest_runner(runner_block)
         if runner.addopts:
             addopts_parts.append(runner.addopts)
         if runner.markexpr is not None:
             markexpr = runner.markexpr
         if runner.keyword is not None:
             keyword = runner.keyword
-        merged_config.extend(profile.config)
-        merged_tests = _merge_test_entries(merged_tests, profile.tests)
+        # Strip flat session fields we handle specially; remaining keys
+        # (markers, timeout, plugins, parallelism) go through the
+        # generic last-wins runner merge.
+        for k in ("addopts", "markexpr", "keyword"):
+            runner_block.pop(k, None)
+        # Merge marker fields directly onto the ProfileConfig (it shares
+        # TestEntry's flat shape); runner/tests merge separately.
+        scratch = TestEntry(
+            limits=profile.limits,
+            sweeps=profile.sweeps,
+            mocks=profile.mocks,
+            specs=profile.specs,
+            connections=profile.connections,
+            retry=profile.retry,
+            prompts=profile.prompts,
+            runner=runner_block,
+        )
+        _merge_entry_into(merged, scratch)
+        merged.tests = _merge_test_entries(merged.tests, profile.tests)
 
-    merged_runner: dict[str, Any] = {}
     if addopts_parts:
-        merged_runner["addopts"] = " ".join(addopts_parts)
+        merged.runner["addopts"] = " ".join(addopts_parts)
     if markexpr is not None:
-        merged_runner["markexpr"] = markexpr
+        merged.runner["markexpr"] = markexpr
     if keyword is not None:
-        merged_runner["keyword"] = keyword
+        merged.runner["keyword"] = keyword
 
-    return ProfileConfig(
-        description=description,
-        facets=merged_facets,
-        extends=None,
-        runner=merged_runner,
-        config=merged_config,
-        tests=merged_tests,
-    )
+    merged.extends = None
+    return merged
 
 
 def resolve_active_profile(

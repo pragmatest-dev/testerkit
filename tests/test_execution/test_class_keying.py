@@ -9,21 +9,8 @@ shorthand still matches a method when the class branch is absent.
 
 from __future__ import annotations
 
-from litmus.config.test_config import MarkerSpec, SidecarConfig, TestEntry
-from litmus.execution.sidecar import sidecar_markers_for as _sidecar_markers_for
-
-
-def _spec_marker(char: str) -> MarkerSpec:
-    return MarkerSpec(name="litmus_specs", args=[[char]])
-
-
-def _first_char(markers: list[MarkerSpec]) -> str | None:
-    for spec in markers:
-        if spec.name == "litmus_specs":
-            payload = spec.args[0] if spec.args else None
-            if isinstance(payload, list) and payload:
-                return payload[0]
-    return None
+from litmus.config.test_config import SidecarConfig, TestEntry
+from litmus.execution.sidecar import merged_test_entry
 
 
 class TestQualifiedClassMethodKeying:
@@ -31,68 +18,69 @@ class TestQualifiedClassMethodKeying:
         sidecar = SidecarConfig(
             tests={
                 "TestA": TestEntry(
-                    tests={"test_rail": TestEntry(config=[_spec_marker("char_a")])},
+                    tests={"test_rail": TestEntry(specs=["char_a"])},
                 ),
                 "TestB": TestEntry(
-                    tests={"test_rail": TestEntry(config=[_spec_marker("char_b")])},
+                    tests={"test_rail": TestEntry(specs=["char_b"])},
                 ),
             }
         )
-        a = _sidecar_markers_for(sidecar, "TestA", "test_rail")
-        b = _sidecar_markers_for(sidecar, "TestB", "test_rail")
-        assert _first_char(a) == "char_a"
-        assert _first_char(b) == "char_b"
+        a = merged_test_entry(sidecar, "TestA", "test_rail")
+        b = merged_test_entry(sidecar, "TestB", "test_rail")
+        assert a.specs == ["char_a"]
+        assert b.specs == ["char_b"]
 
     def test_shorthand_matches_module_level_test(self) -> None:
         sidecar = SidecarConfig(
-            tests={"test_rail": TestEntry(config=[_spec_marker("bare_match")])},
+            tests={"test_rail": TestEntry(specs=["bare_match"])},
         )
-        markers = _sidecar_markers_for(sidecar, None, "test_rail")
-        assert _first_char(markers) == "bare_match"
+        entry = merged_test_entry(sidecar, None, "test_rail")
+        assert entry.specs == ["bare_match"]
 
     def test_shorthand_matches_method_when_no_class_branch(self) -> None:
         """Bare method name applies to a classed test when no class branch exists."""
         sidecar = SidecarConfig(
-            tests={"test_rail": TestEntry(config=[_spec_marker("shorthand_ok")])},
+            tests={"test_rail": TestEntry(specs=["shorthand_ok"])},
         )
-        markers = _sidecar_markers_for(sidecar, "TestRails", "test_rail")
-        assert _first_char(markers) == "shorthand_ok"
+        entry = merged_test_entry(sidecar, "TestRails", "test_rail")
+        assert entry.specs == ["shorthand_ok"]
 
     def test_class_branch_method_wins_over_shorthand(self) -> None:
         sidecar = SidecarConfig(
             tests={
-                "test_rail": TestEntry(config=[_spec_marker("shorthand")]),
+                "test_rail": TestEntry(specs=["shorthand"]),
                 "TestRails": TestEntry(
-                    tests={"test_rail": TestEntry(config=[_spec_marker("nested")])},
+                    tests={"test_rail": TestEntry(specs=["nested"])},
                 ),
             }
         )
-        markers = _sidecar_markers_for(sidecar, "TestRails", "test_rail")
-        assert _first_char(markers) == "nested"
+        entry = merged_test_entry(sidecar, "TestRails", "test_rail")
+        assert entry.specs == ["nested"]
 
     def test_class_branch_markers_apply_to_method(self) -> None:
         """Class-scoped markers (on the branch) flow down to nested methods."""
         sidecar = SidecarConfig(
             tests={
                 "TestRails": TestEntry(
-                    config=[_spec_marker("class_scope")],
+                    specs=["class_scope"],
                     tests={"test_rail": TestEntry()},
                 ),
             }
         )
-        markers = _sidecar_markers_for(sidecar, "TestRails", "test_rail")
-        assert _first_char(markers) == "class_scope"
+        entry = merged_test_entry(sidecar, "TestRails", "test_rail")
+        assert entry.specs == ["class_scope"]
 
     def test_module_level_test_does_not_match_class_branch(self) -> None:
         sidecar = SidecarConfig(
             tests={
                 "Nonexistent": TestEntry(
-                    tests={"test_rail": TestEntry(config=[_spec_marker("no_match")])},
+                    tests={"test_rail": TestEntry(specs=["no_match"])},
                 ),
             }
         )
-        markers = _sidecar_markers_for(sidecar, None, "test_rail")
-        assert _first_char(markers) is None
+        entry = merged_test_entry(sidecar, None, "test_rail")
+        assert entry.specs == []
 
     def test_missing_sidecar_returns_empty(self) -> None:
-        assert _sidecar_markers_for(None, None, "test_rail") == []
+        entry = merged_test_entry(None, None, "test_rail")
+        assert entry == TestEntry()

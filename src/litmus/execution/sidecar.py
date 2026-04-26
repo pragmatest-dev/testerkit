@@ -29,7 +29,6 @@ import yaml
 
 from litmus.config.expanders import expand_ranges
 from litmus.config.test_config import (
-    ConfigEntry,
     Limit,
     MeasurementLimitConfig,
     SidecarConfig,
@@ -68,48 +67,94 @@ def load_sidecar(module_file: Path) -> SidecarConfig | None:
     return SidecarConfig.model_validate(data)
 
 
-def sidecar_markers_for(
+def _merge_marker_fields_into(target: TestEntry, src: TestEntry) -> None:
+    """In-place merge ``src``'s Litmus-marker fields into ``target`` (last-wins).
+
+    * ``limits`` / ``prompts`` — dict-key update (later overrides earlier).
+    * ``sweeps`` / ``mocks`` — list extend (file-level appears outer; later
+      entries with the same target overwrite during marker resolution).
+    * ``specs`` — last-wins replacement (single iteration scope in v1).
+    * ``connections`` / ``retry`` — last-wins replacement (singletons).
+    """
+    target.limits.update(src.limits)
+    target.sweeps.extend(src.sweeps)
+    target.mocks.extend(src.mocks)
+    if src.specs:
+        target.specs = list(src.specs)
+    if src.connections is not None:
+        target.connections = dict(src.connections)
+    if src.retry is not None:
+        target.retry = dict(src.retry)
+    target.prompts.update(src.prompts)
+
+
+def _merge_runner_into(target: dict[str, Any], src: Mapping[str, Any]) -> None:
+    """In-place merge an opaque ``runner:`` block; ``markers`` lists concat, others last-wins."""
+    for key, value in src.items():
+        if key == "markers" and isinstance(value, list):
+            existing = target.get("markers")
+            if isinstance(existing, list):
+                target["markers"] = existing + list(value)
+            else:
+                target["markers"] = list(value)
+        else:
+            target[key] = value
+
+
+def _merge_entry_into(target: TestEntry, src: TestEntry) -> None:
+    """Merge marker fields + runner from ``src`` into ``target`` (last-wins).
+
+    Does not recurse into ``src.tests`` — that walk is the caller's
+    responsibility (see :func:`merged_test_entry` and
+    :func:`profiles._merge_test_entries`).
+    """
+    _merge_marker_fields_into(target, src)
+    _merge_runner_into(target.runner, src.runner)
+
+
+def merged_test_entry(
     root: SidecarConfig | ProfileConfig | TestEntry | None,
     cls_name: str | None,
     func_name: str | None,
-) -> list[ConfigEntry]:
-    """Walk a sidecar-shaped tree to collect config entries for one test.
+) -> TestEntry:
+    """Walk a sidecar-shaped tree to build a merged :class:`TestEntry` for one test.
 
-    Yields, in order: root ``config`` (file-level) → if the test is a
-    method, the class branch's ``config`` → the leaf's ``config``.
-    Leaf lookup precedence (most → least specific):
+    Cascade order (each step extends the prior with last-wins
+    semantics): root → class branch → leaf. Leaf lookup precedence
+    (most → least specific):
 
     1. nested ``tests[Class].tests[method]`` (preferred form)
     2. dotted shorthand ``tests["Class.method"]`` at the root
     3. bare ``tests[method]`` shorthand at the root
 
-    The first match wins; class-branch config still applies when the
-    leaf came from a dotted or bare shorthand. Accepts either a
-    :class:`SidecarConfig` (sidecar root) or a :class:`ProfileConfig`
-    (structural duck typing — both expose ``config`` + ``tests``).
+    The first match wins; class-branch fields still apply when the leaf
+    came from a dotted or bare shorthand. Accepts any of
+    :class:`SidecarConfig`, :class:`ProfileConfig`, or :class:`TestEntry`
+    — they share the same flat shape.
     """
+    out = TestEntry()
     if root is None:
-        return []
-    out: list[ConfigEntry] = list(root.config)
+        return out
+    _merge_entry_into(out, root)
     if cls_name is not None:
         class_branch = root.tests.get(cls_name)
         if class_branch is not None:
-            out.extend(class_branch.config)
+            _merge_entry_into(out, class_branch)
             if func_name is not None:
                 method_leaf = class_branch.tests.get(func_name)
                 if method_leaf is not None:
-                    out.extend(method_leaf.config)
+                    _merge_entry_into(out, method_leaf)
                     return out
     if func_name is None:
         return out
     if cls_name is not None:
         dotted_leaf = root.tests.get(f"{cls_name}.{func_name}")
         if dotted_leaf is not None:
-            out.extend(dotted_leaf.config)
+            _merge_entry_into(out, dotted_leaf)
             return out
     bare_leaf = root.tests.get(func_name)
     if bare_leaf is not None:
-        out.extend(bare_leaf.config)
+        _merge_entry_into(out, bare_leaf)
     return out
 
 

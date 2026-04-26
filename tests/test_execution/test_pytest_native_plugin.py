@@ -50,11 +50,13 @@ def test_method_level_vectors_parametrize_and_populate_context(pytester: pytest.
             """
             tests:
               TestSeq.test_uses_vin:
-                config:
-                  - parametrize: ["vin", [4.5, 5.0]]
+                runner:
+                  markers:
+                    - parametrize: ["vin", [4.5, 5.0]]
               TestSeq.test_uses_load:
-                config:
-                  - parametrize: ["load", [0.1, 0.8]]
+                runner:
+                  markers:
+                    - parametrize: ["load", [0.1, 0.8]]
             """
         ),
     )
@@ -80,8 +82,9 @@ def test_class_level_vectors_rerun_whole_class(pytester: pytest.Pytester) -> Non
             """
             tests:
               TestSeq:
-                config:
-                  - parametrize: ["temp", [25, 55]]
+                runner:
+                  markers:
+                    - parametrize: ["temp", [25, 55]]
             """
         ),
     )
@@ -109,12 +112,14 @@ def test_class_and_method_vectors_mix(pytester: pytest.Pytester) -> None:
             """
             tests:
               TestSeq:
-                config:
-                  - parametrize: ["temp", [25, 55]]
+                runner:
+                  markers:
+                    - parametrize: ["temp", [25, 55]]
                 tests:
                   test_sweep:
-                    config:
-                      - parametrize: ["vin", [3.3, 5.0]]
+                    runner:
+                      markers:
+                        - parametrize: ["vin", [3.3, 5.0]]
             """
         ),
     )
@@ -194,9 +199,10 @@ def test_sidecar_keys_bind_to_method_signature(pytester: pytest.Pytester) -> Non
             """
             tests:
               TestSeq.test_direct_args:
-                config:
-                  - parametrize: ["vin", [4.5, 5.0]]
-                  - parametrize: ["load", [0.1, 0.8]]
+                runner:
+                  markers:
+                    - parametrize: ["vin", [4.5, 5.0]]
+                    - parametrize: ["load", [0.1, 0.8]]
             """
         ),
     )
@@ -249,8 +255,9 @@ def test_sidecar_and_decorator_mix(pytester: pytest.Pytester) -> None:
             """
             tests:
               TestSeq.test_mix:
-                config:
-                  - parametrize: ["vin", [4.5, 5.0]]
+                runner:
+                  markers:
+                    - parametrize: ["vin", [4.5, 5.0]]
             """
         ),
     )
@@ -273,8 +280,9 @@ def test_method_vec_id_uses_param_values(pytester: pytest.Pytester) -> None:
             """
             tests:
               TestSeq.test_foo:
-                config:
-                  - parametrize: ["vin", [5.0, 3.3]]
+                runner:
+                  markers:
+                    - parametrize: ["vin", [5.0, 3.3]]
             """
         ),
     )
@@ -445,12 +453,11 @@ def test_sidecar_limits_auto_resolve(pytester: pytest.Pytester) -> None:
         ),
         sidecar=textwrap.dedent(
             """
-            config:
-              - litmus_limits:
-                  v_out:
-                    low: 3.2
-                    high: 3.4
-                    units: V
+            limits:
+              v_out:
+                low: 3.2
+                high: 3.4
+                units: V
             """
         ),
     )
@@ -483,9 +490,10 @@ def test_changed_chains_across_parametrize_cases(pytester: pytest.Pytester) -> N
             """
             tests:
               TestSeq.test_sweep:
-                config:
-                  - parametrize:
-                      ["vin,expect_changed", [[4.5, true], [5.0, true], [5.0, false]]]
+                runner:
+                  markers:
+                    - parametrize:
+                        ["vin,expect_changed", [[4.5, true], [5.0, true], [5.0, false]]]
             """
         ),
     )
@@ -664,9 +672,8 @@ def test_no_test_mocks_flag_disables_sidecar_mocks(pytester: pytest.Pytester) ->
     (pytester.path / "test_seq.yaml").write_text(
         textwrap.dedent(
             """
-            config:
-              - litmus_mocks:
-                  - {target: "dmm.measure_dc_voltage", return_value: 3.3}
+            mocks:
+              - {target: "dmm.measure_dc_voltage", return_value: 3.3}
 """
         )
     )

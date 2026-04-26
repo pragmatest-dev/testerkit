@@ -230,9 +230,8 @@ def test_prompt_fixture_sidecar_yaml(pytester: pytest.Pytester) -> None:
             """
             tests:
               test_sidecar:
-                config:
-                  - litmus_prompts:
-                      setup: {message: "Insert DUT", prompt_type: confirm}
+                prompts:
+                  setup: {message: "Insert DUT", prompt_type: confirm}
             """
         )
     )
@@ -272,14 +271,12 @@ def test_prompt_fixture_per_test_overrides_file_level(
     (pytester.path / "test_seq.yaml").write_text(
         textwrap.dedent(
             """
-            config:
-              - litmus_prompts:
-                  setup: {message: "file-level message", prompt_type: confirm}
+            prompts:
+              setup: {message: "file-level message", prompt_type: confirm}
             tests:
               test_one:
-                config:
-                  - litmus_prompts:
-                      setup: {message: "per-test message", prompt_type: confirm}
+                prompts:
+                  setup: {message: "per-test message", prompt_type: confirm}
             """
         )
     )
