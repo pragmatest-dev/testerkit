@@ -240,15 +240,12 @@ tests:
     config:
       - litmus_limits:
           output_voltage:
-            - when: {vin: 5.0}
-              low: 3.234
-              high: 3.366
-            - when: {vin: 3.3}
-              low: 3.1
-              high: 3.5
+            bands:
+              - {when: {vin: 5.0}, low: 3.234, high: 3.366}
+              - {when: {vin: 3.3}, low: 3.1,   high: 3.5}
 ```
 
-The first band whose `when:` matches the current row wins; no match raises `pytest.UsageError`. See [Test Limits → Condition-indexed bands](limits.md#condition-indexed-bands-when) for details.
+The first band whose `when:` matches the current row wins; no match raises `pytest.UsageError`. See [Test Limits → Condition-indexed bands](limits.md#condition-indexed-bands) for details.
 
 ## Structuring drivers across multiple test folders
 

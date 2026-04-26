@@ -34,9 +34,9 @@ Limits flow through `litmus_limits` markers. When
 walks the full marker merge cascade (least → most specific):
 
 1. **Explicit kwargs** — `logger.measure("v", val, low=..., high=..., units=...)`
-2. **Sidecar file-level marker** — `markers: [- litmus_limits: {...}]`
-3. **Sidecar class branch marker** — `tests.<Cls>.markers:`
-4. **Sidecar per-test marker** — `tests.<name>.markers:` (or nested `tests.<Cls>.tests.<method>.markers:`)
+2. **Sidecar file-level entry** — `config: [- litmus_limits: {...}]`
+3. **Sidecar class branch entry** — `tests.<Cls>.config:`
+4. **Sidecar per-test entry** — `tests.<name>.config:` (or nested `tests.<Cls>.tests.<method>.config:`)
 5. **Inline `@pytest.mark.litmus_limits(...)`** on method / class
 6. **Profile chain markers** — parent profile first, child last
 7. **Product spec** — `ref: "<name>"` delegation against the active `SpecContext`
@@ -77,45 +77,35 @@ class TestPowerBoard:
 
 ```yaml
 # tests/test_power_board.yaml
-markers:
+config:
   - litmus_limits:
       output_voltage:  {low: 3.135, high: 3.465, units: V}
       efficiency:      {ref: efficiency}           # product-spec delegation
       startup_current: {high: 50, comparator: LE, units: mA}
 ```
 
-The same `litmus_limits` marker works at class-branch scope
-(`tests.<Cls>.markers:`) and per-test scope (`tests.<name>.markers:`
-or nested `tests.<Cls>.tests.<method>.markers:`). Per-test overrides
+The same `litmus_limits` entry works at class-branch scope
+(`tests.<Cls>.config:`) and per-test scope (`tests.<name>.config:`
+or nested `tests.<Cls>.tests.<method>.config:`). Per-test overrides
 class overrides file-level, key-by-key.
 
 Sidecar is the preferred home for operator-edited limits — non-developers can tune without touching Python.
 
-## Condition-indexed bands (`when:`)
+## Condition-indexed bands
 
-When a single measurement needs different limits under different conditions, replace the flat limit dict with a **list of bands**. Each band carries a `when:` mapping; at measurement time the first band whose `when:` matches the active vector params applies. This mirrors the `conditions:` selector on product-spec characteristics.
+When a single measurement needs different limits under different conditions, add a `bands:` list inside the limit dict. Each band carries a `when:` mapping plus the fields it overrides. The dict's top-level fields are **defaults** — bands inherit them and override per-row. At measurement time the first band whose `when:` matches the active vector params wins.
 
 ```yaml
 # test_power_board.yaml
-markers:
+config:
   - litmus_limits:
       output_voltage:
-        - when: {vin: 5.0, load: 0.1}
-          low: 3.234
-          high: 3.366
-          units: V
-        - when: {vin: 5.0, load: 0.8}
-          low: 3.2
-          high: 3.4
-          units: V
-        - when: {vin: 3.3}            # matches any load at vin=3.3
-          low: 3.1
-          high: 3.5
-          units: V
-        - when: {}                    # catch-all; place last
-          low: 3.0
-          high: 3.6
-          units: V
+        units: V                              # default for every band
+        bands:
+          - {when: {vin: 5.0, load: 0.1}, low: 3.234, high: 3.366}
+          - {when: {vin: 5.0, load: 0.8}, low: 3.2,   high: 3.4}
+          - {when: {vin: 3.3},            low: 3.1,   high: 3.5}   # any load at vin=3.3
+          - {when: {},                    low: 3.0,   high: 3.6}   # catch-all; last
 ```
 
 Matching rules:
@@ -126,23 +116,21 @@ Matching rules:
 - No match → `pytest.UsageError` at `logger.measure` / `verify` time (fail loud, not silent).
 - An empty `when: {}` always matches; put it last as a default.
 
-The match is performed against the current row's vector params, so the feature composes naturally with both native `@pytest.mark.parametrize` and the `vectors` fixture self-loop mode — every iteration re-resolves against the active row.
+The match is performed against the current row's vector params, so the feature composes naturally with both native `@pytest.mark.parametrize` and `litmus_vectors` — every iteration re-resolves against the active row.
 
-Bands can use any policy field a flat limit supports, including `tolerance_pct` against a product characteristic:
+The default cascade keeps repetition out of the YAML. Common fields (`units`, `characteristic`, `ref`) live once at the top; bands carry only what changes. Bands can use any policy field a flat limit supports, including `tolerance_pct` against a product characteristic:
 
 ```yaml
-markers:
+config:
   - litmus_limits:
       output_voltage:
-        - when: {vin: 5.0}
-          ref: output_voltage                 # nominal from product spec
-          tolerance_pct: 2.0                  # ±2% at vin=5.0
-        - when: {vin: 3.3}
-          ref: output_voltage
-          tolerance_pct: 5.0                  # looser at vin=3.3
+        ref: output_voltage                   # nominal from product spec — shared
+        bands:
+          - {when: {vin: 5.0}, tolerance_pct: 2.0}     # ±2% at vin=5.0
+          - {when: {vin: 3.3}, tolerance_pct: 5.0}     # looser at vin=3.3
 ```
 
-The flat scalar shape (`output_voltage: {low: 3.2, high: 3.4}`) still works — treat it as shorthand for a single band with `when: {}`.
+A limit without `bands:` is the flat scalar shape (`output_voltage: {low: 3.2, high: 3.4}`) — equivalent to one band with `when: {}`.
 
 ## Explicit `limit=` kwarg
 

@@ -72,30 +72,30 @@ When `logger.measure(name, value)` is called without an explicit `limit=`:
 
 1. **Explicit `limit=` kwarg** — used directly
 2. **Sidecar `limits:` entry** — pushed by the plugin into
-   `_active_limits_var` for the running test. Entries may be a flat
-   limit dict or a **list of condition-indexed bands** (see below).
+   `_active_limits_var` for the running test. Each entry is a dict;
+   add a `bands:` key for **condition-indexed overrides** (see below).
 3. **Product spec** — `get_active_spec_context().get_limit(name)`
 4. **None** — recorded as unchecked
 
-### Condition-indexed bands (`when:`)
+### Condition-indexed bands
 
-A sidecar `limits:` entry may be a list; each element carries a
-`when:` clause and any policy fields a flat limit supports. At
-measurement time the first band whose `when:` matches the active
-vector params wins. No match raises `pytest.UsageError`.
+A sidecar limit entry can carry a `bands:` list; each band has a
+`when:` clause plus the fields it overrides. The dict's top-level
+fields are defaults inherited by every band. At measurement time the
+first band whose `when:` matches the active vector params wins. No
+match raises `pytest.UsageError`.
 
 ```yaml
-limits:
-  output_voltage:
-    - when: {vin: 5.0, load: 0.1}
-      low: 3.234
-      high: 3.366
-    - when: {vin: 3.3}        # any load at 3.3 V
-      low: 3.1
-      high: 3.5
+config:
+  - litmus_limits:
+      output_voltage:
+        units: V
+        bands:
+          - {when: {vin: 5.0, load: 0.1}, low: 3.234, high: 3.366}
+          - {when: {vin: 3.3},            low: 3.1,   high: 3.5}    # any load at 3.3 V
 ```
 
-See [Test Limits → Condition-indexed bands](../guides/limits.md#condition-indexed-bands-when) for the full semantics.
+See [Test Limits → Condition-indexed bands](../guides/limits.md#condition-indexed-bands) for the full semantics.
 
 ## Native `@pytest.mark.parametrize`
 

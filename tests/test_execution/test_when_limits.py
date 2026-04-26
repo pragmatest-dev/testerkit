@@ -1,9 +1,11 @@
 """Condition-indexed limit bands — ``when:`` matching at measurement time.
 
-Covers the ``MeasurementLimitConfig`` list-of-bands shape: each entry in
-the list is a band with ``when:`` conditions (mirroring ``SpecBand.when``);
-at measurement time the logger picks the first band whose ``when:``
-matches the active vector params. No match → ``pytest.UsageError``.
+Covers the ``bands:`` shape: each measurement value is a dict whose
+top-level fields are defaults; an optional ``bands:`` list holds
+``{when: ..., <override fields>}`` entries that override the defaults
+when their ``when:`` clause matches the active vector params (mirroring
+``SpecBand.when``). At measurement time the logger picks the first band
+whose ``when:`` matches; no match → ``pytest.UsageError``.
 """
 
 from __future__ import annotations
@@ -41,11 +43,10 @@ def test_single_band_empty_when_always_matches(pytester: pytest.Pytester) -> Non
             config:
               - litmus_limits:
                   v_rail:
-                    - when: {}
-                      low: 3.2
-                      high: 3.4
-                      units: V
-            """
+                    units: V
+                    bands:
+                      - {when: {}, low: 3.2, high: 3.4}
+"""
         )
     )
     result = pytester.runpytest("-v")
@@ -74,15 +75,11 @@ def test_multi_band_selects_matching_by_parametrize(pytester: pytest.Pytester) -
             config:
               - litmus_limits:
                   v_rail:
-                    - when: {vin: 5.0}
-                      low: 3.2
-                      high: 3.4
-                      units: V
-                    - when: {vin: 3.3}
-                      low: 3.1
-                      high: 3.5
-                      units: V
-            """
+                    units: V
+                    bands:
+                      - {when: {vin: 5.0}, low: 3.2, high: 3.4}
+                      - {when: {vin: 3.3}, low: 3.1, high: 3.5}
+"""
         )
     )
     result = pytester.runpytest("-v")
@@ -111,13 +108,10 @@ def test_multi_band_bounds_differ_per_row(pytester: pytest.Pytester) -> None:
             config:
               - litmus_limits:
                   v_rail:
-                    - when: {vin: 5.0}
-                      low: 3.2
-                      high: 3.4
-                    - when: {vin: 3.3}
-                      low: 3.35
-                      high: 3.40
-            """
+                    bands:
+                      - {when: {vin: 5.0}, low: 3.2, high: 3.4}
+                      - {when: {vin: 3.3}, low: 3.35, high: 3.40}
+"""
         )
     )
     result = pytester.runpytest("-v")
@@ -146,13 +140,10 @@ def test_multi_band_two_keys_anded(pytester: pytest.Pytester) -> None:
             config:
               - litmus_limits:
                   v_rail:
-                    - when: {vin: 5.0, load: 0.1}
-                      low: 3.2
-                      high: 3.4
-                    - when: {vin: 5.0, load: 0.8}
-                      low: 2.9
-                      high: 3.1
-            """
+                    bands:
+                      - {when: {vin: 5.0, load: 0.1}, low: 3.2, high: 3.4}
+                      - {when: {vin: 5.0, load: 0.8}, low: 2.9, high: 3.1}
+"""
         )
     )
     result = pytester.runpytest("-v")
@@ -179,13 +170,10 @@ def test_no_band_matches_raises_usage_error(pytester: pytest.Pytester) -> None:
             config:
               - litmus_limits:
                   v_rail:
-                    - when: {vin: 5.0}
-                      low: 3.2
-                      high: 3.4
-                    - when: {vin: 3.3}
-                      low: 3.1
-                      high: 3.5
-            """
+                    bands:
+                      - {when: {vin: 5.0}, low: 3.2, high: 3.4}
+                      - {when: {vin: 3.3}, low: 3.1, high: 3.5}
+"""
         )
     )
     result = pytester.runpytest("-v")
@@ -266,13 +254,11 @@ def test_band_with_tolerance_pct_and_characteristic(pytester: pytest.Pytester) -
             config:
               - litmus_limits:
                   v_rail:
-                    - when: {vin: 5.0}
-                      characteristic: rail_3v3
-                      tolerance_pct: 2
-                    - when: {vin: 3.3}
-                      characteristic: rail_3v3
-                      tolerance_pct: 5
-            """
+                    characteristic: rail_3v3
+                    bands:
+                      - {when: {vin: 5.0}, tolerance_pct: 2}
+                      - {when: {vin: 3.3}, tolerance_pct: 5}
+"""
         )
     )
     result = pytester.runpytest("-v", "--spec=products/mini.yaml")

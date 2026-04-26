@@ -187,37 +187,70 @@ def parse_limits_block(
     *,
     test_char: str | None = None,
 ) -> dict[str, Limit | _LimitRef | _PolicyLimit | _BandSet]:
-    """Convert a sidecar ``limits:`` mapping into Limit / reference / policy / bandset objects.
+    """Convert a ``litmus_limits:`` mapping into Limit / ref / policy / bandset objects.
 
-    Entries with ``ref:`` become :class:`_LimitRef`. Entries with any of
-    :data:`_POLICY_LIMIT_FIELDS` become :class:`_PolicyLimit` wrapping a
-    :class:`MeasurementLimitConfig` (resolution deferred to push time so
-    the active vector params + spec context are in scope). A list-valued
-    entry is parsed as :class:`_BandSet` — condition-indexed bands matched
-    at measurement time via the entry's ``when:`` keys. Everything else
-    is treated as a direct :class:`Limit`.
+    Each measurement value is a **dict** — one of:
+
+    * **Direct** — ``low`` / ``high`` / ``nominal`` / ``units`` fields.
+    * **Ref** — ``ref: <characteristic>`` delegates to a product spec.
+    * **Policy** — ``characteristic`` + ``tolerance_pct`` / ``tolerance_abs``
+      derives bounds from a product characteristic at runtime.
+    * **Conditional** — adds an optional ``bands:`` list of
+      ``{when: ..., <override fields>}`` entries. The dict's top-level
+      fields become **defaults** that bands inherit; band fields
+      override the defaults per-row. Selection at measurement time
+      uses the first band whose ``when:`` matches the active sweep
+      values; no match → ``pytest.UsageError``.
+
+    The old "list-of-bands as the value" form is rejected with a
+    helpful pointer to the ``bands:`` key. Top-level dict shape is
+    uniform; no dict-or-list polymorphism on the value side.
     """
     if not raw:
         return {}
     out: dict[str, Limit | _LimitRef | _PolicyLimit | _BandSet] = {}
     for name, spec in raw.items():
         if isinstance(spec, list):
-            bands: list[tuple[dict[str, Any], Limit | _LimitRef | _PolicyLimit]] = []
-            for band_spec in spec:
-                if not isinstance(band_spec, Mapping):
-                    raise ValueError(
-                        f"limits.{name!r} bands must be mappings; got {type(band_spec).__name__}"
-                    )
-                when = dict(band_spec.get("when") or {})
-                body = {k: v for k, v in band_spec.items() if k != "when"}
-                bands.append((when, _parse_limit_entry(body, test_char=test_char)))
-            out[name] = _BandSet(bands)
-            continue
-        if not isinstance(spec, Mapping):
             raise ValueError(
-                f"limits.{name!r} must be a mapping or list; got {type(spec).__name__}"
+                f"limits.{name!r} value must be a dict, not a list. "
+                "Conditional limits use a 'bands:' key inside the dict:\n"
+                f"  {name}:\n"
+                "    low: ...      # default fields\n"
+                "    high: ...\n"
+                "    bands:        # optional condition-keyed overrides\n"
+                "      - {when: {...}, low: ..., high: ...}"
             )
-        out[name] = _parse_limit_entry(spec, test_char=test_char)
+        if not isinstance(spec, Mapping):
+            raise ValueError(f"limits.{name!r} must be a dict; got {type(spec).__name__}")
+
+        bands_raw = spec.get("bands")
+        if bands_raw is None:
+            # No conditional overrides — direct/ref/policy form.
+            out[name] = _parse_limit_entry(spec, test_char=test_char)
+            continue
+
+        if not isinstance(bands_raw, list):
+            raise ValueError(
+                f"limits.{name!r}.bands must be a list of band dicts; "
+                f"got {type(bands_raw).__name__}"
+            )
+
+        # Top-level fields (excluding 'bands') are defaults inherited by bands.
+        defaults = {k: v for k, v in spec.items() if k != "bands"}
+        bands: list[tuple[dict[str, Any], Limit | _LimitRef | _PolicyLimit]] = []
+        for i, band_spec in enumerate(bands_raw):
+            if not isinstance(band_spec, Mapping):
+                raise ValueError(
+                    f"limits.{name!r}.bands[{i}] must be a dict; got {type(band_spec).__name__}"
+                )
+            when = dict(band_spec.get("when") or {})
+            # Merge defaults + band overrides; band fields win.
+            merged = dict(defaults)
+            for k, v in band_spec.items():
+                if k != "when":
+                    merged[k] = v
+            bands.append((when, _parse_limit_entry(merged, test_char=test_char)))
+        out[name] = _BandSet(bands)
     return out
 
 
