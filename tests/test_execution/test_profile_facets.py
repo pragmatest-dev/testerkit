@@ -12,7 +12,7 @@ import pytest
 
 from litmus.config.test_config import MarkerSpec, TestEntry
 from litmus.execution.profiles import flatten_profile_chain, resolve_active_profile
-from litmus.models.project import ProfileConfig, ProfilePytest, ProjectConfig
+from litmus.models.project import ProfileConfig, ProjectConfig
 from litmus.store import load_project
 
 
@@ -124,26 +124,26 @@ class TestFlattenProfileChain:
             _limits(tolerance_pct=1.0),
         ]
 
-    def test_pytest_addopts_child_appends_to_parent(self) -> None:
-        parent = ProfileConfig(pytest=ProfilePytest(addopts="--strict-markers"))
+    def test_runner_addopts_child_appends_to_parent(self) -> None:
+        parent = ProfileConfig(runner={"addopts": "--strict-markers"})
         child = ProfileConfig(
             extends="family",
-            pytest=ProfilePytest(addopts="-p no:cacheprovider"),
+            runner={"addopts": "-p no:cacheprovider"},
         )
         project = _make_project({"family": parent, "leaf": child})
         merged = flatten_profile_chain("leaf", project)
-        assert merged.pytest.addopts == "--strict-markers -p no:cacheprovider"
+        assert merged.runner.get("addopts") == "--strict-markers -p no:cacheprovider"
 
-    def test_pytest_markexpr_and_keyword_child_wins_when_set(self) -> None:
-        parent = ProfileConfig(pytest=ProfilePytest(markexpr="not slow", keyword="rail"))
+    def test_runner_markexpr_and_keyword_child_wins_when_set(self) -> None:
+        parent = ProfileConfig(runner={"markexpr": "not slow", "keyword": "rail"})
         child = ProfileConfig(
             extends="family",
-            pytest=ProfilePytest(markexpr="production"),
+            runner={"markexpr": "production"},
         )
         project = _make_project({"family": parent, "leaf": child})
         merged = flatten_profile_chain("leaf", project)
-        assert merged.pytest.markexpr == "production"
-        assert merged.pytest.keyword == "rail"
+        assert merged.runner.get("markexpr") == "production"
+        assert merged.runner.get("keyword") == "rail"
 
     def test_cycle_raises_usage_error(self) -> None:
         a = ProfileConfig(extends="b")

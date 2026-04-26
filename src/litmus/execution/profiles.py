@@ -20,6 +20,7 @@ file focused on hook registration.
 from __future__ import annotations
 
 import os
+from typing import Any
 
 import pytest
 
@@ -29,7 +30,7 @@ from litmus.execution._state import (
     set_active_profile,
     set_session_inputs,
 )
-from litmus.models.project import ProfileConfig, ProfilePytest, ProjectConfig
+from litmus.models.project import ProfileConfig, ProjectConfig
 from litmus.prompts import ask as ask_prompt
 
 
@@ -125,24 +126,29 @@ def flatten_profile_chain(leaf_name: str, project: ProjectConfig) -> ProfileConf
         if profile.description is not None:
             description = profile.description
         merged_facets.update(profile.facets)
-        if profile.pytest.addopts:
-            addopts_parts.append(profile.pytest.addopts)
-        if profile.pytest.markexpr is not None:
-            markexpr = profile.pytest.markexpr
-        if profile.pytest.keyword is not None:
-            keyword = profile.pytest.keyword
+        runner = profile.runner
+        if runner.get("addopts"):
+            addopts_parts.append(str(runner["addopts"]))
+        if runner.get("markexpr") is not None:
+            markexpr = str(runner["markexpr"])
+        if runner.get("keyword") is not None:
+            keyword = str(runner["keyword"])
         merged_config.extend(profile.config)
         merged_tests = _merge_test_entries(merged_tests, profile.tests)
+
+    merged_runner: dict[str, Any] = {}
+    if addopts_parts:
+        merged_runner["addopts"] = " ".join(addopts_parts)
+    if markexpr is not None:
+        merged_runner["markexpr"] = markexpr
+    if keyword is not None:
+        merged_runner["keyword"] = keyword
 
     return ProfileConfig(
         description=description,
         facets=merged_facets,
         extends=None,
-        pytest=ProfilePytest(
-            addopts=" ".join(addopts_parts) or None,
-            markexpr=markexpr,
-            keyword=keyword,
-        ),
+        runner=merged_runner,
         config=merged_config,
         tests=merged_tests,
     )
@@ -262,12 +268,14 @@ def install_active_profile(config) -> None:
     set_active_facets(facets)
     if profile is None:
         return
-    if profile.pytest.keyword:
+    runner_keyword = profile.runner.get("keyword")
+    if runner_keyword:
         existing = getattr(config.option, "keyword", None) or ""
-        config.option.keyword = compose_filter_expr(profile.pytest.keyword, existing)
-    if profile.pytest.markexpr:
+        config.option.keyword = compose_filter_expr(str(runner_keyword), existing)
+    runner_markexpr = profile.runner.get("markexpr")
+    if runner_markexpr:
         existing = getattr(config.option, "markexpr", None) or ""
-        config.option.markexpr = compose_filter_expr(profile.pytest.markexpr, existing)
+        config.option.markexpr = compose_filter_expr(str(runner_markexpr), existing)
 
 
 def parse_flag_from_args(args, flag: str) -> str | None:
@@ -281,7 +289,7 @@ def parse_flag_from_args(args, flag: str) -> str | None:
 
 
 def apply_profile_addopts_env(args) -> None:
-    """Apply ``profile.pytest.addopts`` via ``PYTEST_ADDOPTS`` before collection.
+    """Apply ``profile.runner.addopts`` via ``PYTEST_ADDOPTS`` before collection.
 
     Setting ``PYTEST_ADDOPTS`` at this stage is the pytest-blessed path
     for injecting CLI tokens — equivalent to exporting the variable in
@@ -316,10 +324,13 @@ def apply_profile_addopts_env(args) -> None:
     except pytest.UsageError:
         # Let pytest_configure surface the error with a clean stacktrace.
         return
-    if profile is None or not profile.pytest.addopts:
+    if profile is None:
+        return
+    runner_addopts = profile.runner.get("addopts")
+    if not runner_addopts:
         return
     existing = os.environ.get("PYTEST_ADDOPTS", "").strip()
-    merged = f"{existing} {profile.pytest.addopts}".strip()
+    merged = f"{existing} {str(runner_addopts)}".strip()
     os.environ["PYTEST_ADDOPTS"] = merged
 
 

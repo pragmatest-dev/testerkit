@@ -83,21 +83,6 @@ class OutputConfig(BaseModel):
         return "results"
 
 
-class ProfilePytest(BaseModel):
-    """Pytest-level knobs a profile can apply.
-
-    ``addopts`` is appended to ``PYTEST_ADDOPTS`` before collection so
-    downstream plugins (pytest-rerunfailures, pytest-xdist, pytest-timeout)
-    parse it during their own configure phase.
-    """
-
-    model_config = {"extra": "forbid"}
-
-    addopts: str | None = None
-    markexpr: str | None = None
-    keyword: str | None = None
-
-
 class ProfileConfig(BaseModel):
     """A named config set applied to a pytest session.
 
@@ -107,6 +92,13 @@ class ProfileConfig(BaseModel):
     A class is a branch (config + nested ``tests:``); a function is a
     leaf. One vocabulary spans inline decorators, sidecar YAML, and
     profile overrides.
+
+    ``runner:`` is a flat per-runner config block — opaque to Litmus
+    core (validated by the active runner's plugin against its own
+    Pydantic schema). For pytest, fields like ``addopts``, ``markexpr``,
+    ``keyword``, ``markers`` live here. One runner per session means
+    one schema validates the whole block; profiles authored for a
+    different runner fail fast on unknown fields.
 
     ``extends`` names another profile whose configuration is inherited and
     overridden last-wins by this one. Chains are walked parent-first, so a
@@ -120,7 +112,7 @@ class ProfileConfig(BaseModel):
     description: str | None = None
     facets: dict[str, str] = Field(default_factory=dict)
     extends: str | None = None
-    pytest: ProfilePytest = Field(default_factory=ProfilePytest)
+    runner: dict[str, Any] = Field(default_factory=dict)
     config: list[ConfigEntry] = Field(default_factory=list)
     tests: dict[str, TestEntry] = Field(default_factory=dict)
 
@@ -138,4 +130,5 @@ class ProjectConfig(BaseModel):
     mock_instruments: bool = False
     outputs: list[OutputConfig] = Field(default_factory=list)
     profiles: dict[str, ProfileConfig] = Field(default_factory=dict)
+    runner: dict[str, Any] = Field(default_factory=dict)
     required_inputs: dict[str, PromptConfig] = Field(default_factory=dict)
