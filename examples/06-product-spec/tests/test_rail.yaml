@@ -2,7 +2,7 @@
 tests:
   test_rail_within_spec:
     config:
-      - litmus_spec: {characteristic: rail_3v3}
+      - litmus_specs: [rail_3v3]
       - litmus_connections: {connections: [vout_measure]}    # narrow the auto-derived pin set; redundant for a single-pin char but shows the marker
       - litmus_limits:
           v_rail: {characteristic: rail_3v3, tolerance_pct: 2}
@@ -11,13 +11,13 @@ tests:
     config:
       - litmus_sweeps:
           - {vin: [3.3, 5.0, 5.5]}
-      - litmus_spec: {characteristic: rail_3v3}
+      - litmus_specs: [rail_3v3]
       - litmus_limits:
           v_rail: {characteristic: rail_3v3, tolerance_pct: 2}
 
   TestIdle:
     config:
-      - litmus_spec: {characteristic: rail_3v3}
+      - litmus_specs: [rail_3v3]
       - litmus_limits:
           v_rail: {characteristic: rail_3v3, tolerance_pct: 2}
           i_idle: {characteristic: idle_current, tolerance_pct: 20}

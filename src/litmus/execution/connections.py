@@ -1,8 +1,8 @@
-"""Resolve ``litmus_spec`` / ``litmus_connections`` markers to fixture connections.
+"""Resolve ``litmus_specs`` / ``litmus_connections`` markers to fixture connections.
 
 The two markers compose into a single ordered list of
 :class:`FixtureConnection` instances that the test body iterates via
-``ctx.connections``. ``litmus_spec`` supplies the characteristic
+``ctx.connections``. ``litmus_specs`` supplies the characteristic
 context (its ``resolved_pins`` set); ``litmus_connections`` supplies
 an explicit named-connection list or an instrument-channel selector.
 When both are present the connection list narrows the spec's pin set;
@@ -86,7 +86,7 @@ def _spec_pin_set(characteristic: str, spec_ctx: Any) -> set[str]:
     """Return the characteristic's ``resolved_pins`` as a set, validating context."""
     if spec_ctx is None:
         raise pytest.UsageError(
-            f"litmus_spec(characteristic={characteristic!r}) "
+            f"litmus_specs(characteristic={characteristic!r}) "
             "requires a product spec (load via --spec or products/ auto-discovery)."
         )
     char = spec_ctx.product.characteristics.get(characteristic)
@@ -236,12 +236,12 @@ def _channel_selectors(
 
 
 def resolve_test_connections(
-    spec_marker: pytest.Mark | None,
+    characteristic: str | None,
     conn_marker: pytest.Mark | None,
     spec_ctx: Any,
     fixture_cfg: FixtureConfig | None,
 ) -> list[FixtureConnection]:
-    """Resolve the iterable connection set from ``litmus_spec`` / ``litmus_connections``.
+    """Resolve the iterable connection set from ``litmus_specs`` / ``litmus_connections``.
 
     The two markers compose:
 
@@ -256,14 +256,11 @@ def resolve_test_connections(
       (or, for fixtureless ``instrument_channels``, no DUT-pin
       validation is possible and the stubs pass through).
     """
-    if spec_marker is None and conn_marker is None:
+    if characteristic is None and conn_marker is None:
         return []
 
     char_pins: set[str] | None = None
-    if spec_marker is not None:
-        characteristic = spec_marker.kwargs.get("characteristic")
-        if not characteristic:
-            raise pytest.UsageError("litmus_spec requires characteristic=<id>.")
+    if characteristic is not None:
         char_pins = _spec_pin_set(characteristic, spec_ctx)
 
     if conn_marker is None:

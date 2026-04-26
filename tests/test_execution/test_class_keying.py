@@ -14,13 +14,15 @@ from litmus.execution.sidecar import sidecar_markers_for as _sidecar_markers_for
 
 
 def _spec_marker(char: str) -> MarkerSpec:
-    return MarkerSpec(name="litmus_spec", kwargs={"characteristic": char})
+    return MarkerSpec(name="litmus_specs", args=[[char]])
 
 
 def _first_char(markers: list[MarkerSpec]) -> str | None:
     for spec in markers:
-        if spec.name == "litmus_spec":
-            return spec.kwargs.get("characteristic")
+        if spec.name == "litmus_specs":
+            payload = spec.args[0] if spec.args else None
+            if isinstance(payload, list) and payload:
+                return payload[0]
     return None
 
 

@@ -217,9 +217,11 @@ def pytest_configure(config):
         "between attempts; on is an optional list of exception class "
         "names to retry on (default: any exception).",
         "litmus_limits(**kwargs): Inject limits by measurement name (merges with sidecar limits:)",
-        "litmus_spec(characteristic=<id>): Bind the test to a product "
-        "characteristic; provides spec-relative limit context and "
-        "auto-derives fixture connections from the characteristic's pins.",
+        "litmus_specs([<characteristic_id>, ...]): Bind the test to one "
+        "or more product characteristics; provides spec-relative limit "
+        "context and auto-derives fixture connections from the "
+        "characteristic's pins. v1 supports one binding per test (single "
+        "iteration scope); multi-binding semantics may relax in future.",
         "litmus_connections(connections=[...] | instrument_channels={...}): "
         "Bind the test to explicit named connections or instrument-channel ranges.",
         "litmus_prompts(**kwargs): Declare named operator prompts; "
@@ -2272,7 +2274,7 @@ def connections(
     """Active fixture connections for the current test.
 
     Returns the :class:`ConnectionIterator` resolved from
-    ``litmus_spec`` / ``litmus_connections`` markers, or ``None`` when
+    ``litmus_specs`` / ``litmus_connections`` markers, or ``None`` when
     no markers are declared. Symmetric with ``pins``: tests that take
     fixture connections use this fixture instead of reaching through
     ``context.connections``.
@@ -2505,6 +2507,46 @@ def _node_cls_func(node: pytest.Item) -> tuple[str | None, str | None]:
     return cls_name, func_name
 
 
+def _extract_specs_characteristic(node: pytest.Item) -> str | None:
+    """Extract the single characteristic ID from a ``litmus_specs`` marker.
+
+    The marker payload is a list of characteristic ID strings. Inline
+    decorators may pass either varargs of strings or a single list arg;
+    YAML always produces a list. v1 enforces cardinality 1 — multiple
+    characteristic bindings raise ``pytest.UsageError`` (single iteration
+    scope only). Returns ``None`` if no ``litmus_specs`` marker is set.
+    """
+    marker = next(iter(node.iter_markers("litmus_specs")), None)
+    if marker is None:
+        return None
+    if marker.kwargs:
+        raise pytest.UsageError(
+            "litmus_specs does not accept keyword arguments; pass "
+            "characteristic IDs as positional strings or a single list."
+        )
+    if not marker.args:
+        raise pytest.UsageError("litmus_specs requires at least one characteristic ID.")
+    # Form A: single positional list arg
+    if len(marker.args) == 1 and isinstance(marker.args[0], list):
+        ids = marker.args[0]
+    # Form B: varargs of strings
+    elif all(isinstance(a, str) for a in marker.args):
+        ids = list(marker.args)
+    else:
+        raise pytest.UsageError(
+            f"litmus_specs payload must be a list of characteristic ID "
+            f"strings (or varargs of strings); got {marker.args!r}"
+        )
+    if not all(isinstance(i, str) for i in ids):
+        raise pytest.UsageError(f"litmus_specs entries must be strings; got {ids!r}")
+    if len(ids) != 1:
+        raise pytest.UsageError(
+            f"litmus_specs supports exactly one characteristic ID per test "
+            f"(single iteration scope); got {len(ids)}: {ids!r}"
+        )
+    return ids[0]
+
+
 @pytest.fixture(autouse=True)
 def _litmus_push_limits(
     request: pytest.FixtureRequest,
@@ -2528,8 +2570,7 @@ def _litmus_push_limits(
     active_vector_params)``. Depends on :func:`_litmus_push_params` so
     active vector params are populated before resolution.
     """
-    spec_marker = next(iter(request.node.iter_markers("litmus_spec")), None)
-    test_char = spec_marker.kwargs.get("characteristic") if spec_marker is not None else None
+    test_char = _extract_specs_characteristic(request.node)
 
     merged_raw: dict[str, Any] = {}
     # Walk listchain root-to-leaf so later (more-specific) markers win
@@ -2556,22 +2597,22 @@ def _litmus_resolve_connections(
 ) -> Iterator[None]:
     """Build :class:`ConnectionIterator` on ``ctx.connections`` from spec/connections markers.
 
-    Reads ``litmus_spec`` (characteristic context) and
+    Reads ``litmus_specs`` (characteristic context) and
     ``litmus_connections`` (explicit name list / channel selectors).
     The two compose: connections narrows the spec's pin set, and
     iteration follows the user-listed order. If the test body declares
     connections but never iterates ``ctx.connections``, the test fails —
     silent skips are worse than errors.
     """
-    spec_marker = next(iter(request.node.iter_markers("litmus_spec")), None)
+    test_char = _extract_specs_characteristic(request.node)
     conn_marker = next(iter(request.node.iter_markers("litmus_connections")), None)
-    if spec_marker is None and conn_marker is None:
+    if test_char is None and conn_marker is None:
         yield
         return
 
     spec_ctx = get_active_spec_context()
     fixture_cfg = _safe_get_session_fixture(request, "fixture_config")
-    connections = resolve_test_connections(spec_marker, conn_marker, spec_ctx, fixture_cfg)
+    connections = resolve_test_connections(test_char, conn_marker, spec_ctx, fixture_cfg)
 
     ctx: Context = request.getfixturevalue("context")
     iterator = ConnectionIterator(connections)

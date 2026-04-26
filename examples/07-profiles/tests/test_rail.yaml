@@ -5,15 +5,15 @@
 tests:
   test_rail_within_spec:
     config:
-      - litmus_spec: {characteristic: rail_3v3}
+      - litmus_specs: [rail_3v3]
 
   test_rail_holds_across_input:
     config:
-      - litmus_spec: {characteristic: rail_3v3}
+      - litmus_specs: [rail_3v3]
 
   TestIdle:
     config:
-      - litmus_spec: {characteristic: rail_3v3}
+      - litmus_specs: [rail_3v3]
       - litmus_limits:
           v_rail: {characteristic: rail_3v3, tolerance_pct: 2}
           i_idle: {characteristic: idle_current, tolerance_pct: 20}

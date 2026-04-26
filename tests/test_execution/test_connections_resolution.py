@@ -176,7 +176,7 @@ def test_characteristic_spec_derives_tolerance_limit(pytester: pytest.Pytester) 
             tests:
               test_rail:
                 config:
-                  - litmus_spec: {characteristic: rail_3v3}
+                  - litmus_specs: [rail_3v3]
                   - litmus_limits:
                       v_rail: {tolerance_pct: 2}
             """
@@ -211,7 +211,7 @@ def test_multi_pin_characteristic_iterates_all_connections(pytester: pytest.Pyte
             tests:
               test_dropout:
                 config:
-                  - litmus_spec: {characteristic: dropout}
+                  - litmus_specs: [dropout]
                   - litmus_limits:
                       v_drop: {tolerance_abs: 0.1}
             """
