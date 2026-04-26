@@ -29,6 +29,7 @@ _INI = textwrap.dedent(
     """
     [pytest]
     addopts = -p no:litmus -p litmus.execution.plugin
+    asyncio_default_fixture_loop_scope = function
     """
 )
 

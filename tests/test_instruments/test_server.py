@@ -39,6 +39,10 @@ class FakeDriver:
         self._calls.append(f"query({cmd})")
         return f"response:{cmd}"
 
+    def disconnect(self) -> None:
+        """Implement the lifecycle hook so InstrumentPool can clean up cleanly."""
+        self._calls.append("disconnect")
+
 
 class FakeSwitch:
     """Fake switch driver for concurrent access testing."""

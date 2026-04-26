@@ -27,6 +27,7 @@ def _write_sequence(
             """
             [pytest]
             addopts = -p no:litmus -p litmus.execution.plugin
+            asyncio_default_fixture_loop_scope = function
 """
         )
     )
@@ -130,6 +131,7 @@ def test_sequence_without_sidecar_runs_once(pytester: pytest.Pytester) -> None:
             """
             [pytest]
             addopts = -p no:litmus -p litmus.execution.plugin
+            asyncio_default_fixture_loop_scope = function
 """
         )
     )
@@ -153,6 +155,7 @@ def test_plain_tests_ignored_by_plugin(pytester: pytest.Pytester) -> None:
             """
             [pytest]
             addopts = -p no:litmus -p litmus.execution.plugin
+            asyncio_default_fixture_loop_scope = function
 """
         )
     )
@@ -207,6 +210,7 @@ def test_decorator_parametrize_populates_context(pytester: pytest.Pytester) -> N
             """
             [pytest]
             addopts = -p no:litmus -p litmus.execution.plugin
+            asyncio_default_fixture_loop_scope = function
             """
         )
     )
@@ -327,6 +331,7 @@ def _write_measure_test(
             """
             [pytest]
             addopts = -p no:litmus -p litmus.execution.plugin
+            asyncio_default_fixture_loop_scope = function
             """
         )
     )
@@ -495,6 +500,7 @@ def test_pure_pytest_assert_no_litmus_machinery(pytester: pytest.Pytester) -> No
             """
             [pytest]
             addopts = -p no:litmus -p litmus.execution.plugin
+            asyncio_default_fixture_loop_scope = function
             """
         )
     )
@@ -519,6 +525,7 @@ def test_litmus_limits_marker_on_method_resolves(pytester: pytest.Pytester) -> N
             """
             [pytest]
             addopts = -p no:litmus -p litmus.execution.plugin
+            asyncio_default_fixture_loop_scope = function
             """
         )
     )
@@ -554,6 +561,7 @@ def test_litmus_limits_marker_method_overrides_class(pytester: pytest.Pytester) 
             """
             [pytest]
             addopts = -p no:litmus -p litmus.execution.plugin
+            asyncio_default_fixture_loop_scope = function
             """
         )
     )
@@ -589,6 +597,7 @@ def test_limits_fixture_destructured_access(pytester: pytest.Pytester) -> None:
             """
             [pytest]
             addopts = -p no:litmus -p litmus.execution.plugin
+            asyncio_default_fixture_loop_scope = function
             """
         )
     )
@@ -635,6 +644,7 @@ def test_no_test_mocks_flag_disables_sidecar_mocks(pytester: pytest.Pytester) ->
             """
             [pytest]
             addopts = -p no:litmus -p litmus.execution.plugin
+            asyncio_default_fixture_loop_scope = function
             """
         )
     )
@@ -672,6 +682,7 @@ def test_context_last_returns_prior_param(pytester: pytest.Pytester) -> None:
             """
             [pytest]
             addopts = -p no:litmus -p litmus.execution.plugin
+            asyncio_default_fixture_loop_scope = function
             """
         )
     )

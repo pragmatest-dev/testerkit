@@ -9,6 +9,8 @@ from pathlib import Path
 from types import ModuleType
 from unittest.mock import MagicMock
 
+import pytest
+
 from litmus.models.project import OutputConfig
 
 # ---------------------------------------------------------------------------
@@ -209,7 +211,8 @@ def test_upload_queue_drain_failure(tmp_path: Path) -> None:
             raise ConnectionError("no creds")
 
     # __init_subclass__ already registered it by overwriting "s3"
-    count = drain(results_dir)
+    with pytest.warns(UserWarning, match="Upload failed"):
+        count = drain(results_dir)
     assert count == 0
 
     rows = status(results_dir)
