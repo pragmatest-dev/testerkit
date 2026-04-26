@@ -9,6 +9,7 @@ dist/
 .pytest_cache/
 .coverage
 .claude/settings.local.json
+.claude/scheduled_tasks.lock
 .tmp/
 examples/uv.lock
 examples/*/uv.lock
