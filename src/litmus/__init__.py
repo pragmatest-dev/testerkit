@@ -8,6 +8,14 @@ points:
 - :func:`connect` — session-scoped context manager for interactive work
 - :class:`TestHarness` — direct harness construction for advanced cases
 
+Inline list-builders for ``litmus_vectors`` (Python counterparts to the
+YAML range expanders) — give you IDE autocomplete + signature help:
+
+- :func:`linspace`, :func:`arange`, :func:`logspace`, :func:`geomspace`,
+  :func:`repeat` — produce lists for one sweep axis
+- :func:`paired` — decorator that zips multiple kwargs into one paired
+  ``litmus_vectors`` axis (no awkward ``**{"a,b": [...]}`` unpacking)
+
 Tests themselves are plain pytest functions that consume the
 ``context`` / ``verify`` / ``logger`` / ``spec`` fixtures provided by
 the Litmus pytest plugin — see ``docs/reference/pytest-native.md``.
@@ -19,6 +27,7 @@ Every other public API lives under a sub-namespace; see
 from litmus.client import LitmusClient
 from litmus.connect import connect
 from litmus.execution import TestHarness
+from litmus.expand import arange, geomspace, linspace, logspace, paired, repeat
 
 __version__ = "0.1.0"
 
@@ -26,5 +35,11 @@ __all__ = [
     "LitmusClient",
     "TestHarness",
     "__version__",
+    "arange",
     "connect",
+    "geomspace",
+    "linspace",
+    "logspace",
+    "paired",
+    "repeat",
 ]
