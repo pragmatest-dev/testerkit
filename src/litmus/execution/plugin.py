@@ -1455,7 +1455,7 @@ def instrument_records(request, station_config, mock_instruments) -> dict[str, I
 
 @pytest.fixture(scope="session")
 def instruments(
-    request, station_config, mock_instruments, instrument_records, logger
+    station_config, mock_instruments, instrument_records, logger
 ) -> Generator[dict[str, Any], None, None]:
     """Create instrument instances from station configuration.
 
@@ -1853,6 +1853,7 @@ def sync(logger):
             v = dmm.measure_voltage()
             assert v > 3.0
     """
+    del logger  # dependency-only: forces the session EventStore to exist
     from litmus.execution.slot_runner import is_worker_mode
 
     if not is_worker_mode():
@@ -1861,7 +1862,6 @@ def sync(logger):
 
     from litmus.execution.sync import get_sync
 
-    # Reuse the session EventStore from logger — never create a second one
     event_store = get_event_store()
     sync_point = get_sync(event_store)
     yield sync_point
