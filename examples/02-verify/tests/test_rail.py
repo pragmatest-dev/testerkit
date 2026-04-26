@@ -6,10 +6,11 @@ value, units, limit, and pass/fail outcome — so you get the ``value``
 persisted, not just a pass/fail.
 
 Test vectors are introduced here too: ``@pytest.mark.litmus_vectors``
-is the runner-neutral name for declaring sweep axes. It works inline
-or in YAML; in pytest it expands to ``metafunc.parametrize`` calls.
-Limits are still inline in Python here (``Limit(low=..., high=...)``).
-Later stages move them to YAML. Start with what's familiar: Python.
+is the runner-neutral name for declaring sweep axes. Each kwarg is
+one axis; multiple kwargs cross-product — same family shape as
+``litmus_limits``. Limits are still inline in Python here
+(``Limit(low=..., high=...)``). Later stages move them to YAML.
+Start with what's familiar: Python.
 """
 
 from __future__ import annotations

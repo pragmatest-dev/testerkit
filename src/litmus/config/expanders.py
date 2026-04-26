@@ -15,9 +15,20 @@ Supported generators::
     {range:    [start, stop]}          -> list(range(...))
     {range:    [start, stop, step]}    -> list(range(...))
 
-Applies generically: parametrize argvalues, ``zip_bands`` arrays,
-station/fixture channel enumerations, prompt delay sequences — anywhere
-a list is expected.
+Applies generically: ``litmus_vectors`` argvalues, ``zip_bands``
+arrays, station/fixture channel enumerations, prompt delay sequences
+— anywhere a list is expected.
+
+For zipped axes in ``litmus_vectors``: don't use a special zip
+expander. Instead, write each argname as its own kwarg in one
+``litmus_vectors`` entry — multi-kwarg auto-zips with dim coherence
+enforced at decoration time. Each kwarg can independently use range
+expanders, and Litmus checks they expand to equal lengths::
+
+    - litmus_vectors:
+        vin:  {linspace: [3.3, 5.5, 5]}    # expands to 5 floats
+        vout: {linspace: [3.30, 3.32, 5]}  # expands to 5 floats
+        # 5 zipped pairs; mismatched lengths would raise UsageError
 """
 
 from __future__ import annotations

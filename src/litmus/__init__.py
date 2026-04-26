@@ -13,8 +13,10 @@ YAML range expanders) — give you IDE autocomplete + signature help:
 
 - :func:`linspace`, :func:`arange`, :func:`logspace`, :func:`geomspace`,
   :func:`repeat` — produce lists for one sweep axis
-- :func:`paired` — decorator that zips multiple kwargs into one paired
-  ``litmus_vectors`` axis (no awkward ``**{"a,b": [...]}`` unpacking)
+
+For zipped (paired) axes use ``litmus_vectors``'s positional form
+directly: ``@pytest.mark.litmus_vectors("vin,vout", [(3, 5), (4, 6)])`` —
+the comma-joined argname is the visual signal that values pair.
 
 Tests themselves are plain pytest functions that consume the
 ``context`` / ``verify`` / ``logger`` / ``spec`` fixtures provided by
@@ -27,7 +29,7 @@ Every other public API lives under a sub-namespace; see
 from litmus.client import LitmusClient
 from litmus.connect import connect
 from litmus.execution import TestHarness
-from litmus.expand import arange, geomspace, linspace, logspace, paired, repeat
+from litmus.expand import arange, geomspace, linspace, logspace, repeat
 
 __version__ = "0.1.0"
 
@@ -40,6 +42,5 @@ __all__ = [
     "geomspace",
     "linspace",
     "logspace",
-    "paired",
     "repeat",
 ]

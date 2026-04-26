@@ -1,190 +1,154 @@
 # Test Vectors & Range Expansion
 
 Test vectors — the parametric sweeps that drive a test through N
-combinations of conditions — are **runner-neutral** in Litmus. The
-same concept reaches you through three surfaces:
+combinations of conditions — are **runner-neutral** in Litmus.
+`litmus_vectors` is the marker; the same concept reaches you through
+three surfaces:
 
 - **Inline Python** — `@pytest.mark.litmus_vectors(...)`. IDE
   autocomplete, signature help, normal Python.
-- **Sidecar YAML** — `config: - litmus_vectors: {...}` in
+- **Sidecar YAML** — `config: - litmus_vectors: [...]` in
   `test_<module>.yaml` next to the test file.
 - **Profile YAML** — same shape as sidecar, applies via the active
   profile (see the [profiles guide](profiles.md)).
 
-All three produce identical parametrized test items. `context.get_param("name")`
-reads the active row regardless of source.
+`litmus_vectors` is the **recommended** marker for new tests.
+Pytest's own `@pytest.mark.parametrize` continues to work unchanged
+for projects already using it (chapter 1 of the curriculum is
+exactly this story). Don't *mix* the two stacked on a single test —
+plugin-order semantics make the iteration order non-obvious in mixed
+cases. Pick one.
 
-Compatibility: native `@pytest.mark.parametrize` continues to work
-unchanged — vanilla pytest projects keep running with no changes.
-`litmus_vectors` is the runner-neutral name; `parametrize` is the
-pytest-native name; both translate to the same `metafunc.parametrize`
-call.
+`litmus_vectors` deliberately diverges from `parametrize` in four
+ways — each one is a fix for a parametrize footgun and is the
+reason the marker exists rather than being just a rename:
+
+| Divergence | parametrize | litmus_vectors |
+|---|---|---|
+| Loop ordering | bottom decorator = outer | **top decorator = outer** |
+| Multi-arg syntax | comma-string + tuples | **multi-kwarg = zip (auto)** |
+| Dim coherence | silent shape error at runtime | **error at decoration time** |
+| Inline shape | positional only | **kwargs only inline** |
+| YAML shape | (no YAML form) | **always a list of axis-group dicts** |
 
 ---
 
-## Inline Python forms
+## The shape
 
-Import `pytest` for the marker access; import the inline list-builders
-from `litmus` when you want IDE-friendly numeric sweeps.
+Every `litmus_vectors` declares one or more **axis-groups**. An axis-group
+is a dict mapping argname(s) → values:
+
+- **Single key** = one plain axis: `{vin: [3.3, 5.0, 5.5]}`
+- **Multi-key** = one **zipped** axis (paired). All values lists must be
+  the same length: `{vin: [3, 4], vout: [5, 6]}`. Dimensional coherence
+  is checked at decoration / YAML-load time.
+
+Multiple axis-groups stack as cross-product. Top-to-bottom reads as
+outer-to-inner.
+
+### Inline (kwargs only)
 
 ```python
 import pytest
-from litmus import linspace, arange, logspace, repeat, paired
-```
+from litmus import linspace, arange, logspace, repeat
 
-### One axis (single argname)
-
-```python
+# Single axis
 @pytest.mark.litmus_vectors(vin=[3.3, 5.0, 5.5])
 def test_x(vin): ...
-# 3 cases
+
+# Zip (paired axis) — multi-kwarg in one decorator, dims checked
+@pytest.mark.litmus_vectors(vin=[3, 4], vout=[5, 6])
+def test_x(vin, vout): ...
+
+# Cross-product — stacked decorators (top = outer, bottom = inner)
+@pytest.mark.litmus_vectors(temp=[-40, 25, 85])    # outer (slowest)
+@pytest.mark.litmus_vectors(vin=[3.3, 5.0, 5.5])    # inner (fastest)
+def test_x(temp, vin): ...
+
+# Outer simple, inner zipped — combine the two
+@pytest.mark.litmus_vectors(temp=[-40, 25, 85])
+@pytest.mark.litmus_vectors(vin=[3, 4], vout=[5, 6])  # paired pair
+def test_x(temp, vin, vout): ...
 ```
 
-### Cross-product (multiple independent axes)
+### YAML (always a list of axis-group dicts)
 
-Each kwarg = one loop axis. Multiple kwargs cross-product, same
-mechanics as stacking parametrize decorators:
+YAML uses list form everywhere — even single-axis. No dict-vs-list
+polymorphism; Pydantic validates the shape end-to-end.
 
-```python
-@pytest.mark.litmus_vectors(vin=[3.3, 5.0], load=[0.1, 0.5, 0.9])
-def test_x(vin, load): ...
-# 2 × 3 = 6 cases
+```yaml
+config:
+  # Single axis
+  - litmus_vectors:
+      - {vin: [3.3, 5.0, 5.5]}
+
+  # Zipped axis — multi-key in one entry
+  - litmus_vectors:
+      - {vin: [3, 4], vout: [5, 6]}
+
+  # Cross-product — multiple list items (top = outer)
+  - litmus_vectors:
+      - {temp: [-40, 25, 85]}     # outer
+      - {vin: [3.3, 5.0, 5.5]}     # inner
+
+  # Outer simple, inner zipped
+  - litmus_vectors:
+      - {temp: [-40, 25, 85]}     # outer
+      - {vin: [3, 4], vout: [5, 6]}  # inner zipped pair
 ```
 
-### Zip / paired axis
-
-When values must advance together (input/expected pairs, corner-case
-matrices), use the `paired` decorator:
-
-```python
-@paired(vin=[3.3, 5.0, 5.5], expected=[3.30, 3.30, 3.30])
-def test_x(vin, expected): ...
-# 3 paired cases — argvalue lists must have the same length
-```
-
-`paired(...)` validates dimensions match before pytest collection
-(unlike the cross-product form, which doesn't care about lengths).
-It returns a regular `litmus_vectors` marker under the hood; stacking
-with another decorator cross-products independently:
-
-```python
-@pytest.mark.litmus_vectors(temp=[25, 85])
-@paired(vin=[3.3, 5.5], expected=[3.30, 3.30])
-def test_x(vin, expected, temp): ...
-# 2 (paired) × 2 (temp) = 4 cases
-```
+Stacking can also happen at the `config:` level — separate `litmus_vectors`
+entries cross-product with each other. Use whichever reads cleaner; a
+single `litmus_vectors` block keeps related axes together.
 
 ### Numeric sweeps — `linspace` / `arange` / `logspace` / `geomspace` / `repeat`
 
-Inline list-builders return a normal Python `list[float]` — IDE shows
-the signature, mypy/pyright check the types. Each one is the Python
-counterpart to a YAML range-expander dict, behaviorally identical:
+Inline list-builders return a normal `list[float]` — IDE shows the
+signature, mypy/pyright check the types. Each is the Python counterpart
+to a YAML range-expander dict, behaviorally identical:
 
 ```python
-@pytest.mark.litmus_vectors(vin=linspace(3.3, 5.5, 11))     # 11 evenly-spaced
-def test_x(vin): ...
-
-@pytest.mark.litmus_vectors(freq=logspace(1, 6, 6))          # 10 Hz to 1 MHz
-def test_x(freq): ...
-
-@pytest.mark.litmus_vectors(load=arange(0.0, 1.0, 0.1))      # 0.0..0.9 step 0.1
-def test_x(load): ...
-
-@pytest.mark.litmus_vectors(soak=repeat(5.0, 100))           # 100 copies of 5.0
-def test_x(soak): ...
+@pytest.mark.litmus_vectors(vin=linspace(3.3, 5.5, 11))
+@pytest.mark.litmus_vectors(freq=logspace(1, 6, 6))
+@pytest.mark.litmus_vectors(load=arange(0.0, 1.0, 0.1))
+@pytest.mark.litmus_vectors(soak=repeat(5.0, 100))
+@pytest.mark.litmus_vectors(channel=list(range(1, 17)))
 ```
 
-For integer ranges, just use Python's built-in `range`:
+In YAML, range expanders are dict-form generators that resolve at
+YAML load (before Pydantic validation). They drop in anywhere a list
+is expected:
+
+```yaml
+config:
+  - litmus_vectors:
+      - vin: {linspace: [3.3, 5.5, 11]}
+  - litmus_vectors:
+      - freq: {logspace: [1, 6, 6]}
+```
+
+For zipped axes generated from helpers — just put each axis as its
+own kwarg/key. Multi-kwarg auto-zips with dim check; if the
+expanders produce different lengths, you get a clear error:
+
+```yaml
+- litmus_vectors:
+    - vin:  {linspace: [3.3, 5.5, 5]}     # → 5 floats
+      vout: {linspace: [3.30, 3.32, 5]}   # → 5 floats; zips cleanly
+```
+
+Inline equivalent:
 
 ```python
-@pytest.mark.litmus_vectors(channel=list(range(1, 17)))      # channels 1..16
-def test_x(channel): ...
+@pytest.mark.litmus_vectors(
+    vin=linspace(3.3, 5.5, 5),
+    vout=linspace(3.30, 3.32, 5),
+)
 ```
-
-### Stacking decorators
-
-Stack any combination — each decorator adds an axis, all axes
-cross-product:
-
-```python
-@pytest.mark.litmus_vectors(temp=[25, 85])
-@pytest.mark.litmus_vectors(vin=linspace(3.3, 5.5, 5))
-@paired(load_pct=[10, 50, 90], expected_eff=[0.91, 0.94, 0.92])
-def test_x(temp, vin, load_pct, expected_eff): ...
-# 2 × 5 × 3 = 30 cases
-```
-
-Pytest applies stacked decorators bottom-up: closest-to-function = inner
-loop (varies fastest); furthest-from-function = outer loop (varies slowest).
-Pair this with `context.changed("name")` to amortize expensive setup
-on outer-loop changes (see below).
 
 ---
 
-## YAML forms
-
-YAML can't call functions, so the YAML surface uses literal lists and
-dict-form expanders. Same semantics as the Python forms — just
-expressed as data instead of expressions.
-
-### One axis
-
-```yaml
-config:
-  - litmus_vectors:
-      vin: [3.3, 5.0, 5.5]
-```
-
-### Cross-product
-
-Each top-level key in the `litmus_vectors` payload is one axis:
-
-```yaml
-config:
-  - litmus_vectors:
-      vin: [3.3, 5.0]
-      load: [0.1, 0.5, 0.9]
-# 2 × 3 = 6 cases
-```
-
-Equivalent to stacking two entries:
-
-```yaml
-config:
-  - litmus_vectors: {vin: [3.3, 5.0]}        # outer
-  - litmus_vectors: {load: [0.1, 0.5, 0.9]}  # inner (varies faster)
-# Same 6 cases; explicit ordering
-```
-
-### Zip / paired axis (comma-joined argname key)
-
-YAML keys can be any string, so the comma-joined argname form is
-clean (no `**{...}` unpacking like inline Python):
-
-```yaml
-config:
-  - litmus_vectors:
-      "vin,expected":
-        - [3.3, 3.30]
-        - [5.0, 3.30]
-        - [5.5, 3.30]
-```
-
-The quotes around `"vin,expected"` are optional but help readers see
-the comma is data (one argname-string), not YAML structure. Block
-style works too:
-
-```yaml
-config:
-  - litmus_vectors:
-      "vin,expected": [[3.3, 3.30], [5.0, 3.30], [5.5, 3.30]]   # flow style
-```
-
-### Range expanders
-
-Any list position in any Litmus YAML file accepts a single-key dict
-whose key names a generator. Expansion happens at YAML load, before
-Pydantic validation — schema models and pytest only see plain lists.
+## YAML range expanders
 
 | Key             | Semantics                                            | Backs to            |
 |-----------------|------------------------------------------------------|---------------------|
@@ -195,18 +159,9 @@ Pydantic validation — schema models and pytest only see plain lists.
 | `repeat`        | `[value, n]` — N copies of value                     | `[value] * n`       |
 | `range`         | `[start, stop]` or `[start, stop, step]` — integers  | built-in `range`    |
 
-```yaml
-config:
-  - litmus_vectors:
-      vin: {linspace: [3.3, 5.5, 11]}    # 11 evenly-spaced points
-      freq: {logspace: [1, 6, 6]}        # 10 Hz..1 MHz, 6 points
-      soak: {repeat: [5.0, 100]}         # 100 copies of 5.0
-      channel: {range: [1, 17]}          # 1..16
-```
-
 Range expanders work anywhere a list is accepted — station channel
-arrays, fixture pin arrays, product-spec `when:` bands with list
-matchers, etc. Not just inside `litmus_vectors`.
+arrays, fixture pin arrays, product-spec `when:` bands, etc. Not
+just inside `litmus_vectors`.
 
 ---
 
@@ -214,41 +169,24 @@ matchers, etc. Not just inside `litmus_vectors`.
 
 | Inline Python | YAML |
 |---|---|
-| `litmus_vectors(vin=[3, 4])` | `litmus_vectors: {vin: [3, 4]}` |
-| `litmus_vectors(vin=[3, 4], load=[0.1, 0.5])` | `litmus_vectors: {vin: [3, 4], load: [0.1, 0.5]}` |
-| `paired(vin=[3, 4], vout=[5, 6])` | `litmus_vectors: {"vin,vout": [[3, 5], [4, 6]]}` |
-| `litmus_vectors(vin=linspace(3, 5, 5))` | `litmus_vectors: {vin: {linspace: [3, 5, 5]}}` |
-| `litmus_vectors(soak=repeat(5.0, 100))` | `litmus_vectors: {soak: {repeat: [5.0, 100]}}` |
-
-Inline and YAML can also coexist on the same test — stack them by
-putting one in the decorator and the other in the sidecar:
-
-```python
-# tests/test_x.py
-@pytest.mark.litmus_vectors(temp=[25, 85])
-def test_rail(vin, temp): ...
-```
-
-```yaml
-# tests/test_x.yaml
-tests:
-  test_rail:
-    config:
-      - litmus_vectors: {vin: [3.3, 5.0, 5.5]}
-# 2 (inline temp) × 3 (sidecar vin) = 6 cases
-```
+| `litmus_vectors(vin=[3, 4])` | `litmus_vectors:`<br>`  - {vin: [3, 4]}` |
+| `litmus_vectors(vin=[3, 4], vout=[5, 6])` | `litmus_vectors:`<br>`  - {vin: [3, 4], vout: [5, 6]}` |
+| Stacked decorators | `litmus_vectors:`<br>`  - {axis1}`<br>`  - {axis2}` |
+| `litmus_vectors(vin=linspace(3, 5, 5))` | `litmus_vectors:`<br>`  - {vin: {linspace: [3, 5, 5]}}` |
 
 ---
 
 ## `context.changed()` — skip expensive reconfig
 
 Hardware reconfig dominates multi-parameter sweeps. `context.changed(key)`
-returns `True` only when the parameter differs from the previous row:
+returns `True` only when the parameter differs from the previous row.
+Pair this with the top-to-bottom outer-to-inner ordering for natural
+"reconfigure outer when it rolls over" patterns:
 
 ```python
-@pytest.mark.litmus_vectors(load=arange(0.0, 1.0, 0.2))   # inner, always set
-@pytest.mark.litmus_vectors(vin=[4.5, 5.0, 5.5])           # middle, 500 ms PSU settle
-@pytest.mark.litmus_vectors(temp=[-40, 25, 85])            # outer, 20 min soak per change
+@pytest.mark.litmus_vectors(temp=[-40, 25, 85])    # outer (20-min soak per change)
+@pytest.mark.litmus_vectors(vin=[4.5, 5.0, 5.5])    # middle (500-ms PSU settle)
+@pytest.mark.litmus_vectors(load=arange(0.0, 1.0, 0.2))  # inner (always set)
 def test_load_regulation(temp, vin, load, context, psu, eload, chamber, dmm, spec):
     if context.changed("temp"):
         chamber.set_temperature(temp)
@@ -263,21 +201,14 @@ def test_load_regulation(temp, vin, load, context, psu, eload, chamber, dmm, spe
 
 3 × 3 × 5 = 45 cases. Chamber sets 3 times, PSU 9 times, load 45 times.
 
-How it works:
-- Returns `True` on the first row of the sweep (no previous to compare)
-- Returns `True` when the value differs from the previous row
-- Returns `False` when the value matches the previous row
-- Prior-row memory is per-method, scoped to the class/module
-
 ---
 
 ## Self-loop mode — `vectors` fixture
 
 For tests that want to own the iteration (amortize expensive setup,
 stream samples, conditional skip of interior rows), request the
-`vectors` fixture. Litmus consolidates every source (inline + sidecar +
-profile) into one matrix and collapses pytest expansion so the test
-runs as a single case:
+`vectors` fixture. Litmus consolidates every source into one matrix
+and collapses pytest expansion so the test runs as a single case:
 
 ```python
 @pytest.mark.litmus_vectors(vin=linspace(3.3, 5.5, 5))
@@ -288,34 +219,42 @@ def test_sweep(vectors, psu, dmm, verify):
         verify("output_voltage", dmm.measure_dc_voltage())
 ```
 
-Each iteration pushes the active row's params so `context.changed`,
-`verify`, and row stamping behave identically to parametrize mode.
-
 ---
 
 ## Choosing the right form
 
 | Scenario | Use |
 |---|---|
-| Code-owned sweep, IDE-friendly | Inline `@pytest.mark.litmus_vectors(...)` with `linspace`/`paired` |
-| Operator-edited sweep (no code deploy) | Sidecar `config: - litmus_vectors: {...}` |
-| Scenario-conditional sweep | Profile YAML `config:` (selected by CLI facet) |
-| Test iterates itself (setup amortization) | `vectors` fixture in the test signature |
-| Related input/expected pairs (Python) | `@paired(in=[...], expected=[...])` |
-| Related input/expected pairs (YAML) | `litmus_vectors: {"in,expected": [[...], ...]}` |
-| All combinations | Multiple kwargs in one `litmus_vectors` (or stacked decorators) |
+| Code-owned sweep, IDE-friendly | Inline `@pytest.mark.litmus_vectors(vin=linspace(...))` |
+| Operator-edited sweep (no code deploy) | Sidecar `config: - litmus_vectors: - {...}` |
+| Scenario-conditional sweep | Profile YAML (selected by CLI facet) |
+| Test iterates itself | `vectors` fixture in the test signature |
+| Related input/expected pairs | Multi-kwarg in one decorator/entry (auto-zip with dim check) |
+| All combinations | Multiple kwargs/entries → cross-product |
 | Dense numeric sweep | `linspace(...)` inline / `{linspace: [...]}` in YAML |
 
 ---
 
 ## Performance tips
 
-1. **Loop order matters.** Pytest applies stacked decorators bottom-up:
-   the one closest to the function is the inner / fastest-changing
-   loop. In one-decorator-multi-kwarg form, kwargs iterate in dict
-   insertion order — first key = outer, last key = inner. Put
-   expensive-to-change parameters on the outer loop so they stay slow.
-2. **Use `context.changed()`** for every parameter that's expensive to
-   reconfigure.
-3. **Range expanders and `linspace` / `arange` etc. run at collection
+1. **Loop order reads top-to-bottom as outer-to-inner.** Both forms
+   (stacked decorators, list of axis-groups in one block) follow the
+   same rule. Put **expensive-to-change parameters at the top** so
+   they change rarely.
+
+   .. note::
+
+      `litmus_vectors` **inverts pytest's** `@pytest.mark.parametrize`
+      stacking convention. Pytest registers the bottom (closest-to-
+      function) parametrize call first, making *bottom* the outer
+      loop — counterintuitive and a regular footgun. Litmus reverses
+      the iteration so top-to-bottom reads outer-to-inner. This is
+      one of the reasons `litmus_vectors` exists as a separate
+      marker rather than just being an alias. Don't mix stacked
+      `@pytest.mark.parametrize` and `@pytest.mark.litmus_vectors`
+      on the same test — pick one.
+
+2. **Use `context.changed()`** for every parameter that's expensive
+   to reconfigure.
+3. **Range expanders and `linspace`/`arange`/etc. run at collection
    time** — no per-iteration cost.

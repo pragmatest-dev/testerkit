@@ -5,24 +5,27 @@ These are the Python-callable counterparts to the YAML range expanders
 so YAML uses dict-with-known-key shape; inline Python calls these
 helpers directly so users get IDE autocomplete + signature help::
 
-    from litmus import linspace, paired
+    from litmus import linspace
 
     @pytest.mark.litmus_vectors(vin=linspace(3.3, 5.5, 11))
     def test_x(vin): ...
 
-    @paired(vin=[3, 4], vout=[5, 6])
-    def test_x(vin, vout): ...
-
 Each function delegates to the same underlying primitive the YAML
 expander uses, so behavior is identical across surfaces.
+
+For zipped (paired) axes, use ``litmus_vectors``'s positional form
+directly — the comma-joined argname string is the visual signal that
+values advance in lockstep::
+
+    @pytest.mark.litmus_vectors("vin,vout", [(3.3, 3.30), (5.0, 3.30)])
+    def test_x(vin, vout): ...
 """
 
 from __future__ import annotations
 
-from typing import Any, TypeVar
+from typing import TypeVar
 
 import numpy as np
-import pytest
 
 T = TypeVar("T")
 
@@ -67,37 +70,3 @@ def repeat(value: T, n: int) -> list[T]:
     expander vocabulary.
     """
     return [value] * n
-
-
-def paired(**kwargs: list[Any]) -> Any:
-    """Apply ``litmus_vectors`` with zip (paired) semantics across kwargs.
-
-    Equivalent to ``@pytest.mark.litmus_vectors(**{"a,b": [(a1, b1), ...]})``
-    — but typed, autocompleted, and validates dimensions match before
-    pytest collection. All argvalue lists must be the same length.
-
-    Example::
-
-        from litmus import paired
-
-        @paired(vin=[3, 4, 5], vout=[5, 7, 9])
-        def test_rail(vin, vout): ...
-        # 3 cases: (3, 5), (4, 7), (5, 9)
-
-    Cross with an independent axis by stacking with a regular
-    ``litmus_vectors`` decorator::
-
-        @pytest.mark.litmus_vectors(temp=[25, 85])
-        @paired(vin=[3, 4], vout=[5, 6])
-        def test_rail(vin, vout, temp): ...
-        # 2 (paired) × 2 (temp) = 4 cases
-    """
-    if not kwargs:
-        raise ValueError("paired requires at least one keyword argument")
-    lengths = {len(v) for v in kwargs.values()}
-    if len(lengths) != 1:
-        sizes = {name: len(v) for name, v in kwargs.items()}
-        raise ValueError(f"paired requires all argvalues to have the same length; got {sizes}")
-    argname_str = ",".join(kwargs)
-    rows = [list(t) for t in zip(*kwargs.values(), strict=True)]
-    return pytest.mark.litmus_vectors(**{argname_str: rows})

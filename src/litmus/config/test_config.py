@@ -63,6 +63,17 @@ class ConfigEntry(BaseModel):
                 raise TypeError(f"Config entry name must be a string; got {type(name).__name__}")
             if payload is None:
                 return cls(name=name)
+            # ``litmus_vectors`` requires a list of axis-group dicts in YAML.
+            # Single-axis case is still a list (one-element). This forces a
+            # uniform schema (no dict-or-list polymorphism) and lets Pydantic
+            # validate ``list[AxisGroup]`` cleanly without special parsing.
+            if name == "litmus_vectors" and isinstance(payload, dict):
+                raise ValueError(
+                    "litmus_vectors in YAML must be a list of axis-group dicts; "
+                    f"got dict {payload!r}. Wrap your axes in a list:\n"
+                    "  - litmus_vectors:\n"
+                    "      - {<argname>: [<values>]}"
+                )
             if isinstance(payload, dict):
                 return cls(name=name, kwargs=dict(payload))
             if isinstance(payload, list):

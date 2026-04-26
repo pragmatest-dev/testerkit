@@ -1910,25 +1910,96 @@ _VECTORS_MATRIX_KEY: pytest.StashKey[dict[str, list[Vector]]] = pytest.StashKey(
 
 
 def _expand_litmus_vectors(marker: MarkerSpec) -> list[MarkerSpec]:
-    """Fan a ``litmus_vectors`` marker out to N parametrize-shaped MarkerSpec.
+    """Translate a ``litmus_vectors`` marker into parametrize-shaped MarkerSpec(s).
 
-    Each top-level key in the marker's kwargs becomes one parametrize-
-    shaped marker (positional args ``[argnames, argvalues]``). Multiple
-    keys produce multiple entries; pytest cross-products them via
-    stacked :meth:`metafunc.parametrize` calls. Comma-joined argname
-    keys (``"a,b"``) zip across the inner sequences per pytest's
-    standard parametrize semantics.
+    Two forms feed this function. **Inline** (``@pytest.mark.litmus_vectors(...)``)
+    arrives as kwargs — a single axis-group, treated as one entry.
+    **YAML** (``- litmus_vectors: [...]``) arrives as positional args —
+    a list of axis-group dicts, each becoming one axis. Each axis-group
+    becomes one ``metafunc.parametrize`` call; pytest cross-products
+    multiple parametrize calls.
+
+    **Axis-group rules** (apply to inline kwargs and each YAML list-item):
+
+    * **Single key** = one plain axis. ``{vin: [3.3, 5.0, 5.5]}``
+      produces ``parametrize("vin", [3.3, 5.0, 5.5])``.
+
+    * **Multi-key** = one **zipped** axis (paired). All values lists
+      must have the same length — dimensional coherence is enforced at
+      decoration / YAML-load time. ``{vin: [3, 4], vout: [5, 6]}``
+      produces ``parametrize("vin,vout", [[3, 5], [4, 6]])``.
+
+    **Cross-product** comes from stacking — either multiple decorators
+    inline, or multiple list items in one YAML entry, or both. With
+    iter order inverted in :func:`pytest_generate_tests`, top decorator
+    = outer (slowest) loop; same direction as a nested ``for`` loop.
+
+    Divergences from pytest's ``parametrize``:
+
+    1. Top decorator = outer (parametrize: bottom = outer)
+    2. Multi-kwarg = zip (parametrize: doesn't accept kwargs at all;
+       multi-arg via comma-string)
+    3. Dim check at decoration time (parametrize: silent shape errors
+       at runtime)
+    4. Kwargs only inline; YAML uses list-of-dicts (parametrize:
+       positional only, no YAML form at all)
     """
     if marker.name != "litmus_vectors":
         return [marker]
-    if not marker.kwargs:
+
+    axis_groups: list[dict[str, Any]] = []
+
+    # YAML list form: each positional arg is one axis-group dict.
+    for arg in marker.args:
+        if not isinstance(arg, dict):
+            raise pytest.UsageError(
+                "litmus_vectors YAML axis-group must be a dict "
+                f"(e.g. ``{{vin: [...]}}``); got {arg!r}"
+            )
+        axis_groups.append(arg)
+
+    # Inline kwargs form: all kwargs together = one axis-group.
+    if marker.kwargs:
+        axis_groups.append(dict(marker.kwargs))
+
+    if not axis_groups:
         raise pytest.UsageError(
-            "litmus_vectors marker requires at least one argname=argvalues kwarg"
+            "litmus_vectors requires at least one axis-group (kwargs inline, "
+            "or list of dict entries in YAML)."
         )
-    return [
-        MarkerSpec(name="parametrize", args=[argnames, argvalues])
-        for argnames, argvalues in marker.kwargs.items()
-    ]
+
+    out: list[MarkerSpec] = []
+    for group in axis_groups:
+        argnames = list(group.keys())
+        argvalues_lists = list(group.values())
+
+        # All argvalues must be lists.
+        bad = [(n, type(v).__name__) for n, v in group.items() if not isinstance(v, list)]
+        if bad:
+            raise pytest.UsageError(
+                f"litmus_vectors argvalues must be lists; got non-list types: {bad!r}"
+            )
+
+        # Multi-key = zip; dimensional coherence required.
+        if len(argnames) > 1:
+            lengths = {len(v) for v in argvalues_lists}
+            if len(lengths) > 1:
+                sizes = {n: len(v) for n, v in group.items()}
+                raise pytest.UsageError(
+                    "litmus_vectors zip requires all argvalues to have the same length; "
+                    f"got {sizes}"
+                )
+
+        if len(argnames) == 1:
+            argname_str = argnames[0]
+            argvalues: list = argvalues_lists[0]
+        else:
+            argname_str = ",".join(argnames)
+            argvalues = [list(t) for t in zip(*argvalues_lists, strict=True)]
+
+        out.append(MarkerSpec(name="parametrize", args=[argname_str, argvalues]))
+
+    return out
 
 
 def _sidecar_parametrize_markers_for_metafunc(
@@ -1984,9 +2055,22 @@ def pytest_generate_tests(metafunc: pytest.Metafunc) -> None:
     # Inline @pytest.mark.litmus_vectors(...) decorators: convert to
     # parametrize-shaped MarkerSpecs and apply alongside sidecar/profile
     # markers. pytest's own parametrize handler doesn't know about
-    # ``litmus_vectors`` so we own the translation.
+    # ``litmus_vectors`` so we own the translation — including the
+    # iteration order.
+    #
+    # Inversion vs pytest's parametrize: with stacked @parametrize
+    # decorators, pytest registers the bottom (most-specific) marker's
+    # axis first, so bottom = outer. With stacked @litmus_vectors,
+    # we reverse the iter_markers order so the TOP decorator's axis
+    # registers first → top = outer (slowest-changing). That makes
+    # stacked decorators read top-to-bottom as outer-to-inner, the
+    # same direction as a nested ``for`` loop and the same direction
+    # as kwargs-in-one-decorator (first key = outer). Pytest's own
+    # parametrize stacking convention is unchanged for users who
+    # reach for it directly.
+    iter_top_first = reversed(list(metafunc.definition.iter_markers("litmus_vectors")))
     inline_litmus_vectors: list[MarkerSpec] = []
-    for mark in list(metafunc.definition.iter_markers("litmus_vectors")):
+    for mark in iter_top_first:
         spec = MarkerSpec(name="litmus_vectors", args=list(mark.args), kwargs=dict(mark.kwargs))
         inline_litmus_vectors.extend(_expand_litmus_vectors(spec))
     sidecar_parametrize = [*inline_litmus_vectors, *sidecar_parametrize]
