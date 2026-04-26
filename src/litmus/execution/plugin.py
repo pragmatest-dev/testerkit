@@ -207,6 +207,13 @@ def pytest_configure(config):
         "alias for parametrize. Each kwarg is one sweep axis; multiple "
         "kwargs cross-product. Comma-joined argnames (`**{'a,b': [...]}`) "
         "zip across argvalues per pytest's parametrize semantics.",
+        "litmus_retry(max_attempts=N, delay=S, on=[...]): Declare retry "
+        "policy — runner-neutral alias for retry markers. Translates to "
+        "pytest-rerunfailures' @pytest.mark.flaky in pytest; OpenHTF / "
+        "unittest wrappers map to their own retry primitives. "
+        "max_attempts is total attempts (1 = no retry); delay is seconds "
+        "between attempts; on is an optional list of exception class "
+        "names to retry on (default: any exception).",
         "litmus_limits(**kwargs): Inject limits by measurement name (merges with sidecar limits:)",
         "litmus_spec(characteristic=<id>): Bind the test to a product "
         "characteristic; provides spec-relative limit context and "
@@ -390,6 +397,7 @@ def pytest_collection_modifyitems(config, items: list[pytest.Item]) -> None:
     """
     _apply_sidecar_to_items(items)
     _apply_profile_to_items(config, items)
+    _translate_retry_markers(items)
 
     collected = []
     for item in items:
@@ -410,6 +418,53 @@ def pytest_collection_modifyitems(config, items: list[pytest.Item]) -> None:
     set_collected_items(collected)
 
     _warn_unmatched_profile_keys(items)
+
+
+def _translate_retry_markers(items: list[pytest.Item]) -> None:
+    """Translate ``litmus_retry`` markers into ``flaky`` markers.
+
+    ``litmus_retry`` is the runner-neutral retry marker — pytest-only
+    code paths (sidecar / profile / inline ``@pytest.mark.litmus_retry``)
+    use it, and we map to pytest-rerunfailures' ``flaky`` here so the
+    rerun loop is delegated to the canonical pytest plugin. Other
+    runners (OpenHTF, unittest) translate ``litmus_retry`` to their own
+    retry primitives in their wrappers.
+
+    Translation:
+
+    * ``max_attempts=N`` → ``flaky(reruns=N-1)`` (rerunfailures counts
+      *additional* attempts after the first; ``litmus_retry`` counts
+      *total* attempts).
+    * ``delay=S`` → ``flaky(reruns_delay=S)``.
+    * ``on=[...]`` → ``flaky(only_rerun=[...])``.
+
+    Most-specific marker wins when multiple ``litmus_retry`` markers
+    stack from different scopes (file → class → test → profile).
+    """
+    for item in items:
+        retry_markers = list(item.iter_markers("litmus_retry"))
+        if not retry_markers:
+            continue
+        # Most-specific (test-level) wins; iter_markers yields most
+        # specific first per pytest's own ordering.
+        marker = retry_markers[0]
+        kwargs = dict(marker.kwargs)
+        max_attempts = kwargs.pop("max_attempts", 1)
+        if not isinstance(max_attempts, int) or max_attempts < 1:
+            raise pytest.UsageError(
+                f"litmus_retry max_attempts must be a positive int; got {max_attempts!r}"
+            )
+        flaky_kwargs: dict[str, Any] = {"reruns": max(0, max_attempts - 1)}
+        if "delay" in kwargs:
+            flaky_kwargs["reruns_delay"] = kwargs.pop("delay")
+        if "on" in kwargs:
+            flaky_kwargs["only_rerun"] = kwargs.pop("on")
+        if kwargs:
+            raise pytest.UsageError(
+                f"litmus_retry got unknown kwargs {sorted(kwargs)!r}; "
+                f"accepted: max_attempts, delay, on"
+            )
+        item.add_marker(pytest.mark.flaky(**flaky_kwargs))
 
 
 def _warn_unmatched_profile_keys(items: list[pytest.Item]) -> None:

@@ -18,6 +18,7 @@ _INI = textwrap.dedent(
     """
     [pytest]
     addopts = -p no:litmus -p litmus.execution.plugin
+    asyncio_default_fixture_loop_scope = function
     """
 )
 
@@ -310,3 +311,81 @@ def test_range_expander_in_parametrize_argvalues(pytester: pytest.Pytester) -> N
     )
     result = pytester.runpytest("-v")
     result.assert_outcomes(passed=11)
+
+
+def test_litmus_retry_translates_to_flaky(pytester: pytest.Pytester) -> None:
+    """``litmus_retry`` translates to pytest-rerunfailures' ``flaky`` marker."""
+    pytester.makeini(_INI)
+    pytester.makepyfile(
+        test_seq=textwrap.dedent(
+            """
+            COUNTER = {"n": 0}
+
+            def test_eventually_passes():
+                COUNTER["n"] += 1
+                # Fails first two attempts, passes on the third (max_attempts=3).
+                assert COUNTER["n"] >= 3, f"attempt {COUNTER['n']}"
+            """
+        )
+    )
+    (pytester.path / "test_seq.yaml").write_text(
+        textwrap.dedent(
+            """
+            tests:
+              test_eventually_passes:
+                config:
+                  - litmus_retry: {max_attempts: 3}
+            """
+        )
+    )
+    result = pytester.runpytest("-v")
+    result.assert_outcomes(passed=1)
+    # pytest-rerunfailures reports rerun count in summary line.
+    result.stdout.fnmatch_lines(["*2 rerun*"])
+
+
+def test_litmus_retry_inline_decorator(pytester: pytest.Pytester) -> None:
+    """``@pytest.mark.litmus_retry`` inline routes through the same translator."""
+    pytester.makeini(_INI)
+    pytester.makepyfile(
+        test_seq=textwrap.dedent(
+            """
+            import pytest
+
+            COUNTER = {"n": 0}
+
+            @pytest.mark.litmus_retry(max_attempts=2)
+            def test_passes_on_second():
+                COUNTER["n"] += 1
+                assert COUNTER["n"] >= 2
+            """
+        )
+    )
+    result = pytester.runpytest("-v")
+    result.assert_outcomes(passed=1)
+    result.stdout.fnmatch_lines(["*1 rerun*"])
+
+
+def test_litmus_retry_rejects_unknown_kwargs(pytester: pytest.Pytester) -> None:
+    """Unknown kwargs raise a clear collection-time error."""
+    pytester.makeini(_INI)
+    pytester.makepyfile(
+        test_seq=textwrap.dedent(
+            """
+            def test_x(): pass
+            """
+        )
+    )
+    (pytester.path / "test_seq.yaml").write_text(
+        textwrap.dedent(
+            """
+            tests:
+              test_x:
+                config:
+                  - litmus_retry: {max_attempts: 3, mystery_kwarg: 1}
+            """
+        )
+    )
+    result = pytester.runpytest("-v")
+    assert result.ret != 0
+    result.stderr.fnmatch_lines(["*unknown kwargs*mystery_kwarg*"])
