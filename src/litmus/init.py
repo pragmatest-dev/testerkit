@@ -291,28 +291,29 @@ A [Litmus](https://github.com/pragmatest-dev/litmus) hardware test project.
         readme_path.write_text(readme_content)
         created_files.append("README.md")
 
-    # Create .vscode/ with YAML schema validation
+    # Create .vscode/ with YAML schema validation. Generates one
+    # JSON schema per Litmus config type (sidecar, profile, project,
+    # station, fixture, product, catalog, instrument_asset) from the
+    # backing Pydantic models, plus a settings.json that wires each
+    # YAML glob (tests/**, profiles/**, etc.) to the right schema —
+    # users get autocomplete + inline validation in VS Code via the
+    # Red Hat YAML extension as soon as they open the project.
     vscode_dir = path / ".vscode"
     settings_path = vscode_dir / "settings.json"
     if not settings_path.exists():
         import json
 
-        from litmus.schema_export import export_schemas
+        from litmus.schema_export import export_schemas, vscode_yaml_schemas
 
         schemas_dir = vscode_dir / "schemas"
         try:
-            export_schemas(schemas_dir)
-            settings = {
-                "yaml.schemas": {
-                    ".vscode/schemas/product.schema.json": "products/**/*.yaml",
-                    ".vscode/schemas/catalog.schema.json": "catalog/**/*.yaml",
-                },
-            }
+            schema_paths = export_schemas(schemas_dir)
+            settings = {"yaml.schemas": vscode_yaml_schemas()}
             vscode_dir.mkdir(exist_ok=True)
             settings_path.write_text(json.dumps(settings, indent=2) + "\n")
             created_files.append(".vscode/settings.json")
-            created_files.append(".vscode/schemas/product.schema.json")
-            created_files.append(".vscode/schemas/catalog.schema.json")
+            for sp in schema_paths:
+                created_files.append(str(sp.relative_to(path)))
         except (ImportError, OSError) as exc:
             warnings.append(f"Failed to generate VS Code YAML schemas: {exc}")
 
