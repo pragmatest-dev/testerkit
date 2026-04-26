@@ -127,54 +127,6 @@ supported_phases:         # Optional: which test phases this station supports
   - debug
 ```
 
-## Test Sequence
-
-**Location:** `sequences/<sequence_id>.yaml`
-
-```yaml
-id: string
-name: string
-description: string
-test_phase: development | validation | characterization | production  # Required
-
-steps:
-  - id: string
-    test: string              # Pytest test path
-    description: string
-    aliases:                  # Optional: remap fixture names to station roles
-      <fixture_name>: <station_role>
-    skip_on: [string]
-
-    # Test config (overrides inline decorator config)
-    vectors:                  # Parameter combinations (same syntax as inline)
-      expand: product | zip
-      <param>: [values]
-    limits:                   # Measurement limits
-      <measurement_name>:
-        low: float
-        high: float
-        nominal: float
-        units: string
-        comparator: string
-        spec_ref: string
-    mocks:                    # Mock instrument return values
-      <instrument.method>: value
-    retry:
-      max_attempts: integer
-      delay_seconds: float
-      strategy: string
-    limit_ref: string         # Derive limits from spec
-```
-
-Per-vector mocks use `_mocks` inside vector dicts:
-
-```yaml
-vectors:
-  - vin: 5.0
-    _mocks:
-      dmm.measure_dc_voltage: 3.31
-```
-
 ### Common Instrument Types
 
 | Type | Description | Capabilities |
@@ -238,95 +190,111 @@ connections:
 
 ## Test Configuration
 
-Test config (vectors, limits, mocks) is resolved in priority order:
+Per-test config is one vocabulary — pytest markers — delivered three
+ways. Each entry under a `config:` list is one marker; same shape
+inline (`@pytest.mark.X(...)`), in the sidecar, or in a profile.
 
-1. **Sequence steps** (primary) — When running with `--sequence`
-2. **Profile overrides** — From `litmus.yaml` profile when `--litmus-profile` is set
-3. **pytest markers** — `@pytest.mark.litmus_limits`, `@pytest.mark.parametrize`
-4. **Sidecar YAML** — `test_<module>.yaml` next to the test file
+Resolution order (least → most specific):
 
-Sequence step config **replaces** lower-priority sources for the keys it sets (not merged).
+1. **Sidecar file-level** — `config:` at the top of `test_<module>.yaml`
+2. **Sidecar class-branch / per-test** — nested `tests.<Cls>.config:` /
+   `tests.<name>.config:`
+3. **Inline `@pytest.mark.<name>(...)`** on method or class
+4. **Profile chain** — parent profile first, child last (`extends:`)
+5. **CLI flags** — always win
 
-### Inline Marker Config
+Same rule at every level: later entry with the same marker name + first
+key wins on overlap; non-overlapping passes through.
+
+### Inline marker form
 
 ```python
 import pytest
 
 
-@pytest.mark.parametrize("vin", [4.5, 5.0, 5.5])
+@pytest.mark.litmus_vectors(vin=[4.5, 5.0, 5.5])
 @pytest.mark.litmus_limits(output_voltage={"low": 3.135, "high": 3.465, "units": "V"})
 def test_example(vin, dmm, logger):
     logger.measure("output_voltage", dmm.measure_dc_voltage())
 ```
 
-### Sidecar YAML Config
+Native `@pytest.mark.parametrize` keeps working unchanged. Use
+`litmus_vectors` when you want runner-neutral payloads (translates 1:1
+to pytest, has a YAML form, supports range expanders).
+
+### Sidecar YAML form
 
 ```yaml
 # test_example.yaml — same directory as the test module
-vectors:
-  vin: [4.5, 5.0, 5.5]
+config:                         # file-wide; applies to every test
+  - litmus_limits:
+      output_voltage: {low: 3.135, high: 3.465, units: V}
 
-limits:
-  output_voltage: {low: 3.135, high: 3.465, units: "V"}
+tests:
+  test_example:                 # leaf
+    config:
+      - litmus_vectors:
+          - {vin: [4.5, 5.0, 5.5]}
 
-mocks:
-  dmm.measure_dc_voltage: 3.31
+  TestIdle:                     # class branch
+    config:                     # applies to every TestIdle method
+      - litmus_limits: {i_idle: {low: 0.0, high: 0.1, units: A}}
+    tests:
+      test_quiescent:           # nested leaf
+        config:
+          - litmus_mock: {target: dmm.measure_dc_current, return_value: 0.05}
 ```
+
+The shape mirrors pytest's `file::Class::method` node IDs: a class is a
+branch with its own `config:` plus a nested `tests:` dict; a function
+is a leaf with `config:` only. See the
+[pytest-native reference](pytest-native.md) for the full marker
+catalog (`litmus_vectors`, `litmus_limits`, `litmus_mock`,
+`litmus_spec`, `litmus_connections`, `litmus_prompt`, `litmus_retry`).
 
 ### Retries
 
-For retries, use ecosystem-standard markers instead of inline config:
+Use ecosystem markers — `litmus_retry` translates to
+`pytest-rerunfailures`' `flaky` at session start:
+
+```yaml
+config:
+  - litmus_retry: {reruns: 3, reruns_delay: 0.5}
+```
+
+Or inline:
 
 ```python
-import pytest
-
-
-@pytest.mark.flaky(reruns=3, reruns_delay=0.5)  # pytest-rerunfailures
-def test_flaky(dmm, logger):
-    logger.measure("voltage", dmm.measure_dc_voltage())
+@pytest.mark.flaky(reruns=3, reruns_delay=0.5)  # pytest-rerunfailures direct
+def test_flaky(dmm, logger): ...
 ```
 
-Sequence steps can still specify `retry:` — see the sequence reference above.
+### Vector shape
 
-### Vector Expansion Modes
+`litmus_vectors` payloads are always a **list of axis-group dicts**.
+Each top-level dict in the list is one independent loop; multi-key
+dicts inside one entry zip together; stacked entries cross-product
+(top entry = outermost / slowest loop).
 
-**product** — Cartesian product of all parameters:
 ```yaml
-vectors:
-  expand: product
-  voltage: [3.3, 5.0, 12.0]
-  temperature: [25, 85]
-# Creates 6 vectors: (3.3, 25), (3.3, 85), (5.0, 25), ...
+config:
+  - litmus_vectors:
+      - {temperature: [25, 85]}              # outer loop — slow
+      - {vin: [3.3, 5.0, 12.0]}              # middle loop
+      - {load_a: [0.1, 0.4], load_b: [10, 20]}  # zipped — same length
 ```
 
-**zip** — Parallel iteration:
+Range expanders (`linspace`, `arange`, `logspace`, `geomspace`,
+`repeat`, `range`) substitute for argvalues:
+
 ```yaml
-vectors:
-  expand: zip
-  voltage: [3.3, 5.0, 12.0]
-  current: [0.1, 0.5, 1.0]
-# Creates 3 vectors: (3.3, 0.1), (5.0, 0.5), (12.0, 1.0)
+config:
+  - litmus_vectors:
+      - {voltage: {linspace: [3.0, 5.0, 5]}}   # 3.0, 3.5, 4.0, 4.5, 5.0
 ```
 
-**Range strings** — Compact numeric sweeps (anywhere a list is expected):
-```yaml
-vectors:
-  expand: product
-  voltage: "3.0:5.0:0.5"
-# Creates: 3.0, 3.5, 4.0, 4.5, 5.0
-```
-
-**Recursive sub-blocks** — Compose product and zip:
-```yaml
-vectors:
-  expand: product
-  temperature: [25, 85]          # Outer loop (changes slowly)
-  vectors:
-    expand: zip
-    voltage: [3.3, 5.0, 12.0]
-    expected: [3.2, 4.9, 11.8]  # Paired with voltage
-# Creates 6 vectors: 2 temps x 3 zipped pairs
-```
+See the [Test Vectors guide](../guides/vector-expansion.md) for full
+semantics — loop ordering, list-length checks, generators.
 
 ## Instrument Library
 
@@ -428,35 +396,39 @@ outputs:                      # Optional list of format + transport targets
 profiles:                     # Named config sets — see docs/guides/profiles.md
   <profile_name>:
     description: string       # Optional human-readable description
+    facets: {key: value, ...} # Exact-match keys for CLI selection
+    extends: <parent_name>    # Optional single-parent inheritance
 
     pytest:                   # Pytest-level knobs applied to the session
       addopts: string         # Appended to PYTEST_ADDOPTS before collection
       markexpr: string        # Like -m: "not slow and not hardware"
       keyword: string         # Like -k: "rails"
 
-    vectors:                  # Override vectors for matched node-ids
-      "test_file.py::TestClass::test_method":
-        vin: [5.0]            # Replaces sidecar vectors for this node-id
-      "test_file.py::TestClass::*":  # fnmatch glob also supported
-        temperature: [25]
+    config:                   # Session-wide config (every test in run)
+      - litmus_limits: {v_rail: {tolerance_pct: 5.0}}
 
-    limits:                   # Override limits for matched node-ids
-      "test_file.py::TestClass::test_method":
-        output_voltage: {low: 3.25, high: 3.35, units: V}
-
-    markers:                  # Inject pytest markers onto matched node-ids
-      "test_file.py::TestSlow":
-        - skip: "not run in validation"
-      "test_file.py::TestFlaky":
-        - flaky: {reruns: 2, reruns_delay: 1}
+    tests:                    # Recursive tree mirroring pytest node IDs
+      TestRails:              # class branch
+        config:               # applied to every TestRails method
+          - litmus_vectors:
+              - {vin: [4.5, 5.0, 5.5]}
+        tests:
+          test_rail:          # nested leaf
+            config:
+              - litmus_limits: {v_rail: {low: 3.25, high: 3.35}}
+      test_standalone:        # module-level leaf
+        config:
+          - skip: "bench required"
 ```
 
-**Node-ID keys** follow pytest's own format (`path::Class::method`, `path::func`)
-and support `fnmatch` globs like `TestClass::*`. Exact matches take precedence
-over globs for vectors and limits; markers accumulate across every matching pattern.
+Profiles share the `config:` / `tests:` shape with sidecars — same
+vocabulary, same merge rules. Standalone files at `profiles/*.yaml`
+work too; the file stem is the profile name.
 
-**Selection:** `pytest --litmus-profile=<name>` or `LITMUS_PROFILE=<name> pytest`.
-Only one profile is active per session.
+**Selection:** facet flags (`--<facet>=<value>`) are auto-synthesized
+from the union of `facets:` keys declared across profiles. Exactly one
+profile must match the full facet query — zero or many → `UsageError`.
+`--litmus-profile=<name>` is a name-based escape hatch.
 
 ## Environment Variables
 
