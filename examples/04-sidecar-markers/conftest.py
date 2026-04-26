@@ -1,24 +1,24 @@
-"""Same ``FakeDut`` fixture as earlier stages."""
+"""Same conditional-mock conftest as stages 2-3 — real ``PSU`` / ``DMM``
+driver classes from ``drivers/``, mocked when ``--mock-instruments``
+is set."""
 
 from __future__ import annotations
 
 import pytest
+from drivers import DMM, PSU
 
-
-class FakeDut:
-    def __init__(self) -> None:
-        self._vin: float | None = None
-
-    def set_input(self, vin: float) -> None:
-        self._vin = vin
-
-    def read_voltage(self) -> float:
-        return 3.31
-
-    def read_current(self) -> float:
-        return 0.042
+from litmus.instruments import Mock
 
 
 @pytest.fixture(scope="session")
-def dut() -> FakeDut:
-    return FakeDut()
+def psu(mock_instruments) -> PSU:
+    if mock_instruments:
+        return Mock(PSU, measure_voltage=5.0, measure_current=0.042)
+    return PSU(resource="TCPIP::192.168.1.101::INSTR")
+
+
+@pytest.fixture(scope="session")
+def dmm(mock_instruments) -> DMM:
+    if mock_instruments:
+        return Mock(DMM, measure_dc_voltage=3.31, measure_dc_current=0.042)
+    return DMM(resource="TCPIP::192.168.1.102::INSTR")

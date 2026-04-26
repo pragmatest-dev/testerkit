@@ -64,9 +64,10 @@ setup/teardown, and `litmus_vectors` sweeps all work as they normally do.
 
 ## The gap this stage leaves
 
-Instruments are still a `FakeDut` class in `conftest.py`. Adding a
-real second instrument means hand-writing a second fixture. Stage 5
-replaces `conftest.py` with a **station YAML** — declare your
-bench once, instrument fixtures materialize automatically, and
-`--mock-instruments` flips the whole thing into mocked mode for
-bringup.
+Instrument fixtures are still hand-written in `conftest.py` — every
+chapter so far branches on `mock_instruments` to choose `Mock(cls,
+...)` vs `cls(resource=...)`. Adding a third instrument means
+copying that branch a third time. Stage 5 replaces `conftest.py`
+with a **station YAML** — declare your bench once, instrument
+fixtures materialize automatically with the same `--mock-instruments`
+flag flipping the whole rig into mocked mode for bringup.

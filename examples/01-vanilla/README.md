@@ -10,8 +10,11 @@ measurement features on top of this same setup.
 ```
 01-vanilla/
 ├── pyproject.toml        # pytest + litmus
-├── pytest.ini            # plugin enabled; no Litmus markers used yet
-├── conftest.py           # session-scoped `dut` fixture (FakeDut)
+├── pytest.ini            # plugin enabled; --mock-instruments default-on
+├── conftest.py           # `psu` + `dmm` fixtures: real drivers, mocked when flagged
+├── drivers/              # PSU + DMM driver classes (PyVISA-shaped)
+│   ├── psu.py
+│   └── dmm.py
 └── tests/
     └── test_rail.py      # one direct test + one parametrized sweep
 ```
@@ -19,10 +22,32 @@ measurement features on top of this same setup.
 ## What this shows
 
 - `assert` for pass/fail
-- A `conftest.py` fixture shared across tests (`scope="session"`)
+- `conftest.py` fixtures shared across tests (`scope="session"`)
 - `@pytest.mark.parametrize` for a sweep
-- `FakeDut` stand-in so the example runs with no hardware
+- Real `PSU` / `DMM` driver classes (resource string, connect/disconnect,
+  SCPI-named methods) — same shape PyVISA / PyMeasure / vendor SDK use
 - A run record stamped with the DUT serial — no measurement code yet
+
+## Drivers + optional mocks
+
+You always write tests against the real driver classes. When the bench
+isn't attached yet, Litmus mocks them for you — same fixture, same test
+code, just a different runtime instance:
+
+```python
+@pytest.fixture(scope="session")
+def psu(mock_instruments) -> PSU:
+    if mock_instruments:
+        return Mock(PSU, measure_voltage=5.0, measure_current=0.042)
+    return PSU(resource="TCPIP::192.168.1.101::INSTR")
+```
+
+The `--mock-instruments` flag in `pytest.ini` makes that branch fire
+for the demo run. Drop the flag (or pass `--no-mock-instruments`) once
+you have hardware to point at — the test code below doesn't change.
+
+This is the same conditional shape Litmus uses internally. Stage 5
+lifts it out of `conftest.py` and into station YAML.
 
 ## Run it
 
@@ -53,6 +78,6 @@ vanilla test prints `FAIL` both times and tells you nothing else. No
 history, no trend, no value captured. You'd have to print-debug to
 find out what the instrument actually read.
 
-Stage 2 closes the gap: same tests, same DUT, but measurements flow
-into a Parquet log through a `verify(name, value, limit)` call. You
-get a searchable record of every reading alongside the pass/fail.
+Stage 2 closes the gap: same tests, same drivers, but measurements
+flow into a Parquet log through a `verify(name, value, limit)` call.
+You get a searchable record of every reading alongside the pass/fail.

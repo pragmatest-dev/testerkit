@@ -1,39 +1,35 @@
-"""Fixtures shared across the vanilla-stage tests.
+"""PSU and DMM fixtures — real driver classes, optionally mocked.
 
-A ``conftest.py`` at the project root is pytest's mechanism for
-sharing fixtures. Anything defined here is available to every test
-file without an import. The ``dut`` fixture below is session-scoped,
-so one ``FakeDut`` instance is built per ``pytest`` run and reused
-across tests — the same pattern you'd use with a real bench.
+Tests are written against the real ``DMM`` / ``PSU`` driver classes
+in ``drivers/``. When ``--mock-instruments`` is set (or
+``mock_instruments: true`` in ``litmus.yaml``), Litmus's ``Mock``
+factory wraps the real driver class with explicit return values so
+the tests run end-to-end without a bench attached. Without the
+flag, the fixtures connect to the configured VISA resources.
+
+This is the same conditional shape the Litmus plugin uses
+internally (``litmus/execution/plugin.py``) — the test code calls
+the real driver methods regardless. Stage 5 lifts this conditional
+out of ``conftest.py`` into station YAML.
 """
 
 from __future__ import annotations
 
 import pytest
+from drivers import DMM, PSU
 
-
-class FakeDut:
-    """Stand-in for a 3.3 V buck converter on a bench.
-
-    Real tests would talk to instruments (PSU + DMM) over VISA.
-    This fake returns plausible numbers so the example runs with no
-    hardware; later stages replace it with a station + instrument
-    catalog.
-    """
-
-    def __init__(self) -> None:
-        self._vin: float | None = None
-
-    def set_input(self, vin: float) -> None:
-        self._vin = vin
-
-    def read_voltage(self) -> float:
-        return 3.31
-
-    def read_current(self) -> float:
-        return 0.042
+from litmus.instruments import Mock
 
 
 @pytest.fixture(scope="session")
-def dut() -> FakeDut:
-    return FakeDut()
+def psu(mock_instruments) -> PSU:
+    if mock_instruments:
+        return Mock(PSU, measure_voltage=5.0, measure_current=0.042)
+    return PSU(resource="TCPIP::192.168.1.101::INSTR")
+
+
+@pytest.fixture(scope="session")
+def dmm(mock_instruments) -> DMM:
+    if mock_instruments:
+        return Mock(DMM, measure_dc_voltage=3.31, measure_dc_current=0.042)
+    return DMM(resource="TCPIP::192.168.1.102::INSTR")

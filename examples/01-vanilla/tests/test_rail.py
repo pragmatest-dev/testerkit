@@ -3,7 +3,7 @@
 This file uses only native pytest primitives:
 
 * ``assert`` for pass/fail
-* a fixture from ``conftest.py`` for the DUT
+* ``psu`` and ``dmm`` fixtures from ``conftest.py``
 * ``@pytest.mark.parametrize`` for a sweep
 
 No Litmus features are in use. Running ``pytest -v`` reports pass/fail
@@ -16,15 +16,18 @@ from __future__ import annotations
 import pytest
 
 
-def test_rail_within_spec(dut) -> None:
-    """Nominal read of the 3.3 V rail is within spec."""
-    v = dut.read_voltage()
+def test_rail_within_spec(psu, dmm) -> None:
+    """Source 5 V into the rail input and check the output is in spec."""
+    psu.set_voltage(5.0)
+    psu.enable_output()
+    v = dmm.measure_dc_voltage()
     assert 3.2 <= v <= 3.4
 
 
 @pytest.mark.parametrize("vin", [3.3, 5.0, 5.5])
-def test_rail_holds_across_input(dut, vin: float) -> None:
+def test_rail_holds_across_input(psu, dmm, vin: float) -> None:
     """Rail stays in spec as input voltage sweeps."""
-    dut.set_input(vin)
-    v = dut.read_voltage()
+    psu.set_voltage(vin)
+    psu.enable_output()
+    v = dmm.measure_dc_voltage()
     assert 3.2 <= v <= 3.4

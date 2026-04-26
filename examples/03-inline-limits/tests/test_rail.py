@@ -25,14 +25,17 @@ from litmus import linspace
 
 
 @pytest.mark.litmus_limits(v_rail={"low": 3.2, "high": 3.4, "units": "V"})
-def test_rail_within_spec(verify, dut) -> None:
+def test_rail_within_spec(verify, psu, dmm) -> None:
     """Marker supplies ``v_rail``; ``verify`` resolves it by name."""
-    verify("v_rail", dut.read_voltage())
+    psu.set_voltage(5.0)
+    psu.enable_output()
+    verify("v_rail", dmm.measure_dc_voltage())
 
 
 @pytest.mark.litmus_vectors(vin=linspace(3.3, 5.5, 5))
 @pytest.mark.litmus_limits(v_rail={"low": 3.2, "high": 3.4, "units": "V"})
-def test_rail_holds_across_input(verify, dut, vin: float) -> None:
+def test_rail_holds_across_input(verify, psu, dmm, vin: float) -> None:
     """Single-axis sweep over five vin points; ``linspace`` returns a list."""
-    dut.set_input(vin)
-    verify("v_rail", dut.read_voltage())
+    psu.set_voltage(vin)
+    psu.enable_output()
+    verify("v_rail", dmm.measure_dc_voltage())

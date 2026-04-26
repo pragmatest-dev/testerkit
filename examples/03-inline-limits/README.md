@@ -1,8 +1,8 @@
 # Stage 3 — Limits as a pytest marker
 
-Same DUT, same `verify`, same log. The only change from stage 2: the
-limit is a marker on the test function, not a `Limit(...)` instance
-inside the body.
+Same drivers, same `verify`, same log. The only change from stage 2:
+the limit is a marker on the test function, not a `Limit(...)`
+instance inside the body.
 
 ## Diff from stage 2
 

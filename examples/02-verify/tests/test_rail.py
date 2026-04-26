@@ -22,13 +22,16 @@ from litmus.config.test_config import Limit
 V_RAIL = Limit(low=3.2, high=3.4, units="V")
 
 
-def test_rail_within_spec(verify, dut) -> None:
-    """Nominal read of the 3.3 V rail is logged + checked against ``V_RAIL``."""
-    verify("v_rail", dut.read_voltage(), limit=V_RAIL)
+def test_rail_within_spec(verify, psu, dmm) -> None:
+    """Source 5 V into the rail input and log the output voltage."""
+    psu.set_voltage(5.0)
+    psu.enable_output()
+    verify("v_rail", dmm.measure_dc_voltage(), limit=V_RAIL)
 
 
 @pytest.mark.litmus_vectors(vin=[3.3, 5.0, 5.5])
-def test_rail_holds_across_input(verify, dut, vin: float) -> None:
+def test_rail_holds_across_input(verify, psu, dmm, vin: float) -> None:
     """Sweep input voltage; every reading becomes its own row in the log."""
-    dut.set_input(vin)
-    verify("v_rail", dut.read_voltage(), limit=V_RAIL)
+    psu.set_voltage(vin)
+    psu.enable_output()
+    verify("v_rail", dmm.measure_dc_voltage(), limit=V_RAIL)
