@@ -1,9 +1,9 @@
-# Stage 4 — Sidecar markers
+# Stage 4 — Sidecar config
 
-Markers moved out of Python into a sibling YAML file. Same
-vocabulary as pytest decorators: `parametrize`, `litmus_limits`.
+Test config moved out of Python into a sibling YAML file. Same
+vocabulary as pytest decorators: `litmus_vectors`, `litmus_limits`.
 The sidecar mirrors pytest's node-id structure: a file-level
-`markers:` list plus a recursive `tests:` tree where classes are
+`config:` list plus a recursive `tests:` tree where classes are
 branches and functions are leaves.
 
 ## Diff from stage 3
@@ -30,27 +30,28 @@ change without scanning test logic.
 
 ## Sidecar structure
 
-A file-level `markers:` list plus a recursive `tests:` tree. Each
-entry under `tests:` is either a function (leaf — just `markers:`)
-or a class (branch — its own `markers:` plus a nested `tests:` for
+A file-level `config:` list plus a recursive `tests:` tree. Each
+entry under `tests:` is either a function (leaf — just `config:`)
+or a class (branch — its own `config:` plus a nested `tests:` for
 its methods). The shape mirrors pytest's `file::Class::method`
 node ids.
 
 ```yaml
-markers:                          # file-wide: applies to every test
+config:                           # file-wide: applies to every test
   - litmus_limits: ...
 
 tests:
   test_rail_holds_across_input:   # module-level test (leaf)
-    markers:
-      - parametrize: ...
+    config:
+      - litmus_vectors:
+          - {vin: [...]}
 
   TestIdle:                       # class branch
-    markers:                      # class-wide: applies to every TestIdle method
+    config:                       # class-wide: applies to every TestIdle method
       - litmus_limits: ...
     tests:
       test_idle_current:          # nested method (leaf)
-        markers:
+        config:
           - litmus_limits: ...    # tightens just this method
 ```
 
@@ -59,7 +60,7 @@ tests:
 `TestIdle` is a regular pytest class. The methods share setup and a
 class-scoped `litmus_limits` entry. Think of a class as "this group
 of checks always runs together." Pytest fixture scoping, xunit-style
-setup/teardown, and parametrize all work as they normally do.
+setup/teardown, and `litmus_vectors` sweeps all work as they normally do.
 
 ## The gap this stage leaves
 

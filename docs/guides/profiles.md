@@ -7,9 +7,9 @@ per scenario under `profiles/*.yaml` (or inline under `litmus.yaml`) and
 are selected by **facets** — `--test-phase=production --product=tps54302`
 picks exactly one profile whose declared facets match.
 
-Profiles speak the **same language as sidecars**: a `markers:` list at
+Profiles speak the **same language as sidecars**: a `config:` list at
 the profile root and a recursive `tests:` tree mirroring pytest's
-node-id structure (classes are branches with their own `markers:` plus
+node-id structure (classes are branches with their own `config:` plus
 nested `tests:`; functions are leaves). If you already know how to
 write a sidecar, you already know how to write a profile — same shape,
 session scope.
@@ -64,24 +64,24 @@ A profile is the same shape as a sidecar plus three extra fields:
 | `extends`     | `str \| None`                        | Parent profile name (single parent)  |
 | `pytest`      | `{addopts, markexpr, keyword}`       | Session-level pytest knobs           |
 | `description` | `str \| None`                        | Shown in `litmus show <run_id>`      |
-| `markers`     | `list[MarkerSpec]`                   | Applied to **every** test            |
-| `classes`     | `dict[str, {markers: [...]}]`        | Per-class marker overrides           |
-| `tests`       | `dict[str, {markers: [...]}]`        | Per-test marker overrides            |
+| `config`      | `list[ConfigEntry]`                  | Applied to **every** test            |
+| `tests`       | `dict[str, TestEntry]`               | Per-class / per-test config (recursive) |
 
-Every `markers:` entry is one pytest marker — exactly the same shape
+Every `config:` entry is one pytest marker — exactly the same shape
 you'd write inline as a decorator or in a sidecar. Examples:
 
 ```yaml
-markers:
-  - litmus_limits: {v_rail: {tolerance_pct: 5.0}}     # @pytest.mark.litmus_limits(...)
-  - flaky: {reruns: 2, reruns_delay: 1}               # @pytest.mark.flaky(...)
-  - skipif: "not os.getenv('HAS_BENCH')"              # @pytest.mark.skipif(...)
-  - parametrize: ["vin", [4.5, 5.0, 5.5]]             # @pytest.mark.parametrize(...)
+config:
+  - litmus_limits: {v_rail: {tolerance_pct: 5.0}}      # @pytest.mark.litmus_limits(...)
+  - litmus_vectors:                                     # nested loops
+      - {vin: [4.5, 5.0, 5.5]}
+  - flaky: {reruns: 2, reruns_delay: 1}                # @pytest.mark.flaky(...)
+  - skipif: "not os.getenv('HAS_BENCH')"               # @pytest.mark.skipif(...)
 ```
 
-Ecosystem markers (`flaky`, `skipif`, `parametrize`, `dependency`, …)
-work unchanged — Litmus simply attaches them to matched items so each
-plugin's native handler fires.
+Ecosystem markers (`flaky`, `skipif`, `dependency`, …) work unchanged
+— Litmus attaches them to matched items so each plugin's native
+handler fires.
 
 Per-test keys disambiguate by class when a file has two classes with
 the same method name:
@@ -89,10 +89,10 @@ the same method name:
 ```yaml
 tests:
   TestRails.test_rail:     # qualified — binds to TestRails.test_rail
-    markers:
+    config:
       - litmus_limits: {v_rail: {tolerance_pct: 1.0}}
   test_standalone:         # bare — binds to module-level test_standalone
-    markers:
+    config:
       - skip: "bench required"
 ```
 
@@ -136,11 +136,12 @@ pytest:
   addopts: "--strict-markers"
 tests:
   TestRails.test_rail:
-    markers:
+    config:
       - litmus_limits: {v_rail: {low: 3.2, high: 3.4}}
   TestRails.test_output:
-    markers:
-      - parametrize: ["load", [0.1, 0.5, 0.9]]
+    config:
+      - litmus_vectors:
+          - {load: [0.1, 0.5, 0.9]}
 ```
 
 ```yaml
@@ -149,7 +150,7 @@ facets: {test_phase: production, product: tps54302}
 extends: power_family
 tests:
   TestRails.test_rail:
-    markers:
+    config:
       - litmus_limits: {v_rail: {low: 3.25, high: 3.35}}     # tightens family
 ```
 
@@ -165,8 +166,9 @@ extends: power_family
 facets: {test_phase: characterization}
 tests:
   TestRails.test_rail:
-    markers:
-      - parametrize: ["vin", [3.0, 3.3, 3.6, 4.0, 4.5, 5.0, 5.5, 6.0]]
+    config:
+      - litmus_vectors:
+          - {vin: [3.0, 3.3, 3.6, 4.0, 4.5, 5.0, 5.5, 6.0]}
 ```
 
 `pytest --test-phase=production --product=tps54302` resolves:
@@ -184,7 +186,7 @@ Cycles and unknown parents raise `UsageError` at project load.
 ```
 project defaults (litmus.yaml)
     ↓
-file-level sidecar markers (markers: at sidecar root)
+file-level sidecar config (config: at sidecar root)
     ↓
 class-branch sidecar markers (tests.<Cls>.markers)
     ↓
@@ -237,13 +239,15 @@ tests:
   TestRails:
     tests:
       test_rails:
-        markers:
-          - parametrize: ["vin", [5.0]]
-          - parametrize: ["temperature", [25]]
+        config:
+          - litmus_vectors:
+              - {vin: [5.0]}
+          - litmus_vectors:
+              - {temperature: [25]}
   TestSlow:
     tests:
       test_long_soak:
-        markers:
+        config:
           - skip: "not run in validation"
 ```
 
@@ -255,14 +259,17 @@ pytest:
   addopts: "--reruns=2 --reruns-delay=1 -n=4"
 tests:
   TestRails:                              # class branch
-    markers:
+    config:
       - flaky: {reruns: 2, reruns_delay: 2}   # class-wide retries
     tests:
       test_rails:                         # nested method
-        markers:
-          - parametrize: ["vin", [4.5, 5.0, 5.5]]
-          - parametrize: ["temperature", [25, 85]]
-          - parametrize: ["load", [0.1, 0.4, 0.8]]
+        config:
+          - litmus_vectors:
+              - {vin: [4.5, 5.0, 5.5]}
+          - litmus_vectors:
+              - {temperature: [25, 85]}
+          - litmus_vectors:
+              - {load: [0.1, 0.4, 0.8]}
 ```
 
 ```yaml

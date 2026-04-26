@@ -46,7 +46,7 @@ context.dut.serial              # session
 context.station.name            # session
 context.spec                    # session-scoped; set via --product / litmus.yaml / profile
 context.instruments             # session + station + catalog
-context.params["vin"]           # function (parametrize / sidecar vectors)
+context.params["vin"]           # function (litmus_vectors / pytest parametrize)
 context.limits["output_v"]      # function (resolved from markers + sidecar + spec)
 context.get_param("vin")        # read a param (raises if missing, accepts default)
 context.changed("temperature")  # did this param differ from the previous iteration?
@@ -70,16 +70,16 @@ Stored as a dict on the method's **parent stash node** (class for class methods,
 - No cross-talk — `TestA::test_foo` and `TestB::test_foo` land in different parent stashes
 - Auto-teardown when pytest is done with the class/module — no manual clear
 - Scoped to the same level as the test's container, matching the containment structure
-- Stable across parametrize cases of the same method
+- Stable across sweep cases of the same method
 
 ## The payoff: `context.changed()`
 
-Hardware reconfig dominates multi-parameter sweeps. `context.changed("temp")` returns `True` only when that parameter differs from the previous parametrize iteration:
+Hardware reconfig dominates multi-parameter sweeps. `context.changed("temp")` returns `True` only when that parameter differs from the previous sweep iteration:
 
 ```python
-@pytest.mark.parametrize("temperature", [25, 85])
-@pytest.mark.parametrize("vin", [4.5, 5.0, 5.5])
-@pytest.mark.parametrize("load", [0.1, 0.4])
+@pytest.mark.litmus_vectors(temperature=[25, 85])    # outer (slow)
+@pytest.mark.litmus_vectors(vin=[4.5, 5.0, 5.5])      # middle
+@pytest.mark.litmus_vectors(load=[0.1, 0.4])          # inner (fast)
 def test_rails(temperature, vin, load, context, psu, chamber, dut_load, dmm, spec):
     if context.changed("temperature"):
         chamber.set_temperature(temperature)
@@ -92,7 +92,7 @@ def test_rails(temperature, vin, load, context, psu, chamber, dut_load, dmm, spe
 
 Without `changed()`, a 2 × 3 × 2 sweep (12 vectors) reconfigures the chamber 12 times. With it, the chamber changes twice.
 
-## Mutable scratch state across parametrize iterations
+## Mutable scratch state across sweep iterations
 
 `context.params` is read-only. For a mutable scratchpad across iterations, use a `scope="class"` fixture — native pytest, zero new API:
 
@@ -125,5 +125,5 @@ All traceability fields are injected by the plugin — the test body only calls 
 ## See also
 
 - [Writing Tests](writing-tests.md) — end-to-end patterns
-- [Vector expansion](vector-expansion.md) — parametrize sources and range strings
+- [Test Vectors guide](vector-expansion.md) — sweep shapes, generators, loop ordering
 - [pytest-native reference](../reference/pytest-native.md) — fixture card

@@ -8,14 +8,14 @@ lives in its own file; shared behavior factors up through an
 ## Diff from stage 6
 
 - Added `profiles/rail_family.yaml` — a parent with no facets; shared
-  parametrize sweep
+  vectors sweep
 - Added `profiles/development.yaml` — `extends: rail_family`, loose
   (±5 %) limits
 - Added `profiles/production.yaml` — `extends: rail_family`, tight
   (±1 %) limits
-- Added `profiles/characterization.yaml` — standalone, wide parametrize,
-  no limits
-- Stripped the per-test `parametrize` + `litmus_limits` out of the
+- Added `profiles/characterization.yaml` — standalone, wide vectors
+  sweep, no limits
+- Stripped the per-test `litmus_vectors` + `litmus_limits` out of the
   sidecar (`tests/test_rail.yaml`) for the rail tests — they come from
   the profile now. `TestIdle` still owns its limits in the sidecar
   because idle current doesn't vary by phase.
