@@ -16,6 +16,7 @@ from litmus.models.enums import (
     MeasurementFunction,
     TerminalRole,
 )
+from litmus.utils.ranges import expand_range
 
 # =============================================================================
 # Spec-level models
@@ -177,7 +178,6 @@ class SpecBand(BaseModel):
     accuracy: AccuracySpec | None = None
     resolution: ResolutionSpec | None = None
     qualifier: SpecQualifier | None = None
-    note: str | None = None  # Unstructured annotation; will be replaced by structured fields
 
 
 # =============================================================================
@@ -220,7 +220,6 @@ class Signal(BaseModel):
     units: str | None = None
     specs: list[SpecBand] | None = None
     qualifier: SpecQualifier | None = None
-    note: str | None = None  # Unstructured annotation; will be replaced by structured fields
 
 
 class Condition(BaseModel):
@@ -248,7 +247,6 @@ class Condition(BaseModel):
     units: str | None = None
     default: float | str | bool | None = None
     specs: list[SpecBand] | None = None
-    note: str | None = None  # Unstructured annotation; will be replaced by structured fields
 
 
 class Control(BaseModel):
@@ -278,7 +276,6 @@ class Control(BaseModel):
     default: float | str | bool | None = None
     resolution: ResolutionSpec | None = None
     specs: list[SpecBand] | None = None
-    note: str | None = None  # Unstructured annotation; will be replaced by structured fields
 
 
 class Attribute(BaseModel):
@@ -320,7 +317,6 @@ class Attribute(BaseModel):
     units: str | None = None
     specs: list[SpecBand] | None = None
     qualifier: SpecQualifier | None = None
-    note: str | None = None  # Unstructured annotation; will be replaced by structured fields
 
     @model_validator(mode="after")
     def _require_value_range_or_options(self) -> "Attribute":
@@ -328,12 +324,11 @@ class Attribute(BaseModel):
         has_range = self.range is not None
         has_options = self.options is not None
         has_specs = self.specs is not None and len(self.specs) > 0
-        has_note = self.note is not None
         count = sum([has_value, has_range, has_options])
-        if count == 0 and not has_specs and not has_note:
+        if count == 0 and not has_specs:
             raise ValueError(
                 "Attribute must provide one of: 'value', 'range', 'options',"
-                " 'specs' (condition-dependent), or 'note' (unstructured)"
+                " or 'specs' (condition-dependent)"
             )
         if count > 1:
             raise ValueError(
@@ -533,8 +528,6 @@ class InstrumentCapability(Capability):
         - Numeric range: "1:4" → ["1", "2", "3", "4"]
         - Single string: "1" → ["1"]
         """
-        from litmus.utils.ranges import expand_range
-
         if isinstance(self.channels, list):
             return [str(ch) for ch in self.channels]
         return expand_range(self.channels)

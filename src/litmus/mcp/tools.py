@@ -18,8 +18,8 @@ from pathlib import Path
 from typing import Any, Literal, cast
 from uuid import UUID, uuid4
 
-from litmus.models.enum_meta import lookup_enum as _lookup_enum_fn
-from litmus.models.enum_meta import render_enum_reference as _render_enum_reference_fn
+from litmus.utils.enum_meta import lookup_enum as _lookup_enum_fn
+from litmus.utils.enum_meta import render_enum_reference as _render_enum_reference_fn
 
 logger = logging.getLogger(__name__)
 

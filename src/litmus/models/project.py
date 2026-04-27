@@ -35,6 +35,12 @@ class OutputConfig(BaseModel):
     Note: ``format`` and ``transport`` names are not validated against the
     registries at config time (registries are lazy-loaded). Invalid names
     will raise ``KeyError`` at runtime when the output is executed.
+
+    **Extras policy:** uses ``extra="allow"`` (an exception to the package's
+    ``extra="forbid"`` default) because format-specific keys like ``bucket``
+    / ``server`` / ``dsn_env`` are open-ended — the format/transport plugin
+    consumes whatever the user wrote. The validator below collects unknowns
+    into ``extras`` so callers see a structured payload.
     """
 
     model_config = {"extra": "allow"}

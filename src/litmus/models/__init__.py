@@ -1,81 +1,18 @@
-"""Pure Pydantic types for Litmus domain entities.
+"""YAML-schema models — types users author and load through :mod:`litmus.store`.
 
-This package contains the domain data models — what a product, station,
-capability, instrument, or catalog entry *is*. It intentionally has no
-behavior, no I/O, and no runtime dependencies on other Litmus packages
-that perform I/O or execute tests. Anything that does work (loading YAML,
-running tests, rendering UI, serving HTTP) imports *from* this package and
-is kept out of it.
+Each submodule defines one schema family:
 
-This separation exists so that any module can import a domain type without
-triggering heavier packages (``products``, ``instruments``, ``execution``,
-…) and the indirect dependency cycles they can create.
+* :mod:`litmus.models.capability`        — instrument capability + spec models
+* :mod:`litmus.models.catalog`           — instrument catalog entries
+* :mod:`litmus.models.enums`             — canonical enum vocabulary
+* :mod:`litmus.models.instrument`        — calibration / discovered-instrument records
+* :mod:`litmus.models.instrument_asset`  — instrument asset YAML files
+* :mod:`litmus.models.product`           — product + characteristic + pin schemas
+* :mod:`litmus.models.product_manifest`  — per-product workflow manifest
+* :mod:`litmus.models.project`           — ``litmus.yaml`` + profile schema
+* :mod:`litmus.models.station`           — station deployment + station-type template
+* :mod:`litmus.models.test_config`       — sidecar test config + fixture schema
 
-The re-exports below cover the types most commonly imported by users and
-tests. Submodule imports like ``from litmus.models.product import Product``
-continue to work — this package guarantees stability of both forms.
+Import directly from the submodule that owns the type. There is no
+package-level convenience re-export — the submodule paths are the API.
 """
-
-from litmus.models.catalog import InstrumentCatalogEntry
-from litmus.models.instrument import (
-    CalibrationInfo,
-    ChannelKind,
-    InstrumentInfo,
-    InstrumentRecord,
-)
-from litmus.models.instrument_asset import InstrumentAssetFile
-from litmus.models.product import (
-    BusSignal,
-    Pin,
-    PinRole,
-    Product,
-    ProductCharacteristic,
-    SignalGroup,
-)
-from litmus.models.product_manifest import (
-    FileReferences,
-    ProductManifest,
-    WorkflowStep,
-)
-from litmus.models.project import OutputConfig, ProjectConfig
-from litmus.models.station import StationConfig, StationInstrumentConfig
-from litmus.models.test_config import (
-    FixtureConfig,
-    Limit,
-    MeasurementLimitConfig,
-    RetryConfig,
-    Specification,
-)
-
-__all__ = [
-    # Catalog
-    "InstrumentCatalogEntry",
-    # Config / test execution
-    "FixtureConfig",
-    "Limit",
-    "MeasurementLimitConfig",
-    "RetryConfig",
-    "Specification",
-    # Instrument identity
-    "CalibrationInfo",
-    "ChannelKind",
-    "InstrumentAssetFile",
-    "InstrumentInfo",
-    "InstrumentRecord",
-    # Product
-    "BusSignal",
-    "FileReferences",
-    "Pin",
-    "PinRole",
-    "Product",
-    "ProductCharacteristic",
-    "SignalGroup",
-    "ProductManifest",
-    "WorkflowStep",
-    # Project-level
-    "OutputConfig",
-    "ProjectConfig",
-    # Station
-    "StationConfig",
-    "StationInstrumentConfig",
-]

@@ -4,12 +4,7 @@ import pytest
 
 from litmus.models.capability import Capability, Condition, Control, RangeSpec, Signal
 from litmus.models.enums import Direction, MeasurementFunction
-from litmus.models.station_types import (
-    InstrumentConfig,
-    InstrumentInstance,
-    StationInstance,
-    StationType,
-)
+from litmus.models.station import InstrumentConfig, StationType
 from litmus.models.test_config import (
     FixtureConfig,
     FixtureConnection,
@@ -146,21 +141,6 @@ class TestInstrumentConfig:
         assert config.settings["nplc"] == 1
 
 
-class TestInstrumentInstance:
-    def test_instrument_instance_minimal(self):
-        instance = InstrumentInstance(type="dmm", resource="GPIB0::5::INSTR")
-        assert instance.type == "dmm"
-        assert instance.resource == "GPIB0::5::INSTR"
-
-    def test_instrument_instance_with_resource(self):
-        instance = InstrumentInstance(
-            type="oscilloscope",
-            resource="USB0::0x0957::0x1796::MY54321234::INSTR",
-        )
-        assert instance.type == "oscilloscope"
-        assert instance.resource == "USB0::0x0957::0x1796::MY54321234::INSTR"
-
-
 class TestStationType:
     def test_station_type(self):
         station_type = StationType(
@@ -176,26 +156,6 @@ class TestStationType:
         assert "dmm" in station_type.instruments
         assert "psu" in station_type.instruments
         assert "functional" in station_type.capabilities
-
-
-class TestStationInstance:
-    def test_station_instance_minimal(self):
-        instance = StationInstance(id="station_001", station_type="universal_bench")
-        assert instance.id == "station_001"
-        assert instance.station_type == "universal_bench"
-        assert instance.instruments == {}
-
-    def test_station_instance_full(self):
-        instance = StationInstance(
-            id="station_001",
-            station_type="universal_bench",
-            location="Lab A, Bench 3",
-            instruments={
-                "dmm": InstrumentInstance(type="dmm", resource="TCPIP::192.168.1.101::INSTR")
-            },
-        )
-        assert instance.location == "Lab A, Bench 3"
-        assert "dmm" in instance.instruments
 
 
 class TestFixtureConfig:

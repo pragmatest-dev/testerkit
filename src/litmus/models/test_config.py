@@ -6,6 +6,7 @@ sequences, and all test-runner configuration.
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from typing import Any, Literal, Self
 
 from pydantic import BaseModel, ConfigDict, Field, RootModel, model_validator
@@ -193,6 +194,24 @@ class SidecarConfig(TestEntry):
 # =============================================================================
 
 
+# Per-comparator membership check. ``low``/``high``/``nominal`` are read off
+# the Limit; the only thing that varies per comparator is which fields are
+# required and which inequality applies.
+_COMPARATOR_CHECKS: dict[str, Callable[[Limit, float], bool]] = {
+    "EQ": lambda lim, v: lim.nominal is not None and v == lim.nominal,
+    "NE": lambda lim, v: lim.nominal is not None and v != lim.nominal,
+    "LT": lambda lim, v: lim.high is None or v < lim.high,
+    "LE": lambda lim, v: lim.high is None or v <= lim.high,
+    "GT": lambda lim, v: lim.low is None or v > lim.low,
+    "GE": lambda lim, v: lim.low is None or v >= lim.low,
+    "GELE": lambda lim, v: (lim.low is None or v >= lim.low)
+    and (lim.high is None or v <= lim.high),
+    "GELT": lambda lim, v: (lim.low is None or v >= lim.low) and (lim.high is None or v < lim.high),
+    "GTLE": lambda lim, v: (lim.low is None or v > lim.low) and (lim.high is None or v <= lim.high),
+    "GTLT": lambda lim, v: (lim.low is None or v > lim.low) and (lim.high is None or v < lim.high),
+}
+
+
 class Limit(BaseModel):
     """A test limit with units and optional spec reference.
 
@@ -245,29 +264,10 @@ class Limit(BaseModel):
         """
         if not isinstance(value, (int, float)) or isinstance(value, bool):
             return False
-        v = float(value)
-        cmp = self.comparator
-        if cmp == Comparator.EQ:
-            return self.nominal is not None and v == self.nominal
-        if cmp == Comparator.NE:
-            return self.nominal is not None and v != self.nominal
-        if cmp == Comparator.LT:
-            return self.high is None or v < self.high
-        if cmp == Comparator.LE:
-            return self.high is None or v <= self.high
-        if cmp == Comparator.GT:
-            return self.low is None or v > self.low
-        if cmp == Comparator.GE:
-            return self.low is None or v >= self.low
-        if cmp == Comparator.GELE:
-            return (self.low is None or v >= self.low) and (self.high is None or v <= self.high)
-        if cmp == Comparator.GELT:
-            return (self.low is None or v >= self.low) and (self.high is None or v < self.high)
-        if cmp == Comparator.GTLE:
-            return (self.low is None or v > self.low) and (self.high is None or v <= self.high)
-        if cmp == Comparator.GTLT:
-            return (self.low is None or v > self.low) and (self.high is None or v < self.high)
-        return False
+        check = _COMPARATOR_CHECKS.get(self.comparator)
+        if check is None:
+            return False
+        return check(self, float(value))
 
     def __repr__(self) -> str:
         parts: list[str] = []
