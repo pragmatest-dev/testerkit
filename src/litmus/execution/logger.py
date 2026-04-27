@@ -27,7 +27,14 @@ from litmus.data.models import (
     _utcnow,
     escalate_outcome,
 )
-from litmus.execution._state import current_step_var, current_vector_var
+from litmus.execution._state import (
+    get_current_step,
+    get_current_vector,
+    push_current_step,
+    push_current_vector,
+    reset_current_step,
+    reset_current_vector,
+)
 
 if TYPE_CHECKING:
     from litmus.data.event_log import EventLog
@@ -508,8 +515,8 @@ class TestRunLogger:
         # Both start_step() and log_measurement() may set it; reset in end_step().
         self._vector_token: Token[TestVector | None] | None = None
         # Clear contextvars — each logger owns its execution context
-        current_step_var.set(None)
-        current_vector_var.set(None)
+        push_current_step(None)
+        push_current_vector(None)
         self._run_context = RunContext(self.test_run)
         self._instruments: dict[str, InstrumentRecord] = instruments or {}
         self._step_instrument_arrays: dict[str, list] | None = None
@@ -616,7 +623,7 @@ class TestRunLogger:
     ):
         """Begin a new test step. Supports nesting via step_path."""
         # Auto-close any prior step that wasn't explicitly ended
-        if current_step_var.get() is not None:
+        if get_current_step() is not None:
             self.end_step()
         # Clear per-step instrument arrays so they don't leak between steps
         self._step_instrument_arrays = None
@@ -647,8 +654,8 @@ class TestRunLogger:
         vector = TestVector(params=_snapshot_active_vector_params())
         step.vectors.append(vector)
         # Token-based set for proper reset in end_step()
-        self._step_token = current_step_var.set(step)
-        self._vector_token = current_vector_var.set(vector)
+        self._step_token = push_current_step(step)
+        self._vector_token = push_current_vector(vector)
 
         if self._event_log is not None:
             self._event_log.emit(
@@ -733,18 +740,18 @@ class TestRunLogger:
         auto-created from the measurement name.
         """
         # Resolve step: contextvar only → auto-create
-        step = current_step_var.get()
+        step = get_current_step()
         if step is None:
             self.start_step(measurement.name)
-            step = current_step_var.get()
+            step = get_current_step()
         assert step is not None
 
         # Resolve vector: contextvar only → auto-create
-        vector = current_vector_var.get()
+        vector = get_current_vector()
         if vector is None:
             vector = TestVector(params=_snapshot_active_vector_params())
             step.vectors.append(vector)
-            self._vector_token = current_vector_var.set(vector)
+            self._vector_token = push_current_vector(vector)
 
         # Stamp step_path from the resolved step so downstream consumers
         # (traceability audit, parquet projection) don't see empty strings.
@@ -801,10 +808,10 @@ class TestRunLogger:
 
     def end_step(self):
         """Finalize current step."""
-        step = current_step_var.get()
+        step = get_current_step()
         if step is not None:
             step.ended_at = _utcnow()
-        vector = current_vector_var.get()
+        vector = get_current_vector()
         if vector is not None:
             vector.ended_at = _utcnow()
 
@@ -831,10 +838,10 @@ class TestRunLogger:
 
         # Reset via tokens for proper contextvar hygiene
         if self._step_token is not None:
-            current_step_var.reset(self._step_token)
+            reset_current_step(self._step_token)
             self._step_token = None
         if self._vector_token is not None:
-            current_vector_var.reset(self._vector_token)
+            reset_current_vector(self._vector_token)
             self._vector_token = None
 
     def measure(
@@ -889,7 +896,7 @@ class TestRunLogger:
         # from ``log_measurement``) would then reset ``_step_seen_names``,
         # silently swallowing a real duplicate. Pytest always opens a step
         # around the test body; this guard is for non-pytest callers.
-        if current_step_var.get() is None:
+        if get_current_step() is None:
             self.start_step(name)
 
         # Dedup check against per-step seen_names
@@ -970,7 +977,7 @@ class TestRunLogger:
         if key in self._step_seen_names:
             first_was_repeatable = key in self._step_seen_repeatable
             if not (allow_repeat and first_was_repeatable):
-                step = current_step_var.get()
+                step = get_current_step()
                 step_label = step.name if step else "<no-step>"
                 raise DuplicateMeasurementError(
                     f"Measurement {name!r} already recorded in step {step_label!r}. "
@@ -989,7 +996,7 @@ class TestRunLogger:
             key: Record key (e.g., "firmware_version", "calibration_date").
             value: Record value (must be JSON-serializable).
         """
-        step = current_step_var.get()
+        step = get_current_step()
         step_name = step.name if step else ""
         step_index = self._current_step_index if step else -1
         if self._event_log is not None:
@@ -1011,7 +1018,7 @@ class TestRunLogger:
         responsible for emitting SessionEnded and closing the log.
         """
         # Close any unclosed step before finalizing
-        if current_step_var.get() is not None:
+        if get_current_step() is not None:
             self.end_step()
 
         self.test_run.ended_at = _utcnow()

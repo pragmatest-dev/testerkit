@@ -6,7 +6,7 @@ Two responsibilities live here:
   Parse the ``<module>.yaml`` sitting next to a test module and merge
   its file-level / class / per-test fields into a single typed
   :class:`TestEntry` for the pytest plugin to attach during collection.
-* **Limit resolution** (:func:`resolve_limits`, :func:`resolve_limit`).
+* **Limit resolution** (:func:`resolve_limit`).
   Walk a merged ``limits`` mapping (typed :class:`MeasurementLimitConfig`
   per measurement) and turn each entry into a concrete :class:`Limit`
   against the active spec context + vector params, including
@@ -269,22 +269,3 @@ def resolve_limit(
         guardband_pct=guardband_pct,
         test_char=test_char,
     )
-
-
-def resolve_limits(
-    limits: Mapping[str, MeasurementLimitConfig],
-    *,
-    test_char: str | None = None,
-) -> dict[str, Limit]:
-    """Resolve every entry in a merged ``limits`` map to a concrete :class:`Limit`.
-
-    Skips entries whose resolution returns ``None`` (no policy /
-    missing spec context) so those measurements record unchecked
-    rather than failing the whole step.
-    """
-    resolved: dict[str, Limit] = {}
-    for name, cfg in limits.items():
-        result = resolve_limit(cfg, test_char=test_char)
-        if result is not None:
-            resolved[name] = result
-    return resolved

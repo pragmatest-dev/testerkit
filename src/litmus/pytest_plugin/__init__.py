@@ -15,8 +15,6 @@ import pytest
 from litmus.data.models import CollectedItem, TestVector
 from litmus.execution._state import (
     _active_vector_index_var,
-    current_step_var,
-    current_vector_var,
     get_active_connection,
     get_active_facets,
     get_active_instruments,
@@ -28,11 +26,13 @@ from litmus.execution._state import (
     get_channel_store,
     get_collected_items,
     get_current_code_identity,
+    get_current_step,
     get_current_step_aliases,
     get_current_step_config,
     get_event_store,
     get_instrument_records,
     get_session_inputs,
+    push_current_vector,
     set_active_connection,
     set_active_facets,
     set_active_instruments,
@@ -122,8 +122,6 @@ from litmus.pytest_plugin.sweeps import (
 # State helpers re-exported for back-compat with consumers that import
 # from litmus.pytest_plugin (logger, harness, accessors, manager, tests).
 __all__ = [
-    "current_step_var",
-    "current_vector_var",
     "get_active_facets",
     "get_active_instruments",
     "get_active_connection",
@@ -2024,11 +2022,11 @@ class _VectorIterator:
         # Fresh TestVector per iteration so vector_index / params stamp
         # distinctly. Only do this if a step already exists (logger may
         # still auto-create the first one lazily on measure).
-        step = current_step_var.get()
+        step = get_current_step()
         if step is not None:
             new_vector = TestVector(index=self._i, params=dict(params))
             step.vectors.append(new_vector)
-            current_vector_var.set(new_vector)
+            push_current_vector(new_vector)
 
         self._i += 1
         self._consumed += 1

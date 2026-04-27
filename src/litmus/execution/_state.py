@@ -4,7 +4,7 @@ ALL mutable module state lives here so the pytest plugin and its
 collaborators (logger, harness, accessors, fixtures) share one source
 of truth without circular imports.
 
-Three ContextVar getter patterns are used:
+Four ContextVar getter patterns are used:
 
 1. **Create-and-store** (session-scoped dicts): first call creates a
    dict, stores it in the ContextVar, returns it. Callers mutate the
@@ -17,11 +17,16 @@ Three ContextVar getter patterns are used:
 3. **Return None** (session singletons): the ContextVar holds a single
    object (or None) installed once per session by a setter. Getter
    returns None if not set.
+4. **Stack-like (push/pop with token)**: nested scopes (e.g. a step
+   that contains sub-steps) need to restore the prior value on exit,
+   not blank it. Setters return a :class:`Token` the caller stashes
+   and passes back to the matching ``reset_*`` accessor. ``current_step``
+   and ``current_vector`` use this shape.
 """
 
 from __future__ import annotations
 
-from contextvars import ContextVar
+from contextvars import ContextVar, Token
 from typing import Any
 
 from litmus.data.models import CollectedItem
@@ -29,9 +34,9 @@ from litmus.models.instrument import InstrumentRecord
 from litmus.models.project import ProfileConfig
 from litmus.models.test_config import FixtureConnection
 
-# Step/vector — used by both logger.py and harness.py.
-current_step_var: ContextVar[Any] = ContextVar("current_step", default=None)
-current_vector_var: ContextVar[Any] = ContextVar("current_vector", default=None)
+# Step/vector — stack-like, push/pop with token. Used by logger.py + harness.py.
+_current_step_var: ContextVar[Any] = ContextVar("current_step", default=None)
+_current_vector_var: ContextVar[Any] = ContextVar("current_vector", default=None)
 
 _active_instruments_var: ContextVar[dict[str, Any]] = ContextVar("_active_instruments")
 _instrument_records_var: ContextVar[dict[str, InstrumentRecord]] = ContextVar("_instrument_records")
@@ -126,6 +131,39 @@ def get_active_spec_context() -> Any:
         return _active_spec_context_var.get()
     except LookupError:
         return None
+
+
+# --- Stack-like (push/pop) accessors ---
+
+
+def get_current_step() -> Any:
+    """Return the active :class:`TestStep`, or ``None`` outside a step."""
+    return _current_step_var.get()
+
+
+def push_current_step(step: Any) -> Token[Any]:
+    """Set the active step; returns a token for :func:`reset_current_step`."""
+    return _current_step_var.set(step)
+
+
+def reset_current_step(token: Token[Any]) -> None:
+    """Restore the prior active step using a token from :func:`push_current_step`."""
+    _current_step_var.reset(token)
+
+
+def get_current_vector() -> Any:
+    """Return the active :class:`TestVector`, or ``None`` outside a vector."""
+    return _current_vector_var.get()
+
+
+def push_current_vector(vector: Any) -> Token[Any]:
+    """Set the active vector; returns a token for :func:`reset_current_vector`."""
+    return _current_vector_var.set(vector)
+
+
+def reset_current_vector(token: Token[Any]) -> None:
+    """Restore the prior active vector using a token from :func:`push_current_vector`."""
+    _current_vector_var.reset(token)
 
 
 # --- Setters ---

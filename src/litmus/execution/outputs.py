@@ -6,9 +6,15 @@ Litmus's ``litmus.yaml: outputs:`` block declares one or more
 to instantiate the right subscriber per format and wire a transport
 callback when present.
 
-The wiring is identical across runners; only the ``EventLog`` /
-``ChannelStore`` lifecycle is runner-shaped, which the runner's
-plugin handles separately.
+Used at **session end** by the runner's plugin to finalize results
+(serialize parquet, render reports, ship blobs). Lives in
+``execution/`` because it runs in-process during the session
+lifecycle, not because it executes per measurement — the
+:class:`EventLog` / :class:`ChannelStore` accumulate measurements
+during the run, then this module drains them when the session
+exits. The wiring is identical across runners; only the
+:class:`EventLog` / :class:`ChannelStore` lifecycle is
+runner-shaped, which the runner's plugin handles separately.
 """
 
 from __future__ import annotations

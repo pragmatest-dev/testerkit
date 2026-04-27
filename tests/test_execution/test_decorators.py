@@ -129,9 +129,9 @@ class TestMeasureWithLogger:
         get_voltage()
 
         # Measurements are stored in vectors within the step
-        from litmus.execution._state import current_step_var
+        from litmus.execution._state import get_current_step
 
-        step = current_step_var.get()
+        step = get_current_step()
         assert step is not None
         assert len(step.vectors) == 1
         assert len(step.vectors[0].measurements) == 1

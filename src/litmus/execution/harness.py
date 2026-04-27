@@ -14,7 +14,14 @@ from contextlib import contextmanager
 from typing import TYPE_CHECKING, Any
 
 from litmus.data.models import Measurement, Outcome, TestStep, TestVector, _utcnow, escalate_outcome
-from litmus.execution._state import current_step_var, current_vector_var
+from litmus.execution._state import (
+    get_current_step,
+    get_current_vector,
+    push_current_step,
+    push_current_vector,
+    reset_current_step,
+    reset_current_vector,
+)
 from litmus.execution.vectors import Vector, expand_vectors
 from litmus.models.test_config import Limit, MeasurementLimitConfig, PromptConfig, RetryConfig
 from litmus.prompts import ask
@@ -744,7 +751,7 @@ class TestHarness:
         measurement.check_limit()
 
         # Add to current vector (resolved from contextvar)
-        current_tv = current_vector_var.get()
+        current_tv = get_current_vector()
         if current_tv is not None:
             current_tv.measurements.append(measurement)
 
@@ -970,12 +977,12 @@ class TestHarness:
             started_at=_utcnow(),
         )
         # Add to current step if logging
-        current_step = current_step_var.get()
+        current_step = get_current_step()
         if current_step is not None:
             current_step.vectors.append(test_vector)
 
         # Set contextvar for concurrency-safe resolution
-        vector_token = current_vector_var.set(test_vector)
+        vector_token = push_current_vector(test_vector)
         try:
             yield test_vector
         except AssertionError as e:
@@ -996,7 +1003,7 @@ class TestHarness:
             test_vector.params = self._vector_context.params
             test_vector.observations = self._vector_context.observations
             test_vector.ended_at = _utcnow()
-            current_vector_var.reset(vector_token)
+            reset_current_vector(vector_token)
             # Save current context for next vector's change detection
             self._prev_vector_context = self._vector_context
             self._vector_context = None
@@ -1089,7 +1096,7 @@ class TestHarness:
             self._logger.emit_step_started(step, self._current_step_index)
 
         # Set contextvar for concurrency-safe resolution
-        step_token = current_step_var.set(step)
+        step_token = push_current_step(step)
         try:
             yield step
         finally:
@@ -1103,7 +1110,7 @@ class TestHarness:
             if self._logger is not None:
                 self._logger.emit_step_ended(step, self._current_step_index)
 
-            current_step_var.reset(step_token)
+            reset_current_step(step_token)
             self._step_context = None
 
     def run_all(

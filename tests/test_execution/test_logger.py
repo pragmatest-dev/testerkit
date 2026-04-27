@@ -3,7 +3,14 @@
 from uuid import uuid4
 
 from litmus.data.models import Measurement, Outcome, TestStep, TestVector
-from litmus.execution._state import current_step_var, current_vector_var
+from litmus.execution._state import (
+    get_current_step,
+    get_current_vector,
+    push_current_step,
+    push_current_vector,
+    reset_current_step,
+    reset_current_vector,
+)
 from litmus.execution.logger import TestRunLogger
 
 
@@ -45,7 +52,7 @@ class TestTestRunLogger:
         assert len(logger.test_run.steps) == 1
         assert logger.test_run.steps[0].name == "measure_voltage"
         assert logger.test_run.steps[0].description == "Signal 5V rail"
-        assert current_step_var.get() is not None
+        assert get_current_step() is not None
 
     def test_log_measurement(self):
         logger = TestRunLogger(
@@ -59,7 +66,7 @@ class TestTestRunLogger:
         logger.log_measurement(m)
 
         # Measurements are stored in vectors within the step
-        step = current_step_var.get()
+        step = get_current_step()
         assert step is not None
         assert len(step.vectors) == 1
         assert len(step.vectors[0].measurements) == 1
@@ -89,7 +96,7 @@ class TestTestRunLogger:
         m = Measurement(name="voltage", value=6.0, outcome=Outcome.FAIL)
         logger.log_measurement(m)
 
-        step_1 = current_step_var.get()
+        step_1 = get_current_step()
         assert step_1 is not None
         assert step_1.outcome == Outcome.FAIL
         assert logger.test_run.outcome == Outcome.FAIL
@@ -105,7 +112,7 @@ class TestTestRunLogger:
         m = Measurement(name="voltage", value=None, outcome=Outcome.ERROR)
         logger.log_measurement(m)
 
-        step_2 = current_step_var.get()
+        step_2 = get_current_step()
         assert step_2 is not None
         assert step_2.outcome == Outcome.ERROR
         assert logger.test_run.outcome == Outcome.ERROR
@@ -124,7 +131,7 @@ class TestTestRunLogger:
         logger.log_measurement(m2)
 
         # ERROR overrides FAIL — can't trust results from untrusted state
-        step_3 = current_step_var.get()
+        step_3 = get_current_step()
         assert step_3 is not None
         assert step_3.outcome == Outcome.ERROR
         assert logger.test_run.outcome == Outcome.ERROR
@@ -138,7 +145,7 @@ class TestTestRunLogger:
         logger.start_step("test_step")
         logger.end_step()
 
-        assert current_step_var.get() is None
+        assert get_current_step() is None
         assert logger.test_run.steps[0].ended_at is not None
 
     def test_finalize(self):
@@ -184,15 +191,15 @@ class TestTestRunLogger:
             test_sequence_id="test",
         )
         # Before start_step, contextvars should be None (default)
-        assert current_step_var.get() is None
+        assert get_current_step() is None
 
         logger.start_step("cv_step")
-        assert current_step_var.get() is logger.test_run.steps[0]
-        assert current_vector_var.get() is logger.test_run.steps[0].vectors[0]
+        assert get_current_step() is logger.test_run.steps[0]
+        assert get_current_vector() is logger.test_run.steps[0].vectors[0]
 
         logger.end_step()
-        assert current_step_var.get() is None
-        assert current_vector_var.get() is None
+        assert get_current_step() is None
+        assert get_current_vector() is None
 
     def test_log_measurement_resolves_from_contextvar(self):
         """log_measurement() uses contextvar step when instance state is None."""
@@ -207,8 +214,8 @@ class TestTestRunLogger:
         vector = TestVector()
         step.vectors.append(vector)
 
-        step_token = current_step_var.set(step)
-        vector_token = current_vector_var.set(vector)
+        step_token = push_current_step(step)
+        vector_token = push_current_vector(vector)
         try:
             m = Measurement(name="voltage", value=5.0, outcome=Outcome.PASS)
             logger.log_measurement(m)
@@ -217,8 +224,8 @@ class TestTestRunLogger:
             assert vector.measurements[0].name == "voltage"
             assert step.outcome == Outcome.PASS
         finally:
-            current_step_var.reset(step_token)
-            current_vector_var.reset(vector_token)
+            reset_current_step(step_token)
+            reset_current_vector(vector_token)
 
     def test_register_step(self):
         """register_step() adds step to test_run and returns index."""
@@ -245,7 +252,7 @@ class TestTestRunLogger:
             test_sequence_id="test",
         )
         logger.start_step("test_step")
-        vector = current_vector_var.get()
+        vector = get_current_vector()
         assert vector is not None
 
         m = Measurement(name="voltage", value=5.0, outcome=Outcome.PASS)
