@@ -173,7 +173,17 @@ class DialogManager:
         )
 
     def _emit_dialog_opened(self, dialog: Dialog) -> None:
-        """Emit a DialogOpened event if inside a test run."""
+        """Emit a DialogOpened event if inside a test run.
+
+        Layering note: this method imports from :mod:`litmus.execution`
+        lazily and silently no-ops if the import fails. Dialogs do not
+        require execution to function — the import is *optional
+        enrichment* that fires when a test run is active. Standalone
+        UI / API contexts (where dialogs run without a test logger)
+        get the dialog itself; the parquet-event side simply doesn't
+        light up. Keep this lazy + try/except; do not promote to a
+        top-level import.
+        """
         try:
             from litmus.execution.decorators import get_current_logger
         except ImportError:
@@ -482,13 +492,21 @@ class DialogManager:
 _manager: DialogManager | None = None
 
 
-def get_dialog_manager(server_url: str | None = None) -> DialogManager:
+def get_dialog_manager(
+    server_url: str | None = None,
+    *,
+    auto_respond: str | None = None,
+) -> DialogManager:
     """Get or create the global dialog manager.
 
     Args:
         server_url: Optional server URL for HTTP mode. If not provided,
-                   checks LITMUS_SERVER_URL environment variable.
-                   If neither is set, uses in-process mode.
+            checks LITMUS_SERVER_URL environment variable. If neither
+            is set, uses in-process mode.
+        auto_respond: Auto-respond mode (``"confirm"`` / ``"cancel"``).
+            Falls back to ``LITMUS_DIALOG_AUTO`` env var per
+            :meth:`DialogManager._get_auto_response`. Only honored on
+            first call — subsequent calls return the cached manager.
 
     Environment variables:
         LITMUS_SERVER_URL: Server URL for HTTP mode
@@ -496,9 +514,8 @@ def get_dialog_manager(server_url: str | None = None) -> DialogManager:
     """
     global _manager
     if _manager is None:
-        # Auto-detect from environment
         url = server_url or os.environ.get("LITMUS_SERVER_URL")
-        _manager = DialogManager(server_url=url)
+        _manager = DialogManager(server_url=url, auto_respond=auto_respond)
     return _manager
 
 
@@ -533,6 +550,22 @@ def register_as_prompt_handler(server_url: str | None = None) -> None:
     Call this from UI / API startup once the manager is wired up. After
     registration, :func:`litmus.prompts.ask` from the test process
     dispatches through dialogs instead of the TTY / auto-confirm chain.
+
+    Mode requirements:
+
+    * **In-process mode** — caller and DialogManager live in the same
+      process (e.g., NiceGUI app driving its own tests). ``server_url``
+      can be ``None``; the manager's pending-dialog dict is shared
+      directly.
+    * **HTTP mode** — caller is a test subprocess and the UI server is a
+      separate process. Pass ``server_url`` (or set
+      ``LITMUS_SERVER_URL``) so the bridge can POST dialogs to the
+      server and poll for the response. Without ``server_url``, the
+      test subprocess will silently never resolve its prompts because
+      its in-process manager has no UI listener attached.
+
+    Caller is responsible for picking the right mode for its
+    deployment; the bridge does not auto-detect.
     """
     from litmus.prompts import set_prompt_handler
 
@@ -556,7 +589,7 @@ def _dispatch_prompt(config: Any, server_url: str | None) -> Any:
     else:
         raise ValueError(f"unknown prompt_type: {config.prompt_type!r}")
 
-    response = asyncio.run(coro)
+    response = _run_sync(coro)
     if response.cancelled or response.timed_out:
         raise PromptUnavailableError(
             f"Dialog for {config.message!r} {'timed out' if response.timed_out else 'cancelled'}."
@@ -567,3 +600,26 @@ def _dispatch_prompt(config: Any, server_url: str | None) -> Any:
         idx = response.choice or 0
         return (config.choices or [])[idx]
     return response.value
+
+
+def _run_sync(coro: Any) -> Any:
+    """Run *coro* to completion from a synchronous context.
+
+    ``asyncio.run`` raises if a loop is already running — a real concern
+    if a caller invokes :func:`prompts.ask` from inside an async fixture
+    or test. Detect a running loop and surface a clearer error than
+    pytest's default ``RuntimeError`` so the caller knows to switch to
+    awaiting the manager directly.
+    """
+    try:
+        asyncio.get_running_loop()
+    except RuntimeError:
+        # No loop in this thread — safe to run.
+        return asyncio.run(coro)
+
+    raise RuntimeError(
+        "prompts.ask() was invoked from inside a running event loop. "
+        "Async callers should await DialogManager methods directly "
+        "(get_dialog_manager().confirm(...) etc.) rather than going "
+        "through the sync prompts.ask() bridge."
+    )
