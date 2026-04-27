@@ -7,11 +7,15 @@ and :mod:`litmus.pytest_plugin.autouse`.
 
 from __future__ import annotations
 
+import os
+import sys
 import warnings
 from pathlib import Path
 from typing import Any
 
 import pytest
+
+from litmus.execution.profiles import load_project_defaults
 
 
 def config_search_roots(config) -> list[Path]:
@@ -122,3 +126,58 @@ def node_cls_func(node: pytest.Item) -> tuple[str | None, str | None]:
     cls_name = cls.__name__ if cls is not None else None
     func_name = getattr(node, "originalname", None) or node.name.split("[")[0]
     return cls_name, func_name
+
+
+def mocks_active(config: pytest.Config) -> bool:
+    """Return whether mock instruments are requested.
+
+    Single source of truth for every consumer (``pytest_sessionstart``,
+    ``_build_run_metadata``, the ``mock_instruments`` session fixture,
+    ``slot_runner``). Resolution order, highest priority first:
+
+    1. CLI flag — ``--mock-instruments`` (True) or ``--no-mock-instruments``
+       (False). Either explicit flag wins.
+    2. Env var ``LITMUS_MOCK_INSTRUMENTS=1`` — set by the API runner so
+       a server-launched subprocess inherits the operator's choice.
+    3. ``litmus.yaml: mock_instruments:`` — project default.
+    4. ``False`` if nothing else set.
+    """
+    cli = config.getoption("mock_instruments", default=None)
+    if cli is not None:
+        return bool(cli)
+    env = os.environ.get("LITMUS_MOCK_INSTRUMENTS")
+    if env is not None:
+        return env == "1"
+    return load_project_defaults().mock_instruments
+
+
+def prompt_for_serial(test_phase: str, slot_id: str | None = None) -> str:
+    """Prompt for DUT serial or raise if non-interactive.
+
+    Args:
+        test_phase: Current test phase (for error message).
+        slot_id: If provided, prompt for a specific slot.
+
+    Returns:
+        Non-empty serial string.
+    """
+    label = f" for slot '{slot_id}'" if slot_id else ""
+
+    if sys.stdin.isatty():
+        serial = input(
+            f"[litmus] test_phase='{test_phase}' requires a DUT serial{label}.\n"
+            f"  Enter DUT serial (or Ctrl+C to abort): "
+        )
+        serial = serial.strip()
+        if not serial:
+            raise pytest.UsageError(
+                f"DUT serial number is required{label} for "
+                f"non-development test phases. "
+                "Use --dut-serial <serial> or enter a serial when prompted."
+            )
+        return serial
+
+    raise pytest.UsageError(
+        f"DUT serial number is required for test_phase='{test_phase}'{label}. "
+        "Use --dut-serial <serial> or --dut-serials slot=serial."
+    )
