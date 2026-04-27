@@ -303,8 +303,8 @@ class AtmlSubscriber(EventSubscriber):
 
             test_el = ET.SubElement(parent, _tr("Test"))
             test_el.set("name", m.measurement_name)
-            if m.spec_id:
-                test_el.set("callerName", m.spec_id)
+            if m.characteristic_id:
+                test_el.set("callerName", m.characteristic_id)
 
             m_outcome = _OUTCOME_MAP.get(
                 m.outcome or "",

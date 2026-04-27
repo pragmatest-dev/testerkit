@@ -194,7 +194,7 @@ def _reconstruct_limit_from_measurement(m: Measurement) -> Limit | None:
         high=m.high_limit,
         nominal=m.nominal,
         units=m.units or "",
-        spec_id=m.spec_id,
+        characteristic_id=m.characteristic_id,
         spec_ref=m.spec_ref,
         comparator=cmp,
     )

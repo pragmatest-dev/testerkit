@@ -127,8 +127,8 @@ class JsonSubscriber(EventSubscriber):
                         md["nominal"] = m.nominal
                     if m.comparator:
                         md["comparator"] = m.comparator
-                    if m.spec_id:
-                        md["spec_id"] = m.spec_id
+                    if m.characteristic_id:
+                        md["characteristic_id"] = m.characteristic_id
                     if m.meas_dut_pin:
                         md["dut_pin"] = m.meas_dut_pin
                     if m.meas_instrument:

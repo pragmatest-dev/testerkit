@@ -741,7 +741,7 @@ class TestHarness:
             high_limit=resolved_limit.high if resolved_limit else None,
             nominal=resolved_limit.nominal if resolved_limit else None,
             comparator=resolved_limit.comparator if resolved_limit else None,
-            spec_id=resolved_limit.spec_id if resolved_limit else None,
+            characteristic_id=resolved_limit.characteristic_id if resolved_limit else None,
             spec_ref=resolved_limit.spec_ref if resolved_limit else None,
             dut_pin=resolved_dut_pin,
             instrument_channel=resolved_instrument_channel,

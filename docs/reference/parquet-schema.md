@@ -240,18 +240,18 @@ if is_file_reference(column_value):
 
 | Column | Type | Description |
 |--------|------|-------------|
-| `spec_id` | string | Characteristic ID for structured queries (e.g., "output_voltage") |
+| `characteristic_id` | string | Characteristic ID for structured queries (e.g., "output_voltage") |
 | `spec_ref` | string | Human-readable reference with conditions (e.g., "Table 4.2 @ temp=25") |
 
-**`spec_id`** enables structured queries:
+**`characteristic_id`** enables structured queries:
 ```sql
 -- Find all measurements for a specific characteristic
-SELECT * FROM results WHERE spec_id = 'output_voltage';
+SELECT * FROM results WHERE characteristic_id = 'output_voltage';
 
 -- Yield by characteristic across all products
-SELECT spec_id, product_id, AVG(CASE WHEN outcome='pass' THEN 1.0 ELSE 0.0 END) as yield
+SELECT characteristic_id, product_id, AVG(CASE WHEN outcome='pass' THEN 1.0 ELSE 0.0 END) as yield
 FROM results
-GROUP BY spec_id, product_id;
+GROUP BY characteristic_id, product_id;
 ```
 
 **`spec_ref`** provides human-readable traceability for reports and documentation.

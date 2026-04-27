@@ -357,7 +357,7 @@ class MeasurementRecorded(EventBase):
     high_limit: float | None = None
     nominal: float | None = None
     comparator: str | None = None
-    spec_id: str | None = None
+    characteristic_id: str | None = None
     spec_ref: str | None = None
 
     # Signal path

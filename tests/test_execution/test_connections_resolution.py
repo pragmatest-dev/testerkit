@@ -163,7 +163,7 @@ def test_characteristic_spec_derives_tolerance_limit(pytester: pytest.Pytester) 
                 for _ in context.connections:
                     assert 3.234 <= limits['v_rail'].low <= 3.234 + 1e-9
                     assert 3.366 - 1e-9 <= limits['v_rail'].high <= 3.366
-                    assert limits['v_rail'].spec_id == 'rail_3v3'
+                    assert limits['v_rail'].characteristic_id == 'rail_3v3'
                     verify("v_rail", 3.30)
             """
         )

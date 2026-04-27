@@ -107,7 +107,7 @@ class SpecContext:
             **conditions: Condition parameters (e.g., temperature=25, load=0.1).
 
         Returns:
-            Limit with derived low/high bounds, spec_id, and spec_ref.
+            Limit with derived low/high bounds, characteristic_id, and spec_ref.
 
         Raises:
             KeyError: If characteristic not found.

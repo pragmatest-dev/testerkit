@@ -181,7 +181,7 @@ Each item dict contains: `node_id`, `name`, `file`, `module`, `class_name`, `fun
 | `high_limit` | float \| None | |
 | `nominal` | float \| None | |
 | `comparator` | str \| None | |
-| `spec_id` | str \| None | |
+| `characteristic_id` | str \| None | |
 | `spec_ref` | str \| None | |
 | `meas_dut_pin` | str \| None | |
 | `meas_fixture_connection` | str \| None | |

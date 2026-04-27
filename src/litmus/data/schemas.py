@@ -94,7 +94,7 @@ MEASUREMENT_SCHEMA = pa.schema(
         ("nominal", pa.float64()),
         ("comparator", pa.string()),
         # Spec traceability
-        ("spec_id", pa.string()),
+        ("characteristic_id", pa.string()),
         ("spec_ref", pa.string()),
         # Signal path
         ("meas_dut_pin", pa.string()),

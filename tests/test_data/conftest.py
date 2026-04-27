@@ -82,7 +82,7 @@ def realistic_test_run() -> TestRun:
                                 outcome=Outcome.PASS,
                                 dut_pin="VOUT",
                                 instrument_name="DMM_01",
-                                spec_id="SPEC-001",
+                                characteristic_id="SPEC-001",
                             ),
                             Measurement(
                                 name="iout",
@@ -92,7 +92,7 @@ def realistic_test_run() -> TestRun:
                                 high_limit=1.0,
                                 comparator="GELT",
                                 outcome=Outcome.PASS,
-                                spec_id="SPEC-002",
+                                characteristic_id="SPEC-002",
                             ),
                             Measurement(
                                 name="vout_exclusive",
@@ -314,7 +314,7 @@ def _replay_events(
                         high_limit=meas.high_limit,
                         nominal=meas.nominal,
                         comparator=meas.comparator,
-                        spec_id=meas.spec_id,
+                        characteristic_id=meas.characteristic_id,
                         spec_ref=meas.spec_ref,
                         meas_dut_pin=meas.dut_pin,
                         meas_instrument=meas.instrument_name,

@@ -101,7 +101,7 @@ class MeasurementRow(BaseModel):
     high_limit: float | None = None
     nominal: float | None = None
     comparator: str | None = None
-    spec_id: str | None = None
+    characteristic_id: str | None = None
     spec_ref: str | None = None
     meas_dut_pin: str | None = None
     meas_fixture_connection: str | None = None
@@ -217,7 +217,7 @@ def build_measurement_fields(measurement: Measurement) -> dict[str, Any]:
         "nominal": measurement.nominal,
         "comparator": measurement.comparator,
         # Spec traceability
-        "spec_id": measurement.spec_id,
+        "characteristic_id": measurement.characteristic_id,
         "spec_ref": measurement.spec_ref,
         # Signal path
         "meas_dut_pin": measurement.dut_pin,

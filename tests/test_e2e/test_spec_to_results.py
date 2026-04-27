@@ -300,8 +300,8 @@ class TestEndToEndWorkflow:
         assert m.value is not None
         assert m.outcome in [Outcome.PASS, Outcome.FAIL]
 
-    def test_spec_id_populated_in_workflow(self):
-        """spec_id is populated for spec-driven measurements."""
+    def test_characteristic_id_populated_in_workflow(self):
+        """characteristic_id is populated for spec-driven measurements."""
         spec = SpecContext.from_file(SPEC_PATH)
 
         char_id, conditions = _find_testable_characteristic(spec)
@@ -311,7 +311,7 @@ class TestEndToEndWorkflow:
         limit = spec.get_limit(char_id, **conditions)
 
         harness = TestHarness(
-            step_name="test_spec_id",
+            step_name="test_characteristic_id",
             spec_context=spec,
             config={"vectors": [conditions]},
         )
@@ -322,9 +322,9 @@ class TestEndToEndWorkflow:
                     test_value = limit.nominal or limit.low or limit.high
                     harness.measure(char_id, test_value)
 
-        # Verify spec_id is populated
+        # Verify characteristic_id is populated
         m = step.vectors[0].measurements[0]
-        assert m.spec_id == char_id
+        assert m.characteristic_id == char_id
         assert m.spec_ref is not None
 
     def test_observations_captured_in_workflow(self):

@@ -126,7 +126,7 @@ class TestHdf5Subscriber:
             assert vout.attrs["low_limit"] == 3.0
             assert vout.attrs["high_limit"] == 3.6
             assert vout.attrs["outcome"] == "pass"
-            assert vout.attrs["spec_id"] == "SPEC-001"
+            assert vout.attrs["characteristic_id"] == "SPEC-001"
             assert vout.attrs["dut_pin"] == "VOUT"
             assert vout.attrs["instrument_name"] == "DMM_01"
 

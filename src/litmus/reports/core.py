@@ -285,7 +285,7 @@ def _write_csv(data: ReportData, output: Path) -> None:
         "high_limit",
         "nominal",
         "outcome",
-        "spec_id",
+        "characteristic_id",
         "meas_dut_pin",
         "meas_instrument",
     ]

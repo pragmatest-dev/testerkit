@@ -216,7 +216,7 @@ def _resolve_single(
             high=high,
             nominal=nominal,
             units=cfg.units or char.units or "",
-            spec_id=char_id,
+            characteristic_id=char_id,
             spec_ref=char_id,
             comparator=Comparator.GELE,
         )

@@ -58,7 +58,7 @@ class MeasurementView(BaseModel):
     high_limit: float | None = None
     nominal: float | None = None
     comparator: str | None = None
-    spec_id: str | None = None
+    characteristic_id: str | None = None
     spec_ref: str | None = None
     # Per-measurement signal path (distinct from per-step instr_* arrays)
     meas_dut_pin: str | None = None
@@ -210,7 +210,7 @@ def build_run_view(rows: list[dict[str, Any]]) -> RunView:
                 high_limit=row.get("high_limit"),
                 nominal=row.get("nominal"),
                 comparator=row.get("comparator"),
-                spec_id=row.get("spec_id"),
+                characteristic_id=row.get("characteristic_id"),
                 spec_ref=row.get("spec_ref"),
                 meas_dut_pin=row.get("meas_dut_pin"),
                 meas_fixture_connection=row.get("meas_fixture_connection"),

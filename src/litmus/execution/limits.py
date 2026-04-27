@@ -27,7 +27,7 @@ def derive_limit(
     1. Finds the SpecBand matching the given conditions
     2. Calculates bounds from value ± accuracy (or explicit limits)
     3. Applies guardband to tighten the limits
-    4. Sets spec_id for structured traceability
+    4. Sets characteristic_id for structured traceability
 
     Args:
         char: The product characteristic containing spec values.
@@ -36,10 +36,10 @@ def derive_limit(
         comparator: How to compare measured value against limits.
         limit_low: Explicit low limit override.
         limit_high: Explicit high limit override.
-        char_id: Optional characteristic ID for spec_id traceability.
+        char_id: Optional characteristic ID for characteristic_id traceability.
 
     Returns:
-        A Limit object with derived low/high bounds and spec_id.
+        A Limit object with derived low/high bounds and characteristic_id.
 
     Raises:
         ValueError: If no SpecBand matches the given conditions.
@@ -59,7 +59,7 @@ def derive_limit(
     # Apply guardband (tighten limits)
     final_low, final_high = _apply_guardband(spec_low, spec_high, guardband_pct, comparator.value)
 
-    spec_id = char_id
+    characteristic_id = char_id
     spec_ref = _build_spec_ref(char, params)
 
     nominal = float(band.value) if isinstance(band.value, (int, float)) else None
@@ -70,7 +70,7 @@ def derive_limit(
         nominal=nominal,
         units=char.units or "",
         comparator=comparator,
-        spec_id=spec_id,
+        characteristic_id=characteristic_id,
         spec_ref=spec_ref,
     )
 

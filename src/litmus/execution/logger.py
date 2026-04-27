@@ -152,7 +152,7 @@ def _auto_traceability(name: str) -> dict[str, Any]:
 
     Returns a dict with any of ``dut_pin``, ``net``, ``fixture_connection``,
     ``instrument_name``, ``instrument_resource``, ``instrument_channel``,
-    ``instrument_terminal``, ``spec_id``, ``spec_ref`` — callers use
+    ``instrument_terminal``, ``characteristic_id``, ``spec_ref`` — callers use
     ``.get(...)`` so pure-pytest runs (no spec, no connections) fall through
     silently.
     """
@@ -192,7 +192,7 @@ def _auto_traceability(name: str) -> dict[str, Any]:
     result["dut_pin"] = pin_info.get("dut_pin")
     result["fixture_connection"] = pin_info.get("fixture_connection")
     result["instrument_channel"] = pin_info.get("instrument_channel")
-    result["spec_id"] = name
+    result["characteristic_id"] = name
 
     fc_name = pin_info.get("fixture_connection")
     if fc_name and spec.fixture is not None:
@@ -779,7 +779,7 @@ class TestRunLogger:
                 high_limit=measurement.high_limit,
                 nominal=measurement.nominal,
                 comparator=measurement.comparator,
-                spec_id=measurement.spec_id,
+                characteristic_id=measurement.characteristic_id,
                 spec_ref=measurement.spec_ref,
                 meas_dut_pin=measurement.dut_pin,
                 meas_fixture_connection=measurement.fixture_connection,
@@ -857,7 +857,7 @@ class TestRunLogger:
         4. None — row records no limit fields.
 
         **Auto-traceability** — ``dut_pin`` / ``instrument_*`` /
-        ``fixture_connection`` / ``spec_id`` / ``spec_ref`` are pulled
+        ``fixture_connection`` / ``characteristic_id`` / ``spec_ref`` are pulled
         from the active :class:`SpecContext` by measurement name when
         available. Callers never pass these.
 
@@ -898,7 +898,7 @@ class TestRunLogger:
         nom: float | None = None
         cmp_str: str | None = None
         meas_units: str | None = None
-        meas_spec_id: str | None = None
+        meas_char_id: str | None = None
         meas_spec_ref: str | None = None
 
         if resolved_limit is not None:
@@ -906,7 +906,7 @@ class TestRunLogger:
             high_limit = resolved_limit.high
             nom = resolved_limit.nominal
             meas_units = resolved_limit.units
-            meas_spec_id = resolved_limit.spec_id
+            meas_char_id = resolved_limit.characteristic_id
             meas_spec_ref = resolved_limit.spec_ref
             cmp_str = _stringify_comparator(getattr(resolved_limit, "comparator", None))
 
@@ -924,7 +924,7 @@ class TestRunLogger:
             high_limit=high_limit,
             nominal=nom,
             comparator=cmp_str,
-            spec_id=meas_spec_id or trace.get("spec_id"),
+            characteristic_id=meas_char_id or trace.get("characteristic_id"),
             spec_ref=meas_spec_ref or trace.get("spec_ref"),
             dut_pin=trace.get("dut_pin"),
             instrument_name=trace.get("instrument_name"),

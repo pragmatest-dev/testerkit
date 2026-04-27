@@ -813,15 +813,15 @@ class TestHarnessContext:
 
 
 class TestHarnessSpecId:
-    """Tests for spec_id propagation in TestHarness."""
+    """Tests for characteristic_id propagation in TestHarness."""
 
     def test_measure_copies_spec_id_from_limit(self):
-        """Test that measure() copies spec_id from resolved limit."""
+        """Test that measure() copies characteristic_id from resolved limit."""
         limit = Limit(
             low=3.0,
             high=3.6,
             units="V",
-            spec_id="output_voltage",
+            characteristic_id="output_voltage",
             spec_ref="Table 4.2 @ temp=25",
         )
         harness = TestHarness()
@@ -830,16 +830,16 @@ class TestHarnessSpecId:
             with harness.run_vector(Vector(_index=0)):
                 m = harness.measure("vout", 3.3, limit=limit)
 
-        assert m.spec_id == "output_voltage"
+        assert m.characteristic_id == "output_voltage"
         assert m.spec_ref == "Table 4.2 @ temp=25"
 
     def test_measure_spec_id_none_without_limit(self):
-        """Test that spec_id is None when no limit is provided."""
+        """Test that characteristic_id is None when no limit is provided."""
         harness = TestHarness()
 
         with harness.step():
             with harness.run_vector(Vector(_index=0)):
                 m = harness.measure("vout", 3.3)
 
-        assert m.spec_id is None
+        assert m.characteristic_id is None
         assert m.spec_ref is None

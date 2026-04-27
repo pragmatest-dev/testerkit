@@ -202,8 +202,8 @@ class Hdf5Subscriber(EventSubscriber):
                     ds.attrs["nominal"] = m.nominal
                 if m.outcome:
                     ds.attrs["outcome"] = m.outcome
-                if m.spec_id:
-                    ds.attrs["spec_id"] = m.spec_id
+                if m.characteristic_id:
+                    ds.attrs["characteristic_id"] = m.characteristic_id
                 if m.meas_dut_pin:
                     ds.attrs["dut_pin"] = m.meas_dut_pin
                 if m.meas_instrument:

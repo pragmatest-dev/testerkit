@@ -32,7 +32,7 @@ row two things it couldn't have otherwise:
 1. **Single source of truth for the value.** Change `rail_3v3`'s
    nominal in `products/buck_3v3.yaml` and every test recomputes its
    limit band. No hunting through test files to update numbers.
-2. **Traceable rows.** Each Parquet row carries `spec_id` /
+2. **Traceable rows.** Each Parquet row carries `characteristic_id` /
    `spec_ref` / `dut_pin`. Queries can aggregate by characteristic
    across many runs; reports can link back to the spec document.
 

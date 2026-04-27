@@ -163,23 +163,23 @@ class TestDeriveLimit:
         assert "load=0.1" in limit.spec_ref
 
     def test_limit_spec_id_from_char_id_param(self, voltage_characteristic):
-        """Test that spec_id is set from explicit char_id parameter."""
+        """Test that characteristic_id is set from explicit char_id parameter."""
         limit = derive_limit(
             voltage_characteristic,
             conditions={"temperature": 25, "load": 0.1},
             char_id="output_voltage",
         )
 
-        assert limit.spec_id == "output_voltage"
+        assert limit.characteristic_id == "output_voltage"
 
     def test_limit_spec_id_none_without_char_id(self, voltage_characteristic):
-        """Test that spec_id is None when no char_id provided."""
+        """Test that characteristic_id is None when no char_id provided."""
         limit = derive_limit(
             voltage_characteristic,
             conditions={"temperature": 25, "load": 0.1},
         )
 
-        assert limit.spec_id is None
+        assert limit.characteristic_id is None
 
     def test_guardband_le_comparator(self):
         """Test guardband with single-sided LE comparator."""

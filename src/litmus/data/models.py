@@ -79,7 +79,7 @@ class Measurement(BaseModel):
     high_limit: float | None = None
     nominal: float | None = None
     outcome: Outcome | None = None
-    spec_id: str | None = None  # Characteristic ID for structured traceability
+    characteristic_id: str | None = None  # Characteristic ID for structured traceability
     spec_ref: str | None = None  # Human-readable spec reference with conditions
     comparator: str | None = None  # ATML comparator: EQ, NE, GE, LE, GELE, etc.
     timestamp: datetime = Field(default_factory=_utcnow)

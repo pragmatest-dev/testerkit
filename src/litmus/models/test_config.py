@@ -224,7 +224,7 @@ class Limit(BaseModel):
         - etc.
 
     Traceability fields:
-        - spec_id: Structured identifier of the characteristic (e.g., "output_voltage")
+        - characteristic_id: Structured identifier of the characteristic (e.g., "output_voltage")
         - spec_ref: Human-readable reference with conditions (e.g., "Table 4.2 @ temp=25")
     """
 
@@ -232,7 +232,7 @@ class Limit(BaseModel):
     high: float | None = None
     nominal: float | None = None
     units: str
-    spec_id: str | None = None  # Characteristic ID for structured traceability
+    characteristic_id: str | None = None  # Characteristic ID for structured traceability
     spec_ref: str | None = None  # Human-readable spec reference with conditions
     comparator: Comparator = Comparator.GELE
 
@@ -244,7 +244,7 @@ class Limit(BaseModel):
                 "high": 5.5,
                 "nominal": 5.0,
                 "units": "V",
-                "spec_id": "output_voltage",
+                "characteristic_id": "output_voltage",
                 "spec_ref": "Table 4.2 @ temp=25, load=0.8",
                 "comparator": "GELE",
             }
@@ -591,9 +591,9 @@ class MeasurementLimitConfig(BaseModel):
     high: float | None = None
     nominal: float | None = None
     units: str | None = None
-    # spec_id = characteristic id (structured traceability, stamped on Limit)
+    # characteristic_id = characteristic id (structured traceability, stamped on Limit)
     # spec_ref = human-readable note about limit origin (documentation)
-    spec_id: str | None = None
+    characteristic_id: str | None = None
     spec_ref: str | None = None
 
     # Reference to a ProductCharacteristic id on the active product.
@@ -629,7 +629,7 @@ class MeasurementLimitConfig(BaseModel):
                 high=self.high,
                 nominal=self.nominal,
                 units=self.units or "",
-                spec_id=self.spec_id,
+                characteristic_id=self.characteristic_id,
                 spec_ref=self.spec_ref,
             )
         return None
