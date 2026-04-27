@@ -11,6 +11,7 @@ from __future__ import annotations
 import pytest
 
 from litmus.execution.profiles import (
+    ProfileError,
     required_input_key_to_cli_flag,
     required_input_key_to_env_var,
     resolve_default_profile,
@@ -103,7 +104,7 @@ def test_missing_required_input_raises_usage_error(
         required_inputs={"lot_number": PromptConfig(message="lot?", prompt_type="input")},
     )
     config = _StubConfig({})
-    with pytest.raises(pytest.UsageError, match="lot_number"):
+    with pytest.raises(ProfileError, match="lot_number"):
         resolve_required_inputs(project, config)
 
 
@@ -116,7 +117,7 @@ def test_empty_prompt_value_raises(monkeypatch: pytest.MonkeyPatch) -> None:
             required_inputs={"lot_number": PromptConfig(message="lot?", prompt_type="input")},
         )
         config = _StubConfig({})
-        with pytest.raises(pytest.UsageError, match="lot_number"):
+        with pytest.raises(ProfileError, match="lot_number"):
             resolve_required_inputs(project, config)
     finally:
         set_prompt_handler(None)
@@ -182,5 +183,5 @@ def test_profiles_declared_no_selection_no_default_raises() -> None:
             "prod": ProfileConfig(facets={"test_phase": "production"}),
         },
     )
-    with pytest.raises(pytest.UsageError, match="default_profile"):
+    with pytest.raises(ProfileError, match="default_profile"):
         resolve_default_profile(None, {}, False, project)

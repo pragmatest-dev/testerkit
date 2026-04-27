@@ -63,7 +63,11 @@ from litmus.execution._state import (
 from litmus.execution.accessors import InstrumentAccessor
 from litmus.execution.audit import audit_traceability
 from litmus.execution.cascade import cascade_for, find_unmatched_profile_keys
-from litmus.execution.connections import ConnectionIterator, resolve_test_connections
+from litmus.execution.connections import (
+    ConnectionIterator,
+    ConnectionResolutionError,
+    resolve_test_connections,
+)
 from litmus.execution.decorators import get_current_logger, set_current_logger
 from litmus.execution.harness import Context
 from litmus.execution.instrument_events import emit_instrument_events
@@ -77,6 +81,7 @@ from litmus.execution.outputs import (
     run_configured_outputs,
 )
 from litmus.execution.profiles import (
+    ProfileError,
     apply_profile_addopts_env,
     collect_profile_facet_keys,
     facet_key_to_cli_flag,
@@ -87,9 +92,10 @@ from litmus.execution.profiles import (
     resolve_test_phase,
 )
 from litmus.execution.sidecar import load_sidecar as _load_sidecar
-from litmus.execution.verify import (  # noqa: F401 — verify re-exported as pytest fixture
+from litmus.execution.verify import (
     LimitsFn,
-    verify,
+    VerifyFn,
+    build_verify_callable,
 )
 from litmus.fixtures.manager import FixtureManager, PinAccessor
 from litmus.instruments.pool import InstrumentPool
@@ -264,8 +270,11 @@ def pytest_configure(config):
         "markers concatenates their lists.",
     ):
         config.addinivalue_line("markers", marker)
-    install_active_profile(config)
-    install_session_inputs(load_project_defaults(), config)
+    try:
+        install_active_profile(config)
+        install_session_inputs(load_project_defaults(), config)
+    except ProfileError as exc:
+        raise pytest.UsageError(str(exc)) from exc
 
     # Auto-register instrument role fixtures from station config
     station_path = _find_station_file(config)
@@ -559,7 +568,10 @@ def pytest_sessionfinish(session, exitstatus):
 
 def pytest_load_initial_conftests(early_config, parser, args):
     """Apply ``profile.pytest.addopts`` via ``PYTEST_ADDOPTS`` before collection."""
-    apply_profile_addopts_env(args)
+    try:
+        apply_profile_addopts_env(args)
+    except ProfileError as exc:
+        raise pytest.UsageError(str(exc)) from exc
 
 
 def pytest_addoption(parser):
@@ -1932,6 +1944,18 @@ def spec(request: pytest.FixtureRequest) -> Any:
 
 
 @pytest.fixture
+def verify() -> VerifyFn:
+    """Callable fixture: ``verify(name, value[, limit=])`` — log + assert.
+
+    Thin pytest wrapper around the runner-neutral
+    :func:`litmus.execution.verify.build_verify_callable` — logs a
+    measurement, resolves a Limit from the chain, stamps the outcome,
+    and raises :class:`LimitFailure` on FAIL.
+    """
+    return build_verify_callable()
+
+
+@pytest.fixture
 def limits() -> LimitsFn:
     """Read-only ``name → Limit`` mapping for the active test.
 
@@ -2214,7 +2238,10 @@ def _litmus_resolve_connections(
 
     spec_ctx = get_active_spec_context()
     fixture_cfg = _safe_get_session_fixture(request, "fixture_config")
-    connections = resolve_test_connections(test_char, conn_marker, spec_ctx, fixture_cfg)
+    try:
+        connections = resolve_test_connections(test_char, conn_marker, spec_ctx, fixture_cfg)
+    except ConnectionResolutionError as exc:
+        raise pytest.UsageError(str(exc)) from exc
 
     ctx: Context = request.getfixturevalue("context")
     iterator = ConnectionIterator(connections)

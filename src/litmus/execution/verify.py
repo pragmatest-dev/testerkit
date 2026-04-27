@@ -1,25 +1,24 @@
-"""One-verb check-and-log contract for test bodies.
+"""Runner-neutral verify primitive.
 
-`verify(name, value)` is the primary verb a pytest-native Litmus test
-calls. It writes a measurement row through the active logger (with full
-auto-traceability), resolves a Limit via the usual chain, stamps
-``outcome = PASS / FAIL / DONE``, and raises :class:`LimitFailure` on
-FAIL so pytest marks the test as failed.
+The actual ``verify(name, value)`` callable is built in
+:mod:`litmus.execution.decorators`/:mod:`logger` and exposed through
+each runner's native fixture/decorator surface. This module owns the
+runner-agnostic pieces every runner needs:
 
-Characterization mode (no limit resolvable) records the row with
-``outcome = DONE`` and does not raise — same source works before any
-limit lands.
+* :class:`LimitFailure` — raised on FAIL, subclasses ``AssertionError``
+* :func:`_apply_outcome` — stamps PASS / FAIL / DONE on a measurement
+* :class:`_LimitsMapping` — read-only ``name → Limit`` view
+* :class:`VerifyFn` / :data:`LimitsFn` — type signatures consumers can
+  annotate against without importing the runner adapter
 
-`limits[name]` gives read-only access to the resolved Limit for ad-hoc
-pythonic assertions (``assert v in limits["vout"]``).
+The pytest adapter wraps these in fixtures (see
+:mod:`litmus.pytest_plugin`).
 """
 
 from __future__ import annotations
 
 from collections.abc import Mapping
 from typing import Any, Protocol
-
-import pytest
 
 from litmus.config.test_config import Limit
 from litmus.data.models import Measurement, Outcome
@@ -127,12 +126,13 @@ class _LimitsMapping(Mapping[str, Limit]):
         return key in self._configs
 
 
-@pytest.fixture
-def verify() -> VerifyFn:
-    """Callable fixture: ``verify(name, value[, limit=])`` — log + assert.
+def build_verify_callable() -> VerifyFn:
+    """Construct the runner-neutral ``verify`` callable.
 
-    Log unconditionally via the active logger, resolve a Limit from the
-    chain, stamp the outcome, raise :class:`LimitFailure` on FAIL.
+    Each runner adapter wraps this with its native fixture/decorator
+    primitive (e.g. ``@pytest.fixture`` in :mod:`litmus.pytest_plugin`).
+    The callable resolves the active logger via the usual ContextVar
+    chain — no runner-specific arguments needed.
     """
     from litmus.execution.decorators import get_current_logger
     from litmus.execution.logger import _resolve_measurement_limit
@@ -142,7 +142,7 @@ def verify() -> VerifyFn:
         if logger is None:
             raise RuntimeError(
                 "verify() called without an active Litmus logger — "
-                "is the pytest-native plugin installed?"
+                "is a Litmus runner plugin installed?"
             )
 
         measurement = logger.measure(name, value, limit=limit)

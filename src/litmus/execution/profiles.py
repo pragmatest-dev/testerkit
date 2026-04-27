@@ -6,15 +6,16 @@ Two responsibilities live here:
   ``--<facet>`` flag per declared facet key, resolve the active profile
   from name / facets / both, walk any ``extends:`` chain parent-first,
   install the merged :class:`ProfileConfig` on the ``_active_profile``
-  ContextVar, and compose ``pytest.keyword`` / ``pytest.markexpr``
-  filters.
+  ContextVar, and compose runner-level ``keyword`` / ``markexpr``
+  filters (the runner adapter routes them to its host's primitives).
 * **Test-phase demotion** (:func:`resolve_test_phase`). The data-stamp
   phase demotes to ``"development"`` on dirty git or active mocks so
   untrustworthy runs never stamp production. Profile selection reads
   the raw CLI value — only the data stamp is rewritten.
 
-Lived in ``plugin.py`` originally; extracted to keep the pytest hook
-file focused on hook registration.
+Errors raise :class:`ProfileError` — the runner adapter wraps that to
+its host's user-error type (e.g. ``ProfileError`` in
+:mod:`litmus.pytest_plugin`).
 """
 
 from __future__ import annotations
@@ -22,7 +23,6 @@ from __future__ import annotations
 import os
 from typing import Any
 
-import pytest
 from pydantic import BaseModel, ConfigDict, Field
 
 from litmus.config.test_config import TestEntry
@@ -34,6 +34,15 @@ from litmus.execution._state import (
 from litmus.execution.sidecar import _merge_entry_into
 from litmus.models.project import ProfileConfig, ProjectConfig
 from litmus.prompts import ask as ask_prompt
+
+
+class ProfileError(Exception):
+    """Raised when profile resolution / runner-block validation fails.
+
+    Runner-neutral: the pytest adapter catches this and re-raises as
+    ``pytest.UsageError`` at the hook boundary; other runners adapt
+    to their own user-error type.
+    """
 
 
 class PytestRunner(BaseModel):
@@ -69,7 +78,7 @@ class PytestRunner(BaseModel):
 def validate_pytest_runner(block: dict[str, Any]) -> PytestRunner:
     """Validate a ``runner:`` block from project / profile scope.
 
-    Raises ``pytest.UsageError`` with a runner-namespaced message on
+    Raises ``ProfileError`` with a runner-namespaced message on
     unknown fields (``runner.<field>``), so users see exactly which
     block to fix. Empty input returns an empty (all-defaults)
     PytestRunner.
@@ -77,7 +86,7 @@ def validate_pytest_runner(block: dict[str, Any]) -> PytestRunner:
     try:
         return PytestRunner.model_validate(block)
     except Exception as exc:  # pydantic.ValidationError — surface to user as UsageError
-        raise pytest.UsageError(f"Invalid runner: block — {exc}") from exc
+        raise ProfileError(f"Invalid runner: block — {exc}") from exc
 
 
 def load_project_defaults() -> ProjectConfig:
@@ -150,7 +159,7 @@ def flatten_profile_chain(leaf_name: str, project: ProjectConfig) -> ProfileConf
     step further up the chain. The merge is parent-first so child values
     win on conflicts — same rule as stacked pytest decorators.
 
-    Raises ``pytest.UsageError`` on an unknown parent or a cycle.
+    Raises ``ProfileError`` on an unknown parent or a cycle.
     """
     chain: list[ProfileConfig] = []
     visited: list[str] = []
@@ -158,13 +167,13 @@ def flatten_profile_chain(leaf_name: str, project: ProjectConfig) -> ProfileConf
     while current is not None:
         if current in visited:
             cycle = " -> ".join(visited + [current])
-            raise pytest.UsageError(f"Cyclic profile extends chain: {cycle}")
+            raise ProfileError(f"Cyclic profile extends chain: {cycle}")
         profile = project.profiles.get(current)
         if profile is None:
             if not visited:
                 known = ", ".join(sorted(project.profiles)) or "(none defined)"
-                raise pytest.UsageError(f"Unknown profile {current!r}; known profiles: {known}")
-            raise pytest.UsageError(f"Profile {visited[-1]!r} extends unknown profile {current!r}")
+                raise ProfileError(f"Unknown profile {current!r}; known profiles: {known}")
+            raise ProfileError(f"Profile {visited[-1]!r} extends unknown profile {current!r}")
         visited.append(current)
         chain.append(profile)
         current = profile.extends
@@ -247,7 +256,7 @@ def resolve_active_profile(
         profile = project.profiles.get(profile_name)
         if profile is None:
             known = ", ".join(sorted(project.profiles)) or "(none defined)"
-            raise pytest.UsageError(
+            raise ProfileError(
                 f"Unknown --litmus-profile={profile_name!r}; known profiles: {known}"
             )
         if facet_flags:
@@ -257,7 +266,7 @@ def resolve_active_profile(
                 if profile.facets.get(k) != v
             ]
             if mismatches:
-                raise pytest.UsageError(
+                raise ProfileError(
                     f"Profile {profile_name!r} does not match facet flags: " + ", ".join(mismatches)
                 )
         merged = flatten_profile_chain(profile_name, project)
@@ -275,14 +284,14 @@ def resolve_active_profile(
             " ".join(f"{k}={v}" for k, v in p.facets.items()) or "(no facets)"
             for p in project.profiles.values()
         )
-        raise pytest.UsageError(
+        raise ProfileError(
             "No profile matches the facet query "
             f"({', '.join(f'{k}={v}' for k, v in facet_flags.items())}); "
             f"available facet combinations: {'; '.join(known) or '(none defined)'}"
         )
     if len(matches) > 1:
         overlap = ", ".join(name for name, _ in matches)
-        raise pytest.UsageError(
+        raise ProfileError(
             "Facet query is ambiguous — matches multiple profiles: "
             f"{overlap}. Disambiguate with --litmus-profile=<name>."
         )
@@ -384,7 +393,7 @@ def apply_profile_addopts_env(args) -> None:
         return
     try:
         _, profile, _ = resolve_active_profile(profile_name, facet_flags, project)
-    except pytest.UsageError:
+    except ProfileError:
         # Let pytest_configure surface the error with a clean stacktrace.
         return
     if profile is None:
@@ -424,7 +433,7 @@ def resolve_required_inputs(
        declared :class:`PromptConfig` (handler / auto-confirm / tty
        fall-through, then ``PromptUnavailableError``).
 
-    Raises :class:`pytest.UsageError` if a value cannot be resolved —
+    Raises :class:`ProfileError` if a value cannot be resolved —
     fail-fast so a long sequence never runs with a missing serial.
     """
     if not project.required_inputs:
@@ -447,12 +456,12 @@ def resolve_required_inputs(
         try:
             value = ask_prompt(prompt_config)
         except Exception as exc:
-            raise pytest.UsageError(
+            raise ProfileError(
                 f"Required input {key!r} not supplied: pass {flag}=<value>, "
                 f"set {env_var}, or run interactively. ({exc})"
             ) from exc
         if value is None or value == "":
-            raise pytest.UsageError(
+            raise ProfileError(
                 f"Required input {key!r}: prompt returned no value. "
                 f"Pass {flag}=<value> or set {env_var}."
             )
@@ -477,7 +486,7 @@ def resolve_default_profile(
     """Apply ``default_profile`` semantics for bare-``pytest`` invocations.
 
     Returns the profile name to use, or ``None`` when no profile applies.
-    Raises :class:`pytest.UsageError` when profiles are declared but the
+    Raises :class:`ProfileError` when profiles are declared but the
     operator didn't make a selection and no ``default_profile`` is set.
     """
     if profile_name or facet_flags or no_profile:
@@ -490,7 +499,7 @@ def resolve_default_profile(
         " ".join(f"{k}={v}" for k, v in p.facets.items()) or "(no facets)"
         for p in project.profiles.values()
     )
-    raise pytest.UsageError(
+    raise ProfileError(
         "Profiles are declared in litmus.yaml but no profile was "
         "selected. Pass facet flags (e.g. --test-phase=production), "
         "--litmus-profile=<name>, --no-profile to skip, or set "

@@ -17,12 +17,22 @@ registration. The pytest fixture wrapping this resolver
 from __future__ import annotations
 
 from collections.abc import KeysView, ValuesView
-from typing import Any
-
-import pytest
+from typing import TYPE_CHECKING, Any
 
 from litmus.config.test_config import FixtureConfig, FixtureConnection
 from litmus.execution._state import _active_connection_var
+
+if TYPE_CHECKING:
+    import pytest
+
+
+class ConnectionResolutionError(Exception):
+    """Raised when ``litmus_specs`` / ``litmus_connections`` cannot resolve.
+
+    Runner-neutral: the pytest adapter catches this and re-raises as
+    ``ConnectionResolutionError`` at the fixture boundary; other runners adapt
+    to their own user-error type.
+    """
 
 
 class ConnectionIterator:
@@ -85,13 +95,13 @@ class ConnectionIterator:
 def _spec_pin_set(characteristic: str, spec_ctx: Any) -> set[str]:
     """Return the characteristic's ``resolved_pins`` as a set, validating context."""
     if spec_ctx is None:
-        raise pytest.UsageError(
+        raise ConnectionResolutionError(
             f"litmus_specs(characteristic={characteristic!r}) "
             "requires a product spec (load via --spec or products/ auto-discovery)."
         )
     char = spec_ctx.product.characteristics.get(characteristic)
     if char is None:
-        raise pytest.UsageError(
+        raise ConnectionResolutionError(
             f"Characteristic {characteristic!r} not found in product {spec_ctx.product.id!r}."
         )
     return set(char.resolved_pins)
@@ -125,11 +135,11 @@ def _validate_connections_kwargs(
     connections = kwargs.get("connections")
     instrument_channels = kwargs.get("instrument_channels")
     if connections is not None and instrument_channels is not None:
-        raise pytest.UsageError(
+        raise ConnectionResolutionError(
             "litmus_connections must set exactly one of connections or instrument_channels."
         )
     if connections is None and instrument_channels is None:
-        raise pytest.UsageError(
+        raise ConnectionResolutionError(
             "litmus_connections requires either connections=[...] or instrument_channels={...}."
         )
     return connections, instrument_channels
@@ -142,7 +152,7 @@ def _named_connections(
 ) -> list[FixtureConnection]:
     """Resolve ``connections=[name, ...]`` against the fixture, in user-listed order."""
     if fixture_cfg is None:
-        raise pytest.UsageError(
+        raise ConnectionResolutionError(
             "litmus_connections(connections=...) requires a fixture config; "
             "connection names are only meaningful relative to a fixture YAML."
         )
@@ -150,12 +160,14 @@ def _named_connections(
     for name in names:
         conn = fixture_cfg.connections.get(name)
         if conn is None:
-            raise pytest.UsageError(f"Fixture connection {name!r} not found in fixture config.")
+            raise ConnectionResolutionError(
+                f"Fixture connection {name!r} not found in fixture config."
+            )
         resolved.append(conn)
     if char_pins is not None:
         invalid = [conn.name for conn in resolved if conn.dut_pin not in char_pins]
         if invalid:
-            raise pytest.UsageError(
+            raise ConnectionResolutionError(
                 f"litmus_connections names {invalid} resolve to pins outside "
                 f"characteristic's pin set {sorted(char_pins)}."
             )
@@ -180,7 +192,7 @@ def _channel_selectors(
         stubs: list[FixtureConnection] = []
         for inst_name, channels in instrument_channels.items():
             if channels == "all":
-                raise pytest.UsageError(
+                raise ConnectionResolutionError(
                     f"litmus_connections instrument_channels[{inst_name!r}]='all' "
                     "requires a fixture config."
                 )
@@ -214,7 +226,7 @@ def _channel_selectors(
                     None,
                 )
                 if hit is None:
-                    raise pytest.UsageError(
+                    raise ConnectionResolutionError(
                         f"litmus_connections instrument_channels[{inst_name!r}]={ch_str!r} "
                         "matched no fixture connection."
                     )
@@ -228,7 +240,7 @@ def _channel_selectors(
             if conn.dut_pin not in char_pins
         ]
         if invalid:
-            raise pytest.UsageError(
+            raise ConnectionResolutionError(
                 f"litmus_connections selected channels {invalid} resolve to pins outside "
                 f"characteristic's pin set {sorted(char_pins)}."
             )

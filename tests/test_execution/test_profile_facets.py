@@ -12,7 +12,11 @@ from typing import Any
 import pytest
 
 from litmus.config.test_config import MeasurementLimitConfig, SweepEntry, TestEntry
-from litmus.execution.profiles import flatten_profile_chain, resolve_active_profile
+from litmus.execution.profiles import (
+    ProfileError,
+    flatten_profile_chain,
+    resolve_active_profile,
+)
 from litmus.models.project import ProfileConfig, ProjectConfig
 from litmus.store import load_project
 
@@ -151,20 +155,20 @@ class TestFlattenProfileChain:
         a = ProfileConfig(extends="b")
         b = ProfileConfig(extends="a")
         project = _make_project({"a": a, "b": b})
-        with pytest.raises(pytest.UsageError, match="Cyclic profile extends chain"):
+        with pytest.raises(ProfileError, match="Cyclic profile extends chain"):
             flatten_profile_chain("a", project)
 
     def test_self_extends_raises_usage_error(self) -> None:
         loop = ProfileConfig(extends="loop")
         project = _make_project({"loop": loop})
-        with pytest.raises(pytest.UsageError, match="Cyclic profile extends chain"):
+        with pytest.raises(ProfileError, match="Cyclic profile extends chain"):
             flatten_profile_chain("loop", project)
 
     def test_unknown_parent_raises_usage_error(self) -> None:
         orphan = ProfileConfig(extends="nonexistent")
         project = _make_project({"orphan": orphan})
         with pytest.raises(
-            pytest.UsageError,
+            ProfileError,
             match="extends unknown profile 'nonexistent'",
         ):
             flatten_profile_chain("orphan", project)
@@ -211,7 +215,7 @@ class TestResolveActiveProfileWithExtends:
             tests={"test_rail": TestEntry(limits=_v_rail(low=3.2))},
         )
         project = _make_project({"family": parent})
-        with pytest.raises(pytest.UsageError, match="No profile matches the facet query"):
+        with pytest.raises(ProfileError, match="No profile matches the facet query"):
             resolve_active_profile(None, {"test_phase": "production"}, project)
 
     def test_parent_reachable_via_litmus_profile_name(self) -> None:
