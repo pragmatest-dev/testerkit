@@ -21,8 +21,6 @@ capabilities:
         min: 0
         max: 30
         units: A
-  modes:
-  - constant_current
 - function: dc_voltage
   direction: input
   signals:

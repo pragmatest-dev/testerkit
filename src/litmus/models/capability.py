@@ -5,7 +5,10 @@ can measure/source, with typed parameter dictionaries for signals,
 conditions, controls, and attributes.
 """
 
+from __future__ import annotations
+
 from enum import StrEnum
+from typing import Self
 
 from pydantic import BaseModel, Field, computed_field, model_validator
 
@@ -170,7 +173,7 @@ class SpecBand(BaseModel):
 
     when: dict[
         str,
-        "RangeSpec | PointSpec | ListSpec | str | float | bool | list[str | float | bool]",
+        RangeSpec | PointSpec | ListSpec | str | float | bool | list[str | float | bool],
     ] = Field(default_factory=dict)
     range: RangeSpec | None = None  # Derated range at this operating point
     value: float | str | None = None  # Nominal/typical at this operating point
@@ -256,6 +259,11 @@ class Control(BaseModel):
     temperature setpoint, or compliance limit. They have a range of valid
     values or a set of discrete options.
 
+    Unlike :class:`Signal`, controls do not carry an ``accuracy`` field —
+    the user sets the value, so there's no measurement uncertainty to
+    track. ``resolution`` is still meaningful (the smallest step the
+    instrument honors).
+
     Example YAML:
         controls:
           position:
@@ -319,7 +327,7 @@ class Attribute(BaseModel):
     qualifier: SpecQualifier | None = None
 
     @model_validator(mode="after")
-    def _require_value_range_or_options(self) -> "Attribute":
+    def _require_value_range_or_options(self) -> Self:
         has_value = self.value is not None
         has_range = self.range is not None
         has_options = self.options is not None
@@ -410,6 +418,8 @@ class Capability(BaseModel):
     - ``attributes``: Fixed hardware facts (value + units + compare)
     """
 
+    model_config = {"extra": "forbid"}
+
     function: MeasurementFunction
     direction: Direction
     signals: dict[str, Signal] = Field(default_factory=dict)
@@ -420,7 +430,7 @@ class Capability(BaseModel):
     specs: list[SpecBand] = Field(default_factory=list)
 
     @model_validator(mode="after")
-    def _validate_spec_band_keys(self) -> "Capability":
+    def _validate_spec_band_keys(self) -> Self:
         """Warn when SpecBand ``when`` keys don't reference known siblings.
 
         Every key in ``signal.specs[].when`` should match a name in

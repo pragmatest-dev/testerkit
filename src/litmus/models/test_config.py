@@ -262,6 +262,8 @@ class Limit(BaseModel):
         Pytest's assertion rewriter renders the failure via
         :meth:`__repr__` so failures include the limit fields inline.
         """
+        # ``bool`` is a subclass of ``int`` in Python — explicitly reject it
+        # so ``True in limits["vout"]`` doesn't silently pass.
         if not isinstance(value, (int, float)) or isinstance(value, bool):
             return False
         check = _COMPARATOR_CHECKS.get(self.comparator)
@@ -503,39 +505,6 @@ class RetryConfig(BaseModel):
     dialog_ref: str | None = None  # For strategy="dialog"
 
 
-# =============================================================================
-# Vector Configuration Models
-# =============================================================================
-
-
-class RangeConfig(BaseModel):
-    """Configuration for a numeric range of values.
-
-    Example YAML:
-        range:
-          start: 0.0
-          stop: 5.0
-          step: 0.5
-    """
-
-    model_config = {"extra": "forbid"}
-
-    start: float
-    stop: float
-    step: float | None = None
-    count: int | None = None
-
-    @model_validator(mode="after")
-    def _validate_step_or_count(self) -> Self:
-        if (self.step is None) == (self.count is None):
-            raise ValueError("Exactly one of 'step' or 'count' must be provided")
-        if self.step is not None and self.step <= 0:
-            raise ValueError("'step' must be positive")
-        if self.count is not None and self.count < 1:
-            raise ValueError("'count' must be >= 1")
-        return self
-
-
 class PromptConfig(BaseModel):
     """Configuration for operator prompts.
 
@@ -749,6 +718,22 @@ class MeasurementLimitConfig(BaseModel):
                 self.callable,
             )
         )
+
+    @model_validator(mode="after")
+    def _require_some_policy(self) -> Self:
+        """Require either a direct policy or at least one band.
+
+        An empty config (no direct fields, no bands) would silently
+        return no Limit at resolve time, which is almost certainly a
+        YAML typo or a stub the user forgot to fill in. Fail at load.
+        """
+        if not self.has_direct_policy() and not self.bands:
+            raise ValueError(
+                "MeasurementLimitConfig requires at least one of: "
+                "direct limit (low/high/nominal), ref, characteristic + tolerance, "
+                "expr, lookup, steps, callable, or a non-empty bands list."
+            )
+        return self
 
 
 # Resolve forward references — TestEntry's ``limits`` / ``prompts`` /

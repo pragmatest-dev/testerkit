@@ -5,6 +5,8 @@ These models capture instrument metadata for traceability:
 - CalibrationInfo: Calibration status from configuration (not queryable)
 """
 
+from __future__ import annotations
+
 from datetime import date
 from enum import StrEnum
 from typing import Any
@@ -55,7 +57,7 @@ class InstrumentInfo(BaseModel):
         """Return True if any identity field is populated."""
         return any([self.manufacturer, self.model, self.serial, self.firmware])
 
-    def matches(self, expected: "InstrumentInfo") -> tuple[bool, list[str]]:
+    def matches(self, expected: InstrumentInfo) -> tuple[bool, list[str]]:
         """Check if this info matches expected, returning mismatches.
 
         Only compares fields that are set in expected. This allows

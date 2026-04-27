@@ -15,6 +15,8 @@ This enables direct capability matching without lossy conversion — direction
 pairing lives in the matching service.
 """
 
+from __future__ import annotations
+
 from enum import StrEnum
 from typing import Any, Self
 
@@ -175,10 +177,19 @@ class ProductCharacteristic(Capability):
 
     @model_validator(mode="after")
     def validate_physical_interface(self) -> Self:
-        """Ensure characteristic is tied to physical interface.
+        """Ensure characteristic is tied to a physical interface.
 
         Every characteristic must specify WHERE on the DUT it applies.
-        This enables fixture mapping and signal routing.
+        Resolution order if multiple are set:
+
+        1. ``pin``           — single explicit pin (highest priority)
+        2. ``pins``          — multi-pin selector / range string
+        3. ``net``           — net name; resolves to all pins on that net
+        4. ``signal_group``  — group name; resolves to the group's pins
+
+        Setting more than one is allowed (the higher-priority field
+        wins) but usually a sign of YAML drift — prefer the most
+        specific level.
         """
         has_interface = any(
             [
