@@ -12,9 +12,8 @@ def pytester_with_test(pytester):
     pytester.makefile(
         ".yaml",
         station="""
-station:
-  id: station
-  name: Test Station
+id: station
+name: Test Station
 instruments: {}
 """,
     )

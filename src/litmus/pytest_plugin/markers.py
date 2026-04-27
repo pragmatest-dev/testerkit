@@ -1,33 +1,28 @@
-"""Runner-neutral marker logic — translate :class:`TestEntry` to marker specs.
+"""Pytest marker translation for Litmus :class:`TestEntry` fields.
 
-A :class:`TestEntry` is the merged sidecar + profile + cascade for one
-test. Each runner needs to attach equivalent markers/decorators to the
-test node it owns. This module produces a runner-neutral list of
-:class:`MarkerSpec` instances; each runner's plugin loops the specs
-and calls its host's marker primitive (``pytest.mark.X(...)`` /
-``htf.measure(...)`` / etc).
+The cascade-merged :class:`TestEntry` carries every Litmus-marker
+field as a typed Pydantic value. This module turns those fields into
+``pytest.mark.litmus_<name>(...)`` calls and attaches them to the
+test item, plus translates any opaque ``runner.markers`` entries
+(``flaky`` / ``skip`` / etc.) the user wrote in YAML or via the
+profile cascade.
 
 Also lives here:
 
 * :func:`normalize_inline_list_payload` — accept either varargs or a
   single list arg from inline marker decorators; produce a canonical
-  list of entries (each is a Pydantic model or a raw dict the caller
-  validates).
-* :func:`enforce_no_inline_stacking` — given a count of how many
-  inline ``litmus_X`` markers a test carries, raise a clear error if
-  any type stacks more than once.
-
-These functions take Pydantic models and primitive values; they don't
-import pytest. Runners adapt their host's marker shape to the
-:class:`MarkerSpec` interface and back.
+  list of entries.
+* :func:`enforce_no_inline_stacking` — raise a clear error when more
+  than one ``litmus_X`` marker of the same name decorates a test.
+* :func:`extract_specs_characteristic` — pull the single characteristic
+  ID out of a ``litmus_specs`` marker payload.
 """
 
 from __future__ import annotations
 
-from collections.abc import Iterator
-from dataclasses import dataclass, field
 from typing import Any
 
+import pytest
 from pydantic import BaseModel
 
 from litmus.models.test_config import TestEntry
@@ -49,21 +44,6 @@ sources.
 """
 
 
-@dataclass
-class MarkerSpec:
-    """A runner-neutral marker description.
-
-    The runner's plugin maps ``name`` to its host's marker primitive
-    and applies ``args`` / ``kwargs`` to it. For pytest:
-    ``pytest.mark.<name>(*args, **kwargs)``. For OpenHTF: name maps
-    to a phase decorator. For unittest: skip / expectedFailure / etc.
-    """
-
-    name: str
-    args: tuple[Any, ...] = ()
-    kwargs: dict[str, Any] = field(default_factory=dict)
-
-
 class StackedMarkersError(ValueError):
     """Raised when a function carries more than one inline ``litmus_X`` marker.
 
@@ -73,34 +53,30 @@ class StackedMarkersError(ValueError):
     """
 
 
-def entry_to_marker_specs(entry: TestEntry) -> Iterator[MarkerSpec]:
-    """Yield runner-neutral :class:`MarkerSpec` instances for a TestEntry.
+def apply_entry_markers(item: pytest.Item, entry: TestEntry) -> None:
+    """Attach pytest markers for every non-empty Litmus field on ``entry``.
 
-    Emits one ``litmus_X`` spec per non-empty Litmus field, then one
-    spec per ``runner.markers`` entry. ``parametrize`` entries under
-    ``runner.markers`` are skipped here — they're consumed by the
-    runner's parametrize-equivalent, see :mod:`litmus.pytest_plugin.sweeps`.
+    Emits one ``litmus_<name>`` marker per field, then walks
+    ``entry.runner.markers`` for opaque ecosystem markers
+    (``flaky`` / ``skip`` / etc.). ``parametrize`` entries are skipped
+    here — they're consumed by :mod:`litmus.pytest_plugin.sweeps`.
     """
     if entry.limits:
-        yield MarkerSpec("litmus_limits", kwargs=dict(entry.limits))
+        item.add_marker(pytest.mark.litmus_limits(**dict(entry.limits)))
     if entry.sweeps:
-        yield MarkerSpec("litmus_sweeps", args=([s.root for s in entry.sweeps],))
+        item.add_marker(pytest.mark.litmus_sweeps([s.root for s in entry.sweeps]))
     if entry.mocks:
-        yield MarkerSpec("litmus_mocks", args=(list(entry.mocks),))
+        item.add_marker(pytest.mark.litmus_mocks(list(entry.mocks)))
     if entry.specs:
-        yield MarkerSpec("litmus_specs", args=(list(entry.specs),))
+        item.add_marker(pytest.mark.litmus_specs(list(entry.specs)))
     if entry.connections is not None:
-        yield MarkerSpec(
-            "litmus_connections",
-            kwargs=entry.connections.model_dump(exclude_none=True),
+        item.add_marker(
+            pytest.mark.litmus_connections(**entry.connections.model_dump(exclude_none=True))
         )
     if entry.retry is not None:
-        yield MarkerSpec(
-            "litmus_retry",
-            kwargs=entry.retry.model_dump(exclude_none=True),
-        )
+        item.add_marker(pytest.mark.litmus_retry(**entry.retry.model_dump(exclude_none=True)))
     if entry.prompts:
-        yield MarkerSpec("litmus_prompts", kwargs=dict(entry.prompts))
+        item.add_marker(pytest.mark.litmus_prompts(**dict(entry.prompts)))
 
     for marker_entry in entry.runner.get("markers", []) or []:
         if not isinstance(marker_entry, dict) or len(marker_entry) != 1:
@@ -110,14 +86,15 @@ def entry_to_marker_specs(entry: TestEntry) -> Iterator[MarkerSpec]:
         ((name, payload),) = marker_entry.items()
         if name == "parametrize":
             continue  # consumed by the runner's parametrize hook
+        marker = getattr(pytest.mark, name)
         if isinstance(payload, dict):
-            yield MarkerSpec(name, kwargs=dict(payload))
+            item.add_marker(marker(**payload))
         elif isinstance(payload, list):
-            yield MarkerSpec(name, args=tuple(payload))
+            item.add_marker(marker(*payload))
         elif payload is None:
-            yield MarkerSpec(name)
+            item.add_marker(marker)
         else:
-            yield MarkerSpec(name, args=(payload,))
+            item.add_marker(marker(payload))
 
 
 def normalize_inline_list_payload(
@@ -165,12 +142,12 @@ def enforce_no_inline_stacking(marker_names: list[str]) -> None:
     """Raise :class:`StackedMarkersError` if any ``litmus_X`` name appears more than once.
 
     ``marker_names`` is the flat list of inline marker names attached
-    to one test function (e.g. from pytest's ``item.own_markers`` or
-    OpenHTF's per-phase decorator list). Cascade-injected markers
-    are not the caller's concern — Pydantic's dict-shaped ``limits:``
-    /  ``prompts:`` and singleton ``connections:`` / ``retry:`` enforce
-    one-per-scope by construction; ``sweeps:`` / ``mocks:`` / ``specs:``
-    are list fields where stacking is intentional.
+    to one test function (e.g. from pytest's ``item.own_markers``).
+    Cascade-injected markers are not the caller's concern — Pydantic's
+    dict-shaped ``limits:`` / ``prompts:`` and singleton ``connections:``
+    / ``retry:`` enforce one-per-scope by construction; ``sweeps:`` /
+    ``mocks:`` / ``specs:`` are list fields where stacking is
+    intentional.
     """
     counts: dict[str, int] = {}
     for name in marker_names:
@@ -201,12 +178,7 @@ def extract_specs_characteristic(specs_payloads: list[Any]) -> str | None:
         return None
     payload = specs_payloads[0]
 
-    if isinstance(payload, tuple):
-        payload_args: tuple[Any, ...] = payload
-    elif isinstance(payload, list):
-        payload_args = (payload,)
-    else:
-        payload_args = (payload,)
+    payload_args: tuple[Any, ...] = payload if isinstance(payload, tuple) else (payload,)
 
     if not payload_args:
         raise ValueError("litmus_specs requires at least one characteristic ID.")

@@ -11,6 +11,8 @@ from typing import Any
 from uuid import UUID, uuid4
 
 import pytest
+import yaml
+from pydantic import ValidationError
 
 from litmus.data.models import CollectedItem, TestVector
 from litmus.execution._state import (
@@ -68,7 +70,6 @@ from litmus.execution.mocks import install_mocks
 from litmus.execution.outputs import (
     create_subscriber,
     find_format_transport_callback,
-    make_transport_callback,
     run_configured_outputs,
 )
 from litmus.execution.profiles import (
@@ -106,8 +107,8 @@ from litmus.products.context import SpecContext
 from litmus.prompts import ask as ask_prompt
 from litmus.pytest_plugin.markers import (
     StackedMarkersError,
+    apply_entry_markers,
     enforce_no_inline_stacking,
-    entry_to_marker_specs,
     extract_specs_characteristic,
     normalize_inline_list_payload,
 )
@@ -161,73 +162,54 @@ def _find_station_file(config) -> Path | None:
 
     Extracts station file resolution logic so both the station_config fixture
     and the auto-registration hook can reuse it.
-
-    Args:
-        config: pytest Config object
-
-    Returns:
-        Path to station config file, or None if not found.
     """
     config_path = config.getoption("--station-config")
     if config_path:
         return Path(config_path)
-
-    # Try auto-discover from stations/ directory
     station_id = config.getoption("--station")
-    search_roots = [
-        config.rootpath,
-        Path(config.invocation_params.dir),
-    ]
-    for root in search_roots:
-        stations_dir = root / "stations"
-        if stations_dir.exists():
-            station_file = stations_dir / f"{station_id}.yaml"
-            if station_file.exists():
-                return station_file
-
-    return None
+    return _find_yaml_in_subdir(config, "stations", f"{station_id}.yaml")
 
 
 def _find_fixture_file(config) -> Path | None:
     """Find fixture config file from pytest config options.
 
-    Resolution: --fixture-config path → --fixture ID → sequence
-    required_fixture → single-file fallback.
+    Resolution: --fixture-config path → --fixture ID → single-file fallback.
     """
-    # Explicit path (highest priority)
     config_path = config.getoption("--fixture-config")
     if config_path:
         return Path(config_path)
 
-    # --fixture ID → fixtures/{id}.yaml
     fixture_id = config.getoption("--fixture")
     if fixture_id:
-        search_roots = [
-            config.rootpath,
-            Path(config.invocation_params.dir),
-        ]
-        for root in search_roots:
-            fixture_file = root / "fixtures" / f"{fixture_id}.yaml"
-            if fixture_file.exists():
-                return fixture_file
-        warnings.warn(
-            f"Fixture '{fixture_id}' not found in fixtures/ directory.",
-            stacklevel=2,
-        )
-        return None
+        match = _find_yaml_in_subdir(config, "fixtures", f"{fixture_id}.yaml")
+        if match is None:
+            warnings.warn(
+                f"Fixture '{fixture_id}' not found in fixtures/ directory.",
+                stacklevel=2,
+            )
+        return match
 
     # Single-file fallback
-    search_roots = [
-        config.rootpath,
-        Path(config.invocation_params.dir),
-    ]
-    for root in search_roots:
+    for root in _config_search_roots(config):
         fixtures_dir = root / "fixtures"
         if fixtures_dir.exists():
             yaml_files = list(fixtures_dir.glob("*.yaml"))
             if len(yaml_files) == 1:
                 return yaml_files[0]
+    return None
 
+
+def _config_search_roots(config) -> list[Path]:
+    """Project search roots derived from the active pytest config."""
+    return [config.rootpath, Path(config.invocation_params.dir)]
+
+
+def _find_yaml_in_subdir(config, subdir: str, filename: str) -> Path | None:
+    """Return ``<root>/<subdir>/<filename>`` for the first root that has it, or ``None``."""
+    for root in _config_search_roots(config):
+        target = root / subdir / filename
+        if target.exists():
+            return target
     return None
 
 
@@ -281,16 +263,12 @@ def pytest_configure(config):
         from litmus.store import load_station
 
         station_model = load_station(station_path)
-    except Exception as exc:
-        # ValidationError, bad YAML, missing deps — don't crash pytest,
-        # but surface the problem so a typo'd station path isn't silently
-        # ignored until the first instrument lookup fails.
-        warnings.warn(
-            f"Failed to load station config '{station_path}': {exc}. "
-            "Instrument fixtures will not be auto-registered.",
-            stacklevel=1,
-        )
-        return
+    except (ValidationError, yaml.YAMLError, OSError, ValueError) as exc:
+        # Fail fast on station config errors — same posture as profile
+        # load failures (see pytest_load_initial_conftests). A typo'd
+        # station path silently warning would surface as a confusing
+        # "instrument not found" later.
+        raise pytest.UsageError(f"Failed to load station config {station_path!s}: {exc}") from exc
 
     if not station_model:
         return
@@ -511,25 +489,6 @@ def _enforce_no_inline_stacking(item: pytest.Item) -> None:
         raise pytest.UsageError(f"{item.nodeid}: {exc}") from exc
 
 
-def _apply_entry_markers(item: pytest.Item, entry: TestEntry) -> None:
-    """Pytest adapter — translate :class:`TestEntry` to ``MarkerSpec`` and attach.
-
-    The runner-neutral ``entry_to_marker_specs`` produces the spec
-    list; this function handles pytest's marker primitive
-    (``pytest.mark.<name>(...)`` + ``item.add_marker``).
-    """
-    for spec in entry_to_marker_specs(entry):
-        marker = getattr(pytest.mark, spec.name)
-        if spec.args and spec.kwargs:
-            item.add_marker(marker(*spec.args, **spec.kwargs))
-        elif spec.kwargs:
-            item.add_marker(marker(**spec.kwargs))
-        elif spec.args:
-            item.add_marker(marker(*spec.args))
-        else:
-            item.add_marker(marker)
-
-
 def _cascade_for_item(item: pytest.Item) -> TestEntry:
     """Pytest adapter — load sidecar, look up profile, delegate to runner-neutral cascade."""
     if not isinstance(item, pytest.Function):
@@ -547,7 +506,7 @@ def _apply_cascade_to_items(items: list[pytest.Item]) -> None:
         if not isinstance(item, pytest.Function):
             continue
         _enforce_no_inline_stacking(item)
-        _apply_entry_markers(item, _cascade_for_item(item))
+        apply_entry_markers(item, _cascade_for_item(item))
 
 
 def pytest_sessionfinish(session, exitstatus):
@@ -756,22 +715,21 @@ def _safe_get_session_fixture(request, name):
 
     Only attempts to access fixtures that exist at session scope to avoid
     ScopeMismatch errors from test-defined fixtures with the same name.
+    Setup failures (e.g. ValidationError on YAML load) are surfaced as a
+    warning and resolved to ``None`` — the autouse fixtures that consume
+    this helper are best-effort lookups, not gating preconditions.
     """
     try:
         return request.getfixturevalue(name)
     except pytest.FixtureLookupError:
         return None
-    except Exception:
-        # Fixture exists but raised during setup (e.g. ValidationError)
+    except (ValueError, TypeError, OSError) as exc:
+        warnings.warn(
+            f"Fixture {name!r} setup failed: {exc}",
+            RuntimeWarning,
+            stacklevel=2,
+        )
         return None
-
-
-# Subscriber / transport wiring is runner-neutral — see ``litmus.runner.outputs``.
-# Local thin aliases keep call sites readable and provide a single edit
-# point if a runner ever needs to wrap with extra behavior.
-_create_subscriber = create_subscriber
-_make_transport_callback = make_transport_callback
-_find_format_transport_callback = find_format_transport_callback
 
 
 def _build_run_metadata(request: pytest.FixtureRequest) -> dict[str, Any]:
@@ -797,9 +755,6 @@ def _build_run_metadata(request: pytest.FixtureRequest) -> dict[str, Any]:
         session_inputs=dict(get_session_inputs()),
         instrument_records=_safe_get_session_fixture(request, "instrument_records"),
     )
-
-
-_run_configured_outputs = run_configured_outputs
 
 
 @pytest.fixture(scope="session", autouse=True)
@@ -854,14 +809,14 @@ def logger(request) -> Generator[TestRunLogger, None, None]:
         # Create ParquetSubscriber directly (default, always on)
         from litmus.data.backends.parquet import ParquetSubscriber
 
-        parquet_on_output = _find_format_transport_callback("parquet", results_path)
+        parquet_on_output = find_format_transport_callback("parquet", results_path)
         _pq_sub = ParquetSubscriber(results_path, on_output=parquet_on_output)
         event_log.add_subscriber(_pq_sub)
 
         # Create ChannelStore directly (default, always on)
         from litmus.data.channels.store import ChannelStore as _ChannelStore
 
-        channels_on_output = _find_format_transport_callback("channels", results_path)
+        channels_on_output = find_format_transport_callback("channels", results_path)
         _cs = _ChannelStore(
             results_path / "channels",
             session_id,
@@ -881,7 +836,7 @@ def logger(request) -> Generator[TestRunLogger, None, None]:
                 if fmt and fmt not in {"parquet", "channels"}:
                     cls = get_subscriber_class(fmt)
                     if cls is not None:
-                        sub = _create_subscriber(cls, fmt, output_cfg, results_path, session_id)
+                        sub = create_subscriber(cls, fmt, output_cfg, results_path, session_id)
                         event_log.add_subscriber(sub)
         except Exception as exc:
             warnings.warn(
@@ -997,7 +952,7 @@ def logger(request) -> Generator[TestRunLogger, None, None]:
         set_event_store(None)
 
     # Run configured outputs (exports, reports, transports)
-    _run_configured_outputs(test_run, str(test_run.id), results_dir)
+    run_configured_outputs(test_run, str(test_run.id), results_dir)
     set_current_logger(None)
 
 
@@ -1037,8 +992,9 @@ def _extract_code_identity(item: Any) -> dict[str, str | None]:
     """Extract code identity fields from a pytest.Item node."""
     identity: dict[str, str | None] = {}
     identity["node_id"] = getattr(item, "nodeid", None)
-    identity["function"] = getattr(item, "originalname", None) or getattr(item, "name", None)
-    identity["class_name"] = item.cls.__name__ if getattr(item, "cls", None) else None
+    cls_name, func_name = _node_cls_func(item)
+    identity["function"] = func_name
+    identity["class_name"] = cls_name
     mod = getattr(item, "module", None)
     identity["module"] = mod.__name__ if mod else None
 

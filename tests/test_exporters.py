@@ -285,10 +285,10 @@ class TestOutputConfig:
 
 class TestPluginWarnings:
     def test_run_configured_outputs_warns_on_error(self):
-        """_run_configured_outputs emits a warning instead of silently swallowing."""
+        """run_configured_outputs emits a warning instead of silently swallowing."""
         from unittest.mock import patch
 
-        from litmus.pytest_plugin import _run_configured_outputs
+        from litmus.pytest_plugin import run_configured_outputs
 
         with patch(
             "litmus.pytest_plugin.run_outputs",
@@ -302,7 +302,7 @@ class TestPluginWarnings:
             ):
                 with w.catch_warnings(record=True) as caught:
                     w.simplefilter("always")
-                    _run_configured_outputs(None, "run123", "results")  # type: ignore[arg-type]
+                    run_configured_outputs(None, "run123", "results")  # type: ignore[arg-type]
 
                 assert any("Output processing failed" in str(c.message) for c in caught)
 
