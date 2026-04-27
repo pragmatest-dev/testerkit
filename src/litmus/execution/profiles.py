@@ -207,7 +207,7 @@ def flatten_profile_chain(leaf_name: str, project: ProjectConfig) -> ProfileConf
             limits=profile.limits,
             sweeps=profile.sweeps,
             mocks=profile.mocks,
-            specs=profile.specs,
+            characteristics=profile.characteristics,
             connections=profile.connections,
             retry=profile.retry,
             prompts=profile.prompts,

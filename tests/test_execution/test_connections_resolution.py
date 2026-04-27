@@ -173,7 +173,7 @@ def test_characteristic_spec_derives_tolerance_limit(pytester: pytest.Pytester) 
             """
             tests:
               test_rail:
-                specs: [rail_3v3]
+                characteristics: [rail_3v3]
                 limits:
                   v_rail: {tolerance_pct: 2}
             """
@@ -207,7 +207,7 @@ def test_multi_pin_characteristic_iterates_all_connections(pytester: pytest.Pyte
             """
             tests:
               test_dropout:
-                specs: [dropout]
+                characteristics: [dropout]
                 limits:
                   v_drop: {tolerance_abs: 0.1}
             """

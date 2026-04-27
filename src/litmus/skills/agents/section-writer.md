@@ -55,12 +55,12 @@ NEVER encode conditions in attribute names. This is the #1 most common error. Ex
 
 | WRONG (name-encoded) | RIGHT (use specs) |
 |---|---|
-| `test_current_100ohm`, `test_current_10kohm` | `test_current` with `specs: [{when: {range: 100}, value: ...}]` |
-| `warmup_stability_5min`, `warmup_stability_15min` | `warmup_stability` with `specs: [{when: {warmup_time: 5}, value: ...}]` |
-| `temp_stability_20_30C`, `temp_stability_full_range` | `temp_stability` with `specs: [{when: {temperature: {min: 20, max: 30}}, value: ...}]` |
-| `wide_locking_range`, `narrow_locking_range` | `locking_range` with `specs: [{when: {locking_mode: "wide"}, value: ...}]` |
-| `distortion_int_8p5_to_20ghz`, `distortion_ext_above_20ghz` | `distortion` with `specs: [{when: {modulation_source: "internal", carrier_frequency: {min: ...}}, value: ...}]` |
-| `evm_5g_nr_fr2_100mhz`, `evm_5g_nr_fr2_400mhz` | `evm_5g_nr_fr2` with `specs: [{when: {modulation_bandwidth: 100000000}, value: ...}]` |
+| `test_current_100ohm`, `test_current_10kohm` | `test_current` with `bands: [{when: {range: 100}, value: ...}]` |
+| `warmup_stability_5min`, `warmup_stability_15min` | `warmup_stability` with `bands: [{when: {warmup_time: 5}, value: ...}]` |
+| `temp_stability_20_30C`, `temp_stability_full_range` | `temp_stability` with `bands: [{when: {temperature: {min: 20, max: 30}}, value: ...}]` |
+| `wide_locking_range`, `narrow_locking_range` | `locking_range` with `bands: [{when: {locking_mode: "wide"}, value: ...}]` |
+| `distortion_int_8p5_to_20ghz`, `distortion_ext_above_20ghz` | `distortion` with `bands: [{when: {modulation_source: "internal", carrier_frequency: {min: ...}}, value: ...}]` |
+| `evm_5g_nr_fr2_100mhz`, `evm_5g_nr_fr2_400mhz` | `evm_5g_nr_fr2` with `bands: [{when: {modulation_bandwidth: 100000000}, value: ...}]` |
 
 **Rule of thumb:** If you're about to create two or more attributes that differ only by a suffix (number, unit, mode name), STOP — use ONE attribute with `specs[]` instead.
 
@@ -105,7 +105,7 @@ controls:
   power:
     range: {min: -20, max: 25, units: dBm}
     resolution: {value: 0.01, units: dBm}
-    specs:
+    bands:
       - when: {frequency: {min: 250000, max: 3200000000}}
         range: {min: -20, max: 25, units: dBm}
       - when: {frequency: {min: 3200000001, max: 20000000000}}

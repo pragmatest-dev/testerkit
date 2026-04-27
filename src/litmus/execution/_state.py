@@ -253,13 +253,13 @@ def set_active_limits(value: dict[str, Any]) -> None:
 
 
 def get_active_test_characteristic() -> str | None:
-    """Return the active test's characteristic binding (from ``litmus_specs``), or ``None``.
+    """Return the active test's characteristic binding, or ``None``.
 
-    Set per-test alongside :func:`set_active_limits` when the test
-    declares ``specs: [<char_id>]`` (sidecar / profile / inline marker).
-    Read at measurement time so per-label limits with a ``characteristic:``
-    field can fall back to the test-level binding when their own field
-    is omitted.
+    Set per-test alongside :func:`set_active_limits` when the test declares
+    ``characteristics: [<char_id>]`` (sidecar / profile / inline
+    ``litmus_characteristics`` marker). Read at measurement time so
+    per-label limits with a ``characteristic:`` field can fall back to the
+    test-level binding when their own field is omitted.
     """
     try:
         return _active_test_characteristic_var.get()

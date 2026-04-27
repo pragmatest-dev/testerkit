@@ -92,7 +92,7 @@ def pytest_configure(config):
         "between attempts; on is an optional list of exception class "
         "names to retry on (default: any exception).",
         "litmus_limits(**kwargs): Inject limits by measurement name (merges with sidecar limits:)",
-        "litmus_specs([<characteristic_id>, ...]): Bind the test to one "
+        "litmus_characteristics([<characteristic_id>, ...]): Bind the test to one "
         "or more product characteristics; provides spec-relative limit "
         "context and auto-derives fixture connections from the "
         "characteristic's pins. v1 supports one binding per test (single "

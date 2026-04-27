@@ -30,7 +30,7 @@ class TestTestEntryShape:
         assert entry.limits == {}
         assert entry.sweeps == []
         assert entry.mocks == []
-        assert entry.specs == []
+        assert entry.characteristics == []
         assert entry.connections is None
         assert entry.retry is None
         assert entry.prompts == {}
@@ -53,9 +53,9 @@ class TestTestEntryShape:
         assert entry.mocks[0].target == "dmm.read"
         assert entry.mocks[0].patch_kwargs() == {"return_value": 3.31}
 
-    def test_specs_list_of_strings(self) -> None:
-        entry = TestEntry.model_validate({"specs": ["rail_3v3"]})
-        assert entry.specs == ["rail_3v3"]
+    def test_characteristics_list_of_strings(self) -> None:
+        entry = TestEntry.model_validate({"characteristics": ["rail_3v3"]})
+        assert entry.characteristics == ["rail_3v3"]
 
     def test_connections_coerced_to_binding(self) -> None:
         entry = TestEntry.model_validate({"connections": {"connections": ["vout"]}})

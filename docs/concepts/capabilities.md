@@ -244,7 +244,7 @@ signals:
   voltage:
     range: {min: 0.1, max: 750, units: V}
     accuracy: {pct_reading: 0.07, pct_range: 0.02}  # default
-    specs:
+    bands:
       - when:
           frequency: {min: 3, max: 5, units: Hz}
         accuracy: {pct_reading: 0.35, pct_range: 0.03}

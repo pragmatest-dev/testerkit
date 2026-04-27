@@ -86,7 +86,7 @@ class Context:
         self._params: dict[str, Any] = {}
         self._observations: dict[str, Any] = {}
         # ``connections`` iterates :class:`FixtureConnection` objects the
-        # test declares via ``litmus_specs`` / ``litmus_connections``
+        # test declares via ``litmus_characteristics`` / ``litmus_connections``
         # markers. Populated by the pytest-native plugin's
         # ``_litmus_resolve_connections`` autouse fixture; ``None`` when
         # the test declares no spec/connections markers. Test body:

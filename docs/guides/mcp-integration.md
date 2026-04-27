@@ -355,7 +355,7 @@ conditions:
 
 **SpecBand** — One specification: conditions + nominal value + accuracy
 ```yaml
-specs:
+bands:
   - conditions: {temperature: 25, load: 0.5}
     value: 3.3                               # Nominal
     accuracy: {pct_reading: 2.0}             # ±2% of reading

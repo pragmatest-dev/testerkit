@@ -8,7 +8,7 @@ per-pin — same loop shape either way.
 
 Most tests below pull config from the sibling ``test_rail.yaml``
 sidecar. ``test_rail_inline_markers`` is the exception: it carries
-``@pytest.mark.litmus_specs`` and ``@pytest.mark.litmus_connections``
+``@pytest.mark.litmus_characteristics`` and ``@pytest.mark.litmus_connections``
 inline so you can see both markers in their decorator form. Inline
 or sidecar — same merge rules, same runtime behavior.
 """
@@ -30,7 +30,7 @@ def test_rail_holds_across_input(verify, psu, dmm, context, vin: float) -> None:
         verify("v_rail", dmm.measure_dc_voltage())
 
 
-@pytest.mark.litmus_specs("rail_3v3")
+@pytest.mark.litmus_characteristics("rail_3v3")
 @pytest.mark.litmus_connections(connections=["vout_measure"])
 @pytest.mark.litmus_limits(v_rail={"characteristic": "rail_3v3", "tolerance_pct": 2})
 def test_rail_inline_markers(verify, psu, dmm, connections) -> None:

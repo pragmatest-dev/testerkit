@@ -71,14 +71,14 @@ def _merge_marker_fields_into(target: TestEntry, src: TestEntry) -> None:
     * ``limits`` / ``prompts`` — dict-key update (later overrides earlier).
     * ``sweeps`` / ``mocks`` — list extend (file-level appears outer; later
       entries with the same target overwrite during marker resolution).
-    * ``specs`` — last-wins replacement (single iteration scope in v1).
+    * ``characteristics`` — last-wins replacement (single iteration scope in v1).
     * ``connections`` / ``retry`` — last-wins replacement (singletons).
     """
     target.limits.update(src.limits)
     target.sweeps.extend(src.sweeps)
     target.mocks.extend(src.mocks)
-    if src.specs:
-        target.specs = list(src.specs)
+    if src.characteristics:
+        target.characteristics = list(src.characteristics)
     if src.connections is not None:
         target.connections = src.connections.model_copy(deep=True)
     if src.retry is not None:

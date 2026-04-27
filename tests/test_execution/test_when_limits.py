@@ -265,7 +265,7 @@ def test_band_with_tolerance_pct_and_characteristic(pytester: pytest.Pytester) -
                 direction: output
                 units: V
                 pin: TP_VOUT
-                specs:
+                bands:
                   - value: 3.3
             pins:
               TP_VOUT:

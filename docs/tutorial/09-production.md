@@ -197,7 +197,7 @@ characteristics:
     function: dc_voltage
     units: V
     pins: [VOUT]
-    specs:
+    bands:
       - value: 3.3
         accuracy: {pct_reading: 5}
 ```

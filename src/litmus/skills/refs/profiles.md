@@ -118,7 +118,7 @@ file, profile, class branch, per-test entry):
 | `limits`        | dict by measurement name           | `@pytest.mark.litmus_limits(v_rail={...})`        |
 | `sweeps`        | list of axis-group dicts           | `@pytest.mark.litmus_sweeps([{vin: [...]}])`      |
 | `mocks`         | list of patch-object dicts         | `@pytest.mark.litmus_mocks([{target: ...}])`      |
-| `specs`         | list of characteristic IDs         | `@pytest.mark.litmus_specs(["rail_3v3"])`         |
+| `specs`         | list of characteristic IDs         | `@pytest.mark.litmus_characteristics(["rail_3v3"])`         |
 | `connections`   | singleton dict                     | `@pytest.mark.litmus_connections(...)`            |
 | `retry`         | singleton dict                     | `@pytest.mark.litmus_retry(max_attempts=3)`       |
 | `prompts`       | dict by prompt name                | `@pytest.mark.litmus_prompts(setup={...})`        |

@@ -201,7 +201,7 @@ characteristics:
     function: dc_voltage
     units: V
     pin: TP_VOUT
-    specs:
+    bands:
     - when: {temperature: {min: 25, max: 25}, load: {min: 0.1, max: 0.1}}
       value: 3.3
       accuracy: {pct_reading: 2.0}
@@ -499,7 +499,7 @@ capabilities:
       range: {min: -1000, max: 1000, units: V}
       accuracy: {pct_reading: 0.0045, pct_range: 0.001}
       resolution: {digits: 6.5}
-      specs:                         # accuracy changes by range
+      bands:                         # accuracy changes by range
       - when:
           voltage: {min: -0.1, max: 0.1, units: V}
         accuracy: {pct_reading: 0.005, pct_range: 0.0035}
@@ -531,7 +531,7 @@ The `specs` array with `when` clauses captures this directly:
 signals:
   voltage:
     accuracy: {pct_reading: 0.0045}    # default accuracy
-    specs:
+    bands:
     - when:                             # on the 100mV range...
         voltage: {min: -0.1, max: 0.1, units: V}
       accuracy: {pct_reading: 0.005}    # ...accuracy is different

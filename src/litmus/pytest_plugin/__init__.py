@@ -991,7 +991,7 @@ def connections(
     """Active fixture connections for the current test.
 
     Returns the :class:`ConnectionIterator` resolved from
-    ``litmus_specs`` / ``litmus_connections`` markers, or ``None`` when
+    ``litmus_characteristics`` / ``litmus_connections`` markers, or ``None`` when
     no markers are declared. Symmetric with ``pins``: tests that take
     fixture connections use this fixture instead of reaching through
     ``context.connections``.

@@ -31,7 +31,7 @@ characteristics:
     function: dc_voltage
     units: V
     pins: [VIN]            # Which pin this characteristic applies to
-    specs:
+    bands:
       - value: 5.0
         accuracy: {pct_reading: 10}
 
@@ -40,11 +40,11 @@ characteristics:
     function: dc_voltage
     units: V
     pins: [VOUT]
-    specs:
+    bands:
       - value: 3.3
         accuracy: {pct_reading: 5}
 
-specs:
+bands:
   verify_output:
     characteristic_ref: output_voltage
     guardband_pct: 10      # Tighten limits by 10%
@@ -154,7 +154,7 @@ characteristics:
     function: dc_voltage
     units: V
     pins: [VOUT]
-    specs:
+    bands:
       - value: 5.0
         accuracy: {pct_reading: 10}
 ```

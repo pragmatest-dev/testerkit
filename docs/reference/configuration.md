@@ -53,7 +53,7 @@ characteristics:
     datasheet_ref: string # Optional reference
     schematic_ref: string # Deprecated: use net instead
 
-    specs:
+    bands:
       - value: float            # Nominal/expected value
         accuracy:               # Accuracy specification
           pct_reading: float    # Percentage of reading
@@ -65,7 +65,7 @@ characteristics:
           <param>: value
         comparator: GELE | EQ | NE | LT | LE | GT | GE | GELT | GTLE | GTLT
 
-specs:
+bands:
   <name>:
     characteristic_ref: string   # Reference to characteristic
     conditions: dict            # Which conditions to test

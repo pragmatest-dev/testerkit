@@ -61,7 +61,7 @@ characteristics:
     function: dc_voltage
     direction: output
     units: V
-    specs:
+    bands:
       - when: {temperature: 25}
         value: 3.3
         accuracy: {pct_reading: 2.0}

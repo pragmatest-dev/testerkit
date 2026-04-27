@@ -29,7 +29,7 @@ characteristics:
     function: dc_voltage
     units: V
     pins: [VIN]
-    specs:
+    bands:
       - value: 5.0
         accuracy:
           pct_reading: 10  # ±10% tolerance
@@ -39,7 +39,7 @@ characteristics:
     function: dc_voltage
     units: V
     pins: [VOUT]
-    specs:
+    bands:
       - value: 3.3
         accuracy:
           pct_reading: 5   # ±5% tolerance
@@ -109,7 +109,7 @@ characteristics:
     direction: output
     function: dc_voltage
     units: V
-    specs:
+    bands:
       - value: 3.3
         accuracy:
           pct_reading: 5
@@ -119,7 +119,7 @@ characteristics:
     direction: output
     function: ac_voltage
     units: mV
-    specs:
+    bands:
       - value: 0
         accuracy:
           absolute: 50
@@ -136,7 +136,7 @@ characteristics:
     function: dc_voltage
     units: V
     pins: [VOUT]
-    specs:
+    bands:
       - when:
           temperature: {min: 0, max: 50}
           load: {min: 0.1, max: 0.5}
@@ -205,7 +205,7 @@ characteristics:
     function: dc_voltage
     units: V
     pins: [VOUT]
-    specs:
+    bands:
       - value: 5.0
         accuracy:
           pct_reading: 10
@@ -240,7 +240,7 @@ characteristics:
     function: dc_voltage
     units: V
     pins: [VOUT]
-    specs:
+    bands:
       - value: 3.3
         accuracy:
           pct_reading: 3          # Tighter tolerance for industrial

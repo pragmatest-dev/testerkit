@@ -50,7 +50,7 @@ characteristics:
     function: dc_voltage
     units: V
     pins: [VIN]
-    specs:
+    bands:
       - value: 5.0
         accuracy: {pct_reading: 10}
 
@@ -59,7 +59,7 @@ characteristics:
     function: dc_voltage
     units: V
     pins: [VOUT]
-    specs:
+    bands:
       - value: 3.3
         accuracy: {pct_reading: 5}
 ```
@@ -98,7 +98,7 @@ characteristics:
     function: dc_voltage   # DC voltage measurement
     units: V
     pins: [VOUT]           # Measured at this pin
-    specs:
+    bands:
       - value: 3.3         # Expected value
         accuracy:
           pct_reading: 5   # ±5% tolerance
@@ -144,7 +144,7 @@ Document this in the spec:
 
 ```yaml
 # products/power_board.yaml
-specs:
+bands:
   verify_output:
     characteristic_ref: output_voltage
     guardband_pct: 10
@@ -175,7 +175,7 @@ characteristics:
     direction: output
     function: dc_voltage
     units: V
-    specs:
+    bands:
       - value: 3.3
         accuracy: {pct_reading: 5}
         conditions:
@@ -233,7 +233,7 @@ characteristics:
     direction: input
     function: dc_voltage
     units: V
-    specs:
+    bands:
       - value: 5.0
         accuracy: {pct_reading: 10}
 
@@ -241,11 +241,11 @@ characteristics:
     direction: output
     function: dc_voltage
     units: V
-    specs:
+    bands:
       - value: 3.3
         accuracy: {pct_reading: 5}
 
-specs:
+bands:
   verify_output:
     characteristic_ref: output_voltage
     guardband_pct: 10

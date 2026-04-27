@@ -73,7 +73,7 @@ characteristics:
     units: V
     pins: [VIN]
     datasheet_ref: "Section 4.1"
-    specs:
+    bands:
       - value: 5.0
         accuracy:
           pct_reading: 10
@@ -84,7 +84,7 @@ characteristics:
     units: V
     pins: [VOUT]
     datasheet_ref: "Section 4.2"
-    specs:
+    bands:
       - when:
           load_ma: {min: 0, max: 100}
         value: 3.3
@@ -109,7 +109,7 @@ characteristics:
     units: A
     pins: [VOUT]
     datasheet_ref: "Section 4.3"
-    specs:
+    bands:
       - value: 0
         accuracy:
           absolute: 1.0

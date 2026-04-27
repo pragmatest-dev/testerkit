@@ -25,7 +25,7 @@ characteristics:
     units: V
     pins: [VOUT]
     datasheet_ref: "Section 7.2"
-    specs:
+    bands:
       - conditions: {temperature: {min: 0, max: 50}, load: {min: 0.1, max: 0.5}}
         value: 3.3
         accuracy: {pct_reading: 5}

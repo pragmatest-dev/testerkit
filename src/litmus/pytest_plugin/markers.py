@@ -14,8 +14,8 @@ Also lives here:
   list of entries.
 * :func:`enforce_no_inline_stacking` — raise a clear error when more
   than one ``litmus_X`` marker of the same name decorates a test.
-* :func:`extract_specs_characteristic` — pull the single characteristic
-  ID out of a ``litmus_specs`` marker payload.
+* :func:`extract_characteristic_marker_id` — pull the single
+  characteristic ID out of a ``litmus_characteristics`` marker payload.
 """
 
 from __future__ import annotations
@@ -31,7 +31,7 @@ LITMUS_MARKER_NAMES: tuple[str, ...] = (
     "litmus_limits",
     "litmus_sweeps",
     "litmus_mocks",
-    "litmus_specs",
+    "litmus_characteristics",
     "litmus_connections",
     "litmus_retry",
     "litmus_prompts",
@@ -67,8 +67,8 @@ def apply_entry_markers(item: pytest.Item, entry: TestEntry) -> None:
         item.add_marker(pytest.mark.litmus_sweeps([s.root for s in entry.sweeps]))
     if entry.mocks:
         item.add_marker(pytest.mark.litmus_mocks(list(entry.mocks)))
-    if entry.specs:
-        item.add_marker(pytest.mark.litmus_specs(list(entry.specs)))
+    if entry.characteristics:
+        item.add_marker(pytest.mark.litmus_characteristics(list(entry.characteristics)))
     if entry.connections is not None:
         item.add_marker(
             pytest.mark.litmus_connections(**entry.connections.model_dump(exclude_none=True))
@@ -103,7 +103,7 @@ def normalize_inline_list_payload(
     """Normalize varargs-of-entries or single-list-arg into a canonical list.
 
     Used by inline ``@pytest.mark.litmus_sweeps`` / ``litmus_mocks`` /
-    ``litmus_specs`` payload extraction. Sidecar / profile cascade
+    ``litmus_characteristics`` payload extraction. Sidecar / profile cascade
     produces the canonical list shape directly via Pydantic; inline
     accepts either a single list or pytest-style varargs (parametrize
     convention) for ergonomic stacking of single-entry markers.
@@ -163,39 +163,39 @@ def enforce_no_inline_stacking(marker_names: list[str]) -> None:
         )
 
 
-def extract_specs_characteristic(specs_payloads: list[Any]) -> str | None:
-    """Extract the single characteristic ID from a ``litmus_specs`` marker's payloads.
+def extract_characteristic_marker_id(payloads: list[Any]) -> str | None:
+    """Extract the single characteristic ID from a ``litmus_characteristics`` marker's payloads.
 
-    ``specs_payloads`` is the ordered list of payloads each
-    ``litmus_specs`` marker on the function carried (caller passes the
-    most-specific marker first). Inline decorators may pass either
-    varargs of strings or a single list arg; sidecar / profile
+    ``payloads`` is the ordered list of payloads each
+    ``litmus_characteristics`` marker on the function carried (caller
+    passes the most-specific marker first). Inline decorators may pass
+    either varargs of strings or a single list arg; sidecar / profile
     cascade always passes a single list. v1 enforces cardinality 1 —
     multiple characteristic bindings raise ``ValueError`` (single
     iteration scope only). Returns ``None`` if no payload is present.
     """
-    if not specs_payloads:
+    if not payloads:
         return None
-    payload = specs_payloads[0]
+    payload = payloads[0]
 
     payload_args: tuple[Any, ...] = payload if isinstance(payload, tuple) else (payload,)
 
     if not payload_args:
-        raise ValueError("litmus_specs requires at least one characteristic ID.")
+        raise ValueError("litmus_characteristics requires at least one characteristic ID.")
     if len(payload_args) == 1 and isinstance(payload_args[0], list):
         ids = payload_args[0]
     elif all(isinstance(a, str) for a in payload_args):
         ids = list(payload_args)
     else:
         raise ValueError(
-            f"litmus_specs payload must be a list of characteristic ID strings "
+            f"litmus_characteristics payload must be a list of characteristic ID strings "
             f"(or varargs of strings); got {payload_args!r}"
         )
     if not all(isinstance(i, str) for i in ids):
-        raise ValueError(f"litmus_specs entries must be strings; got {ids!r}")
+        raise ValueError(f"litmus_characteristics entries must be strings; got {ids!r}")
     if len(ids) != 1:
         raise ValueError(
-            f"litmus_specs supports exactly one characteristic ID per test "
+            f"litmus_characteristics supports exactly one characteristic ID per test "
             f"(single iteration scope); got {len(ids)}: {ids!r}"
         )
     return ids[0]

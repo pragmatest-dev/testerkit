@@ -29,7 +29,7 @@ signals:
     range: {min: -10, max: 10, units: V}
     accuracy: {pct_reading: 0.05, pct_range: 0.01, absolute: 0.001}
     resolution: {digits: 6.5}           # OR {bits: 16} OR {value: 0.001, units: V}
-    specs:                               # SpecBand overrides — USE THESE
+    bands:                               # SpecBand overrides — USE THESE
       - when:
           frequency: {min: 3, max: 5, units: Hz}
         accuracy: {pct_reading: 0.35, pct_range: 0.03}
@@ -59,7 +59,7 @@ signals:
 Bare scalars and lists work when units match the parent. Use PointSpec/ListSpec when you need explicit units.
 
 ```yaml
-specs:
+bands:
   - when:
       rate: "SLOW"                              # string match
       frequency: {min: 20, max: 300}             # range match (units inherited from condition)
@@ -109,7 +109,7 @@ controls:
     default: "1Mohm"
   power:
     range: {min: -20, max: 20, units: dBm}
-    specs:
+    bands:
       - when: {frequency: {min: 250000, max: 3200000000}}
         range: {min: -20, max: 25, units: dBm}
       - when: {frequency: {min: 3200000001, max: 20000000000}}
@@ -135,7 +135,7 @@ attributes:
   test_current:
     value: 0.001
     units: A
-    specs:                   # condition-dependent overrides
+    bands:                   # condition-dependent overrides
       - when: {range: 100}
         value: 0.001
       - when: {range: 10000}
@@ -160,7 +160,7 @@ signals:
   voltage:
     range: {min: -10, max: 10, units: V}
     qualifier: guaranteed
-    specs:
+    bands:
       - when: {frequency: {min: 3, max: 5, units: Hz}}
         accuracy: {pct_reading: 0.35}
         qualifier: typical

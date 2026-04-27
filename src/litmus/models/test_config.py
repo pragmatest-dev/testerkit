@@ -30,7 +30,7 @@ from litmus.models.enums import Comparator
 #   * ``limits``      → ``dict[str, MeasurementLimitConfig]``
 #   * ``sweeps``      → ``list[SweepEntry]``
 #   * ``mocks``       → ``list[MockEntry]``
-#   * ``specs``       → ``list[str]``
+#   * ``characteristics`` → ``list[str]``
 #   * ``connections`` → ``ConnectionsBinding | None``
 #   * ``retry``       → ``RetryPolicy | None``
 #   * ``prompts``     → ``dict[str, PromptConfig]``
@@ -155,7 +155,7 @@ class TestEntry(BaseModel):
     limits: dict[str, MeasurementLimitConfig] = Field(default_factory=dict)
     sweeps: list[SweepEntry] = Field(default_factory=list)
     mocks: list[MockEntry] = Field(default_factory=list)
-    specs: list[str] = Field(default_factory=list)
+    characteristics: list[str] = Field(default_factory=list)
     connections: ConnectionsBinding | None = None
     retry: RetryPolicy | None = None
     prompts: dict[str, PromptConfig] = Field(default_factory=dict)
