@@ -97,3 +97,20 @@ characteristics:
         temperature: 25
         load: 1.0
       value: 80
+pins:
+  VIN:
+    name: J1.1
+    net: VIN
+    role: power
+  VOUT:
+    name: J1.2
+    net: VOUT_3V3
+    role: signal
+  IIN:
+    name: J1.3
+    net: IIN
+    role: signal
+  GND:
+    name: J1.4
+    net: GND
+    role: ground

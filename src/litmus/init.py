@@ -463,7 +463,7 @@ def _create_starter_files(path: Path, project_name: str) -> list[str]:
                     "direction": "output",
                     "units": "V",
                     "pin": "TP_VOUT",
-                    "specs": [
+                    "bands": [
                         {
                             "value": 3.3,
                             "accuracy": {

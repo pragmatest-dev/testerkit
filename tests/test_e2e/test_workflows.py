@@ -80,7 +80,8 @@ class TestQuickstart:
         assert (project / "litmus.yaml").exists()
         assert (project / "tests" / "test_example.py").exists()
         assert (project / "stations" / "starter_station.yaml").exists()
-        assert (project / "sequences" / "example_sequence.yaml").exists()
+        assert (project / "products" / "example_product.yaml").exists()
+        assert (project / "fixtures" / "example_fixture.yaml").exists()
         assert (project / "pyproject.toml").exists()
 
         cfg = yaml.safe_load((project / "litmus.yaml").read_text())

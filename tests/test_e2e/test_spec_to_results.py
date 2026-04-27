@@ -19,10 +19,12 @@ from litmus.execution.harness import TestHarness
 from litmus.models.capability import RangeSpec
 from litmus.products.context import SpecContext
 
-# Path to example specs (used for integration testing, not value assertions)
-_REPO_ROOT = Path(__file__).parent.parent.parent
-SPEC_PATH = _REPO_ROOT / "examples" / "products" / "power_board.yaml"
-MINIMAL_SPEC_PATH = _REPO_ROOT / "examples" / "products" / "minimal_board.yaml"
+# Path to fixture specs (used for integration testing, not value assertions).
+# Lives under tests/fixtures so the e2e suite never depends on the layout
+# of the example projects under examples/0X-*.
+_FIXTURE_DIR = Path(__file__).parent.parent / "fixtures" / "specs"
+SPEC_PATH = _FIXTURE_DIR / "power_board.yaml"
+MINIMAL_SPEC_PATH = _FIXTURE_DIR / "base_board.yaml"
 
 
 class TestSpecContext:
@@ -437,23 +439,23 @@ class TestMinimalSpec:
 
 
 def _find_testable_characteristic(spec: SpecContext) -> tuple[str | None, dict]:
-    """Find a characteristic with specs suitable for testing.
+    """Find a characteristic with bands suitable for testing.
 
     Returns:
         Tuple of (characteristic_id, conditions_dict) or (None, {}) if not found.
     """
     for char_id, char in spec.product.characteristics.items():
-        if char.bands:
-            # Use first SpecBand's when clause, converting RangeSpec to scalar values
-            band = char.bands[0]
-            conditions = (
-                {
-                    k: v.min
-                    for k, v in band.when.items()
-                    if isinstance(v, RangeSpec) and v.min is not None
-                }
-                if band.when
-                else {}
-            )
-            return char_id, conditions
+        if not char.bands:
+            continue
+        # Use the first band's ``when`` clause as the conditions to look up.
+        # Scalars pass through; RangeSpec entries collapse to ``.min``.
+        band = char.bands[0]
+        conditions: dict = {}
+        for k, v in band.when.items():
+            if isinstance(v, RangeSpec):
+                if v.min is not None:
+                    conditions[k] = v.min
+            else:
+                conditions[k] = v
+        return char_id, conditions
     return None, {}
