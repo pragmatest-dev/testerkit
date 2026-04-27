@@ -20,11 +20,7 @@ from typing import Any, Self
 
 from pydantic import BaseModel, Field, computed_field, model_validator
 
-from litmus.models.capability import band_matches
-from litmus.models.config import (
-    Capability,
-    SpecBand,
-)
+from litmus.models.capability import Capability, SpecBand, band_matches
 from litmus.utils.ranges import expand_range
 
 

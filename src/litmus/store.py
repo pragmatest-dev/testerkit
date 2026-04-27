@@ -32,7 +32,6 @@ from ruamel.yaml.comments import CommentedMap, CommentedSeq
 from ruamel.yaml.scalarstring import DoubleQuotedScalarString
 
 from litmus.models.catalog import InstrumentCatalogEntry
-from litmus.models.config import FixtureConfig
 from litmus.models.enums import InstrumentType
 from litmus.models.instrument_asset import InstrumentAssetFile
 from litmus.models.product import Product
@@ -40,6 +39,7 @@ from litmus.models.product_manifest import ProductManifest
 from litmus.models.project import ProfileConfig, ProjectConfig
 from litmus.models.station import StationConfig
 from litmus.models.station_types import StationType
+from litmus.models.test_config import FixtureConfig
 from litmus.utils.paths import (
     get_fixture_paths,
     get_instrument_paths,

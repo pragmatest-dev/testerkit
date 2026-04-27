@@ -23,12 +23,11 @@ from typing import Literal
 from pydantic import BaseModel
 
 from litmus.models.catalog import InstrumentCatalogEntry
-from litmus.models.config import FixtureConfig
 from litmus.models.instrument_asset import InstrumentAssetFile
 from litmus.models.product import Product
 from litmus.models.project import ProfileConfig, ProjectConfig
 from litmus.models.station import StationConfig
-from litmus.models.test_config import SidecarConfig
+from litmus.models.test_config import FixtureConfig, SidecarConfig
 
 FileType = Literal[
     "catalog",

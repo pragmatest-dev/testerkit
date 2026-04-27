@@ -11,11 +11,12 @@ from __future__ import annotations
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from litmus.models.config import Comparator, Limit
+from litmus.models.enums import Comparator
 from litmus.models.product import Product, ProductCharacteristic
+from litmus.models.test_config import Limit
 
 if TYPE_CHECKING:
-    from litmus.models.config import FixtureConfig
+    from litmus.models.test_config import FixtureConfig
 
 
 class SpecContext:

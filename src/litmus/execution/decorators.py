@@ -19,7 +19,8 @@ from litmus.execution.logger import _stringify_comparator
 
 if TYPE_CHECKING:
     from litmus.execution.logger import TestRunLogger
-    from litmus.models.config import Limit
+    from litmus.models.test_config import Limit
+
 
 _current_logger_var: ContextVar[TestRunLogger | None] = ContextVar("_current_logger", default=None)
 

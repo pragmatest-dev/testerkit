@@ -593,7 +593,8 @@ Run::
 
 from __future__ import annotations
 
-from litmus.models.config import Limit
+from litmus.models.test_config import Limit
+
 
 
 def test_rail_inline(dmm, verify) -> None:

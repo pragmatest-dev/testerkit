@@ -17,13 +17,6 @@ continue to work — this package guarantees stability of both forms.
 """
 
 from litmus.models.catalog import InstrumentCatalogEntry
-from litmus.models.config import (
-    FixtureConfig,
-    Limit,
-    MeasurementLimitConfig,
-    RetryConfig,
-    Specification,
-)
 from litmus.models.instrument import (
     CalibrationInfo,
     ChannelKind,
@@ -46,6 +39,13 @@ from litmus.models.product_manifest import (
 )
 from litmus.models.project import OutputConfig, ProjectConfig
 from litmus.models.station import StationConfig, StationInstrumentConfig
+from litmus.models.test_config import (
+    FixtureConfig,
+    Limit,
+    MeasurementLimitConfig,
+    RetryConfig,
+    Specification,
+)
 
 __all__ = [
     # Catalog

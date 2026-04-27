@@ -5,7 +5,7 @@ import pytest
 from litmus.data.models import Outcome, TestVector
 from litmus.execution.harness import Context, TestHarness
 from litmus.execution.vectors import Vector
-from litmus.models.config import Limit, RetryConfig
+from litmus.models.test_config import Limit, RetryConfig
 
 
 # Fake instrument classes for testing Mock factory

@@ -17,8 +17,8 @@ from litmus.execution.profiles import (
     resolve_default_profile,
     resolve_required_inputs,
 )
-from litmus.models.config import PromptConfig
 from litmus.models.project import ProfileConfig, ProjectConfig
+from litmus.models.test_config import PromptConfig
 from litmus.prompts import set_prompt_handler
 
 

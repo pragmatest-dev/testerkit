@@ -14,13 +14,8 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Literal, overload
 
-from litmus.models.config import (
-    Capability,
-    Direction,
-    InstrumentCapability,
-    MeasurementFunction,
-    Signal,
-)
+from litmus.models.capability import Capability, InstrumentCapability, Signal
+from litmus.models.enums import Direction, MeasurementFunction
 
 if TYPE_CHECKING:
     from litmus.models.product import Product

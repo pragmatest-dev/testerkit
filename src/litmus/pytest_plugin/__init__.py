@@ -92,13 +92,13 @@ from litmus.execution.verify import (
 from litmus.fixtures.manager import FixtureManager, PinAccessor
 from litmus.instruments.pool import InstrumentPool
 from litmus.instruments.route_manager import RouteManager
-from litmus.models.config import PromptConfig
 from litmus.models.instrument import InstrumentRecord
 from litmus.models.station import StationConfig
 from litmus.models.test_config import (
     FixtureConfig,
     MeasurementLimitConfig,
     MockEntry,
+    PromptConfig,
     RetryPolicy,
     SweepEntry,
     TestEntry,

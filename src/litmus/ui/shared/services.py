@@ -14,10 +14,10 @@ from litmus.data.models import RunSummary
 from litmus.instruments.loader import resolve_station_instruments
 from litmus.matching import service as matching_service
 from litmus.models.catalog import InstrumentCatalogEntry
-from litmus.models.config import FixtureConfig
 from litmus.models.product import Product
 from litmus.models.station import StationConfig
 from litmus.models.station_types import StationType
+from litmus.models.test_config import FixtureConfig
 from litmus.products.folder import ProductFolder
 from litmus.store import (
     check_instrument_types,

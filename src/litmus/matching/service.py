@@ -24,21 +24,19 @@ if TYPE_CHECKING:
 
 from pydantic import BaseModel, Field
 
-from litmus.models.capability import band_matches
-from litmus.models.config import (
+from litmus.models.capability import (
     AccuracySpec,
     Attribute,
     Condition,
     Control,
-    Direction,
     InstrumentCapability,
-    MatchDepth,
-    MeasurementFunction,
     RangeSpec,
     ResolutionSpec,
     Signal,
     SpecBand,
+    band_matches,
 )
+from litmus.models.enums import Direction, MatchDepth, MeasurementFunction
 from litmus.models.product import Product, ProductCharacteristic
 from litmus.store import (
     get_product,

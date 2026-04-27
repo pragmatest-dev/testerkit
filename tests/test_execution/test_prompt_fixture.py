@@ -14,7 +14,7 @@ import textwrap
 
 import pytest
 
-from litmus.models.config import PromptConfig
+from litmus.models.test_config import PromptConfig
 from litmus.prompts import (
     PromptUnavailableError,
     ask,

@@ -8,21 +8,19 @@ from litmus.matching.service import (
     capability_satisfies,
     get_spec_at,
 )
-from litmus.models.config import (
+from litmus.models.capability import (
     AccuracySpec,
     Condition,
     Control,
-    Direction,
     InstrumentCapability,
     ListSpec,
-    MatchDepth,
-    MeasurementFunction,
     PointSpec,
     RangeSpec,
     ResolutionSpec,
     Signal,
     SpecBand,
 )
+from litmus.models.enums import Direction, MatchDepth, MeasurementFunction
 from litmus.models.product import ProductCharacteristic
 
 

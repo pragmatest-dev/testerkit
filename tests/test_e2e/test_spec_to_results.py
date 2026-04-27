@@ -234,7 +234,7 @@ class TestHarnessSpecIntegration:
 
     def test_explicit_limit_overrides_spec(self):
         """Explicit limit parameter overrides spec-derived limit."""
-        from litmus.models.config import Limit
+        from litmus.models.test_config import Limit
 
         spec = SpecContext.from_file(SPEC_PATH)
 

@@ -12,7 +12,7 @@ independent of any particular project, driver, or station configuration.
 
 from pydantic import BaseModel, Field
 
-from litmus.models.config import Attribute, ChannelTopology, InstrumentCapability
+from litmus.models.capability import Attribute, ChannelTopology, InstrumentCapability
 
 __all__ = ["InstrumentCatalogEntry"]
 

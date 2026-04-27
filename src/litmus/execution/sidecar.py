@@ -178,8 +178,8 @@ def _resolve_single(
       records unchecked (characterization mode).
     """
     from litmus.execution.limits import _apply_guardband
-    from litmus.models.config import Comparator
-    from litmus.models.config import Limit as LimitModel
+    from litmus.models.enums import Comparator
+    from litmus.models.test_config import Limit as LimitModel
 
     if cfg.ref is not None:
         if spec_ctx is None:

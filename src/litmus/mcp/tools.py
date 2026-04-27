@@ -580,7 +580,7 @@ def _save_entity(
         return _save_generic_yaml(Product, save_product, "products", id, content, project)
 
     if entity_type == "fixture":
-        from litmus.models.config import FixtureConfig
+        from litmus.models.test_config import FixtureConfig
         from litmus.store import save_fixture
 
         return _save_generic_yaml(FixtureConfig, save_fixture, "fixtures", id, content, project)

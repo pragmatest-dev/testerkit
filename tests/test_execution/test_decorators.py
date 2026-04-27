@@ -5,7 +5,7 @@ import pytest
 from litmus.data.models import Measurement, Outcome
 from litmus.execution.decorators import get_current_logger, measure, set_current_logger
 from litmus.execution.logger import TestRunLogger
-from litmus.models.config import Limit
+from litmus.models.test_config import Limit
 
 
 class TestMeasureDecorator:

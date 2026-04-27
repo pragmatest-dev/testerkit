@@ -32,8 +32,8 @@ from litmus.execution._state import current_step_var, current_vector_var
 if TYPE_CHECKING:
     from litmus.data.event_log import EventLog
     from litmus.environment import EnvironmentSnapshot
-    from litmus.models.config import Limit
     from litmus.models.instrument import InstrumentRecord
+    from litmus.models.test_config import Limit
 
 
 # Canonical list of instrument identity array keys.

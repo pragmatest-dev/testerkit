@@ -4,18 +4,17 @@ from pathlib import Path
 from unittest.mock import patch
 
 from litmus.matching.service import recommend_from_catalog
-from litmus.models.catalog import InstrumentCatalogEntry
-from litmus.models.config import (
+from litmus.models.capability import (
     AccuracySpec,
     Condition,
-    Direction,
     InstrumentCapability,
-    MeasurementFunction,
     RangeSpec,
     ResolutionSpec,
     Signal,
     SpecBand,
 )
+from litmus.models.catalog import InstrumentCatalogEntry
+from litmus.models.enums import Direction, MeasurementFunction
 
 
 def _make_entry(

@@ -11,7 +11,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from litmus.models.config import COAXIAL_CONNECTORS, ConnectorType
+from litmus.models.enums import COAXIAL_CONNECTORS, ConnectorType
 
 if TYPE_CHECKING:
     from litmus.ui.pages.designer.state import DesignerState

@@ -9,15 +9,8 @@ from litmus.matching.service import (
     get_station_capabilities,
     match_capabilities,
 )
-from litmus.models.config import (
-    AccuracySpec,
-    Direction,
-    InstrumentCapability,
-    MeasurementFunction,
-    RangeSpec,
-    Signal,
-    SpecBand,
-)
+from litmus.models.capability import AccuracySpec, InstrumentCapability, RangeSpec, Signal, SpecBand
+from litmus.models.enums import Direction, MeasurementFunction
 from litmus.models.product import Product, ProductCharacteristic
 
 # ---------------------------------------------------------------------------
@@ -475,8 +468,8 @@ class TestGetStationCapabilities:
 
     def test_extracts_capabilities_from_catalog_ref(self, monkeypatch):
         """Capabilities are extracted from catalog_ref on station instruments."""
+        from litmus.models.capability import InstrumentCapability
         from litmus.models.catalog import InstrumentCatalogEntry
-        from litmus.models.config import InstrumentCapability
 
         mock_entry = InstrumentCatalogEntry(
             id="test_dmm",

@@ -22,7 +22,7 @@ from __future__ import annotations
 from typing import Any
 
 from litmus.instruments.base import Instrument
-from litmus.models.config import FixtureConfig, FixtureConnection
+from litmus.models.test_config import FixtureConfig, FixtureConnection
 
 
 class FixtureManager:

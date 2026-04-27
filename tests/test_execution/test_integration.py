@@ -3,7 +3,7 @@
 from litmus.data.models import Outcome
 from litmus.execution.decorators import measure
 from litmus.instruments import Mock
-from litmus.models.config import Limit
+from litmus.models.test_config import Limit
 
 
 class FakeDMM:

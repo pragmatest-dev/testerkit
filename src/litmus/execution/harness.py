@@ -16,7 +16,7 @@ from typing import TYPE_CHECKING, Any
 from litmus.data.models import Measurement, Outcome, TestStep, TestVector, _utcnow, escalate_outcome
 from litmus.execution._state import current_step_var, current_vector_var
 from litmus.execution.vectors import Vector, expand_vectors
-from litmus.models.config import Limit, MeasurementLimitConfig, PromptConfig, RetryConfig
+from litmus.models.test_config import Limit, MeasurementLimitConfig, PromptConfig, RetryConfig
 from litmus.prompts import ask
 
 if TYPE_CHECKING:

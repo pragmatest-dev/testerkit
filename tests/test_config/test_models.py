@@ -2,23 +2,20 @@
 
 import pytest
 
-from litmus.models.config import (
-    Capability,
-    Condition,
-    Control,
-    Direction,
-    FixtureConfig,
-    FixtureConnection,
+from litmus.models.capability import Capability, Condition, Control, RangeSpec, Signal
+from litmus.models.enums import Direction, MeasurementFunction
+from litmus.models.station_types import (
     InstrumentConfig,
     InstrumentInstance,
-    Limit,
-    MeasurementFunction,
-    RangeSpec,
-    RetryConfig,
-    Signal,
-    Specification,
     StationInstance,
     StationType,
+)
+from litmus.models.test_config import (
+    FixtureConfig,
+    FixtureConnection,
+    Limit,
+    RetryConfig,
+    Specification,
 )
 
 

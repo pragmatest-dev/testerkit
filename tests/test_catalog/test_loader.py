@@ -5,7 +5,7 @@ from textwrap import dedent
 
 import pytest
 
-from litmus.models.config import Direction, MeasurementFunction
+from litmus.models.enums import Direction, MeasurementFunction
 from litmus.store import load_catalog_entry, load_catalog_from_directory
 
 CATALOG_DIR = Path(__file__).parent.parent.parent / "src" / "litmus" / "catalog" / "generic"

@@ -22,7 +22,7 @@ from collections.abc import Callable
 from contextvars import ContextVar
 from typing import Any
 
-from litmus.models.config import PromptConfig
+from litmus.models.test_config import PromptConfig
 
 PromptHandler = Callable[[PromptConfig], Any]
 
