@@ -334,6 +334,7 @@ class DialogManager:
         # Clean up and return response
         self._pending.pop(dialog.id, None)
         self._events.pop(dialog.id, None)
+        self._open_times.pop(dialog.id, None)
         return self._responses.pop(dialog.id, DialogResponse(dialog_id=dialog.id, cancelled=True))
 
     def register_dialog(self, dialog: Dialog) -> None:
@@ -517,15 +518,6 @@ def get_dialog_manager(
         url = server_url or os.environ.get("LITMUS_SERVER_URL")
         _manager = DialogManager(server_url=url, auto_respond=auto_respond)
     return _manager
-
-
-def reset_dialog_manager() -> None:
-    """Reset the global dialog manager.
-
-    Useful for tests that need a fresh manager state.
-    """
-    global _manager
-    _manager = None
 
 
 # ---------------------------------------------------------------------------
