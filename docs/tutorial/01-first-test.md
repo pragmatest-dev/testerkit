@@ -97,7 +97,7 @@ def dmm() -> MagicMock:
 
 ```python
 # tests/test_smoke.py
-from litmus.models.config import Limit
+from litmus.models.test_config import Limit
 
 
 def test_rail(dmm, verify):

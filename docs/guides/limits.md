@@ -132,7 +132,7 @@ A limit without `bands:` is the flat scalar shape (`output_voltage: {low: 3.2, h
 ## Explicit `limit=` kwarg
 
 ```python
-from litmus.config.models import Limit
+from litmus.models.test_config import Limit
 
 logger.measure("v", val, limit=Limit(low=3.2, high=3.4, units="V"))
 ```

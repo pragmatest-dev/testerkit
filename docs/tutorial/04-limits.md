@@ -24,7 +24,7 @@ to determine pass/fail.
 A `Limit` defines acceptable bounds for a measurement:
 
 ```python
-from litmus.config.models import Limit
+from litmus.models.test_config import Limit
 
 limit = Limit(
     low=3.135,      # Minimum acceptable value
@@ -70,7 +70,7 @@ print(m.outcome)  # Outcome.PASS
 Pass an explicit `Limit` to the logger:
 
 ```python
-from litmus.config.models import Limit
+from litmus.models.test_config import Limit
 
 
 def test_output_voltage(dmm, logger):
@@ -159,7 +159,8 @@ low <= value <= high
 Other comparators are available:
 
 ```python
-from litmus.config.models import Comparator, Limit
+from litmus.models.enums import Comparator
+from litmus.models.test_config import Limit
 
 # Upper limit only
 limit = Limit(high=1.0, comparator=Comparator.LE)  # value <= 1.0
@@ -244,7 +245,7 @@ For more complex logic, use a Python function:
 
 ```python
 # myproject/limits.py
-from litmus.config.models import Limit
+from litmus.models.test_config import Limit
 
 def output_voltage(ctx):
     """Temperature-dependent voltage limit."""

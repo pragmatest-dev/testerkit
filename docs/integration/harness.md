@@ -208,7 +208,7 @@ Create reusable measurement functions with embedded limits.
 
 ```python
 from litmus.execution.decorators import measure
-from litmus.config.models import Limit
+from litmus.models.test_config import Limit
 
 @measure(
     name="output_voltage",
