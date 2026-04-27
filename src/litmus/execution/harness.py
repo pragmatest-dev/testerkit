@@ -16,6 +16,8 @@ from typing import TYPE_CHECKING, Any
 from litmus.data.models import Measurement, Outcome, TestStep, TestVector, _utcnow, escalate_outcome
 from litmus.data.ref import classify_value
 from litmus.execution._state import (
+    get_active_limits,
+    get_active_test_characteristics,
     get_current_code_identity,
     get_current_step,
     get_current_vector,
@@ -31,6 +33,56 @@ from litmus.prompts import ask
 if TYPE_CHECKING:
     from litmus.execution.logger import TestRunLogger
     from litmus.products.context import SpecContext
+
+
+class LimitsView(Mapping[str, MeasurementLimitConfig]):
+    """Dict-like view over the merged ``litmus_limits`` for the active test.
+
+    Wraps the ``_active_limits_var`` dict and exposes the standard
+    :class:`Mapping` surface (``__getitem__`` / ``__iter__`` /
+    ``__len__`` / ``__contains__`` / ``keys`` / ``values`` / ``items``)
+    plus a :meth:`for_characteristic` filter for per-char scoping.
+
+    The view is a snapshot: accessors return live references into the
+    underlying dict. Tests should treat it as read-only.
+    """
+
+    __slots__ = ("_data",)
+
+    def __init__(self, data: Mapping[str, MeasurementLimitConfig]) -> None:
+        self._data = data
+
+    def __getitem__(self, key: str) -> MeasurementLimitConfig:
+        return self._data[key]
+
+    def __iter__(self) -> Iterator[str]:
+        return iter(self._data)
+
+    def __len__(self) -> int:
+        return len(self._data)
+
+    def __contains__(self, key: object) -> bool:
+        return key in self._data
+
+    def for_characteristic(self, char_id: str) -> dict[str, MeasurementLimitConfig]:
+        """Return entries whose ``characteristic:`` field equals ``char_id``.
+
+        Entries with no explicit ``characteristic:`` field are included
+        only when the active-char ContextVar matches ``char_id`` (set by
+        ``ConnectionIterator`` during scoped iteration). Otherwise such
+        entries are absent from the result — they aren't bound to any
+        single char outside an iteration block.
+        """
+        from litmus.execution._state import get_active_characteristic
+
+        active = get_active_characteristic()
+        out: dict[str, MeasurementLimitConfig] = {}
+        for label, cfg in self._data.items():
+            if cfg.characteristic == char_id:
+                out[label] = cfg
+            elif cfg.characteristic is None and active == char_id:
+                out[label] = cfg
+        return out
 
 
 class Context:
@@ -265,6 +317,29 @@ class Context:
             result.update(self._parent.observations)
         result.update(self._observations)
         return result
+
+    @property
+    def characteristics(self) -> tuple[str, ...]:
+        """Characteristic IDs in scope for the active test, in declaration order.
+
+        Sourced from the ``litmus_characteristics`` marker (or the union of
+        per-limit ``characteristic:`` values when the marker is absent).
+        Read-only view; mirrors how :attr:`params` exposes the active
+        vector params.
+        """
+        return tuple(get_active_test_characteristics())
+
+    @property
+    def limits(self) -> LimitsView:
+        """Dict-like view over the merged ``litmus_limits`` for this test.
+
+        Use ``ctx.limits[label]`` for the raw config (no resolution),
+        ``ctx.limits.for_characteristic(char_id)`` for the subset bound
+        to one char. Iteration follows insertion order. Resolution to
+        a concrete :class:`Limit` still goes through
+        :meth:`Context.get_limit` or the ``verify``/``logger`` paths.
+        """
+        return LimitsView(get_active_limits())
 
     # -------------------------------------------------------------------------
     # Limit access

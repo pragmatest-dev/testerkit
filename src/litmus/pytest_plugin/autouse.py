@@ -22,8 +22,10 @@ import pytest
 
 from litmus.execution._state import (
     get_active_spec_context,
+    push_active_characteristic,
+    reset_active_characteristic,
     set_active_limits,
-    set_active_test_characteristic,
+    set_active_test_characteristics,
     set_active_vector_params,
     set_current_logger,
 )
@@ -38,7 +40,7 @@ from litmus.execution.mocks import install_mocks
 from litmus.models.test_config import MeasurementLimitConfig, MockEntry
 from litmus.pytest_plugin.helpers import safe_get_session_fixture
 from litmus.pytest_plugin.markers import (
-    extract_characteristic_marker_id,
+    extract_characteristic_marker_ids,
     normalize_inline_list_payload,
 )
 
@@ -49,23 +51,60 @@ from litmus.pytest_plugin.markers import (
 _PREV_STASH_KEY: pytest.StashKey[dict[str, Context]] = pytest.StashKey()
 
 
-def _extract_characteristic_marker_id(node: pytest.Item) -> str | None:
+def _extract_characteristic_marker_ids(node: pytest.Item) -> list[str]:
     """Pytest adapter — collect ``litmus_characteristics`` payloads.
 
-    Delegates to the runner-neutral helper for cardinality enforcement.
+    Returns the list of characteristic IDs declared on the test
+    (``[]`` when the marker is absent). Delegates to the runner-neutral
+    helper for shape validation.
     """
     marker = next(iter(node.iter_markers("litmus_characteristics")), None)
     if marker is None:
-        return None
+        return []
     if marker.kwargs:
         raise pytest.UsageError(
             "litmus_characteristics does not accept keyword arguments; pass "
             "characteristic IDs as positional strings or a single list."
         )
     try:
-        return extract_characteristic_marker_id([marker.args])
+        return extract_characteristic_marker_ids([marker.args])
     except ValueError as exc:
         raise pytest.UsageError(str(exc)) from exc
+
+
+def _scope_characteristics(
+    node: pytest.Item, limits: dict[str, MeasurementLimitConfig]
+) -> list[str]:
+    """Resolve the chars in scope for a test.
+
+    Marker present → its list IS the scope. Per-limit ``characteristic:``
+    values must be in the marker's list (else ``UsageError``).
+    Marker absent → scope is the union of per-limit ``characteristic:``
+    values (in first-seen order; an empty list when no limit names a
+    char).
+    """
+    marker_ids = _extract_characteristic_marker_ids(node)
+    limit_chars: list[str] = []
+    seen: set[str] = set()
+    for cfg in limits.values():
+        char = cfg.characteristic
+        if char is None or char in seen:
+            continue
+        limit_chars.append(char)
+        seen.add(char)
+
+    if marker_ids:
+        # Cross-check: per-limit chars must be in the marker's list.
+        marker_set = set(marker_ids)
+        unlisted = [c for c in limit_chars if c not in marker_set]
+        if unlisted:
+            raise pytest.UsageError(
+                f"litmus_limits references characteristic(s) {unlisted!r} not "
+                f"declared in litmus_characteristics({marker_ids!r}). Add them "
+                "to the marker or correct the limit's characteristic field."
+            )
+        return list(marker_ids)
+    return limit_chars
 
 
 @pytest.fixture(autouse=True)
@@ -161,13 +200,12 @@ def _litmus_push_limits(
     instances directly (Pydantic-validated at YAML load); inline
     decorators carry raw dicts which we coerce here. The merged
     ``dict[str, MeasurementLimitConfig]`` is pushed onto
-    ``_active_limits_var`` along with the test's characteristic
-    binding (from ``litmus_characteristics``), and resolution to a concrete
-    :class:`Limit` happens at measurement time via
-    :func:`sidecar.resolve_limit`.
+    ``_active_limits_var`` along with the test's characteristic list
+    (from ``litmus_characteristics``, or derived from per-limit
+    ``characteristic:`` values when the marker is absent), and
+    resolution to a concrete :class:`Limit` happens at measurement
+    time via :func:`sidecar.resolve_limit`.
     """
-    set_active_test_characteristic(_extract_characteristic_marker_id(request.node))
-
     # Walk listchain root-to-leaf so later (more-specific) markers win
     # via ``update``. Within a node, ``own_markers`` preserves insertion
     # order — file-level sidecar markers are added before per-test ones,
@@ -184,39 +222,57 @@ def _litmus_push_limits(
                     # Inline decorator passed a raw dict — Pydantic validates.
                     merged[name] = MeasurementLimitConfig.model_validate(spec)
     set_active_limits(merged)
+    chars = _scope_characteristics(request.node, merged)
+    set_active_test_characteristics(chars)
+    # When scope is exactly one char, push it as the ambient active char
+    # so verify() picks it up without needing an explicit iteration block.
+    # Multi-char scopes leave active-char None until the iterator pushes
+    # a per-connection / per-for_characteristic value.
+    ambient_token = push_active_characteristic(chars[0]) if len(chars) == 1 else None
     try:
         yield
     finally:
+        if ambient_token is not None:
+            reset_active_characteristic(ambient_token)
         set_active_limits({})
-        set_active_test_characteristic(None)
+        set_active_test_characteristics([])
 
 
 @pytest.fixture(autouse=True)
-def _litmus_resolve_connections(request: pytest.FixtureRequest) -> Iterator[None]:
+def _litmus_resolve_connections(
+    request: pytest.FixtureRequest,
+    _litmus_push_limits: None,
+) -> Iterator[None]:
     """Build :class:`ConnectionIterator` on ``ctx.connections`` from spec/connections markers.
 
-    Reads ``litmus_characteristics`` (characteristic context) and
-    ``litmus_connections`` (explicit name list / channel selectors).
-    The two compose: connections narrows the spec's pin set, and
-    iteration follows the user-listed order. If the test body declares
-    connections but never iterates ``ctx.connections``, the test fails —
-    silent skips are worse than errors.
+    Reads the chars in scope from ``_active_test_characteristics_var``
+    (set by ``_litmus_push_limits`` from the marker or from per-limit
+    ``characteristic:`` values) and ``litmus_connections`` (explicit
+    name list / channel selectors). The two compose: connections
+    narrows the spec's pin set, and iteration follows the user-listed
+    order. If the test body declares connections but never iterates
+    ``ctx.connections``, the test fails — silent skips are worse
+    than errors.
     """
-    test_char = _extract_characteristic_marker_id(request.node)
+    from litmus.execution._state import get_active_test_characteristics
+
+    test_chars = get_active_test_characteristics()
     conn_marker = next(iter(request.node.iter_markers("litmus_connections")), None)
-    if test_char is None and conn_marker is None:
+    if not test_chars and conn_marker is None:
         yield
         return
 
     spec_ctx = get_active_spec_context()
     fixture_cfg = safe_get_session_fixture(request, "fixture_config")
     try:
-        connections = resolve_test_connections(test_char, conn_marker, spec_ctx, fixture_cfg)
+        connections, conn_to_char = resolve_test_connections(
+            test_chars, conn_marker, spec_ctx, fixture_cfg
+        )
     except ConnectionResolutionError as exc:
         raise pytest.UsageError(str(exc)) from exc
 
     ctx: Context = request.getfixturevalue("context")
-    iterator = ConnectionIterator(connections)
+    iterator = ConnectionIterator(connections, conn_to_char)
     ctx.connections = iterator
 
     try:

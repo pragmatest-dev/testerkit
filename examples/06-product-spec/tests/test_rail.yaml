@@ -14,7 +14,7 @@ tests:
       v_rail: {characteristic: rail_3v3, tolerance_pct: 2}
 
   TestIdle:
-    characteristics: [rail_3v3]
+    characteristics: [rail_3v3, idle_current]
     limits:
       v_rail: {characteristic: rail_3v3, tolerance_pct: 2}
       i_idle: {characteristic: idle_current, tolerance_pct: 20}

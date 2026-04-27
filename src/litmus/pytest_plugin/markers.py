@@ -14,8 +14,8 @@ Also lives here:
   list of entries.
 * :func:`enforce_no_inline_stacking` — raise a clear error when more
   than one ``litmus_X`` marker of the same name decorates a test.
-* :func:`extract_characteristic_marker_id` — pull the single
-  characteristic ID out of a ``litmus_characteristics`` marker payload.
+* :func:`extract_characteristic_marker_ids` — pull the list of
+  characteristic IDs out of a ``litmus_characteristics`` marker payload.
 """
 
 from __future__ import annotations
@@ -163,19 +163,18 @@ def enforce_no_inline_stacking(marker_names: list[str]) -> None:
         )
 
 
-def extract_characteristic_marker_id(payloads: list[Any]) -> str | None:
-    """Extract the single characteristic ID from a ``litmus_characteristics`` marker's payloads.
+def extract_characteristic_marker_ids(payloads: list[Any]) -> list[str]:
+    """Extract characteristic IDs from a ``litmus_characteristics`` marker's payloads.
 
     ``payloads`` is the ordered list of payloads each
     ``litmus_characteristics`` marker on the function carried (caller
     passes the most-specific marker first). Inline decorators may pass
     either varargs of strings or a single list arg; sidecar / profile
-    cascade always passes a single list. v1 enforces cardinality 1 —
-    multiple characteristic bindings raise ``ValueError`` (single
-    iteration scope only). Returns ``None`` if no payload is present.
+    cascade always passes a single list. Returns ``[]`` if no payload
+    is present (marker absent / empty).
     """
     if not payloads:
-        return None
+        return []
     payload = payloads[0]
 
     payload_args: tuple[Any, ...] = payload if isinstance(payload, tuple) else (payload,)
@@ -193,9 +192,4 @@ def extract_characteristic_marker_id(payloads: list[Any]) -> str | None:
         )
     if not all(isinstance(i, str) for i in ids):
         raise ValueError(f"litmus_characteristics entries must be strings; got {ids!r}")
-    if len(ids) != 1:
-        raise ValueError(
-            f"litmus_characteristics supports exactly one characteristic ID per test "
-            f"(single iteration scope); got {len(ids)}: {ids!r}"
-        )
-    return ids[0]
+    return list(ids)

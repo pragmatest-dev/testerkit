@@ -56,7 +56,8 @@ _collected_items_var: ContextVar[list[CollectedItem]] = ContextVar("_collected_i
 _current_code_identity_var: ContextVar[dict[str, str | None]] = ContextVar("_current_code_identity")
 _event_store_var: ContextVar[Any] = ContextVar("_event_store")
 _active_limits_var: ContextVar[dict[str, Any]] = ContextVar("_active_limits")
-_active_test_characteristic_var: ContextVar[str | None] = ContextVar("_active_test_characteristic")
+_active_test_characteristics_var: ContextVar[list[str]] = ContextVar("_active_test_characteristics")
+_active_characteristic_var: ContextVar[str | None] = ContextVar("_active_characteristic")
 _active_profile_var: ContextVar[ProfileConfig | None] = ContextVar("_active_profile")
 _active_facets_var: ContextVar[dict[str, str]] = ContextVar("_active_facets")
 _session_inputs_var: ContextVar[dict[str, str]] = ContextVar("_session_inputs")
@@ -252,24 +253,54 @@ def set_active_limits(value: dict[str, Any]) -> None:
     _active_limits_var.set(value)
 
 
-def get_active_test_characteristic() -> str | None:
-    """Return the active test's characteristic binding, or ``None``.
+def get_active_test_characteristics() -> list[str]:
+    """Return the chars declared in scope for the active test, or ``[]``.
 
-    Set per-test alongside :func:`set_active_limits` when the test declares
-    ``characteristics: [<char_id>]`` (sidecar / profile / inline
-    ``litmus_characteristics`` marker). Read at measurement time so
-    per-label limits with a ``characteristic:`` field can fall back to the
-    test-level binding when their own field is omitted.
+    Set per-test by :func:`set_active_test_characteristics` from the
+    ``litmus_characteristics`` marker (or, when the marker is absent, the
+    union derived from per-limit ``characteristic:`` values). The list
+    drives ``ctx.connections`` resolution and bounds which chars can be
+    referenced by per-limit ``characteristic:`` fields.
     """
     try:
-        return _active_test_characteristic_var.get()
+        return _active_test_characteristics_var.get()
+    except LookupError:
+        return []
+
+
+def set_active_test_characteristics(value: list[str]) -> None:
+    """Set the active test's characteristic list. Returns None."""
+    _active_test_characteristics_var.set(value)
+
+
+def get_active_characteristic() -> str | None:
+    """Return the currently iterating characteristic, or ``None``.
+
+    Pushed by :class:`ConnectionIterator` as the test body iterates
+    ``ctx.connections`` (per-connection char) or
+    ``ctx.connections.for_characteristic(...)`` (explicit scope). Read
+    by limit resolution and ``logger.measure`` to stamp
+    ``characteristic_id`` on the row when no per-limit ``characteristic:``
+    is set and the explicit ``verify(characteristic=...)`` override is
+    not used.
+    """
+    try:
+        return _active_characteristic_var.get()
     except LookupError:
         return None
 
 
-def set_active_test_characteristic(value: str | None) -> None:
-    """Set the active test characteristic. Returns None."""
-    _active_test_characteristic_var.set(value)
+def push_active_characteristic(value: str | None) -> Token[str | None]:
+    """Push the active characteristic; returns a token for :func:`reset_active_characteristic`."""
+    return _active_characteristic_var.set(value)
+
+
+def reset_active_characteristic(token: Token[str | None]) -> None:
+    """Restore the prior active characteristic.
+
+    Pass a token from :func:`push_active_characteristic`.
+    """
+    _active_characteristic_var.reset(token)
 
 
 def get_active_profile() -> ProfileConfig | None:

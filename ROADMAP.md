@@ -149,6 +149,57 @@ rewrite to benefit from Litmus's config system, instrument layer,
 and results store. Each wrapper is a week or two of work once the
 two-wheel split lands.
 
+### Switch-matrix routing — `FixtureConnection.route` + `connection.connect()` / `.routed()`
+
+Real benches with relay matrices need explicit switching: a single
+pin reaches different instruments through different relay paths, and
+the test author (or platform) needs to actuate the right path before
+measuring. Today's `FixtureConnection` is implicitly "always wired" —
+the `function:` field added in the multi-char relax lets the resolver
+pick *which* connection routes for a given char's measurement, but
+doesn't actuate any switching.
+
+Add a `route:` field on `FixtureConnection` describing the relay /
+switch state needed to land the path:
+
+```yaml
+TP_VOUT_dc:
+  dut_pin: TP_VOUT
+  function: dc_voltage
+  instrument: dmm
+  instrument_channel: ch1
+  route:
+    - relay: rly_main
+      state: closed
+    - relay: rly_aux
+      state: open
+```
+
+Add `connection.connect()` / `connection.disconnect()` (imperative)
+and `connection.routed()` (context-managed) methods:
+
+```python
+for connection in ctx.connections.for_characteristic("rail_3v3"):
+    with connection.routed():
+        verify("voltage",
+               float(dmm.measure_dc_voltage(connection.instrument_channel)))
+```
+
+Implementation seed: the existing `_route_manager` / `RoutedProxy`
+infrastructure (referenced by the `_route_cleanup` autouse at
+`autouse.py:81`) is the closest analog. The new design folds in
+conflict detection (two connections claiming the same relay),
+multi-stage routing (path through several relays), per-bench safety
+rules (don't actuate while another path is live), and session-level
+cleanup (release on test teardown).
+
+**Why:** the multi-char + per-function design picks the right
+connection for each measurement, but doesn't actuate the bench. For
+benches without switching it doesn't matter — for any bench with
+relays it does. The forward-compatible design landed in the
+multi-char relax means this can be added cleanly without reshaping
+`FixtureConnection`.
+
 ### Sequences for fine-grained execution control
 
 Profiles (config overlay) and pytest classes (test grouping) cover

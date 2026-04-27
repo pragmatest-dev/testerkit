@@ -28,7 +28,8 @@ class VerifyFn(Protocol):
     """Signature of the ``verify`` fixture callable.
 
     Typing the fixture as this Protocol lets IDEs autocomplete
-    ``verify("label", value, limit=...)`` instead of showing ``Any``.
+    ``verify("label", value, limit=..., characteristic=...)`` instead of
+    showing ``Any``.
     """
 
     def __call__(
@@ -36,6 +37,7 @@ class VerifyFn(Protocol):
         name: str,
         value: float | int | None,
         limit: Limit | None = ...,
+        characteristic: str | None = ...,
     ) -> Measurement: ...
 
 
@@ -107,11 +109,11 @@ class _LimitsMapping(Mapping[str, Limit]):
         self._configs = configs
 
     def __getitem__(self, key: str) -> Limit:
-        from litmus.execution._state import get_active_test_characteristic
+        from litmus.execution._state import get_active_characteristic
         from litmus.execution.sidecar import resolve_limit
 
         cfg = self._configs[key]
-        resolved = resolve_limit(cfg, test_char=get_active_test_characteristic())
+        resolved = resolve_limit(cfg, test_char=get_active_characteristic())
         if resolved is None:
             raise KeyError(key)
         return resolved
@@ -137,7 +139,12 @@ def build_verify_callable() -> VerifyFn:
     from litmus.execution.decorators import get_current_logger
     from litmus.execution.logger import _resolve_measurement_limit
 
-    def _verify(name: str, value: float | int | None, limit: Limit | None = None) -> Measurement:
+    def _verify(
+        name: str,
+        value: float | int | None,
+        limit: Limit | None = None,
+        characteristic: str | None = None,
+    ) -> Measurement:
         logger = get_current_logger()
         if logger is None:
             raise RuntimeError(
@@ -145,7 +152,23 @@ def build_verify_callable() -> VerifyFn:
                 "is a Litmus runner plugin installed?"
             )
 
-        measurement = logger.measure(name, value, limit=limit)
+        # Explicit ``characteristic=`` bypasses the active-char ContextVar
+        # while we resolve the limit + emit the row, then restores prior
+        # state. This lets test code stamp a specific char_id even when
+        # no for_characteristic block is in scope.
+        if characteristic is not None:
+            from litmus.execution._state import (
+                push_active_characteristic,
+                reset_active_characteristic,
+            )
+
+            token = push_active_characteristic(characteristic)
+            try:
+                measurement = logger.measure(name, value, limit=limit)
+            finally:
+                reset_active_characteristic(token)
+        else:
+            measurement = logger.measure(name, value, limit=limit)
 
         # The measurement row carries whichever limit logger.measure
         # resolved. Reconstruct it so we can evaluate + raise.

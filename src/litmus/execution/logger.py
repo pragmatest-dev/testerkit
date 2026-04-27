@@ -28,11 +28,11 @@ from litmus.data.models import (
     escalate_outcome,
 )
 from litmus.execution._state import (
+    get_active_characteristic,
     get_active_connection,
     get_active_instruments,
     get_active_limits,
     get_active_spec_context,
-    get_active_test_characteristic,
     get_active_vector_params,
     get_current_step,
     get_current_vector,
@@ -260,7 +260,7 @@ def _resolve_measurement_limit(
         # cfg is a MeasurementLimitConfig — resolve against active state
         # (vector params, spec context, profile guardband) at measurement
         # time, including band matching with sibling-as-catch-all fallback.
-        return resolve_limit(cfg, test_char=get_active_test_characteristic())
+        return resolve_limit(cfg, test_char=get_active_characteristic())
 
     spec = get_active_spec_context()
     if spec is not None:

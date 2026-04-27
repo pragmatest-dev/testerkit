@@ -11,7 +11,7 @@ from typing import Any, Literal, Self
 
 from pydantic import BaseModel, ConfigDict, Field, RootModel, model_validator
 
-from litmus.models.enums import Comparator
+from litmus.models.enums import Comparator, MeasurementFunction
 
 # =============================================================================
 # Marker-scope schema — runner-neutral Litmus-marker fields, flat
@@ -358,6 +358,15 @@ class FixtureConnection(BaseModel):
     # DUT-side mapping (ATML: signal routing)
     dut_pin: str | None = None  # Reference to Product.pins key
     net: str | None = None  # Match by schematic net name
+
+    # Measurement function this connection serves (e.g. dc_voltage,
+    # ac_voltage). Optional. When set, the resolver matches connections
+    # by (dut_pin, function) so a single pin can route to different
+    # instruments for different characteristics (e.g. DMM for DC,
+    # Scope for AC ripple). When unset, falls back to first-match by
+    # pin — backward-compatible for fixtures without per-function
+    # connections.
+    function: MeasurementFunction | None = None
 
     # Switch routing (None = direct-wired, no switching needed)
     route: SwitchRoute | None = None
