@@ -26,6 +26,8 @@ Four ContextVar getter patterns are used:
 
 from __future__ import annotations
 
+from collections.abc import Iterator
+from contextlib import contextmanager
 from contextvars import ContextVar, Token
 from typing import TYPE_CHECKING, Any
 
@@ -301,6 +303,26 @@ def reset_active_characteristic(token: Token[str | None]) -> None:
     Pass a token from :func:`push_active_characteristic`.
     """
     _active_characteristic_var.reset(token)
+
+
+@contextmanager
+def pushed_active_characteristic(value: str | None) -> Iterator[None]:
+    """Context-managed push/pop of the active characteristic.
+
+    Use when scoping a single block (e.g. inside ``verify``) — pushes
+    on enter, pops on exit even if the body raises. Equivalent to:
+
+        token = push_active_characteristic(value)
+        try:
+            ...
+        finally:
+            reset_active_characteristic(token)
+    """
+    token = push_active_characteristic(value)
+    try:
+        yield
+    finally:
+        reset_active_characteristic(token)
 
 
 def get_active_profile() -> ProfileConfig | None:

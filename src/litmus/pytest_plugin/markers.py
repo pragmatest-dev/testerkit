@@ -166,12 +166,14 @@ def enforce_no_inline_stacking(marker_names: list[str]) -> None:
 def extract_characteristic_marker_ids(payloads: list[Any]) -> list[str]:
     """Extract characteristic IDs from a ``litmus_characteristics`` marker's payloads.
 
-    ``payloads`` is the ordered list of payloads each
-    ``litmus_characteristics`` marker on the function carried (caller
-    passes the most-specific marker first). Inline decorators may pass
-    either varargs of strings or a single list arg; sidecar / profile
-    cascade always passes a single list. Returns ``[]`` if no payload
-    is present (marker absent / empty).
+    ``payloads`` is a list of marker payloads; in practice it always
+    has exactly one entry because :func:`enforce_no_inline_stacking`
+    rejects multiple ``litmus_characteristics`` markers on the same
+    test. The caller still passes a list for symmetry with the other
+    marker extractors. Inline decorators may pass either varargs of
+    strings or a single list arg; sidecar / profile cascade always
+    passes a single list. Returns ``[]`` if no payload is present
+    (marker absent / empty).
     """
     if not payloads:
         return []

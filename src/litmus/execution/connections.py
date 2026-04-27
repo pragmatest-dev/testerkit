@@ -56,6 +56,7 @@ class ConnectionIterator:
         self,
         connections: list[FixtureConnection],
         conn_to_char: dict[str, str] | None = None,
+        _parent: ConnectionIterator | None = None,
     ) -> None:
         self._connections = connections
         self._by_name: dict[str, FixtureConnection] = {c.name: c for c in connections}
@@ -63,6 +64,11 @@ class ConnectionIterator:
         # by ``resolve_test_connections`` from the spec; empty when no
         # chars are in scope (pure ``litmus_connections`` bringup).
         self._conn_to_char: dict[str, str] = conn_to_char or {}
+        # Parent iterator (for ``for_characteristic`` sub-iterators) so
+        # iterating the child also marks the parent ``started`` —
+        # actual iteration, not iterator construction, is what the
+        # consumption guard cares about.
+        self._parent: ConnectionIterator | None = _parent
         self._idx = 0
         self._conn_token: Token[FixtureConnection | None] | None = None
         self._char_token: Token[str | None] | None = None
@@ -78,6 +84,8 @@ class ConnectionIterator:
         connection = self._connections[self._idx]
         self._idx += 1
         self.started = True
+        if self._parent is not None:
+            self._parent.started = True
         self._conn_token = push_active_connection(connection)
         char = self._conn_to_char.get(connection.name)
         if char is not None:
@@ -107,18 +115,16 @@ class ConnectionIterator:
         Iterates only the subset whose ``conn_to_char`` mapping matches
         ``char_id``. Each ``__next__`` pushes the active-char ContextVar
         to ``char_id`` (so ``verify`` stamps the right
-        ``characteristic_id``) and pops it on advance / cleanup. The
-        parent iterator records this as a consumption so the
-        "declared but didn't iterate" guard in
-        ``_litmus_resolve_connections`` is satisfied.
+        ``characteristic_id``) AND marks the parent iterator
+        ``started`` — so the consumption guard in
+        ``_litmus_resolve_connections`` sees real iteration, not just
+        iterator construction. Building a sub-iterator and never
+        iterating it does NOT count as consumption.
         """
         subset = [
             conn for conn in self._connections if self._conn_to_char.get(conn.name) == char_id
         ]
-        # Mark the parent as started so the post-test consumption check
-        # treats a sole for_characteristic loop as a valid iteration.
-        self.started = True
-        return ConnectionIterator(subset, {c.name: char_id for c in subset})
+        return ConnectionIterator(subset, {c.name: char_id for c in subset}, _parent=self)
 
     def _reset_tokens(self) -> None:
         if self._char_token is not None:
@@ -163,24 +169,34 @@ def _pick_connection_for_pin(
 ) -> FixtureConnection | None:
     """Pick the fixture connection that routes ``(pin, function)``.
 
-    Tie-break: a function-specific connection (``conn.function == target_function``)
-    wins for any char with a matching function. A function-unset
-    connection is the fallback used only when no functioned connection
-    exists for that pin (and only when the char's function is None too,
-    OR no functioned alternative exists). Match by ``dut_pin`` first;
-    falls back to net match when ``dut_pin`` is unset.
+    Match priority, highest first:
+
+    1. **Exact**: char's ``function`` and conn's ``function`` are both set
+       and equal — the strongest match.
+    2. **Pin-only**: at least one side has no ``function``. Either the
+       char doesn't declare what function it needs (backward-compatible
+       with pre-function fixtures) or the conn is generic
+       (function-unset). The first such conn for the pin wins.
+
+    Connections where both sides set ``function`` but the values differ
+    are skipped — a wired-up DC connection isn't valid for an AC char.
+    Match by ``dut_pin`` first; falls back to net match when
+    ``dut_pin`` is unset on the connection.
     """
-    function_match: FixtureConnection | None = None
-    fallback_match: FixtureConnection | None = None
+    exact_match: FixtureConnection | None = None
+    pin_only_match: FixtureConnection | None = None
     for conn in fixture_cfg.connections.values():
         pin_hit = conn.dut_pin == pin_id or (pin_net is not None and conn.net == pin_net)
         if not pin_hit:
             continue
         if target_function is not None and conn.function == target_function:
-            function_match = function_match or conn
-        elif conn.function is None:
-            fallback_match = fallback_match or conn
-    return function_match or fallback_match
+            exact_match = exact_match or conn
+        elif target_function is None or conn.function is None:
+            # At least one side is None — pin-only fallback.
+            pin_only_match = pin_only_match or conn
+        # else: both sides set but different — skip (e.g. char wants
+        # ac_voltage but this conn is dc_voltage-only).
+    return exact_match or pin_only_match
 
 
 def _resolve_chars_to_connections(
@@ -194,6 +210,16 @@ def _resolve_chars_to_connections(
     char-pin order) plus a ``conn_name → char_id`` lookup. When the
     same fixture connection is selected by multiple chars, the
     first-listing char owns it (matching marker order).
+
+    Edge case: when two chars share a pin but neither declares
+    ``function:`` (or both share the same function), they bind to the
+    same connection — only the first-listed char owns it in
+    ``conn_to_char``. ``ctx.connections.for_characteristic(<later_char>)``
+    will return an empty subset for the loser. To avoid this, declare
+    distinct ``function:`` values on the chars and the matching
+    connections (the per-function tie-break in
+    :func:`_pick_connection_for_pin`), or put the chars on different
+    pins.
     """
     matched: list[FixtureConnection] = []
     conn_to_char: dict[str, str] = {}

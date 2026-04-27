@@ -157,16 +157,10 @@ def build_verify_callable() -> VerifyFn:
         # state. This lets test code stamp a specific char_id even when
         # no for_characteristic block is in scope.
         if characteristic is not None:
-            from litmus.execution._state import (
-                push_active_characteristic,
-                reset_active_characteristic,
-            )
+            from litmus.execution._state import pushed_active_characteristic
 
-            token = push_active_characteristic(characteristic)
-            try:
+            with pushed_active_characteristic(characteristic):
                 measurement = logger.measure(name, value, limit=limit)
-            finally:
-                reset_active_characteristic(token)
         else:
             measurement = logger.measure(name, value, limit=limit)
 

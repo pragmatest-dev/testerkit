@@ -205,6 +205,14 @@ def _litmus_push_limits(
     ``characteristic:`` values when the marker is absent), and
     resolution to a concrete :class:`Limit` happens at measurement
     time via :func:`sidecar.resolve_limit`.
+
+    Active-char ambient default: when scope is **exactly one char**,
+    that char is pushed onto the active-char ContextVar for the
+    duration of the test, so existing single-char tests work without
+    having to enter ``for_characteristic(...)`` explicitly. Multi-char
+    scopes (``len(chars) >= 2``) leave the ambient None — those tests
+    must use ``ctx.connections.for_characteristic(...)`` or
+    ``verify(..., characteristic=...)`` to bind a char per measurement.
     """
     # Walk listchain root-to-leaf so later (more-specific) markers win
     # via ``update``. Within a node, ``own_markers`` preserves insertion

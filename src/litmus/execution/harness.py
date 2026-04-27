@@ -16,6 +16,7 @@ from typing import TYPE_CHECKING, Any
 from litmus.data.models import Measurement, Outcome, TestStep, TestVector, _utcnow, escalate_outcome
 from litmus.data.ref import classify_value
 from litmus.execution._state import (
+    get_active_characteristic,
     get_active_limits,
     get_active_test_characteristics,
     get_current_code_identity,
@@ -67,14 +68,27 @@ class LimitsView(Mapping[str, MeasurementLimitConfig]):
     def for_characteristic(self, char_id: str) -> dict[str, MeasurementLimitConfig]:
         """Return entries whose ``characteristic:`` field equals ``char_id``.
 
-        Entries with no explicit ``characteristic:`` field are included
-        only when the active-char ContextVar matches ``char_id`` (set by
-        ``ConnectionIterator`` during scoped iteration). Otherwise such
-        entries are absent from the result — they aren't bound to any
-        single char outside an iteration block.
-        """
-        from litmus.execution._state import get_active_characteristic
+        **Result depends on iteration state.** Two cases:
 
+        * Entries with an explicit ``characteristic: <id>`` field are
+          always included when ``id == char_id``.
+        * Entries with **no** ``characteristic:`` field are included
+          only when the active-char ContextVar matches ``char_id``.
+          That ContextVar is pushed by ``ConnectionIterator`` during
+          ``for connection in ctx.connections.for_characteristic(...)``
+          (and during plain iteration over a single-char default).
+          Outside any iteration block, the ContextVar is ``None`` and
+          field-less entries are omitted from the result.
+
+        Practical consequence: calling
+        ``ctx.limits.for_characteristic("rail_3v3")`` from inside a
+        ``ctx.connections.for_characteristic("rail_3v3")`` loop returns
+        every limit applicable to that char (explicit + inherited);
+        calling it from the test body's top level returns only
+        explicit matches. Test code that wants the unconditional
+        explicit-only view should filter ``ctx.limits`` directly:
+        ``{k: v for k, v in ctx.limits.items() if v.characteristic == "rail_3v3"}``.
+        """
         active = get_active_characteristic()
         out: dict[str, MeasurementLimitConfig] = {}
         for label, cfg in self._data.items():
