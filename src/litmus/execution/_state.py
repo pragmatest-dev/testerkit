@@ -27,16 +27,22 @@ Four ContextVar getter patterns are used:
 from __future__ import annotations
 
 from contextvars import ContextVar, Token
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from litmus.data.models import CollectedItem
 from litmus.models.instrument import InstrumentRecord
 from litmus.models.project import ProfileConfig
 from litmus.models.test_config import FixtureConnection
 
+if TYPE_CHECKING:
+    from litmus.execution.logger import TestRunLogger
+
 # Step/vector — stack-like, push/pop with token. Used by logger.py + harness.py.
 _current_step_var: ContextVar[Any] = ContextVar("current_step", default=None)
 _current_vector_var: ContextVar[Any] = ContextVar("current_vector", default=None)
+
+# Active TestRunLogger — session singleton, set once per test by the runner.
+_current_logger_var: ContextVar[TestRunLogger | None] = ContextVar("_current_logger", default=None)
 
 _active_instruments_var: ContextVar[dict[str, Any]] = ContextVar("_active_instruments")
 _instrument_records_var: ContextVar[dict[str, InstrumentRecord]] = ContextVar("_instrument_records")
@@ -164,6 +170,16 @@ def push_current_vector(vector: Any) -> Token[Any]:
 def reset_current_vector(token: Token[Any]) -> None:
     """Restore the prior active vector using a token from :func:`push_current_vector`."""
     _current_vector_var.reset(token)
+
+
+def get_current_logger() -> TestRunLogger | None:
+    """Return the active :class:`TestRunLogger`, or ``None`` if no run is in progress."""
+    return _current_logger_var.get()
+
+
+def set_current_logger(logger: TestRunLogger | None) -> None:
+    """Set the active :class:`TestRunLogger`. Returns ``None``."""
+    _current_logger_var.set(logger)
 
 
 # --- Setters ---

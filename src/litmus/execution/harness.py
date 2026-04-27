@@ -14,6 +14,7 @@ from contextlib import contextmanager
 from typing import TYPE_CHECKING, Any
 
 from litmus.data.models import Measurement, Outcome, TestStep, TestVector, _utcnow, escalate_outcome
+from litmus.data.ref import classify_value
 from litmus.execution._state import (
     get_current_step,
     get_current_vector,
@@ -126,8 +127,6 @@ class Context:
             key: Observation name (e.g., "temp_probe.temperature", "scope.waveform").
             value: The observed value. Large arrays go to ChannelStore, blobs to file store.
         """
-        from litmus.data.ref import classify_value
-
         if self._channel_store is not None and value is not None:
             vtype = classify_value(value)
             if vtype in ("numeric_array", "channel"):

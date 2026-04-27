@@ -10,29 +10,20 @@ measurement against an optional ``Limit``. See
 from __future__ import annotations
 
 from collections.abc import Callable
-from contextvars import ContextVar
 from functools import wraps
 from typing import TYPE_CHECKING, Any
 
 from litmus.data.models import Measurement, Outcome
+from litmus.execution._state import get_current_logger, set_current_logger
 from litmus.execution.logger import _stringify_comparator
 
 if TYPE_CHECKING:
-    from litmus.execution.logger import TestRunLogger
     from litmus.models.test_config import Limit
 
-
-_current_logger_var: ContextVar[TestRunLogger | None] = ContextVar("_current_logger", default=None)
-
-
-def set_current_logger(logger: TestRunLogger | None):
-    """Set the current logger for measurement capture."""
-    _current_logger_var.set(logger)
-
-
-def get_current_logger() -> TestRunLogger | None:
-    """Get the current logger."""
-    return _current_logger_var.get()
+# Re-exported so existing ``from litmus.execution.decorators import
+# get_current_logger`` paths keep working — the canonical home is now
+# :mod:`litmus.execution._state`.
+__all__ = ["get_current_logger", "measure", "set_current_logger"]
 
 
 def measure(
