@@ -8,6 +8,39 @@ through, just move.
 
 ## Backlog
 
+### Profiles select station_type + fixture (test-phase wiring)
+
+Different test phases often run on different physical setups. A
+characterization phase might wire to a universal lab bench; a production
+phase might wire to a dedicated station with a higher-volume fixture.
+Today profiles can override limits / sweeps / mocks / specs / markers /
+runner block, but **not** which station or fixture loads — that's
+resolved separately from `--station` / `--fixture` CLI flags or
+`ProjectConfig.default_station` / `default_fixture`.
+
+The right axis is `station_type`, not a concrete station instance:
+
+- `StationType` already exists (`models/station_types.py`) and
+  `StationConfig.station_type: str | None` already labels concrete
+  stations with the type they implement — but nothing consumes the
+  field for matching today.
+- Add `FixtureConfig.station_types: list[str]` so a fixture declares
+  which station-type layouts it pins against. (A fixture pins against
+  an instrument layout, not a deployment.)
+- Add `ProfileConfig.station_type: str | None` and
+  `ProfileConfig.fixture: str | None`. Session start resolves: the
+  profile's `station_type` selects any concrete station whose
+  `station_type` matches; the profile's `fixture` must be compatible
+  with that station type (`station_type in fixture.station_types`).
+
+Out of scope on `TestEntry` — fixture/station are session-wide bindings
+and pytest collection has already happened by the time per-test
+overrides could matter.
+
+**Why:** test phases differ in physical wiring, not just limits and
+mocks. Without this, every operator has to remember the right
+`--fixture=...` for each profile, which is fragile.
+
 ### `litmus plan --profile=X` — dry-run what a profile resolves to
 
 Profiles declaratively override vectors, limits, markers/facets, and
