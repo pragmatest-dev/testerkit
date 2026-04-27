@@ -19,7 +19,7 @@ from litmus.config.test_config import (
     SweepEntry,
     TestEntry,
 )
-from litmus.data.models import CollectedItem, TestRun, TestVector
+from litmus.data.models import CollectedItem, TestVector
 from litmus.execution._state import (
     _active_vector_index_var,
     current_step_var,
@@ -84,17 +84,25 @@ from litmus.instruments.pool import InstrumentPool
 from litmus.instruments.route_manager import RouteManager
 from litmus.models.config import PromptConfig
 from litmus.models.instrument import InstrumentRecord
-from litmus.models.project import OutputConfig
 from litmus.models.station import StationConfig
 from litmus.products.context import SpecContext
 from litmus.prompts import ask as ask_prompt
+from litmus.runner.audit import audit_traceability
 from litmus.runner.cascade import cascade_for
+from litmus.runner.instrument_events import emit_instrument_events
 from litmus.runner.markers import (
     StackedMarkersError,
     enforce_no_inline_stacking,
     entry_to_marker_specs,
     extract_specs_characteristic,
     normalize_inline_list_payload,
+)
+from litmus.runner.metadata import build_run_metadata
+from litmus.runner.outputs import (
+    create_subscriber,
+    find_format_transport_callback,
+    make_transport_callback,
+    run_configured_outputs,
 )
 from litmus.runner.sweeps import (
     parametrize_call_rows,
@@ -797,163 +805,40 @@ def _safe_get_session_fixture(request, name):
         return None
 
 
-def _create_subscriber(
-    cls: type,
-    fmt: str,
-    output_cfg: OutputConfig,
-    results_path: Path,
-    session_id: UUID,
-) -> Any:
-    """Instantiate a subscriber with the uniform contract.
-
-    All subscribers take ``(output_dir, *, on_output=...)`` where
-    ``output_dir`` is the results root and each subscriber creates
-    its own subfolder.
-    """
-    on_output = _make_transport_callback(output_cfg, results_path) if output_cfg.transport else None
-    output_dir = Path(output_cfg.default_output_dir())
-    return cls(output_dir, on_output=on_output)
-
-
-def _make_transport_callback(
-    output_cfg: OutputConfig,
-    results_path: Path,
-) -> Callable[[Any], None]:
-    """Return a callback that enqueues OutputFiles for transport."""
-    from litmus.data.subscribers._output_file import OutputFile
-
-    transport_name = output_cfg.transport
-    assert transport_name is not None  # caller checks before calling
-
-    def _on_output(output: OutputFile) -> None:
-        try:
-            from litmus.data.transports.upload_queue import drain, enqueue
-
-            enqueue(output.path, transport_name, output_cfg, str(results_path))
-            drain(str(results_path))
-        except Exception as exc:
-            warnings.warn(
-                f"Transport callback failed for {output.path}: {exc}",
-                stacklevel=2,
-            )
-
-    return _on_output
-
-
-def _find_format_transport_callback(
-    format_name: str,
-    results_path: Path,
-) -> Callable[[Any], None] | None:
-    """If litmus.yaml has an output entry for this format with transport, wire it."""
-    try:
-        from litmus.store import load_project_config
-
-        config = load_project_config()
-    except Exception:  # noqa: BLE001 — missing/invalid config means no transport
-        # No litmus.yaml, YAML parse error, or schema mismatch — transport
-        # is an opt-in feature so missing config means "skip transport".
-        return None
-    for output_cfg in config.outputs:
-        if output_cfg.format == format_name and output_cfg.transport:
-            return _make_transport_callback(output_cfg, results_path)
-    return None
+# Subscriber / transport wiring is runner-neutral — see ``litmus.runner.outputs``.
+# Local thin aliases keep call sites readable and provide a single edit
+# point if a runner ever needs to wrap with extra behavior.
+_create_subscriber = create_subscriber
+_make_transport_callback = make_transport_callback
+_find_format_transport_callback = find_format_transport_callback
 
 
 def _build_run_metadata(request: pytest.FixtureRequest) -> dict[str, Any]:
-    """Build kwargs dict for TestRunLogger from session fixtures and CLI options."""
-    station_config = _safe_get_session_fixture(request, "station_config")
-    fixture_config = _safe_get_session_fixture(request, "fixture_config")
-    spec_context = _safe_get_session_fixture(request, "spec_context")
-
-    # Product info from spec_context
-    product_id = None
-    product_name = None
-    product_revision = None
-    if spec_context:
-        product_id = spec_context.product.id
-        product_name = spec_context.product.name
-        product_revision = spec_context.product.revision
-
-    # Fixture info
-    fixture_id = None
-    if fixture_config:
-        fixture_id = getattr(fixture_config, "id", None) or getattr(fixture_config, "name", None)
-
-    # Station info
-    station_id = request.config.getoption("--station")
-    station_name = None
-    station_type = None
-    station_location = None
-    if station_config:
-        station_name = station_config.name
-        station_type = getattr(station_config, "station_type", None) or getattr(
-            station_config, "type", None
-        )
-        station_location = station_config.location
-
-    results_dir = request.config.getoption("--results-dir")
-
+    """Pytest adapter — read session fixtures + CLI options, delegate to runner-neutral builder."""
     requested_phase = request.config.getoption("--test-phase") or os.environ.get(
         "LITMUS_TEST_PHASE"
     )
-    test_phase = resolve_test_phase(requested_phase, mocks_active=_mocks_active(request.config))
-
-    instrument_records = _safe_get_session_fixture(request, "instrument_records")
-
-    cli_part_number = request.config.getoption("--dut-part-number")
-    dut_part_number = cli_part_number or (
-        spec_context.product.part_number if spec_context else None
+    return build_run_metadata(
+        dut_serial=request.config.getoption("--dut-serial"),
+        dut_part_number=request.config.getoption("--dut-part-number"),
+        dut_revision=request.config.getoption("--dut-revision"),
+        dut_lot_number=request.config.getoption("--dut-lot"),
+        station_id=request.config.getoption("--station"),
+        station_config=_safe_get_session_fixture(request, "station_config"),
+        fixture_config=_safe_get_session_fixture(request, "fixture_config"),
+        spec_context=_safe_get_session_fixture(request, "spec_context"),
+        operator_id=request.config.getoption("--operator"),
+        project_dir=request.config.rootpath,
+        results_dir=request.config.getoption("--results-dir"),
+        test_phase=resolve_test_phase(requested_phase, mocks_active=_mocks_active(request.config)),
+        profile_name=request.config.getoption("--litmus-profile", default=None),
+        profile_facets=dict(get_active_facets()),
+        session_inputs=dict(get_session_inputs()),
+        instrument_records=_safe_get_session_fixture(request, "instrument_records"),
     )
-    cli_revision = request.config.getoption("--dut-revision")
-    dut_revision = cli_revision or (spec_context.product.revision if spec_context else None)
-
-    from litmus.environment import capture_environment
-    from litmus.execution._git import get_project_name
-
-    env = capture_environment()
-    project_name = get_project_name(request.config.rootpath)
-    profile_name = request.config.getoption("--litmus-profile", default=None)
-    profile_facets = dict(get_active_facets())
-    session_inputs = dict(get_session_inputs())
-
-    return {
-        "dut_serial": request.config.getoption("--dut-serial"),
-        "dut_part_number": dut_part_number,
-        "dut_revision": dut_revision,
-        "dut_lot_number": request.config.getoption("--dut-lot"),
-        "station_id": station_id,
-        "station_name": station_name,
-        "station_type": station_type,
-        "station_location": station_location,
-        "operator_id": request.config.getoption("--operator"),
-        "test_sequence_id": request.config.rootpath.name,
-        "product_id": product_id,
-        "product_name": product_name,
-        "product_revision": product_revision,
-        "fixture_id": fixture_id,
-        "project_name": project_name,
-        "project_dir": request.config.rootpath,
-        "results_dir": results_dir,
-        "test_phase": test_phase,
-        "profile": profile_name,
-        "profile_facets": profile_facets,
-        "session_inputs": session_inputs,
-        "instruments": instrument_records,
-        "environment": env,
-    }
 
 
-def _run_configured_outputs(test_run: TestRun, run_id: str, results_dir: str) -> None:
-    """Run configured outputs (exports, reports, transports) from litmus.yaml."""
-    try:
-        from litmus.data.output_runner import run_outputs
-
-        run_outputs(test_run, run_id, results_dir)
-    except Exception as exc:
-        warnings.warn(
-            f"Output processing failed: {exc}",
-            stacklevel=2,
-        )
+_run_configured_outputs = run_configured_outputs
 
 
 @pytest.fixture(scope="session", autouse=True)
@@ -1168,25 +1053,8 @@ def _reseat_current_logger(logger: TestRunLogger) -> None:
 
 
 def _emit_instrument_events(logger: TestRunLogger, event_log: Any) -> None:
-    """Emit InstrumentConnected events from instrument records."""
-    from litmus.data.events import InstrumentConnected
-    from litmus.execution.logger import instrument_cal_fields, instrument_info_fields
-
-    records = get_instrument_records()
-    for role, rec in records.items():
-        event = InstrumentConnected(
-            session_id=logger._session_id,
-            run_id=logger.test_run.id,
-            role=role,
-            instrument_id=rec.instrument_id,
-            driver=rec.driver,
-            resource=rec.resource,
-            protocol=rec.protocol,
-            **instrument_info_fields(rec),
-            **instrument_cal_fields(rec),
-            mocked=rec.mocked,
-        )
-        event_log.emit(event)
+    """Pytest adapter — read ContextVar records, delegate to runner-neutral emitter."""
+    emit_instrument_events(logger, event_log, get_instrument_records())
 
 
 @pytest.fixture(scope="session")
@@ -1800,42 +1668,12 @@ def pytest_runtest_call(item: pytest.Item) -> Iterator[None]:
 
 
 def _audit_traceability(logger_inst: Any, *, strict: bool) -> None:
-    """Check the current step's measurements for traceability completeness.
-
-    Walks measurements recorded during the just-completed test and tags
-    each one with ``trace_completeness`` describing which required
-    fields were missing. In ``strict`` mode, raises ``AssertionError``
-    if any measurement is incomplete so the test fails.
-
-    Required fields:
-        * ``step_path`` — populated by the plugin's step wrapper.
-        * ``spec_ref`` OR ``dut_pin`` — only required when a product spec
-          is active for the session. Tests that don't declare a
-          ``--spec`` exercise the graceful-degradation path and are not
-          penalized for lacking pin/spec references.
-    """
-    steps = getattr(getattr(logger_inst, "test_run", None), "steps", None)
-    if not steps:
-        return
-    step = steps[-1]
-    spec_active = get_active_spec_context() is not None
-
-    incomplete: list[str] = []
-    for vec in step.vectors:
-        for m in vec.measurements:
-            missing: list[str] = []
-            if not m.step_path:
-                missing.append("step_path")
-            if spec_active and not m.spec_ref and not m.dut_pin:
-                missing.append("spec_ref/dut_pin")
-            if missing:
-                incomplete.append(f"{m.name}: missing {', '.join(missing)}")
-
-    if incomplete and strict:
-        raise AssertionError(
-            "--strict-traceability: measurements missing required fields:\n  "
-            + "\n  ".join(incomplete)
-        )
+    """Pytest adapter — read ``--strict-traceability`` + spec context, delegate."""
+    audit_traceability(
+        logger_inst,
+        strict=strict,
+        spec_active=get_active_spec_context() is not None,
+    )
 
 
 # ---------------------------------------------------------------------------
