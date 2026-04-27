@@ -710,6 +710,7 @@ class MeasurementLimitConfig(BaseModel):
                 self.high,
                 self.nominal,
                 self.ref,
+                self.characteristic,
                 self.tolerance_pct,
                 self.tolerance_abs,
                 self.expr,

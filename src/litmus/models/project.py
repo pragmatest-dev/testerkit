@@ -7,7 +7,7 @@ Also includes ``OutputConfig``, which describes a single entry in the
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Self
 
 from pydantic import BaseModel, Field, model_validator
 
@@ -68,7 +68,7 @@ class OutputConfig(BaseModel):
         return cleaned
 
     @model_validator(mode="after")
-    def _require_format_or_transport(self) -> OutputConfig:
+    def _require_format_or_transport(self) -> Self:
         """At least one of format or transport must be set."""
         if self.format is None and self.transport is None:
             raise ValueError("OutputConfig requires at least one of 'format' or 'transport'")

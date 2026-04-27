@@ -14,7 +14,7 @@ compatibility.
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Self
 
 from pydantic import BaseModel, Field, model_validator
 
@@ -34,7 +34,7 @@ class StationInstrumentConfig(BaseModel):
     mock_config: dict[str, Any] = Field(default_factory=dict)
 
     @model_validator(mode="after")
-    def resource_required_for_real_hardware(self) -> StationInstrumentConfig:
+    def resource_required_for_real_hardware(self) -> Self:
         """Validate that resource or driver is provided when not in mock mode."""
         if not self.mock and self.resource is None and self.driver is None:
             raise ValueError(
@@ -67,6 +67,8 @@ class StationConfig(BaseModel):
 class InstrumentConfig(BaseModel):
     """Configuration for a single instrument in a :class:`StationType` template."""
 
+    model_config = {"extra": "forbid"}
+
     type: str
     driver: str
     resource: str | None = None
@@ -80,6 +82,8 @@ class StationType(BaseModel):
     provides. Concrete deployments (:class:`StationConfig`) can name the
     type they implement via ``station_type``.
     """
+
+    model_config = {"extra": "forbid"}
 
     id: str
     description: str
