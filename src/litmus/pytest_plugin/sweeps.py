@@ -1,14 +1,21 @@
-"""Runner-neutral sweep / parametrize translation.
+"""Translate :class:`SweepEntry` → pytest ``parametrize`` call shape.
 
-Two callers feed parametrize-shaped data to a runner:
+The :class:`SweepEntry` model itself is runner-neutral (lives in
+:mod:`litmus.models.test_config`) — it just says "run this test body
+N times with these argument bindings." Every runner has that idea.
 
-* ``TestEntry.sweeps`` — typed :class:`SweepEntry` instances from
-  the sidecar / profile cascade.
-* ``TestEntry.runner.markers`` — opaque ``parametrize`` entries
-  (each a single-key dict) from the runner's namespace.
+This module is the *pytest-specific* translator: it takes a SweepEntry
+and emits ``(argnames, argvalues)`` tuples shaped for
+:meth:`pytest.Metafunc.parametrize`. Other runners would ship their
+own translator next door (``openhtf_plugin/sweeps.py``, etc.) emitting
+their own multi-run primitive.
 
-Both translate to the same shape: ``(argnames, argvalues, extra_kwargs)``
-triples that any runner can hand to its parametrize-equivalent.
+Two callers feed sweep data through here:
+
+* ``TestEntry.sweeps`` — typed :class:`SweepEntry` instances from the
+  sidecar / profile cascade.
+* ``TestEntry.runner.markers`` — opaque ``parametrize`` entries (each a
+  single-key dict) from the pytest runner's namespace.
 """
 
 from __future__ import annotations
