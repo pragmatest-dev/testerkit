@@ -105,6 +105,21 @@ from litmus.models.test_config import (
 )
 from litmus.products.context import SpecContext
 from litmus.prompts import ask as ask_prompt
+from litmus.pytest_plugin.helpers import (
+    find_fixture_file as _find_fixture_file,
+)
+from litmus.pytest_plugin.helpers import (
+    find_station_file as _find_station_file,
+)
+from litmus.pytest_plugin.helpers import (
+    join_marker_names as _join_marker_names,
+)
+from litmus.pytest_plugin.helpers import (
+    node_cls_func as _node_cls_func,
+)
+from litmus.pytest_plugin.helpers import (
+    safe_get_session_fixture as _safe_get_session_fixture,
+)
 from litmus.pytest_plugin.markers import (
     StackedMarkersError,
     apply_entry_markers,
@@ -155,62 +170,6 @@ __all__ = [
     "set_test_node_aliases",
     "set_test_node_configs",
 ]
-
-
-def _find_station_file(config) -> Path | None:
-    """Find station config file from pytest config options.
-
-    Extracts station file resolution logic so both the station_config fixture
-    and the auto-registration hook can reuse it.
-    """
-    config_path = config.getoption("--station-config")
-    if config_path:
-        return Path(config_path)
-    station_id = config.getoption("--station")
-    return _find_yaml_in_subdir(config, "stations", f"{station_id}.yaml")
-
-
-def _find_fixture_file(config) -> Path | None:
-    """Find fixture config file from pytest config options.
-
-    Resolution: --fixture-config path → --fixture ID → single-file fallback.
-    """
-    config_path = config.getoption("--fixture-config")
-    if config_path:
-        return Path(config_path)
-
-    fixture_id = config.getoption("--fixture")
-    if fixture_id:
-        match = _find_yaml_in_subdir(config, "fixtures", f"{fixture_id}.yaml")
-        if match is None:
-            warnings.warn(
-                f"Fixture '{fixture_id}' not found in fixtures/ directory.",
-                stacklevel=2,
-            )
-        return match
-
-    # Single-file fallback
-    for root in _config_search_roots(config):
-        fixtures_dir = root / "fixtures"
-        if fixtures_dir.exists():
-            yaml_files = list(fixtures_dir.glob("*.yaml"))
-            if len(yaml_files) == 1:
-                return yaml_files[0]
-    return None
-
-
-def _config_search_roots(config) -> list[Path]:
-    """Project search roots derived from the active pytest config."""
-    return [config.rootpath, Path(config.invocation_params.dir)]
-
-
-def _find_yaml_in_subdir(config, subdir: str, filename: str) -> Path | None:
-    """Return ``<root>/<subdir>/<filename>`` for the first root that has it, or ``None``."""
-    for root in _config_search_roots(config):
-        target = root / subdir / filename
-        if target.exists():
-            return target
-    return None
 
 
 def pytest_configure(config):
@@ -378,23 +337,6 @@ def pytest_sessionstart(session):
     if dut_serial == "DUT001":
         serial = _prompt_for_serial(test_phase)
         config.option.dut_serial = serial
-
-
-def _join_marker_names(markers: Any, sort: bool = False) -> str | None:
-    """Return a comma-joined marker-name string, or ``None`` when empty.
-
-    Accepts anything iterable that yields objects with a ``.name``
-    attribute — ``item.iter_markers()`` or ``item.own_markers``.
-    ``sort=True`` produces deterministic output for the collection
-    manifest; leaving it unsorted preserves source order for code
-    identity (which is what the audit cares about).
-    """
-    if not markers:
-        return None
-    names = [m.name for m in markers]
-    if sort:
-        names.sort()
-    return ",".join(names) or None
 
 
 def pytest_collection_modifyitems(config, items: list[pytest.Item]) -> None:
@@ -708,28 +650,6 @@ def _require_fixture_and_instruments(
             f"The '{feature}' fixture requires instruments. "
             "Provide --station-config <path> or create a stations/*.yaml file."
         )
-
-
-def _safe_get_session_fixture(request, name):
-    """Safely get a session-scoped fixture value, returning None if not available.
-
-    Only attempts to access fixtures that exist at session scope to avoid
-    ScopeMismatch errors from test-defined fixtures with the same name.
-    Setup failures (e.g. ValidationError on YAML load) are surfaced as a
-    warning and resolved to ``None`` — the autouse fixtures that consume
-    this helper are best-effort lookups, not gating preconditions.
-    """
-    try:
-        return request.getfixturevalue(name)
-    except pytest.FixtureLookupError:
-        return None
-    except (ValueError, TypeError, OSError) as exc:
-        warnings.warn(
-            f"Fixture {name!r} setup failed: {exc}",
-            RuntimeWarning,
-            stacklevel=2,
-        )
-        return None
 
 
 def _build_run_metadata(request: pytest.FixtureRequest) -> dict[str, Any]:
@@ -2111,14 +2031,6 @@ def _litmus_push_params(
             yield
         finally:
             set_active_vector_params({})
-
-
-def _node_cls_func(node: pytest.Item) -> tuple[str | None, str | None]:
-    """Extract (class_name, original_func_name) for a pytest node."""
-    cls = getattr(node, "cls", None)
-    cls_name = cls.__name__ if cls is not None else None
-    func_name = getattr(node, "originalname", None) or node.name.split("[")[0]
-    return cls_name, func_name
 
 
 def _extract_specs_characteristic(node: pytest.Item) -> str | None:
