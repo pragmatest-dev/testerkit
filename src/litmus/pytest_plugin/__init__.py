@@ -61,10 +61,21 @@ from litmus.execution._state import (
     set_test_node_configs,
 )
 from litmus.execution.accessors import InstrumentAccessor
+from litmus.execution.audit import audit_traceability
+from litmus.execution.cascade import cascade_for, find_unmatched_profile_keys
 from litmus.execution.connections import ConnectionIterator, resolve_test_connections
 from litmus.execution.decorators import get_current_logger, set_current_logger
 from litmus.execution.harness import Context
+from litmus.execution.instrument_events import emit_instrument_events
 from litmus.execution.logger import RunContext, TestRunLogger
+from litmus.execution.metadata import build_run_metadata
+from litmus.execution.mocks import install_mocks
+from litmus.execution.outputs import (
+    create_subscriber,
+    find_format_transport_callback,
+    make_transport_callback,
+    run_configured_outputs,
+)
 from litmus.execution.profiles import (
     apply_profile_addopts_env,
     collect_profile_facet_keys,
@@ -88,26 +99,15 @@ from litmus.models.instrument import InstrumentRecord
 from litmus.models.station import StationConfig
 from litmus.products.context import SpecContext
 from litmus.prompts import ask as ask_prompt
-from litmus.runner.audit import audit_traceability
-from litmus.runner.cascade import cascade_for, find_unmatched_profile_keys
-from litmus.runner.instrument_events import emit_instrument_events
-from litmus.runner.markers import (
+from litmus.pytest_plugin.markers import (
     StackedMarkersError,
     enforce_no_inline_stacking,
     entry_to_marker_specs,
     extract_specs_characteristic,
     normalize_inline_list_payload,
 )
-from litmus.runner.metadata import build_run_metadata
-from litmus.runner.mocks import install_mocks
-from litmus.runner.outputs import (
-    create_subscriber,
-    find_format_transport_callback,
-    make_transport_callback,
-    run_configured_outputs,
-)
-from litmus.runner.retry import retry_policy_to_flaky_kwargs
-from litmus.runner.sweeps import (
+from litmus.pytest_plugin.retry import retry_policy_to_flaky_kwargs
+from litmus.pytest_plugin.sweeps import (
     parametrize_call_rows,
     parametrize_calls_for_entry,
     sweep_to_parametrize_args,

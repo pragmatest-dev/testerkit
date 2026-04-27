@@ -79,7 +79,7 @@ def entry_to_marker_specs(entry: TestEntry) -> Iterator[MarkerSpec]:
     Emits one ``litmus_X`` spec per non-empty Litmus field, then one
     spec per ``runner.markers`` entry. ``parametrize`` entries under
     ``runner.markers`` are skipped here — they're consumed by the
-    runner's parametrize-equivalent, see :mod:`litmus.runner.sweeps`.
+    runner's parametrize-equivalent, see :mod:`litmus.pytest_plugin.sweeps`.
     """
     if entry.limits:
         yield MarkerSpec("litmus_limits", kwargs=dict(entry.limits))
