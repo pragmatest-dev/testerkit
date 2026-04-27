@@ -21,7 +21,7 @@ class TestDeriveLimit:
             units="V",
             pin="VOUT",
             datasheet_ref="DS-001 Section 7.3",
-            specs=[
+            bands=[
                 SpecBand(
                     when={
                         "temperature": RangeSpec(min=25, max=25),
@@ -105,7 +105,7 @@ class TestDeriveLimit:
             direction=Direction.OUTPUT,
             units="V",
             pin="VOUT",
-            specs=[
+            bands=[
                 SpecBand(
                     when={"temperature": RangeSpec(min=25, max=25)},
                     value=3.3,
@@ -131,7 +131,7 @@ class TestDeriveLimit:
             direction=Direction.INPUT,
             units="A",
             pin="VIN",
-            specs=[
+            bands=[
                 SpecBand(
                     when={"temperature": RangeSpec(min=25, max=25)},
                     value=0.010,
@@ -188,7 +188,7 @@ class TestDeriveLimit:
             direction=Direction.INPUT,
             units="A",
             pin="VIN",
-            specs=[
+            bands=[
                 SpecBand(
                     when={"temperature": RangeSpec(min=25, max=25)},
                     value=0.5,
@@ -215,7 +215,7 @@ class TestDeriveLimit:
             direction=Direction.OUTPUT,
             units="V",
             pin="VOUT",
-            specs=[
+            bands=[
                 SpecBand(
                     when={"temperature": RangeSpec(min=25, max=25)},
                     value=5.0,
@@ -242,7 +242,7 @@ class TestDeriveLimit:
             direction=Direction.OUTPUT,
             units="V",
             pin="VOUT",
-            specs=[
+            bands=[
                 SpecBand(
                     when={"temperature": RangeSpec(min=25, max=25)},
                     value=3.3,
@@ -271,7 +271,7 @@ class TestGuardbandEdgeCases:
             direction=Direction.OUTPUT,
             units="V",
             pin="VOUT",
-            specs=[
+            bands=[
                 SpecBand(
                     when={"temperature": RangeSpec(min=25, max=25)},
                     value=3.3,
@@ -296,7 +296,7 @@ class TestGuardbandEdgeCases:
             direction=Direction.OUTPUT,
             units="V",
             pin="VOUT",
-            specs=[
+            bands=[
                 SpecBand(
                     when={"temperature": RangeSpec(min=25, max=25)},
                     value=3.5,

@@ -38,14 +38,14 @@ def _write_product(pytester: pytest.Pytester) -> None:
                 direction: output
                 units: V
                 pin: TP_VOUT
-                specs:
+                bands:
                   - value: 3.3
               dropout:
                 function: dc_voltage
                 direction: output
                 units: V
                 pins: [TP_VIN, TP_VOUT]
-                specs:
+                bands:
                   - value: 1.1
             pins:
               TP_VIN:

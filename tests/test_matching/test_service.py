@@ -408,7 +408,7 @@ class TestGetRequiredCapabilities:
                     direction=Direction.OUTPUT,
                     units="V",
                     pin="VOUT",
-                    specs=[
+                    bands=[
                         SpecBand(
                             value=3.3,
                             accuracy=AccuracySpec(pct_reading=3.0),

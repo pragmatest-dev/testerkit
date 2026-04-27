@@ -443,9 +443,9 @@ def _find_testable_characteristic(spec: SpecContext) -> tuple[str | None, dict]:
         Tuple of (characteristic_id, conditions_dict) or (None, {}) if not found.
     """
     for char_id, char in spec.product.characteristics.items():
-        if char.specs:
+        if char.bands:
             # Use first SpecBand's when clause, converting RangeSpec to scalar values
-            band = char.specs[0]
+            band = char.bands[0]
             conditions = (
                 {
                     k: v.min

@@ -17,7 +17,7 @@ def test_parse_parameter_with_specs():
     data = {
         "range": {"min": 0.1, "max": 750, "units": "V"},
         "accuracy": {"pct_reading": 0.07, "pct_range": 0.02},
-        "specs": [
+        "bands": [
             {
                 "when": {"frequency": {"min": 3, "max": 5, "units": "Hz"}},
                 "accuracy": {"pct_reading": 0.35, "pct_range": 0.03},
@@ -29,15 +29,15 @@ def test_parse_parameter_with_specs():
         ],
     }
     param = Signal(**data)
-    assert param.specs is not None
-    assert len(param.specs) == 2
+    assert param.bands is not None
+    assert len(param.bands) == 2
 
-    spec0 = param.specs[0]
+    spec0 = param.bands[0]
     assert spec0.accuracy is not None
     assert _range(spec0.when["frequency"]).min == 3
     assert spec0.accuracy.pct_reading == 0.35
 
-    spec1 = param.specs[1]
+    spec1 = param.bands[1]
     assert _range(spec1.when["frequency"]).max == 300
 
 
@@ -48,7 +48,7 @@ def test_parse_parameter_without_specs():
         "accuracy": {"pct_reading": 0.01},
     }
     param = Signal(**data)
-    assert param.specs is None
+    assert param.bands is None
 
 
 def test_parse_34461a_ac_voltage_bands():
@@ -70,11 +70,11 @@ def test_parse_34461a_ac_voltage_bands():
     assert ac_cap is not None, "ac_voltage capability not found"
     voltage_param = ac_cap.signals.get("voltage")
     assert voltage_param is not None
-    assert voltage_param.specs is not None
-    assert len(voltage_param.specs) == 4
+    assert voltage_param.bands is not None
+    assert len(voltage_param.bands) == 4
 
     # First band: 3-5 Hz, worst accuracy
-    band0 = voltage_param.specs[0]
+    band0 = voltage_param.bands[0]
     assert band0.accuracy is not None
     band0_freq = _range(band0.when["frequency"])
     assert band0_freq.min == 3

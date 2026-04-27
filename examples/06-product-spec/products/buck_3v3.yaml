@@ -25,7 +25,7 @@ characteristics:
     direction: input
     units: V
     pin: TP_VIN
-    specs:
+    bands:
       - value: 5.0
 
   rail_3v3:
@@ -33,7 +33,7 @@ characteristics:
     direction: output
     units: V
     pin: TP_VOUT
-    specs:
+    bands:
       - value: 3.3
 
   idle_current:
@@ -41,5 +41,5 @@ characteristics:
     direction: input
     units: A
     pin: TP_VIN
-    specs:
+    bands:
       - value: 0.05

@@ -50,7 +50,7 @@ def derive_limit(
     band = char.get_spec_at(params)
     if band is None:
         cond_str = ", ".join(f"{k}={v}" for k, v in params.items())
-        avail = [dict(s.when) for s in char.specs]
+        avail = [dict(s.when) for s in char.bands]
         raise ValueError(f"No spec band matches: {cond_str}. Available when clauses: {avail}")
 
     # Calculate spec bounds from SpecBand

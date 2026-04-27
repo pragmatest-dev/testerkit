@@ -41,7 +41,7 @@ def test_spec_band_lookup_finds_matching_band():
     param = Signal(
         range=RangeSpec(min=0.1, max=750, units="V"),
         accuracy=AccuracySpec(pct_reading=0.07, pct_range=0.02),
-        specs=[
+        bands=[
             SpecBand(
                 when={"frequency": RangeSpec(min=3, max=5, units="Hz")},
                 accuracy=AccuracySpec(pct_reading=0.35, pct_range=0.03),
@@ -61,7 +61,7 @@ def test_spec_band_lookup_finds_matching_band():
 def test_spec_band_lookup_multi_key_and():
     """Both condition keys must match for a band to apply."""
     param = Signal(
-        specs=[
+        bands=[
             SpecBand(
                 when={
                     "frequency": RangeSpec(min=1e9, max=2e9, units="Hz"),
@@ -83,7 +83,7 @@ def test_spec_band_lookup_falls_back_to_default():
     """No matching band → get_spec_at returns None, caller uses top-level."""
     param = Signal(
         accuracy=AccuracySpec(pct_reading=0.07),
-        specs=[
+        bands=[
             SpecBand(
                 when={"frequency": RangeSpec(min=3, max=5, units="Hz")},
                 accuracy=AccuracySpec(pct_reading=0.35),
@@ -213,7 +213,7 @@ def test_backward_compat_no_specs():
 def test_spec_band_string_match():
     """String when-clause matches exact string value in operating point."""
     param = Signal(
-        specs=[
+        bands=[
             SpecBand(
                 when={"rate": "SLOW"},
                 accuracy=AccuracySpec(pct_reading=0.35),
@@ -229,7 +229,7 @@ def test_spec_band_string_match():
 def test_spec_band_string_no_match():
     """String when-clause does not match a different string value."""
     param = Signal(
-        specs=[
+        bands=[
             SpecBand(
                 when={"rate": "SLOW"},
                 accuracy=AccuracySpec(pct_reading=0.35),
@@ -242,7 +242,7 @@ def test_spec_band_string_no_match():
 def test_spec_band_mixed_string_and_range():
     """Mixed string + range when-clause: both must match."""
     param = Signal(
-        specs=[
+        bands=[
             SpecBand(
                 when={
                     "rate": "MED",
@@ -268,7 +268,7 @@ def test_spec_band_mixed_string_and_range():
 def test_spec_band_float_match():
     """Float when-clause matches exact float value."""
     param = Signal(
-        specs=[
+        bands=[
             SpecBand(
                 when={"impedance": 50.0},
                 accuracy=AccuracySpec(pct_reading=0.05),
@@ -282,7 +282,7 @@ def test_spec_band_float_match():
 def test_spec_band_bool_match():
     """Bool when-clause matches exact bool value."""
     param = Signal(
-        specs=[
+        bands=[
             SpecBand(
                 when={"autorange": True},
                 accuracy=AccuracySpec(pct_reading=0.10),
@@ -301,7 +301,7 @@ def test_spec_band_bool_match():
 def test_spec_band_list_match():
     """List when-clause matches if value is a member."""
     param = Signal(
-        specs=[
+        bands=[
             SpecBand(
                 when={"impedance": [50, 600]},
                 accuracy=AccuracySpec(pct_reading=0.05),
@@ -316,7 +316,7 @@ def test_spec_band_list_match():
 def test_spec_band_list_mixed_types():
     """List with mixed str/float types."""
     param = Signal(
-        specs=[
+        bands=[
             SpecBand(
                 when={"impedance": [50, 600, "HiZ"]},
                 accuracy=AccuracySpec(pct_reading=0.10),
@@ -343,7 +343,7 @@ def test_pointspec_yaml_round_trip():
 def test_pointspec_match():
     """PointSpec when-clause matches exact value."""
     param = Signal(
-        specs=[
+        bands=[
             SpecBand(
                 when={"frequency": PointSpec(value=1e8, units="Hz")},
                 accuracy=AccuracySpec(pct_reading=0.01),
@@ -362,7 +362,7 @@ def test_pointspec_no_units():
     spec = PointSpec(value=50)
     assert spec.units == ""
     param = Signal(
-        specs=[
+        bands=[
             SpecBand(
                 when={"impedance": spec},
                 accuracy=AccuracySpec(pct_reading=0.05),
@@ -388,7 +388,7 @@ def test_listspec_yaml_round_trip():
 def test_listspec_match():
     """ListSpec when-clause matches membership."""
     param = Signal(
-        specs=[
+        bands=[
             SpecBand(
                 when={"impedance": ListSpec(values=[50, 600], units="ohm")},
                 accuracy=AccuracySpec(pct_reading=0.05),
@@ -405,7 +405,7 @@ def test_listspec_no_units():
     spec = ListSpec(values=["single", "automatic"])
     assert spec.units == ""
     param = Signal(
-        specs=[
+        bands=[
             SpecBand(
                 when={"mode": spec},
                 value=14,
@@ -429,7 +429,7 @@ def test_units_inheritance_rangespec():
         signals={
             "voltage": Signal(
                 range=RangeSpec(min=0, max=750, units="V"),
-                specs=[
+                bands=[
                     SpecBand(
                         when={"frequency": RangeSpec(min=20, max=300)},
                         accuracy=AccuracySpec(pct_reading=0.07),
@@ -441,7 +441,7 @@ def test_units_inheritance_rangespec():
             "frequency": Condition(range=RangeSpec(min=20, max=100000, units="Hz")),
         },
     )
-    specs = cap.signals["voltage"].specs
+    specs = cap.signals["voltage"].bands
     assert specs is not None
     band = specs[0]
     assert _spec_with_units(band.when["frequency"]).units == "Hz"
@@ -455,7 +455,7 @@ def test_units_inheritance_pointspec():
         signals={
             "voltage": Signal(
                 range=RangeSpec(min=0, max=750, units="V"),
-                specs=[
+                bands=[
                     SpecBand(
                         when={"frequency": PointSpec(value=1000)},
                         accuracy=AccuracySpec(pct_reading=0.05),
@@ -467,7 +467,7 @@ def test_units_inheritance_pointspec():
             "frequency": Condition(range=RangeSpec(min=20, max=100000, units="Hz")),
         },
     )
-    specs = cap.signals["voltage"].specs
+    specs = cap.signals["voltage"].bands
     assert specs is not None
     band = specs[0]
     assert _spec_with_units(band.when["frequency"]).units == "Hz"
@@ -481,7 +481,7 @@ def test_units_inheritance_listspec():
         signals={
             "voltage": Signal(
                 range=RangeSpec(min=0, max=750, units="V"),
-                specs=[
+                bands=[
                     SpecBand(
                         when={"impedance": ListSpec(values=[50, 600])},
                         accuracy=AccuracySpec(pct_reading=0.05),
@@ -493,7 +493,7 @@ def test_units_inheritance_listspec():
             "impedance": Control(range=RangeSpec(min=50, max=600, units="ohm")),
         },
     )
-    specs = cap.signals["voltage"].specs
+    specs = cap.signals["voltage"].bands
     assert specs is not None
     band = specs[0]
     assert _spec_with_units(band.when["impedance"]).units == "ohm"
@@ -507,7 +507,7 @@ def test_units_inheritance_skips_when_already_set():
         signals={
             "voltage": Signal(
                 range=RangeSpec(min=0, max=750, units="V"),
-                specs=[
+                bands=[
                     SpecBand(
                         when={"frequency": PointSpec(value=1000, units="kHz")},
                         accuracy=AccuracySpec(pct_reading=0.05),
@@ -519,7 +519,7 @@ def test_units_inheritance_skips_when_already_set():
             "frequency": Condition(range=RangeSpec(min=20, max=100000, units="Hz")),
         },
     )
-    specs = cap.signals["voltage"].specs
+    specs = cap.signals["voltage"].bands
     assert specs is not None
     band = specs[0]
     assert _spec_with_units(band.when["frequency"]).units == "kHz"

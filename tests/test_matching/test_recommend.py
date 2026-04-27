@@ -232,7 +232,7 @@ AC_DMM = _make_entry(
                 "voltage": Signal(
                     range=RangeSpec(min=0, max=750, units="V"),
                     accuracy=AccuracySpec(pct_reading=0.1),
-                    specs=[
+                    bands=[
                         SpecBand(
                             when={"frequency": RangeSpec(min=20, max=50000, units="Hz")},
                             accuracy=AccuracySpec(pct_reading=0.05),

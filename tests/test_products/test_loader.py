@@ -59,7 +59,7 @@ class TestLoadProduct:
         product = load_product(power_board_path)
         char = product.characteristics["rail_3v3_output"]
 
-        assert len(char.specs) >= 3
+        assert len(char.bands) >= 3
 
         band = char.get_spec_at({"temperature": 25, "load": 0.1, "input_voltage": 5.0})
         assert band is not None
@@ -174,8 +174,8 @@ class TestProductInheritance:
         assert product.part_number == "VAR-002"
         assert product.revision == "B"
         char = product.characteristics["output_voltage"]
-        assert char.specs[0].accuracy is not None
-        assert char.specs[0].accuracy.pct_reading == 2.0
+        assert char.bands[0].accuracy is not None
+        assert char.bands[0].accuracy.pct_reading == 2.0
         assert "VIN" in product.pins
 
     def test_variant_base_field_set(self, specs_dir):

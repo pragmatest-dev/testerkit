@@ -410,14 +410,14 @@ def build_signal_render(sig_name: str, sig: dict[str, Any]) -> dict[str, Any]:
         "resolution": fmt_resolution(sig.get("resolution")),
     }
 
-    specs = sig.get("specs") or []
-    if not specs:
+    bands = sig.get("bands") or []
+    if not bands:
         return {"headline": headline, "tables": []}
 
     # Split unconditional bands (no when) from conditional bands
     unconditional = []
     conditional = []
-    for band in specs:
+    for band in bands:
         if not band.get("when"):
             unconditional.append(band)
         else:
@@ -474,8 +474,8 @@ def build_attr_render(attr_name: str, attr: dict[str, Any]) -> dict[str, Any]:
     headline = fmt_attr(attr)
     parent_units = attr.get("units", "") or ""
 
-    specs = attr.get("specs") or []
-    if not specs:
+    bands = attr.get("bands") or []
+    if not bands:
         return {"headline": headline, "tables": []}
 
     # All attribute bands share the same output type: value
@@ -483,7 +483,7 @@ def build_attr_render(attr_name: str, attr: dict[str, Any]) -> dict[str, Any]:
     def _cell(band: dict[str, Any]) -> str:
         return _fmt_attr_band_value(band, parent_units)
 
-    tables = _build_tables_from_bands(specs, attr_name, "value", _cell)
+    tables = _build_tables_from_bands(bands, attr_name, "value", _cell)
 
     return {"headline": headline, "tables": tables}
 

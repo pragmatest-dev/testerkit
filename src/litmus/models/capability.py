@@ -193,7 +193,7 @@ class Signal(BaseModel):
 
     Used for what's being measured or sourced: range defines the operating
     envelope, accuracy/resolution define the quality of measurement.
-    Top-level accuracy/resolution are defaults; ``specs`` holds condition-dependent
+    Top-level accuracy/resolution are defaults; ``bands`` holds condition-dependent
     overrides (e.g., accuracy varies with frequency).
 
     Example YAML (instrument):
@@ -202,7 +202,7 @@ class Signal(BaseModel):
             range: {min: 0.1, max: 1000, units: V}
             accuracy: {pct_reading: 0.0035, pct_range: 0.0006}
             resolution: {digits: 6.5}
-            specs:
+            bands:
               - when:
                   frequency: {min: 3, max: 5, units: Hz}
                 accuracy: {pct_reading: 0.35, pct_range: 0.03}
@@ -221,7 +221,7 @@ class Signal(BaseModel):
     resolution: ResolutionSpec | None = None
     value: float | None = None
     units: str | None = None
-    specs: list[SpecBand] | None = None
+    bands: list[SpecBand] | None = None
     qualifier: SpecQualifier | None = None
 
 
@@ -249,7 +249,7 @@ class Condition(BaseModel):
     options: list[float | str | bool] | None = None
     units: str | None = None
     default: float | str | bool | None = None
-    specs: list[SpecBand] | None = None
+    bands: list[SpecBand] | None = None
 
 
 class Control(BaseModel):
@@ -283,7 +283,7 @@ class Control(BaseModel):
     units: str | None = None
     default: float | str | bool | None = None
     resolution: ResolutionSpec | None = None
-    specs: list[SpecBand] | None = None
+    bands: list[SpecBand] | None = None
 
 
 class Attribute(BaseModel):
@@ -293,8 +293,8 @@ class Attribute(BaseModel):
     capabilities like bandwidth, sample rate, or input impedance.
 
     When an attribute varies by operating condition (e.g., test current
-    depends on resistance range), use ``specs`` for condition-dependent
-    overrides — same pattern as Signal.specs.
+    depends on resistance range), use ``bands`` for condition-dependent
+    overrides — same pattern as ``Signal.bands``.
 
     Example YAML:
         attributes:
@@ -306,7 +306,7 @@ class Attribute(BaseModel):
           test_current:
             value: 0.001
             units: A
-            specs:
+            bands:
               - when: {range: 100}
                 value: 0.001
               - when: {range: 10000}
@@ -323,7 +323,7 @@ class Attribute(BaseModel):
     range: RangeSpec | None = None
     options: list[float | str | bool] | None = None
     units: str | None = None
-    specs: list[SpecBand] | None = None
+    bands: list[SpecBand] | None = None
     qualifier: SpecQualifier | None = None
 
     @model_validator(mode="after")
@@ -331,12 +331,12 @@ class Attribute(BaseModel):
         has_value = self.value is not None
         has_range = self.range is not None
         has_options = self.options is not None
-        has_specs = self.specs is not None and len(self.specs) > 0
+        has_bands = self.bands is not None and len(self.bands) > 0
         count = sum([has_value, has_range, has_options])
-        if count == 0 and not has_specs:
+        if count == 0 and not has_bands:
             raise ValueError(
                 "Attribute must provide one of: 'value', 'range', 'options',"
-                " or 'specs' (condition-dependent)"
+                " or 'bands' (condition-dependent)"
             )
         if count > 1:
             raise ValueError(
@@ -427,13 +427,13 @@ class Capability(BaseModel):
     controls: dict[str, Control] = Field(default_factory=dict)
     attributes: dict[str, Attribute] = Field(default_factory=dict)
     units: str | None = None
-    specs: list[SpecBand] = Field(default_factory=list)
+    bands: list[SpecBand] = Field(default_factory=list)
 
     @model_validator(mode="after")
-    def _validate_spec_band_keys(self) -> Self:
+    def _validate_band_when_keys(self) -> Self:
         """Warn when SpecBand ``when`` keys don't reference known siblings.
 
-        Every key in ``signal.specs[].when`` should match a name in
+        Every key in ``signal.bands[].when`` should match a name in
         either ``signals``, ``conditions``, or ``controls`` on the parent
         capability. Unknown keys indicate a typo or missing declaration.
         """
@@ -455,15 +455,15 @@ class Capability(BaseModel):
         if not known:
             return self
 
-        def _check_specs(owner_label: str, specs: list[SpecBand] | None) -> None:
-            if not specs:
+        def _check_bands(owner_label: str, bands: list[SpecBand] | None) -> None:
+            if not bands:
                 return
-            for i, band in enumerate(specs):
+            for i, band in enumerate(bands):
                 for key in band.when:
                     if key not in known:
                         raise ValueError(
                             f"{self.function.value}: {owner_label} "
-                            f"specs[{i}] references unknown condition key "
+                            f"bands[{i}] references unknown condition key "
                             f"'{key}' (known: {sorted(known)})"
                         )
 
@@ -479,10 +479,10 @@ class Capability(BaseModel):
             if ctrl.range and ctrl.range.units:
                 units_map[name] = ctrl.range.units
 
-        def _resolve_when_units(specs: list[SpecBand] | None) -> None:
-            if not specs:
+        def _resolve_band_when_units(bands: list[SpecBand] | None) -> None:
+            if not bands:
                 return
-            for band in specs:
+            for band in bands:
                 for key, val in band.when.items():
                     if isinstance(val, RangeSpec) and not val.units and key in units_map:
                         val.units = units_map[key]
@@ -492,17 +492,17 @@ class Capability(BaseModel):
                         val.units = units_map[key]
 
         for sig_name, sig in self.signals.items():
-            _check_specs(f"signal '{sig_name}'", sig.specs)
-            _resolve_when_units(sig.specs)
+            _check_bands(f"signal '{sig_name}'", sig.bands)
+            _resolve_band_when_units(sig.bands)
         for cond_name, cond in self.conditions.items():
-            _check_specs(f"condition '{cond_name}'", cond.specs)
-            _resolve_when_units(cond.specs)
+            _check_bands(f"condition '{cond_name}'", cond.bands)
+            _resolve_band_when_units(cond.bands)
         for ctrl_name, ctrl in self.controls.items():
-            _check_specs(f"control '{ctrl_name}'", ctrl.specs)
-            _resolve_when_units(ctrl.specs)
+            _check_bands(f"control '{ctrl_name}'", ctrl.bands)
+            _resolve_band_when_units(ctrl.bands)
         for attr_name, attr in self.attributes.items():
-            _check_specs(f"attribute '{attr_name}'", attr.specs)
-            _resolve_when_units(attr.specs)
+            _check_bands(f"attribute '{attr_name}'", attr.bands)
+            _resolve_band_when_units(attr.bands)
         return self
 
 

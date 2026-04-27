@@ -442,9 +442,9 @@ def get_spec_at(measure: Signal, operating_point: dict[str, float | str | bool])
     Returns None if no band matches (caller should use top-level defaults).
     Multiple ``when`` keys are ANDed — all must match.
     """
-    if not measure.specs:
+    if not measure.bands:
         return None
-    for band in measure.specs:
+    for band in measure.bands:
         if band_matches(band, operating_point):
             return band
     return None

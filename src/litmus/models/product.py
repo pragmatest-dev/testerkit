@@ -141,7 +141,7 @@ class ProductCharacteristic(Capability):
             voltage:
               value: 3.3
               units: V
-          specs:
+          bands:
             - conditions:
                 temperature: {min: 25, max: 25, units: degC}
                 load: {min: 0.1, max: 0.1, units: A}
@@ -215,7 +215,7 @@ class ProductCharacteristic(Capability):
         Returns:
             The matching SpecBand, or None if no match found.
         """
-        for band in self.specs:
+        for band in self.bands:
             if band_matches(band, params):
                 return band
         return None
@@ -242,7 +242,7 @@ class Product(BaseModel):
             direction: output
             units: V
             pin: VOUT
-            specs:
+            bands:
               - value: 3.3
                 accuracy: {pct_reading: 3.0}
     """

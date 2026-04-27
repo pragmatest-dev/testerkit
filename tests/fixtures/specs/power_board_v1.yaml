@@ -9,7 +9,7 @@ characteristics:
     units: V
     net: VIN
     datasheet_ref: DS-001 Section 7.2, Table 3
-    specs:
+    bands:
     - when:
         temperature: 25
         load: 0.5
@@ -34,7 +34,7 @@ characteristics:
     units: V
     net: VOUT_3V3
     datasheet_ref: DS-001 Section 7.3
-    specs:
+    bands:
     - when:
         temperature: 25
         load: 0.1
@@ -69,7 +69,7 @@ characteristics:
     units: A
     net: IIN
     datasheet_ref: DS-001 Section 7.4
-    specs:
+    bands:
     - when:
         temperature: 25
         load: 0
@@ -86,7 +86,7 @@ characteristics:
     - VIN
     - VOUT
     datasheet_ref: DS-001 Section 7.5
-    specs:
+    bands:
     - when:
         temperature: 25
         load: 0.5

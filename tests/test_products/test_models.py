@@ -30,7 +30,7 @@ class TestProductCharacteristic:
             direction=Direction.OUTPUT,
             units="V",
             pin="VOUT",
-            specs=[
+            bands=[
                 SpecBand(
                     when={"temperature": RangeSpec(min=25, max=25)},
                     value=3.3,
@@ -43,7 +43,7 @@ class TestProductCharacteristic:
                 ),
             ],
         )
-        assert len(char.specs) == 2
+        assert len(char.bands) == 2
 
     def test_get_spec_at_match(self):
         """Test finding a spec band by parameters."""
@@ -52,7 +52,7 @@ class TestProductCharacteristic:
             direction=Direction.OUTPUT,
             units="V",
             pin="VOUT",
-            specs=[
+            bands=[
                 SpecBand(
                     when={"temperature": RangeSpec(min=25, max=25)},
                     value=3.3,
@@ -76,7 +76,7 @@ class TestProductCharacteristic:
             direction=Direction.OUTPUT,
             units="V",
             pin="VOUT",
-            specs=[
+            bands=[
                 SpecBand(
                     when={"temperature": RangeSpec(min=25, max=25)},
                     value=3.3,
@@ -93,7 +93,7 @@ class TestProductCharacteristic:
             direction=Direction.OUTPUT,
             units="V",
             pin="VOUT",
-            specs=[
+            bands=[
                 SpecBand(value=3.3),
             ],
         )
@@ -159,7 +159,7 @@ class TestProduct:
                     units="V",
                     pin="VOUT",
                     datasheet_ref="DS-001 Section 7.3",
-                    specs=[
+                    bands=[
                         SpecBand(
                             when={
                                 "temperature": RangeSpec(min=25, max=25),

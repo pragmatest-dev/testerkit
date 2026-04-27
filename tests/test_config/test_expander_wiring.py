@@ -56,12 +56,12 @@ class TestLoadProductWiring:
             direction: output
             units: V
             pin: TP
-            specs:
+            bands:
               - when: {load: {linspace: [0.1, 0.8, 4]}}
                 value: 3.3
                 accuracy: {pct_reading: 2.0}
         """
         path = _write(tmp_path / "demo.yaml", yaml_src)
         product = load_product(path)
-        band = product.characteristics["rail"].specs[0]
+        band = product.characteristics["rail"].bands[0]
         assert band.when["load"] == pytest.approx([0.1, 0.3333333, 0.5666666, 0.8])
