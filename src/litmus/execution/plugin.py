@@ -74,6 +74,7 @@ from litmus.execution.profiles import (
     required_input_key_to_cli_flag,
     resolve_test_phase,
 )
+from litmus.execution.sidecar import load_sidecar as _load_sidecar
 from litmus.execution.verify import (  # noqa: F401 — verify re-exported as pytest fixture
     LimitsFn,
     verify,
@@ -87,6 +88,19 @@ from litmus.models.project import OutputConfig
 from litmus.models.station import StationConfig
 from litmus.products.context import SpecContext
 from litmus.prompts import ask as ask_prompt
+from litmus.runner.cascade import cascade_for
+from litmus.runner.markers import (
+    StackedMarkersError,
+    enforce_no_inline_stacking,
+    entry_to_marker_specs,
+    extract_specs_characteristic,
+    normalize_inline_list_payload,
+)
+from litmus.runner.sweeps import (
+    parametrize_call_rows,
+    parametrize_calls_for_entry,
+    sweep_to_parametrize_args,
+)
 
 # State helpers re-exported for back-compat with consumers that import
 # from litmus.execution.plugin (logger, harness, accessors, manager, tests).
@@ -523,105 +537,42 @@ def _warn_unmatched_profile_keys(items: list[pytest.Item]) -> None:
     )
 
 
-_LITMUS_MARKER_NAMES: tuple[str, ...] = (
-    "litmus_limits",
-    "litmus_sweeps",
-    "litmus_mocks",
-    "litmus_specs",
-    "litmus_connections",
-    "litmus_retry",
-    "litmus_prompts",
-)
-
-
 def _enforce_no_inline_stacking(item: pytest.Item) -> None:
-    """Raise ``pytest.UsageError`` if an item carries duplicate inline ``litmus_X`` decorators.
-
-    Counts only ``own_markers`` (function-level decorators). Class-level
-    ``pytestmark`` and method-level decorators are different scopes and
-    legitimately stack via the cascade. ``parametrize`` is exempt —
-    pytest's native stacking semantic stays.
-    """
-    counts: dict[str, int] = {}
-    for marker in item.own_markers:
-        if marker.name in _LITMUS_MARKER_NAMES:
-            counts[marker.name] = counts.get(marker.name, 0) + 1
-    duplicates = [name for name, n in counts.items() if n > 1]
-    if duplicates:
-        raise pytest.UsageError(
-            f"{item.nodeid}: stacked Litmus markers not allowed: "
-            f"{sorted(duplicates)}. Consolidate into one marker per type — "
-            "multi-entry payloads (list of dicts for sweeps/mocks, multiple "
-            "kwargs for limits/prompts) are supported on a single marker."
-        )
+    """Pytest adapter — count inline ``litmus_X`` markers; delegate to runner-neutral check."""
+    try:
+        enforce_no_inline_stacking([m.name for m in item.own_markers])
+    except StackedMarkersError as exc:
+        raise pytest.UsageError(f"{item.nodeid}: {exc}") from exc
 
 
 def _apply_entry_markers(item: pytest.Item, entry: TestEntry) -> None:
-    """Inject one marker per non-empty Litmus field plus runner.markers.
+    """Pytest adapter — translate :class:`TestEntry` to ``MarkerSpec`` and attach.
 
-    Each Litmus field maps to a single ``litmus_X`` marker on the item.
-    The ``runner.markers`` list (ecosystem markers from the active
-    runner's namespace) is applied per entry, except ``parametrize``
-    which is consumed by :func:`pytest_generate_tests`.
+    The runner-neutral ``entry_to_marker_specs`` produces the spec
+    list; this function handles pytest's marker primitive
+    (``pytest.mark.<name>(...)`` + ``item.add_marker``).
     """
-    if entry.limits:
-        item.add_marker(pytest.mark.litmus_limits(**entry.limits))
-    if entry.sweeps:
-        item.add_marker(pytest.mark.litmus_sweeps([s.root for s in entry.sweeps]))
-    if entry.mocks:
-        item.add_marker(pytest.mark.litmus_mocks(list(entry.mocks)))
-    if entry.specs:
-        item.add_marker(pytest.mark.litmus_specs(list(entry.specs)))
-    if entry.connections is not None:
-        item.add_marker(
-            pytest.mark.litmus_connections(**entry.connections.model_dump(exclude_none=True))
-        )
-    if entry.retry is not None:
-        item.add_marker(pytest.mark.litmus_retry(**entry.retry.model_dump(exclude_none=True)))
-    if entry.prompts:
-        item.add_marker(pytest.mark.litmus_prompts(**entry.prompts))
-
-    for marker_entry in entry.runner.get("markers", []) or []:
-        if not isinstance(marker_entry, dict) or len(marker_entry) != 1:
-            raise pytest.UsageError(
-                f"runner.markers entries must be single-key dicts; got {marker_entry!r}"
-            )
-        ((name, payload),) = marker_entry.items()
-        if name == "parametrize":
-            continue  # consumed by pytest_generate_tests
-        marker = getattr(pytest.mark, name)
-        if isinstance(payload, dict):
-            item.add_marker(marker(**payload))
-        elif isinstance(payload, list):
-            item.add_marker(marker(*payload))
-        elif payload is None:
-            item.add_marker(marker)
+    for spec in entry_to_marker_specs(entry):
+        marker = getattr(pytest.mark, spec.name)
+        if spec.args and spec.kwargs:
+            item.add_marker(marker(*spec.args, **spec.kwargs))
+        elif spec.kwargs:
+            item.add_marker(marker(**spec.kwargs))
+        elif spec.args:
+            item.add_marker(marker(*spec.args))
         else:
-            item.add_marker(marker(payload))
+            item.add_marker(marker)
 
 
 def _cascade_for_item(item: pytest.Item) -> TestEntry:
-    """Return the merged :class:`TestEntry` for ``item`` from sidecar + profile cascade.
-
-    Sidecar walks file → class → leaf; profile walks root → class →
-    leaf with last-wins per field. Profile cascade applies after
-    sidecar so profile selections override sidecar defaults.
-    """
-    merged = TestEntry()
-
-    if isinstance(item, pytest.Function):
-        module = getattr(item, "module", None)
-        module_file = getattr(module, "__file__", None)
-        cls_name, func_name = _node_cls_func(item)
-        if module_file is not None:
-            sidecar = _load_sidecar(Path(module_file))
-            if sidecar is not None:
-                _merge_entry_into(merged, _merged_test_entry(sidecar, cls_name, func_name))
-
-        profile = get_active_profile()
-        if profile is not None:
-            _merge_entry_into(merged, _merged_test_entry(profile, cls_name, func_name))
-    return merged
+    """Pytest adapter — load sidecar, look up profile, delegate to runner-neutral cascade."""
+    if not isinstance(item, pytest.Function):
+        return TestEntry()
+    module = getattr(item, "module", None)
+    module_file = getattr(module, "__file__", None)
+    sidecar = _load_sidecar(Path(module_file)) if module_file is not None else None
+    cls_name, func_name = _node_cls_func(item)
+    return cascade_for(sidecar, get_active_profile(), cls_name, func_name)
 
 
 def _apply_cascade_to_items(items: list[pytest.Item]) -> None:
@@ -1968,131 +1919,17 @@ from litmus.execution.vectors import Vector  # noqa: E402
 _VECTORS_MATRIX_KEY: pytest.StashKey[dict[str, list[Vector]]] = pytest.StashKey()
 
 
-def _normalize_inline_list_payload(
-    name: str, args: tuple[Any, ...], kwargs: dict[str, Any]
-) -> list[Any]:
-    """Normalize varargs-of-entries or single-list-arg into a canonical list.
-
-    Used by inline ``@pytest.mark.litmus_sweeps`` / ``litmus_mocks`` /
-    ``litmus_specs`` payload extraction. YAML produces the canonical
-    list shape directly; inline accepts either a single list or
-    pytest-style varargs (parametrize-style) for ergonomic stacking
-    of single-entry markers.
-
-    Entries may be raw dicts (from inline decorators) or already-typed
-    Pydantic models (when the cascade injected the marker with typed
-    instances). Caller validates per-entry shape against the right
-    Pydantic model.
-    """
-    from pydantic import BaseModel
-
-    def _entry_ok(value: Any) -> bool:
-        return isinstance(value, (dict, BaseModel))
-
-    if kwargs:
-        raise pytest.UsageError(
-            f"{name} does not accept keyword arguments; pass a list of "
-            "entries as one positional argument or varargs."
-        )
-    if not args:
-        raise pytest.UsageError(f"{name} requires at least one entry.")
-    if len(args) == 1 and isinstance(args[0], list):
-        payload = args[0]
-    elif all(_entry_ok(a) for a in args):
-        payload = list(args)
-    else:
-        raise pytest.UsageError(
-            f"{name} payload must be a single list or varargs of entries; got {args!r}"
-        )
-    for entry in payload:
-        if not _entry_ok(entry):
-            raise pytest.UsageError(f"{name} entries must be dicts or models; got {entry!r}")
-    return list(payload)
-
-
-def _sweeps_to_parametrize_calls(
-    sweeps: list[SweepEntry],
-) -> list[tuple[str, list[Any]]]:
-    """Translate typed :class:`SweepEntry` instances into parametrize args.
-
-    Each entry is one nesting level: a single-key dict = one plain axis;
-    a multi-key dict = one zipped axis. Zip-dim coherence is already
-    validated by Pydantic (``SweepEntry``'s after-validator) at YAML
-    load and inline-marker decode time, so this is purely a structural
-    translation.
-    """
-    out: list[tuple[str, list[Any]]] = []
-    for entry in sweeps:
-        group = entry.root
-        argnames = list(group.keys())
-        argvalues_lists = list(group.values())
-        if len(argnames) == 1:
-            out.append((argnames[0], list(argvalues_lists[0])))
-        else:
-            argname_str = ",".join(argnames)
-            argvalues = [list(t) for t in zip(*argvalues_lists, strict=True)]
-            out.append((argname_str, argvalues))
-    return out
-
-
-def _runner_parametrize_calls(
-    runner: dict[str, Any],
-) -> list[tuple[Any, list[Any], dict[str, Any]]]:
-    """Extract ``parametrize`` entries from a merged ``runner.markers`` list.
-
-    Runner markers are single-key dicts; for ``parametrize`` the payload
-    is either ``[argnames, argvalues]`` or ``{argnames, argvalues, ...}``.
-    Returns ``(argnames, argvalues, extra_kwargs)`` triples in declared
-    order.
-    """
-    out: list[tuple[Any, list[Any], dict[str, Any]]] = []
-    for entry in runner.get("markers", []) or []:
-        if not isinstance(entry, dict) or len(entry) != 1:
-            continue
-        ((name, payload),) = entry.items()
-        if name != "parametrize":
-            continue
-        if isinstance(payload, list) and len(payload) >= 2:
-            out.append((payload[0], list(payload[1]), {}))
-        elif isinstance(payload, dict):
-            argnames = payload.get("argnames")
-            argvalues = payload.get("argvalues")
-            extra = {k: v for k, v in payload.items() if k not in ("argnames", "argvalues")}
-            if argnames is not None and argvalues is not None:
-                out.append((argnames, list(argvalues), extra))
-    return out
-
-
 def _cascade_parametrize_for_metafunc(
     metafunc: pytest.Metafunc,
 ) -> list[tuple[Any, list[Any], dict[str, Any]]]:
-    """Collect sidecar + profile parametrize calls (sweeps + runner.markers parametrize).
-
-    Returns ``(argnames, argvalues, extra_kwargs)`` triples ordered for
-    sequential :meth:`metafunc.parametrize` application. Sidecar entries
-    come before profile entries; within each origin, sweeps come before
-    explicit runner.markers parametrize entries.
-    """
+    """Pytest adapter — load sidecar / profile, delegate to runner-neutral parametrize calls."""
     module_file = getattr(metafunc.module, "__file__", None)
     sidecar = _load_sidecar(Path(module_file)) if module_file is not None else None
     cls = metafunc.cls
     cls_name = cls.__name__ if cls is not None else None
     func_name = metafunc.function.__name__
-
-    s_entry = _merged_test_entry(sidecar, cls_name, func_name)
-    profile = get_active_profile()
-    p_entry = (
-        _merged_test_entry(profile, cls_name, func_name) if profile is not None else TestEntry()
-    )
-
-    out: list[tuple[Any, list[Any], dict[str, Any]]] = []
-    for argnames, argvalues in _sweeps_to_parametrize_calls(list(s_entry.sweeps)):
-        out.append((argnames, argvalues, {}))
-    out.extend(_runner_parametrize_calls(s_entry.runner))
-    for argnames, argvalues in _sweeps_to_parametrize_calls(list(p_entry.sweeps)):
-        out.append((argnames, argvalues, {}))
-    out.extend(_runner_parametrize_calls(p_entry.runner))
-    return out
+    merged = cascade_for(sidecar, get_active_profile(), cls_name, func_name)
+    return parametrize_calls_for_entry(merged)
 
 
 @pytest.hookimpl(tryfirst=True)
@@ -2124,13 +1961,20 @@ def pytest_generate_tests(metafunc: pytest.Metafunc) -> None:
     iter_top_first = reversed(list(metafunc.definition.iter_markers("litmus_sweeps")))
     inline_sweeps: list[SweepEntry] = []
     for mark in iter_top_first:
-        for raw in _normalize_inline_list_payload("litmus_sweeps", mark.args, dict(mark.kwargs)):
+        try:
+            normalized = normalize_inline_list_payload(
+                "litmus_sweeps", mark.args, dict(mark.kwargs)
+            )
+        except ValueError as exc:
+            raise pytest.UsageError(str(exc)) from exc
+        for raw in normalized:
             inline_sweeps.append(
                 raw if isinstance(raw, SweepEntry) else SweepEntry.model_validate(raw)
             )
 
     parametrize_calls: list[tuple[Any, list[Any], dict[str, Any]]] = []
-    for argnames, argvalues in _sweeps_to_parametrize_calls(inline_sweeps):
+    for inline_entry in inline_sweeps:
+        argnames, argvalues = sweep_to_parametrize_args(inline_entry)
         parametrize_calls.append((argnames, argvalues, {}))
     parametrize_calls.extend(_cascade_parametrize_for_metafunc(metafunc))
 
@@ -2140,8 +1984,8 @@ def pytest_generate_tests(metafunc: pytest.Metafunc) -> None:
         inline_rows = _consume_parametrize_markers(metafunc)
         sidecar_rows: list[dict[str, Any]] = [{}]
         for argnames, argvalues, _extra in parametrize_calls:
-            axis = _parametrize_call_rows(argnames, argvalues)
-            sidecar_rows = [{**base, **row} for base in sidecar_rows for row in axis]
+            rows = parametrize_call_rows(argnames, argvalues)
+            sidecar_rows = [{**base, **row} for base in sidecar_rows for row in rows]
         if sidecar_rows == [{}]:
             full_rows = inline_rows
         elif not inline_rows:
@@ -2173,27 +2017,6 @@ def _normalize_parametrize_argvalues(argvalues: list[Any]) -> list[Any]:
         else:
             out.append(entry)
     return out
-
-
-def _parametrize_call_rows(argnames: Any, argvalues: list[Any]) -> list[dict[str, Any]]:
-    """Convert a parametrize call into row dicts (for self-loop cross-product)."""
-    names = (
-        [n.strip() for n in argnames.split(",")] if isinstance(argnames, str) else list(argnames)
-    )
-    rows: list[dict[str, Any]] = []
-    for raw in argvalues:
-        values = getattr(raw, "values", None)
-        if values is None:
-            values = raw
-        if len(names) == 1:
-            rows.append({names[0]: values})
-        else:
-            if not isinstance(values, (tuple, list)):
-                raise pytest.UsageError(
-                    f"parametrize {argnames!r} expected a tuple per row; got {values!r}"
-                )
-            rows.append(dict(zip(names, values, strict=True)))
-    return rows
 
 
 def _consume_parametrize_markers(metafunc: pytest.Metafunc) -> list[dict[str, Any]]:
@@ -2267,13 +2090,6 @@ def _parametrize_mark_rows(mark: pytest.Mark) -> list[dict[str, Any]]:
                 )
             rows.append(dict(zip(names, values, strict=True)))
     return rows
-
-
-from litmus.execution.sidecar import (  # noqa: E402, I001  (late import; keep grouped)
-    _merge_entry_into,
-    load_sidecar as _load_sidecar,
-    merged_test_entry as _merged_test_entry,
-)
 
 
 @pytest.fixture
@@ -2524,14 +2340,7 @@ def _node_cls_func(node: pytest.Item) -> tuple[str | None, str | None]:
 
 
 def _extract_specs_characteristic(node: pytest.Item) -> str | None:
-    """Extract the single characteristic ID from a ``litmus_specs`` marker.
-
-    The marker payload is a list of characteristic ID strings. Inline
-    decorators may pass either varargs of strings or a single list arg;
-    YAML always produces a list. v1 enforces cardinality 1 — multiple
-    characteristic bindings raise ``pytest.UsageError`` (single iteration
-    scope only). Returns ``None`` if no ``litmus_specs`` marker is set.
-    """
+    """Pytest adapter — collect ``litmus_specs`` payloads, delegate to runner-neutral helper."""
     marker = next(iter(node.iter_markers("litmus_specs")), None)
     if marker is None:
         return None
@@ -2540,27 +2349,10 @@ def _extract_specs_characteristic(node: pytest.Item) -> str | None:
             "litmus_specs does not accept keyword arguments; pass "
             "characteristic IDs as positional strings or a single list."
         )
-    if not marker.args:
-        raise pytest.UsageError("litmus_specs requires at least one characteristic ID.")
-    # Form A: single positional list arg
-    if len(marker.args) == 1 and isinstance(marker.args[0], list):
-        ids = marker.args[0]
-    # Form B: varargs of strings
-    elif all(isinstance(a, str) for a in marker.args):
-        ids = list(marker.args)
-    else:
-        raise pytest.UsageError(
-            f"litmus_specs payload must be a list of characteristic ID "
-            f"strings (or varargs of strings); got {marker.args!r}"
-        )
-    if not all(isinstance(i, str) for i in ids):
-        raise pytest.UsageError(f"litmus_specs entries must be strings; got {ids!r}")
-    if len(ids) != 1:
-        raise pytest.UsageError(
-            f"litmus_specs supports exactly one characteristic ID per test "
-            f"(single iteration scope); got {len(ids)}: {ids!r}"
-        )
-    return ids[0]
+    try:
+        return extract_specs_characteristic([marker.args])
+    except ValueError as exc:
+        raise pytest.UsageError(str(exc)) from exc
 
 
 @pytest.fixture(autouse=True)
@@ -2682,9 +2474,13 @@ def _litmus_apply_mocks(
         for marker in node.own_markers:
             if marker.name != "litmus_mocks":
                 continue
-            for raw in _normalize_inline_list_payload(
-                "litmus_mocks", marker.args, dict(marker.kwargs)
-            ):
+            try:
+                normalized = normalize_inline_list_payload(
+                    "litmus_mocks", marker.args, dict(marker.kwargs)
+                )
+            except ValueError as exc:
+                raise pytest.UsageError(str(exc)) from exc
+            for raw in normalized:
                 entry = raw if isinstance(raw, MockEntry) else MockEntry.model_validate(raw)
                 by_target[entry.target] = entry
 
