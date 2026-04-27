@@ -30,7 +30,7 @@ from typing import Any
 
 from pydantic import BaseModel
 
-from litmus.config.test_config import TestEntry
+from litmus.models.test_config import TestEntry
 
 LITMUS_MARKER_NAMES: tuple[str, ...] = (
     "litmus_limits",

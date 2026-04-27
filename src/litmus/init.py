@@ -228,8 +228,8 @@ Run with --mock-instruments for hardware-free testing:
     # Create litmus.yaml
     litmus_yaml_path = path / "litmus.yaml"
     if not litmus_yaml_path.exists():
-        from litmus.config.fmt import dump_yaml
         from litmus.models.project import ProjectConfig
+        from litmus.store import dump_yaml
 
         proj_data: dict[str, Any] = {"name": project_name}
         if starter:
@@ -319,8 +319,8 @@ A [Litmus](https://github.com/pragmatest-dev/litmus) hardware test project.
 
     # Write station file if instruments were discovered
     if station and station.get("instruments"):
-        from litmus.config.fmt import dump_yaml
         from litmus.models.station import StationConfig, StationInstrumentConfig
+        from litmus.store import dump_yaml
 
         stations_dir = path / "stations"
         stations_dir.mkdir(exist_ok=True)
@@ -397,7 +397,7 @@ def _create_starter_files(path: Path, project_name: str) -> list[str]:
     Returns:
         List of created file paths (relative to project root).
     """
-    from litmus.config.fmt import dump_yaml
+    from litmus.store import dump_yaml
 
     created_files: list[str] = []
 

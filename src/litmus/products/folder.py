@@ -13,13 +13,12 @@ from pathlib import Path
 
 import yaml
 
-from litmus.config.fmt import dump_yaml
 from litmus.models.product import Product
 from litmus.models.product_manifest import (
     ProductManifest,
     WorkflowStep,
 )
-from litmus.store import load_manifest, load_product
+from litmus.store import dump_yaml, load_manifest, load_product
 from litmus.store import save_manifest as _store_save_manifest
 
 logger = logging.getLogger(__name__)

@@ -11,13 +11,13 @@ from typing import Any
 
 import pytest
 
-from litmus.config.test_config import MeasurementLimitConfig, SweepEntry, TestEntry
 from litmus.execution.profiles import (
     ProfileError,
     flatten_profile_chain,
     resolve_active_profile,
 )
 from litmus.models.project import ProfileConfig, ProjectConfig
+from litmus.models.test_config import MeasurementLimitConfig, SweepEntry, TestEntry
 from litmus.store import load_project
 
 

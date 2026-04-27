@@ -9,7 +9,7 @@ unchanged.
 
 - Added dep: `litmus-test` (the Litmus platform)
 - Replaced `assert 3.2 <= v <= 3.4` with `verify("v_rail", v, limit=V_RAIL)`
-- Added `from litmus.config.test_config import Limit` and one inline
+- Added `from litmus.models.test_config import Limit` and one inline
   `Limit(...)` at module level
 - Added `test_intermittent_glitch` decorated with
   `@pytest.mark.litmus_retry(max_attempts=3, delay=0.05)` — retry

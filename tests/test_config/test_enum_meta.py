@@ -1,13 +1,13 @@
 """Tests for enum metadata registry and abbreviation lookup."""
 
-from litmus.config.enum_meta import (
+from litmus.models.config import ConditionKey, MeasurementFunction
+from litmus.models.enum_meta import (
     CONDITION_KEY_META,
     MEASUREMENT_FUNCTION_META,
     LookupResult,
     lookup_enum,
     render_enum_reference,
 )
-from litmus.models.config import ConditionKey, MeasurementFunction
 
 
 class TestRegistryCompleteness:

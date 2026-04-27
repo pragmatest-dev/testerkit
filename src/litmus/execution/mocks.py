@@ -24,7 +24,7 @@ import warnings
 from collections.abc import Callable
 from typing import Any
 
-from litmus.config.test_config import MockEntry
+from litmus.models.test_config import MockEntry
 
 
 def install_mocks(

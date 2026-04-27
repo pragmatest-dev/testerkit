@@ -5,10 +5,10 @@ from uuid import uuid4
 
 import pytest
 
-from litmus.config.test_config import FixtureConfig, FixtureConnection, FixtureSlot
 from litmus.data.models import DUT
 from litmus.execution.slot_runner import SlotRunner
 from litmus.execution.slots import ResolvedSlot, resolve_fixture_slots
+from litmus.models.test_config import FixtureConfig, FixtureConnection, FixtureSlot
 
 
 def _make_slots() -> dict[str, ResolvedSlot]:

@@ -25,7 +25,6 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from litmus.config.test_config import TestEntry
 from litmus.execution._state import (
     set_active_facets,
     set_active_profile,
@@ -33,6 +32,7 @@ from litmus.execution._state import (
 )
 from litmus.execution.sidecar import _merge_entry_into
 from litmus.models.project import ProfileConfig, ProjectConfig
+from litmus.models.test_config import TestEntry
 from litmus.prompts import ask as ask_prompt
 
 

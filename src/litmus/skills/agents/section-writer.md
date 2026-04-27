@@ -122,7 +122,7 @@ If there's only ONE accuracy across the whole range, just use top-level accuracy
 - No spec data in comments — every inventory row goes into a schema field
 - **No `note` fields** — NEVER add `note:` on any model. Encode data structurally (qualifier, specs, attributes) or omit prose descriptions entirely
 - **Quote YAML boolean strings** — always quote `"on"`, `"off"`, `"yes"`, `"no"`, `"true"`, `"false"` when used as string values (YAML parses bare `on`/`off` as booleans)
-- The orchestrator runs `litmus.config.fmt.format_file_inplace()` after writing to enforce consistent formatting
+- The orchestrator runs `litmus.store.format_file_inplace()` after writing to enforce consistent formatting
 
 ### MeasurementFunction Enum
 

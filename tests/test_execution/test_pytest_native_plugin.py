@@ -358,7 +358,7 @@ def test_measure_records_outcome_without_raising(pytester: pytest.Pytester) -> N
         pytester,
         textwrap.dedent(
             """
-            from litmus.config.test_config import Limit
+            from litmus.models.test_config import Limit
 
             class TestSeq:
                 def test_records(self, logger):
@@ -384,7 +384,7 @@ def test_verify_raises_on_fail(pytester: pytest.Pytester) -> None:
         pytester,
         textwrap.dedent(
             """
-            from litmus.config.test_config import Limit
+            from litmus.models.test_config import Limit
 
             class TestSeq:
                 def test_fails(self, verify):
@@ -404,7 +404,7 @@ def test_duplicate_measurement_name_in_step_errors(
         pytester,
         textwrap.dedent(
             """
-            from litmus.config.test_config import Limit
+            from litmus.models.test_config import Limit
 
             class TestSeq:
                 def test_dup(self, logger):
@@ -426,7 +426,7 @@ def test_allow_repeat_streams_same_name(pytester: pytest.Pytester) -> None:
         pytester,
         textwrap.dedent(
             """
-            from litmus.config.test_config import Limit
+            from litmus.models.test_config import Limit
 
             class TestSeq:
                 def test_stream(self, logger):

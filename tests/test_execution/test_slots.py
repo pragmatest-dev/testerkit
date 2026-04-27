@@ -2,13 +2,13 @@
 
 import pytest
 
-from litmus.config.test_config import FixtureConfig, FixtureConnection, FixtureSlot
 from litmus.execution.slots import (
     DEFAULT_SLOT_ID,
     ResolvedSlot,
     detect_shared_instruments,
     resolve_fixture_slots,
 )
+from litmus.models.test_config import FixtureConfig, FixtureConnection, FixtureSlot
 
 
 class TestSingleDUTFixture:

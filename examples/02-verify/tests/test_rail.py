@@ -22,7 +22,7 @@ from __future__ import annotations
 
 import pytest
 
-from litmus.config.test_config import Limit
+from litmus.models.test_config import Limit
 
 V_RAIL = Limit(low=3.2, high=3.4, units="V")
 

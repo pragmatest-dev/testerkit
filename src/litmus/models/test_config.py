@@ -10,7 +10,7 @@ from typing import Any, Literal, Self
 
 from pydantic import BaseModel, ConfigDict, Field, RootModel, model_validator
 
-from litmus.config.enums import Comparator
+from litmus.models.enums import Comparator
 
 # =============================================================================
 # Marker-scope schema — runner-neutral Litmus-marker fields, flat

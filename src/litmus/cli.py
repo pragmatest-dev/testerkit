@@ -1685,13 +1685,13 @@ def station_init(station_id: str, name: str, location: str | None):
     if location:
         station_data["station"]["location"] = location
 
-    from litmus.config.normalize import check_instrument_types
+    from litmus.store import check_instrument_types
 
     _, type_warnings = check_instrument_types(station_instruments)
     for w in type_warnings:
         click.echo(f"  Warning: {w}", err=True)
 
-    from litmus.config.fmt import dump_yaml
+    from litmus.store import dump_yaml
 
     station_file = stations_dir / f"{station_id}.yaml"
     station_file.write_text(dump_yaml(station_data))

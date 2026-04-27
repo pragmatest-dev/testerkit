@@ -9,7 +9,7 @@ from enum import StrEnum
 
 from pydantic import BaseModel, Field, computed_field, model_validator
 
-from litmus.config.enums import (
+from litmus.models.enums import (
     ConnectorType,
     Direction,
     GroundTopology,

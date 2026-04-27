@@ -12,14 +12,6 @@ from uuid import UUID, uuid4
 
 import pytest
 
-from litmus.config.test_config import (
-    FixtureConfig,
-    MeasurementLimitConfig,
-    MockEntry,
-    RetryPolicy,
-    SweepEntry,
-    TestEntry,
-)
 from litmus.data.models import CollectedItem, TestVector
 from litmus.execution._state import (
     _active_vector_index_var,
@@ -103,6 +95,14 @@ from litmus.instruments.route_manager import RouteManager
 from litmus.models.config import PromptConfig
 from litmus.models.instrument import InstrumentRecord
 from litmus.models.station import StationConfig
+from litmus.models.test_config import (
+    FixtureConfig,
+    MeasurementLimitConfig,
+    MockEntry,
+    RetryPolicy,
+    SweepEntry,
+    TestEntry,
+)
 from litmus.products.context import SpecContext
 from litmus.prompts import ask as ask_prompt
 from litmus.pytest_plugin.markers import (

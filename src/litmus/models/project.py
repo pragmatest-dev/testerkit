@@ -11,8 +11,8 @@ from typing import Any
 
 from pydantic import BaseModel, Field, model_validator
 
-from litmus.config.test_config import TestEntry
 from litmus.models.config import PromptConfig
+from litmus.models.test_config import TestEntry
 
 
 class OutputConfig(BaseModel):

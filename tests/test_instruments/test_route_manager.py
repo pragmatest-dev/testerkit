@@ -2,8 +2,8 @@
 
 import pytest
 
-from litmus.config.test_config import FixtureConnection, SwitchRoute
 from litmus.instruments.route_manager import RouteConflictError, RouteManager
+from litmus.models.test_config import FixtureConnection, SwitchRoute
 
 
 class FakeSwitch:

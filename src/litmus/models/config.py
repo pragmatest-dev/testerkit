@@ -58,7 +58,7 @@ __all__ = [
     "Specification",
 ]
 
-from litmus.config.capability import (  # noqa: F401
+from litmus.models.capability import (  # noqa: F401
     AccuracySpec,
     Attribute,
     Capability,
@@ -75,7 +75,7 @@ from litmus.config.capability import (  # noqa: F401
     SpecBand,
     SpecQualifier,
 )
-from litmus.config.enums import (  # noqa: F401
+from litmus.models.enums import (  # noqa: F401
     COAXIAL_CONNECTORS,
     TRIAX_CONNECTORS,
     Comparator,
@@ -90,7 +90,7 @@ from litmus.config.enums import (  # noqa: F401
     TerminalRole,
     WaveformShape,
 )
-from litmus.config.station_types import (  # noqa: F401
+from litmus.models.station_types import (  # noqa: F401
     InstrumentConfig,
     InstrumentInstance,
     StationInstance,
@@ -98,7 +98,7 @@ from litmus.config.station_types import (  # noqa: F401
 )
 
 # Test configuration models
-from litmus.config.test_config import (  # noqa: F401
+from litmus.models.test_config import (  # noqa: F401
     FixtureConfig,
     FixtureConnection,
     Limit,

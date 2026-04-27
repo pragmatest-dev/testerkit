@@ -2,7 +2,7 @@
 
 from pathlib import Path
 
-from litmus.config.capability import RangeSpec
+from litmus.models.capability import RangeSpec
 from litmus.models.config import Signal
 from litmus.store import load_catalog_entry
 

@@ -16,7 +16,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from litmus.config.test_config import RetryPolicy
+from litmus.models.test_config import RetryPolicy
 
 
 def retry_policy_to_flaky_kwargs(policy: RetryPolicy) -> dict[str, Any]:

@@ -24,9 +24,9 @@ from __future__ import annotations
 
 from collections.abc import Iterable
 
-from litmus.config.test_config import SidecarConfig, TestEntry
 from litmus.execution.sidecar import _merge_entry_into, merged_test_entry
 from litmus.models.project import ProfileConfig
+from litmus.models.test_config import SidecarConfig, TestEntry
 
 __all__ = ["cascade_for", "find_unmatched_profile_keys", "merged_test_entry"]
 

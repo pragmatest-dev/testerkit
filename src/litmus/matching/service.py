@@ -24,7 +24,7 @@ if TYPE_CHECKING:
 
 from pydantic import BaseModel, Field
 
-from litmus.config.capability import band_matches
+from litmus.models.capability import band_matches
 from litmus.models.config import (
     AccuracySpec,
     Attribute,

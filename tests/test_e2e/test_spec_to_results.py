@@ -14,9 +14,9 @@ from pathlib import Path
 
 import pytest
 
-from litmus.config.capability import RangeSpec
 from litmus.data.models import Outcome
 from litmus.execution.harness import TestHarness
+from litmus.models.capability import RangeSpec
 from litmus.products.context import SpecContext
 
 # Path to example specs (used for integration testing, not value assertions)

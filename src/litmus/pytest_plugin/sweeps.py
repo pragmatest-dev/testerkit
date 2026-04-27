@@ -15,7 +15,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from litmus.config.test_config import SweepEntry, TestEntry
+from litmus.models.test_config import SweepEntry, TestEntry
 
 
 def sweep_to_parametrize_args(entry: SweepEntry) -> tuple[str, list[Any]]:

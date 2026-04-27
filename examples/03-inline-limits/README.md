@@ -6,7 +6,7 @@ instance inside the body.
 
 ## Diff from stage 2
 
-- Deleted `from litmus.config.test_config import Limit` — no longer needed in the body
+- Deleted `from litmus.models.test_config import Limit` — no longer needed in the body
 - Deleted the module-level `V_RAIL = Limit(...)` constant
 - Added `@pytest.mark.litmus_limits(v_rail={"low": 3.2, "high": 3.4, "units": "V"})` on each test
 

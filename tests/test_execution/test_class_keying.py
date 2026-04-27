@@ -9,8 +9,8 @@ shorthand still matches a method when the class branch is absent.
 
 from __future__ import annotations
 
-from litmus.config.test_config import SidecarConfig, TestEntry
 from litmus.execution.sidecar import merged_test_entry
+from litmus.models.test_config import SidecarConfig, TestEntry
 
 
 class TestQualifiedClassMethodKeying:

@@ -9,8 +9,6 @@ from typing import Any
 import pyarrow as pa
 
 from litmus.analysis import query
-from litmus.config.normalize import check_instrument_types
-from litmus.config.station_types import StationType
 from litmus.data.backends.parquet import ParquetBackend
 from litmus.data.models import RunSummary
 from litmus.instruments.loader import resolve_station_instruments
@@ -19,7 +17,16 @@ from litmus.models.catalog import InstrumentCatalogEntry
 from litmus.models.config import FixtureConfig
 from litmus.models.product import Product
 from litmus.models.station import StationConfig
+from litmus.models.station_types import StationType
 from litmus.products.folder import ProductFolder
+from litmus.store import (
+    check_instrument_types,
+    find_catalog_dirs,
+    load_catalog_from_directory,
+    load_instrument_files,
+    load_product,
+    load_project_config,
+)
 from litmus.store import (
     create_catalog_entry as store_create_catalog_entry,
 )
@@ -31,13 +38,6 @@ from litmus.store import (
 )
 from litmus.store import (
     create_station as store_create_station,
-)
-from litmus.store import (
-    find_catalog_dirs,
-    load_catalog_from_directory,
-    load_instrument_files,
-    load_product,
-    load_project_config,
 )
 from litmus.store import (
     get_catalog_entry as store_get_catalog_entry,

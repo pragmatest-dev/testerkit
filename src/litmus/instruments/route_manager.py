@@ -19,9 +19,9 @@ from uuid import UUID, uuid4
 
 from filelock._api import BaseFileLock
 
-from litmus.config.test_config import FixtureConnection, SwitchRoute
 from litmus.instruments.locks import ResourceMeta, acquire_resource
 from litmus.instruments.switch import SwitchDriver
+from litmus.models.test_config import FixtureConnection, SwitchRoute
 
 logger = logging.getLogger(__name__)
 

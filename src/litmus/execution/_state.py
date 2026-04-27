@@ -24,10 +24,10 @@ from __future__ import annotations
 from contextvars import ContextVar
 from typing import Any
 
-from litmus.config.test_config import FixtureConnection
 from litmus.data.models import CollectedItem
 from litmus.models.instrument import InstrumentRecord
 from litmus.models.project import ProfileConfig
+from litmus.models.test_config import FixtureConnection
 
 # Step/vector — used by both logger.py and harness.py.
 current_step_var: ContextVar[Any] = ContextVar("current_step", default=None)

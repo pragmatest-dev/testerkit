@@ -23,13 +23,13 @@ from collections.abc import Mapping
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from litmus.config.expanders import expand_ranges
-from litmus.config.test_config import (
+from litmus.models.test_config import (
     Limit,
     MeasurementLimitConfig,
     SidecarConfig,
     TestEntry,
 )
+from litmus.store import expand_ranges
 
 if TYPE_CHECKING:
     from litmus.models.project import ProfileConfig
@@ -241,7 +241,7 @@ def resolve_limit(
     (missing spec context, characterization mode, etc.) so the
     measurement records unchecked instead of failing.
     """
-    from litmus.config.capability import SpecBand, band_matches
+    from litmus.models.capability import SpecBand, band_matches
 
     spec_ctx = get_active_spec_context()
     profile = get_active_profile()

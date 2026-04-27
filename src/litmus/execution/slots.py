@@ -12,7 +12,7 @@ from collections import Counter
 
 from pydantic import BaseModel, Field
 
-from litmus.config.test_config import FixtureConfig, FixtureConnection
+from litmus.models.test_config import FixtureConfig, FixtureConnection
 
 
 class ResolvedSlot(BaseModel):

@@ -93,7 +93,7 @@ def _normalize_comparator(val: Any) -> Any:
     produce identical enum values. ``None`` maps to the default ``GELE``.
     """
     # Inline import: breaks runtime cycle with plugin (which imports this module).
-    from litmus.config.enums import Comparator
+    from litmus.models.enums import Comparator
 
     if val is None:
         return Comparator.GELE
@@ -109,7 +109,7 @@ def _limit_from_dict(spec: Any, *, units_override: str | None = None) -> Limit:
     future dict-shaped limit source. The ``units_override`` lets callers
     prefer a caller-supplied unit when the dict itself has no ``units``.
     """
-    from litmus.config.test_config import Limit as LimitModel
+    from litmus.models.test_config import Limit as LimitModel
 
     return LimitModel(
         low=spec.get("low"),

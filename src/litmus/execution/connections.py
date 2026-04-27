@@ -19,8 +19,8 @@ from __future__ import annotations
 from collections.abc import KeysView, ValuesView
 from typing import TYPE_CHECKING, Any
 
-from litmus.config.test_config import FixtureConfig, FixtureConnection
 from litmus.execution._state import _active_connection_var
+from litmus.models.test_config import FixtureConfig, FixtureConnection
 
 if TYPE_CHECKING:
     import pytest

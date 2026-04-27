@@ -8,7 +8,7 @@ import textwrap
 import pytest
 
 from litmus import arange, geomspace, linspace, logspace, repeat
-from litmus.config.expanders import expand_ranges
+from litmus.store import expand_ranges
 
 pytest_plugins = ["pytester"]
 

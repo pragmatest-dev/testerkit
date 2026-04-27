@@ -20,22 +20,26 @@ from __future__ import annotations
 import copy
 import warnings
 from collections.abc import Callable, Iterator
+from io import StringIO
 from pathlib import Path
 from typing import Any, Protocol, TypeVar
 
+import numpy as np
 import yaml
 from pydantic import ValidationError
+from ruamel.yaml import YAML
+from ruamel.yaml.comments import CommentedMap, CommentedSeq
+from ruamel.yaml.scalarstring import DoubleQuotedScalarString
 
-from litmus.config.expanders import expand_ranges
-from litmus.config.fmt import dump_yaml
-from litmus.config.station_types import StationType
 from litmus.models.catalog import InstrumentCatalogEntry
 from litmus.models.config import FixtureConfig
+from litmus.models.enums import InstrumentType
 from litmus.models.instrument_asset import InstrumentAssetFile
 from litmus.models.product import Product
 from litmus.models.product_manifest import ProductManifest
 from litmus.models.project import ProfileConfig, ProjectConfig
 from litmus.models.station import StationConfig
+from litmus.models.station_types import StationType
 from litmus.utils.paths import (
     get_fixture_paths,
     get_instrument_paths,
@@ -118,7 +122,7 @@ def _read_yaml(path: Path) -> dict[str, Any]:
 
     Range-expander dicts (``{linspace: [...]}`` and friends) are expanded
     in place before the result is handed to callers. See
-    ``litmus.config.expanders`` for the supported keys.
+    :func:`expand_ranges` below for the supported keys.
     """
     with open(path) as f:
         loaded = yaml.safe_load(f) or {}
@@ -1212,7 +1216,7 @@ def load_station_type(
 
 
 # =============================================================================
-# YAML formatting (file I/O wrappers around litmus.config.fmt)
+# YAML formatting — file I/O wrappers around dump_yaml
 # =============================================================================
 
 
@@ -1244,3 +1248,213 @@ FILE_LOADERS: dict[str, Callable[[Path], object]] = {
     "product": load_product,
     "catalog": load_catalog_entry,
 }
+
+
+# =============================================================================
+# YAML range expanders — load-time
+# =============================================================================
+#
+# Any list-producing position in a Litmus YAML file accepts a single-key
+# dict whose key names a generator. The loader walks the tree and
+# replaces every such dict with the expanded list *before* Pydantic
+# validation — so schema shapes only ever see plain lists.
+#
+# Supported generators:
+#     {linspace: [start, stop, num]}     -> numpy.linspace
+#     {arange:   [start, stop, step]}    -> numpy.arange  (stop exclusive)
+#     {logspace: [start, stop, num]}     -> numpy.logspace (base 10)
+#     {geomspace:[start, stop, num]}     -> numpy.geomspace
+#     {repeat:   [value, n]}             -> [value] * n
+#     {range:    [start, stop[, step]]}  -> list(range(...))
+
+
+_RANGE_EXPANDERS: dict[str, Callable[[list[Any]], list[Any]]] = {
+    "linspace": lambda args: np.linspace(*args).tolist(),
+    "arange": lambda args: np.arange(*args).tolist(),
+    "logspace": lambda args: np.logspace(*args).tolist(),
+    "geomspace": lambda args: np.geomspace(*args).tolist(),
+    "repeat": lambda args: [args[0]] * int(args[1]),
+    "range": lambda args: list(range(*args)),
+}
+
+
+def expand_ranges(data: Any) -> Any:
+    """Recursively replace ``{<expander>: [...]}`` nodes with expanded lists.
+
+    Returns a new object so the caller can reassign. Unknown dict shapes
+    pass through unchanged; lists and nested dicts are walked.
+    """
+    if isinstance(data, dict):
+        if len(data) == 1:
+            (key, value) = next(iter(data.items()))
+            if key in _RANGE_EXPANDERS and isinstance(value, list):
+                try:
+                    return _RANGE_EXPANDERS[key](value)
+                except Exception as exc:
+                    raise ValueError(
+                        f"Range expander {key!r} failed on args {value!r}: {exc}"
+                    ) from exc
+        return {k: expand_ranges(v) for k, v in data.items()}
+    if isinstance(data, list):
+        return [expand_ranges(item) for item in data]
+    return data
+
+
+# =============================================================================
+# YAML output formatter — write-time
+# =============================================================================
+#
+# Block-style for structural keys, flow-style for compact leaf dicts and
+# short scalar lists. Strings are double-quoted to dodge YAML's reserved
+# words (on/off/yes/no).
+
+
+_FMT_BLOCK_KEYS = {
+    # Catalog
+    "when",
+    "signals",
+    "conditions",
+    "controls",
+    "attributes",
+    "capabilities",
+    "channels",
+    "catalog_entry",
+    "specs",
+    # Products
+    "characteristics",
+    "vectors",
+    "limits",
+    # Sequences
+    "steps",
+    # Station / fixture
+    "instruments",
+    "roles",
+    "pins",
+}
+
+
+def _fmt_is_scalar(v: Any) -> bool:
+    return isinstance(v, (str, int, float, bool, type(None)))
+
+
+def _fmt_quote_if_needed(v: Any) -> Any:
+    """Quote all string values for safe, unambiguous YAML output."""
+    if isinstance(v, str):
+        return DoubleQuotedScalarString(v)
+    return v
+
+
+def _fmt_apply_style(data: Any, key: str | None = None) -> Any:
+    """Recursively apply Litmus YAML style rules."""
+    if isinstance(data, dict):
+        cm = CommentedMap()
+        for k, v in data.items():
+            cm[k] = _fmt_apply_style(v, key=k)
+        if key not in _FMT_BLOCK_KEYS and all(_fmt_is_scalar(v) for v in data.values()):
+            cm.fa.set_flow_style()
+        return cm
+    if isinstance(data, list):
+        cs = CommentedSeq()
+        for item in data:
+            cs.append(_fmt_apply_style(_fmt_quote_if_needed(item)))
+        if all(_fmt_is_scalar(v) for v in data) and len(data) <= 8:
+            cs.fa.set_flow_style()
+        return cs
+    return _fmt_quote_if_needed(data)
+
+
+def _fmt_make_yaml() -> YAML:
+    ry = YAML()
+    ry.default_flow_style = False
+    ry.width = 120
+    ry.indent(mapping=2, sequence=2, offset=0)
+    return ry
+
+
+def dump_yaml(data: dict[str, Any]) -> str:
+    """Dump a dict to a YAML string with Litmus conventions."""
+    styled = _fmt_apply_style(data)
+    ry = _fmt_make_yaml()
+    buf = StringIO()
+    ry.dump(styled, buf)
+    return buf.getvalue()
+
+
+# =============================================================================
+# Instrument-type normalization — load-time
+# =============================================================================
+#
+# `type:` values get lowercased and aliased to canonical InstrumentType
+# vocabulary. Unknown types soft-warn (custom types are fine) but typos
+# get surfaced.
+
+
+_INSTRUMENT_TYPE_ALIASES: dict[str, str] = {
+    "digital_multimeter": InstrumentType.DMM,
+    "scope": InstrumentType.OSCILLOSCOPE,
+    "power_supply": InstrumentType.PSU,
+    "dc_power_supply": InstrumentType.PSU,
+    "fgen": InstrumentType.FUNCTION_GENERATOR,
+    "eload": InstrumentType.ELECTRONIC_LOAD,
+    "rf_siggen": InstrumentType.RF_SIGNAL_GENERATOR,
+    "signal_generator": InstrumentType.RF_SIGNAL_GENERATOR,
+    "picoammeter": InstrumentType.ELECTROMETER,
+    "optical_power_meter": InstrumentType.POWER_METER,
+}
+
+_KNOWN_INSTRUMENT_TYPES = {t.value for t in InstrumentType}
+
+
+def normalize_instrument_type(raw: str) -> str:
+    """Lowercase, strip, and resolve aliases to canonical type."""
+    normalized = raw.strip().lower()
+    return _INSTRUMENT_TYPE_ALIASES.get(normalized, normalized)
+
+
+def check_instrument_types(
+    instruments: dict[str, dict],
+) -> tuple[dict[str, dict], list[str]]:
+    """Normalize instrument types and warn about unknown ones.
+
+    Args:
+        instruments: Dict of instrument name → config dict. Each config
+            must have a ``type`` key.
+
+    Returns:
+        ``(instruments with normalized types, list of warning strings)``
+    """
+    msgs: list[str] = []
+    for name, config in instruments.items():
+        if "type" not in config:
+            continue
+        original = config["type"]
+        config["type"] = normalize_instrument_type(original)
+        if config["type"] != original:
+            msgs.append(f"instruments.{name}: Normalized type '{original}' → '{config['type']}'")
+        if config["type"] not in _KNOWN_INSTRUMENT_TYPES:
+            known = _known_catalog_types()
+            if known and config["type"] not in known:
+                msgs.append(
+                    f"instruments.{name}: Type '{config['type']}' "
+                    "not in InstrumentType enum or any catalog entry — "
+                    "this is fine for custom types, but check for typos."
+                )
+    return instruments, msgs
+
+
+def _known_catalog_types() -> set[str]:
+    """Collect instrument types present in loaded catalog entries."""
+    try:
+        types: set[str] = set()
+        for cat_dir in find_catalog_dirs():
+            for entry in load_catalog_from_directory(cat_dir).values():
+                if entry.type:
+                    types.add(entry.type.lower())
+        return types | _KNOWN_INSTRUMENT_TYPES
+    except OSError as exc:
+        warnings.warn(
+            f"Could not load instrument catalog: {exc}",
+            RuntimeWarning,
+            stacklevel=2,
+        )
+        return _KNOWN_INSTRUMENT_TYPES

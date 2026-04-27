@@ -11,8 +11,7 @@ from __future__ import annotations
 
 import pytest
 
-from litmus.config.expanders import expand_ranges
-from litmus.config.test_config import (
+from litmus.models.test_config import (
     ConnectionsBinding,
     MeasurementLimitConfig,
     MockEntry,
@@ -22,6 +21,7 @@ from litmus.config.test_config import (
     SweepEntry,
     TestEntry,
 )
+from litmus.store import expand_ranges
 
 
 class TestTestEntryShape:

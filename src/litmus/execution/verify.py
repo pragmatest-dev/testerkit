@@ -20,8 +20,8 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import Any, Protocol
 
-from litmus.config.test_config import Limit
 from litmus.data.models import Measurement, Outcome
+from litmus.models.test_config import Limit
 
 
 class VerifyFn(Protocol):
@@ -186,7 +186,7 @@ def _reconstruct_limit_from_measurement(m: Measurement) -> Limit | None:
     """
     if m.low_limit is None and m.high_limit is None and m.nominal is None:
         return None
-    from litmus.config.enums import Comparator
+    from litmus.models.enums import Comparator
 
     cmp = Comparator(m.comparator) if m.comparator else Comparator.GELE
     return Limit(

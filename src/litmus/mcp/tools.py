@@ -18,8 +18,8 @@ from pathlib import Path
 from typing import Any, Literal, cast
 from uuid import UUID, uuid4
 
-from litmus.config.enum_meta import lookup_enum as _lookup_enum_fn
-from litmus.config.enum_meta import render_enum_reference as _render_enum_reference_fn
+from litmus.models.enum_meta import lookup_enum as _lookup_enum_fn
+from litmus.models.enum_meta import render_enum_reference as _render_enum_reference_fn
 
 logger = logging.getLogger(__name__)
 
@@ -559,9 +559,8 @@ def _save_entity(
         return result
 
     if entity_type == "station":
-        from litmus.config.normalize import check_instrument_types
         from litmus.models.station import StationConfig
-        from litmus.store import save_station
+        from litmus.store import check_instrument_types, save_station
 
         station = StationConfig.model_validate(content)
         _, type_warnings = check_instrument_types(
