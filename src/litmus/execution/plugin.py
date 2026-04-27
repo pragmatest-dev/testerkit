@@ -16,6 +16,7 @@ from litmus.config.test_config import (
     FixtureConfig,
     MeasurementLimitConfig,
     MockEntry,
+    RetryPolicy,
     SweepEntry,
     TestEntry,
 )
@@ -88,7 +89,7 @@ from litmus.models.station import StationConfig
 from litmus.products.context import SpecContext
 from litmus.prompts import ask as ask_prompt
 from litmus.runner.audit import audit_traceability
-from litmus.runner.cascade import cascade_for
+from litmus.runner.cascade import cascade_for, find_unmatched_profile_keys
 from litmus.runner.instrument_events import emit_instrument_events
 from litmus.runner.markers import (
     StackedMarkersError,
@@ -98,12 +99,14 @@ from litmus.runner.markers import (
     normalize_inline_list_payload,
 )
 from litmus.runner.metadata import build_run_metadata
+from litmus.runner.mocks import install_mocks
 from litmus.runner.outputs import (
     create_subscriber,
     find_format_transport_callback,
     make_transport_callback,
     run_configured_outputs,
 )
+from litmus.runner.retry import retry_policy_to_flaky_kwargs
 from litmus.runner.sweeps import (
     parametrize_call_rows,
     parametrize_calls_for_entry,
@@ -453,87 +456,37 @@ def pytest_collection_modifyitems(config, items: list[pytest.Item]) -> None:
 
 
 def _translate_retry_markers(items: list[pytest.Item]) -> None:
-    """Translate ``litmus_retry`` markers into ``flaky`` markers.
+    """Pytest adapter — translate ``litmus_retry`` markers into ``pytest.mark.flaky``.
 
-    ``litmus_retry`` is the runner-neutral retry marker — pytest-only
-    code paths (sidecar / profile / inline ``@pytest.mark.litmus_retry``)
-    use it, and we map to pytest-rerunfailures' ``flaky`` here so the
-    rerun loop is delegated to the canonical pytest plugin. Other
-    runners (OpenHTF, unittest) translate ``litmus_retry`` to their own
-    retry primitives in their wrappers.
-
-    Translation:
-
-    * ``max_attempts=N`` → ``flaky(reruns=N-1)`` (rerunfailures counts
-      *additional* attempts after the first; ``litmus_retry`` counts
-      *total* attempts).
-    * ``delay=S`` → ``flaky(reruns_delay=S)``.
-    * ``on=[...]`` → ``flaky(only_rerun=[...])``.
-
-    Most-specific marker wins when multiple ``litmus_retry`` markers
-    stack from different scopes (file → class → test → profile).
+    Most-specific marker wins when multiple stack from different scopes
+    (file → class → test → profile). The validation + flaky-kwarg
+    mapping is runner-neutral; only the destination marker is pytest's.
     """
     for item in items:
         retry_markers = list(item.iter_markers("litmus_retry"))
         if not retry_markers:
             continue
-        # Most-specific (test-level) wins; iter_markers yields most
-        # specific first per pytest's own ordering.
         marker = retry_markers[0]
-        kwargs = dict(marker.kwargs)
-        max_attempts = kwargs.pop("max_attempts", 1)
-        if not isinstance(max_attempts, int) or max_attempts < 1:
-            raise pytest.UsageError(
-                f"litmus_retry max_attempts must be a positive int; got {max_attempts!r}"
-            )
-        flaky_kwargs: dict[str, Any] = {"reruns": max(0, max_attempts - 1)}
-        if "delay" in kwargs:
-            flaky_kwargs["reruns_delay"] = kwargs.pop("delay")
-        if "on" in kwargs:
-            flaky_kwargs["only_rerun"] = kwargs.pop("on")
-        if kwargs:
-            raise pytest.UsageError(
-                f"litmus_retry got unknown kwargs {sorted(kwargs)!r}; "
-                f"accepted: max_attempts, delay, on"
-            )
-        item.add_marker(pytest.mark.flaky(**flaky_kwargs))
+        try:
+            policy = RetryPolicy.model_validate(dict(marker.kwargs))
+        except ValueError as exc:
+            raise pytest.UsageError(f"{item.nodeid}: invalid litmus_retry — {exc}") from exc
+        item.add_marker(pytest.mark.flaky(**retry_policy_to_flaky_kwargs(policy)))
 
 
 def _warn_unmatched_profile_keys(items: list[pytest.Item]) -> None:
-    """Warn when a profile ``tests:`` key matches no collected test.
-
-    Keys in ``profile.tests`` are either a class name (with nested
-    ``tests:`` for methods) or a module-level function name. A silent
-    no-op on a typo is worse than a skipped mock — it's a production
-    screen that stopped running. Warn once per orphan key.
-    """
+    """Pytest adapter — collect (cls, func) ids, delegate to runner-neutral matcher."""
     profile = get_active_profile()
     if profile is None:
         return
-
-    originalnames: set[str] = set()
-    methods_by_class: dict[str, set[str]] = {}
-    class_names: set[str] = set()
+    test_ids: list[tuple[str | None, str]] = []
     for item in items:
         if not isinstance(item, pytest.Function):
             continue
-        originalnames.add(item.originalname)
         cls = getattr(item, "cls", None)
-        if cls is not None:
-            class_names.add(cls.__name__)
-            methods_by_class.setdefault(cls.__name__, set()).add(item.originalname)
-
-    unmatched: list[str] = []
-    for key, entry in profile.tests.items():
-        if key in class_names:
-            for nested_key in entry.tests:
-                if nested_key in methods_by_class[key]:
-                    continue
-                unmatched.append(f"  profile.tests[{key!r}].tests[{nested_key!r}]")
-            continue
-        if key in originalnames:
-            continue
-        unmatched.append(f"  profile.tests[{key!r}]")
+        cls_name = cls.__name__ if cls is not None else None
+        test_ids.append((cls_name, item.originalname))
+    unmatched = find_unmatched_profile_keys(profile, test_ids)
     if not unmatched:
         return
     warnings.warn(
@@ -2326,23 +2279,12 @@ def _litmus_apply_mocks(
         yield
         return
 
-    from unittest.mock import patch as _patch
-
-    for target, entry in by_target.items():
-        fixture_name, _, attr = target.partition(".")
-        try:
-            fixture_value = request.getfixturevalue(fixture_name)
-        except pytest.FixtureLookupError:
-            warnings.warn(
-                f"litmus_mocks target {target!r}: fixture {fixture_name!r} not "
-                "found on this test — mock skipped. Check the entry `target:` "
-                "matches a fixture in the test's signature.",
-                stacklevel=1,
-            )
-            continue
-        patcher = _patch.object(fixture_value, attr, **entry.patch_kwargs())
-        patcher.start()
-        request.addfinalizer(patcher.stop)
+    install_mocks(
+        by_target,
+        resolve_fixture=request.getfixturevalue,
+        register_cleanup=request.addfinalizer,
+        fixture_lookup_error=pytest.FixtureLookupError,
+    )
 
     yield
 
