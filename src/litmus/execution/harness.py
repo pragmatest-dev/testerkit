@@ -16,6 +16,7 @@ from typing import TYPE_CHECKING, Any
 from litmus.data.models import Measurement, Outcome, TestStep, TestVector, _utcnow, escalate_outcome
 from litmus.data.ref import classify_value
 from litmus.execution._state import (
+    get_current_code_identity,
     get_current_step,
     get_current_vector,
     push_current_step,
@@ -1070,8 +1071,6 @@ class TestHarness:
         Yields:
             TestStep object.
         """
-        from litmus.execution._state import get_current_code_identity
-
         identity = get_current_code_identity()
 
         step = TestStep(

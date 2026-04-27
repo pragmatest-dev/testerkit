@@ -28,6 +28,12 @@ from litmus.data.models import (
     escalate_outcome,
 )
 from litmus.execution._state import (
+    get_active_connection,
+    get_active_instruments,
+    get_active_limits,
+    get_active_spec_context,
+    get_active_test_characteristic,
+    get_active_vector_params,
     get_current_step,
     get_current_vector,
     push_current_step,
@@ -35,12 +41,13 @@ from litmus.execution._state import (
     reset_current_step,
     reset_current_vector,
 )
+from litmus.execution.sidecar import resolve_limit
+from litmus.models.test_config import Limit
 
 if TYPE_CHECKING:
     from litmus.data.event_log import EventLog
     from litmus.environment import EnvironmentSnapshot
     from litmus.models.instrument import InstrumentRecord
-    from litmus.models.test_config import Limit
 
 
 # Canonical list of instrument identity array keys.
@@ -116,9 +123,7 @@ def _limit_from_dict(spec: Any, *, units_override: str | None = None) -> Limit:
     future dict-shaped limit source. The ``units_override`` lets callers
     prefer a caller-supplied unit when the dict itself has no ``units``.
     """
-    from litmus.models.test_config import Limit as LimitModel
-
-    return LimitModel(
+    return Limit(
         low=spec.get("low"),
         high=spec.get("high"),
         nominal=spec.get("nominal"),
@@ -151,12 +156,6 @@ def _auto_traceability(name: str) -> dict[str, Any]:
     ``.get(...)`` so pure-pytest runs (no spec, no connections) fall through
     silently.
     """
-    from litmus.execution._state import (
-        get_active_connection,
-        get_active_instruments,
-        get_active_spec_context,
-    )
-
     result: dict[str, Any] = {}
 
     conn = get_active_connection()
@@ -216,8 +215,6 @@ def _snapshot_active_vector_params() -> dict[str, Any]:
     so parquet rows carry parametrize values. Returns an empty dict when no
     pytest plugin is active (direct / legacy callers).
     """
-    from litmus.execution._state import get_active_vector_params
-
     return dict(get_active_vector_params())
 
 
@@ -245,13 +242,6 @@ def _resolve_measurement_limit(
     holds. Lives at module scope so it can be tested in isolation from
     ``TestRunLogger`` instance state.
     """
-    from litmus.execution._state import (
-        get_active_limits,
-        get_active_spec_context,
-        get_active_test_characteristic,
-    )
-    from litmus.execution.sidecar import resolve_limit
-
     if inline_any:
         return _limit_from_dict(
             {
@@ -970,8 +960,6 @@ class TestRunLogger:
         - Two independent ``logger.measure`` calls accidentally sharing
           a name; rename one or split into separate steps.
         """
-        from litmus.execution._state import get_active_connection
-
         conn = get_active_connection()
         key = (name, conn.name if conn is not None else None)
         if key in self._step_seen_names:

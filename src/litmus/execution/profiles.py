@@ -524,6 +524,9 @@ def resolve_test_phase(requested_phase: str | None, mocks_active: bool = False) 
     execution (limits, markers, fixtures) — it just stamps the run
     ``test_phase='development'`` so dashboards ignore it.
     """
+    # Lazy import: tests in test_phase_and_mocks.py patch
+    # ``litmus.execution._git.is_git_clean`` — top-level binding here
+    # would freeze the reference at import time and break the patch.
     from litmus.execution._git import is_git_clean
 
     if mocks_active:
