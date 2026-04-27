@@ -155,7 +155,7 @@ class TestHarness:
 
 ### pytest-native Fixtures
 
-The pytest plugin (`litmus/execution/plugin.py`) exposes the user-facing API
+The pytest plugin (`litmus/pytest_plugin.py`) exposes the user-facing API
 as a set of fixtures. A test function's signature declares which it wants:
 
 - `context` — current-vector `Context` (params, observations, change tracking)

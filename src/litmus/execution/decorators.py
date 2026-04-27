@@ -3,7 +3,7 @@
 The ``@measure`` decorator is the one remaining public decorator — it
 wraps a callable that returns a scalar and logs the result as a
 measurement against an optional ``Limit``. See
-``litmus.execution.plugin`` for the pytest-native fixtures (``context``,
+``litmus.pytest_plugin`` for the pytest-native fixtures (``context``,
 ``verify``, ``logger``, ``spec``) that drive modern Litmus tests.
 """
 

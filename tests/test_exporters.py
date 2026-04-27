@@ -288,10 +288,10 @@ class TestPluginWarnings:
         """_run_configured_outputs emits a warning instead of silently swallowing."""
         from unittest.mock import patch
 
-        from litmus.execution.plugin import _run_configured_outputs
+        from litmus.pytest_plugin import _run_configured_outputs
 
         with patch(
-            "litmus.execution.plugin.run_outputs",
+            "litmus.pytest_plugin.run_outputs",
             side_effect=RuntimeError("boom"),
             create=True,
         ):

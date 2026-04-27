@@ -8,7 +8,7 @@ the tests run end-to-end without a bench attached. Without the
 flag, the fixtures connect to the configured VISA resources.
 
 This is the same conditional shape the Litmus plugin uses
-internally (``litmus/execution/plugin.py``) — the test code calls
+internally (``litmus/pytest_plugin.py``) — the test code calls
 the real driver methods regardless. Stage 5 lifts this conditional
 out of ``conftest.py`` into station YAML.
 """

@@ -610,8 +610,8 @@ def run_multi_slot_session(
     from litmus.execution._state import get_event_store, set_event_store
     from litmus.execution.decorators import get_current_logger
     from litmus.execution.dut_provider import CLIDUTProvider
-    from litmus.execution.plugin import _mocks_active
     from litmus.execution.slots import detect_shared_instruments, resolve_fixture_slots
+    from litmus.pytest_plugin import _mocks_active
     from litmus.store import load_fixture
 
     fixture_path = session.config.getoption("--fixture-config")

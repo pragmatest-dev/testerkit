@@ -62,7 +62,7 @@ entry and a deprecation cycle where practical).
 - `litmus.mcp.*` — MCP tools; users invoke over MCP, not Python.
 - `litmus.reports.*`, `litmus.grafana.*`, `litmus.analysis.*` — extension
   hooks for later releases; treat as internal for 0.1.0.
-- `litmus.execution.plugin`, `litmus.execution.logger._*`,
+- `litmus.pytest_plugin`, `litmus.execution.logger._*`,
   `litmus.execution.accessors._*` — pytest plugin internals.
 - Any attribute or module with a leading underscore.
 

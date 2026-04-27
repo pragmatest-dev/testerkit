@@ -54,7 +54,7 @@ def test_yaml_zipped_axes_via_multi_key(pytester: pytest.Pytester) -> None:
         textwrap.dedent(
             """
             [pytest]
-            addopts = -p no:litmus -p litmus.execution.plugin
+            addopts = -p no:litmus -p litmus.pytest_plugin
             asyncio_default_fixture_loop_scope = function
             """
         )
@@ -98,7 +98,7 @@ def test_litmus_sweeps_multi_key_zips(pytester: pytest.Pytester) -> None:
         textwrap.dedent(
             """
             [pytest]
-            addopts = -p no:litmus -p litmus.execution.plugin
+            addopts = -p no:litmus -p litmus.pytest_plugin
             asyncio_default_fixture_loop_scope = function
             """
         )
@@ -129,7 +129,7 @@ def test_litmus_sweeps_zip_dim_mismatch_raises(pytester: pytest.Pytester) -> Non
         textwrap.dedent(
             """
             [pytest]
-            addopts = -p no:litmus -p litmus.execution.plugin
+            addopts = -p no:litmus -p litmus.pytest_plugin
             asyncio_default_fixture_loop_scope = function
             """
         )
@@ -162,7 +162,7 @@ def test_litmus_sweeps_stacked_top_is_outer(pytester: pytest.Pytester) -> None:
         textwrap.dedent(
             """
             [pytest]
-            addopts = -p no:litmus -p litmus.execution.plugin
+            addopts = -p no:litmus -p litmus.pytest_plugin
             asyncio_default_fixture_loop_scope = function
             """
         )
@@ -206,7 +206,7 @@ def test_stacked_litmus_sweeps_decorators_rejected(pytester: pytest.Pytester) ->
         textwrap.dedent(
             """
             [pytest]
-            addopts = -p no:litmus -p litmus.execution.plugin
+            addopts = -p no:litmus -p litmus.pytest_plugin
             asyncio_default_fixture_loop_scope = function
             """
         )
@@ -234,7 +234,7 @@ def test_litmus_sweeps_rejects_kwargs_form(pytester: pytest.Pytester) -> None:
         textwrap.dedent(
             """
             [pytest]
-            addopts = -p no:litmus -p litmus.execution.plugin
+            addopts = -p no:litmus -p litmus.pytest_plugin
             asyncio_default_fixture_loop_scope = function
             """
         )

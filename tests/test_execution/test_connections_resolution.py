@@ -17,7 +17,7 @@ pytest_plugins = ["pytester"]
 _INI = textwrap.dedent(
     """
     [pytest]
-    addopts = -p no:litmus -p litmus.execution.plugin
+    addopts = -p no:litmus -p litmus.pytest_plugin
     asyncio_default_fixture_loop_scope = function
     """
 )
@@ -128,7 +128,7 @@ def test_connections_marker_iterates_and_stamps_pin(pytester: pytest.Pytester) -
             def test_rail(verify, context):
                 seen = []
                 for conn in context.connections:
-                    from litmus.execution.plugin import get_active_connection
+                    from litmus.pytest_plugin import get_active_connection
                     seen.append(get_active_connection().name)
                     verify("v_rail", 3.30)
                 assert seen == ["vout_measure"]
@@ -193,7 +193,7 @@ def test_multi_pin_characteristic_iterates_all_connections(pytester: pytest.Pyte
         test_seq=textwrap.dedent(
             """
             def test_dropout(verify, context):
-                from litmus.execution.plugin import get_active_connection
+                from litmus.pytest_plugin import get_active_connection
                 seen = []
                 for _ in context.connections:
                     seen.append(get_active_connection().dut_pin)

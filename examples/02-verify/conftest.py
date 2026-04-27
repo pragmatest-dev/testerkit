@@ -8,7 +8,7 @@ a bench. Without the flag, the fixtures connect to the configured
 VISA resources.
 
 Same conditional shape Litmus uses internally (see
-``litmus/execution/plugin.py``). Stage 5 lifts this conditional out
+``litmus/pytest_plugin.py``). Stage 5 lifts this conditional out
 of ``conftest.py`` and into station YAML.
 """
 

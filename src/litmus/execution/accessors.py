@@ -27,7 +27,7 @@ class InstrumentAccessor:
 
     def _current_aliases(self) -> dict[str, str]:
         """Get current step aliases from plugin module."""
-        from litmus.execution.plugin import get_current_step_aliases
+        from litmus.pytest_plugin import get_current_step_aliases
 
         return get_current_step_aliases()
 

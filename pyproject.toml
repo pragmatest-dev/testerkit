@@ -95,7 +95,7 @@ Issues = "https://github.com/pragmatest-dev/litmus/issues"
 litmus = "litmus.cli:main"
 
 [project.entry-points.pytest11]
-litmus = "litmus.execution.plugin"
+litmus = "litmus.pytest_plugin"
 
 [dependency-groups]
 dev = [

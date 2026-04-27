@@ -236,7 +236,7 @@ class FixtureManager:
                 instrument than the one requesting routing — a test
                 authoring error that would otherwise silently mis-route.
         """
-        from litmus.execution.plugin import get_active_connection
+        from litmus.pytest_plugin import get_active_connection
 
         connection = get_active_connection()
         if connection is None:

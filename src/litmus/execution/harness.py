@@ -1109,7 +1109,7 @@ class TestHarness:
             TestStep object.
         """
         try:
-            from litmus.execution.plugin import get_current_code_identity
+            from litmus.pytest_plugin import get_current_code_identity
 
             identity = get_current_code_identity()
         except ImportError:

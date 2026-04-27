@@ -187,7 +187,7 @@ a CLI flag or env var.
 
 - `litmus/models/project.py` — `ProfileConfig`, `ProjectConfig`
 - `litmus/config/test_config.py` — `TestEntry`, `SidecarConfig`
-- `litmus/execution/plugin.py` — marker injection (`_apply_cascade_to_items`,
+- `litmus/pytest_plugin.py` — marker injection (`_apply_cascade_to_items`,
   `_apply_entry_markers`)
 - `litmus/execution/profiles.py` — `flatten_profile_chain`,
   `resolve_active_profile`, `PytestRunner`

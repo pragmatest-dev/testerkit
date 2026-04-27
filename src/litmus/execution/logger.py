@@ -144,7 +144,7 @@ def _auto_traceability(name: str) -> dict[str, Any]:
     ``.get(...)`` so pure-pytest runs (no spec, no connections) fall through
     silently.
     """
-    from litmus.execution.plugin import (
+    from litmus.pytest_plugin import (
         get_active_connection,
         get_active_instruments,
         get_active_spec_context,
@@ -209,7 +209,7 @@ def _snapshot_active_vector_params() -> dict[str, Any]:
     so parquet rows carry parametrize values. Returns an empty dict when no
     pytest plugin is active (direct / legacy callers).
     """
-    from litmus.execution.plugin import get_active_vector_params
+    from litmus.pytest_plugin import get_active_vector_params
 
     return dict(get_active_vector_params())
 
@@ -963,7 +963,7 @@ class TestRunLogger:
         - Two independent ``logger.measure`` calls accidentally sharing
           a name; rename one or split into separate steps.
         """
-        from litmus.execution.plugin import get_active_connection
+        from litmus.pytest_plugin import get_active_connection
 
         conn = get_active_connection()
         key = (name, conn.name if conn is not None else None)

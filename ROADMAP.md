@@ -191,7 +191,7 @@ around `RetryPolicy.model_validate`. Pydantic owns YAML / kwargs
 validation; helper functions that re-implement it are dead weight.
 
 **Followups (separate Backlog entries):**
-- Rename `litmus.execution.plugin` → `litmus.pytest_plugin` (clearer
+- Rename `litmus.pytest_plugin` → `litmus.pytest_plugin` (clearer
   it's the pytest adapter; touches ~20 references).
 - Concrete `pytest-litmus` package split — entry-point + wheel
   packaging only; the code is already organized.

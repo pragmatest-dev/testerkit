@@ -114,7 +114,7 @@ from litmus.runner.sweeps import (
 )
 
 # State helpers re-exported for back-compat with consumers that import
-# from litmus.execution.plugin (logger, harness, accessors, manager, tests).
+# from litmus.pytest_plugin (logger, harness, accessors, manager, tests).
 __all__ = [
     "current_step_var",
     "current_vector_var",
