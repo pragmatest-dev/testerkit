@@ -285,51 +285,6 @@ class Limit(BaseModel):
         return f"Limit({', '.join(parts)})"
 
 
-class Specification(BaseModel):
-    """A product specification that limits are derived from."""
-
-    model_config = {"extra": "forbid"}
-
-    id: str
-    description: str
-    nominal: float
-    tolerance_pct: float | None = None
-    tolerance_abs: float | None = None
-    units: str
-
-    def to_limit(self, guardband_pct: float = 0.0) -> Limit:
-        """Convert spec to test limit with optional guardbanding.
-
-        Guardband tightens the limit relative to the specification.
-        Formula: effective_tolerance = tolerance * (1 - guardband_pct / 100)
-
-        Args:
-            guardband_pct: Percentage to tighten the tolerance (0-100).
-                          E.g., 10 means 10% guardband.
-
-        Returns:
-            Limit with low/high calculated from nominal and tolerance.
-        """
-        guardband_factor = 1.0 - guardband_pct / 100.0
-
-        if self.tolerance_pct is not None:
-            tolerance = self.nominal * self.tolerance_pct / 100.0
-        elif self.tolerance_abs is not None:
-            tolerance = self.tolerance_abs
-        else:
-            # No tolerance specified, return nominal only
-            return Limit(nominal=self.nominal, units=self.units, spec_ref=self.id)
-
-        effective_tolerance = tolerance * guardband_factor
-        return Limit(
-            low=self.nominal - effective_tolerance,
-            high=self.nominal + effective_tolerance,
-            nominal=self.nominal,
-            units=self.units,
-            spec_ref=self.id,
-        )
-
-
 # =============================================================================
 # Fixture models
 # =============================================================================
@@ -522,22 +477,6 @@ class PromptConfig(BaseModel):
     timeout_seconds: int | None = None
 
 
-class LimitRefConfig(BaseModel):
-    """Configuration for a limit reference to a spec.
-
-    Example YAML:
-        limits:
-          output_voltage:
-            ref: specs.power_board.rail_3v3
-            guardband_pct: 10
-    """
-
-    model_config = {"extra": "forbid"}
-
-    ref: str
-    guardband_pct: float = 0.0
-
-
 class LimitExprConfig(BaseModel):
     """Configuration for expression-based limits.
 
@@ -615,15 +554,16 @@ class LimitCallableConfig(BaseModel):
 
 
 class MeasurementLimitConfig(BaseModel):
-    """Per-measurement limit policy — direct, ref, characteristic-derived, or banded.
+    """Per-measurement limit policy — direct, characteristic-derived, or banded.
 
     One config supports multiple shapes (resolved at measurement time):
       * **Direct** — ``low`` / ``high`` / ``nominal`` / ``units`` literals.
-      * **Ref** — ``ref: <product-characteristic-id>`` delegates to the
-        active spec (inherits its limits, units, spec_ref).
       * **Characteristic policy** — ``characteristic: <id>`` plus
         ``tolerance_pct`` / ``tolerance_abs`` derives a band from the
-        characteristic's nominal at the active vector params.
+        characteristic's nominal at the active vector params. The
+        characteristic also acts as a spec reference if no explicit
+        ``low`` / ``high`` is given (inherits the characteristic's
+        nominal/units/spec_ref).
       * **Banded** — ``bands: [...]`` is an ordered list of nested
         :class:`MeasurementLimitConfig` entries, each with its own
         ``when:`` predicate. The first band whose ``when:`` matches
@@ -664,8 +604,6 @@ class MeasurementLimitConfig(BaseModel):
     # test-level one is absent — one characteristic per test (see plan).
     characteristic: str | None = None
 
-    # Spec reference (dotted path to a Specification, e.g. "specs.power_board.rail_3v3")
-    ref: str | None = None
     guardband_pct: float | None = None
     comparator: Comparator | None = None
 
@@ -709,7 +647,6 @@ class MeasurementLimitConfig(BaseModel):
                 self.low,
                 self.high,
                 self.nominal,
-                self.ref,
                 self.characteristic,
                 self.tolerance_pct,
                 self.tolerance_abs,
@@ -731,7 +668,7 @@ class MeasurementLimitConfig(BaseModel):
         if not self.has_direct_policy() and not self.bands:
             raise ValueError(
                 "MeasurementLimitConfig requires at least one of: "
-                "direct limit (low/high/nominal), ref, characteristic + tolerance, "
+                "direct limit (low/high/nominal), characteristic + tolerance, "
                 "expr, lookup, steps, callable, or a non-empty bands list."
             )
         return self

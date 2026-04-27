@@ -582,8 +582,9 @@ class TestHarness:
                 direct = direct.model_copy(update={"comparator": config.comparator})
             return direct
 
-        # Spec ref resolution
-        if config.ref and self._spec_context:
+        # Characteristic-only resolution (no tolerance — fetch the
+        # characteristic's spec band straight off the active context).
+        if config.characteristic and self._spec_context:
             try:
                 conditions = {}
                 if self._current_vector:
@@ -591,7 +592,7 @@ class TestHarness:
 
                 guardband = config.guardband_pct or 0.0
                 return self._spec_context.get_limit(
-                    config.ref,
+                    config.characteristic,
                     guardband_pct=guardband,
                     comparator=config.comparator,
                     limit_low=config.low,
@@ -825,9 +826,11 @@ class TestHarness:
         if len(self._limits) == 1:
             limit_key = next(iter(self._limits.keys()))
             limit_config = self._limits[limit_key]
-            # Check if it's a MeasurementLimitConfig with a ref
-            if isinstance(limit_config, MeasurementLimitConfig) and limit_config.ref:
-                return limit_config.ref
+            # Prefer the characteristic ID when the config is a typed
+            # MeasurementLimitConfig — that's the structured FK the
+            # measurement should stamp.
+            if isinstance(limit_config, MeasurementLimitConfig) and limit_config.characteristic:
+                return limit_config.characteristic
             # Otherwise use the limit key itself
             return limit_key
         return self._step_name

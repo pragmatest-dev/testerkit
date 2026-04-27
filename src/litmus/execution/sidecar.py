@@ -168,11 +168,12 @@ def _resolve_single(
 
     Dispatches on the policy fields the model carries:
 
-    * ``ref:`` → look up the named characteristic on the active spec
-      context, applying ``guardband_pct``.
     * ``characteristic:`` (or fall back to the test-level binding) +
       ``tolerance_pct`` / ``tolerance_abs`` → derive a band from the
       product characteristic's nominal at the active vector params.
+    * ``characteristic:`` alone (no tolerance) → look up the
+      characteristic's spec band on the active spec context, applying
+      ``guardband_pct``.
     * Direct ``low`` / ``high`` / ``nominal`` → return as-is.
     * Anything else (no policy declared) → ``None`` so the measurement
       records unchecked (characterization mode).
@@ -181,15 +182,18 @@ def _resolve_single(
     from litmus.models.enums import Comparator
     from litmus.models.test_config import Limit as LimitModel
 
-    if cfg.ref is not None:
+    char_id = cfg.characteristic or test_char
+    if char_id is not None and cfg.tolerance_pct is None and cfg.tolerance_abs is None:
+        # Characteristic-only path: fetch the spec band straight off the
+        # context (used to be the ``ref:`` branch). guardband_pct still
+        # applies via the existing context method.
         if spec_ctx is None:
             return None
         try:
-            return spec_ctx.get_limit(cfg.ref, guardband_pct=guardband_pct, **dict(params))
+            return spec_ctx.get_limit(char_id, guardband_pct=guardband_pct, **dict(params))
         except (KeyError, ValueError):
             return None
 
-    char_id = cfg.characteristic or test_char
     if char_id is not None and (cfg.tolerance_pct is not None or cfg.tolerance_abs is not None):
         if spec_ctx is None:
             return None

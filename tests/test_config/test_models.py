@@ -10,7 +10,6 @@ from litmus.models.test_config import (
     FixtureConnection,
     Limit,
     RetryConfig,
-    Specification,
 )
 
 
@@ -39,87 +38,6 @@ class TestLimit:
         assert limit.low is None
         assert limit.high is None
         assert limit.nominal == 3.3
-
-
-class TestSpecification:
-    def test_spec_creation(self):
-        spec = Specification(
-            id="PWR-RAIL-5V",
-            description="5V rail",
-            nominal=5.0,
-            tolerance_pct=5.0,
-            units="V",
-        )
-        assert spec.id == "PWR-RAIL-5V"
-        assert spec.nominal == 5.0
-        assert spec.tolerance_pct == 5.0
-
-    def test_spec_to_limit_with_pct_tolerance(self):
-        spec = Specification(
-            id="PWR-RAIL-5V",
-            description="5V rail",
-            nominal=5.0,
-            tolerance_pct=5.0,
-            units="V",
-        )
-        limit = spec.to_limit()
-        assert limit.low == 4.75
-        assert limit.high == 5.25
-        assert limit.nominal == 5.0
-        assert limit.units == "V"
-        assert limit.spec_ref == "PWR-RAIL-5V"
-
-    def test_spec_to_limit_with_abs_tolerance(self):
-        spec = Specification(
-            id="PWR-INPUT-I",
-            description="Input current",
-            nominal=0.5,
-            tolerance_abs=0.1,
-            units="A",
-        )
-        limit = spec.to_limit()
-        assert limit.low == 0.4
-        assert limit.high == 0.6
-        assert limit.nominal == 0.5
-
-    def test_spec_to_limit_with_guardband(self):
-        spec = Specification(
-            id="PWR-RAIL-5V",
-            description="5V rail",
-            nominal=5.0,
-            tolerance_pct=10.0,
-            units="V",
-        )
-        # 10% tolerance = ±0.5V, 10% guardband reduces to ±0.45V
-        limit = spec.to_limit(guardband_pct=10.0)
-        assert limit.low == 4.55
-        assert limit.high == 5.45
-
-    def test_spec_to_limit_no_tolerance(self):
-        spec = Specification(
-            id="FIXED-VALUE",
-            description="Fixed value spec",
-            nominal=1.0,
-            units="V",
-        )
-        limit = spec.to_limit()
-        assert limit.low is None
-        assert limit.high is None
-        assert limit.nominal == 1.0
-
-    def test_spec_tolerance_pct_takes_precedence(self):
-        spec = Specification(
-            id="TEST",
-            description="Test",
-            nominal=10.0,
-            tolerance_pct=10.0,
-            tolerance_abs=0.5,  # Should be ignored
-            units="V",
-        )
-        limit = spec.to_limit()
-        # 10% of 10 = 1, so limits should be 9 and 11
-        assert limit.low == 9.0
-        assert limit.high == 11.0
 
 
 class TestInstrumentConfig:

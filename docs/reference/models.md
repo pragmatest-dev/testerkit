@@ -271,14 +271,6 @@ erDiagram
         Comparator comparator
     }
 
-    Specification {
-        string id PK
-        string description
-        float nominal
-        float tolerance_pct
-        string units
-    }
-
     %% ============================================
     %% DATA MODULE - Test Results
     %% ============================================
@@ -430,7 +422,7 @@ erDiagram
     TestStepConfig }o--o| RetryConfig : "has"
     TestConfig ||--o| VectorConfig : "has"
     TestConfig ||--o{ Limit : "has limits"
-    Limit }o--o| Specification : "from"
+    Limit }o--o| ProductCharacteristic : "from"
 
     %% Test execution results
     TestRun ||--|| DUT : "tests"
