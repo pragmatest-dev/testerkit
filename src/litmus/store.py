@@ -481,11 +481,6 @@ def create_fixture(
 
 
 # =============================================================================
-# Sequence: load / get / list / save / create
-# =============================================================================
-
-
-# =============================================================================
 # Product: load / get / list / save / create
 # =============================================================================
 
@@ -593,6 +588,19 @@ def _merge_product_data(
     return merged
 
 
+def _product_yaml_files(products_dir: Path, glob: str = "*.yaml") -> Iterator[Path]:
+    """Iterate ``<products_dir>/**/<glob>``, skipping ``_``-prefixed files.
+
+    Used by :func:`get_product`, :func:`list_products`, and
+    :func:`save_product` so the underscore-prefix skip is applied
+    consistently. Sorted output for deterministic iteration.
+    """
+    for yaml_file in sorted(products_dir.rglob(glob)):
+        if yaml_file.name.startswith("_"):
+            continue
+        yield yaml_file
+
+
 def get_product(
     product_id: str,
     *,
@@ -610,9 +618,7 @@ def get_product(
             except _YAML_LOAD_ERRORS:
                 pass
         # Fallback: search by filename in subdirectories
-        for yaml_file in products_dir.rglob(f"{product_id}.yaml"):
-            if yaml_file.name.startswith("_"):
-                continue
+        for yaml_file in _product_yaml_files(products_dir, f"{product_id}.yaml"):
             try:
                 return load_product(yaml_file)
             except _YAML_LOAD_ERRORS:
@@ -627,9 +633,7 @@ def list_products(*, project_root: Path | None = None) -> list[Product]:
     for products_dir in get_product_paths(project_root):
         if not products_dir.exists():
             continue
-        for yaml_file in sorted(products_dir.rglob("*.yaml")):
-            if yaml_file.name.startswith("_"):
-                continue
+        for yaml_file in _product_yaml_files(products_dir):
             try:
                 product = load_product(yaml_file)
             except _YAML_LOAD_ERRORS:
@@ -652,9 +656,7 @@ def save_product(
         if not products_dir.exists():
             continue
         # Preserve existing file location (flat or nested)
-        for yaml_file in products_dir.rglob("*.yaml"):
-            if yaml_file.name.startswith("_"):
-                continue
+        for yaml_file in _product_yaml_files(products_dir):
             try:
                 data = _read_yaml(yaml_file)
                 if data.get("id") == product.id:
@@ -709,9 +711,15 @@ def load_manifest(path: Path) -> ProductManifest:
     return ProductManifest.model_validate(_read_yaml(path))
 
 
-def save_manifest(manifest: ProductManifest, path: Path) -> None:
-    """Save a product manifest to YAML."""
+def save_manifest(manifest: ProductManifest, path: Path) -> bool:
+    """Save a product manifest to YAML at the given path.
+
+    Manifests live next to their product folder (not in a globally-
+    indexed location like the other ``save_*`` entities), so the
+    caller passes the explicit path rather than a project root.
+    """
     _write_model(path, manifest.model_dump(exclude_none=True))
+    return True
 
 
 # =============================================================================
@@ -1306,6 +1314,9 @@ def expand_ranges(data: Any) -> Any:
 # Block-style for structural keys, flow-style for compact leaf dicts and
 # short scalar lists. Strings are double-quoted to dodge YAML's reserved
 # words (on/off/yes/no).
+#
+# All ``_fmt_*`` helpers below are private implementation detail of
+# :func:`dump_yaml`; nothing else in the module imports them.
 
 
 _FMT_BLOCK_KEYS = {
@@ -1362,18 +1373,13 @@ def _fmt_apply_style(data: Any, key: str | None = None) -> Any:
     return _fmt_quote_if_needed(data)
 
 
-def _fmt_make_yaml() -> YAML:
+def dump_yaml(data: dict[str, Any]) -> str:
+    """Dump a dict to a YAML string with Litmus conventions."""
+    styled = _fmt_apply_style(data)
     ry = YAML()
     ry.default_flow_style = False
     ry.width = 120
     ry.indent(mapping=2, sequence=2, offset=0)
-    return ry
-
-
-def dump_yaml(data: dict[str, Any]) -> str:
-    """Dump a dict to a YAML string with Litmus conventions."""
-    styled = _fmt_apply_style(data)
-    ry = _fmt_make_yaml()
     buf = StringIO()
     ry.dump(styled, buf)
     return buf.getvalue()
@@ -1410,7 +1416,7 @@ def normalize_instrument_type(raw: str) -> str:
     return _INSTRUMENT_TYPE_ALIASES.get(normalized, normalized)
 
 
-def check_instrument_types(
+def normalize_and_check_instrument_types(
     instruments: dict[str, dict],
 ) -> tuple[dict[str, dict], list[str]]:
     """Normalize instrument types and warn about unknown ones.

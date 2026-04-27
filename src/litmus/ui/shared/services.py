@@ -19,14 +19,6 @@ from litmus.models.station import StationConfig, StationType
 from litmus.models.test_config import FixtureConfig
 from litmus.products.folder import ProductFolder
 from litmus.store import (
-    check_instrument_types,
-    find_catalog_dirs,
-    load_catalog_from_directory,
-    load_instrument_files,
-    load_product,
-    load_project_config,
-)
-from litmus.store import (
     create_catalog_entry as store_create_catalog_entry,
 )
 from litmus.store import (
@@ -37,6 +29,14 @@ from litmus.store import (
 )
 from litmus.store import (
     create_station as store_create_station,
+)
+from litmus.store import (
+    find_catalog_dirs,
+    load_catalog_from_directory,
+    load_instrument_files,
+    load_product,
+    load_project_config,
+    normalize_and_check_instrument_types,
 )
 from litmus.store import (
     get_catalog_entry as store_get_catalog_entry,
@@ -310,7 +310,7 @@ def create_station(
 
 def save_station(station_id: str, station_data: dict, instruments_data: dict) -> bool:
     """Save station configuration to YAML file."""
-    check_instrument_types(instruments_data)
+    normalize_and_check_instrument_types(instruments_data)
     station_dict = {**station_data, "instruments": instruments_data}
     station = StationConfig.model_validate(station_dict)
     return store_save_station(station)

@@ -560,10 +560,10 @@ def _save_entity(
 
     if entity_type == "station":
         from litmus.models.station import StationConfig
-        from litmus.store import check_instrument_types, save_station
+        from litmus.store import normalize_and_check_instrument_types, save_station
 
         station = StationConfig.model_validate(content)
-        _, type_warnings = check_instrument_types(
+        _, type_warnings = normalize_and_check_instrument_types(
             {k: v.model_dump() for k, v in station.instruments.items()}
         )
         root = get_project_root(project)

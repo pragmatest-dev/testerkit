@@ -1685,9 +1685,9 @@ def station_init(station_id: str, name: str, location: str | None):
     if location:
         station_data["station"]["location"] = location
 
-    from litmus.store import check_instrument_types
+    from litmus.store import normalize_and_check_instrument_types
 
-    _, type_warnings = check_instrument_types(station_instruments)
+    _, type_warnings = normalize_and_check_instrument_types(station_instruments)
     for w in type_warnings:
         click.echo(f"  Warning: {w}", err=True)
 
