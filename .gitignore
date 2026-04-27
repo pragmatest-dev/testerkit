@@ -21,3 +21,9 @@ report_*.html
 
 # Generated skill refs (built from docs/ and models.py)
 litmus/skills/refs/
+
+# JSON schemas — regenerated via `litmus schema export` / `litmus init`
+# / `litmus schema refresh`. The source of truth is the live Pydantic
+# models in src/litmus/models/. Don't commit snapshots.
+/schemas/
+.benchmarks/

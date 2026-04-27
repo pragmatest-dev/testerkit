@@ -685,29 +685,6 @@ class TestContext:
         assert child1.get_param("operator") == "jane"
         assert child2.get_param("operator") == "jane"
 
-    def test_run_context_compatibility_set_get(self):
-        """Test that Context has RunContext-compatible set/get methods."""
-        ctx = Context()
-        ctx.set("operator_badge", "EMP-12345")
-
-        assert ctx.get("operator_badge") == "EMP-12345"
-        assert ctx.get("missing", "default") == "default"
-
-    def test_run_context_compatibility_update(self):
-        """Test that Context has RunContext-compatible update method."""
-        ctx = Context()
-        ctx.update(operator_badge="EMP-12345", fixture_serial="FIX-001")
-
-        assert ctx.get("operator_badge") == "EMP-12345"
-        assert ctx.get("fixture_serial") == "FIX-001"
-
-    def test_run_context_compatibility_metadata(self):
-        """Test that Context has RunContext-compatible metadata property."""
-        ctx = Context()
-        ctx.set("operator_badge", "EMP-12345")
-
-        assert ctx.metadata == {"operator_badge": "EMP-12345"}
-
 
 class TestHarnessContext:
     """Tests for Context integration with TestHarness."""

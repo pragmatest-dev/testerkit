@@ -334,50 +334,6 @@ class Context:
             fixture_connection=fixture_connection,
         )
 
-    # -------------------------------------------------------------------------
-    # RunContext compatibility (for metadata at run level)
-    # -------------------------------------------------------------------------
-
-    def set(self, key: str, value: Any) -> None:
-        """Set a custom metadata field (RunContext compatibility).
-
-        For run-level context, this is the primary way to add custom fields
-        that become columns in Parquet. For vector-level context, use
-        configure() for inputs or observe() for outputs.
-
-        Args:
-            key: Field name.
-            value: Field value (must be JSON-serializable for Parquet).
-        """
-        # Store as param for now - custom metadata flows through params
-        self._params[key] = value
-
-    def get(self, key: str, default: Any = None) -> Any:
-        """Get a custom metadata field (RunContext compatibility).
-
-        Args:
-            key: Field name.
-            default: Value to return if key not found.
-
-        Returns:
-            The stored value or default.
-        """
-        return self.get_param(key, default)
-
-    def update(self, **kwargs: Any) -> None:
-        """Set multiple custom metadata fields at once (RunContext compatibility).
-
-        Args:
-            **kwargs: Key-value pairs to set.
-        """
-        for key, value in kwargs.items():
-            self.set(key, value)
-
-    @property
-    def metadata(self) -> dict[str, Any]:
-        """Access the underlying metadata dict (RunContext compatibility)."""
-        return self.params
-
 
 class TestHarness:
     """Harness for executing tests across expanded vectors.
@@ -1108,12 +1064,9 @@ class TestHarness:
         Yields:
             TestStep object.
         """
-        try:
-            from litmus.pytest_plugin import get_current_code_identity
+        from litmus.execution._state import get_current_code_identity
 
-            identity = get_current_code_identity()
-        except ImportError:
-            identity = {}
+        identity = get_current_code_identity()
 
         step = TestStep(
             name=name or self._step_name,

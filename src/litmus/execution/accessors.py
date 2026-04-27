@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from litmus.execution._state import get_current_step_aliases
 from litmus.models.instrument import InstrumentRecord
 
 
@@ -26,9 +27,7 @@ class InstrumentAccessor:
         self._records = records
 
     def _current_aliases(self) -> dict[str, str]:
-        """Get current step aliases from plugin module."""
-        from litmus.pytest_plugin import get_current_step_aliases
-
+        """Get current step aliases from the active ContextVar."""
         return get_current_step_aliases()
 
     def __call__(self, role: str) -> Any:
