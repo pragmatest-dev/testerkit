@@ -5,6 +5,7 @@ import os
 import time
 from collections import deque
 from collections.abc import Callable
+from typing import Any
 from uuid import UUID
 
 from litmus.dialogs.models import (
@@ -508,3 +509,61 @@ def reset_dialog_manager() -> None:
     """
     global _manager
     _manager = None
+
+
+# ---------------------------------------------------------------------------
+# Prompt-handler bridge
+# ---------------------------------------------------------------------------
+#
+# A test runner sees one entry point — :func:`litmus.prompts.ask`. When the
+# UI / API server is running, that entry point should route through the
+# dialog surface instead of the default TTY/auto-confirm chain.
+# ``register_as_prompt_handler`` installs the bridge: ``prompts.ask`` from
+# the test process becomes a synchronous call that drives the DialogManager
+# under a private event loop and translates ``DialogResponse`` back into the
+# value :func:`prompts.ask` is expected to return.
+#
+# Cancellation / timeout surface as :class:`PromptUnavailableError` so the
+# caller sees the same failure shape it would from any other prompt path.
+
+
+def register_as_prompt_handler(server_url: str | None = None) -> None:
+    """Install :class:`DialogManager` as the active prompt handler.
+
+    Call this from UI / API startup once the manager is wired up. After
+    registration, :func:`litmus.prompts.ask` from the test process
+    dispatches through dialogs instead of the TTY / auto-confirm chain.
+    """
+    from litmus.prompts import set_prompt_handler
+
+    set_prompt_handler(lambda cfg: _dispatch_prompt(cfg, server_url))
+
+
+def _dispatch_prompt(config: Any, server_url: str | None) -> Any:
+    """Sync bridge that runs an async dialog show and unwraps the response."""
+    from litmus.prompts import PromptUnavailableError
+
+    manager = get_dialog_manager(server_url)
+    if config.prompt_type == "confirm":
+        coro = manager.confirm(config.message, timeout=config.timeout_seconds)
+    elif config.prompt_type == "choice":
+        choices = config.choices or []
+        if not choices:
+            raise ValueError("choice prompt requires non-empty choices")
+        coro = manager.choose(config.message, choices, timeout=config.timeout_seconds)
+    elif config.prompt_type == "input":
+        coro = manager.input(config.message, timeout=config.timeout_seconds)
+    else:
+        raise ValueError(f"unknown prompt_type: {config.prompt_type!r}")
+
+    response = asyncio.run(coro)
+    if response.cancelled or response.timed_out:
+        raise PromptUnavailableError(
+            f"Dialog for {config.message!r} {'timed out' if response.timed_out else 'cancelled'}."
+        )
+    if config.prompt_type == "confirm":
+        return response.confirmed
+    if config.prompt_type == "choice":
+        idx = response.choice or 0
+        return (config.choices or [])[idx]
+    return response.value
