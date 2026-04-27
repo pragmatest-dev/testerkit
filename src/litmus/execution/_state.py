@@ -361,9 +361,16 @@ def get_active_connection() -> FixtureConnection | None:
         return None
 
 
-def set_active_connection(value: FixtureConnection | None) -> None:
-    """Set the active :class:`FixtureConnection`. Returns None."""
-    _active_connection_var.set(value)
+def push_active_connection(
+    value: FixtureConnection | None,
+) -> Token[FixtureConnection | None]:
+    """Set the active connection; returns a token for :func:`reset_active_connection`."""
+    return _active_connection_var.set(value)
+
+
+def reset_active_connection(token: Token[FixtureConnection | None]) -> None:
+    """Restore the prior active connection using a token from :func:`push_active_connection`."""
+    _active_connection_var.reset(token)
 
 
 def get_event_store() -> Any:

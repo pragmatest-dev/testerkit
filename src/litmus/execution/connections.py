@@ -17,9 +17,10 @@ registration. The pytest fixture wrapping this resolver
 from __future__ import annotations
 
 from collections.abc import KeysView, ValuesView
+from contextvars import Token
 from typing import TYPE_CHECKING, Any
 
-from litmus.execution._state import _active_connection_var
+from litmus.execution._state import push_active_connection, reset_active_connection
 from litmus.models.test_config import FixtureConfig, FixtureConnection
 
 if TYPE_CHECKING:
@@ -50,7 +51,7 @@ class ConnectionIterator:
         self._connections = connections
         self._by_name: dict[str, FixtureConnection] = {c.name: c for c in connections}
         self._idx = 0
-        self._token: Any = None
+        self._token: Token[FixtureConnection | None] | None = None
         self.started = False
 
     def __iter__(self) -> ConnectionIterator:
@@ -58,14 +59,14 @@ class ConnectionIterator:
 
     def __next__(self) -> FixtureConnection:
         if self._token is not None:
-            _active_connection_var.reset(self._token)
+            reset_active_connection(self._token)
             self._token = None
         if self._idx >= len(self._connections):
             raise StopIteration
         connection = self._connections[self._idx]
         self._idx += 1
         self.started = True
-        self._token = _active_connection_var.set(connection)
+        self._token = push_active_connection(connection)
         return connection
 
     def __len__(self) -> int:
@@ -88,7 +89,7 @@ class ConnectionIterator:
     def cleanup(self) -> None:
         """Pop any lingering active-connection token on teardown or mid-iter exit."""
         if self._token is not None:
-            _active_connection_var.reset(self._token)
+            reset_active_connection(self._token)
             self._token = None
 
 

@@ -23,6 +23,13 @@ from collections.abc import Mapping
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+import yaml
+
+from litmus.execution._state import (
+    get_active_profile,
+    get_active_spec_context,
+    get_active_vector_params,
+)
 from litmus.models.test_config import (
     Limit,
     MeasurementLimitConfig,
@@ -33,13 +40,6 @@ from litmus.store import expand_ranges
 
 if TYPE_CHECKING:
     from litmus.models.project import ProfileConfig
-import yaml
-
-from litmus.execution._state import (
-    get_active_profile,
-    get_active_spec_context,
-    get_active_vector_params,
-)
 
 
 @functools.cache
