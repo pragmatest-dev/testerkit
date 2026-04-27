@@ -757,186 +757,157 @@ def _build_run_metadata(request: pytest.FixtureRequest) -> dict[str, Any]:
     )
 
 
-@pytest.fixture(scope="session", autouse=True)
-def logger(request) -> Generator[TestRunLogger, None, None]:
-    """Provide test run logger for the session.
+def _is_multi_slot_worker() -> bool:
+    """Return True when this process is one of N>1 workers in a multi-slot run."""
+    return (
+        os.environ.get("LITMUS_SLOT_ID") is not None
+        and int(os.environ.get("LITMUS_SLOT_COUNT", "1")) > 1
+    )
 
-    This fixture is autouse=True so it's always active, enabling
-    pytest-native tests (and the ``verify`` / ``context`` fixtures) to
-    log measurements.
 
-    Captures config snapshots at run start for full traceability.
-    Streams events to an event log for live observability.
+def _setup_event_log_and_subscribers(
+    logger: TestRunLogger, results_path: Path, session_id: UUID
+) -> Any:
+    """Wire EventStore + EventLog + default and configured subscribers.
+
+    Returns the EventStore (existing or newly created) so the teardown
+    helper can close it after the run.
     """
+    from litmus.data.backends.parquet import ParquetSubscriber
+    from litmus.data.channels.store import ChannelStore
     from litmus.data.event_store import EventStore
-    from litmus.data.events import RunStarted, SessionEnded, SessionStarted
     from litmus.data.subscribers import get_subscriber_class
 
-    meta = _build_run_metadata(request)
-    from litmus.data.results_dir import resolve_results_dir
+    event_store = get_event_store()
+    if event_store is None:
+        event_store = EventStore(_results_dir=results_path)
+        set_event_store(event_store)
 
-    results_dir = meta["results_dir"]
-    if not results_dir:
-        results_dir = str(resolve_results_dir())
-        meta["results_dir"] = results_dir
+    event_log = event_store.get_event_log(session_id)
+    logger.event_log = event_log
 
-    # Worker mode: inherit session_id and DUT serial from env
-    env_session_id = os.environ.get("LITMUS_SESSION_ID")
-    session_id = UUID(env_session_id) if env_session_id else uuid4()
-    meta["session_id"] = session_id
+    parquet_on_output = find_format_transport_callback("parquet", results_path)
+    event_log.add_subscriber(ParquetSubscriber(results_path, on_output=parquet_on_output))
 
-    env_dut_serial = os.environ.get("LITMUS_DUT_SERIAL")
-    if env_dut_serial:
-        meta["dut_serial"] = env_dut_serial
+    channels_on_output = find_format_transport_callback("channels", results_path)
+    channel_store = ChannelStore(
+        results_path / "channels",
+        session_id,
+        serve=True,
+        on_output=channels_on_output,
+    )
+    channel_store.open()
+    set_channel_store(channel_store)
 
-    env_slot_id = os.environ.get("LITMUS_SLOT_ID")
+    # User-configured subscriber formats from litmus.yaml outputs:
+    try:
+        from litmus.store import load_project_config
 
-    logger = TestRunLogger(**meta)
-
-    # Create event store + log and wire subscribers from config
-    _event_store: EventStore | None = None
-    if results_dir:
-        results_path = Path(results_dir)
-
-        # Reuse EventStore if already created (e.g. by orchestrator)
-        _event_store = get_event_store()
-        if _event_store is None:
-            _event_store = EventStore(_results_dir=results_path)
-            set_event_store(_event_store)
-        event_log = _event_store.get_event_log(session_id)
-        logger.event_log = event_log
-
-        # Create ParquetSubscriber directly (default, always on)
-        from litmus.data.backends.parquet import ParquetSubscriber
-
-        parquet_on_output = find_format_transport_callback("parquet", results_path)
-        _pq_sub = ParquetSubscriber(results_path, on_output=parquet_on_output)
-        event_log.add_subscriber(_pq_sub)
-
-        # Create ChannelStore directly (default, always on)
-        from litmus.data.channels.store import ChannelStore as _ChannelStore
-
-        channels_on_output = find_format_transport_callback("channels", results_path)
-        _cs = _ChannelStore(
-            results_path / "channels",
-            session_id,
-            serve=True,
-            on_output=channels_on_output,
+        config = load_project_config()
+        for output_cfg in config.outputs:
+            fmt = output_cfg.format
+            if fmt and fmt not in {"parquet", "channels"}:
+                cls = get_subscriber_class(fmt)
+                if cls is not None:
+                    sub = create_subscriber(cls, fmt, output_cfg, results_path, session_id)
+                    event_log.add_subscriber(sub)
+    except (ValidationError, OSError, KeyError) as exc:
+        warnings.warn(
+            f"Failed to register configured output subscribers: {exc}",
+            stacklevel=2,
         )
-        _cs.open()
-        set_channel_store(_cs)
 
-        # Wire additional configured subscriber formats
-        try:
-            from litmus.store import load_project_config
+    return event_store
 
-            config = load_project_config()
-            for output_cfg in config.outputs:
-                fmt = output_cfg.format
-                if fmt and fmt not in {"parquet", "channels"}:
-                    cls = get_subscriber_class(fmt)
-                    if cls is not None:
-                        sub = create_subscriber(cls, fmt, output_cfg, results_path, session_id)
-                        event_log.add_subscriber(sub)
-        except Exception as exc:
-            warnings.warn(
-                f"Failed to register configured output subscribers: {exc}",
-                stacklevel=2,
-            )
 
-        # In multi-slot worker mode, the orchestrator emits SessionStarted/
-        # SessionEnded. Workers only emit RunStarted/RunEnded.
-        is_worker = env_slot_id is not None and int(os.environ.get("LITMUS_SLOT_COUNT", "1")) > 1
-        if not is_worker:
-            event_log.emit(
-                SessionStarted.from_station(
-                    session_id=logger._session_id,
-                    station_id=logger.test_run.station_id,
-                    station_name=logger.test_run.station_name,
-                    station_type=logger.test_run.station_type,
-                    station_location=logger.test_run.station_location,
-                    station_hostname=logger.test_run.station_hostname,
-                    operator_id=logger.test_run.operator_id,
-                    operator_name=logger.test_run.operator_name,
-                    fixture_id=logger.test_run.fixture_id,
-                )
-            )
+def _emit_session_start_events(logger: TestRunLogger) -> None:
+    """Emit SessionStarted (orchestrator only) + RunStarted + per-instrument + StepsDiscovered."""
+    from litmus.data.events import RunStarted, SessionStarted, StepsDiscovered
 
-        # Compute slot_index from LITMUS_SLOT_INDEX env (set by orchestrator)
-        env_slot_index_str = os.environ.get("LITMUS_SLOT_INDEX")
-        env_slot_index = int(env_slot_index_str) if env_slot_index_str else None
+    event_log = logger.event_log
+    if event_log is None:
+        return
 
+    if not _is_multi_slot_worker():
         event_log.emit(
-            RunStarted(
+            SessionStarted.from_station(
                 session_id=logger._session_id,
-                run_id=logger.test_run.id,
-                slot_id=env_slot_id,
-                slot_index=env_slot_index,
                 station_id=logger.test_run.station_id,
                 station_name=logger.test_run.station_name,
                 station_type=logger.test_run.station_type,
                 station_location=logger.test_run.station_location,
                 station_hostname=logger.test_run.station_hostname,
-                dut_serial=logger.test_run.dut.serial,
-                dut_part_number=logger.test_run.dut.part_number,
-                dut_revision=logger.test_run.dut.revision,
-                dut_lot_number=logger.test_run.dut.lot_number,
-                product_id=logger.test_run.product_id,
-                product_name=logger.test_run.product_name,
-                product_revision=logger.test_run.product_revision,
                 operator_id=logger.test_run.operator_id,
                 operator_name=logger.test_run.operator_name,
                 fixture_id=logger.test_run.fixture_id,
-                sequence_id=logger.test_run.test_sequence_id,
-                test_phase=logger.test_run.test_phase,
-                git_commit=logger.test_run.git_commit,
-                git_branch=logger.test_run.git_branch,
-                git_remote=logger.test_run.git_remote,
-                environment_json=logger.test_run.environment_json,
-                custom_metadata=dict(logger.test_run.custom_metadata),
-                pid=os.getpid(),
             )
         )
 
-        # Emit InstrumentConnected for each instrument
-        _emit_instrument_events(logger, event_log)
+    env_slot_id = os.environ.get("LITMUS_SLOT_ID")
+    env_slot_index_str = os.environ.get("LITMUS_SLOT_INDEX")
+    env_slot_index = int(env_slot_index_str) if env_slot_index_str else None
 
-        # Emit StepsDiscovered so subscribers know the full manifest
-        from litmus.data.events import StepsDiscovered
+    event_log.emit(
+        RunStarted(
+            session_id=logger._session_id,
+            run_id=logger.test_run.id,
+            slot_id=env_slot_id,
+            slot_index=env_slot_index,
+            station_id=logger.test_run.station_id,
+            station_name=logger.test_run.station_name,
+            station_type=logger.test_run.station_type,
+            station_location=logger.test_run.station_location,
+            station_hostname=logger.test_run.station_hostname,
+            dut_serial=logger.test_run.dut.serial,
+            dut_part_number=logger.test_run.dut.part_number,
+            dut_revision=logger.test_run.dut.revision,
+            dut_lot_number=logger.test_run.dut.lot_number,
+            product_id=logger.test_run.product_id,
+            product_name=logger.test_run.product_name,
+            product_revision=logger.test_run.product_revision,
+            operator_id=logger.test_run.operator_id,
+            operator_name=logger.test_run.operator_name,
+            fixture_id=logger.test_run.fixture_id,
+            sequence_id=logger.test_run.test_sequence_id,
+            test_phase=logger.test_run.test_phase,
+            git_commit=logger.test_run.git_commit,
+            git_branch=logger.test_run.git_branch,
+            git_remote=logger.test_run.git_remote,
+            environment_json=logger.test_run.environment_json,
+            custom_metadata=dict(logger.test_run.custom_metadata),
+            pid=os.getpid(),
+        )
+    )
 
-        collected = get_collected_items()
-        if collected:
-            event_log.emit(
-                StepsDiscovered(
-                    session_id=logger._session_id,
-                    run_id=logger.test_run.id,
-                    items=[ci.model_dump() for ci in collected],
-                )
+    _emit_instrument_events(logger, event_log)
+
+    collected = get_collected_items()
+    if collected:
+        event_log.emit(
+            StepsDiscovered(
+                session_id=logger._session_id,
+                run_id=logger.test_run.id,
+                items=[ci.model_dump() for ci in collected],
             )
+        )
 
-    set_current_logger(logger)
-    yield logger
 
-    # Copy collected items onto test_run so the manifest captures not-started steps
-    logger.test_run.collected_items = get_collected_items()
+def _teardown_logger(logger: TestRunLogger, event_store: Any, results_dir: str) -> None:
+    """Close subscribers, finalize the run, emit SessionEnded, run configured outputs."""
+    from litmus.data.events import SessionEnded
 
-    # Close ChannelStore before finalizing (before EventLog closes subscribers)
-    _cs_final = get_channel_store()
-    if _cs_final is not None:
-        _cs_final.close()
+    # ChannelStore closes before the event log so its subscribers see the
+    # final flush before the event log shuts subscribers down.
+    cs = get_channel_store()
+    if cs is not None:
+        cs.close()
         set_channel_store(None)
 
-    # Finalize emits RunEnded (does not close event log).
+    # finalize() emits RunEnded; it does not close the event log itself.
     test_run = logger.finalize()
 
-    # In multi-slot worker mode, orchestrator handles SessionEnded.
-    # Workers only close their event log.
-    _is_worker = (
-        os.environ.get("LITMUS_SLOT_ID") is not None
-        and int(os.environ.get("LITMUS_SLOT_COUNT", "1")) > 1
-    )
     if logger.event_log is not None:
-        if not _is_worker:
+        if not _is_multi_slot_worker():
             logger.event_log.emit(
                 SessionEnded(
                     session_id=logger._session_id,
@@ -945,15 +916,59 @@ def logger(request) -> Generator[TestRunLogger, None, None]:
             )
         logger.event_log.close()
 
-    # Close EventStore — releases daemon ref. Event logs were already closed
-    # by finalize(), and on_flush callback pushed final batches to Flight.
-    if _event_store is not None:
-        _event_store.close()
+    if event_store is not None:
+        event_store.close()
         set_event_store(None)
 
-    # Run configured outputs (exports, reports, transports)
     run_configured_outputs(test_run, str(test_run.id), results_dir)
-    set_current_logger(None)
+
+
+@pytest.fixture(scope="session", autouse=True)
+def logger(request) -> Generator[TestRunLogger, None, None]:
+    """Provide test run logger for the session.
+
+    Autouse so every test (and the ``verify`` / ``context`` fixtures
+    that route through ``set_current_logger``) sees an active logger.
+    Snapshots config at run start; streams events to subscribers
+    declared by ``litmus.yaml: outputs:`` plus the always-on parquet
+    + channels defaults.
+
+    The body delegates to focused helpers — :func:`_setup_event_log_and_subscribers`
+    wires the event log, :func:`_emit_session_start_events` fires the
+    Session/Run/StepsDiscovered triplet, :func:`_teardown_logger` closes
+    everything in the right order at session end.
+    """
+    from litmus.data.results_dir import resolve_results_dir
+
+    meta = _build_run_metadata(request)
+    results_dir = meta["results_dir"]
+    if not results_dir:
+        results_dir = str(resolve_results_dir())
+        meta["results_dir"] = results_dir
+
+    env_session_id = os.environ.get("LITMUS_SESSION_ID")
+    session_id = UUID(env_session_id) if env_session_id else uuid4()
+    meta["session_id"] = session_id
+
+    env_dut_serial = os.environ.get("LITMUS_DUT_SERIAL")
+    if env_dut_serial:
+        meta["dut_serial"] = env_dut_serial
+
+    logger = TestRunLogger(**meta)
+
+    event_store: Any = None
+    if results_dir:
+        event_store = _setup_event_log_and_subscribers(logger, Path(results_dir), session_id)
+        _emit_session_start_events(logger)
+
+    set_current_logger(logger)
+    try:
+        yield logger
+    finally:
+        # Capture not-started steps onto the run manifest before finalize.
+        logger.test_run.collected_items = get_collected_items()
+        _teardown_logger(logger, event_store, results_dir)
+        set_current_logger(None)
 
 
 @pytest.fixture(autouse=True)
