@@ -116,7 +116,7 @@ def test_vectors_fixture_vector_index_increments(pytester: pytest.Pytester) -> N
     pytester.makepyfile(
         test_seq=textwrap.dedent(
             """
-            from litmus.pytest_plugin import get_active_vector_index
+            from litmus.execution._state import get_active_vector_index
 
             def test_rails(vectors):
                 seen = []
@@ -148,7 +148,7 @@ def test_vectors_fixture_active_params_pushed_per_iteration(
     pytester.makepyfile(
         test_seq=textwrap.dedent(
             """
-            from litmus.pytest_plugin import get_active_vector_params
+            from litmus.execution._state import get_active_vector_params
 
             def test_rails(vectors):
                 seen = []

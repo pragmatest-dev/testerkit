@@ -15,40 +15,23 @@ from pydantic import ValidationError
 from litmus.data.models import TestVector
 from litmus.execution._state import (
     _active_vector_index_var,
-    get_active_connection,
     get_active_facets,
-    get_active_instruments,
     get_active_limits,
-    get_active_product_context,
     get_active_profile,
-    get_active_vector_index,
-    get_active_vector_params,
     get_channel_store,
     get_collected_items,
-    get_current_code_identity,
     get_current_step,
-    get_current_step_aliases,
-    get_current_step_config,
     get_event_store,
     get_instrument_records,
     get_session_inputs,
     push_current_vector,
-    set_active_facets,
     set_active_instruments,
-    set_active_limits,
     set_active_product_context,
-    set_active_profile,
     set_active_vector_index,
     set_active_vector_params,
     set_channel_store,
-    set_collected_items,
-    set_current_code_identity,
-    set_current_step_aliases,
-    set_current_step_config,
     set_event_store,
     set_instrument_records,
-    set_test_node_aliases,
-    set_test_node_configs,
 )
 from litmus.execution.accessors import InstrumentAccessor
 from litmus.execution.connections import ConnectionIterator
@@ -76,13 +59,18 @@ from litmus.models.station import StationConfig
 from litmus.models.test_config import FixtureConfig, PromptConfig
 from litmus.products.context import ProductContext
 from litmus.prompts import ask as ask_prompt
+
+# Pytest discovers fixtures by attribute lookup on the plugin module —
+# importing them here makes them attributes of ``litmus.pytest_plugin``
+# without exposing them via ``__all__`` (they are framework internals,
+# named with leading ``_``).
 from litmus.pytest_plugin.autouse import (
-    _litmus_apply_mocks,
-    _litmus_push_limits,
-    _litmus_push_params,
-    _litmus_resolve_connections,
-    _reseat_current_logger,
-    _route_cleanup,
+    _litmus_apply_mocks,  # noqa: F401
+    _litmus_push_limits,  # noqa: F401
+    _litmus_push_params,  # noqa: F401
+    _litmus_resolve_connections,  # noqa: F401
+    _reseat_current_logger,  # noqa: F401
+    _route_cleanup,  # noqa: F401
 )
 from litmus.pytest_plugin.helpers import (
     find_fixture_file as _find_fixture_file,
@@ -120,12 +108,14 @@ from litmus.pytest_plugin.hooks import (
     pytest_sessionstart,
 )
 
-# State helpers re-exported for back-compat with consumers that import
-# from litmus.pytest_plugin (logger, harness, accessors, manager, tests).
-# Plus the autouse fixture names re-exported from autouse.py — pytest
-# discovers them by inspecting this package's namespace.
+# Pytest discovers hooks and fixtures by attribute lookup on this
+# module, not by ``__all__``. ``__all__`` lists only the pytest hook
+# names the plugin contributes — the public surface of "what this
+# plugin does." State helpers and autouse fixtures stay attributes of
+# the module (so pytest can find them) but are not advertised here:
+# the autouse names start with ``_`` and the state helpers live
+# canonically in ``litmus.execution._state``.
 __all__ = [
-    # pytest hooks (pytest discovery — must live in this namespace)
     "pytest_addoption",
     "pytest_collection_modifyitems",
     "pytest_configure",
@@ -137,46 +127,6 @@ __all__ = [
     "pytest_runtestloop",
     "pytest_sessionfinish",
     "pytest_sessionstart",
-    # Autouse fixtures (pytest discovery — must live in this namespace)
-    "_litmus_apply_mocks",
-    "_litmus_push_limits",
-    "_litmus_push_params",
-    "_litmus_resolve_connections",
-    "_reseat_current_logger",
-    "_route_cleanup",
-    # State helpers
-    "get_active_facets",
-    "get_active_instruments",
-    "get_active_connection",
-    "get_active_limits",
-    "get_active_profile",
-    "get_active_product_context",
-    "get_active_vector_index",
-    "get_active_vector_params",
-    "get_channel_store",
-    "get_collected_items",
-    "get_current_code_identity",
-    "get_current_step_aliases",
-    "get_current_step_config",
-    "get_event_store",
-    "get_instrument_records",
-    "get_session_inputs",
-    "set_active_facets",
-    "set_active_instruments",
-    "set_active_limits",
-    "set_active_profile",
-    "set_active_product_context",
-    "set_active_vector_index",
-    "set_active_vector_params",
-    "set_channel_store",
-    "set_collected_items",
-    "set_current_code_identity",
-    "set_current_step_aliases",
-    "set_current_step_config",
-    "set_event_store",
-    "set_instrument_records",
-    "set_test_node_aliases",
-    "set_test_node_configs",
 ]
 
 
@@ -1041,7 +991,7 @@ def context() -> Context:
 
 @pytest.fixture
 def connections(
-    _litmus_resolve_connections: None,
+    _litmus_resolve_connections: None,  # noqa: F811  # pytest fixture-ordering dep
     context: Context,
 ) -> ConnectionIterator | None:
     """Active fixture connections for the current test.

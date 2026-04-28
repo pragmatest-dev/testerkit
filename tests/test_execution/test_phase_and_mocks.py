@@ -59,7 +59,7 @@ class TestMockInstrumentsNoUsageError:
         from types import SimpleNamespace
         from typing import cast
 
-        from litmus.pytest_plugin import _mocks_active
+        from litmus.pytest_plugin.helpers import mocks_active as _mocks_active
 
         config = cast(
             "pytest.Config",
@@ -74,7 +74,7 @@ class TestMockInstrumentsNoUsageError:
         from types import SimpleNamespace
         from typing import cast
 
-        from litmus.pytest_plugin import _mocks_active
+        from litmus.pytest_plugin.helpers import mocks_active as _mocks_active
 
         monkeypatch.setenv("LITMUS_MOCK_INSTRUMENTS", "1")  # env says yes
         config = cast(
@@ -87,7 +87,7 @@ class TestMockInstrumentsNoUsageError:
         from types import SimpleNamespace
         from typing import cast
 
-        from litmus.pytest_plugin import _mocks_active
+        from litmus.pytest_plugin.helpers import mocks_active as _mocks_active
 
         monkeypatch.setenv("LITMUS_MOCK_INSTRUMENTS", "1")
         # CLI flag unset (None) → env wins
@@ -101,7 +101,7 @@ class TestMockInstrumentsNoUsageError:
         from types import SimpleNamespace
         from typing import cast
 
-        from litmus.pytest_plugin import _mocks_active
+        from litmus.pytest_plugin.helpers import mocks_active as _mocks_active
 
         monkeypatch.delenv("LITMUS_MOCK_INSTRUMENTS", raising=False)
         # CLI flag unset, env unset → falls through to project YAML (False by default).
@@ -115,7 +115,8 @@ class TestMockInstrumentsNoUsageError:
         """Sanity check: the fixture source doesn't still call UsageError."""
         import inspect
 
-        from litmus.pytest_plugin import _mocks_active, mock_instruments
+        from litmus.pytest_plugin import mock_instruments
+        from litmus.pytest_plugin.helpers import mocks_active as _mocks_active
 
         fixture_src = inspect.getsource(mock_instruments)
         helper_src = inspect.getsource(_mocks_active)
