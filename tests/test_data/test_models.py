@@ -177,3 +177,23 @@ class TestTestRun:
             steps=[step],
         )
         assert len(run.steps) == 1
+
+    def test_test_run_bringup_tier_no_station(self):
+        """Bringup tier: no station YAML loaded, station_id is None.
+
+        ``station_hostname`` always populates from ``socket.gethostname()``
+        downstream, so a bringup-tier run is still traceable to a
+        machine — but the canonical station ``id`` doesn't exist.
+        """
+        run = TestRun(
+            dut=DUT(serial="SN001"),
+            station_id=None,
+            test_sequence_id="test_suite",
+        )
+        assert run.station_id is None
+
+        # Round-trip through Pydantic to confirm None survives serialization.
+        payload = run.model_dump()
+        assert payload["station_id"] is None
+        rehydrated = TestRun.model_validate(payload)
+        assert rehydrated.station_id is None
