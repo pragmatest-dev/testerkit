@@ -53,7 +53,7 @@ from litmus.execution.profiles import (
 )
 from litmus.execution.sidecar import load_sidecar as _load_sidecar
 from litmus.execution.vectors import Vector
-from litmus.models.test_config import RetryPolicy, SweepEntry, TestEntry
+from litmus.models.test_config import RetryConfig, SweepEntry, TestEntry
 from litmus.pytest_plugin.helpers import (
     find_station_file,
     join_marker_names,
@@ -67,7 +67,7 @@ from litmus.pytest_plugin.markers import (
     enforce_no_inline_stacking,
     normalize_inline_list_payload,
 )
-from litmus.pytest_plugin.retry import retry_policy_to_flaky_kwargs
+from litmus.pytest_plugin.retry import retry_config_to_flaky_kwargs
 from litmus.pytest_plugin.sweeps import (
     parametrize_call_rows,
     parametrize_calls_for_entry,
@@ -285,10 +285,10 @@ def _translate_retry_markers(items: list[pytest.Item]) -> None:
             continue
         marker = retry_markers[0]
         try:
-            policy = RetryPolicy.model_validate(dict(marker.kwargs))
+            retry_config = RetryConfig.model_validate(dict(marker.kwargs))
         except ValueError as exc:
             raise pytest.UsageError(f"{item.nodeid}: invalid litmus_retry — {exc}") from exc
-        item.add_marker(pytest.mark.flaky(**retry_policy_to_flaky_kwargs(policy)))
+        item.add_marker(pytest.mark.flaky(**retry_config_to_flaky_kwargs(retry_config)))
 
 
 def _warn_unmatched_profile_keys(items: list[pytest.Item]) -> None:

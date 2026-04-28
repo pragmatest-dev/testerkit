@@ -32,7 +32,7 @@ from litmus.models.enums import Comparator, MeasurementFunction
 #   * ``mocks``       → ``list[MockEntry]``
 #   * ``characteristics`` → ``list[str]``
 #   * ``connections`` → ``ConnectionsBinding | None``
-#   * ``retry``       → ``RetryPolicy | None``
+#   * ``retry``       → ``RetryConfig | None``
 #   * ``prompts``     → ``dict[str, PromptConfig]``
 #
 # Pydantic validates every field at YAML load — typos and type errors
@@ -103,8 +103,8 @@ class ConnectionsBinding(BaseModel):
     instrument_channels: dict[str, Any] | None = None
 
 
-class RetryPolicy(BaseModel):
-    """Runner-neutral retry policy — translates to ``flaky`` under pytest."""
+class RetryConfig(BaseModel):
+    """Runner-neutral retry config — translates to ``flaky`` under pytest."""
 
     model_config = ConfigDict(extra="forbid")
 
@@ -157,7 +157,7 @@ class TestEntry(BaseModel):
     mocks: list[MockEntry] = Field(default_factory=list)
     characteristics: list[str] = Field(default_factory=list)
     connections: ConnectionsBinding | None = None
-    retry: RetryPolicy | None = None
+    retry: RetryConfig | None = None
     prompts: dict[str, PromptConfig] = Field(default_factory=dict)
     runner: dict[str, Any] = Field(default_factory=dict)
     tests: dict[str, TestEntry] = Field(default_factory=dict)
@@ -462,17 +462,6 @@ class FixtureConfig(BaseModel):
     def is_multi_slot(self) -> bool:
         """True if this fixture has multiple DUT slots."""
         return len(self.slots) > 1
-
-
-class RetryConfig(BaseModel):
-    """Retry behavior configuration."""
-
-    model_config = {"extra": "forbid"}
-
-    max_attempts: int = 1
-    delay_seconds: float = 0
-    strategy: Literal["always", "on_fail", "dialog", "custom"] = "on_fail"
-    dialog_ref: str | None = None  # For strategy="dialog"
 
 
 class PromptConfig(BaseModel):

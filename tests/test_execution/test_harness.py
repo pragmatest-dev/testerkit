@@ -70,14 +70,14 @@ class TestHarnessInit:
         assert len(harness.vectors) == 4
 
     def test_init_with_retry_config(self):
-        config = {"retry": {"max_attempts": 3, "delay_seconds": 0.5}}
+        config = {"retry": {"max_attempts": 3, "delay": 0.5}}
         harness = TestHarness(config=config)
         assert harness.retry_config.max_attempts == 3
-        assert harness.retry_config.delay_seconds == 0.5
+        assert harness.retry_config.delay == 0.5
 
     def test_init_with_retry_override(self):
         config = {"retry": {"max_attempts": 3}}
-        override = RetryConfig(max_attempts=5, delay_seconds=1.0)
+        override = RetryConfig(max_attempts=5, delay=1.0)
         harness = TestHarness(config=config, retry=override)
         assert harness.retry_config.max_attempts == 5
 
@@ -220,7 +220,7 @@ class TestHarnessRunWithRetry:
     """Tests for TestHarness.run_with_retry method."""
 
     def test_retry_on_failure(self):
-        config = {"retry": {"max_attempts": 3, "delay_seconds": 0}}
+        config = {"retry": {"max_attempts": 3, "delay": 0}}
         harness = TestHarness(config=config)
 
         call_count = 0
@@ -240,7 +240,7 @@ class TestHarnessRunWithRetry:
         assert tv.outcome == Outcome.PASS
 
     def test_no_retry_on_pass(self):
-        config = {"retry": {"max_attempts": 3, "delay_seconds": 0}}
+        config = {"retry": {"max_attempts": 3, "delay": 0}}
         harness = TestHarness(config=config)
 
         call_count = 0
@@ -258,7 +258,7 @@ class TestHarnessRunWithRetry:
         assert tv.outcome == Outcome.PASS
 
     def test_retry_exhausted_returns_fail(self):
-        config = {"retry": {"max_attempts": 2, "delay_seconds": 0}}
+        config = {"retry": {"max_attempts": 2, "delay": 0}}
         harness = TestHarness(config=config)
 
         def test_fn(vector):
@@ -272,7 +272,7 @@ class TestHarnessRunWithRetry:
 
     def test_retry_with_generator(self):
         """Test that yield pattern works with retry."""
-        config = {"retry": {"max_attempts": 2, "delay_seconds": 0}}
+        config = {"retry": {"max_attempts": 2, "delay": 0}}
         harness = TestHarness(config=config)
 
         def test_fn(vector):

@@ -16,7 +16,7 @@ from litmus.models.test_config import (
     MeasurementLimitConfig,
     MockEntry,
     PromptConfig,
-    RetryPolicy,
+    RetryConfig,
     SidecarConfig,
     SweepEntry,
     TestEntry,
@@ -64,7 +64,7 @@ class TestTestEntryShape:
 
     def test_retry_coerced_to_policy(self) -> None:
         entry = TestEntry.model_validate({"retry": {"max_attempts": 3}})
-        assert isinstance(entry.retry, RetryPolicy)
+        assert isinstance(entry.retry, RetryConfig)
         assert entry.retry.max_attempts == 3
 
     def test_prompts_coerced_to_prompt_config(self) -> None:

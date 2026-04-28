@@ -1189,8 +1189,8 @@ class TestHarness:
                 break
 
             # Retry delay
-            if attempt < self._retry.max_attempts and self._retry.delay_seconds > 0:
-                time.sleep(self._retry.delay_seconds)
+            if attempt < self._retry.max_attempts and self._retry.delay > 0:
+                time.sleep(self._retry.delay)
 
         assert last_vector is not None
         return last_vector

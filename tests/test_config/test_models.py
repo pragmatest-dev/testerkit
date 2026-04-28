@@ -97,18 +97,18 @@ class TestRetryConfig:
     def test_retry_defaults(self):
         config = RetryConfig()
         assert config.max_attempts == 1
-        assert config.delay_seconds == 0
-        assert config.strategy == "on_fail"
+        assert config.delay == 0
+        assert config.on is None
 
     def test_retry_custom(self):
         config = RetryConfig(
             max_attempts=3,
-            delay_seconds=0.5,
-            strategy="dialog",
-            dialog_ref="retry_dialog",
+            delay=0.5,
+            on=["TimeoutError", "ConnectionError"],
         )
         assert config.max_attempts == 3
-        assert config.strategy == "dialog"
+        assert config.delay == 0.5
+        assert config.on == ["TimeoutError", "ConnectionError"]
 
 
 class TestCapabilityDisjointNamespaces:
