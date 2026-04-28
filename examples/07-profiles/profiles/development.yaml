@@ -1,6 +1,7 @@
 # Dev profile — loose tolerance for bringup.
 facets:
   test_phase: development
+station_type: bench
 extends: rail_family
 tests:
   test_rail_within_spec:

@@ -8,38 +8,73 @@ through, just move.
 
 ## Backlog
 
-### Profiles select station_type + fixture (test-phase wiring)
+### Capability-aware station/test runnability inference
 
-Different test phases often run on different physical setups. A
-characterization phase might wire to a universal lab bench; a production
-phase might wire to a dedicated station with a higher-volume fixture.
-Today profiles can override limits / sweeps / mocks / specs / markers /
-runner block, but **not** which station or fixture loads — that's
-resolved separately from `--station` / `--fixture` CLI flags or
-`ProjectConfig.default_station` / `default_fixture`.
+Today's catalog integration in discovery (`cli.py:342-358`) reads only
+`entry.type` from a catalog entry to pick a default role name. The
+catalog has rich capability data (signals / conditions / accuracy
+bands per `MeasurementFunction`) that's never queried by the
+runnability path.
 
-The right axis is `station_type`, not a concrete station instance:
+The full chain that *should* close the loop:
 
-- `StationType` already exists (`models/station_types.py`) and
-  `StationConfig.station_type: str | None` already labels concrete
-  stations with the type they implement — but nothing consumes the
-  field for matching today.
-- Add `FixtureConfig.station_types: list[str]` so a fixture declares
-  which station-type layouts it pins against. (A fixture pins against
-  an instrument layout, not a deployment.)
-- Add `ProfileConfig.station_type: str | None` and
-  `ProfileConfig.fixture: str | None`. Session start resolves: the
-  profile's `station_type` selects any concrete station whose
-  `station_type` matches; the profile's `fixture` must be compatible
-  with that station type (`station_type in fixture.station_types`).
+```
+test consumes fixture `dmm`
+  → fixture wired by station_type "production_bench"
+    → station_type declares it needs role `dmm` with type DMM
+      → catalog defines: "Keithley 34461A measures dc_voltage / dc_current"
+        → discovery finds Keithley 34461A at GPIB::1
+          → ✓ this station can run that test
+```
 
-Out of scope on `TestEntry` — fixture/station are session-wide bindings
-and pytest collection has already happened by the time per-test
-overrides could matter.
+Build the inference layer on top of the schema landed in the
+profile-binds-station_type+fixture work:
 
-**Why:** test phases differ in physical wiring, not just limits and
-mocks. Without this, every operator has to remember the right
-`--fixture=...` for each profile, which is fragile.
+- Walk a test's used fixtures → derive instrument-role requirements.
+- Walk station_type's declared roles → derive instrument-type
+  requirements.
+- Match against catalog capabilities (`signals.dc_voltage`,
+  `conditions.range`, etc.).
+- CLI: `litmus check --test=<test_id>` returns "can this station run
+  it" + missing-role explanations. Optionally `--all-stations` to
+  list every station_type that could run the test.
+
+**Why:** the data is all there (capability schema, station_type,
+fixture station_types, catalog by manufacturer+model); the inference
+just isn't wired. Closes the gap where an operator with a partial
+bench can't tell which tests they can actually run today.
+
+### StationType → StationConfig inheritance
+
+Today a concrete `StationConfig` declaring `station_type:
+production_bench` must still redeclare `type:` and `driver:` for
+every instrument role — there's no inheritance from the
+`StationType` template. Verbose for users with a fleet of
+identically-typed benches.
+
+Add inheritance: when `StationConfig.station_type` is set, instrument
+`type:` and `driver:` come from the `StationType`'s `instruments:`
+dict; the concrete YAML only carries `resource:` + per-instrument
+overrides. Concrete station YAMLs shrink to:
+
+```yaml
+id: bench_07
+name: Bench 7
+station_type: production_bench
+instruments:
+  dmm:  {resource: GPIB::1::INSTR}    # type/driver inherited
+  psu:  {resource: GPIB::2::INSTR}
+  scope: {resource: GPIB::3::INSTR}
+```
+
+Pure ergonomics; doesn't change runtime behavior. Implementation:
+extend the StationConfig YAML loader to merge `StationType.instruments`
+into `StationConfig.instruments` when the type is loadable.
+
+**Why:** "constrained first, open later" — the schema we shipped
+requires duplicating type+driver per role, which is fine for one
+bench but tedious for a fleet. Adopters with multi-bench setups
+will hit this within a week of the multi-station plan landing.
 
 ### `litmus plan --profile=X` — dry-run what a profile resolves to
 
@@ -65,6 +100,48 @@ helpers (`_resolve_entry`, `resolve_test_connections`, etc.), not fork them
 declarative config actually do" surface. Useful for CI triage, for
 explaining a production run, and for catching profile/sidecar
 mistakes before hitting hardware.
+
+### Facet prompt fallback — `pytest` interactive on a TTY when facets are absent
+
+Today, profile selection requires the operator to know which facet
+flags to pass: `pytest --test-phase=production --product=tps54302`.
+Forget one and you get a `UsageError` listing the available facet
+combinations — workable for a developer, friction for a lab tech.
+
+`required_inputs` (`src/litmus/execution/profiles.py:422-470`) already
+solves the same problem for things like `serial_number`: at session
+start, walk the declared keys and resolve each via a three-step chain:
+
+1. CLI flag `--<key>`
+2. Env var `LITMUS_<KEY>`
+3. Operator prompt via `litmus.prompts.ask(PromptConfig)` — respects
+   `LITMUS_PROMPT_MODE=auto-confirm`, custom handlers, TTY
+   fall-through; raises `ProfileError` if it can't resolve.
+
+Extend the same chain to **facets**: the auto-registered
+`--<facet>` flags (`hooks.py:450-458`) already gate step 1; add env
+var lookup (`LITMUS_TEST_PHASE`, `LITMUS_PRODUCT`, …) as step 2; then
+prompt the operator with the union of declared values across the
+profile catalog as the choice list as step 3. Only invoke the prompt
+when no flag and no env var supplied a value — CI runs and explicit
+invocations stay headless.
+
+Conflict detection (`profiles.py:262-271`) already handles
+`--litmus-profile=<name>` + facet flags that disagree; this change
+doesn't touch it.
+
+**Out of scope:**
+- A `litmus run` subcommand. Pytest IS the test-execution interface;
+  the existing `litmus` subcommands (`runs`, `show`, `serve`,
+  `discover`, `mcp`) are all observability / infrastructure. Adding
+  the fallback inside the pytest invocation keeps the model coherent.
+- Changing the way profiles are written or facets declared.
+
+**Why:** the lab-tech path shouldn't require remembering which facet
+keys are mandatory for a given project. The prompt machinery already
+exists for `required_inputs`; reusing it for facets is a small
+extension that closes the friction without introducing a new CLI
+surface.
 
 ### Split into `pytest-litmus` + `litmus-test` (monorepo, two wheels)
 
@@ -241,6 +318,49 @@ _None._
 ---
 
 ## Completed
+
+### Profiles bind station_type + fixture (test-phase wiring) — 2026-04-27
+
+Profiles can now select `station_type` + `fixture`, closing the
+"profile is a half-config" gap from before. Selecting
+`--test-phase=production` sets limits, the required station-type,
+AND the fixture in one flag — the operator no longer has to remember
+a matching `--fixture=...` per phase.
+
+Schema additions (all optional, additive):
+
+- `StationConfig.hostname: str | None` — auto-match key for
+  `socket.gethostname()`. When set, the resolver picks the matching
+  station before falling back to `ProjectConfig.default_station`.
+- `StationConfig.station_type` (existing field) — promoted from
+  advisory to load-bearing. Cross-checked at session start.
+- `FixtureConfig.station_types: list[str]` — declares which
+  station-type layouts the fixture can wire against.
+- `ProfileConfig.station_type: str | None` — required station-type
+  contract for the phase. Profile cascades merge it last-wins via
+  `extends:`.
+- `ProfileConfig.fixture: str | None` — fixture id; CLI `--fixture`
+  wins on conflict (warning emitted).
+
+New `validate_station_against_type` (pure data check) +
+`validate_phase_wiring` (raises `ProfileError` on mismatch, wrapped
+as `pytest.UsageError` by the existing hook). Run-record stamps
+already covered `station_type` and `fixture_id` (no `TestRun` schema
+change needed).
+
+Profile portability is preserved — profiles bind a *type*, never a
+concrete station instance. Same `production` profile runs on any
+bench whose `station_type` matches.
+
+The `litmus_connections(connections=[...])` narrowing mode stays a
+niche escape hatch — fixtures + characteristics auto-derive
+connections per phase via this work; the explicit narrowing mode is
+for rare deliberate scoping.
+
+Curriculum: `examples/07-profiles/` demonstrates all four bindings
+(station type definition, station instance with type+hostname,
+fixture compatibility, profile binding). Examples 01-04 untouched
+(bringup tier doesn't need stations). 1489 tests pass.
 
 ### Runner-neutral logic extracted from plugin.py — 2026-04-26
 

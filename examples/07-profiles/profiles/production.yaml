@@ -1,6 +1,8 @@
 # Production profile — tight tolerance, same parametrize sweep inherited.
 facets:
   test_phase: production
+station_type: bench
+fixture: buck_3v3_bench
 extends: rail_family
 tests:
   test_rail_within_spec:

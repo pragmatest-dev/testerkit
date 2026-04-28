@@ -1,0 +1,13 @@
+id: bench
+description: |
+  Minimal bench station-type — a PSU to source the DUT input and a DMM
+  to measure the DUT output. Concrete bench instances declare which
+  resources (GPIB, TCP/IP, etc.) play each role.
+
+instruments:
+  psu:
+    type: psu
+    driver: drivers.PSU
+  dmm:
+    type: dmm
+    driver: drivers.DMM

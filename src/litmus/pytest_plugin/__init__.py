@@ -97,6 +97,9 @@ from litmus.pytest_plugin.helpers import (
     prompt_for_serial,
 )
 from litmus.pytest_plugin.helpers import (
+    resolve_station_id as _resolve_station_id,
+)
+from litmus.pytest_plugin.helpers import (
     safe_get_session_fixture as _safe_get_session_fixture,
 )
 from litmus.pytest_plugin.hooks import (
@@ -211,17 +214,42 @@ def _require_fixture_and_instruments(
 
 def _build_run_metadata(request: pytest.FixtureRequest) -> dict[str, Any]:
     """Pytest adapter — read session fixtures + CLI options, delegate to runner-neutral builder."""
+    from litmus.execution.profiles import ProfileError, validate_phase_wiring
+    from litmus.store import load_station_type
+
     requested_phase = request.config.getoption("--test-phase") or os.environ.get(
         "LITMUS_TEST_PHASE"
     )
+    station_config = _safe_get_session_fixture(request, "station_config")
+    fixture_config = _safe_get_session_fixture(request, "fixture_config")
+    profile = get_active_profile()
+
+    # Cross-check phase wiring (Step 5). Loads the StationType template
+    # if the active station declares one; runs the four checks; raises
+    # pytest.UsageError on mismatch.
+    station_type_template = None
+    if station_config is not None:
+        st_id = getattr(station_config, "station_type", None)
+        if st_id:
+            station_type_template = load_station_type(st_id, project_root=request.config.rootpath)
+    try:
+        validate_phase_wiring(
+            profile=profile,
+            station_config=station_config,
+            fixture_config=fixture_config,
+            station_type_template=station_type_template,
+        )
+    except ProfileError as exc:
+        raise pytest.UsageError(str(exc)) from exc
+
     return build_run_metadata(
         dut_serial=request.config.getoption("--dut-serial"),
         dut_part_number=request.config.getoption("--dut-part-number"),
         dut_revision=request.config.getoption("--dut-revision"),
         dut_lot_number=request.config.getoption("--dut-lot"),
-        station_id=request.config.getoption("--station"),
-        station_config=_safe_get_session_fixture(request, "station_config"),
-        fixture_config=_safe_get_session_fixture(request, "fixture_config"),
+        station_id=_resolve_station_id(request.config),
+        station_config=station_config,
+        fixture_config=fixture_config,
         spec_context=_safe_get_session_fixture(request, "spec_context"),
         operator_id=request.config.getoption("--operator"),
         project_dir=request.config.rootpath,
@@ -594,8 +622,8 @@ def station_config(request) -> StationConfig | None:
 
         return load_station(station_path)
 
-    # Check if --station was explicitly passed (not the default)
-    station_id = request.config.getoption("--station")
+    # Check if --station was explicitly passed (not auto-resolved)
+    station_id = _resolve_station_id(request.config)
     explicit = any(arg.startswith("--station") for arg in request.config.invocation_params.args)
     if explicit:
         warnings.warn(

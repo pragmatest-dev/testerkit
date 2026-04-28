@@ -113,6 +113,16 @@ class ProfileConfig(TestEntry):
     description: str | None = None
     facets: dict[str, str] = Field(default_factory=dict)
     extends: str | None = None
+    # Bind a StationType this profile expects. The session-start
+    # resolver verifies the active station's ``station_type`` matches
+    # AND the active fixture's ``station_types`` includes this value.
+    # Profiles must stay portable across stations of the matching
+    # type — never bind a concrete station instance here.
+    station_type: str | None = None
+    # Bind a fixture by id. Resolution chain: ``--fixture-config`` →
+    # ``--fixture`` → this field → ``ProjectConfig.default_fixture``.
+    # CLI wins; explicit beats declarative.
+    fixture: str | None = None
 
 
 class ProjectConfig(BaseModel):

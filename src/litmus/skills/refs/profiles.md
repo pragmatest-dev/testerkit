@@ -19,6 +19,10 @@ description: string                 # optional; shown in litmus show
 facets: {key: value, ...}           # exact-match keys for CLI selection
 extends: <parent_profile_name>      # optional single parent
 
+# Phase wiring — both optional; bind a station-type and/or fixture
+station_type: <type_id>             # active station must comport (see Cross-checks)
+fixture: <fixture_id>               # fixture id; CLI --fixture wins on conflict
+
 runner:                             # opaque; the active runner plugin owns its schema
   addopts: string                   # appended to PYTEST_ADDOPTS pre-collection
   markexpr: string                  # like -m
@@ -107,6 +111,87 @@ project/
 
 Inline `litmus.yaml: profiles:` and `profiles/*.yaml` are both read.
 Name conflict → `UsageError` at project load.
+
+## Phase wiring (`station_type` + `fixture`)
+
+A profile can bind both **which station-type layout it expects** and
+**which fixture it uses**. Selecting `--test-phase=production` then
+sets the limits, the required station type, and the fixture in one
+flag — the operator doesn't have to remember a matching `--fixture=...`
+each run.
+
+```yaml
+# profiles/production.yaml
+facets: {test_phase: production}
+station_type: production_bench    # active station must comport
+fixture: buck_3v3_production      # fixture id; CLI --fixture wins on conflict
+limits: { ... }
+```
+
+```yaml
+# stations/types/production_bench.yaml — abstract type definition
+id: production_bench
+description: "Production bench layout"
+instruments:
+  dmm: {type: DMM, driver: ...}
+  psu: {type: PSU, driver: ...}
+
+# stations/bench_07.yaml — concrete instance, declares the type
+id: bench_07
+name: "Bench 7"
+station_type: production_bench
+hostname: bench07.lab.example     # optional; enables auto-match
+instruments: { ... }              # actual driver/resource per role
+
+# fixtures/buck_3v3_production.yaml — declares which types it works on
+id: buck_3v3_production
+product_id: buck_3v3
+station_types: [production_bench] # cross-checked vs. profile.station_type
+connections: { ... }
+```
+
+### Why types, not concrete stations
+
+Profiles bind `station_type` (the layout *contract*), not a concrete
+station id. Same `production` profile runs on `bench_07`, `bench_08`,
+`bench_09` — they all comport with `production_bench`. Binding a
+profile to a single bench would make it unportable.
+
+### Hostname auto-match
+
+When a station declares `hostname:`, the session-start resolver tries
+`socket.gethostname()` against every station's hostname before
+falling back to `ProjectConfig.default_station`. Operators on the
+matching bench skip the `--station=<id>` boilerplate. Resolution
+chain (first match wins):
+
+1. `--station-config=<path>` (explicit)
+2. `--station=<id>` (explicit)
+3. Hostname auto-match
+4. `ProjectConfig.default_station`
+5. `None` — bringup tier without a station
+
+### Cross-checks at session start
+
+After station + fixture + profile resolve, four checks fire (each
+raising `pytest.UsageError` on failure, no-op when fields aren't set):
+
+1. **Compliance.** Active station's declared instruments must cover
+   every role the matching `StationType` requires.
+2. **Profile → station type.** Profile's `station_type` must equal
+   active station's `station_type`.
+3. **Profile → fixture compatibility.** Profile's `station_type`
+   must appear in active fixture's `station_types: [...]`.
+4. **CLI fixture override + profile fixture conflict.** CLI wins;
+   warning emitted (explicit beats declarative).
+
+### Run-record stamps
+
+Each test run stamps `TestRun.station_type` and `TestRun.fixture_id`
+along with the existing `station_id`, `station_hostname`, `profile`,
+and `profile_facets` columns. Analytics like "first-pass yield across
+all `production_bench` runs" don't need to join on the live station
+YAMLs — the type label is snapshot per-run.
 
 ## Litmus marker fields
 

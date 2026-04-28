@@ -425,6 +425,12 @@ class FixtureConfig(BaseModel):
     product_family: str | None = None  # Product family (for shared fixtures)
     product_revision: str | None = None  # Optional: specific revision
 
+    # StationType compatibility — names the abstract station-type
+    # layouts this fixture can wire against. Empty list = "any
+    # station" (no cross-check fires). Validated at session start
+    # against the active profile's ``station_type``.
+    station_types: list[str] = Field(default_factory=list)
+
     # DUT connection string (e.g., COM3, /dev/ttyUSB0)
     dut_resource: str | None = None
 

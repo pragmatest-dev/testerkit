@@ -376,7 +376,13 @@ def pytest_addoption(parser):
     group.addoption("--dut-part-number", default=None, help="DUT part number")
     group.addoption("--dut-revision", default=None, help="DUT revision")
     group.addoption("--dut-lot", default=None, help="DUT lot/batch number")
-    group.addoption("--station", default=project.default_station, help="Station ID")
+    group.addoption(
+        "--station",
+        default=None,
+        help="Station ID. When unset, the resolver tries hostname "
+        "auto-match against stations/*.yaml ``hostname:`` fields, "
+        "then falls back to ``ProjectConfig.default_station``.",
+    )
     group.addoption("--operator", default=None, help="Operator name")
     group.addoption(
         "--results-dir",
@@ -410,7 +416,14 @@ def pytest_addoption(parser):
         "Driver methods return their real values. Instrument-layer --mock-instruments "
         "is unaffected.",
     )
-    group.addoption("--fixture", default=project.default_fixture, help="Fixture ID")
+    group.addoption(
+        "--fixture",
+        default=None,
+        help="Fixture ID. When unset, the resolver tries the active "
+        "profile's ``fixture:`` field, then "
+        "``ProjectConfig.default_fixture``, then the single-file "
+        "fallback in ``fixtures/``.",
+    )
     group.addoption(
         "--fixture-config",
         default=None,

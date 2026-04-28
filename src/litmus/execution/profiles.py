@@ -187,6 +187,13 @@ def flatten_profile_chain(leaf_name: str, project: ProjectConfig) -> ProfileConf
         if profile.description is not None:
             merged.description = profile.description
         merged.facets.update(profile.facets)
+        # Last-wins for the flat session-binding fields. These aren't
+        # marker fields, so ``_merge_entry_into`` doesn't pick them up
+        # — handle them explicitly here.
+        if profile.station_type is not None:
+            merged.station_type = profile.station_type
+        if profile.fixture is not None:
+            merged.fixture = profile.fixture
         runner_block = dict(profile.runner)
         # Validate to catch typos early; addopts is concatenated specially.
         runner = validate_pytest_runner(runner_block)
@@ -319,6 +326,80 @@ def compose_filter_expr(profile_expr: str, cli_expr: str) -> str:
     if not cli_expr:
         return profile_expr
     return f"({profile_expr}) and ({cli_expr})"
+
+
+def validate_phase_wiring(
+    profile: ProfileConfig | None,
+    station_config: Any | None,
+    fixture_config: Any | None,
+    station_type_template: Any | None,
+) -> None:
+    """Cross-check the resolved phase wiring at session start.
+
+    Each failure raises :class:`ProfileError`; the pytest hook wraps
+    that as ``pytest.UsageError``. Runs four checks in order:
+
+    1. **Station compliance.** If the active station declares
+       ``station_type`` AND its template is loaded
+       (``station_type_template``), every role the type requires must
+       exist on the station with a matching ``type:`` value. Uses
+       :func:`litmus.models.station.validate_station_against_type`.
+    2. **Profile → station type.** If profile declares
+       ``station_type``, the active station's ``station_type`` must
+       match.
+    3. **Profile → fixture compatibility.** If profile declares
+       ``station_type`` AND active fixture has non-empty
+       ``station_types: [...]``, the profile's type must appear in
+       that list.
+    4. **CLI fixture override + profile fixture conflict.** Logged as
+       a warning by :func:`find_fixture_file` already; this function
+       leaves it alone.
+
+    No-op when the relevant fields aren't set — additive schema
+    behaves transparently for projects that haven't tagged anything.
+    """
+    from litmus.models.station import validate_station_against_type
+
+    # 1. Compliance — station's declared instruments cover the type.
+    if (
+        station_config is not None
+        and station_type_template is not None
+        and getattr(station_config, "station_type", None)
+    ):
+        mismatches = validate_station_against_type(station_config, station_type_template)
+        if mismatches:
+            details = "\n  - ".join(mismatches)
+            raise ProfileError(
+                f"Station {station_config.id!r} does not comport with "
+                f"station_type {station_type_template.id!r}:\n  - {details}"
+            )
+
+    if profile is None:
+        return
+
+    profile_station_type = profile.station_type
+    if profile_station_type is None:
+        return
+
+    # 2. Profile → station type.
+    if station_config is not None:
+        actual = getattr(station_config, "station_type", None)
+        if actual != profile_station_type:
+            raise ProfileError(
+                f"Profile requires station_type={profile_station_type!r}; "
+                f"active station {station_config.id!r} has "
+                f"station_type={actual!r}."
+            )
+
+    # 3. Profile → fixture compatibility.
+    if fixture_config is not None:
+        fixture_types = list(getattr(fixture_config, "station_types", []) or [])
+        if fixture_types and profile_station_type not in fixture_types:
+            raise ProfileError(
+                f"Profile requires station_type={profile_station_type!r} but "
+                f"active fixture {fixture_config.id!r} declares "
+                f"station_types={fixture_types!r}."
+            )
 
 
 def install_active_profile(config) -> None:

@@ -5,11 +5,11 @@ Schema for ``stations/*.yaml`` (concrete station deployments) and
 station files can declare compatibility with). Both are user-authored
 and loaded through :mod:`litmus.store`.
 
-The ``station_type`` field on :class:`StationConfig` is advisory today
-— a label declaring which abstract :class:`StationType` template the
-deployment implements. Profile-driven station-type matching is on the
-roadmap; once that ships, this field becomes load-bearing for fixture
-compatibility.
+The ``station_type`` field on :class:`StationConfig` is load-bearing:
+when set, the resolver checks at session start that the station's
+declared instruments cover the roles its named :class:`StationType`
+requires (see :func:`validate_station_against_type`), and that the
+active profile's `station_type` matches.
 """
 
 from __future__ import annotations
@@ -54,10 +54,16 @@ class StationConfig(BaseModel):
 
     id: str
     name: str
-    # Advisory label naming the StationType template this deployment
-    # implements. Not enforced at load — profile-driven station-type
-    # matching is on the roadmap (see ROADMAP.md).
+    # Names the StationType template this deployment implements.
+    # Load-bearing at session start: the resolver runs
+    # ``validate_station_against_type`` to ensure the declared
+    # instruments cover the type's required roles.
     station_type: str | None = None
+    # Hostname of the bench machine running this station. When set,
+    # the session-start resolver auto-matches against
+    # ``socket.gethostname()`` so operators don't need to pass
+    # ``--station=<id>`` on the matching machine.
+    hostname: str | None = None
     location: str | None = None
     description: str | None = None
     instruments: dict[str, StationInstrumentConfig] = Field(default_factory=dict)
@@ -89,3 +95,46 @@ class StationType(BaseModel):
     description: str
     instruments: dict[str, InstrumentConfig]
     capabilities: list[str] = Field(default_factory=list)
+
+
+def validate_station_against_type(station: StationConfig, station_type: StationType) -> list[str]:
+    """Return human-readable role mismatches between station and type.
+
+    A concrete station "comports with" its declared :class:`StationType`
+    when, for every role the type requires (``station_type.instruments``
+    keys), the station declares an instrument under the same role with
+    a matching ``type:`` value. Returns an empty list when fully
+    compliant; otherwise returns one entry per problem describing the
+    role and the mismatch.
+
+    The check is data-only (no I/O, no driver / resource validation)
+    and crosses two YAML-loaded models — written as a free function
+    rather than a Pydantic ``model_validator`` because the
+    :class:`StationType` template lives in a separate file that may not
+    be loaded when the :class:`StationConfig` is parsed.
+
+    Args:
+        station: concrete station configuration.
+        station_type: the abstract type template the station declares
+            via its ``station_type`` field.
+
+    Returns:
+        A list of mismatch descriptions; empty when compliant.
+    """
+    mismatches: list[str] = []
+    for role, type_inst in station_type.instruments.items():
+        station_inst = station.instruments.get(role)
+        if station_inst is None:
+            mismatches.append(
+                f"role {role!r} required by station_type "
+                f"{station_type.id!r} but not declared on station "
+                f"{station.id!r}"
+            )
+            continue
+        if station_inst.type != type_inst.type:
+            mismatches.append(
+                f"role {role!r} on station {station.id!r} declares "
+                f"type={station_inst.type!r}, but station_type "
+                f"{station_type.id!r} requires type={type_inst.type!r}"
+            )
+    return mismatches
