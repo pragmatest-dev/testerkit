@@ -19,8 +19,8 @@ from litmus.execution._state import (
     get_active_facets,
     get_active_instruments,
     get_active_limits,
+    get_active_product_context,
     get_active_profile,
-    get_active_spec_context,
     get_active_vector_index,
     get_active_vector_params,
     get_channel_store,
@@ -36,8 +36,8 @@ from litmus.execution._state import (
     set_active_facets,
     set_active_instruments,
     set_active_limits,
+    set_active_product_context,
     set_active_profile,
-    set_active_spec_context,
     set_active_vector_index,
     set_active_vector_params,
     set_channel_store,
@@ -74,7 +74,7 @@ from litmus.instruments.route_manager import RouteManager
 from litmus.models.instrument import InstrumentRecord
 from litmus.models.station import StationConfig
 from litmus.models.test_config import FixtureConfig, PromptConfig
-from litmus.products.context import SpecContext
+from litmus.products.context import ProductContext
 from litmus.prompts import ask as ask_prompt
 from litmus.pytest_plugin.autouse import (
     _litmus_apply_mocks,
@@ -89,6 +89,9 @@ from litmus.pytest_plugin.helpers import (
 )
 from litmus.pytest_plugin.helpers import (
     find_station_file as _find_station_file,
+)
+from litmus.pytest_plugin.helpers import (
+    find_yaml_in_subdir as _find_yaml_in_subdir,
 )
 from litmus.pytest_plugin.helpers import (
     mocks_active as _mocks_active,
@@ -147,7 +150,7 @@ __all__ = [
     "get_active_connection",
     "get_active_limits",
     "get_active_profile",
-    "get_active_spec_context",
+    "get_active_product_context",
     "get_active_vector_index",
     "get_active_vector_params",
     "get_channel_store",
@@ -162,7 +165,7 @@ __all__ = [
     "set_active_instruments",
     "set_active_limits",
     "set_active_profile",
-    "set_active_spec_context",
+    "set_active_product_context",
     "set_active_vector_index",
     "set_active_vector_params",
     "set_channel_store",
@@ -250,7 +253,7 @@ def _build_run_metadata(request: pytest.FixtureRequest) -> dict[str, Any]:
         station_id=_resolve_station_id(request.config),
         station_config=station_config,
         fixture_config=fixture_config,
-        spec_context=_safe_get_session_fixture(request, "spec_context"),
+        product_context=_safe_get_session_fixture(request, "product_context"),
         operator_id=request.config.getoption("--operator"),
         project_dir=request.config.rootpath,
         results_dir=request.config.getoption("--results-dir"),
@@ -497,33 +500,49 @@ def run_context(logger) -> RunContext:
 
 
 @pytest.fixture(scope="session")
-def spec_context(request) -> SpecContext | None:
-    """Provide product spec context for spec-driven testing.
+def product_context(request) -> ProductContext | None:
+    """Provide product context for spec-driven testing.
 
-    Loads product spec from --spec option or auto-discovers from products/ directory.
-    Provides SpecContext for deriving limits and tracking channel traceability.
+    Resolution chain (first match wins):
+
+    1. ``--spec <path>`` — explicit YAML path.
+    2. ``--product <id>`` — look up ``products/<id>.yaml`` (mirrors
+       ``--station``/``--fixture`` resolution).
+    3. ``--dut-part-number <pn>`` — content match against
+       ``product.part_number:`` across ``products/*.yaml``.
+    4. Single-file fallback when ``products/`` holds exactly one file.
+    5. ``None`` — bringup tier without a product YAML.
 
     Usage in tests:
-        def test_voltage(spec_context, dmm):
-            limit = spec_context.get_limit("output_voltage", temperature=25)
+        def test_voltage(product_context, dmm):
+            limit = product_context.get_limit("output_voltage", temperature=25)
             value = dmm.measure_dc_voltage()
             # Use limit for validation...
 
     Returns:
-        SpecContext, or None if no product spec configured.
+        :class:`ProductContext`, or ``None`` if no product YAML is loaded.
     """
     spec_path = request.config.getoption("--spec")
+    product_id = request.config.getoption("--product")
     guardband = float(request.config.getoption("--guardband"))
     part_number = request.config.getoption("--dut-part-number")
 
     ctx = None
 
     if spec_path:
-        ctx = SpecContext.from_file(spec_path, guardband_pct=guardband)
+        ctx = ProductContext.from_file(spec_path, guardband_pct=guardband)
+    elif product_id:
+        product_path = _find_yaml_in_subdir(request.config, "products", f"{product_id}.yaml")
+        if product_path is None:
+            raise pytest.UsageError(
+                f"--product={product_id!r} did not find products/{product_id}.yaml. "
+                "Use --spec=<path> for an explicit path."
+            )
+        ctx = ProductContext.from_file(product_path, guardband_pct=guardband)
     else:
         ctx = _autodiscover_product(request.config, guardband, part_number)
 
-    set_active_spec_context(ctx)
+    set_active_product_context(ctx)
     return ctx
 
 
@@ -531,7 +550,7 @@ def _autodiscover_product(
     config: pytest.Config,
     guardband: float,
     part_number: str | None,
-) -> SpecContext | None:
+) -> ProductContext | None:
     """Pick a product YAML from ``products/`` in the project or cwd.
 
     Selection rules:
@@ -569,13 +588,13 @@ def _autodiscover_product(
         pn_lower = part_number.lower()
         for yaml_file in product_files:
             try:
-                loaded = SpecContext.from_file(yaml_file, guardband_pct=guardband)
+                loaded = ProductContext.from_file(yaml_file, guardband_pct=guardband)
             except (ValueError, OSError):
                 continue
             if (loaded.product.part_number or "").lower() == pn_lower:
                 matches.append(yaml_file)
         if len(matches) == 1:
-            return SpecContext.from_file(matches[0], guardband_pct=guardband)
+            return ProductContext.from_file(matches[0], guardband_pct=guardband)
         if not matches:
             raise pytest.UsageError(
                 f"--dut-part-number={part_number!r} did not match any product in "
@@ -591,10 +610,10 @@ def _autodiscover_product(
         raise pytest.UsageError(
             f"products/ has {len(product_files)} YAML files "
             f"({', '.join(p.stem for p in product_files)}); "
-            "pass --dut-part-number <pn> or --spec <path> to choose one."
+            "pass --product <id>, --dut-part-number <pn>, or --spec <path> to choose one."
         )
 
-    return SpecContext.from_file(product_files[0], guardband_pct=guardband)
+    return ProductContext.from_file(product_files[0], guardband_pct=guardband)
 
 
 @pytest.fixture(scope="session")
@@ -807,13 +826,13 @@ def instrument(instruments, instrument_records) -> InstrumentAccessor:
 
 @pytest.fixture(scope="session")
 def dut(
-    spec_context,
+    product_context,
     fixture_config,
     mock_instruments,
 ) -> Generator[Any, None, None]:
     """Instantiate and yield the DUT communication driver.
 
-    Resolves the driver class from ``Product.driver`` (loaded via spec_context)
+    Resolves the driver class from ``Product.driver`` (loaded via product_context)
     and connects using ``FixtureConfig.dut_resource``. Follows the same pattern
     as instrument fixtures — session-scoped, auto-disconnected at teardown.
 
@@ -824,16 +843,16 @@ def dut(
     Returns:
         Connected DUT driver instance, or None if product has no driver.
     """
-    if not spec_context or not spec_context.product.driver:
+    if not product_context or not product_context.product.driver:
         yield None
         return
 
     from litmus.products.loader import load_product_driver
 
-    driver_class = load_product_driver(spec_context.product)
+    driver_class = load_product_driver(product_context.product)
     if driver_class is None:
         warnings.warn(
-            f"DUT driver {spec_context.product.driver!r} could not be imported",
+            f"DUT driver {product_context.product.driver!r} could not be imported",
             UserWarning,
             stacklevel=2,
         )
@@ -1037,20 +1056,6 @@ def connections(
                 v = dmm.measure_voltage()
     """
     return getattr(context, "connections", None)
-
-
-@pytest.fixture
-def spec(request: pytest.FixtureRequest) -> Any:
-    """Spec context for ``spec.check(name, value)`` inside tests.
-
-    Short public alias for the session-scoped ``spec_context`` fixture —
-    keeps test signatures terse (``def test_foo(self, spec, logger)``).
-    Returns ``None`` when no product spec is configured; a test that
-    attempts ``spec.check(...)`` in that mode raises ``AttributeError``
-    rather than silently skipping the check. Tests that want to tolerate
-    a missing spec must guard with ``if spec is not None`` explicitly.
-    """
-    return request.getfixturevalue("spec_context")
 
 
 @pytest.fixture

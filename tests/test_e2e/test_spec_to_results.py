@@ -17,7 +17,7 @@ import pytest
 from litmus.data.models import Outcome
 from litmus.execution.harness import TestHarness
 from litmus.models.capability import RangeSpec
-from litmus.products.context import SpecContext
+from litmus.products.context import ProductContext
 
 # Path to fixture specs (used for integration testing, not value assertions).
 # Lives under tests/fixtures so the e2e suite never depends on the layout
@@ -27,12 +27,12 @@ SPEC_PATH = _FIXTURE_DIR / "power_board.yaml"
 MINIMAL_SPEC_PATH = _FIXTURE_DIR / "base_board.yaml"
 
 
-class TestSpecContext:
-    """Test SpecContext loading and limit derivation behavior."""
+class TestProductContext:
+    """Test ProductContext loading and limit derivation behavior."""
 
     def test_load_spec(self):
         """Verify spec loads with expected structure."""
-        spec = SpecContext.from_file(SPEC_PATH)
+        spec = ProductContext.from_file(SPEC_PATH)
 
         # Test structure, not specific values
         assert spec.product.id is not None
@@ -42,7 +42,7 @@ class TestSpecContext:
 
     def test_get_limit_returns_valid_limit(self):
         """Derive limit from characteristic - verify structure."""
-        spec = SpecContext.from_file(SPEC_PATH)
+        spec = ProductContext.from_file(SPEC_PATH)
 
         char_id, conditions = _find_testable_characteristic(spec)
         assert char_id is not None, "Spec should have at least one characteristic with specs"
@@ -57,8 +57,8 @@ class TestSpecContext:
 
     def test_get_limit_with_guardband_tightens_range(self):
         """Guardband should tighten the limit range."""
-        spec_no_gb = SpecContext.from_file(SPEC_PATH, guardband_pct=0.0)
-        spec_with_gb = SpecContext.from_file(SPEC_PATH, guardband_pct=10.0)
+        spec_no_gb = ProductContext.from_file(SPEC_PATH, guardband_pct=0.0)
+        spec_with_gb = ProductContext.from_file(SPEC_PATH, guardband_pct=10.0)
 
         # Find a characteristic with specs that produce a range (value + accuracy)
         char_id, conditions = _find_testable_characteristic(spec_no_gb)
@@ -77,14 +77,14 @@ class TestSpecContext:
 
     def test_get_limit_invalid_characteristic_raises(self):
         """Raises KeyError for unknown characteristic."""
-        spec = SpecContext.from_file(SPEC_PATH)
+        spec = ProductContext.from_file(SPEC_PATH)
 
         with pytest.raises(KeyError):
             spec.get_limit("nonexistent_characteristic_xyz")
 
     def test_get_pin_info_returns_traceability(self):
         """Pin info should include traceability fields."""
-        spec = SpecContext.from_file(SPEC_PATH)
+        spec = ProductContext.from_file(SPEC_PATH)
 
         # Find a characteristic with pin reference
         char_id = None
@@ -105,7 +105,7 @@ class TestSpecContext:
 
     def test_characteristics_reference_defined_pins(self):
         """All pin references in characteristics should exist in product.pins."""
-        spec = SpecContext.from_file(SPEC_PATH)
+        spec = ProductContext.from_file(SPEC_PATH)
 
         for char_id, char in spec.product.characteristics.items():
             pins = spec._get_char_pins(char)
@@ -116,11 +116,11 @@ class TestSpecContext:
 
 
 class TestHarnessSpecIntegration:
-    """Test TestHarness integration with SpecContext."""
+    """Test TestHarness integration with ProductContext."""
 
     def test_harness_resolves_limit_from_spec(self):
-        """Harness automatically resolves limits from SpecContext."""
-        spec = SpecContext.from_file(SPEC_PATH)
+        """Harness automatically resolves limits from ProductContext."""
+        spec = ProductContext.from_file(SPEC_PATH)
 
         # Find a characteristic with conditions
         char_id, conditions = _find_testable_characteristic(spec)
@@ -132,7 +132,7 @@ class TestHarnessSpecIntegration:
 
         harness = TestHarness(
             step_name="test_auto_limit",
-            spec_context=spec,
+            product_context=spec,
             config={"vectors": [conditions]},
         )
 
@@ -152,7 +152,7 @@ class TestHarnessSpecIntegration:
 
     def test_harness_populates_dut_pin(self):
         """Harness populates dut_pin from spec for traceability."""
-        spec = SpecContext.from_file(SPEC_PATH)
+        spec = ProductContext.from_file(SPEC_PATH)
 
         # Find characteristic with pin info
         char_id = None
@@ -166,7 +166,7 @@ class TestHarnessSpecIntegration:
             pytest.fail("No characteristic with dut_pin found")
 
         expected_pin_info = spec.get_pin_info(char_id)
-        harness = TestHarness(step_name="test_pin", spec_context=spec)
+        harness = TestHarness(step_name="test_pin", product_context=spec)
 
         with harness.step():
             for vector in harness.vectors:
@@ -176,7 +176,7 @@ class TestHarnessSpecIntegration:
 
     def test_measurement_pass_when_in_spec(self):
         """Measurement inside limits results in PASS outcome."""
-        spec = SpecContext.from_file(SPEC_PATH)
+        spec = ProductContext.from_file(SPEC_PATH)
 
         char_id, conditions = _find_testable_characteristic(spec)
         if char_id is None:
@@ -186,7 +186,7 @@ class TestHarnessSpecIntegration:
 
         harness = TestHarness(
             step_name="test_pass",
-            spec_context=spec,
+            product_context=spec,
             config={"vectors": [conditions]},
         )
 
@@ -206,7 +206,7 @@ class TestHarnessSpecIntegration:
 
     def test_measurement_fail_when_out_of_spec(self):
         """Measurement outside limits results in FAIL outcome."""
-        spec = SpecContext.from_file(SPEC_PATH)
+        spec = ProductContext.from_file(SPEC_PATH)
 
         char_id, conditions = _find_testable_characteristic(spec)
         if char_id is None:
@@ -216,7 +216,7 @@ class TestHarnessSpecIntegration:
 
         harness = TestHarness(
             step_name="test_fail",
-            spec_context=spec,
+            product_context=spec,
             config={"vectors": [conditions]},
         )
 
@@ -238,7 +238,7 @@ class TestHarnessSpecIntegration:
         """Explicit limit parameter overrides spec-derived limit."""
         from litmus.models.test_config import Limit
 
-        spec = SpecContext.from_file(SPEC_PATH)
+        spec = ProductContext.from_file(SPEC_PATH)
 
         # Find any characteristic
         char_id = next(iter(spec.product.characteristics.keys()))
@@ -250,7 +250,7 @@ class TestHarnessSpecIntegration:
             spec_ref="EXPLICIT_OVERRIDE",
         )
 
-        harness = TestHarness(step_name="test_override", spec_context=spec)
+        harness = TestHarness(step_name="test_override", product_context=spec)
 
         with harness.step():
             for vector in harness.vectors:
@@ -267,7 +267,7 @@ class TestEndToEndWorkflow:
 
     def test_complete_workflow_structure(self):
         """Full workflow produces properly structured results."""
-        spec = SpecContext.from_file(SPEC_PATH)
+        spec = ProductContext.from_file(SPEC_PATH)
 
         # Find testable characteristics
         char_id, conditions = _find_testable_characteristic(spec)
@@ -278,7 +278,7 @@ class TestEndToEndWorkflow:
 
         harness = TestHarness(
             step_name="test_workflow",
-            spec_context=spec,
+            product_context=spec,
             config={"vectors": [conditions]},
         )
 
@@ -304,7 +304,7 @@ class TestEndToEndWorkflow:
 
     def test_characteristic_id_populated_in_workflow(self):
         """characteristic_id is populated for spec-driven measurements."""
-        spec = SpecContext.from_file(SPEC_PATH)
+        spec = ProductContext.from_file(SPEC_PATH)
 
         char_id, conditions = _find_testable_characteristic(spec)
         if char_id is None:
@@ -314,7 +314,7 @@ class TestEndToEndWorkflow:
 
         harness = TestHarness(
             step_name="test_characteristic_id",
-            spec_context=spec,
+            product_context=spec,
             config={"vectors": [conditions]},
         )
 
@@ -331,7 +331,7 @@ class TestEndToEndWorkflow:
 
     def test_observations_captured_in_workflow(self):
         """Context observations are captured in TestVector."""
-        spec = SpecContext.from_file(SPEC_PATH)
+        spec = ProductContext.from_file(SPEC_PATH)
 
         char_id, conditions = _find_testable_characteristic(spec)
         if char_id is None:
@@ -341,7 +341,7 @@ class TestEndToEndWorkflow:
 
         harness = TestHarness(
             step_name="test_observations",
-            spec_context=spec,
+            product_context=spec,
             config={"vectors": [conditions]},
         )
 
@@ -363,7 +363,7 @@ class TestEndToEndWorkflow:
 
     def test_failure_propagates_to_step(self):
         """Measurement failure propagates to vector and step outcome."""
-        spec = SpecContext.from_file(SPEC_PATH)
+        spec = ProductContext.from_file(SPEC_PATH)
 
         char_id, conditions = _find_testable_characteristic(spec)
         if char_id is None:
@@ -373,7 +373,7 @@ class TestEndToEndWorkflow:
 
         harness = TestHarness(
             step_name="test_propagation",
-            spec_context=spec,
+            product_context=spec,
             config={"vectors": [conditions]},
         )
 
@@ -400,7 +400,7 @@ class TestMinimalSpec:
 
     def test_minimal_spec_loads(self):
         """Minimal spec loads successfully."""
-        spec = SpecContext.from_file(MINIMAL_SPEC_PATH)
+        spec = ProductContext.from_file(MINIMAL_SPEC_PATH)
 
         assert spec.product.id is not None
         assert len(spec.product.characteristics) >= 1
@@ -408,7 +408,7 @@ class TestMinimalSpec:
 
     def test_minimal_spec_limit_derivation(self):
         """Can derive limits from minimal spec."""
-        spec = SpecContext.from_file(MINIMAL_SPEC_PATH)
+        spec = ProductContext.from_file(MINIMAL_SPEC_PATH)
 
         # Get first characteristic
         char_id = next(iter(spec.product.characteristics.keys()))
@@ -420,12 +420,12 @@ class TestMinimalSpec:
 
     def test_minimal_spec_harness(self):
         """Can run test with minimal spec."""
-        spec = SpecContext.from_file(MINIMAL_SPEC_PATH)
+        spec = ProductContext.from_file(MINIMAL_SPEC_PATH)
 
         char_id = next(iter(spec.product.characteristics.keys()))
         limit = spec.get_limit(char_id)
 
-        harness = TestHarness(step_name="test_minimal", spec_context=spec)
+        harness = TestHarness(step_name="test_minimal", product_context=spec)
 
         with harness.step() as step:
             for vector in harness.vectors:
@@ -438,7 +438,7 @@ class TestMinimalSpec:
         assert step.outcome == Outcome.PASS
 
 
-def _find_testable_characteristic(spec: SpecContext) -> tuple[str | None, dict]:
+def _find_testable_characteristic(spec: ProductContext) -> tuple[str | None, dict]:
     """Find a characteristic with bands suitable for testing.
 
     Returns:

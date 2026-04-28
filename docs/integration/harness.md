@@ -51,11 +51,11 @@ harness = TestHarness(
 )
 
 # With spec context for automatic limits
-from litmus.products import SpecContext
-spec = SpecContext.from_file("products/my_product.yaml")
+from litmus.products import ProductContext
+spec = ProductContext.from_file("products/my_product.yaml")
 harness = TestHarness(
     step_name="my_test",
-    spec_context=spec,
+    product_context=spec,
 )
 ```
 
@@ -71,7 +71,7 @@ harness.measure(
     high=3.6,
 )
 
-# With spec-derived limits (if spec_context provided)
+# With spec-derived limits (if product_context provided)
 harness.measure(
     name="output_voltage",
     value=3.31,
@@ -175,13 +175,13 @@ In pytest-native mode, limits come from sequence step config, `@pytest.mark.litm
 
 ```python
 from litmus.execution.harness import TestHarness
-from litmus.products import SpecContext
+from litmus.products import ProductContext
 
-spec = SpecContext.from_file("products/power_board.yaml", guardband_pct=10)
+spec = ProductContext.from_file("products/power_board.yaml", guardband_pct=10)
 
 harness = TestHarness(
     step_name="test_output",
-    spec_context=spec,
+    product_context=spec,
 )
 
 v = measure_voltage()

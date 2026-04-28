@@ -50,7 +50,7 @@ _active_instruments_var: ContextVar[dict[str, Any]] = ContextVar("_active_instru
 _instrument_records_var: ContextVar[dict[str, InstrumentRecord]] = ContextVar("_instrument_records")
 _current_step_aliases_var: ContextVar[dict[str, str]] = ContextVar("_current_step_aliases")
 _current_step_config_var: ContextVar[dict[str, Any]] = ContextVar("_current_step_config")
-_active_spec_context_var: ContextVar[Any] = ContextVar("_active_spec_context")
+_active_product_context_var: ContextVar[Any] = ContextVar("_active_product_context")
 _test_node_aliases_var: ContextVar[dict[str, dict[str, str]]] = ContextVar("_test_node_aliases")
 _test_node_configs_var: ContextVar[dict[str, dict[str, Any]]] = ContextVar("_test_node_configs")
 _channel_store_var: ContextVar[Any] = ContextVar("_channel_store")
@@ -134,10 +134,10 @@ def get_current_step_config() -> dict[str, Any]:
         return {}
 
 
-def get_active_spec_context() -> Any:
+def get_active_product_context() -> Any:
     """Return None if not set."""
     try:
-        return _active_spec_context_var.get()
+        return _active_product_context_var.get()
     except LookupError:
         return None
 
@@ -208,9 +208,9 @@ def set_current_step_config(value: dict[str, Any]) -> None:
     _current_step_config_var.set(value)
 
 
-def set_active_spec_context(value: Any) -> None:
+def set_active_product_context(value: Any) -> None:
     """Set value. Returns None."""
-    _active_spec_context_var.set(value)
+    _active_product_context_var.set(value)
 
 
 def set_test_node_aliases(value: dict[str, dict[str, str]]) -> None:

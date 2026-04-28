@@ -33,7 +33,7 @@ from litmus.prompts import ask
 
 if TYPE_CHECKING:
     from litmus.execution.logger import TestRunLogger
-    from litmus.products.context import SpecContext
+    from litmus.products.context import ProductContext
 
 
 class LimitsView(Mapping[str, MeasurementLimitConfig]):
@@ -365,9 +365,9 @@ class Context:
         Resolves limit using the same logic as harness.measure():
         1. Check harness._limits for direct/config limits
         2. Try MeasurementLimitConfig.to_limit() for direct values
-        3. Try spec reference via SpecContext
+        3. Try spec reference via ProductContext
         4. Try callable limit evaluation
-        5. Fall back to SpecContext characteristic lookup
+        5. Fall back to ProductContext characteristic lookup
 
         Args:
             name: Measurement name to get limit for.
@@ -465,7 +465,7 @@ class TestHarness:
         step_name: str = "test",
         retry: RetryConfig | None = None,
         limits: dict[str, MeasurementLimitConfig | Limit] | None = None,
-        spec_context: SpecContext | None = None,
+        product_context: ProductContext | None = None,
         instruments: dict[str, Any] | None = None,
         mock_instruments: bool = False,
         channel_store: Any | None = None,
@@ -478,7 +478,7 @@ class TestHarness:
             step_name: Name for the test step.
             retry: Retry configuration (overrides config if provided).
             limits: Limit configurations by measurement name (overrides config).
-            spec_context: SpecContext for spec-driven limit derivation and
+            product_context: ProductContext for spec-driven limit derivation and
                          channel traceability.
             instruments: Dictionary of instrument instances for mock configuration.
             mock_instruments: Whether using mock instruments.
@@ -487,7 +487,7 @@ class TestHarness:
         self._config = config or {}
         self._logger = logger
         self._step_name = step_name
-        self._spec_context = spec_context
+        self._product_context = product_context
         self._instruments = instruments or {}
         self._mock_instruments = mock_instruments
         self._channel_store = channel_store
@@ -604,8 +604,8 @@ class TestHarness:
         1. Per-vector _limits (if current vector has _limits.{name})
         2. Direct Limit object in self._limits
         3. MeasurementLimitConfig with direct values
-        4. MeasurementLimitConfig with spec ref (uses SpecContext)
-        5. SpecContext characteristic lookup (name matches char_id)
+        4. MeasurementLimitConfig with spec ref (uses ProductContext)
+        5. ProductContext characteristic lookup (name matches char_id)
 
         Args:
             name: Measurement name.
@@ -641,14 +641,14 @@ class TestHarness:
                 if result is not None:
                     return result
 
-        # Try SpecContext direct lookup (measurement name = characteristic ID)
-        if self._spec_context:
+        # Try ProductContext direct lookup (measurement name = characteristic ID)
+        if self._product_context:
             try:
                 conditions = {}
                 if self._current_vector:
                     conditions = self._current_vector.params()
 
-                return self._spec_context.get_limit(name, **conditions)
+                return self._product_context.get_limit(name, **conditions)
             except (KeyError, ValueError):
                 pass  # No matching characteristic
 
@@ -673,14 +673,14 @@ class TestHarness:
 
         # Characteristic-only resolution (no tolerance — fetch the
         # characteristic's spec band straight off the active context).
-        if config.characteristic and self._spec_context:
+        if config.characteristic and self._product_context:
             try:
                 conditions = {}
                 if self._current_vector:
                     conditions = self._current_vector.params()
 
                 guardband = config.guardband_pct or 0.0
-                return self._spec_context.get_limit(
+                return self._product_context.get_limit(
                     config.characteristic,
                     guardband_pct=guardband,
                     comparator=config.comparator,
@@ -805,13 +805,13 @@ class TestHarness:
         # Resolve limit
         resolved_limit = limit or self._resolve_limit(name)
 
-        # Resolve channel traceability from SpecContext if not provided
+        # Resolve channel traceability from ProductContext if not provided
         resolved_dut_pin = dut_pin
         resolved_instrument_channel = instrument_channel
         resolved_fixture_connection = fixture_connection
 
-        if self._spec_context and not all([dut_pin, instrument_channel, fixture_connection]):
-            pin_info = self._spec_context.get_pin_info(name)
+        if self._product_context and not all([dut_pin, instrument_channel, fixture_connection]):
+            pin_info = self._product_context.get_pin_info(name)
             if pin_info:
                 resolved_dut_pin = resolved_dut_pin or pin_info.get("dut_pin")
                 resolved_instrument_channel = resolved_instrument_channel or pin_info.get(

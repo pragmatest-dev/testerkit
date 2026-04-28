@@ -60,8 +60,8 @@ pytest --product=products/power_board.yaml --guardband-pct=10 ...
 Or inline on the spec load:
 
 ```python
-from litmus.products import SpecContext
-spec = SpecContext.from_file("products/power_board.yaml", guardband_pct=10.0)
+from litmus.products import ProductContext
+spec = ProductContext.from_file("products/power_board.yaml", guardband_pct=10.0)
 ```
 
 ```

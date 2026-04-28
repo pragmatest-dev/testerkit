@@ -23,8 +23,8 @@ from pydantic import ValidationError
 from litmus.data.models import CollectedItem
 from litmus.execution._state import (
     get_active_instruments,
+    get_active_product_context,
     get_active_profile,
-    get_active_spec_context,
     get_current_logger,
     set_active_instruments,
     set_active_profile,
@@ -393,6 +393,12 @@ def pytest_addoption(parser):
         default=project.results_dir,
         help="Directory for Parquet results (default: platform data dir)",
     )
+    group.addoption(
+        "--product",
+        default=None,
+        help="Product ID — looks up ``products/<id>.yaml`` "
+        "(matches ``--station``/``--fixture`` resolution shape).",
+    )
     group.addoption("--spec", default=None, help="Path to product spec YAML file")
     group.addoption("--guardband", default="0", help="Default guardband percentage")
     group.addoption(
@@ -574,11 +580,11 @@ def pytest_runtest_call(item: pytest.Item) -> Iterator[None]:
 
 
 def _audit_traceability(logger_inst: Any, *, strict: bool) -> None:
-    """Pytest adapter — read ``--strict-traceability`` + spec context, delegate."""
+    """Pytest adapter — read ``--strict-traceability`` + product context, delegate."""
     audit_traceability(
         logger_inst,
         strict=strict,
-        spec_active=get_active_spec_context() is not None,
+        spec_active=get_active_product_context() is not None,
     )
 
 

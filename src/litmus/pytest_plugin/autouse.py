@@ -21,7 +21,7 @@ from collections.abc import Iterator
 import pytest
 
 from litmus.execution._state import (
-    get_active_spec_context,
+    get_active_product_context,
     push_active_characteristic,
     reset_active_characteristic,
     set_active_limits,
@@ -270,7 +270,7 @@ def _litmus_resolve_connections(
         yield
         return
 
-    spec_ctx = get_active_spec_context()
+    spec_ctx = get_active_product_context()
     fixture_cfg = safe_get_session_fixture(request, "fixture_config")
     try:
         connections, conn_to_char = resolve_test_connections(

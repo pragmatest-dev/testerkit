@@ -49,7 +49,7 @@ entry and a deprecation cycle where practical).
   `Instrument` / `VisaInstrument`. Observer classes stay private.
 - `litmus.fixtures` — `FixtureManager`, `PinAccessor`.
 - `litmus.products` — `Product`, `ProductCharacteristic`, `ProductFolder`,
-  `SpecContext`, `ProductManifest`, workflow helpers.
+  `ProductContext`, `ProductManifest`, workflow helpers.
 - `litmus.dialogs` — operator dialogs.
 - `litmus.schema_export` — `SCHEMA_MAP`, `FileType`, `export_schemas`.
 

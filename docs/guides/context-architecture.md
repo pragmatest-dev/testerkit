@@ -36,7 +36,7 @@ def test_rails(self, dmm, spec, logger):
     spec.check("output_voltage", dmm.measure_dc_voltage())
 ```
 
-`context.spec` and a destructured `spec` arg return the same `SpecContext`. `context.params["vin"]` and native `request.node.callspec.params["vin"]` point at the same dict.
+`context.spec` and a destructured `spec` arg return the same `ProductContext`. `context.params["vin"]` and native `request.node.callspec.params["vin"]` point at the same dict.
 
 ## `context` at a glance
 

@@ -1,6 +1,6 @@
 """Spec context for spec-driven testing.
 
-The SpecContext bridges product specifications and test execution by:
+The ProductContext bridges product specifications and test execution by:
 1. Loading and holding the product spec
 2. Providing limit derivation from characteristics
 3. Tracking channel/pin mapping for measurement traceability
@@ -19,14 +19,14 @@ if TYPE_CHECKING:
     from litmus.models.test_config import FixtureConfig
 
 
-class SpecContext:
+class ProductContext:
     """Context for spec-driven testing.
 
     Holds product spec and provides methods to derive limits and track
     channel traceability through the test execution.
 
     Example usage:
-        spec = SpecContext.from_file("products/power_board.yaml")
+        spec = ProductContext.from_file("products/power_board.yaml")
 
         # Get limit for a characteristic at specific conditions
         limit = spec.get_limit("output_voltage", temperature=25, load=0.1)
@@ -80,7 +80,7 @@ class SpecContext:
         spec_path: str | Path,
         fixture: FixtureConfig | None = None,
         guardband_pct: float = 0.0,
-    ) -> SpecContext:
+    ) -> ProductContext:
         """Load spec context from YAML file."""
         from litmus.store import load_product
 

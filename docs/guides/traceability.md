@@ -114,14 +114,14 @@ def test_output_voltage(dmm, logger):
     )
 ```
 
-### Using SpecContext
+### Using ProductContext
 
 For spec-driven traceability:
 
 ```python
 def test_output_voltage(dmm, spec):
     # spec.check resolves the limit and traceability from the active
-    # SpecContext (configured via --spec=products/power_board.yaml)
+    # ProductContext (configured via --spec=products/power_board.yaml)
     spec.check("output_voltage", dmm.measure_dc_voltage())
 ```
 
@@ -330,7 +330,7 @@ Requirement: output_voltage
 
 ## Best Practices
 
-1. **Let the framework capture traceability** — Most fields are auto-captured when using fixtures and SpecContext
+1. **Let the framework capture traceability** — Most fields are auto-captured when using fixtures and ProductContext
 
 2. **Use `run_context` for custom fields** — Add organization-specific metadata that becomes queryable columns
 

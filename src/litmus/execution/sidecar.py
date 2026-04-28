@@ -9,7 +9,7 @@ Two responsibilities live here:
 * **Limit resolution** (:func:`resolve_limit`).
   Walk a merged ``limits`` mapping (typed :class:`MeasurementLimitConfig`
   per measurement) and turn each entry into a concrete :class:`Limit`
-  against the active spec context + vector params, including
+  against the active product context + vector params, including
   condition-indexed ``bands:`` with sibling-as-catch-all fallback.
 
 The schema is fully Pydantic-validated at YAML load — no hand-rolled
@@ -26,8 +26,8 @@ from typing import TYPE_CHECKING, Any
 import yaml
 
 from litmus.execution._state import (
+    get_active_product_context,
     get_active_profile,
-    get_active_spec_context,
     get_active_vector_params,
 )
 from litmus.models.test_config import (
@@ -172,7 +172,7 @@ def _resolve_single(
       ``tolerance_pct`` / ``tolerance_abs`` → derive a band from the
       product characteristic's nominal at the active vector params.
     * ``characteristic:`` alone (no tolerance) → look up the
-      characteristic's spec band on the active spec context, applying
+      characteristic's spec band on the active product context, applying
       ``guardband_pct``.
     * Direct ``low`` / ``high`` / ``nominal`` → return as-is.
     * Anything else (no policy declared) → ``None`` so the measurement
@@ -247,7 +247,7 @@ def resolve_limit(
     """
     from litmus.models.capability import SpecBand, band_matches
 
-    spec_ctx = get_active_spec_context()
+    spec_ctx = get_active_product_context()
     profile = get_active_profile()
     guardband_pct = float(getattr(profile, "guardband_pct", 0.0) or 0.0) if profile else 0.0
     params = get_active_vector_params()

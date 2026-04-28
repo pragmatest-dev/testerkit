@@ -342,18 +342,18 @@ curl http://localhost:8000/api/match?product_id=power_board&station_id=bench_1
 
 ## Spec-Driven Testing
 
-The **SpecContext** bridges product specs and test execution, enabling:
+The **ProductContext** bridges product specs and test execution, enabling:
 - Automatic limit derivation from characteristics
 - Channel traceability in measurements
 - Guardband application for manufacturing margin
 
-### Using SpecContext
+### Using ProductContext
 
 ```python
-from litmus.products import SpecContext
+from litmus.products import ProductContext
 
 # Load spec
-spec = SpecContext.from_file("products/power_board.yaml")
+spec = ProductContext.from_file("products/power_board.yaml")
 
 # Get limit for characteristic at conditions
 limit = spec.get_limit("output_voltage", temperature=25, load=0.1)
@@ -366,7 +366,7 @@ pin_info = spec.get_pin_info("output_voltage")
 
 ### In pytest-native tests
 
-The `spec` fixture is the pytest-native interface — no manual `SpecContext` wiring needed. Load a spec with `--product=<id>` on the CLI or via `default_product:` in `litmus.yaml` / the active profile:
+The `spec` fixture is the pytest-native interface — no manual `ProductContext` wiring needed. Load a spec with `--product=<id>` on the CLI or via `default_product:` in `litmus.yaml` / the active profile:
 
 ```python
 import pytest

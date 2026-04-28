@@ -16,7 +16,7 @@ from litmus.models.product_manifest import (
     ProductManifest,
     WorkflowStep,
 )
-from litmus.products.context import SpecContext
+from litmus.products.context import ProductContext
 from litmus.products.folder import ProductFolder
 
 __all__ = [
@@ -27,7 +27,7 @@ __all__ = [
     "ProductCharacteristic",
     "ProductFolder",
     "ProductManifest",
-    "SpecContext",
+    "ProductContext",
     "WORKFLOW_STEP_ORDER",
     "WorkflowStep",
 ]

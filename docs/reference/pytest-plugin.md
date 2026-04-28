@@ -124,14 +124,14 @@ def test_with_net_lookup(fixture_manager):
     instrument = fixture_manager.get_instrument_for_point(point.name)
 ```
 
-### `spec_context` Fixture (session-scoped)
+### `product_context` Fixture (session-scoped)
 
 For spec-driven limit derivation:
 
 ```python
-def test_voltage(spec_context, dmm):
+def test_voltage(product_context, dmm):
     # Get limit from product spec with guardband
-    limit = spec_context.get_limit("output_voltage", temperature=25)
+    limit = product_context.get_limit("output_voltage", temperature=25)
     value = dmm.measure_dc_voltage()
     # Framework checks against derived limit
 ```

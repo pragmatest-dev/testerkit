@@ -32,7 +32,7 @@ from litmus.execution._state import (
     get_active_connection,
     get_active_instruments,
     get_active_limits,
-    get_active_spec_context,
+    get_active_product_context,
     get_active_vector_params,
     get_current_step,
     get_current_vector,
@@ -144,7 +144,7 @@ def _auto_traceability(name: str) -> dict[str, Any]:
        for ``dut_pin`` / ``net`` / ``fixture_connection`` /
        ``instrument_name`` / ``instrument_channel`` /
        ``instrument_terminal`` — the connection IS the row's pin.
-    2. **Legacy name-match against the active SpecContext**: when no
+    2. **Legacy name-match against the active ProductContext**: when no
        connection is active, fall back to ``spec.get_pin_info(name)``
        for rows whose measurement label happens to equal a characteristic
        id. This branch exists for the transition period and will be
@@ -178,7 +178,7 @@ def _auto_traceability(name: str) -> dict[str, Any]:
             result["instrument_resource"] = str(resource)
         return result
 
-    spec = get_active_spec_context()
+    spec = get_active_product_context()
     if spec is None:
         return result
 
@@ -231,10 +231,10 @@ def _resolve_measurement_limit(
     """Return a Limit or None per :meth:`TestRunLogger.measure`'s resolution chain.
 
     Chain order: inline low/high/nominal/comparator → explicit ``limit=``
-    → active sidecar limits → active spec context → unchecked (None).
+    → active sidecar limits → active product context → unchecked (None).
 
     Graceful degradation: both ``get_active_limits`` (sidecar) and
-    ``get_active_spec_context`` (product YAML) may be empty/None in
+    ``get_active_product_context`` (product YAML) may be empty/None in
     pure-pytest runs; in that case returns ``None`` and the measurement
     is recorded unchecked. The spec read is a one-way ContextVar snapshot
     at write time — not a runtime call on the spec module — so the
@@ -262,7 +262,7 @@ def _resolve_measurement_limit(
         # time, including band matching with sibling-as-catch-all fallback.
         return resolve_limit(cfg, test_char=get_active_characteristic())
 
-    spec = get_active_spec_context()
+    spec = get_active_product_context()
     if spec is not None:
         try:
             return spec.get_limit(name)
@@ -851,12 +851,12 @@ class TestRunLogger:
 
         1. ``limit=Limit(...)`` passed by the caller.
         2. :func:`get_active_limits` — sidecar + marker + profile merge.
-        3. :func:`get_active_spec_context` — product characteristic by name.
+        3. :func:`get_active_product_context` — product characteristic by name.
         4. None — row records no limit fields.
 
         **Auto-traceability** — ``dut_pin`` / ``instrument_*`` /
         ``fixture_connection`` / ``characteristic_id`` / ``spec_ref`` are pulled
-        from the active :class:`SpecContext` by measurement name when
+        from the active :class:`ProductContext` by measurement name when
         available. Callers never pass these.
 
         **Duplicate-name dedup**: two writes with the same name in one
@@ -908,8 +908,8 @@ class TestRunLogger:
             meas_spec_ref = resolved_limit.spec_ref
             cmp_str = _stringify_comparator(getattr(resolved_limit, "comparator", None))
 
-        # Auto-fill traceability from the active SpecContext. A caller
-        # (SpecContext.check / legacy harness) may have pre-populated a
+        # Auto-fill traceability from the active ProductContext. A caller
+        # (ProductContext.check / legacy harness) may have pre-populated a
         # Measurement; here we only set fields from the spec when they
         # would otherwise be blank.
         trace = _auto_traceability(name)

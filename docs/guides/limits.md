@@ -39,7 +39,7 @@ walks the full merge cascade (least → most specific):
 4. **Sidecar per-test field** — `tests.<name>.limits: {...}` (or nested `tests.<Cls>.tests.<method>.limits: {...}`)
 5. **Inline `@pytest.mark.litmus_limits(...)`** on method / class
 6. **Profile chain** — parent profile first, child last
-7. **Product spec** — `ref: "<name>"` delegation against the active `SpecContext`
+7. **Product spec** — `ref: "<name>"` delegation against the active `ProductContext`
 8. **None** — characterization mode (unchecked, still recorded)
 
 Later stages override earlier ones key-by-key (per measurement name).
@@ -139,7 +139,7 @@ logger.measure("v", val, limit=Limit(low=3.2, high=3.4, units="V"))
 
 ## Product-spec delegation (`ref:`)
 
-`ref: "<char_name>"` looks up the characteristic on the active `SpecContext` and inherits its limits, units, and `spec_ref`. Works in markers and sidecar:
+`ref: "<char_name>"` looks up the characteristic on the active `ProductContext` and inherits its limits, units, and `spec_ref`. Works in markers and sidecar:
 
 ```python
 # product selected via --product=power_board_v1 or litmus.yaml / profile

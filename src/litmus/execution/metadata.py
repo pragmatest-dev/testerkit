@@ -31,7 +31,7 @@ def build_run_metadata(
     station_id: str | None = None,
     station_config: Any | None = None,
     fixture_config: Any | None = None,
-    spec_context: Any | None = None,
+    product_context: Any | None = None,
     operator_id: str | None = None,
     project_dir: Path,
     results_dir: str | None = None,
@@ -43,18 +43,18 @@ def build_run_metadata(
 ) -> dict[str, Any]:
     """Build the kwargs dict :class:`TestRunLogger` expects.
 
-    Resolves derived fields (product info from ``spec_context``,
+    Resolves derived fields (product info from ``product_context``,
     station fields from ``station_config``, environment capture, git
     project name) so the runner's plugin doesn't have to. ``dut_part_number``
-    and ``dut_revision`` fall back to the active spec's product when
-    not supplied explicitly.
+    and ``dut_revision`` fall back to the active product when not
+    supplied explicitly.
     """
-    # Product info from spec_context
+    # Product info from product_context
     product_id = product_name = product_revision = None
-    if spec_context is not None:
-        product_id = spec_context.product.id
-        product_name = spec_context.product.name
-        product_revision = spec_context.product.revision
+    if product_context is not None:
+        product_id = product_context.product.id
+        product_name = product_context.product.name
+        product_revision = product_context.product.revision
 
     # Fixture id
     fixture_id = None
@@ -71,10 +71,10 @@ def build_run_metadata(
         station_location = station_config.location
 
     # DUT defaults from product spec
-    if dut_part_number is None and spec_context is not None:
-        dut_part_number = spec_context.product.part_number
-    if dut_revision is None and spec_context is not None:
-        dut_revision = spec_context.product.revision
+    if dut_part_number is None and product_context is not None:
+        dut_part_number = product_context.product.part_number
+    if dut_revision is None and product_context is not None:
+        dut_revision = product_context.product.revision
 
     return {
         "dut_serial": dut_serial,

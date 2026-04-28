@@ -24,7 +24,7 @@ into each other.
 ```python
 from litmus.execution.harness import Context
 from litmus.execution.logger import TestRunLogger
-from litmus.products.context import SpecContext
+from litmus.products.context import ProductContext
 
 
 class TestPowerUp:
@@ -33,7 +33,7 @@ class TestPowerUp:
         context: Context,
         psu,
         dmm,
-        spec: SpecContext,
+        spec: ProductContext,
     ) -> None:
         psu.set_voltage(context.get_param("vin"))
         psu.enable_output()
@@ -64,7 +64,7 @@ mocks:
 ```
 
 Blocks are independent — a test may use any combination, and `ref:` entries
-resolve against the active `SpecContext` if one is configured.
+resolve against the active `ProductContext` if one is configured.
 
 ## Limit resolution chain
 
@@ -74,7 +74,7 @@ When `logger.measure(name, value)` is called without an explicit `limit=`:
 2. **Sidecar `limits:` entry** — pushed by the plugin into
    `_active_limits_var` for the running test. Each entry is a dict;
    add a `bands:` key for **condition-indexed overrides** (see below).
-3. **Product spec** — `get_active_spec_context().get_limit(name)`
+3. **Product spec** — `get_active_product_context().get_limit(name)`
 4. **None** — recorded as unchecked
 
 ### Condition-indexed bands
