@@ -233,12 +233,15 @@ Run with --mock-instruments for hardware-free testing:
 
         proj_data: dict[str, Any] = {"name": project_name}
         if starter:
+            # No ``results_dir:`` — starter uses the global default
+            # under platformdirs.user_data_dir("litmus")/results so a
+            # fresh user immediately benefits from cross-project
+            # analytics in the operator UI / litmus runs / litmus show.
             proj_data.update(
                 {
                     "default_station": "starter_station",
                     "default_fixture": "example_fixture",
                     "mock_instruments": True,
-                    "results_dir": "results",
                 }
             )
         proj = ProjectConfig(**proj_data)
@@ -483,30 +486,29 @@ def _create_starter_files(path: Path, project_name: str) -> list[str]:
         fixture_content = {
             "id": "example_fixture",
             "name": "Example Fixture",
-            "description": "Maps DUT test points to instrument channels",
-            "product_family": "example_product",
-            "points": {
-                "VOUT": {
+            "description": "Maps DUT pins to station instrument channels",
+            "product_id": "example_product",
+            "connections": {
+                "vout_measure": {
+                    "name": "vout_measure",
+                    "dut_pin": "TP_VOUT",
                     "instrument": "dmm",
-                    "channel": "ch1",
-                    "terminals": ["hi", "lo"],
-                    "description": "Output voltage measurement point",
-                },
-                "VIN": {
-                    "instrument": "psu",
-                    "channel": "ch1",
-                    "terminals": ["pos", "neg"],
-                    "description": "Input power connection",
+                    "instrument_channel": "ch1",
+                    "instrument_terminal": "hi",
+                    "function": "dc_voltage",
+                    "description": "Output voltage at TP_VOUT",
                 },
             },
         }
         comment_header = (
-            "# Example fixture — maps DUT test points to instrument channels.\n"
+            "# Example fixture — wires DUT pins through station instrument\n"
+            "# channels. Each connection has a name, a dut_pin (matches a\n"
+            "# pin in the active product YAML), and an instrument role\n"
+            "# (matches a key in the active station's instruments: dict).\n"
             "#\n"
-            "# This is the wiring diagram as config. Each point describes:\n"
-            "#   - Which DUT test point (VOUT, VIN, etc.)\n"
-            "#   - Which instrument and channel measures/drives it\n"
-            "#   - Which terminals are connected\n\n"
+            "# Tests iterate connections via ``ctx.connections`` and call\n"
+            "# the matching instrument fixture (`dmm`, `psu`, …) with the\n"
+            "# resolved channel.\n\n"
         )
         fixture_file.write_text(comment_header + dump_yaml(fixture_content))
         created_files.append("fixtures/example_fixture.yaml")
@@ -543,8 +545,9 @@ def _create_starter_files(path: Path, project_name: str) -> list[str]:
     if not test_file.exists():
         test_content = '''"""Example test demonstrating Litmus basics.
 
-The test code focuses on WHAT to do. Vectors, limits, and mocks are
-declared in the sidecar ``test_example.yaml`` next to this file.
+The test code focuses on WHAT to do. The vector sweep and limit live
+in the sidecar ``test_example.yaml`` next to this file — change them
+without touching code.
 
 Run with: pytest
 (All defaults configured in pyproject.toml)
@@ -564,6 +567,34 @@ def test_output_voltage(context, psu, dmm, verify) -> None:
 '''
         test_file.write_text(test_content)
         created_files.append("tests/test_example.py")
+
+    # Create tests/test_example.yaml (sidecar referenced from the test docstring)
+    sidecar_file = path / "tests" / "test_example.yaml"
+    if not sidecar_file.exists():
+        sidecar_text = (
+            "# Sidecar for tests/test_example.py.\n"
+            "#\n"
+            "# Each top-level key (``limits``, ``sweeps``, …) is a Litmus\n"
+            "# marker applied to every test in this module. Per-test\n"
+            "# overrides go under the ``tests:`` tree.\n"
+            "#\n"
+            "# Graduate to spec-driven limits by replacing low/high/units\n"
+            "# with ``characteristic: output_voltage, tolerance_pct: 2``\n"
+            "# — the resolver reads the band from\n"
+            "# products/example_product.yaml. Doing so also auto-derives\n"
+            "# fixture connections, so the test body must then iterate\n"
+            "# ``ctx.connections`` instead of calling the dmm directly.\n"
+            "\n"
+            "tests:\n"
+            "  test_output_voltage:\n"
+            "    limits:\n"
+            "      output_voltage:\n"
+            "        low: 3.234\n"
+            "        high: 3.366\n"
+            "        units: V\n"
+        )
+        sidecar_file.write_text(sidecar_text)
+        created_files.append("tests/test_example.yaml")
 
     return created_files
 

@@ -1,4 +1,3 @@
-name: station-catalog-example
+name: 01-vanilla-example
 results_dir: results   # keep example results local — don't pollute global
-default_station: bench_01
 mock_instruments: true
