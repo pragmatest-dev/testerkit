@@ -1,6 +1,6 @@
 # Test Harness Integration
 
-> **For new pytest projects, use the pytest-native three-fixture split (`context`, `spec`,
+> **For new pytest projects, use the pytest-native three-fixture split (`context`, `verify`,
 > `logger`) documented in [pytest-native Reference](../reference/pytest-native.md).** The
 > `TestHarness` API documented here is for integrating Litmus into existing tests, non-pytest
 > runners, or custom harnesses where you need explicit lifecycle control.

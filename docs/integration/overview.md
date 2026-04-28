@@ -139,7 +139,7 @@ Each integration level has trade-offs:
 
 ### Phase 4: Full Integration
 
-1. New tests use the pytest-native `context`/`spec`/`logger` fixtures
+1. New tests use the pytest-native `context`/`verify`/`logger` fixtures
 2. Migrate high-value tests
 3. Keep legacy tests with Results API
 
@@ -149,7 +149,7 @@ Litmus components work independently. You can:
 
 - Use Results API from LabVIEW while writing new tests in pytest
 - Use Litmus instruments with Robot Framework
-- Mix Litmus-aware pytest tests (using `context`/`spec`/`logger`) with plain pytest tests
+- Mix Litmus-aware pytest tests (using `context`/`verify`/`logger`) with plain pytest tests
 
 ## Getting Help
 

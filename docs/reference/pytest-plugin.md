@@ -23,15 +23,15 @@ pytest --co -q  # Should show litmus in plugins
 ## Writing a test
 
 ```python
-def test_output_voltage(context, spec, dmm):
-    spec.check("output_voltage", dmm.measure_dc_voltage())
+def test_output_voltage(context, verify, dmm):
+    verify("output_voltage", dmm.measure_dc_voltage())
 ```
 
 Three fixtures do the work:
 
 - `context` — current vector params (`get_param`, `changed`, `observe`)
-- `spec` — product characteristics (`check(name, value)` derives limits from the spec)
-- `logger` — event persistence (`measure(name, value, limit=...)`)
+- `verify` — limit check + record + raise on FAIL (`verify(name, value, limit=..., characteristic=...)`); resolves limits from the active `product_context` when no `limit=` is provided
+- `logger` — event persistence (`measure(name, value, limit=...)`, `record`)
 
 Auto-registered instrument fixtures (`dmm`, `psu`, …) come from the station config — see below. Vector expansion uses native `@pytest.mark.parametrize` or sidecar `test_<module>.yaml`. See [pytest-native reference](pytest-native.md) for the full contract.
 
@@ -320,7 +320,7 @@ For everything else, use native pytest primitives or ecosystem plugins:
 | Need | Use |
 |------|-----|
 | Parametrize vector inputs | ``@pytest.mark.parametrize`` or sidecar ``vectors:`` |
-| Product selection | ``--product=<id>`` or ``default_product:`` in ``litmus.yaml`` |
+| Product selection | ``--product=<id>`` (lookup) or ``--spec=<path>`` (explicit path) |
 | Mock instrument methods | ``pytest-mock``'s ``mocker.patch.object(...)`` |
 | Skip when prior test fails | ``pytest-dependency``: ``@pytest.mark.dependency(depends=["test_a"])`` |
 | Retries | ``pytest-rerunfailures``: ``@pytest.mark.flaky(reruns=N, reruns_delay=T)`` |

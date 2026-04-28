@@ -141,7 +141,7 @@ ordering to set up expensive things only when they actually change:
 @pytest.mark.litmus_sweeps(temp=[-40, 25, 85])
 @pytest.mark.litmus_sweeps(vin=[4.5, 5.0, 5.5])
 @pytest.mark.litmus_sweeps(load=arange(0.0, 1.0, 0.2))
-def test_load_regulation(temp, vin, load, context, psu, eload, chamber, dmm, spec):
+def test_load_regulation(temp, vin, load, context, psu, eload, chamber, dmm, verify):
     if context.changed("temp"):                       # 3 times in 45 cases
         chamber.set_temperature(temp)
         chamber.wait_for_stable(timeout=300)
@@ -150,7 +150,7 @@ def test_load_regulation(temp, vin, load, context, psu, eload, chamber, dmm, spe
         psu.enable_output()
     eload.set_current(load)                           # every case
     eload.enable()
-    spec.check("output_voltage", dmm.measure_dc_voltage())
+    verify("output_voltage", dmm.measure_dc_voltage())
 ```
 
 Chamber sets 3 times. PSU sets 9 times. Load sets 45 times. The

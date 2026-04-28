@@ -13,9 +13,9 @@
   products/*.yaml    sequences/*.yaml         tests/test_*.py       pytest
   ┌───────────┐          ┌────────────┐           ┌────────────┐       ┌───────┐
   │ Product   │          │ steps:     │           │ def test_  │       │ CLI   │
-  │ - pins    │          │ - vectors  │           │ (ctx, spec,│       │  or   │
+  │ - pins    │          │ - vectors  │           │ (ctx, verify,│       │  or   │
   │ - chars   │          │ - limits   │           │  logger):  │       │  UI   │
-  │ - limits  │          │ - mocks    │           │ spec.check │       │       │
+  │ - limits  │          │ - mocks    │           │ verify │       │       │
   └───────────┘          │ - retry    │           │ or measure │       └───────┘
                          │ - dialogs  │           └────────────┘
   stations/*.yaml        └────────────┘
@@ -324,13 +324,13 @@ Product Spec (YAML)              Sequence Step (YAML)         Test Code (Python)
 products/tps54302.yaml     sequences/production.yaml    tests/test_*.py
 ┌────────────────────┐           ┌────────────────────┐       ┌────────────────┐
 │ characteristics:   │           │ steps:             │       │ def test_out   │
-│   output_voltage:  │           │   - id: output     │       │  (ctx, spec,   │
+│   output_voltage:  │           │   - id: output     │       │  (ctx, verify,   │
 │     conditions:    │           │     vectors:       │       │   dmm):        │
 │       - temp: 25   │──────────►│       expand: prod │──────►│                │
 │         load: 0.5  │  lookup   │       temp:[25,85] │ sweep │  # ctx has     │
 │         nominal:3.3│  limit    │       load:[0.5,3] │       │  # temp & load │
 │         tol: 1%    │  for      │     limits:        │       │                │
-│       - temp: 25   │  condition│       output_volt: │       │  spec.check(   │
+│       - temp: 25   │  condition│       output_volt: │       │  verify(   │
 │         load: 3.0  │           │         low: 3.15  │       │   "output_volt"│
 │         nominal:3.3│           │         high: 3.45 │       │   , dmm.meas())│
 │         tol: 1%    │           └────────────────────┘       └────────────────┘

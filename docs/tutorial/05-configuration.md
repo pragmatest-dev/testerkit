@@ -34,10 +34,10 @@ The test is then:
 
 ```python
 # tests/test_power.py
-def test_output_voltage(context, psu, dmm, spec):
+def test_output_voltage(context, psu, dmm, verify):
     psu.set_voltage(context.get_param("vin"))
     psu.enable_output()
-    spec.check("output_voltage", dmm.measure_dc_voltage())
+    verify("output_voltage", dmm.measure_dc_voltage())
 ```
 
 Run directly with pytest:

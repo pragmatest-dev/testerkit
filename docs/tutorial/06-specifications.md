@@ -273,9 +273,9 @@ steps:
 
 **tests/test_power.py:**
 ```python
-def test_output_voltage(dmm, spec):
+def test_output_voltage(dmm, verify):
     """Verify output voltage meets guardbanded spec."""
-    spec.check("output_voltage", dmm.measure_voltage())
+    verify("output_voltage", dmm.measure_voltage())
 ```
 
 ## Traceability Chain
@@ -283,7 +283,7 @@ def test_output_voltage(dmm, spec):
 ```
 Datasheet → Spec → Test Requirement → Test Config → Test Code → Measurement
      ↓          ↓           ↓               ↓            ↓           ↓
-  3.3V±5%   conditions   guardband      low/high   spec.check   3.31V PASS
+  3.3V±5%   conditions   guardband      low/high   verify   3.31V PASS
 ```
 
 Every measurement can be traced back to the original specification.

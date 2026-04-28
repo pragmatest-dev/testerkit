@@ -16,7 +16,7 @@ Rule of thumb: _would a fail here stop the line?_ → `verify`. Else → `logger
 | Fixture   | Role                                         | Typical verbs |
 |-----------|----------------------------------------------|---------------|
 | `context` | Vector inputs + run/dut/station metadata     | `get_param`, `changed`, `last`, `observe` |
-| `spec`    | Product characteristics → limits + pin info  | `check(name, value, **conditions)` |
+| `verify`  | Limit check + record + raise on FAIL         | `verify(name, value, limit=..., characteristic=...)` |
 | `logger`  | Measurement/event sink                       | `measure(name, value, ...)`, `record(k, v)` |
 
 Data flow is one-way: `test → spec → logger`. Logger snapshots ambient ContextVars (run id, station, DUT, active instruments) at write time.
@@ -25,13 +25,13 @@ Data flow is one-way: `test → spec → logger`. Logger snapshots ambient Conte
 
 ```python
 class TestPowerUp:
-    def test_output_voltage(self, context, psu, dmm, spec):
+    def test_output_voltage(self, context, psu, dmm, verify):
         psu.set_voltage(context.get_param("vin"))
         psu.enable_output()
-        spec.check("output_voltage", dmm.measure_dc_voltage())
+        verify("output_voltage", dmm.measure_dc_voltage())
 ```
 
-`spec.check` resolves the limit from the product YAML, writes a measurement via `logger`, and raises `AssertionError` on fail. Instrument fixtures (`psu`, `dmm`) are auto-registered from the station config — define a same-named `conftest.py` fixture only if you need custom setup/teardown.
+`verify` resolves the limit from the product YAML, writes a measurement via `logger`, and raises `AssertionError` on fail. Instrument fixtures (`psu`, `dmm`) are auto-registered from the station config — define a same-named `conftest.py` fixture only if you need custom setup/teardown.
 
 ## Sweeping inputs (test vectors)
 
@@ -45,12 +45,12 @@ import pytest
 
 # Single loop
 @pytest.mark.litmus_sweeps(vin=[4.5, 5.0, 5.5])
-def test_rails(vin, context, spec, psu, dmm): ...
+def test_rails(vin, context, verify, psu, dmm): ...
 
 # Nested loops (cross-product). Top-to-bottom = outer-to-inner.
 @pytest.mark.litmus_sweeps(temp=[25, 85])           # outer (slow to change)
 @pytest.mark.litmus_sweeps(vin=[4.5, 5.0, 5.5])     # inner (fast to change)
-def test_rails(temp, vin, context, spec, psu, chamber, dmm): ...
+def test_rails(temp, vin, context, verify, psu, chamber, dmm): ...
 
 # Paired values (input/expected lists step together). List lengths must match.
 @pytest.mark.litmus_sweeps(vin=[3.3, 5.0, 5.5], expected=[3.30, 3.31, 3.30])
@@ -80,14 +80,14 @@ Hardware reconfig dominates multi-parameter sweeps (PSU settle 500 ms, DMM range
 @pytest.mark.litmus_sweeps(temp=[25, 85])           # outer (3 changes)
 @pytest.mark.litmus_sweeps(vin=[5.0, 5.5])           # middle
 @pytest.mark.litmus_sweeps(load=[0.1, 0.4])          # inner
-def test_rails(temp, vin, load, context, psu, chamber, dut_load, dmm, spec):
+def test_rails(temp, vin, load, context, psu, chamber, dut_load, dmm, verify):
     if context.changed("temp"):
         chamber.set_temperature(temp)
         chamber.wait_for_soak()          # 20 min — skipped when temp unchanged
     if context.changed("vin"):
         psu.set_voltage(vin)
     dut_load.set(load)
-    spec.check("output_voltage", dmm.measure_dc_voltage())
+    verify("output_voltage", dmm.measure_dc_voltage())
 ```
 
 ### Self-loop mode — `vectors` fixture
@@ -127,9 +127,9 @@ the closest `litmus_limits` entry by measurement name, falling back to:
     output_voltage={"low": 3.234, "high": 3.366, "units": "V"},
     efficiency={"ref": "efficiency"},          # delegate to product spec
 )
-def test_rails(context, spec, logger, dmm):
+def test_rails(context, verify, logger, dmm):
     logger.measure("output_voltage", dmm.measure_dc_voltage())
-    spec.check("efficiency", compute_eff(...))
+    verify("efficiency", compute_eff(...))
 ```
 
 ## Litmus markers (`--strict-markers` safe)
@@ -138,7 +138,7 @@ def test_rails(context, spec, logger, dmm):
 |-----------------------------------|---------------------------------------------------------------|
 | `litmus_sweeps(**by_argname)`    | Sweep one or more parameters across values (zip on multi-kwarg) |
 | `litmus_limits(**by_name)`        | Limits by measurement name (supports `when:`-keyed bands)     |
-| `litmus_spec(characteristic=...)` | Bind the test to a product characteristic (spec context)      |
+| `litmus_characteristics([<id>, ...])` | Bind the test to one or more product characteristics (limits + DUT pin auto-resolve) |
 | `litmus_connections(...)`         | Bind to explicit fixture connections or instrument-channel ranges |
 | `litmus_mocks([{target: ..., ...}, ...])` | Patch one or more methods for the test (uses `unittest.mock.patch.object`) |
 | `litmus_prompts(message=...)`      | Manual operator setup at a lifecycle point                    |
@@ -158,18 +158,18 @@ For pytest's own markers and ecosystem plugins:
 | Test-to-test dependencies  | `@pytest.mark.dependency(...)` — `pytest-dependency`        |
 | Retry transient failures   | `@pytest.mark.flaky(reruns=N)` — `pytest-rerunfailures` (or use `litmus_retry` for runner-neutral form) |
 
-Product is session-global: pick it with `--product=<id>` or set
-`default_product:` in `litmus.yaml` / a profile. There is no per-test
-product override marker.
+Product is session-global: pick it with `--product=<id>` (looks up
+`products/<id>.yaml`) or `--spec=<path>` (explicit path). There is no
+per-test product override marker.
 
-## `litmus_spec` × `litmus_connections` resolution
+## `litmus_characteristics` × `litmus_connections` resolution
 
-`litmus_spec` and `litmus_connections` are independent markers that
+`litmus_characteristics` and `litmus_connections` are independent markers that
 compose into the iterable connection set on `ctx.connections`. Behavior depends
 on which markers are present and whether a fixture YAML is loaded for
 the run:
 
-| Case | `litmus_spec` | `litmus_connections` | Fixture loaded? | Result |
+| Case | `litmus_characteristics` | `litmus_connections` | Fixture loaded? | Result |
 |------|---------------|----------------------|-----------------|--------|
 | 1 | — | — | any | No markers → `ctx.connections` is `None`; test runs once with no connection context. |
 | 2 | `characteristic: X` | — | yes | Iterate every fixture connection whose `dut_pin` (or `net`) is in `X.resolved_pins`. Fixture-order. |
@@ -280,7 +280,7 @@ Tests are independent by default — there is no implicit prereq chain. Reach fo
 
 ## Duplicate-name guard
 
-`logger.measure` maintains a `seen_names` set per step. A second call with the same name raises `DuplicateMeasurementError` — typical trigger is `spec.check("v")` followed by a stray `logger.measure("v", ...)`. For intentional streaming, opt in with `allow_repeat=True`.
+`logger.measure` maintains a `seen_names` set per step. A second call with the same name raises `DuplicateMeasurementError` — typical trigger is `verify("v")` followed by a stray `logger.measure("v", ...)`. For intentional streaming, opt in with `allow_repeat=True`.
 
 ## Graceful degradation
 
@@ -289,9 +289,9 @@ All three config sources are independent — tests work under any combination:
 | Sidecar | Spec | Shape                                                          |
 |---------|------|----------------------------------------------------------------|
 | —       | —    | `logger.measure("v", val, low=..., high=...)` — explicit       |
-| —       | ✓    | `spec.check("output_voltage", val)`                            |
+| —       | ✓    | `verify("output_voltage", val)`                            |
 | ✓       | —    | `logger.measure("efficiency", eff)` — auto-resolves            |
-| ✓       | ✓    | `spec.check` for characteristics; `logger.measure` for procedure |
+| ✓       | ✓    | `verify` for characteristics; `logger.measure` for procedure |
 | —       | —    | `assert 3.2 <= val <= 3.4` — pure pytest, no Litmus machinery  |
 
 ## Instrument access
@@ -300,16 +300,16 @@ Three shapes — all feed the same cached instances:
 
 ```python
 # Auto-registered role fixture (most common)
-def test_a(psu, dmm, spec): ...
+def test_a(psu, dmm, verify): ...
 
 # By role name via accessor
 def test_b(instrument):
     dmm = instrument("dmm")
 
 # By DUT pin (requires a fixture YAML)
-def test_c(pins, spec):
+def test_c(pins, verify):
     pins["VIN"].set_voltage(5.0)
-    spec.check("output_voltage", pins["VOUT"].measure_voltage())
+    verify("output_voltage", pins["VOUT"].measure_voltage())
 ```
 
 ## CLI
@@ -328,7 +328,7 @@ Everything else is standard pytest — see <https://docs.pytest.org/en/stable/re
 
 ## Best practices
 
-1. Prefer `spec.check(name, v)` when a product spec exists — limits, DUT pin, and spec ref resolve automatically
+1. Prefer `verify(name, v)` when a product spec exists — limits, DUT pin, and spec ref resolve automatically
 2. Use `logger.measure` with inline kwargs or a sidecar `litmus_limits` marker for procedure-only measurements
 3. Use `context.changed()` to skip expensive reconfig across sweep iterations
 4. Prefer inline `@pytest.mark.litmus_limits` for code-owned sweeps; sidecar YAML for operator-edited sweeps

@@ -1,12 +1,12 @@
 # Spec-Driven Testing
 
-Derive test limits and traceability from the product specification. The `spec` fixture resolves the limit, DUT pin, and spec reference automatically — you just call `spec.check(name, value)`.
+Derive test limits and traceability from the product specification. The `verify` fixture resolves the limit, DUT pin, and spec reference automatically from the active `product_context` — you just call `verify(name, value)`.
 
 ## The workflow
 
 1. Define the product YAML with typed characteristics, pins, and operating conditions
-2. Run with `--product=products/<name>.yaml` (or set `default_product:` in `litmus.yaml` / active profile)
-3. Call `spec.check(name, value)` from the test body — everything else flows through
+2. Run with `--product=<id>` (looks up `products/<id>.yaml`) or `--spec=<path>` (explicit path)
+3. Call `verify(name, value)` from the test body — everything else flows through
 
 ## Minimal example
 
@@ -41,20 +41,20 @@ import pytest
 class TestPowerBoard:
     @pytest.mark.parametrize("temperature", [25, 85])
     @pytest.mark.parametrize("load", [0.5, 1.0])
-    def test_output_voltage(self, temperature, load, dmm, spec, chamber, eload):
+    def test_output_voltage(self, temperature, load, dmm, verify, chamber, eload):
         chamber.set_temperature(temperature)
         eload.set_current(load)
-        spec.check("output_voltage", dmm.measure_dc_voltage())
+        verify("output_voltage", dmm.measure_dc_voltage())
 ```
 
-`spec.check` picks the condition row that matches the current parametrize values, resolves limits from the accuracy spec, records `dut_pin="VOUT"` and `spec_ref="output_voltage @ temperature=25, load=0.5"`, and raises `AssertionError` on fail.
+`verify` picks the condition row that matches the current parametrize values, resolves limits from the accuracy spec, records `dut_pin="VOUT"` and `spec_ref="output_voltage @ temperature=25, load=0.5"`, and raises `AssertionError` on fail.
 
 ## Guardband
 
 Apply a manufacturing-margin tightening at session level:
 
 ```bash
-pytest --product=products/power_board.yaml --guardband-pct=10 ...
+pytest --spec=products/power_board.yaml --guardband=10 ...
 ```
 
 Or inline on the spec load:
@@ -89,17 +89,17 @@ limits:
 
 ## Condition matching
 
-`spec.check("output_voltage", v)` uses the parametrize values on the current test to pick a matching condition row. If no row explicitly matches, the nearest row is used.
+`verify("output_voltage", v)` uses the parametrize values on the current test to pick a matching condition row. If no row explicitly matches, the nearest row is used.
 
 Pass conditions explicitly to override:
 
 ```python
-spec.check("output_voltage", v, temperature=85, load=1.0)
+verify("output_voltage", v, temperature=85, load=1.0)
 ```
 
 ## What ends up in the parquet row
 
-Every `spec.check` records:
+Every `verify` records:
 
 | Field            | Source                                                |
 |------------------|-------------------------------------------------------|
@@ -114,11 +114,11 @@ Every `spec.check` records:
 
 No manual threading of traceability fields — they're injected by the plugin.
 
-## When to reach for `spec.check` vs `logger.measure`
+## When to reach for `verify` vs `logger.measure`
 
 | Scenario                                               | Use                                     |
 |--------------------------------------------------------|-----------------------------------------|
-| Measurement maps to a product-spec characteristic      | `spec.check("output_voltage", v)`       |
+| Measurement maps to a product-spec characteristic      | `verify("output_voltage", v)`       |
 | Procedure-only measurement (no product characteristic) | `logger.measure("startup_time", t, ...)` |
 | Dynamic limit from conditions                          | Callable limit via marker / sidecar     |
 | No limits, data collection only                        | `logger.measure(...)` with no limits    |

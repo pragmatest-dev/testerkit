@@ -118,15 +118,15 @@ instruments:
 
 ### Test Code (`tests/test_example.py`)
 
-Tests are **plain pytest** — no decorator, no base class. The Litmus plugin contributes three fixtures (`context`, `spec`, `logger`) and a few markers:
+Tests are **plain pytest** — no decorator, no base class. The Litmus plugin contributes three fixtures (`context`, `verify`, `logger`) and a few markers:
 
 ```python
 # tests/test_my_product.py
 class TestMyProduct:
-    def test_output_voltage(self, context, psu, dmm, spec):
+    def test_output_voltage(self, context, psu, dmm, verify):
         """Verify output voltage is within spec.
 
-        spec.check() resolves the limit from the product YAML,
+        verify() resolves the limit from the product YAML,
         records a measurement, and raises on fail.
         """
         vin = context.get_param("vin", 5.0)
@@ -134,7 +134,7 @@ class TestMyProduct:
         psu.set_voltage(vin)
         psu.enable_output()
 
-        spec.check("output_voltage", dmm.measure_dc_voltage())
+        verify("output_voltage", dmm.measure_dc_voltage())
 ```
 
 For measurements that don't come from the product spec, use `logger.measure(name, value, low=..., high=...)` with inline limits or a sidecar `test_<module>.yaml`.
@@ -183,14 +183,14 @@ Every Litmus test follows this pattern:
 1. **GET CONDITIONS** from `context.get_param(...)` (not hardcoded)
 2. **SET UP** stimulus (PSU voltage, load current)
 3. **MEASURE** the result
-4. **CHECK** with `spec.check(name, value)` or `logger.measure(name, value, ...)` — never `assert 3.0 <= v <= 3.6`
+4. **CHECK** with `verify(name, value)` or `logger.measure(name, value, ...)` — never `assert 3.0 <= v <= 3.6`
 
 ```python
-def test_something(context, psu, dmm, spec):
+def test_something(context, psu, dmm, verify):
     vin = context.get_param("vin", 5.0)     # GET from context
     psu.set_voltage(vin)                    # SET UP
     psu.enable_output()
-    spec.check("output_voltage",            # MEASURE + CHECK + RECORD
+    verify("output_voltage",            # MEASURE + CHECK + RECORD
                dmm.measure_dc_voltage())
 ```
 

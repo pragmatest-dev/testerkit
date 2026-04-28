@@ -366,23 +366,23 @@ pin_info = spec.get_pin_info("output_voltage")
 
 ### In pytest-native tests
 
-The `spec` fixture is the pytest-native interface — no manual `ProductContext` wiring needed. Load a spec with `--product=<id>` on the CLI or via `default_product:` in `litmus.yaml` / the active profile:
+The `verify` fixture is the pytest-native interface — limits resolve from the active `product_context` automatically. Load a spec with `--product=<id>` (looks up `products/<id>.yaml`) or `--spec=<path>` (explicit path):
 
 ```python
 import pytest
 
 @pytest.mark.parametrize("load", [0.1, 1.0])
 @pytest.mark.parametrize("temperature", [25, 85])
-def test_output_voltage(temperature, load, context, dmm, spec, chamber, eload):
+def test_output_voltage(temperature, load, context, dmm, verify, chamber, eload):
     chamber.set_temperature(temperature)
     eload.set_current(load)
-    spec.check("output_voltage", dmm.measure_dc_voltage())
+    verify("output_voltage", dmm.measure_dc_voltage())
 ```
 
-`spec.check(name, v)` resolves the limit at current conditions, records the measurement with pin + `spec_ref` traceability, and raises `AssertionError` on fail. See the [spec-driven testing guide](guides/spec-driven-testing.md) for details.
+`verify(name, v)` resolves the limit at current conditions, records the measurement with pin + `spec_ref` traceability, and raises `AssertionError` on fail. See the [spec-driven testing guide](guides/spec-driven-testing.md) for details.
 
 ## Next Steps
 
 - [Configuration Reference](reference/configuration.md) — Detailed YAML schemas
-- [pytest-native reference](reference/pytest-native.md) — the three-fixture card (`context` / `spec` / `logger`)
+- [pytest-native reference](reference/pytest-native.md) — the three-fixture card (`context` / `verify` / `logger`)
 - [Writing Tests](guides/writing-tests.md) — end-to-end patterns

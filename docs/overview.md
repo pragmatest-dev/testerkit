@@ -50,17 +50,17 @@ Matching is condition-aware: if your product needs 1% accuracy at 1 kHz but the 
 
 ### pytest integration
 
-Litmus is a pytest plugin — tests are **plain pytest**, authored with standard classes, functions, markers, and fixtures. Litmus adds three fixtures (`context`, `spec`, `logger`) and five markers on top:
+Litmus is a pytest plugin — tests are **plain pytest**, authored with standard classes, functions, markers, and fixtures. Litmus adds three fixtures (`context`, `verify`, `logger`) and five markers on top:
 
 ```python
 class TestPowerUp:
-    def test_output_voltage(self, context, psu, dmm, spec):
+    def test_output_voltage(self, context, psu, dmm, verify):
         psu.set_voltage(context.get_param("vin"))
         psu.enable_output()
-        spec.check("output_voltage", dmm.measure_dc_voltage())
+        verify("output_voltage", dmm.measure_dc_voltage())
 ```
 
-`spec.check(name, value)` resolves the limit from the product YAML, writes a measurement with full traceability, and raises `AssertionError` on fail. For non-spec measurements, `logger.measure("name", value, low=..., high=...)` has the same semantics with inline limits.
+`verify(name, value)` resolves the limit from the product YAML, writes a measurement with full traceability, and raises `AssertionError` on fail. For non-spec measurements, `logger.measure("name", value, low=..., high=...)` has the same semantics with inline limits.
 
 - **Sweep across conditions** — native `@pytest.mark.parametrize(...)` or sidecar `vectors:`; test at multiple temps, loads, and input voltages without code changes
 - **`context.changed(key)`** — skip expensive instrument reconfig across parametrize iterations
@@ -71,7 +71,7 @@ class TestPowerUp:
 
 ### What gets logged
 
-Every `spec.check()` / `logger.measure()` call creates a record with:
+Every `verify()` / `logger.measure()` call creates a record with:
 
 | Category | Fields |
 |----------|--------|

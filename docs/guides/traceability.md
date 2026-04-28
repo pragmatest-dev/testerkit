@@ -119,10 +119,10 @@ def test_output_voltage(dmm, logger):
 For spec-driven traceability:
 
 ```python
-def test_output_voltage(dmm, spec):
-    # spec.check resolves the limit and traceability from the active
+def test_output_voltage(dmm, verify):
+    # verify resolves the limit and traceability from the active
     # ProductContext (configured via --spec=products/power_board.yaml)
-    spec.check("output_voltage", dmm.measure_dc_voltage())
+    verify("output_voltage", dmm.measure_dc_voltage())
 ```
 
 ### Hierarchical Context

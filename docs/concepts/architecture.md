@@ -13,9 +13,9 @@
   products/*.yaml            tests/config.yaml        tests/test_*.py       pytest
   ┌───────────┐          ┌────────────┐           ┌────────────┐       ┌───────┐
   │ Product   │          │ vectors    │           │ def test_  │       │ CLI   │
-  │ - pins    │          │ - sweep    │           │ (ctx, spec,│       │  or   │
+  │ - pins    │          │ - sweep    │           │ (ctx, verify,│       │  or   │
   │ - chars   │          │ - params   │           │  logger):  │       │  UI   │
-  │ - limits  │          │ limits     │           │ spec.check │       │       │
+  │ - limits  │          │ limits     │           │ verify │       │       │
   └───────────┘          │ - per-test │           │ or measure │       └───────┘
                          │ retry      │           └────────────┘
   stations/*.yaml        │ - attempts │
@@ -315,12 +315,12 @@ Product Spec (YAML)              Test Config (YAML)           Test Code (Python)
 products/tps54302.yaml              tests/config.yaml            tests/test_*.py
 ┌────────────────────┐           ┌────────────────────┐       ┌────────────────┐
 │ characteristics:   │           │ test_output:       │       │ def test_output│
-│   output_voltage:  │           │   vectors:         │       │  (dmm, spec):  │
+│   output_voltage:  │           │   vectors:         │       │  (dmm, verify):  │
 │     conditions:    │           │     expand: product│       │                │
 │       - temp: 25   │──────────►│     temp: [25, 85] │──────►│  # ctx has     │
 │         load: 0.5  │  lookup   │     load: [0.5,3.0]│ sweep │  # temp & load │
 │         nominal:3.3│  limit    │                    │       │                │
-│         tol: 1%    │  for      │   limits:          │       │  spec.check(   │
+│         tol: 1%    │  for      │   limits:          │       │  verify(   │
 │       - temp: 25   │  condition│     ref: specs.    │       │  "output_volt",│
 │         load: 3.0  │           │       output_volt  │       │  dmm.measure())│
 │         nominal:3.3│           │     guardband: 10% │       └────────────────┘
@@ -347,7 +347,7 @@ products/tps54302.yaml              tests/config.yaml            tests/test_*.py
 │       limit = spec.get_limit("output_voltage", ctx=context)                 │
 │                                                                             │
 │       # Call test with fixtures (context has vector params)                 │
-│       test_func(dmm, spec)  # ctx.get_param("temp"), ("load")               │
+│       test_func(dmm, verify)  # ctx.get_param("temp"), ("load")               │
 │                                                                             │
 │       result = check(value, limit)  # PASS/FAIL                            │
 │       store(Measurement(value, limit, result, params=context.params))       │

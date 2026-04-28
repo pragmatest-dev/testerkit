@@ -212,7 +212,7 @@ Emit: <gate-result phase="3" action="approved|revised" />
 Goal: Create pytest test code that exercises all characteristics.
 
 <step id="4.1">
-Generate **pytest-native** test code. Tests are plain pytest — no decorator, no base class. Use the three Litmus fixtures (`context`, `spec`, `logger`) and the single `litmus_limits` marker. See refs/test-writing.md for the full reference.
+Generate **pytest-native** test code. Tests are plain pytest — no decorator, no base class. Use the three Litmus fixtures (`context`, `verify`, `logger`) and the single `litmus_limits` marker. See refs/test-writing.md for the full reference.
 
 Skeleton to follow:
 
@@ -223,15 +223,15 @@ import pytest
 class TestRails:
     @pytest.mark.parametrize("load", [0.1, 0.4])
     @pytest.mark.parametrize("vin", [4.5, 5.0, 5.5])
-    def test_output_voltage(self, vin, load, context, spec, psu, dmm, dut_load):
+    def test_output_voltage(self, vin, load, context, verify, psu, dmm, dut_load):
         if context.changed("vin"):
             psu.set_voltage(vin)
         dut_load.set(load)
-        spec.check("output_voltage", dmm.measure_dc_voltage())
+        verify("output_voltage", dmm.measure_dc_voltage())
 ```
 
 Notes for good generation:
-- Prefer `spec.check(name, v)` when a product spec exists — DUT pin and limits resolve automatically
+- Prefer `verify(name, v)` when a product spec exists — DUT pin and limits resolve automatically
 - Use `logger.measure(name, v, low=..., high=...)` for procedure-only measurements
 - Use `context.changed(k)` in parametrized sweeps to skip expensive reconfig
 - Prefer native `@pytest.mark.parametrize` for code-owned sweeps; use sidecar `vectors:` for operator-edited sweeps

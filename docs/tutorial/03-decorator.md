@@ -15,7 +15,7 @@ parameters, each with a single responsibility:
 | Fixture  | What it holds                                  | Verbs                                            |
 |----------|------------------------------------------------|--------------------------------------------------|
 | `context`| Vector inputs + observations                   | `get_param`, `changed`, `observe`                |
-| `spec`   | Product characteristics → limits + pin/fixture | `check(name, value, **conditions)`               |
+| `verify` | Limit check + record + raise on FAIL           | `verify(name, value, limit=..., characteristic=...)` |
 | `logger` | Event persistence                              | `measure(name, value, limit=...)`, `record`      |
 
 Data-flow rule: **test → spec → logger**. The three objects never call each
@@ -37,12 +37,12 @@ No decorator. No base class. `dmm` is an auto-registered fixture from the
 station config; `logger` is always present; the measurement is recorded with
 full traceability.
 
-If you also have a product spec configured, prefer `spec.check` — it resolves
+If you also have a product spec configured, prefer `verify` — it resolves
 the limit from the spec and raises `AssertionError` on failure:
 
 ```python
-def test_output_voltage(dmm, spec):
-    spec.check("output_voltage", dmm.measure_voltage())
+def test_output_voltage(dmm, verify):
+    verify("output_voltage", dmm.measure_voltage())
 ```
 
 ## Classes Group Related Tests
@@ -52,13 +52,13 @@ and are independent by default:
 
 ```python
 class TestPowerUp:
-    def test_input_voltage(self, psu, spec):
+    def test_input_voltage(self, psu, verify):
         psu.set_voltage(5.0)
         psu.enable_output()
-        spec.check("input_voltage", psu.measure_voltage())
+        verify("input_voltage", psu.measure_voltage())
 
-    def test_output_voltage(self, dmm, spec):
-        spec.check("output_voltage", dmm.measure_voltage())
+    def test_output_voltage(self, dmm, verify):
+        verify("output_voltage", dmm.measure_voltage())
 ```
 
 If a downstream test should skip when an upstream test fails, use
@@ -74,23 +74,23 @@ Litmus-native alternative; both land in `context.get_param(...)`:
 import pytest
 
 @pytest.mark.parametrize("vin", [4.5, 5.0, 5.5])
-def test_output_voltage(vin, psu, dmm, spec):
+def test_output_voltage(vin, psu, dmm, verify):
     psu.set_voltage(vin)
     psu.enable_output()
-    spec.check("output_voltage", dmm.measure_voltage())
+    verify("output_voltage", dmm.measure_voltage())
 ```
 
 Or via sidecar YAML (see Step 5).
 
 ## Multiple Measurements
 
-Just call `spec.check` or `logger.measure` as many times as you need:
+Just call `verify` or `logger.measure` as many times as you need:
 
 ```python
-def test_power_analysis(psu, dmm, spec):
-    spec.check("input_voltage", psu.measure_voltage())
-    spec.check("input_current", psu.measure_current())
-    spec.check("output_voltage", dmm.measure_voltage())
+def test_power_analysis(psu, dmm, verify):
+    verify("input_voltage", psu.measure_voltage())
+    verify("input_current", psu.measure_current())
+    verify("output_voltage", dmm.measure_voltage())
 ```
 
 Each call records one measurement with pass/fail.
@@ -129,7 +129,7 @@ Each measurement includes:
 
 | Field | Description |
 |-------|-------------|
-| `name` | Measurement name passed to `spec.check` / `logger.measure` |
+| `name` | Measurement name passed to `verify` / `logger.measure` |
 | `value` | The measured value |
 | `units` | Unit of measure (from limits, when configured) |
 | `outcome` | PASS, FAIL, or unchecked |
@@ -160,16 +160,16 @@ instruments:
 
 **tests/test_power.py:**
 ```python
-def test_input_voltage(psu, spec):
+def test_input_voltage(psu, verify):
     """Measure input voltage."""
     psu.set_voltage(5.0)
     psu.enable_output()
-    spec.check("input_voltage", psu.measure_voltage())
+    verify("input_voltage", psu.measure_voltage())
 
 
-def test_output_voltage(dmm, spec):
+def test_output_voltage(dmm, verify):
     """Measure output voltage."""
-    spec.check("output_voltage", dmm.measure_voltage())
+    verify("output_voltage", dmm.measure_voltage())
 ```
 
 **Run:**
@@ -180,8 +180,8 @@ pytest tests/test_power.py --station-config=stations/my_station.yaml --mock-inst
 ## What You Learned
 
 - Tests are plain pytest functions or classes — no `@litmus_test` wrapper
-- Up to three Litmus fixtures: `context`, `spec`, `logger`
-- `spec.check(name, value)` to check against product spec limits
+- Up to three Litmus fixtures: `context`, `verify`, `logger`
+- `verify(name, value)` to check against product spec limits
 - `logger.measure(name, value, ...)` when you need explicit limits
 - Instrument role fixtures from station config (e.g. `dmm`, `psu`)
 

@@ -8,7 +8,7 @@ A test that measures voltage and passes/fails based on configurable limits.
 
 ## The Problem
 
-In Step 3, we used `spec.check(...)` to compare against a product spec. For
+In Step 3, we used `verify(...)` to compare against a product spec. For
 one-off measurements without a spec, you need explicit limits:
 
 ```python

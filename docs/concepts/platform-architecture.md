@@ -68,7 +68,7 @@ Because Litmus is a platform, you can access it through multiple entry points:
 
 | Entry Point | Use Case | How It Works |
 |-------------|----------|--------------|
-| **pytest** | New test development | pytest-native: `context`, `spec`, `logger` fixtures |
+| **pytest** | New test development | pytest-native: `context`, `verify`, `logger` fixtures |
 | **CLI** | Operations, debugging | `litmus runs`, `litmus show` |
 | **HTTP API** | CI/CD, dashboards | `POST /api/runs`, `GET /api/runs/{id}` |
 | **MCP Server** | AI integration | Claude Code, other AI agents |
@@ -92,9 +92,9 @@ def test_output_voltage(context, psu, dmm, logger):
 ```
 
 The plugin provides:
-- `context`, `spec`, and `logger` fixtures
+- `context`, `verify`, and `logger` fixtures
 - Instrument fixtures from station config
-- Automatic result logging via `logger.measure` / `spec.check`
+- Automatic result logging via `logger.measure` / `verify`
 
 ## Migration Path (OpenHTF Adapter)
 
@@ -213,7 +213,7 @@ Start small, expand as needed:
 
 | Scenario | Recommended Approach |
 |----------|---------------------|
-| New test project | pytest-native tests with `context`/`spec`/`logger` fixtures |
+| New test project | pytest-native tests with `context`/`verify`/`logger` fixtures |
 | Existing pytest tests | Drop in Litmus fixtures + sidecar YAML incrementally |
 | Existing OpenHTF tests | Use OpenHTF adapter |
 | LabVIEW/TestStand tests | Use Results API |

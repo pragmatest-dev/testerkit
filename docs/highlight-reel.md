@@ -7,7 +7,7 @@ with real snippets from the demo test suite (a 5V-to-3.3V power converter).
 
 ## 1. The Simplest Test
 
-Set up, measure, log. Three fixtures (`context`, `spec`, `logger`) do the work.
+Set up, measure, log. Three fixtures (`context`, `verify`, `logger`) do the work.
 
 ```python
 import pytest

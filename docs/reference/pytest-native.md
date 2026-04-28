@@ -2,7 +2,7 @@
 
 Litmus's pytest-native mode is the default test-authoring path going forward.
 Tests are plain pytest classes (or loose module-level functions) that consume
-up to three fixtures — `context`, `spec`, `logger` — each with a single,
+up to three fixtures — `context`, `verify`, `logger` — each with a single,
 distinct responsibility. There is no base class to inherit and no
 `@litmus_test` wrapper; the plugin enforces Litmus conventions from the
 outside via pytest hooks.
@@ -12,7 +12,7 @@ outside via pytest hooks.
 | Fixture  | What it holds                                  | Verbs                                       | Source                                           |
 |----------|------------------------------------------------|---------------------------------------------|--------------------------------------------------|
 | `context`| Vector inputs + observations                   | `get_param`, `changed`, `observe`              | Sidecar YAML `vectors:` / `@pytest.mark.parametrize` |
-| `spec`   | Product characteristics → Limits + pin/fixture | `check(name, value, **conditions)`          | `--spec=products/<name>.yaml`                    |
+| `verify` | Limit check + record + raise on FAIL           | `verify(name, value, limit=..., characteristic=...)` | Always present; resolves limits via active `product_context` |
 | `logger` | Event persistence                              | `measure(name, value, limit=...)`, `record` | Always present                                   |
 
 Data-flow rule: **test → spec → logger**. Logger reads ambient ContextVars
@@ -37,10 +37,10 @@ class TestPowerUp:
     ) -> None:
         psu.set_voltage(context.get_param("vin"))
         psu.enable_output()
-        spec.check("output_voltage", dmm.measure_dc_voltage())
+        verify("output_voltage", dmm.measure_dc_voltage())
 ```
 
-`spec.check` resolves the limit from the product YAML, calls
+`verify` resolves the limit from the product YAML, calls
 `logger.measure`, and raises `AssertionError` if the outcome is `FAIL`.
 
 ## Unified sidecar YAML
@@ -157,7 +157,7 @@ The three input sources are independent. Tests work under any combination:
 | Sidecar | Spec | Test shape                                                |
 |---------|------|-----------------------------------------------------------|
 | —       | —    | `logger.measure("v", val, limit=Limit(...))`              |
-| —       | ✓    | `spec.check("output_voltage", val)`                       |
+| —       | ✓    | `verify("output_voltage", val)`                       |
 | ✓       | —    | `logger.measure("efficiency", eff)` — auto-resolves       |
-| ✓       | ✓    | spec.check for characteristics; logger.measure for procedure |
+| ✓       | ✓    | verify for characteristics; logger.measure for procedure |
 | —       | —    | `assert 3.2 <= val <= 3.4` — pure pytest, no Litmus YAML  |

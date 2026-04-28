@@ -1,6 +1,6 @@
 # Test Limits
 
-Limits define pass/fail criteria for measurements. Litmus checks every `spec.check(...)` and `logger.measure(...)` call against a configured `Limit` and records the outcome.
+Limits define pass/fail criteria for measurements. Litmus checks every `verify(...)` and `logger.measure(...)` call against a configured `Limit` and records the outcome.
 
 ## Limit structure
 
@@ -44,7 +44,7 @@ walks the full merge cascade (least → most specific):
 
 Later stages override earlier ones key-by-key (per measurement name).
 
-`spec.check(name, value)` bypasses this chain and reads directly from the active product spec.
+`verify(name, value)` bypasses this chain and reads directly from the active product spec.
 
 ## Marker form
 
@@ -176,8 +176,8 @@ Values show up in the parquet output for post-hoc analysis.
 
 ## Best practices
 
-1. **Prefer `spec.check(name, v)`** when a product spec exists — limits, DUT pin, and `spec_ref` all flow automatically
+1. **Prefer `verify(name, v)`** when a product spec exists — limits, DUT pin, and `spec_ref` all flow automatically
 2. **Use `ref:`** to delegate to product-spec characteristics instead of duplicating values
 3. **Keep operator-tuned values in a sidecar `limits:` field** so non-developers can edit them
-4. **Match names** — the first argument to `spec.check` / `logger.measure` must match the limit key
+4. **Match names** — the first argument to `verify` / `logger.measure` must match the limit key
 5. **Never hardcode** — no `assert 3.0 <= v <= 3.6` in test bodies; use `limits` (sidecar / profile) or `@pytest.mark.litmus_limits` (inline) or the product spec

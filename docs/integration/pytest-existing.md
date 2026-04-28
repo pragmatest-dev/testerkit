@@ -2,7 +2,7 @@
 
 Integrate Litmus into an existing pytest test suite without rewriting your tests.
 
-> **New to Litmus?** pytest-native mode (plain tests + `context`/`spec`/`logger` fixtures) is
+> **New to Litmus?** pytest-native mode (plain tests + `context`/`verify`/`logger` fixtures) is
 > the default. See [pytest-native Reference](../reference/pytest-native.md) for the full
 > authoring contract. This page focuses on mixing Litmus into suites that already exist.
 

@@ -236,16 +236,16 @@ connections:
 
 **tests/test_power_board.py:**
 ```python
-def test_input_voltage(pins, spec):
+def test_input_voltage(pins, verify):
     """Verify input voltage."""
     pins["VIN"].set_voltage(5.0)
     pins["VIN"].enable_output()
-    spec.check("input_voltage", pins["VIN"].measure_voltage())
+    verify("input_voltage", pins["VIN"].measure_voltage())
 
 
-def test_output_voltage(pins, spec):
+def test_output_voltage(pins, verify):
     """Verify output at various loads."""
-    spec.check("output_voltage", pins["VOUT"].measure_voltage())
+    verify("output_voltage", pins["VOUT"].measure_voltage())
 ```
 
 ## Running Production Tests

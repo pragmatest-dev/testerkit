@@ -27,16 +27,16 @@ Both forms resolve to the same cached fixture instances:
 
 ```python
 # Aggregate: everything from context
-def test_rails(self, context, logger, dmm, spec):
+def test_rails(self, context, logger, dmm, verify):
     vin = context.get_param("vin")
-    spec.check("output_voltage", dmm.measure_dc_voltage())
+    verify("output_voltage", dmm.measure_dc_voltage())
 
 # Destructured: only what's needed
-def test_rails(self, dmm, spec, logger):
-    spec.check("output_voltage", dmm.measure_dc_voltage())
+def test_rails(self, dmm, verify, logger):
+    verify("output_voltage", dmm.measure_dc_voltage())
 ```
 
-`context.spec` and a destructured `spec` arg return the same `ProductContext`. `context.params["vin"]` and native `request.node.callspec.params["vin"]` point at the same dict.
+`context.params["vin"]` and native `request.node.callspec.params["vin"]` point at the same dict.
 
 ## `context` at a glance
 
@@ -44,7 +44,6 @@ def test_rails(self, dmm, spec, logger):
 context.run.id                  # session
 context.dut.serial              # session
 context.station.name            # session
-context.spec                    # session-scoped; set via --product / litmus.yaml / profile
 context.instruments             # session + station + catalog
 context.params["vin"]           # function (litmus_sweeps / pytest parametrize)
 context.limits["output_v"]      # function (resolved from markers + sidecar + spec)
@@ -80,14 +79,14 @@ Hardware reconfig dominates multi-parameter sweeps. `context.changed("temp")` re
 @pytest.mark.litmus_sweeps(temperature=[25, 85])    # outer (slow)
 @pytest.mark.litmus_sweeps(vin=[4.5, 5.0, 5.5])      # middle
 @pytest.mark.litmus_sweeps(load=[0.1, 0.4])          # inner (fast)
-def test_rails(temperature, vin, load, context, psu, chamber, dut_load, dmm, spec):
+def test_rails(temperature, vin, load, context, psu, chamber, dut_load, dmm, verify):
     if context.changed("temperature"):
         chamber.set_temperature(temperature)
         chamber.wait_for_stable()     # 20 min — skipped when temp unchanged
     if context.changed("vin"):
         psu.set_voltage(vin)
     dut_load.set(load)
-    spec.check("output_voltage", dmm.measure_dc_voltage())
+    verify("output_voltage", dmm.measure_dc_voltage())
 ```
 
 Without `changed()`, a 2 × 3 × 2 sweep (12 vectors) reconfigures the chamber 12 times. With it, the chamber changes twice.
@@ -102,15 +101,15 @@ class TestPowerBoard:
     def xstate(self):
         return {"first_calibration_ts": None}
 
-    def test_rails(self, context, xstate, dmm, spec):
+    def test_rails(self, context, xstate, dmm, verify):
         if xstate["first_calibration_ts"] is None:
             xstate["first_calibration_ts"] = time.time()
-        spec.check("output_voltage", dmm.measure_dc_voltage())
+        verify("output_voltage", dmm.measure_dc_voltage())
 ```
 
 ## Data flow to parquet
 
-Each `spec.check` / `logger.measure` call produces one measurement row containing:
+Each `verify` / `logger.measure` call produces one measurement row containing:
 
 | Category         | Fields                                                         |
 |------------------|----------------------------------------------------------------|
@@ -120,7 +119,7 @@ Each `spec.check` / `logger.measure` call produces one measurement row containin
 | Station          | id, name, type, location                                       |
 | Context          | operator, phase, sequence id, git commit, param values, attempt, timestamp |
 
-All traceability fields are injected by the plugin — the test body only calls `spec.check(name, v)` or `logger.measure(name, v, ...)`.
+All traceability fields are injected by the plugin — the test body only calls `verify(name, v)` or `logger.measure(name, v, ...)`.
 
 ## See also
 
