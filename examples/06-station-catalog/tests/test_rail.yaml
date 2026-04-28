@@ -1,0 +1,41 @@
+# Spec-driven limits + bench wiring.
+#
+# - ``characteristic + tolerance_pct`` reads the band from
+#   products/buck_3v3.yaml (introduced in stage 5).
+# - ``characteristics: [rail_3v3]`` declares which spec each test
+#   binds to; auto-derives connections from the loaded fixture.
+# - ``v_overvoltage`` keeps a raw band so the OVP fault-injection
+#   demo has something to fail against.
+
+limits:
+  v_overvoltage: {low: 4.0, high: 5.0, units: V}    # raw band; OVP demo
+
+tests:
+  test_rail_within_spec:
+    characteristics: [rail_3v3]
+    limits:
+      v_rail: {characteristic: rail_3v3, tolerance_pct: 2}
+
+  test_rail_holds_across_input:
+    sweeps:
+      - {vin: [3.3, 5.0, 5.5]}
+    characteristics: [rail_3v3]
+    limits:
+      v_rail: {characteristic: rail_3v3, tolerance_pct: 2}
+
+  TestIdle:
+    characteristics: [rail_3v3, idle_current]
+    limits:
+      v_rail: {characteristic: rail_3v3, tolerance_pct: 2}
+      i_idle: {characteristic: idle_current, tolerance_pct: 20}
+
+  test_ovp_path_sidecar:
+    mocks:
+      - {target: dmm.measure_dc_voltage, return_value: 4.5}
+
+  test_operator_choice_sidecar:
+    prompts:
+      pick_fixture:
+        message: "Pick a fixture variant"
+        prompt_type: choice
+        choices: [bench_01, bench_02]

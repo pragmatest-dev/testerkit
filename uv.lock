@@ -14,8 +14,8 @@ members = [
     "litmus-example-02-verify",
     "litmus-example-03-inline-limits",
     "litmus-example-04-sidecar-markers",
-    "litmus-example-05-station-catalog",
-    "litmus-example-06-product-spec",
+    "litmus-example-05-product-spec",
+    "litmus-example-06-station-catalog",
     "litmus-example-07-profiles",
     "litmus-test",
 ]
@@ -1903,9 +1903,9 @@ requires-dist = [
 ]
 
 [[package]]
-name = "litmus-example-05-station-catalog"
+name = "litmus-example-05-product-spec"
 version = "0.0.0"
-source = { editable = "examples/05-station-catalog" }
+source = { editable = "examples/05-product-spec" }
 dependencies = [
     { name = "litmus-test" },
     { name = "pytest" },
@@ -1918,9 +1918,9 @@ requires-dist = [
 ]
 
 [[package]]
-name = "litmus-example-06-product-spec"
+name = "litmus-example-06-station-catalog"
 version = "0.0.0"
-source = { editable = "examples/06-product-spec" }
+source = { editable = "examples/06-station-catalog" }
 dependencies = [
     { name = "litmus-test" },
     { name = "pytest" },

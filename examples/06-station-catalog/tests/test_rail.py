@@ -1,6 +1,9 @@
-"""Test bodies take instruments as fixtures — same as stages 2-4.
+"""Bench is config-driven now — instruments come from the station YAML
+and pin↔channel routing comes from the fixture YAML. Tests iterate
+``ctx.connections`` instead of naming an instrument explicitly per
+measurement.
 
-Two new markers land here, each shown inline and in the sidecar:
+Two new markers also land here, each shown inline and in the sidecar:
 
 * ``litmus_mocks`` — patch one or more methods on a fixture for one
   test. Use case: the station's ``mock_config`` returns a nominal
@@ -10,6 +13,12 @@ Two new markers land here, each shown inline and in the sidecar:
   confirmation, a choice, an input). ``LITMUS_PROMPT_MODE=auto-confirm``
   drives the demo without a tty; production runs route through a
   UI handler or terminal.
+
+The conftest from earlier stages is gone — instrument fixtures
+(``psu``, ``dmm``) are auto-registered from
+``stations/bench_01.yaml``. Limits flow from the product spec
+introduced in stage 5; the fixture YAML wires DUT pins through the
+station instruments.
 """
 
 from __future__ import annotations
@@ -17,16 +26,30 @@ from __future__ import annotations
 import pytest
 
 
-def test_rail_within_spec(verify, psu, dmm) -> None:
-    """Source 5 V into the rail input and log the output voltage."""
+def test_rail_within_spec(verify, psu, dmm, context) -> None:
+    """5 V in → 3.3 V out; iterate the rail_3v3 fixture connection."""
     psu.set_voltage(5.0)
     psu.set_current(0.5)
-    verify("v_rail", dmm.measure_dc_voltage())
+    for _ in context.connections:
+        verify("v_rail", dmm.measure_dc_voltage())
 
 
-def test_rail_holds_across_input(verify, psu, dmm, vin: float) -> None:
+def test_rail_holds_across_input(verify, psu, dmm, context, vin: float) -> None:
+    """Sweep vin; same connection iteration, same spec-driven limit."""
     psu.set_voltage(vin)
-    verify("v_rail", dmm.measure_dc_voltage())
+    for _ in context.connections:
+        verify("v_rail", dmm.measure_dc_voltage())
+
+
+@pytest.mark.litmus_characteristics("rail_3v3")
+@pytest.mark.litmus_connections(connections=["vout_measure"])
+@pytest.mark.litmus_limits(v_rail={"characteristic": "rail_3v3", "tolerance_pct": 2})
+def test_rail_inline_markers(verify, psu, dmm, connections) -> None:
+    """All three markers inline. ``connections`` fixture (sibling to
+    ``context.connections``) drives iteration."""
+    psu.set_voltage(5.0)
+    for _ in connections:
+        verify("v_rail", dmm.measure_dc_voltage())
 
 
 # --- litmus_mocks ---
@@ -77,8 +100,10 @@ def test_operator_choice_sidecar(verify, prompt, psu, dmm) -> None:
 
 
 class TestIdle:
-    def test_idle_current(self, verify, psu) -> None:
-        verify("i_idle", psu.measure_current())
+    def test_idle_current(self, verify, psu, context) -> None:
+        for _ in context.connections:
+            verify("i_idle", psu.measure_current())
 
-    def test_no_load_voltage(self, verify, dmm) -> None:
-        verify("v_rail", dmm.measure_dc_voltage())
+    def test_no_load_voltage(self, verify, dmm, context) -> None:
+        for _ in context.connections:
+            verify("v_rail", dmm.measure_dc_voltage())

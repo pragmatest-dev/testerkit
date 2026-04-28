@@ -9,9 +9,9 @@ Read them in order — every stage adds exactly one concept.
 | **2** | `02-verify/` | `verify(name, value, limit=...)` + Parquet log; `litmus_retry` for transient failures. | Measurements get persisted; flake handling on day one. |
 | **3** | `03-inline-limits/` | `@pytest.mark.litmus_limits` decorator. | Limit is now declarative, not an imperative `Limit(...)` object. |
 | **4** | `04-sidecar-markers/` | Markers move to a sibling `test_*.yaml`; classes for grouping. | Ops can tune limits without editing Python. |
-| **5** | `05-station-catalog/` | Station YAML + catalog; conftest disappears; `litmus_mocks` for per-test overrides; `litmus_prompts` for operator-in-the-loop. | Mock declarations in YAML; per-test fault injection; operator gates. |
-| **6** | `06-product-spec/` | Product YAML, fixture routing, `litmus_characteristics` + `litmus_connections` + `tolerance_pct`. | Spec is the source of truth; rows carry traceability. |
-| **7** | `07-profiles/` | Profiles under `profiles/*.yaml` with `extends:` chains. | Scenarios (dev / production / characterization) without per-test forking. |
+| **5** | `05-product-spec/` | Product YAML drives spec-aware limits (`characteristic` + `tolerance_pct`); still on the conftest bench. | Limit values live once in the datasheet, not duplicated per test. |
+| **6** | `06-station-catalog/` | Station YAML + catalog + fixture connections; conftest disappears; `ctx.connections` iteration; `litmus_mocks` for per-test overrides; `litmus_prompts` for operator-in-the-loop. | Bench is config-driven; tests iterate connections; mock + prompt gates land. |
+| **7** | `07-profiles/` | Profiles under `profiles/*.yaml` with `extends:` chains; bind `station_type` + `fixture` per phase. | Scenarios (dev / production / characterization) load the right limits AND the right wiring without per-test forking. |
 
 ## Running
 

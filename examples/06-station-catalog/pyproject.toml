@@ -3,9 +3,9 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [project]
-name = "litmus-example-06-product-spec"
+name = "litmus-example-06-station-catalog"
 version = "0.0.0"
-description = "Stage 6: product YAML + fixture connections — limits derive from characteristics"
+description = "Stage 6: station YAML + catalog + fixture connections — bench is config-driven; tests iterate ctx.connections"
 requires-python = ">=3.11"
 dependencies = ["litmus-test", "pytest"]
 

@@ -23,8 +23,8 @@ CHAPTERS: tuple[str, ...] = (
     "02-verify",
     "03-inline-limits",
     "04-sidecar-markers",
-    "05-station-catalog",
-    "06-product-spec",
+    "05-product-spec",
+    "06-station-catalog",
     "07-profiles",
 )
 
