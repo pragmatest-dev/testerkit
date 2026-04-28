@@ -66,8 +66,8 @@ class SessionStarted(EventBase):
     event_type: Literal["session.started"] = "session.started"
     session_type: str = "test_run"
 
-    # Station
-    station_id: str
+    # Station — id is None for bringup tier (no station YAML loaded)
+    station_id: str | None = None
     station_name: str | None = None
     station_type: str | None = None
     station_location: str | None = None
@@ -96,7 +96,7 @@ class SessionStarted(EventBase):
         cls,
         *,
         session_id: UUID,
-        station_id: str,
+        station_id: str | None,
         station_name: str | None = None,
         station_type: str | None = None,
         station_location: str | None = None,
@@ -162,8 +162,8 @@ class RunStarted(EventBase):
 
     event_type: Literal["run.started"] = "run.started"
 
-    # Station
-    station_id: str
+    # Station — id is None for bringup tier (no station YAML loaded)
+    station_id: str | None = None
     station_name: str | None = None
     station_type: str | None = None
     station_location: str | None = None

@@ -52,8 +52,8 @@ class MeasurementRow(BaseModel):
     product_name: str | None = None
     product_revision: str | None = None
 
-    # Station
-    station_id: str
+    # Station — id is None for bringup tier (no station YAML loaded)
+    station_id: str | None = None
     station_name: str | None = None
     station_type: str | None = None
     station_location: str | None = None

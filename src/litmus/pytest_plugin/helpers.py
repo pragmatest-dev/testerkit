@@ -100,7 +100,7 @@ def find_station_file(config) -> Path | None:
     return None
 
 
-def resolve_station_id(config) -> str:
+def resolve_station_id(config) -> str | None:
     """Return the resolved station ID matching :func:`find_station_file`.
 
     Mirrors the file-resolution chain so callers that need the id (for
@@ -109,9 +109,9 @@ def resolve_station_id(config) -> str:
     otherwise the resolver tries hostname auto-match, then falls back
     to ``ProjectConfig.default_station``.
 
-    Always returns a non-empty string — when no station YAML is found
-    on disk, the project's `default_station` is still returned (it's
-    the canonical id even if no file exists).
+    Returns ``None`` when nothing resolves — bringup tier without any
+    station declared. Callers that need a non-null string (e.g., the
+    run-record stamp) should provide their own fallback.
     """
     station_id = config.getoption("--station")
     if station_id:

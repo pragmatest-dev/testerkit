@@ -232,9 +232,10 @@ class AtmlSubscriber(EventSubscriber):
         if s.dut_lot_number:
             uut.set("batchNumber", s.dut_lot_number)
 
-        # Station
+        # Station — bringup tier may have no station_id; emit a sentinel
+        # so the IEEE-1671 schema's required attribute is still present.
         station_el = ET.SubElement(result_set, _tr("TestStation"))
-        station_el.set("id", s.station_id)
+        station_el.set("id", s.station_id or "unknown")
         if s.station_name:
             station_el.set("name", s.station_name)
 

@@ -178,7 +178,7 @@ class TestAutoRegistration:
             """),
         )
 
-        result = pytester.runpytest("--mock-instruments", "-v")
+        result = pytester.runpytest("--mock-instruments", "--station=station", "-v")
         result.assert_outcomes(passed=2)
 
     def test_auto_register_no_station(self, pytester):
@@ -295,7 +295,7 @@ class TestAutoRegistration:
             """),
         )
 
-        result = pytester.runpytest("--mock-instruments", "-v")
+        result = pytester.runpytest("--mock-instruments", "--station=station", "-v")
         result.assert_outcomes(passed=3)
 
     def test_empty_instruments_section(self, pytester):

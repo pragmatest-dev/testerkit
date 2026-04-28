@@ -330,8 +330,12 @@ class TestRun(BaseModel):
     product_name: str | None = None
     product_revision: str | None = None
 
-    # Station traceability
-    station_id: str
+    # Station traceability — ``station_id`` is None for bringup tier
+    # runs (no station YAML on disk; tests use conftest-defined
+    # instrument fixtures). ``station_hostname`` always populates from
+    # ``socket.gethostname()`` so the run is traceable to a machine
+    # even without a station id.
+    station_id: str | None = None
     station_name: str | None = None
     station_type: str | None = None
     station_location: str | None = None

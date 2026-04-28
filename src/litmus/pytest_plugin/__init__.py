@@ -246,7 +246,7 @@ def _build_run_metadata(request: pytest.FixtureRequest) -> dict[str, Any]:
         dut_serial=request.config.getoption("--dut-serial"),
         dut_part_number=request.config.getoption("--dut-part-number"),
         dut_revision=request.config.getoption("--dut-revision"),
-        dut_lot_number=request.config.getoption("--dut-lot"),
+        dut_lot_number=request.config.getoption("--dut-lot-number"),
         station_id=_resolve_station_id(request.config),
         station_config=station_config,
         fixture_config=fixture_config,

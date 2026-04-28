@@ -375,7 +375,11 @@ def pytest_addoption(parser):
     )
     group.addoption("--dut-part-number", default=None, help="DUT part number")
     group.addoption("--dut-revision", default=None, help="DUT revision")
-    group.addoption("--dut-lot", default=None, help="DUT lot/batch number")
+    group.addoption(
+        "--dut-lot-number",
+        default=None,
+        help="DUT lot/batch number (mirrors LITMUS_DUT_LOT_NUMBER env var)",
+    )
     group.addoption(
         "--station",
         default=None,

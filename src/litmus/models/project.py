@@ -132,7 +132,12 @@ class ProjectConfig(BaseModel):
 
     name: str
     results_dir: str | None = None
-    default_station: str = "station"
+    # Optional fallback station id when no ``--station-config`` /
+    # ``--station`` is passed and hostname auto-match doesn't fire.
+    # Set this to a real station id in your project; leaving it
+    # unset means session-start expects an explicit ``--station=<id>``
+    # or a hostname match.
+    default_station: str | None = None
     default_fixture: str | None = None
     default_profile: str | None = None
     mock_instruments: bool = False

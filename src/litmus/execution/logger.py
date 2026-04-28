@@ -397,7 +397,7 @@ class TestRunLogger:
     def __init__(
         self,
         dut_serial: str,
-        station_id: str,
+        station_id: str | None,
         test_sequence_id: str,
         station_name: str | None = None,
         station_type: str | None = None,
