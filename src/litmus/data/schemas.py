@@ -76,7 +76,6 @@ MEASUREMENT_SCHEMA = pa.schema(
         # Fixture
         ("fixture_id", pa.string()),
         # Test context
-        ("sequence_id", pa.string()),
         ("test_phase", pa.string()),
         ("project_name", pa.string()),
         ("git_commit", pa.string()),
@@ -99,7 +98,7 @@ MEASUREMENT_SCHEMA = pa.schema(
         # Signal path
         ("meas_dut_pin", pa.string()),
         ("meas_fixture_connection", pa.string()),
-        ("meas_instrument", pa.string()),
+        ("meas_instrument_name", pa.string()),
         ("meas_instrument_resource", pa.string()),
         ("meas_instrument_channel", pa.string()),
         # Rollup
@@ -120,7 +119,7 @@ STEP_SCHEMA = pa.schema(
         ("node_id", pa.string()),
         ("file", pa.string()),
         ("function", pa.string()),
-        ("class", pa.string()),
+        ("class_name", pa.string()),
         ("module", pa.string()),
         ("step_path", pa.string()),
         ("description", pa.string()),
@@ -161,7 +160,6 @@ STEP_SCHEMA = pa.schema(
         # Fixture
         ("fixture_id", pa.string()),
         # Test context
-        ("sequence_id", pa.string()),
         ("test_phase", pa.string()),
         ("project_name", pa.string()),
         ("git_commit", pa.string()),
@@ -171,16 +169,6 @@ STEP_SCHEMA = pa.schema(
 )
 
 _SCHEMA_DICT = {f.name: f.type for f in MEASUREMENT_SCHEMA}
-
-_TIMESTAMP_COLS = {
-    "run_started_at",
-    "run_ended_at",
-    "vector_started_at",
-    "vector_ended_at",
-    "measurement_timestamp",
-    "step_started_at",
-    "step_ended_at",
-}
 
 # Instrument array columns have known list types
 _INSTR_ARRAY_TYPES: dict[str, pa.DataType] = {

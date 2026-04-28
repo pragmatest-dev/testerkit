@@ -376,7 +376,6 @@ class ParquetBackend:
                     "dut_serial": m.get("dut_serial"),
                     "product_id": m.get("product_id"),
                     "station_id": m.get("station_id"),
-                    "sequence_id": m.get("sequence_id"),
                 }
                 vector_info["params"] = {k[3:]: v for k, v in m.items() if _is_param_column(k)}
                 vectors_seen[key] = vector_info
@@ -605,8 +604,8 @@ class ParquetSubscriber(EventSubscriber):
                 "station_location": None,
                 "station_hostname": None,
                 "fixture_id": None,
-                "sequence_id": None,
                 "test_phase": None,
+                "project_name": None,
                 "git_commit": None,
                 **env,
             }
@@ -632,8 +631,8 @@ class ParquetSubscriber(EventSubscriber):
             "station_location": s.station_location,
             "station_hostname": s.station_hostname,
             "fixture_id": s.fixture_id,
-            "sequence_id": s.sequence_id,
             "test_phase": s.test_phase,
+            "project_name": s.project_name,
             "git_commit": s.git_commit,
             **env,
         }
@@ -681,7 +680,7 @@ class ParquetSubscriber(EventSubscriber):
             spec_ref=event.spec_ref,
             meas_dut_pin=event.meas_dut_pin,
             meas_fixture_connection=event.meas_fixture_connection,
-            meas_instrument=event.meas_instrument,
+            meas_instrument_name=event.meas_instrument_name,
             meas_instrument_resource=event.meas_instrument_resource,
             meas_instrument_channel=event.meas_instrument_channel,
             # Run outcome backfilled in _write()
@@ -803,7 +802,7 @@ class ParquetSubscriber(EventSubscriber):
                     "node_id": entry.get("node_id"),
                     "file": entry.get("file"),
                     "function": entry.get("function"),
-                    "class": entry.get("class"),
+                    "class_name": entry.get("class_name"),
                     "module": entry.get("module"),
                     "step_path": entry.get("step_path"),
                     "description": entry.get("description"),
@@ -843,8 +842,8 @@ class ParquetSubscriber(EventSubscriber):
                     "station_hostname": s.station_hostname,
                     # Fixture & test context
                     "fixture_id": s.fixture_id,
-                    "sequence_id": s.sequence_id,
                     "test_phase": s.test_phase,
+                    "project_name": s.project_name,
                     "git_commit": s.git_commit,
                     "git_branch": s.git_branch,
                     "git_remote": s.git_remote,
@@ -902,7 +901,7 @@ class ParquetSubscriber(EventSubscriber):
                 "node_id": node_id,
                 "file": start.file if start else None,
                 "function": start.function if start else None,
-                "class": start.class_name if start else None,
+                "class_name": start.class_name if start else None,
                 "module": start.module if start else None,
                 "step_path": start.step_path if start else (end.step_path if end else ""),
                 "description": start.description if start else None,
@@ -1178,7 +1177,7 @@ def reconstruct_test_run_from_file(pq_file: Path) -> TestRun:
                     characteristic_id=mr.get("characteristic_id"),
                     spec_ref=mr.get("spec_ref"),
                     dut_pin=mr.get("meas_dut_pin"),
-                    instrument_name=mr.get("meas_instrument"),
+                    instrument_name=mr.get("meas_instrument_name"),
                     instrument_resource=mr.get("meas_instrument_resource"),
                     instrument_channel=mr.get("meas_instrument_channel"),
                     fixture_connection=mr.get("meas_fixture_connection"),
@@ -1249,8 +1248,7 @@ def reconstruct_test_run_from_file(pq_file: Path) -> TestRun:
         station_location=first.get("station_location"),
         station_hostname=first.get("station_hostname"),
         fixture_id=first.get("fixture_id"),
-        test_sequence_id=first.get("sequence_id") or "",
-        test_phase=first.get("test_phase") or "development",
+        test_phase=first.get("test_phase"),
         operator_id=first.get("operator_id"),
         operator_name=first.get("operator_name"),
         git_commit=first.get("git_commit"),

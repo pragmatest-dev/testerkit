@@ -28,7 +28,6 @@ class TestLoggerRecord:
         logger = TestRunLogger(
             dut_serial="SN001",
             station_id="st1",
-            test_sequence_id="seq1",
         )
         fake_log = _FakeEventLog()
         logger._event_log = fake_log  # type: ignore[assignment]
@@ -61,7 +60,6 @@ class TestLoggerRecord:
         logger = TestRunLogger(
             dut_serial="SN001",
             station_id="st1",
-            test_sequence_id="seq1",
         )
         # Should not raise
         logger.record("key", "value")

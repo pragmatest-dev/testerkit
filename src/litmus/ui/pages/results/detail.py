@@ -67,7 +67,7 @@ def _render_run_detail(run_id: str, run: RunSummary, measurements: list):
             with ui.grid(columns=3).classes("gap-6"):
                 info_field("DUT Serial", run.dut_serial or "")
                 info_field_link("Station", run.station_id or "", "/stations")
-                info_field("Test Sequence", run.test_sequence_id or "")
+                info_field("Project", run.project_name or "")
                 info_field("Started", format_datetime(run.started_at))
                 info_field("Ended", format_datetime(run.ended_at))
                 results_summary = (
@@ -216,7 +216,7 @@ def _render_history_tab(run_id: str, run: RunSummary):
             ui.label(f"Other runs for DUT: {dut_serial}").classes("text-sm text-slate-500 mb-2")
             columns = [
                 {"name": "run_id", "label": "Run ID", "field": "run_id", "align": "left"},
-                {"name": "sequence", "label": "Sequence", "field": "sequence", "align": "left"},
+                {"name": "project", "label": "Project", "field": "project", "align": "left"},
                 {"name": "started", "label": "Started", "field": "started", "align": "left"},
                 {"name": "outcome", "label": "Outcome", "field": "outcome", "align": "center"},
             ]
@@ -224,7 +224,7 @@ def _render_history_tab(run_id: str, run: RunSummary):
                 {
                     "run_id": (r.test_run_id or "")[:8],
                     "full_run_id": r.test_run_id or "",
-                    "sequence": r.test_sequence_id or "",
+                    "project": r.project_name or "",
                     "started": format_datetime(r.started_at),
                     "outcome": r.outcome or "",
                 }

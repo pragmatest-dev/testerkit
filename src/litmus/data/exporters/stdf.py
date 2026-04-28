@@ -187,7 +187,7 @@ class StdfSubscriber(EventSubscriber):
         if s.dut_part_number:
             mir.set_value("PART_TYP", s.dut_part_number)
         mir.set_value("NODE_NAM", s.station_id)
-        mir.set_value("JOB_NAM", s.sequence_id or "")
+        mir.set_value("JOB_NAM", s.project_name or "")
         if s.operator_id:
             mir.set_value("OPER_NAM", s.operator_id)
         if s.test_phase:

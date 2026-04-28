@@ -49,7 +49,7 @@ class ReportData:
 
     # Execution context
     operator_id: str = ""
-    sequence_id: str = ""
+    project_name: str = ""
     test_phase: str = ""
     git_commit: str = ""
     git_branch: str = ""
@@ -153,7 +153,7 @@ def load_run_data(run_id: str, results_dir: str = "results") -> ReportData:
         station_location=_str_field(first, "station_location"),
         fixture_id=_str_field(first, "fixture_id"),
         operator_id=_str_field(first, "operator_id"),
-        sequence_id=_str_field(first, "sequence_id"),
+        project_name=_str_field(first, "project_name"),
         test_phase=_str_field(first, "test_phase"),
         git_commit=_str_field(first, "git_commit"),
         git_branch=_str_field(first, "git_branch"),
@@ -249,7 +249,7 @@ def _write_json(data: ReportData, output: Path) -> None:
         },
         "fixture_id": data.fixture_id,
         "operator_id": data.operator_id,
-        "sequence_id": data.sequence_id,
+        "project_name": data.project_name,
         "test_phase": data.test_phase,
         "git_commit": data.git_commit,
         "git_branch": data.git_branch,
@@ -287,7 +287,7 @@ def _write_csv(data: ReportData, output: Path) -> None:
         "outcome",
         "characteristic_id",
         "meas_dut_pin",
-        "meas_instrument",
+        "meas_instrument_name",
     ]
 
     buf = io.StringIO()

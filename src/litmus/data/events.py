@@ -192,8 +192,8 @@ class RunStarted(EventBase):
 
     # Test context
     fixture_id: str | None = None
-    sequence_id: str | None = None
-    test_phase: str = "production"
+    test_phase: str | None = None
+    project_name: str | None = None
     git_commit: str | None = None
     git_branch: str | None = None
     git_remote: str | None = None
@@ -363,7 +363,7 @@ class MeasurementRecorded(EventBase):
     # Signal path
     meas_dut_pin: str | None = None
     meas_fixture_connection: str | None = None
-    meas_instrument: str | None = None
+    meas_instrument_name: str | None = None
     meas_instrument_resource: str | None = None
     meas_instrument_channel: str | None = None
 

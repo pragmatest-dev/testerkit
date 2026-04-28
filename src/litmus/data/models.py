@@ -303,7 +303,6 @@ class RunSummary(BaseModel):
     product_id: str | None = None
     station_id: str | None = None
     station_type: str | None = None
-    test_sequence_id: str | None = None
     test_phase: str | None = None
     operator: str | None = None
     outcome: str | None = None
@@ -344,9 +343,8 @@ class TestRun(BaseModel):
     # Fixture traceability
     fixture_id: str | None = None
 
-    # Sequence traceability
-    test_sequence_id: str
-    test_phase: str = "production"
+    # Phase / profile traceability
+    test_phase: str | None = None
     profile: str | None = None  # active --litmus-profile name, if any
     # Raw CLI facet values used to select the profile; combined with git SHA
     # this is the minimum reproducibility payload for the run.

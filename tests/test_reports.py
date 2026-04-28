@@ -24,7 +24,6 @@ def sample_run():
         ended_at=datetime(2026, 2, 7, 12, 5, 0, tzinfo=UTC),
         dut=DUT(serial="SN-001", part_number="PN-100", revision="A"),
         station_id="bench_01",
-        test_sequence_id="demo_tests",
         product_id="widget_v1",
         product_name="Widget",
         operator_id="test_op",

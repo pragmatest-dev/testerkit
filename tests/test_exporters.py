@@ -32,7 +32,6 @@ def sample_test_run() -> TestRun:
         ended_at=datetime(2026, 3, 4, 10, 5, 0, tzinfo=UTC),
         dut=DUT(serial="DUT001", part_number="PN-100", revision="A"),
         station_id="station_001",
-        test_sequence_id="test_seq",
         test_phase="development",
         outcome=Outcome.PASS,
         custom_metadata={"operator_badge": "EMP-123"},
@@ -543,7 +542,6 @@ class TestInstrumentArrayKeys:
         logger = TestRunLogger(
             dut_serial="DUT001",
             station_id="station_001",
-            test_sequence_id="seq",
         )
         arrays = logger.build_instrument_arrays()
         assert set(INSTRUMENT_ARRAY_KEYS) == set(arrays.keys())
@@ -652,7 +650,6 @@ class TestHarnessLoggerIntegration:
         logger = TestRunLogger(
             dut_serial="DUT001",
             station_id="station_001",
-            test_sequence_id="seq",
         )
 
         received = []
@@ -695,7 +692,6 @@ class TestHarnessLoggerIntegration:
         logger = TestRunLogger(
             dut_serial="DUT001",
             station_id="station_001",
-            test_sequence_id="seq",
         )
         harness = TestHarness(logger=logger, step_name="test_voltage")
         with harness.step("test_voltage") as step:

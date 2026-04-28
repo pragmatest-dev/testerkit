@@ -576,16 +576,16 @@ def runs(results_dir: str | None, limit: int, as_json: bool):
         click.echo(json.dumps(runs_data, indent=2, default=str))
         return
 
-    click.echo(f"{'Run ID':<10} {'DUT Serial':<15} {'Test':<20} {'Station':<20} {'Outcome':<10}")
+    click.echo(f"{'Run ID':<10} {'DUT Serial':<15} {'Project':<20} {'Station':<20} {'Outcome':<10}")
     click.echo("-" * 80)
 
     for run in test_runs:
         run_id = (run.test_run_id or "")[:8]
         dut = run.dut_serial or ""
-        test = run.test_sequence_id or ""
+        project = run.project_name or ""
         station = run.station_id or ""
         outcome = run.outcome or ""
-        click.echo(f"{run_id:<10} {dut:<15} {test:<20} {station:<20} {outcome:<10}")
+        click.echo(f"{run_id:<10} {dut:<15} {project:<20} {station:<20} {outcome:<10}")
 
 
 @main.command()

@@ -22,7 +22,6 @@ def _make_test_run() -> TestRun:
         dut=DUT(serial="SN001"),
         steps=[s],
         station_id="bench_1",
-        test_sequence_id="test_seq",
         outcome=Outcome.PASS,
     )
 

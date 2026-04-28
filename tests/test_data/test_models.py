@@ -160,11 +160,9 @@ class TestTestRun:
         run = TestRun(
             dut=DUT(serial="SN001"),
             station_id="station_001",
-            test_sequence_id="test_suite",
         )
         assert run.dut.serial == "SN001"
         assert run.station_id == "station_001"
-        assert run.test_sequence_id == "test_suite"
         assert run.outcome == Outcome.PASS
         assert run.steps == []
 
@@ -173,7 +171,6 @@ class TestTestRun:
         run = TestRun(
             dut=DUT(serial="SN001"),
             station_id="station_001",
-            test_sequence_id="test_suite",
             steps=[step],
         )
         assert len(run.steps) == 1
@@ -188,7 +185,6 @@ class TestTestRun:
         run = TestRun(
             dut=DUT(serial="SN001"),
             station_id=None,
-            test_sequence_id="test_suite",
         )
         assert run.station_id is None
 

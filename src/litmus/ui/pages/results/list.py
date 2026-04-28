@@ -29,7 +29,12 @@ def results_page():
                     {"name": "run_id", "label": "Run ID", "field": "run_id", "align": "left"},
                     {"name": "dut", "label": "DUT", "field": "dut_serial", "align": "left"},
                     {"name": "station", "label": "Station", "field": "station_id", "align": "left"},
-                    {"name": "test", "label": "Test", "field": "test_sequence_id", "align": "left"},
+                    {
+                        "name": "project",
+                        "label": "Project",
+                        "field": "project_name",
+                        "align": "left",
+                    },
                     {"name": "started", "label": "Started", "field": "started_at", "align": "left"},
                     {
                         "name": "measurements",
@@ -45,7 +50,7 @@ def results_page():
                         "full_run_id": r.test_run_id or "",
                         "dut_serial": r.dut_serial or "",
                         "station_id": r.station_id or "",
-                        "test_sequence_id": r.test_sequence_id or "",
+                        "project_name": r.project_name or "",
                         "started_at": format_datetime(r.started_at),
                         "measurements": f"{r.total_measurements} (0 fail)",
                         "outcome": r.outcome or "",

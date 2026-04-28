@@ -79,7 +79,7 @@ class RunStore:
         rows = self._flight_query(f"""
             SELECT file_path, run_id, session_id, dut_serial, station_id,
                    outcome, started_at, num_measurements,
-                   sequence_id, test_phase, product_id, operator_id,
+                   test_phase, product_id, operator_id,
                    project_name
             FROM runs
             ORDER BY started_at DESC
@@ -95,7 +95,6 @@ class RunStore:
                 station_id=r.get("station_id"),
                 outcome=r.get("outcome"),
                 total_measurements=r.get("num_measurements", 0),
-                test_sequence_id=r.get("sequence_id"),
                 test_phase=r.get("test_phase"),
                 product_id=r.get("product_id"),
                 operator=r.get("operator_id"),
@@ -143,8 +142,8 @@ class RunStore:
                 product_id=row.get("product_id"),
                 station_id=row.get("station_id"),
                 station_type=row.get("station_type"),
-                test_sequence_id=row.get("sequence_id"),
                 test_phase=row.get("test_phase"),
+                project_name=row.get("project_name"),
                 operator=row.get("operator_id"),
                 outcome=row.get("run_outcome"),
                 total_measurements=table.num_rows,

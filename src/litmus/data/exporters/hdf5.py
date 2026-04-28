@@ -99,8 +99,8 @@ class Hdf5Subscriber(EventSubscriber):
             f.attrs["started_at"] = s.occurred_at.isoformat()
             f.attrs["outcome"] = outcome or "error"
             f.attrs["station_id"] = s.station_id
-            f.attrs["test_sequence_id"] = s.sequence_id or ""
-            f.attrs["test_phase"] = s.test_phase
+            f.attrs["project_name"] = s.project_name or ""
+            f.attrs["test_phase"] = s.test_phase or ""
             f.attrs["dut_serial"] = s.dut_serial
             if s.dut_part_number:
                 f.attrs["dut_part_number"] = s.dut_part_number
@@ -206,8 +206,8 @@ class Hdf5Subscriber(EventSubscriber):
                     ds.attrs["characteristic_id"] = m.characteristic_id
                 if m.meas_dut_pin:
                     ds.attrs["dut_pin"] = m.meas_dut_pin
-                if m.meas_instrument:
-                    ds.attrs["instrument_name"] = m.meas_instrument
+                if m.meas_instrument_name:
+                    ds.attrs["instrument_name"] = m.meas_instrument_name
 
         if self._on_output:
             self._on_output(OutputFile(path=out_file, format="hdf5", run_id=run_id))

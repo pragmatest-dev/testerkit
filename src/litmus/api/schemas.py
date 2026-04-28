@@ -63,7 +63,7 @@ class MeasurementView(BaseModel):
     # Per-measurement signal path (distinct from per-step instr_* arrays)
     meas_dut_pin: str | None = None
     meas_fixture_connection: str | None = None
-    meas_instrument: str | None = None
+    meas_instrument_name: str | None = None
     meas_instrument_resource: str | None = None
     meas_instrument_channel: str | None = None
     # Typed dicts rehydrated from in_*/out_*/custom_* flat columns
@@ -214,7 +214,7 @@ def build_run_view(rows: list[dict[str, Any]]) -> RunView:
                 spec_ref=row.get("spec_ref"),
                 meas_dut_pin=row.get("meas_dut_pin"),
                 meas_fixture_connection=row.get("meas_fixture_connection"),
-                meas_instrument=row.get("meas_instrument"),
+                meas_instrument_name=row.get("meas_instrument_name"),
                 meas_instrument_resource=row.get("meas_instrument_resource"),
                 meas_instrument_channel=row.get("meas_instrument_channel"),
                 inputs={k[3:]: row[k] for k in in_keys if row[k] is not None},

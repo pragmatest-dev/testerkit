@@ -138,7 +138,6 @@ class TestRoundTripExplicitSchema:
             dut=DUT(serial="SN001"),
             steps=[s],
             station_id="bench_1",
-            test_sequence_id="seq1",
             outcome=Outcome.PASS,
         )
 
@@ -169,7 +168,6 @@ class TestRoundTripExplicitSchema:
             dut=DUT(serial="SN001"),
             steps=[s],
             station_id="bench_1",
-            test_sequence_id="seq1",
             outcome=Outcome.PASS,
         )
 

@@ -81,7 +81,6 @@ def _rebuild_schema(conn: duckdb.DuckDBPyConnection) -> None:
             outcome VARCHAR,
             started_at VARCHAR,
             num_measurements INTEGER,
-            sequence_id VARCHAR,
             test_phase VARCHAR,
             product_id VARCHAR,
             operator_id VARCHAR,
@@ -317,7 +316,7 @@ def _index_io_and_refs(conn: duckdb.DuckDBPyConnection, fkey: str) -> str | None
 # ── Bulk ingest (batch of files → 3 queries) ────────────────────────
 
 
-_OPTIONAL_RUN_COLS = ("sequence_id", "test_phase", "product_id", "operator_id", "project_name")
+_OPTIONAL_RUN_COLS = ("test_phase", "product_id", "operator_id", "project_name")
 
 
 def _bulk_insert_runs(conn: duckdb.DuckDBPyConnection, meas_paths: list[str]) -> None:

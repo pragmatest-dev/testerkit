@@ -63,8 +63,8 @@ class MeasurementRow(BaseModel):
     fixture_id: str | None = None
 
     # Test context
-    sequence_id: str | None = None
     test_phase: str | None = None
+    project_name: str | None = None
     git_commit: str | None = None
     git_branch: str | None = None
     git_remote: str | None = None
@@ -105,7 +105,7 @@ class MeasurementRow(BaseModel):
     spec_ref: str | None = None
     meas_dut_pin: str | None = None
     meas_fixture_connection: str | None = None
-    meas_instrument: str | None = None
+    meas_instrument_name: str | None = None
     meas_instrument_resource: str | None = None
     meas_instrument_channel: str | None = None
 
@@ -180,8 +180,8 @@ def build_run_metadata(test_run: TestRun) -> dict[str, Any]:
         # Fixture
         "fixture_id": test_run.fixture_id,
         # Test context
-        "sequence_id": test_run.test_sequence_id,
         "test_phase": test_run.test_phase,
+        "project_name": test_run.project_name,
         "git_commit": test_run.git_commit,
         "git_branch": test_run.git_branch,
         "git_remote": test_run.git_remote,
@@ -222,7 +222,7 @@ def build_measurement_fields(measurement: Measurement) -> dict[str, Any]:
         # Signal path
         "meas_dut_pin": measurement.dut_pin,
         "meas_fixture_connection": measurement.fixture_connection,
-        "meas_instrument": measurement.instrument_name,
+        "meas_instrument_name": measurement.instrument_name,
         "meas_instrument_resource": measurement.instrument_resource,
         "meas_instrument_channel": measurement.instrument_channel,
     }
@@ -457,7 +457,7 @@ def build_step_manifest(test_run: TestRun) -> list[dict[str, Any]]:
                 "node_id": step.node_id,
                 "file": step.file,
                 "function": step.function,
-                "class": step.class_name,
+                "class_name": step.class_name,
                 "module": step.module,
                 "step_path": step.step_path,
                 "description": step.description,
@@ -507,7 +507,7 @@ def _append_not_started(
                 "node_id": node_id,
                 "file": ci.get("file"),
                 "function": ci.get("function"),
-                "class": ci.get("class_name"),
+                "class_name": ci.get("class_name"),
                 "module": ci.get("module"),
                 "step_path": "",
                 "description": None,

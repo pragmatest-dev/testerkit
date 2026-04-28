@@ -249,8 +249,8 @@ class TdmsSubscriber(EventSubscriber):
             "started_at": s.occurred_at.isoformat(),
             "outcome": outcome or "error",
             "station_id": s.station_id,
-            "test_sequence_id": s.sequence_id or "",
-            "test_phase": s.test_phase,
+            "project_name": s.project_name or "",
+            "test_phase": s.test_phase or "",
             "dut_serial": s.dut_serial,
         }
         if s.dut_part_number:

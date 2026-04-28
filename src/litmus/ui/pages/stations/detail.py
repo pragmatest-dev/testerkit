@@ -236,7 +236,7 @@ def _render_runs_tab(station_id: str):
             columns = [
                 {"name": "run_id", "label": "Run ID", "field": "run_id", "align": "left"},
                 {"name": "dut", "label": "DUT", "field": "dut", "align": "left"},
-                {"name": "sequence", "label": "Sequence", "field": "sequence", "align": "left"},
+                {"name": "project", "label": "Project", "field": "project", "align": "left"},
                 {"name": "started", "label": "Started", "field": "started", "align": "left"},
                 {"name": "outcome", "label": "Outcome", "field": "outcome", "align": "center"},
             ]
@@ -245,7 +245,7 @@ def _render_runs_tab(station_id: str):
                     "run_id": (r.test_run_id or "")[:8],
                     "full_run_id": r.test_run_id or "",
                     "dut": r.dut_serial or "",
-                    "sequence": r.test_sequence_id or "",
+                    "project": r.project_name or "",
                     "started": format_datetime(r.started_at),
                     "outcome": r.outcome or "",
                 }

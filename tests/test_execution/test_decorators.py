@@ -117,7 +117,6 @@ class TestMeasureWithLogger:
         logger = TestRunLogger(
             dut_serial="SN001",
             station_id="station_001",
-            test_sequence_id="test",
         )
         set_current_logger(logger)
         logger.start_step("test_step")
@@ -151,7 +150,6 @@ class TestMeasureWithLogger:
         logger = TestRunLogger(
             dut_serial="SN001",
             station_id="station_001",
-            test_sequence_id="test",
         )
         set_current_logger(logger)
 

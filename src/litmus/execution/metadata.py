@@ -35,12 +35,11 @@ def build_run_metadata(
     operator_id: str | None = None,
     project_dir: Path,
     results_dir: str | None = None,
-    test_phase: str,
+    test_phase: str | None = None,
     profile_name: str | None = None,
     profile_facets: dict[str, str] | None = None,
     session_inputs: dict[str, str] | None = None,
     instrument_records: dict[str, Any] | None = None,
-    test_sequence_id: str | None = None,
 ) -> dict[str, Any]:
     """Build the kwargs dict :class:`TestRunLogger` expects.
 
@@ -87,7 +86,6 @@ def build_run_metadata(
         "station_type": station_type,
         "station_location": station_location,
         "operator_id": operator_id,
-        "test_sequence_id": test_sequence_id or project_dir.name,
         "product_id": product_id,
         "product_name": product_name,
         "product_revision": product_revision,

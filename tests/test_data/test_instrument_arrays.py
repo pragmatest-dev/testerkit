@@ -73,7 +73,6 @@ class TestBuildInstrumentArrays:
         logger = TestRunLogger(
             dut_serial="DUT001",
             station_id="station_001",
-            test_sequence_id="test_suite",
             instruments={"dmm": dmm, "psu": psu},
         )
 
@@ -102,7 +101,6 @@ class TestBuildInstrumentArrays:
         logger = TestRunLogger(
             dut_serial="DUT001",
             station_id="station_001",
-            test_sequence_id="test_suite",
             instruments=records,
         )
 
@@ -119,7 +117,6 @@ class TestBuildInstrumentArrays:
         logger = TestRunLogger(
             dut_serial="DUT001",
             station_id="station_001",
-            test_sequence_id="test_suite",
         )
 
         arrays = logger.build_instrument_arrays()
@@ -143,7 +140,6 @@ class TestBuildInstrumentArrays:
         logger = TestRunLogger(
             dut_serial="DUT001",
             station_id="station_001",
-            test_sequence_id="test_suite",
             instruments={"dmm": record},
         )
 
@@ -171,7 +167,6 @@ class TestSetStepInstruments:
         logger = TestRunLogger(
             dut_serial="DUT001",
             station_id="station_001",
-            test_sequence_id="test_suite",
             instruments=records,
         )
 
@@ -193,7 +188,6 @@ class TestEmptyRowSchemaMatches:
         test_run = TestRun(
             dut=DUT(serial="SN001"),
             station_id="station_001",
-            test_sequence_id="test_suite",
         )
 
         # Get empty row without instrument_arrays (triggers fallback)
@@ -218,7 +212,6 @@ class TestParquetRoundTrip:
         test_run = TestRun(
             dut=DUT(serial="SN001"),
             station_id="station_001",
-            test_sequence_id="test_suite",
         )
 
         step = TestStep(name="test_voltage")

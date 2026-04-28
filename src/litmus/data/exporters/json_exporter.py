@@ -131,8 +131,8 @@ class JsonSubscriber(EventSubscriber):
                         md["characteristic_id"] = m.characteristic_id
                     if m.meas_dut_pin:
                         md["dut_pin"] = m.meas_dut_pin
-                    if m.meas_instrument:
-                        md["instrument_name"] = m.meas_instrument
+                    if m.meas_instrument_name:
+                        md["instrument_name"] = m.meas_instrument_name
                     measurements.append(md)
 
                 vec_dict: dict[str, Any] = {
@@ -174,7 +174,7 @@ class JsonSubscriber(EventSubscriber):
                 "revision": s.dut_revision,
                 "lot_number": s.dut_lot_number,
             },
-            "test_sequence_id": s.sequence_id,
+            "project_name": s.project_name,
             "test_phase": s.test_phase,
             "started_at": s.occurred_at.isoformat(),
             "outcome": self._run_ended.outcome if self._run_ended else "error",

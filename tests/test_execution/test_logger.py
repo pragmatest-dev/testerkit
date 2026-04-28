@@ -21,18 +21,15 @@ class TestTestRunLogger:
         logger = TestRunLogger(
             dut_serial="SN001",
             station_id="station_001",
-            test_sequence_id="test_suite",
         )
         assert logger.test_run.dut.serial == "SN001"
         assert logger.test_run.station_id == "station_001"
-        assert logger.test_run.test_sequence_id == "test_suite"
         assert logger.test_run.outcome == Outcome.PASS
 
     def test_init_with_all_options(self):
         logger = TestRunLogger(
             dut_serial="SN001",
             station_id="station_001",
-            test_sequence_id="test_suite",
             station_type="production",
             operator_id="John Doe",
             test_phase="debug",
@@ -45,7 +42,6 @@ class TestTestRunLogger:
         logger = TestRunLogger(
             dut_serial="SN001",
             station_id="station_001",
-            test_sequence_id="test",
         )
         logger.start_step("measure_voltage", description="Signal 5V rail")
 
@@ -58,7 +54,6 @@ class TestTestRunLogger:
         logger = TestRunLogger(
             dut_serial="SN001",
             station_id="station_001",
-            test_sequence_id="test",
         )
         logger.start_step("test_step")
 
@@ -76,7 +71,6 @@ class TestTestRunLogger:
         logger = TestRunLogger(
             dut_serial="SN001",
             station_id="station_001",
-            test_sequence_id="test",
         )
 
         m = Measurement(name="voltage", value=5.0, outcome=Outcome.PASS)
@@ -89,7 +83,6 @@ class TestTestRunLogger:
         logger = TestRunLogger(
             dut_serial="SN001",
             station_id="station_001",
-            test_sequence_id="test",
         )
         logger.start_step("test_step")
 
@@ -105,7 +98,6 @@ class TestTestRunLogger:
         logger = TestRunLogger(
             dut_serial="SN001",
             station_id="station_001",
-            test_sequence_id="test",
         )
         logger.start_step("test_step")
 
@@ -121,7 +113,6 @@ class TestTestRunLogger:
         logger = TestRunLogger(
             dut_serial="SN001",
             station_id="station_001",
-            test_sequence_id="test",
         )
         logger.start_step("test_step")
 
@@ -140,7 +131,6 @@ class TestTestRunLogger:
         logger = TestRunLogger(
             dut_serial="SN001",
             station_id="station_001",
-            test_sequence_id="test",
         )
         logger.start_step("test_step")
         logger.end_step()
@@ -152,7 +142,6 @@ class TestTestRunLogger:
         logger = TestRunLogger(
             dut_serial="SN001",
             station_id="station_001",
-            test_sequence_id="test",
         )
         logger.start_step("test_step")
         logger.end_step()
@@ -166,7 +155,6 @@ class TestTestRunLogger:
         logger = TestRunLogger(
             dut_serial="SN001",
             station_id="station_001",
-            test_sequence_id="test",
         )
 
         logger.start_step("step1")
@@ -188,7 +176,6 @@ class TestTestRunLogger:
         logger = TestRunLogger(
             dut_serial="SN001",
             station_id="station_001",
-            test_sequence_id="test",
         )
         # Before start_step, contextvars should be None (default)
         assert get_current_step() is None
@@ -206,7 +193,6 @@ class TestTestRunLogger:
         logger = TestRunLogger(
             dut_serial="SN001",
             station_id="station_001",
-            test_sequence_id="test",
         )
         # Create a step externally and set via contextvar
         step = TestStep(name="external_step")
@@ -232,7 +218,6 @@ class TestTestRunLogger:
         logger = TestRunLogger(
             dut_serial="SN001",
             station_id="station_001",
-            test_sequence_id="test",
         )
         step = TestStep(name="registered_step")
         idx = logger.register_step(step)
@@ -249,7 +234,6 @@ class TestTestRunLogger:
         logger = TestRunLogger(
             dut_serial="SN001",
             station_id="station_001",
-            test_sequence_id="test",
         )
         logger.start_step("test_step")
         vector = get_current_vector()
@@ -276,7 +260,6 @@ class TestEventLogIntegration:
         logger = TestRunLogger(
             dut_serial="SN001",
             station_id="station_001",
-            test_sequence_id="test",
             run_id=run_id,
         )
         event_log = EventLog(tmp_path / "events", run_id)
@@ -308,7 +291,6 @@ class TestEventLogIntegration:
         logger = TestRunLogger(
             dut_serial="SN001",
             station_id="station_001",
-            test_sequence_id="test",
             run_id=run_id,
         )
         event_log = EventLog(tmp_path / "events", run_id)
@@ -343,7 +325,6 @@ class TestEventLogIntegration:
         logger = TestRunLogger(
             dut_serial="SN001",
             station_id="station_001",
-            test_sequence_id="test",
         )
         logger.start_step(
             "test_5v_rail",

@@ -13,7 +13,6 @@ Basic usage:
     run = client.start_run(
         dut_serial="ABC123",
         station_id="station_001",
-        test_sequence_id="voltage_test",
     )
 
     # Add a test step with measurements
@@ -265,14 +264,13 @@ class RunBuilder:
         client: "LitmusClient",
         dut_serial: str,
         station_id: str,
-        test_sequence_id: str,
         *,
         dut_part_number: str | None = None,
         dut_revision: str | None = None,
         dut_lot_number: str | None = None,
         station_type: str | None = None,
         operator: str | None = None,
-        test_phase: str = "production",
+        test_phase: str | None = None,
     ):
         self._client = client
         self._test_run = TestRun(
@@ -285,7 +283,6 @@ class RunBuilder:
             station_id=station_id,
             station_type=station_type,
             operator_id=operator,
-            test_sequence_id=test_sequence_id,
             test_phase=test_phase,
         )
 
@@ -349,7 +346,6 @@ class LitmusClient:
         run = client.start_run(
             dut_serial="SN12345",
             station_id="bench_1",
-            test_sequence_id="power_test",
         )
 
         with run.step("voltage_check") as step:
@@ -370,27 +366,25 @@ class LitmusClient:
         self,
         dut_serial: str,
         station_id: str,
-        test_sequence_id: str,
         *,
         dut_part_number: str | None = None,
         dut_revision: str | None = None,
         dut_lot_number: str | None = None,
         station_type: str | None = None,
         operator: str | None = None,
-        test_phase: str = "production",
+        test_phase: str | None = None,
     ) -> RunBuilder:
         """Start a new test run.
 
         Args:
             dut_serial: Device under test serial number.
             station_id: Test station identifier.
-            test_sequence_id: Test sequence/program identifier.
             dut_part_number: Optional DUT part number.
             dut_revision: Optional DUT revision.
             dut_lot_number: Optional DUT lot/batch number.
             station_type: Optional station type.
             operator: Optional operator name/ID.
-            test_phase: Test phase (default "production").
+            test_phase: Test phase (e.g. "production", "characterization").
 
         Returns:
             A RunBuilder for adding steps and measurements.
@@ -399,7 +393,6 @@ class LitmusClient:
             self,
             dut_serial=dut_serial,
             station_id=station_id,
-            test_sequence_id=test_sequence_id,
             dut_part_number=dut_part_number,
             dut_revision=dut_revision,
             dut_lot_number=dut_lot_number,

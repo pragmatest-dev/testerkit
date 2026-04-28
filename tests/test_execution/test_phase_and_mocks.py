@@ -142,7 +142,6 @@ class TestProfileFacetsStamping:
             session_id=uuid4(),
             dut=DUT(serial="DUT001"),
             station_id="s",
-            test_sequence_id="seq",
         )
         assert run.profile_facets == {}
 
@@ -156,7 +155,6 @@ class TestProfileFacetsStamping:
             session_id=uuid4(),
             dut=DUT(serial="DUT001"),
             station_id="s",
-            test_sequence_id="seq",
             profile_facets={"test_phase": "production", "product": "tps54302"},
         )
         assert run.profile_facets == {

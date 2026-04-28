@@ -214,7 +214,7 @@ class AtmlSubscriber(EventSubscriber):
 
         # ResultSet
         result_set = ET.SubElement(root, _tr("ResultSet"))
-        result_set.set("name", s.sequence_id or "")
+        result_set.set("name", s.project_name or "")
         result_set.set("startDateTime", s.occurred_at.isoformat())
         final_outcome = outcome or "error"
         result_set.set(
@@ -337,8 +337,8 @@ class AtmlSubscriber(EventSubscriber):
 
             if m.meas_dut_pin:
                 test_el.set("dutPin", m.meas_dut_pin)
-            if m.meas_instrument:
-                test_el.set("instrumentName", m.meas_instrument)
+            if m.meas_instrument_name:
+                test_el.set("instrumentName", m.meas_instrument_name)
 
         run_id = self._short_run_id(s.run_id)
         out_file = self._output_dir / f"{run_id}.xml"
