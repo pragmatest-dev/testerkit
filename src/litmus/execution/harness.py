@@ -18,8 +18,11 @@ from litmus.data.ref import classify_value
 from litmus.execution._state import (
     get_active_characteristic,
     get_active_limits,
+    get_active_product_context,
+    get_active_station_config,
     get_active_test_characteristics,
     get_current_code_identity,
+    get_current_logger,
     get_current_step,
     get_current_vector,
     push_current_step,
@@ -32,7 +35,9 @@ from litmus.models.test_config import Limit, MeasurementLimitConfig, PromptConfi
 from litmus.prompts import ask
 
 if TYPE_CHECKING:
+    from litmus.data.models import TestRun
     from litmus.execution.logger import TestRunLogger
+    from litmus.models.station import StationConfig
     from litmus.products.context import ProductContext
 
 
@@ -354,6 +359,47 @@ class Context:
         :meth:`Context.get_limit` or the ``verify``/``logger`` paths.
         """
         return LimitsView(get_active_limits())
+
+    # -------------------------------------------------------------------------
+    # Session-level traceability (read-only ambient roll-up)
+    # -------------------------------------------------------------------------
+
+    @property
+    def run(self) -> TestRun | None:
+        """Active :class:`TestRun` record, or ``None`` outside a run.
+
+        Carries run identity (id, started_at) plus DUT, station, fixture,
+        product, profile, operator, and git fields. ``ctx.run.dut.serial``
+        is the canonical path to DUT identity — there is intentionally no
+        ``ctx.dut`` attribute (the bare ``dut`` fixture is the live DUT
+        driver, a different concept).
+        """
+        logger = get_current_logger()
+        return logger.test_run if logger is not None else None
+
+    @property
+    def station(self) -> StationConfig | None:
+        """Active :class:`StationConfig`, or ``None`` for bringup tier.
+
+        Sourced from the ``station_config`` session fixture, which seeds
+        the ContextVar at session start. Note the asymmetry with the
+        bare ``instruments`` fixture: ``instruments`` is left as a
+        fixture-only entry point because ``ctx.instruments`` would
+        collide with that fixture's name — take it as a test argument
+        instead.
+        """
+        return get_active_station_config()
+
+    @property
+    def product(self) -> ProductContext | None:
+        """Active :class:`ProductContext`, or ``None`` when no product is loaded.
+
+        Mirrors the ``product_context`` session fixture but lets tests
+        reach for it via ``ctx.product`` without taking the fixture as
+        an argument. Useful inside helpers / verify wrappers that
+        already have a ``Context`` reference.
+        """
+        return get_active_product_context()
 
     # -------------------------------------------------------------------------
     # Limit access

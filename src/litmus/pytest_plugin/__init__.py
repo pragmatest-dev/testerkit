@@ -632,14 +632,22 @@ def mock_instruments(request) -> bool:
 def station_config(request) -> StationConfig | None:
     """Load station configuration from --station-config option.
 
+    Also publishes the result to the active-station ContextVar so
+    ``context.station`` can read it without taking the fixture as an
+    argument.
+
     Returns:
         StationConfig model, or None if not specified.
     """
+    from litmus.execution._state import set_active_station_config
+
     station_path = _find_station_file(request.config)
     if station_path:
         from litmus.store import load_station
 
-        return load_station(station_path)
+        config = load_station(station_path)
+        set_active_station_config(config)
+        return config
 
     # Check if --station was explicitly passed (not auto-resolved)
     station_id = _resolve_station_id(request.config)
@@ -651,6 +659,7 @@ def station_config(request) -> StationConfig | None:
             f"Fix: create stations/{station_id}.yaml",
             stacklevel=2,
         )
+    set_active_station_config(None)
     return None
 
 

@@ -38,6 +38,7 @@ from litmus.models.test_config import FixtureConnection
 
 if TYPE_CHECKING:
     from litmus.execution.logger import TestRunLogger
+    from litmus.models.station import StationConfig
 
 # Step/vector — stack-like, push/pop with token. Used by logger.py + harness.py.
 _current_step_var: ContextVar[Any] = ContextVar("current_step", default=None)
@@ -51,6 +52,7 @@ _instrument_records_var: ContextVar[dict[str, InstrumentRecord]] = ContextVar("_
 _current_step_aliases_var: ContextVar[dict[str, str]] = ContextVar("_current_step_aliases")
 _current_step_config_var: ContextVar[dict[str, Any]] = ContextVar("_current_step_config")
 _active_product_context_var: ContextVar[Any] = ContextVar("_active_product_context")
+_active_station_config_var: ContextVar[Any] = ContextVar("_active_station_config")
 _test_node_aliases_var: ContextVar[dict[str, dict[str, str]]] = ContextVar("_test_node_aliases")
 _test_node_configs_var: ContextVar[dict[str, dict[str, Any]]] = ContextVar("_test_node_configs")
 _channel_store_var: ContextVar[Any] = ContextVar("_channel_store")
@@ -142,6 +144,14 @@ def get_active_product_context() -> Any:
         return None
 
 
+def get_active_station_config() -> StationConfig | None:
+    """Return None if not set (bringup tier or no station YAML loaded)."""
+    try:
+        return _active_station_config_var.get()
+    except LookupError:
+        return None
+
+
 # --- Stack-like (push/pop) accessors ---
 
 
@@ -211,6 +221,11 @@ def set_current_step_config(value: dict[str, Any]) -> None:
 def set_active_product_context(value: Any) -> None:
     """Set value. Returns None."""
     _active_product_context_var.set(value)
+
+
+def set_active_station_config(value: StationConfig | None) -> None:
+    """Set value. Returns None."""
+    _active_station_config_var.set(value)
 
 
 def set_test_node_aliases(value: dict[str, dict[str, str]]) -> None:

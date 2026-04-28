@@ -1,25 +1,18 @@
 # Context Architecture
 
-The Litmus `context` fixture is the **hierarchical roll-up of everything a test needs to know**: run metadata, station, DUT, active spec, instruments, vector parameters, resolved limits. Each scope of pytest's fixture graph contributes one layer; the per-test aggregate is read-only.
+The Litmus `context` fixture is a **read-only ambient roll-up** of the run-, station-, product-, and vector-level state a test needs. Per-test access goes through `context.run` / `context.station` / `context.product` plus the iteration-state attributes (`context.params`, `context.limits`, `context.connections`, etc.). All values are sourced from ContextVars seeded by session fixtures; tests cannot mutate the shared view.
 
-```
-session   → SessionLayer   run_id, station, operator, dut, instruments    frozen
-module    → ModuleLayer    + module markers, + spec default                frozen, inherits
-class     → ClassLayer     + class litmus_limits markers                   frozen, inherits
-function  → Context        + method markers, + params, + resolved limits   fresh per test
-```
-
-Upper layers are frozen dataclasses built by scope-matched pytest fixtures. The function-scope `context` fixture reads from them and adds method-level fields. No test can mutate another test's view.
+DUT identity intentionally lives at `context.run.dut` — there is no `context.dut` attribute because the bare `dut` fixture is the live DUT driver (a different concept). For the same reason `context.instruments` is not exposed: take the `instruments` fixture as a test argument when you need it.
 
 ## Read / write split
 
-| Fixture   | Direction  | Role                                                |
-|-----------|------------|-----------------------------------------------------|
-| `context` | **Read-only** | Vector inputs + metadata; aggregate of all layers |
-| `logger`  | **Write**     | Measurement and event sink                        |
-| `spec`    | **Read + check** | Product spec → limits, pin info; also writes via `check` |
+| Fixture   | Direction     | Role                                                       |
+|-----------|---------------|------------------------------------------------------------|
+| `context` | **Read-only** | Run / station / product / vector state                     |
+| `verify`  | **Write**     | Limit check + record; raises `LimitFailure` on FAIL        |
+| `logger`  | **Write**     | Pure recorder (no raise); used for characterization rows   |
 
-`logger` is deliberately separate from `context`. Seeing `logger` in a test signature flags "this test records to the audit trail"; tests without `logger` are pure reads. `grep logger.measure` finds every write.
+`verify` and `logger` are deliberately separate from `context`. Seeing either in a test signature flags "this test records to the audit trail"; tests without them are pure reads. `grep -E 'verify\(|logger\.measure'` finds every write.
 
 ## Two shapes, one result
 
@@ -41,26 +34,29 @@ def test_rails(self, dmm, verify, logger):
 ## `context` at a glance
 
 ```python
-context.run.id                  # session
-context.dut.serial              # session
-context.station.name            # session
-context.instruments             # session + station + catalog
+context.run                     # TestRun model: id, started_at, dut, station_id, ...
+context.run.dut.serial          # DUT identity (bare `dut` fixture is the live driver)
+context.station                 # StationConfig | None (fixture: `station_config`)
+context.product                 # ProductContext | None (fixture: `product_context`)
 context.params["vin"]           # function (litmus_sweeps / pytest parametrize)
-context.limits["output_v"]      # function (resolved from markers + sidecar + spec)
-context.get_param("vin")        # read a param (raises if missing, accepts default)
+context.limits["output_v"]      # function (resolved from markers + sidecar + product)
+context.connections             # iterator of FixtureConnection (litmus_characteristics / litmus_connections)
+context.get_param("vin")        # read a param (returns default if missing)
 context.changed("temperature")  # did this param differ from the previous iteration?
 context.last("output_voltage")  # last recorded value of this measurement name
 context.observe("dut_temp", 42.3)  # record an environmental observation
 ```
 
-## Merge semantics
+## Where each value comes from
 
-| Field     | Method + class combination                          | Where merging happens                  |
-|-----------|-----------------------------------------------------|----------------------------------------|
-| `params`  | Cartesian product (pytest rejects duplicate argnames) | pytest, via `metafunc.parametrize()` |
-| `spec`    | Session-scoped (single product per run)              | `--product` / `litmus.yaml` / profile  |
-| `limits`  | Dict merge by name; method keys override class keys  | `_litmus_push_limits` autouse         |
-| `mocks`   | Sidecar `mocks:` block; per-test via `pytest-mock`   | `_litmus_install_mocks` autouse       |
+| Attribute      | Source ContextVar / fixture                                    |
+|----------------|----------------------------------------------------------------|
+| `run`          | `get_current_logger().test_run`                                |
+| `station`      | `get_active_station_config()` — seeded by `station_config` fixture |
+| `product`      | `get_active_product_context()` — seeded by `product_context` fixture |
+| `params`       | merged with parent chain; pytest's `callspec.params` + sweeps   |
+| `limits`       | `get_active_limits()` — seeded by `_litmus_push_limits` autouse |
+| `connections`  | `_litmus_resolve_connections` autouse populates `ctx.connections` |
 
 ## Prior-context memory (for `changed()` / `last()`)
 
