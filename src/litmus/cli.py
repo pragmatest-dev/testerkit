@@ -2069,186 +2069,6 @@ def _get_results_dir(results_dir):
     return str(resolve_results_dir(results_dir))
 
 
-@main.group("yield")
-def yield_group():
-    """Yield and manufacturing metrics."""
-    pass
-
-
-@yield_group.command("summary")
-@_base_filters
-def yield_summary(results_dir, phase, since, until_date, product, station, as_json):
-    """Show yield summary (FPY, final yield, RTY). Powered by GoldStore."""
-    store = _gold_store(results_dir)
-    rows = store.yield_summary(
-        product=product,
-        station=station,
-        phase=phase,
-        since=since,
-        until=until_date,
-    )
-
-    if not rows:
-        click.echo("[]" if as_json else "No data found.")
-        return
-
-    if as_json:
-        click.echo(json.dumps(rows, indent=2, default=str))
-        return
-
-    # Aggregate across all rows for flat display
-    total_runs = sum(r.get("total_runs", 0) for r in rows)
-    fp_total = sum(r.get("first_pass_total", 0) for r in rows)
-    fp_passed = sum(r.get("first_pass_passed", 0) for r in rows)
-    final_passed = sum(r.get("final_passed", 0) for r in rows)
-    unique_serials = sum(r.get("unique_serials", 0) for r in rows)
-    fpy = fp_passed / fp_total if fp_total else 0.0
-    final_yield = final_passed / unique_serials if unique_serials else 0.0
-
-    click.echo(f"Runs: {total_runs}  |  Serials: {unique_serials}")
-    click.echo(f"First Pass Yield: {fpy * 100:.1f}%")
-    click.echo(f"Final Yield:      {final_yield * 100:.1f}%")
-
-
-@yield_group.command("pareto")
-@_base_filters
-@click.option("--top", "top_n", default=10, help="Number of top failures")
-def yield_pareto(results_dir, phase, since, until_date, product, station, top_n, as_json):
-    """Top failure modes (Pareto analysis). Powered by GoldStore."""
-    store = _gold_store(results_dir)
-    rows = store.pareto(
-        product=product,
-        station=station,
-        phase=phase,
-        since=since,
-        until=until_date,
-        top_n=top_n,
-    )
-
-    if not rows:
-        click.echo("[]" if as_json else "No data found.")
-        return
-
-    if as_json:
-        click.echo(json.dumps(rows, indent=2, default=str))
-        return
-
-    click.echo(f"{'#':<4} {'Step / Measurement':<40} {'Count':>6} {'Rate':>7}")
-    click.echo("-" * 60)
-    for i, r in enumerate(rows, 1):
-        label = f"{r.get('step_name', '')}: {r.get('measurement_name', '')}"
-        if len(label) > 38:
-            label = label[:35] + "..."
-        click.echo(f"{i:<4} {label:<40} {r.get('fail_count', 0):>6} {r.get('fail_rate', 0):>6.1f}%")
-
-
-@yield_group.command("cpk")
-@_base_filters
-@click.option("--min-samples", default=10, help="Minimum sample count")
-def yield_cpk(results_dir, phase, since, until_date, product, station, min_samples, as_json):
-    """Process capability (Cpk) per measurement. Powered by GoldStore."""
-    store = _gold_store(results_dir)
-    rows = store.cpk(
-        product=product,
-        station=station,
-        phase=phase,
-        since=since,
-        until=until_date,
-        min_samples=min_samples,
-    )
-
-    if not rows:
-        click.echo("[]" if as_json else "No measurements with enough samples.")
-        return
-
-    if as_json:
-        click.echo(json.dumps(rows, indent=2, default=str))
-        return
-
-    click.echo(f"{'Measurement':<30} {'N':>5} {'Mean':>10} {'Sigma':>10} {'Cpk':>7} {'Cp':>7}")
-    click.echo("-" * 75)
-    for r in rows:
-        name = str(r.get("measurement_name", ""))
-        if len(name) > 28:
-            name = name[:25] + "..."
-        cpk_val = f"{r['cpk']:.3f}" if r.get("cpk") is not None else "N/A"
-        cp_val = f"{r['cp']:.3f}" if r.get("cp") is not None else "N/A"
-        click.echo(
-            f"{name:<30} {r.get('n') or 0:>5} {r.get('mean') or 0:>10.4f} "
-            f"{r.get('sigma') or 0:>10.4f} {cpk_val:>7} {cp_val:>7}"
-        )
-
-
-@yield_group.command("trend")
-@_base_filters
-@click.option("--period", type=click.Choice(["day", "week", "month"]), default="day")
-def yield_trend(results_dir, phase, since, until_date, product, station, period, as_json):
-    """Yield trend over time. Powered by GoldStore."""
-    store = _gold_store(results_dir)
-    rows = store.trend(
-        product=product,
-        station=station,
-        phase=phase,
-        since=since,
-        until=until_date,
-        period=period,
-    )
-
-    if not rows:
-        click.echo("[]" if as_json else "No data found.")
-        return
-
-    if as_json:
-        click.echo(json.dumps(rows, indent=2, default=str))
-        return
-
-    click.echo(f"{'Period':<14} {'Total':>6} {'Passed':>7} {'Yield':>7}")
-    click.echo("-" * 38)
-    for r in rows:
-        click.echo(
-            f"{str(r.get('period', '')):<14} {r.get('total', 0):>6} "
-            f"{r.get('passed', 0):>7} {r.get('yield_pct', 0):>6.1f}%"
-        )
-
-
-@yield_group.command("time")
-@_base_filters
-def yield_time(results_dir, phase, since, until_date, product, station, as_json):
-    """Time lost to failures and errors. Powered by GoldStore."""
-    store = _gold_store(results_dir)
-    rows = store.time_loss(
-        product=product,
-        station=station,
-        phase=phase,
-        since=since,
-        until=until_date,
-    )
-
-    if not rows:
-        click.echo("[]" if as_json else "No data found.")
-        return
-
-    if as_json:
-        click.echo(json.dumps(rows, indent=2, default=str))
-        return
-
-    click.echo(f"{'Period':<14} {'Total(s)':>10} {'Pass(s)':>10} {'Fail(s)':>10} {'Error(s)':>10}")
-    click.echo("-" * 58)
-    for r in rows:
-        click.echo(
-            f"{str(r.get('period', '')):<14} "
-            f"{r.get('total_time_s', 0) or 0:>10.1f} "
-            f"{r.get('pass_time_s', 0) or 0:>10.1f} "
-            f"{r.get('fail_time_s', 0) or 0:>10.1f} "
-            f"{r.get('error_time_s', 0) or 0:>10.1f}"
-        )
-
-
-# ---------------------------------------------------------------------------
-# Gold Layer Analytics
-# ---------------------------------------------------------------------------
-
-
 def _gold_store(results_dir: str | None):
     """Create a GoldStore with resolved results directory."""
     from litmus.analysis.gold import GoldStore
@@ -2256,16 +2076,16 @@ def _gold_store(results_dir: str | None):
     return GoldStore(_results_dir=_get_results_dir(results_dir))
 
 
-@main.group("gold")
-def gold_group():
-    """Gold layer — pre-aggregated manufacturing analytics (DuckDB SQL on silver)."""
+@main.group("metrics")
+def metrics_group():
+    """Manufacturing-test analytics (yield, pareto, cpk, trend, retest, time-loss)."""
     pass
 
 
-@gold_group.command("summary")
+@metrics_group.command("summary")
 @_base_filters
 @click.option("--period", type=click.Choice(["day", "week", "month"]), default="day")
-def gold_summary(results_dir, phase, since, until_date, product, station, period, as_json):
+def metrics_summary(results_dir, phase, since, until_date, product, station, period, as_json):
     """Yield summary: FPY, final yield, run counts, duration stats."""
     store = _gold_store(results_dir)
     rows = store.yield_summary(
@@ -2307,10 +2127,10 @@ def gold_summary(results_dir, phase, since, until_date, product, station, period
         )
 
 
-@gold_group.command("pareto")
+@metrics_group.command("pareto")
 @_base_filters
 @click.option("--top", "top_n", default=10, help="Number of top failures")
-def gold_pareto(results_dir, phase, since, until_date, product, station, top_n, as_json):
+def metrics_pareto(results_dir, phase, since, until_date, product, station, top_n, as_json):
     """Top failure modes (Pareto analysis)."""
     store = _gold_store(results_dir)
     rows = store.pareto(
@@ -2339,10 +2159,10 @@ def gold_pareto(results_dir, phase, since, until_date, product, station, top_n, 
         click.echo(f"{i:<4} {label:<40} {r.get('fail_count', 0):>6} {r.get('fail_rate', 0):>6.1f}%")
 
 
-@gold_group.command("cpk")
+@metrics_group.command("cpk")
 @_base_filters
 @click.option("--min-samples", default=10, help="Minimum sample count")
-def gold_cpk(results_dir, phase, since, until_date, product, station, min_samples, as_json):
+def metrics_cpk(results_dir, phase, since, until_date, product, station, min_samples, as_json):
     """Process capability (Cpk/Cp) per measurement."""
     store = _gold_store(results_dir)
     rows = store.cpk(
@@ -2376,10 +2196,10 @@ def gold_cpk(results_dir, phase, since, until_date, product, station, min_sample
         )
 
 
-@gold_group.command("trend")
+@metrics_group.command("trend")
 @_base_filters
 @click.option("--period", type=click.Choice(["day", "week", "month"]), default="day")
-def gold_trend(results_dir, phase, since, until_date, product, station, period, as_json):
+def metrics_trend(results_dir, phase, since, until_date, product, station, period, as_json):
     """Yield trend over time."""
     store = _gold_store(results_dir)
     rows = store.trend(
@@ -2408,10 +2228,10 @@ def gold_trend(results_dir, phase, since, until_date, product, station, period, 
         )
 
 
-@gold_group.command("retest")
+@metrics_group.command("retest")
 @_base_filters
 @click.option("--period", type=click.Choice(["day", "week", "month"]), default="day")
-def gold_retest(results_dir, phase, since, until_date, product, station, period, as_json):
+def metrics_retest(results_dir, phase, since, until_date, product, station, period, as_json):
     """Retest rates: how often DUTs require multiple attempts."""
     store = _gold_store(results_dir)
     rows = store.retest(
@@ -2441,10 +2261,10 @@ def gold_retest(results_dir, phase, since, until_date, product, station, period,
         )
 
 
-@gold_group.command("time-loss")
+@metrics_group.command("time-loss")
 @_base_filters
 @click.option("--period", type=click.Choice(["day", "week", "month"]), default="day")
-def gold_time_loss(results_dir, phase, since, until_date, product, station, period, as_json):
+def metrics_time_loss(results_dir, phase, since, until_date, product, station, period, as_json):
     """Time lost to failures and errors."""
     store = _gold_store(results_dir)
     rows = store.time_loss(

@@ -88,81 +88,45 @@ def results_dir(tmp_path):
     return tmp_path
 
 
-class TestYieldCLI:
+class TestMetricsCLI:
     def test_summary(self, results_dir):
         runner = CliRunner()
-        result = runner.invoke(main, ["yield", "summary", "--results-dir", str(results_dir)])
+        result = runner.invoke(main, ["metrics", "summary", "--results-dir", str(results_dir)])
         assert result.exit_code == 0
-        assert "Runs:" in result.output
+        assert "Pass" in result.output or "Runs" in result.output
 
     def test_summary_json(self, results_dir):
         runner = CliRunner()
         result = runner.invoke(
-            main, ["yield", "summary", "--results-dir", str(results_dir), "--json"]
+            main, ["metrics", "summary", "--results-dir", str(results_dir), "--json"]
         )
         assert result.exit_code == 0
         assert "total_runs" in result.output
 
     def test_pareto(self, results_dir):
         runner = CliRunner()
-        result = runner.invoke(main, ["yield", "pareto", "--results-dir", str(results_dir)])
+        result = runner.invoke(main, ["metrics", "pareto", "--results-dir", str(results_dir)])
         assert result.exit_code == 0
         assert "output_voltage" in result.output
 
     def test_cpk(self, results_dir):
         runner = CliRunner()
-        result = runner.invoke(main, ["yield", "cpk", "--results-dir", str(results_dir)])
+        result = runner.invoke(main, ["metrics", "cpk", "--results-dir", str(results_dir)])
         assert result.exit_code == 0
 
     def test_trend(self, results_dir):
         runner = CliRunner()
-        result = runner.invoke(main, ["yield", "trend", "--results-dir", str(results_dir)])
+        result = runner.invoke(main, ["metrics", "trend", "--results-dir", str(results_dir)])
         assert result.exit_code == 0
         assert "2026-01-01" in result.output
 
-    def test_time(self, results_dir):
+    def test_retest(self, results_dir):
         runner = CliRunner()
-        result = runner.invoke(main, ["yield", "time", "--results-dir", str(results_dir)])
+        result = runner.invoke(main, ["metrics", "retest", "--results-dir", str(results_dir)])
+        assert result.exit_code == 0
+
+    def test_time_loss(self, results_dir):
+        runner = CliRunner()
+        result = runner.invoke(main, ["metrics", "time-loss", "--results-dir", str(results_dir)])
         assert result.exit_code == 0
         assert "Total(s)" in result.output
-
-
-class TestGoldCLI:
-    def test_gold_summary(self, results_dir):
-        runner = CliRunner()
-        result = runner.invoke(main, ["gold", "summary", "--results-dir", str(results_dir)])
-        assert result.exit_code == 0
-        assert "Pass" in result.output or "Runs" in result.output
-
-    def test_gold_pareto(self, results_dir):
-        runner = CliRunner()
-        result = runner.invoke(main, ["gold", "pareto", "--results-dir", str(results_dir)])
-        assert result.exit_code == 0
-
-    def test_gold_cpk(self, results_dir):
-        runner = CliRunner()
-        result = runner.invoke(main, ["gold", "cpk", "--results-dir", str(results_dir)])
-        assert result.exit_code == 0
-
-    def test_gold_trend(self, results_dir):
-        runner = CliRunner()
-        result = runner.invoke(main, ["gold", "trend", "--results-dir", str(results_dir)])
-        assert result.exit_code == 0
-
-    def test_gold_retest(self, results_dir):
-        runner = CliRunner()
-        result = runner.invoke(main, ["gold", "retest", "--results-dir", str(results_dir)])
-        assert result.exit_code == 0
-
-    def test_gold_time_loss(self, results_dir):
-        runner = CliRunner()
-        result = runner.invoke(main, ["gold", "time-loss", "--results-dir", str(results_dir)])
-        assert result.exit_code == 0
-
-    def test_gold_summary_json(self, results_dir):
-        runner = CliRunner()
-        result = runner.invoke(
-            main, ["gold", "summary", "--results-dir", str(results_dir), "--json"]
-        )
-        assert result.exit_code == 0
-        assert "total_runs" in result.output
