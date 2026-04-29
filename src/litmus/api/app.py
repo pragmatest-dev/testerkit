@@ -68,10 +68,10 @@ def create_api_router() -> APIRouter:
     backend = ParquetBackend(results_dir=project.results_dir)
     _rdir: Path | None = Path(project.results_dir) if project.results_dir else None
 
-    def _gold_store():
-        from litmus.analysis.gold import GoldStore
+    def _metrics_store():
+        from litmus.analysis.metrics_store import MetricsStore
 
-        return GoldStore(_results_dir=project.results_dir)
+        return MetricsStore(_results_dir=project.results_dir)
 
     # -------------------------------------------------------------------------
     # Runs
@@ -477,11 +477,11 @@ def create_api_router() -> APIRouter:
         return result.model_dump()
 
     # -------------------------------------------------------------------------
-    # Gold Analytics
+    # Manufacturing-test analytics
     # -------------------------------------------------------------------------
 
-    @router.get("/gold/summary", response_class=ORJSONResponse)
-    def gold_summary(
+    @router.get("/metrics/summary", response_class=ORJSONResponse)
+    def metrics_summary(
         product: str | None = None,
         station: str | None = None,
         phase: str | None = None,
@@ -489,9 +489,9 @@ def create_api_router() -> APIRouter:
         until: str | None = None,
         period: str = "day",
     ):
-        """Yield summary from gold layer (DuckDB SQL on silver)."""
+        """Yield summary — DuckDB SQL aggregated from parquet rows at request time."""
         return {
-            "data": _gold_store().yield_summary(
+            "data": _metrics_store().yield_summary(
                 product=product,
                 station=station,
                 phase=phase,
@@ -501,8 +501,8 @@ def create_api_router() -> APIRouter:
             )
         }
 
-    @router.get("/gold/pareto", response_class=ORJSONResponse)
-    def gold_pareto(
+    @router.get("/metrics/pareto", response_class=ORJSONResponse)
+    def metrics_pareto(
         product: str | None = None,
         station: str | None = None,
         phase: str | None = None,
@@ -510,15 +510,15 @@ def create_api_router() -> APIRouter:
         until: str | None = None,
         top_n: int = 10,
     ):
-        """Top failure modes from gold layer."""
+        """Top failure modes (DuckDB SQL)."""
         return {
-            "data": _gold_store().pareto(
+            "data": _metrics_store().pareto(
                 product=product, station=station, phase=phase, since=since, until=until, top_n=top_n
             )
         }
 
-    @router.get("/gold/cpk", response_class=ORJSONResponse)
-    def gold_cpk(
+    @router.get("/metrics/cpk", response_class=ORJSONResponse)
+    def metrics_cpk(
         product: str | None = None,
         station: str | None = None,
         phase: str | None = None,
@@ -526,9 +526,9 @@ def create_api_router() -> APIRouter:
         until: str | None = None,
         min_samples: int = 10,
     ):
-        """Process capability from gold layer."""
+        """Process capability (DuckDB SQL)."""
         return {
-            "data": _gold_store().cpk(
+            "data": _metrics_store().cpk(
                 product=product,
                 station=station,
                 phase=phase,
@@ -538,8 +538,8 @@ def create_api_router() -> APIRouter:
             )
         }
 
-    @router.get("/gold/trend", response_class=ORJSONResponse)
-    def gold_trend(
+    @router.get("/metrics/trend", response_class=ORJSONResponse)
+    def metrics_trend(
         product: str | None = None,
         station: str | None = None,
         phase: str | None = None,
@@ -547,9 +547,9 @@ def create_api_router() -> APIRouter:
         until: str | None = None,
         period: str = "day",
     ):
-        """Yield trend from gold layer."""
+        """Yield trend (DuckDB SQL)."""
         return {
-            "data": _gold_store().trend(
+            "data": _metrics_store().trend(
                 product=product,
                 station=station,
                 phase=phase,
@@ -559,8 +559,8 @@ def create_api_router() -> APIRouter:
             )
         }
 
-    @router.get("/gold/retest", response_class=ORJSONResponse)
-    def gold_retest(
+    @router.get("/metrics/retest", response_class=ORJSONResponse)
+    def metrics_retest(
         product: str | None = None,
         station: str | None = None,
         phase: str | None = None,
@@ -568,9 +568,9 @@ def create_api_router() -> APIRouter:
         until: str | None = None,
         period: str = "day",
     ):
-        """Retest rates from gold layer."""
+        """Retest rates (DuckDB SQL)."""
         return {
-            "data": _gold_store().retest(
+            "data": _metrics_store().retest(
                 product=product,
                 station=station,
                 phase=phase,
@@ -580,8 +580,8 @@ def create_api_router() -> APIRouter:
             )
         }
 
-    @router.get("/gold/time-loss", response_class=ORJSONResponse)
-    def gold_time_loss(
+    @router.get("/metrics/time-loss", response_class=ORJSONResponse)
+    def metrics_time_loss(
         product: str | None = None,
         station: str | None = None,
         phase: str | None = None,
@@ -589,9 +589,9 @@ def create_api_router() -> APIRouter:
         until: str | None = None,
         period: str = "day",
     ):
-        """Time lost to failures/errors from gold layer."""
+        """Time lost to failures/errors (DuckDB SQL)."""
         return {
-            "data": _gold_store().time_loss(
+            "data": _metrics_store().time_loss(
                 product=product,
                 station=station,
                 phase=phase,

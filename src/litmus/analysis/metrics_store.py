@@ -1,7 +1,7 @@
 """Gold layer analytics — SQL on silver daemon view.
 
 Pre-aggregated manufacturing metrics computed on-the-fly.  Each
-``GoldStore`` method sends an analytics SQL query to the runs DuckDB
+``MetricsStore`` method sends an analytics SQL query to the runs DuckDB
 daemon via Arrow Flight.  The daemon exposes a ``silver`` VIEW that
 lazily reads raw measurement parquet (``read_parquet(glob,
 union_by_name=true)``), so gold always sees current data without
@@ -331,11 +331,11 @@ ORDER BY period_day
 
 
 # ---------------------------------------------------------------------------
-# GoldStore
+# MetricsStore
 # ---------------------------------------------------------------------------
 
 
-class GoldStore:
+class MetricsStore:
     """Query pre-aggregated manufacturing metrics via the runs DuckDB daemon.
 
     Queries go through Arrow Flight to the runs daemon, which exposes a
@@ -343,7 +343,7 @@ class GoldStore:
 
     Usage::
 
-        store = GoldStore()
+        store = MetricsStore()
         rows = store.yield_summary(product="PN-123", period="week")
         store.close()
     """
@@ -358,7 +358,7 @@ class GoldStore:
             location,
             "runs",
             reacquire=lambda: runs_duckdb_manager.acquire(self._runs_dir),
-            label="GoldStore",
+            label="MetricsStore",
         )
 
     def _query_dicts(self, sql: str) -> list[dict[str, Any]]:

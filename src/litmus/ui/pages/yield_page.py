@@ -6,7 +6,7 @@ from typing import TypedDict
 
 from nicegui import ui
 
-from litmus.analysis.gold import GoldStore
+from litmus.analysis.metrics_store import MetricsStore
 from litmus.ui.shared.components import render_empty_card
 from litmus.ui.shared.layout import create_layout
 from litmus.ui.shared.services import get_yield_filter_options, load_yield_runs_table
@@ -207,7 +207,7 @@ def _fetch_yield_data(
     pareto_data, cpk_data, trend_data, time_stats. Returns None when the
     filters match no data so the caller can render an empty-state.
     """
-    store = GoldStore(_results_dir=results_dir)
+    store = MetricsStore(_results_dir=results_dir)
 
     _product = product_id or None
     _station = station_id or None
@@ -312,7 +312,7 @@ def _refresh_dashboard(
     trend_chart_container,
     time_stats_container,
 ):
-    """Refresh all dashboard components via GoldStore (DuckDB SQL on silver)."""
+    """Refresh all dashboard components via MetricsStore (DuckDB SQL on silver)."""
     summary_container.clear()
     pareto_chart_container.clear()
     cpk_table_container.clear()

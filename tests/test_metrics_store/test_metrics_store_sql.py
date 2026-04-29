@@ -1,7 +1,7 @@
 """Unit tests for gold layer SQL correctness.
 
 Creates synthetic silver Parquet using MeasurementRow (the real model),
-runs GoldStore queries, and cross-validates against the Python metrics module.
+runs MetricsStore queries, and cross-validates against the Python metrics module.
 """
 
 from __future__ import annotations
@@ -12,8 +12,8 @@ from pathlib import Path
 import pyarrow.parquet as pq
 import pytest
 
-from litmus.analysis.gold import GoldStore
 from litmus.analysis.metrics import calculate_cpk, calculate_fpy
+from litmus.analysis.metrics_store import MetricsStore
 from litmus.data.backends._row_helpers import MeasurementRow
 from litmus.data.schemas import _build_write_schema, table_from_rows
 
@@ -122,7 +122,7 @@ def results_dir(tmp_path: Path) -> Path:
 
 class TestYieldSummary:
     def test_basic_counts(self, results_dir: Path):
-        store = GoldStore(_results_dir=results_dir)
+        store = MetricsStore(_results_dir=results_dir)
         rows = store.yield_summary(phase="all")
         assert len(rows) >= 1
         total_runs = sum(r["total_runs"] for r in rows)
@@ -130,7 +130,7 @@ class TestYieldSummary:
 
     def test_fpy_matches_python(self, results_dir: Path):
         """Gold FPY must match metrics.calculate_fpy on same data."""
-        store = GoldStore(_results_dir=results_dir)
+        store = MetricsStore(_results_dir=results_dir)
         rows = store.yield_summary(phase="all")
         fp_total = sum(r["first_pass_total"] for r in rows)
         fp_passed = sum(r["first_pass_passed"] for r in rows)
@@ -146,7 +146,7 @@ class TestYieldSummary:
         assert gold_fpy == pytest.approx(python_fpy, abs=0.01)
 
     def test_final_yield(self, results_dir: Path):
-        store = GoldStore(_results_dir=results_dir)
+        store = MetricsStore(_results_dir=results_dir)
         rows = store.yield_summary(phase="all")
         final_passed = sum(r["final_passed"] for r in rows)
         unique_serials = sum(r["unique_serials"] for r in rows)
@@ -154,12 +154,12 @@ class TestYieldSummary:
         assert final_yield == pytest.approx(1.0)
 
     def test_phase_filter(self, results_dir: Path):
-        store = GoldStore(_results_dir=results_dir)
+        store = MetricsStore(_results_dir=results_dir)
         rows = store.yield_summary()
         assert all(r["phase"] != "development" for r in rows)
 
     def test_duration_stats(self, results_dir: Path):
-        store = GoldStore(_results_dir=results_dir)
+        store = MetricsStore(_results_dir=results_dir)
         rows = store.yield_summary(phase="all")
         for r in rows:
             assert r["avg_duration_s"] is not None
@@ -168,7 +168,7 @@ class TestYieldSummary:
 
 class TestPareto:
     def test_failure_count(self, results_dir: Path):
-        store = GoldStore(_results_dir=results_dir)
+        store = MetricsStore(_results_dir=results_dir)
         rows = store.pareto(phase="all")
         assert len(rows) == 1
         assert rows[0]["fail_count"] == 1
@@ -182,7 +182,7 @@ class TestPareto:
                 _row(run_id="r1", value=3.3, outcome="pass"),
             ],
         )
-        store = GoldStore(_results_dir=tmp_path)
+        store = MetricsStore(_results_dir=tmp_path)
         assert store.pareto(phase="all") == []
 
 
@@ -197,7 +197,7 @@ class TestCpk:
         ]
         _write_silver(runs_dir, rows)
 
-        store = GoldStore(_results_dir=tmp_path)
+        store = MetricsStore(_results_dir=tmp_path)
         gold_rows = store.cpk(phase="all", min_samples=5)
         assert len(gold_rows) >= 1
         gold_cpk = gold_rows[0]["cpk"]
@@ -214,13 +214,13 @@ class TestCpk:
                 _row(run_id="r2", dut_serial="SN002", value=3.31, outcome="pass"),
             ],
         )
-        store = GoldStore(_results_dir=tmp_path)
+        store = MetricsStore(_results_dir=tmp_path)
         assert store.cpk(phase="all", min_samples=10) == []
 
 
 class TestTrend:
     def test_trend_data(self, results_dir: Path):
-        store = GoldStore(_results_dir=results_dir)
+        store = MetricsStore(_results_dir=results_dir)
         rows = store.trend(phase="all")
         assert len(rows) >= 1
         for r in rows:
@@ -229,14 +229,14 @@ class TestTrend:
             assert "yield_pct" in r
 
     def test_weekly_period(self, results_dir: Path):
-        store = GoldStore(_results_dir=results_dir)
+        store = MetricsStore(_results_dir=results_dir)
         rows = store.trend(phase="all", period="week")
         assert len(rows) >= 1
 
 
 class TestRetest:
     def test_retest_detection(self, results_dir: Path):
-        store = GoldStore(_results_dir=results_dir)
+        store = MetricsStore(_results_dir=results_dir)
         rows = store.retest(phase="all")
         assert len(rows) >= 1
         total_serials = sum(r["total_serials"] for r in rows)
@@ -247,7 +247,7 @@ class TestRetest:
 
 class TestTimeLoss:
     def test_time_breakdown(self, results_dir: Path):
-        store = GoldStore(_results_dir=results_dir)
+        store = MetricsStore(_results_dir=results_dir)
         rows = store.time_loss(phase="all")
         assert len(rows) >= 1
         total = sum(r["total_time_s"] or 0 for r in rows)
@@ -258,7 +258,7 @@ class TestTimeLoss:
 
 class TestEmptyDataset:
     def test_all_methods_return_empty(self, tmp_path: Path):
-        store = GoldStore(_results_dir=tmp_path)
+        store = MetricsStore(_results_dir=tmp_path)
         assert store.yield_summary() == []
         assert store.pareto() == []
         assert store.cpk() == []
@@ -269,20 +269,20 @@ class TestEmptyDataset:
 
 class TestFilters:
     def test_product_filter(self, results_dir: Path):
-        store = GoldStore(_results_dir=results_dir)
+        store = MetricsStore(_results_dir=results_dir)
         rows = store.yield_summary(product="PN-100", phase="all")
         assert all(r["product"] == "PN-100" for r in rows)
 
     def test_station_filter(self, results_dir: Path):
-        store = GoldStore(_results_dir=results_dir)
+        store = MetricsStore(_results_dir=results_dir)
         rows = store.yield_summary(station="STA-01", phase="all")
         assert all(r["station"] == "STA-01" for r in rows)
 
     def test_nonexistent_product(self, results_dir: Path):
-        store = GoldStore(_results_dir=results_dir)
+        store = MetricsStore(_results_dir=results_dir)
         assert store.yield_summary(product="NOPE", phase="all") == []
 
     def test_date_filter(self, results_dir: Path):
-        store = GoldStore(_results_dir=results_dir)
+        store = MetricsStore(_results_dir=results_dir)
         rows = store.yield_summary(since="2026-01-01", until="2026-01-01", phase="all")
         assert len(rows) >= 1
