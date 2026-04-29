@@ -291,8 +291,6 @@ class DUT(BaseModel):
 class RunSummary(BaseModel):
     """Lightweight run header read from parquet index (no steps/measurements)."""
 
-    __test__ = False
-
     test_run_id: str
     session_id: str | None = None
     slot_id: str | None = None
