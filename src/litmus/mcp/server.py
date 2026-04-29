@@ -10,7 +10,7 @@ This server exposes 10 tools:
 - litmus_events: Query events from the event store
 - litmus_sessions: List known sessions
 - litmus_channels: Query channel data
-- litmus_gold: Query pre-aggregated manufacturing metrics
+- litmus_metrics: Query manufacturing-test analytics
 
 The platform does NOT call LLMs - it exposes these tools so that AI agents
 (Claude Code, etc.) can orchestrate the full datasheet-to-test workflow.
@@ -25,9 +25,9 @@ from litmus.mcp.tools import (
     channels_tool,
     discover_tool,
     events_tool,
-    gold_tool,
     litmus_tool,
     match_tool,
+    metrics_tool,
     open_tool,
     run_tool,
     schema_tool,
@@ -497,11 +497,11 @@ def create_mcp_server() -> FastMCP:
         return channels_tool(channel_id, session_id, last_n, max_points, project)
 
     # -------------------------------------------------------------------------
-    # Tool 10: litmus_gold
+    # Tool 10: litmus_metrics
     # -------------------------------------------------------------------------
 
-    @mcp.tool(name="litmus_gold")
-    def query_gold(
+    @mcp.tool(name="litmus_metrics")
+    def query_metrics(
         action: str,
         product: str | None = None,
         station: str | None = None,
@@ -513,7 +513,7 @@ def create_mcp_server() -> FastMCP:
         min_samples: int = 10,
         project: str | None = None,
     ) -> dict[str, Any]:
-        """Query pre-aggregated manufacturing metrics (DuckDB SQL on silver Parquet).
+        """Query manufacturing-test analytics (DuckDB SQL aggregated from parquet rows).
 
         Fast analytics without loading all data into Python. Supports:
         - summary: FPY, final yield, run counts, duration stats
@@ -535,7 +535,7 @@ def create_mcp_server() -> FastMCP:
             min_samples: Minimum sample count for cpk.
             project: Project root path.
         """
-        return gold_tool(
+        return metrics_tool(
             action,
             product=product,
             station=station,

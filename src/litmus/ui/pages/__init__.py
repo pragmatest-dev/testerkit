@@ -11,9 +11,9 @@ from litmus.ui.pages import (
     instruments,  # noqa: F401
     launch,  # noqa: F401
     live,  # noqa: F401
+    metrics_page,  # noqa: F401
     products,  # noqa: F401
     results,  # noqa: F401
     stations,  # noqa: F401
     tests,  # noqa: F401
-    yield_page,  # noqa: F401
 )

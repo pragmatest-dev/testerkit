@@ -14,7 +14,7 @@ from litmus.ui.shared.services import get_yield_filter_options, load_yield_runs_
 logger = logging.getLogger(__name__)
 
 
-class YieldDashboardData(TypedDict):
+class MetricsDashboardData(TypedDict):
     fpy: float
     final_yield: float
     total_runs: int
@@ -25,8 +25,8 @@ class YieldDashboardData(TypedDict):
     time_stats: dict
 
 
-@ui.page("/yield")
-def yield_page(
+@ui.page("/metrics")
+def metrics_page(
     results_dir: str = "",
     phase: str = "",
     product: str = "",
@@ -79,7 +79,7 @@ def yield_page(
         if until_filter.value:
             params.append(f"until={until_filter.value}")
         query_str = "&".join(params)
-        new_url = f"/yield{'?' + query_str if query_str else ''}"
+        new_url = f"/metrics{'?' + query_str if query_str else ''}"
         ui.run_javascript(f"history.replaceState(null, '', '{new_url}')")
 
     with ui.column().classes("w-full p-6 gap-6"):
@@ -200,7 +200,7 @@ def _fetch_yield_data(
     station_id: str | None,
     since: str | None,
     until: str | None,
-) -> YieldDashboardData | None:
+) -> MetricsDashboardData | None:
     """Compute all yield dashboard data (pure — no UI).
 
     Returns a dict with keys: fpy, final_yield, total_runs, total_failed,

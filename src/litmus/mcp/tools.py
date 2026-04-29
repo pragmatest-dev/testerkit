@@ -1419,11 +1419,11 @@ def schema_tool(yaml_type: str | None = None) -> dict[str, Any]:
 
 
 # ---------------------------------------------------------------------------
-# Tool 10: litmus_gold — gold layer analytics
+# Tool 10: litmus_metrics — manufacturing-test analytics
 # ---------------------------------------------------------------------------
 
-GoldAction = Literal["summary", "pareto", "cpk", "trend", "retest", "time_loss"]
-_GOLD_ACTIONS: tuple[GoldAction, ...] = (
+MetricsAction = Literal["summary", "pareto", "cpk", "trend", "retest", "time_loss"]
+_METRICS_ACTIONS: tuple[MetricsAction, ...] = (
     "summary",
     "pareto",
     "cpk",
@@ -1433,7 +1433,7 @@ _GOLD_ACTIONS: tuple[GoldAction, ...] = (
 )
 
 
-def gold_tool(
+def metrics_tool(
     action: str,
     product: str | None = None,
     station: str | None = None,
@@ -1445,7 +1445,7 @@ def gold_tool(
     min_samples: int = 10,
     project: str | None = None,
 ) -> dict[str, Any]:
-    """Query pre-aggregated manufacturing metrics (DuckDB SQL on silver).
+    """Query manufacturing-test analytics (DuckDB SQL aggregated from parquet rows).
 
     Args:
         action: One of: summary, pareto, cpk, trend, retest, time_loss.
@@ -1459,8 +1459,8 @@ def gold_tool(
         min_samples: Minimum sample count for cpk (default: 10).
         project: Project root path.
     """
-    if action not in _GOLD_ACTIONS:
-        return {"error": f"Unknown action '{action}'. Valid: {list(_GOLD_ACTIONS)}"}
+    if action not in _METRICS_ACTIONS:
+        return {"error": f"Unknown action '{action}'. Valid: {list(_METRICS_ACTIONS)}"}
 
     from litmus.analysis.metrics_store import MetricsStore
 
