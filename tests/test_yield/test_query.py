@@ -37,8 +37,8 @@ def sample_results(tmp_path):
             "step_name": "test_voltage",
             "measurement_name": "output_voltage",
             "value": 3.3,
-            "low_limit": 3.1,
-            "high_limit": 3.5,
+            "limit_low": 3.1,
+            "limit_high": 3.5,
             "outcome": "pass",
         },
         {
@@ -54,8 +54,8 @@ def sample_results(tmp_path):
             "step_name": "test_current",
             "measurement_name": "input_current",
             "value": 0.5,
-            "low_limit": 0.0,
-            "high_limit": 1.0,
+            "limit_low": 0.0,
+            "limit_high": 1.0,
             "outcome": "pass",
         },
         {
@@ -71,8 +71,8 @@ def sample_results(tmp_path):
             "step_name": "test_voltage",
             "measurement_name": "output_voltage",
             "value": 2.8,
-            "low_limit": 3.1,
-            "high_limit": 3.5,
+            "limit_low": 3.1,
+            "limit_high": 3.5,
             "outcome": "fail",
         },
         {
@@ -88,8 +88,8 @@ def sample_results(tmp_path):
             "step_name": "test_voltage",
             "measurement_name": "output_voltage",
             "value": 3.35,
-            "low_limit": 3.1,
-            "high_limit": 3.5,
+            "limit_low": 3.1,
+            "limit_high": 3.5,
             "outcome": "pass",
         },
     ]

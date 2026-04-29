@@ -328,17 +328,17 @@ class AtmlSubscriber(EventSubscriber):
 
             _add_limit(
                 result_el,
-                m.low_limit,
-                m.high_limit,
-                m.nominal,
-                m.comparator,
+                m.limit_low,
+                m.limit_high,
+                m.limit_nominal,
+                m.limit_comparator,
                 m.units,
             )
 
-            if m.meas_dut_pin:
-                test_el.set("dutPin", m.meas_dut_pin)
-            if m.meas_instrument_name:
-                test_el.set("instrumentName", m.meas_instrument_name)
+            if m.dut_pin:
+                test_el.set("dutPin", m.dut_pin)
+            if m.instrument_name:
+                test_el.set("instrumentName", m.instrument_name)
 
         run_id = self._short_run_id(s.run_id)
         out_file = self._output_dir / f"{run_id}.xml"

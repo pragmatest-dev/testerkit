@@ -192,22 +192,22 @@ class Hdf5Subscriber(EventSubscriber):
 
                 if m.units:
                     ds.attrs["units"] = m.units
-                if m.comparator:
-                    ds.attrs["comparator"] = m.comparator
-                if m.low_limit is not None:
-                    ds.attrs["low_limit"] = m.low_limit
-                if m.high_limit is not None:
-                    ds.attrs["high_limit"] = m.high_limit
-                if m.nominal is not None:
-                    ds.attrs["nominal"] = m.nominal
+                if m.limit_comparator:
+                    ds.attrs["limit_comparator"] = m.limit_comparator
+                if m.limit_low is not None:
+                    ds.attrs["limit_low"] = m.limit_low
+                if m.limit_high is not None:
+                    ds.attrs["limit_high"] = m.limit_high
+                if m.limit_nominal is not None:
+                    ds.attrs["limit_nominal"] = m.limit_nominal
                 if m.outcome:
                     ds.attrs["outcome"] = m.outcome
                 if m.characteristic_id:
                     ds.attrs["characteristic_id"] = m.characteristic_id
-                if m.meas_dut_pin:
-                    ds.attrs["dut_pin"] = m.meas_dut_pin
-                if m.meas_instrument_name:
-                    ds.attrs["instrument_name"] = m.meas_instrument_name
+                if m.dut_pin:
+                    ds.attrs["dut_pin"] = m.dut_pin
+                if m.instrument_name:
+                    ds.attrs["instrument_name"] = m.instrument_name
 
         if self._on_output:
             self._on_output(OutputFile(path=out_file, format="hdf5", run_id=run_id))

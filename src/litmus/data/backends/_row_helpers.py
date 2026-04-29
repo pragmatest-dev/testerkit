@@ -87,27 +87,27 @@ class MeasurementRow(BaseModel):
     step_function: str | None = None
     step_markers: str | None = None
     vector_index: int | None = None
-    attempt: int | None = None
+    vector_attempt: int | None = None
     vector_started_at: datetime | None = None
     vector_ended_at: datetime | None = None
 
     # Measurement
     measurement_name: str
     measurement_timestamp: datetime | None = None
-    value: float | None = None
-    units: str | None = None
-    outcome: str | None = None
-    low_limit: float | None = None
-    high_limit: float | None = None
-    nominal: float | None = None
-    comparator: str | None = None
+    measurement_value: float | None = None
+    measurement_units: str | None = None
+    measurement_outcome: str | None = None
+    limit_low: float | None = None
+    limit_high: float | None = None
+    limit_nominal: float | None = None
+    limit_comparator: str | None = None
     characteristic_id: str | None = None
     spec_ref: str | None = None
-    meas_dut_pin: str | None = None
-    meas_fixture_connection: str | None = None
-    meas_instrument_name: str | None = None
-    meas_instrument_resource: str | None = None
-    meas_instrument_channel: str | None = None
+    dut_pin: str | None = None
+    fixture_connection: str | None = None
+    instrument_name: str | None = None
+    instrument_resource: str | None = None
+    instrument_channel: str | None = None
 
     # Outcomes
     vector_outcome: str | None = None
@@ -208,23 +208,23 @@ def build_measurement_fields(measurement: Measurement) -> dict[str, Any]:
     return {
         "measurement_name": measurement.name,
         "measurement_timestamp": measurement.timestamp,
-        "value": measurement.value,
-        "units": measurement.units,
-        "outcome": measurement.outcome.value if measurement.outcome else None,
+        "measurement_value": measurement.value,
+        "measurement_units": measurement.units,
+        "measurement_outcome": measurement.outcome.value if measurement.outcome else None,
         # Limits
-        "low_limit": measurement.low_limit,
-        "high_limit": measurement.high_limit,
-        "nominal": measurement.nominal,
-        "comparator": measurement.comparator,
+        "limit_low": measurement.limit_low,
+        "limit_high": measurement.limit_high,
+        "limit_nominal": measurement.limit_nominal,
+        "limit_comparator": measurement.limit_comparator,
         # Spec traceability
         "characteristic_id": measurement.characteristic_id,
         "spec_ref": measurement.spec_ref,
         # Signal path
-        "meas_dut_pin": measurement.dut_pin,
-        "meas_fixture_connection": measurement.fixture_connection,
-        "meas_instrument_name": measurement.instrument_name,
-        "meas_instrument_resource": measurement.instrument_resource,
-        "meas_instrument_channel": measurement.instrument_channel,
+        "dut_pin": measurement.dut_pin,
+        "fixture_connection": measurement.fixture_connection,
+        "instrument_name": measurement.instrument_name,
+        "instrument_resource": measurement.instrument_resource,
+        "instrument_channel": measurement.instrument_channel,
     }
 
 
@@ -420,7 +420,7 @@ def build_row(
         step_function=step_function,
         step_markers=step_markers,
         vector_index=vector.index,
-        attempt=vector.attempt,
+        vector_attempt=vector.attempt,
         vector_started_at=vector.started_at,
         vector_ended_at=vector.ended_at,
         # Outcomes

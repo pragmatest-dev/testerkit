@@ -123,8 +123,8 @@ class TestHdf5Subscriber:
             assert abs(float(vout[()]) - 3.30) < 0.01
             assert vout.attrs["units"] == "V"
             assert vout.attrs["comparator"] == "GELE"
-            assert vout.attrs["low_limit"] == 3.0
-            assert vout.attrs["high_limit"] == 3.6
+            assert vout.attrs["limit_low"] == 3.0
+            assert vout.attrs["limit_high"] == 3.6
             assert vout.attrs["outcome"] == "pass"
             assert vout.attrs["characteristic_id"] == "SPEC-001"
             assert vout.attrs["dut_pin"] == "VOUT"

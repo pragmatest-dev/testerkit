@@ -152,14 +152,14 @@ def _build_step_channels(
         props: dict[str, object] = {}
         if fm.units:
             props["units"] = fm.units
-        if fm.comparator:
-            props["comparator"] = fm.comparator
-        if fm.low_limit is not None:
-            props["low_limit"] = fm.low_limit
-        if fm.high_limit is not None:
-            props["high_limit"] = fm.high_limit
-        if fm.nominal is not None:
-            props["nominal"] = fm.nominal
+        if fm.limit_comparator:
+            props["limit_comparator"] = fm.limit_comparator
+        if fm.limit_low is not None:
+            props["limit_low"] = fm.limit_low
+        if fm.limit_high is not None:
+            props["limit_high"] = fm.limit_high
+        if fm.limit_nominal is not None:
+            props["limit_nominal"] = fm.limit_nominal
 
         channels.append(
             ChannelObject(

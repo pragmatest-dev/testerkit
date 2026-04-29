@@ -281,13 +281,13 @@ def _write_csv(data: ReportData, output: Path) -> None:
         "measurement_name",
         "value",
         "units",
-        "low_limit",
-        "high_limit",
+        "limit_low",
+        "limit_high",
         "nominal",
         "outcome",
         "characteristic_id",
-        "meas_dut_pin",
-        "meas_instrument_name",
+        "dut_pin",
+        "instrument_name",
     ]
 
     buf = io.StringIO()

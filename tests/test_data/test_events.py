@@ -54,8 +54,8 @@ class TestEventModels:
             value=3.3,
             units="V",
             outcome="pass",
-            low_limit=3.0,
-            high_limit=3.6,
+            limit_low=3.0,
+            limit_high=3.6,
         )
         assert e.event_type == "test.measurement"
         assert e.value == 3.3

@@ -192,8 +192,8 @@ def _render_measurements_tab(measurements: list):
                         f"{m.get('value', '-')}{' ' + m.get('units', '') if m.get('units') else ''}"
                     ),
                     "limits": (
-                        f"{m.get('low_limit', '—')} – {m.get('high_limit', '—')}"
-                        if m.get("low_limit") is not None or m.get("high_limit") is not None
+                        f"{m.get('limit_low', '—')} – {m.get('limit_high', '—')}"
+                        if m.get("limit_low") is not None or m.get("limit_high") is not None
                         else "—"
                     ),
                     "outcome": m.get("outcome", ""),

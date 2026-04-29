@@ -45,8 +45,8 @@ def runs_store(tmp_path_factory: pytest.TempPathFactory) -> Generator[RunStore]:
                 "value": [3.3],
                 "outcome": ["pass"],
                 "units": ["V"],
-                "low_limit": [3.1],
-                "high_limit": [3.5],
+                "limit_low": [3.1],
+                "limit_high": [3.5],
                 "nominal": [3.3],
                 "out_waveform": [uri],
             }
@@ -71,8 +71,8 @@ def runs_store(tmp_path_factory: pytest.TempPathFactory) -> Generator[RunStore]:
                 "value": [2.8],
                 "outcome": ["fail"],
                 "units": ["V"],
-                "low_limit": [3.1],
-                "high_limit": [3.5],
+                "limit_low": [3.1],
+                "limit_high": [3.5],
                 "nominal": [3.3],
                 "out_waveform": pa.array([None], type=pa.string()),
             }

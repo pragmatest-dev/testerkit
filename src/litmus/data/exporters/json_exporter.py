@@ -119,20 +119,20 @@ class JsonSubscriber(EventSubscriber):
                         md["units"] = m.units
                     if m.outcome:
                         md["outcome"] = m.outcome
-                    if m.low_limit is not None:
-                        md["low_limit"] = m.low_limit
-                    if m.high_limit is not None:
-                        md["high_limit"] = m.high_limit
-                    if m.nominal is not None:
-                        md["nominal"] = m.nominal
-                    if m.comparator:
-                        md["comparator"] = m.comparator
+                    if m.limit_low is not None:
+                        md["limit_low"] = m.limit_low
+                    if m.limit_high is not None:
+                        md["limit_high"] = m.limit_high
+                    if m.limit_nominal is not None:
+                        md["limit_nominal"] = m.limit_nominal
+                    if m.limit_comparator:
+                        md["limit_comparator"] = m.limit_comparator
                     if m.characteristic_id:
                         md["characteristic_id"] = m.characteristic_id
-                    if m.meas_dut_pin:
-                        md["dut_pin"] = m.meas_dut_pin
-                    if m.meas_instrument_name:
-                        md["instrument_name"] = m.meas_instrument_name
+                    if m.dut_pin:
+                        md["dut_pin"] = m.dut_pin
+                    if m.instrument_name:
+                        md["instrument_name"] = m.instrument_name
                     measurements.append(md)
 
                 vec_dict: dict[str, Any] = {

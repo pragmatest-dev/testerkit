@@ -164,7 +164,7 @@ def calculate_cpk_for_measurements(
 
     Args:
         measurements: List of measurement dicts with measurement_name,
-            value, low_limit, high_limit.
+            value, limit_low, limit_high.
         min_samples: Minimum sample size for Cpk warning.
 
     Returns:
@@ -178,13 +178,17 @@ def calculate_cpk_for_measurements(
 
     cpk_results = []
     for name, meas_list in by_name.items():
-        values = [float(m["value"]) for m in meas_list if m.get("value") is not None]
+        values = [
+            float(m["measurement_value"])
+            for m in meas_list
+            if m.get("measurement_value") is not None
+        ]
         lsl = next(
-            (float(m["low_limit"]) for m in meas_list if m.get("low_limit") is not None),
+            (float(m["limit_low"]) for m in meas_list if m.get("limit_low") is not None),
             None,
         )
         usl = next(
-            (float(m["high_limit"]) for m in meas_list if m.get("high_limit") is not None),
+            (float(m["limit_high"]) for m in meas_list if m.get("limit_high") is not None),
             None,
         )
 
@@ -213,7 +217,7 @@ def pareto_analysis(
     # Count failures by (step_name, measurement_name)
     fail_counts: dict[tuple[str, str], int] = defaultdict(int)
     for m in measurements:
-        if m.get("outcome") == "fail":
+        if m.get("measurement_outcome") == "fail":
             key = (m.get("step_name", ""), m.get("measurement_name", ""))
             fail_counts[key] += 1
 

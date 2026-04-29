@@ -43,9 +43,9 @@ def _build_comment(
     if comparator:
         parts.append(f"  <comparator>{comparator}</comparator>")
     if low is not None:
-        parts.append(f"  <low_limit>{low}</low_limit>")
+        parts.append(f"  <limit_low>{low}</limit_low>")
     if high is not None:
-        parts.append(f"  <high_limit>{high}</high_limit>")
+        parts.append(f"  <limit_high>{high}</limit_high>")
     if nominal is not None:
         parts.append(f"  <nominal>{nominal}</nominal>")
     parts.append("</measurement>")
@@ -72,10 +72,10 @@ def _signals_from_measurements(
             meas_data[mname] = {}
             meas_meta[mname] = {
                 "units": m.units if isinstance(m.units, str) else None,
-                "comparator": m.comparator,
-                "low_limit": m.low_limit,
-                "high_limit": m.high_limit,
-                "nominal": m.nominal,
+                "limit_comparator": m.limit_comparator,
+                "limit_low": m.limit_low,
+                "limit_high": m.limit_high,
+                "limit_nominal": m.limit_nominal,
             }
         val = m.value
         meas_data[mname][vec_idx] = val if val is not None else float("nan")
@@ -97,10 +97,10 @@ def _signals_from_measurements(
         comment = _build_comment(
             mname,
             meta["units"],
-            meta["comparator"],
-            meta["low_limit"],
-            meta["high_limit"],
-            meta["nominal"],
+            meta["limit_comparator"],
+            meta["limit_low"],
+            meta["limit_high"],
+            meta["limit_nominal"],
         )
         signals.append(
             Signal(

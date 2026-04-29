@@ -109,8 +109,8 @@
       <td>{{ m.get('measurement_name', '') }}</td>
       <td>{{ m.get('value') | fmt_value }}</td>
       <td>{{ m.get('units', '') or '' }}</td>
-      <td>{{ m.get('low_limit') | fmt_value }}</td>
-      <td>{{ m.get('high_limit') | fmt_value }}</td>
+      <td>{{ m.get('limit_low') | fmt_value }}</td>
+      <td>{{ m.get('limit_high') | fmt_value }}</td>
       {% set mo = m.get('outcome', '') %}
       <td class="{% if mo == 'pass' %}cell-pass{% elif mo == 'fail' %}cell-fail{% endif %}">{{ mo }}</td>
     </tr>

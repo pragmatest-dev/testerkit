@@ -55,10 +55,10 @@ def measure(
                 name=name or func.__name__,
                 value=float(value) if value is not None else None,
                 units=units or (limit.units if limit else None),
-                low_limit=limit.low if limit else None,
-                high_limit=limit.high if limit else None,
-                nominal=limit.nominal if limit else None,
-                comparator=cmp_str,
+                limit_low=limit.low if limit else None,
+                limit_high=limit.high if limit else None,
+                limit_nominal=limit.nominal if limit else None,
+                limit_comparator=cmp_str,
                 spec_ref=limit.spec_ref if limit else None,
             )
 
@@ -72,7 +72,7 @@ def measure(
                 raise AssertionError(
                     f"Measurement '{measurement.name}' FAILED: "
                     f"{measurement.value} not in "
-                    f"[{measurement.low_limit}, {measurement.high_limit}]"
+                    f"[{measurement.limit_low}, {measurement.limit_high}]"
                 )
 
             return measurement

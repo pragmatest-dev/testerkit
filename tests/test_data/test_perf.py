@@ -51,8 +51,8 @@ def _make_measurement(session_id, i: int) -> MeasurementRecorded:
         value=3.3 + (i % 100) * 0.01,
         units="V",
         outcome="pass",
-        low_limit=3.0,
-        high_limit=3.6,
+        limit_low=3.0,
+        limit_high=3.6,
     )
 
 

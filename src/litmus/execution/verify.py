@@ -201,15 +201,15 @@ def _reconstruct_limit_from_measurement(m: Measurement) -> Limit | None:
     Returns ``None`` if no limit fields were set — i.e. the measurement
     was recorded in characterization mode.
     """
-    if m.low_limit is None and m.high_limit is None and m.nominal is None:
+    if m.limit_low is None and m.limit_high is None and m.limit_nominal is None:
         return None
     from litmus.models.enums import Comparator
 
-    cmp = Comparator(m.comparator) if m.comparator else Comparator.GELE
+    cmp = Comparator(m.limit_comparator) if m.limit_comparator else Comparator.GELE
     return Limit(
-        low=m.low_limit,
-        high=m.high_limit,
-        nominal=m.nominal,
+        low=m.limit_low,
+        high=m.limit_high,
+        nominal=m.limit_nominal,
         units=m.units or "",
         characteristic_id=m.characteristic_id,
         spec_ref=m.spec_ref,

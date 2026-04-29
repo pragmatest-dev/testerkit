@@ -40,12 +40,12 @@ _ANALYSIS_COLUMNS = [
     "step_started_at",
     "step_ended_at",
     "measurement_name",
-    "value",
-    "units",
-    "outcome",
-    "low_limit",
-    "high_limit",
-    "nominal",
+    "measurement_value",
+    "measurement_units",
+    "measurement_outcome",
+    "limit_low",
+    "limit_high",
+    "limit_nominal",
 ]
 
 

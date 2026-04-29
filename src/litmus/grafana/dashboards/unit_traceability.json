@@ -63,7 +63,7 @@
       },
       "targets": [
         {
-          "rawSql": "SELECT run_id, step_name, measurement_name, value, units, low_limit, high_limit, nominal, outcome, measurement_timestamp FROM measurements WHERE dut_serial = '${serial}' ORDER BY measurement_timestamp DESC LIMIT 500",
+          "rawSql": "SELECT run_id, step_name, measurement_name, value, units, limit_low, limit_high, nominal, outcome, measurement_timestamp FROM measurements WHERE dut_serial = '${serial}' ORDER BY measurement_timestamp DESC LIMIT 500",
           "format": "table"
         }
       ]

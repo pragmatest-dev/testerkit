@@ -53,20 +53,20 @@ if TYPE_CHECKING:
 # Canonical list of instrument identity array keys.
 # Used by build_instrument_arrays() and _build_empty_row() for schema consistency.
 INSTRUMENT_ARRAY_KEYS = (
-    "instr_name",
-    "instr_id",
-    "instr_driver",
-    "instr_resource",
-    "instr_protocol",
-    "instr_manufacturer",
-    "instr_model",
-    "instr_serial",
-    "instr_firmware",
-    "instr_cal_due",
-    "instr_cal_last",
-    "instr_cal_certificate",
-    "instr_cal_lab",
-    "instr_mocked",
+    "step_instruments_name",
+    "step_instruments_id",
+    "step_instruments_driver",
+    "step_instruments_resource",
+    "step_instruments_protocol",
+    "step_instruments_manufacturer",
+    "step_instruments_model",
+    "step_instruments_serial",
+    "step_instruments_firmware",
+    "step_instruments_cal_due",
+    "step_instruments_cal_last",
+    "step_instruments_cal_certificate",
+    "step_instruments_cal_lab",
+    "step_instruments_mocked",
 )
 
 
@@ -543,19 +543,22 @@ class TestRunLogger:
                    If None, include all instruments.
 
         Returns dict with keys:
-        - instr_name: List of instrument names/roles (e.g., ["dmm", "psu"])
-        - instr_id: List of instrument IDs (e.g., ["keithley_dmm_001", "keysight_psu_001"])
-        - instr_driver: List of driver class paths (e.g., ["drivers.Keithley2000"])
-        - instr_resource: List of resources (e.g., ["GPIB::16::INSTR", "GPIB::17::INSTR"])
-        - instr_protocol: List of protocols (e.g., ["visa", "visa"])
-        - instr_manufacturer: List of manufacturers
-        - instr_model: List of models
-        - instr_serial: List of serial numbers
-        - instr_firmware: List of firmware versions
-        - instr_cal_due: List of calibration due dates (ISO format)
-        - instr_cal_last: List of last calibration dates (ISO format)
-        - instr_cal_certificate: List of certificate numbers
-        - instr_cal_lab: List of calibration labs
+        - step_instruments_name: List of instrument names/roles (e.g., ["dmm", "psu"])
+        - step_instruments_id: List of instrument IDs
+          (e.g., ["keithley_dmm_001", "keysight_psu_001"])
+        - step_instruments_driver: List of driver class paths
+          (e.g., ["drivers.Keithley2000"])
+        - step_instruments_resource: List of resources
+          (e.g., ["GPIB::16::INSTR", "GPIB::17::INSTR"])
+        - step_instruments_protocol: List of protocols (e.g., ["visa", "visa"])
+        - step_instruments_manufacturer: List of manufacturers
+        - step_instruments_model: List of models
+        - step_instruments_serial: List of serial numbers
+        - step_instruments_firmware: List of firmware versions
+        - step_instruments_cal_due: List of calibration due dates (ISO format)
+        - step_instruments_cal_last: List of last calibration dates (ISO format)
+        - step_instruments_cal_certificate: List of certificate numbers
+        - step_instruments_cal_lab: List of calibration labs
 
         All arrays are the same length and in the same order.
         """
@@ -565,20 +568,20 @@ class TestRunLogger:
                 continue
             info = instrument_info_fields(record)
             cal = instrument_cal_fields(record)
-            arrays["instr_name"].append(role)
-            arrays["instr_id"].append(record.instrument_id)
-            arrays["instr_driver"].append(record.driver)
-            arrays["instr_resource"].append(record.resource)
-            arrays["instr_protocol"].append(record.protocol)
-            arrays["instr_manufacturer"].append(info["manufacturer"])
-            arrays["instr_model"].append(info["model"])
-            arrays["instr_serial"].append(info["serial"])
-            arrays["instr_firmware"].append(info["firmware"])
-            arrays["instr_cal_due"].append(cal["cal_due"])
-            arrays["instr_cal_last"].append(cal["cal_last"])
-            arrays["instr_cal_certificate"].append(cal["cal_certificate"])
-            arrays["instr_cal_lab"].append(cal["cal_lab"])
-            arrays["instr_mocked"].append(record.mocked)
+            arrays["step_instruments_name"].append(role)
+            arrays["step_instruments_id"].append(record.instrument_id)
+            arrays["step_instruments_driver"].append(record.driver)
+            arrays["step_instruments_resource"].append(record.resource)
+            arrays["step_instruments_protocol"].append(record.protocol)
+            arrays["step_instruments_manufacturer"].append(info["manufacturer"])
+            arrays["step_instruments_model"].append(info["model"])
+            arrays["step_instruments_serial"].append(info["serial"])
+            arrays["step_instruments_firmware"].append(info["firmware"])
+            arrays["step_instruments_cal_due"].append(cal["cal_due"])
+            arrays["step_instruments_cal_last"].append(cal["cal_last"])
+            arrays["step_instruments_cal_certificate"].append(cal["cal_certificate"])
+            arrays["step_instruments_cal_lab"].append(cal["cal_lab"])
+            arrays["step_instruments_mocked"].append(record.mocked)
         return arrays
 
     def set_step_instruments(self, roles: list[str]) -> dict[str, list]:
@@ -773,17 +776,17 @@ class TestRunLogger:
                 value=measurement.value,
                 units=measurement.units,
                 outcome=measurement.outcome.value if measurement.outcome else None,
-                low_limit=measurement.low_limit,
-                high_limit=measurement.high_limit,
-                nominal=measurement.nominal,
-                comparator=measurement.comparator,
+                limit_low=measurement.limit_low,
+                limit_high=measurement.limit_high,
+                limit_nominal=measurement.limit_nominal,
+                limit_comparator=measurement.limit_comparator,
                 characteristic_id=measurement.characteristic_id,
                 spec_ref=measurement.spec_ref,
-                meas_dut_pin=measurement.dut_pin,
-                meas_fixture_connection=measurement.fixture_connection,
-                meas_instrument_name=measurement.instrument_name,
-                meas_instrument_resource=measurement.instrument_resource,
-                meas_instrument_channel=measurement.instrument_channel,
+                dut_pin=measurement.dut_pin,
+                fixture_connection=measurement.fixture_connection,
+                instrument_name=measurement.instrument_name,
+                instrument_resource=measurement.instrument_resource,
+                instrument_channel=measurement.instrument_channel,
                 # Dynamic columns (vector-specific)
                 inputs=build_input_columns(vector),
                 outputs=build_output_columns(
@@ -891,8 +894,8 @@ class TestRunLogger:
         self._guard_duplicate(name, allow_repeat)
 
         # Extract limit fields for the Measurement row
-        low_limit: float | None = None
-        high_limit: float | None = None
+        limit_low: float | None = None
+        limit_high: float | None = None
         nom: float | None = None
         cmp_str: str | None = None
         meas_units: str | None = None
@@ -900,8 +903,8 @@ class TestRunLogger:
         meas_spec_ref: str | None = None
 
         if resolved_limit is not None:
-            low_limit = resolved_limit.low
-            high_limit = resolved_limit.high
+            limit_low = resolved_limit.low
+            limit_high = resolved_limit.high
             nom = resolved_limit.nominal
             meas_units = resolved_limit.units
             meas_char_id = resolved_limit.characteristic_id
@@ -918,10 +921,10 @@ class TestRunLogger:
             name=name,
             value=float(value) if value is not None else None,
             units=meas_units,
-            low_limit=low_limit,
-            high_limit=high_limit,
-            nominal=nom,
-            comparator=cmp_str,
+            limit_low=limit_low,
+            limit_high=limit_high,
+            limit_nominal=nom,
+            limit_comparator=cmp_str,
             characteristic_id=meas_char_id or trace.get("characteristic_id"),
             spec_ref=meas_spec_ref or trace.get("spec_ref"),
             dut_pin=trace.get("dut_pin"),

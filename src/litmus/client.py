@@ -104,15 +104,17 @@ class VectorBuilder:
             name=name,
             value=_to_float(value),
             units=units,
-            low_limit=_to_float(low),
-            high_limit=_to_float(high),
-            nominal=_to_float(nominal),
-            comparator=comparator,
+            limit_low=_to_float(low),
+            limit_high=_to_float(high),
+            limit_nominal=_to_float(nominal),
+            limit_comparator=comparator,
             spec_ref=spec_ref,
         )
 
         # Evaluate limits
-        has_limits = m.low_limit is not None or m.high_limit is not None or m.nominal is not None
+        has_limits = (
+            m.limit_low is not None or m.limit_high is not None or m.limit_nominal is not None
+        )
         if m.value is not None and has_limits:
             m.check_limit()
         elif m.value is not None:

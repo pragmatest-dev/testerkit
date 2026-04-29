@@ -42,9 +42,9 @@ def sample_test_run() -> TestRun:
                 ended_at=datetime(2026, 3, 4, 10, 1, 0, tzinfo=UTC),
                 outcome=Outcome.PASS,
                 instrument_arrays={
-                    "instr_name": ["DMM_01"],
-                    "instr_resource": ["TCPIP::192.168.1.10"],
-                    "instr_driver": ["Keysight34465A"],
+                    "step_instruments_name": ["DMM_01"],
+                    "step_instruments_resource": ["TCPIP::192.168.1.10"],
+                    "step_instruments_driver": ["Keysight34465A"],
                 },
                 vectors=[
                     TestVector(
@@ -57,16 +57,16 @@ def sample_test_run() -> TestRun:
                                 name="vout",
                                 value=3.3,
                                 units="V",
-                                low_limit=3.0,
-                                high_limit=3.6,
+                                limit_low=3.0,
+                                limit_high=3.6,
                                 outcome=Outcome.PASS,
                             ),
                             Measurement(
                                 name="iout",
                                 value=0.5,
                                 units="A",
-                                low_limit=0.0,
-                                high_limit=1.0,
+                                limit_low=0.0,
+                                limit_high=1.0,
                                 outcome=Outcome.PASS,
                             ),
                         ],
@@ -375,9 +375,9 @@ class TestMeasurementRow:
         assert row.station_id == "station_001"
         assert row.step_name == "test_voltage"
         assert row.measurement_name == "vout"
-        assert row.value == 3.3
-        assert row.units == "V"
-        assert row.outcome == "pass"
+        assert row.measurement_value == 3.3
+        assert row.measurement_units == "V"
+        assert row.measurement_outcome == "pass"
 
     def test_to_flat_dict(self, sample_test_run: TestRun):
         """Roundtrip: build → flatten → verify in_*/out_* keys present."""
@@ -587,8 +587,8 @@ class TestReconstructTestRun:
             assert rebuilt_m.value == orig_m.value
             assert rebuilt_m.units == orig_m.units
             assert rebuilt_m.outcome == orig_m.outcome
-            assert rebuilt_m.low_limit == orig_m.low_limit
-            assert rebuilt_m.high_limit == orig_m.high_limit
+            assert rebuilt_m.limit_low == orig_m.limit_low
+            assert rebuilt_m.limit_high == orig_m.limit_high
 
     def test_roundtrip_custom_metadata(self, sample_test_run: TestRun, tmp_path: Path):
         """custom_metadata survives Parquet save → reconstruct."""
@@ -616,9 +616,9 @@ class TestReconstructTestRun:
 
         step = rebuilt.steps[0]
         assert step.instrument_arrays is not None
-        assert step.instrument_arrays["instr_name"] == ["DMM_01"]
-        assert step.instrument_arrays["instr_resource"] == ["TCPIP::192.168.1.10"]
-        assert step.instrument_arrays["instr_driver"] == ["Keysight34465A"]
+        assert step.instrument_arrays["step_instruments_name"] == ["DMM_01"]
+        assert step.instrument_arrays["step_instruments_resource"] == ["TCPIP::192.168.1.10"]
+        assert step.instrument_arrays["step_instruments_driver"] == ["Keysight34465A"]
 
     def test_csv_subscriber_includes_custom_columns(self, sample_test_run: TestRun, tmp_path: Path):
         """CSV subscriber includes custom_* columns from RunStarted."""

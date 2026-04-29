@@ -353,19 +353,19 @@ class MeasurementRecorded(EventBase):
     value: float | None = None
     units: str | None = None
     outcome: str | None = None
-    low_limit: float | None = None
-    high_limit: float | None = None
-    nominal: float | None = None
-    comparator: str | None = None
+    limit_low: float | None = None
+    limit_high: float | None = None
+    limit_nominal: float | None = None
+    limit_comparator: str | None = None
     characteristic_id: str | None = None
     spec_ref: str | None = None
 
     # Signal path
-    meas_dut_pin: str | None = None
-    meas_fixture_connection: str | None = None
-    meas_instrument_name: str | None = None
-    meas_instrument_resource: str | None = None
-    meas_instrument_channel: str | None = None
+    dut_pin: str | None = None
+    fixture_connection: str | None = None
+    instrument_name: str | None = None
+    instrument_resource: str | None = None
+    instrument_channel: str | None = None
 
     # Dynamic columns (vector-specific, not available elsewhere)
     inputs: dict[str, Any] = Field(default_factory=dict)

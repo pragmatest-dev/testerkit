@@ -36,18 +36,18 @@ class TestMeasurement:
             name="voltage",
             value=5.0,
             units="V",
-            low_limit=4.5,
-            high_limit=5.5,
+            limit_low=4.5,
+            limit_high=5.5,
         )
-        assert m.low_limit == 4.5
-        assert m.high_limit == 5.5
+        assert m.limit_low == 4.5
+        assert m.limit_high == 5.5
 
     def test_check_limit_pass(self):
         m = Measurement(
             name="voltage",
             value=5.0,
-            low_limit=4.5,
-            high_limit=5.5,
+            limit_low=4.5,
+            limit_high=5.5,
         )
         result = m.check_limit()
         assert result == Outcome.PASS
@@ -57,8 +57,8 @@ class TestMeasurement:
         m = Measurement(
             name="voltage",
             value=4.0,
-            low_limit=4.5,
-            high_limit=5.5,
+            limit_low=4.5,
+            limit_high=5.5,
         )
         result = m.check_limit()
         assert result == Outcome.FAIL
@@ -68,8 +68,8 @@ class TestMeasurement:
         m = Measurement(
             name="voltage",
             value=6.0,
-            low_limit=4.5,
-            high_limit=5.5,
+            limit_low=4.5,
+            limit_high=5.5,
         )
         result = m.check_limit()
         assert result == Outcome.FAIL
@@ -79,8 +79,8 @@ class TestMeasurement:
         m = Measurement(
             name="voltage",
             value=None,
-            low_limit=4.5,
-            high_limit=5.5,
+            limit_low=4.5,
+            limit_high=5.5,
         )
         result = m.check_limit()
         assert result == Outcome.ERROR
@@ -92,20 +92,20 @@ class TestMeasurement:
         assert result == Outcome.PASS
 
     def test_check_limit_only_low(self):
-        m = Measurement(name="voltage", value=5.0, low_limit=4.5)
+        m = Measurement(name="voltage", value=5.0, limit_low=4.5)
         result = m.check_limit()
         assert result == Outcome.PASS
 
-        m2 = Measurement(name="voltage", value=4.0, low_limit=4.5)
+        m2 = Measurement(name="voltage", value=4.0, limit_low=4.5)
         result2 = m2.check_limit()
         assert result2 == Outcome.FAIL
 
     def test_check_limit_only_high(self):
-        m = Measurement(name="voltage", value=5.0, high_limit=5.5)
+        m = Measurement(name="voltage", value=5.0, limit_high=5.5)
         result = m.check_limit()
         assert result == Outcome.PASS
 
-        m2 = Measurement(name="voltage", value=6.0, high_limit=5.5)
+        m2 = Measurement(name="voltage", value=6.0, limit_high=5.5)
         result2 = m2.check_limit()
         assert result2 == Outcome.FAIL
 

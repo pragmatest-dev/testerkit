@@ -7,7 +7,7 @@ Field names mirror the write-side event hierarchy in litmus/data/events.py:
   InstrumentView  ← InstrumentConnected
 
 build_run_view() reconstructs the entity tree from flat parquet rows returned
-by RunStore.get_measurements(). Flat in_*/out_*/custom_*/instr_* columns are
+by RunStore.get_measurements(). Flat in_*/out_*/custom_*/step_instruments_* columns are
 re-categorized into structured dicts / lists matching the original event fields.
 """
 
@@ -54,18 +54,18 @@ class MeasurementView(BaseModel):
     value: float | None = None
     units: str | None = None
     outcome: str | None = None
-    low_limit: float | None = None
-    high_limit: float | None = None
-    nominal: float | None = None
-    comparator: str | None = None
+    limit_low: float | None = None
+    limit_high: float | None = None
+    limit_nominal: float | None = None
+    limit_comparator: str | None = None
     characteristic_id: str | None = None
     spec_ref: str | None = None
-    # Per-measurement signal path (distinct from per-step instr_* arrays)
-    meas_dut_pin: str | None = None
-    meas_fixture_connection: str | None = None
-    meas_instrument_name: str | None = None
-    meas_instrument_resource: str | None = None
-    meas_instrument_channel: str | None = None
+    # Per-measurement signal path (distinct from per-step step_instruments_* arrays)
+    dut_pin: str | None = None
+    fixture_connection: str | None = None
+    instrument_name: str | None = None
+    instrument_resource: str | None = None
+    instrument_channel: str | None = None
     # Typed dicts rehydrated from in_*/out_*/custom_* flat columns
     inputs: dict[str, Any] = {}
     outputs: dict[str, Any] = {}
@@ -110,15 +110,15 @@ class RunView(BaseModel):
 
 
 def _instruments_from_step_rows(rows: list[dict[str, Any]]) -> list[InstrumentView]:
-    """Reconstruct InstrumentView list from per-step instr_* parallel arrays.
+    """Reconstruct InstrumentView list from per-step step_instruments_* parallel arrays.
 
-    All rows within a step share the same instr_* arrays (written once per step).
-    Uses the first row that has a non-empty instr_name list.
+    All rows within a step share the same step_instruments_* arrays (written once per step).
+    Uses the first row that has a non-empty step_instruments_name list.
     """
     names: list[Any] = []
     source_row: dict[str, Any] = {}
     for row in rows:
-        candidate = row.get("instr_name")
+        candidate = row.get("step_instruments_name")
         if candidate:
             names = candidate
             source_row = row
@@ -141,19 +141,19 @@ def _instruments_from_step_rows(rows: list[dict[str, Any]]) -> list[InstrumentVi
         instruments.append(
             InstrumentView(
                 role=str(name),
-                instrument_id=str(_get("instr_id") or ""),
-                driver=_opt_str(_get("instr_driver")),
-                resource=_opt_str(_get("instr_resource")),
-                protocol=_opt_str(_get("instr_protocol")),
-                manufacturer=_opt_str(_get("instr_manufacturer")),
-                model=_opt_str(_get("instr_model")),
-                serial=_opt_str(_get("instr_serial")),
-                firmware=_opt_str(_get("instr_firmware")),
-                cal_due=_opt_str(_get("instr_cal_due")),
-                cal_last=_opt_str(_get("instr_cal_last")),
-                cal_certificate=_opt_str(_get("instr_cal_certificate")),
-                cal_lab=_opt_str(_get("instr_cal_lab")),
-                mocked=bool(_get("instr_mocked")),
+                instrument_id=str(_get("step_instruments_id") or ""),
+                driver=_opt_str(_get("step_instruments_driver")),
+                resource=_opt_str(_get("step_instruments_resource")),
+                protocol=_opt_str(_get("step_instruments_protocol")),
+                manufacturer=_opt_str(_get("step_instruments_manufacturer")),
+                model=_opt_str(_get("step_instruments_model")),
+                serial=_opt_str(_get("step_instruments_serial")),
+                firmware=_opt_str(_get("step_instruments_firmware")),
+                cal_due=_opt_str(_get("step_instruments_cal_due")),
+                cal_last=_opt_str(_get("step_instruments_cal_last")),
+                cal_certificate=_opt_str(_get("step_instruments_cal_certificate")),
+                cal_lab=_opt_str(_get("step_instruments_cal_lab")),
+                mocked=bool(_get("step_instruments_mocked")),
             )
         )
     return instruments
@@ -161,7 +161,7 @@ def _instruments_from_step_rows(rows: list[dict[str, Any]]) -> list[InstrumentVi
 
 def _step_outcome(rows: list[dict[str, Any]]) -> str | None:
     """Derive step outcome by escalating measurement outcomes."""
-    outcomes = {row.get("outcome") for row in rows if row.get("outcome")}
+    outcomes = {row.get("measurement_outcome") for row in rows if row.get("measurement_outcome")}
     if "error" in outcomes:
         return "error"
     if "fail" in outcomes:
@@ -174,7 +174,7 @@ def _step_outcome(rows: list[dict[str, Any]]) -> str | None:
 def build_run_view(rows: list[dict[str, Any]]) -> RunView:
     """Build a RunView from flat parquet measurement rows.
 
-    Groups rows by step_index, reconstructs instr_* arrays into
+    Groups rows by step_index, reconstructs step_instruments_* arrays into
     InstrumentView lists, and rehydrates in_*/out_*/custom_* prefixed
     columns into typed dicts on each MeasurementView.
     """
@@ -203,20 +203,20 @@ def build_run_view(rows: list[dict[str, Any]]) -> RunView:
             MeasurementView(
                 measurement_name=row.get("measurement_name") or "",
                 measurement_timestamp=row.get("measurement_timestamp"),
-                value=row.get("value"),
-                units=row.get("units"),
-                outcome=row.get("outcome"),
-                low_limit=row.get("low_limit"),
-                high_limit=row.get("high_limit"),
-                nominal=row.get("nominal"),
-                comparator=row.get("comparator"),
+                value=row.get("measurement_value"),
+                units=row.get("measurement_units"),
+                outcome=row.get("measurement_outcome"),
+                limit_low=row.get("limit_low"),
+                limit_high=row.get("limit_high"),
+                limit_nominal=row.get("limit_nominal"),
+                limit_comparator=row.get("limit_comparator"),
                 characteristic_id=row.get("characteristic_id"),
                 spec_ref=row.get("spec_ref"),
-                meas_dut_pin=row.get("meas_dut_pin"),
-                meas_fixture_connection=row.get("meas_fixture_connection"),
-                meas_instrument_name=row.get("meas_instrument_name"),
-                meas_instrument_resource=row.get("meas_instrument_resource"),
-                meas_instrument_channel=row.get("meas_instrument_channel"),
+                dut_pin=row.get("dut_pin"),
+                fixture_connection=row.get("fixture_connection"),
+                instrument_name=row.get("instrument_name"),
+                instrument_resource=row.get("instrument_resource"),
+                instrument_channel=row.get("instrument_channel"),
                 inputs={k[3:]: row[k] for k in in_keys if row[k] is not None},
                 outputs={k[4:]: row[k] for k in out_keys if row[k] is not None},
                 custom={k[7:]: row[k] for k in custom_keys if row[k] is not None},

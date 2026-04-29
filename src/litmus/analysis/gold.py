@@ -194,14 +194,14 @@ SELECT
     step_name,
     measurement_name,
     COUNT(*) AS total_count,
-    COUNT(*) FILTER (WHERE outcome = 'fail') AS fail_count,
-    ROUND(COUNT(*) FILTER (WHERE outcome = 'fail') * 100.0
+    COUNT(*) FILTER (WHERE measurement_outcome = 'fail') AS fail_count,
+    ROUND(COUNT(*) FILTER (WHERE measurement_outcome = 'fail') * 100.0
           / NULLIF(COUNT(*), 0), 2) AS fail_rate
 FROM silver
 WHERE measurement_name IS NOT NULL
     {and_clauses}
 GROUP BY product, station, step_name, measurement_name
-HAVING COUNT(*) FILTER (WHERE outcome = 'fail') > 0
+HAVING COUNT(*) FILTER (WHERE measurement_outcome = 'fail') > 0
 ORDER BY fail_count DESC
 LIMIT {top_n}
 """
@@ -212,26 +212,26 @@ SELECT
     COALESCE(station_name, station_id, 'unknown') AS station,
     measurement_name,
     COUNT(*) AS n,
-    ROUND(AVG(value), 6) AS mean,
-    ROUND(STDDEV_SAMP(value), 6) AS sigma,
-    MIN(low_limit) AS lsl,
-    MAX(high_limit) AS usl,
-    CASE WHEN STDDEV_SAMP(value) > 0
-         AND MIN(low_limit) IS NOT NULL AND MAX(high_limit) IS NOT NULL
-        THEN ROUND((MAX(high_limit) - MIN(low_limit))
-                    / (6 * STDDEV_SAMP(value)), 3)
+    ROUND(AVG(measurement_value), 6) AS mean,
+    ROUND(STDDEV_SAMP(measurement_value), 6) AS sigma,
+    MIN(limit_low) AS lsl,
+    MAX(limit_high) AS usl,
+    CASE WHEN STDDEV_SAMP(measurement_value) > 0
+         AND MIN(limit_low) IS NOT NULL AND MAX(limit_high) IS NOT NULL
+        THEN ROUND((MAX(limit_high) - MIN(limit_low))
+                    / (6 * STDDEV_SAMP(measurement_value)), 3)
     END AS cp,
-    CASE WHEN STDDEV_SAMP(value) > 0
-         AND (MIN(low_limit) IS NOT NULL OR MAX(high_limit) IS NOT NULL)
+    CASE WHEN STDDEV_SAMP(measurement_value) > 0
+         AND (MIN(limit_low) IS NOT NULL OR MAX(limit_high) IS NOT NULL)
         THEN ROUND(LEAST(
-            COALESCE((MAX(high_limit) - AVG(value))
-                     / (3 * STDDEV_SAMP(value)), 1e9),
-            COALESCE((AVG(value) - MIN(low_limit))
-                     / (3 * STDDEV_SAMP(value)), 1e9)
+            COALESCE((MAX(limit_high) - AVG(measurement_value))
+                     / (3 * STDDEV_SAMP(measurement_value)), 1e9),
+            COALESCE((AVG(measurement_value) - MIN(limit_low))
+                     / (3 * STDDEV_SAMP(measurement_value)), 1e9)
         ), 3)
     END AS cpk
 FROM silver
-WHERE value IS NOT NULL AND measurement_name IS NOT NULL
+WHERE measurement_value IS NOT NULL AND measurement_name IS NOT NULL
     {and_clauses}
 GROUP BY product, station, measurement_name
 HAVING COUNT(*) >= {min_samples}

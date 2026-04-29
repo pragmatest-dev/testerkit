@@ -106,8 +106,8 @@ class TestHarnessMeasure:
         with harness.step():
             with harness.run_vector(Vector(_index=0)):
                 m = harness.measure("voltage", 3.3, limit=limit)
-                assert m.low_limit == 3.0
-                assert m.high_limit == 3.6
+                assert m.limit_low == 3.0
+                assert m.limit_high == 3.6
                 assert m.units == "V"
                 assert m.outcome == Outcome.PASS
 
@@ -154,7 +154,7 @@ class TestHarnessMeasure:
         with harness.step():
             with harness.run_vector(Vector(_index=0)):
                 m = harness.measure("voltage", 3.3)
-                assert m.low_limit == 3.0
+                assert m.limit_low == 3.0
                 assert m.outcome == Outcome.PASS
 
     def test_measure_no_limit_passes(self):

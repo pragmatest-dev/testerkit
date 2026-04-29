@@ -44,8 +44,8 @@ class TestParquetSubscriber:
                 value=3.3,
                 units="V",
                 outcome="pass",
-                low_limit=3.0,
-                high_limit=3.6,
+                limit_low=3.0,
+                limit_high=3.6,
             )
         )
 
@@ -65,7 +65,7 @@ class TestParquetSubscriber:
         assert table.num_rows == 1
         row = table.to_pylist()[0]
         assert row["measurement_name"] == "vout"
-        assert row["value"] == 3.3
+        assert row["measurement_value"] == 3.3
         assert row["station_id"] == "st1"
         assert row["dut_serial"] == "SN001"
         assert row["run_outcome"] == "pass"
@@ -116,8 +116,8 @@ class TestParquetSubscriber:
         pq_files = list((tmp_path / "results" / "runs").rglob("*.parquet"))
         table = pq.read_table(pq_files[0])
         row = table.to_pylist()[0]
-        assert row["instr_name"] == ["dmm"]
-        assert row["instr_manufacturer"] == ["Keithley"]
+        assert row["step_instruments_name"] == ["dmm"]
+        assert row["step_instruments_manufacturer"] == ["Keithley"]
 
     def test_close_without_run_ended(self, tmp_path):
         """close() writes even if RunEnded was not received (crash recovery)."""

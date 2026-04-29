@@ -93,8 +93,8 @@ def _build_ptr(
     value: float | None,
     outcome: str | None,
     comparator: str | None,
-    low_limit: float | None,
-    high_limit: float | None,
+    limit_low: float | None,
+    limit_high: float | None,
     units: str | None,
 ) -> bytes:
     """Build and pack a single PTR record."""
@@ -108,12 +108,12 @@ def _build_ptr(
     ptr.set_value("TEST_TXT", f"{step_name}/{meas_name}")
     ptr.set_value(
         "OPT_FLAG",
-        _make_opt_flag(comparator, low_limit, high_limit),
+        _make_opt_flag(comparator, limit_low, limit_high),
     )
-    if low_limit is not None:
-        ptr.set_value("LO_LIMIT", low_limit)
-    if high_limit is not None:
-        ptr.set_value("HI_LIMIT", high_limit)
+    if limit_low is not None:
+        ptr.set_value("LO_LIMIT", limit_low)
+    if limit_high is not None:
+        ptr.set_value("HI_LIMIT", limit_high)
     if units:
         ptr.set_value("UNITS", units)
     return _pack_record(ptr)
@@ -211,9 +211,9 @@ class StdfSubscriber(EventSubscriber):
                     m.measurement_name,
                     m.value,
                     m.outcome,
-                    m.comparator,
-                    m.low_limit,
-                    m.high_limit,
+                    m.limit_comparator,
+                    m.limit_low,
+                    m.limit_high,
                     m.units,
                 )
             )

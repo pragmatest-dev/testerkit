@@ -368,8 +368,8 @@ def test_measure_records_outcome_without_raising(pytester: pytest.Pytester) -> N
                     # Pure recorder: outcome stays None, limit fields stamped
                     # on the row for post-run analysis.
                     assert m.outcome is None
-                    assert m.low_limit == 3.2
-                    assert m.high_limit == 3.4
+                    assert m.limit_low == 3.2
+                    assert m.limit_high == 3.4
             """
         ),
     )

@@ -362,14 +362,14 @@ class ParquetBackend:
         # Group by (step_name, vector_index, attempt)
         vectors_seen: dict[tuple, dict] = {}
         for m in measurements:
-            key = (m.get("step_name"), m.get("vector_index"), m.get("attempt"))
+            key = (m.get("step_name"), m.get("vector_index"), m.get("vector_attempt"))
             if key not in vectors_seen:
                 # Extract vector-level info
                 vector_info = {
                     "test_run_id": m.get("run_id"),
                     "step_name": m.get("step_name"),
                     "index": m.get("vector_index"),
-                    "attempt": m.get("attempt"),
+                    "attempt": m.get("vector_attempt"),
                     "outcome": m.get("vector_outcome"),
                     "started_at": m.get("vector_started_at"),
                     "ended_at": m.get("vector_ended_at"),
@@ -559,20 +559,20 @@ class ParquetSubscriber(EventSubscriber):
         """Build instrument arrays from cached InstrumentConnected events."""
         arrays: dict[str, list] = {k: [] for k in INSTRUMENT_ARRAY_KEYS}
         for inst in self._instruments:
-            arrays["instr_name"].append(inst.role)
-            arrays["instr_id"].append(inst.instrument_id)
-            arrays["instr_driver"].append(inst.driver)
-            arrays["instr_resource"].append(inst.resource)
-            arrays["instr_protocol"].append(inst.protocol)
-            arrays["instr_manufacturer"].append(inst.manufacturer)
-            arrays["instr_model"].append(inst.model)
-            arrays["instr_serial"].append(inst.serial)
-            arrays["instr_firmware"].append(inst.firmware)
-            arrays["instr_cal_due"].append(inst.cal_due)
-            arrays["instr_cal_last"].append(inst.cal_last)
-            arrays["instr_cal_certificate"].append(inst.cal_certificate)
-            arrays["instr_cal_lab"].append(inst.cal_lab)
-            arrays["instr_mocked"].append(inst.mocked)
+            arrays["step_instruments_name"].append(inst.role)
+            arrays["step_instruments_id"].append(inst.instrument_id)
+            arrays["step_instruments_driver"].append(inst.driver)
+            arrays["step_instruments_resource"].append(inst.resource)
+            arrays["step_instruments_protocol"].append(inst.protocol)
+            arrays["step_instruments_manufacturer"].append(inst.manufacturer)
+            arrays["step_instruments_model"].append(inst.model)
+            arrays["step_instruments_serial"].append(inst.serial)
+            arrays["step_instruments_firmware"].append(inst.firmware)
+            arrays["step_instruments_cal_due"].append(inst.cal_due)
+            arrays["step_instruments_cal_last"].append(inst.cal_last)
+            arrays["step_instruments_cal_certificate"].append(inst.cal_certificate)
+            arrays["step_instruments_cal_lab"].append(inst.cal_lab)
+            arrays["step_instruments_mocked"].append(inst.mocked)
         return arrays
 
     def _run_started_metadata_kwargs(self, event: Any) -> dict[str, Any]:
@@ -665,24 +665,24 @@ class ParquetSubscriber(EventSubscriber):
             step_class=self._step_start_field(idx, "class_name"),
             step_function=self._step_start_field(idx, "function"),
             vector_index=event.vector_index,
-            attempt=event.attempt,
+            vector_attempt=event.attempt,
             # Measurement (from event)
             measurement_name=event.measurement_name,
             measurement_timestamp=event.measurement_timestamp,
-            value=event.value,
-            units=event.units,
-            outcome=event.outcome,
-            low_limit=event.low_limit,
-            high_limit=event.high_limit,
-            nominal=event.nominal,
-            comparator=event.comparator,
+            measurement_value=event.value,
+            measurement_units=event.units,
+            measurement_outcome=event.outcome,
+            limit_low=event.limit_low,
+            limit_high=event.limit_high,
+            limit_nominal=event.limit_nominal,
+            limit_comparator=event.limit_comparator,
             characteristic_id=event.characteristic_id,
             spec_ref=event.spec_ref,
-            meas_dut_pin=event.meas_dut_pin,
-            meas_fixture_connection=event.meas_fixture_connection,
-            meas_instrument_name=event.meas_instrument_name,
-            meas_instrument_resource=event.meas_instrument_resource,
-            meas_instrument_channel=event.meas_instrument_channel,
+            dut_pin=event.dut_pin,
+            fixture_connection=event.fixture_connection,
+            instrument_name=event.instrument_name,
+            instrument_resource=event.instrument_resource,
+            instrument_channel=event.instrument_channel,
             # Run outcome backfilled in _write()
             run_outcome=None,
             # Dynamic columns
@@ -712,8 +712,8 @@ class ParquetSubscriber(EventSubscriber):
             step_class=step_ended.class_name,
             step_function=step_ended.function,
             measurement_name="_step_summary",
-            value=None,
-            outcome=step_ended.outcome,
+            measurement_value=None,
+            measurement_outcome=step_ended.outcome,
             run_outcome=None,
             instruments=self._build_instrument_arrays(),
         )
@@ -1126,7 +1126,7 @@ def reconstruct_test_run_from_file(pq_file: Path) -> TestRun:
 
     for row in rows:
         sk = (row.get("step_name"), row.get("step_index"))
-        vk = (row.get("vector_index"), row.get("attempt"))
+        vk = (row.get("vector_index"), row.get("vector_attempt"))
         step_groups[sk][vk].append(row)
 
         if sk not in step_timing:
@@ -1141,11 +1141,11 @@ def reconstruct_test_run_from_file(pq_file: Path) -> TestRun:
         vector_groups = step_groups[sk]
         vectors: list[TestVector] = []
 
-        # One sample row for step-level extraction (instr_* arrays)
+        # One sample row for step-level extraction (step_instruments_* arrays)
         step_sample_row = next(iter(vector_groups.values()))[0]
         step_instr: dict[str, list] = {}
         for col, val in step_sample_row.items():
-            if col.startswith("instr_"):
+            if col.startswith("step_instruments_"):
                 if val is not None:
                     step_instr[col] = val if isinstance(val, list) else [val]
 
@@ -1164,23 +1164,23 @@ def reconstruct_test_run_from_file(pq_file: Path) -> TestRun:
                     observations[col[4:]] = val
 
             for mr in meas_rows:
-                outcome_str = mr.get("outcome")
+                outcome_str = mr.get("measurement_outcome")
                 m = Measurement(
                     name=mr.get("measurement_name") or "",
-                    value=mr.get("value"),
-                    units=mr.get("units"),
-                    low_limit=mr.get("low_limit"),
-                    high_limit=mr.get("high_limit"),
-                    nominal=mr.get("nominal"),
-                    comparator=mr.get("comparator"),
+                    value=mr.get("measurement_value"),
+                    units=mr.get("measurement_units"),
+                    limit_low=mr.get("limit_low"),
+                    limit_high=mr.get("limit_high"),
+                    limit_nominal=mr.get("limit_nominal"),
+                    limit_comparator=mr.get("limit_comparator"),
                     outcome=Outcome(outcome_str) if outcome_str else None,
                     characteristic_id=mr.get("characteristic_id"),
                     spec_ref=mr.get("spec_ref"),
-                    dut_pin=mr.get("meas_dut_pin"),
-                    instrument_name=mr.get("meas_instrument_name"),
-                    instrument_resource=mr.get("meas_instrument_resource"),
-                    instrument_channel=mr.get("meas_instrument_channel"),
-                    fixture_connection=mr.get("meas_fixture_connection"),
+                    dut_pin=mr.get("dut_pin"),
+                    instrument_name=mr.get("instrument_name"),
+                    instrument_resource=mr.get("instrument_resource"),
+                    instrument_channel=mr.get("instrument_channel"),
+                    fixture_connection=mr.get("fixture_connection"),
                 )
                 ts = mr.get("measurement_timestamp")
                 if ts is not None:

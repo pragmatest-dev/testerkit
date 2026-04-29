@@ -39,8 +39,8 @@ class TestMeasureDecorator:
 
         result = get_voltage()
         assert result.outcome == Outcome.PASS
-        assert result.low_limit == 4.5
-        assert result.high_limit == 5.5
+        assert result.limit_low == 4.5
+        assert result.limit_high == 5.5
         assert result.units == "V"
 
     def test_measure_with_limit_fail_raises(self):

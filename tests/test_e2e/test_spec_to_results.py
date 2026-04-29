@@ -146,9 +146,9 @@ class TestHarnessSpecIntegration:
                     # Verify limit was resolved from spec
                     assert m.spec_ref is not None
                     if expected_limit.low:
-                        assert m.low_limit == expected_limit.low
+                        assert m.limit_low == expected_limit.low
                     if expected_limit.high:
-                        assert m.high_limit == expected_limit.high
+                        assert m.limit_high == expected_limit.high
 
     def test_harness_populates_dut_pin(self):
         """Harness populates dut_pin from spec for traceability."""
@@ -257,8 +257,8 @@ class TestHarnessSpecIntegration:
                 with harness.run_vector(vector):
                     m = harness.measure(char_id, 50.0, limit=explicit_limit)
 
-                    assert m.low_limit == 0.0
-                    assert m.high_limit == 100.0
+                    assert m.limit_low == 0.0
+                    assert m.limit_high == 100.0
                     assert m.spec_ref == "EXPLICIT_OVERRIDE"
 
 

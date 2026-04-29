@@ -30,7 +30,7 @@ __all__ = [
 
 SCHEMA_VERSION = "2.0"
 
-# Canonical schema for fixed columns. Dynamic columns (in_*, out_*, instr_*, custom_*)
+# Canonical schema for fixed columns. Dynamic columns (in_*, out_*, step_instruments_*, custom_*)
 # are NOT listed here — they pass through with inferred types.
 MEASUREMENT_SCHEMA = pa.schema(
     [
@@ -52,7 +52,7 @@ MEASUREMENT_SCHEMA = pa.schema(
         ("step_function", pa.string()),
         ("step_markers", pa.string()),
         ("vector_index", pa.int64()),
-        ("attempt", pa.int64()),
+        ("vector_attempt", pa.int64()),
         ("vector_started_at", pa.timestamp("us", tz="UTC")),
         ("vector_ended_at", pa.timestamp("us", tz="UTC")),
         # Who
@@ -84,23 +84,23 @@ MEASUREMENT_SCHEMA = pa.schema(
         # Measurement core
         ("measurement_name", pa.string()),
         ("measurement_timestamp", pa.timestamp("us", tz="UTC")),
-        ("value", pa.float64()),
-        ("units", pa.string()),
-        ("outcome", pa.string()),
+        ("measurement_value", pa.float64()),
+        ("measurement_units", pa.string()),
+        ("measurement_outcome", pa.string()),
         # Limits
-        ("low_limit", pa.float64()),
-        ("high_limit", pa.float64()),
-        ("nominal", pa.float64()),
-        ("comparator", pa.string()),
+        ("limit_low", pa.float64()),
+        ("limit_high", pa.float64()),
+        ("limit_nominal", pa.float64()),
+        ("limit_comparator", pa.string()),
         # Spec traceability
         ("characteristic_id", pa.string()),
         ("spec_ref", pa.string()),
         # Signal path
-        ("meas_dut_pin", pa.string()),
-        ("meas_fixture_connection", pa.string()),
-        ("meas_instrument_name", pa.string()),
-        ("meas_instrument_resource", pa.string()),
-        ("meas_instrument_channel", pa.string()),
+        ("dut_pin", pa.string()),
+        ("fixture_connection", pa.string()),
+        ("instrument_name", pa.string()),
+        ("instrument_resource", pa.string()),
+        ("instrument_channel", pa.string()),
         # Rollup
         ("vector_outcome", pa.string()),
         ("run_outcome", pa.string()),
@@ -172,7 +172,7 @@ _SCHEMA_DICT = {f.name: f.type for f in MEASUREMENT_SCHEMA}
 
 # Instrument array columns have known list types
 _INSTR_ARRAY_TYPES: dict[str, pa.DataType] = {
-    k: pa.list_(pa.bool_()) if k == "instr_mocked" else pa.list_(pa.string())
+    k: pa.list_(pa.bool_()) if k == "step_instruments_mocked" else pa.list_(pa.string())
     for k in INSTRUMENT_ARRAY_KEYS
 }
 

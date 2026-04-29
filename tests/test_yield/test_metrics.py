@@ -144,10 +144,10 @@ class TestCpk:
 class TestPareto:
     def test_basic(self):
         measurements = [
-            {"step_name": "s1", "measurement_name": "m1", "outcome": "fail"},
-            {"step_name": "s1", "measurement_name": "m1", "outcome": "fail"},
-            {"step_name": "s2", "measurement_name": "m2", "outcome": "fail"},
-            {"step_name": "s1", "measurement_name": "m1", "outcome": "pass"},
+            {"step_name": "s1", "measurement_name": "m1", "measurement_outcome": "fail"},
+            {"step_name": "s1", "measurement_name": "m1", "measurement_outcome": "fail"},
+            {"step_name": "s2", "measurement_name": "m2", "measurement_outcome": "fail"},
+            {"step_name": "s1", "measurement_name": "m1", "measurement_outcome": "pass"},
         ]
         result = pareto_analysis(measurements)
         assert len(result) == 2
@@ -157,12 +157,15 @@ class TestPareto:
         assert result[1]["cumulative_pct"] == 100.0
 
     def test_no_failures(self):
-        measurements = [{"step_name": "s1", "measurement_name": "m1", "outcome": "pass"}]
+        measurements = [
+            {"step_name": "s1", "measurement_name": "m1", "measurement_outcome": "pass"}
+        ]
         assert pareto_analysis(measurements) == []
 
     def test_top_n(self):
         measurements = [
-            {"step_name": f"s{i}", "measurement_name": "m", "outcome": "fail"} for i in range(20)
+            {"step_name": f"s{i}", "measurement_name": "m", "measurement_outcome": "fail"}
+            for i in range(20)
         ]
         result = pareto_analysis(measurements, top_n=5)
         assert len(result) == 5

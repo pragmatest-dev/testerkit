@@ -115,10 +115,10 @@ def _rebuild_schema(conn: duckdb.DuckDBPyConnection) -> None:
             step_index INTEGER,
             step_name VARCHAR,
             measurement_name VARCHAR NOT NULL,
-            units VARCHAR,
-            low_limit DOUBLE,
-            high_limit DOUBLE,
-            nominal DOUBLE,
+            measurement_units VARCHAR,
+            limit_low DOUBLE,
+            limit_high DOUBLE,
+            limit_nominal DOUBLE,
             count INTEGER NOT NULL,
             pass_count INTEGER NOT NULL,
             fail_count INTEGER NOT NULL,
@@ -353,14 +353,15 @@ def _bulk_insert_runs(conn: duckdb.DuckDBPyConnection, meas_paths: list[str]) ->
     """)
 
 
-_OPTIONAL_MEAS_LIMITS = ("units", "low_limit", "high_limit", "nominal")
+_OPTIONAL_MEAS_LIMITS = ("measurement_units", "limit_low", "limit_high", "limit_nominal")
 
 
 def _bulk_insert_measurements(conn: duckdb.DuckDBPyConnection, meas_paths: list[str]) -> None:
     """Bulk INSERT into measurements from all measurement files in one query.
 
     Handles missing columns gracefully — older parquet files may lack
-    step_name, units, limits, outcome, or value.
+    step_name, measurement_units, limits, measurement_outcome, or
+    measurement_value.
     """
     flist = _file_list_sql(meas_paths)
     available = _parquet_columns(conn, meas_paths[0])
@@ -374,13 +375,17 @@ def _bulk_insert_measurements(conn: duckdb.DuckDBPyConnection, meas_paths: list[
     opt_group_cols = [c for c in opt_group_all if c in available]
     opt_group = (", " + ", ".join(opt_group_cols)) if opt_group_cols else ""
 
-    has_outcome = "outcome" in available
-    has_value = "value" in available
-    pass_expr = "SUM(CASE WHEN outcome = 'pass' THEN 1 ELSE 0 END)" if has_outcome else "0"
-    fail_expr = "SUM(CASE WHEN outcome = 'fail' THEN 1 ELSE 0 END)" if has_outcome else "0"
-    min_expr = "MIN(value)" if has_value else "NULL"
-    max_expr = "MAX(value)" if has_value else "NULL"
-    avg_expr = "AVG(value)" if has_value else "NULL"
+    has_outcome = "measurement_outcome" in available
+    has_value = "measurement_value" in available
+    pass_expr = (
+        "SUM(CASE WHEN measurement_outcome = 'pass' THEN 1 ELSE 0 END)" if has_outcome else "0"
+    )
+    fail_expr = (
+        "SUM(CASE WHEN measurement_outcome = 'fail' THEN 1 ELSE 0 END)" if has_outcome else "0"
+    )
+    min_expr = "MIN(measurement_value)" if has_value else "NULL"
+    max_expr = "MAX(measurement_value)" if has_value else "NULL"
+    avg_expr = "AVG(measurement_value)" if has_value else "NULL"
 
     conn.execute(f"""
         INSERT INTO measurements
