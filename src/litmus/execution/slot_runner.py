@@ -433,7 +433,7 @@ def _run_subprocess_mode(
     import sys
 
     from litmus.data.events import SessionEnded, SessionStarted
-    from litmus.execution.decorators import get_current_logger
+    from litmus.execution._state import get_current_logger
 
     server = None
     shared_drivers: dict[str, Any] = {}
@@ -607,8 +607,7 @@ def run_multi_slot_session(
     from pathlib import Path
 
     from litmus.data.event_store import EventStore
-    from litmus.execution._state import get_event_store, set_event_store
-    from litmus.execution.decorators import get_current_logger
+    from litmus.execution._state import get_current_logger, get_event_store, set_event_store
     from litmus.execution.dut_provider import CLIDUTProvider
     from litmus.execution.slots import detect_shared_instruments, resolve_fixture_slots
     from litmus.pytest_plugin import _mocks_active

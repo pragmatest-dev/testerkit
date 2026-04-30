@@ -1,10 +1,7 @@
 """Test execution infrastructure."""
 
+from litmus.execution._state import get_current_logger
 from litmus.execution.accessors import InstrumentAccessor
-from litmus.execution.decorators import (
-    get_current_logger,
-    measure,
-)
 from litmus.execution.harness import Context, TestHarness
 from litmus.execution.logger import RunContext, TestRunLogger
 from litmus.execution.vectors import (
@@ -26,10 +23,8 @@ __all__ = [
     "expand_product",
     "expand_vectors",
     "expand_zip",
-    # Decorators
-    "get_current_logger",
-    "measure",
     # Logger
+    "get_current_logger",
     "RunContext",
     "TestRunLogger",
     # Verify fixture types

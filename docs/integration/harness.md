@@ -189,73 +189,7 @@ harness.measure("output_voltage", v)  # Limits from spec with guardband
 harness.finish()
 ```
 
-## Decorators for Test Architects
-
-### @measure Decorator
-
-Create reusable measurement functions with embedded limits.
-
-#### Parameters
-
-| Parameter | Type | Default | Description |
-|-----------|------|---------|-------------|
-| `name` | `str` | Function name | Measurement name in results |
-| `limit` | `Limit` | `None` | Limit object with low/high bounds |
-| `units` | `str` | `None` | Measurement units (overrides `limit.units`) |
-| `raise_on_fail` | `bool` | `True` | Raise AssertionError if limit check fails |
-
-#### Basic Usage
-
-```python
-from litmus.execution.decorators import measure
-from litmus.models.test_config import Limit
-
-@measure(
-    name="output_voltage",
-    limit=Limit(low=3.2, high=3.4, nominal=3.3, units="V"),
-    raise_on_fail=False,  # Return Measurement object instead of raising
-)
-def measure_output_voltage(dmm):
-    """Reusable measurement - can be called from multiple tests."""
-    return dmm.measure_dc_voltage()
-
-# Usage
-def test_voltage(dmm, logger):
-    result = measure_output_voltage(dmm)  # Returns Measurement object
-    assert result.outcome == Outcome.PASS
-```
-
-#### Examples
-
-**Minimal (uses function name, no limits):**
-```python
-@measure()
-def measure_temperature(sensor):
-    return sensor.read_temp()
-```
-
-**With limit that raises on failure:**
-```python
-@measure(
-    name="supply_current",
-    limit=Limit(low=0, high=1.5, units="A"),
-    raise_on_fail=True,  # Default - raises AssertionError on FAIL
-)
-def measure_supply_current(psu):
-    return psu.measure_current()
-```
-
-**Override units from limit:**
-```python
-@measure(
-    limit=Limit(low=0, high=1500),  # Stored as mA
-    units="mA",  # Override display units
-)
-def measure_current_ma(psu):
-    return psu.measure_current() * 1000
-```
-
-### Non-measurement steps
+## Non-measurement steps
 
 Litmus no longer ships a `@litmus_step` decorator. Every pytest-native
 test already opens a logger step around its body, so setup helpers and

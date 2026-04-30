@@ -301,7 +301,7 @@ def test_method_vec_id_uses_param_values(pytester: pytest.Pytester) -> None:
 _MEASURE_CONFTEST = textwrap.dedent(
     """
     import pytest
-    from litmus.execution.decorators import get_current_logger, set_current_logger
+    from litmus.execution._state import get_current_logger, set_current_logger
     from litmus.execution.logger import TestRunLogger
 
     # Session-scoped so the main plugin's session-scoped fixtures that

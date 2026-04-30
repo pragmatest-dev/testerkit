@@ -185,7 +185,7 @@ class DialogManager:
         top-level import.
         """
         try:
-            from litmus.execution.decorators import get_current_logger
+            from litmus.execution._state import get_current_logger
         except ImportError:
             return
         logger = get_current_logger()
@@ -211,7 +211,7 @@ class DialogManager:
     ) -> None:
         """Emit a DialogResponded event if inside a test run."""
         try:
-            from litmus.execution.decorators import get_current_logger
+            from litmus.execution._state import get_current_logger
         except ImportError:
             return
         logger = get_current_logger()

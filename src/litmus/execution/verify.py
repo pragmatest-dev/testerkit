@@ -1,7 +1,7 @@
 """Runner-neutral verify primitive.
 
 The actual ``verify(name, value)`` callable is built in
-:mod:`litmus.execution.decorators`/:mod:`logger` and exposed through
+:mod:`litmus.execution._state`/:mod:`logger` and exposed through
 each runner's native fixture/decorator surface. This module owns the
 runner-agnostic pieces every runner needs:
 
@@ -136,7 +136,7 @@ def build_verify_callable() -> VerifyFn:
     The callable resolves the active logger via the usual ContextVar
     chain — no runner-specific arguments needed.
     """
-    from litmus.execution.decorators import get_current_logger
+    from litmus.execution._state import get_current_logger
     from litmus.execution.logger import _resolve_measurement_limit
 
     def _verify(

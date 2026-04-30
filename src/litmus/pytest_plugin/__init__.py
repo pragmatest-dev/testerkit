@@ -30,12 +30,12 @@ from litmus.execution._state import (
     set_active_vector_index,
     set_active_vector_params,
     set_channel_store,
+    set_current_logger,
     set_event_store,
     set_instrument_records,
 )
 from litmus.execution.accessors import InstrumentAccessor
 from litmus.execution.connections import ConnectionIterator
-from litmus.execution.decorators import set_current_logger
 from litmus.execution.harness import Context
 from litmus.execution.instrument_events import emit_instrument_events
 from litmus.execution.logger import RunContext, TestRunLogger
