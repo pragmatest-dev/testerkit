@@ -29,12 +29,13 @@ _NS_C = "urn:IEEE-1671:2010:Common"
 
 # Outcome mapping: Litmus → ATML
 _OUTCOME_MAP: dict[str, str] = {
-    "pass": "Passed",
-    "fail": "Failed",
-    "error": "Error",
-    "skip": "Skipped",
+    "passed": "Passed",
+    "failed": "Failed",
+    "errored": "Error",
+    "skipped": "Skipped",
     "aborted": "Aborted",
-    "not_tested": "NotTested",
+    "done": "Passed",
+    "planned": "NotTested",
 }
 
 # Comparator → ATML comparator attribute (1:1, our enum is ATML-sourced)
@@ -216,7 +217,7 @@ class AtmlSubscriber(EventSubscriber):
         result_set = ET.SubElement(root, _tr("ResultSet"))
         result_set.set("name", s.project_name or "")
         result_set.set("startDateTime", s.occurred_at.isoformat())
-        final_outcome = outcome or "error"
+        final_outcome = outcome or "errored"
         result_set.set(
             "status",
             _OUTCOME_MAP.get(final_outcome, "Unknown"),

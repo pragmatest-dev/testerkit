@@ -36,14 +36,14 @@ def runs_store(tmp_path_factory: pytest.TempPathFactory) -> Generator[RunStore]:
                 "session_id": [session_id],
                 "run_started_at": [_dt("2026-03-01T10:00:00Z")],
                 "run_ended_at": [_dt("2026-03-01T10:05:00Z")],
-                "run_outcome": ["pass"],
+                "run_outcome": ["passed"],
                 "dut_serial": ["SN001"],
                 "station_id": ["station-1"],
                 "step_index": [0],
                 "step_name": ["test_voltage"],
                 "measurement_name": ["voltage"],
                 "value": [3.3],
-                "outcome": ["pass"],
+                "outcome": ["passed"],
                 "units": ["V"],
                 "limit_low": [3.1],
                 "limit_high": [3.5],
@@ -62,14 +62,14 @@ def runs_store(tmp_path_factory: pytest.TempPathFactory) -> Generator[RunStore]:
                 "session_id": [session_id],
                 "run_started_at": [_dt("2026-03-01T11:00:00Z")],
                 "run_ended_at": [_dt("2026-03-01T11:05:00Z")],
-                "run_outcome": ["fail"],
+                "run_outcome": ["failed"],
                 "dut_serial": ["SN002"],
                 "station_id": ["station-1"],
                 "step_index": [0],
                 "step_name": ["test_voltage"],
                 "measurement_name": ["voltage"],
                 "value": [2.8],
-                "outcome": ["fail"],
+                "outcome": ["failed"],
                 "units": ["V"],
                 "limit_low": [3.1],
                 "limit_high": [3.5],
@@ -101,7 +101,7 @@ def test_get_run(runs_store: RunStore) -> None:
     assert run is not None
     assert run.test_run_id == "run-001-abc"
     assert run.dut_serial == "SN001"
-    assert run.outcome == "pass"
+    assert run.outcome == "passed"
 
 
 def test_get_run_not_found(runs_store: RunStore) -> None:
@@ -160,12 +160,12 @@ def test_notify_new_run(tmp_path: Path) -> None:
                 "session_id": ["sess-099"],
                 "run_started_at": [_dt("2026-03-08T12:00:00Z")],
                 "run_ended_at": [_dt("2026-03-08T12:01:00Z")],
-                "run_outcome": ["pass"],
+                "run_outcome": ["passed"],
                 "dut_serial": ["SN099"],
                 "station_id": ["station-2"],
                 "measurement_name": ["current"],
                 "value": [1.5],
-                "outcome": ["pass"],
+                "outcome": ["passed"],
             }
         ),
         pq_file,
@@ -181,12 +181,12 @@ def test_notify_new_run(tmp_path: Path) -> None:
                     "session_id": ["sess-100"],
                     "run_started_at": [_dt("2026-03-08T13:00:00Z")],
                     "run_ended_at": [_dt("2026-03-08T13:01:00Z")],
-                    "run_outcome": ["fail"],
+                    "run_outcome": ["failed"],
                     "dut_serial": ["SN100"],
                     "station_id": ["station-2"],
                     "measurement_name": ["current"],
                     "value": [0.5],
-                    "outcome": ["fail"],
+                    "outcome": ["failed"],
                 }
             ),
             pq_file2,

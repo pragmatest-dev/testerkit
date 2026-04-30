@@ -139,7 +139,7 @@ class SessionEnded(EventBase):
     """Emitted at the end of a session. Must NOT carry run_id."""
 
     event_type: Literal["session.ended"] = "session.ended"
-    outcome: str = "pass"
+    outcome: str = "passed"
 
     @model_validator(mode="after")
     def _reject_run_id(self) -> SessionEnded:
@@ -212,7 +212,7 @@ class RunEnded(EventBase):
     """Emitted at the end of a test run."""
 
     event_type: Literal["run.ended"] = "run.ended"
-    outcome: str = "pass"
+    outcome: str = "passed"
 
 
 # ---------------------------------------------------------------------------
@@ -233,7 +233,7 @@ class SlotCompleted(EventBase):
 
     event_type: Literal["slot.completed"] = "slot.completed"
     slot_id: str
-    outcome: str  # "pass", "fail", "error"
+    outcome: str  # "passed", "failed", "errored", etc — see Outcome
     error_message: str | None = None
 
 
@@ -388,7 +388,7 @@ class StepEnded(EventBase):
     step_name: str
     step_index: int
     step_path: str = ""
-    outcome: str = "pass"
+    outcome: str = "passed"
 
     # Code identity
     node_id: str | None = None

@@ -162,12 +162,9 @@ def _instruments_from_step_rows(rows: list[dict[str, Any]]) -> list[InstrumentVi
 def _step_outcome(rows: list[dict[str, Any]]) -> str | None:
     """Derive step outcome by escalating measurement outcomes."""
     outcomes = {row.get("measurement_outcome") for row in rows if row.get("measurement_outcome")}
-    if "error" in outcomes:
-        return "error"
-    if "fail" in outcomes:
-        return "fail"
-    if "pass" in outcomes:
-        return "pass"
+    for severity in ("aborted", "errored", "failed", "passed", "done", "skipped", "planned"):
+        if severity in outcomes:
+            return severity
     return next(iter(outcomes), None)
 
 

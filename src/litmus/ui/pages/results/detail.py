@@ -50,8 +50,13 @@ def _render_run_detail(run_id: str, run: RunSummary, measurements: list):
                 with ui.row().classes("items-center gap-4"):
                     ui.label("Test Run Summary").classes("text-lg font-semibold")
                     colors = {
-                        "pass": "bg-emerald-100 text-emerald-800",
-                        "fail": "bg-red-100 text-red-800",
+                        "passed": "bg-emerald-100 text-emerald-800",
+                        "done": "bg-emerald-100 text-emerald-800",
+                        "failed": "bg-red-100 text-red-800",
+                        "errored": "bg-amber-100 text-amber-800",
+                        "aborted": "bg-amber-100 text-amber-800",
+                        "skipped": "bg-slate-100 text-slate-700",
+                        "planned": "bg-slate-100 text-slate-700",
                     }
                     ui.label(run_outcome.upper()).classes(
                         f"px-3 py-1 rounded text-sm font-medium "

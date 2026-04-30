@@ -27,8 +27,8 @@ instruments: {}
     )
 
     pytester.makepyfile("""
-def test_dummy(context, verify):
-    verify("dummy", 1.0)
+def test_dummy(context, logger):
+    logger.measure("dummy", 1.0)
 """)
     return pytester
 

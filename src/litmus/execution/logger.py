@@ -21,6 +21,7 @@ from litmus.data.events import (
 from litmus.data.models import (
     DUT,
     Measurement,
+    Outcome,
     TestRun,
     TestStep,
     TestVector,
@@ -867,8 +868,9 @@ class TestRunLogger:
         via ``allow_repeat=True``.
 
         Returns:
-            The persisted :class:`Measurement`. ``outcome`` is always
-            ``None`` here — callers that want a verdict go through
+            The persisted :class:`Measurement` with
+            ``outcome=Outcome.DONE`` — the row "ran, no judgment."
+            Callers that want a PASSED / FAILED verdict go through
             ``verify``.
         """
         resolved_limit = _resolve_measurement_limit(
@@ -931,10 +933,13 @@ class TestRunLogger:
             instrument_name=trace.get("instrument_name"),
             instrument_resource=trace.get("instrument_resource"),
             instrument_channel=trace.get("instrument_channel"),
+            outcome=Outcome.DONE,
             fixture_connection=trace.get("fixture_connection"),
         )
 
-        # Pure recorder: no check_limit(), no outcome stamping, no raise.
+        # Recorder, not judge: stamps DONE so the row reflects "ran, no
+        # judgment." ``verify`` calls this then overwrites with PASSED /
+        # FAILED based on limit evaluation.
         self.log_measurement(measurement)
         return measurement
 

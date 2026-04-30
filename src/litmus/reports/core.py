@@ -129,10 +129,10 @@ def load_run_data(run_id: str, results_dir: str = "results") -> ReportData:
 
     # Compute stats
     outcomes = [m.get("outcome") or "" for m in measurements]
-    passed = sum(1 for o in outcomes if o == "pass")
-    failed = sum(1 for o in outcomes if o == "fail")
-    skipped = sum(1 for o in outcomes if o == "skip")
-    errored = sum(1 for o in outcomes if o == "error")
+    passed = sum(1 for o in outcomes if o == "passed")
+    failed = sum(1 for o in outcomes if o == "failed")
+    skipped = sum(1 for o in outcomes if o == "skipped")
+    errored = sum(1 for o in outcomes if o == "errored")
     total = len(measurements)
     step_names = sorted(s.step_name for s in run_view.steps if s.step_name)
 

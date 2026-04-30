@@ -185,13 +185,14 @@ def test_no_band_matches_falls_back_to_siblings(pytester: pytest.Pytester) -> No
     result.assert_outcomes(passed=1)
 
 
-def test_no_band_matches_no_siblings_records_unchecked(pytester: pytest.Pytester) -> None:
-    """No band matches AND no sibling fallback → measurement records unchecked.
+def test_no_band_matches_no_siblings_raises_via_verify(pytester: pytest.Pytester) -> None:
+    """No band matches AND no sibling fallback → ``verify`` raises MissingLimitError.
 
-    Without parent values to fall back to, the resolver returns
-    ``None`` so the measurement records in characterization mode
-    (``outcome=DONE``) instead of raising. Authors who want strict
-    matching declare a sibling catch-all.
+    ``verify`` is judgment-bearing — when the band resolver returns
+    ``None`` (no match, no sibling catch-all), there is no limit to
+    judge against and the test errors loudly. Authors who want a
+    catch-all declare a sibling band; authors who want characterization
+    recording (no judgment) call ``logger.measure`` instead.
     """
     pytester.makeini(_INI)
     pytester.makepyfile(
@@ -201,7 +202,39 @@ def test_no_band_matches_no_siblings_records_unchecked(pytester: pytest.Pytester
 
             @pytest.mark.parametrize("vin", [12.0])
             def test_rail(verify, vin):
-                verify("v_rail", 99.0)  # would fail any declared band
+                verify("v_rail", 99.0)  # no band matches vin=12.0
+            """
+        )
+    )
+    (pytester.path / "test_seq.yaml").write_text(
+        textwrap.dedent(
+            """
+            limits:
+                v_rail:
+                  bands:
+                    - {when: {vin: 5.0}, low: 3.2, high: 3.4}
+                    - {when: {vin: 3.3}, low: 3.1, high: 3.5}
+"""
+        )
+    )
+    result = pytester.runpytest("-v")
+    result.assert_outcomes(failed=1)
+    result.stdout.fnmatch_lines(["*MissingLimitError*"])
+
+
+def test_no_band_matches_logger_measure_records_done(pytester: pytest.Pytester) -> None:
+    """``logger.measure`` is the characterization path — records DONE on no-band-match."""
+    pytester.makeini(_INI)
+    pytester.makepyfile(
+        test_seq=textwrap.dedent(
+            """
+            import pytest
+            from litmus.data.models import Outcome
+
+            @pytest.mark.parametrize("vin", [12.0])
+            def test_rail(logger, vin):
+                m = logger.measure("v_rail", 99.0)
+                assert m.outcome == Outcome.DONE
             """
         )
     )

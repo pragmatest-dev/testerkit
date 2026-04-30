@@ -349,14 +349,17 @@ def _write_measure_test(
 
 
 def test_measure_records_outcome_without_raising(pytester: pytest.Pytester) -> None:
-    """``logger.measure`` is a pure recorder — no outcome stamping, no raise.
+    """``logger.measure`` records and stamps DONE — never raises on out-of-limit.
 
-    Judgment lives on ``verify`` (the one verb for test bodies).
+    Judgment lives on ``verify`` (the one verb that judges, raises, and
+    cascades FAILED). ``logger.measure`` is the recorder: the row gets
+    ``Outcome.DONE`` so it shows up in analytics as "ran, no judgment."
     """
     _write_measure_test(
         pytester,
         textwrap.dedent(
             """
+            from litmus.data.models import Outcome
             from litmus.models.test_config import Limit
 
             class TestSeq:
@@ -365,9 +368,9 @@ def test_measure_records_outcome_without_raising(pytester: pytest.Pytester) -> N
                         "v_out", 3.5,
                         limit=Limit(low=3.2, high=3.4, units="V", nominal=3.3),
                     )
-                    # Pure recorder: outcome stays None, limit fields stamped
-                    # on the row for post-run analysis.
-                    assert m.outcome is None
+                    # Recorder, not judge: outcome is DONE (recorded), and
+                    # limit fields are stamped on the row for analysis.
+                    assert m.outcome == Outcome.DONE
                     assert m.limit_low == 3.2
                     assert m.limit_high == 3.4
             """

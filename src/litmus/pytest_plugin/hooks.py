@@ -20,7 +20,7 @@ import pytest
 import yaml
 from pydantic import ValidationError
 
-from litmus.data.models import CollectedItem
+from litmus.data.models import CollectedItem, Outcome, escalate_outcome
 from litmus.execution._state import (
     get_active_instruments,
     get_active_product_context,
@@ -549,9 +549,12 @@ def pytest_runtest_call(item: pytest.Item) -> Iterator[None]:
     ``log_measurement`` auto-create (and reset) the step before the
     wrapper could open it.
 
-    On a passing test, also runs :func:`_audit_traceability` to report
-    (or enforce, under ``--strict-traceability``) that every measurement
-    carries the required traceability fields.
+    Stamps ``step.outcome`` from the call-phase exception (closes the
+    bare-assert visibility gap — ``assert v > 0`` failures escalate the
+    step to FAILED even when no measurement was recorded). On a passing
+    test, also runs :func:`_audit_traceability` to report (or enforce,
+    under ``--strict-traceability``) that every measurement carries the
+    required traceability fields.
     """
     logger_inst = get_current_logger()
     func = getattr(item, "function", None)
@@ -568,8 +571,10 @@ def pytest_runtest_call(item: pytest.Item) -> Iterator[None]:
             node_id=item.nodeid,
         )
         try:
-            yield
-            _audit_traceability(logger_inst, strict=strict)
+            outcome_obj = yield
+            _stamp_step_from_call_outcome(logger_inst, outcome_obj)
+            if outcome_obj.excinfo is None:
+                _audit_traceability(logger_inst, strict=strict)
         finally:
             logger_inst.end_step()
             logger_inst._step_seen_names.clear()
@@ -577,6 +582,109 @@ def pytest_runtest_call(item: pytest.Item) -> Iterator[None]:
         return
 
     yield
+
+
+def _stamp_step_from_call_outcome(logger_inst: Any, outcome_obj: Any) -> None:
+    """Translate the pluggy outcome of pytest's call phase into ``step.outcome``.
+
+    Called from inside the ``pytest_runtest_call`` wrapper while the step
+    is still open. The pluggy ``_Result`` carries excinfo for any
+    exception raised during the test body. The exception type tells us
+    which Litmus outcome to escalate to:
+
+    * ``Skipped`` (``pytest.skip``, ``@pytest.mark.skip``, skipif) → SKIPPED
+    * ``LimitFailure`` / ``AssertionError`` → FAILED (closes bare-assert gap)
+    * Anything else → ERRORED
+
+    Uses ``escalate_outcome`` so a measurement-level FAILED that already
+    cascaded into the step is not weakened by a later runner-side stamp.
+    """
+    from litmus.execution._state import get_current_step
+
+    step = get_current_step()
+    if step is None:
+        return
+    excinfo = outcome_obj.excinfo
+    if excinfo is None:
+        return
+    exc_type = excinfo[0]
+    if issubclass(exc_type, pytest.skip.Exception):
+        new_outcome = Outcome.SKIPPED
+    elif issubclass(exc_type, AssertionError):
+        new_outcome = Outcome.FAILED
+    else:
+        new_outcome = Outcome.ERRORED
+    step.outcome = escalate_outcome(step.outcome, new_outcome)
+    logger_inst.test_run.outcome = escalate_outcome(logger_inst.test_run.outcome, new_outcome)
+
+
+@pytest.hookimpl(tryfirst=True, hookwrapper=True)
+def pytest_runtest_makereport(item: pytest.Item, call: Any) -> Iterator[None]:
+    """Translate setup/teardown phase failures into ``step.outcome``.
+
+    The call-phase outcome is already handled inside the
+    ``pytest_runtest_call`` wrapper. This hook covers the two phases the
+    wrapper can't see:
+
+    * ``setup`` failure → the test never ran. The step may not exist;
+      the matching collected-item row stays ``planned`` unless we've
+      already stamped something. We escalate any open step to ERRORED
+      and rely on the manifest reconciliation for tests that never
+      reached the call phase.
+    * ``teardown`` failure → the step has already been closed by the
+      call-phase wrapper. We escalate the *closed* step's outcome and
+      the run outcome so a teardown blow-up isn't silently swallowed.
+    """
+    outcome_obj = yield
+    if call.when == "call":
+        return
+    if call.excinfo is None:
+        return
+    logger_inst = get_current_logger()
+    if logger_inst is None:
+        return
+    exc_type = call.excinfo.type
+    if issubclass(exc_type, pytest.skip.Exception):
+        # Setup-phase skip is a normal control-flow case (``skipif``,
+        # session-scoped fixture skipping). Find the step opened for
+        # this nodeid (if any) and stamp SKIPPED on it; otherwise let
+        # the planned-row reconciliation fall through.
+        new_outcome = Outcome.SKIPPED
+    else:
+        new_outcome = Outcome.ERRORED
+    step = _find_step_for_nodeid(logger_inst, item.nodeid)
+    if step is not None:
+        step.outcome = escalate_outcome(step.outcome, new_outcome)
+    logger_inst.test_run.outcome = escalate_outcome(logger_inst.test_run.outcome, new_outcome)
+    _ = outcome_obj  # the wrapper returns the original outcome unmodified
+
+
+def _find_step_for_nodeid(logger_inst: Any, node_id: str) -> Any | None:
+    """Return the most recent step matching ``node_id`` on the active run."""
+    for step in reversed(logger_inst.test_run.steps):
+        if step.node_id == node_id:
+            return step
+    return None
+
+
+def pytest_keyboard_interrupt(excinfo: Any) -> None:
+    """Stamp ABORTED on any in-flight step + the active run on Ctrl-C.
+
+    Pytest fires this once when KeyboardInterrupt propagates out of the
+    test loop. Any step still open at that point was killed mid-flight;
+    the run as a whole is aborted. ``escalate_outcome`` ensures we don't
+    downgrade an existing ERRORED state.
+    """
+    _ = excinfo
+    logger_inst = get_current_logger()
+    if logger_inst is None:
+        return
+    from litmus.execution._state import get_current_step
+
+    step = get_current_step()
+    if step is not None:
+        step.outcome = escalate_outcome(step.outcome, Outcome.ABORTED)
+    logger_inst.test_run.outcome = escalate_outcome(logger_inst.test_run.outcome, Outcome.ABORTED)
 
 
 def _audit_traceability(logger_inst: Any, *, strict: bool) -> None:

@@ -29,14 +29,14 @@ def sample_run():
         operator_id="test_op",
         test_phase="development",
         git_commit="abc123",
-        outcome=Outcome.PASS,
+        outcome=Outcome.PASSED,
         steps=[
             TestStep(
                 name="test_voltage",
-                outcome=Outcome.PASS,
+                outcome=Outcome.PASSED,
                 vectors=[
                     TestVector(
-                        outcome=Outcome.PASS,
+                        outcome=Outcome.PASSED,
                         measurements=[
                             Measurement(
                                 name="vout",
@@ -44,14 +44,14 @@ def sample_run():
                                 units="V",
                                 limit_low=3.0,
                                 limit_high=3.6,
-                                outcome=Outcome.PASS,
+                                outcome=Outcome.PASSED,
                             ),
                             Measurement(
                                 name="vout_ripple",
                                 value=0.015,
                                 units="V",
                                 limit_high=0.050,
-                                outcome=Outcome.PASS,
+                                outcome=Outcome.PASSED,
                             ),
                         ],
                     )
@@ -59,10 +59,10 @@ def sample_run():
             ),
             TestStep(
                 name="test_current",
-                outcome=Outcome.FAIL,
+                outcome=Outcome.FAILED,
                 vectors=[
                     TestVector(
-                        outcome=Outcome.FAIL,
+                        outcome=Outcome.FAILED,
                         measurements=[
                             Measurement(
                                 name="iout",
@@ -70,7 +70,7 @@ def sample_run():
                                 units="A",
                                 limit_low=0.0,
                                 limit_high=2.0,
-                                outcome=Outcome.FAIL,
+                                outcome=Outcome.FAILED,
                             ),
                         ],
                     )

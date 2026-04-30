@@ -177,7 +177,7 @@ class StationConnection:
         self._instrument_server.start()
         return self._instrument_server.address_str
 
-    def stop(self, outcome: str = "complete") -> None:
+    def stop(self, outcome: str = "passed") -> None:
         """Release all instruments, emit SessionEnded, close EventLog."""
         if not self._started:
             return
@@ -412,7 +412,7 @@ class StationConnection:
     def _emergency_stop(self) -> None:
         """Best-effort cleanup on SIGTERM/atexit."""
         try:
-            self.stop(outcome="interrupted")
+            self.stop(outcome="aborted")
         except Exception:
             pass
 
@@ -426,7 +426,7 @@ class StationConnection:
         exc_val: BaseException | None,
         exc_tb: object,
     ) -> None:
-        outcome = "complete" if exc_type is None else "error"
+        outcome = "passed" if exc_type is None else "errored"
         self.stop(outcome=outcome)
 
 

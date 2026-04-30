@@ -22,13 +22,13 @@ def _row(
     *,
     run_id: str = "run-1",
     dut_serial: str = "SN001",
-    run_outcome: str = "pass",
+    run_outcome: str = "passed",
     run_started_at: str = "2026-01-01T10:00:00",
     run_ended_at: str = "2026-01-01T10:05:00",
     step_name: str = "test_voltage",
     measurement_name: str = "vout",
     value: float | None = 3.3,
-    outcome: str = "pass",
+    outcome: str = "passed",
     limit_low: float | None = 3.0,
     limit_high: float | None = 3.6,
     dut_part_number: str = "PN-100",
@@ -82,38 +82,38 @@ def results_dir(tmp_path: Path) -> Path:
         _row(
             run_id="run-1",
             dut_serial="SN001",
-            run_outcome="pass",
+            run_outcome="passed",
             run_started_at="2026-01-01T10:00:00",
             run_ended_at="2026-01-01T10:05:00",
             value=3.3,
-            outcome="pass",
+            outcome="passed",
         ),
         _row(
             run_id="run-2",
             dut_serial="SN002",
-            run_outcome="fail",
+            run_outcome="failed",
             run_started_at="2026-01-01T11:00:00",
             run_ended_at="2026-01-01T11:03:00",
             value=2.5,
-            outcome="fail",
+            outcome="failed",
         ),
         _row(
             run_id="run-3",
             dut_serial="SN001",
-            run_outcome="pass",
+            run_outcome="passed",
             run_started_at="2026-01-01T12:00:00",
             run_ended_at="2026-01-01T12:04:00",
             value=3.31,
-            outcome="pass",
+            outcome="passed",
         ),
         _row(
             run_id="run-4",
             dut_serial="SN002",
-            run_outcome="pass",
+            run_outcome="passed",
             run_started_at="2026-01-01T13:00:00",
             run_ended_at="2026-01-01T13:06:00",
             value=3.29,
-            outcome="pass",
+            outcome="passed",
         ),
     ]
     _write_silver(runs_dir, rows)
@@ -136,12 +136,14 @@ class TestYieldSummary:
         fp_passed = sum(r["first_pass_passed"] for r in rows)
         gold_fpy = fp_passed / fp_total if fp_total else 0.0
 
+        # fmt: off
         python_runs = [
-            {"dut_serial": "SN001", "run_outcome": "pass", "run_started_at": "2026-01-01T10:00:00"},
-            {"dut_serial": "SN002", "run_outcome": "fail", "run_started_at": "2026-01-01T11:00:00"},
-            {"dut_serial": "SN001", "run_outcome": "pass", "run_started_at": "2026-01-01T12:00:00"},
-            {"dut_serial": "SN002", "run_outcome": "pass", "run_started_at": "2026-01-01T13:00:00"},
+            {"dut_serial": "SN001", "run_outcome": "passed", "run_started_at": "2026-01-01T10:00:00"},  # noqa: E501
+            {"dut_serial": "SN002", "run_outcome": "failed", "run_started_at": "2026-01-01T11:00:00"},  # noqa: E501
+            {"dut_serial": "SN001", "run_outcome": "passed", "run_started_at": "2026-01-01T12:00:00"},  # noqa: E501
+            {"dut_serial": "SN002", "run_outcome": "passed", "run_started_at": "2026-01-01T13:00:00"},  # noqa: E501
         ]
+        # fmt: on
         python_fpy = calculate_fpy(python_runs)
         assert gold_fpy == pytest.approx(python_fpy, abs=0.01)
 
@@ -179,7 +181,7 @@ class TestPareto:
         _write_silver(
             runs_dir,
             [
-                _row(run_id="r1", value=3.3, outcome="pass"),
+                _row(run_id="r1", value=3.3, outcome="passed"),
             ],
         )
         store = MetricsStore(_results_dir=tmp_path)
@@ -192,7 +194,7 @@ class TestCpk:
         runs_dir = tmp_path / "runs"
         values = [3.3, 3.31, 3.29, 3.32, 3.28, 3.30, 3.33, 3.27, 3.31, 3.29]
         rows = [
-            _row(run_id=f"r{i}", dut_serial=f"SN{i:03d}", value=v, outcome="pass")
+            _row(run_id=f"r{i}", dut_serial=f"SN{i:03d}", value=v, outcome="passed")
             for i, v in enumerate(values)
         ]
         _write_silver(runs_dir, rows)
@@ -210,8 +212,8 @@ class TestCpk:
         _write_silver(
             runs_dir,
             [
-                _row(run_id="r1", value=3.3, outcome="pass"),
-                _row(run_id="r2", dut_serial="SN002", value=3.31, outcome="pass"),
+                _row(run_id="r1", value=3.3, outcome="passed"),
+                _row(run_id="r2", dut_serial="SN002", value=3.31, outcome="passed"),
             ],
         )
         store = MetricsStore(_results_dir=tmp_path)

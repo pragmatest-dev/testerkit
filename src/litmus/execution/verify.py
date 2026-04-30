@@ -6,7 +6,9 @@ each runner's native fixture/decorator surface. This module owns the
 runner-agnostic pieces every runner needs:
 
 * :class:`LimitFailure` — raised on FAIL, subclasses ``AssertionError``
-* :func:`_apply_outcome` — stamps PASS / FAIL / DONE on a measurement
+* :class:`MissingLimitError` — raised when ``verify`` is called without
+  a resolvable limit (use ``logger.measure`` for record-only)
+* :func:`_apply_outcome` — stamps PASSED / FAILED on a measurement
 * :class:`_LimitsMapping` — read-only ``name → Limit`` view
 * :class:`VerifyFn` / :data:`LimitsFn` — type signatures consumers can
   annotate against without importing the runner adapter
@@ -81,16 +83,28 @@ class LimitFailure(AssertionError):
         return "\n".join(lines)
 
 
-def _apply_outcome(measurement: Measurement, limit: Limit | None, value: float | None) -> None:
-    """Stamp ``measurement.outcome`` based on ``value`` against ``limit``.
+class MissingLimitError(ValueError):
+    """Raised when ``verify`` is invoked with no resolvable limit.
 
-    No limit → DONE. Limit + pass → PASS. Limit + fail → FAIL. Caller is
-    responsible for raising on FAIL.
+    ``verify`` is judgment-bearing — calling it without a limit is a
+    config bug, not a recordable outcome. Test code that wants to
+    record a value without judging it should call ``logger.measure``
+    (which stamps :attr:`Outcome.DONE`).
     """
-    if limit is None or value is None:
-        measurement.outcome = Outcome.DONE
+
+
+def _apply_outcome(measurement: Measurement, limit: Limit, value: float | None) -> None:
+    """Stamp ``measurement.outcome`` by judging ``value`` against ``limit``.
+
+    ``value=None`` with a limit → ERRORED (can't judge what we don't have).
+    Limit + value → PASSED / FAILED. Caller raises on FAILED.
+    Verify ensures a non-None limit before invoking; ``logger.measure``
+    is the record-only path and never lands here.
+    """
+    if value is None:
+        measurement.outcome = Outcome.ERRORED
         return
-    measurement.outcome = Outcome.PASS if value in limit else Outcome.FAIL
+    measurement.outcome = Outcome.PASSED if value in limit else Outcome.FAILED
 
 
 class _LimitsMapping(Mapping[str, Limit]):
@@ -179,10 +193,17 @@ def build_verify_callable() -> VerifyFn:
                 units=None,
             )
 
+        if effective_limit is None:
+            raise MissingLimitError(
+                f"verify({name!r}, ...) has no limit to judge against. "
+                "Pass limit=Limit(...), configure a limit via "
+                "@pytest.mark.litmus_limits / sidecar / profile / product spec, "
+                "or use logger.measure() to record without judging."
+            )
+
         _apply_outcome(measurement, effective_limit, measurement.value)
 
-        if measurement.outcome == Outcome.FAIL:
-            assert effective_limit is not None
+        if measurement.outcome == Outcome.FAILED:
             raise LimitFailure(
                 name=name,
                 value=measurement.value,

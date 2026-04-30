@@ -14,7 +14,7 @@ def _make_test_run() -> TestRun:
         units="V",
         limit_low=3.0,
         limit_high=3.6,
-        outcome=Outcome.PASS,
+        outcome=Outcome.PASSED,
     )
     v = TestVector(index=0, measurements=[m])
     s = TestStep(name="test_v", vectors=[v])
@@ -22,7 +22,7 @@ def _make_test_run() -> TestRun:
         dut=DUT(serial="SN001"),
         steps=[s],
         station_id="bench_1",
-        outcome=Outcome.PASS,
+        outcome=Outcome.PASSED,
     )
 
 

@@ -127,7 +127,7 @@ class TestStationConnection:
         assert log_path is not None
         events = _read_events_from_ipc(log_path)
         ended = [e for e in events if e["event_type"] == "session.ended"]
-        assert ended[0]["outcome"] == "error"
+        assert ended[0]["outcome"] == "errored"
 
 
 class TestSessionStartedFields:

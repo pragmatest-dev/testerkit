@@ -11,7 +11,7 @@ Usage:
         session_id=session_id,
     )
     results = runner.run(["pytest", "tests/", "-v"])
-    # results = {"slot_1": SlotResult(outcome="pass"), ...}
+    # results = {"slot_1": SlotResult(outcome="passed"), ...}
 """
 
 from __future__ import annotations
@@ -71,7 +71,7 @@ class SlotResult:
     """Outcome of a single slot's subprocess execution."""
 
     slot_id: str
-    outcome: str  # "pass", "fail", "error"
+    outcome: str  # "passed", "failed", "errored"
     returncode: int | None = None
     output_lines: list[str] = field(default_factory=list, repr=False)
 
@@ -195,7 +195,7 @@ class SlotRunner:
                 slot_env = _build_slot_env(slot_id, dut, slot, base_env)
                 slot_env["LITMUS_SLOT_INDEX"] = str(slot_ids.index(slot_id))
 
-                result = SlotResult(slot_id=slot_id, outcome="error")
+                result = SlotResult(slot_id=slot_id, outcome="errored")
                 results[slot_id] = result
 
                 logger.info(
@@ -254,7 +254,7 @@ class SlotRunner:
                             outcome=result.outcome,
                             error_message=(
                                 f"exit code {result.returncode}"
-                                if result.outcome != "pass"
+                                if result.outcome != "passed"
                                 else None
                             ),
                         )
@@ -298,7 +298,7 @@ class SlotRunner:
         proc.wait()
         returncode = proc.returncode
         result.returncode = returncode
-        result.outcome = "pass" if returncode == 0 else "fail"
+        result.outcome = "passed" if returncode == 0 else "failed"
 
         # Immediately notify coordinator so blocked sync points unblock
         if returncode != 0 and coordinator is not None:
@@ -404,13 +404,13 @@ def _report_slot_results(session, results: dict[str, SlotResult]) -> None:
     sys.stdout.write("=" * 60 + "\n")
     for slot_id in results:
         r = results[slot_id]
-        status = "PASS" if r.outcome == "pass" else "FAIL"
+        status = "PASS" if r.outcome == "passed" else "FAIL"
         summary = _extract_pytest_summary(r.output_lines)
         sys.stdout.write(f"  {slot_id}: {status}  {summary}\n")
     sys.stdout.write("=" * 60 + "\n\n")
     sys.stdout.flush()
 
-    failed_slots = [sid for sid, r in results.items() if r.outcome != "pass"]
+    failed_slots = [sid for sid, r in results.items() if r.outcome != "passed"]
     session.testsfailed = len(failed_slots)
 
 
@@ -563,13 +563,13 @@ def _run_subprocess_mode(
         _report_slot_results(session, results)
 
         if event_log is not None:
-            worst = "pass"
+            worst = "passed"
             for r in results.values():
-                if r.outcome == "error":
-                    worst = "error"
+                if r.outcome == "errored":
+                    worst = "errored"
                     break
-                if r.outcome == "fail":
-                    worst = "fail"
+                if r.outcome == "failed":
+                    worst = "failed"
             event_log.emit(
                 SessionEnded(
                     session_id=session_id,

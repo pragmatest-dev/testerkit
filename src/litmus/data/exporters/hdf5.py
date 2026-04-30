@@ -97,7 +97,7 @@ class Hdf5Subscriber(EventSubscriber):
             # Root attrs from RunStarted
             f.attrs["run_id"] = str(s.run_id) if s.run_id else ""
             f.attrs["started_at"] = s.occurred_at.isoformat()
-            f.attrs["outcome"] = outcome or "error"
+            f.attrs["outcome"] = outcome or "errored"
             f.attrs["station_id"] = s.station_id
             f.attrs["project_name"] = s.project_name or ""
             f.attrs["test_phase"] = s.test_phase or ""

@@ -97,7 +97,7 @@ class TestHarnessMeasure:
                 m = harness.measure("output", 3.28)
                 assert m.name == "output"
                 assert m.value == 3.28
-                assert m.outcome == Outcome.PASS
+                assert m.outcome == Outcome.PASSED
 
     def test_measure_with_explicit_limit(self):
         harness = TestHarness()
@@ -109,7 +109,7 @@ class TestHarnessMeasure:
                 assert m.limit_low == 3.0
                 assert m.limit_high == 3.6
                 assert m.units == "V"
-                assert m.outcome == Outcome.PASS
+                assert m.outcome == Outcome.PASSED
 
     def test_measure_fail_updates_vector_outcome(self):
         harness = TestHarness()
@@ -119,7 +119,7 @@ class TestHarnessMeasure:
             with harness.run_vector(Vector(_index=0)) as tv:
                 harness.measure("voltage", 4.0, limit=limit)  # Out of range
 
-        assert tv.outcome == Outcome.FAIL
+        assert tv.outcome == Outcome.FAILED
 
     def test_measure_error_updates_vector_outcome_no_logger(self):
         """Without a logger, harness updates vector outcome on ERROR."""
@@ -131,7 +131,7 @@ class TestHarnessMeasure:
                 # value=None with limits → ERROR via check_limit()
                 harness.measure("voltage", None, limit=limit)
 
-        assert tv.outcome == Outcome.ERROR
+        assert tv.outcome == Outcome.ERRORED
 
     def test_measure_error_overrides_fail_no_logger(self):
         """Without a logger, ERROR overrides FAIL — can't trust untrusted state."""
@@ -141,11 +141,11 @@ class TestHarnessMeasure:
         with harness.step():
             with harness.run_vector(Vector(_index=0)) as tv:
                 harness.measure("voltage_bad", 4.0, limit=limit)  # FAIL
-                assert tv.outcome == Outcome.FAIL
+                assert tv.outcome == Outcome.FAILED
                 harness.measure("voltage_err", None, limit=limit)  # ERROR
-                assert tv.outcome == Outcome.ERROR
+                assert tv.outcome == Outcome.ERRORED
 
-        assert tv.outcome == Outcome.ERROR
+        assert tv.outcome == Outcome.ERRORED
 
     def test_measure_from_config_limits(self):
         config = {"limits": {"voltage": {"low": 3.0, "high": 3.6, "units": "V"}}}
@@ -155,14 +155,14 @@ class TestHarnessMeasure:
             with harness.run_vector(Vector(_index=0)):
                 m = harness.measure("voltage", 3.3)
                 assert m.limit_low == 3.0
-                assert m.outcome == Outcome.PASS
+                assert m.outcome == Outcome.PASSED
 
     def test_measure_no_limit_passes(self):
         harness = TestHarness()
         with harness.step():
             with harness.run_vector(Vector(_index=0)):
                 m = harness.measure("voltage", 999.0)  # Any value
-                assert m.outcome == Outcome.PASS
+                assert m.outcome == Outcome.PASSED
 
 
 class TestHarnessRunVector:
@@ -201,7 +201,7 @@ class TestHarnessRunVector:
                     raise ValueError("Test error")
 
         assert captured_tv is not None
-        assert captured_tv.outcome == Outcome.ERROR
+        assert captured_tv.outcome == Outcome.ERRORED
         assert captured_tv.error_message == "Test error"
 
     def test_run_vector_added_to_step(self):
@@ -237,7 +237,7 @@ class TestHarnessRunWithRetry:
 
         assert call_count == 3
         assert tv.attempt == 3
-        assert tv.outcome == Outcome.PASS
+        assert tv.outcome == Outcome.PASSED
 
     def test_no_retry_on_pass(self):
         config = {"retry": {"max_attempts": 3, "delay": 0}}
@@ -255,7 +255,7 @@ class TestHarnessRunWithRetry:
 
         assert call_count == 1
         assert tv.attempt == 1
-        assert tv.outcome == Outcome.PASS
+        assert tv.outcome == Outcome.PASSED
 
     def test_retry_exhausted_returns_fail(self):
         config = {"retry": {"max_attempts": 2, "delay": 0}}
@@ -268,7 +268,7 @@ class TestHarnessRunWithRetry:
             tv = harness.run_with_retry(Vector(_index=0), test_fn)
 
         assert tv.attempt == 2
-        assert tv.outcome == Outcome.ERROR
+        assert tv.outcome == Outcome.ERRORED
 
     def test_retry_with_generator(self):
         """Test that yield pattern works with retry."""
@@ -307,7 +307,7 @@ class TestHarnessStep:
             with harness.run_vector(Vector(_index=0)):
                 harness.measure("voltage", 4.0, limit=limit)  # Fail
 
-        assert step.outcome == Outcome.FAIL
+        assert step.outcome == Outcome.FAILED
 
 
 class TestHarnessRunAll:

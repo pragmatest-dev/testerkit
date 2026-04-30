@@ -1124,16 +1124,16 @@ class TestHarness:
         try:
             yield test_vector
         except AssertionError as e:
-            test_vector.outcome = Outcome.FAIL
+            test_vector.outcome = Outcome.FAILED
             msg = str(e) or "assertion failed"
             test_vector.error_message = msg
-            m = Measurement(name="assert", value=None, outcome=Outcome.FAIL)
+            m = Measurement(name="assert", value=None, outcome=Outcome.FAILED)
             test_vector.measurements.append(m)
             if self._logger is not None:
                 self._logger.log_measurement(m)
             raise
         except Exception as e:
-            test_vector.outcome = Outcome.ERROR
+            test_vector.outcome = Outcome.ERRORED
             test_vector.error_message = str(e)
             raise
         finally:
@@ -1185,7 +1185,7 @@ class TestHarness:
 
             assert last_vector is not None
             # Check if passed
-            if last_vector.outcome == Outcome.PASS:
+            if last_vector.outcome == Outcome.PASSED:
                 break
 
             # Retry delay

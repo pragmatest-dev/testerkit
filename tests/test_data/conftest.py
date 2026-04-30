@@ -46,7 +46,7 @@ def realistic_test_run() -> TestRun:
         operator_id="OP-42",
         operator_name="Jane Doe",
         git_commit="abc1234",
-        outcome=Outcome.FAIL,
+        outcome=Outcome.FAILED,
         custom_metadata={"batch": "2026-Q1", "temperature": 25.0},
         steps=[
             # Step 0: PASS with 2 vectors, nested path, instrument arrays
@@ -56,7 +56,7 @@ def realistic_test_run() -> TestRun:
                 description="Output voltage under load",
                 started_at=datetime(2026, 3, 4, 10, 0, 0, tzinfo=UTC),
                 ended_at=datetime(2026, 3, 4, 10, 1, 0, tzinfo=UTC),
-                outcome=Outcome.PASS,
+                outcome=Outcome.PASSED,
                 instrument_arrays={
                     "step_instruments_name": ["DMM_01", "PSU_01"],
                     "step_instruments_resource": ["TCPIP::10.0.0.1", "TCPIP::10.0.0.2"],
@@ -68,7 +68,7 @@ def realistic_test_run() -> TestRun:
                         attempt=1,
                         params={"vin": 5.0, "load": 100.0},
                         observations={"temp_ambient": 24.8},
-                        outcome=Outcome.PASS,
+                        outcome=Outcome.PASSED,
                         started_at=datetime(2026, 3, 4, 10, 0, 0, tzinfo=UTC),
                         ended_at=datetime(2026, 3, 4, 10, 0, 30, tzinfo=UTC),
                         measurements=[
@@ -79,7 +79,7 @@ def realistic_test_run() -> TestRun:
                                 limit_low=3.0,
                                 limit_high=3.6,
                                 limit_comparator="GELE",
-                                outcome=Outcome.PASS,
+                                outcome=Outcome.PASSED,
                                 dut_pin="VOUT",
                                 instrument_name="DMM_01",
                                 characteristic_id="SPEC-001",
@@ -91,7 +91,7 @@ def realistic_test_run() -> TestRun:
                                 limit_low=0.0,
                                 limit_high=1.0,
                                 limit_comparator="GELT",
-                                outcome=Outcome.PASS,
+                                outcome=Outcome.PASSED,
                                 characteristic_id="SPEC-002",
                             ),
                             Measurement(
@@ -101,7 +101,7 @@ def realistic_test_run() -> TestRun:
                                 limit_low=3.0,
                                 limit_high=3.6,
                                 limit_comparator="GTLT",
-                                outcome=Outcome.PASS,
+                                outcome=Outcome.PASSED,
                             ),
                             Measurement(
                                 name="vout_gt_low",
@@ -110,7 +110,7 @@ def realistic_test_run() -> TestRun:
                                 limit_low=3.0,
                                 limit_high=3.6,
                                 limit_comparator="GTLE",
-                                outcome=Outcome.PASS,
+                                outcome=Outcome.PASSED,
                             ),
                         ],
                     ),
@@ -119,7 +119,7 @@ def realistic_test_run() -> TestRun:
                         attempt=1,
                         params={"vin": 12.0, "load": 200.0},
                         observations={"temp_ambient": 25.1},
-                        outcome=Outcome.PASS,
+                        outcome=Outcome.PASSED,
                         started_at=datetime(2026, 3, 4, 10, 0, 30, tzinfo=UTC),
                         ended_at=datetime(2026, 3, 4, 10, 1, 0, tzinfo=UTC),
                         measurements=[
@@ -130,7 +130,7 @@ def realistic_test_run() -> TestRun:
                                 limit_low=3.0,
                                 limit_high=3.6,
                                 limit_comparator="GELE",
-                                outcome=Outcome.PASS,
+                                outcome=Outcome.PASSED,
                             ),
                             Measurement(
                                 name="vref_eq",
@@ -138,7 +138,7 @@ def realistic_test_run() -> TestRun:
                                 units="V",
                                 limit_nominal=1.25,
                                 limit_comparator="EQ",
-                                outcome=Outcome.PASS,
+                                outcome=Outcome.PASSED,
                             ),
                         ],
                     ),
@@ -151,13 +151,13 @@ def realistic_test_run() -> TestRun:
                 description="Over-current protection test",
                 started_at=datetime(2026, 3, 4, 10, 1, 0, tzinfo=UTC),
                 ended_at=datetime(2026, 3, 4, 10, 2, 0, tzinfo=UTC),
-                outcome=Outcome.FAIL,
+                outcome=Outcome.FAILED,
                 vectors=[
                     TestVector(
                         index=0,
                         attempt=1,
                         params={"vin": 5.0},
-                        outcome=Outcome.FAIL,
+                        outcome=Outcome.FAILED,
                         started_at=datetime(2026, 3, 4, 10, 1, 0, tzinfo=UTC),
                         ended_at=datetime(2026, 3, 4, 10, 2, 0, tzinfo=UTC),
                         measurements=[
@@ -167,7 +167,7 @@ def realistic_test_run() -> TestRun:
                                 units="A",
                                 limit_high=2.0,
                                 limit_comparator="LE",
-                                outcome=Outcome.FAIL,
+                                outcome=Outcome.FAILED,
                             ),
                             Measurement(
                                 name="threshold_ne",
@@ -175,7 +175,7 @@ def realistic_test_run() -> TestRun:
                                 units="V",
                                 limit_nominal=0.0,
                                 limit_comparator="NE",
-                                outcome=Outcome.FAIL,
+                                outcome=Outcome.FAILED,
                             ),
                             Measurement(
                                 name="dropout_lt",
@@ -183,7 +183,7 @@ def realistic_test_run() -> TestRun:
                                 units="V",
                                 limit_high=0.5,
                                 limit_comparator="LT",
-                                outcome=Outcome.PASS,
+                                outcome=Outcome.PASSED,
                             ),
                             Measurement(
                                 name="bias_ge",
@@ -191,7 +191,7 @@ def realistic_test_run() -> TestRun:
                                 units="mA",
                                 limit_low=0.5,
                                 limit_comparator="GE",
-                                outcome=Outcome.PASS,
+                                outcome=Outcome.PASSED,
                             ),
                             Measurement(
                                 name="leakage_gt",
@@ -199,7 +199,7 @@ def realistic_test_run() -> TestRun:
                                 units="uA",
                                 limit_low=0.001,
                                 limit_comparator="GT",
-                                outcome=Outcome.PASS,
+                                outcome=Outcome.PASSED,
                             ),
                             # value=None → ERROR case
                             Measurement(
@@ -209,7 +209,7 @@ def realistic_test_run() -> TestRun:
                                 limit_low=0.0,
                                 limit_high=5.0,
                                 limit_comparator="GELE",
-                                outcome=Outcome.ERROR,
+                                outcome=Outcome.ERRORED,
                             ),
                         ],
                     ),
@@ -222,7 +222,7 @@ def realistic_test_run() -> TestRun:
                 description="Thermal protection (skipped)",
                 started_at=datetime(2026, 3, 4, 10, 2, 0, tzinfo=UTC),
                 ended_at=datetime(2026, 3, 4, 10, 2, 0, tzinfo=UTC),
-                outcome=Outcome.SKIP,
+                outcome=Outcome.SKIPPED,
                 vectors=[],
             ),
         ],

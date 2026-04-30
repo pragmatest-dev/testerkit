@@ -165,18 +165,18 @@ SELECT
     phase,
     period_day AS period,
     COUNT(*) AS total_runs,
-    COUNT(*) FILTER (WHERE run_outcome = 'pass') AS passed,
-    COUNT(*) FILTER (WHERE run_outcome = 'fail') AS failed,
-    COUNT(*) FILTER (WHERE run_outcome = 'error') AS errored,
+    COUNT(*) FILTER (WHERE run_outcome = 'passed') AS passed,
+    COUNT(*) FILTER (WHERE run_outcome = 'failed') AS failed,
+    COUNT(*) FILTER (WHERE run_outcome = 'errored') AS errored,
     COUNT(DISTINCT dut_serial) AS unique_serials,
     COUNT(DISTINCT dut_serial) FILTER (
         WHERE run_id IN (SELECT run_id FROM first_runs WHERE rn = 1)
     ) AS first_pass_total,
     COUNT(DISTINCT dut_serial) FILTER (
-        WHERE run_id IN (SELECT run_id FROM first_runs WHERE rn = 1 AND run_outcome = 'pass')
+        WHERE run_id IN (SELECT run_id FROM first_runs WHERE rn = 1 AND run_outcome = 'passed')
     ) AS first_pass_passed,
     COUNT(DISTINCT dut_serial) FILTER (
-        WHERE run_id IN (SELECT run_id FROM last_runs WHERE rn = 1 AND run_outcome = 'pass')
+        WHERE run_id IN (SELECT run_id FROM last_runs WHERE rn = 1 AND run_outcome = 'passed')
     ) AS final_passed,
     ROUND(AVG(EPOCH(run_ended_at::TIMESTAMP - run_started_at::TIMESTAMP)), 2) AS avg_duration_s,
     ROUND(QUANTILE_CONT(EPOCH(run_ended_at::TIMESTAMP - run_started_at::TIMESTAMP), 0.95), 2)
@@ -194,14 +194,14 @@ SELECT
     step_name,
     measurement_name,
     COUNT(*) AS total_count,
-    COUNT(*) FILTER (WHERE measurement_outcome = 'fail') AS fail_count,
-    ROUND(COUNT(*) FILTER (WHERE measurement_outcome = 'fail') * 100.0
+    COUNT(*) FILTER (WHERE measurement_outcome = 'failed') AS fail_count,
+    ROUND(COUNT(*) FILTER (WHERE measurement_outcome = 'failed') * 100.0
           / NULLIF(COUNT(*), 0), 2) AS fail_rate
 FROM silver
 WHERE measurement_name IS NOT NULL
     {and_clauses}
 GROUP BY product, station, step_name, measurement_name
-HAVING COUNT(*) FILTER (WHERE measurement_outcome = 'fail') > 0
+HAVING COUNT(*) FILTER (WHERE measurement_outcome = 'failed') > 0
 ORDER BY fail_count DESC
 LIMIT {top_n}
 """
@@ -256,8 +256,8 @@ SELECT
     phase,
     period_day AS period,
     COUNT(*) AS total,
-    COUNT(*) FILTER (WHERE run_outcome = 'pass') AS passed,
-    ROUND(COUNT(*) FILTER (WHERE run_outcome = 'pass') * 100.0
+    COUNT(*) FILTER (WHERE run_outcome = 'passed') AS passed,
+    ROUND(COUNT(*) FILTER (WHERE run_outcome = 'passed') * 100.0
           / NULLIF(COUNT(*), 0), 1) AS yield_pct
 FROM runs
 {where}
@@ -320,9 +320,9 @@ SELECT
     phase,
     period_day AS period,
     ROUND(SUM(duration_s), 2) AS total_time_s,
-    ROUND(SUM(duration_s) FILTER (WHERE run_outcome = 'pass'), 2) AS pass_time_s,
-    ROUND(SUM(duration_s) FILTER (WHERE run_outcome = 'fail'), 2) AS fail_time_s,
-    ROUND(SUM(duration_s) FILTER (WHERE run_outcome = 'error'), 2) AS error_time_s
+    ROUND(SUM(duration_s) FILTER (WHERE run_outcome = 'passed'), 2) AS pass_time_s,
+    ROUND(SUM(duration_s) FILTER (WHERE run_outcome = 'failed'), 2) AS fail_time_s,
+    ROUND(SUM(duration_s) FILTER (WHERE run_outcome = 'errored'), 2) AS error_time_s
 FROM runs
 {where}
 GROUP BY product, station, phase, period_day

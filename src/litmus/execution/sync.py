@@ -120,7 +120,7 @@ class SyncPoint:
                     SlotCompleted(
                         session_id=self._session_id,
                         slot_id=self._slot_id,
-                        outcome="error",
+                        outcome="errored",
                         error_message=f"sync timeout at '{name}' after {timeout}s",
                     )
                 )
@@ -217,7 +217,7 @@ class SyncCoordinator:
         """Handle a SlotCompleted event — mark the slot dead if it errored."""
         slot_id = evt.get("slot_id")
         outcome = evt.get("outcome")
-        if slot_id and outcome in ("error", "fail"):
+        if slot_id and outcome in ("errored", "failed", "aborted"):
             self.mark_slot_dead(slot_id)
 
     def mark_slot_dead(self, slot_id: str) -> None:

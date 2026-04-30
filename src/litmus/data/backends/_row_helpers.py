@@ -490,11 +490,13 @@ def _append_not_started(
     collected_items: list[dict[str, str | None]],
     executed_node_ids: set[str],
 ) -> None:
-    """Append ``not_started`` entries for collected items that never executed.
+    """Append ``planned`` entries for collected items that never executed.
 
     Shared by both the batch path (``build_step_manifest``) and the
     streaming path (``ParquetSubscriber._build_step_results_from_events``).
     """
+    from litmus.data.models import Outcome
+
     next_index = len(manifest)
     for ci in collected_items:
         node_id = ci.get("node_id") or ""
@@ -511,7 +513,7 @@ def _append_not_started(
                 "module": ci.get("module"),
                 "step_path": "",
                 "description": None,
-                "outcome": "not_started",
+                "outcome": Outcome.PLANNED.value,
                 "started_at": None,
                 "ended_at": None,
                 "has_measurements": False,

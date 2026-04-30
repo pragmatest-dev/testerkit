@@ -99,11 +99,11 @@ fields (sidecar) or ``@pytest.mark.litmus_prompts`` decorators
         "choices": ["bench_01", "bench_02"],
     }
 )
-def test_operator_choice_inline(verify, prompt, psu, dmm):
+def test_operator_choice_inline(logger, prompt, psu, dmm):
     chosen = prompt("pick_fixture")
     assert chosen == "bench_01"          # auto-confirm returns first choice
     psu.set_voltage(5.0)
-    verify("v_rail", dmm.measure_dc_voltage())
+    logger.measure("v_rail", dmm.measure_dc_voltage())  # no limit → DONE
 ```
 
 Sidecar form (same effect):

@@ -40,13 +40,13 @@ def _make_test_flg(outcome: str | None, value: float | None) -> list[str]:
     bits = ["0"] * 8
     if value is None:
         bits[1] = "1"  # result invalid
-    if outcome is None or outcome == "skip":
+    if outcome is None or outcome in ("skipped", "planned"):
         bits[4] = "1"  # not executed
         bits[6] = "1"  # pass/fail not valid
-    elif outcome == "error":
+    elif outcome in ("errored", "aborted"):
         bits[1] = "1"  # result invalid
         bits[6] = "1"  # pass/fail not valid
-    elif outcome == "fail":
+    elif outcome == "failed":
         bits[7] = "1"  # fail
     return bits
 
@@ -217,7 +217,7 @@ class StdfSubscriber(EventSubscriber):
                     m.units,
                 )
             )
-            if m.outcome == "fail":
+            if m.outcome == "failed":
                 any_fail = True
 
         # PRR
@@ -225,7 +225,7 @@ class StdfSubscriber(EventSubscriber):
         prr.set_value("HEAD_NUM", 1)
         prr.set_value("SITE_NUM", 1)
         part_flg = ["0"] * 8
-        if any_fail or outcome in ("fail", "error"):
+        if any_fail or outcome in ("failed", "errored", "aborted"):
             part_flg[3] = "1"
         prr.set_value("PART_FLG", part_flg)
         prr.set_value("NUM_TEST", len(self._measurements))

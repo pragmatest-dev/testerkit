@@ -44,7 +44,7 @@
   </div>
   <div>
     {% set oc = data.outcome | lower %}
-    <span class="outcome {% if oc == 'pass' %}outcome-pass{% elif oc == 'fail' %}outcome-fail{% else %}outcome-error{% endif %}">{{ data.outcome }}</span>
+    <span class="outcome {% if oc in ('passed', 'done') %}outcome-pass{% elif oc == 'failed' %}outcome-fail{% else %}outcome-error{% endif %}">{{ data.outcome }}</span>
   </div>
 </div>
 

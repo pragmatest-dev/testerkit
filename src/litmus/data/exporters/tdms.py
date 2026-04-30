@@ -247,7 +247,7 @@ class TdmsSubscriber(EventSubscriber):
         root_props: dict[str, object] = {
             "run_id": str(s.run_id) if s.run_id else "",
             "started_at": s.occurred_at.isoformat(),
-            "outcome": outcome or "error",
+            "outcome": outcome or "errored",
             "station_id": s.station_id,
             "project_name": s.project_name or "",
             "test_phase": s.test_phase or "",

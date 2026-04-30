@@ -59,8 +59,8 @@ class TestSlotRunnerExecution:
         results = runner.run(cmd, sync=False)
 
         assert len(results) == 2
-        assert results["slot_1"].outcome == "pass"
-        assert results["slot_2"].outcome == "pass"
+        assert results["slot_1"].outcome == "passed"
+        assert results["slot_2"].outcome == "passed"
 
     def test_each_slot_gets_correct_env_vars(self):
         slots = _make_slots()
@@ -83,7 +83,7 @@ class TestSlotRunnerExecution:
 
         for slot_id in ("slot_1", "slot_2"):
             result = results[slot_id]
-            assert result.outcome == "pass"
+            assert result.outcome == "passed"
             assert len(result.output_lines) >= 1
             data = json.loads(result.output_lines[0])
             assert data["slot"] == slot_id
@@ -112,7 +112,7 @@ class TestSlotRunnerExecution:
         cmd = [sys.executable, "-c", "pass"]
         results = runner.run(cmd, sync=False)
 
-        assert results["slot_1"].outcome == "pass"
+        assert results["slot_1"].outcome == "passed"
         assert results["slot_1"].returncode == 0
 
     def test_fail_outcome_on_error(self):
@@ -127,8 +127,8 @@ class TestSlotRunnerExecution:
         cmd = [sys.executable, "-c", script]
         results = runner.run(cmd, sync=False)
 
-        assert results["slot_1"].outcome == "pass"
-        assert results["slot_2"].outcome == "fail"
+        assert results["slot_1"].outcome == "passed"
+        assert results["slot_2"].outcome == "failed"
         assert results["slot_2"].returncode == 1
 
     def test_captures_stdout(self):

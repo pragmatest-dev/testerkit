@@ -31,7 +31,7 @@
       },
       "targets": [
         {
-          "rawSql": "SELECT station_id, round(100.0 * count(*) FILTER (WHERE outcome = 'pass') / count(*), 1) AS yield_pct FROM runs WHERE started_at BETWEEN '${__from:date}' AND '${__to:date}' GROUP BY station_id ORDER BY yield_pct DESC",
+          "rawSql": "SELECT station_id, round(100.0 * count(*) FILTER (WHERE outcome = 'passed') / count(*), 1) AS yield_pct FROM runs WHERE started_at BETWEEN '${__from:date}' AND '${__to:date}' GROUP BY station_id ORDER BY yield_pct DESC",
           "format": "table"
         }
       ],
@@ -85,7 +85,7 @@
       },
       "targets": [
         {
-          "rawSql": "SELECT station_id, station_name, count(*) AS runs, round(100.0 * count(*) FILTER (WHERE outcome = 'pass') / count(*), 1) AS yield_pct, round(avg(epoch(ended_at - started_at)), 1) AS avg_duration_s, round(quantile_cont(epoch(ended_at - started_at), 0.95), 1) AS p95_duration_s FROM runs WHERE started_at BETWEEN '${__from:date}' AND '${__to:date}' AND ended_at IS NOT NULL GROUP BY station_id, station_name ORDER BY runs DESC",
+          "rawSql": "SELECT station_id, station_name, count(*) AS runs, round(100.0 * count(*) FILTER (WHERE outcome = 'passed') / count(*), 1) AS yield_pct, round(avg(epoch(ended_at - started_at)), 1) AS avg_duration_s, round(quantile_cont(epoch(ended_at - started_at), 0.95), 1) AS p95_duration_s FROM runs WHERE started_at BETWEEN '${__from:date}' AND '${__to:date}' AND ended_at IS NOT NULL GROUP BY station_id, station_name ORDER BY runs DESC",
           "format": "table"
         }
       ]

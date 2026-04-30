@@ -118,27 +118,27 @@ class VectorBuilder:
         if m.value is not None and has_limits:
             m.check_limit()
         elif m.value is not None:
-            m.outcome = Outcome.PASS
+            m.outcome = Outcome.PASSED
 
         self._vector.measurements.append(m)
 
         # Update vector outcome if measurement failed
-        if m.outcome == Outcome.FAIL:
-            self._vector.outcome = Outcome.FAIL
-        elif m.outcome == Outcome.ERROR and self._vector.outcome != Outcome.FAIL:
-            self._vector.outcome = Outcome.ERROR
+        if m.outcome == Outcome.FAILED:
+            self._vector.outcome = Outcome.FAILED
+        elif m.outcome == Outcome.ERRORED and self._vector.outcome != Outcome.FAILED:
+            self._vector.outcome = Outcome.ERRORED
 
         return m
 
     def fail(self, message: str | None = None) -> None:
         """Mark this vector as failed."""
-        self._vector.outcome = Outcome.FAIL
+        self._vector.outcome = Outcome.FAILED
         if message:
             self._vector.error_message = message
 
     def skip(self, message: str | None = None) -> None:
         """Mark this vector as skipped."""
-        self._vector.outcome = Outcome.SKIP
+        self._vector.outcome = Outcome.SKIPPED
         if message:
             self._vector.error_message = message
 
@@ -178,12 +178,11 @@ class StepBuilder:
         finally:
             self._test_step.vectors.append(builder._finish())
             # Update step outcome based on vector
-            if builder._vector.outcome == Outcome.FAIL:
-                self._test_step.outcome = Outcome.FAIL
-            elif (
-                builder._vector.outcome == Outcome.ERROR and self._test_step.outcome != Outcome.FAIL
-            ):
-                self._test_step.outcome = Outcome.ERROR
+            v_outcome = builder._vector.outcome
+            if v_outcome == Outcome.FAILED:
+                self._test_step.outcome = Outcome.FAILED
+            elif v_outcome == Outcome.ERRORED and self._test_step.outcome != Outcome.FAILED:
+                self._test_step.outcome = Outcome.ERRORED
 
     def measure(
         self,
@@ -233,13 +232,13 @@ class StepBuilder:
 
     def fail(self, message: str | None = None) -> None:
         """Mark this step as failed."""
-        self._test_step.outcome = Outcome.FAIL
+        self._test_step.outcome = Outcome.FAILED
         if message:
             self._test_step.error_message = message
 
     def skip(self, message: str | None = None) -> None:
         """Mark this step as skipped."""
-        self._test_step.outcome = Outcome.SKIP
+        self._test_step.outcome = Outcome.SKIPPED
         if message:
             self._test_step.error_message = message
 
@@ -248,8 +247,8 @@ class StepBuilder:
         # Finalize default vector if it exists
         if self._default_vector is not None:
             self._test_step.vectors.append(self._default_vector._finish())
-            if self._default_vector._vector.outcome == Outcome.FAIL:
-                self._test_step.outcome = Outcome.FAIL
+            if self._default_vector._vector.outcome == Outcome.FAILED:
+                self._test_step.outcome = Outcome.FAILED
 
         self._test_step.ended_at = datetime.now(UTC)
         return self._test_step
@@ -307,13 +306,13 @@ class RunBuilder:
         finally:
             self._test_run.steps.append(builder._finish())
             # Update run outcome based on step
-            if builder._test_step.outcome == Outcome.FAIL:
-                self._test_run.outcome = Outcome.FAIL
+            if builder._test_step.outcome == Outcome.FAILED:
+                self._test_run.outcome = Outcome.FAILED
             elif (
-                builder._test_step.outcome == Outcome.ERROR
-                and self._test_run.outcome != Outcome.FAIL
+                builder._test_step.outcome == Outcome.ERRORED
+                and self._test_run.outcome != Outcome.FAILED
             ):
-                self._test_run.outcome = Outcome.ERROR
+                self._test_run.outcome = Outcome.ERRORED
 
     def finish(self) -> TestRun:
         """Finalize and save the test run.

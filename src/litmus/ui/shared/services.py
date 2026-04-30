@@ -556,8 +556,8 @@ def aggregate_run_stats(measurements: list[dict]) -> dict[str, Any]:
     total_steps, failed_steps.
     """
     total_measurements = len(measurements)
-    failed_measurements = sum(1 for m in measurements if m.get("outcome") == "fail")
-    passed_measurements = sum(1 for m in measurements if m.get("outcome") == "pass")
+    failed_measurements = sum(1 for m in measurements if m.get("outcome") == "failed")
+    passed_measurements = sum(1 for m in measurements if m.get("outcome") == "passed")
 
     # A step fails if any of its measurements fail
     steps: dict[str, str] = {}
@@ -566,12 +566,12 @@ def aggregate_run_stats(measurements: list[dict]) -> dict[str, Any]:
         meas_outcome = m.get("outcome") or ""
         if step not in steps:
             steps[step] = meas_outcome
-        elif meas_outcome == "fail":
-            steps[step] = "fail"
-        elif meas_outcome == "error" and steps[step] != "fail":
-            steps[step] = "error"
+        elif meas_outcome == "failed":
+            steps[step] = "failed"
+        elif meas_outcome == "errored" and steps[step] != "failed":
+            steps[step] = "errored"
     total_steps = len(steps)
-    failed_steps = sum(1 for o in steps.values() if o == "fail")
+    failed_steps = sum(1 for o in steps.values() if o == "failed")
 
     return {
         "total_measurements": total_measurements,

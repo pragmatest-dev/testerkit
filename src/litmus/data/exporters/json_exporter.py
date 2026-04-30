@@ -177,7 +177,7 @@ class JsonSubscriber(EventSubscriber):
             "project_name": s.project_name,
             "test_phase": s.test_phase,
             "started_at": s.occurred_at.isoformat(),
-            "outcome": self._run_ended.outcome if self._run_ended else "error",
+            "outcome": self._run_ended.outcome if self._run_ended else "errored",
             "steps": steps,
         }
         if s.operator_id:

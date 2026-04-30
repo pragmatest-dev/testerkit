@@ -37,7 +37,7 @@ def _yield_by_position(runs: list[dict], position: int) -> float:
     passed = 0
     for serial_runs in by_serial.values():
         serial_runs.sort(key=lambda r: r.get("run_started_at") or "")
-        if serial_runs[position].get("run_outcome") == "pass":
+        if serial_runs[position].get("run_outcome") == "passed":
             passed += 1
 
     return passed / len(by_serial)
@@ -217,7 +217,7 @@ def pareto_analysis(
     # Count failures by (step_name, measurement_name)
     fail_counts: dict[tuple[str, str], int] = defaultdict(int)
     for m in measurements:
-        if m.get("measurement_outcome") == "fail":
+        if m.get("measurement_outcome") == "failed":
             key = (m.get("step_name", ""), m.get("measurement_name", ""))
             fail_counts[key] += 1
 
@@ -278,7 +278,7 @@ def trend_by_period(
 
         key = _period_key(started)
         buckets[key]["total"] += 1
-        if r.get("run_outcome") == "pass":
+        if r.get("run_outcome") == "passed":
             buckets[key]["passed"] += 1
 
     result = []

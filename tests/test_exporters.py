@@ -33,14 +33,14 @@ def sample_test_run() -> TestRun:
         dut=DUT(serial="DUT001", part_number="PN-100", revision="A"),
         station_id="station_001",
         test_phase="development",
-        outcome=Outcome.PASS,
+        outcome=Outcome.PASSED,
         custom_metadata={"operator_badge": "EMP-123"},
         steps=[
             TestStep(
                 name="test_voltage",
                 started_at=datetime(2026, 3, 4, 10, 0, 0, tzinfo=UTC),
                 ended_at=datetime(2026, 3, 4, 10, 1, 0, tzinfo=UTC),
-                outcome=Outcome.PASS,
+                outcome=Outcome.PASSED,
                 instrument_arrays={
                     "step_instruments_name": ["DMM_01"],
                     "step_instruments_resource": ["TCPIP::192.168.1.10"],
@@ -51,7 +51,7 @@ def sample_test_run() -> TestRun:
                         index=0,
                         attempt=1,
                         params={"vin": 5.0},
-                        outcome=Outcome.PASS,
+                        outcome=Outcome.PASSED,
                         measurements=[
                             Measurement(
                                 name="vout",
@@ -59,7 +59,7 @@ def sample_test_run() -> TestRun:
                                 units="V",
                                 limit_low=3.0,
                                 limit_high=3.6,
-                                outcome=Outcome.PASS,
+                                outcome=Outcome.PASSED,
                             ),
                             Measurement(
                                 name="iout",
@@ -67,7 +67,7 @@ def sample_test_run() -> TestRun:
                                 units="A",
                                 limit_low=0.0,
                                 limit_high=1.0,
-                                outcome=Outcome.PASS,
+                                outcome=Outcome.PASSED,
                             ),
                         ],
                     ),
@@ -337,7 +337,7 @@ class TestPluginWarnings:
             step_index=0,
             measurement_name="v",
             value=1.0,
-            outcome="pass",
+            outcome="passed",
         )
 
         with w.catch_warnings(record=True) as caught:
@@ -377,7 +377,7 @@ class TestMeasurementRow:
         assert row.measurement_name == "vout"
         assert row.measurement_value == 3.3
         assert row.measurement_units == "V"
-        assert row.measurement_outcome == "pass"
+        assert row.measurement_outcome == "passed"
 
     def test_to_flat_dict(self, sample_test_run: TestRun):
         """Roundtrip: build → flatten → verify in_*/out_* keys present."""
@@ -442,7 +442,7 @@ class TestEventSubscriberLifecycle:
             step_index=0,
             measurement_name="v",
             value=1.0,
-            outcome="pass",
+            outcome="passed",
         )
         event_log.emit(event)
 

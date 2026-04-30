@@ -20,30 +20,30 @@ from litmus.analysis.metrics import (
 class TestFPY:
     def test_all_pass(self):
         runs = [
-            {"dut_serial": "A", "run_outcome": "pass", "run_started_at": "2026-01-01T00:00:00Z"},
-            {"dut_serial": "B", "run_outcome": "pass", "run_started_at": "2026-01-01T00:01:00Z"},
+            {"dut_serial": "A", "run_outcome": "passed", "run_started_at": "2026-01-01T00:00:00Z"},
+            {"dut_serial": "B", "run_outcome": "passed", "run_started_at": "2026-01-01T00:01:00Z"},
         ]
         assert calculate_fpy(runs) == 1.0
 
     def test_all_fail(self):
         runs = [
-            {"dut_serial": "A", "run_outcome": "fail", "run_started_at": "2026-01-01T00:00:00Z"},
+            {"dut_serial": "A", "run_outcome": "failed", "run_started_at": "2026-01-01T00:00:00Z"},
         ]
         assert calculate_fpy(runs) == 0.0
 
     def test_retest_pass_after_fail(self):
         """First run fails, second passes — FPY should be 0 for that serial."""
         runs = [
-            {"dut_serial": "A", "run_outcome": "fail", "run_started_at": "2026-01-01T00:00:00Z"},
-            {"dut_serial": "A", "run_outcome": "pass", "run_started_at": "2026-01-01T01:00:00Z"},
+            {"dut_serial": "A", "run_outcome": "failed", "run_started_at": "2026-01-01T00:00:00Z"},
+            {"dut_serial": "A", "run_outcome": "passed", "run_started_at": "2026-01-01T01:00:00Z"},
         ]
         assert calculate_fpy(runs) == 0.0
 
     def test_mixed(self):
         runs = [
-            {"dut_serial": "A", "run_outcome": "pass", "run_started_at": "2026-01-01T00:00:00Z"},
-            {"dut_serial": "B", "run_outcome": "fail", "run_started_at": "2026-01-01T00:01:00Z"},
-            {"dut_serial": "C", "run_outcome": "pass", "run_started_at": "2026-01-01T00:02:00Z"},
+            {"dut_serial": "A", "run_outcome": "passed", "run_started_at": "2026-01-01T00:00:00Z"},
+            {"dut_serial": "B", "run_outcome": "failed", "run_started_at": "2026-01-01T00:01:00Z"},
+            {"dut_serial": "C", "run_outcome": "passed", "run_started_at": "2026-01-01T00:02:00Z"},
         ]
         assert calculate_fpy(runs) == pytest.approx(2 / 3)
 
@@ -60,15 +60,15 @@ class TestFinalYield:
     def test_retest_pass(self):
         """First run fails, second passes — final yield should be 100%."""
         runs = [
-            {"dut_serial": "A", "run_outcome": "fail", "run_started_at": "2026-01-01T00:00:00Z"},
-            {"dut_serial": "A", "run_outcome": "pass", "run_started_at": "2026-01-01T01:00:00Z"},
+            {"dut_serial": "A", "run_outcome": "failed", "run_started_at": "2026-01-01T00:00:00Z"},
+            {"dut_serial": "A", "run_outcome": "passed", "run_started_at": "2026-01-01T01:00:00Z"},
         ]
         assert calculate_final_yield(runs) == 1.0
 
     def test_final_fail(self):
         runs = [
-            {"dut_serial": "A", "run_outcome": "pass", "run_started_at": "2026-01-01T00:00:00Z"},
-            {"dut_serial": "A", "run_outcome": "fail", "run_started_at": "2026-01-01T01:00:00Z"},
+            {"dut_serial": "A", "run_outcome": "passed", "run_started_at": "2026-01-01T00:00:00Z"},
+            {"dut_serial": "A", "run_outcome": "failed", "run_started_at": "2026-01-01T01:00:00Z"},
         ]
         assert calculate_final_yield(runs) == 0.0
 
@@ -144,10 +144,10 @@ class TestCpk:
 class TestPareto:
     def test_basic(self):
         measurements = [
-            {"step_name": "s1", "measurement_name": "m1", "measurement_outcome": "fail"},
-            {"step_name": "s1", "measurement_name": "m1", "measurement_outcome": "fail"},
-            {"step_name": "s2", "measurement_name": "m2", "measurement_outcome": "fail"},
-            {"step_name": "s1", "measurement_name": "m1", "measurement_outcome": "pass"},
+            {"step_name": "s1", "measurement_name": "m1", "measurement_outcome": "failed"},
+            {"step_name": "s1", "measurement_name": "m1", "measurement_outcome": "failed"},
+            {"step_name": "s2", "measurement_name": "m2", "measurement_outcome": "failed"},
+            {"step_name": "s1", "measurement_name": "m1", "measurement_outcome": "passed"},
         ]
         result = pareto_analysis(measurements)
         assert len(result) == 2
@@ -158,13 +158,13 @@ class TestPareto:
 
     def test_no_failures(self):
         measurements = [
-            {"step_name": "s1", "measurement_name": "m1", "measurement_outcome": "pass"}
+            {"step_name": "s1", "measurement_name": "m1", "measurement_outcome": "passed"}
         ]
         assert pareto_analysis(measurements) == []
 
     def test_top_n(self):
         measurements = [
-            {"step_name": f"s{i}", "measurement_name": "m", "measurement_outcome": "fail"}
+            {"step_name": f"s{i}", "measurement_name": "m", "measurement_outcome": "failed"}
             for i in range(20)
         ]
         result = pareto_analysis(measurements, top_n=5)
@@ -179,9 +179,9 @@ class TestPareto:
 class TestTrend:
     def test_daily(self):
         runs = [
-            {"run_outcome": "pass", "run_started_at": "2026-01-01T10:00:00Z"},
-            {"run_outcome": "fail", "run_started_at": "2026-01-01T11:00:00Z"},
-            {"run_outcome": "pass", "run_started_at": "2026-01-02T10:00:00Z"},
+            {"run_outcome": "passed", "run_started_at": "2026-01-01T10:00:00Z"},
+            {"run_outcome": "failed", "run_started_at": "2026-01-01T11:00:00Z"},
+            {"run_outcome": "passed", "run_started_at": "2026-01-02T10:00:00Z"},
         ]
         result = trend_by_period(runs, period="day")
         assert len(result) == 2
@@ -190,8 +190,8 @@ class TestTrend:
 
     def test_monthly(self):
         runs = [
-            {"run_outcome": "pass", "run_started_at": "2026-01-15T10:00:00Z"},
-            {"run_outcome": "pass", "run_started_at": "2026-02-15T10:00:00Z"},
+            {"run_outcome": "passed", "run_started_at": "2026-01-15T10:00:00Z"},
+            {"run_outcome": "passed", "run_started_at": "2026-02-15T10:00:00Z"},
         ]
         result = trend_by_period(runs, period="month")
         assert len(result) == 2

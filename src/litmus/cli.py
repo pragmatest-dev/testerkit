@@ -669,7 +669,7 @@ def show(
                 mc = entry.get("measurement_count")
                 meas_info = f" ({mc} measurements)" if mc else ""
                 outcome = entry.get("outcome", "?")
-                if outcome == "not_started":
+                if outcome == "planned":
                     func = entry.get("function", "")
                     loc = f" [{func}]" if func else ""
                 else:

@@ -44,28 +44,87 @@ class StimulusRecord(BaseModel):
 
 
 class Outcome(StrEnum):
-    """Test outcome per ATML/IEEE 1671 terminology."""
+    """Canonical terminal outcome of a measurement / step / run.
 
-    PASS = "pass"
-    FAIL = "fail"
-    SKIP = "skip"
-    ERROR = "error"
+    All values are past participles — outcomes are retrospective by
+    construction (the row reflects what happened). Each runner adapter
+    translates its native signals into these. Pytest's own
+    ``passed`` / ``failed`` / ``skipped`` / ``error`` mostly map by
+    casing; bare-assert failures and ``pytest.skip()`` flow through
+    ``pytest_runtest_makereport``.
+
+    Producer story:
+
+    * ``PASSED`` — measurement value met its limit. Producer:
+      ``execution.verify._apply_outcome`` when ``value in limit``;
+      pytest ``passed`` propagates when no measurement-level outcome
+      contradicts.
+    * ``FAILED`` — measurement violated its limit OR the test failed an
+      assertion. Producer: ``_apply_outcome`` when ``value not in limit``;
+      ``pytest_runtest_makereport`` escalates ``step.outcome`` to
+      ``FAILED`` when pytest reports ``failed`` and no measurement
+      already failed.
+    * ``ERRORED`` — exception during execution (not an assertion).
+      Producer: pytest ``error`` (setup/teardown failures); uncaught
+      non-AssertionError during call.
+    * ``SKIPPED`` — explicit skip by operator/marker/condition.
+      Producer: pytest ``skipped`` (``pytest.skip()`` /
+      ``@pytest.mark.skip`` / skipif); ``VectorBuilder.skip()`` on the
+      catch-all client API.
+    * ``DONE`` — recorded value, no judgment evaluated. Producer:
+      ``_apply_outcome`` when no limit is configured; setup/action /
+      characterization-mode measurements that explicitly aren't being
+      judged. Test engineers reject ``PASSED`` for un-judged actions
+      ("don't call my setup a pass") — this is the answer.
+    * ``ABORTED`` — interrupted mid-execution by user or system.
+      Producer: ``RunBuilder.abort()`` on the catch-all client;
+      ``pytest_keyboard_interrupt`` stamps the in-flight step + the run
+      as ``ABORTED``.
+    * ``PLANNED`` — scheduled, never reached. Producer: the
+      reconciliation in ``_append_not_started`` for collected pytest
+      items whose ``node_id`` never appears in the executed set; the
+      run ended before this step's turn.
+    """
+
+    PASSED = "passed"
+    FAILED = "failed"
+    SKIPPED = "skipped"
+    ERRORED = "errored"
     ABORTED = "aborted"
-    NOT_TESTED = "not_tested"
-    DONE = "done"  # ran, no limit evaluated (TestStand-style)
+    DONE = "done"
+    PLANNED = "planned"
+
+
+_OUTCOME_SEVERITY: dict[Outcome, int] = {
+    Outcome.ABORTED: 6,
+    Outcome.ERRORED: 5,
+    Outcome.FAILED: 4,
+    Outcome.PASSED: 3,
+    Outcome.DONE: 2,
+    Outcome.SKIPPED: 1,
+    Outcome.PLANNED: 0,
+}
 
 
 def escalate_outcome(current: Outcome, incoming: Outcome) -> Outcome:
-    """Return the worse of two outcomes: ERROR > FAIL > everything else.
+    """Return the worse (higher-severity) of two outcomes.
 
-    Use this everywhere outcome cascading is needed (vector, step, run)
-    to keep the severity logic in one place.
+    Severity, worst first:
+    ``ABORTED > ERRORED > FAILED > PASSED > DONE > SKIPPED > PLANNED``.
+
+    Use this everywhere outcome cascading is needed (vector → step → run)
+    to keep severity logic in one place. Reading the ladder:
+
+    * ``ABORTED`` preempts everything — a mid-flight kill is the loudest
+      signal we have.
+    * ``ERRORED`` beats ``FAILED`` — an unexpected blow-up is worse than
+      a judged-bad value.
+    * ``PASSED`` beats ``DONE`` — an actual verdict outranks a recorded-
+      but-unjudged value.
+    * ``SKIPPED`` beats ``PLANNED`` — declining to run is more committed
+      than never reaching the step at all.
     """
-    if incoming == Outcome.ERROR or current == Outcome.ERROR:
-        return Outcome.ERROR
-    if incoming == Outcome.FAIL or current == Outcome.FAIL:
-        return Outcome.FAIL
-    return current
+    return current if _OUTCOME_SEVERITY[current] >= _OUTCOME_SEVERITY[incoming] else incoming
 
 
 class Measurement(BaseModel):
@@ -107,7 +166,7 @@ class Measurement(BaseModel):
             GTLT: limit_low < value < limit_high
         """
         if self.value is None:
-            self.outcome = Outcome.ERROR
+            self.outcome = Outcome.ERRORED
             return self.outcome
 
         # Default to GELE (inclusive range) if no comparator specified
@@ -116,64 +175,64 @@ class Measurement(BaseModel):
         if comp == "EQ":
             # Exact match to nominal
             if self.limit_nominal is not None and self.value == self.limit_nominal:
-                self.outcome = Outcome.PASS
+                self.outcome = Outcome.PASSED
             else:
-                self.outcome = Outcome.FAIL
+                self.outcome = Outcome.FAILED
         elif comp == "NE":
             # Not equal to nominal
             if self.limit_nominal is not None and self.value != self.limit_nominal:
-                self.outcome = Outcome.PASS
+                self.outcome = Outcome.PASSED
             else:
-                self.outcome = Outcome.FAIL
+                self.outcome = Outcome.FAILED
         elif comp == "LT":
             # Less than high limit (no limit = no constraint = pass)
             if self.limit_high is None or self.value < self.limit_high:
-                self.outcome = Outcome.PASS
+                self.outcome = Outcome.PASSED
             else:
-                self.outcome = Outcome.FAIL
+                self.outcome = Outcome.FAILED
         elif comp == "LE":
             # Less than or equal to high limit (no limit = no constraint = pass)
             if self.limit_high is None or self.value <= self.limit_high:
-                self.outcome = Outcome.PASS
+                self.outcome = Outcome.PASSED
             else:
-                self.outcome = Outcome.FAIL
+                self.outcome = Outcome.FAILED
         elif comp == "GT":
             # Greater than low limit (no limit = no constraint = pass)
             if self.limit_low is None or self.value > self.limit_low:
-                self.outcome = Outcome.PASS
+                self.outcome = Outcome.PASSED
             else:
-                self.outcome = Outcome.FAIL
+                self.outcome = Outcome.FAILED
         elif comp == "GE":
             # Greater than or equal to low limit (no limit = no constraint = pass)
             if self.limit_low is None or self.value >= self.limit_low:
-                self.outcome = Outcome.PASS
+                self.outcome = Outcome.PASSED
             else:
-                self.outcome = Outcome.FAIL
+                self.outcome = Outcome.FAILED
         elif comp == "GELE":
             # Inclusive range: low <= value <= high
             low_ok = self.limit_low is None or self.value >= self.limit_low
             high_ok = self.limit_high is None or self.value <= self.limit_high
-            self.outcome = Outcome.PASS if (low_ok and high_ok) else Outcome.FAIL
+            self.outcome = Outcome.PASSED if (low_ok and high_ok) else Outcome.FAILED
         elif comp == "GELT":
             # low <= value < high
             low_ok = self.limit_low is None or self.value >= self.limit_low
             high_ok = self.limit_high is None or self.value < self.limit_high
-            self.outcome = Outcome.PASS if (low_ok and high_ok) else Outcome.FAIL
+            self.outcome = Outcome.PASSED if (low_ok and high_ok) else Outcome.FAILED
         elif comp == "GTLE":
             # low < value <= high
             low_ok = self.limit_low is None or self.value > self.limit_low
             high_ok = self.limit_high is None or self.value <= self.limit_high
-            self.outcome = Outcome.PASS if (low_ok and high_ok) else Outcome.FAIL
+            self.outcome = Outcome.PASSED if (low_ok and high_ok) else Outcome.FAILED
         elif comp == "GTLT":
             # Exclusive range: low < value < high
             low_ok = self.limit_low is None or self.value > self.limit_low
             high_ok = self.limit_high is None or self.value < self.limit_high
-            self.outcome = Outcome.PASS if (low_ok and high_ok) else Outcome.FAIL
+            self.outcome = Outcome.PASSED if (low_ok and high_ok) else Outcome.FAILED
         else:
             # Unknown comparator, fall back to GELE behavior
             low_ok = self.limit_low is None or self.value >= self.limit_low
             high_ok = self.limit_high is None or self.value <= self.limit_high
-            self.outcome = Outcome.PASS if (low_ok and high_ok) else Outcome.FAIL
+            self.outcome = Outcome.PASSED if (low_ok and high_ok) else Outcome.FAILED
 
         return self.outcome
 
@@ -210,7 +269,7 @@ class TestVector(BaseModel):
     stimulus: list[StimulusRecord] = Field(default_factory=list)  # Stimulus signal paths
     attempt: int = 1  # Current attempt number (for retries)
     max_attempts: int = 1  # Maximum attempts allowed
-    outcome: Outcome = Outcome.PASS
+    outcome: Outcome = Outcome.PASSED
     measurements: list[Measurement] = Field(default_factory=list)
     started_at: datetime = Field(default_factory=_utcnow)
     ended_at: datetime | None = None
@@ -247,7 +306,7 @@ class TestStep(BaseModel):
     markers: str | None = None
     started_at: datetime = Field(default_factory=_utcnow)
     ended_at: datetime | None = None
-    outcome: Outcome = Outcome.PASS
+    outcome: Outcome = Outcome.PASSED
     vectors: list[TestVector] = Field(default_factory=list)
     error_message: str | None = None
     instrument_arrays: dict[str, list] | None = None
@@ -260,12 +319,12 @@ class TestStep(BaseModel):
     @property
     def passed_vectors(self) -> int:
         """Number of passed test vectors."""
-        return sum(1 for v in self.vectors if v.outcome == Outcome.PASS)
+        return sum(1 for v in self.vectors if v.outcome == Outcome.PASSED)
 
     @property
     def failed_vectors(self) -> int:
         """Number of failed test vectors."""
-        return sum(1 for v in self.vectors if v.outcome == Outcome.FAIL)
+        return sum(1 for v in self.vectors if v.outcome == Outcome.FAILED)
 
 
 class CollectedItem(BaseModel):
@@ -363,7 +422,7 @@ class TestRun(BaseModel):
     project_name: str | None = None
 
     # Results
-    outcome: Outcome = Outcome.PASS
+    outcome: Outcome = Outcome.PASSED
     steps: list[TestStep] = Field(default_factory=list)
 
     # Collected items (full list from pytest collection, before execution)

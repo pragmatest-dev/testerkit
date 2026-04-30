@@ -378,10 +378,10 @@ def _bulk_insert_measurements(conn: duckdb.DuckDBPyConnection, meas_paths: list[
     has_outcome = "measurement_outcome" in available
     has_value = "measurement_value" in available
     pass_expr = (
-        "SUM(CASE WHEN measurement_outcome = 'pass' THEN 1 ELSE 0 END)" if has_outcome else "0"
+        "SUM(CASE WHEN measurement_outcome = 'passed' THEN 1 ELSE 0 END)" if has_outcome else "0"
     )
     fail_expr = (
-        "SUM(CASE WHEN measurement_outcome = 'fail' THEN 1 ELSE 0 END)" if has_outcome else "0"
+        "SUM(CASE WHEN measurement_outcome = 'failed' THEN 1 ELSE 0 END)" if has_outcome else "0"
     )
     min_expr = "MIN(measurement_value)" if has_value else "NULL"
     max_expr = "MAX(measurement_value)" if has_value else "NULL"

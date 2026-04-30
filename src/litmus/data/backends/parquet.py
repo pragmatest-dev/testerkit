@@ -724,7 +724,7 @@ class ParquetSubscriber(EventSubscriber):
 
         Args:
             outcome: Run outcome from RunEnded. If None (crash/close without
-                RunEnded), defaults to "error" since the run didn't complete.
+                RunEnded), defaults to "errored" since the run didn't complete.
         """
         if self._written:
             return
@@ -738,7 +738,7 @@ class ParquetSubscriber(EventSubscriber):
         from litmus.data.models import _utcnow
 
         ended_at = _utcnow()
-        final_outcome = outcome if outcome is not None else "error"
+        final_outcome = outcome if outcome is not None else "errored"
 
         rows: list[dict[str, Any]] = []
         for event in self._measurement_events:
@@ -1197,7 +1197,7 @@ def reconstruct_test_run_from_file(pq_file: Path) -> TestRun:
                     attempt=vk[1] or 1,
                     params=params,
                     observations=observations,
-                    outcome=Outcome(vec_outcome_str) if vec_outcome_str else Outcome.PASS,
+                    outcome=Outcome(vec_outcome_str) if vec_outcome_str else Outcome.PASSED,
                     measurements=measurements,
                     started_at=sample_row.get("vector_started_at") or first["run_started_at"],
                     ended_at=sample_row.get("vector_ended_at"),
@@ -1205,9 +1205,9 @@ def reconstruct_test_run_from_file(pq_file: Path) -> TestRun:
             )
 
         timing = step_timing.get(sk, {})
-        step_outcome = Outcome.PASS
-        if any(v.outcome == Outcome.FAIL for v in vectors):
-            step_outcome = Outcome.FAIL
+        step_outcome = Outcome.PASSED
+        if any(v.outcome == Outcome.FAILED for v in vectors):
+            step_outcome = Outcome.FAILED
 
         steps.append(
             TestStep(
@@ -1227,7 +1227,7 @@ def reconstruct_test_run_from_file(pq_file: Path) -> TestRun:
             custom_meta[col.removeprefix("custom_")] = first[col]
 
     run_outcome_str = first.get("run_outcome")
-    run_outcome = Outcome(run_outcome_str) if run_outcome_str else Outcome.PASS
+    run_outcome = Outcome(run_outcome_str) if run_outcome_str else Outcome.PASSED
 
     return TestRun(
         id=UUID(first["run_id"]),

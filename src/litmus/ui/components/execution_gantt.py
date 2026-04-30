@@ -31,9 +31,13 @@ def _parse_ts(val: Any) -> datetime | None:
 
 
 _OUTCOME_COLORS = {
-    "pass": "#10b981",  # emerald-500
-    "fail": "#ef4444",  # red-500
-    "error": "#f59e0b",  # amber-500
+    "passed": "#10b981",  # emerald-500
+    "done": "#10b981",  # emerald-500
+    "failed": "#ef4444",  # red-500
+    "errored": "#f59e0b",  # amber-500
+    "aborted": "#f59e0b",  # amber-500
+    "skipped": "#94a3b8",  # slate-400
+    "planned": "#94a3b8",  # slate-400
 }
 _DEFAULT_COLOR = "#94a3b8"  # slate-400
 
@@ -77,10 +81,10 @@ def render_execution_gantt(
                 "dut_serial": m.get("dut_serial", ""),
             }
         else:
-            if m.get("outcome") == "fail":
-                existing["outcome"] = "fail"
-            elif m.get("outcome") == "error" and existing["outcome"] != "fail":
-                existing["outcome"] = "error"
+            if m.get("outcome") == "failed":
+                existing["outcome"] = "failed"
+            elif m.get("outcome") == "errored" and existing["outcome"] != "failed":
+                existing["outcome"] = "errored"
 
     if not slots:
         ui.label("No multi-slot execution data available.").classes("text-slate-500 italic")

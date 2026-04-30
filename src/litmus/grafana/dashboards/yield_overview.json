@@ -46,7 +46,7 @@
       "datasource": { "type": "grafana-postgresql-datasource", "uid": "${DS_LITMUS}" },
       "targets": [
         {
-          "rawSql": "SELECT round(100.0 * count(*) FILTER (WHERE outcome = 'pass') / count(*), 1) AS yield_pct FROM runs WHERE started_at BETWEEN '${__from:date}' AND '${__to:date}' AND (phase LIKE '${phase}' OR '${phase}' = '%') AND (product_id LIKE '${product}' OR '${product}' = '%') AND (station_id LIKE '${station}' OR '${station}' = '%')",
+          "rawSql": "SELECT round(100.0 * count(*) FILTER (WHERE outcome = 'passed') / count(*), 1) AS yield_pct FROM runs WHERE started_at BETWEEN '${__from:date}' AND '${__to:date}' AND (phase LIKE '${phase}' OR '${phase}' = '%') AND (product_id LIKE '${product}' OR '${product}' = '%') AND (station_id LIKE '${station}' OR '${station}' = '%')",
           "format": "table"
         }
       ],
@@ -82,7 +82,7 @@
       "datasource": { "type": "grafana-postgresql-datasource", "uid": "${DS_LITMUS}" },
       "targets": [
         {
-          "rawSql": "SELECT count(*) AS passed FROM runs WHERE outcome = 'pass' AND started_at BETWEEN '${__from:date}' AND '${__to:date}' AND (phase LIKE '${phase}' OR '${phase}' = '%') AND (product_id LIKE '${product}' OR '${product}' = '%') AND (station_id LIKE '${station}' OR '${station}' = '%')",
+          "rawSql": "SELECT count(*) AS passed FROM runs WHERE outcome = 'passed' AND started_at BETWEEN '${__from:date}' AND '${__to:date}' AND (phase LIKE '${phase}' OR '${phase}' = '%') AND (product_id LIKE '${product}' OR '${product}' = '%') AND (station_id LIKE '${station}' OR '${station}' = '%')",
           "format": "table"
         }
       ],
@@ -96,7 +96,7 @@
       "datasource": { "type": "grafana-postgresql-datasource", "uid": "${DS_LITMUS}" },
       "targets": [
         {
-          "rawSql": "SELECT count(*) AS failed FROM runs WHERE outcome = 'fail' AND started_at BETWEEN '${__from:date}' AND '${__to:date}' AND (phase LIKE '${phase}' OR '${phase}' = '%') AND (product_id LIKE '${product}' OR '${product}' = '%') AND (station_id LIKE '${station}' OR '${station}' = '%')",
+          "rawSql": "SELECT count(*) AS failed FROM runs WHERE outcome = 'failed' AND started_at BETWEEN '${__from:date}' AND '${__to:date}' AND (phase LIKE '${phase}' OR '${phase}' = '%') AND (product_id LIKE '${product}' OR '${product}' = '%') AND (station_id LIKE '${station}' OR '${station}' = '%')",
           "format": "table"
         }
       ],
@@ -110,7 +110,7 @@
       "datasource": { "type": "grafana-postgresql-datasource", "uid": "${DS_LITMUS}" },
       "targets": [
         {
-          "rawSql": "SELECT count(*) AS errors FROM runs WHERE outcome = 'error' AND started_at BETWEEN '${__from:date}' AND '${__to:date}' AND (phase LIKE '${phase}' OR '${phase}' = '%') AND (product_id LIKE '${product}' OR '${product}' = '%') AND (station_id LIKE '${station}' OR '${station}' = '%')",
+          "rawSql": "SELECT count(*) AS errors FROM runs WHERE outcome = 'errored' AND started_at BETWEEN '${__from:date}' AND '${__to:date}' AND (phase LIKE '${phase}' OR '${phase}' = '%') AND (product_id LIKE '${product}' OR '${product}' = '%') AND (station_id LIKE '${station}' OR '${station}' = '%')",
           "format": "table"
         }
       ],
@@ -130,9 +130,9 @@
       ],
       "fieldConfig": {
         "overrides": [
-          { "matcher": { "id": "byName", "options": "pass" }, "properties": [{ "id": "color", "value": { "fixedColor": "green", "mode": "fixed" } }] },
-          { "matcher": { "id": "byName", "options": "fail" }, "properties": [{ "id": "color", "value": { "fixedColor": "red", "mode": "fixed" } }] },
-          { "matcher": { "id": "byName", "options": "error" }, "properties": [{ "id": "color", "value": { "fixedColor": "orange", "mode": "fixed" } }] }
+          { "matcher": { "id": "byName", "options": "passed" }, "properties": [{ "id": "color", "value": { "fixedColor": "green", "mode": "fixed" } }] },
+          { "matcher": { "id": "byName", "options": "failed" }, "properties": [{ "id": "color", "value": { "fixedColor": "red", "mode": "fixed" } }] },
+          { "matcher": { "id": "byName", "options": "errored" }, "properties": [{ "id": "color", "value": { "fixedColor": "orange", "mode": "fixed" } }] }
         ]
       }
     },
@@ -144,7 +144,7 @@
       "datasource": { "type": "grafana-postgresql-datasource", "uid": "${DS_LITMUS}" },
       "targets": [
         {
-          "rawSql": "SELECT date_trunc('hour', started_at) AS time, round(100.0 * count(*) FILTER (WHERE outcome = 'pass') / count(*), 1) AS fpy FROM runs WHERE started_at BETWEEN '${__from:date}' AND '${__to:date}' AND (phase LIKE '${phase}' OR '${phase}' = '%') AND (product_id LIKE '${product}' OR '${product}' = '%') AND (station_id LIKE '${station}' OR '${station}' = '%') GROUP BY 1 ORDER BY 1",
+          "rawSql": "SELECT date_trunc('hour', started_at) AS time, round(100.0 * count(*) FILTER (WHERE outcome = 'passed') / count(*), 1) AS fpy FROM runs WHERE started_at BETWEEN '${__from:date}' AND '${__to:date}' AND (phase LIKE '${phase}' OR '${phase}' = '%') AND (product_id LIKE '${product}' OR '${product}' = '%') AND (station_id LIKE '${station}' OR '${station}' = '%') GROUP BY 1 ORDER BY 1",
           "format": "table"
         }
       ],
@@ -158,16 +158,16 @@
       "datasource": { "type": "grafana-postgresql-datasource", "uid": "${DS_LITMUS}" },
       "targets": [
         {
-          "rawSql": "SELECT date_trunc('hour', started_at) AS time, count(*) FILTER (WHERE outcome = 'pass') AS pass, count(*) FILTER (WHERE outcome = 'fail') AS fail, count(*) FILTER (WHERE outcome = 'error') AS error FROM runs WHERE started_at BETWEEN '${__from:date}' AND '${__to:date}' AND (phase LIKE '${phase}' OR '${phase}' = '%') AND (product_id LIKE '${product}' OR '${product}' = '%') AND (station_id LIKE '${station}' OR '${station}' = '%') GROUP BY 1 ORDER BY 1",
+          "rawSql": "SELECT date_trunc('hour', started_at) AS time, count(*) FILTER (WHERE outcome = 'passed') AS pass, count(*) FILTER (WHERE outcome = 'failed') AS fail, count(*) FILTER (WHERE outcome = 'errored') AS error FROM runs WHERE started_at BETWEEN '${__from:date}' AND '${__to:date}' AND (phase LIKE '${phase}' OR '${phase}' = '%') AND (product_id LIKE '${product}' OR '${product}' = '%') AND (station_id LIKE '${station}' OR '${station}' = '%') GROUP BY 1 ORDER BY 1",
           "format": "table"
         }
       ],
       "options": { "stacking": "normal" },
       "fieldConfig": {
         "overrides": [
-          { "matcher": { "id": "byName", "options": "pass" }, "properties": [{ "id": "color", "value": { "fixedColor": "green", "mode": "fixed" } }] },
-          { "matcher": { "id": "byName", "options": "fail" }, "properties": [{ "id": "color", "value": { "fixedColor": "red", "mode": "fixed" } }] },
-          { "matcher": { "id": "byName", "options": "error" }, "properties": [{ "id": "color", "value": { "fixedColor": "orange", "mode": "fixed" } }] }
+          { "matcher": { "id": "byName", "options": "passed" }, "properties": [{ "id": "color", "value": { "fixedColor": "green", "mode": "fixed" } }] },
+          { "matcher": { "id": "byName", "options": "failed" }, "properties": [{ "id": "color", "value": { "fixedColor": "red", "mode": "fixed" } }] },
+          { "matcher": { "id": "byName", "options": "errored" }, "properties": [{ "id": "color", "value": { "fixedColor": "orange", "mode": "fixed" } }] }
         ]
       }
     },

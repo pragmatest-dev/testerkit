@@ -24,7 +24,7 @@ class TestTestRunLogger:
         )
         assert logger.test_run.dut.serial == "SN001"
         assert logger.test_run.station_id == "station_001"
-        assert logger.test_run.outcome == Outcome.PASS
+        assert logger.test_run.outcome == Outcome.PASSED
 
     def test_init_with_all_options(self):
         logger = TestRunLogger(
@@ -57,7 +57,7 @@ class TestTestRunLogger:
         )
         logger.start_step("test_step")
 
-        m = Measurement(name="voltage", value=5.0, outcome=Outcome.PASS)
+        m = Measurement(name="voltage", value=5.0, outcome=Outcome.PASSED)
         logger.log_measurement(m)
 
         # Measurements are stored in vectors within the step
@@ -73,7 +73,7 @@ class TestTestRunLogger:
             station_id="station_001",
         )
 
-        m = Measurement(name="voltage", value=5.0, outcome=Outcome.PASS)
+        m = Measurement(name="voltage", value=5.0, outcome=Outcome.PASSED)
         logger.log_measurement(m)
 
         assert len(logger.test_run.steps) == 1
@@ -86,13 +86,13 @@ class TestTestRunLogger:
         )
         logger.start_step("test_step")
 
-        m = Measurement(name="voltage", value=6.0, outcome=Outcome.FAIL)
+        m = Measurement(name="voltage", value=6.0, outcome=Outcome.FAILED)
         logger.log_measurement(m)
 
         step_1 = get_current_step()
         assert step_1 is not None
-        assert step_1.outcome == Outcome.FAIL
-        assert logger.test_run.outcome == Outcome.FAIL
+        assert step_1.outcome == Outcome.FAILED
+        assert logger.test_run.outcome == Outcome.FAILED
 
     def test_log_measurement_error_propagates(self):
         logger = TestRunLogger(
@@ -101,13 +101,13 @@ class TestTestRunLogger:
         )
         logger.start_step("test_step")
 
-        m = Measurement(name="voltage", value=None, outcome=Outcome.ERROR)
+        m = Measurement(name="voltage", value=None, outcome=Outcome.ERRORED)
         logger.log_measurement(m)
 
         step_2 = get_current_step()
         assert step_2 is not None
-        assert step_2.outcome == Outcome.ERROR
-        assert logger.test_run.outcome == Outcome.ERROR
+        assert step_2.outcome == Outcome.ERRORED
+        assert logger.test_run.outcome == Outcome.ERRORED
 
     def test_error_overrides_fail(self):
         logger = TestRunLogger(
@@ -116,16 +116,16 @@ class TestTestRunLogger:
         )
         logger.start_step("test_step")
 
-        m1 = Measurement(name="current", value=6.0, outcome=Outcome.FAIL)
-        m2 = Measurement(name="voltage", value=None, outcome=Outcome.ERROR)
+        m1 = Measurement(name="current", value=6.0, outcome=Outcome.FAILED)
+        m2 = Measurement(name="voltage", value=None, outcome=Outcome.ERRORED)
         logger.log_measurement(m1)
         logger.log_measurement(m2)
 
         # ERROR overrides FAIL — can't trust results from untrusted state
         step_3 = get_current_step()
         assert step_3 is not None
-        assert step_3.outcome == Outcome.ERROR
-        assert logger.test_run.outcome == Outcome.ERROR
+        assert step_3.outcome == Outcome.ERRORED
+        assert logger.test_run.outcome == Outcome.ERRORED
 
     def test_end_step(self):
         logger = TestRunLogger(
@@ -158,12 +158,12 @@ class TestTestRunLogger:
         )
 
         logger.start_step("step1")
-        m1 = Measurement(name="voltage", value=5.0, outcome=Outcome.PASS)
+        m1 = Measurement(name="voltage", value=5.0, outcome=Outcome.PASSED)
         logger.log_measurement(m1)
         logger.end_step()
 
         logger.start_step("step2")
-        m2 = Measurement(name="current", value=0.1, outcome=Outcome.PASS)
+        m2 = Measurement(name="current", value=0.1, outcome=Outcome.PASSED)
         logger.log_measurement(m2)
         logger.end_step()
 
@@ -203,12 +203,12 @@ class TestTestRunLogger:
         step_token = push_current_step(step)
         vector_token = push_current_vector(vector)
         try:
-            m = Measurement(name="voltage", value=5.0, outcome=Outcome.PASS)
+            m = Measurement(name="voltage", value=5.0, outcome=Outcome.PASSED)
             logger.log_measurement(m)
 
             assert len(vector.measurements) == 1
             assert vector.measurements[0].name == "voltage"
-            assert step.outcome == Outcome.PASS
+            assert step.outcome == Outcome.PASSED
         finally:
             reset_current_step(step_token)
             reset_current_vector(vector_token)
@@ -239,7 +239,7 @@ class TestTestRunLogger:
         vector = get_current_vector()
         assert vector is not None
 
-        m = Measurement(name="voltage", value=5.0, outcome=Outcome.PASS)
+        m = Measurement(name="voltage", value=5.0, outcome=Outcome.PASSED)
         # Pre-append (simulating what harness.measure() does)
         vector.measurements.append(m)
         # Now call log_measurement — should NOT double-append
@@ -267,7 +267,7 @@ class TestEventLogIntegration:
         logger._session_id = uuid4()
 
         logger.start_step("step1")
-        m = Measurement(name="voltage", value=5.0, outcome=Outcome.PASS)
+        m = Measurement(name="voltage", value=5.0, outcome=Outcome.PASSED)
         logger.log_measurement(m)
         logger.end_step()
         logger.finalize()
@@ -298,7 +298,7 @@ class TestEventLogIntegration:
         logger._session_id = uuid4()
 
         logger.start_step("step1")
-        logger.log_measurement(Measurement(name="v", value=3.3, outcome=Outcome.PASS))
+        logger.log_measurement(Measurement(name="v", value=3.3, outcome=Outcome.PASSED))
         logger.end_step()
         logger.finalize()
 

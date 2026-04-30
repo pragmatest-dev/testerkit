@@ -50,7 +50,7 @@ def _make_measurement(session_id, i: int) -> MeasurementRecorded:
         measurement_name=f"voltage_{i}",
         value=3.3 + (i % 100) * 0.01,
         units="V",
-        outcome="pass",
+        outcome="passed",
         limit_low=3.0,
         limit_high=3.6,
     )

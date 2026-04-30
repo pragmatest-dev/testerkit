@@ -202,7 +202,7 @@ class TestHarnessSpecIntegration:
                         test_value = limit.low or limit.high
 
                     m = harness.measure(char_id, test_value)
-                    assert m.outcome == Outcome.PASS
+                    assert m.outcome == Outcome.PASSED
 
     def test_measurement_fail_when_out_of_spec(self):
         """Measurement outside limits results in FAIL outcome."""
@@ -232,7 +232,7 @@ class TestHarnessSpecIntegration:
                         pytest.fail("No testable limit bounds")
 
                     m = harness.measure(char_id, test_value)
-                    assert m.outcome == Outcome.FAIL
+                    assert m.outcome == Outcome.FAILED
 
     def test_explicit_limit_overrides_spec(self):
         """Explicit limit parameter overrides spec-derived limit."""
@@ -290,17 +290,17 @@ class TestEndToEndWorkflow:
                     harness.measure(char_id, test_value)
 
         # Verify result structure
-        assert step.outcome in [Outcome.PASS, Outcome.FAIL]
+        assert step.outcome in [Outcome.PASSED, Outcome.FAILED]
         assert len(step.vectors) >= 1
 
         tv = step.vectors[0]
-        assert tv.outcome in [Outcome.PASS, Outcome.FAIL]
+        assert tv.outcome in [Outcome.PASSED, Outcome.FAILED]
         assert len(tv.measurements) >= 1
 
         m = tv.measurements[0]
         assert m.name == char_id
         assert m.value is not None
-        assert m.outcome in [Outcome.PASS, Outcome.FAIL]
+        assert m.outcome in [Outcome.PASSED, Outcome.FAILED]
 
     def test_characteristic_id_populated_in_workflow(self):
         """characteristic_id is populated for spec-driven measurements."""
@@ -391,8 +391,8 @@ class TestEndToEndWorkflow:
                     harness.measure(char_id, bad_value)
 
         # Failure should propagate
-        assert step.vectors[0].outcome == Outcome.FAIL
-        assert step.outcome == Outcome.FAIL
+        assert step.vectors[0].outcome == Outcome.FAILED
+        assert step.outcome == Outcome.FAILED
 
 
 class TestMinimalSpec:
@@ -433,9 +433,9 @@ class TestMinimalSpec:
                     # Signal with in-spec value
                     test_value = limit.nominal or limit.low or limit.high
                     m = harness.measure(char_id, test_value)
-                    assert m.outcome == Outcome.PASS
+                    assert m.outcome == Outcome.PASSED
 
-        assert step.outcome == Outcome.PASS
+        assert step.outcome == Outcome.PASSED
 
 
 def _find_testable_characteristic(spec: ProductContext) -> tuple[str | None, dict]:
