@@ -497,8 +497,8 @@ class TestRunLogger:
         # start_step() so each step starts with a clean slate; used by
         # ``measure()`` to raise DuplicateMeasurementError on accidental
         # double-logs within a step.
-        self._step_seen_names: set[tuple[str, str | None]] = set()
-        self._step_seen_repeatable: set[tuple[str, str | None]] = set()
+        self._step_seen_names: set[tuple[str, str | None, int | None, int | None]] = set()
+        self._step_seen_repeatable: set[tuple[str, str | None, int | None, int | None]] = set()
         self._step_token: Token[TestStep | None] | None = None
         # _vector_token tracks current vector context for this step.
         # Both start_step() and log_measurement() may set it; reset in end_step().
@@ -754,11 +754,21 @@ class TestRunLogger:
         if measurement not in vector.measurements:
             vector.measurements.append(measurement)
 
-        # Cascade outcome: ERROR > FAIL > PASS
-        if measurement.outcome is not None:
-            vector.outcome = escalate_outcome(vector.outcome, measurement.outcome)
-            step.outcome = escalate_outcome(step.outcome, measurement.outcome)
-            self.test_run.outcome = escalate_outcome(self.test_run.outcome, measurement.outcome)
+        # Outcome is set by every caller before reaching here:
+        # ``logger.measure`` stamps via the ``outcome=`` kwarg (default
+        # DONE; verify passes PASSED / FAILED / ERRORED). ``harness.measure``
+        # stamps via ``check_limit()``. Direct ``log_measurement`` callers
+        # (assertion path, client.py) set it explicitly.
+        assert measurement.outcome is not None, (
+            f"log_measurement requires measurement.outcome to be set "
+            f"(got None for {measurement.name!r})"
+        )
+        # Cascade outcome up the test run hierarchy via the 7-rank
+        # severity ladder (ABORTED > ERRORED > FAILED > PASSED > DONE >
+        # SKIPPED > PLANNED).
+        vector.outcome = escalate_outcome(vector.outcome, measurement.outcome)
+        step.outcome = escalate_outcome(step.outcome, measurement.outcome)
+        self.test_run.outcome = escalate_outcome(self.test_run.outcome, measurement.outcome)
 
         # Emit event if event log is wired
         if self._event_log is not None:
@@ -776,7 +786,7 @@ class TestRunLogger:
                 measurement_timestamp=measurement.timestamp,
                 value=measurement.value,
                 units=measurement.units,
-                outcome=measurement.outcome.value if measurement.outcome else None,
+                outcome=measurement.outcome.value,
                 limit_low=measurement.limit_low,
                 limit_high=measurement.limit_high,
                 limit_nominal=measurement.limit_nominal,
@@ -842,13 +852,16 @@ class TestRunLogger:
         value: float | int | None,
         *,
         limit: Limit | None = None,
+        outcome: Outcome = Outcome.DONE,
         allow_repeat: bool = False,
     ) -> Measurement:
-        """Record one measurement row. Pure recorder — no limit evaluation.
+        """Record one measurement row.
 
-        A logger logs. It does not judge, compare, or raise. Use
-        :func:`litmus.execution.verify.verify` for the verb that both
-        records AND evaluates a limit.
+        Default ``outcome=Outcome.DONE`` — recorder semantic ("ran, no
+        judgment"). :func:`litmus.execution.verify.verify` resolves
+        the limit upfront, computes the post-judgment outcome, and
+        passes it via ``outcome=`` so the cascade and event fire ONCE
+        with the final value (PASSED / FAILED / ERRORED).
 
         **Limit resolution chain** — fields copied onto the row so
         analysis sees what limit was active, even when nobody evaluated:
@@ -868,10 +881,8 @@ class TestRunLogger:
         via ``allow_repeat=True``.
 
         Returns:
-            The persisted :class:`Measurement` with
-            ``outcome=Outcome.DONE`` — the row "ran, no judgment."
-            Callers that want a PASSED / FAILED verdict go through
-            ``verify``.
+            The persisted :class:`Measurement` with the requested
+            ``outcome`` (default DONE).
         """
         resolved_limit = _resolve_measurement_limit(
             name,
@@ -933,41 +944,68 @@ class TestRunLogger:
             instrument_name=trace.get("instrument_name"),
             instrument_resource=trace.get("instrument_resource"),
             instrument_channel=trace.get("instrument_channel"),
-            outcome=Outcome.DONE,
+            outcome=outcome,
             fixture_connection=trace.get("fixture_connection"),
         )
 
-        # Recorder, not judge: stamps DONE so the row reflects "ran, no
-        # judgment." ``verify`` calls this then overwrites with PASSED /
-        # FAILED based on limit evaluation.
+        # Cascade + emit fire ONCE with the final outcome the caller
+        # passed. ``verify`` resolves limit + computes outcome upfront
+        # and passes PASSED / FAILED here; ``logger.measure`` callers
+        # use the DONE default.
         self.log_measurement(measurement)
         return measurement
 
     def _guard_duplicate(self, name: str, allow_repeat: bool) -> None:
         """Raise :class:`DuplicateMeasurementError` on same-name double-write.
 
-        Each step tracks ``(name, active_connection)`` pairs that have
-        been written. A second write with the same pair is an error
-        unless both the first and second call opt in via
+        Each step tracks
+        ``(name, active_connection, vector_index, vector_attempt)``
+        tuples that have been written. A second write with the same
+        tuple is an error unless both calls opt in via
         ``allow_repeat=True``.
 
-        Scoping the dedup key by the active :class:`FixtureConnection`
-        lets a multi-pin characteristic iterate ``ctx.connections`` and
-        emit the same measurement name once per connection — each
-        iteration stamps a distinct row (different ``dut_pin``), so the
-        two writes are not duplicates.
+        The four components scope the dedup so the common patterns
+        all work without ``allow_repeat``:
+
+        * **Connection.** Multi-pin characteristics iterate
+          ``ctx.connections`` and emit the same measurement name once
+          per pin — each iteration has a different ``connection``, so
+          the keys are distinct.
+        * **Vector index.** In-test iteration via the ``vectors``
+          fixture (``for v in vectors: verify(...)``) pushes a new
+          ``TestVector`` per row with a distinct ``index``. The same
+          name on different vector rows is not a duplicate. Native
+          ``@pytest.mark.parametrize`` doesn't need this — each item
+          opens its own step — but the ``vectors`` fixture runs
+          inside one step and would otherwise trip on the second
+          iteration.
+        * **Vector attempt.** :class:`~litmus.execution.harness.TestHarness`
+          retries (``litmus_retry`` markers running through the
+          harness path) re-run the same vector with the same index
+          but an incremented ``attempt``. The retry re-emits the same
+          measurement name; including ``attempt`` in the key keeps
+          each retry distinct. (Pytest-side retries via
+          pytest-rerunfailures open a fresh step per attempt and
+          don't need this dimension.)
 
         Typical causes when this fires:
 
-        - ``spec.check(name, ...)`` and ``logger.measure(name, ...)`` on
-          the same name — ``spec.check`` calls ``measure`` internally,
-          so the two are redundant.
-        - An inner-loop streaming pattern that forgot ``allow_repeat=True``.
-        - Two independent ``logger.measure`` calls accidentally sharing
-          a name; rename one or split into separate steps.
+        - Two independent ``logger.measure`` calls accidentally
+          sharing a name within the same vector; rename one.
+        - An inner-loop streaming pattern that forgot
+          ``allow_repeat=True``.
+        - ``logger.measure(name)`` followed by ``verify(name)`` for
+          the same measurement — verify already records, so the
+          first call is redundant.
         """
         conn = get_active_connection()
-        key = (name, conn.name if conn is not None else None)
+        vector = get_current_vector()
+        key = (
+            name,
+            conn.name if conn is not None else None,
+            vector.index if vector is not None else None,
+            vector.attempt if vector is not None else None,
+        )
         if key in self._step_seen_names:
             first_was_repeatable = key in self._step_seen_repeatable
             if not (allow_repeat and first_was_repeatable):
@@ -975,7 +1013,7 @@ class TestRunLogger:
                 step_label = step.name if step else "<no-step>"
                 raise DuplicateMeasurementError(
                     f"Measurement {name!r} already recorded in step {step_label!r}. "
-                    "Each measurement name must be unique within a step; pass "
+                    "Each measurement name must be unique within a vector; pass "
                     "allow_repeat=True on every call when streaming samples."
                 )
         else:

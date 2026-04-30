@@ -8,7 +8,8 @@ runner-agnostic pieces every runner needs:
 * :class:`LimitFailure` — raised on FAIL, subclasses ``AssertionError``
 * :class:`MissingLimitError` — raised when ``verify`` is called without
   a resolvable limit (use ``logger.measure`` for record-only)
-* :func:`_apply_outcome` — stamps PASSED / FAILED on a measurement
+* :func:`_compute_outcome` — pure function that returns the verify
+  outcome for a value against a resolved limit
 * :class:`_LimitsMapping` — read-only ``name → Limit`` view
 * :class:`VerifyFn` / :data:`LimitsFn` — type signatures consumers can
   annotate against without importing the runner adapter
@@ -93,18 +94,20 @@ class MissingLimitError(ValueError):
     """
 
 
-def _apply_outcome(measurement: Measurement, limit: Limit, value: float | None) -> None:
-    """Stamp ``measurement.outcome`` by judging ``value`` against ``limit``.
+def _compute_outcome(value: float | None, limit: Limit) -> Outcome:
+    """Compute the verify outcome for a value against a resolved limit.
 
-    ``value=None`` with a limit → ERRORED (can't judge what we don't have).
-    Limit + value → PASSED / FAILED. Caller raises on FAILED.
-    Verify ensures a non-None limit before invoking; ``logger.measure``
-    is the record-only path and never lands here.
+    Pure function — returns the outcome instead of mutating a
+    Measurement. Verify resolves the limit upfront, calls this to
+    decide PASSED / FAILED / ERRORED, and passes the result to
+    ``logger.measure(outcome=...)`` so the cascade and event fire
+    once with the final value.
+
+    ``None`` value → ERRORED (couldn't measure → can't judge).
     """
     if value is None:
-        measurement.outcome = Outcome.ERRORED
-        return
-    measurement.outcome = Outcome.PASSED if value in limit else Outcome.FAILED
+        return Outcome.ERRORED
+    return Outcome.PASSED if value in limit else Outcome.FAILED
 
 
 class _LimitsMapping(Mapping[str, Limit]):
@@ -159,6 +162,10 @@ def build_verify_callable() -> VerifyFn:
         limit: Limit | None = None,
         characteristic: str | None = None,
     ) -> Measurement:
+        from contextlib import nullcontext
+
+        from litmus.execution._state import pushed_active_characteristic
+
         logger = get_current_logger()
         if logger is None:
             raise RuntimeError(
@@ -166,22 +173,15 @@ def build_verify_callable() -> VerifyFn:
                 "is a Litmus runner plugin installed?"
             )
 
-        # Explicit ``characteristic=`` bypasses the active-char ContextVar
-        # while we resolve the limit + emit the row, then restores prior
-        # state. This lets test code stamp a specific char_id even when
-        # no for_characteristic block is in scope.
-        if characteristic is not None:
-            from litmus.execution._state import pushed_active_characteristic
+        # Resolve limit + record under the same ``characteristic`` context
+        # so the limit chain and auto-traceability both see the override.
+        char_ctx = (
+            pushed_active_characteristic(characteristic)
+            if characteristic is not None
+            else nullcontext()
+        )
 
-            with pushed_active_characteristic(characteristic):
-                measurement = logger.measure(name, value, limit=limit)
-        else:
-            measurement = logger.measure(name, value, limit=limit)
-
-        # The measurement row carries whichever limit logger.measure
-        # resolved. Reconstruct it so we can evaluate + raise.
-        effective_limit = _reconstruct_limit_from_measurement(measurement)
-        if effective_limit is None:
+        with char_ctx:
             effective_limit = _resolve_measurement_limit(
                 name,
                 inline_any=False,
@@ -192,18 +192,20 @@ def build_verify_callable() -> VerifyFn:
                 limit=limit,
                 units=None,
             )
-
-        if effective_limit is None:
-            raise MissingLimitError(
-                f"verify({name!r}, ...) has no limit to judge against. "
-                "Pass limit=Limit(...), configure a limit via "
-                "@pytest.mark.litmus_limits / sidecar / profile / product spec, "
-                "or use logger.measure() to record without judging."
+            if effective_limit is None:
+                raise MissingLimitError(
+                    f"verify({name!r}, ...) has no limit to judge against. "
+                    "Pass limit=Limit(...), configure a limit via "
+                    "@pytest.mark.litmus_limits / sidecar / profile / product spec, "
+                    "or use logger.measure() to record without judging."
+                )
+            outcome = _compute_outcome(
+                float(value) if value is not None else None,
+                effective_limit,
             )
+            measurement = logger.measure(name, value, limit=limit, outcome=outcome)
 
-        _apply_outcome(measurement, effective_limit, measurement.value)
-
-        if measurement.outcome == Outcome.FAILED:
+        if outcome == Outcome.FAILED:
             raise LimitFailure(
                 name=name,
                 value=measurement.value,
@@ -214,25 +216,3 @@ def build_verify_callable() -> VerifyFn:
         return measurement
 
     return _verify
-
-
-def _reconstruct_limit_from_measurement(m: Measurement) -> Limit | None:
-    """Rebuild a ``Limit`` from the fields a logger stamped on a row.
-
-    Returns ``None`` if no limit fields were set — i.e. the measurement
-    was recorded in characterization mode.
-    """
-    if m.limit_low is None and m.limit_high is None and m.limit_nominal is None:
-        return None
-    from litmus.models.enums import Comparator
-
-    cmp = Comparator(m.limit_comparator) if m.limit_comparator else Comparator.GELE
-    return Limit(
-        low=m.limit_low,
-        high=m.limit_high,
-        nominal=m.limit_nominal,
-        units=m.units or "",
-        characteristic_id=m.characteristic_id,
-        spec_ref=m.spec_ref,
-        comparator=cmp,
-    )
