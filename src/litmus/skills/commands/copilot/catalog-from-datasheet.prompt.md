@@ -8,7 +8,8 @@ Read and follow the workflow file at `litmus/skills/workflow/datasheet-to-catalo
 
 **Key references:**
 - Schema: `docs/capability-schema.md`
-- Enums: `litmus/config/models.py` (lines 1-580)
-- Agent specs: `litmus/skills/agents/*.md` (use as reference for prompt construction)
+- Capability + SpecBand: `src/litmus/models/capability.py`
+- Enums (units, MeasurementFunction, Comparator): `src/litmus/models/enums.py`
+- Agent specs: `src/litmus/skills/agents/*.md` (use as reference for prompt construction)
 
-**Validation:** Run `uv run python -c "from pathlib import Path; from litmus.catalog.loader import load_catalog_entry; load_catalog_entry(Path('<path>'))"` to validate output.
+**Validation:** Run `uv run python -c "from pathlib import Path; from litmus.store import load_catalog_entry; load_catalog_entry(Path('<path>'))"` to validate output.

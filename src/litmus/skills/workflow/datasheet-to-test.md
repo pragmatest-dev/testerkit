@@ -99,9 +99,10 @@ Goal: Save the extracted spec and let user refine it.
 <step id="2.1">
 Show the draft spec structure (YAML preview).
 Highlight any uncertainties or missing fields.
-Refer to refs/product-schema.md for product structure and docs/capability-schema.md for the
-four-dict capability schema (signals, conditions, controls, attributes) and SpecBand rules.
-Characteristics use the full Capability schema — all capability-schema rules apply.
+Use ``litmus(action="schema", type="product")`` to fetch the live
+product schema (server-side Pydantic). Characteristics use the
+Capability schema — same four dicts (signals, conditions, controls,
+attributes) and SpecBand matching as catalog entries.
 </step>
 
 <step id="2.2">
@@ -189,8 +190,9 @@ Use the instruments selected in Phase 2b, or use litmus_discover().
 </step>
 
 <step id="3.2">
-Build station config with realistic mock values — schema is validated server-side.
-Refer to refs/station-schema.md for the full station config structure.
+Build station config with realistic mock values — schema is
+validated server-side. Use ``litmus(action="schema", type="station")``
+for the live shape.
 </step>
 
 <step id="3.3">
@@ -212,7 +214,7 @@ Emit: <gate-result phase="3" action="approved|revised" />
 Goal: Create pytest test code that exercises all characteristics.
 
 <step id="4.1">
-Generate **pytest-native** test code. Tests are plain pytest — no decorator, no base class. Use the three Litmus fixtures (`context`, `verify`, `logger`) and the single `litmus_limits` marker. See refs/test-writing.md for the full reference.
+Generate **pytest-native** test code. Tests are plain pytest — no decorator, no base class. Use the Litmus fixtures (`context`, `verify`, `logger`) and the single `litmus_limits` marker for inline limits. Sweeps use native `@pytest.mark.parametrize` or the `litmus_sweeps` marker; see the project's `examples/` chapters for full patterns.
 
 Skeleton to follow:
 
@@ -231,14 +233,14 @@ class TestRails:
 ```
 
 Notes for good generation:
-- Prefer `verify(name, v)` when a product spec exists — DUT pin and limits resolve automatically
-- Use `logger.measure(name, v, low=..., high=...)` for procedure-only measurements
+- Use `verify(name, v)` for judgment-bearing measurements — limits resolve from active product/sidecar/profile; raises `LimitFailure` on out-of-band, `MissingLimitError` if no limit configured
+- Use `logger.measure(name, v)` for record-only measurements (setup readouts, characterization) — stamps `Outcome.DONE`, never raises
 - Use `context.changed(k)` in parametrized sweeps to skip expensive reconfig
 - Prefer native `@pytest.mark.parametrize` for code-owned sweeps; use sidecar `vectors:` for operator-edited sweeps
 </step>
 
 <step id="4.2">
-Create a **sidecar YAML** (`tests/test_<product>.yaml`) with any combination of `vectors:`, `limits:`, `mocks:`. Sidecar is for operator-editable values; inline markers are for values that belong with the code. See refs/limits.md for limit structure.
+Create a **sidecar YAML** (`tests/test_<product>.yaml`) with any combination of `sweeps:`, `limits:`, `mocks:`, `characteristics:`. Sidecar is for operator-editable values; inline markers are for values that belong with the code. Limit shapes: `{low, high, units, nominal?, comparator?}` for an explicit band, or `{characteristic: <id>, tolerance_pct: <n>}` to bind to a product characteristic.
 
 Example:
 
@@ -302,7 +304,6 @@ Emit: <phase-complete id="5" />
 <reference name="Key Rules">
 - mock_config keys are method names (e.g., measure_voltage, measure_current)
 - Standard Python math: Instruments return float. Use standard arithmetic.
-- Characteristics: Refer to refs/enums.md for valid MeasurementFunction values. Use function: + direction: (input/output).
-- Per-step aliases: When station has multiple instruments of same type, use aliases: in sequence steps.
-- conftest.py fixtures are auto-registered — no boilerplate needed. Tests use instrument role names directly as fixture parameters.
+- Characteristics: use ``litmus(action="schema", type="capability")`` to discover valid MeasurementFunction values. Set `function:` + `direction:` (input/output).
+- Instrument fixtures are auto-registered from the active station's `instruments:` dict — no conftest.py boilerplate. Tests use role names (e.g. `dmm`, `psu`) as fixture parameters directly.
 </reference>

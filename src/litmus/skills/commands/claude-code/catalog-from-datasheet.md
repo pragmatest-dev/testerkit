@@ -8,8 +8,8 @@ Read and follow `litmus/skills/workflow/datasheet-to-catalog.md` EXACTLY. It is 
 **Input:** `$ARGUMENTS` = `<pdf_path> <output_filename>`
 
 **Claude Code adaptations:**
-- Where the workflow says `refs/`, read source files directly: `docs/capability-schema.md` for schema, `litmus/config/models.py` (lines 1-580) for enums
-- Construct agent prompts inline using `litmus/skills/agents/*.md` as REFERENCE for what to include — do NOT read them at runtime and do NOT paste them verbatim. Build each prompt with the required inputs table from the workflow.
+- Where the workflow says `refs/`, read source files directly: `docs/capability-schema.md` for schema; `src/litmus/models/enums.py` for units / MeasurementFunction / Comparator; `src/litmus/models/capability.py` for the Capability + SpecBand models
+- Construct agent prompts inline using `src/litmus/skills/agents/*.md` as REFERENCE for what to include — do NOT read them at runtime and do NOT paste them verbatim. Build each prompt with the required inputs table from the workflow.
 - Use Edit/Write tools to update YAML on disk (not MCP save)
-- Use `uv run python -c "from pathlib import Path; from litmus.catalog.loader import load_catalog_entry; load_catalog_entry(Path('<path>'))"` to validate
+- Use `uv run python -c "from pathlib import Path; from litmus.store import load_catalog_entry; load_catalog_entry(Path('<path>'))"` to validate
 - Emit every `<phase-complete />` and `<gate-result />` tag the workflow requires

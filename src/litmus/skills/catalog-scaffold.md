@@ -114,7 +114,7 @@ Create the manufacturer directory if it doesn't exist.
 <step id="3.2">
 Validate with:
 ```bash
-uv run python -c "from pathlib import Path; from litmus.catalog.loader import load_catalog_entry; load_catalog_entry(Path('catalog/{manufacturer}/{manufacturer}_{model}.yaml'))"
+uv run python -c "from pathlib import Path; from litmus.store import load_catalog_entry; load_catalog_entry(Path('catalog/{manufacturer}/{manufacturer}_{model}.yaml'))"
 ```
 </step>
 

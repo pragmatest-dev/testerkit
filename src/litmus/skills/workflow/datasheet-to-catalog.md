@@ -46,7 +46,7 @@ Key principles:
 <step id="1.1">Get PDF path and output YAML path from user input.</step>
 
 <step id="1.2">
-Read `litmus/config/enums.py`.
+Read `src/litmus/models/enums.py`.
 Extract ALL enum values into these variables (read ONCE, injected into agent prompts):
 - ENUM_FUNCTIONS — MeasurementFunction values
 - ENUM_CONNECTORS — ConnectorType values

@@ -16,8 +16,11 @@ Skills are markdown prompts that guide AI assistants (Claude, Copilot, etc.) thr
 
 ### Agents
 Subagent prompt templates spawned by workflows via the Task tool. Not invoked directly.
-- **[section-processor](agents/section-processor.md)** - Sonnet agent: extracts capabilities from one PDF section into catalog YAML
-- **[catalog-reviewer](agents/catalog-reviewer.md)** - Opus agent: audits catalog YAML against PDF, reports gaps and schema violations (does not fix)
+- **[section-splitter](agents/section-splitter.md)** - Splits a datasheet PDF into sections for parallel processing
+- **[section-extractor](agents/section-extractor.md)** - Extracts capability data from one section into structured form
+- **[section-writer](agents/section-writer.md)** - Writes catalog YAML for one section
+- **[section-reviewer](agents/section-reviewer.md)** - Audits catalog YAML against the PDF; reports gaps and schema violations
+- **[scaffold-writer](agents/scaffold-writer.md)** - Generates a quick catalog scaffold from Claude's knowledge of common instruments
 
 ## How Skills Work
 

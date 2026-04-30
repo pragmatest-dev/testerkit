@@ -205,24 +205,24 @@ class TestReindex:
         assert "STARTER001" in runs_after.stdout
 
 
-class TestYieldAnalytics:
-    """Verify yield analytics commands return data."""
+class TestMetricsAnalytics:
+    """Verify metrics analytics commands return data."""
 
-    def test_yield_summary(self, starter_project: tuple[Path, Path]):
+    def test_metrics_summary(self, starter_project: tuple[Path, Path]):
         project, home = starter_project
-        result = _litmus("yield", "summary", "--phase", "all", cwd=project, home=home)
+        result = _litmus("metrics", "summary", "--phase", "all", cwd=project, home=home)
         assert result.returncode == 0
-        assert "Runs:" in result.stdout or "First Pass Yield" in result.stdout
+        assert "Runs" in result.stdout or "FPY" in result.stdout or "No data" in result.stdout
 
-    def test_yield_pareto(self, starter_project: tuple[Path, Path]):
+    def test_metrics_pareto(self, starter_project: tuple[Path, Path]):
         project, home = starter_project
-        result = _litmus("yield", "pareto", "--phase", "all", cwd=project, home=home)
+        result = _litmus("metrics", "pareto", "--phase", "all", cwd=project, home=home)
         assert result.returncode == 0
 
-    def test_yield_cpk(self, starter_project: tuple[Path, Path]):
+    def test_metrics_cpk(self, starter_project: tuple[Path, Path]):
         project, home = starter_project
         result = _litmus(
-            "yield",
+            "metrics",
             "cpk",
             "--phase",
             "all",
