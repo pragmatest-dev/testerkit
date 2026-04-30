@@ -14,6 +14,8 @@ import pytest
 
 from litmus.execution.profiles import resolve_test_phase
 
+pytest_plugins = ["pytester"]
+
 
 class TestResolveTestPhase:
     def test_clean_git_no_mocks_honors_requested_phase(self) -> None:
@@ -123,6 +125,115 @@ class TestMockInstrumentsNoUsageError:
         assert "UsageError" not in fixture_src
         assert "UsageError" not in helper_src
         assert "get_sequence_test_phase" not in fixture_src
+
+
+class TestMethodMocksWarning:
+    """``--test-phase=production`` + active method mocks → UserWarning at session start.
+
+    Mocks are split-intent: legitimate for fault injection (OVP/OCP),
+    suspicious for accidental-leftover. The warning surfaces them so
+    operators can decide whether to scrub via a profile with
+    ``mocks: []``.
+    """
+
+    def test_warns_on_method_mocks_in_production(self, pytester: pytest.Pytester) -> None:
+        import textwrap
+        from unittest.mock import patch
+
+        pytester.makeini(
+            textwrap.dedent(
+                """
+                [pytest]
+                addopts = -p no:litmus -p litmus.pytest_plugin
+                asyncio_default_fixture_loop_scope = function
+                """
+            )
+        )
+        pytester.makeconftest(
+            textwrap.dedent(
+                """
+                import pytest
+
+                class _Dmm:
+                    def measure_dc_voltage(self):
+                        return 999.0
+
+                @pytest.fixture
+                def dmm():
+                    return _Dmm()
+                """
+            )
+        )
+        pytester.makepyfile(
+            test_seq=textwrap.dedent(
+                """
+                class TestSeq:
+                    def test_ovp(self, dmm):
+                        assert dmm.measure_dc_voltage() == 4.5
+                """
+            )
+        )
+        (pytester.path / "test_seq.yaml").write_text(
+            textwrap.dedent(
+                """
+                mocks:
+                  - {target: "dmm.measure_dc_voltage", return_value: 4.5}
+                """
+            )
+        )
+        with patch("litmus.execution._git.is_git_clean", return_value=True):
+            result = pytester.runpytest("-v", "--test-phase=production", "--dut-serial=SN1")
+        result.assert_outcomes(passed=1)
+        result.stdout.fnmatch_lines(["*Method mocks active in test_phase='production'*"])
+
+    def test_silent_in_development(self, pytester: pytest.Pytester) -> None:
+        """Development phase suppresses the warning — mocks are expected there."""
+        import textwrap
+
+        pytester.makeini(
+            textwrap.dedent(
+                """
+                [pytest]
+                addopts = -p no:litmus -p litmus.pytest_plugin
+                asyncio_default_fixture_loop_scope = function
+                """
+            )
+        )
+        pytester.makeconftest(
+            textwrap.dedent(
+                """
+                import pytest
+
+                class _Dmm:
+                    def measure_dc_voltage(self):
+                        return 999.0
+
+                @pytest.fixture
+                def dmm():
+                    return _Dmm()
+                """
+            )
+        )
+        pytester.makepyfile(
+            test_seq=textwrap.dedent(
+                """
+                class TestSeq:
+                    def test_ovp(self, dmm):
+                        assert dmm.measure_dc_voltage() == 4.5
+                """
+            )
+        )
+        (pytester.path / "test_seq.yaml").write_text(
+            textwrap.dedent(
+                """
+                mocks:
+                  - {target: "dmm.measure_dc_voltage", return_value: 4.5}
+                """
+            )
+        )
+        result = pytester.runpytest("-v", "--test-phase=development")
+        result.assert_outcomes(passed=1)
+        assert "Method mocks active" not in result.stdout.str()
 
 
 class TestProfileFacetsStamping:

@@ -119,9 +119,9 @@ class ProfileConfig(TestEntry):
     # Profiles must stay portable across stations of the matching
     # type — never bind a concrete station instance here.
     station_type: str | None = None
-    # Bind a fixture by id. Resolution chain: ``--fixture-config`` →
-    # ``--fixture`` → this field → ``ProjectConfig.default_fixture``.
-    # CLI wins; explicit beats declarative.
+    # Bind a fixture by id. Resolution chain: ``--fixture`` → this
+    # field → ``ProjectConfig.default_fixture``. CLI wins; explicit
+    # beats declarative.
     fixture: str | None = None
 
 
@@ -132,8 +132,8 @@ class ProjectConfig(BaseModel):
 
     name: str
     results_dir: str | None = None
-    # Optional fallback station id when no ``--station-config`` /
-    # ``--station`` is passed and hostname auto-match doesn't fire.
+    # Optional fallback station id when no ``--station`` is passed
+    # and hostname auto-match doesn't fire.
     # Set this to a real station id in your project; leaving it
     # unset means session-start expects an explicit ``--station=<id>``
     # or a hostname match.

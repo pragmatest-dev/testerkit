@@ -41,7 +41,7 @@ This defines:
 
 ## Instrument Role Fixtures
 
-When you run with `--station-config`, Litmus auto-registers each instrument role as a pytest fixture. Use them directly as function parameters:
+When you run with `--station`, Litmus auto-registers each instrument role as a pytest fixture. Use them directly as function parameters:
 
 ```python
 # tests/test_power.py
@@ -55,7 +55,7 @@ def test_output_voltage(psu, dmm, logger):
 
 Run with real hardware:
 ```bash
-pytest tests/ --station-config=stations/bench_1.yaml --dut-serial=SN001
+pytest tests/ --station=stations/bench_1.yaml --dut-serial=SN001
 ```
 
 ## Running with Mock Instruments
@@ -63,7 +63,7 @@ pytest tests/ --station-config=stations/bench_1.yaml --dut-serial=SN001
 When hardware isn't available, add `--mock-instruments`:
 
 ```bash
-pytest tests/ --station-config=stations/bench_1.yaml --mock-instruments --dut-serial=SIM001
+pytest tests/ --station=stations/bench_1.yaml --mock-instruments --dut-serial=SIM001
 ```
 
 The **same test code** works in both modes.
@@ -105,7 +105,7 @@ In CI, always run with `--mock-instruments`:
 - name: Run tests
   run: |
     pytest tests/ \
-      --station-config=stations/bench_1.yaml \
+      --station=stations/bench_1.yaml \
       --mock-instruments \
       --dut-serial=CI-TEST \
       -v
@@ -191,12 +191,12 @@ def test_output_voltage(psu, dmm, logger):
 
 **Run with hardware:**
 ```bash
-pytest tests/ --station-config=stations/bench_1.yaml --dut-serial=SN12345
+pytest tests/ --station=stations/bench_1.yaml --dut-serial=SN12345
 ```
 
 **Run with mocks:**
 ```bash
-pytest tests/ --station-config=stations/bench_1.yaml --mock-instruments --dut-serial=SIM001
+pytest tests/ --station=stations/bench_1.yaml --mock-instruments --dut-serial=SIM001
 ```
 
 ## What You Learned

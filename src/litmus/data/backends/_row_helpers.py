@@ -156,7 +156,7 @@ def build_run_metadata(test_run: TestRun) -> dict[str, Any]:
     return {
         "session_id": str(test_run.session_id),
         "run_id": str(test_run.id),
-        "slot_id": os.environ.get("LITMUS_SLOT_ID"),
+        "slot_id": os.environ.get("_LITMUS_SLOT_ID"),
         "run_started_at": test_run.started_at,
         "run_ended_at": test_run.ended_at,
         # WHO

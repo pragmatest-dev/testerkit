@@ -402,7 +402,7 @@ class TestRun(BaseModel):
 
     # Phase / profile traceability
     test_phase: str | None = None
-    profile: str | None = None  # active --litmus-profile name, if any
+    profile: str | None = None  # active --test-profile name, if any
     # Raw CLI facet values used to select the profile; combined with git SHA
     # this is the minimum reproducibility payload for the run.
     profile_facets: dict[str, str] = Field(default_factory=dict)

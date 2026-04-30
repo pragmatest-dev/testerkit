@@ -309,7 +309,7 @@ def _parse_uuid(value: str) -> UUID:
 
 def _get_run_id() -> UUID:
     """Get run ID from environment or generate new one."""
-    env_id = os.environ.get("LITMUS_RUN_ID")
+    env_id = os.environ.get("_LITMUS_RUN_ID")
     if env_id:
         return _parse_uuid(env_id)
     return uuid4()

@@ -50,7 +50,7 @@ Instruments can be shared across multiple DUT slots in a multi-DUT fixture. When
 For development without hardware, use `--mock-instruments`:
 
 ```bash
-pytest tests/ --station-config=stations/bench_1.yaml --mock-instruments --dut-serial=SIM001
+pytest tests/ --station=stations/bench_1.yaml --mock-instruments --dut-serial=SIM001
 ```
 
 Configure mock values in the station:
@@ -218,7 +218,7 @@ instruments:
 
 Run in CI:
 ```bash
-pytest tests/ --station-config=stations/ci_station.yaml --mock-instruments --dut-serial=CI-TEST
+pytest tests/ --station=stations/ci_station.yaml --mock-instruments --dut-serial=CI-TEST
 ```
 
 ## Next Steps

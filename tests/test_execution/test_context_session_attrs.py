@@ -62,7 +62,7 @@ def test_context_station_none_in_bringup(pytester: pytest.Pytester) -> None:
 
 
 def test_context_station_resolves_when_loaded(pytester: pytest.Pytester) -> None:
-    """With ``--station-config``, ``context.station`` exposes the model."""
+    """With ``--station``, ``context.station`` exposes the model."""
     pytester.makeini(_INI)
     (pytester.path / "stations").mkdir()
     (pytester.path / "stations" / "alpha.yaml").write_text(
@@ -85,7 +85,7 @@ def test_context_station_resolves_when_loaded(pytester: pytest.Pytester) -> None
             """
         )
     )
-    result = pytester.runpytest("-v", "--dut-serial=test", "--station-config=stations/alpha.yaml")
+    result = pytester.runpytest("-v", "--dut-serial=test", "--station=stations/alpha.yaml")
     result.assert_outcomes(passed=1)
 
 
@@ -105,7 +105,7 @@ def test_context_product_none_when_no_yaml(pytester: pytest.Pytester) -> None:
 
 
 def test_context_product_resolves_when_loaded(pytester: pytest.Pytester) -> None:
-    """With ``--spec``, ``context.product`` exposes the :class:`ProductContext`."""
+    """With ``--product``, ``context.product`` exposes the :class:`ProductContext`."""
     pytester.makeini(_INI)
     (pytester.path / "products").mkdir()
     (pytester.path / "products" / "widget.yaml").write_text(
@@ -137,5 +137,5 @@ def test_context_product_resolves_when_loaded(pytester: pytest.Pytester) -> None
             """
         )
     )
-    result = pytester.runpytest("-v", "--dut-serial=test", "--spec=products/widget.yaml")
+    result = pytester.runpytest("-v", "--dut-serial=test", "--product=products/widget.yaml")
     result.assert_outcomes(passed=1)

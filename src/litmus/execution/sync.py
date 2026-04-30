@@ -260,28 +260,28 @@ class SyncCoordinator:
 def get_sync(event_store: EventStore | None = None) -> SyncPoint | None:
     """Factory: create a SyncPoint from environment variables.
 
-    Returns None if not in a multi-slot worker process (i.e., LITMUS_SLOT_ID
+    Returns None if not in a multi-slot worker process (i.e., _LITMUS_SLOT_ID
     is not set or slot count is 1).
 
     Args:
         event_store: EventStore for cross-process communication.
             Required if in multi-slot mode.
     """
-    slot_id = os.environ.get("LITMUS_SLOT_ID")
+    slot_id = os.environ.get("_LITMUS_SLOT_ID")
     if not slot_id:
         return None
 
-    slot_count = int(os.environ.get("LITMUS_SLOT_COUNT", "1"))
+    slot_count = int(os.environ.get("_LITMUS_SLOT_COUNT", "1"))
     if slot_count <= 1:
         return None
 
-    session_id_str = os.environ.get("LITMUS_SESSION_ID")
+    session_id_str = os.environ.get("_LITMUS_SESSION_ID")
     session_id = UUID(session_id_str) if session_id_str else uuid4()
 
     if event_store is None:
         raise ValueError(
             "EventStore required for multi-slot sync. "
-            "LITMUS_SLOT_ID is set but no EventStore was provided."
+            "_LITMUS_SLOT_ID is set but no EventStore was provided."
         )
 
     return SyncPoint(

@@ -133,7 +133,7 @@ mocks:
 Run the test:
 
 ```bash
-pytest tests/test_voltage.py --station-config=stations/my_station.yaml --mock-instruments -v
+pytest tests/test_voltage.py --station=stations/my_station.yaml --mock-instruments -v
 ```
 
 Output:

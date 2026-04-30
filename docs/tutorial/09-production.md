@@ -71,8 +71,8 @@ def test_output_voltage(pins, logger):
 Run with fixture config:
 ```bash
 pytest tests/ \
-  --station-config=stations/bench_1.yaml \
-  --fixture-config=fixtures/power_board_fixture.yaml \
+  --station=stations/bench_1.yaml \
+  --fixture=fixtures/power_board_fixture.yaml \
   --dut-serial=SN001
 ```
 
@@ -252,8 +252,8 @@ def test_output_voltage(pins, verify):
 
 ```bash
 pytest tests/ \
-  --station-config=stations/bench_1.yaml \
-  --fixture-config=fixtures/power_board_fixture.yaml \
+  --station=stations/bench_1.yaml \
+  --fixture=fixtures/power_board_fixture.yaml \
   --dut-serial=SN12345 \
   --operator="Jane Doe" \
   -v
@@ -262,8 +262,8 @@ pytest tests/ \
 With simulation:
 ```bash
 pytest tests/ \
-  --station-config=stations/bench_1.yaml \
-  --fixture-config=fixtures/power_board_fixture.yaml \
+  --station=stations/bench_1.yaml \
+  --fixture=fixtures/power_board_fixture.yaml \
   --mock-instruments \
   --dut-serial=SIM001 \
   -v

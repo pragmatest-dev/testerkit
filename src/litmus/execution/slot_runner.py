@@ -44,7 +44,7 @@ def _build_slot_env(
     """Build environment variables for a slot subprocess.
 
     Environment variables set:
-    - ``LITMUS_SLOT_ID`` — which slot this process handles
+    - ``_LITMUS_SLOT_ID`` — which slot this process handles
     - ``LITMUS_DUT_SERIAL`` — DUT serial for this slot
     - ``LITMUS_DUT_PART_NUMBER`` — optional DUT part number
     - ``LITMUS_DUT_REVISION`` — optional DUT revision
@@ -52,7 +52,7 @@ def _build_slot_env(
     - ``LITMUS_FIXTURE_SLOT`` — JSON-serialized slot config
     """
     env = base_env.copy()
-    env["LITMUS_SLOT_ID"] = slot_id
+    env["_LITMUS_SLOT_ID"] = slot_id
     env["LITMUS_DUT_SERIAL"] = dut.serial
     if dut.part_number:
         env["LITMUS_DUT_PART_NUMBER"] = dut.part_number
@@ -80,15 +80,15 @@ class SlotRunner:
     """Runs a command for each DUT slot in parallel subprocesses.
 
     Each subprocess gets:
-    - ``LITMUS_SESSION_ID`` — shared across all slots
-    - ``LITMUS_SLOT_ID`` — which slot this process handles
-    - ``LITMUS_SLOT_COUNT`` — total slot count (for sync)
+    - ``_LITMUS_SESSION_ID`` — shared across all slots
+    - ``_LITMUS_SLOT_ID`` — which slot this process handles
+    - ``_LITMUS_SLOT_COUNT`` — total slot count (for sync)
     - ``LITMUS_DUT_SERIAL`` — DUT serial for this slot
     - ``LITMUS_DUT_PART_NUMBER`` — optional DUT metadata
     - ``LITMUS_DUT_RESOURCE`` — DUT driver connection string
     - ``LITMUS_FIXTURE_SLOT`` — JSON-serialized slot config
-    - ``LITMUS_INSTRUMENT_SERVER`` — instrument server address (if shared instruments)
-    - ``LITMUS_SHARED_ROLES`` — comma-separated roles served remotely
+    - ``_LITMUS_INSTRUMENT_SERVER`` — instrument server address (if shared instruments)
+    - ``_LITMUS_SHARED_ROLES`` — comma-separated roles served remotely
 
     Sync points use EventStore events.
     """
@@ -151,13 +151,13 @@ class SlotRunner:
             base_env.update(env)
 
         # Set shared env vars
-        base_env["LITMUS_SESSION_ID"] = str(self._session_id)
-        base_env["LITMUS_SLOT_COUNT"] = str(len(self._slots))
+        base_env["_LITMUS_SESSION_ID"] = str(self._session_id)
+        base_env["_LITMUS_SLOT_COUNT"] = str(len(self._slots))
 
         # Instrument server env vars for shared instruments
         if self._instrument_server_address and self._shared_roles:
-            base_env["LITMUS_INSTRUMENT_SERVER"] = self._instrument_server_address
-            base_env["LITMUS_SHARED_ROLES"] = ",".join(
+            base_env["_LITMUS_INSTRUMENT_SERVER"] = self._instrument_server_address
+            base_env["_LITMUS_SHARED_ROLES"] = ",".join(
                 sorted(self._shared_roles),
             )
 
@@ -193,7 +193,7 @@ class SlotRunner:
             for slot_id, slot in self._slots.items():
                 dut = self._duts[slot_id]
                 slot_env = _build_slot_env(slot_id, dut, slot, base_env)
-                slot_env["LITMUS_SLOT_INDEX"] = str(slot_ids.index(slot_id))
+                slot_env["_LITMUS_SLOT_INDEX"] = str(slot_ids.index(slot_id))
 
                 result = SlotResult(slot_id=slot_id, outcome="errored")
                 results[slot_id] = result
@@ -319,22 +319,22 @@ def is_orchestrator_mode(config) -> bool:
     """Detect if this process should orchestrate multi-slot execution.
 
     Orchestrator mode activates when:
-    1. ``LITMUS_SLOT_ID`` is NOT set (we're not a worker child)
+    1. ``_LITMUS_SLOT_ID`` is NOT set (we're not a worker child)
     2. A multi-slot fixture config is detected
     """
-    from pathlib import Path
-
-    if os.environ.get("LITMUS_SLOT_ID"):
+    if os.environ.get("_LITMUS_SLOT_ID"):
         return False  # Already a worker
 
-    fixture_path = config.getoption("--fixture-config", default=None)
-    if not fixture_path:
+    from litmus.pytest_plugin.helpers import find_fixture_file
+
+    fixture_path = find_fixture_file(config)
+    if fixture_path is None:
         return False
 
     try:
         from litmus.store import load_fixture
 
-        fc = load_fixture(Path(fixture_path))
+        fc = load_fixture(fixture_path)
         return fc.is_multi_slot
     except Exception:  # noqa: BLE001 — fall back to single-slot on any load error
         # Missing or invalid fixture file — fall back to single-slot mode
@@ -344,7 +344,7 @@ def is_orchestrator_mode(config) -> bool:
 
 def is_worker_mode() -> bool:
     """Detect if this process is a multi-slot worker child."""
-    return bool(os.environ.get("LITMUS_SLOT_ID"))
+    return bool(os.environ.get("_LITMUS_SLOT_ID"))
 
 
 def _build_child_cmd(config) -> list[str]:
@@ -604,17 +604,19 @@ def run_multi_slot_session(
     test-execution loop.
     """
     import warnings
-    from pathlib import Path
 
     from litmus.data.event_store import EventStore
     from litmus.execution._state import get_current_logger, get_event_store, set_event_store
     from litmus.execution.dut_provider import CLIDUTProvider
     from litmus.execution.slots import detect_shared_instruments, resolve_fixture_slots
     from litmus.pytest_plugin import _mocks_active
+    from litmus.pytest_plugin.helpers import find_fixture_file
     from litmus.store import load_fixture
 
-    fixture_path = session.config.getoption("--fixture-config")
-    fixture_config = load_fixture(Path(fixture_path))
+    fixture_path = find_fixture_file(session.config)
+    if fixture_path is None:
+        return False
+    fixture_config = load_fixture(fixture_path)
 
     slots = resolve_fixture_slots(fixture_config)
     slot_ids = list(slots.keys())

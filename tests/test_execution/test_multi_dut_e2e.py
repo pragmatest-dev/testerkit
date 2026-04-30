@@ -70,8 +70,8 @@ class TestMultiDutE2E:
                 "-m",
                 "pytest",
                 str(test_file),
-                f"--fixture-config={fixture_path}",
-                f"--station-config={station_path}",
+                f"--fixture={fixture_path}",
+                f"--station={station_path}",
                 "--mock-instruments",
                 "-v",
             ],
@@ -108,7 +108,7 @@ class TestMultiDutE2E:
             import os
 
             def test_conditional():
-                slot_id = os.environ.get("LITMUS_SLOT_ID", "")
+                slot_id = os.environ.get("_LITMUS_SLOT_ID", "")
                 if slot_id == "slot_2":
                     assert False, "Intentional failure for slot_2"
                 assert True
@@ -121,8 +121,8 @@ class TestMultiDutE2E:
                 "-m",
                 "pytest",
                 str(test_file),
-                f"--fixture-config={fixture_path}",
-                f"--station-config={station_path}",
+                f"--fixture={fixture_path}",
+                f"--station={station_path}",
                 "--mock-instruments",
                 "-v",
             ],
@@ -164,8 +164,8 @@ class TestMultiDutE2E:
                 "-m",
                 "pytest",
                 str(test_file),
-                f"--fixture-config={fixture_path}",
-                f"--station-config={station_path}",
+                f"--fixture={fixture_path}",
+                f"--station={station_path}",
                 "--mock-instruments",
                 "--dut-serial=SINGLE_SN",
                 "-v",

@@ -45,7 +45,7 @@ The `mock_config` section defines what values mock instruments return.
 Add `--mock-instruments` to run without hardware:
 
 ```bash
-pytest tests/ --station-config=stations/my_station.yaml --mock-instruments -v
+pytest tests/ --station=stations/my_station.yaml --mock-instruments -v
 ```
 
 The **same test code** works with real hardware or mocks.
@@ -68,10 +68,10 @@ Run it:
 
 ```bash
 # With mock instruments
-pytest tests/test_voltage.py --station-config=stations/my_station.yaml --mock-instruments -v
+pytest tests/test_voltage.py --station=stations/my_station.yaml --mock-instruments -v
 
 # With real hardware (when available)
-pytest tests/test_voltage.py --station-config=stations/my_station.yaml -v
+pytest tests/test_voltage.py --station=stations/my_station.yaml -v
 ```
 
 ## Per-Test Mock Values
@@ -139,7 +139,7 @@ When running with `--mock-instruments`, values are resolved in order:
 - name: Run tests
   run: |
     pytest tests/ \
-      --station-config=stations/ci_station.yaml \
+      --station=stations/ci_station.yaml \
       --mock-instruments \
       --dut-serial=CI-TEST \
       -v

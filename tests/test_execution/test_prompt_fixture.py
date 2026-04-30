@@ -4,7 +4,7 @@ The fixture is purely marker-driven: ``litmus_prompts`` markers in scope
 populate a name-keyed dict; ``prompt(name)`` resolves an entry, and
 ``prompt()`` works as a shortcut when exactly one entry is in scope.
 Routing of the prompt itself goes through :mod:`litmus.prompts` —
-explicit handler → ``LITMUS_PROMPT_MODE=auto-confirm`` → tty fallback →
+explicit handler → ``LITMUS_AUTO_CONFIRM=1`` → tty fallback →
 ``PromptUnavailableError``.
 """
 
@@ -58,7 +58,7 @@ def test_ask_uses_explicit_handler() -> None:
 
 
 def test_ask_auto_confirm_via_env(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("LITMUS_PROMPT_MODE", "auto-confirm")
+    monkeypatch.setenv("LITMUS_AUTO_CONFIRM", "1")
     set_prompt_handler(None)
 
     assert ask(PromptConfig(message="m", prompt_type="confirm")) is True
@@ -67,7 +67,7 @@ def test_ask_auto_confirm_via_env(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 def test_ask_raises_when_unavailable(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.delenv("LITMUS_PROMPT_MODE", raising=False)
+    monkeypatch.delenv("LITMUS_AUTO_CONFIRM", raising=False)
     set_prompt_handler(None)
     # Subprocess pytester ensures stdin is not a tty in this run; in this
     # in-process test we force the same condition by stubbing isatty.
@@ -93,7 +93,7 @@ def test_prompt_fixture_single_entry_implicit_key(pytester: pytest.Pytester) -> 
 
             @pytest.fixture(autouse=True)
             def _auto_confirm(monkeypatch):
-                monkeypatch.setenv("LITMUS_PROMPT_MODE", "auto-confirm")
+                monkeypatch.setenv("LITMUS_AUTO_CONFIRM", "1")
 
             @pytest.mark.litmus_prompts(only={"message": "go", "prompt_type": "confirm"})
             def test_one(prompt):
@@ -218,7 +218,7 @@ def test_prompt_fixture_sidecar_yaml(pytester: pytest.Pytester) -> None:
 
             @pytest.fixture(autouse=True)
             def _auto_confirm(monkeypatch):
-                monkeypatch.setenv("LITMUS_PROMPT_MODE", "auto-confirm")
+                monkeypatch.setenv("LITMUS_AUTO_CONFIRM", "1")
 
             def test_sidecar(prompt):
                 assert prompt("setup") is True

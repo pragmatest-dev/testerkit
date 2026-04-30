@@ -121,7 +121,7 @@ For spec-driven traceability:
 ```python
 def test_output_voltage(dmm, verify):
     # verify resolves the limit and traceability from the active
-    # ProductContext (configured via --spec=products/power_board.yaml)
+    # ProductContext (configured via --product=products/power_board.yaml)
     verify("output_voltage", dmm.measure_dc_voltage())
 ```
 

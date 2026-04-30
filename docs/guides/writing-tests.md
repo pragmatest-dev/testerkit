@@ -159,7 +159,7 @@ For pytest's own markers and ecosystem plugins:
 | Retry transient failures   | `@pytest.mark.flaky(reruns=N)` — `pytest-rerunfailures` (or use `litmus_retry` for runner-neutral form) |
 
 Product is session-global: pick it with `--product=<id>` (looks up
-`products/<id>.yaml`) or `--spec=<path>` (explicit path). There is no
+`products/<id>.yaml`) or `--product=<path>` (explicit path). There is no
 per-test product override marker.
 
 ## `litmus_characteristics` × `litmus_connections` resolution

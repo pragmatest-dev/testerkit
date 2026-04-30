@@ -263,9 +263,7 @@ def resolve_active_profile(
         profile = project.profiles.get(profile_name)
         if profile is None:
             known = ", ".join(sorted(project.profiles)) or "(none defined)"
-            raise ProfileError(
-                f"Unknown --litmus-profile={profile_name!r}; known profiles: {known}"
-            )
+            raise ProfileError(f"Unknown --test-profile={profile_name!r}; known profiles: {known}")
         if facet_flags:
             mismatches = [
                 f"--{k.replace('_', '-')}={v!r} (profile declares {k}={profile.facets.get(k)!r})"
@@ -300,7 +298,7 @@ def resolve_active_profile(
         overlap = ", ".join(name for name, _ in matches)
         raise ProfileError(
             "Facet query is ambiguous — matches multiple profiles: "
-            f"{overlap}. Disambiguate with --litmus-profile=<name>."
+            f"{overlap}. Disambiguate with --test-profile=<name>."
         )
     name, _ = matches[0]
     merged = flatten_profile_chain(name, project)
@@ -413,8 +411,8 @@ def install_active_profile(config) -> None:
     list that only exists at collection time.
     """
     project = load_project_defaults()
-    profile_name = config.getoption("--litmus-profile", default=None)
-    no_profile = config.getoption("--no-profile", default=False)
+    profile_name = config.getoption("--test-profile", default=None)
+    no_profile = config.getoption("--no-test-profile", default=False)
     facet_flags = collect_facet_flags_from_config(config, project)
     profile_name = resolve_default_profile(profile_name, facet_flags, no_profile, project)
     _, profile, facets = resolve_active_profile(profile_name, facet_flags, project)
@@ -452,10 +450,10 @@ def apply_profile_addopts_env(args) -> None:
     register their own option handlers.
     """
     # Scan args directly — our options aren't registered on early_config yet.
-    profile_name = parse_flag_from_args(args, "--litmus-profile") or os.environ.get(
-        "LITMUS_PROFILE"
+    profile_name = parse_flag_from_args(args, "--test-profile") or os.environ.get(
+        "LITMUS_TEST_PROFILE"
     )
-    no_profile = "--no-profile" in args
+    no_profile = "--no-test-profile" in args
 
     project = load_project_defaults()
     facet_flags: dict[str, str] = {}
@@ -583,7 +581,7 @@ def resolve_default_profile(
     raise ProfileError(
         "Profiles are declared in litmus.yaml but no profile was "
         "selected. Pass facet flags (e.g. --test-phase=production), "
-        "--litmus-profile=<name>, --no-profile to skip, or set "
+        "--test-profile=<name>, --no-test-profile to skip, or set "
         "`default_profile:` in litmus.yaml.\n"
         f"  Available facet combinations: {'; '.join(combos)}"
     )

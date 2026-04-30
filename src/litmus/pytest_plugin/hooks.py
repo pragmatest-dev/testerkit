@@ -212,7 +212,16 @@ def pytest_report_header(config):
 
 
 def pytest_sessionstart(session):
-    """Validate DUT serial at session start."""
+    """Wire prompt routing + validate DUT serial at session start."""
+    # If we're a test subprocess launched by ``litmus serve``, bridge
+    # ``litmus.prompts.ask`` to the dialog UI over HTTP. Otherwise the
+    # TTY / auto-confirm chain still applies.
+    server_url = os.environ.get("LITMUS_SERVER_URL")
+    if server_url:
+        from litmus.api.dialogs import register_as_prompt_handler
+
+        register_as_prompt_handler(server_url=server_url)
+
     config = session.config
     dut_serial = config.getoption("--dut-serial")
     dut_serials = config.getoption("--dut-serials")
@@ -236,7 +245,7 @@ def pytest_collection_modifyitems(config, items: list[pytest.Item]) -> None:
 
     Two passes:
 
-    1. **Profile application** (only when ``--litmus-profile`` is set):
+    1. **Profile application** (only when ``--test-profile`` is set):
        inject markers for matching node-ids via ``item.add_marker`` and
        compose profile ``keyword``/``markexpr`` filters with any CLI
        ``-k`` / ``-m`` already present (AND-composed — CLI wins on
@@ -270,6 +279,7 @@ def pytest_collection_modifyitems(config, items: list[pytest.Item]) -> None:
     set_collected_items(collected)
 
     _warn_unmatched_profile_keys(items)
+    _warn_method_mocks_in_non_dev_phase(items, config)
 
 
 def _translate_retry_markers(items: list[pytest.Item]) -> None:
@@ -289,6 +299,61 @@ def _translate_retry_markers(items: list[pytest.Item]) -> None:
         except ValueError as exc:
             raise pytest.UsageError(f"{item.nodeid}: invalid litmus_retry — {exc}") from exc
         item.add_marker(pytest.mark.flaky(**retry_config_to_flaky_kwargs(retry_config)))
+
+
+def _warn_method_mocks_in_non_dev_phase(items: list[pytest.Item], config: pytest.Config) -> None:
+    """Warn when method mocks are active outside ``development`` phase.
+
+    Inline ``mocks:`` blocks (sidecar / marker / profile) override
+    specific driver-method return values for a test — legitimate for
+    fault-injection (OVP, OCP) where you cannot or will not produce the
+    fault on real hardware, suspicious otherwise. ``--mock-instruments``
+    already auto-demotes to ``development``; method mocks are split-
+    intent and don't, so this warning is the audit signal. To silence
+    intentionally-mocked tests in production, declare a profile that
+    overrides ``mocks: []`` (cascade strips them) — that's the
+    declarative path.
+    """
+    requested_phase = config.getoption("--test-phase") or os.environ.get("LITMUS_TEST_PHASE")
+    test_phase = resolve_test_phase(requested_phase, mocks_active=mocks_active(config))
+    if test_phase == "development":
+        return
+
+    flagged: list[tuple[str, list[str]]] = []
+    for item in items:
+        targets: list[str] = []
+        seen: set[str] = set()
+        for marker in item.iter_markers("litmus_mocks"):
+            try:
+                normalized = normalize_inline_list_payload(
+                    "litmus_mocks", marker.args, dict(marker.kwargs)
+                )
+            except ValueError:
+                continue
+            for raw in normalized:
+                target = (
+                    raw.target
+                    if hasattr(raw, "target")
+                    else (raw.get("target") if isinstance(raw, dict) else None)
+                )
+                if target and target not in seen:
+                    seen.add(target)
+                    targets.append(target)
+        if targets:
+            flagged.append((item.nodeid, targets))
+
+    if not flagged:
+        return
+
+    lines = [f"  {nodeid} → {', '.join(targets)}" for nodeid, targets in flagged]
+    warnings.warn(
+        f"Method mocks active in test_phase={test_phase!r}:\n"
+        + "\n".join(lines)
+        + "\nLegitimate for fault-injection (OVP/OCP); otherwise scrub via a "
+        "profile with `mocks: []`.",
+        UserWarning,
+        stacklevel=1,
+    )
 
 
 def _warn_unmatched_profile_keys(items: list[pytest.Item]) -> None:
@@ -383,9 +448,12 @@ def pytest_addoption(parser):
     group.addoption(
         "--station",
         default=None,
-        help="Station ID. When unset, the resolver tries hostname "
-        "auto-match against stations/*.yaml ``hostname:`` fields, "
-        "then falls back to ``ProjectConfig.default_station``.",
+        help="Station ID or YAML path. Bare id looks up "
+        "``stations/<id>.yaml``; a value with ``/`` or ``.yaml``/"
+        "``.yml`` is used as an explicit path. When unset, the "
+        "resolver tries hostname auto-match against stations/*.yaml "
+        "``hostname:`` fields, then falls back to "
+        "``ProjectConfig.default_station``.",
     )
     group.addoption("--operator", default=None, help="Operator name")
     group.addoption(
@@ -396,10 +464,10 @@ def pytest_addoption(parser):
     group.addoption(
         "--product",
         default=None,
-        help="Product ID — looks up ``products/<id>.yaml`` "
-        "(matches ``--station``/``--fixture`` resolution shape).",
+        help="Product ID or YAML path. Bare id looks up "
+        "``products/<id>.yaml``; a value with ``/`` or ``.yaml``/"
+        "``.yml`` is used as an explicit path.",
     )
-    group.addoption("--spec", default=None, help="Path to product spec YAML file")
     group.addoption("--guardband", default="0", help="Default guardband percentage")
     group.addoption(
         "--mock-instruments",
@@ -419,30 +487,14 @@ def pytest_addoption(parser):
         "and litmus.yaml `mock_instruments: true`).",
     )
     group.addoption(
-        "--no-test-mocks",
-        action="store_true",
-        default=False,
-        help="Ignore all per-test method mocks (sidecar mocks: blocks). "
-        "Driver methods return their real values. Instrument-layer --mock-instruments "
-        "is unaffected.",
-    )
-    group.addoption(
         "--fixture",
         default=None,
-        help="Fixture ID. When unset, the resolver tries the active "
-        "profile's ``fixture:`` field, then "
+        help="Fixture ID or YAML path. Bare id looks up "
+        "``fixtures/<id>.yaml``; a value with ``/`` or ``.yaml``/"
+        "``.yml`` is used as an explicit path. When unset, the "
+        "resolver tries the active profile's ``fixture:`` field, then "
         "``ProjectConfig.default_fixture``, then the single-file "
         "fallback in ``fixtures/``.",
-    )
-    group.addoption(
-        "--fixture-config",
-        default=None,
-        help="Path to fixture configuration YAML file",
-    )
-    group.addoption(
-        "--station-config",
-        default=None,
-        help="Path to station configuration YAML file",
     )
     group.addoption(
         "--test-phase",
@@ -458,13 +510,13 @@ def pytest_addoption(parser):
         "(run_id, step_name, and spec_ref/dut_pin when a spec is active).",
     )
     group.addoption(
-        "--litmus-profile",
-        default=os.environ.get("LITMUS_PROFILE"),
+        "--test-profile",
+        default=os.environ.get("LITMUS_TEST_PROFILE"),
         help="Named profile from litmus.yaml `profiles:` "
         "(overrides vectors, limits, markers, and filter for the session).",
     )
     group.addoption(
-        "--no-profile",
+        "--no-test-profile",
         action="store_true",
         default=False,
         help="Skip profile resolution. Use when profiles are declared "

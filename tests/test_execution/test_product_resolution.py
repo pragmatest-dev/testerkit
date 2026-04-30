@@ -1,10 +1,13 @@
 """Product YAML resolution chain for the ``product_context`` fixture.
 
-Mirrors the lookup/path pair pattern of station/fixture flags:
+Single ``--product`` flag with path-or-id dispatch (matches
+``--station`` / ``--fixture`` shape):
 
-* ``--spec=<path>`` — explicit YAML path (highest precedence).
-* ``--product=<id>`` — looks up ``products/<id>.yaml`` (filename match,
-  same shape as ``--station=<id>`` resolving to ``stations/<id>.yaml``).
+* ``--product=<id>`` — looks up ``products/<id>.yaml`` (filename
+  match, same shape as ``--station=<id>`` resolving to
+  ``stations/<id>.yaml``).
+* ``--product=<path>`` — values containing ``/`` or ending in
+  ``.yaml``/``.yml`` are loaded as explicit paths.
 * ``--dut-part-number=<pn>`` — content match against
   ``product.part_number:`` for auto-discovery.
 * Single-file fallback when ``products/`` holds exactly one YAML.
@@ -93,18 +96,17 @@ def test_product_id_missing_yaml_raises_usage_error(pytester: pytest.Pytester) -
     assert "--product" in combined
 
 
-def test_spec_path_beats_product_id(pytester: pytest.Pytester) -> None:
-    """``--spec=<path>`` wins over ``--product=<id>`` when both are passed."""
+def test_product_accepts_path_shape(pytester: pytest.Pytester) -> None:
+    """``--product=<path>`` (containing ``/`` or ``.yaml``) loads the path directly."""
     pytester.makeini(_INI)
-    _make_product_yaml(pytester, "alpha")
     _make_product_yaml(pytester, "beta")
     pytester.makepyfile(
-        test_path_wins=textwrap.dedent(
+        test_path=textwrap.dedent(
             """
-            def test_spec_wins(product_context):
+            def test_loads(product_context):
                 assert product_context.product.id == "beta"
             """
         )
     )
-    result = pytester.runpytest("-v", "--spec=products/beta.yaml", "--product=alpha")
+    result = pytester.runpytest("-v", "--product=products/beta.yaml")
     result.assert_outcomes(passed=1)

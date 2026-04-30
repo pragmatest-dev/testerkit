@@ -5,7 +5,7 @@ Derive test limits and traceability from the product specification. The `verify`
 ## The workflow
 
 1. Define the product YAML with typed characteristics, pins, and operating conditions
-2. Run with `--product=<id>` (looks up `products/<id>.yaml`) or `--spec=<path>` (explicit path)
+2. Run with `--product=<id>` (looks up `products/<id>.yaml`) or `--product=<path>` (explicit path)
 3. Call `verify(name, value)` from the test body — everything else flows through
 
 ## Minimal example
@@ -54,7 +54,7 @@ class TestPowerBoard:
 Apply a manufacturing-margin tightening at session level:
 
 ```bash
-pytest --spec=products/power_board.yaml --guardband=10 ...
+pytest --product=products/power_board.yaml --guardband=10 ...
 ```
 
 Or inline on the spec load:

@@ -24,7 +24,7 @@ def _parse_uuid(value: str) -> UUID:
 
 def _create_dialog_from_request(request: DialogCreate):
     """Factory: build the appropriate Dialog subclass from an API request."""
-    from litmus.dialogs.models import ChoiceDialog, ConfirmDialog, InputDialog
+    from litmus.api.dialogs.models import ChoiceDialog, ConfirmDialog, InputDialog
 
     if request.type == "choice":
         return ChoiceDialog(
@@ -149,7 +149,7 @@ def create_api_router() -> APIRouter:
     @router.get("/dialogs")
     def list_dialogs(run_id: str | None = None):
         """List pending dialogs."""
-        from litmus.dialogs import get_dialog_manager
+        from litmus.api.dialogs import get_dialog_manager
 
         manager = get_dialog_manager()
         dialogs = manager.get_pending_dialogs(run_id)
@@ -158,7 +158,7 @@ def create_api_router() -> APIRouter:
     @router.post("/dialogs")
     def create_dialog(request: DialogCreate):
         """Create a pending dialog (from test subprocess)."""
-        from litmus.dialogs import get_dialog_manager
+        from litmus.api.dialogs import get_dialog_manager
 
         manager = get_dialog_manager()
         dialog = _create_dialog_from_request(request)
@@ -168,7 +168,7 @@ def create_api_router() -> APIRouter:
     @router.get("/dialogs/{dialog_id}")
     def get_dialog(dialog_id: str):
         """Get a specific pending dialog."""
-        from litmus.dialogs import get_dialog_manager
+        from litmus.api.dialogs import get_dialog_manager
 
         uuid = _parse_uuid(dialog_id)
         manager = get_dialog_manager()
@@ -184,7 +184,7 @@ def create_api_router() -> APIRouter:
         Blocks until the dialog is responded to or timeout.
         Used by test subprocesses to wait for operator input.
         """
-        from litmus.dialogs import get_dialog_manager
+        from litmus.api.dialogs import get_dialog_manager
 
         uuid = _parse_uuid(dialog_id)
         manager = get_dialog_manager()
@@ -215,7 +215,7 @@ def create_api_router() -> APIRouter:
     @router.post("/dialogs/{dialog_id}/respond")
     def respond_to_dialog(dialog_id: str, request: DialogRespondRequest):
         """Respond to a pending dialog."""
-        from litmus.dialogs import DialogResponse, get_dialog_manager
+        from litmus.api.dialogs import DialogResponse, get_dialog_manager
 
         uuid = _parse_uuid(dialog_id)
         manager = get_dialog_manager()
@@ -699,9 +699,16 @@ def create_app():
 
     # Import UI pages (registers routes)
     import litmus.ui.app  # noqa: F401
+    from litmus.api.dialogs import register_as_prompt_handler
 
     # Add API routes
     api_router = create_api_router()
     app.include_router(api_router)
+
+    # Bridge ``litmus.prompts.ask`` → dialog UI so any test code running
+    # in-process routes through the operator UI instead of TTY /
+    # auto-confirm. Test subprocesses with ``LITMUS_SERVER_URL`` set
+    # install their own bridge in HTTP mode (see pytest plugin).
+    register_as_prompt_handler(server_url=None)
 
     return app

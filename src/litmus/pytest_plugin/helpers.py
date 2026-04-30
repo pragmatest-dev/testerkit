@@ -34,6 +34,30 @@ def find_yaml_in_subdir(config, subdir: str, filename: str) -> Path | None:
     return None
 
 
+def is_yaml_path(value: str) -> bool:
+    """Return True if ``value`` looks like a path to a YAML file.
+
+    Used by the unified ``--station`` / ``--fixture`` / ``--product``
+    flags to dispatch between "look up ``<subdir>/<id>.yaml``" and "use
+    this string as a path verbatim." A real ID never contains ``/`` or
+    a ``.yaml`` / ``.yml`` extension, so the heuristic is safe.
+    """
+    return "/" in value or value.endswith((".yaml", ".yml"))
+
+
+def resolve_id_or_path(config, value: str, subdir: str) -> Path | None:
+    """Dispatch a CLI value to either a path or an ID lookup.
+
+    Path-shaped values (containing ``/`` or ending in ``.yaml`` /
+    ``.yml``) are returned as-is. ID-shaped values are looked up under
+    ``<root>/<subdir>/<value>.yaml``. Returns ``None`` when an ID lookup
+    finds nothing.
+    """
+    if is_yaml_path(value):
+        return Path(value)
+    return find_yaml_in_subdir(config, subdir, f"{value}.yaml")
+
+
 def _hostname_match_station(config) -> Path | None:
     """Find a station YAML whose ``hostname:`` field matches this machine.
 
@@ -78,19 +102,17 @@ def find_station_file(config) -> Path | None:
 
     Resolution chain (first match wins):
 
-    1. ``--station-config <path>`` — explicit file path.
-    2. ``--station <id>`` — look up ``stations/<id>.yaml``.
-    3. Hostname auto-match — `socket.gethostname()` against every
+    1. ``--station <id-or-path>`` — ID looks up ``stations/<id>.yaml``;
+       a path (containing ``/`` or ending in ``.yaml``/``.yml``) is used
+       as-is.
+    2. Hostname auto-match — `socket.gethostname()` against every
        station's ``hostname:`` field.
-    4. ``ProjectConfig.default_station`` — fallback id.
-    5. ``None`` — bringup tier without a station.
+    3. ``ProjectConfig.default_station`` — fallback id.
+    4. ``None`` — bringup tier without a station.
     """
-    config_path = config.getoption("--station-config")
-    if config_path:
-        return Path(config_path)
-    station_id = config.getoption("--station")
-    if station_id:
-        return find_yaml_in_subdir(config, "stations", f"{station_id}.yaml")
+    station_value = config.getoption("--station")
+    if station_value:
+        return resolve_id_or_path(config, station_value, "stations")
     hostname_hit = _hostname_match_station(config)
     if hostname_hit is not None:
         return hostname_hit
@@ -109,25 +131,35 @@ def resolve_station_id(config) -> str | None:
     otherwise the resolver tries hostname auto-match, then falls back
     to ``ProjectConfig.default_station``.
 
+    When ``--station`` is path-shaped, the ID is read from the YAML's
+    ``id:`` field (with file stem as fallback).
+
     Returns ``None`` when nothing resolves — bringup tier without any
     station declared. Callers that need a non-null string (e.g., the
     run-record stamp) should provide their own fallback.
     """
-    station_id = config.getoption("--station")
-    if station_id:
-        return str(station_id)
+    station_value = config.getoption("--station")
+    if station_value:
+        if is_yaml_path(station_value):
+            return _read_id_from_yaml(Path(station_value))
+        return str(station_value)
     hostname_hit = _hostname_match_station(config)
     if hostname_hit is not None:
-        try:
-            with hostname_hit.open() as fh:
-                data = yaml.safe_load(fh) or {}
-            if isinstance(data, dict) and isinstance(data.get("id"), str):
-                return data["id"]
-        except (OSError, yaml.YAMLError):
-            pass
-        return hostname_hit.stem
+        return _read_id_from_yaml(hostname_hit)
     project = load_project_defaults()
     return project.default_station
+
+
+def _read_id_from_yaml(path: Path) -> str:
+    """Read ``id:`` from a YAML file; fall back to the file stem."""
+    try:
+        with path.open() as fh:
+            data = yaml.safe_load(fh) or {}
+        if isinstance(data, dict) and isinstance(data.get("id"), str):
+            return data["id"]
+    except (OSError, yaml.YAMLError):
+        pass
+    return path.stem
 
 
 def find_fixture_file(config) -> Path | None:
@@ -135,24 +167,21 @@ def find_fixture_file(config) -> Path | None:
 
     Resolution chain (first match wins):
 
-    1. ``--fixture-config <path>`` — explicit file path.
-    2. ``--fixture <id>`` — explicit CLI id.
-    3. Active profile's ``fixture:`` field (read from
+    1. ``--fixture <id-or-path>`` — ID looks up ``fixtures/<id>.yaml``;
+       a path (containing ``/`` or ending in ``.yaml``/``.yml``) is used
+       as-is.
+    2. Active profile's ``fixture:`` field (read from
        ``get_active_profile()``; profile is installed in
        ``pytest_configure`` before fixture resolution fires).
-    4. ``ProjectConfig.default_fixture``.
-    5. Single-file fallback (one ``*.yaml`` in ``fixtures/``).
-    6. ``None``.
+    3. ``ProjectConfig.default_fixture``.
+    4. Single-file fallback (one ``*.yaml`` in ``fixtures/``).
+    5. ``None``.
 
     When ``--fixture <X>`` is explicitly passed AND the active
     profile declares ``fixture: <Y>`` with ``Y != X``, the CLI wins
     but a warning is emitted — explicit beats declarative.
     """
     from litmus.execution._state import get_active_profile
-
-    config_path = config.getoption("--fixture-config")
-    if config_path:
-        return Path(config_path)
 
     cli_fixture = config.getoption("--fixture")
     profile = get_active_profile()
@@ -166,12 +195,20 @@ def find_fixture_file(config) -> Path | None:
             stacklevel=2,
         )
 
-    fixture_id = cli_fixture or profile_fixture
-    if fixture_id:
-        match = find_yaml_in_subdir(config, "fixtures", f"{fixture_id}.yaml")
+    if cli_fixture:
+        match = resolve_id_or_path(config, cli_fixture, "fixtures")
         if match is None:
             warnings.warn(
-                f"Fixture '{fixture_id}' not found in fixtures/ directory.",
+                f"Fixture '{cli_fixture}' not found in fixtures/ directory.",
+                stacklevel=2,
+            )
+        return match
+
+    if profile_fixture:
+        match = find_yaml_in_subdir(config, "fixtures", f"{profile_fixture}.yaml")
+        if match is None:
+            warnings.warn(
+                f"Fixture '{profile_fixture}' not found in fixtures/ directory.",
                 stacklevel=2,
             )
         return match

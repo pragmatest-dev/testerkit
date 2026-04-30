@@ -330,5 +330,5 @@ def test_band_with_tolerance_pct_and_characteristic(pytester: pytest.Pytester) -
 """
         )
     )
-    result = pytester.runpytest("-v", "--spec=products/mini.yaml")
+    result = pytester.runpytest("-v", "--product=products/mini.yaml")
     result.assert_outcomes(passed=2)

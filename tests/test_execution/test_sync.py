@@ -212,12 +212,12 @@ class TestGetSyncFactory:
             assert get_sync() is None
 
     def test_returns_none_for_single_slot(self):
-        env = {"LITMUS_SLOT_ID": "slot_1", "LITMUS_SLOT_COUNT": "1"}
+        env = {"_LITMUS_SLOT_ID": "slot_1", "_LITMUS_SLOT_COUNT": "1"}
         with patch.dict(os.environ, env, clear=True):
             assert get_sync() is None
 
     def test_raises_without_event_store(self):
-        env = {"LITMUS_SLOT_ID": "slot_1", "LITMUS_SLOT_COUNT": "2"}
+        env = {"_LITMUS_SLOT_ID": "slot_1", "_LITMUS_SLOT_COUNT": "2"}
         with patch.dict(os.environ, env, clear=True):
             with pytest.raises(ValueError, match="EventStore required"):
                 get_sync()
@@ -225,9 +225,9 @@ class TestGetSyncFactory:
     def test_returns_sync_point_for_multi_slot(self):
         session_id = uuid4()
         env = {
-            "LITMUS_SLOT_ID": "slot_1",
-            "LITMUS_SLOT_COUNT": "2",
-            "LITMUS_SESSION_ID": str(session_id),
+            "_LITMUS_SLOT_ID": "slot_1",
+            "_LITMUS_SLOT_COUNT": "2",
+            "_LITMUS_SESSION_ID": str(session_id),
         }
         store = MagicMock()
         with patch.dict(os.environ, env, clear=True):

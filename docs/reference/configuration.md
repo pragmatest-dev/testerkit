@@ -422,7 +422,7 @@ work too; the file stem is the profile name.
 **Selection:** facet flags (`--<facet>=<value>`) are auto-synthesized
 from the union of `facets:` keys declared across profiles. Exactly one
 profile must match the full facet query — zero or many → `UsageError`.
-`--litmus-profile=<name>` is a name-based escape hatch.
+`--test-profile=<name>` is a name-based escape hatch.
 
 ## Environment Variables
 

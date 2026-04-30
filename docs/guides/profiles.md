@@ -40,7 +40,7 @@ pytest --test-phase=validation                   # one facet
 pytest --test-phase=production --product=tps54302   # two facets
 pytest --test-phase=production --mock-instruments   # facet + other flags
 pytest                                           # no facets → baseline
-pytest --litmus-profile=validation               # name-based escape hatch
+pytest --test-profile=validation               # name-based escape hatch
 ```
 
 Litmus auto-synthesizes a `--<facet>=<value>` CLI flag for every facet
@@ -50,7 +50,7 @@ match exactly one profile:
 - Zero matches → `UsageError` listing declared facet combinations.
 - More than one match → `UsageError` (tighten the query).
 
-`--litmus-profile=<name>` is an escape hatch: it selects by profile name
+`--test-profile=<name>` is an escape hatch: it selects by profile name
 regardless of facets. Facet flags passed alongside cross-check against
 the named profile's declared facets and error on mismatch.
 

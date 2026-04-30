@@ -91,7 +91,7 @@ instruments:
 ### Running in Mock Mode
 
 ```bash
-pytest tests/ --station-config=stations/bench_1.yaml --mock-instruments --dut-serial=SIM001
+pytest tests/ --station=stations/bench_1.yaml --mock-instruments --dut-serial=SIM001
 ```
 
 The `--mock-instruments` flag uses mock instruments instead of real hardware. Mock values come from `mock_config` in the station, or can be overridden per-test with `_mock` in config.yaml.
@@ -239,7 +239,7 @@ instruments:
 
 Run in CI:
 ```bash
-pytest tests/ --station-config=stations/ci_station.yaml --mock-instruments --dut-serial=CI-TEST
+pytest tests/ --station=stations/ci_station.yaml --mock-instruments --dut-serial=CI-TEST
 ```
 
 ## Active Fixture

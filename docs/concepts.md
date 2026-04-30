@@ -189,7 +189,7 @@ instruments:
 For development without hardware, use `--mock-instruments`:
 
 ```bash
-pytest tests/ --station-config=stations/bench_1.yaml --mock-instruments --dut-serial=SIM001
+pytest tests/ --station=stations/bench_1.yaml --mock-instruments --dut-serial=SIM001
 ```
 
 Configure mock values in the station:
@@ -366,7 +366,7 @@ pin_info = spec.get_pin_info("output_voltage")
 
 ### In pytest-native tests
 
-The `verify` fixture is the pytest-native interface — limits resolve from the active `product_context` automatically. Load a spec with `--product=<id>` (looks up `products/<id>.yaml`) or `--spec=<path>` (explicit path):
+The `verify` fixture is the pytest-native interface — limits resolve from the active `product_context` automatically. Load a spec with `--product=<id>` (looks up `products/<id>.yaml`) or `--product=<path>` (explicit path):
 
 ```python
 import pytest

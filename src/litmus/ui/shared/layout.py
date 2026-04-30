@@ -2,8 +2,8 @@
 
 from nicegui import ui
 
+from litmus.api.dialogs import get_dialog_manager
 from litmus.api.runner import get_runner
-from litmus.dialogs import get_dialog_manager
 
 
 def _get_pending_dialogs() -> list[dict]:

@@ -131,7 +131,7 @@ class TestEventModels:
         assert e.station_hostname is not None
 
     def test_session_started_from_station_reads_env(self, monkeypatch):
-        monkeypatch.setenv("LITMUS_SLOT_COUNT", "4")
+        monkeypatch.setenv("_LITMUS_SLOT_COUNT", "4")
         e = SessionStarted.from_station(
             session_id=uuid4(),
             station_id="st1",

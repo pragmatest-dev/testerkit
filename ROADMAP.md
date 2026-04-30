@@ -115,7 +115,7 @@ start, walk the declared keys and resolve each via a three-step chain:
 1. CLI flag `--<key>`
 2. Env var `LITMUS_<KEY>`
 3. Operator prompt via `litmus.prompts.ask(PromptConfig)` — respects
-   `LITMUS_PROMPT_MODE=auto-confirm`, custom handlers, TTY
+   `LITMUS_AUTO_CONFIRM=1`, custom handlers, TTY
    fall-through; raises `ProfileError` if it can't resolve.
 
 Extend the same chain to **facets**: the auto-registered
@@ -127,7 +127,7 @@ when no flag and no env var supplied a value — CI runs and explicit
 invocations stay headless.
 
 Conflict detection (`profiles.py:262-271`) already handles
-`--litmus-profile=<name>` + facet flags that disagree; this change
+`--test-profile=<name>` + facet flags that disagree; this change
 doesn't touch it.
 
 **Out of scope:**

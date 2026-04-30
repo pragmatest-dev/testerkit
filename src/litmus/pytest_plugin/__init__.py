@@ -156,12 +156,12 @@ def _require_fixture_and_instruments(
     if not fixture_config:
         raise pytest.UsageError(
             f"The '{feature}' fixture requires a fixture config. "
-            "Provide --fixture-config <path> or create a fixtures/*.yaml file."
+            "Provide --fixture <path> or create a fixtures/*.yaml file."
         )
     if not instruments:
         raise pytest.UsageError(
             f"The '{feature}' fixture requires instruments. "
-            "Provide --station-config <path> or create a stations/*.yaml file."
+            "Provide --station <path> or create a stations/*.yaml file."
         )
 
 
@@ -208,7 +208,7 @@ def _build_run_metadata(request: pytest.FixtureRequest) -> dict[str, Any]:
         project_dir=request.config.rootpath,
         results_dir=request.config.getoption("--results-dir"),
         test_phase=resolve_test_phase(requested_phase, mocks_active=_mocks_active(request.config)),
-        profile_name=request.config.getoption("--litmus-profile", default=None),
+        profile_name=request.config.getoption("--test-profile", default=None),
         profile_facets=dict(get_active_facets()),
         session_inputs=dict(get_session_inputs()),
         instrument_records=_safe_get_session_fixture(request, "instrument_records"),
@@ -218,8 +218,8 @@ def _build_run_metadata(request: pytest.FixtureRequest) -> dict[str, Any]:
 def _is_multi_slot_worker() -> bool:
     """Return True when this process is one of N>1 workers in a multi-slot run."""
     return (
-        os.environ.get("LITMUS_SLOT_ID") is not None
-        and int(os.environ.get("LITMUS_SLOT_COUNT", "1")) > 1
+        os.environ.get("_LITMUS_SLOT_ID") is not None
+        and int(os.environ.get("_LITMUS_SLOT_COUNT", "1")) > 1
     )
 
 
@@ -301,8 +301,8 @@ def _emit_session_start_events(logger: TestRunLogger) -> None:
             )
         )
 
-    env_slot_id = os.environ.get("LITMUS_SLOT_ID")
-    env_slot_index_str = os.environ.get("LITMUS_SLOT_INDEX")
+    env_slot_id = os.environ.get("_LITMUS_SLOT_ID")
+    env_slot_index_str = os.environ.get("_LITMUS_SLOT_INDEX")
     env_slot_index = int(env_slot_index_str) if env_slot_index_str else None
 
     event_log.emit(
@@ -404,7 +404,7 @@ def logger(request) -> Generator[TestRunLogger, None, None]:
         results_dir = str(resolve_results_dir())
         meta["results_dir"] = results_dir
 
-    env_session_id = os.environ.get("LITMUS_SESSION_ID")
+    env_session_id = os.environ.get("_LITMUS_SESSION_ID")
     session_id = UUID(env_session_id) if env_session_id else uuid4()
     meta["session_id"] = session_id
 
@@ -455,13 +455,14 @@ def product_context(request) -> ProductContext | None:
 
     Resolution chain (first match wins):
 
-    1. ``--spec <path>`` — explicit YAML path.
-    2. ``--product <id>`` — look up ``products/<id>.yaml`` (mirrors
-       ``--station``/``--fixture`` resolution).
-    3. ``--dut-part-number <pn>`` — content match against
+    1. ``--product <id-or-path>`` — bare id looks up
+       ``products/<id>.yaml``; a value with ``/`` or ``.yaml``/``.yml``
+       is used as an explicit path. Mirrors ``--station``/``--fixture``
+       resolution shape.
+    2. ``--dut-part-number <pn>`` — content match against
        ``product.part_number:`` across ``products/*.yaml``.
-    4. Single-file fallback when ``products/`` holds exactly one file.
-    5. ``None`` — bringup tier without a product YAML.
+    3. Single-file fallback when ``products/`` holds exactly one file.
+    4. ``None`` — bringup tier without a product YAML.
 
     Usage in tests:
         def test_voltage(product_context, dmm):
@@ -472,23 +473,27 @@ def product_context(request) -> ProductContext | None:
     Returns:
         :class:`ProductContext`, or ``None`` if no product YAML is loaded.
     """
-    spec_path = request.config.getoption("--spec")
-    product_id = request.config.getoption("--product")
+    from litmus.pytest_plugin.helpers import is_yaml_path
+
+    product_value = request.config.getoption("--product")
     guardband = float(request.config.getoption("--guardband"))
     part_number = request.config.getoption("--dut-part-number")
 
     ctx = None
 
-    if spec_path:
-        ctx = ProductContext.from_file(spec_path, guardband_pct=guardband)
-    elif product_id:
-        product_path = _find_yaml_in_subdir(request.config, "products", f"{product_id}.yaml")
-        if product_path is None:
-            raise pytest.UsageError(
-                f"--product={product_id!r} did not find products/{product_id}.yaml. "
-                "Use --spec=<path> for an explicit path."
-            )
-        ctx = ProductContext.from_file(product_path, guardband_pct=guardband)
+    if product_value:
+        if is_yaml_path(product_value):
+            ctx = ProductContext.from_file(product_value, guardband_pct=guardband)
+        else:
+            product_path = _find_yaml_in_subdir(request.config, "products", f"{product_value}.yaml")
+            if product_path is None:
+                raise pytest.UsageError(
+                    f"--product={product_value!r} did not find "
+                    f"products/{product_value}.yaml. Pass an explicit path "
+                    "(e.g. --product=path/to/foo.yaml) for files outside "
+                    "the project's ``products/`` directory."
+                )
+            ctx = ProductContext.from_file(product_path, guardband_pct=guardband)
     else:
         ctx = _autodiscover_product(request.config, guardband, part_number)
 
@@ -553,14 +558,14 @@ def _autodiscover_product(
         raise pytest.UsageError(
             f"--dut-part-number={part_number!r} matched multiple products: "
             + ", ".join(sorted(str(m.relative_to(m.parents[1])) for m in matches))
-            + ". Use --spec <path> to disambiguate."
+            + ". Use --product=<path> to disambiguate."
         )
 
     if len(product_files) > 1:
         raise pytest.UsageError(
             f"products/ has {len(product_files)} YAML files "
             f"({', '.join(p.stem for p in product_files)}); "
-            "pass --product <id>, --dut-part-number <pn>, or --spec <path> to choose one."
+            "pass --product <id-or-path> or --dut-part-number <pn> to choose one."
         )
 
     return ProductContext.from_file(product_files[0], guardband_pct=guardband)
@@ -580,7 +585,7 @@ def mock_instruments(request) -> bool:
 
 @pytest.fixture(scope="session")
 def station_config(request) -> StationConfig | None:
-    """Load station configuration from --station-config option.
+    """Load station configuration resolved from ``--station``.
 
     Also publishes the result to the active-station ContextVar so
     ``context.station`` can read it without taking the fixture as an
@@ -615,9 +620,9 @@ def station_config(request) -> StationConfig | None:
 
 @pytest.fixture(scope="session")
 def fixture_config(request) -> FixtureConfig | None:
-    """Load fixture configuration from --fixture-config option.
+    """Load fixture configuration resolved from ``--fixture``.
 
-    In worker mode (``LITMUS_SLOT_ID`` set), extracts this slot's points
+    In worker mode (``_LITMUS_SLOT_ID`` set), extracts this slot's points
     from a multi-slot fixture config so downstream fixtures (pins,
     FixtureManager) see a flat ``points`` dict.
 
@@ -634,7 +639,7 @@ def fixture_config(request) -> FixtureConfig | None:
     fc = load_fixture(Path(config_path))
 
     # Worker mode: extract this slot's points from multi-slot fixture
-    slot_id = os.environ.get("LITMUS_SLOT_ID")
+    slot_id = os.environ.get("_LITMUS_SLOT_ID")
     if slot_id and fc.is_multi_slot and fc.slots:
         slot = fc.slots.get(slot_id)
         if slot is not None:
@@ -955,7 +960,7 @@ def fixture_manager(instruments, fixture_config, _route_manager) -> FixtureManag
 def sync(logger):
     """Provide sync point for multi-DUT test coordination.
 
-    In worker mode (LITMUS_SLOT_ID set), returns a SyncPoint that
+    In worker mode (_LITMUS_SLOT_ID set), returns a SyncPoint that
     blocks until all slots arrive. In single-slot mode, returns None.
 
     Usage:
@@ -1178,7 +1183,7 @@ def prompt(request: pytest.FixtureRequest) -> Callable[..., Any]:
     ``prompt(key)`` looks the entry up by key. ``prompt()`` (no args)
     works when exactly one entry is in scope. Routing of the prompt
     itself goes through :func:`litmus.prompts.ask` — explicit handler
-    (UI runner) → ``LITMUS_PROMPT_MODE=auto-confirm`` → tty fallback.
+    (UI runner) → ``LITMUS_AUTO_CONFIRM=1`` → tty fallback.
     """
     # Walk listchain root-to-leaf so more-specific markers win on key
     # conflict via ``update``. Within a node, ``own_markers`` preserves

@@ -7,7 +7,7 @@ Run tests without hardware using Litmus mock instruments.
 Add `--mock-instruments` to run without hardware:
 
 ```bash
-pytest tests/ --station-config=stations/bench_1.yaml --mock-instruments --dut-serial=SIM001
+pytest tests/ --station=stations/bench_1.yaml --mock-instruments --dut-serial=SIM001
 ```
 
 The same test code works with real hardware or mocks.
@@ -74,8 +74,9 @@ def test_output_voltage(mocker, context, dmm, logger):
     logger.measure("output_voltage", dmm.measure_dc_voltage())
 ```
 
-Use `pytest --no-test-mocks` to ignore all sidecar `mocks:` entries
-globally (instrument-layer `--mock-instruments` is independent).
+To suppress sidecar `mocks:` entries session-wide, declare a profile
+with `mocks: []` — the cascade applies that override on top of all
+sidecars (instrument-layer `--mock-instruments` is independent).
 
 Or in a sidecar YAML:
 
@@ -145,7 +146,7 @@ This allows realistic tests where:
 - name: Run tests
   run: |
     pytest tests/ \
-      --station-config=stations/bench_1.yaml \
+      --station=stations/bench_1.yaml \
       --mock-instruments \
       --dut-serial=CI-TEST \
       -v
@@ -184,7 +185,7 @@ instruments:
 Run without `--mock-instruments`:
 
 ```bash
-pytest tests/ --station-config=stations/mixed_bench.yaml --dut-serial=SN001
+pytest tests/ --station=stations/mixed_bench.yaml --dut-serial=SN001
 ```
 
 - `psu` and `eload` connect to real hardware
@@ -201,7 +202,7 @@ Set `LITMUS_MOCK_INSTRUMENTS=1` to enable mock mode without the CLI flag:
 
 ```bash
 export LITMUS_MOCK_INSTRUMENTS=1
-pytest tests/ --station-config=stations/bench_1.yaml --dut-serial=CI-TEST
+pytest tests/ --station=stations/bench_1.yaml --dut-serial=CI-TEST
 ```
 
 ## The mock_instruments Fixture

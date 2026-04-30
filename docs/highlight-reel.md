@@ -763,7 +763,7 @@ multi-slot mode, `sync.wait()` blocks until all slots reach the same point.
 
 ```bash
 pytest tests/test_multi_dut.py \
-    --fixture-config=fixtures/dual_power_board.yaml \
+    --fixture=fixtures/dual_power_board.yaml \
     --dut-serials=SN001,SN002 \
     --mock-instruments -v
 ```

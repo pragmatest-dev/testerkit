@@ -206,7 +206,7 @@ print(fixture.connections)
 ```bash
 pytest tests/ \
   --station=bench_1 \
-  --fixture-config=fixtures/power_board_fixture.yaml \
+  --fixture=fixtures/power_board_fixture.yaml \
   --dut-serial=SN001
 ```
 

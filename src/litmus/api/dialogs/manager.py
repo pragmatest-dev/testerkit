@@ -8,7 +8,7 @@ from collections.abc import Callable
 from typing import Any
 from uuid import UUID
 
-from litmus.dialogs.models import (
+from litmus.api.dialogs.models import (
     ChoiceDialog,
     ConfirmDialog,
     Dialog,
@@ -17,9 +17,10 @@ from litmus.dialogs.models import (
     InputDialog,
 )
 
-# Environment variable for auto-respond mode
-# Values: "confirm", "cancel", "skip" (or any truthy value defaults to "confirm")
-LITMUS_DIALOG_AUTO = "LITMUS_DIALOG_AUTO"
+# Unified auto-confirm env var (shared with litmus.prompts).
+# Truthy → auto-confirm all dialogs (confirm-type returns True; choice
+# returns first option; input returns ""). Empty / unset → normal flow.
+LITMUS_AUTO_CONFIRM = "LITMUS_AUTO_CONFIRM"
 
 
 class DialogManager:
@@ -59,7 +60,7 @@ class DialogManager:
             auto_respond: Auto-respond mode. Values:
                 - "confirm": Auto-confirm all dialogs
                 - "cancel": Auto-cancel all dialogs
-                - None: Check LITMUS_DIALOG_AUTO env var, then use normal behavior
+                - None: Check LITMUS_AUTO_CONFIRM env var, then use normal behavior
         """
         self.server_url = server_url
         self._auto_respond = auto_respond
@@ -134,7 +135,7 @@ class DialogManager:
         Checks in order:
         1. Preset responses queue
         2. Instance auto_respond setting
-        3. LITMUS_DIALOG_AUTO environment variable
+        3. LITMUS_AUTO_CONFIRM environment variable
 
         Returns:
             DialogResponse if auto-respond is enabled, None otherwise.
@@ -154,7 +155,7 @@ class DialogManager:
             )
 
         # Check instance setting, then environment variable
-        auto_mode = self._auto_respond or os.environ.get(LITMUS_DIALOG_AUTO)
+        auto_mode = self._auto_respond or os.environ.get(LITMUS_AUTO_CONFIRM)
         if not auto_mode:
             return None
 
@@ -505,13 +506,14 @@ def get_dialog_manager(
             checks LITMUS_SERVER_URL environment variable. If neither
             is set, uses in-process mode.
         auto_respond: Auto-respond mode (``"confirm"`` / ``"cancel"``).
-            Falls back to ``LITMUS_DIALOG_AUTO`` env var per
+            Falls back to ``LITMUS_AUTO_CONFIRM`` env var per
             :meth:`DialogManager._get_auto_response`. Only honored on
             first call — subsequent calls return the cached manager.
 
     Environment variables:
         LITMUS_SERVER_URL: Server URL for HTTP mode
-        LITMUS_DIALOG_AUTO: Auto-respond mode ("confirm", "cancel", or any truthy value)
+        LITMUS_AUTO_CONFIRM: Truthy → auto-confirm dialogs ("confirm" by
+            default; "cancel" / "skip" supported for explicit control)
     """
     global _manager
     if _manager is None:

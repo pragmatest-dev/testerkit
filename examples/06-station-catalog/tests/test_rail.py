@@ -10,7 +10,7 @@ Two new markers also land here, each shown inline and in the sidecar:
   value; to exercise a fault path (OVP, undervoltage) you need a
   *different* return for one test.
 * ``litmus_prompts`` — gate the test on operator interaction (a
-  confirmation, a choice, an input). ``LITMUS_PROMPT_MODE=auto-confirm``
+  confirmation, a choice, an input). ``LITMUS_AUTO_CONFIRM=1``
   drives the demo without a tty; production runs route through a
   UI handler or terminal.
 

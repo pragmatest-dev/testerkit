@@ -2,7 +2,7 @@
 
 from nicegui import ui
 
-from litmus.dialogs import DialogResponse, DialogType, get_dialog_manager
+from litmus.api.dialogs import DialogResponse, DialogType, get_dialog_manager
 
 
 def create_dialog_container(run_id: str | None = None):

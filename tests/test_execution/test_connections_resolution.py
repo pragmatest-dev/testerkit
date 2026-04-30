@@ -146,7 +146,7 @@ def test_connections_marker_iterates_and_stamps_pin(pytester: pytest.Pytester) -
             """
         )
     )
-    result = pytester.runpytest("-v", "--fixture-config", "fixtures/mini.yaml")
+    result = pytester.runpytest("-v", "--fixture=fixtures/mini.yaml")
     result.assert_outcomes(passed=1)
 
 
@@ -179,7 +179,7 @@ def test_characteristic_spec_derives_tolerance_limit(pytester: pytest.Pytester) 
             """
         )
     )
-    result = pytester.runpytest("-v", "--fixture-config", "fixtures/mini.yaml")
+    result = pytester.runpytest("-v", "--fixture=fixtures/mini.yaml")
     result.assert_outcomes(passed=1)
 
 
@@ -213,7 +213,7 @@ def test_multi_pin_characteristic_iterates_all_connections(pytester: pytest.Pyte
             """
         )
     )
-    result = pytester.runpytest("-v", "--fixture-config", "fixtures/mini.yaml")
+    result = pytester.runpytest("-v", "--fixture=fixtures/mini.yaml")
     result.assert_outcomes(passed=1)
 
 
@@ -242,7 +242,7 @@ def test_unconsumed_connections_iterator_fails_loudly(pytester: pytest.Pytester)
             """
         )
     )
-    result = pytester.runpytest("-v", "--fixture-config", "fixtures/mini.yaml")
+    result = pytester.runpytest("-v", "--fixture=fixtures/mini.yaml")
     result.assert_outcomes(passed=1, errors=1)
 
 
@@ -337,7 +337,7 @@ def test_multi_char_marker_iterates_union(pytester: pytest.Pytester) -> None:
             """
         )
     )
-    result = pytester.runpytest("-v", "--fixture-config", "fixtures/mini.yaml")
+    result = pytester.runpytest("-v", "--fixture=fixtures/mini.yaml")
     result.assert_outcomes(passed=1)
 
 
@@ -375,7 +375,7 @@ def test_multi_char_default_iterator_stamps_per_connection_char(
             """
         )
     )
-    result = pytester.runpytest("-v", "--fixture-config", "fixtures/mini.yaml")
+    result = pytester.runpytest("-v", "--fixture=fixtures/mini.yaml")
     result.assert_outcomes(passed=1)
 
 
@@ -413,7 +413,7 @@ def test_for_characteristic_narrows_and_pushes_active_char(
             """
         )
     )
-    result = pytester.runpytest("-v", "--fixture-config", "fixtures/mini.yaml")
+    result = pytester.runpytest("-v", "--fixture=fixtures/mini.yaml")
     result.assert_outcomes(passed=1)
 
 
@@ -441,7 +441,7 @@ def test_per_limit_char_not_in_marker_errors(pytester: pytest.Pytester) -> None:
             """
         )
     )
-    result = pytester.runpytest("-v", "--fixture-config", "fixtures/mini.yaml")
+    result = pytester.runpytest("-v", "--fixture=fixtures/mini.yaml")
     result.stdout.fnmatch_lines(
         ["*UsageError*idle_current*not declared in litmus_characteristics*"]
     )
@@ -479,7 +479,7 @@ def test_marker_absent_scope_derived_from_limit_chars(
             """
         )
     )
-    result = pytester.runpytest("-v", "--fixture-config", "fixtures/mini.yaml")
+    result = pytester.runpytest("-v", "--fixture=fixtures/mini.yaml")
     result.assert_outcomes(passed=1)
 
 
@@ -514,7 +514,7 @@ def test_verify_explicit_characteristic_override(
             """
         )
     )
-    result = pytester.runpytest("-v", "--fixture-config", "fixtures/mini.yaml")
+    result = pytester.runpytest("-v", "--fixture=fixtures/mini.yaml")
     result.assert_outcomes(passed=1)
 
 
@@ -550,7 +550,7 @@ def test_ctx_limits_for_characteristic_filter(pytester: pytest.Pytester) -> None
             """
         )
     )
-    result = pytester.runpytest("-v", "--fixture-config", "fixtures/mini.yaml")
+    result = pytester.runpytest("-v", "--fixture=fixtures/mini.yaml")
     result.assert_outcomes(passed=1)
 
 
@@ -638,7 +638,7 @@ def test_per_function_matching_routes_to_correct_connection(
             """
         )
     )
-    result = pytester.runpytest("-v", "--fixture-config", "fixtures/mini.yaml")
+    result = pytester.runpytest("-v", "--fixture=fixtures/mini.yaml")
     result.assert_outcomes(passed=1)
 
 
@@ -707,5 +707,5 @@ def test_function_unset_connection_is_fallback(
             """
         )
     )
-    result = pytester.runpytest("-v", "--fixture-config", "fixtures/mini.yaml")
+    result = pytester.runpytest("-v", "--fixture=fixtures/mini.yaml")
     result.assert_outcomes(passed=1)

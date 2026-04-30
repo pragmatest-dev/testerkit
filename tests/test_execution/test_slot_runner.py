@@ -55,7 +55,7 @@ class TestSlotRunnerExecution:
         runner = SlotRunner(slots, duts)
 
         # Run a simple command that succeeds
-        cmd = [sys.executable, "-c", "import os; print(os.environ.get('LITMUS_SLOT_ID'))"]
+        cmd = [sys.executable, "-c", "import os; print(os.environ.get('_LITMUS_SLOT_ID'))"]
         results = runner.run(cmd, sync=False)
 
         assert len(results) == 2
@@ -70,10 +70,10 @@ class TestSlotRunnerExecution:
         # Print env vars so we can verify
         script = (
             "import os, json; print(json.dumps({"
-            "'slot': os.environ.get('LITMUS_SLOT_ID'),"
+            "'slot': os.environ.get('_LITMUS_SLOT_ID'),"
             "'serial': os.environ.get('LITMUS_DUT_SERIAL'),"
-            "'count': os.environ.get('LITMUS_SLOT_COUNT'),"
-            "'session': os.environ.get('LITMUS_SESSION_ID')"
+            "'count': os.environ.get('_LITMUS_SLOT_COUNT'),"
+            "'session': os.environ.get('_LITMUS_SESSION_ID')"
             "}))"
         )
         cmd = [sys.executable, "-c", script]
@@ -97,7 +97,7 @@ class TestSlotRunnerExecution:
         session_id = uuid4()
         runner = SlotRunner(slots, duts, session_id=session_id)
 
-        script = "import os; print(os.environ.get('LITMUS_SESSION_ID'))"
+        script = "import os; print(os.environ.get('_LITMUS_SESSION_ID'))"
         cmd = [sys.executable, "-c", script]
         results = runner.run(cmd, sync=False)
 
@@ -122,7 +122,7 @@ class TestSlotRunnerExecution:
 
         # slot_2 exits with error
         script = (
-            "import os, sys; sys.exit(1 if os.environ.get('LITMUS_SLOT_ID') == 'slot_2' else 0)"
+            "import os, sys; sys.exit(1 if os.environ.get('_LITMUS_SLOT_ID') == 'slot_2' else 0)"
         )
         cmd = [sys.executable, "-c", script]
         results = runner.run(cmd, sync=False)

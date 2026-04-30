@@ -334,8 +334,8 @@ class TestPoolIntegration:
         server.start()
         try:
             # Set env vars as SlotRunner would
-            os.environ["LITMUS_INSTRUMENT_SERVER"] = server.address_str
-            os.environ["LITMUS_SHARED_ROLES"] = "dmm"
+            os.environ["_LITMUS_INSTRUMENT_SERVER"] = server.address_str
+            os.environ["_LITMUS_SHARED_ROLES"] = "dmm"
 
             pool = InstrumentPool(
                 session_id=uuid4(),
@@ -363,8 +363,8 @@ class TestPoolIntegration:
 
             pool.release_all()
         finally:
-            os.environ.pop("LITMUS_INSTRUMENT_SERVER", None)
-            os.environ.pop("LITMUS_SHARED_ROLES", None)
+            os.environ.pop("_LITMUS_INSTRUMENT_SERVER", None)
+            os.environ.pop("_LITMUS_SHARED_ROLES", None)
             server.stop(force=True)
 
     def test_acquire_local_without_env_vars(self):
@@ -375,8 +375,8 @@ class TestPoolIntegration:
         from litmus.models.instrument import InstrumentRecord
 
         # Ensure env vars are NOT set
-        os.environ.pop("LITMUS_INSTRUMENT_SERVER", None)
-        os.environ.pop("LITMUS_SHARED_ROLES", None)
+        os.environ.pop("_LITMUS_INSTRUMENT_SERVER", None)
+        os.environ.pop("_LITMUS_SHARED_ROLES", None)
 
         pool = InstrumentPool(
             session_id=uuid4(),

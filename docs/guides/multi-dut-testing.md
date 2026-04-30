@@ -32,12 +32,12 @@ Slots are executed in definition order (not alphabetical). The instrument channe
 
 ## Running Multi-DUT Tests
 
-Pass `--fixture-config` to activate multi-DUT mode:
+Pass `--fixture` to activate multi-DUT mode:
 
 ```bash
 pytest tests/ \
-  --fixture-config=fixtures/dual_board.yaml \
-  --station-config=stations/my_station.yaml \
+  --fixture=fixtures/dual_board.yaml \
+  --station=stations/my_station.yaml \
   --dut-serials slot_1=SN001,slot_2=SN002
 ```
 
@@ -45,7 +45,7 @@ pytest tests/ \
 
 | Option | Description |
 |--------|-------------|
-| `--fixture-config` | Path to fixture YAML (triggers multi-DUT mode) |
+| `--fixture` | Path to fixture YAML (triggers multi-DUT mode) |
 | `--dut-serial` | Single serial applied to all slots (with warning) |
 | `--dut-serials` | Per-slot assignment: `slot_1=SN001,slot_2=SN002` |
 | `--mock-instruments` | Use mock instruments (each slot gets independent mocks) |
@@ -128,13 +128,13 @@ Each worker subprocess has these env vars for debugging:
 
 | Variable | Description |
 |----------|-------------|
-| `LITMUS_SLOT_ID` | Slot identifier (e.g., `slot_1`) |
+| `_LITMUS_SLOT_ID` | Slot identifier (e.g., `slot_1`) |
 | `LITMUS_DUT_SERIAL` | DUT serial for this slot |
-| `LITMUS_SESSION_ID` | Shared session ID across all slots |
-| `LITMUS_SLOT_COUNT` | Total number of slots |
+| `_LITMUS_SESSION_ID` | Shared session ID across all slots |
+| `_LITMUS_SLOT_COUNT` | Total number of slots |
 | `LITMUS_FIXTURE_SLOT` | JSON-serialized slot configuration |
-| `LITMUS_INSTRUMENT_SERVER` | InstrumentServer address (if shared instruments) |
-| `LITMUS_SHARED_ROLES` | Comma-separated shared instrument roles |
+| `_LITMUS_INSTRUMENT_SERVER` | InstrumentServer address (if shared instruments) |
+| `_LITMUS_SHARED_ROLES` | Comma-separated shared instrument roles |
 
 ### Viewing Per-Slot Output
 

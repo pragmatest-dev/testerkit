@@ -28,10 +28,10 @@ limits from stage 5 still apply.
 
 ```bash
 cd examples/06-station-catalog
-LITMUS_PROMPT_MODE=auto-confirm uv run pytest -v
+LITMUS_AUTO_CONFIRM=1 uv run pytest -v
 ```
 
-The ``LITMUS_PROMPT_MODE=auto-confirm`` env var lets the
+The ``LITMUS_AUTO_CONFIRM=1`` env var lets the
 operator-prompt demo run without a tty (auto-confirms / picks the
 first choice). Drop it for an interactive bench run.
 
@@ -119,7 +119,7 @@ test_operator_choice_sidecar:
 
 Each entry is a ``PromptConfig``: ``message``, optional
 ``prompt_type`` (``confirm`` / ``choice`` / ``input``), ``choices``,
-``timeout_seconds``. CI runs use ``LITMUS_PROMPT_MODE=auto-confirm``;
+``timeout_seconds``. CI runs use ``LITMUS_AUTO_CONFIRM=1``;
 bench operators see a tty prompt; UI runners install their own
 handler.
 

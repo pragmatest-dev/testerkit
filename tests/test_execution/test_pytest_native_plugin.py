@@ -632,57 +632,6 @@ def test_limits_fixture_destructured_access(pytester: pytest.Pytester) -> None:
     result.assert_outcomes(passed=1)
 
 
-_MOCKS_CONFTEST = textwrap.dedent(
-    """
-    import pytest
-
-    class _Dmm:
-        def measure_dc_voltage(self):
-            return 999.0
-
-    @pytest.fixture
-    def dmm():
-        return _Dmm()
-    """
-)
-
-
-def test_no_test_mocks_flag_disables_sidecar_mocks(pytester: pytest.Pytester) -> None:
-    """``--no-test-mocks`` short-circuits sidecar ``mocks:`` blocks."""
-    pytester.makeini(
-        textwrap.dedent(
-            """
-            [pytest]
-            addopts = -p no:litmus -p litmus.pytest_plugin
-            asyncio_default_fixture_loop_scope = function
-            """
-        )
-    )
-    pytester.makeconftest(_MOCKS_CONFTEST)
-    pytester.makepyfile(
-        test_seq=textwrap.dedent(
-            """
-            class TestSeq:
-                def test_ignores_mock(self, dmm):
-                    # Sidecar mocks: dmm.measure_dc_voltage -> 3.3, but
-                    # --no-test-mocks short-circuits, so the real 999.0
-                    # return value reaches the test.
-                    assert dmm.measure_dc_voltage() == 999.0
-            """
-        )
-    )
-    (pytester.path / "test_seq.yaml").write_text(
-        textwrap.dedent(
-            """
-            mocks:
-              - {target: "dmm.measure_dc_voltage", return_value: 3.3}
-"""
-        )
-    )
-    result = pytester.runpytest("-v", "--no-test-mocks")
-    result.assert_outcomes(passed=1)
-
-
 def test_context_last_returns_prior_param(pytester: pytest.Pytester) -> None:
     """``context.last(key)`` returns the previous parametrize case's value."""
     pytester.makeini(

@@ -3,10 +3,11 @@
 The single entry point is :func:`ask`. Resolution order for *how* a prompt
 is presented:
 
-1. An explicit handler installed via :func:`set_prompt_handler` (e.g. by a
-   UI runner that knows how to dispatch to a browser/operator surface).
-2. ``LITMUS_PROMPT_MODE=auto-confirm`` — non-interactive auto-resolution
-   for CI / smoke runs.
+1. An explicit handler installed via :func:`set_prompt_handler` (e.g.
+   ``litmus.api.dialogs.register_as_prompt_handler()`` when the UI is
+   active — routes prompts through the dialog queue + UI).
+2. ``LITMUS_AUTO_CONFIRM`` truthy — non-interactive auto-resolution for
+   CI / smoke runs (shared with the dialog manager's auto-respond).
 3. The default TTY handler — prints to ``stdout`` and reads ``stdin``.
 4. ``PromptUnavailableError`` — no UI, no tty, no auto-confirm.
 
@@ -63,7 +64,7 @@ def ask(config: PromptConfig) -> Any:
     if handler is not None:
         return handler(config)
 
-    if os.environ.get("LITMUS_PROMPT_MODE") == "auto-confirm":
+    if os.environ.get("LITMUS_AUTO_CONFIRM"):
         return _auto_confirm(config)
 
     if sys.stdin.isatty():
@@ -71,7 +72,7 @@ def ask(config: PromptConfig) -> Any:
 
     raise PromptUnavailableError(
         f"Cannot present prompt {config.message!r}: no UI handler installed, "
-        "stdin is not a tty, and LITMUS_PROMPT_MODE!=auto-confirm."
+        "stdin is not a tty, and LITMUS_AUTO_CONFIRM is unset."
     )
 
 

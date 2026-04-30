@@ -179,7 +179,7 @@ def psu(instruments):
 Run with `--mock-instruments` for hardware-free testing:
 
 ```bash
-pytest tests/ --station-config=stations/bench_1.yaml --mock-instruments --dut-serial=SIM001
+pytest tests/ --station=stations/bench_1.yaml --mock-instruments --dut-serial=SIM001
 ```
 
 ### Station-Based Fixtures

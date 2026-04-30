@@ -77,14 +77,14 @@ class InstrumentPool:
         """Lock → load → connect → verify → wrap → emit InstrumentConnected.
 
         If the role is served by a remote instrument server (indicated by
-        ``LITMUS_SHARED_ROLES`` and ``LITMUS_INSTRUMENT_SERVER`` env vars),
+        ``_LITMUS_SHARED_ROLES`` and ``_LITMUS_INSTRUMENT_SERVER`` env vars),
         returns a ``RemoteInstrumentProxy`` instead of connecting locally.
 
         Returns the proxied driver instance.
         """
         # Check if this role is served remotely by the instrument server
-        shared_roles = os.environ.get("LITMUS_SHARED_ROLES", "")
-        server_addr = os.environ.get("LITMUS_INSTRUMENT_SERVER", "")
+        shared_roles = os.environ.get("_LITMUS_SHARED_ROLES", "")
+        server_addr = os.environ.get("_LITMUS_INSTRUMENT_SERVER", "")
         if role in shared_roles.split(",") and server_addr:
             return self._acquire_remote(role, record, server_addr)
         use_mock = self._mock_all or record.mocked

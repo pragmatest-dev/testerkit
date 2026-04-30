@@ -1,7 +1,7 @@
 """End-to-end tests that exercise the bundled example chapters.
 
 Keeps every example chapter honest: if any of them stop passing under
-``--mock-instruments`` (and ``LITMUS_PROMPT_MODE=auto-confirm`` for the
+``--mock-instruments`` (and ``LITMUS_AUTO_CONFIRM=1`` for the
 prompts chapters), the suite fails. They run from inside the example
 directory so pytest discovers the local
 ``stations/`` / ``products/`` / ``fixtures/`` folders.
@@ -31,7 +31,7 @@ CHAPTERS: tuple[str, ...] = (
 
 def _run_pytest(cwd: Path) -> subprocess.CompletedProcess:
     """Run the chapter's tests under ``--mock-instruments`` with auto-confirm prompts."""
-    env = {**os.environ, "LITMUS_PROMPT_MODE": "auto-confirm"}
+    env = {**os.environ, "LITMUS_AUTO_CONFIRM": "auto-confirm"}
     cmd = [
         sys.executable,
         "-m",

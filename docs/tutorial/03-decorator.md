@@ -117,10 +117,10 @@ def test_stability(dmm, logger):
 
 ```bash
 # With mock instruments (no hardware)
-pytest tests/test_voltage.py --station-config=stations/my_station.yaml --mock-instruments -v
+pytest tests/test_voltage.py --station=stations/my_station.yaml --mock-instruments -v
 
 # With real hardware
-pytest tests/test_voltage.py --station-config=stations/my_station.yaml --dut-serial=SN001 -v
+pytest tests/test_voltage.py --station=stations/my_station.yaml --dut-serial=SN001 -v
 ```
 
 ## What Gets Stored
@@ -174,7 +174,7 @@ def test_output_voltage(dmm, verify):
 
 **Run:**
 ```bash
-pytest tests/test_power.py --station-config=stations/my_station.yaml --mock-instruments -v
+pytest tests/test_power.py --station=stations/my_station.yaml --mock-instruments -v
 ```
 
 ## What You Learned

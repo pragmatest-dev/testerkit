@@ -148,7 +148,7 @@ def _per_char_pins(characteristics: Sequence[str], spec_ctx: Any) -> dict[str, l
     if spec_ctx is None:
         raise ConnectionResolutionError(
             f"litmus_characteristics({list(characteristics)!r}) "
-            "requires a product spec (load via --spec or products/ auto-discovery)."
+            "requires a product (load via --product=<id-or-path> / products/ auto-discovery)."
         )
     out: dict[str, list[str]] = {}
     for char_id in characteristics:

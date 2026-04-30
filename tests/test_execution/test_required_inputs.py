@@ -2,7 +2,7 @@
 
 The resolver runs at session start and walks every declared input
 through CLI flag → env var → ``litmus.prompts.ask`` (in that order),
-fail-fast on missing values. ``default_profile`` + ``--no-profile``
+fail-fast on missing values. ``default_profile`` + ``--no-test-profile``
 control disambiguation when profiles are declared.
 """
 

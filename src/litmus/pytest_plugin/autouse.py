@@ -312,12 +312,9 @@ def _litmus_apply_mocks(request: pytest.FixtureRequest) -> Iterator[None]:
     (sidecar / profile) and at marker decode time (inline). Stacking
     multiple markers concatenates their lists; later entries with the
     same target overwrite earlier ones (file → class → test → profile).
-    ``--no-test-mocks`` bypasses all patching.
+    To suppress inline mocks session-wide, declare a profile with
+    ``mocks: []`` instead — that's the cascade-aware override.
     """
-    if request.config.getoption("--no-test-mocks", default=False):
-        yield
-        return
-
     # Walk listchain root-to-leaf so more-specific markers' entries
     # overwrite earlier ones (by target) in ``by_target`` below. Within
     # a node, ``own_markers`` preserves insertion order.

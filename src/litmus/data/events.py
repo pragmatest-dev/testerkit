@@ -110,14 +110,14 @@ class SessionStarted(EventBase):
         """Build a SessionStarted with common station fields.
 
         Shared by plugin.py (pytest) and connect.py (interactive).
-        If ``slot_count`` is None, reads ``LITMUS_SLOT_COUNT`` env var
+        If ``slot_count`` is None, reads ``_LITMUS_SLOT_COUNT`` env var
         (defaults to 1).
         """
         import os
         import socket as _socket
 
         if slot_count is None:
-            slot_count = int(os.environ.get("LITMUS_SLOT_COUNT", "1"))
+            slot_count = int(os.environ.get("_LITMUS_SLOT_COUNT", "1"))
 
         return cls(
             session_id=session_id,

@@ -6,7 +6,7 @@ import uuid
 import pytest
 
 # Generate a unique run ID for this test session (shared across all tests in this process)
-_SESSION_RUN_ID = os.environ.get("LITMUS_RUN_ID") or str(uuid.uuid4())
+_SESSION_RUN_ID = os.environ.get("_LITMUS_RUN_ID") or str(uuid.uuid4())
 
 
 def _get_run_id() -> str:
@@ -17,7 +17,7 @@ def _get_run_id() -> str:
 @pytest.mark.asyncio
 async def test_with_confirm_dialog():
     """Test that prompts operator for confirmation."""
-    from litmus.dialogs import get_dialog_manager
+    from litmus.api.dialogs import get_dialog_manager
 
     manager = get_dialog_manager()
     run_id = _get_run_id()
@@ -43,7 +43,7 @@ async def test_with_confirm_dialog():
 @pytest.mark.asyncio
 async def test_with_input_dialog():
     """Test that prompts operator for input."""
-    from litmus.dialogs import get_dialog_manager
+    from litmus.api.dialogs import get_dialog_manager
 
     manager = get_dialog_manager()
     run_id = _get_run_id()
@@ -67,7 +67,7 @@ async def test_with_input_dialog():
 @pytest.mark.asyncio
 async def test_with_choice_dialog():
     """Test that prompts operator to select an option."""
-    from litmus.dialogs import get_dialog_manager
+    from litmus.api.dialogs import get_dialog_manager
 
     manager = get_dialog_manager()
     run_id = _get_run_id()

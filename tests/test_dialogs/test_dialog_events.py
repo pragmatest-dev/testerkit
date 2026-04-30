@@ -8,9 +8,9 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+from litmus.api.dialogs.manager import DialogManager
+from litmus.api.dialogs.models import ConfirmDialog, DialogResponse
 from litmus.data.events import DialogOpened, DialogResponded
-from litmus.dialogs.manager import DialogManager
-from litmus.dialogs.models import ConfirmDialog, DialogResponse
 
 
 def _make_mock_logger() -> MagicMock:
@@ -94,7 +94,7 @@ async def test_local_dialog_emits_events() -> None:
         manager.respond(dialog.id, DialogResponse(dialog_id=dialog.id, confirmed=True))
 
     # Clear auto-respond env var so dialog actually waits
-    old_auto = os.environ.pop("LITMUS_DIALOG_AUTO", None)
+    old_auto = os.environ.pop("LITMUS_AUTO_CONFIRM", None)
     try:
         with patch("litmus.execution._state.get_current_logger", return_value=mock_logger):
             task = asyncio.create_task(respond_after_delay())
@@ -102,7 +102,7 @@ async def test_local_dialog_emits_events() -> None:
             await task
     finally:
         if old_auto is not None:
-            os.environ["LITMUS_DIALOG_AUTO"] = old_auto
+            os.environ["LITMUS_AUTO_CONFIRM"] = old_auto
 
     assert response.confirmed
     calls = mock_logger.event_log.emit.call_args_list

@@ -341,7 +341,7 @@ def pushed_active_characteristic(value: str | None) -> Iterator[None]:
 
 
 def get_active_profile() -> ProfileConfig | None:
-    """Return the active ``ProfileConfig`` selected via ``--litmus-profile``.
+    """Return the active ``ProfileConfig`` selected via ``--test-profile``.
 
     Returns ``None`` when no profile is active. Session-scoped: installed
     by ``pytest_configure`` and cleared by ``pytest_sessionfinish``.

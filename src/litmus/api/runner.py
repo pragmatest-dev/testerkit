@@ -80,9 +80,9 @@ class TestRunner:
         # Pass server URL so dialogs can communicate back
         env["LITMUS_SERVER_URL"] = os.environ.get("LITMUS_SERVER_URL", "http://localhost:8000")
         # Pass run ID so dialogs are linked to this run
-        env["LITMUS_RUN_ID"] = run_info.run_id
+        env["_LITMUS_RUN_ID"] = run_info.run_id
         # Pass session ID for multi-slot coordination
-        env["LITMUS_SESSION_ID"] = run_info.run_id
+        env["_LITMUS_SESSION_ID"] = run_info.run_id
         # Enable mock instruments if requested
         if req.mock_instruments:
             env["LITMUS_MOCK_INSTRUMENTS"] = "1"

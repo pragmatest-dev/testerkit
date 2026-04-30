@@ -112,7 +112,7 @@ def test_output_voltage(pins):
     assert float(voltage) > 3.0
 ```
 
-Requires `--fixture-config` to map pins to instruments.
+Requires `--fixture` to map pins to instruments.
 
 ### `fixture_manager` Fixture (session-scoped)
 
@@ -136,7 +136,7 @@ def test_voltage(product_context, dmm):
     # Framework checks against derived limit
 ```
 
-Auto-discovers from `products/` directory or use `--spec` option.
+Auto-discovers from `products/` directory or use `--product` option.
 
 ### `run_context` Fixture (session-scoped)
 
@@ -284,10 +284,10 @@ pytest tests/ \
   --operator="Jane Doe" \        # Operator name
   --results-dir=./results \      # Results directory (default: results)
   --mock-instruments \           # Use mock instruments instead of real hardware
-  --spec=products/x.yaml \  # Path to product spec YAML
+  --product=products/x.yaml \  # Path to product spec YAML
   --guardband=10 \               # Default guardband percentage (default: 0)
-  --station-config=stations/bench_1.yaml \  # Station config file
-  --fixture-config=fixtures/x.yaml \        # Fixture config file
+  --station=stations/bench_1.yaml \  # Station config file
+  --fixture=fixtures/x.yaml \        # Fixture config file
   --test-phase=validation \      # Test phase (default: auto-detect from git)
   -v
 ```
@@ -299,10 +299,10 @@ pytest tests/ \
 | `--operator` | `None` | Operator name |
 | `--results-dir` | `results` | Directory for Parquet results |
 | `--mock-instruments` | `False` | Use mock instruments instead of real hardware |
-| `--spec` | `None` | Path to product spec YAML file |
+| `--product` | `None` | Path to product spec YAML file |
 | `--guardband` | `0` | Default guardband percentage |
-| `--station-config` | `None` | Path to station configuration YAML |
-| `--fixture-config` | `None` | Path to fixture configuration YAML |
+| `--station` | `None` | Path to station configuration YAML |
+| `--fixture` | `None` | Path to fixture configuration YAML |
 | `--test-phase` | auto | Test phase (development, validation, characterization, production) |
 
 ## Markers
@@ -320,7 +320,7 @@ For everything else, use native pytest primitives or ecosystem plugins:
 | Need | Use |
 |------|-----|
 | Parametrize vector inputs | ``@pytest.mark.parametrize`` or sidecar ``vectors:`` |
-| Product selection | ``--product=<id>`` (lookup) or ``--spec=<path>`` (explicit path) |
+| Product selection | ``--product=<id>`` (lookup) or ``--product=<path>`` (explicit path) |
 | Mock instrument methods | ``pytest-mock``'s ``mocker.patch.object(...)`` |
 | Skip when prior test fails | ``pytest-dependency``: ``@pytest.mark.dependency(depends=["test_a"])`` |
 | Retries | ``pytest-rerunfailures``: ``@pytest.mark.flaky(reruns=N, reruns_delay=T)`` |

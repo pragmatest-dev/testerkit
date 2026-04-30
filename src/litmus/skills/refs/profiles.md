@@ -60,14 +60,14 @@ key any profile declares:
 pytest --test-phase=production --product=tps54302     # two facets
 pytest --test-phase=characterization                   # one facet
 pytest                                                 # no profile → baseline
-pytest --litmus-profile=<name>                         # name-based escape hatch
+pytest --test-profile=<name>                         # name-based escape hatch
 ```
 
 Facet query must match exactly one profile:
 - Zero matches → `UsageError` listing declared facet combinations.
 - More than one match → `UsageError` (tighten the query).
 
-`--litmus-profile=<name>` bypasses facet matching. Facet flags passed
+`--test-profile=<name>` bypasses facet matching. Facet flags passed
 alongside cross-check against the named profile's declared facets.
 
 ## `extends` chain
@@ -165,11 +165,11 @@ falling back to `ProjectConfig.default_station`. Operators on the
 matching bench skip the `--station=<id>` boilerplate. Resolution
 chain (first match wins):
 
-1. `--station-config=<path>` (explicit)
-2. `--station=<id>` (explicit)
-3. Hostname auto-match
-4. `ProjectConfig.default_station`
-5. `None` — bringup tier without a station
+1. `--station=<id-or-path>` (explicit; bare id looks up
+   `stations/<id>.yaml`, value with `/` or `.yaml`/`.yml` is a path)
+2. Hostname auto-match
+3. `ProjectConfig.default_station`
+4. `None` — bringup tier without a station
 
 ### Cross-checks at session start
 
