@@ -126,6 +126,11 @@ class StdfSubscriber(EventSubscriber):
     """EventSubscriber that writes STDF V4 binary on close."""
 
     format_name = "stdf"
+    event_types: set[type] = {
+        RunStarted,
+        MeasurementRecorded,
+        RunEnded,
+    }
 
     def __init__(
         self,
@@ -133,11 +138,6 @@ class StdfSubscriber(EventSubscriber):
         *,
         on_output: Callable[[OutputFile], None] | None = None,
     ) -> None:
-        self.event_types: set[type] = {
-            RunStarted,
-            MeasurementRecorded,
-            RunEnded,
-        }
         self._output_dir = output_dir / "exports" / "stdf"
         self._on_output = on_output
         self._run_started: RunStarted | None = None

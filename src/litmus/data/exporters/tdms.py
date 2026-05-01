@@ -187,6 +187,13 @@ class TdmsSubscriber(EventSubscriber):
     """EventSubscriber that writes NI TDMS on close."""
 
     format_name = "tdms"
+    event_types: set[type] = {
+        RunStarted,
+        StepStarted,
+        MeasurementRecorded,
+        StepEnded,
+        RunEnded,
+    }
 
     def __init__(
         self,
@@ -194,13 +201,6 @@ class TdmsSubscriber(EventSubscriber):
         *,
         on_output: Callable[[OutputFile], None] | None = None,
     ) -> None:
-        self.event_types: set[type] = {
-            RunStarted,
-            StepStarted,
-            MeasurementRecorded,
-            StepEnded,
-            RunEnded,
-        }
         self._output_dir = output_dir / "exports" / "tdms"
         self._on_output = on_output
         self._run_started: RunStarted | None = None

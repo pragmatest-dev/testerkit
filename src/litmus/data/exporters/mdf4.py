@@ -122,6 +122,13 @@ class Mdf4Subscriber(EventSubscriber):
     """EventSubscriber that writes ASAM MDF4 on close."""
 
     format_name = "mdf4"
+    event_types: set[type] = {
+        RunStarted,
+        StepStarted,
+        MeasurementRecorded,
+        StepEnded,
+        RunEnded,
+    }
 
     def __init__(
         self,
@@ -129,13 +136,6 @@ class Mdf4Subscriber(EventSubscriber):
         *,
         on_output: Callable[[OutputFile], None] | None = None,
     ) -> None:
-        self.event_types: set[type] = {
-            RunStarted,
-            StepStarted,
-            MeasurementRecorded,
-            StepEnded,
-            RunEnded,
-        }
         self._output_dir = output_dir / "exports" / "mdf4"
         self._on_output = on_output
         self._run_started: RunStarted | None = None

@@ -6,7 +6,6 @@ The manifest lives at ``results/_uploads.duckdb``.
 
 from __future__ import annotations
 
-import json
 import warnings
 from collections.abc import Generator
 from contextlib import contextmanager
@@ -16,6 +15,7 @@ from typing import Any
 
 from pydantic import BaseModel
 
+from litmus.data.transports._base import get_transport
 from litmus.models.project import OutputConfig
 
 # -- Status constants (used in SQL and Python) --
@@ -95,7 +95,7 @@ def enqueue(
     """Insert a pending upload row. Returns the row id."""
     with _db_connection(results_dir) as con:
         now = datetime.now(UTC).isoformat()
-        config_json = json.dumps(config.model_dump())
+        config_json = config.model_dump_json()
         row = con.execute(
             """
             INSERT INTO uploads
@@ -110,8 +110,6 @@ def enqueue(
 
 def drain(results_dir: str = "results", max_attempts: int = 3) -> int:
     """Process all pending/failed rows. Returns count of successfully uploaded items."""
-    from litmus.data.transports._base import get_transport
-
     with _db_connection(results_dir) as con:
         rows = con.execute(
             "SELECT id, local_path, transport, config_json FROM uploads "
@@ -123,7 +121,7 @@ def drain(results_dir: str = "results", max_attempts: int = 3) -> int:
         for row_id, local_path, transport_name, config_json in rows:
             try:
                 transport = get_transport(transport_name)
-                config = OutputConfig(**json.loads(config_json))
+                config = OutputConfig.model_validate_json(config_json)
                 transport.send(Path(local_path), config)
                 _update_status(con, row_id, STATUS_DONE)
                 success_count += 1

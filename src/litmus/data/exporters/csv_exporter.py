@@ -53,6 +53,7 @@ class CsvSubscriber(EventSubscriber):
     """
 
     format_name = "csv"
+    event_types: set[type] = {RunStarted, MeasurementRecorded}
 
     def __init__(
         self,
@@ -60,7 +61,6 @@ class CsvSubscriber(EventSubscriber):
         *,
         on_output: Callable[[OutputFile], None] | None = None,
     ) -> None:
-        self.event_types: set[type] = {RunStarted, MeasurementRecorded}
         self._output_dir = output_dir / "exports" / "csv"
         self._on_output = on_output
         self._run_started: RunStarted | None = None
@@ -143,7 +143,8 @@ class CsvSubscriber(EventSubscriber):
 
             flat_rows.append(row)
 
-        fieldnames = [c for c in _FIXED_COLUMNS if c in seen] + extra_keys
+        # ``seen`` is seeded with _FIXED_COLUMNS; it only ever grows.
+        fieldnames = _FIXED_COLUMNS + extra_keys
 
         with out_file.open("w", newline="") as f:
             writer = csv.DictWriter(

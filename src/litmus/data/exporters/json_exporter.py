@@ -30,6 +30,13 @@ class JsonSubscriber(EventSubscriber):
     """
 
     format_name = "json"
+    event_types: set[type] = {
+        RunStarted,
+        StepStarted,
+        MeasurementRecorded,
+        StepEnded,
+        RunEnded,
+    }
 
     def __init__(
         self,
@@ -37,13 +44,6 @@ class JsonSubscriber(EventSubscriber):
         *,
         on_output: Callable[[OutputFile], None] | None = None,
     ) -> None:
-        self.event_types: set[type] = {
-            RunStarted,
-            StepStarted,
-            MeasurementRecorded,
-            StepEnded,
-            RunEnded,
-        }
         self._output_dir = output_dir / "exports" / "json"
         self._on_output = on_output
         self._run_started: RunStarted | None = None

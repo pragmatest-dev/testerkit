@@ -146,6 +146,14 @@ class AtmlSubscriber(EventSubscriber):
     """EventSubscriber that writes IEEE 1636.1 ATML XML on close."""
 
     format_name = "atml"
+    event_types: set[type] = {
+        RunStarted,
+        InstrumentConnected,
+        StepStarted,
+        MeasurementRecorded,
+        StepEnded,
+        RunEnded,
+    }
 
     def __init__(
         self,
@@ -153,14 +161,6 @@ class AtmlSubscriber(EventSubscriber):
         *,
         on_output: Callable[[OutputFile], None] | None = None,
     ) -> None:
-        self.event_types: set[type] = {
-            RunStarted,
-            InstrumentConnected,
-            StepStarted,
-            MeasurementRecorded,
-            StepEnded,
-            RunEnded,
-        }
         self._output_dir = output_dir / "exports" / "atml"
         self._on_output = on_output
         self._run_started: RunStarted | None = None

@@ -14,6 +14,7 @@ Extend via entry points in pyproject.toml::
 
 from __future__ import annotations
 
+import warnings
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -35,6 +36,15 @@ class Transport:
     def __init_subclass__(cls, **kwargs: Any) -> None:
         super().__init_subclass__(**kwargs)
         if hasattr(cls, "transport_name") and cls.transport_name:
+            existing = Transport._registry.get(cls.transport_name)
+            if existing is not None and type(existing) is not cls:
+                warnings.warn(
+                    f"Transport.transport_name={cls.transport_name!r} is "
+                    f"already registered to {type(existing).__module__}."
+                    f"{type(existing).__qualname__}; overriding with "
+                    f"{cls.__module__}.{cls.__qualname__}",
+                    stacklevel=2,
+                )
             Transport._registry[cls.transport_name] = cls()
 
     def send(self, local_path: Path, config: OutputConfig) -> str:

@@ -36,6 +36,14 @@ class Hdf5Subscriber(EventSubscriber):
     """EventSubscriber that writes HDF5 on close."""
 
     format_name = "hdf5"
+    event_types: set[type] = {
+        RunStarted,
+        InstrumentConnected,
+        StepStarted,
+        MeasurementRecorded,
+        StepEnded,
+        RunEnded,
+    }
 
     def __init__(
         self,
@@ -43,14 +51,6 @@ class Hdf5Subscriber(EventSubscriber):
         *,
         on_output: Callable[[OutputFile], None] | None = None,
     ) -> None:
-        self.event_types: set[type] = {
-            RunStarted,
-            InstrumentConnected,
-            StepStarted,
-            MeasurementRecorded,
-            StepEnded,
-            RunEnded,
-        }
         self._output_dir = output_dir / "exports" / "hdf5"
         self._on_output = on_output
         self._run_started: RunStarted | None = None
