@@ -1,7 +1,6 @@
 """Dialog models for operator interaction."""
 
 from enum import StrEnum
-from typing import Any
 from uuid import UUID, uuid4
 
 from pydantic import BaseModel, Field
@@ -78,4 +77,3 @@ class DialogResponse(BaseModel):
     image_data: str | None = None  # Base64 for captured images
     timed_out: bool = False  # Whether dialog timed out
     cancelled: bool = False  # Whether operator cancelled
-    metadata: dict[str, Any] = Field(default_factory=dict)

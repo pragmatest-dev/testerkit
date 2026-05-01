@@ -1,6 +1,7 @@
 """Dialog manager for coordinating operator interactions."""
 
 import asyncio
+import logging
 import os
 import time
 from collections import deque
@@ -16,11 +17,11 @@ from litmus.api.dialogs.models import (
     ImageDialog,
     InputDialog,
 )
+from litmus.data.events import DialogOpened, DialogResponded
+from litmus.execution._state import get_current_logger
+from litmus.prompts.core import LITMUS_AUTO_CONFIRM
 
-# Unified auto-confirm env var (shared with litmus.prompts).
-# Truthy → auto-confirm all dialogs (confirm-type returns True; choice
-# returns first option; input returns ""). Empty / unset → normal flow.
-LITMUS_AUTO_CONFIRM = "LITMUS_AUTO_CONFIRM"
+_logger = logging.getLogger(__name__)
 
 
 class DialogManager:
@@ -86,14 +87,17 @@ class DialogManager:
             try:
                 listener(dialog)
             except Exception:
-                pass  # Don't let listener errors break dialog flow
+                # Don't let listener errors break dialog flow, but
+                # surface them to debug logs so silent UI-callback
+                # failures aren't invisible.
+                _logger.debug("Dialog listener raised", exc_info=True)
 
     def preset_response(
         self,
         confirmed: bool = True,
         choice: int | None = 0,
         choices: list[int] | None = None,
-        value: str = "auto",
+        value: str = "",
         cancelled: bool = False,
     ) -> None:
         """Queue a preset response for the next dialog.
@@ -165,35 +169,28 @@ class DialogManager:
         if auto_mode == "cancel":
             return DialogResponse(dialog_id=dialog.id, cancelled=True)
 
-        # Default to confirm mode
+        # Default to confirm mode. ``value=""`` matches
+        # :func:`litmus.prompts.core._auto_confirm` so input prompts
+        # see the same auto-confirm value whether they go through the
+        # dialog UI bridge or fall through to the bare auto-confirm
+        # chain in ``prompts.ask``.
         return DialogResponse(
             dialog_id=dialog.id,
             confirmed=True,
             choice=0,  # First choice for choice dialogs
-            value="auto",  # Default value for input dialogs
+            value="",  # Empty input — matches prompts._auto_confirm
         )
 
     def _emit_dialog_opened(self, dialog: Dialog) -> None:
         """Emit a DialogOpened event if inside a test run.
 
-        Layering note: this method imports from :mod:`litmus.execution`
-        lazily and silently no-ops if the import fails. Dialogs do not
-        require execution to function — the import is *optional
-        enrichment* that fires when a test run is active. Standalone
-        UI / API contexts (where dialogs run without a test logger)
-        get the dialog itself; the parquet-event side simply doesn't
-        light up. Keep this lazy + try/except; do not promote to a
-        top-level import.
+        Standalone UI / API contexts (where dialogs run without a test
+        logger) silently no-op the parquet-event side; the dialog
+        itself still fires.
         """
-        try:
-            from litmus.execution._state import get_current_logger
-        except ImportError:
-            return
         logger = get_current_logger()
         if logger is None or logger.event_log is None:
             return
-        from litmus.data.events import DialogOpened
-
         logger.event_log.emit(
             DialogOpened(
                 session_id=logger._session_id,
@@ -211,22 +208,19 @@ class DialogManager:
         self, dialog: Dialog, response: DialogResponse, duration: float
     ) -> None:
         """Emit a DialogResponded event if inside a test run."""
-        try:
-            from litmus.execution._state import get_current_logger
-        except ImportError:
-            return
         logger = get_current_logger()
         if logger is None or logger.event_log is None:
             return
-        from litmus.data.events import DialogResponded
 
         if response.timed_out:
             response_type = "timed_out"
         elif response.cancelled:
             response_type = "cancelled"
         else:
-            # Default: any non-cancelled, non-timed-out response is a confirmation
-            response_type = "confirmed"
+            # "answered" covers all non-cancelled, non-timeout responses:
+            # confirm-clicked, choice-selected, input-entered. The dialog
+            # type is already on the event for downstream filtering.
+            response_type = "answered"
 
         logger.event_log.emit(
             DialogResponded(
@@ -273,54 +267,59 @@ class DialogManager:
 
         timeout = dialog.timeout_seconds or 300
 
-        async with httpx.AsyncClient(timeout=timeout + 10) as client:
-            # POST the dialog to server
-            create_resp = await client.post(
-                f"{self.server_url}/api/dialogs",
-                json={
-                    "type": dialog.type.value,
-                    "title": dialog.title,
-                    "message": dialog.message,
-                    "run_id": dialog.run_id,
-                    "step_name": dialog.step_name,
-                    "timeout_seconds": dialog.timeout_seconds,
-                    "choices": getattr(dialog, "choices", None),
-                    "allow_multiple": getattr(dialog, "allow_multiple", False),
-                    "placeholder": getattr(dialog, "placeholder", ""),
-                    "default_value": getattr(dialog, "default_value", ""),
-                    "confirm_label": getattr(dialog, "confirm_label", "Confirm"),
-                    "cancel_label": getattr(dialog, "cancel_label", "Cancel"),
-                },
-            )
-            create_data = create_resp.json()
-            dialog_id = create_data.get("dialog_id", str(dialog.id))
+        try:
+            async with httpx.AsyncClient(timeout=timeout + 10) as client:
+                # POST the dialog to server. The server's create endpoint
+                # accepts the full Dialog shape; subclass-specific fields
+                # (choices, placeholder, etc.) flow through ``model_dump``.
+                create_resp = await client.post(
+                    f"{self.server_url}/api/dialogs",
+                    json=dialog.model_dump(mode="json"),
+                )
+                create_data = create_resp.json()
+                dialog_id = create_data.get("dialog_id", str(dialog.id))
 
-            # Wait for response
-            wait_resp = await client.get(
-                f"{self.server_url}/api/dialogs/{dialog_id}/wait",
-                params={"timeout": timeout},
-            )
-            resp_data = wait_resp.json()
+                # Wait for response
+                wait_resp = await client.get(
+                    f"{self.server_url}/api/dialogs/{dialog_id}/wait",
+                    params={"timeout": timeout},
+                )
+                resp_data = wait_resp.json()
+        except httpx.TimeoutException:
+            # Normalise transport-level timeout into the same response
+            # shape the local path produces, so callers (and the
+            # prompt-handler bridge) see one timeout contract.
+            return DialogResponse(dialog_id=dialog.id, timed_out=True)
 
-            return DialogResponse(
-                dialog_id=UUID(dialog_id),
-                confirmed=resp_data.get("confirmed", False),
-                choice=resp_data.get("choice"),
-                choices=resp_data.get("choices"),
-                value=resp_data.get("value"),
-                timed_out=resp_data.get("timed_out", False),
-                cancelled=resp_data.get("cancelled", False),
-            )
+        return DialogResponse(
+            dialog_id=UUID(dialog_id),
+            confirmed=resp_data.get("confirmed", False),
+            choice=resp_data.get("choice"),
+            choices=resp_data.get("choices"),
+            value=resp_data.get("value"),
+            timed_out=resp_data.get("timed_out", False),
+            cancelled=resp_data.get("cancelled", False),
+        )
+
+    def _register_pending(self, dialog: Dialog) -> None:
+        """Add a dialog to pending state and notify listeners.
+
+        Shared by :meth:`_show_local` (which then awaits an asyncio
+        event) and :meth:`register_dialog` (which expects API-side
+        polling). DialogOpened emission is the caller's responsibility:
+        :meth:`show` already emits before dispatching to ``_show_local``;
+        ``register_dialog`` emits explicitly because it has no
+        ``show()`` parent.
+        """
+        self._pending[dialog.id] = dialog
+        self._open_times[dialog.id] = time.monotonic()
+        self._notify_listeners(dialog)
 
     async def _show_local(self, dialog: Dialog) -> DialogResponse:
         """Show dialog locally (in-process mode)."""
         event = asyncio.Event()
-        self._pending[dialog.id] = dialog
+        self._register_pending(dialog)
         self._events[dialog.id] = event
-        self._open_times[dialog.id] = time.monotonic()
-
-        # Notify listeners (UI)
-        self._notify_listeners(dialog)
 
         # Wait for response or timeout
         if dialog.timeout_seconds:
@@ -344,10 +343,8 @@ class DialogManager:
         This adds the dialog to pending without creating an asyncio event,
         since the caller will poll for response via API.
         """
-        self._pending[dialog.id] = dialog
-        self._open_times[dialog.id] = time.monotonic()
+        self._register_pending(dialog)
         self._emit_dialog_opened(dialog)
-        self._notify_listeners(dialog)
 
     def get_response(self, dialog_id: UUID) -> DialogResponse | None:
         """Get a response for a dialog if available.
@@ -569,6 +566,7 @@ def register_as_prompt_handler(server_url: str | None = None) -> None:
 def _dispatch_prompt(config: Any, server_url: str | None) -> Any:
     """Sync bridge that runs an async dialog show and unwraps the response."""
     from litmus.prompts import PromptUnavailableError
+    from litmus.prompts.core import select_value
 
     manager = get_dialog_manager(server_url)
     if config.prompt_type == "confirm":
@@ -588,12 +586,12 @@ def _dispatch_prompt(config: Any, server_url: str | None) -> Any:
         raise PromptUnavailableError(
             f"Dialog for {config.message!r} {'timed out' if response.timed_out else 'cancelled'}."
         )
-    if config.prompt_type == "confirm":
-        return response.confirmed
-    if config.prompt_type == "choice":
-        idx = response.choice or 0
-        return (config.choices or [])[idx]
-    return response.value
+    return select_value(
+        config,
+        confirmed=response.confirmed,
+        choice=response.choice,
+        value=response.value,
+    )
 
 
 def _run_sync(coro: Any) -> Any:

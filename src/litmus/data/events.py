@@ -599,7 +599,7 @@ class DialogResponded(EventBase):
     event_type: Literal["dialog.responded"] = "dialog.responded"
     dialog_id: UUID
     dialog_type: str
-    response_type: str  # "confirmed", "cancelled", "timed_out"
+    response_type: str  # "answered", "cancelled", "timed_out"
     duration_seconds: float
     value: str | None = None
     choice: int | None = None

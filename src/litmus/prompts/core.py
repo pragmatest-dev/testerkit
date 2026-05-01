@@ -27,6 +27,8 @@ from litmus.models.test_config import PromptConfig
 
 PromptHandler = Callable[[PromptConfig], Any]
 
+LITMUS_AUTO_CONFIRM = "LITMUS_AUTO_CONFIRM"
+
 
 class PromptUnavailableError(RuntimeError):
     """No way to ask the operator: no UI handler, no tty, no auto-confirm."""
@@ -64,7 +66,7 @@ def ask(config: PromptConfig) -> Any:
     if handler is not None:
         return handler(config)
 
-    if os.environ.get("LITMUS_AUTO_CONFIRM"):
+    if os.environ.get(LITMUS_AUTO_CONFIRM):
         return _auto_confirm(config)
 
     if sys.stdin.isatty():
@@ -76,19 +78,43 @@ def ask(config: PromptConfig) -> Any:
     )
 
 
-def _auto_confirm(config: PromptConfig) -> Any:
+def select_value(
+    config: PromptConfig,
+    *,
+    confirmed: bool = False,
+    choice: int | None = None,
+    value: str | None = None,
+) -> Any:
+    """Reduce a prompt result into the value :func:`ask` should return.
+
+    Both the TTY handler and the dialog-bridge dispatcher in
+    :mod:`litmus.api.dialogs.manager` end with the same prompt_type
+    fan-out; this helper is the single place that mapping lives.
+    """
     if config.prompt_type == "confirm":
-        return True
-    if config.prompt_type == "choice" and config.choices:
-        return config.choices[0]
-    return ""
+        return confirmed
+    if config.prompt_type == "choice":
+        idx = choice or 0
+        return (config.choices or [])[idx]
+    if config.prompt_type == "input":
+        return value
+    raise ValueError(f"unknown prompt_type: {config.prompt_type!r}")
+
+
+def _auto_confirm(config: PromptConfig) -> Any:
+    return select_value(
+        config,
+        confirmed=True,
+        choice=0,
+        value="",
+    )
 
 
 def _tty_handler(config: PromptConfig) -> Any:
     print(f"\n[Prompt] {config.message}")
     if config.prompt_type == "confirm":
         input("Press Enter to continue...")
-        return True
+        return select_value(config, confirmed=True)
     if config.prompt_type == "choice" and config.choices:
         for i, choice in enumerate(config.choices, 1):
             print(f"  {i}. {choice}")
@@ -100,8 +126,8 @@ def _tty_handler(config: PromptConfig) -> Any:
                 print("Invalid selection, try again.")
                 continue
             if 1 <= selection <= len(config.choices):
-                return config.choices[selection - 1]
+                return select_value(config, choice=selection - 1)
             print("Invalid selection, try again.")
     if config.prompt_type == "input":
-        return input("Enter value: ")
+        return select_value(config, value=input("Enter value: "))
     return None
