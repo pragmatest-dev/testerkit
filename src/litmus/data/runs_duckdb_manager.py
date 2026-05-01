@@ -14,6 +14,8 @@ from pathlib import Path
 
 from litmus.data._daemon_lifecycle import DaemonManager
 
+_PORT_FILE = "_runs_duckdb_flight_port"
+
 
 class RunsDuckDBManager(DaemonManager):
     """Manages the DuckDB runs index daemon."""
@@ -31,6 +33,14 @@ class RunsDuckDBManager(DaemonManager):
             str(self._dir),
         ]
 
+    def _post_spawn_state(self) -> dict:
+        """Capture the daemon's gRPC location from the port file.
+
+        The daemon writes the port file before signalling ready, so
+        :meth:`DaemonManager._spawn` returns only after this file exists.
+        """
+        return {"location": (self._dir / _PORT_FILE).read_text().strip()}
+
 
 # Module-level convenience — RunStore uses these directly.
 
@@ -42,11 +52,9 @@ def acquire(runs_dir: Path) -> str:
     """
     mgr = RunsDuckDBManager(runs_dir)
     mgr.acquire()
-    state = mgr.read_state()
-    location = state.get("location")
+    location = mgr.read_state().get("location")
     if not location:
-        port_file = runs_dir / "_runs_duckdb_flight_port"
-        location = port_file.read_text().strip()
+        raise RuntimeError(f"runs DuckDB daemon started but no location in state: {runs_dir}")
     return location
 
 
