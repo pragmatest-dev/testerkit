@@ -85,10 +85,18 @@ def verify_instrument_identity(
 
 
 def get_instrument_info(inst: Any) -> InstrumentInfo | None:
-    """Query instrument identity from a connected instance."""
+    """Query instrument identity from a connected instance.
+
+    Bring-your-own-driver: instruments may either expose typed
+    ``manufacturer`` / ``model`` / ``serial`` / ``firmware`` attributes
+    (PyMeasure, Lantz, qcodes patterns), or expose ``query("*IDN?")``
+    (raw VISA / SCPI). The first branch trusts ``manufacturer`` is
+    truthy and reads the others defensively — partial conformance
+    (``manufacturer`` set but ``firmware`` missing) is real.
+    """
     if hasattr(inst, "manufacturer") and inst.manufacturer:
         return InstrumentInfo(
-            manufacturer=getattr(inst, "manufacturer", None),
+            manufacturer=inst.manufacturer,
             model=getattr(inst, "model", None),
             serial=getattr(inst, "serial", None),
             firmware=getattr(inst, "firmware", None),
@@ -145,6 +153,10 @@ def load_and_connect(
     else:
         raise ValueError(f"No driver or resource for instrument {record.role!r}")
 
+    # Bring-your-own-driver: PyMeasure / Lantz / etc. expose ``connect``;
+    # raw PyVISA resources (the ``rm.open_resource`` branch above) do not.
+    # The ``getattr(..., None)`` is intentionally permissive for that
+    # split — PyVISA is already connected by ``open_resource``.
     connect_fn = getattr(inst, "connect", None)
     if callable(connect_fn):
         connect_fn()

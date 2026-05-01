@@ -57,12 +57,14 @@ class RouteManager:
         session_id: UUID | None = None,
         station_id: str = "",
         event_log: Any = None,
+        lock_timeout: float = 30.0,
     ) -> None:
         self._connections = connections
         self._instruments = instruments
         self._session_id = session_id
         self._station_id = station_id
         self._event_log = event_log
+        self._lock_timeout = lock_timeout
 
         # Active state
         self._active_routes: dict[str, SwitchRoute] = {}  # connection_name → active route
@@ -285,7 +287,7 @@ class RouteManager:
             acquired_at=datetime.now(tz=UTC),
         )
 
-        lock = acquire_resource(role, meta, timeout=30)
+        lock = acquire_resource(role, meta, timeout=self._lock_timeout)
         self._held_locks[role] = lock
         logger.debug("Acquired route lock: %s", role)
 

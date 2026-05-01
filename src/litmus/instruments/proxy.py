@@ -13,7 +13,14 @@ from litmus.instruments.observer import DriverObserver
 
 
 class InstrumentProxy:
-    """Transparent proxy that delegates event interpretation to an observer."""
+    """Transparent proxy that delegates event interpretation to an observer.
+
+    Lifecycle methods (``connect``, ``disconnect``) flow through the
+    same ``__getattr__`` path as measurement methods. The observer
+    sees them via ``on_call`` and decides whether to record (the
+    observer's ``LIFECYCLE_METHODS`` set typically excludes them from
+    measurement event emission).
+    """
 
     def __init__(self, driver: Any, role: str, observer: DriverObserver) -> None:
         object.__setattr__(self, "_driver", driver)

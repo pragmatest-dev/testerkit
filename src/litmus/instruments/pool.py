@@ -89,7 +89,7 @@ class InstrumentPool:
             return self._acquire_remote(role, record, server_addr)
         use_mock = self._mock_all or record.mocked
         record.mocked = use_mock
-        mock_config = inst_config.mock_config if inst_config and inst_config.mock_config else {}
+        mock_config = (inst_config.mock_config if inst_config else None) or {}
 
         # Acquire resource lock (skip for mocks with no real resource)
         lock: BaseFileLock | None = None
@@ -184,7 +184,7 @@ class InstrumentPool:
         if self._event_log is None:
             return None
 
-        channel_overrides = inst_config.channels if inst_config else {}
+        channel_overrides = (inst_config.channels if inst_config else None) or {}
         protocol = detect_protocol(driver_class) if driver_class else "generic"
         observer_cls = get_observer_class(protocol)
 
@@ -227,7 +227,7 @@ class InstrumentPool:
 
     def release_all(self) -> None:
         """Release all instruments in reverse acquisition order."""
-        for role in list(reversed(list(self._active))):
+        for role in reversed(list(self._active)):
             self.release(role)
 
     def _emit_connected(self, role: str, record: InstrumentRecord) -> None:

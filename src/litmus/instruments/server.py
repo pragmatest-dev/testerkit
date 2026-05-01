@@ -192,7 +192,17 @@ class InstrumentServer:
                                 role,
                                 _HEARTBEAT_TIMEOUT,
                             )
-                            # Force re-create the lock (old holder is dead)
+                            # Force re-create the lock (old holder is dead).
+                            # KNOWN RACE: if multiple threads time out on
+                            # the same resource simultaneously, each may
+                            # rebind ``self._locks[resource_key]`` and
+                            # acquire its own copy — briefly violating
+                            # mutual exclusion. Acceptable for the
+                            # heartbeat-timeout recovery case (rare; only
+                            # fires when a client process has actually
+                            # died), but a focused fix would protect the
+                            # rebind with a class-level meta-lock or
+                            # switch to a supervisor-style recovery.
                             resource_key = self._role_to_resource.get(role)
                             if resource_key:
                                 self._locks[resource_key] = threading.Lock()
@@ -313,8 +323,26 @@ class RemoteInstrumentProxy:
         address = object.__getattribute__(self, "_address")
         return f"<RemoteInstrumentProxy({role!r}, {address[0]}:{address[1]})>"
 
+    def disconnect(self) -> None:
+        """Public lifecycle method: ask remote driver to disconnect, then
+        release this proxy's server connection.
+
+        Used by :func:`litmus.instruments.lifecycle.disconnect`. The
+        remote-side call is best-effort (the driver may not implement
+        ``disconnect``); this proxy's own connection is always released
+        so the multiplex server can reclaim its slot.
+        """
+        conn = object.__getattribute__(self, "_conn")
+        role = object.__getattribute__(self, "_role")
+        try:
+            conn.send((role, "disconnect", (), {}))
+            conn.recv()
+        except (OSError, EOFError, RuntimeError):
+            pass
+        self._disconnect()
+
     def _disconnect(self) -> None:
-        """Disconnect from the server."""
+        """Release the proxy's server connection (no remote call)."""
         conn = object.__getattribute__(self, "_conn")
         try:
             conn.send((_DISCONNECT,))
