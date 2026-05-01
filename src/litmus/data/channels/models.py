@@ -6,6 +6,7 @@ Raw data uses typed Arrow schemas based on data_type.
 
 from __future__ import annotations
 
+import json
 from datetime import datetime
 from typing import Any
 
@@ -100,7 +101,7 @@ def _infer_schema(value: object, source_method: str = "") -> pa.Schema:
     return pa.schema(fields)
 
 
-# Legacy schemas — kept for reading old files.
+# Legacy schema — kept for reading old files.
 
 SCALAR_SCHEMA = pa.schema(
     [
@@ -111,12 +112,38 @@ SCALAR_SCHEMA = pa.schema(
     ]
 )
 
-ARRAY_SCHEMA = pa.schema(
-    [
-        ("timestamp", pa.timestamp("us", tz="UTC")),
-        ("samples", pa.list_(pa.float64())),
-        ("sample_interval", pa.float64()),
-        ("source_method", pa.utf8()),
-        ("session_id", pa.utf8()),
-    ]
-)
+
+def sample_schema() -> pa.Schema:
+    """Default schema for ``ChannelSample`` batches over Arrow Flight.
+
+    Used by both the server (which sends batches to subscribers) and
+    the client (which writes batches via ``do_put``). Lives here rather
+    than in ``server.py`` because both store.py and client.py need it,
+    and importing through server creates a circular dependency.
+    """
+    return pa.schema(
+        [
+            ("channel_id", pa.utf8()),
+            ("timestamp", pa.timestamp("us", tz="UTC")),
+            ("value", pa.utf8()),  # JSON-encoded for flexibility
+            ("source_method", pa.utf8()),
+            ("units", pa.utf8()),
+            ("sample_interval", pa.float64()),
+        ]
+    )
+
+
+def sample_to_batch(sample: ChannelSample) -> pa.RecordBatch:
+    """Convert a :class:`ChannelSample` to a single-row RecordBatch."""
+    value_str = json.dumps(sample.value) if not isinstance(sample.value, str) else sample.value
+    return pa.record_batch(
+        {
+            "channel_id": [sample.channel_id],
+            "timestamp": [sample.timestamp],
+            "value": [value_str],
+            "source_method": [sample.source_method],
+            "units": [sample.units or ""],
+            "sample_interval": [sample.sample_interval],
+        },
+        schema=sample_schema(),
+    )

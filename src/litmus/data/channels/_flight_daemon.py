@@ -14,17 +14,15 @@ import sys
 import threading
 import warnings
 from pathlib import Path
+from uuid import UUID
 
 from litmus.data.channels.flight_manager import FlightDaemonManager
+from litmus.data.channels.server import ChannelFlightServer
+from litmus.data.channels.store import ChannelStore
 
 
 def daemon_run(channels_dir: Path, host: str, port: int) -> None:
     """Entry point for the daemon process. Blocks until idle timeout."""
-    from uuid import UUID
-
-    from litmus.data.channels.server import ChannelFlightServer
-    from litmus.data.channels.store import ChannelStore
-
     mgr = FlightDaemonManager(channels_dir, host, port)
 
     store = ChannelStore(channels_dir, UUID(int=0))

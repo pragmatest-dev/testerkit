@@ -9,19 +9,20 @@ Wraps a ChannelStore instance. Handles:
 
 from __future__ import annotations
 
+import json
 import queue
 import threading
 import warnings
 from datetime import datetime
-from typing import Any
+from typing import TYPE_CHECKING, Any
 from urllib.parse import parse_qs
 
 import pyarrow as pa
 import pyarrow.flight as flight
 
-from litmus.data.channels.models import ChannelSample
+from litmus.data.channels.models import ChannelSample, sample_schema, sample_to_batch
 
-if __name__ != "__main__":
+if TYPE_CHECKING:
     from litmus.data.channels.store import ChannelStore
 
 
@@ -51,7 +52,7 @@ class ChannelFlightServer(flight.FlightServerBase):
                 if not queues:
                     continue
                 if batch is None:
-                    batch = _sample_to_batch(sample)
+                    batch = sample_to_batch(sample)
                 dead: list[queue.Queue[pa.RecordBatch | None]] = []
                 for q in queues:
                     try:
@@ -135,7 +136,7 @@ class ChannelFlightServer(flight.FlightServerBase):
                         pass
 
         # Use a schema that covers common cases; actual batches may vary
-        schema = _sample_schema()
+        schema = sample_schema()
         return flight.GeneratorStream(schema, _generate())
 
     def list_flights(
@@ -189,46 +190,12 @@ class ChannelFlightServer(flight.FlightServerBase):
         super().shutdown()
 
 
-def _sample_schema() -> pa.Schema:
-    """Default schema for ChannelSample batches over Flight."""
-    return pa.schema(
-        [
-            ("channel_id", pa.utf8()),
-            ("timestamp", pa.timestamp("us", tz="UTC")),
-            ("value", pa.utf8()),  # JSON-encoded for flexibility
-            ("source_method", pa.utf8()),
-            ("units", pa.utf8()),
-            ("sample_interval", pa.float64()),
-        ]
-    )
-
-
-def _sample_to_batch(sample: ChannelSample) -> pa.RecordBatch:
-    """Convert a ChannelSample to a single-row RecordBatch."""
-    import json
-
-    value_str = json.dumps(sample.value) if not isinstance(sample.value, str) else sample.value
-    return pa.record_batch(
-        {
-            "channel_id": [sample.channel_id],
-            "timestamp": [sample.timestamp],
-            "value": [value_str],
-            "source_method": [sample.source_method],
-            "units": [sample.units or ""],
-            "sample_interval": [sample.sample_interval],
-        },
-        schema=_sample_schema(),
-    )
-
-
 def _write_batch_to_store(
     store: ChannelStore,
     channel_id: str,
     batch: pa.RecordBatch,
 ) -> None:
     """Write a Flight batch into the store, row by row."""
-    import json
-
     for i in range(batch.num_rows):
         value_raw = batch.column("value")[i].as_py()
         try:

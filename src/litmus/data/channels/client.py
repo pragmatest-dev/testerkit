@@ -15,8 +15,7 @@ from urllib.parse import quote
 import pyarrow as pa
 import pyarrow.flight as flight
 
-from litmus.data.channels.models import ChannelDescriptor, ChannelSample
-from litmus.data.channels.server import _sample_schema
+from litmus.data.channels.models import ChannelDescriptor, ChannelSample, sample_schema
 
 
 class ChannelClient:
@@ -55,7 +54,7 @@ class ChannelClient:
     ) -> None:
         """Write a value to a remote channel via do_put."""
         value_str = json.dumps(value) if not isinstance(value, str) else value
-        schema = _sample_schema()
+        schema = sample_schema()
         batch = pa.record_batch(
             {
                 "channel_id": [channel_id],

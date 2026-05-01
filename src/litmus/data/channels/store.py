@@ -8,15 +8,12 @@ Supports live in-process subscriptions via on_channel().
 from __future__ import annotations
 
 import json
+import re
 import warnings
 from collections.abc import Callable, Sequence
 from datetime import UTC, date, datetime
 from pathlib import Path
-from typing import TYPE_CHECKING
 from uuid import UUID
-
-if TYPE_CHECKING:
-    from litmus.data.subscribers._output_file import OutputFile
 
 import pyarrow as pa
 import pyarrow.flight as flight
@@ -24,13 +21,16 @@ import pyarrow.ipc as ipc
 
 from litmus.data._atomic import atomic_write_text
 from litmus.data._ipc_writer import BufferedIPCWriter
+from litmus.data.channels import flight_manager
 from litmus.data.channels.models import (
     SCALAR_SCHEMA,
     ChannelDescriptor,
     ChannelSample,
     _infer_schema,
+    sample_to_batch,
 )
 from litmus.data.ref import classify_value, make_channel_uri
+from litmus.data.subscribers._output_file import OutputFile
 
 _WRITE_ERRORS = (OSError, pa.ArrowException)  # type: ignore[attr-defined]
 
@@ -551,8 +551,6 @@ class ChannelStore:
         On ``close()``, the ref is released.  The daemon exits after an
         idle timeout once all refs are gone.
         """
-        from litmus.data.channels import flight_manager
-
         location = flight_manager.acquire(
             self._channels_dir,
             self._flight_host,
@@ -562,8 +560,6 @@ class ChannelStore:
 
     def _flight_release(self) -> None:
         """Release our ref on the Flight server daemon."""
-        from litmus.data.channels import flight_manager
-
         flight_manager.release(self._channels_dir)
 
     def _flight_push(self, channel_id: str, sample: ChannelSample) -> None:
@@ -575,13 +571,11 @@ class ChannelStore:
         if location is None:
             return
         try:
-            from litmus.data.channels.server import _sample_to_batch
-
             client = self._flight_client
             if client is None:
                 client = flight.connect(location)
                 self._flight_client = client
-            batch = _sample_to_batch(sample)
+            batch = sample_to_batch(sample)
             descriptor = flight.FlightDescriptor.for_command(
                 channel_id.encode("utf-8"),
             )
@@ -610,8 +604,6 @@ class ChannelStore:
         Returns:
             Set of (channel_id, session_short) pairs.
         """
-        import re
-
         # session_short is always 8 hex chars (first 8 of UUID)
         # Filename: {channel_id}_{session_short}.arrow or {channel_id}_{session_short}_NNN.arrow
         pattern = re.compile(r"^(.+)_([0-9a-f]{8})(?:_\d+)?$")
@@ -658,7 +650,7 @@ class ChannelStore:
                     if registry_path.exists():
                         existing = json.loads(registry_path.read_text())
                     for cid, desc in self._registry.items():
-                        existing[cid] = json.loads(desc.model_dump_json())
+                        existing[cid] = desc.model_dump(mode="json")
                     atomic_write_text(json.dumps(existing, indent=2), registry_path)
                 except _WRITE_ERRORS as exc:
                     warnings.warn(
@@ -667,8 +659,6 @@ class ChannelStore:
                     )
             # Notify transport for each written channel file
             if self._on_output:
-                from litmus.data.subscribers._output_file import OutputFile
-
                 for writer in self._writers.values():
                     for ipc_path in writer.all_paths:
                         try:
