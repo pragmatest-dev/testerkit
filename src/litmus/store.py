@@ -18,6 +18,7 @@ When None (the default), falls back to Path.cwd() for backwards compatibility.
 from __future__ import annotations
 
 import copy
+import os
 import warnings
 from collections.abc import Callable, Iterator
 from io import StringIO
@@ -25,6 +26,7 @@ from pathlib import Path
 from typing import Any, Protocol, TypeVar
 
 import numpy as np
+import platformdirs
 import yaml
 from pydantic import ValidationError
 from ruamel.yaml import YAML
@@ -40,6 +42,7 @@ from litmus.models.project import ProfileConfig, ProjectConfig
 from litmus.models.station import StationConfig, StationType
 from litmus.models.test_config import FixtureConfig
 from litmus.utils.paths import (
+    _resolve_root,
     get_fixture_paths,
     get_instrument_paths,
     get_product_paths,
@@ -111,11 +114,6 @@ __all__ = [
 # =============================================================================
 
 
-def _resolve_root(project_root: Path | None) -> Path:
-    """Resolve project root, defaulting to cwd."""
-    return project_root if project_root is not None else Path.cwd()
-
-
 def _read_yaml(path: Path) -> dict[str, Any]:
     """Read a YAML file and return parsed dict (or empty dict).
 
@@ -152,7 +150,7 @@ def detect_file_type(path: Path) -> str | None:
     return None
 
 
-def find_yaml_files(
+def _find_yaml_files(
     search_paths: list[Path],
     *,
     prefix_skip: str = "_",
@@ -208,7 +206,7 @@ def _get_by_id(
     search_paths: list[Path],
 ) -> _T | None:
     """Look up a YAML-backed entity by ID or filename stem."""
-    for yaml_file in find_yaml_files(search_paths):
+    for yaml_file in _find_yaml_files(search_paths):
         try:
             entity = loader(yaml_file)
             if entity.id == entity_id or yaml_file.stem == entity_id:
@@ -225,7 +223,7 @@ def _list_all(
     """Discover all entities across *search_paths*, deduplicating by ID."""
     entities: list[_T] = []
     seen_ids: set[str] = set()
-    for yaml_file in find_yaml_files(search_paths):
+    for yaml_file in _find_yaml_files(search_paths):
         try:
             entity = loader(yaml_file)
         except _YAML_LOAD_ERRORS:
@@ -359,10 +357,6 @@ def find_station_config(
         return result
 
     # 2. Machine-global fallback
-    import os
-
-    import platformdirs
-
     home = Path(os.environ.get("LITMUS_HOME", platformdirs.user_data_dir("litmus")))
     global_path = home / "stations" / f"{station_id}.yaml"
     if global_path.exists():
@@ -492,6 +486,56 @@ def _check_inherit_depth(depth: int, entity_type: str, path: Path) -> None:
         raise ValueError(f"{entity_type} inheritance depth exceeds {_MAX_INHERIT_DEPTH} for {path}")
 
 
+def _load_with_inheritance(
+    path: Path,
+    *,
+    label: str,
+    find_base: Callable[[str, Path], Path | None],
+    merge: Callable[[dict[str, Any], dict[str, Any]], dict[str, Any]],
+    seen: set[str],
+    depth: int,
+) -> dict[str, Any]:
+    """Recursive ``base:``-resolving YAML loader.
+
+    Shared by :func:`load_product` and :func:`load_catalog_entry` —
+    both walk the same scaffolding (depth check, cycle guard, recurse,
+    merge) but differ on how to find a base file and how to merge the
+    raw data. ``find_base(base_ref, current_path)`` returns the resolved
+    base path or ``None``; ``merge(base, variant)`` returns the merged
+    dict.
+    """
+    _check_inherit_depth(depth, label, path)
+
+    data = _read_yaml(path)
+    entity_id = data.get("id", path.stem)
+    base_ref = data.get("base")
+
+    if not base_ref:
+        return data
+
+    if entity_id in seen:
+        raise ValueError(
+            f"Circular {label.lower()} inheritance: {entity_id!r} already in chain {seen}"
+        )
+    seen.add(entity_id)
+
+    base_path = find_base(base_ref, path)
+    if base_path is None:
+        raise ValueError(
+            f"Base {label.lower()} {base_ref!r} not found (referenced by {entity_id!r} in {path})"
+        )
+
+    base_data = _load_with_inheritance(
+        base_path,
+        label=label,
+        find_base=find_base,
+        merge=merge,
+        seen=seen,
+        depth=depth + 1,
+    )
+    return merge(base_data, data)
+
+
 def load_product(path: Path, products_dir: Path | None = None) -> Product:
     """Load a product specification from YAML, resolving inheritance.
 
@@ -506,49 +550,32 @@ def load_product(path: Path, products_dir: Path | None = None) -> Product:
         else:
             products_dir = path.parent
 
-    data = _load_product_with_inheritance(path, products_dir, seen=set(), depth=0)
-    return Product.model_validate({"id": path.stem} | data)
-
-
-def _load_product_with_inheritance(
-    path: Path,
-    products_dir: Path,
-    seen: set[str],
-    depth: int,
-) -> dict[str, Any]:
-    """Load raw YAML and recursively merge base products."""
-    _check_inherit_depth(depth, "Product", path)
-
-    data = _read_yaml(path)
-    product_id = data.get("id", path.stem)
-    base_ref = data.get("base")
-
-    if not base_ref:
-        return data
-
-    if product_id in seen:
-        raise ValueError(f"Circular product inheritance: {product_id!r} already in chain {seen}")
-    seen.add(product_id)
-
-    base_path = products_dir / f"{base_ref}.yaml"
-    if not base_path.exists():
+    def find_base(base_ref: str, _current: Path) -> Path | None:
+        # Direct hit by filename stem.
+        base_path = products_dir / f"{base_ref}.yaml"
+        if base_path.exists():
+            return base_path
+        # Fallback: scan for a file whose ``id:`` equals the base_ref.
         for candidate in products_dir.rglob("*.yaml"):
             if candidate.name.startswith("_"):
                 continue
             try:
                 candidate_data = _read_yaml(candidate)
                 if candidate_data.get("id") == base_ref:
-                    base_path = candidate
-                    break
+                    return candidate
             except (yaml.YAMLError, OSError):
                 continue
-    if not base_path.exists():
-        raise ValueError(
-            f"Base product {base_ref!r} not found (referenced by {product_id!r} in {path})"
-        )
+        return None
 
-    base_data = _load_product_with_inheritance(base_path, products_dir, seen, depth + 1)
-    return _merge_product_data(base_data, data)
+    data = _load_with_inheritance(
+        path,
+        label="Product",
+        find_base=find_base,
+        merge=_merge_product_data,
+        seen=set(),
+        depth=0,
+    )
+    return Product.model_validate({"id": path.stem} | data)
 
 
 def _merge_product_data(
@@ -732,43 +759,27 @@ def load_catalog_entry(
     catalog_dir: Path | None = None,
 ) -> InstrumentCatalogEntry:
     """Load a single catalog entry from a YAML file, resolving inheritance."""
-    if catalog_dir is None:
-        catalog_dir = path.parent
-    data = _load_catalog_with_inheritance(path, catalog_dir, seen=set(), depth=0)
+    resolved_catalog_dir = catalog_dir if catalog_dir is not None else path.parent
+
+    def find_base(base_ref: str, current: Path) -> Path | None:
+        # Sibling file first, then catalog-dir top-level.
+        sibling = current.parent / f"{base_ref}.yaml"
+        if sibling.exists():
+            return sibling
+        top = resolved_catalog_dir / f"{base_ref}.yaml"
+        if top.exists():
+            return top
+        return None
+
+    data = _load_with_inheritance(
+        path,
+        label="Catalog",
+        find_base=find_base,
+        merge=_merge_catalog_data,
+        seen=set(),
+        depth=0,
+    )
     return _build_catalog_entry(data, path)
-
-
-def _load_catalog_with_inheritance(
-    path: Path,
-    catalog_dir: Path,
-    seen: set[str],
-    depth: int,
-) -> dict[str, Any]:
-    """Load raw YAML and recursively merge base catalog entries."""
-    _check_inherit_depth(depth, "Catalog", path)
-
-    data = _read_yaml(path)
-
-    entry_id = data.get("id", path.stem)
-    base_ref = data.get("base")
-
-    if not base_ref:
-        return data
-
-    if entry_id in seen:
-        raise ValueError(f"Circular catalog inheritance: {entry_id!r} already in chain {seen}")
-    seen.add(entry_id)
-
-    base_path = path.parent / f"{base_ref}.yaml"
-    if not base_path.exists():
-        base_path = catalog_dir / f"{base_ref}.yaml"
-    if not base_path.exists():
-        raise ValueError(
-            f"Base catalog entry {base_ref!r} not found (referenced by {entry_id!r} in {path})"
-        )
-
-    base_data = _load_catalog_with_inheritance(base_path, catalog_dir, seen, depth + 1)
-    return _merge_catalog_data(base_data, data)
 
 
 def _merge_catalog_data(
