@@ -95,13 +95,11 @@ class LimitsView(Mapping[str, MeasurementLimitConfig]):
         ``{k: v for k, v in ctx.limits.items() if v.characteristic == "rail_3v3"}``.
         """
         active = get_active_characteristic()
-        out: dict[str, MeasurementLimitConfig] = {}
-        for label, cfg in self._data.items():
-            if cfg.characteristic == char_id:
-                out[label] = cfg
-            elif cfg.characteristic is None and active == char_id:
-                out[label] = cfg
-        return out
+        return {
+            label: cfg
+            for label, cfg in self._data.items()
+            if cfg.characteristic == char_id or (cfg.characteristic is None and active == char_id)
+        }
 
 
 class Context:
@@ -891,11 +889,14 @@ class TestHarness:
         if current_tv is not None:
             current_tv.measurements.append(measurement)
 
-        # Stream to event log via logger (logger handles outcome updates)
+        # Stream to event log via logger (logger handles outcome updates).
+        # The no-logger branch is for unit-testing the harness lifecycle
+        # without an event-log fixture — vector outcome cascades but
+        # step/run cascade is skipped (no logger context to read them
+        # from). Production harness usage always has a logger.
         if self._logger is not None:
             self._logger.log_measurement(measurement)
         elif current_tv is not None and measurement.outcome is not None:
-            # No logger — harness must update outcome itself
             current_tv.outcome = escalate_outcome(current_tv.outcome, measurement.outcome)
 
         return measurement

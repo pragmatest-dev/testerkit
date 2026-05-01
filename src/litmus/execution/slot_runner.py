@@ -445,25 +445,21 @@ def _run_subprocess_mode(
     # worker has its own mock state (per-test mock values don't leak).
     served_roles: set[str] = set()
     if shared_roles:
-        from litmus.instruments.lifecycle import load_and_connect
+        from litmus.instruments.lifecycle import disconnect, load_and_connect
         from litmus.instruments.server import InstrumentServer
         from litmus.models.instrument import InstrumentRecord
 
         concurrent_roles: set[str] = set()
         resources: dict[str, str] = {}
-        current_role = ""
 
-        try:
-            for role in shared_roles:
-                current_role = role
-                inst_cfg = station_instruments.get(role)
-                if inst_cfg is None:
-                    continue
+        for role in shared_roles:
+            inst_cfg = station_instruments.get(role)
+            if inst_cfg is None:
+                continue
+            if mock_all or inst_cfg.mock:
+                continue  # Workers get independent mocks
 
-                is_mocked = mock_all or inst_cfg.mock
-                if is_mocked:
-                    continue  # Workers get independent mocks
-
+            try:
                 record = InstrumentRecord(
                     role=role,
                     instrument_id=role,
@@ -472,28 +468,21 @@ def _run_subprocess_mode(
                     protocol="visa",
                     mocked=False,
                 )
-
-                mock_config = inst_cfg.mock_config if inst_cfg else {}
                 driver = load_and_connect(
                     record,
                     mock=False,
-                    mock_config=mock_config,
+                    mock_config=inst_cfg.mock_config,
                 )
                 shared_drivers[role] = driver
                 served_roles.add(role)
-
                 if inst_cfg.resource:
                     resources[role] = inst_cfg.resource
                 if inst_cfg.type == "switch":
                     concurrent_roles.add(role)
-        except Exception as exc:
-            from litmus.instruments.lifecycle import disconnect
-
-            for cleanup_role, driver in shared_drivers.items():
-                disconnect(driver, cleanup_role)
-            raise RuntimeError(
-                f"Failed to connect shared instrument '{current_role}': {exc}"
-            ) from exc
+            except Exception as exc:
+                for cleanup_role, cleanup_driver in shared_drivers.items():
+                    disconnect(cleanup_driver, cleanup_role)
+                raise RuntimeError(f"Failed to connect shared instrument {role!r}: {exc}") from exc
 
         if shared_drivers:
             server = InstrumentServer(

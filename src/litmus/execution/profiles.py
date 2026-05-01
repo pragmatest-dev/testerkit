@@ -362,7 +362,7 @@ def validate_phase_wiring(
     if (
         station_config is not None
         and station_type_template is not None
-        and getattr(station_config, "station_type", None)
+        and station_config.station_type
     ):
         mismatches = validate_station_against_type(station_config, station_type_template)
         if mismatches:
@@ -380,23 +380,20 @@ def validate_phase_wiring(
         return
 
     # 2. Profile → station type.
-    if station_config is not None:
-        actual = getattr(station_config, "station_type", None)
-        if actual != profile_station_type:
-            raise ProfileError(
-                f"Profile requires station_type={profile_station_type!r}; "
-                f"active station {station_config.id!r} has "
-                f"station_type={actual!r}."
-            )
+    if station_config is not None and station_config.station_type != profile_station_type:
+        raise ProfileError(
+            f"Profile requires station_type={profile_station_type!r}; "
+            f"active station {station_config.id!r} has "
+            f"station_type={station_config.station_type!r}."
+        )
 
     # 3. Profile → fixture compatibility.
-    if fixture_config is not None:
-        fixture_types = list(getattr(fixture_config, "station_types", []) or [])
-        if fixture_types and profile_station_type not in fixture_types:
+    if fixture_config is not None and fixture_config.station_types:
+        if profile_station_type not in fixture_config.station_types:
             raise ProfileError(
                 f"Profile requires station_type={profile_station_type!r} but "
                 f"active fixture {fixture_config.id!r} declares "
-                f"station_types={fixture_types!r}."
+                f"station_types={fixture_config.station_types!r}."
             )
 
 
