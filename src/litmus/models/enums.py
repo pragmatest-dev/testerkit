@@ -243,20 +243,6 @@ TRIAX_CONNECTORS: frozenset[ConnectorType] = frozenset(
 )
 
 
-class CompareMode(StrEnum):
-    """Comparison direction for capability parameters.
-
-    Determines how instrument and requirement values are compared:
-    - CONTAINS: Instrument range must contain required range (default)
-    - HIGHER_BETTER: Instrument value must be >= required (gain, bandwidth)
-    - LOWER_BETTER: Instrument value must be <= required (noise, THD)
-    """
-
-    CONTAINS = "contains"
-    HIGHER_BETTER = "higher_better"
-    LOWER_BETTER = "lower_better"
-
-
 class MatchDepth(StrEnum):
     """How deep to check when matching capabilities.
 
@@ -273,22 +259,6 @@ class MatchDepth(StrEnum):
     RANGE = "range"
     ACCURACY = "accuracy"
     RESOLUTION = "resolution"
-
-
-class ParameterRole(StrEnum):
-    """Role of a signal parameter in a capability.
-
-    Describes how a parameter functions within a measurement or stimulus:
-    - CONTROLLABLE: Instrument can set this value (e.g., output voltage)
-    - MEASURABLE: Instrument can read this value (e.g., measured voltage)
-    - CAPABILITY: Performance limit of the instrument (e.g., bandwidth)
-    - CONDITION: Operating condition that affects other parameters (e.g., temperature)
-    """
-
-    CONTROLLABLE = "controllable"
-    MEASURABLE = "measurable"
-    CAPABILITY = "capability"
-    CONDITION = "condition"
 
 
 class Comparator(StrEnum):

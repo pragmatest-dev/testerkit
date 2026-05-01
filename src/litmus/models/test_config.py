@@ -515,25 +515,6 @@ class PromptConfig(BaseModel):
     timeout_seconds: int | None = None
 
 
-class LimitExprConfig(BaseModel):
-    """Configuration for expression-based limits.
-
-    Example YAML:
-        limits:
-          output_voltage:
-            expr: "0.66 * vector.input_voltage"
-            tolerance_pct: 5
-            units: V
-    """
-
-    model_config = {"extra": "forbid"}
-
-    expr: str
-    tolerance_pct: float | None = None
-    tolerance_abs: float | None = None
-    units: str
-
-
 class LimitLookupConfig(BaseModel):
     """Configuration for lookup-table based limits.
 
@@ -575,20 +556,6 @@ class LimitStepConfig(BaseModel):
 
     param: str
     ranges: list[dict[str, Any]]  # List of {below: X, limit: {...}} or {default: ..., limit: {...}}
-
-
-class LimitCallableConfig(BaseModel):
-    """Configuration for Python callable limits.
-
-    Example YAML:
-        limits:
-          output_voltage:
-            callable: "myproject.limits.output_voltage_limit"
-    """
-
-    model_config = {"extra": "forbid"}
-
-    callable: str  # Dotted path to Python function
 
 
 class MeasurementLimitConfig(BaseModel):
