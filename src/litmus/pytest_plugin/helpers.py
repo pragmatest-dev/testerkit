@@ -1,8 +1,9 @@
 """Shared private helpers used across the pytest plugin.
 
 Pure utility functions with no fixture or hook semantics. Imported by
-:mod:`litmus.pytest_plugin.hooks`, :mod:`litmus.pytest_plugin.fixtures`,
-and :mod:`litmus.pytest_plugin.autouse`.
+:mod:`litmus.pytest_plugin.hooks` (pytest_* lifecycle),
+:mod:`litmus.pytest_plugin.autouse` (autouse fixtures), and the
+session fixtures defined in :mod:`litmus.pytest_plugin.__init__`.
 """
 
 from __future__ import annotations
@@ -17,6 +18,7 @@ from typing import Any
 import pytest
 import yaml
 
+from litmus.execution._state import get_active_profile
 from litmus.execution.profiles import load_project_defaults
 
 
@@ -151,14 +153,24 @@ def resolve_station_id(config) -> str | None:
 
 
 def _read_id_from_yaml(path: Path) -> str:
-    """Read ``id:`` from a YAML file; fall back to the file stem."""
+    """Read ``id:`` from a YAML file; fall back to the file stem.
+
+    The fallback covers both legitimate cases (YAML omits ``id:`` and
+    relies on the filename) and error cases (parse failure, OSError).
+    Errors emit a warning so silent stem-fallback doesn't mask config
+    bugs.
+    """
     try:
         with path.open() as fh:
             data = yaml.safe_load(fh) or {}
-        if isinstance(data, dict) and isinstance(data.get("id"), str):
-            return data["id"]
-    except (OSError, yaml.YAMLError):
-        pass
+    except (OSError, yaml.YAMLError) as exc:
+        warnings.warn(
+            f"Could not read {path}: {exc}. Falling back to file stem {path.stem!r} as id.",
+            stacklevel=2,
+        )
+        return path.stem
+    if isinstance(data, dict) and isinstance(data.get("id"), str):
+        return data["id"]
     return path.stem
 
 
@@ -181,8 +193,6 @@ def find_fixture_file(config) -> Path | None:
     profile declares ``fixture: <Y>`` with ``Y != X``, the CLI wins
     but a warning is emitted — explicit beats declarative.
     """
-    from litmus.execution._state import get_active_profile
-
     cli_fixture = config.getoption("--fixture")
     profile = get_active_profile()
     profile_fixture = profile.fixture if profile is not None else None

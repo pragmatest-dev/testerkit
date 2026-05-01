@@ -11,7 +11,7 @@ into ContextVar state, building :class:`ConnectionIterator` for the
 The underscore prefix on each fixture name reinforces "infrastructure,
 not user-facing." Test authors interact through the public surface
 (:func:`logger`, :func:`verify`, :func:`context`, …) defined in
-:mod:`litmus.pytest_plugin.fixtures`.
+:mod:`litmus.pytest_plugin.__init__`.
 """
 
 from __future__ import annotations

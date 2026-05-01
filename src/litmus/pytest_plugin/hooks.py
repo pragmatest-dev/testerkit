@@ -13,6 +13,7 @@ from __future__ import annotations
 import os
 import warnings
 from collections.abc import Iterator
+from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
 
@@ -53,7 +54,7 @@ from litmus.execution.profiles import (
 )
 from litmus.execution.sidecar import load_sidecar as _load_sidecar
 from litmus.execution.vectors import Vector
-from litmus.models.test_config import RetryConfig, SweepEntry, TestEntry
+from litmus.models.test_config import MockEntry, RetryConfig, SweepEntry, TestEntry
 from litmus.pytest_plugin.helpers import (
     find_station_file,
     join_marker_names,
@@ -73,6 +74,20 @@ from litmus.pytest_plugin.sweeps import (
     parametrize_calls_for_entry,
     sweep_to_parametrize_args,
 )
+
+
+@contextmanager
+def _profile_errors_as_usage() -> Iterator[None]:
+    """Context manager: re-raise any ``ProfileError`` as ``pytest.UsageError``.
+
+    Used at each site that calls into the profile / phase-wiring resolver
+    and wants the failure to surface as a clean pytest usage error
+    rather than a stack trace into Litmus internals.
+    """
+    try:
+        yield
+    except ProfileError as exc:
+        raise pytest.UsageError(str(exc)) from exc
 
 
 def pytest_configure(config):
@@ -110,11 +125,9 @@ def pytest_configure(config):
         "markers concatenates their lists.",
     ):
         config.addinivalue_line("markers", marker)
-    try:
+    with _profile_errors_as_usage():
         install_active_profile(config)
         install_session_inputs(load_project_defaults(), config)
-    except ProfileError as exc:
-        raise pytest.UsageError(str(exc)) from exc
 
     # Auto-register instrument role fixtures from station config
     station_path = find_station_file(config)
@@ -136,52 +149,27 @@ def pytest_configure(config):
 
     instruments_map = station_model.instruments or {}
 
-    # Sequences (deleted) used to inject per-test fixture aliases and configs.
-    # With sequences gone, both maps are empty for the lifetime of the session.
+    # Sequences (deleted) used to inject per-test fixture aliases. The
+    # alias machinery and per-test config map are gone with them; setters
+    # remain to clear any stale state from an earlier session.
     set_test_node_aliases({})
     set_test_node_configs({})
-    all_alias_names: set[str] = set()
 
     class _InstrumentFixtures:
         pass
 
-    aliased_role_names = all_alias_names & set(instruments_map.keys())
-
-    def _make_resolved(name: str):
-        """Create a function-scoped fixture that resolves aliases."""
-        from litmus.execution._state import get_current_step_aliases
-
-        @pytest.fixture
-        def _fix(instruments):
-            target = get_current_step_aliases().get(name, name)
-            if target not in instruments:
-                from litmus.execution.accessors import _instrument_not_found
-
-                raise _instrument_not_found(name, target, instruments)
-            return instruments[target]
-
-        _fix.__name__ = name
-        _fix.__qualname__ = name
-        return _fix
-
     for role in instruments_map:
-        if role in aliased_role_names:
-            setattr(_InstrumentFixtures, role, staticmethod(_make_resolved(role)))
-        else:
 
-            def _make(r=role):
-                @pytest.fixture(scope="session")
-                def _fix(instruments):
-                    return instruments.get(r)
+        def _make(r=role):
+            @pytest.fixture(scope="session")
+            def _fix(instruments):
+                return instruments.get(r)
 
-                _fix.__name__ = r
-                _fix.__qualname__ = r
-                return _fix
+            _fix.__name__ = r
+            _fix.__qualname__ = r
+            return _fix
 
-            setattr(_InstrumentFixtures, role, staticmethod(_make()))
-
-    for alias in all_alias_names - set(instruments_map.keys()):
-        setattr(_InstrumentFixtures, alias, staticmethod(_make_resolved(alias)))
+        setattr(_InstrumentFixtures, role, staticmethod(_make()))
 
     config.pluginmanager.register(_InstrumentFixtures(), "litmus_instrument_fixtures")
 
@@ -331,14 +319,16 @@ def _warn_method_mocks_in_non_dev_phase(items: list[pytest.Item], config: pytest
             except ValueError:
                 continue
             for raw in normalized:
-                target = (
-                    raw.target
-                    if hasattr(raw, "target")
-                    else (raw.get("target") if isinstance(raw, dict) else None)
-                )
-                if target and target not in seen:
-                    seen.add(target)
-                    targets.append(target)
+                # Coerce to the typed model so .target is always safe;
+                # drop entries that fail validation (we're computing a
+                # warning, not enforcing schema here).
+                try:
+                    entry = raw if isinstance(raw, MockEntry) else MockEntry.model_validate(raw)
+                except ValueError:
+                    continue
+                if entry.target not in seen:
+                    seen.add(entry.target)
+                    targets.append(entry.target)
         if targets:
             flagged.append((item.nodeid, targets))
 
@@ -422,10 +412,8 @@ def pytest_sessionfinish(session, exitstatus):
 
 def pytest_load_initial_conftests(early_config, parser, args):
     """Apply ``profile.pytest.addopts`` via ``PYTEST_ADDOPTS`` before collection."""
-    try:
+    with _profile_errors_as_usage():
         apply_profile_addopts_env(args)
-    except ProfileError as exc:
-        raise pytest.UsageError(str(exc)) from exc
 
 
 def pytest_addoption(parser):
@@ -544,32 +532,31 @@ def pytest_addoption(parser):
         )
 
 
-def _extract_code_identity(item: Any) -> dict[str, str | None]:
-    """Extract code identity fields from a pytest.Item node."""
-    identity: dict[str, str | None] = {}
-    identity["node_id"] = getattr(item, "nodeid", None)
+def _extract_code_identity(item: pytest.Item) -> dict[str, str | None]:
+    """Extract code identity fields from a pytest.Item node.
+
+    ``nodeid``, ``path``, ``config``, ``own_markers`` are guaranteed by
+    the pytest.Item API and are accessed directly. ``module`` is a
+    :class:`pytest.Function`-specific attribute; non-Function items
+    (Doctest, etc.) don't have it, so it stays defensive.
+    """
     cls_name, func_name = node_cls_func(item)
-    identity["function"] = func_name
-    identity["class_name"] = cls_name
     mod = getattr(item, "module", None)
-    identity["module"] = mod.__name__ if mod else None
 
-    item_path = getattr(item, "path", None)
-    if item_path is not None:
-        rootdir = getattr(item.config, "rootpath", None)
-        if rootdir:
-            try:
-                identity["file"] = str(item_path.relative_to(rootdir))
-            except ValueError:
-                identity["file"] = str(item_path)
-        else:
-            identity["file"] = str(item_path)
-    else:
-        identity["file"] = None
+    rootpath = item.config.rootpath
+    try:
+        file = str(item.path.relative_to(rootpath))
+    except ValueError:
+        file = str(item.path)
 
-    identity["markers"] = join_marker_names(getattr(item, "own_markers", []))
-
-    return identity
+    return {
+        "node_id": item.nodeid,
+        "function": func_name,
+        "class_name": cls_name,
+        "module": mod.__name__ if mod else None,
+        "file": file,
+        "markers": join_marker_names(item.own_markers),
+    }
 
 
 @pytest.hookimpl(tryfirst=True)
@@ -636,6 +623,22 @@ def pytest_runtest_call(item: pytest.Item) -> Iterator[None]:
     yield
 
 
+def _escalate_step_and_run(logger_inst: Any, step: Any, new_outcome: Outcome) -> None:
+    """Cascade ``new_outcome`` into both ``step.outcome`` and ``run.outcome``.
+
+    Single helper for the two hooks that stamp outcomes from runner-side
+    signals (``pytest_runtest_call`` for call-phase exceptions,
+    ``pytest_runtest_makereport`` for setup/teardown failures, and
+    ``pytest_keyboard_interrupt`` for ABORTED). Keeps the cascade shape
+    consistent — no risk of one hook escalating step but not run.
+    ``step`` may be ``None`` (setup-phase failure with no step opened);
+    in that case only the run is escalated.
+    """
+    if step is not None:
+        step.outcome = escalate_outcome(step.outcome, new_outcome)
+    logger_inst.test_run.outcome = escalate_outcome(logger_inst.test_run.outcome, new_outcome)
+
+
 def _stamp_step_from_call_outcome(logger_inst: Any, outcome_obj: Any) -> None:
     """Translate the pluggy outcome of pytest's call phase into ``step.outcome``.
 
@@ -666,11 +669,10 @@ def _stamp_step_from_call_outcome(logger_inst: Any, outcome_obj: Any) -> None:
         new_outcome = Outcome.FAILED
     else:
         new_outcome = Outcome.ERRORED
-    step.outcome = escalate_outcome(step.outcome, new_outcome)
-    logger_inst.test_run.outcome = escalate_outcome(logger_inst.test_run.outcome, new_outcome)
+    _escalate_step_and_run(logger_inst, step, new_outcome)
 
 
-@pytest.hookimpl(tryfirst=True, hookwrapper=True)
+@pytest.hookimpl(hookwrapper=True)
 def pytest_runtest_makereport(item: pytest.Item, call: Any) -> Iterator[None]:
     """Translate setup/teardown phase failures into ``step.outcome``.
 
@@ -704,10 +706,11 @@ def pytest_runtest_makereport(item: pytest.Item, call: Any) -> Iterator[None]:
         new_outcome = Outcome.SKIPPED
     else:
         new_outcome = Outcome.ERRORED
-    step = _find_step_for_nodeid(logger_inst, item.nodeid)
-    if step is not None:
-        step.outcome = escalate_outcome(step.outcome, new_outcome)
-    logger_inst.test_run.outcome = escalate_outcome(logger_inst.test_run.outcome, new_outcome)
+    _escalate_step_and_run(
+        logger_inst,
+        _find_step_for_nodeid(logger_inst, item.nodeid),
+        new_outcome,
+    )
     _ = outcome_obj  # the wrapper returns the original outcome unmodified
 
 
@@ -733,10 +736,7 @@ def pytest_keyboard_interrupt(excinfo: Any) -> None:
         return
     from litmus.execution._state import get_current_step
 
-    step = get_current_step()
-    if step is not None:
-        step.outcome = escalate_outcome(step.outcome, Outcome.ABORTED)
-    logger_inst.test_run.outcome = escalate_outcome(logger_inst.test_run.outcome, Outcome.ABORTED)
+    _escalate_step_and_run(logger_inst, get_current_step(), Outcome.ABORTED)
 
 
 def _audit_traceability(logger_inst: Any, *, strict: bool) -> None:
@@ -925,24 +925,16 @@ def _consume_parametrize_markers(metafunc: pytest.Metafunc) -> list[dict[str, An
 
 
 def _parametrize_mark_rows(mark: pytest.Mark) -> list[dict[str, Any]]:
-    """Convert a single @pytest.mark.parametrize marker into row dicts."""
+    """Convert a single @pytest.mark.parametrize marker into row dicts.
+
+    Thin wrapper that unpacks the marker's args and delegates to
+    :func:`litmus.pytest_plugin.sweeps.parametrize_call_rows` (the
+    canonical row-shape converter). Translates the helper's
+    ``ValueError`` into ``pytest.UsageError`` for clean reporting.
+    """
     if len(mark.args) < 2:
         return []
-    argnames, argvalues = mark.args[0], mark.args[1]
-    names = (
-        [n.strip() for n in argnames.split(",")] if isinstance(argnames, str) else list(argnames)
-    )
-    rows: list[dict[str, Any]] = []
-    for raw in argvalues:
-        values = getattr(raw, "values", None)
-        if values is None:
-            values = raw
-        if len(names) == 1:
-            rows.append({names[0]: values})
-        else:
-            if not isinstance(values, (tuple, list)):
-                raise pytest.UsageError(
-                    f"parametrize {argnames!r} expected a tuple per row; got {values!r}"
-                )
-            rows.append(dict(zip(names, values, strict=True)))
-    return rows
+    try:
+        return parametrize_call_rows(mark.args[0], mark.args[1])
+    except ValueError as exc:
+        raise pytest.UsageError(str(exc)) from exc

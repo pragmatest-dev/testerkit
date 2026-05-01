@@ -95,13 +95,16 @@ from litmus.pytest_plugin.helpers import (
 )
 from litmus.pytest_plugin.hooks import (
     VECTORS_MATRIX_KEY,
+    _profile_errors_as_usage,
     pytest_addoption,
     pytest_collection_modifyitems,
     pytest_configure,
     pytest_generate_tests,
+    pytest_keyboard_interrupt,
     pytest_load_initial_conftests,
     pytest_report_header,
     pytest_runtest_call,
+    pytest_runtest_makereport,
     pytest_runtest_setup,
     pytest_runtestloop,
     pytest_sessionfinish,
@@ -120,9 +123,11 @@ __all__ = [
     "pytest_collection_modifyitems",
     "pytest_configure",
     "pytest_generate_tests",
+    "pytest_keyboard_interrupt",
     "pytest_load_initial_conftests",
     "pytest_report_header",
     "pytest_runtest_call",
+    "pytest_runtest_makereport",
     "pytest_runtest_setup",
     "pytest_runtestloop",
     "pytest_sessionfinish",
@@ -167,7 +172,7 @@ def _require_fixture_and_instruments(
 
 def _build_run_metadata(request: pytest.FixtureRequest) -> dict[str, Any]:
     """Pytest adapter — read session fixtures + CLI options, delegate to runner-neutral builder."""
-    from litmus.execution.profiles import ProfileError, validate_phase_wiring
+    from litmus.execution.profiles import validate_phase_wiring
     from litmus.store import load_station_type
 
     requested_phase = request.config.getoption("--test-phase") or os.environ.get(
@@ -181,19 +186,17 @@ def _build_run_metadata(request: pytest.FixtureRequest) -> dict[str, Any]:
     # if the active station declares one; runs the four checks; raises
     # pytest.UsageError on mismatch.
     station_type_template = None
-    if station_config is not None:
-        st_id = getattr(station_config, "station_type", None)
-        if st_id:
-            station_type_template = load_station_type(st_id, project_root=request.config.rootpath)
-    try:
+    if station_config is not None and station_config.station_type:
+        station_type_template = load_station_type(
+            station_config.station_type, project_root=request.config.rootpath
+        )
+    with _profile_errors_as_usage():
         validate_phase_wiring(
             profile=profile,
             station_config=station_config,
             fixture_config=fixture_config,
             station_type_template=station_type_template,
         )
-    except ProfileError as exc:
-        raise pytest.UsageError(str(exc)) from exc
 
     return build_run_metadata(
         dut_serial=request.config.getoption("--dut-serial"),
@@ -871,9 +874,7 @@ def _route_manager(
 
     session_id = logger._session_id if logger else None
     event_log = logger.event_log if logger else None
-    station_id = ""
-    if logger and hasattr(logger, "_station_id"):
-        station_id = getattr(logger, "_station_id", "")
+    station_id = logger.test_run.station_id or "" if logger else ""
 
     rm = RouteManager(
         connections=fixture_config.connections,
