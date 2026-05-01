@@ -118,7 +118,9 @@ class VectorBuilder:
         if m.value is not None and has_limits:
             m.check_limit()
         elif m.value is not None:
-            m.outcome = Outcome.PASSED
+            # No limit configured → recorder semantic ("ran, no judgment").
+            # Matches ``logger.measure``'s default outcome.
+            m.outcome = Outcome.DONE
 
         self._vector.measurements.append(m)
 

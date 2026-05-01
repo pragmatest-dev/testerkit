@@ -758,11 +758,15 @@ class TestRunLogger:
         # ``logger.measure`` stamps via the ``outcome=`` kwarg (default
         # DONE; verify passes PASSED / FAILED / ERRORED). ``harness.measure``
         # stamps via ``check_limit()``. Direct ``log_measurement`` callers
-        # (assertion path, client.py) set it explicitly.
-        assert measurement.outcome is not None, (
-            f"log_measurement requires measurement.outcome to be set "
-            f"(got None for {measurement.name!r})"
-        )
+        # (assertion path) set it explicitly. RuntimeError instead of
+        # ``assert`` so the contract holds under ``python -O``.
+        if measurement.outcome is None:
+            raise RuntimeError(
+                f"log_measurement requires measurement.outcome to be set "
+                f"before this call (got None for {measurement.name!r}). "
+                "Stamp via logger.measure(outcome=...), check_limit(), or "
+                "set measurement.outcome explicitly before calling."
+            )
         # Cascade outcome up the test run hierarchy via the 7-rank
         # severity ladder (ABORTED > ERRORED > FAILED > PASSED > DONE >
         # SKIPPED > PLANNED).
@@ -922,7 +926,7 @@ class TestRunLogger:
             meas_units = resolved_limit.units
             meas_char_id = resolved_limit.characteristic_id
             meas_spec_ref = resolved_limit.spec_ref
-            cmp_str = _stringify_comparator(getattr(resolved_limit, "comparator", None))
+            cmp_str = _stringify_comparator(resolved_limit.comparator)
 
         # Auto-fill traceability from the active ProductContext. A caller
         # (ProductContext.check / legacy harness) may have pre-populated a

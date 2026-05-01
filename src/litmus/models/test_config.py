@@ -271,6 +271,40 @@ class Limit(BaseModel):
             return False
         return check(self, float(value))
 
+    @classmethod
+    def from_row(
+        cls,
+        *,
+        low: float | None,
+        high: float | None,
+        nominal: float | None,
+        units: str | None,
+        comparator: str | None,
+        characteristic_id: str | None = None,
+        spec_ref: str | None = None,
+    ) -> Limit | None:
+        """Build a Limit from row-level scalar fields, or None if no
+        limit fields are stamped.
+
+        Parquet rows carry the limit as scalars (``limit_low`` /
+        ``limit_high`` / ``limit_nominal`` / ``limit_comparator``);
+        this factory rebuilds the typed Limit so callers can use
+        ``Limit.__contains__`` (and any future Limit methods) on row
+        data without re-implementing the comparator logic.
+        """
+        if low is None and high is None and nominal is None:
+            return None
+        cmp = Comparator(comparator) if comparator else Comparator.GELE
+        return cls(
+            low=low,
+            high=high,
+            nominal=nominal,
+            units=units or "",
+            characteristic_id=characteristic_id,
+            spec_ref=spec_ref,
+            comparator=cmp,
+        )
+
     def __repr__(self) -> str:
         parts: list[str] = []
         if self.low is not None:

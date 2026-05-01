@@ -2,16 +2,14 @@
 
 from __future__ import annotations
 
-from collections.abc import Iterator
 from datetime import UTC, datetime
 from enum import StrEnum
-from typing import TYPE_CHECKING, Any
+from typing import Any
 from uuid import UUID, uuid4
 
 from pydantic import BaseModel, Field
 
-if TYPE_CHECKING:
-    from litmus.data.backends._row_helpers import MeasurementRow
+from litmus.models.test_config import Limit
 
 
 def _utcnow() -> datetime:
@@ -94,6 +92,16 @@ class Outcome(StrEnum):
     DONE = "done"
     PLANNED = "planned"
 
+    @property
+    def severity(self) -> int:
+        """Severity rank for cascade ordering. Worst wins.
+
+        ``ABORTED`` (6) > ``ERRORED`` (5) > ``FAILED`` (4) >
+        ``PASSED`` (3) > ``DONE`` (2) > ``SKIPPED`` (1) > ``PLANNED``
+        (0). See :func:`escalate_outcome` for the rationale.
+        """
+        return _OUTCOME_SEVERITY[self]
+
 
 _OUTCOME_SEVERITY: dict[Outcome, int] = {
     Outcome.ABORTED: 6,
@@ -104,6 +112,12 @@ _OUTCOME_SEVERITY: dict[Outcome, int] = {
     Outcome.SKIPPED: 1,
     Outcome.PLANNED: 0,
 }
+
+# Drift guard: every Outcome variant must have a severity rank. Catches
+# the common bug where a new variant is added but the dict isn't updated.
+assert set(Outcome) == set(_OUTCOME_SEVERITY), (
+    f"_OUTCOME_SEVERITY is missing ranks for: {set(Outcome) - set(_OUTCOME_SEVERITY)}"
+)
 
 
 def escalate_outcome(current: Outcome, incoming: Outcome) -> Outcome:
@@ -124,7 +138,7 @@ def escalate_outcome(current: Outcome, incoming: Outcome) -> Outcome:
     * ``SKIPPED`` beats ``PLANNED`` — declining to run is more committed
       than never reaching the step at all.
     """
-    return current if _OUTCOME_SEVERITY[current] >= _OUTCOME_SEVERITY[incoming] else incoming
+    return current if current.severity >= incoming.severity else incoming
 
 
 class Measurement(BaseModel):
@@ -151,89 +165,37 @@ class Measurement(BaseModel):
     fixture_connection: str | None = None  # Fixture connection name (e.g., "VOUT")
 
     def check_limit(self) -> Outcome:
-        """Evaluate value against limits using comparator, set outcome, return result.
+        """Evaluate value against the row's limit fields; set + return outcome.
 
-        Comparator meanings (per ATML/IEEE 1671):
-            EQ: value == nominal
-            NE: value != nominal
-            LT: value < limit_high
-            LE: value <= limit_high
-            GT: value > limit_low
-            GE: value >= limit_low
-            GELE: limit_low <= value <= limit_high (default)
-            GELT: limit_low <= value < limit_high
-            GTLE: limit_low < value <= limit_high
-            GTLT: limit_low < value < limit_high
+        Single judgment path: rebuilds a :class:`Limit` from the
+        stamped row fields via :meth:`Limit.from_row` and delegates
+        the comparator-aware check to ``Limit.__contains__``. The
+        same path :func:`litmus.execution.verify._compute_outcome`
+        uses, just starting from a row instead of a Limit object.
+
+        Outcomes:
+
+        * ``ERRORED`` — value is None (couldn't measure → can't judge).
+        * ``DONE`` — no limit fields stamped (recorder semantic).
+        * ``PASSED`` / ``FAILED`` — value evaluated against the
+          reconstructed limit per its comparator.
         """
         if self.value is None:
             self.outcome = Outcome.ERRORED
             return self.outcome
-
-        # Default to GELE (inclusive range) if no comparator specified
-        comp = self.limit_comparator or "GELE"
-
-        if comp == "EQ":
-            # Exact match to nominal
-            if self.limit_nominal is not None and self.value == self.limit_nominal:
-                self.outcome = Outcome.PASSED
-            else:
-                self.outcome = Outcome.FAILED
-        elif comp == "NE":
-            # Not equal to nominal
-            if self.limit_nominal is not None and self.value != self.limit_nominal:
-                self.outcome = Outcome.PASSED
-            else:
-                self.outcome = Outcome.FAILED
-        elif comp == "LT":
-            # Less than high limit (no limit = no constraint = pass)
-            if self.limit_high is None or self.value < self.limit_high:
-                self.outcome = Outcome.PASSED
-            else:
-                self.outcome = Outcome.FAILED
-        elif comp == "LE":
-            # Less than or equal to high limit (no limit = no constraint = pass)
-            if self.limit_high is None or self.value <= self.limit_high:
-                self.outcome = Outcome.PASSED
-            else:
-                self.outcome = Outcome.FAILED
-        elif comp == "GT":
-            # Greater than low limit (no limit = no constraint = pass)
-            if self.limit_low is None or self.value > self.limit_low:
-                self.outcome = Outcome.PASSED
-            else:
-                self.outcome = Outcome.FAILED
-        elif comp == "GE":
-            # Greater than or equal to low limit (no limit = no constraint = pass)
-            if self.limit_low is None or self.value >= self.limit_low:
-                self.outcome = Outcome.PASSED
-            else:
-                self.outcome = Outcome.FAILED
-        elif comp == "GELE":
-            # Inclusive range: low <= value <= high
-            low_ok = self.limit_low is None or self.value >= self.limit_low
-            high_ok = self.limit_high is None or self.value <= self.limit_high
-            self.outcome = Outcome.PASSED if (low_ok and high_ok) else Outcome.FAILED
-        elif comp == "GELT":
-            # low <= value < high
-            low_ok = self.limit_low is None or self.value >= self.limit_low
-            high_ok = self.limit_high is None or self.value < self.limit_high
-            self.outcome = Outcome.PASSED if (low_ok and high_ok) else Outcome.FAILED
-        elif comp == "GTLE":
-            # low < value <= high
-            low_ok = self.limit_low is None or self.value > self.limit_low
-            high_ok = self.limit_high is None or self.value <= self.limit_high
-            self.outcome = Outcome.PASSED if (low_ok and high_ok) else Outcome.FAILED
-        elif comp == "GTLT":
-            # Exclusive range: low < value < high
-            low_ok = self.limit_low is None or self.value > self.limit_low
-            high_ok = self.limit_high is None or self.value < self.limit_high
-            self.outcome = Outcome.PASSED if (low_ok and high_ok) else Outcome.FAILED
-        else:
-            # Unknown comparator, fall back to GELE behavior
-            low_ok = self.limit_low is None or self.value >= self.limit_low
-            high_ok = self.limit_high is None or self.value <= self.limit_high
-            self.outcome = Outcome.PASSED if (low_ok and high_ok) else Outcome.FAILED
-
+        limit = Limit.from_row(
+            low=self.limit_low,
+            high=self.limit_high,
+            nominal=self.limit_nominal,
+            units=self.units,
+            comparator=self.limit_comparator,
+            characteristic_id=self.characteristic_id,
+            spec_ref=self.spec_ref,
+        )
+        if limit is None:
+            self.outcome = Outcome.DONE
+            return self.outcome
+        self.outcome = Outcome.PASSED if self.value in limit else Outcome.FAILED
         return self.outcome
 
 
@@ -433,41 +395,6 @@ class TestRun(BaseModel):
 
     # Environment snapshot (stored in Parquet file-level metadata)
     environment_json: str | None = None
-
-    def iter_rows(self) -> Iterator[MeasurementRow]:
-        """Yield denormalized MeasurementRow for each measurement.
-
-        Joins run-level context (DUT, station, operator, etc.) onto each
-        measurement, producing the same flat view used by streaming and Parquet.
-
-        Intended for analysis and denormalization (CSV export, DataFrames).
-        No ``ref_saver`` is used, so non-serializable observation values
-        (Waveform, ndarray, bytes, etc.) fall back to ``repr()`` strings
-        in the output columns.  For full fidelity with reference file
-        storage, use ``build_row(..., ref_saver=...)`` directly.
-        """
-        from litmus.data.backends._row_helpers import build_row
-
-        for step_index, step in enumerate(self.steps):
-            for vector in step.vectors:
-                for measurement in vector.measurements:
-                    yield build_row(
-                        self,
-                        measurement,
-                        step.name,
-                        step_index,
-                        vector,
-                        step.instrument_arrays or {},
-                        step_path=step.step_path,
-                        step_started_at=step.started_at,
-                        step_ended_at=step.ended_at,
-                        step_node_id=step.node_id,
-                        step_module=step.module,
-                        step_file=step.file,
-                        step_class=step.class_name,
-                        step_function=step.function,
-                        step_markers=step.markers,
-                    )
 
 
 class Waveform(BaseModel):

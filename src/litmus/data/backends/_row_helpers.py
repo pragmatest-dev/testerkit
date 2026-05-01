@@ -7,19 +7,16 @@ added in one place.
 
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
 from datetime import datetime
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from litmus.data.models import Measurement, Outcome, TestRun, TestVector, Waveform
 from litmus.data.ref import classify_value
 from litmus.environment import EnvironmentSnapshot
-
-if TYPE_CHECKING:
-    from litmus.data.models import Measurement, TestRun, TestVector
-
 
 # Prefix for path references in output columns (legacy, use file:// URIs)
 REF_PATH_PREFIX = "_ref/"
@@ -323,8 +320,6 @@ def save_ref_to_dir(ref_dir: Path, vector_id: str, key: str, value: Any) -> str:
     import pickle
     import shutil
 
-    from litmus.data.models import Waveform
-
     prefix = f"{vector_id}_{key}"
 
     if isinstance(value, Path):
@@ -434,6 +429,40 @@ def build_row(
     )
 
 
+def iter_rows(test_run: TestRun) -> Iterator[MeasurementRow]:
+    """Yield denormalized :class:`MeasurementRow` for each measurement
+    in ``test_run``.
+
+    Joins run-level context (DUT, station, operator, etc.) onto each
+    measurement, producing the same flat view used by streaming and
+    Parquet. Intended for analysis and ad-hoc denormalization (CSV
+    export, DataFrames). No ``ref_saver`` is used, so non-serializable
+    observation values (Waveform, ndarray, bytes, etc.) fall back to
+    ``repr()`` strings in the output columns. For full fidelity, call
+    :func:`build_row` directly with a ``ref_saver``.
+    """
+    for step_index, step in enumerate(test_run.steps):
+        for vector in step.vectors:
+            for measurement in vector.measurements:
+                yield build_row(
+                    test_run,
+                    measurement,
+                    step.name,
+                    step_index,
+                    vector,
+                    step.instrument_arrays or {},
+                    step_path=step.step_path,
+                    step_started_at=step.started_at,
+                    step_ended_at=step.ended_at,
+                    step_node_id=step.node_id,
+                    step_module=step.module,
+                    step_file=step.file,
+                    step_class=step.class_name,
+                    step_function=step.function,
+                    step_markers=step.markers,
+                )
+
+
 def build_step_manifest(test_run: TestRun) -> list[dict[str, Any]]:
     """Build step results from all steps in a TestRun.
 
@@ -495,8 +524,6 @@ def _append_not_started(
     Shared by both the batch path (``build_step_manifest``) and the
     streaming path (``ParquetSubscriber._build_step_results_from_events``).
     """
-    from litmus.data.models import Outcome
-
     next_index = len(manifest)
     for ci in collected_items:
         node_id = ci.get("node_id") or ""

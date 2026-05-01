@@ -402,8 +402,10 @@ class TestMeasurementRow:
         assert flat["in_vin"] == 5.0
 
     def test_iter_rows(self, sample_test_run: TestRun):
-        """TestRun.iter_rows() yields MeasurementRow for each measurement."""
-        rows = list(sample_test_run.iter_rows())
+        """``iter_rows(test_run)`` yields a MeasurementRow per measurement."""
+        from litmus.data.backends._row_helpers import iter_rows
+
+        rows = list(iter_rows(sample_test_run))
         assert len(rows) == 2
         assert all(isinstance(r, MeasurementRow) for r in rows)
         assert rows[0].measurement_name == "vout"

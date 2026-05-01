@@ -95,10 +95,15 @@ class TestMeasurement:
         assert result == Outcome.ERRORED
         assert m.outcome == Outcome.ERRORED
 
-    def test_check_limit_no_limits_passes(self):
+    def test_check_limit_no_limits_records_done(self):
+        """``check_limit`` with no limit fields stamped → DONE.
+
+        Recorder semantic ("ran, no judgment") matches what
+        ``logger.measure`` produces for the same case.
+        """
         m = Measurement(name="voltage", value=5.0)
         result = m.check_limit()
-        assert result == Outcome.PASSED
+        assert result == Outcome.DONE
 
     def test_check_limit_only_low(self):
         m = Measurement(name="voltage", value=5.0, limit_low=4.5)

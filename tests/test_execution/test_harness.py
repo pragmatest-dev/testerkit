@@ -97,7 +97,8 @@ class TestHarnessMeasure:
                 m = harness.measure("output", 3.28)
                 assert m.name == "output"
                 assert m.value == 3.28
-                assert m.outcome == Outcome.PASSED
+                # No limit → DONE (recorder semantic).
+                assert m.outcome == Outcome.DONE
 
     def test_measure_with_explicit_limit(self):
         harness = TestHarness()
@@ -157,12 +158,13 @@ class TestHarnessMeasure:
                 assert m.limit_low == 3.0
                 assert m.outcome == Outcome.PASSED
 
-    def test_measure_no_limit_passes(self):
+    def test_measure_no_limit_records_done(self):
+        """No limit configured → DONE (recorder semantic, not auto-PASSED)."""
         harness = TestHarness()
         with harness.step():
             with harness.run_vector(Vector(_index=0)):
                 m = harness.measure("voltage", 999.0)  # Any value
-                assert m.outcome == Outcome.PASSED
+                assert m.outcome == Outcome.DONE
 
 
 class TestHarnessRunVector:
