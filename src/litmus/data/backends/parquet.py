@@ -22,11 +22,13 @@ Schema design:
 import json
 import logging
 import pickle
+from collections import defaultdict
 from collections.abc import Callable, Generator
 from contextlib import contextmanager
 from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
+from uuid import UUID
 
 if TYPE_CHECKING:
     from litmus.data.run_store import RunStore
@@ -43,13 +45,35 @@ from litmus.data.backends._row_helpers import (
     build_row,
     build_run_metadata,
     build_step_manifest,
+    run_context_from_run_started,
     save_ref_to_dir,
 )
 from litmus.data.event_log import EventSubscriber
-from litmus.data.models import RunSummary, TestRun, Waveform
-from litmus.data.ref import is_ref, ref_scheme
+from litmus.data.events import (
+    InstrumentConnected,
+    MeasurementRecorded,
+    RunEnded,
+    RunStarted,
+    StepEnded,
+    StepsDiscovered,
+    StepStarted,
+)
+from litmus.data.models import (
+    DUT,
+    Measurement,
+    Outcome,
+    RunSummary,
+    TestRun,
+    TestStep,
+    TestVector,
+    Waveform,
+    _utcnow,
+)
+from litmus.data.ref import is_ref, parse_channel_uri, ref_scheme
+from litmus.data.results_dir import resolve_results_dir
 from litmus.data.schemas import (
     SCHEMA_VERSION,
+    STEP_SCHEMA,
     _build_write_schema,
     table_from_rows,
 )
@@ -134,8 +158,6 @@ class ParquetBackend:
     """
 
     def __init__(self, results_dir: Path | str | None = None):
-        from litmus.data.results_dir import resolve_results_dir
-
         self.results_dir = resolve_results_dir(results_dir)
         self.results_dir.mkdir(parents=True, exist_ok=True)
         self._writer = ParquetMeasurementWriter(notify=self._notify_daemon)
@@ -283,8 +305,6 @@ class ParquetBackend:
         Uses MeasurementRow.model_fields to stay in sync with the schema —
         all fields default to None except run-level metadata and run_outcome.
         """
-        from litmus.data.backends._row_helpers import MeasurementRow
-
         # Start with all MeasurementRow fields set to None
         row: dict[str, Any] = {
             name: None
@@ -484,31 +504,22 @@ class ParquetSubscriber(EventSubscriber):
 
     format_name = "parquet"
 
+    event_types: set[type] = {
+        RunStarted,
+        InstrumentConnected,
+        StepsDiscovered,
+        StepStarted,
+        MeasurementRecorded,
+        StepEnded,
+        RunEnded,
+    }
+
     def __init__(
         self,
         output_dir: Path,
         *,
         on_output: Callable[[OutputFile], None] | None = None,
     ) -> None:
-        from litmus.data.events import (
-            InstrumentConnected,
-            MeasurementRecorded,
-            RunEnded,
-            RunStarted,
-            StepEnded,
-            StepsDiscovered,
-            StepStarted,
-        )
-
-        self.event_types: set[type] = {
-            RunStarted,
-            InstrumentConnected,
-            StepsDiscovered,
-            StepStarted,
-            MeasurementRecorded,
-            StepEnded,
-            RunEnded,
-        }
         self._output_dir = output_dir
         self._on_output = on_output
         self._backend = ParquetBackend(results_dir=output_dir / "runs")
@@ -520,27 +531,27 @@ class ParquetSubscriber(EventSubscriber):
         self._step_starts: dict[int, Any] = {}  # step_index → StepStarted
         self._step_ends: dict[int, Any] = {}  # step_index → StepEnded
         self._collected_items: list[dict[str, str | None]] = []
+        # node_id → markers, populated when StepsDiscovered arrives so
+        # _build_row can stamp step_markers on every measurement row
+        # without rebuilding the lookup per measurement.
+        self._markers_by_node: dict[str, str | None] = {}
 
     def open(self) -> None:
         """No-op — subscriber protocol requires this but Parquet needs no setup."""
 
     def on_event(self, event: Any) -> None:
-        from litmus.data.events import (
-            InstrumentConnected,
-            MeasurementRecorded,
-            RunEnded,
-            RunStarted,
-            StepEnded,
-            StepsDiscovered,
-            StepStarted,
-        )
-
         if isinstance(event, RunStarted):
             self._run_started = event
         elif isinstance(event, InstrumentConnected):
             self._instruments.append(event)
         elif isinstance(event, StepsDiscovered):
             self._collected_items = event.items
+            markers: dict[str, str | None] = {}
+            for ci in event.items:
+                nid = ci.get("node_id")
+                if nid:
+                    markers[nid] = ci.get("markers")
+            self._markers_by_node = markers
         elif isinstance(event, StepStarted):
             self._step_starts[event.step_index] = event
         elif isinstance(event, MeasurementRecorded):
@@ -579,62 +590,16 @@ class ParquetSubscriber(EventSubscriber):
         """Extract run-level metadata as kwargs for MeasurementRow.
 
         Shared by ``_build_row()`` and ``_build_step_summary_row()``.
+        Adds environment columns (``python_version``, ``litmus_version``,
+        ``env_fingerprint``) on top of the shared run-context dict —
+        only the measurement schema exposes those, so the helper itself
+        omits them.
         """
         s = self._run_started
-        if not s:
-            env = _env_columns(None)
-            return {
-                "session_id": str(event.session_id),
-                "run_id": str(event.run_id) if event.run_id else "",
-                "slot_id": None,
-                "run_started_at": None,
-                "run_ended_at": None,
-                "operator_id": None,
-                "operator_name": None,
-                "dut_serial": "unknown",
-                "dut_part_number": None,
-                "dut_revision": None,
-                "dut_lot_number": None,
-                "product_id": None,
-                "product_name": None,
-                "product_revision": None,
-                "station_id": "unknown",
-                "station_name": None,
-                "station_type": None,
-                "station_location": None,
-                "station_hostname": None,
-                "fixture_id": None,
-                "test_phase": None,
-                "project_name": None,
-                "git_commit": None,
-                **env,
-            }
-        env = _env_columns(s.environment_json)
+        env_json = s.environment_json if s else None
         return {
-            "session_id": str(s.session_id),
-            "run_id": str(event.run_id) if event.run_id else "",
-            "slot_id": s.slot_id,
-            "run_started_at": s.occurred_at,
-            "run_ended_at": None,
-            "operator_id": s.operator_id,
-            "operator_name": s.operator_name,
-            "dut_serial": s.dut_serial,
-            "dut_part_number": s.dut_part_number,
-            "dut_revision": s.dut_revision,
-            "dut_lot_number": s.dut_lot_number,
-            "product_id": s.product_id,
-            "product_name": s.product_name,
-            "product_revision": s.product_revision,
-            "station_id": s.station_id,
-            "station_name": s.station_name,
-            "station_type": s.station_type,
-            "station_location": s.station_location,
-            "station_hostname": s.station_hostname,
-            "fixture_id": s.fixture_id,
-            "test_phase": s.test_phase,
-            "project_name": s.project_name,
-            "git_commit": s.git_commit,
-            **env,
+            **run_context_from_run_started(s, event),
+            **_env_columns(env_json),
         }
 
     def _step_start_field(self, step_index: int, attr: str) -> Any:
@@ -651,6 +616,7 @@ class ParquetSubscriber(EventSubscriber):
         """
         idx = event.step_index
         end = self._step_ends.get(idx)
+        node_id = self._step_start_field(idx, "node_id")
         row = MeasurementRow(
             **self._run_started_metadata_kwargs(event),
             # Step/vector (from event + cached StepStarted)
@@ -659,11 +625,12 @@ class ParquetSubscriber(EventSubscriber):
             step_path=event.step_path,
             step_started_at=self._step_start_field(idx, "occurred_at"),
             step_ended_at=end.occurred_at if end else None,
-            step_node_id=self._step_start_field(idx, "node_id"),
+            step_node_id=node_id,
             step_module=self._step_start_field(idx, "module"),
             step_file=self._step_start_field(idx, "file"),
             step_class=self._step_start_field(idx, "class_name"),
             step_function=self._step_start_field(idx, "function"),
+            step_markers=self._markers_by_node.get(node_id) if node_id else None,
             vector_index=event.vector_index,
             vector_attempt=event.attempt,
             # Measurement (from event)
@@ -735,8 +702,6 @@ class ParquetSubscriber(EventSubscriber):
             return
 
         # Build all rows now — all events are in, step times are known
-        from litmus.data.models import _utcnow
-
         ended_at = _utcnow()
         final_outcome = outcome if outcome is not None else "errored"
 
@@ -772,8 +737,6 @@ class ParquetSubscriber(EventSubscriber):
 
     def _write_steps_parquet(self, measurements_path: Path) -> None:
         """Write sibling _steps.parquet alongside the measurements file."""
-        from litmus.data.schemas import STEP_SCHEMA
-
         step_results = self._build_step_results_from_events()
         if not step_results:
             return
@@ -782,7 +745,7 @@ class ParquetSubscriber(EventSubscriber):
         if not s:
             return
 
-        # Build rows with run context denormalized
+        run_context = run_context_from_run_started(s, s)
         rows: list[dict[str, Any]] = []
         for entry in step_results:
             started_at = entry.get("started_at")
@@ -816,37 +779,8 @@ class ParquetSubscriber(EventSubscriber):
                     "has_measurements": entry.get("has_measurements", False),
                     "measurement_count": entry.get("measurement_count", 0),
                     "vector_count": entry.get("vector_count", 0),
-                    # Run context
-                    "run_id": str(s.run_id) if s.run_id else None,
-                    "session_id": str(s.session_id),
-                    "slot_id": s.slot_id,
-                    "run_started_at": s.occurred_at,
-                    "run_ended_at": None,  # filled by caller if available
-                    # Who
-                    "operator_id": s.operator_id,
-                    "operator_name": s.operator_name,
-                    # DUT
-                    "dut_serial": s.dut_serial,
-                    "dut_part_number": s.dut_part_number,
-                    "dut_revision": s.dut_revision,
-                    "dut_lot_number": s.dut_lot_number,
-                    # Product
-                    "product_id": s.product_id,
-                    "product_name": s.product_name,
-                    "product_revision": s.product_revision,
-                    # Station
-                    "station_id": s.station_id,
-                    "station_name": s.station_name,
-                    "station_type": s.station_type,
-                    "station_location": s.station_location,
-                    "station_hostname": s.station_hostname,
-                    # Fixture & test context
-                    "fixture_id": s.fixture_id,
-                    "test_phase": s.test_phase,
-                    "project_name": s.project_name,
-                    "git_commit": s.git_commit,
-                    "git_branch": s.git_branch,
-                    "git_remote": s.git_remote,
+                    # Run context (shared with measurement schema)
+                    **run_context,
                 }
             )
 
@@ -875,13 +809,6 @@ class ParquetSubscriber(EventSubscriber):
         manifest: list[dict[str, Any]] = []
         executed_node_ids: set[str] = set()
 
-        # Build node_id → markers lookup from collected items
-        markers_by_node: dict[str, str | None] = {}
-        for ci in self._collected_items:
-            nid = ci.get("node_id")
-            if nid:
-                markers_by_node[nid] = ci.get("markers")
-
         # Pre-compute measurement counts per step index (avoids O(M*N) scan)
         meas_counts: dict[int, int] = {}
         for e in self._measurement_events:
@@ -905,7 +832,7 @@ class ParquetSubscriber(EventSubscriber):
                 "module": start.module if start else None,
                 "step_path": start.step_path if start else (end.step_path if end else ""),
                 "description": start.description if start else None,
-                "markers": markers_by_node.get(node_id or "", None),
+                "markers": self._markers_by_node.get(node_id) if node_id else None,
                 "outcome": end.outcome if end else None,
                 "started_at": start.occurred_at.isoformat() if start else None,
                 "ended_at": end.occurred_at.isoformat() if end else None,
@@ -1061,8 +988,6 @@ def load_ref(
     if scheme == "channel":
         if channel_store is None:
             return value
-        from litmus.data.ref import parse_channel_uri
-
         channel_id, session_id = parse_channel_uri(value)
         return channel_store.query(channel_id, session_id=session_id or None)
 
@@ -1097,11 +1022,6 @@ def reconstruct_test_run_from_file(pq_file: Path) -> TestRun:
     Raises:
         FileNotFoundError: If the file doesn't exist or is empty.
     """
-    from collections import defaultdict
-    from uuid import UUID
-
-    from litmus.data.models import DUT, Measurement, Outcome, TestStep, TestVector
-
     if not pq_file.exists():
         raise FileNotFoundError(f"Parquet file not found: {pq_file}")
 
@@ -1242,7 +1162,7 @@ def reconstruct_test_run_from_file(pq_file: Path) -> TestRun:
         product_id=first.get("product_id"),
         product_name=first.get("product_name"),
         product_revision=first.get("product_revision"),
-        station_id=first.get("station_id") or "",
+        station_id=first.get("station_id"),
         station_name=first.get("station_name"),
         station_type=first.get("station_type"),
         station_location=first.get("station_location"),

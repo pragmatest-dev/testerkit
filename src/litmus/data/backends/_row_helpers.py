@@ -7,6 +7,10 @@ added in one place.
 
 from __future__ import annotations
 
+import json as _json
+import os
+import pickle
+import shutil
 from collections.abc import Callable, Iterator
 from datetime import datetime
 from pathlib import Path
@@ -15,7 +19,7 @@ from typing import Any
 from pydantic import BaseModel, ConfigDict, Field
 
 from litmus.data.models import Measurement, Outcome, TestRun, TestVector, Waveform
-from litmus.data.ref import classify_value
+from litmus.data.ref import classify_value, is_ref
 from litmus.environment import EnvironmentSnapshot
 
 # Prefix for path references in output columns (legacy, use file:// URIs)
@@ -148,8 +152,6 @@ def build_run_metadata(test_run: TestRun) -> dict[str, Any]:
     Python objects (datetime, str, None) — callers that need JSON
     serialisation should post-process timestamps.
     """
-    import os
-
     return {
         "session_id": str(test_run.session_id),
         "run_id": str(test_run.id),
@@ -200,6 +202,80 @@ def _env_columns(environment_json: str | None) -> dict[str, str | None]:
     }
 
 
+def run_context_from_run_started(s: Any | None, event: Any) -> dict[str, Any]:
+    """Run-level context kwargs derived from a cached ``RunStarted`` event.
+
+    Streaming-path counterpart to :func:`build_run_metadata` (which
+    operates on a ``TestRun`` model). Both ``ParquetSubscriber._build_row``
+    and ``_write_steps_parquet`` use this — they previously had drifting
+    copies of the same dict, missing different fields.
+
+    ``event`` supplies the row's ``run_id`` (a measurement event may carry
+    it before ``RunStarted`` arrives, and the steps writer passes ``s``
+    itself). When ``s`` is ``None`` (events arrived before RunStarted),
+    falls back to a sparse dict with placeholder defaults.
+
+    Excludes environment columns (``python_version``, ``litmus_version``,
+    ``env_fingerprint``) — only the measurement schema exposes those, so
+    callers spread ``_env_columns(s.environment_json)`` separately.
+    """
+    if s is None:
+        return {
+            "session_id": str(event.session_id),
+            "run_id": str(event.run_id) if event.run_id else "",
+            "slot_id": None,
+            "run_started_at": None,
+            "run_ended_at": None,
+            "operator_id": None,
+            "operator_name": None,
+            "dut_serial": "unknown",
+            "dut_part_number": None,
+            "dut_revision": None,
+            "dut_lot_number": None,
+            "product_id": None,
+            "product_name": None,
+            "product_revision": None,
+            "station_id": "unknown",
+            "station_name": None,
+            "station_type": None,
+            "station_location": None,
+            "station_hostname": None,
+            "fixture_id": None,
+            "test_phase": None,
+            "project_name": None,
+            "git_commit": None,
+            "git_branch": None,
+            "git_remote": None,
+        }
+    return {
+        "session_id": str(s.session_id),
+        "run_id": str(event.run_id) if event.run_id else "",
+        "slot_id": s.slot_id,
+        "run_started_at": s.occurred_at,
+        "run_ended_at": None,
+        "operator_id": s.operator_id,
+        "operator_name": s.operator_name,
+        "dut_serial": s.dut_serial,
+        "dut_part_number": s.dut_part_number,
+        "dut_revision": s.dut_revision,
+        "dut_lot_number": s.dut_lot_number,
+        "product_id": s.product_id,
+        "product_name": s.product_name,
+        "product_revision": s.product_revision,
+        "station_id": s.station_id,
+        "station_name": s.station_name,
+        "station_type": s.station_type,
+        "station_location": s.station_location,
+        "station_hostname": s.station_hostname,
+        "fixture_id": s.fixture_id,
+        "test_phase": s.test_phase,
+        "project_name": s.project_name,
+        "git_commit": s.git_commit,
+        "git_branch": s.git_branch,
+        "git_remote": s.git_remote,
+    }
+
+
 def build_measurement_fields(measurement: Measurement) -> dict[str, Any]:
     """Extract measurement-level fields from a Measurement."""
     return {
@@ -207,6 +283,8 @@ def build_measurement_fields(measurement: Measurement) -> dict[str, Any]:
         "measurement_timestamp": measurement.timestamp,
         "measurement_value": measurement.value,
         "measurement_units": measurement.units,
+        # measurement.outcome is contractually set by log_measurement
+        # (RuntimeError raised in execution/logger.py if None reaches here).
         "measurement_outcome": measurement.outcome.value if measurement.outcome else None,
         # Limits
         "limit_low": measurement.limit_low,
@@ -272,8 +350,6 @@ def build_output_columns(
     - **scalar** → inline value
     - **blob** → ``ref_saver()`` → ``file://`` URI, or ``repr()``
     """
-    from litmus.data.ref import is_ref
-
     cols: dict[str, Any] = {}
 
     for key, value in vector.observations.items():
@@ -316,10 +392,6 @@ def save_ref_to_dir(ref_dir: Path, vector_id: str, key: str, value: Any) -> str:
     Returns:
         Reference string like ``"_ref/abc123_waveform.npz"``.
     """
-    import json as _json
-    import pickle
-    import shutil
-
     prefix = f"{vector_id}_{key}"
 
     if isinstance(value, Path):
@@ -418,8 +490,8 @@ def build_row(
         vector_attempt=vector.attempt,
         vector_started_at=vector.started_at,
         vector_ended_at=vector.ended_at,
-        # Outcomes
-        vector_outcome=vector.outcome.value if vector.outcome else None,
+        # Outcomes (vector + step + run outcomes are non-Optional with default PASSED)
+        vector_outcome=vector.outcome.value,
         run_outcome=test_run.outcome.value,
         # Dynamic columns
         inputs=build_input_columns(vector),
@@ -490,7 +562,7 @@ def build_step_manifest(test_run: TestRun) -> list[dict[str, Any]]:
                 "module": step.module,
                 "step_path": step.step_path,
                 "description": step.description,
-                "outcome": step.outcome.value if step.outcome else None,
+                "outcome": step.outcome.value,
                 "started_at": step.started_at.isoformat() if step.started_at else None,
                 "ended_at": step.ended_at.isoformat() if step.ended_at else None,
                 "duration_s": (
