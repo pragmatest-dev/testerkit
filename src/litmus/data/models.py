@@ -54,26 +54,28 @@ class Outcome(StrEnum):
     Producer story:
 
     * ``PASSED`` — measurement value met its limit. Producer:
-      ``execution.verify._apply_outcome`` when ``value in limit``;
+      ``execution.verify._compute_outcome`` when ``value in limit``;
       pytest ``passed`` propagates when no measurement-level outcome
       contradicts.
     * ``FAILED`` — measurement violated its limit OR the test failed an
-      assertion. Producer: ``_apply_outcome`` when ``value not in limit``;
-      ``pytest_runtest_makereport`` escalates ``step.outcome`` to
-      ``FAILED`` when pytest reports ``failed`` and no measurement
+      assertion. Producer: ``_compute_outcome`` when ``value not in
+      limit``; ``pytest_runtest_makereport`` escalates ``step.outcome``
+      to ``FAILED`` when pytest reports ``failed`` and no measurement
       already failed.
     * ``ERRORED`` — exception during execution (not an assertion).
       Producer: pytest ``error`` (setup/teardown failures); uncaught
-      non-AssertionError during call.
+      non-AssertionError during call; ``_compute_outcome`` when value
+      is ``None`` (couldn't measure → can't judge).
     * ``SKIPPED`` — explicit skip by operator/marker/condition.
       Producer: pytest ``skipped`` (``pytest.skip()`` /
       ``@pytest.mark.skip`` / skipif); ``VectorBuilder.skip()`` on the
       catch-all client API.
     * ``DONE`` — recorded value, no judgment evaluated. Producer:
-      ``_apply_outcome`` when no limit is configured; setup/action /
-      characterization-mode measurements that explicitly aren't being
-      judged. Test engineers reject ``PASSED`` for un-judged actions
-      ("don't call my setup a pass") — this is the answer.
+      plain ``logger.measure(name, value)`` (no limit, no verify) —
+      the recorder semantic. Setup/action / characterization-mode
+      measurements that explicitly aren't being judged. Test engineers
+      reject ``PASSED`` for un-judged actions ("don't call my setup a
+      pass") — this is the answer.
     * ``ABORTED`` — interrupted mid-execution by user or system.
       Producer: ``RunBuilder.abort()`` on the catch-all client;
       ``pytest_keyboard_interrupt`` stamps the in-flight step + the run

@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import logging
 import os
+import warnings
 from pathlib import Path
 from typing import Any
 
@@ -20,6 +21,7 @@ from litmus.data import runs_duckdb_manager
 from litmus.data._flight_query import FlightQueryClient
 from litmus.data._sql_helpers import sql_escape as _sql_escape
 from litmus.data.models import RunSummary
+from litmus.data.results_dir import resolve_results_dir
 
 logger = logging.getLogger(__name__)
 
@@ -45,8 +47,6 @@ class RunStore:
     """
 
     def __init__(self, *, _results_dir: Path | None = None) -> None:
-        from litmus.data.results_dir import resolve_results_dir
-
         results_dir = resolve_results_dir(_results_dir)
 
         self._runs_dir = results_dir / "runs"
@@ -313,5 +313,11 @@ class RunStore:
 
     def close(self) -> None:
         """Close Flight client and release daemon ref."""
-        self._flight.close()
-        runs_duckdb_manager.release(self._runs_dir)
+        try:
+            self._flight.close()
+        except Exception as exc:
+            warnings.warn(f"FlightQueryClient close failed: {exc}", stacklevel=2)
+        try:
+            runs_duckdb_manager.release(self._runs_dir)
+        except Exception as exc:
+            warnings.warn(f"runs_duckdb_manager.release failed: {exc}", stacklevel=2)

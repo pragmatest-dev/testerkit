@@ -24,6 +24,7 @@ from __future__ import annotations
 import json as json_mod
 import threading
 import warnings
+from collections import OrderedDict
 from collections.abc import Callable
 from datetime import datetime
 from pathlib import Path
@@ -125,8 +126,12 @@ class EventStore:
         self._lock = threading.RLock()
 
         # Track event IDs delivered in-process to avoid duplicate delivery
-        # from the cross-process watcher.
-        self._delivered_ids: set[str] = set()
+        # from the cross-process watcher. Bounded LRU (FIFO eviction) so
+        # long-running orchestrators don't leak memory; the watcher polls
+        # every 500ms with a ``received_at`` cursor, so old IDs are never
+        # re-fetched and don't need to be retained.
+        self._delivered_ids: OrderedDict[str, None] = OrderedDict()
+        self._delivered_ids_max = 10000
 
         # Cross-process watcher
         self._watcher_thread: threading.Thread | None = None
@@ -167,7 +172,9 @@ class EventStore:
         evt_dict = event.model_dump(mode="json")
         event_id = str(event.id)
         with self._lock:
-            self._delivered_ids.add(event_id)
+            self._delivered_ids[event_id] = None
+            while len(self._delivered_ids) > self._delivered_ids_max:
+                self._delivered_ids.popitem(last=False)
             self._dispatch_to_subscribers(evt_dict)
 
     def get_event_log(self, session_id: UUID) -> EventLog:
@@ -408,14 +415,14 @@ class EventStore:
         for log in self._event_logs.values():
             try:
                 log.close()
-            except Exception:
-                pass
+            except Exception as exc:
+                warnings.warn(f"EventLog close failed: {exc}", stacklevel=2)
         self._event_logs.clear()
 
         try:
             self._put_stream.close()
-        except Exception:
-            pass
+        except Exception as exc:
+            warnings.warn(f"FlightPutStream close failed: {exc}", stacklevel=2)
 
         with self._lock:
             self._subscriptions.clear()
@@ -423,9 +430,9 @@ class EventStore:
 
         try:
             self._flight.close()
-        except Exception:
-            pass
+        except Exception as exc:
+            warnings.warn(f"FlightQueryClient close failed: {exc}", stacklevel=2)
         try:
             duckdb_manager.release(self._events_dir)
-        except Exception:
-            pass
+        except Exception as exc:
+            warnings.warn(f"duckdb_manager.release failed: {exc}", stacklevel=2)

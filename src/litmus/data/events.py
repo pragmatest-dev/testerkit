@@ -7,21 +7,22 @@ Subscribers (e.g. ParquetSubscriber) denormalize at write time.
 
 from __future__ import annotations
 
+import os
+import socket
+import sys
 from datetime import datetime
+from pathlib import Path
 from typing import Annotated, Any, Literal
 from uuid import UUID, uuid4
 
 from pydantic import BaseModel, Field, model_serializer, model_validator
 
 from litmus.data.models import _utcnow
-from litmus.data.ref import classify_value, make_channel_uri
+from litmus.data.ref import classify_value, is_ref, make_channel_uri
 
 
 def _detect_client() -> str:
     """Derive a human-readable client name from the running process."""
-    import sys
-    from pathlib import Path
-
     if not sys.argv:
         return "unknown"
     name = Path(sys.argv[0]).name
@@ -113,9 +114,6 @@ class SessionStarted(EventBase):
         If ``slot_count`` is None, reads ``_LITMUS_SLOT_COUNT`` env var
         (defaults to 1).
         """
-        import os
-        import socket as _socket
-
         if slot_count is None:
             slot_count = int(os.environ.get("_LITMUS_SLOT_COUNT", "1"))
 
@@ -125,7 +123,7 @@ class SessionStarted(EventBase):
             station_name=station_name,
             station_type=station_type,
             station_location=station_location,
-            station_hostname=station_hostname or _socket.gethostname(),
+            station_hostname=station_hostname or socket.gethostname(),
             operator_id=operator_id,
             operator_name=operator_name,
             fixture_id=fixture_id,
@@ -434,10 +432,6 @@ class DiagnosticError(EventBase):
 
 
 # ---------------------------------------------------------------------------
-# Instrument events
-# ---------------------------------------------------------------------------
-
-# ---------------------------------------------------------------------------
 # Route events (signal switching)
 # ---------------------------------------------------------------------------
 
@@ -489,8 +483,6 @@ class InstrumentRead(EventBase):
         string — pass through. Fallback for no-channel-store case still
         builds a claim-check reference.
         """
-        from litmus.data.ref import is_ref
-
         data = handler(self)
         v = self.value
 

@@ -130,6 +130,15 @@ class EventSubscriber:
     def __init_subclass__(cls, **kwargs: Any) -> None:
         super().__init_subclass__(**kwargs)
         if hasattr(cls, "format_name") and cls.format_name:
+            existing = EventSubscriber._registry.get(cls.format_name)
+            if existing is not None and existing is not cls:
+                warnings.warn(
+                    f"EventSubscriber.format_name={cls.format_name!r} is "
+                    f"already registered to {existing.__module__}."
+                    f"{existing.__qualname__}; overriding with "
+                    f"{cls.__module__}.{cls.__qualname__}",
+                    stacklevel=2,
+                )
             EventSubscriber._registry[cls.format_name] = cls
 
     @staticmethod

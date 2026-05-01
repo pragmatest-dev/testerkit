@@ -20,6 +20,8 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
+import platformdirs
+
 
 def resolve_results_dir(path: Path | str | None = None) -> Path:
     """Resolve the results directory.
@@ -47,8 +49,6 @@ def resolve_results_dir(path: Path | str | None = None) -> Path:
         pass
 
     # Global default
-    import platformdirs
-
     home = Path(os.environ.get("LITMUS_HOME", platformdirs.user_data_dir("litmus")))
     d = home / "results"
     d.mkdir(parents=True, exist_ok=True)
