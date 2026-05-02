@@ -597,6 +597,90 @@ existing clients, or normalize? Is a generic `Response[T]` wrapper
 worth the type gymnastics? Coordinate with the MCP-tool / HTTP-API
 parity rule (CLAUDE.md) so both layers expose the same shapes.
 
+### Artifact viewer — inline previews + grid layout
+
+Headline shipped in the artifact-viewing PR: a "View ..." button per
+ref opens a dialog with the right viewer (ECharts for waveform, image
+embed, video embed, PDF iframe, text). What's missing is **inline
+previews** so the operator can scan a run at a glance without opening
+each dialog.
+
+What needs to land:
+
+- **Card grid** instead of a row of buttons. One card per artifact,
+  grouped by step + measurement. Title = output key; subtitle = type +
+  size; click anywhere on the card opens the full dialog.
+- **Inline previews**:
+  - Image / SVG → small `<img>` thumbnail at fixed height.
+  - Video → `<video>` with `preload="metadata"` for the poster frame.
+  - Waveform — small ECharts sparkline (100×40), no axes.
+  - Text — first 3 lines in a `<pre>` with overflow-hidden.
+  - PDF → page-icon SVG plus "PDF" badge (no native browser preview API).
+  - Unknown / `.bin` without recognized magic — generic file icon.
+- **Type detection for `.bin`**: read the first 64 bytes from the
+  ``_ref/`` file directly (already on disk; no HTTP round-trip) and
+  pass through ``sniff_mime``. Cache per-page render so the same file
+  isn't re-read.
+
+Decision points: do we materialize previews lazily (intersection
+observer) for runs with many artifacts? Should the seed/write path
+gain a ``mime_type=`` hint so we don't have to sniff at all? Track
+the latter under the existing "Write-path MIME hint" follow-up.
+
+### Operator-UI store browser
+
+The platform has multiple stores — events (DuckDB), runs (DuckDB),
+channels (Arrow IPC + Flight), parquet measurement files, sidecar
+``_ref/`` artifacts — but the operator UI exposes them only
+indirectly (Results page lists runs; clicking drills into a single
+run). There's no "browse the event log", no "browse channels",
+no "browse the artifact pool".
+
+What needs to land:
+
+- **Events page** — table view of the event log with type / role /
+  session / timestamp filters. Backed by ``GET /api/events`` (already
+  exists). Live-tailing toggle.
+- **Channels page** — list of registered channels with descriptors,
+  latest value, sparkline, link to query history.
+- **Artifacts page** — search across every ref ever written, group by
+  run / output key / MIME type. Reuses the artifact viewer dialog.
+- **Sessions page** — drill into a session and see all sibling slot
+  runs at once (multi-DUT view).
+
+Decision points: server-side pagination for stores that grow
+unbounded (events especially). What's the right cross-store search
+syntax — DuckDB SQL via a console, or facet filters? Coordinate with
+the existing Yield Analytics page so we don't duplicate.
+
+### Transports — read side (download / fetch / replay)
+
+The ``Transport`` abstraction (``data/transports/``) currently
+handles **upload only**: parquet / event files / refs are flushed to
+S3 / GCS / Azure / SFTP / HTTP via background workers. There's no
+counterpart for **reading back** — `litmus serve` and the analytics
+layer can only see what's on the local disk.
+
+What needs to land:
+
+- A ``Transport.fetch(remote_path) -> bytes`` (or ``open()`` /
+  ``stream()``) sibling to the upload path. Must compose with the
+  existing per-backend auth.
+- A ``RemoteResultsBackend`` or equivalent that proxies
+  ``ParquetBackend`` reads through a transport. Cache locally so
+  repeat queries don't pay the round-trip.
+- API parity: ``/api/runs/{id}/ref?uri=s3://bucket/run123/...`` should
+  work the same as the local-file path. The endpoint dispatches on
+  URI scheme.
+- Sync helper: ``litmus pull <run_id>`` to fetch a remote run into
+  the local results dir for offline analysis.
+
+Decision points: do we cache full files locally on first read, or
+stream byte-ranges? How do we surface remote runs in the UI without
+materializing them all (lazy entries with a "fetch" button)? Does
+this share machinery with the upload-queue worker (one queue, two
+directions) or run separately?
+
 ---
 
 ## In progress

@@ -5,6 +5,7 @@ from typing import Any
 from nicegui import ui
 
 from litmus.data.models import RunSummary
+from litmus.ui.components.artifact_viewer import list_artifacts, render_artifact_buttons
 from litmus.ui.shared.components import format_datetime, info_field, info_field_link
 from litmus.ui.shared.layout import create_layout
 from litmus.ui.shared.services import (
@@ -105,7 +106,7 @@ def _render_run_detail(run_id: str, run: RunSummary, measurements: list):
             )
 
         with ui.tab_panel(measurements_tab):
-            _render_measurements_tab(measurements)
+            _render_measurements_tab(run_id, measurements)
 
         gantt_chart = None
         if has_slots and timeline_tab is not None and session_id:
@@ -178,36 +179,50 @@ def _stat_card(value: str, label: str, color_class: str):
         ui.label(label).classes("text-sm text-slate-500")
 
 
-def _render_measurements_tab(measurements: list):
+def _render_measurements_tab(run_id: str, measurements: list):
     """Render the measurements tab."""
-    if measurements:
-        with ui.card().classes("w-full"):
-            columns = [
-                {"name": "step", "label": "Step", "field": "step_name", "align": "left"},
-                {"name": "name", "label": "Measurement", "field": "name", "align": "left"},
-                {"name": "value", "label": "Value", "field": "value", "align": "right"},
-                {"name": "limits", "label": "Limits", "field": "limits", "align": "center"},
-                {"name": "outcome", "label": "Outcome", "field": "outcome", "align": "center"},
-            ]
-            rows = [
-                {
-                    "step_name": m.get("step_name", ""),
-                    "name": m.get("measurement_name", ""),
-                    "value": (
-                        f"{m.get('value', '-')}{' ' + m.get('units', '') if m.get('units') else ''}"
-                    ),
-                    "limits": (
-                        f"{m.get('limit_low', '—')} – {m.get('limit_high', '—')}"
-                        if m.get("limit_low") is not None or m.get("limit_high") is not None
-                        else "—"
-                    ),
-                    "outcome": m.get("outcome", ""),
-                }
-                for m in measurements
-            ]
-            ui.table(columns=columns, rows=rows, row_key="name").classes("w-full")
-    else:
+    if not measurements:
         ui.label("No measurements recorded.").classes("text-slate-500 italic")
+        return
+
+    with ui.card().classes("w-full"):
+        columns = [
+            {"name": "step", "label": "Step", "field": "step_name", "align": "left"},
+            {"name": "name", "label": "Measurement", "field": "name", "align": "left"},
+            {"name": "value", "label": "Value", "field": "value", "align": "right"},
+            {"name": "limits", "label": "Limits", "field": "limits", "align": "center"},
+            {"name": "outcome", "label": "Outcome", "field": "outcome", "align": "center"},
+        ]
+        rows = [
+            {
+                "step_name": m.get("step_name", ""),
+                "name": m.get("measurement_name", ""),
+                "value": (
+                    f"{m.get('value', '-')}{' ' + m.get('units', '') if m.get('units') else ''}"
+                ),
+                "limits": (
+                    f"{m.get('limit_low', '—')} – {m.get('limit_high', '—')}"
+                    if m.get("limit_low") is not None or m.get("limit_high") is not None
+                    else "—"
+                ),
+                "outcome": m.get("outcome", ""),
+            }
+            for m in measurements
+        ]
+        ui.table(columns=columns, rows=rows, row_key="name").classes("w-full")
+
+    artifact_rows = [m for m in measurements if list_artifacts(m)]
+    if artifact_rows:
+        with ui.card().classes("w-full"):
+            with ui.card_section():
+                ui.label("Artifacts").classes("font-semibold")
+                ui.label(
+                    "Waveforms, screenshots, logs, and other large observations "
+                    "captured during this run."
+                ).classes("text-sm text-slate-500")
+            with ui.card_section().classes("flex flex-col gap-3"):
+                for m in artifact_rows:
+                    render_artifact_buttons(run_id, m)
 
 
 def _render_history_tab(run_id: str, run: RunSummary):

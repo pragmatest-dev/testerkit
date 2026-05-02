@@ -539,6 +539,33 @@ def get_run_detail(run_id: str) -> tuple[RunSummary | None, list[dict]]:
     return run, measurements
 
 
+def load_artifact_ref(run_id: str, uri: str):
+    """Resolve a measurement-output ref URI to its in-memory payload.
+
+    UI-side counterpart of ``GET /api/runs/{run_id}/ref``: avoids an
+    extra HTTP round-trip when the page is rendered in the same
+    Python process as the API.
+    """
+    from pathlib import Path
+    from uuid import uuid4
+
+    from litmus.data.backends.parquet import load_ref
+
+    backend = _results_backend()
+    run = backend.get_run(run_id)
+    if run is None or not run.file_path:
+        raise FileNotFoundError(f"Run {run_id!r} has no parquet file")
+
+    channel_store = None
+    if uri.startswith("channel://"):
+        from litmus.data.channels.store import ChannelStore
+
+        channels_dir = backend.results_dir.parent / "channels"
+        channel_store = ChannelStore(channels_dir, uuid4())
+
+    return load_ref(uri, parquet_path=Path(run.file_path), channel_store=channel_store)
+
+
 def get_session_measurements(session_id: str) -> list[dict]:
     """Return measurements for all runs in a session (parallel execution timeline)."""
     return _results_backend().get_session_measurements(session_id)
