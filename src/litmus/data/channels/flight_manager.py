@@ -8,6 +8,7 @@ actual port to a file, which ``acquire()`` reads and stores in state.
 from __future__ import annotations
 
 import sys
+import time
 from pathlib import Path
 
 from litmus.data._daemon_lifecycle import DaemonManager
@@ -47,13 +48,24 @@ class FlightDaemonManager(DaemonManager):
         return {"location": port_file.read_text().strip()}
 
     def acquire_location(self) -> str:
-        """Acquire a reference and return the gRPC location string."""
+        """Acquire a reference and return the gRPC location string.
+
+        Reuse-path acquires can land before the daemon has written its
+        location into state on slow CI runners — poll briefly so the
+        transient case doesn't leak as a RuntimeError. Mirrors the
+        same retry on :func:`litmus.data.runs_duckdb_manager.acquire`.
+        """
         super().acquire()
-        state = self.read_state()
-        location = state.get("location")
-        if not location:
-            raise RuntimeError(f"Flight daemon started but no location in state: {self._dir}")
-        return location
+        deadline = time.monotonic() + 5.0
+        while True:
+            location = self.read_state().get("location")
+            if location:
+                return location
+            if time.monotonic() >= deadline:
+                raise RuntimeError(
+                    f"Flight daemon started but no location in state after 5s: {self._dir}"
+                )
+            time.sleep(0.05)
 
 
 # Module-level convenience API
