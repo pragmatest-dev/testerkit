@@ -16,6 +16,8 @@ import warnings
 from pathlib import Path
 from uuid import UUID
 
+import pyarrow as pa
+
 from litmus.data.channels.flight_manager import FlightDaemonManager
 from litmus.data.channels.server import ChannelFlightServer
 from litmus.data.channels.store import ChannelStore
@@ -43,14 +45,15 @@ def daemon_run(channels_dir: Path, host: str, port: int) -> None:
     # Block until idle timeout
     mgr.monitor_refs()
 
-    # Shut down
+    # Shut down — narrow catches let real bugs surface in daemon logs;
+    # transport / file errors are expected during shutdown and become warnings.
     try:
         server.shutdown()
-    except Exception as exc:
+    except (OSError, RuntimeError, pa.ArrowException) as exc:
         warnings.warn(f"Failed to shut down Flight server: {exc}", stacklevel=2)
     try:
         store.close()
-    except Exception as exc:
+    except (OSError, RuntimeError, pa.ArrowException) as exc:
         warnings.warn(f"Failed to close ChannelStore: {exc}", stacklevel=2)
 
     mgr.cleanup_state_files()

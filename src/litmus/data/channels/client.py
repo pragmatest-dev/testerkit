@@ -5,17 +5,21 @@ Provides the same write/subscribe API as ChannelStore but over Flight RPC.
 
 from __future__ import annotations
 
-import json
 import threading
 from collections.abc import Callable
 from datetime import UTC, datetime
-from pathlib import Path
 from urllib.parse import quote
 
 import pyarrow as pa
 import pyarrow.flight as flight
 
-from litmus.data.channels.models import ChannelDescriptor, ChannelSample, sample_schema
+from litmus.data.channels.models import (
+    ChannelDescriptor,
+    ChannelSample,
+    batch_row_to_sample,
+    encode_value,
+    sample_schema,
+)
 
 
 class ChannelClient:
@@ -31,18 +35,6 @@ class ChannelClient:
         self._reader_threads: list[threading.Thread] = []
         self._stop = threading.Event()
 
-    @classmethod
-    def from_registry(cls, channels_dir: Path) -> ChannelClient:
-        """Discover server location from _registry.json flight_location field."""
-        registry_path = channels_dir / "_flight.json"
-        if not registry_path.exists():
-            raise FileNotFoundError(
-                f"No Flight server registry at {registry_path}. "
-                "Is the ChannelStore running with serve=True?"
-            )
-        data = json.loads(registry_path.read_text())
-        return cls(data["location"])
-
     def write(
         self,
         channel_id: str,
@@ -53,7 +45,7 @@ class ChannelClient:
         sample_interval: float | None = None,
     ) -> None:
         """Write a value to a remote channel via do_put."""
-        value_str = json.dumps(value) if not isinstance(value, str) else value
+        value_str = encode_value(value)
         schema = sample_schema()
         batch = pa.record_batch(
             {
@@ -91,18 +83,7 @@ class ChannelClient:
                         break
                     batch = chunk.data
                     for i in range(batch.num_rows):
-                        value_raw = batch.column("value")[i].as_py()
-                        try:
-                            value = json.loads(value_raw)
-                        except (json.JSONDecodeError, TypeError):
-                            value = value_raw
-                        sample = ChannelSample(
-                            channel_id=batch.column("channel_id")[i].as_py(),
-                            timestamp=batch.column("timestamp")[i].as_py(),
-                            value=value,
-                            source_method=batch.column("source_method")[i].as_py() or "",
-                        )
-                        callback(sample)
+                        callback(batch_row_to_sample(batch, i))
             except (OSError, pa.ArrowException):
                 if not stop.is_set() and not self._stop.is_set():
                     raise

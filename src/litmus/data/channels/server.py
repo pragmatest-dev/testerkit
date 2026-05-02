@@ -9,18 +9,22 @@ Wraps a ChannelStore instance. Handles:
 
 from __future__ import annotations
 
-import json
 import queue
 import threading
 import warnings
 from datetime import datetime
 from typing import TYPE_CHECKING, Any
-from urllib.parse import parse_qs
+from urllib.parse import parse_qs, urlparse
 
 import pyarrow as pa
 import pyarrow.flight as flight
 
-from litmus.data.channels.models import ChannelSample, sample_schema, sample_to_batch
+from litmus.data.channels.models import (
+    ChannelSample,
+    batch_row_to_sample,
+    sample_schema,
+    sample_to_batch,
+)
 
 if TYPE_CHECKING:
     from litmus.data.channels.store import ChannelStore
@@ -67,7 +71,7 @@ class ChannelFlightServer(flight.FlightServerBase):
         _context: flight.ServerCallContext,
         descriptor: flight.FlightDescriptor,
         reader: flight.MetadataRecordBatchReader,
-        writer: flight.FlightMetadataWriter,
+        _writer: flight.FlightMetadataWriter,
     ) -> None:
         """Remote producer writes data to a channel."""
         channel_id = descriptor.command.decode("utf-8")
@@ -75,7 +79,7 @@ class ChannelFlightServer(flight.FlightServerBase):
             batch = chunk.data
             try:
                 _write_batch_to_store(self._store, channel_id, batch)
-            except Exception as exc:
+            except (OSError, ValueError, pa.ArrowException) as exc:
                 warnings.warn(
                     f"Flight do_put failed for '{channel_id}': {exc}",
                     stacklevel=2,
@@ -101,9 +105,19 @@ class ChannelFlightServer(flight.FlightServerBase):
             if "last_n" in params:
                 kwargs["last_n"] = int(params["last_n"][0])
             if "start" in params:
-                kwargs["start"] = datetime.fromisoformat(params["start"][0])
+                try:
+                    kwargs["start"] = datetime.fromisoformat(params["start"][0])
+                except ValueError as exc:
+                    raise flight.FlightServerError(
+                        f"Invalid 'start' timestamp: {params['start'][0]!r} ({exc})"
+                    ) from exc
             if "end" in params:
-                kwargs["end"] = datetime.fromisoformat(params["end"][0])
+                try:
+                    kwargs["end"] = datetime.fromisoformat(params["end"][0])
+                except ValueError as exc:
+                    raise flight.FlightServerError(
+                        f"Invalid 'end' timestamp: {params['end'][0]!r} ({exc})"
+                    ) from exc
             table = self._store.query(channel_id, **kwargs)
             batches = table.to_batches()
             if batches:
@@ -195,29 +209,21 @@ def _write_batch_to_store(
     channel_id: str,
     batch: pa.RecordBatch,
 ) -> None:
-    """Write a Flight batch into the store, row by row."""
+    """Write a Flight batch into the store, row by row.
+
+    Channel id comes from the descriptor (caller), not the batch — a
+    remote producer addresses one channel per do_put. Per-row metadata
+    (units, sample_interval, source_method) flows through the shared
+    :func:`batch_row_to_sample` helper.
+    """
     for i in range(batch.num_rows):
-        value_raw = batch.column("value")[i].as_py()
-        try:
-            value = json.loads(value_raw)
-        except (json.JSONDecodeError, TypeError):
-            value = value_raw
-
-        source = ""
-        if "source_method" in batch.schema.names:
-            source = batch.column("source_method")[i].as_py() or ""
-
-        kwargs: dict[str, object] = {"source": source}
-        if "units" in batch.schema.names:
-            units = batch.column("units")[i].as_py()
-            if units:
-                kwargs["units"] = units
-        if "sample_interval" in batch.schema.names:
-            si = batch.column("sample_interval")[i].as_py()
-            if si is not None:
-                kwargs["sample_interval"] = si
-
-        store.write(channel_id, value, **kwargs)  # type: ignore[arg-type]
+        sample = batch_row_to_sample(batch, i)
+        kwargs: dict[str, object] = {"source": sample.source_method}
+        if sample.units is not None:
+            kwargs["units"] = sample.units
+        if sample.sample_interval is not None:
+            kwargs["sample_interval"] = sample.sample_interval
+        store.write(channel_id, sample.value, **kwargs)  # type: ignore[arg-type]
 
 
 def start_server_background(
@@ -227,10 +233,15 @@ def start_server_background(
     """Start a ChannelFlightServer in a background thread.
 
     Returns (server, actual_location) where actual_location includes the
-    OS-assigned port if port was 0.
+    OS-assigned port if port was 0. The host is preserved from the
+    input ``location`` so callers binding to a non-localhost address
+    get the right URL back.
     """
     server = ChannelFlightServer(store, location)
-    actual_location = f"grpc://127.0.0.1:{server.port}"
+    # Parse "grpc://host:port" → preserve host, substitute actual bound port
+    parsed = urlparse(location)
+    host = parsed.hostname or "127.0.0.1"
+    actual_location = f"grpc://{host}:{server.port}"
     thread = threading.Thread(target=server.serve, daemon=True, name="channel-flight")
     thread.start()
     return server, actual_location

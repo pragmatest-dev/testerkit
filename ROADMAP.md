@@ -309,6 +309,135 @@ characterization) without duplicating limits or mocks. Worth
 rebuilding when there's a real operator-bundle requirement; not
 worth carrying dead model surface in the meantime.
 
+### Channel EventStore-bridging subscription
+
+`channels/__init__.py:channel_subscribe()` is restored after being
+incorrectly flagged as "dead code" during the auto-picked Phase 6a.3
+audit. Filters ``instrument.read`` / ``instrument.set`` events from
+EventStore by ``channel_id`` — the EventStore-based subscription
+path complementary to ``ChannelStore.on_channel()`` (in-process) and
+``ChannelClient.on_channel()`` (Flight RPC).
+
+Why it exists: queries via ``EventStore`` work cross-process via
+Arrow Flight AND replay from history, so consumers (analytics
+dashboards, MCP tools, post-hoc UI) can subscribe to channel
+activity without the channel daemon running. The Flight
+subscription path requires the live daemon and only delivers new
+samples; the EventStore path can replay from any ``since`` cutoff.
+
+What needs to land: a real consumer. Candidates: the analytics
+metrics-store could subscribe to channels-of-interest for live
+charts; the MCP "watch this channel" tool; the operator UI's
+event-timeline panel. Flag if a use case materializes — otherwise
+keep as the build-out hook.
+
+### Array channel empty-result schema
+
+`channels/models.py:ARRAY_SCHEMA` is restored after being flagged
+"dead" in Phase 6a.3. ``ChannelStore.query()`` falls back to
+``SCALAR_SCHEMA`` when no writer schema is available (channel
+registered but unwritten, or session filter excludes the live
+writer). For array-type channels (waveforms, sample blocks), this
+forces empty results into scalar shape — the consumer reading zero
+rows still gets a mismatched schema header.
+
+What needs to land: ``query()`` should branch on
+``ChannelDescriptor.data_type`` (which is recorded at registration
+time) and pick ``ARRAY_SCHEMA`` for array channels' empty fallback.
+Currently low-impact (zero rows = no observable bug) but worth
+fixing alongside the Channel attribution work above.
+
+### SpecQualifier matching — capability scoring honors `qualifier`
+
+The ``SpecQualifier`` enum (``guaranteed`` / ``typical`` /
+``nominal`` / ``supplemental``) and the ``qualifier:`` field on
+``SpecBand`` / ``Signal`` / ``Attribute`` (``models/capability.py``)
+are restored after being flagged "dead" in Phase 6b.1. Industry-
+standard datasheet semantic (Keysight / Keithley / Rohde-Schwarz):
+distinguishes warranted specs (must be met, guardbanded) from
+typical-only specs (informational, not warranted).
+
+What needs to land: capability matching at session start should
+honor this. When checking whether an instrument's ``signals[v].range``
+covers a product's required range, treat ``guaranteed`` qualifiers
+as warranted (must satisfy with margin) and ``typical`` qualifiers
+as advisory (warn but don't block). The matcher in
+``litmus.matching`` ignores ``qualifier`` today; when a station has
+only typical-spec instruments for a critical signal, we should
+surface that.
+
+Tied into: capability-aware station/test runnability inference
+(separate Backlog item above).
+
+### Limit resolution: expression / lookup / step / callable strategies
+
+`MeasurementLimitConfig` (``models/test_config.py``) declares
+fields ``expr: str``, ``tolerance_pct``, ``tolerance_abs``,
+``lookup: LimitLookupConfig | None``, ``steps: LimitStepConfig | None``,
+and ``callable: str``, but only the direct ``low``/``high``/
+``nominal``/``characteristic`` resolution paths are wired through
+``execution/verify`` and the limit resolver. The Phase 6b.1 audit
+correctly removed the ``LimitExprConfig`` and ``LimitCallableConfig``
+sub-models because their fields were already flat on the parent —
+but the *features* themselves are unwired:
+
+- **expr-based limits** — ``output_voltage: {expr: "0.66 *
+  vector.input_voltage", tolerance_pct: 5}``. Resolver evaluates
+  the expression against the active vector params, applies
+  tolerance to derive low/high.
+- **lookup-table limits** — ``LimitLookupConfig`` (kept) typed
+  with ``key: str`` and ``table: dict[str, Limit]``. Resolver
+  picks the table entry whose key matches the active vector
+  param. Unused today.
+- **step-function limits** — ``LimitStepConfig`` (kept) with
+  ``param`` and ``ranges: list[{below: X, limit: {...}}]``.
+  Resolver picks the first range whose ``below`` exceeds the
+  param. Unused today.
+- **callable-based limits** — ``callable: "myproject.limits.x"``
+  — dotted path to a Python function returning a ``Limit``.
+  Unused today.
+
+What needs to land: extend ``execution.verify._resolve_measurement_limit``
+to honor each shape, with sensible precedence (direct > char-derived
+> expr/lookup/step/callable > fallback). Each shape has a real
+test-engineering use case (load-curve specs, temperature-derated
+limits, formula-driven limits) — they're not aspirational, just
+not built yet.
+
+### Channel attribution — wire `instrument_role` / `resource` to ChannelDescriptor
+
+Surfaced by the Phase 6a.3 `data/channels/` design review:
+``ChannelDescriptor`` (in ``data/channels/models.py``) declares fields
+``instrument_role: str``, ``resource: str``, and
+``properties: dict[str, Any]`` that are never populated. Both
+constructor call sites (``store.py:270``, ``client.py:161``) leave
+them at default. Result: the ``_registry.json`` written at session
+end carries no "which instrument owns this channel" data.
+
+The data IS available at the call site:
+``instruments/observer.py`` already caches ``self._role`` and
+``self._resource`` from the connected instrument and writes
+channels via ``self._channel_store.write(channel_id, value,
+source=source)`` (line 69). The store's ``write()`` signature just
+doesn't accept the attribution kwargs.
+
+What needs to land:
+
+- ``ChannelStore.write()`` accepts ``instrument_role: str | None``,
+  ``resource: str | None``, ``properties: dict[str, Any] | None``.
+- ``instruments/observer.py`` ``_store_value()`` passes
+  ``instrument_role=self._role, resource=self._resource``.
+- Harness ``observe()`` path (``execution/harness.py:203``) passes
+  ``None`` for both — channels written from free-form
+  ``context.observe()`` have no instrument context.
+- Analytics / UI reads ``_registry.json`` to attribute channels to
+  instruments in waveform pickers and filtering.
+
+Decision points: should ``properties`` accept arbitrary kwargs as
+a metadata bag, or stay typed? Should the daemon-side store
+preserve attribution from cross-process producers (today the
+client RPC has no place to pass it)?
+
 ### Consumer-side ref materialization (waveform viewing)
 
 Surfaced by the Phase 6a.2 `data/backends/` design review: the

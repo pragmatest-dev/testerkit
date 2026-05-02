@@ -35,6 +35,19 @@ from litmus.data.subscribers._output_file import OutputFile
 _WRITE_ERRORS = (OSError, pa.ArrowException)  # type: ignore[attr-defined]
 
 
+def _to_utc(dt: datetime | None) -> datetime | None:
+    """Coerce a datetime to UTC (or pass through ``None``).
+
+    Naive datetimes are interpreted as already UTC; aware datetimes
+    are converted via ``astimezone(UTC)``.
+    """
+    if dt is None:
+        return None
+    if dt.tzinfo is None:
+        return dt.replace(tzinfo=UTC)
+    return dt.astimezone(UTC)
+
+
 def _lttb_indices(values: Sequence[float], n_out: int) -> list[int]:
     """Largest Triangle Three Buckets downsampling — return selected indices.
 
@@ -71,9 +84,12 @@ def _lttb_indices(values: Sequence[float], n_out: int) -> list[int]:
             if area > best_area:
                 best_area = area
                 best_idx = j
-        # Ensure strictly increasing indices for flat signals
+        # Ensure strictly increasing indices for flat signals, but
+        # clamp to the current bucket so monotonicity-driven picks
+        # don't drift into the next bucket's range.
         if best_idx <= prev_idx:
-            best_idx = prev_idx + 1
+            bucket_max = min(b_end, n) - 1
+            best_idx = min(prev_idx + 1, bucket_max)
         selected.append(best_idx)
         prev_idx = best_idx
 
@@ -375,11 +391,16 @@ class ChannelStore:
         return data_type, row, sample
 
     def _notify(self, channel_id: str, sample: ChannelSample) -> None:
-        """Notify channel and global subscribers."""
+        """Notify channel and global subscribers.
+
+        Broad ``except Exception`` is deliberate: each user-supplied
+        callback runs in isolation so a bug in one subscriber doesn't
+        shadow the rest of the fan-out.
+        """
         for cb in self._subscribers.get(channel_id, []):
             try:
                 cb(sample)
-            except Exception as exc:
+            except Exception as exc:  # noqa: BLE001 — subscriber isolation
                 warnings.warn(
                     f"Channel subscriber failed on '{channel_id}': {exc}",
                     stacklevel=2,
@@ -387,7 +408,7 @@ class ChannelStore:
         for cb in self._global_subscribers:
             try:
                 cb(sample)
-            except Exception as exc:
+            except Exception as exc:  # noqa: BLE001 — subscriber isolation
                 warnings.warn(
                     f"Channel subscriber failed on '{channel_id}': {exc}",
                     stacklevel=2,
@@ -513,20 +534,8 @@ class ChannelStore:
         # Filter by time range
         if start is not None or end is not None:
             timestamps = result.column("timestamp").to_pylist()
-            start_utc = (
-                start.astimezone(UTC)
-                if start and start.tzinfo
-                else start.replace(tzinfo=UTC)
-                if start
-                else None
-            )
-            end_utc = (
-                end.astimezone(UTC)
-                if end and end.tzinfo
-                else end.replace(tzinfo=UTC)
-                if end
-                else None
-            )
+            start_utc = _to_utc(start)
+            end_utc = _to_utc(end)
             keep = [
                 (not start_utc or ts >= start_utc) and (not end_utc or ts <= end_utc)
                 for ts in timestamps
@@ -582,7 +591,7 @@ class ChannelStore:
             writer, _ = client.do_put(descriptor, batch.schema)
             writer.write_batch(batch)
             writer.close()
-        except Exception as exc:
+        except (OSError, RuntimeError, pa.ArrowException) as exc:
             warnings.warn(f"Channel Flight push failed (non-fatal): {exc}", stacklevel=2)
             self._flight_client = None
 
@@ -668,7 +677,7 @@ class ChannelStore:
                                     format="channels",
                                 )
                             )
-                        except Exception as exc:
+                        except Exception as exc:  # noqa: BLE001 — callback isolation
                             warnings.warn(
                                 f"Channel on_output callback failed for {ipc_path}: {exc}",
                                 stacklevel=2,

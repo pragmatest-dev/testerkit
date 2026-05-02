@@ -26,6 +26,30 @@ from litmus.utils.ranges import expand_range
 # =============================================================================
 
 
+class SpecQualifier(StrEnum):
+    """Qualification level for a specification value.
+
+    Industry-standard datasheet semantic (Keysight / Keithley / R&S).
+    Capability matching can/should distinguish a warranted spec from
+    a typical-only one when checking whether an instrument meets a
+    product requirement — see ROADMAP "SpecQualifier matching" for
+    the wiring plan.
+
+    - **guaranteed**: Warranted spec — product must meet it,
+      guardbanded for measurement uncertainty.
+    - **typical**: Expected performance across multiple units, not
+      warranted.
+    - **nominal**: Design target / expected value, not warranted or
+      tested.
+    - **supplemental**: Informational performance data, not warranted.
+    """
+
+    GUARANTEED = "guaranteed"
+    TYPICAL = "typical"
+    NOMINAL = "nominal"
+    SUPPLEMENTAL = "supplemental"
+
+
 class RangeSpec(BaseModel):
     """Specification for measurement or output range."""
 
@@ -163,6 +187,7 @@ class SpecBand(BaseModel):
     units: str | None = None  # Override parent units for this band
     accuracy: AccuracySpec | None = None
     resolution: ResolutionSpec | None = None
+    qualifier: SpecQualifier | None = None
 
 
 # =============================================================================
@@ -204,6 +229,7 @@ class Signal(BaseModel):
     value: float | None = None
     units: str | None = None
     bands: list[SpecBand] | None = None
+    qualifier: SpecQualifier | None = None
 
 
 class Condition(BaseModel):
@@ -305,6 +331,7 @@ class Attribute(BaseModel):
     options: list[float | str | bool] | None = None
     units: str | None = None
     bands: list[SpecBand] | None = None
+    qualifier: SpecQualifier | None = None
 
     @model_validator(mode="after")
     def _require_value_range_or_options(self) -> Self:
