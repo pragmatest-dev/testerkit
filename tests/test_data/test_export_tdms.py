@@ -124,7 +124,7 @@ class TestTdmsSubscriber:
         vout_ch = tf["power.output.voltage"]["vout"]
         props = dict(vout_ch.properties)
         assert props["units"] == "V"
-        assert props["comparator"] == "GELE"
+        assert props["limit_comparator"] == "GELE"
 
     def test_groups_from_step_path(
         self,
