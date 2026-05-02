@@ -27,10 +27,25 @@ class RunStatus(BaseModel):
     current_step: str | None = None
 
 
+class ActiveRun(BaseModel):
+    """Public summary of one currently-tracked run.
+
+    Returned by ``TestRunner.list_active()``; consumed by the
+    ``/api/active`` endpoint and the live UI.
+    """
+
+    run_id: str
+    status: Literal["pending", "running", "completed", "failed"]
+    progress_pct: int = 0
+    current_step: str | None = None
+    dut_serial: str
+    station_id: str
+
+
 class DialogCreate(BaseModel):
     """Request body for creating a dialog."""
 
-    type: str = "confirm"
+    type: Literal["confirm", "choice", "input"] = "confirm"
     title: str
     message: str
     run_id: str | None = None

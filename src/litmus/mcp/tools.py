@@ -1273,11 +1273,11 @@ def session_detail_query(
     session_id: str,
     *,
     results_dir: Path | None = None,
-) -> dict[str, Any]:
+) -> dict[str, Any] | None:
     """Get events for a specific session.
 
-    Shared implementation for HTTP API and MCP tool.
-    Returns dict with session_id and events, or None if not found.
+    Returns ``{"session_id": ..., "events": [...]}`` if the session has
+    events, or ``None`` if no events exist for that session id.
     """
     from uuid import UUID
 
@@ -1288,7 +1288,7 @@ def session_detail_query(
         sid = UUID(session_id)
         events = store.events(session_id=sid)
         if not events:
-            return {"session_id": session_id, "events": None}
+            return None
         return {"session_id": session_id, "events": events}
     finally:
         store.close()

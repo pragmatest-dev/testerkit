@@ -10,16 +10,20 @@ from fastapi import APIRouter, HTTPException
 from fastapi.responses import ORJSONResponse
 
 from litmus.api.models import DialogCreate, DialogRespondRequest, LaunchRequest, SaveRequest
-from litmus.api.schemas import RunView, build_run_view
+from litmus.api.schemas import CapabilitySummary, RequirementSummary, RunView, build_run_view
 from litmus.data.backends.parquet import ParquetBackend
 
 
 def _parse_uuid(value: str) -> UUID:
-    """Parse a UUID string, raising HTTPException on invalid input."""
+    """Parse a UUID string, raising HTTPException on malformed input.
+
+    400 (malformed) is distinct from 404 (well-formed but unknown id) —
+    callers raise 404 themselves after a successful parse.
+    """
     try:
         return UUID(value)
-    except ValueError:
-        raise HTTPException(status_code=400, detail="Invalid dialog ID")
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail="Invalid UUID format") from exc
 
 
 def _create_dialog_from_request(request: DialogCreate):
@@ -65,13 +69,13 @@ def create_api_router() -> APIRouter:
     from litmus.store import load_project_config
 
     project = load_project_config()
-    backend = ParquetBackend(results_dir=project.results_dir)
-    _rdir: Path | None = Path(project.results_dir) if project.results_dir else None
+    results_dir: Path | None = Path(project.results_dir) if project.results_dir else None
+    backend = ParquetBackend(results_dir=results_dir)
 
     def _metrics_store():
         from litmus.analysis.metrics_store import MetricsStore
 
-        return MetricsStore(_results_dir=project.results_dir)
+        return MetricsStore(_results_dir=results_dir)
 
     # -------------------------------------------------------------------------
     # Runs
@@ -99,6 +103,8 @@ def create_api_router() -> APIRouter:
     @router.get("/runs/{run_id}/measurements", response_class=ORJSONResponse)
     def get_measurements(run_id: str):
         """Get measurements for a test run."""
+        if backend.get_run(run_id) is None:
+            raise HTTPException(status_code=404, detail="Run not found")
         measurements = backend.get_measurements(run_id)
         return {"measurements": measurements}
 
@@ -127,20 +133,11 @@ def create_api_router() -> APIRouter:
         """List currently running tests."""
         from litmus.api.runner import get_runner
 
-        runner = get_runner()
-        active = []
-        for run_id, run_info in runner.runs.items():
-            active.append(
-                {
-                    "run_id": run_id,
-                    "status": run_info.status,
-                    "progress_pct": run_info.progress_pct,
-                    "current_step": run_info.current_step,
-                    "dut_serial": run_info.request.dut_serial,
-                    "station_id": run_info.request.station_id,
-                }
-            )
-        return {"active_runs": active, "count": len(active)}
+        active = get_runner().list_active()
+        return {
+            "active_runs": [run.model_dump() for run in active],
+            "count": len(active),
+        }
 
     # -------------------------------------------------------------------------
     # Dialogs
@@ -184,7 +181,7 @@ def create_api_router() -> APIRouter:
         Blocks until the dialog is responded to or timeout.
         Used by test subprocesses to wait for operator input.
         """
-        from litmus.api.dialogs import get_dialog_manager
+        from litmus.api.dialogs import DialogResponse, get_dialog_manager
 
         uuid = _parse_uuid(dialog_id)
         manager = get_dialog_manager()
@@ -209,8 +206,7 @@ def create_api_router() -> APIRouter:
             await asyncio.sleep(poll_interval)
             elapsed += poll_interval
 
-        # Timeout
-        return {"dialog_id": str(uuid), "timed_out": True, "confirmed": False}
+        return DialogResponse(dialog_id=uuid, timed_out=True).model_dump(mode="json")
 
     @router.post("/dialogs/{dialog_id}/respond")
     def respond_to_dialog(dialog_id: str, request: DialogRespondRequest):
@@ -254,7 +250,7 @@ def create_api_router() -> APIRouter:
             role,
             since,
             limit,
-            results_dir=_rdir,
+            results_dir=results_dir,
         )
 
     @router.get("/sessions", response_class=ORJSONResponse)
@@ -262,15 +258,15 @@ def create_api_router() -> APIRouter:
         """List known sessions."""
         from litmus.mcp.tools import sessions_query
 
-        return sessions_query(results_dir=_rdir)
+        return sessions_query(results_dir=results_dir)
 
     @router.get("/sessions/{session_id}", response_class=ORJSONResponse)
     def get_session(session_id: str):
         """Get events for a specific session."""
         from litmus.mcp.tools import session_detail_query
 
-        result = session_detail_query(session_id, results_dir=_rdir)
-        if result["events"] is None:
+        result = session_detail_query(session_id, results_dir=results_dir)
+        if result is None:
             raise HTTPException(status_code=404, detail="Session not found")
         return result
 
@@ -283,7 +279,7 @@ def create_api_router() -> APIRouter:
         """List known channels from the channel registry."""
         from litmus.mcp.tools import channels_list_query
 
-        return channels_list_query(results_dir=_rdir)
+        return channels_list_query(results_dir=results_dir)
 
     @router.get("/channels/{channel_id}", response_class=ORJSONResponse)
     def get_channel_data(
@@ -304,7 +300,7 @@ def create_api_router() -> APIRouter:
             until=until,
             last_n=last_n,
             max_points=max_points,
-            results_dir=_rdir,
+            results_dir=results_dir,
         )
 
     # -------------------------------------------------------------------------
@@ -342,11 +338,11 @@ def create_api_router() -> APIRouter:
         return {
             "product_id": product_id,
             "requirements": [
-                {
-                    "function": r.function.value,
-                    "direction": r.direction.value,
-                    "characteristic_name": r.characteristic_name,
-                }
+                RequirementSummary(
+                    function=r.function.value,
+                    direction=r.direction.value,
+                    characteristic_name=r.characteristic_name,
+                ).model_dump()
                 for r in reqs
             ],
         }
@@ -385,13 +381,13 @@ def create_api_router() -> APIRouter:
         return {
             "station_id": station_id,
             "capabilities": [
-                {
-                    "function": cap.function.value,
-                    "direction": cap.direction.value,
-                    "instrument_type": cap.instrument_type,
-                    "instrument_name": cap.instrument_name,
-                    "channel": cap.channel,
-                }
+                CapabilitySummary(
+                    function=cap.function.value,
+                    direction=cap.direction.value,
+                    instrument_type=cap.instrument_type,
+                    instrument_name=cap.instrument_name,
+                    channel=cap.channel,
+                ).model_dump()
                 for cap in capabilities
             ],
         }
@@ -434,18 +430,17 @@ def create_api_router() -> APIRouter:
     # Instruments & Catalog
     # -------------------------------------------------------------------------
 
-    @router.get("/instruments/catalog")
-    def list_catalog_entries():
-        """List available catalog entries (instrument models and capabilities)."""
+    @router.get("/instruments/types")
+    def list_instrument_types():
+        """List distinct instrument ``type`` values present in the catalog."""
         from litmus.store import find_catalog_dirs, load_catalog_from_directory
 
-        seen: set[str] = set()
-        types: list[str] = []
-        for cat_dir in find_catalog_dirs():
-            for entry_id, entry in load_catalog_from_directory(cat_dir).items():
-                if entry.type not in seen:
-                    seen.add(entry.type)
-                    types.append(entry.type)
+        types = {
+            entry.type
+            for cat_dir in find_catalog_dirs()
+            for entry in load_catalog_from_directory(cat_dir).values()
+            if entry.type
+        }
         return {"instrument_types": sorted(types)}
 
     @router.get("/instruments/catalog/{entry_id}")
@@ -652,7 +647,10 @@ def create_api_router() -> APIRouter:
             project=request.project,
         )
         if isinstance(result, dict) and result.get("success") is False:
-            raise HTTPException(status_code=422, detail=result)
+            raise HTTPException(
+                status_code=422,
+                detail=result.get("error") or result.get("errors") or str(result),
+            )
         return result
 
     @router.get("/read")

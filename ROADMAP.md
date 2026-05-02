@@ -534,6 +534,69 @@ parallel HTTP path now that `litmus serve` is the front door? The
 existing `load_ref` / `load_file` keep the dispatch surface; the
 consumer-side wiring is the missing layer.
 
+### HTTP support for ImageDialog
+
+Surfaced by the Phase 6c.1 `api/` design review. The dialog system
+has four variants — `ConfirmDialog`, `ChoiceDialog`, `InputDialog`,
+`ImageDialog` — and the manager (`api/dialogs/manager.py:470-483`)
+exposes `register_image_dialog(...)` so in-process callers can
+trigger an image prompt. But the HTTP layer skips it:
+
+- `api/models.py:DialogCreate` declares only `type:
+  Literal["confirm", "choice", "input"]` and lacks `image_url`,
+  `image_path`, `show_confirm`, `capture_enabled` fields.
+- `api/app.py:_create_dialog_from_request` has no ``"image"``
+  branch.
+
+So a test subprocess running over HTTP can't ask the operator to
+review or capture an image. What needs to land:
+
+- Add `image_url`, `image_path`, `show_confirm`, `capture_enabled`
+  to `DialogCreate` (or a dedicated `ImageDialogCreate` and a
+  discriminated union).
+- Add the ``"image"`` case to `_create_dialog_from_request`.
+- Extend the dialog UI page to render image previews and
+  capture buttons (`ui/pages/dialogs/`).
+- Decide how captured images flow back to the test subprocess:
+  base64 in `DialogResponse.image_data` (already exists) vs an
+  uploaded file path the test fetches separately.
+
+Decision points: should `DialogCreate` become a discriminated
+union, or stay a flat optional-fields model? Where does captured
+image data live (response payload vs server-side artifacts)?
+
+### `response_model=` coverage on FastAPI endpoints
+
+Surfaced by the Phase 6c.1 `api/` design review: only one endpoint
+(`GET /api/runs/{run_id}`) declares `response_model=`. The other
+~39 endpoints return either a typed Pydantic model (without telling
+FastAPI what its schema is) or an ad-hoc dict envelope
+(`{"runs": [...]}`, `{"run_id": ..., "status": "running"}`,
+`{"data": ...}`).
+
+Consequences:
+- OpenAPI schema for these endpoints is opaque (no JSON schema for
+  responses; clients can't generate types).
+- No response validation at the HTTP boundary, so a regression in
+  the underlying model can leak through unnoticed.
+- Envelope shapes (`{"runs": [...]}`, `{"data": ...}`,
+  `{"active_runs": [...], "count": N}`) are scattered conventions
+  rather than declared contracts.
+
+What needs to land:
+
+- Define small response DTOs for each envelope shape (likely 5-10
+  in `api/schemas.py`: `ListRunsResponse`, `StartRunResponse`,
+  `ListEventsResponse`, `MetricsResponse[T]`, etc.).
+- Add `response_model=` to every endpoint.
+- Pick a convention for collection wrappers (`{"X": [...]}` vs
+  `{"data": [...]}` vs unwrapped list) and apply it uniformly.
+
+Decision points: do we keep dict envelopes for backward-compat with
+existing clients, or normalize? Is a generic `Response[T]` wrapper
+worth the type gymnastics? Coordinate with the MCP-tool / HTTP-API
+parity rule (CLAUDE.md) so both layers expose the same shapes.
+
 ---
 
 ## In progress

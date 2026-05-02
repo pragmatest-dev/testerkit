@@ -88,6 +88,24 @@ class StepView(BaseModel):
     measurements: list[MeasurementView] = []
 
 
+class RequirementSummary(BaseModel):
+    """Flat HTTP shape for a product capability requirement."""
+
+    function: str
+    direction: str
+    characteristic_name: str
+
+
+class CapabilitySummary(BaseModel):
+    """Flat HTTP shape for a station capability."""
+
+    function: str
+    direction: str
+    instrument_type: str
+    instrument_name: str
+    channel: str | None = None
+
+
 class RunView(BaseModel):
     """A complete test run with nested steps, instruments, and measurements.
 

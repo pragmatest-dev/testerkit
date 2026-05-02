@@ -8,7 +8,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Literal
 
-from litmus.api.models import LaunchRequest, RunStatus
+from litmus.api.models import ActiveRun, LaunchRequest, RunStatus
 
 logger = logging.getLogger(__name__)
 
@@ -74,6 +74,8 @@ class TestRunner:
 
         if req.operator:
             cmd.append(f"--operator={req.operator}")
+        if req.product_id:
+            cmd.append(f"--product={req.product_id}")
 
         # Set up environment for subprocess
         env = os.environ.copy()
@@ -136,6 +138,24 @@ class TestRunner:
             current_step=run_info.current_step,
         )
 
+    def list_active(self) -> list[ActiveRun]:
+        """Return a typed snapshot of every tracked run.
+
+        Currently returns all runs (including completed ones) since the
+        endpoint that consumes this displays history alongside live runs.
+        """
+        return [
+            ActiveRun(
+                run_id=run_id,
+                status=info.status,
+                progress_pct=info.progress_pct,
+                current_step=info.current_step,
+                dut_serial=info.request.dut_serial,
+                station_id=info.request.station_id,
+            )
+            for run_id, info in self.runs.items()
+        ]
+
     async def stream(self, run_id: str) -> AsyncIterator[dict]:
         """Stream progress events for a run."""
         run_info = self.runs.get(run_id)
@@ -182,8 +202,19 @@ _runner: TestRunner | None = None
 
 
 def get_runner() -> TestRunner:
-    """Get or create the global test runner."""
+    """Get or create the global test runner.
+
+    On first access we resolve ``ProjectConfig.results_dir`` so the
+    subprocess writes to the same parquet tree that ``ParquetBackend``
+    reads from. Without this, runs launched via the API would land in
+    ``./results`` while the read side looks under
+    ``project.results_dir`` (or the platformdirs default), and the new
+    run would be invisible in run listings.
+    """
     global _runner
     if _runner is None:
-        _runner = TestRunner()
+        from litmus.store import load_project_config
+
+        project = load_project_config()
+        _runner = TestRunner(results_dir=project.results_dir or "results")
     return _runner
