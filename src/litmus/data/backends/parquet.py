@@ -27,27 +27,36 @@ from collections.abc import Callable, Generator
 from contextlib import contextmanager
 from datetime import datetime
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import Any
 from uuid import UUID
 
-if TYPE_CHECKING:
-    from litmus.data.run_store import RunStore
-
 import pyarrow as pa
+import pyarrow.ipc as ipc
 import pyarrow.parquet as pq
 
 from litmus.data._atomic import atomic_write_table
 from litmus.data.backends._row_helpers import (
+    CUSTOM_PREFIX,
+    HAS_NUMPY,
+    INPUT_PREFIX,
+    OUTPUT_PREFIX,
     REF_PATH_PREFIX,
+    VECTOR_ID_LENGTH,
     MeasurementRow,
     _append_not_started,
-    _env_columns,
+    _to_datetime,
     build_row,
     build_run_metadata,
     build_step_manifest,
+    extract_prefixed_fields,
     run_context_from_run_started,
     save_ref_to_dir,
+    step_entry_dict,
 )
+from litmus.data.run_store import RunStore
+
+if HAS_NUMPY:
+    import numpy as np  # type: ignore[import-not-found]
 from litmus.data.event_log import EventSubscriber
 from litmus.data.events import (
     InstrumentConnected,
@@ -92,7 +101,20 @@ _DENORMALIZATION_FIELDS = frozenset({"inputs", "outputs", "instruments", "custom
 
 def _is_param_column(col: str) -> bool:
     """True if col is an in_* param value, not signal-path metadata."""
-    return col.startswith("in_") and not any(col.endswith(s) for s in _STIMULUS_SUFFIXES)
+    return col.startswith(INPUT_PREFIX) and not any(col.endswith(s) for s in _STIMULUS_SUFFIXES)
+
+
+def _ensure_instrument_arrays(d: dict[str, Any]) -> dict[str, Any]:
+    """Mutate ``d`` so every ``INSTRUMENT_ARRAY_KEYS`` key is present (default ``[]``).
+
+    Single source of truth for the schema-consistency invariant: any
+    write-side dict that flows into the parquet writer needs every
+    instrument-array column present, even when no instruments were
+    connected. Returns ``d`` for chaining.
+    """
+    for key in INSTRUMENT_ARRAY_KEYS:
+        d.setdefault(key, [])
+    return d
 
 
 def _build_parquet_metadata(
@@ -115,9 +137,18 @@ def _build_parquet_metadata(
     if profile_facets:
         metadata[b"profile_facets_json"] = json.dumps(profile_facets).encode("utf-8")
 
-    metadata[b"litmus_version"] = b"1.0.0"
+    from litmus import __version__
+
+    metadata[b"litmus_version"] = __version__.encode("utf-8")
     metadata[b"schema_version"] = SCHEMA_VERSION.encode()
     return metadata
+
+
+# Lazy version lookup: ``litmus/__init__.py`` re-exports ``LitmusClient``
+# (which depends on this module via ``ParquetBackend``), so a top-level
+# ``from litmus import __version__`` would cycle. Module load-time would
+# break; deferring to call time is fine because the function only runs
+# at parquet-write time, well after the full package is loaded.
 
 
 class ParquetMeasurementWriter:
@@ -218,10 +249,8 @@ class ParquetBackend:
         return parquet_path
 
     @contextmanager
-    def _run_store_ctx(self) -> Generator["RunStore", None, None]:
+    def _run_store_ctx(self) -> Generator[RunStore, None, None]:
         """Yield a configured RunStore, closing it on exit."""
-        from litmus.data.run_store import RunStore
-
         store = RunStore(_results_dir=self.results_dir)
         try:
             yield store
@@ -229,11 +258,16 @@ class ParquetBackend:
             store.close()
 
     def _notify_daemon(self, parquet_path: Path) -> None:
-        """Best-effort notification to the runs DuckDB daemon."""
+        """Best-effort notification to the runs DuckDB daemon.
+
+        Catches transport-level failures (network, file I/O, gRPC
+        flake) so a daemon outage doesn't block the write. Other
+        exceptions — programming errors, schema bugs — propagate.
+        """
         try:
             with self._run_store_ctx() as store:
                 store.notify_new_run(parquet_path)
-        except Exception:  # Intentionally broad: notification must not fail writes
+        except (ConnectionError, OSError, TimeoutError):
             logger.debug("Failed to notify runs daemon", exc_info=True)
 
     def _build_measurement_rows(
@@ -250,10 +284,8 @@ class ParquetBackend:
         meta = build_run_metadata(test_run)
         rows: list[dict[str, Any]] = []
         for step_idx, step in enumerate(test_run.steps):
-            step_arrays = (
-                step.instrument_arrays
-                if step.instrument_arrays
-                else instrument_arrays or {k: [] for k in INSTRUMENT_ARRAY_KEYS}
+            step_arrays = step.instrument_arrays or _ensure_instrument_arrays(
+                dict(instrument_arrays or {})
             )
             for vector in step.vectors:
                 for measurement in vector.measurements:
@@ -274,6 +306,7 @@ class ParquetBackend:
                         step_class=step.class_name,
                         step_function=step.function,
                         step_markers=step.markers,
+                        step_outcome=step.outcome.value,
                         meta=meta,
                     )
                     rows.append(row_model.to_flat_dict())
@@ -293,7 +326,7 @@ class ParquetBackend:
             Path reference string like "_ref/abc123_scope_waveform.npz"
         """
         ref_dir = self._get_ref_dir(parquet_path)
-        return save_ref_to_dir(ref_dir, vector_id[:8], key, value)
+        return save_ref_to_dir(ref_dir, vector_id[:VECTOR_ID_LENGTH], key, value)
 
     def _build_empty_row(
         self,
@@ -318,9 +351,7 @@ class ParquetBackend:
         # Add instrument identity arrays (default to empty lists for schema consistency)
         if instrument_arrays:
             row.update(instrument_arrays)
-        else:
-            for key in INSTRUMENT_ARRAY_KEYS:
-                row[key] = []
+        _ensure_instrument_arrays(row)
 
         return row
 
@@ -481,9 +512,7 @@ class ParquetBackend:
 
         # Ensure instrument array columns exist for schema consistency
         for row in rows:
-            for key in INSTRUMENT_ARRAY_KEYS:
-                if key not in row:
-                    row[key] = []
+            _ensure_instrument_arrays(row)
 
         schema = _build_write_schema(rows)
         table = table_from_rows(rows, schema)
@@ -586,22 +615,6 @@ class ParquetSubscriber(EventSubscriber):
             arrays["step_instruments_mocked"].append(inst.mocked)
         return arrays
 
-    def _run_started_metadata_kwargs(self, event: Any) -> dict[str, Any]:
-        """Extract run-level metadata as kwargs for MeasurementRow.
-
-        Shared by ``_build_row()`` and ``_build_step_summary_row()``.
-        Adds environment columns (``python_version``, ``litmus_version``,
-        ``env_fingerprint``) on top of the shared run-context dict —
-        only the measurement schema exposes those, so the helper itself
-        omits them.
-        """
-        s = self._run_started
-        env_json = s.environment_json if s else None
-        return {
-            **run_context_from_run_started(s, event),
-            **_env_columns(env_json),
-        }
-
     def _step_start_field(self, step_index: int, attr: str) -> Any:
         """Get a field from the cached StepStarted event, or None."""
         start = self._step_starts.get(step_index)
@@ -618,7 +631,7 @@ class ParquetSubscriber(EventSubscriber):
         end = self._step_ends.get(idx)
         node_id = self._step_start_field(idx, "node_id")
         row = MeasurementRow(
-            **self._run_started_metadata_kwargs(event),
+            **run_context_from_run_started(self._run_started, event, include_env=True),
             # Step/vector (from event + cached StepStarted)
             step_name=event.step_name,
             step_index=idx,
@@ -631,6 +644,7 @@ class ParquetSubscriber(EventSubscriber):
             step_class=self._step_start_field(idx, "class_name"),
             step_function=self._step_start_field(idx, "function"),
             step_markers=self._markers_by_node.get(node_id) if node_id else None,
+            step_outcome=end.outcome if end else None,
             vector_index=event.vector_index,
             vector_attempt=event.attempt,
             # Measurement (from event)
@@ -663,7 +677,7 @@ class ParquetSubscriber(EventSubscriber):
     def _build_step_summary_row(self, step_ended: Any) -> dict[str, Any]:
         """Build a summary row for a step that completed with no measurements."""
         row = MeasurementRow(
-            **self._run_started_metadata_kwargs(step_ended),
+            **run_context_from_run_started(self._run_started, step_ended, include_env=True),
             step_name=step_ended.step_name,
             step_index=step_ended.step_index,
             step_path=step_ended.step_path,
@@ -678,9 +692,13 @@ class ParquetSubscriber(EventSubscriber):
             step_file=step_ended.file,
             step_class=step_ended.class_name,
             step_function=step_ended.function,
+            step_markers=(
+                self._markers_by_node.get(step_ended.node_id) if step_ended.node_id else None
+            ),
             measurement_name="_step_summary",
             measurement_value=None,
             measurement_outcome=step_ended.outcome,
+            step_outcome=step_ended.outcome,
             run_outcome=None,
             instruments=self._build_instrument_arrays(),
         )
@@ -689,19 +707,34 @@ class ParquetSubscriber(EventSubscriber):
     def _write(self, outcome: str | None = None) -> None:
         """Write accumulated rows to Parquet.
 
+        Orchestration only: build → write measurements + steps →
+        notify. Splits into ``_build_final_rows`` and ``_write_results``
+        so the early-exit paths (no RunStarted, no rows) and the actual
+        I/O are separate. ``_written`` flips only after a successful
+        write so callbacks aren't shadowed by half-finished state.
+
         Args:
             outcome: Run outcome from RunEnded. If None (crash/close without
                 RunEnded), defaults to "errored" since the run didn't complete.
         """
         if self._written:
             return
-        self._written = True
 
         s = self._run_started
         if not s:
+            self._written = True  # Nothing to write; treat as completed.
             return
 
-        # Build all rows now — all events are in, step times are known
+        rows = self._build_final_rows(outcome)
+        if not rows:
+            self._written = True
+            return
+
+        self._write_results(s, rows)
+        self._written = True
+
+    def _build_final_rows(self, outcome: str | None) -> list[dict[str, Any]]:
+        """Build the final list of rows to write (measurements + step summaries)."""
         ended_at = _utcnow()
         final_outcome = outcome if outcome is not None else "errored"
 
@@ -712,7 +745,6 @@ class ParquetSubscriber(EventSubscriber):
             row["run_outcome"] = final_outcome
             rows.append(row)
 
-        # Add summary rows for steps with no measurements
         for step_idx, step_end in self._step_ends.items():
             if step_idx not in self._steps_with_measurements:
                 row = self._build_step_summary_row(step_end)
@@ -720,10 +752,10 @@ class ParquetSubscriber(EventSubscriber):
                 row["run_outcome"] = final_outcome
                 rows.append(row)
 
-        if not rows:
-            return
+        return rows
 
-        # Write via save_from_rows
+    def _write_results(self, s: Any, rows: list[dict[str, Any]]) -> None:
+        """Persist rows to parquet, write the steps sidecar, fire ``on_output``."""
         pq_path = self._backend.save_from_rows(
             rows,
             started_at=s.occurred_at,
@@ -748,12 +780,8 @@ class ParquetSubscriber(EventSubscriber):
         run_context = run_context_from_run_started(s, s)
         rows: list[dict[str, Any]] = []
         for entry in step_results:
-            started_at = entry.get("started_at")
-            ended_at = entry.get("ended_at")
-            if isinstance(started_at, str):
-                started_at = datetime.fromisoformat(started_at)
-            if isinstance(ended_at, str):
-                ended_at = datetime.fromisoformat(ended_at)
+            started_at = _to_datetime(entry.get("started_at"))
+            ended_at = _to_datetime(entry.get("ended_at"))
             duration_s = (
                 (ended_at - started_at).total_seconds() if started_at and ended_at else None
             )
@@ -821,31 +849,45 @@ class ParquetSubscriber(EventSubscriber):
             node_id = start.node_id if start else None
             if node_id:
                 executed_node_ids.add(node_id)
-            meas_count = meas_counts.get(idx, 0)
-            entry: dict[str, Any] = {
-                "index": idx,
-                "name": start.step_name if start else (end.step_name if end else ""),
-                "node_id": node_id,
-                "file": start.file if start else None,
-                "function": start.function if start else None,
-                "class_name": start.class_name if start else None,
-                "module": start.module if start else None,
-                "step_path": start.step_path if start else (end.step_path if end else ""),
-                "description": start.description if start else None,
-                "markers": self._markers_by_node.get(node_id) if node_id else None,
-                "outcome": end.outcome if end else None,
-                "started_at": start.occurred_at.isoformat() if start else None,
-                "ended_at": end.occurred_at.isoformat() if end else None,
-                "has_measurements": meas_count > 0,
-                "measurement_count": meas_count,
-                "vector_count": 0,
-            }
-            manifest.append(entry)
+            manifest.append(self._build_step_entry(idx, start, end, meas_counts.get(idx, 0)))
 
         # Append not-started entries from collected items
         _append_not_started(manifest, self._collected_items, executed_node_ids)
 
         return manifest
+
+    def _build_step_entry(
+        self,
+        idx: int,
+        start: Any | None,
+        end: Any | None,
+        meas_count: int,
+    ) -> dict[str, Any]:
+        """Build one step manifest entry from cached StepStarted/StepEnded.
+
+        Either ``start`` or ``end`` (typically both) describes the step.
+        Falls back across them so a partial run (e.g., aborted mid-step)
+        still yields a usable entry.
+        """
+        node_id = start.node_id if start else None
+        return step_entry_dict(
+            index=idx,
+            name=start.step_name if start else (end.step_name if end else ""),
+            node_id=node_id,
+            file=start.file if start else None,
+            function=start.function if start else None,
+            class_name=start.class_name if start else None,
+            module=start.module if start else None,
+            step_path=start.step_path if start else (end.step_path if end else ""),
+            description=start.description if start else None,
+            markers=self._markers_by_node.get(node_id) if node_id else None,
+            outcome=end.outcome if end else None,
+            started_at=start.occurred_at if start else None,
+            ended_at=end.occurred_at if end else None,
+            has_measurements=meas_count > 0,
+            measurement_count=meas_count,
+            vector_count=0,
+        )
 
 
 def load_file(parquet_path: Path, ref: str) -> Any:
@@ -881,11 +923,11 @@ def load_file(parquet_path: Path, ref: str) -> Any:
     if not path.exists():
         return ref  # File not found, return reference
 
-    if ext == ".npz":
-        try:
-            import numpy as np
-
-            data = dict(np.load(path, allow_pickle=True))
+    try:
+        if ext == ".npz":
+            if not HAS_NUMPY:
+                return path
+            data = dict(np.load(path, allow_pickle=True))  # pyright: ignore[reportPossiblyUnboundVariable]
             # Check if this looks like a Waveform
             if "Y" in data and "t0" in data and "dt" in data:
                 attrs = {k: v for k, v in data.items() if k not in ("Y", "t0", "dt")}
@@ -896,35 +938,38 @@ def load_file(parquet_path: Path, ref: str) -> Any:
                     attrs=attrs,
                 )
             return data
-        except ImportError:
+
+        elif ext == ".npy":
+            if not HAS_NUMPY:
+                return path
+            return np.load(path)  # pyright: ignore[reportPossiblyUnboundVariable]
+
+        elif ext == ".json":
+            return json.loads(path.read_text())
+
+        elif ext == ".bin":
+            return path.read_bytes()
+
+        elif ext == ".arrow":
+            return ipc.open_file(path).read_all()
+
+        elif ext == ".pkl":
+            with open(path, "rb") as f:
+                return pickle.load(f)
+
+        else:
+            # Return path for other file types
             return path
-
-    elif ext == ".npy":
-        try:
-            import numpy as np
-
-            return np.load(path)
-        except ImportError:
-            return path
-
-    elif ext == ".json":
-        return json.loads(path.read_text())
-
-    elif ext == ".bin":
-        return path.read_bytes()
-
-    elif ext == ".arrow":
-        import pyarrow.ipc as ipc_mod
-
-        return ipc_mod.open_file(path).read_all()
-
-    elif ext == ".pkl":
-        with open(path, "rb") as f:
-            return pickle.load(f)
-
-    else:
-        # Return path for other file types
-        return path
+    except (
+        OSError,
+        ValueError,
+        json.JSONDecodeError,
+        pickle.UnpicklingError,
+        EOFError,
+        pa.ArrowInvalid,
+    ) as exc:
+        logger.warning("Failed to load reference %s: %s", path, exc)
+        return ref
 
 
 def read_step_results(parquet_path: Path) -> list[dict[str, Any]]:
@@ -1033,6 +1078,15 @@ def reconstruct_test_run_from_file(pq_file: Path) -> TestRun:
 
     first = rows[0]
 
+    # Required identity columns — fail fast with a clear error rather
+    # than letting bracket-access raise KeyError mid-reconstruction.
+    run_id_str = first.get("run_id")
+    if not run_id_str:
+        raise ValueError(f"Parquet file missing required 'run_id' column: {pq_file}")
+    run_started_at = first.get("run_started_at")
+    if run_started_at is None:
+        raise ValueError(f"Parquet file missing required 'run_started_at' column: {pq_file}")
+
     # Read file-level metadata for config snapshots
     raw_meta = pf.schema_arrow.metadata or {}
     file_meta = {k.decode(): v.decode() for k, v in raw_meta.items()}
@@ -1073,15 +1127,13 @@ def reconstruct_test_run_from_file(pq_file: Path) -> TestRun:
             meas_rows = vector_groups[vk]
             measurements: list[Measurement] = []
 
-            # Extract params from in_* columns and observations from out_*
-            params: dict[str, Any] = {}
-            observations: dict[str, Any] = {}
+            # Extract params from in_* columns (skipping signal-path metadata
+            # like in_vin_instrument) and observations from out_*.
             sample_row = meas_rows[0]
-            for col, val in sample_row.items():
-                if _is_param_column(col):
-                    params[col[3:]] = val
-                elif col.startswith("out_"):
-                    observations[col[4:]] = val
+            params: dict[str, Any] = {
+                k[len(INPUT_PREFIX) :]: v for k, v in sample_row.items() if _is_param_column(k)
+            }
+            observations = extract_prefixed_fields(sample_row, OUTPUT_PREFIX)
 
             for mr in meas_rows:
                 outcome_str = mr.get("measurement_outcome")
@@ -1107,10 +1159,19 @@ def reconstruct_test_run_from_file(pq_file: Path) -> TestRun:
                     m.timestamp = ts
                 measurements.append(m)
 
-            vec_outcome_str = next(
-                (mr.get("vector_outcome") for mr in meas_rows if mr.get("vector_outcome")),
-                None,
-            )
+            # Vector outcome should be uniform across the vector's
+            # measurement rows (it's denormalized from the vector model).
+            # Warn if a row diverges so silent data corruption surfaces.
+            vec_outcomes = {
+                mr.get("vector_outcome") for mr in meas_rows if mr.get("vector_outcome")
+            }
+            if len(vec_outcomes) > 1:
+                logger.warning(
+                    "Vector %s has inconsistent vector_outcome values across rows: %s",
+                    vk,
+                    sorted(o for o in vec_outcomes if o is not None),
+                )
+            vec_outcome_str = next(iter(vec_outcomes), None)
             vectors.append(
                 TestVector(
                     index=vk[0] or 0,
@@ -1119,20 +1180,28 @@ def reconstruct_test_run_from_file(pq_file: Path) -> TestRun:
                     observations=observations,
                     outcome=Outcome(vec_outcome_str) if vec_outcome_str else Outcome.PASSED,
                     measurements=measurements,
-                    started_at=sample_row.get("vector_started_at") or first["run_started_at"],
+                    started_at=sample_row.get("vector_started_at") or run_started_at,
                     ended_at=sample_row.get("vector_ended_at"),
                 )
             )
 
         timing = step_timing.get(sk, {})
-        step_outcome = Outcome.PASSED
-        if any(v.outcome == Outcome.FAILED for v in vectors):
+        # Prefer the stored step_outcome column (cascade rollup written
+        # at row-build time). Fall back to deriving from vector
+        # outcomes for older parquet files written before the column
+        # existed.
+        step_outcome_str = step_sample_row.get("step_outcome")
+        if step_outcome_str:
+            step_outcome = Outcome(step_outcome_str)
+        elif any(v.outcome == Outcome.FAILED for v in vectors):
             step_outcome = Outcome.FAILED
+        else:
+            step_outcome = Outcome.PASSED
 
         steps.append(
             TestStep(
                 name=sk[0] or "",
-                started_at=timing.get("started_at") or first["run_started_at"],
+                started_at=timing.get("started_at") or run_started_at,
                 ended_at=timing.get("ended_at"),
                 outcome=step_outcome,
                 vectors=vectors,
@@ -1141,17 +1210,14 @@ def reconstruct_test_run_from_file(pq_file: Path) -> TestRun:
         )
 
     # Extract custom metadata from custom_* columns
-    custom_meta: dict[str, Any] = {}
-    for col in first:
-        if col.startswith("custom_"):
-            custom_meta[col.removeprefix("custom_")] = first[col]
+    custom_meta = extract_prefixed_fields(first, CUSTOM_PREFIX)
 
     run_outcome_str = first.get("run_outcome")
     run_outcome = Outcome(run_outcome_str) if run_outcome_str else Outcome.PASSED
 
     return TestRun(
-        id=UUID(first["run_id"]),
-        started_at=first["run_started_at"],
+        id=UUID(run_id_str),
+        started_at=run_started_at,
         ended_at=first.get("run_ended_at"),
         dut=DUT(
             serial=first.get("dut_serial") or "",

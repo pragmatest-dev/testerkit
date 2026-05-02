@@ -42,11 +42,14 @@ try:
 except ImportError:
     pass
 
-# Load third-party subscriber plugins via entry points
+# Load third-party subscriber plugins via entry points. Only swallow
+# import-time errors (missing optional deps, packaging issues); a real
+# bug in a plugin should propagate so it surfaces during ``litmus serve``
+# startup instead of silently disabling the format.
 for _ep in _entry_points(group="litmus.subscribers"):
     try:
         _ep.load()
-    except Exception as _exc:
+    except (ImportError, ModuleNotFoundError, AttributeError) as _exc:
         logger.debug("Subscriber plugin %s failed to load: %s", _ep.name, _exc)
 
 __all__ = [

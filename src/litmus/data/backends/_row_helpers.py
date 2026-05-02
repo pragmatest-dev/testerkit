@@ -22,8 +22,51 @@ from litmus.data.models import Measurement, Outcome, TestRun, TestVector, Wavefo
 from litmus.data.ref import classify_value, is_ref
 from litmus.environment import EnvironmentSnapshot
 
+try:
+    import numpy as np  # type: ignore[import-not-found]
+
+    HAS_NUMPY = True
+except ImportError:
+    HAS_NUMPY = False
+
 # Prefix for path references in output columns (legacy, use file:// URIs)
 REF_PATH_PREFIX = "_ref/"
+
+# Vector ID prefix length for filename namespacing in _ref/ directories.
+VECTOR_ID_LENGTH = 8
+
+# Dynamic-column prefixes for denormalized rows.
+INPUT_PREFIX = "in_"
+OUTPUT_PREFIX = "out_"
+CUSTOM_PREFIX = "custom_"
+
+
+def extract_prefixed_fields(row: dict[str, Any], prefix: str) -> dict[str, Any]:
+    """Extract fields whose key starts with ``prefix`` and strip it.
+
+    Used by the parquet reconstruction path to invert the flattening
+    done by :class:`MeasurementRow.to_flat_dict` (``in_*`` / ``out_*`` /
+    ``custom_*``).
+    """
+    plen = len(prefix)
+    return {k[plen:]: v for k, v in row.items() if k.startswith(prefix)}
+
+
+def _to_datetime(value: Any) -> datetime | None:
+    """Coerce a value to ``datetime`` if possible, else ``None``.
+
+    Accepts a ``datetime`` (returned as-is), an ISO-8601 string (parsed
+    via ``datetime.fromisoformat``), or anything else (``None``).
+    Malformed strings return ``None`` rather than raising.
+    """
+    if isinstance(value, datetime):
+        return value
+    if isinstance(value, str):
+        try:
+            return datetime.fromisoformat(value)
+        except ValueError:
+            return None
+    return None
 
 
 class MeasurementRow(BaseModel):
@@ -110,7 +153,8 @@ class MeasurementRow(BaseModel):
     instrument_resource: str | None = None
     instrument_channel: str | None = None
 
-    # Outcomes
+    # Outcomes (cascade rollups: measurement → vector → step → run)
+    step_outcome: str | None = None
     vector_outcome: str | None = None
     run_outcome: str | None = None
 
@@ -202,7 +246,12 @@ def _env_columns(environment_json: str | None) -> dict[str, str | None]:
     }
 
 
-def run_context_from_run_started(s: Any | None, event: Any) -> dict[str, Any]:
+def run_context_from_run_started(
+    run_started: Any | None,
+    event: Any,
+    *,
+    include_env: bool = False,
+) -> dict[str, Any]:
     """Run-level context kwargs derived from a cached ``RunStarted`` event.
 
     Streaming-path counterpart to :func:`build_run_metadata` (which
@@ -211,16 +260,17 @@ def run_context_from_run_started(s: Any | None, event: Any) -> dict[str, Any]:
     copies of the same dict, missing different fields.
 
     ``event`` supplies the row's ``run_id`` (a measurement event may carry
-    it before ``RunStarted`` arrives, and the steps writer passes ``s``
-    itself). When ``s`` is ``None`` (events arrived before RunStarted),
-    falls back to a sparse dict with placeholder defaults.
+    it before ``RunStarted`` arrives, and the steps writer passes
+    ``run_started`` itself). When ``run_started`` is ``None`` (events
+    arrived before RunStarted), falls back to a sparse dict with
+    placeholder defaults.
 
-    Excludes environment columns (``python_version``, ``litmus_version``,
-    ``env_fingerprint``) — only the measurement schema exposes those, so
-    callers spread ``_env_columns(s.environment_json)`` separately.
+    Set ``include_env=True`` to include environment columns
+    (``python_version``, ``litmus_version``, ``env_fingerprint``). The
+    measurement schema exposes them; the steps schema does not.
     """
-    if s is None:
-        return {
+    if run_started is None:
+        kwargs: dict[str, Any] = {
             "session_id": str(event.session_id),
             "run_id": str(event.run_id) if event.run_id else "",
             "slot_id": None,
@@ -247,33 +297,38 @@ def run_context_from_run_started(s: Any | None, event: Any) -> dict[str, Any]:
             "git_branch": None,
             "git_remote": None,
         }
-    return {
-        "session_id": str(s.session_id),
-        "run_id": str(event.run_id) if event.run_id else "",
-        "slot_id": s.slot_id,
-        "run_started_at": s.occurred_at,
-        "run_ended_at": None,
-        "operator_id": s.operator_id,
-        "operator_name": s.operator_name,
-        "dut_serial": s.dut_serial,
-        "dut_part_number": s.dut_part_number,
-        "dut_revision": s.dut_revision,
-        "dut_lot_number": s.dut_lot_number,
-        "product_id": s.product_id,
-        "product_name": s.product_name,
-        "product_revision": s.product_revision,
-        "station_id": s.station_id,
-        "station_name": s.station_name,
-        "station_type": s.station_type,
-        "station_location": s.station_location,
-        "station_hostname": s.station_hostname,
-        "fixture_id": s.fixture_id,
-        "test_phase": s.test_phase,
-        "project_name": s.project_name,
-        "git_commit": s.git_commit,
-        "git_branch": s.git_branch,
-        "git_remote": s.git_remote,
-    }
+    else:
+        kwargs = {
+            "session_id": str(run_started.session_id),
+            "run_id": str(event.run_id) if event.run_id else "",
+            "slot_id": run_started.slot_id,
+            "run_started_at": run_started.occurred_at,
+            "run_ended_at": None,
+            "operator_id": run_started.operator_id,
+            "operator_name": run_started.operator_name,
+            "dut_serial": run_started.dut_serial,
+            "dut_part_number": run_started.dut_part_number,
+            "dut_revision": run_started.dut_revision,
+            "dut_lot_number": run_started.dut_lot_number,
+            "product_id": run_started.product_id,
+            "product_name": run_started.product_name,
+            "product_revision": run_started.product_revision,
+            "station_id": run_started.station_id,
+            "station_name": run_started.station_name,
+            "station_type": run_started.station_type,
+            "station_location": run_started.station_location,
+            "station_hostname": run_started.station_hostname,
+            "fixture_id": run_started.fixture_id,
+            "test_phase": run_started.test_phase,
+            "project_name": run_started.project_name,
+            "git_commit": run_started.git_commit,
+            "git_branch": run_started.git_branch,
+            "git_remote": run_started.git_remote,
+        }
+    if include_env:
+        env_json = run_started.environment_json if run_started else None
+        kwargs.update(_env_columns(env_json))
+    return kwargs
 
 
 def build_measurement_fields(measurement: Measurement) -> dict[str, Any]:
@@ -366,11 +421,11 @@ def build_output_columns(
         if vtype == "scalar":
             cols[key] = value
         elif vtype == "blob" and ref_saver is not None:
-            cols[key] = ref_saver(str(vector.id)[:8], key, value)
+            cols[key] = ref_saver(str(vector.id)[:VECTOR_ID_LENGTH], key, value)
         elif isinstance(value, (list, dict)):
             cols[key] = value
         elif ref_saver is not None:
-            cols[key] = ref_saver(str(vector.id)[:8], key, value)
+            cols[key] = ref_saver(str(vector.id)[:VECTOR_ID_LENGTH], key, value)
         else:
             cols[key] = repr(value)
 
@@ -400,18 +455,16 @@ def save_ref_to_dir(ref_dir: Path, vector_id: str, key: str, value: Any) -> str:
         shutil.copy(value, ref_dir / filename)
 
     elif isinstance(value, Waveform):
-        filename = f"{prefix}.npz"
-        try:
-            import numpy as np  # type: ignore[import-not-found]
-
-            np.savez(
+        if HAS_NUMPY:
+            filename = f"{prefix}.npz"
+            np.savez(  # pyright: ignore[reportPossiblyUnboundVariable]
                 ref_dir / filename,
                 Y=value.Y,
                 t0=value.t0,
                 dt=value.dt,
                 **value.attrs,
             )
-        except ImportError:
+        else:
             filename = f"{prefix}.json"
             (ref_dir / filename).write_text(value.model_dump_json())
 
@@ -424,12 +477,10 @@ def save_ref_to_dir(ref_dir: Path, vector_id: str, key: str, value: Any) -> str:
         (ref_dir / filename).write_text(value.model_dump_json())
 
     elif hasattr(value, "tolist"):
-        filename = f"{prefix}.npy"
-        try:
-            import numpy as np  # type: ignore[import-not-found]
-
-            np.save(ref_dir / filename, value)
-        except ImportError:
+        if HAS_NUMPY:
+            filename = f"{prefix}.npy"
+            np.save(ref_dir / filename, value)  # pyright: ignore[reportPossiblyUnboundVariable]
+        else:
             filename = f"{prefix}.json"
             (ref_dir / filename).write_text(_json.dumps(value.tolist()))
 
@@ -459,6 +510,7 @@ def build_row(
     step_class: str | None = None,
     step_function: str | None = None,
     step_markers: str | None = None,
+    step_outcome: str | None = None,
     meta: dict[str, Any] | None = None,
 ) -> MeasurementRow:
     """Build a complete MeasurementRow from test execution context.
@@ -490,7 +542,8 @@ def build_row(
         vector_attempt=vector.attempt,
         vector_started_at=vector.started_at,
         vector_ended_at=vector.ended_at,
-        # Outcomes (vector + step + run outcomes are non-Optional with default PASSED)
+        # Outcomes (cascade: vector → step → run; all non-Optional with default PASSED)
+        step_outcome=step_outcome,
         vector_outcome=vector.outcome.value,
         run_outcome=test_run.outcome.value,
         # Dynamic columns
@@ -532,6 +585,7 @@ def iter_rows(test_run: TestRun) -> Iterator[MeasurementRow]:
                     step_class=step.class_name,
                     step_function=step.function,
                     step_markers=step.markers,
+                    step_outcome=step.outcome.value,
                 )
 
 
@@ -552,28 +606,24 @@ def build_step_manifest(test_run: TestRun) -> list[dict[str, Any]]:
         if step.node_id:
             executed_node_ids.add(step.node_id)
         manifest.append(
-            {
-                "index": index,
-                "name": step.name,
-                "node_id": step.node_id,
-                "file": step.file,
-                "function": step.function,
-                "class_name": step.class_name,
-                "module": step.module,
-                "step_path": step.step_path,
-                "description": step.description,
-                "outcome": step.outcome.value,
-                "started_at": step.started_at.isoformat() if step.started_at else None,
-                "ended_at": step.ended_at.isoformat() if step.ended_at else None,
-                "duration_s": (
-                    (step.ended_at - step.started_at).total_seconds()
-                    if step.started_at and step.ended_at
-                    else None
-                ),
-                "has_measurements": measurement_count > 0,
-                "measurement_count": measurement_count,
-                "vector_count": vector_count,
-            }
+            step_entry_dict(
+                index=index,
+                name=step.name,
+                node_id=step.node_id,
+                file=step.file,
+                function=step.function,
+                class_name=step.class_name,
+                module=step.module,
+                step_path=step.step_path,
+                description=step.description,
+                markers=step.markers,
+                outcome=step.outcome.value,
+                started_at=step.started_at,
+                ended_at=step.ended_at,
+                has_measurements=measurement_count > 0,
+                measurement_count=measurement_count,
+                vector_count=vector_count,
+            )
         )
 
     # Append not-started entries for collected items that never executed
@@ -584,6 +634,56 @@ def build_step_manifest(test_run: TestRun) -> list[dict[str, Any]]:
     )
 
     return manifest
+
+
+def step_entry_dict(
+    *,
+    index: int,
+    name: str,
+    node_id: str | None,
+    file: str | None,
+    function: str | None,
+    class_name: str | None,
+    module: str | None,
+    step_path: str,
+    description: str | None,
+    markers: str | None,
+    outcome: str | None,
+    started_at: datetime | None,
+    ended_at: datetime | None,
+    has_measurements: bool,
+    measurement_count: int,
+    vector_count: int,
+) -> dict[str, Any]:
+    """Single source of truth for one step manifest entry's shape.
+
+    Shared by the batch path (:func:`build_step_manifest`) and the
+    streaming path (``ParquetSubscriber._build_step_entry``); both
+    pre-compute their values and pass them as kwargs. Timestamps are
+    serialised here, ``duration_s`` derived from start/end.
+    """
+    duration_s: float | None = None
+    if started_at and ended_at:
+        duration_s = (ended_at - started_at).total_seconds()
+    return {
+        "index": index,
+        "name": name,
+        "node_id": node_id,
+        "file": file,
+        "function": function,
+        "class_name": class_name,
+        "module": module,
+        "step_path": step_path,
+        "description": description,
+        "markers": markers,
+        "outcome": outcome,
+        "started_at": started_at.isoformat() if started_at else None,
+        "ended_at": ended_at.isoformat() if ended_at else None,
+        "duration_s": duration_s,
+        "has_measurements": has_measurements,
+        "measurement_count": measurement_count,
+        "vector_count": vector_count,
+    }
 
 
 def _append_not_started(

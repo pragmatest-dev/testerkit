@@ -309,6 +309,48 @@ characterization) without duplicating limits or mocks. Worth
 rebuilding when there's a real operator-bundle requirement; not
 worth carrying dead model surface in the meantime.
 
+### Consumer-side ref materialization (waveform viewing)
+
+Surfaced by the Phase 6a.2 `data/backends/` design review: the
+write path saves large observations (Waveform / ndarray / bytes /
+Pydantic models) to `_ref/` sidecar files and stores
+``file://_ref/abc.npz`` strings in parquet's ``out_*`` columns.
+The read path is implemented but never wired up:
+
+- `parquet.py:load_ref(value, *, parquet_path, channel_store)` —
+  unified URI dispatcher (``channel://`` / ``file://`` / legacy)
+- `parquet.py:load_file(parquet_path, ref)` — loads npz →
+  ``Waveform``, npy → ndarray, json → dict/Pydantic, bin → bytes,
+  pkl → object, arrow → ``pa.Table``
+- `parquet.py:is_file_reference(value)` — predicate
+
+Zero callers across `src/`, `tests/`, `scripts/`. So a consumer
+fetching a measurement row gets the literal string
+``"file://_ref/abc.npz"`` instead of a `Waveform` — there's
+currently **no way for the UI / API / CLI / MCP / reports to load
+waveform data for viewing**, even though the data is on disk.
+
+What needs to land:
+
+- **API**: a `GET /api/runs/{run_id}/measurements/{step}/{name}/waveform`
+  (or similar) that materializes via `load_ref` and returns JSON
+  (Y/t0/dt/attrs) or streams the raw file. Decide eager-in-RunView
+  vs lazy-on-demand vs opt-in query param.
+- **UI**: NiceGUI page renders the waveform via ECharts.
+  Detect ``file://`` strings in `out_*` columns of the run-detail
+  view; plot inline or in a modal.
+- **Reports**: HTML/PDF embed waveform plots instead of showing
+  the literal ref string.
+- **MCP**: a tool that materializes a waveform for an LLM consumer.
+- **CLI**: `litmus show <run> --waveform <name>` round-trips through
+  the same loader.
+
+Decision points: where does dereference happen, what's the wire
+format (JSON vs binary stream), do `channel://` refs need a
+parallel HTTP path now that `litmus serve` is the front door? The
+existing `load_ref` / `load_file` keep the dispatch surface; the
+consumer-side wiring is the missing layer.
+
 ---
 
 ## In progress

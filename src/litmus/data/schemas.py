@@ -102,6 +102,7 @@ MEASUREMENT_SCHEMA = pa.schema(
         ("instrument_resource", pa.string()),
         ("instrument_channel", pa.string()),
         # Rollup
+        ("step_outcome", pa.string()),
         ("vector_outcome", pa.string()),
         ("run_outcome", pa.string()),
         # Environment traceability
