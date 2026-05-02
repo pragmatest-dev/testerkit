@@ -65,14 +65,23 @@ def _pid_alive(pid: int) -> bool:
 class DaemonManager:
     """Base class for ref-counted daemon lifecycle management.
 
-    Subclasses must set the four ``_*_name`` class variables and
-    override ``_spawn_cmd()``.
+    Subclasses set the four ``_*_name`` class variables. The simple
+    case (DuckDB events / runs daemons) sets ``_daemon_module`` and
+    ``_port_file`` and inherits the default ``_spawn_cmd`` /
+    ``_post_spawn_state`` shown below. Daemons that need extra
+    arguments (e.g. ``FlightDaemonManager`` passes host/port) override
+    those methods directly.
     """
 
     _state_name: str
     _lock_name: str
     _ready_name: str
     _pid_name: str
+    # Optional class-level shortcuts for the common DuckDB-style daemons.
+    # Set by subclasses; ``None`` means the subclass overrides
+    # ``_spawn_cmd`` / ``_post_spawn_state`` directly.
+    _daemon_module: str | None = None
+    _port_file: str | None = None
 
     def __init__(self, daemon_dir: Path) -> None:
         self._dir = daemon_dir
@@ -191,12 +200,28 @@ class DaemonManager:
     # -- Subclass hooks ------------------------------------------------------
 
     def _spawn_cmd(self) -> list[str]:
-        """Command to spawn the daemon process. Must be overridden."""
-        raise NotImplementedError
+        """Command to spawn the daemon process.
+
+        Default uses ``_daemon_module`` if set: ``python -m <module>
+        <dir>``. Subclasses with extra args override this method.
+        """
+        if self._daemon_module is None:
+            raise NotImplementedError(
+                f"{type(self).__name__} must set _daemon_module or override _spawn_cmd"
+            )
+        return [sys.executable, "-m", self._daemon_module, str(self._dir)]
 
     def _post_spawn_state(self) -> dict:
-        """Extra fields to store in state file after spawn. Default: none."""
-        return {}
+        """Extra fields to store in state file after spawn.
+
+        Default uses ``_port_file`` if set: read the port file the
+        daemon writes before signalling ready, return ``{"location":
+        ...}``. Subclasses without a port file override or fall back
+        to the empty default.
+        """
+        if self._port_file is None:
+            return {}
+        return {"location": (self._dir / self._port_file).read_text().strip()}
 
     # -- Daemon-side API -----------------------------------------------------
 

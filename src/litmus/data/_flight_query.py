@@ -11,6 +11,7 @@ import warnings
 from collections.abc import Callable
 from typing import Any
 
+import pyarrow as pa
 import pyarrow.flight as flight
 
 
@@ -58,8 +59,14 @@ class FlightQueryClient:
         """Execute a SQL query via Flight and return list of dicts.
 
         Retries on transient gRPC errors (e.g. daemon restart).
+        DuckDB raises errors back through the Flight stream as
+        ``flight.FlightError`` with the original error text inline —
+        we string-match for the two expected DuckDB error messages
+        ("silver" view missing during cold start, "Binder Error" on
+        index schema drift) because DuckDB's typed exceptions don't
+        survive the gRPC round-trip.
         """
-        last_exc: Exception | None = None
+        last_exc: flight.FlightError | OSError | pa.ArrowException | None = None
         for attempt in range(_retries + 1):
             try:
                 client = self.get_client()
@@ -69,8 +76,10 @@ class FlightQueryClient:
                 reader = client.do_get(ticket)
                 table = reader.read_all()
                 return table.to_pylist()
-            except Exception as exc:
+            except (flight.FlightError, OSError, pa.ArrowException) as exc:
                 err_msg = str(exc)
+                # Cold start: silver view not yet created in the runs
+                # daemon. Treat as empty result set rather than retry.
                 if "silver" in err_msg and "does not exist" in err_msg:
                     return []
                 last_exc = exc
@@ -101,7 +110,7 @@ class FlightQueryClient:
         if self._client is not None:
             try:
                 self._client.close()
-            except Exception as exc:
+            except (flight.FlightError, OSError, pa.ArrowException) as exc:
                 warnings.warn(
                     f"Failed to close Flight client: {exc}",
                     stacklevel=2,

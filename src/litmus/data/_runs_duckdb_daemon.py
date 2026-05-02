@@ -23,7 +23,10 @@ from pathlib import Path
 import duckdb
 import pyarrow as pa
 
-from litmus.data._duckdb_flight_server import DuckDBFlightServer
+from litmus.data._duckdb_flight_server import (
+    shutdown_flight_server_in_daemon,
+    start_flight_server_in_daemon,
+)
 from litmus.data._sql_helpers import sql_escape as _sql_escape
 from litmus.data.runs_duckdb_manager import RunsDuckDBManager
 
@@ -308,7 +311,7 @@ def _index_io_and_refs(conn: duckdb.DuckDBPyConnection, fkey: str) -> str | None
     except duckdb.IOException as exc:
         logger.debug("File gone during io/refs ingest: %s — %s", fkey, exc)
         return f"file unavailable: {exc}"
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001 — per-file ingest tolerance: warn + skip
         warnings.warn(f"Error indexing io/refs for {fkey}: {exc}", stacklevel=2)
         return str(exc)
 
@@ -500,7 +503,7 @@ def _ingest_parquet_files(index_path: Path, runs_dir: Path) -> None:
                     if steps_paths:
                         _bulk_insert_steps(conn, steps_paths)
                     conn.commit()
-                except Exception as exc:
+                except Exception as exc:  # noqa: BLE001 — bulk ingest fallback to per-file
                     conn.rollback()
                     warnings.warn(
                         f"Bulk ingest failed, falling back to per-file: {exc}", stacklevel=2
@@ -544,7 +547,7 @@ def _ingest_parquet_files(index_path: Path, runs_dir: Path) -> None:
     finally:
         try:
             conn.close()
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 — cleanup: best-effort conn close
             warnings.warn(f"Ingest connection close failed: {exc}", stacklevel=2)
 
 
@@ -581,7 +584,7 @@ def _index_parquet_file(conn: duckdb.DuckDBPyConnection, fkey: str) -> str | Non
     except duckdb.IOException as exc:
         logger.debug("File gone during ingest (will retry next run): %s — %s", fkey, exc)
         return f"file unavailable: {exc}"
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001 — per-file ingest tolerance: warn + skip
         warnings.warn(f"Error ingesting {fkey}: {exc}", stacklevel=2)
         return str(exc)
 
@@ -597,7 +600,7 @@ def _index_steps_file(conn: duckdb.DuckDBPyConnection, fkey: str) -> str | None:
     except duckdb.IOException as exc:
         logger.debug("File gone during ingest (will retry next run): %s — %s", fkey, exc)
         return f"file unavailable: {exc}"
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001 — per-file ingest tolerance: warn + skip
         warnings.warn(f"Error ingesting steps file {fkey}: {exc}", stacklevel=2)
         return str(exc)
 
@@ -631,7 +634,16 @@ def _create_silver_view(conn: duckdb.DuckDBPyConnection, runs_dir: Path) -> None
 
 
 def daemon_run(runs_dir: Path) -> None:
-    """Entry point for the daemon process. Blocks until idle timeout."""
+    """Entry point for the runs daemon process. Blocks until idle timeout.
+
+    Ready-ordering: on a fresh / rebuilt index, run a foreground
+    ``_ingest_parquet_files`` BEFORE signalling ready so the first
+    query (typically ``list_runs()``) sees a populated index.
+    Steady-state startup (existing index) signals ready immediately
+    and lets the background thread top up. The events daemon inverts
+    this — its queries are write-heavy and latency-sensitive, so it
+    always signals ready first.
+    """
     mgr = RunsDuckDBManager(runs_dir)
 
     index_path = runs_dir / "_index.duckdb"
@@ -650,20 +662,21 @@ def daemon_run(runs_dir: Path) -> None:
             _ingest_one_file(conn, Path(fpath), stat)
         _create_silver_view(conn, runs_dir)
 
-    server = DuckDBFlightServer("grpc://127.0.0.1:0")
-    server.register("runs", conn)
-    server.register_put_hook("runs", _on_put)
-    location = f"grpc://127.0.0.1:{server.port}"
-    port_file = runs_dir / "_runs_duckdb_flight_port"
-    port_file.write_text(location)
-    threading.Thread(target=server.serve, daemon=True, name="runs-duckdb-flight").start()
+    def _pre_ready() -> None:
+        if is_fresh:
+            _ingest_parquet_files(index_path, runs_dir)
+            _create_silver_view(conn, runs_dir)
 
-    if is_fresh:
-        _ingest_parquet_files(index_path, runs_dir)
-        _create_silver_view(conn, runs_dir)
-
-    mgr.write_ready()
-    mgr.update_state(location=location)
+    server, port_file, _location = start_flight_server_in_daemon(
+        mgr=mgr,
+        daemon_dir=runs_dir,
+        db_name="runs",
+        conn=conn,
+        put_hook=_on_put,
+        port_file_name="_runs_duckdb_flight_port",
+        thread_name="runs-duckdb-flight",
+        pre_ready=_pre_ready,
+    )
 
     threading.Thread(
         target=_ingest_parquet_files,
@@ -674,13 +687,7 @@ def daemon_run(runs_dir: Path) -> None:
 
     mgr.monitor_refs()
 
-    server.shutdown()
-    port_file.unlink(missing_ok=True)
-    try:
-        conn.close()
-    except Exception as exc:
-        warnings.warn(f"Failed to close DuckDB connection: {exc}", stacklevel=2)
-
+    shutdown_flight_server_in_daemon(server, port_file, conn)
     mgr.cleanup_state_files()
 
 

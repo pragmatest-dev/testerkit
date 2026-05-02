@@ -17,10 +17,15 @@ from __future__ import annotations
 import threading
 import warnings
 from collections.abc import Callable
+from pathlib import Path
+from typing import TYPE_CHECKING
 
 import duckdb
 import pyarrow as pa
 import pyarrow.flight as flight
+
+if TYPE_CHECKING:
+    from litmus.data._daemon_lifecycle import DaemonManager
 
 _ACK = b"\x01"
 
@@ -98,7 +103,7 @@ class FlightPutStream:
         if self._writer is not None:
             try:
                 self._writer.close()
-            except Exception as exc:
+            except Exception as exc:  # noqa: BLE001 — cleanup: drop the broken stream regardless
                 warnings.warn(f"FlightPutStream: failed to close writer: {exc}", stacklevel=2)
             self._writer = None
         self._reader = None
@@ -106,7 +111,7 @@ class FlightPutStream:
         if self._client is not None:
             try:
                 self._client.close()
-            except Exception as exc:
+            except Exception as exc:  # noqa: BLE001 — cleanup: drop the broken client regardless
                 warnings.warn(f"FlightPutStream: failed to close client: {exc}", stacklevel=2)
             self._client = None
 
@@ -213,3 +218,78 @@ class DuckDBFlightServer(flight.FlightServerBase):
 
             # Ack: batch committed, safe to query
             writer.write(pa.py_buffer(_ACK))
+
+
+# ---------------------------------------------------------------------------
+# Daemon-side runtime helpers
+# ---------------------------------------------------------------------------
+
+
+def start_flight_server_in_daemon(
+    *,
+    mgr: DaemonManager,
+    daemon_dir: Path,
+    db_name: str,
+    conn: duckdb.DuckDBPyConnection,
+    put_hook: Callable[[pa.Table], None] | None,
+    port_file_name: str,
+    thread_name: str,
+    pre_ready: Callable[[], None] | None = None,
+) -> tuple[DuckDBFlightServer, Path, str]:
+    """Start a DuckDBFlightServer inside a daemon process, signal ready.
+
+    Shared scaffolding between the events daemon and the runs daemon.
+    Both:
+
+    1. Bind a Flight server on a random localhost port.
+    2. Register the daemon's DuckDB connection (and an optional do_put
+       hook for tuple-bind / parquet-paths semantics).
+    3. Write the bound location to ``daemon_dir / port_file_name`` so
+       :meth:`DaemonManager._post_spawn_state` can read it.
+    4. Start the serve thread (daemon).
+    5. Optionally run ``pre_ready()`` synchronously — used by the runs
+       daemon for fresh-rebuild ingest before the first query lands.
+    6. Signal ready via ``mgr.write_ready()`` and stamp the location
+       into state via ``mgr.update_state(location=...)``.
+
+    Returns ``(server, port_file_path, location)``. Caller is
+    responsible for ``server.shutdown()`` and ``port_file.unlink``
+    on teardown — see :func:`shutdown_flight_server_in_daemon`.
+    """
+    server = DuckDBFlightServer("grpc://127.0.0.1:0")
+    server.register(db_name, conn)
+    if put_hook is not None:
+        server.register_put_hook(db_name, put_hook)
+
+    location = f"grpc://127.0.0.1:{server.port}"
+    port_file = daemon_dir / port_file_name
+    port_file.write_text(location)
+
+    threading.Thread(target=server.serve, daemon=True, name=thread_name).start()
+
+    if pre_ready is not None:
+        pre_ready()
+
+    mgr.write_ready()
+    mgr.update_state(location=location)
+
+    return server, port_file, location
+
+
+def shutdown_flight_server_in_daemon(
+    server: DuckDBFlightServer,
+    port_file: Path,
+    conn: duckdb.DuckDBPyConnection,
+) -> None:
+    """Tear down a Flight server started by :func:`start_flight_server_in_daemon`.
+
+    Stops the server, removes the port file, and closes the DuckDB
+    connection. Connection-close errors are warned, not raised — the
+    daemon is on its way out either way.
+    """
+    server.shutdown()
+    port_file.unlink(missing_ok=True)
+    try:
+        conn.close()
+    except Exception as exc:  # noqa: BLE001 — daemon-shutdown best-effort
+        warnings.warn(f"Failed to close DuckDB connection: {exc}", stacklevel=2)

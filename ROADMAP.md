@@ -309,6 +309,31 @@ characterization) without duplicating limits or mocks. Worth
 rebuilding when there's a real operator-bundle requirement; not
 worth carrying dead model surface in the meantime.
 
+### Runs daemon — record actual row_count in ``_ingested``
+
+Surfaced (twice) by the design review on the runs DuckDB daemon:
+``_runs_duckdb_daemon._mark_ingested`` hardcodes ``row_count=0`` in
+its INSERT, so the ``_ingested`` table never carries the real
+ingest size. The schema declares the column with ``DEFAULT 0``,
+making this look like a placeholder waiting to be wired.
+
+What needs to land:
+
+- ``_mark_ingested`` accepts an explicit ``row_count: int = 0``
+  kwarg.
+- ``_bulk_insert_runs`` / ``_bulk_insert_measurements`` /
+  ``_bulk_insert_steps`` return the count they inserted (DuckDB
+  ``SELECT changes()``-style follow-up, or a ``RETURNING`` clause
+  on the INSERT).
+- Per-file fallback in ``_index_parquet_file`` /
+  ``_index_steps_file`` likewise returns its row count.
+- Call sites pass the count through to ``_mark_ingested``.
+
+Useful for ingest-progress monitoring + per-file diagnostics
+(``litmus data status`` could surface "indexed N rows from
+``<file>``"). Doesn't gate any current functionality; safe to
+defer.
+
 ### Exporter access to row-level cascade outcomes
 
 Surfaced by the Phase 6a.4 design review: ``MeasurementRow`` and

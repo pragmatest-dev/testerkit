@@ -22,7 +22,10 @@ from pathlib import Path
 import duckdb
 import pyarrow as pa
 
-from litmus.data._duckdb_flight_server import DuckDBFlightServer
+from litmus.data._duckdb_flight_server import (
+    shutdown_flight_server_in_daemon,
+    start_flight_server_in_daemon,
+)
 from litmus.data._ipc_writer import read_ipc_batches
 from litmus.data.duckdb_manager import DuckDBDaemonManager
 
@@ -151,7 +154,7 @@ def _ingest_ipc_files(index_path: Path, events_dir: Path) -> None:
     finally:
         try:
             conn.close()
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 — cleanup: best-effort conn close
             warnings.warn(f"Ingest connection close failed: {exc}", stacklevel=2)
 
 
@@ -199,34 +202,34 @@ def _ingest_one_file(
 
 
 def daemon_run(events_dir: Path) -> None:
-    """Entry point for the daemon process. Blocks until idle timeout."""
+    """Entry point for the events daemon process. Blocks until idle timeout.
+
+    Ready-ordering: signal ready BEFORE background ingest. Events are
+    write-heavy and callers emit new events immediately — blocking on
+    a historical replay of potentially hundreds of IPC files would
+    blow the 10 s spawn deadline. The runs daemon inverts this on a
+    fresh/rebuild start because its first query is typically
+    ``list_runs()``, which needs the index populated.
+    """
     mgr = DuckDBDaemonManager(events_dir)
 
     index_path = events_dir / "_index.duckdb"
     conn = _open_index(index_path)
-
-    # Start Flight server for cross-process queries and inserts.
-    server = DuckDBFlightServer("grpc://127.0.0.1:0")
-    server.register("events", conn)
 
     def _events_put_hook(table: pa.Table) -> None:
         # Tuple-bind path: safe with large strings (register+INSERT segfaults).
         rows = _table_to_rows(table)
         conn.executemany(_INSERT_SQL, rows)
 
-    server.register_put_hook("events", _events_put_hook)
-    location = f"grpc://127.0.0.1:{server.port}"
-    port_file = events_dir / "_duckdb_flight_port"
-    port_file.write_text(location)
-    threading.Thread(target=server.serve, daemon=True, name="duckdb-flight").start()
-
-    # Signal ready BEFORE background ingest. Events are write-heavy and
-    # callers emit new events immediately — blocking on a historical replay
-    # of potentially hundreds of IPC files would blow the 10 s deadline.
-    # The runs daemon inverts this only on a fresh/rebuild start because its
-    # first query is typically list_runs(), which needs the index populated.
-    mgr.write_ready()
-    mgr.update_state(location=location)
+    server, port_file, _location = start_flight_server_in_daemon(
+        mgr=mgr,
+        daemon_dir=events_dir,
+        db_name="events",
+        conn=conn,
+        put_hook=_events_put_hook,
+        port_file_name="_duckdb_flight_port",
+        thread_name="duckdb-flight",
+    )
 
     # Ingest IPC files that aren't yet in the index via a background thread.
     threading.Thread(
@@ -239,14 +242,7 @@ def daemon_run(events_dir: Path) -> None:
     # Block until idle timeout
     mgr.monitor_refs()
 
-    # Shut down
-    server.shutdown()
-    port_file.unlink(missing_ok=True)
-    try:
-        conn.close()
-    except Exception as exc:
-        warnings.warn(f"Failed to close DuckDB connection: {exc}", stacklevel=2)
-
+    shutdown_flight_server_in_daemon(server, port_file, conn)
     mgr.cleanup_state_files()
 
 

@@ -142,7 +142,7 @@ class BufferedIPCWriter:
         if self._writer is not None:
             try:
                 self._writer.close()
-            except Exception as exc:
+            except Exception as exc:  # noqa: BLE001 — cleanup: best-effort writer close
                 warnings.warn(f"Failed to close IPC writer: {exc}", stacklevel=2)
             self._writer = None
         return self._row_count
