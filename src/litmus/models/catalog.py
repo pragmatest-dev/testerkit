@@ -55,7 +55,7 @@ class InstrumentCatalogEntry(BaseModel):
 
     model_config = {"extra": "forbid"}
 
-    id: str | None = None  # Defaults to filename stem in loader
+    id: str
     manufacturer: str
     model: str
     name: str | None = None  # Defaults to "{manufacturer} {model}" in loader

@@ -6,13 +6,33 @@ ONE module for all load/save/list/get/create operations.
 Public interface — four verbs per entity:
     get_*(id) → Model | None       # Lookup by ID across search paths
     list_*() → list[Model]         # Discover all across search paths
-    save_*(model) → bool           # Write model to YAML
+    save_*(model) → None           # Write model to YAML (raises on error)
     create_*(...) → Model | None   # Create new, None if exists
 
 Plus low-level load_*(path) for callers that already have a file path.
 
 All public functions accept an optional `project_root: Path | None` parameter.
 When None (the default), falls back to Path.cwd() for backwards compatibility.
+
+Carve-outs from the four-verb pattern:
+
+* ``ProductManifest`` only exposes ``load_manifest`` / ``save_manifest`` —
+  manifests are co-located with their product folder rather than indexed,
+  so callers manage the path explicitly.
+* ``StationType`` only exposes ``load_station_type`` / ``save_station_type``
+  — types live in ``stations/types/`` and are typically authored once per
+  fleet, not enumerated programmatically.
+* ``load_project_config`` returns a default ``ProjectConfig(name="litmus")``
+  if ``litmus.yaml`` is missing instead of raising; use ``load_project``
+  for strict file-must-exist semantics.
+* ``save_instrument_asset`` accepts an explicit ``target_path=`` so callers
+  (CLI / MCP) can place files into typed subdirectories.
+
+Filename / id agreement: every loader for an id-keyed entity treats the
+filename stem as the entity id. If the YAML omits ``id:``, the stem fills
+it; if the YAML declares ``id:`` and it disagrees with the stem,
+``_check_id_matches_filename`` raises ``ValueError``. Users can author
+new files without typing ``id:`` at all.
 """
 
 from __future__ import annotations
@@ -28,7 +48,7 @@ from typing import Any, Protocol, TypeVar
 import numpy as np
 import platformdirs
 import yaml
-from pydantic import ValidationError
+from pydantic import BaseModel, ValidationError
 from ruamel.yaml import YAML
 from ruamel.yaml.comments import CommentedMap, CommentedSeq
 from ruamel.yaml.scalarstring import DoubleQuotedScalarString
@@ -58,6 +78,40 @@ class _HasId(Protocol):
 _T = TypeVar("_T", bound=_HasId)
 
 _YAML_LOAD_ERRORS = (yaml.YAMLError, ValidationError, OSError, ValueError)
+
+
+def _check_id_matches_filename(entity_id: str, path: Path) -> None:
+    """Raise if the entity id disagrees with the YAML file's stem.
+
+    Filename and id are required to agree so users can navigate the
+    config directory without opening every file. Loaders fill the id
+    from the stem when YAML omits ``id:``, so this check only fires when
+    the user typed an explicit id that disagrees with the filename. If
+    the schema ever moves to a database the filename layer goes away
+    and this check becomes a no-op (no callers).
+    """
+    if entity_id != path.stem:
+        raise ValueError(
+            f"id mismatch in {path}: file declares id={entity_id!r} "
+            f"but filename stem is {path.stem!r}. "
+            f"Rename the file or fix the id field so they agree."
+        )
+
+
+_M = TypeVar("_M", bound=BaseModel)
+
+
+def _validate_with_filename_id(model_cls: type[_M], data: dict[str, Any], path: Path) -> _M:
+    """Fill ``id`` from filename stem if absent, validate, then assert agreement.
+
+    Single source for the load-time invariant shared by every id-keyed
+    YAML loader.
+    """
+    entity = model_cls.model_validate({"id": path.stem} | data)
+    entity_id = entity.id  # type: ignore[attr-defined]
+    _check_id_matches_filename(entity_id, path)
+    return entity
+
 
 __all__ = [
     # Catalog
@@ -103,10 +157,13 @@ __all__ = [
     "save_station",
     "save_station_type",
     # YAML formatting
+    "dump_yaml",
     "format_file",
     "format_file_inplace",
     # Generic helpers
     "detect_file_type",
+    "expand_ranges",
+    "normalize_and_check_instrument_types",
 ]
 
 # =============================================================================
@@ -197,6 +254,7 @@ def _resolve_save_path(
 
 def _write_model(path: Path, model_data: dict[str, Any]) -> None:
     """Write a model dict to YAML using Litmus formatting conventions."""
+    path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(dump_yaml(model_data))
 
 
@@ -205,12 +263,47 @@ def _get_by_id(
     loader: Callable[[Path], _T],
     search_paths: list[Path],
 ) -> _T | None:
-    """Look up a YAML-backed entity by ID or filename stem."""
+    """Look up a YAML-backed entity by id.
+
+    Filename-stem equals id by ``_check_id_matches_filename`` invariant,
+    so we try ``<dir>/<id>.yaml`` directly first as a fast path before
+    walking. The fallback walk handles any layout drift.
+    """
+    for search_dir in search_paths:
+        if not search_dir.exists():
+            continue
+        direct = search_dir / f"{entity_id}.yaml"
+        if direct.exists():
+            try:
+                return loader(direct)
+            except _YAML_LOAD_ERRORS:
+                pass
     for yaml_file in _find_yaml_files(search_paths):
         try:
             entity = loader(yaml_file)
-            if entity.id == entity_id or yaml_file.stem == entity_id:
+            if entity.id == entity_id:
                 return entity
+        except _YAML_LOAD_ERRORS:
+            continue
+    return None
+
+
+def _find_existing_path(
+    entity_id: str,
+    loader: Callable[[Path], _T],
+    yaml_files: Iterator[Path],
+) -> Path | None:
+    """Find the YAML file whose loaded entity matches ``entity_id``.
+
+    Used by save_* functions that need to overwrite the existing on-disk
+    file for an entity rather than creating a new one. Accepts an explicit
+    iterator so callers using nested layouts (e.g. products) can supply
+    rglob output.
+    """
+    for yaml_file in yaml_files:
+        try:
+            if loader(yaml_file).id == entity_id:
+                return yaml_file
         except _YAML_LOAD_ERRORS:
             continue
     return None
@@ -261,23 +354,19 @@ def load_project(path: Path) -> ProjectConfig:
     return project
 
 
-def load_project_config(path: Path | str | None = None) -> ProjectConfig:
-    """Load project configuration from litmus.yaml.
+def load_project_config(project_root: Path | None = None) -> ProjectConfig:
+    """Load ``litmus.yaml`` from a project root.
 
     Args:
-        path: Path to litmus.yaml. If None, looks in cwd.
+        project_root: Project root directory. If None, defaults to cwd.
 
     Returns:
-        Validated ProjectConfig model, or default if file not found.
+        Validated ProjectConfig model, or a default ``ProjectConfig(name="litmus")``
+        if ``litmus.yaml`` is not present in the resolved root.
     """
-    if path is None:
-        path = Path.cwd() / "litmus.yaml"
-    else:
-        path = Path(path)
-
+    path = _resolve_root(project_root) / "litmus.yaml"
     if not path.exists():
         return ProjectConfig(name="litmus")
-
     return load_project(path)
 
 
@@ -287,8 +376,12 @@ def load_project_config(path: Path | str | None = None) -> ProjectConfig:
 
 
 def load_station(path: Path) -> StationConfig:
-    """Load and validate a station YAML file."""
-    return StationConfig.model_validate(_read_yaml(path))
+    """Load and validate a station YAML file.
+
+    The YAML's ``id`` field is filled from the filename stem if absent,
+    and asserted equal to the stem otherwise.
+    """
+    return _validate_with_filename_id(StationConfig, _read_yaml(path), path)
 
 
 def get_station(
@@ -309,32 +402,15 @@ def save_station(
     station: StationConfig,
     *,
     project_root: Path | None = None,
-) -> bool:
+) -> None:
     """Save station configuration to YAML file."""
-    search_paths = get_station_paths(project_root)
-
-    # Station-specific: files may use location prefixes (e.g., lab_station1.yaml
-    # for id=station1). Other entity types use exact ID matching via _resolve_save_path.
-    target_file = None
-    for stations_dir in search_paths:
-        if stations_dir.exists():
-            for f in stations_dir.glob("*.yaml"):
-                if f.stem == station.id or f.stem.endswith(f"_{station.id}"):
-                    target_file = f
-                    break
-            if target_file:
-                break
-
-    if target_file is None:
-        target_file = _resolve_save_path(
-            station.id,
-            search_paths,
-            "stations",
-            project_root,
-        )
-
+    target_file = _resolve_save_path(
+        station.id,
+        get_station_paths(project_root),
+        "stations",
+        project_root,
+    )
     _write_model(target_file, station.model_dump(exclude_none=True))
-    return True
 
 
 def find_station_config(
@@ -362,7 +438,7 @@ def find_station_config(
     if global_path.exists():
         try:
             return load_station(global_path)
-        except (yaml.YAMLError, ValidationError, OSError):
+        except _YAML_LOAD_ERRORS:
             pass
 
     raise FileNotFoundError(
@@ -408,8 +484,12 @@ def create_station(
 
 
 def load_fixture(path: Path) -> FixtureConfig:
-    """Load and validate a fixture YAML file."""
-    return FixtureConfig.model_validate(_read_yaml(path))
+    """Load and validate a fixture YAML file.
+
+    The YAML's ``id`` field is filled from the filename stem if absent,
+    and asserted equal to the stem otherwise.
+    """
+    return _validate_with_filename_id(FixtureConfig, _read_yaml(path), path)
 
 
 def get_fixture(
@@ -430,7 +510,7 @@ def save_fixture(
     fixture: FixtureConfig,
     *,
     project_root: Path | None = None,
-) -> bool:
+) -> None:
     """Save fixture configuration to YAML file."""
     target_file = _resolve_save_path(
         fixture.id,
@@ -439,7 +519,6 @@ def save_fixture(
         project_root,
     )
     _write_model(target_file, fixture.model_dump(exclude_none=True))
-    return True
 
 
 def create_fixture(
@@ -544,11 +623,10 @@ def load_product(path: Path, products_dir: Path | None = None) -> Product:
         products_dir: Directory to search for base products.
     """
     if products_dir is None:
+        # Nested layout (`products/foo/foo.yaml`) → grandparent is the products
+        # root; flat layout (`products/foo.yaml`) → parent is.
         candidate = path.parent.parent
-        if candidate.name == "products" or any(candidate.iterdir()):
-            products_dir = candidate
-        else:
-            products_dir = path.parent
+        products_dir = candidate if candidate.name == "products" else path.parent
 
     def find_base(base_ref: str, _current: Path) -> Path | None:
         # Direct hit by filename stem.
@@ -575,44 +653,53 @@ def load_product(path: Path, products_dir: Path | None = None) -> Product:
         seen=set(),
         depth=0,
     )
-    return Product.model_validate({"id": path.stem} | data)
+    return _validate_with_filename_id(Product, data, path)
+
+
+def _merge_dicts_with_sections(
+    base: dict[str, Any],
+    variant: dict[str, Any],
+    scalar_keys: tuple[str, ...],
+    section_keys: tuple[str, ...],
+) -> dict[str, Any]:
+    """Inheritance merge for ``base:``-style YAML refs.
+
+    Scalars from *scalar_keys* default from *base* and are overridden by
+    *variant*; any other variant keys carry through unchanged. Sections in
+    *section_keys* are taken whole from variant if present, else from base,
+    and deep-copied so callers can mutate without leaking back into base.
+    """
+    merged: dict[str, Any] = {}
+    for key in scalar_keys:
+        if key in base:
+            merged[key] = base[key]
+    merged.update(variant)
+    for section in section_keys:
+        if section in variant:
+            merged[section] = copy.deepcopy(variant[section])
+        elif section in base:
+            merged[section] = copy.deepcopy(base[section])
+    return merged
+
+
+_PRODUCT_SCALAR_KEYS = (
+    "name",
+    "description",
+    "revision",
+    "part_number",
+    "datasheet",
+    "schematic",
+    "driver",
+)
+_PRODUCT_SECTION_KEYS = ("pins", "signal_groups", "characteristics")
 
 
 def _merge_product_data(
     base: dict[str, Any],
     variant: dict[str, Any],
 ) -> dict[str, Any]:
-    """Merge base and variant product YAML with section-level override.
-
-    Scalar fields: base provides defaults, variant overrides.
-    Section fields (pins, signal_groups, characteristics): variant wins
-    entirely if present, otherwise base is inherited. Deep-copied to
-    avoid shared references.
-    """
-    # Start with base scalars, then overlay all variant keys
-    merged: dict[str, Any] = {}
-    scalar_keys = (
-        "name",
-        "description",
-        "revision",
-        "part_number",
-        "datasheet",
-        "schematic",
-        "driver",
-    )
-    for key in scalar_keys:
-        if key in base:
-            merged[key] = base[key]
-    merged.update(variant)
-
-    # Inherit base sections not in variant; deep-copy all to avoid shared refs
-    for section in ("pins", "signal_groups", "characteristics"):
-        if section not in merged and section in base:
-            merged[section] = copy.deepcopy(base[section])
-        elif section in merged:
-            merged[section] = copy.deepcopy(merged[section])
-
-    return merged
+    """Merge base and variant product YAML with section-level override."""
+    return _merge_dicts_with_sections(base, variant, _PRODUCT_SCALAR_KEYS, _PRODUCT_SECTION_KEYS)
 
 
 def _product_yaml_files(products_dir: Path, glob: str = "*.yaml") -> Iterator[Path]:
@@ -620,8 +707,11 @@ def _product_yaml_files(products_dir: Path, glob: str = "*.yaml") -> Iterator[Pa
 
     Used by :func:`get_product`, :func:`list_products`, and
     :func:`save_product` so the underscore-prefix skip is applied
-    consistently. Sorted output for deterministic iteration.
+    consistently. Sorted output for deterministic iteration. Yields
+    nothing if *products_dir* does not exist.
     """
+    if not products_dir.exists():
+        return
     for yaml_file in sorted(products_dir.rglob(glob)):
         if yaml_file.name.startswith("_"):
             continue
@@ -635,17 +725,21 @@ def get_product(
 ) -> Product | None:
     """Load a Product model by ID."""
     for products_dir in get_product_paths(project_root):
-        if not products_dir.exists():
-            continue
-        # Try flat file first (canonical convention)
         flat_file = products_dir / f"{product_id}.yaml"
         if flat_file.exists():
             try:
                 return load_product(flat_file)
-            except _YAML_LOAD_ERRORS:
-                pass
-        # Fallback: search by filename in subdirectories
+            except _YAML_LOAD_ERRORS as exc:
+                warnings.warn(
+                    f"product: failed to load {flat_file.name}: {exc}",
+                    stacklevel=2,
+                )
+                # Canonical file exists but failed — don't paper over with a
+                # nested duplicate; move on to the next products_dir.
+                continue
         for yaml_file in _product_yaml_files(products_dir, f"{product_id}.yaml"):
+            if yaml_file == flat_file:
+                continue
             try:
                 return load_product(yaml_file)
             except _YAML_LOAD_ERRORS:
@@ -676,22 +770,17 @@ def save_product(
     product: Product,
     *,
     project_root: Path | None = None,
-) -> bool:
+) -> None:
     """Save product specification to YAML file."""
-    target_file = None
+    target_file: Path | None = None
     for products_dir in get_product_paths(project_root):
         if not products_dir.exists():
             continue
-        # Preserve existing file location (flat or nested)
-        for yaml_file in _product_yaml_files(products_dir):
-            try:
-                data = _read_yaml(yaml_file)
-                if data.get("id") == product.id:
-                    target_file = yaml_file
-                    break
-            except (yaml.YAMLError, OSError):
-                continue
-        if target_file:
+        # Preserve existing file location (flat or nested) by matching id.
+        target_file = _find_existing_path(
+            product.id, load_product, _product_yaml_files(products_dir)
+        )
+        if target_file is not None:
             break
 
     if target_file is None:
@@ -701,7 +790,6 @@ def save_product(
         target_file = products_dir / f"{product.id}.yaml"
 
     _write_model(target_file, product.model_dump(exclude_none=True))
-    return True
 
 
 def create_product(
@@ -738,7 +826,7 @@ def load_manifest(path: Path) -> ProductManifest:
     return ProductManifest.model_validate(_read_yaml(path))
 
 
-def save_manifest(manifest: ProductManifest, path: Path) -> bool:
+def save_manifest(manifest: ProductManifest, path: Path) -> None:
     """Save a product manifest to YAML at the given path.
 
     Manifests live next to their product folder (not in a globally-
@@ -746,7 +834,6 @@ def save_manifest(manifest: ProductManifest, path: Path) -> bool:
     caller passes the explicit path rather than a project root.
     """
     _write_model(path, manifest.model_dump(exclude_none=True))
-    return True
 
 
 # =============================================================================
@@ -779,25 +866,26 @@ def load_catalog_entry(
         seen=set(),
         depth=0,
     )
-    return _build_catalog_entry(data, path)
+    return _validate_with_filename_id(InstrumentCatalogEntry, _with_catalog_defaults(data), path)
+
+
+_CATALOG_SCALAR_KEYS = ("manufacturer", "type", "name", "description")
+_CATALOG_SECTION_KEYS = ("channels", "attributes", "interfaces")
 
 
 def _merge_catalog_data(
     base: dict[str, Any],
     variant: dict[str, Any],
 ) -> dict[str, Any]:
-    """Merge base and variant catalog YAML dicts."""
-    merged_entry: dict[str, Any] = {}
+    """Merge base and variant catalog YAML dicts.
 
-    for key in ("manufacturer", "type", "name", "description"):
-        if key in base:
-            merged_entry[key] = base[key]
-
-    merged_entry.update(variant)
-
-    for section in ("channels", "attributes", "interfaces"):
-        if section not in variant and section in base:
-            merged_entry[section] = base[section]
+    Capabilities are merged by ``(function, direction)`` rather than
+    overridden whole — that's catalog-specific, so it lives here rather
+    than in :func:`_merge_dicts_with_sections`.
+    """
+    merged_entry = _merge_dicts_with_sections(
+        base, variant, _CATALOG_SCALAR_KEYS, _CATALOG_SECTION_KEYS
+    )
 
     base_caps = base.get("capabilities") or []
     variant_caps = variant.get("capabilities") or []
@@ -871,35 +959,59 @@ def _deep_merge_cap(base_cap: dict[str, Any], variant_cap: dict[str, Any]) -> No
                 b_section[param_name] = copy.deepcopy(v_param)
 
 
-def _build_catalog_entry(data: dict[str, Any], path: Path) -> InstrumentCatalogEntry:
-    """Build an InstrumentCatalogEntry from merged raw YAML data."""
-    defaults: dict[str, Any] = {"id": path.stem}
-    if not data.get("name"):
-        mfr = data.get("manufacturer", "")
-        model = data.get("model", "")
-        defaults["name"] = f"{mfr} {model}".strip() or path.stem
-    return InstrumentCatalogEntry.model_validate(defaults | data)
+def _with_catalog_defaults(data: dict[str, Any]) -> dict[str, Any]:
+    """Inject derived defaults for a catalog entry's display ``name``.
+
+    The display ``name`` falls back to ``"{manufacturer} {model}"`` when
+    omitted, since that's a derivable label, not an identity. Returns a
+    new dict so the caller can pass it to ``_validate_with_filename_id``.
+    """
+    if data.get("name"):
+        return data
+    mfr = data.get("manufacturer", "")
+    model = data.get("model", "")
+    derived = f"{mfr} {model}".strip()
+    if not derived:
+        return data
+    return {"name": derived} | data
+
+
+def _try_load_catalog_entry(path: Path, cat_dir: Path) -> InstrumentCatalogEntry | None:
+    """Load a catalog entry, warning on failure and returning None.
+
+    Used by every catalog-iteration helper that needs to be lenient with
+    individual unparseable files while still surfacing the failure.
+    """
+    try:
+        return load_catalog_entry(path, catalog_dir=cat_dir)
+    except _YAML_LOAD_ERRORS as exc:
+        warnings.warn(
+            f"catalog: failed to load {path.name}: {exc}",
+            stacklevel=2,
+        )
+        return None
+
+
+def _iter_loaded_catalog_entries(
+    cat_dirs: list[Path],
+) -> Iterator[tuple[InstrumentCatalogEntry, Path]]:
+    """Yield ``(entry, path)`` for every loadable catalog YAML across *cat_dirs*.
+
+    Skips files that fail to load (with a warning via ``_try_load_catalog_entry``).
+    No deduplication — callers handle dedup based on their needs.
+    """
+    for cat_dir in cat_dirs:
+        if not cat_dir.exists():
+            continue
+        for path in _iter_catalog_files(cat_dir):
+            entry = _try_load_catalog_entry(path, cat_dir)
+            if entry is not None:
+                yield entry, path
 
 
 def load_catalog_from_directory(catalog_dir: Path) -> dict[str, InstrumentCatalogEntry]:
-    """Load all catalog entries from a directory."""
-    if not catalog_dir.exists():
-        return {}
-
-    entries: dict[str, InstrumentCatalogEntry] = {}
-    for path in _iter_catalog_files(catalog_dir):
-        try:
-            entry = load_catalog_entry(path, catalog_dir=catalog_dir)
-            if entry.id:
-                entries[entry.id] = entry
-        except _YAML_LOAD_ERRORS as exc:
-            warnings.warn(
-                f"catalog: failed to load {path.name}: {exc}",
-                stacklevel=2,
-            )
-            continue
-
-    return entries
+    """Load all catalog entries from a directory keyed by entry id."""
+    return {entry.id: entry for entry, _ in _iter_loaded_catalog_entries([catalog_dir])}
 
 
 def _skip_catalog_file(path: Path) -> bool:
@@ -908,7 +1020,12 @@ def _skip_catalog_file(path: Path) -> bool:
 
 
 def _iter_catalog_files(cat_dir: Path) -> Iterator[Path]:
-    """Yield all loadable catalog YAML files in a directory tree, sorted."""
+    """Yield all loadable catalog YAML files in a directory tree, sorted.
+
+    Yields nothing if *cat_dir* does not exist.
+    """
+    if not cat_dir.exists():
+        return
     for path in sorted(cat_dir.rglob("*.yaml")):
         if not _skip_catalog_file(path):
             yield path
@@ -983,16 +1100,17 @@ def resolve_catalog_ref(
     *,
     project_root: Path | None = None,
 ) -> InstrumentCatalogEntry | None:
-    """Resolve a catalog reference ID to a catalog entry."""
+    """Resolve a YAML ``catalog_ref:`` value to its catalog entry.
+
+    Lookup is **id-only** — matches a catalog file by id (filename stem).
+    Use :func:`get_catalog_entry` if you also want a fallback to type-id
+    matching (e.g. ``"dmm"`` resolving to the first DMM entry).
+    """
     for cat_dir in find_catalog_dirs(project_root=project_root):
         for path in _catalog_file_candidates(cat_dir, catalog_ref):
-            try:
-                return load_catalog_entry(path, catalog_dir=cat_dir)
-            except _YAML_LOAD_ERRORS as exc:
-                warnings.warn(
-                    f"catalog: failed to load {path.name}: {exc}",
-                    stacklevel=2,
-                )
+            entry = _try_load_catalog_entry(path, cat_dir)
+            if entry is not None:
+                return entry
     return None
 
 
@@ -1006,23 +1124,14 @@ def find_by_model(
     mfr_lower = manufacturer.lower()
     model_lower = model.lower()
 
-    for cat_dir in find_catalog_dirs(project_root=project_root):
-        for path in _iter_catalog_files(cat_dir):
-            try:
-                entry = load_catalog_entry(path, catalog_dir=cat_dir)
-            except _YAML_LOAD_ERRORS as exc:
-                warnings.warn(
-                    f"catalog: failed to load {path.name}: {exc}",
-                    stacklevel=2,
-                )
-                continue
-            if (
-                entry.manufacturer
-                and entry.manufacturer.lower() == mfr_lower
-                and entry.model
-                and entry.model.lower() == model_lower
-            ):
-                return entry
+    for entry, _ in _iter_loaded_catalog_entries(find_catalog_dirs(project_root=project_root)):
+        if (
+            entry.manufacturer
+            and entry.manufacturer.lower() == mfr_lower
+            and entry.model
+            and entry.model.lower() == model_lower
+        ):
+            return entry
 
     return None
 
@@ -1032,25 +1141,24 @@ def get_catalog_entry(
     *,
     project_root: Path | None = None,
 ) -> InstrumentCatalogEntry | None:
-    """Get a catalog entry by ID or type.
+    """Get a catalog entry by id or by instrument type.
 
-    Tries direct filename match first, then rglob by filename (fast paths),
-    then falls back to a full directory scan for type-based lookup.
+    Tries direct filename match first, then rglob by filename (fast paths).
+    If no filename match is found, falls back to a full directory scan and
+    returns the first entry whose ``type`` equals *catalog_id* (so passing
+    ``"dmm"`` returns the first DMM entry). Use :func:`resolve_catalog_ref`
+    if you want id-only resolution without the type fallback.
+
     Project-local catalog entries take precedence over bundled ones.
     """
     for cat_dir in find_catalog_dirs(project_root=project_root):
         for path in _catalog_file_candidates(cat_dir, catalog_id):
-            try:
-                return load_catalog_entry(path, catalog_dir=cat_dir)
-            except _YAML_LOAD_ERRORS as exc:
-                warnings.warn(
-                    f"catalog: failed to load {path.name}: {exc}",
-                    stacklevel=2,
-                )
-                continue
+            entry = _try_load_catalog_entry(path, cat_dir)
+            if entry is not None:
+                return entry
 
-        # Slow path: full scan for type-based lookup
-        for entry in load_catalog_from_directory(cat_dir).values():
+        # Slow path: stream entries to find first type match.
+        for entry, _ in _iter_loaded_catalog_entries([cat_dir]):
             if entry.type == catalog_id:
                 return entry
     return None
@@ -1060,15 +1168,18 @@ def list_catalog_entries(
     *,
     project_root: Path | None = None,
 ) -> list[InstrumentCatalogEntry]:
-    """List all catalog entries across all catalog directories."""
+    """List all catalog entries across all catalog directories.
+
+    Project-local entries take precedence over bundled ones (first-wins
+    deduplication, matching the order returned by ``find_catalog_dirs``).
+    """
     all_entries: list[InstrumentCatalogEntry] = []
     seen_ids: set[str] = set()
-    for cat_dir in find_catalog_dirs(project_root=project_root):
-        for entry in load_catalog_from_directory(cat_dir).values():
-            if not entry.id or entry.id in seen_ids:
-                continue
-            seen_ids.add(entry.id)
-            all_entries.append(entry)
+    for entry, _ in _iter_loaded_catalog_entries(find_catalog_dirs(project_root=project_root)):
+        if entry.id in seen_ids:
+            continue
+        seen_ids.add(entry.id)
+        all_entries.append(entry)
     return all_entries
 
 
@@ -1076,7 +1187,7 @@ def save_catalog_entry(
     entry: InstrumentCatalogEntry,
     *,
     project_root: Path | None = None,
-) -> bool:
+) -> None:
     """Save a catalog entry to catalog/."""
     root = _resolve_root(project_root)
     catalog_dir = root / "catalog"
@@ -1084,7 +1195,6 @@ def save_catalog_entry(
 
     target_file = catalog_dir / f"{entry.id}.yaml"
     _write_model(target_file, entry.model_dump(exclude_none=True))
-    return True
 
 
 def create_catalog_entry(
@@ -1129,8 +1239,12 @@ def create_catalog_entry(
 
 
 def load_instrument_asset(path: Path) -> InstrumentAssetFile:
-    """Load and validate an instrument asset YAML file."""
-    return InstrumentAssetFile.model_validate(_read_yaml(path))
+    """Load and validate an instrument asset YAML file.
+
+    The YAML's ``id`` field is filled from the filename stem if absent,
+    and asserted equal to the stem otherwise.
+    """
+    return _validate_with_filename_id(InstrumentAssetFile, _read_yaml(path), path)
 
 
 def load_instrument_files(instruments_dir: Path) -> dict[str, InstrumentAssetFile]:
@@ -1142,9 +1256,9 @@ def load_instrument_files(instruments_dir: Path) -> dict[str, InstrumentAssetFil
     for path in instruments_dir.glob("*.yaml"):
         try:
             asset = load_instrument_asset(path)
-            instruments[asset.id] = asset
-        except (yaml.YAMLError, ValidationError, OSError):
-            pass
+        except _YAML_LOAD_ERRORS:
+            continue
+        instruments[asset.id] = asset
     return instruments
 
 
@@ -1170,8 +1284,15 @@ def save_instrument_asset(
     *,
     target_path: Path | None = None,
     project_root: Path | None = None,
-) -> bool:
+) -> None:
     """Save an instrument asset file.
+
+    Unlike ``save_station`` / ``save_product`` / etc., this function accepts
+    an explicit ``target_path``. Instrument assets are organized into typed
+    subdirectories (``instruments/<type>/<id>.yaml``) rather than the flat
+    layout the other entities use, and CLI / MCP callers compute the
+    subdir path themselves. When ``target_path`` is omitted we fall back to
+    the standard discovery via ``_resolve_save_path``.
 
     Args:
         asset: The instrument asset to save.
@@ -1191,7 +1312,6 @@ def save_instrument_asset(
         )
 
     _write_model(target_file, asset.model_dump(exclude_none=True))
-    return True
 
 
 # =============================================================================
@@ -1203,7 +1323,7 @@ def save_station_type(
     station_type: StationType,
     *,
     project_root: Path | None = None,
-) -> bool:
+) -> None:
     """Save station type YAML to stations/types/{id}.yaml."""
     root = _resolve_root(project_root)
     types_dir = root / "stations" / "types"
@@ -1211,7 +1331,6 @@ def save_station_type(
 
     target_file = types_dir / f"{station_type.id}.yaml"
     _write_model(target_file, station_type.model_dump(exclude_none=True))
-    return True
 
 
 def load_station_type(
@@ -1228,7 +1347,7 @@ def load_station_type(
     if not yaml_file.exists():
         return None
     try:
-        return StationType.model_validate(_read_yaml(yaml_file))
+        return _validate_with_filename_id(StationType, _read_yaml(yaml_file), yaml_file)
     except (yaml.YAMLError, ValidationError, OSError):
         return None
 
@@ -1240,14 +1359,16 @@ def load_station_type(
 
 def format_file(path: Path) -> str:
     """Load a YAML file and return it formatted with Litmus conventions."""
-    plain = _read_yaml(path)
-    return dump_yaml(plain)
+    return dump_yaml(_read_yaml(path))
 
 
 def format_file_inplace(path: Path) -> bool:
-    """Format a YAML file in-place. Returns True if changed."""
+    """Format a YAML file in-place with Litmus conventions.
+
+    Returns True if the file content changed.
+    """
     original = path.read_text()
-    formatted = format_file(path)
+    formatted = dump_yaml(expand_ranges(yaml.safe_load(original) or {}))
     if formatted != original:
         path.write_text(formatted)
         return True
@@ -1306,9 +1427,13 @@ def expand_ranges(data: Any) -> Any:
         if len(data) == 1:
             (key, value) = next(iter(data.items()))
             if key in _RANGE_EXPANDERS and isinstance(value, list):
+                # Expanders delegate to numpy / builtins, which can raise a
+                # wide range of errors (TypeError, ValueError, ZeroDivisionError,
+                # numpy-specific). Re-wrap them all into one ValueError with the
+                # offending key + args so users can fix the YAML.
                 try:
                     return _RANGE_EXPANDERS[key](value)
-                except Exception as exc:
+                except Exception as exc:  # noqa: BLE001
                     raise ValueError(
                         f"Range expander {key!r} failed on args {value!r}: {exc}"
                     ) from exc
@@ -1421,7 +1546,7 @@ _INSTRUMENT_TYPE_ALIASES: dict[str, str] = {
 _KNOWN_INSTRUMENT_TYPES = {t.value for t in InstrumentType}
 
 
-def normalize_instrument_type(raw: str) -> str:
+def _normalize_instrument_type(raw: str) -> str:
     """Lowercase, strip, and resolve aliases to canonical type."""
     normalized = raw.strip().lower()
     return _INSTRUMENT_TYPE_ALIASES.get(normalized, normalized)
@@ -1429,12 +1554,15 @@ def normalize_instrument_type(raw: str) -> str:
 
 def normalize_and_check_instrument_types(
     instruments: dict[str, dict],
+    *,
+    project_root: Path | None = None,
 ) -> tuple[dict[str, dict], list[str]]:
     """Normalize instrument types and warn about unknown ones.
 
     Args:
         instruments: Dict of instrument name → config dict. Each config
             must have a ``type`` key.
+        project_root: Project root for catalog discovery; defaults to cwd.
 
     Returns:
         ``(instruments with normalized types, list of warning strings)``
@@ -1444,11 +1572,11 @@ def normalize_and_check_instrument_types(
         if "type" not in config:
             continue
         original = config["type"]
-        config["type"] = normalize_instrument_type(original)
+        config["type"] = _normalize_instrument_type(original)
         if config["type"] != original:
             msgs.append(f"instruments.{name}: Normalized type '{original}' → '{config['type']}'")
         if config["type"] not in _KNOWN_INSTRUMENT_TYPES:
-            known = _known_catalog_types()
+            known = _known_catalog_types(project_root=project_root)
             if known and config["type"] not in known:
                 msgs.append(
                     f"instruments.{name}: Type '{config['type']}' "
@@ -1458,14 +1586,13 @@ def normalize_and_check_instrument_types(
     return instruments, msgs
 
 
-def _known_catalog_types() -> set[str]:
+def _known_catalog_types(*, project_root: Path | None = None) -> set[str]:
     """Collect instrument types present in loaded catalog entries."""
     try:
         types: set[str] = set()
-        for cat_dir in find_catalog_dirs():
-            for entry in load_catalog_from_directory(cat_dir).values():
-                if entry.type:
-                    types.add(entry.type.lower())
+        for entry, _ in _iter_loaded_catalog_entries(find_catalog_dirs(project_root=project_root)):
+            if entry.type:
+                types.add(entry.type.lower())
         return types | _KNOWN_INSTRUMENT_TYPES
     except OSError as exc:
         warnings.warn(

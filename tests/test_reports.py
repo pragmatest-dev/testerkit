@@ -201,7 +201,7 @@ class TestProjectConfig:
     def test_load_missing(self, tmp_path):
         from litmus.store import load_project_config
 
-        config = load_project_config(tmp_path / "litmus.yaml")
+        config = load_project_config(tmp_path)
         assert config.results_dir is None
         assert config.outputs == []
 
@@ -211,7 +211,7 @@ class TestProjectConfig:
         (tmp_path / "litmus.yaml").write_text(
             "name: test\nresults_dir: my_results\noutputs:\n  - format: html\n"
         )
-        config = load_project_config(tmp_path / "litmus.yaml")
+        config = load_project_config(tmp_path)
         assert config.results_dir == "my_results"
         assert len(config.outputs) == 1
         assert config.outputs[0].format == "html"

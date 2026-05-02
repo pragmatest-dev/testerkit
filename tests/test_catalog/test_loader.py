@@ -155,7 +155,7 @@ class TestCatalogInheritance:
         """Variant without capabilities: gets base's."""
         _write_yaml(tmp_path / "base_dmm.yaml", self._base_yaml())
         _write_yaml(
-            tmp_path / "variant.yaml",
+            tmp_path / "variant_dmm.yaml",
             """\
             id: variant_dmm
             model: "1001"
@@ -168,7 +168,7 @@ class TestCatalogInheritance:
                 ground: shared
         """,
         )
-        entry = load_catalog_entry(tmp_path / "variant.yaml", catalog_dir=tmp_path)
+        entry = load_catalog_entry(tmp_path / "variant_dmm.yaml", catalog_dir=tmp_path)
         assert entry.id == "variant_dmm"
         assert len(entry.capabilities) == 1
         assert entry.capabilities[0].function == MeasurementFunction.DC_VOLTAGE
@@ -177,7 +177,7 @@ class TestCatalogInheritance:
         """Variant with channels: replaces base's."""
         _write_yaml(tmp_path / "base_dmm.yaml", self._base_yaml())
         _write_yaml(
-            tmp_path / "variant.yaml",
+            tmp_path / "variant_dmm.yaml",
             """\
             id: variant_dmm
             model: "1001"
@@ -189,7 +189,7 @@ class TestCatalogInheritance:
                 ground: earth
         """,
         )
-        entry = load_catalog_entry(tmp_path / "variant.yaml", catalog_dir=tmp_path)
+        entry = load_catalog_entry(tmp_path / "variant_dmm.yaml", catalog_dir=tmp_path)
         assert list(entry.channels.keys()) == ["A"]
 
     def test_variant_merges_capabilities(self, tmp_path):
@@ -199,7 +199,7 @@ class TestCatalogInheritance:
         """
         _write_yaml(tmp_path / "base_dmm.yaml", self._base_yaml())
         _write_yaml(
-            tmp_path / "variant.yaml",
+            tmp_path / "variant_dmm.yaml",
             """\
             id: variant_dmm
             model: "2000"
@@ -213,7 +213,7 @@ class TestCatalogInheritance:
                 channels: ["1"]
         """,
         )
-        entry = load_catalog_entry(tmp_path / "variant.yaml", catalog_dir=tmp_path)
+        entry = load_catalog_entry(tmp_path / "variant_dmm.yaml", catalog_dir=tmp_path)
         assert len(entry.capabilities) == 2
         funcs = {c.function for c in entry.capabilities}
         assert MeasurementFunction.DC_VOLTAGE in funcs  # inherited from base
@@ -223,14 +223,14 @@ class TestCatalogInheritance:
         """manufacturer, type inherited from base."""
         _write_yaml(tmp_path / "base_dmm.yaml", self._base_yaml())
         _write_yaml(
-            tmp_path / "variant.yaml",
+            tmp_path / "variant_dmm.yaml",
             """\
             id: variant_dmm
             model: "1001"
             base: base_dmm
         """,
         )
-        entry = load_catalog_entry(tmp_path / "variant.yaml", catalog_dir=tmp_path)
+        entry = load_catalog_entry(tmp_path / "variant_dmm.yaml", catalog_dir=tmp_path)
         assert entry.manufacturer == "Acme"
         assert entry.type == "dmm"
 
@@ -411,7 +411,7 @@ class TestCatalogValidation:
         _write_yaml(
             tmp_path / "iface.yaml",
             """\
-            id: iface_test
+            id: iface
             manufacturer: X
             model: "1"
             name: Test

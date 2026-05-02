@@ -65,7 +65,7 @@ def _write_fixture(pytester: pytest.Pytester) -> None:
     (pytester.path / "fixtures" / "mini.yaml").write_text(
         textwrap.dedent(
             """
-            id: mini_fixture
+            id: mini
             name: Mini Fixture
             product_id: mini
             connections:
@@ -592,7 +592,7 @@ def test_per_function_matching_routes_to_correct_connection(
     (pytester.path / "fixtures" / "mini.yaml").write_text(
         textwrap.dedent(
             """
-            id: mini_fixture
+            id: mini
             name: Mini Fixture
             product_id: mini
             connections:
@@ -673,7 +673,7 @@ def test_function_unset_connection_is_fallback(
     (pytester.path / "fixtures" / "mini.yaml").write_text(
         textwrap.dedent(
             """
-            id: mini_fixture
+            id: mini
             name: Mini Fixture
             product_id: mini
             connections:

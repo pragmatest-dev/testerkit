@@ -23,7 +23,7 @@ from litmus.products.context import ProductContext
 # Lives under tests/fixtures so the e2e suite never depends on the layout
 # of the example projects under examples/0X-*.
 _FIXTURE_DIR = Path(__file__).parent.parent / "fixtures" / "specs"
-SPEC_PATH = _FIXTURE_DIR / "power_board.yaml"
+SPEC_PATH = _FIXTURE_DIR / "power_board_v1.yaml"
 MINIMAL_SPEC_PATH = _FIXTURE_DIR / "base_board.yaml"
 
 

@@ -16,7 +16,7 @@ def _write_fixture_yaml(path, slots: dict[str, dict]) -> None:
     import yaml
 
     fixture = {
-        "id": "test_fixture",
+        "id": path.stem,
         "slots": slots,
     }
     path.write_text(yaml.safe_dump(fixture))
@@ -27,7 +27,7 @@ def _write_station_yaml(path) -> None:
     import yaml
 
     station = {
-        "id": "test_station",
+        "id": path.stem,
         "name": "Test Station",
         "instruments": {},
     }

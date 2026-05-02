@@ -3,6 +3,7 @@
 from collections.abc import Callable
 
 from nicegui import ui
+from pydantic import ValidationError
 
 from litmus.ui.shared.components import AutoSaver, labeled_input, labeled_textarea
 from litmus.ui.shared.layout import create_layout
@@ -166,11 +167,13 @@ def fixture_edit_page(fixture_id: str):
                     if not fid:
                         ui.notify("Fixture ID is required", type="warning")
                         return
-                    if save_fixture(fid, form_data["fixture"], form_data["connections"]):
-                        ui.notify("Fixture created", type="positive")
-                        ui.navigate.to(f"/fixtures/{fid}")
-                    else:
-                        ui.notify("Failed to create fixture", type="negative")
+                    try:
+                        save_fixture(fid, form_data["fixture"], form_data["connections"])
+                    except (ValidationError, OSError, ValueError) as exc:
+                        ui.notify(f"Failed to create fixture: {exc}", type="negative")
+                        return
+                    ui.notify("Fixture created", type="positive")
+                    ui.navigate.to(f"/fixtures/{fid}")
 
                 ui.button("Create", icon="add", on_click=handle_create).props("color=primary")
             else:

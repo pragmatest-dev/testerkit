@@ -266,7 +266,7 @@ def get_all_station_matches_for_product(product_id: str) -> dict[str, list]:
     return matching_service.find_all_station_matches(product)
 
 
-def save_product(product_id: str, product_data: dict) -> bool:
+def save_product(product_id: str, product_data: dict) -> None:
     """Save product specification to YAML file."""
     product_dict = {
         "id": product_data.get("id", product_id),
@@ -280,7 +280,7 @@ def save_product(product_id: str, product_data: dict) -> bool:
         product_dict["pins"] = product_data["pins"]
 
     product = Product.model_validate(product_dict)
-    return store_save_product(product)
+    store_save_product(product)
 
 
 # -----------------------------------------------------------------------------
@@ -308,12 +308,12 @@ def create_station(
     return store_create_station(station_id, name, location, description)
 
 
-def save_station(station_id: str, station_data: dict, instruments_data: dict) -> bool:
+def save_station(station_id: str, station_data: dict, instruments_data: dict) -> None:
     """Save station configuration to YAML file."""
     normalize_and_check_instrument_types(instruments_data)
     station_dict = {**station_data, "instruments": instruments_data}
     station = StationConfig.model_validate(station_dict)
-    return store_save_station(station)
+    store_save_station(station)
 
 
 def get_station_capabilities(config):
@@ -357,7 +357,7 @@ def load_catalog_entry_by_type(instrument_type: str):
     return store_get_catalog_entry(instrument_type)
 
 
-def save_catalog_entry(instrument_type: str, data: dict) -> bool:
+def save_catalog_entry(instrument_type: str, data: dict) -> None:
     """Save a catalog entry to catalog/."""
     inst = data.get("instrument", {})
     entry = InstrumentCatalogEntry.model_validate(
@@ -371,7 +371,7 @@ def save_catalog_entry(instrument_type: str, data: dict) -> bool:
             "capabilities": data.get("capabilities", []),
         }
     )
-    return store_save_catalog_entry(entry)
+    store_save_catalog_entry(entry)
 
 
 def discover_instrument_assets():
@@ -456,11 +456,11 @@ def create_fixture(
     return store_create_fixture(fixture_id, name, product_id, product_revision, description)
 
 
-def save_fixture(fixture_id: str, fixture_data: dict, connections_data: dict) -> bool:
+def save_fixture(fixture_id: str, fixture_data: dict, connections_data: dict) -> None:
     """Save fixture configuration to YAML file."""
     fixture_dict = {**fixture_data, "connections": connections_data}
     fixture = FixtureConfig.model_validate(fixture_dict)
-    return store_save_fixture(fixture)
+    store_save_fixture(fixture)
 
 
 # -----------------------------------------------------------------------------
@@ -468,9 +468,9 @@ def save_fixture(fixture_id: str, fixture_data: dict, connections_data: dict) ->
 # -----------------------------------------------------------------------------
 
 
-def save_station_type(station_type: StationType) -> bool:
+def save_station_type(station_type: StationType) -> None:
     """Save station type YAML."""
-    return store_save_station_type(station_type)
+    store_save_station_type(station_type)
 
 
 def load_station_type(type_id: str) -> StationType | None:

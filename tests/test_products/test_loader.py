@@ -17,7 +17,7 @@ class TestLoadProduct:
     @pytest.fixture
     def power_board_path(self) -> Path:
         """Path to the sample power board spec."""
-        return Path(__file__).parent.parent / "fixtures" / "specs" / "power_board.yaml"
+        return Path(__file__).parent.parent / "fixtures" / "specs" / "power_board_v1.yaml"
 
     def test_load_product_metadata(self, power_board_path):
         """Test loading product metadata."""
@@ -83,7 +83,7 @@ class TestIntegration:
     @pytest.fixture
     def power_board_path(self) -> Path:
         """Path to the sample power board spec."""
-        return Path(__file__).parent.parent / "fixtures" / "specs" / "power_board.yaml"
+        return Path(__file__).parent.parent / "fixtures" / "specs" / "power_board_v1.yaml"
 
     def test_derive_limit_from_loaded_product(self, power_board_path):
         """Test deriving limits from a loaded product."""
@@ -138,7 +138,7 @@ class TestPartNumber:
 
     def test_load_product_without_part_number(self):
         """Test that part_number is None when not specified."""
-        spec_path = Path(__file__).parent.parent / "fixtures" / "specs" / "power_board.yaml"
+        spec_path = Path(__file__).parent.parent / "fixtures" / "specs" / "power_board_v1.yaml"
         product = load_product(spec_path)
         assert product.part_number is None
 

@@ -152,7 +152,7 @@ def get_project_name(cwd: Path | str | None = None) -> str:
     resolved_cwd = Path(cwd) if cwd is not None else Path.cwd()
 
     try:
-        config = load_project_config(resolved_cwd / "litmus.yaml")
+        config = load_project_config(resolved_cwd)
         if config.name != "litmus":
             return config.name
     except Exception:
