@@ -41,24 +41,21 @@ This defines:
 
 ## Instrument Role Fixtures
 
-When you run with `--station-config`, Litmus auto-registers each instrument role as a pytest fixture. Use them directly as function parameters:
+When you run with `--station`, Litmus auto-registers each instrument role as a pytest fixture. Use them directly as function parameters:
 
 ```python
 # tests/test_power.py
-from litmus.execution import litmus_test
-
-@litmus_test
-def test_output_voltage(context, psu, dmm):
+def test_output_voltage(psu, dmm, logger):
     """Instrument roles from station config are auto-registered as fixtures."""
     psu.set_voltage(5.0)
     psu.enable_output()
 
-    return dmm.measure_voltage()
+    logger.measure("output_voltage", dmm.measure_voltage())
 ```
 
 Run with real hardware:
 ```bash
-pytest tests/ --station-config=stations/bench_1.yaml --dut-serial=SN001
+pytest tests/ --station=stations/bench_1.yaml --dut-serial=SN001
 ```
 
 ## Running with Mock Instruments
@@ -66,7 +63,7 @@ pytest tests/ --station-config=stations/bench_1.yaml --dut-serial=SN001
 When hardware isn't available, add `--mock-instruments`:
 
 ```bash
-pytest tests/ --station-config=stations/bench_1.yaml --mock-instruments --dut-serial=SIM001
+pytest tests/ --station=stations/bench_1.yaml --mock-instruments --dut-serial=SIM001
 ```
 
 The **same test code** works in both modes.
@@ -80,31 +77,24 @@ When `--mock-instruments` is set:
 
 ## Per-Test Mock Values
 
-For tests that need specific mock values, use `mocks` in the sequence step:
+For tests that need specific mock values, use `litmus_mocks` in the sidecar:
 
 ```yaml
-# sequences/my_sequence.yaml
-steps:
-  - id: output_voltage
-    test: tests/test_voltage.py::test_output_voltage
-    mocks:
-      dmm.measure_voltage: 3.31
-      psu.measure_current: 0.5
-    limits:
-      test_output_voltage:
-        low: 3.2
-        high: 3.4
-        units: V
+# tests/test_voltage.yaml
+mocks:
+  - {target: dmm.measure_voltage, return_value: 3.31}
+  - {target: psu.measure_current, return_value: 0.5}
+limits:
+  test_output_voltage: {low: 3.2, high: 3.4, units: V}
 ```
 
 ## Mock Value Priority
 
 When running with `--mock-instruments`, values are resolved in order:
 
-1. **Vector-level `_mocks`** — Specific to this test vector
-2. **Step-level `mocks`** — Constant for all vectors in this step
-3. **Station `mock_config`** — Default for this instrument
-4. **Zero** — If nothing else configured
+1. **`litmus_mocks` marker** — Per-test mock values (sidecar or inline)
+2. **Station `mock_config`** — Default for this instrument
+3. **Zero** — If nothing else configured
 
 ## CI/CD Configuration
 
@@ -115,7 +105,7 @@ In CI, always run with `--mock-instruments`:
 - name: Run tests
   run: |
     pytest tests/ \
-      --station-config=stations/bench_1.yaml \
+      --station=stations/bench_1.yaml \
       --mock-instruments \
       --dut-serial=CI-TEST \
       -v
@@ -187,10 +177,7 @@ steps:
 
 **tests/test_power.py:**
 ```python
-from litmus.execution import litmus_test
-
-@litmus_test
-def test_output_voltage(context, psu, dmm):
+def test_output_voltage(psu, dmm, logger):
     """Works with real hardware OR mock mode."""
     psu.set_voltage(5.0)
     psu.set_current_limit(1.0)
@@ -199,17 +186,17 @@ def test_output_voltage(context, psu, dmm):
     voltage = dmm.measure_voltage()
 
     psu.disable_output()
-    return voltage
+    logger.measure("output_voltage", voltage)
 ```
 
 **Run with hardware:**
 ```bash
-pytest tests/ --station-config=stations/bench_1.yaml --dut-serial=SN12345
+pytest tests/ --station=stations/bench_1.yaml --dut-serial=SN12345
 ```
 
 **Run with mocks:**
 ```bash
-pytest tests/ --station-config=stations/bench_1.yaml --mock-instruments --dut-serial=SIM001
+pytest tests/ --station=stations/bench_1.yaml --mock-instruments --dut-serial=SIM001
 ```
 
 ## What You Learned

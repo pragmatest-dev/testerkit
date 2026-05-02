@@ -1,6 +1,8 @@
 # pytest Plugin Guide
 
-Litmus provides a pytest plugin for hardware testing with automatic measurement capture, limit checking, and result storage.
+Litmus provides a pytest plugin for hardware testing with automatic measurement capture, limit checking, and result storage. Tests are plain pytest functions or classes — no base class, no decorator.
+
+For the full authoring contract (three fixtures, sidecar YAML, limit resolution, `vectors` fixture), see the [pytest-native reference](pytest-native.md). This guide covers the surrounding plumbing: installation, instrument fixtures, CLI options, markers, test phase, and results.
 
 ## Installation
 
@@ -18,214 +20,20 @@ Verify it's loaded:
 pytest --co -q  # Should show litmus in plugins
 ```
 
-## The @litmus_test Decorator
-
-The `@litmus_test` decorator transforms a test function into a hardware test:
+## Writing a test
 
 ```python
-from litmus.execution import litmus_test
-
-@litmus_test
-def test_voltage(context, dmm):
-    """Measure and return voltage."""
-    return dmm.measure_dc_voltage()
+def test_output_voltage(context, verify, dmm):
+    verify("output_voltage", dmm.measure_dc_voltage())
 ```
 
-### What It Does
+Three fixtures do the work:
 
-1. **Loads configuration** from `config.yaml` in the test directory
-2. **Expands vectors** based on config (runs test multiple times if configured)
-3. **Captures measurements** from return values
-4. **Checks limits** against configured limits
-5. **Records results** to the test run
+- `context` — current vector params (`get_param`, `changed`, `observe`)
+- `verify` — limit check + record + raise on FAIL (`verify(name, value, limit=..., characteristic=...)`); resolves limits from the active `product_context` when no `limit=` is provided
+- `logger` — event persistence (`measure(name, value, limit=...)`, `record`)
 
-### Return Values
-
-**Single measurement:**
-```python
-@litmus_test
-def test_voltage(context, dmm):
-    return dmm.measure_dc_voltage()  # Stored as "test_voltage"
-```
-
-**Multiple measurements (dict):**
-```python
-@litmus_test
-def test_power(context, dmm):
-    return {
-        "input_voltage": dmm.measure_dc_voltage(),
-        "input_current": dmm.measure_dc_current(),
-    }
-```
-
-**Streaming measurements (yield):**
-```python
-@litmus_test
-def test_stability(context, dmm):
-    for i in range(10):
-        yield {"voltage": dmm.measure_dc_voltage()}
-        time.sleep(1)
-```
-
-## The context Fixture
-
-Every `@litmus_test` function receives a `context` parameter containing the current test parameters:
-
-```python
-@litmus_test
-def test_sweep(context, psu, dmm):
-    # Access context parameters
-    voltage = context.inputs["voltage"]
-    load = context.get_in("load", 0.1)  # With default
-
-    psu.set_voltage(voltage)
-    return dmm.measure_dc_voltage()
-```
-
-### Context Methods
-
-**Access parameters:**
-```python
-context.inputs["voltage"]     # Get parameter value from merged dict
-context.get_in("temp", 25)    # Get with default (checks parent chain)
-context.inputs                # All inputs as dict (includes inherited)
-context.inputs.get("_index")  # 0-based index in expansion
-```
-
-**Change detection (for nested loops):**
-```python
-if context.changed("temperature"):
-    # Temperature changed since last context
-    set_chamber_temp(context.inputs["temperature"])
-```
-
-## Test Configuration
-
-Create `config.yaml` in your test directory:
-
-```yaml
-test_voltage:
-  limits:
-    test_voltage:
-      low: 4.5
-      high: 5.5
-      units: V
-
-test_sweep:
-  vectors:
-    expand: product
-    voltage: [3.3, 5.0, 12.0]
-    load: [0, 50, 100]
-  limits:
-    test_sweep:
-      low: 3.0
-      high: 13.0
-      units: V
-
-test_stability:
-  vectors:
-    - sample: 1
-    - sample: 2
-    - sample: 3
-  retry:
-    max_attempts: 3
-    delay_seconds: 0.5
-```
-
-## @litmus_test Parameters
-
-All parameters are optional:
-
-```python
-@litmus_test(
-    config=None,           # Inline config dict (highest precedence)
-    config_file=None,      # Path to YAML config (relative to test file)
-    retry=None,            # RetryConfig override
-    limits=None,           # Dict of limit overrides by measurement name
-    raise_on_fail=True,    # Raise AssertionError if limit fails
-)
-def test_example(context, dmm):
-    ...
-```
-
-### Parameter Details
-
-| Parameter | Type | Default | Description |
-|-----------|------|---------|-------------|
-| `config` | `dict` | `None` | Inline configuration with vectors, limits, retry |
-| `config_file` | `str` | `None` | Path to YAML config file (relative to test file) |
-| `retry` | `RetryConfig` | `None` | Override retry config from file |
-| `limits` | `dict` | `None` | Override limits by measurement name |
-| `raise_on_fail` | `bool` | `True` | Raise on failed measurements |
-
-### Config Resolution Order
-
-1. **Inline parameters** (highest) - `config=`, `retry=`, `limits=`
-2. **Explicit config_file** - `config_file="custom.yaml"`
-3. **Auto-discovered config.yaml** (lowest) - In same directory as test file
-
-### Examples
-
-**Inline config (no YAML needed):**
-```python
-@litmus_test(
-    config={
-        "vectors": {"expand": "product", "vin": [5.0, 12.0], "load": [0.1, 0.5]},
-        "limits": {"test_sweep": {"low": 3.0, "high": 13.0, "units": "V"}},
-    }
-)
-def test_sweep(context, dmm):
-    return dmm.measure_dc_voltage()
-```
-
-**Override limits only:**
-```python
-from litmus.config.models import Limit
-
-@litmus_test(
-    limits={
-        "voltage": Limit(low=3.2, high=3.4, nominal=3.3, units="V"),
-    }
-)
-def test_voltage(context, dmm):
-    return {"voltage": dmm.measure_dc_voltage()}
-```
-
-**Override retry only:**
-```python
-from litmus.config.models import RetryConfig
-
-@litmus_test(
-    retry=RetryConfig(max_attempts=5, delay_seconds=1.0)
-)
-def test_flaky(context, dmm):
-    return dmm.measure_dc_voltage()
-```
-
-**Custom config file:**
-```python
-@litmus_test(config_file="special_config.yaml")
-def test_special(context, dmm):
-    return dmm.measure_dc_voltage()
-```
-
-**Characterization mode (don't fail on limits):**
-```python
-@litmus_test(raise_on_fail=False)
-def test_characterize(context, dmm):
-    # Measurements recorded but won't fail test
-    return dmm.measure_dc_voltage()
-```
-
-### Characterization Mode
-
-When no limits are configured, measurements are recorded as PASS (characterization):
-
-```python
-@litmus_test(raise_on_fail=False)
-def test_characterize(context, dmm):
-    return dmm.measure_dc_voltage()  # Always passes, records value
-```
+Auto-registered instrument fixtures (`dmm`, `psu`, …) come from the station config — see below. Vector expansion uses native `@pytest.mark.parametrize` or sidecar `test_<module>.yaml`. See [pytest-native reference](pytest-native.md) for the full contract.
 
 ## Instrument Fixtures
 
@@ -234,12 +42,11 @@ def test_characterize(context, dmm):
 When a station config is loaded, the Litmus plugin **automatically registers a session-scoped fixture for each instrument role**. If your station config defines `dmm`, `psu`, `eload`, and `scope`, you can use them directly in tests with zero conftest boilerplate:
 
 ```python
-@litmus_test
-def test_voltage(context, dmm, psu):
+def test_voltage(context, dmm, psu, logger):
     """dmm and psu are auto-registered from station config."""
     psu.set_voltage(5.0)
     psu.enable_output()
-    return dmm.measure_dc_voltage()
+    logger.measure("output_voltage", dmm.measure_dc_voltage())
 ```
 
 No `conftest.py` fixture definitions needed -- the plugin reads your station config at startup and creates the fixtures for you.
@@ -286,12 +93,11 @@ def test_list_roles(instrument):
 The underlying dict of all instrument instances, keyed by role name:
 
 ```python
-@litmus_test
-def test_voltage(context, instruments):
+def test_voltage(context, instruments, logger):
     dmm = instruments["dmm"]
     psu = instruments["psu"]
     psu.set_voltage(5.0)
-    return dmm.measure_dc_voltage()
+    logger.measure("output_voltage", dmm.measure_dc_voltage())
 ```
 
 ### `pins` Fixture (session-scoped)
@@ -306,7 +112,7 @@ def test_output_voltage(pins):
     assert float(voltage) > 3.0
 ```
 
-Requires `--fixture-config` to map pins to instruments.
+Requires `--fixture` to map pins to instruments.
 
 ### `fixture_manager` Fixture (session-scoped)
 
@@ -318,19 +124,19 @@ def test_with_net_lookup(fixture_manager):
     instrument = fixture_manager.get_instrument_for_point(point.name)
 ```
 
-### `spec_context` Fixture (session-scoped)
+### `product_context` Fixture (session-scoped)
 
 For spec-driven limit derivation:
 
 ```python
-def test_voltage(spec_context, dmm):
+def test_voltage(product_context, dmm):
     # Get limit from product spec with guardband
-    limit = spec_context.get_limit("output_voltage", temperature=25)
+    limit = product_context.get_limit("output_voltage", temperature=25)
     value = dmm.measure_dc_voltage()
     # Framework checks against derived limit
 ```
 
-Auto-discovers from `products/` directory or use `--spec` option.
+Auto-discovers from `products/` directory or use `--product` option.
 
 ### `run_context` Fixture (session-scoped)
 
@@ -380,9 +186,9 @@ with harness.step():
         # tv.params includes: operator, fixture.id, temp
 ```
 
-### `litmus_logger` Fixture (session-scoped, autouse)
+### `logger` Fixture (session-scoped, autouse)
 
-The underlying logger that captures all measurements. Automatically active for all tests. You rarely need to access it directly -- use `run_context` for custom metadata or `@litmus_test` for measurement capture.
+The underlying logger that captures all measurements. Test functions ask for it by name — `logger.measure(name, value, limit=...)` is the primary recorder. `run_context` is a separate fixture for custom metadata columns.
 
 ### `mock_instruments` Fixture (session-scoped)
 
@@ -478,10 +284,10 @@ pytest tests/ \
   --operator="Jane Doe" \        # Operator name
   --results-dir=./results \      # Results directory (default: results)
   --mock-instruments \           # Use mock instruments instead of real hardware
-  --spec=products/x.yaml \  # Path to product spec YAML
+  --product=products/x.yaml \  # Path to product spec YAML
   --guardband=10 \               # Default guardband percentage (default: 0)
-  --station-config=stations/bench_1.yaml \  # Station config file
-  --fixture-config=fixtures/x.yaml \        # Fixture config file
+  --station=stations/bench_1.yaml \  # Station config file
+  --fixture=fixtures/x.yaml \        # Fixture config file
   --test-phase=validation \      # Test phase (default: auto-detect from git)
   -v
 ```
@@ -493,52 +299,31 @@ pytest tests/ \
 | `--operator` | `None` | Operator name |
 | `--results-dir` | `results` | Directory for Parquet results |
 | `--mock-instruments` | `False` | Use mock instruments instead of real hardware |
-| `--spec` | `None` | Path to product spec YAML file |
+| `--product` | `None` | Path to product spec YAML file |
 | `--guardband` | `0` | Default guardband percentage |
-| `--station-config` | `None` | Path to station configuration YAML |
-| `--fixture-config` | `None` | Path to fixture configuration YAML |
+| `--station` | `None` | Path to station configuration YAML |
+| `--fixture` | `None` | Path to fixture configuration YAML |
 | `--test-phase` | auto | Test phase (development, validation, characterization, production) |
 
 ## Markers
 
-### `@pytest.mark.litmus_retry`
+The plugin registers one Litmus marker. ``--strict-markers`` is on by
+default (set in ``pyproject.toml``), so typos fail collection.
 
-Retry failed tests automatically:
+### `@pytest.mark.litmus_limits(**kwargs)`
 
-```python
-import pytest
+Inject limits by measurement name. Values merge with sidecar ``limits:``;
+method-level markers override class-level markers by key.
 
-@pytest.mark.litmus_retry(max_attempts=3, delay=0.5)
-@litmus_test
-def test_flaky_measurement(context, dmm):
-    return dmm.measure_dc_voltage()
-```
+For everything else, use native pytest primitives or ecosystem plugins:
 
-| Parameter | Default | Description |
-|-----------|---------|-------------|
-| `max_attempts` | `3` | Maximum retry attempts |
-| `delay` | `0.0` | Delay in seconds between retries |
-
-### `@pytest.mark.litmus_skip_on`
-
-Skip test if dependencies failed:
-
-```python
-import pytest
-
-@litmus_test
-def test_power_on(context, psu):
-    psu.enable_output()
-    return psu.measure_voltage()
-
-@pytest.mark.litmus_skip_on(["test_power_on"])
-@litmus_test
-def test_output_voltage(context, dmm):
-    # Skipped if test_power_on failed
-    return dmm.measure_dc_voltage()
-```
-
-Dependencies can be test function names or full node IDs.
+| Need | Use |
+|------|-----|
+| Parametrize vector inputs | ``@pytest.mark.parametrize`` or sidecar ``vectors:`` |
+| Product selection | ``--product=<id>`` (lookup) or ``--product=<path>`` (explicit path) |
+| Mock instrument methods | ``pytest-mock``'s ``mocker.patch.object(...)`` |
+| Skip when prior test fails | ``pytest-dependency``: ``@pytest.mark.dependency(depends=["test_a"])`` |
+| Retries | ``pytest-rerunfailures``: ``@pytest.mark.flaky(reruns=N, reruns_delay=T)`` |
 
 ## Results
 
@@ -614,46 +399,28 @@ See [Parquet Schema Reference](parquet-schema.md) for the complete column list.
 
 ## Complete Example
 
-**tests/config.yaml:**
+**tests/test_power.yaml** (sidecar):
 ```yaml
-test_input_voltage:
-  limits:
-    test_input_voltage:
-      low: 4.5
-      high: 5.5
-      nominal: 5.0
-      units: V
-      spec_ref: PWR-IN-001
+vectors:
+  load_percent: [0, 50, 100]
 
-test_output_sweep:
-  vectors:
-    expand: product
-    load_percent: [0, 50, 100]
-  limits:
-    test_output_sweep:
-      low: 3.135
-      high: 3.465
-      units: V
-  retry:
-    max_attempts: 2
+limits:
+  input_voltage:  {low: 4.5, high: 5.5, nominal: 5.0, units: V, spec_ref: PWR-IN-001}
+  output_voltage: {low: 3.135, high: 3.465, units: V}
 ```
 
 **tests/test_power.py:**
 ```python
-from litmus.execution import litmus_test
+# No conftest boilerplate -- dmm is auto-registered from station config
 
-# No conftest boilerplate needed -- dmm is auto-registered from station config
+def test_input_voltage(context, dmm, logger):
+    logger.measure("input_voltage", dmm.measure_dc_voltage())
 
-@litmus_test
-def test_input_voltage(context, dmm):
-    """Verify input voltage."""
-    return dmm.measure_voltage()
-
-@litmus_test
-def test_output_sweep(context, dmm):
-    """Sweep load conditions."""
-    # context.inputs["load_percent"] contains current load value
-    return dmm.measure_voltage()
+@pytest.mark.flaky(reruns=2)
+def test_output_sweep(context, dmm, logger):
+    # context.get_param("load_percent") is the current row; sidecar
+    # supplies the three rows via `vectors:`.
+    logger.measure("output_voltage", dmm.measure_dc_voltage())
 ```
 
 **Run:**
@@ -663,5 +430,7 @@ pytest tests/ --dut-serial=TEST001 -v
 
 ## Next Steps
 
+- [pytest-native reference](pytest-native.md) — Three fixtures, sidecar YAML, limit bands, `vectors` fixture
+- [Test Limits](../guides/limits.md) — Resolution chain and condition-indexed bands
 - [Configuration Reference](configuration.md) — Detailed config options
 - [Python Client](client.md) — Submit results from external tools

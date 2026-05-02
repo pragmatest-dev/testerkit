@@ -5,10 +5,10 @@ from uuid import uuid4
 
 import pytest
 
-from litmus.config.test_config import FixtureConfig, FixturePoint, FixtureSlot
 from litmus.data.models import DUT
 from litmus.execution.slot_runner import SlotRunner
 from litmus.execution.slots import ResolvedSlot, resolve_fixture_slots
+from litmus.models.test_config import FixtureConfig, FixtureConnection, FixtureSlot
 
 
 def _make_slots() -> dict[str, ResolvedSlot]:
@@ -17,8 +17,8 @@ def _make_slots() -> dict[str, ResolvedSlot]:
         id="test_fixture",
         slots={
             "slot_1": FixtureSlot(
-                points={
-                    "vout": FixturePoint(
+                connections={
+                    "vout": FixtureConnection(
                         name="vout",
                         instrument="dmm",
                         instrument_channel="1",
@@ -26,8 +26,8 @@ def _make_slots() -> dict[str, ResolvedSlot]:
                 },
             ),
             "slot_2": FixtureSlot(
-                points={
-                    "vout": FixturePoint(
+                connections={
+                    "vout": FixtureConnection(
                         name="vout",
                         instrument="dmm",
                         instrument_channel="2",
@@ -55,12 +55,12 @@ class TestSlotRunnerExecution:
         runner = SlotRunner(slots, duts)
 
         # Run a simple command that succeeds
-        cmd = [sys.executable, "-c", "import os; print(os.environ.get('LITMUS_SLOT_ID'))"]
+        cmd = [sys.executable, "-c", "import os; print(os.environ.get('_LITMUS_SLOT_ID'))"]
         results = runner.run(cmd, sync=False)
 
         assert len(results) == 2
-        assert results["slot_1"].outcome == "pass"
-        assert results["slot_2"].outcome == "pass"
+        assert results["slot_1"].outcome == "passed"
+        assert results["slot_2"].outcome == "passed"
 
     def test_each_slot_gets_correct_env_vars(self):
         slots = _make_slots()
@@ -70,10 +70,10 @@ class TestSlotRunnerExecution:
         # Print env vars so we can verify
         script = (
             "import os, json; print(json.dumps({"
-            "'slot': os.environ.get('LITMUS_SLOT_ID'),"
+            "'slot': os.environ.get('_LITMUS_SLOT_ID'),"
             "'serial': os.environ.get('LITMUS_DUT_SERIAL'),"
-            "'count': os.environ.get('LITMUS_SLOT_COUNT'),"
-            "'session': os.environ.get('LITMUS_SESSION_ID')"
+            "'count': os.environ.get('_LITMUS_SLOT_COUNT'),"
+            "'session': os.environ.get('_LITMUS_SESSION_ID')"
             "}))"
         )
         cmd = [sys.executable, "-c", script]
@@ -83,7 +83,7 @@ class TestSlotRunnerExecution:
 
         for slot_id in ("slot_1", "slot_2"):
             result = results[slot_id]
-            assert result.outcome == "pass"
+            assert result.outcome == "passed"
             assert len(result.output_lines) >= 1
             data = json.loads(result.output_lines[0])
             assert data["slot"] == slot_id
@@ -97,7 +97,7 @@ class TestSlotRunnerExecution:
         session_id = uuid4()
         runner = SlotRunner(slots, duts, session_id=session_id)
 
-        script = "import os; print(os.environ.get('LITMUS_SESSION_ID'))"
+        script = "import os; print(os.environ.get('_LITMUS_SESSION_ID'))"
         cmd = [sys.executable, "-c", script]
         results = runner.run(cmd, sync=False)
 
@@ -112,7 +112,7 @@ class TestSlotRunnerExecution:
         cmd = [sys.executable, "-c", "pass"]
         results = runner.run(cmd, sync=False)
 
-        assert results["slot_1"].outcome == "pass"
+        assert results["slot_1"].outcome == "passed"
         assert results["slot_1"].returncode == 0
 
     def test_fail_outcome_on_error(self):
@@ -122,13 +122,13 @@ class TestSlotRunnerExecution:
 
         # slot_2 exits with error
         script = (
-            "import os, sys; sys.exit(1 if os.environ.get('LITMUS_SLOT_ID') == 'slot_2' else 0)"
+            "import os, sys; sys.exit(1 if os.environ.get('_LITMUS_SLOT_ID') == 'slot_2' else 0)"
         )
         cmd = [sys.executable, "-c", script]
         results = runner.run(cmd, sync=False)
 
-        assert results["slot_1"].outcome == "pass"
-        assert results["slot_2"].outcome == "fail"
+        assert results["slot_1"].outcome == "passed"
+        assert results["slot_2"].outcome == "failed"
         assert results["slot_2"].returncode == 1
 
     def test_captures_stdout(self):

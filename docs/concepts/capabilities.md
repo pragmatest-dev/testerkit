@@ -25,7 +25,7 @@ Both share the same `function + direction + signals/conditions/controls/attribut
 ### Example: DMM Capabilities
 
 ```yaml
-# catalog/keysight_34461a.yaml or demo/instruments/dmm.yaml
+# catalog/keysight_34461a.yaml or instruments/dmm.yaml
 capabilities:
   - function: dc_voltage
     direction: input      # Instrument measures (receives signal)
@@ -51,7 +51,7 @@ capabilities:
 ### Example: Power Supply Capabilities
 
 ```yaml
-# catalog/keysight_e36312a.yaml or demo/instruments/psu.yaml
+# catalog/keysight_e36312a.yaml or instruments/psu.yaml
 
 # Top-level structured channels describe physical topology
 channels:
@@ -244,7 +244,7 @@ signals:
   voltage:
     range: {min: 0.1, max: 750, units: V}
     accuracy: {pct_reading: 0.07, pct_range: 0.02}  # default
-    specs:
+    bands:
       - when:
           frequency: {min: 3, max: 5, units: Hz}
         accuracy: {pct_reading: 0.35, pct_range: 0.03}
@@ -328,7 +328,7 @@ curl "http://localhost:8000/api/match?product_id=power_board&station_id=bench_1"
 When adding custom instruments, define their capabilities using the function-parameter model:
 
 ```yaml
-# demo/instruments/temp_logger.yaml
+# instruments/temp_logger.yaml
 instrument:
   type: temp_logger
   name: Custom Temperature Logger

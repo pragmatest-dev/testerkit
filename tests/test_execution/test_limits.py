@@ -3,16 +3,10 @@
 import pytest
 
 from litmus.execution.limits import derive_limit
-from litmus.models.config import (
-    AccuracySpec,
-    Comparator,
-    Direction,
-    Limit,
-    MeasurementFunction,
-    RangeSpec,
-    SpecBand,
-)
+from litmus.models.capability import AccuracySpec, RangeSpec, SpecBand
+from litmus.models.enums import Comparator, Direction, MeasurementFunction
 from litmus.models.product import ProductCharacteristic
+from litmus.models.test_config import Limit
 
 
 class TestDeriveLimit:
@@ -27,7 +21,7 @@ class TestDeriveLimit:
             units="V",
             pin="VOUT",
             datasheet_ref="DS-001 Section 7.3",
-            specs=[
+            bands=[
                 SpecBand(
                     when={
                         "temperature": RangeSpec(min=25, max=25),
@@ -111,7 +105,7 @@ class TestDeriveLimit:
             direction=Direction.OUTPUT,
             units="V",
             pin="VOUT",
-            specs=[
+            bands=[
                 SpecBand(
                     when={"temperature": RangeSpec(min=25, max=25)},
                     value=3.3,
@@ -137,7 +131,7 @@ class TestDeriveLimit:
             direction=Direction.INPUT,
             units="A",
             pin="VIN",
-            specs=[
+            bands=[
                 SpecBand(
                     when={"temperature": RangeSpec(min=25, max=25)},
                     value=0.010,
@@ -169,23 +163,23 @@ class TestDeriveLimit:
         assert "load=0.1" in limit.spec_ref
 
     def test_limit_spec_id_from_char_id_param(self, voltage_characteristic):
-        """Test that spec_id is set from explicit char_id parameter."""
+        """Test that characteristic_id is set from explicit char_id parameter."""
         limit = derive_limit(
             voltage_characteristic,
             conditions={"temperature": 25, "load": 0.1},
             char_id="output_voltage",
         )
 
-        assert limit.spec_id == "output_voltage"
+        assert limit.characteristic_id == "output_voltage"
 
     def test_limit_spec_id_none_without_char_id(self, voltage_characteristic):
-        """Test that spec_id is None when no char_id provided."""
+        """Test that characteristic_id is None when no char_id provided."""
         limit = derive_limit(
             voltage_characteristic,
             conditions={"temperature": 25, "load": 0.1},
         )
 
-        assert limit.spec_id is None
+        assert limit.characteristic_id is None
 
     def test_guardband_le_comparator(self):
         """Test guardband with single-sided LE comparator."""
@@ -194,7 +188,7 @@ class TestDeriveLimit:
             direction=Direction.INPUT,
             units="A",
             pin="VIN",
-            specs=[
+            bands=[
                 SpecBand(
                     when={"temperature": RangeSpec(min=25, max=25)},
                     value=0.5,
@@ -221,7 +215,7 @@ class TestDeriveLimit:
             direction=Direction.OUTPUT,
             units="V",
             pin="VOUT",
-            specs=[
+            bands=[
                 SpecBand(
                     when={"temperature": RangeSpec(min=25, max=25)},
                     value=5.0,
@@ -248,7 +242,7 @@ class TestDeriveLimit:
             direction=Direction.OUTPUT,
             units="V",
             pin="VOUT",
-            specs=[
+            bands=[
                 SpecBand(
                     when={"temperature": RangeSpec(min=25, max=25)},
                     value=3.3,
@@ -277,7 +271,7 @@ class TestGuardbandEdgeCases:
             direction=Direction.OUTPUT,
             units="V",
             pin="VOUT",
-            specs=[
+            bands=[
                 SpecBand(
                     when={"temperature": RangeSpec(min=25, max=25)},
                     value=3.3,
@@ -302,7 +296,7 @@ class TestGuardbandEdgeCases:
             direction=Direction.OUTPUT,
             units="V",
             pin="VOUT",
-            specs=[
+            bands=[
                 SpecBand(
                     when={"temperature": RangeSpec(min=25, max=25)},
                     value=3.5,

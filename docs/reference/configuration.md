@@ -53,7 +53,7 @@ characteristics:
     datasheet_ref: string # Optional reference
     schematic_ref: string # Deprecated: use net instead
 
-    specs:
+    bands:
       - value: float            # Nominal/expected value
         accuracy:               # Accuracy specification
           pct_reading: float    # Percentage of reading
@@ -65,7 +65,7 @@ characteristics:
           <param>: value
         comparator: GELE | EQ | NE | LT | LE | GT | GE | GELT | GTLE | GTLT
 
-specs:
+bands:
   <name>:
     characteristic_ref: string   # Reference to characteristic
     conditions: dict            # Which conditions to test
@@ -127,54 +127,6 @@ supported_phases:         # Optional: which test phases this station supports
   - debug
 ```
 
-## Test Sequence
-
-**Location:** `sequences/<sequence_id>.yaml`
-
-```yaml
-id: string
-name: string
-description: string
-test_phase: development | validation | characterization | production  # Required
-
-steps:
-  - id: string
-    test: string              # Pytest test path
-    description: string
-    aliases:                  # Optional: remap fixture names to station roles
-      <fixture_name>: <station_role>
-    skip_on: [string]
-
-    # Test config (overrides inline decorator config)
-    vectors:                  # Parameter combinations (same syntax as inline)
-      expand: product | zip
-      <param>: [values]
-    limits:                   # Measurement limits
-      <measurement_name>:
-        low: float
-        high: float
-        nominal: float
-        units: string
-        comparator: string
-        spec_ref: string
-    mocks:                    # Mock instrument return values
-      <instrument.method>: value
-    retry:
-      max_attempts: integer
-      delay_seconds: float
-      strategy: string
-    limit_ref: string         # Derive limits from spec
-```
-
-Per-vector mocks use `_mocks` inside vector dicts:
-
-```yaml
-vectors:
-  - vin: 5.0
-    _mocks:
-      dmm.measure_dc_voltage: 3.31
-```
-
 ### Common Instrument Types
 
 | Type | Description | Capabilities |
@@ -198,8 +150,8 @@ product_id: string      # Specific product (preferred)
 product_family: string  # Or product family for shared fixtures
 product_revision: string # Optional: specific revision
 
-points:
-  <name>:                 # Fixture point name
+connections:
+  <name>:                 # Fixture connection name
     dut_pin: string       # Product pin reference
     net: string           # Or schematic net name
     instrument: string    # Station instrument name
@@ -215,7 +167,7 @@ id: power_board_fixture
 name: "Power Board Test Fixture"
 product_id: power_board
 
-points:
+connections:
   VIN:
     dut_pin: VIN
     net: VIN_5V
@@ -238,77 +190,106 @@ points:
 
 ## Test Configuration
 
-Test config (vectors, limits, mocks, retry) is resolved from two sources:
+Per-test config is one vocabulary — pytest markers — delivered three
+ways. Marker fields live directly at each entry's root, alongside the
+reserved `runner:` and `tests:` keys; same shape inline
+(`@pytest.mark.X(...)`), in the sidecar, or in a profile.
 
-1. **Sequence steps** (primary) — When running with `--sequence`
-2. **Inline decorator** (fallback) — For ad-hoc pytest runs
+Resolution order (least → most specific):
 
-Sequence step config **replaces** inline decorator config entirely (not merged).
+1. **Sidecar file-level** — marker fields at the top of `test_<module>.yaml`
+2. **Sidecar class-branch / per-test** — nested `tests.<Cls>.<marker>:` /
+   `tests.<name>.<marker>:`
+3. **Inline `@pytest.mark.<name>(...)`** on method or class
+4. **Profile chain** — parent profile first, child last (`extends:`)
+5. **CLI flags** — always win
 
-### Inline Decorator Config
+Same rule at every level: later entry with the same marker name + first
+key wins on overlap; non-overlapping passes through.
+
+### Inline marker form
 
 ```python
-@litmus_test(
-    config={
-        "vectors": {
-            "expand": "product",
-            "<param>": ["values"],
-        },
-    },
-    limits={
-        "<measurement_name>": {
-            "low": 3.0,
-            "high": 3.6,
-            "nominal": 3.3,
-            "units": "V",
-            "comparator": "GELE",
-        },
-    },
-    retry=RetryConfig(max_attempts=3, delay_seconds=0.5),
-)
-def test_example(context, dmm):
-    return dmm.measure_dc_voltage()
+import pytest
+
+
+@pytest.mark.litmus_sweeps(vin=[4.5, 5.0, 5.5])
+@pytest.mark.litmus_limits(output_voltage={"low": 3.135, "high": 3.465, "units": "V"})
+def test_example(vin, dmm, logger):
+    logger.measure("output_voltage", dmm.measure_dc_voltage())
 ```
 
-### Vector Expansion Modes
+Native `@pytest.mark.parametrize` keeps working unchanged. Use
+`litmus_sweeps` when you want runner-neutral payloads (translates 1:1
+to pytest, has a YAML form, supports range expanders).
 
-**product** — Cartesian product of all parameters:
+### Sidecar YAML form
+
 ```yaml
-vectors:
-  expand: product
-  voltage: [3.3, 5.0, 12.0]
-  temperature: [25, 85]
-# Creates 6 vectors: (3.3, 25), (3.3, 85), (5.0, 25), ...
+# test_example.yaml — same directory as the test module
+limits:                         # file-wide; applies to every test
+  output_voltage: {low: 3.135, high: 3.465, units: V}
+
+tests:
+  test_example:                 # leaf
+    sweeps:
+      - {vin: [4.5, 5.0, 5.5]}
+
+  TestIdle:                     # class branch
+    limits: {i_idle: {low: 0.0, high: 0.1, units: A}}   # applies to every TestIdle method
+    tests:
+      test_quiescent:           # nested leaf
+        mocks:
+          - {target: dmm.measure_dc_current, return_value: 0.05}
 ```
 
-**zip** — Parallel iteration:
+The shape mirrors pytest's `file::Class::method` node IDs: a class is a
+branch with its own marker fields plus a nested `tests:` dict; a function
+is a leaf with marker fields only. See the
+[pytest-native reference](pytest-native.md) for the full marker
+catalog (`sweeps`, `limits`, `mocks`, `spec`, `connections`,
+`prompts`, `retry`).
+
+### Retries
+
+Use ecosystem markers — `retry` translates to
+`pytest-rerunfailures`' `flaky` at session start:
+
 ```yaml
-vectors:
-  expand: zip
-  voltage: [3.3, 5.0, 12.0]
-  current: [0.1, 0.5, 1.0]
-# Creates 3 vectors: (3.3, 0.1), (5.0, 0.5), (12.0, 1.0)
+retry: {reruns: 3, reruns_delay: 0.5}
 ```
 
-**Range strings** — Compact numeric sweeps (anywhere a list is expected):
-```yaml
-vectors:
-  expand: product
-  voltage: "3.0:5.0:0.5"
-# Creates: 3.0, 3.5, 4.0, 4.5, 5.0
+Or inline:
+
+```python
+@pytest.mark.flaky(reruns=3, reruns_delay=0.5)  # pytest-rerunfailures direct
+def test_flaky(dmm, logger): ...
 ```
 
-**Recursive sub-blocks** — Compose product and zip:
+### Vector shape
+
+`sweeps` payloads are always a **list of axis-group dicts**.
+Each top-level dict in the list is one independent loop; multi-key
+dicts inside one entry zip together; stacked entries cross-product
+(top entry = outermost / slowest loop).
+
 ```yaml
-vectors:
-  expand: product
-  temperature: [25, 85]          # Outer loop (changes slowly)
-  vectors:
-    expand: zip
-    voltage: [3.3, 5.0, 12.0]
-    expected: [3.2, 4.9, 11.8]  # Paired with voltage
-# Creates 6 vectors: 2 temps x 3 zipped pairs
+sweeps:
+  - {temperature: [25, 85]}              # outer loop — slow
+  - {vin: [3.3, 5.0, 12.0]}              # middle loop
+  - {load_a: [0.1, 0.4], load_b: [10, 20]}  # zipped — same length
 ```
+
+Range expanders (`linspace`, `arange`, `logspace`, `geomspace`,
+`repeat`, `range`) substitute for argvalues:
+
+```yaml
+sweeps:
+  - {voltage: {linspace: [3.0, 5.0, 5]}}   # 3.0, 3.5, 4.0, 4.5, 5.0
+```
+
+See the [Test Vectors guide](../guides/vector-expansion.md) for full
+semantics — loop ordering, list-length checks, generators.
 
 ## Instrument Library
 
@@ -391,6 +372,58 @@ capabilities:              # Replaces base capabilities entirely
 
 Chains are supported (A → B → C) up to depth 5. Circular references raise `ValueError`.
 
+## Project Configuration
+
+**Location:** `litmus.yaml` (project root)
+
+```yaml
+name: string                  # Required — project identifier
+results_dir: string           # Optional — override default results directory
+default_station: string       # Default station for sessions (default: "station")
+default_fixture: string       # Optional default fixture
+mock_instruments: bool        # Force mock mode for all instruments (default: false)
+
+outputs:                      # Optional list of format + transport targets
+  - format: html              # Exporter (html, pdf, csv, stdf, ...)
+    transport: s3             # Shipper (s3, snowflake, ...)
+    bucket: my-results        # Format/transport-specific extras pass through
+
+profiles:                     # Named config sets — see docs/guides/profiles.md
+  <profile_name>:
+    description: string       # Optional human-readable description
+    facets: {key: value, ...} # Exact-match keys for CLI selection
+    extends: <parent_name>    # Optional single-parent inheritance
+
+    runner:                   # Pytest-level knobs applied to the session
+      addopts: string         # Appended to PYTEST_ADDOPTS before collection
+      markexpr: string        # Like -m: "not slow and not hardware"
+      keyword: string         # Like -k: "rails"
+
+    limits:                   # Session-wide marker fields (every test in run)
+      v_rail: {tolerance_pct: 5.0}
+
+    tests:                    # Recursive tree mirroring pytest node IDs
+      TestRails:              # class branch
+        sweeps:               # applied to every TestRails method
+          - {vin: [4.5, 5.0, 5.5]}
+        tests:
+          test_rail:          # nested leaf
+            limits: {v_rail: {low: 3.25, high: 3.35}}
+      test_standalone:        # module-level leaf
+        runner:
+          markers:
+            - skip: "bench required"
+```
+
+Profiles share the marker-field / `tests:` shape with sidecars — same
+vocabulary, same merge rules. Standalone files at `profiles/*.yaml`
+work too; the file stem is the profile name.
+
+**Selection:** facet flags (`--<facet>=<value>`) are auto-synthesized
+from the union of `facets:` keys declared across profiles. Exactly one
+profile must match the full facet query — zero or many → `UsageError`.
+`--test-profile=<name>` is a name-based escape hatch.
+
 ## Environment Variables
 
 Configuration values can reference environment variables:
@@ -417,5 +450,6 @@ print(product.characteristics["output_voltage"].nominal)
 
 ## Next Steps
 
-- [pytest Plugin Guide](pytest-plugin.md) — Using configuration in tests
+- [pytest-native Reference](pytest-native.md) — Fixtures, markers, sidecar YAML
+- [pytest Plugin Guide](pytest-plugin.md) — Plugin CLI flags and fixture reference
 - [Core Concepts](concepts.md) — Understanding the data model

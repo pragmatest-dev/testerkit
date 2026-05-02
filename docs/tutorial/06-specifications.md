@@ -50,7 +50,7 @@ characteristics:
     function: dc_voltage
     units: V
     pins: [VIN]
-    specs:
+    bands:
       - value: 5.0
         accuracy: {pct_reading: 10}
 
@@ -59,7 +59,7 @@ characteristics:
     function: dc_voltage
     units: V
     pins: [VOUT]
-    specs:
+    bands:
       - value: 3.3
         accuracy: {pct_reading: 5}
 ```
@@ -98,7 +98,7 @@ characteristics:
     function: dc_voltage   # DC voltage measurement
     units: V
     pins: [VOUT]           # Measured at this pin
-    specs:
+    bands:
       - value: 3.3         # Expected value
         accuracy:
           pct_reading: 5   # ±5% tolerance
@@ -144,7 +144,7 @@ Document this in the spec:
 
 ```yaml
 # products/power_board.yaml
-specs:
+bands:
   verify_output:
     characteristic_ref: output_voltage
     guardband_pct: 10
@@ -175,7 +175,7 @@ characteristics:
     direction: output
     function: dc_voltage
     units: V
-    specs:
+    bands:
       - value: 3.3
         accuracy: {pct_reading: 5}
         conditions:
@@ -233,7 +233,7 @@ characteristics:
     direction: input
     function: dc_voltage
     units: V
-    specs:
+    bands:
       - value: 5.0
         accuracy: {pct_reading: 10}
 
@@ -241,11 +241,11 @@ characteristics:
     direction: output
     function: dc_voltage
     units: V
-    specs:
+    bands:
       - value: 3.3
         accuracy: {pct_reading: 5}
 
-specs:
+bands:
   verify_output:
     characteristic_ref: output_voltage
     guardband_pct: 10
@@ -273,12 +273,9 @@ steps:
 
 **tests/test_power.py:**
 ```python
-from litmus.execution import litmus_test
-
-@litmus_test
-def test_output_voltage(context, dmm):
+def test_output_voltage(dmm, verify):
     """Verify output voltage meets guardbanded spec."""
-    return dmm.measure_voltage()
+    verify("output_voltage", dmm.measure_voltage())
 ```
 
 ## Traceability Chain
@@ -286,7 +283,7 @@ def test_output_voltage(context, dmm):
 ```
 Datasheet → Spec → Test Requirement → Test Config → Test Code → Measurement
      ↓          ↓           ↓               ↓            ↓           ↓
-  3.3V±5%   conditions   guardband      low/high     return     3.31V PASS
+  3.3V±5%   conditions   guardband      low/high   verify   3.31V PASS
 ```
 
 Every measurement can be traced back to the original specification.

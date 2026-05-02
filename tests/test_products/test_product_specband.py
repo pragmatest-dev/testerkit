@@ -3,13 +3,13 @@
 Covers PointSpec and ListSpec when-clauses in band_matches().
 """
 
-from litmus.config.capability import band_matches
-from litmus.models.config import (
+from litmus.models.capability import (
     AccuracySpec,
     ListSpec,
     PointSpec,
     RangeSpec,
     SpecBand,
+    band_matches,
 )
 
 

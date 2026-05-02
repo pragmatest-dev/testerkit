@@ -27,7 +27,7 @@ Every Measurement in Litmus includes traceability fields:
 | `meas_instrument` | Station config instrument name | `"dmm"`, `"dmm_main"` |
 | `meas_instrument_resource` | VISA address or connection | `"TCPIP::192.168.1.100::INSTR"` |
 | `meas_instrument_channel` | Channel on the instrument | `"CH1"`, `"ai0"`, `"1"` |
-| `meas_fixture_point` | Fixture point name | `"VOUT"`, `"VIN_SENSE"` |
+| `meas_fixture_connection` | Fixture connection name | `"VOUT"`, `"VIN_SENSE"` |
 
 ### Stimulus Signal Path (Dynamic)
 
@@ -40,7 +40,7 @@ For each input parameter, Litmus captures the full signal path:
 | `in_{param}_resource` | VISA address | `in_vin_resource = "TCPIP::..."` |
 | `in_{param}_channel` | Channel | `in_vin_channel = "CH1"` |
 | `in_{param}_dut_pin` | DUT pin driven | `in_vin_dut_pin = "VIN"` |
-| `in_{param}_fixture_point` | Fixture routing | `in_vin_fixture_point = "vin_supply"` |
+| `in_{param}_fixture_connection` | Fixture routing | `in_vin_fixture_connection = "vin_supply"` |
 
 ## The Traceability Chain
 
@@ -58,7 +58,7 @@ Every measurement can be traced from result back to source:
 │      ├── meas_dut_pin ────► Product Pin Definition                     │
 │      │                       └── Physical location: "J1.3", net: "VOUT"│
 │      │                                                                  │
-│      ├── meas_fixture_point ► Fixture Config (fixture.yaml)            │
+│      ├── meas_fixture_connection ► Fixture Config (fixture.yaml)       │
 │      │                       └── Maps DUT pin to instrument             │
 │      │                                                                  │
 │      ├── meas_instrument ──► Station Config (station.yaml)             │
@@ -76,7 +76,7 @@ Every measurement can be traced from result back to source:
 │      ├── in_{param}_resource ► VISA address                            │
 │      ├── in_{param}_channel ► Channel on instrument                    │
 │      ├── in_{param}_dut_pin ► DUT pin driven                           │
-│      └── in_{param}_fixture_point ► Fixture routing                    │
+│      └── in_{param}_fixture_connection ► Fixture routing               │
 │                                                                         │
 └─────────────────────────────────────────────────────────────────────────┘
 ```
@@ -88,14 +88,13 @@ Every measurement can be traced from result back to source:
 When you use the `pins` fixture, traceability is captured automatically:
 
 ```python
-@litmus_test
-def test_output_voltage(pins):
+def test_output_voltage(pins, logger):
     # pins["VOUT"] knows:
     # - meas_dut_pin (from product spec)
     # - meas_instrument (from fixture)
     # - meas_instrument_resource (from station)
     # - meas_instrument_channel (from fixture)
-    return pins["VOUT"].measure_voltage()
+    logger.measure("output_voltage", pins["VOUT"].measure_voltage())
 ```
 
 ### Manual (Direct Instruments)
@@ -103,11 +102,10 @@ def test_output_voltage(pins):
 When using instruments directly, set traceability manually:
 
 ```python
-@litmus_test
-def test_output_voltage(context, dmm, harness):
+def test_output_voltage(dmm, logger):
     voltage = dmm.measure_dc_voltage()
 
-    harness.measure(
+    logger.measure(
         "output_voltage",
         voltage,
         dut_pin="J1.3",
@@ -116,24 +114,15 @@ def test_output_voltage(context, dmm, harness):
     )
 ```
 
-### Using SpecContext
+### Using ProductContext
 
 For spec-driven traceability:
 
 ```python
-from litmus.products import SpecContext
-
-spec = SpecContext.from_file("products/power_board.yaml")
-
-@litmus_test
-def test_output_voltage(context, dmm, harness):
-    voltage = dmm.measure_dc_voltage()
-
-    # spec_context provides spec_ref and dut_pin automatically
-    harness.measure(
-        "output_voltage",  # Characteristic name in spec
-        voltage,
-    )
+def test_output_voltage(dmm, verify):
+    # verify resolves the limit and traceability from the active
+    # ProductContext (configured via --product=products/power_board.yaml)
+    verify("output_voltage", dmm.measure_dc_voltage())
 ```
 
 ### Hierarchical Context
@@ -164,7 +153,7 @@ with harness.step():
 Add custom traceability fields that become Parquet columns:
 
 ```python
-def test_with_context(run_context, psu, dmm):
+def test_with_context(run_context, psu, dmm, logger):
     # Custom fields for your organization's needs
     run_context.set("operator_badge", "EMP-12345")
     run_context.set("fixture_serial", "FIX-001")
@@ -173,7 +162,7 @@ def test_with_context(run_context, psu, dmm):
 
     # Normal test code...
     psu.set_voltage(5.0)
-    return dmm.measure_dc_voltage()
+    logger.measure("output_voltage", dmm.measure_dc_voltage())
 ```
 
 ## Comparators (ATML/IEEE 1671)
@@ -331,7 +320,7 @@ Requirement: output_voltage
 
 2. **Calibration Tracking** — Link measurements to instrument calibration records via `meas_instrument_resource`
 
-3. **Fixture Debugging** — Verify signal routing through the fixture via `meas_fixture_point`
+3. **Fixture Debugging** — Verify signal routing through the fixture via `meas_fixture_connection`
 
 4. **Specification Compliance** — Prove that measurements satisfy specific spec requirements via `spec_ref`
 
@@ -341,7 +330,7 @@ Requirement: output_voltage
 
 ## Best Practices
 
-1. **Let the framework capture traceability** — Most fields are auto-captured when using fixtures and SpecContext
+1. **Let the framework capture traceability** — Most fields are auto-captured when using fixtures and ProductContext
 
 2. **Use `run_context` for custom fields** — Add organization-specific metadata that becomes queryable columns
 

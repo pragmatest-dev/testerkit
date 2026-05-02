@@ -73,7 +73,7 @@ characteristics:
     units: V
     pins: [VIN]
     datasheet_ref: "Section 4.1"
-    specs:
+    bands:
       - value: 5.0
         accuracy:
           pct_reading: 10
@@ -84,7 +84,7 @@ characteristics:
     units: V
     pins: [VOUT]
     datasheet_ref: "Section 4.2"
-    specs:
+    bands:
       - when:
           load_ma: {min: 0, max: 100}
         value: 3.3
@@ -109,7 +109,7 @@ characteristics:
     units: A
     pins: [VOUT]
     datasheet_ref: "Section 4.3"
-    specs:
+    bands:
       - value: 0
         accuracy:
           absolute: 1.0
@@ -152,7 +152,7 @@ id: dc_converter_fixture
 name: "DC Converter Test Fixture"
 product_id: dc_converter
 
-points:
+connections:
   VIN:
     dut_pin: VIN
     instrument: psu
@@ -262,11 +262,9 @@ steps:
 ```python
 # tests/test_dc_converter.py
 import time
-from litmus.execution import litmus_test
 
 
-@litmus_test
-def test_startup(context, pins):
+def test_startup(pins, logger):
     """Measure startup time."""
     # Ensure output is off
     pins["VIN"].disable_output()
@@ -290,42 +288,38 @@ def test_startup(context, pins):
         time.sleep(0.001)
 
     startup_time_ms = (time.perf_counter() - start) * 1000
-    return {"startup_time": startup_time_ms}
+    logger.measure("startup_time", startup_time_ms)
 
 
-@litmus_test
-def test_output_no_load(context, pins):
+def test_output_no_load(pins, logger):
     """Verify output voltage with no load."""
     pins["LOAD"].set_current(0)
     time.sleep(0.05)
-    return pins["VOUT"].measure_voltage()
+    logger.measure("output_voltage", pins["VOUT"].measure_voltage())
 
 
-@litmus_test
-def test_output_half_load(context, pins):
+def test_output_half_load(pins, logger):
     """Verify output voltage at 500mA."""
     pins["LOAD"].set_current(0.5)
     time.sleep(0.05)
-    return pins["VOUT"].measure_voltage()
+    logger.measure("output_voltage", pins["VOUT"].measure_voltage())
 
 
-@litmus_test
-def test_output_full_load(context, pins):
+def test_output_full_load(pins, logger):
     """Verify output voltage at 1A."""
     pins["LOAD"].set_current(1.0)
     time.sleep(0.05)
     voltage = pins["VOUT"].measure_voltage()
     pins["LOAD"].set_current(0)  # Reduce thermal stress
-    return voltage
+    logger.measure("output_voltage", voltage)
 
 
-@litmus_test
-def test_load_sweep(context, pins):
+def test_load_sweep(context, pins, logger):
     """Characterize output across load range."""
-    load_ma = context["load_ma"]
+    load_ma = context.get_param("load_ma")
     pins["LOAD"].set_current(load_ma / 1000)
     time.sleep(0.02)
-    return pins["VOUT"].measure_voltage()
+    logger.measure("output_voltage", pins["VOUT"].measure_voltage())
 ```
 
 ## pytest Configuration

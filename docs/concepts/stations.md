@@ -50,7 +50,7 @@ Instruments can be shared across multiple DUT slots in a multi-DUT fixture. When
 For development without hardware, use `--mock-instruments`:
 
 ```bash
-pytest tests/ --station-config=stations/bench_1.yaml --mock-instruments --dut-serial=SIM001
+pytest tests/ --station=stations/bench_1.yaml --mock-instruments --dut-serial=SIM001
 ```
 
 Configure mock values in the station:
@@ -136,14 +136,9 @@ pytest tests/ --station=bench_1 --dut-serial=SN001
 ### Via fixtures
 
 ```python
-@pytest.fixture
-def dmm(station):
-    """Get DMM from current station."""
-    return station.instruments["dmm"]
-
-@litmus_test
-def test_voltage(context, dmm):
-    return dmm.measure_voltage()
+def test_voltage(dmm, logger):
+    """Instrument roles from station config are auto-registered as fixtures."""
+    logger.measure("voltage", dmm.measure_voltage())
 ```
 
 ### Via CLI
@@ -223,7 +218,7 @@ instruments:
 
 Run in CI:
 ```bash
-pytest tests/ --station-config=stations/ci_station.yaml --mock-instruments --dut-serial=CI-TEST
+pytest tests/ --station=stations/ci_station.yaml --mock-instruments --dut-serial=CI-TEST
 ```
 
 ## Next Steps

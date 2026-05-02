@@ -1,7 +1,9 @@
 id: power_board_v1
 name: DC-DC Power Board Rev A
 description: 5V to 3.3V buck converter with 1A output capability
-revision: B
+revision: A
+datasheet: docs/DS-001.pdf
+schematic: docs/SCH-001.pdf
 characteristics:
   rail_5v_input:
     function: dc_voltage
@@ -9,7 +11,7 @@ characteristics:
     units: V
     net: VIN
     datasheet_ref: DS-001 Section 7.2, Table 3
-    specs:
+    bands:
     - when:
         temperature: 25
         load: 0.5
@@ -34,7 +36,7 @@ characteristics:
     units: V
     net: VOUT_3V3
     datasheet_ref: DS-001 Section 7.3
-    specs:
+    bands:
     - when:
         temperature: 25
         load: 0.1
@@ -69,7 +71,7 @@ characteristics:
     units: A
     net: IIN
     datasheet_ref: DS-001 Section 7.4
-    specs:
+    bands:
     - when:
         temperature: 25
         load: 0
@@ -86,7 +88,7 @@ characteristics:
     - VIN
     - VOUT
     datasheet_ref: DS-001 Section 7.5
-    specs:
+    bands:
     - when:
         temperature: 25
         load: 0.5
@@ -95,3 +97,20 @@ characteristics:
         temperature: 25
         load: 1.0
       value: 80
+pins:
+  VIN:
+    name: J1.1
+    net: VIN
+    role: power
+  VOUT:
+    name: J1.2
+    net: VOUT_3V3
+    role: signal
+  IIN:
+    name: J1.3
+    net: IIN
+    role: signal
+  GND:
+    name: J1.4
+    net: GND
+    role: ground

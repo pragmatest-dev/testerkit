@@ -3,7 +3,14 @@
 from uuid import uuid4
 
 from litmus.data.models import Measurement, Outcome, TestStep, TestVector
-from litmus.execution._state import current_step_var, current_vector_var
+from litmus.execution._state import (
+    get_current_step,
+    get_current_vector,
+    push_current_step,
+    push_current_vector,
+    reset_current_step,
+    reset_current_vector,
+)
 from litmus.execution.logger import TestRunLogger
 
 
@@ -14,18 +21,15 @@ class TestTestRunLogger:
         logger = TestRunLogger(
             dut_serial="SN001",
             station_id="station_001",
-            test_sequence_id="test_suite",
         )
         assert logger.test_run.dut.serial == "SN001"
         assert logger.test_run.station_id == "station_001"
-        assert logger.test_run.test_sequence_id == "test_suite"
-        assert logger.test_run.outcome == Outcome.PASS
+        assert logger.test_run.outcome == Outcome.PASSED
 
     def test_init_with_all_options(self):
         logger = TestRunLogger(
             dut_serial="SN001",
             station_id="station_001",
-            test_sequence_id="test_suite",
             station_type="production",
             operator_id="John Doe",
             test_phase="debug",
@@ -38,28 +42,26 @@ class TestTestRunLogger:
         logger = TestRunLogger(
             dut_serial="SN001",
             station_id="station_001",
-            test_sequence_id="test",
         )
         logger.start_step("measure_voltage", description="Signal 5V rail")
 
         assert len(logger.test_run.steps) == 1
         assert logger.test_run.steps[0].name == "measure_voltage"
         assert logger.test_run.steps[0].description == "Signal 5V rail"
-        assert current_step_var.get() is not None
+        assert get_current_step() is not None
 
     def test_log_measurement(self):
         logger = TestRunLogger(
             dut_serial="SN001",
             station_id="station_001",
-            test_sequence_id="test",
         )
         logger.start_step("test_step")
 
-        m = Measurement(name="voltage", value=5.0, outcome=Outcome.PASS)
+        m = Measurement(name="voltage", value=5.0, outcome=Outcome.PASSED)
         logger.log_measurement(m)
 
         # Measurements are stored in vectors within the step
-        step = current_step_var.get()
+        step = get_current_step()
         assert step is not None
         assert len(step.vectors) == 1
         assert len(step.vectors[0].measurements) == 1
@@ -69,10 +71,9 @@ class TestTestRunLogger:
         logger = TestRunLogger(
             dut_serial="SN001",
             station_id="station_001",
-            test_sequence_id="test",
         )
 
-        m = Measurement(name="voltage", value=5.0, outcome=Outcome.PASS)
+        m = Measurement(name="voltage", value=5.0, outcome=Outcome.PASSED)
         logger.log_measurement(m)
 
         assert len(logger.test_run.steps) == 1
@@ -82,70 +83,65 @@ class TestTestRunLogger:
         logger = TestRunLogger(
             dut_serial="SN001",
             station_id="station_001",
-            test_sequence_id="test",
         )
         logger.start_step("test_step")
 
-        m = Measurement(name="voltage", value=6.0, outcome=Outcome.FAIL)
+        m = Measurement(name="voltage", value=6.0, outcome=Outcome.FAILED)
         logger.log_measurement(m)
 
-        step_1 = current_step_var.get()
+        step_1 = get_current_step()
         assert step_1 is not None
-        assert step_1.outcome == Outcome.FAIL
-        assert logger.test_run.outcome == Outcome.FAIL
+        assert step_1.outcome == Outcome.FAILED
+        assert logger.test_run.outcome == Outcome.FAILED
 
     def test_log_measurement_error_propagates(self):
         logger = TestRunLogger(
             dut_serial="SN001",
             station_id="station_001",
-            test_sequence_id="test",
         )
         logger.start_step("test_step")
 
-        m = Measurement(name="voltage", value=None, outcome=Outcome.ERROR)
+        m = Measurement(name="voltage", value=None, outcome=Outcome.ERRORED)
         logger.log_measurement(m)
 
-        step_2 = current_step_var.get()
+        step_2 = get_current_step()
         assert step_2 is not None
-        assert step_2.outcome == Outcome.ERROR
-        assert logger.test_run.outcome == Outcome.ERROR
+        assert step_2.outcome == Outcome.ERRORED
+        assert logger.test_run.outcome == Outcome.ERRORED
 
     def test_error_overrides_fail(self):
         logger = TestRunLogger(
             dut_serial="SN001",
             station_id="station_001",
-            test_sequence_id="test",
         )
         logger.start_step("test_step")
 
-        m1 = Measurement(name="current", value=6.0, outcome=Outcome.FAIL)
-        m2 = Measurement(name="voltage", value=None, outcome=Outcome.ERROR)
+        m1 = Measurement(name="current", value=6.0, outcome=Outcome.FAILED)
+        m2 = Measurement(name="voltage", value=None, outcome=Outcome.ERRORED)
         logger.log_measurement(m1)
         logger.log_measurement(m2)
 
         # ERROR overrides FAIL — can't trust results from untrusted state
-        step_3 = current_step_var.get()
+        step_3 = get_current_step()
         assert step_3 is not None
-        assert step_3.outcome == Outcome.ERROR
-        assert logger.test_run.outcome == Outcome.ERROR
+        assert step_3.outcome == Outcome.ERRORED
+        assert logger.test_run.outcome == Outcome.ERRORED
 
     def test_end_step(self):
         logger = TestRunLogger(
             dut_serial="SN001",
             station_id="station_001",
-            test_sequence_id="test",
         )
         logger.start_step("test_step")
         logger.end_step()
 
-        assert current_step_var.get() is None
+        assert get_current_step() is None
         assert logger.test_run.steps[0].ended_at is not None
 
     def test_finalize(self):
         logger = TestRunLogger(
             dut_serial="SN001",
             station_id="station_001",
-            test_sequence_id="test",
         )
         logger.start_step("test_step")
         logger.end_step()
@@ -159,16 +155,15 @@ class TestTestRunLogger:
         logger = TestRunLogger(
             dut_serial="SN001",
             station_id="station_001",
-            test_sequence_id="test",
         )
 
         logger.start_step("step1")
-        m1 = Measurement(name="voltage", value=5.0, outcome=Outcome.PASS)
+        m1 = Measurement(name="voltage", value=5.0, outcome=Outcome.PASSED)
         logger.log_measurement(m1)
         logger.end_step()
 
         logger.start_step("step2")
-        m2 = Measurement(name="current", value=0.1, outcome=Outcome.PASS)
+        m2 = Measurement(name="current", value=0.1, outcome=Outcome.PASSED)
         logger.log_measurement(m2)
         logger.end_step()
 
@@ -181,25 +176,23 @@ class TestTestRunLogger:
         logger = TestRunLogger(
             dut_serial="SN001",
             station_id="station_001",
-            test_sequence_id="test",
         )
         # Before start_step, contextvars should be None (default)
-        assert current_step_var.get() is None
+        assert get_current_step() is None
 
         logger.start_step("cv_step")
-        assert current_step_var.get() is logger.test_run.steps[0]
-        assert current_vector_var.get() is logger.test_run.steps[0].vectors[0]
+        assert get_current_step() is logger.test_run.steps[0]
+        assert get_current_vector() is logger.test_run.steps[0].vectors[0]
 
         logger.end_step()
-        assert current_step_var.get() is None
-        assert current_vector_var.get() is None
+        assert get_current_step() is None
+        assert get_current_vector() is None
 
     def test_log_measurement_resolves_from_contextvar(self):
         """log_measurement() uses contextvar step when instance state is None."""
         logger = TestRunLogger(
             dut_serial="SN001",
             station_id="station_001",
-            test_sequence_id="test",
         )
         # Create a step externally and set via contextvar
         step = TestStep(name="external_step")
@@ -207,25 +200,24 @@ class TestTestRunLogger:
         vector = TestVector()
         step.vectors.append(vector)
 
-        step_token = current_step_var.set(step)
-        vector_token = current_vector_var.set(vector)
+        step_token = push_current_step(step)
+        vector_token = push_current_vector(vector)
         try:
-            m = Measurement(name="voltage", value=5.0, outcome=Outcome.PASS)
+            m = Measurement(name="voltage", value=5.0, outcome=Outcome.PASSED)
             logger.log_measurement(m)
 
             assert len(vector.measurements) == 1
             assert vector.measurements[0].name == "voltage"
-            assert step.outcome == Outcome.PASS
+            assert step.outcome == Outcome.PASSED
         finally:
-            current_step_var.reset(step_token)
-            current_vector_var.reset(vector_token)
+            reset_current_step(step_token)
+            reset_current_vector(vector_token)
 
     def test_register_step(self):
         """register_step() adds step to test_run and returns index."""
         logger = TestRunLogger(
             dut_serial="SN001",
             station_id="station_001",
-            test_sequence_id="test",
         )
         step = TestStep(name="registered_step")
         idx = logger.register_step(step)
@@ -242,13 +234,12 @@ class TestTestRunLogger:
         logger = TestRunLogger(
             dut_serial="SN001",
             station_id="station_001",
-            test_sequence_id="test",
         )
         logger.start_step("test_step")
-        vector = current_vector_var.get()
+        vector = get_current_vector()
         assert vector is not None
 
-        m = Measurement(name="voltage", value=5.0, outcome=Outcome.PASS)
+        m = Measurement(name="voltage", value=5.0, outcome=Outcome.PASSED)
         # Pre-append (simulating what harness.measure() does)
         vector.measurements.append(m)
         # Now call log_measurement — should NOT double-append
@@ -269,7 +260,6 @@ class TestEventLogIntegration:
         logger = TestRunLogger(
             dut_serial="SN001",
             station_id="station_001",
-            test_sequence_id="test",
             run_id=run_id,
         )
         event_log = EventLog(tmp_path / "events", run_id)
@@ -277,7 +267,7 @@ class TestEventLogIntegration:
         logger._session_id = uuid4()
 
         logger.start_step("step1")
-        m = Measurement(name="voltage", value=5.0, outcome=Outcome.PASS)
+        m = Measurement(name="voltage", value=5.0, outcome=Outcome.PASSED)
         logger.log_measurement(m)
         logger.end_step()
         logger.finalize()
@@ -301,7 +291,6 @@ class TestEventLogIntegration:
         logger = TestRunLogger(
             dut_serial="SN001",
             station_id="station_001",
-            test_sequence_id="test",
             run_id=run_id,
         )
         event_log = EventLog(tmp_path / "events", run_id)
@@ -309,7 +298,7 @@ class TestEventLogIntegration:
         logger._session_id = uuid4()
 
         logger.start_step("step1")
-        logger.log_measurement(Measurement(name="v", value=3.3, outcome=Outcome.PASS))
+        logger.log_measurement(Measurement(name="v", value=3.3, outcome=Outcome.PASSED))
         logger.end_step()
         logger.finalize()
 
@@ -336,7 +325,6 @@ class TestEventLogIntegration:
         logger = TestRunLogger(
             dut_serial="SN001",
             station_id="station_001",
-            test_sequence_id="test",
         )
         logger.start_step(
             "test_5v_rail",
@@ -345,7 +333,7 @@ class TestEventLogIntegration:
             module="tests.test_power",
             class_name="TestPower",
             function="test_5v_rail",
-            markers="litmus_test,parametrize",
+            markers="parametrize",
         )
 
         step = logger.test_run.steps[0]
@@ -354,4 +342,4 @@ class TestEventLogIntegration:
         assert step.module == "tests.test_power"
         assert step.class_name == "TestPower"
         assert step.function == "test_5v_rail"
-        assert step.markers == "litmus_test,parametrize"
+        assert step.markers == "parametrize"

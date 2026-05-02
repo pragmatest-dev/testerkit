@@ -45,7 +45,7 @@ The `mock_config` section defines what values mock instruments return.
 Add `--mock-instruments` to run without hardware:
 
 ```bash
-pytest tests/ --station-config=stations/my_station.yaml --mock-instruments -v
+pytest tests/ --station=stations/my_station.yaml --mock-instruments -v
 ```
 
 The **same test code** works with real hardware or mocks.
@@ -56,25 +56,22 @@ Instrument roles from the station config are auto-registered as pytest fixtures.
 
 ```python
 # tests/test_voltage.py
-from litmus.execution import litmus_test
-
-@litmus_test
-def test_output_voltage(context, dmm, psu):
+def test_output_voltage(dmm, psu, logger):
     """Measure output voltage. dmm and psu are auto-registered from station config."""
     psu.set_voltage(5.0)
     psu.enable_output()
 
-    return dmm.measure_voltage()  # Returns 3.31 in mock mode
+    logger.measure("output_voltage", dmm.measure_voltage())  # Returns 3.31 in mock mode
 ```
 
 Run it:
 
 ```bash
 # With mock instruments
-pytest tests/test_voltage.py --station-config=stations/my_station.yaml --mock-instruments -v
+pytest tests/test_voltage.py --station=stations/my_station.yaml --mock-instruments -v
 
 # With real hardware (when available)
-pytest tests/test_voltage.py --station-config=stations/my_station.yaml -v
+pytest tests/test_voltage.py --station=stations/my_station.yaml -v
 ```
 
 ## Per-Test Mock Values
@@ -142,11 +139,17 @@ When running with `--mock-instruments`, values are resolved in order:
 - name: Run tests
   run: |
     pytest tests/ \
-      --station-config=stations/ci_station.yaml \
+      --station=stations/ci_station.yaml \
       --mock-instruments \
       --dut-serial=CI-TEST \
       -v
 ```
+
+> **No real serial yet?** Use anything memorable — `bob`, `proto-1`,
+> `dev`. The `--dut-serial` value is just the identifier the run record
+> is filed under. Once you have real units, switch to whatever uniquely
+> identifies what is being tested and measured (printed serial, scanned
+> barcode, lot+sequence).
 
 ## What You Learned
 
@@ -159,6 +162,6 @@ When running with `--mock-instruments`, values are resolved in order:
 
 ## Next Step
 
-Now let's use the @litmus_test decorator to check limits automatically.
+Now let's write pytest-native tests and check limits automatically.
 
-[Step 3: The @litmus_test Decorator →](03-decorator.md)
+[Step 3: pytest-native tests →](03-decorator.md)

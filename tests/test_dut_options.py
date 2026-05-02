@@ -1,4 +1,4 @@
-"""Test --dut-part-number, --dut-revision, --dut-lot pytest options."""
+"""Test --dut-part-number, --dut-revision, --dut-lot-number pytest options."""
 
 import pyarrow.parquet as pq
 import pytest
@@ -12,9 +12,8 @@ def pytester_with_test(pytester):
     pytester.makefile(
         ".yaml",
         station="""
-station:
-  id: station
-  name: Test Station
+id: station
+name: Test Station
 instruments: {}
 """,
     )
@@ -28,11 +27,8 @@ instruments: {}
     )
 
     pytester.makepyfile("""
-from litmus.execution import litmus_test
-
-@litmus_test
-def test_dummy(context):
-    return 1.0
+def test_dummy(context, logger):
+    logger.measure("dummy", 1.0)
 """)
     return pytester
 
@@ -43,7 +39,7 @@ def test_dut_options_land_in_parquet(pytester_with_test):
         "--dut-serial=SN-999",
         "--dut-part-number=WIDGET-200",
         "--dut-revision=C",
-        "--dut-lot=LOT-42",
+        "--dut-lot-number=LOT-42",
         "--mock-instruments",
         f"--results-dir={pytester_with_test.path / 'results'}",
         "-q",

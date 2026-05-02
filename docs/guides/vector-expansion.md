@@ -1,279 +1,277 @@
-# Vector Expansion
+# Test Vectors & Sweeps
 
-Vectors define the test conditions your tests run against. Litmus expands vectors and iterates over them, calling your test function for each combination.
-
-Vectors can be defined in **sequence steps** (primary) or **inline decorator config** (fallback for ad-hoc runs).
-
-## The Basics
-
-A **Vector** is a dict of parameters for a single test iteration:
+Most hardware tests vary one or more inputs and measure the result at
+each combination. In code, that's a nested loop:
 
 ```python
-@litmus_test(
-    config={"vectors": [{"vin": 5.0, "load": 0.1}, {"vin": 5.0, "load": 0.5}, {"vin": 5.0, "load": 1.0}]},
-    limits={"test_output_voltage": {"low": 3.135, "high": 3.465}},
-)
-def test_output_voltage(context, psu, dmm):
-    vin = context.get_in("vin", 5.0)
-    load = context.get_in("load", 0.1)
-
-    psu.set_voltage(vin)
-    psu.enable_output()
-    return dmm.measure_dc_voltage()
+for temp in [-40, 25, 85]:               # outer — slow to change
+    for vin in [3.3, 5.0, 5.5]:           # middle
+        for load in arange(0.0, 1.0, 0.1):  # inner — fast to change
+            measure()
 ```
 
-Or in a sequence step:
+`@pytest.mark.litmus_sweeps` declares that nested loop without you
+writing it. Each loop becomes one **test vector** — pytest runs your
+test once per combination, logs the values, and `context.changed("temp")`
+tells you when an outer loop just rolled over so you can do the
+expensive setup (chamber soak) only when needed.
 
-```yaml
-# sequences/power_board_smoke.yaml
-steps:
-  - id: output_voltage
-    test: tests/test_power.py::test_output_voltage
-    vectors:
-      - vin: 5.0
-        load: 0.1
-      - vin: 5.0
-        load: 0.5
-      - vin: 5.0
-        load: 1.0
-    limits:
-      test_output_voltage:
-        low: 3.135
-        high: 3.465
-```
+Three places to declare vectors, all using the same shape:
 
-This runs the test 3 times -- once for each vector.
+- **Inline Python** — `@pytest.mark.litmus_sweeps(...)` on the test function
+- **Sidecar YAML** — `sweeps: [...]` next to the test file
+- **Profile YAML** — same shape, applied via the active profile (see [profiles guide](profiles.md))
 
-## Expansion Modes
+`litmus_sweeps` is the **recommended** marker for new tests.
+Pytest's own `@pytest.mark.parametrize` keeps working unchanged for
+existing tests (chapter 1 of the curriculum). Don't *mix* the two on
+a single test — pick one.
 
-Instead of listing every combination, use expansion modes to generate vectors automatically.
+---
 
-### Mode 1: Explicit List (Default)
+## The basics
 
-Just list your vectors:
+### One loop
 
-```yaml
-vectors:
-  - vin: 5.0
-    load: 0.1
-  - vin: 5.0
-    load: 0.5
-  - vin: 12.0
-    load: 1.0
-```
-
-### Mode 2: Product (Cartesian Product)
-
-All combinations of parameters:
-
-```yaml
-vectors:
-  expand: product
-  vin: [4.5, 5.0, 5.5]
-  load: [0.1, 0.5, 1.0]
-```
-
-Generates **9 vectors** (3 x 3):
-```
-{vin: 4.5, load: 0.1}, {vin: 4.5, load: 0.5}, {vin: 4.5, load: 1.0},
-{vin: 5.0, load: 0.1}, {vin: 5.0, load: 0.5}, {vin: 5.0, load: 1.0},
-{vin: 5.5, load: 0.1}, {vin: 5.5, load: 0.5}, {vin: 5.5, load: 1.0}
-```
-
-**Key insight:** First parameter is outermost loop (slowest changing), last is innermost (fastest changing).
-
-### Mode 3: Zip (Parallel Iteration)
-
-Pair parameters together (must have same length):
-
-```yaml
-vectors:
-  expand: zip
-  vin: [4.5, 5.0, 5.5]
-  expected: [4.4, 4.9, 5.4]
-```
-
-Generates **3 vectors**:
-```
-{vin: 4.5, expected: 4.4},
-{vin: 5.0, expected: 4.9},
-{vin: 5.5, expected: 5.4}
-```
-
-### Mode 4: Recursive Composition (vectors sub-blocks)
-
-For complex multi-level sweeps, nest a `vectors` sub-block inside a product or zip. The outer level is cross-producted with the inner:
-
-```yaml
-vectors:
-  expand: product
-  temperature: [-40, 25, 85]
-  vectors:
-    expand: zip
-    voltage: [3.3, 5.0, 12.0]
-    expected: [3.2, 4.9, 11.8]
-```
-
-Generates **9 vectors** (3 temperatures x 3 zipped pairs):
-- Temperature is outer (changes slowest)
-- Voltage/expected are zipped together (always paired)
-
-Product-of-product collapses to a flat product:
-
-```yaml
-vectors:
-  expand: product
-  temperature: [-40, 25, 85]
-  vectors:
-    expand: product
-    voltage: [3.3, 5.0]
-    load: [0.1, 0.5]
-```
-
-This is equivalent to:
-
-```yaml
-vectors:
-  expand: product
-  temperature: [-40, 25, 85]
-  voltage: [3.3, 5.0]
-  load: [0.1, 0.5]
-```
-
-Both generate 12 vectors (3 x 2 x 2).
-
-## Range String Syntax
-
-Litmus supports a compact range syntax (SCPI-style, inclusive ranges):
-
-| Syntax | Meaning | Example |
-|--------|---------|---------|
-| `"start:stop"` | Range with step=1 | `"1:4"` -> [1, 2, 3, 4] |
-| `"start:stop:step"` | Range with custom step | `"-40:85:25"` -> [-40, -15, 10, 35, 60, 85] |
-| `"a,b,c"` | Comma-separated values | `"3.3,5.0,12.0"` -> [3.3, 5.0, 12.0] |
-| `"a:b,c,d:e"` | Mixed ranges and values | `"0,0.5:2:0.5,5"` -> [0, 0.5, 1.0, 1.5, 2.0, 5] |
-
-Range strings work anywhere you'd use a list:
-
-```yaml
-# Product with range strings
-vectors:
-  expand: product
-  voltage: "3.3:5.5:0.1"      # 23 values: 3.3, 3.4, ... 5.5
-  temperature: "-40:85:25"    # 6 values: -40, -15, 10, 35, 60, 85
-
-# Zip with range strings
-vectors:
-  expand: zip
-  vin: "4.5:5.5:0.5"          # [4.5, 5.0, 5.5]
-  expected: "4.4:5.4:0.5"     # [4.4, 4.9, 5.4]
-```
-
-**Note:** Ranges are **inclusive** of both start and stop (unlike Python's range). This matches hardware industry conventions (SCPI, Verilog, NI DAQmx).
-
-## Change Detection with `context.changed()`
-
-When iterating through vectors, use `context.changed()` to detect when outer-loop parameters change. This is useful for:
-
-- Showing operator prompts only when temperature changes
-- Re-initializing equipment on major parameter changes
-- Minimizing expensive transitions
+Sweep one variable across some values. Test runs once per value:
 
 ```python
-@litmus_test
-def test_with_temperature(context, psu, dmm, chamber):
-    temp = context.inputs["temperature"]
-    vin = context.inputs["vin"]
-
-    # Only change chamber when temperature changes
-    if context.changed("temperature"):
-        chamber.set_temperature(temp)
-        chamber.wait_for_stable()
-
-    psu.set_voltage(vin)
-    psu.enable_output()
-    return dmm.measure_dc_voltage()
+@pytest.mark.litmus_sweeps(vin=[3.3, 5.0, 5.5])
+def test_x(vin): ...
+# 3 cases
 ```
 
-With this config:
 ```yaml
-vectors:
-  expand: product
-  temperature: [-40, 25, 85]  # Outer loop (slow)
-  vin: [4.5, 5.0, 5.5]        # Inner loop (fast)
+sweeps:
+  - {vin: [3.3, 5.0, 5.5]}
 ```
 
-The chamber only changes 3 times (once per temperature), not 9 times.
+### Paired values (one loop, two variables stepping together)
 
-### How `changed()` Works
+When you have a list of input/expected pairs (think: rows in a spec
+table), put both as kwargs in one `litmus_sweeps`. The two lists
+**must be the same length**; mismatched lists raise a clear error
+right away, before pytest tries to run anything:
 
-- Returns `True` on the first vector (no previous to compare)
-- Returns `True` if the value differs from the previous vector
-- Returns `False` if the value is the same as the previous vector
-
-## Choosing the Right Mode
-
-| Use Case | Mode | Why |
-|----------|------|-----|
-| Specific test points | Explicit list | Full control over each vector |
-| All combinations of parameters | Product | Comprehensive coverage |
-| Paired input/expected values | Zip | Keep related values together |
-| Single parameter sweep | Product + range string | `"4.5:5.5:0.1"` for compact numeric sweeps |
-| Multi-level sweeps with mixed modes | Recursive `vectors` sub-block | Product outer x zip inner |
-
-## Performance Considerations
-
-1. **Loop order matters in Product mode:** First parameter is outermost. Put expensive-to-change parameters (temperature, fixture setup) first.
-
-2. **Use `context.changed()` for expensive transitions:** Don't reconfigure equipment that didn't change.
-
-3. **Range strings are efficient:** They're expanded at config load time, not during test execution.
-
-## Complete Example
-
-**Sequence step:**
-```yaml
-# sequences/characterization.yaml
-steps:
-  - id: load_regulation
-    test: tests/test_power.py::test_load_regulation
-    vectors:
-      expand: product
-      temperature: [-40, 25, 85]
-      vin: "4.5:5.5:0.5"
-      load_current: "0.1:1.0:0.1"    # Range string: 0.1, 0.2, ... 1.0
-    limits:
-      test_load_regulation:
-        low: 3.135
-        high: 3.465
-        nominal: 3.3
-        units: V
-```
-
-**Test code:**
 ```python
-# tests/test_power.py
-@litmus_test
-def test_load_regulation(context, psu, dmm, eload, chamber):
-    temp = context.inputs["temperature"]
-    vin = context.inputs["vin"]
-    load = context.inputs["load_current"]
+@pytest.mark.litmus_sweeps(vin=[3.3, 5.0, 5.5], expected=[3.30, 3.31, 3.30])
+def test_x(vin, expected): ...
+# 3 cases — vin and expected step together
+```
 
-    # Expensive: only when temperature changes
-    if context.changed("temperature"):
+```yaml
+sweeps:
+  - {vin: [3.3, 5.0, 5.5], expected: [3.30, 3.31, 3.30]}
+```
+
+If you write `vin=[3, 4]` and `expected=[5, 6, 7]` (two vs three),
+pytest reports the mismatch at decoration time:
+
+```
+litmus_sweeps zip requires all argvalues to have the same length;
+got {'vin': 2, 'expected': 3}
+```
+
+### Nested loops (cross-product)
+
+To sweep two independent variables, **stack** decorators or use
+multiple list items in YAML. The order reads top-to-bottom as
+**outer-to-inner**:
+
+```python
+@pytest.mark.litmus_sweeps(temp=[-40, 25, 85])    # outer — changes 3 times
+@pytest.mark.litmus_sweeps(vin=[3.3, 5.0, 5.5])    # inner — changes every test
+def test_x(temp, vin): ...
+# 3 × 3 = 9 cases
+```
+
+```yaml
+sweeps:
+  - {temp: [-40, 25, 85]}     # outer
+  - {vin: [3.3, 5.0, 5.5]}     # inner
+```
+
+### Outer simple, inner paired
+
+Combine the patterns: outer loop is a single variable, inner loop
+has paired values:
+
+```python
+@pytest.mark.litmus_sweeps(temp=[-40, 25, 85])
+@pytest.mark.litmus_sweeps(vin=[3, 4], expected=[5, 6])  # paired
+def test_x(temp, vin, expected): ...
+# 3 outer × 2 paired = 6 cases
+```
+
+```yaml
+sweeps:
+  - {temp: [-40, 25, 85]}
+  - {vin: [3, 4], expected: [5, 6]}
+```
+
+---
+
+## Loop ordering
+
+The rule for both inline decorators and YAML lists: **top-to-bottom
+reads as outer-to-inner**. Same as a nested `for` loop you'd write
+by hand. Put the **slow / expensive** parameter at the top so it
+changes least often:
+
+```python
+@pytest.mark.litmus_sweeps(temp=[-40, 25, 85])             # outer — 20-min soak per change, runs 3 times
+@pytest.mark.litmus_sweeps(vin=[4.5, 5.0, 5.5])            # middle — 500-ms PSU settle, runs 9 times
+@pytest.mark.litmus_sweeps(load=arange(0.0, 1.0, 0.2))     # inner — instant, runs 45 times
+```
+
+> **Note for pytest users:** this is **opposite** to
+> `@pytest.mark.parametrize`'s stacking convention, which puts the
+> bottom decorator at the outer loop. The pytest convention is a
+> well-known footgun; `litmus_sweeps` flips it so your code reads
+> the way you'd write the equivalent nested `for` loop. (One of the
+> reasons `litmus_sweeps` is its own marker rather than a rename.)
+
+### Skip expensive setup with `context.changed()`
+
+`context.changed("temp")` returns `True` only when that parameter
+differs from the previous test case. Pair this with the outer-to-inner
+ordering to set up expensive things only when they actually change:
+
+```python
+@pytest.mark.litmus_sweeps(temp=[-40, 25, 85])
+@pytest.mark.litmus_sweeps(vin=[4.5, 5.0, 5.5])
+@pytest.mark.litmus_sweeps(load=arange(0.0, 1.0, 0.2))
+def test_load_regulation(temp, vin, load, context, psu, eload, chamber, dmm, verify):
+    if context.changed("temp"):                       # 3 times in 45 cases
         chamber.set_temperature(temp)
         chamber.wait_for_stable(timeout=300)
-
-    # Medium cost: only when vin changes
-    if context.changed("vin"):
+    if context.changed("vin"):                        # 9 times
         psu.set_voltage(vin)
         psu.enable_output()
-
-    # Cheap: every iteration
-    eload.set_current(load)
+    eload.set_current(load)                           # every case
     eload.enable()
-
-    return dmm.measure_dc_voltage()
+    verify("output_voltage", dmm.measure_dc_voltage())
 ```
 
-This runs 90 tests (3 x 3 x 10) with minimal equipment transitions.
+Chamber sets 3 times. PSU sets 9 times. Load sets 45 times. The
+20-minute soak only runs when temperature actually rolls over.
+
+---
+
+## Generating values — `linspace`, `arange`, etc.
+
+Numeric sweeps usually want evenly-spaced or log-spaced points.
+Litmus provides Python helpers for inline use (with IDE autocomplete
+and type checking) and equivalent dict-form generators for YAML:
+
+| Inline helper | YAML form | What it does |
+|---|---|---|
+| `linspace(start, stop, num)` | `{linspace: [start, stop, num]}` | N evenly-spaced points, exact endpoints |
+| `arange(start, stop, step)` | `{arange: [start, stop, step]}` | Floating step; stop excluded |
+| `logspace(start, stop, num)` | `{logspace: [start, stop, num]}` | Log-spaced (base 10) |
+| `geomspace(start, stop, num)` | `{geomspace: [start, stop, num]}` | Geometrically-spaced |
+| `repeat(value, n)` | `{repeat: [value, n]}` | N copies of `value` |
+| `list(range(start, stop))` | `{range: [start, stop]}` | Integer range |
+
+```python
+from litmus import linspace, arange, logspace, repeat
+
+@pytest.mark.litmus_sweeps(vin=linspace(3.3, 5.5, 11))     # 11 evenly-spaced
+@pytest.mark.litmus_sweeps(freq=logspace(1, 6, 6))          # 10 Hz to 1 MHz
+@pytest.mark.litmus_sweeps(load=arange(0.0, 1.0, 0.1))      # 0.0..0.9 step 0.1
+@pytest.mark.litmus_sweeps(soak=repeat(5.0, 100))           # 100 copies of 5.0
+@pytest.mark.litmus_sweeps(channel=list(range(1, 17)))      # channels 1..16
+```
+
+```yaml
+sweeps:
+  - {vin: {linspace: [3.3, 5.5, 11]}}
+  - {freq: {logspace: [1, 6, 6]}}
+```
+
+The dict-form generators work anywhere a list is expected — station
+channel arrays, fixture pin arrays, product spec conditions — not
+just inside `litmus_sweeps`.
+
+### Generated paired values
+
+When two paired variables both come from generators, just put each
+as its own key. The list-length check catches mistakes:
+
+```python
+@pytest.mark.litmus_sweeps(
+    vin=linspace(3.3, 5.5, 5),           # 5 points
+    expected=linspace(3.30, 3.32, 5),    # 5 points — pairs cleanly
+)
+```
+
+```yaml
+sweeps:
+  - vin:      {linspace: [3.3, 5.5, 5]}
+    expected: {linspace: [3.30, 3.32, 5]}
+```
+
+If the two generators produce different counts, you get a clear
+error pointing at the mismatch.
+
+---
+
+## Inline ↔ YAML cheat sheet
+
+| Inline Python | YAML |
+|---|---|
+| `litmus_sweeps(vin=[3, 4])` | `sweeps:`<br>`  - {vin: [3, 4]}` |
+| `litmus_sweeps(vin=[3, 4], expected=[5, 6])` | `sweeps:`<br>`  - {vin: [3, 4], expected: [5, 6]}` |
+| Two stacked decorators | `sweeps:`<br>`  - {outer: [...]}`<br>`  - {inner: [...]}` |
+| `litmus_sweeps(vin=linspace(3, 5, 5))` | `sweeps:`<br>`  - {vin: {linspace: [3, 5, 5]}}` |
+
+---
+
+## Self-loop mode — `vectors` fixture
+
+Sometimes you want the test body to own the loop — to amortize
+expensive setup, stream samples, or skip rows conditionally. Request
+the `vectors` fixture; Litmus pre-builds the full table and your
+test iterates it as one pytest case:
+
+```python
+@pytest.mark.litmus_sweeps(vin=linspace(3.3, 5.5, 5))
+def test_sweep(vectors, psu, dmm, verify):
+    psu.enable_output()
+    for v in vectors:
+        psu.set_voltage(v["vin"])
+        verify("output_voltage", dmm.measure_dc_voltage())
+```
+
+`context.changed`, `verify`, and the run record all behave the same
+as in normal parametrized mode.
+
+---
+
+## Choosing where to declare your vectors
+
+| Scenario | Use |
+|---|---|
+| Code-owned sweep, IDE-friendly | Inline `@pytest.mark.litmus_sweeps(...)` with `linspace` etc. |
+| Operator-edited sweep (no code deploy) | Sidecar `sweeps: ...` |
+| Different sweeps per scenario | Profile YAML (selected by CLI facet) |
+| Test owns the loop (amortize setup) | `vectors` fixture in the signature |
+| Input / expected pairs from a spec table | Paired values (multi-kwarg or multi-key) |
+| All combinations of N parameters | Stacked decorators / multiple list items |
+| Dense numeric range | `linspace`/`arange`/etc. |
+
+---
+
+## Performance tips
+
+1. **Top = outer = slowest.** Put expensive-to-change parameters at
+   the top decorator (or first list item). They'll change least often
+   in the nested loop. Pair with `context.changed("name")` to skip
+   redundant setup.
+2. **Generators run at collection time** — `linspace(3.3, 5.5, 1000)`
+   doesn't allocate until pytest collects, and there's no per-iteration
+   cost. If you're generating thousands of points, the overhead is in
+   pytest's collection, not the loop.
+3. **Use `vectors` fixture** when per-test pytest setup/teardown is
+   the bottleneck — one pytest case with N internal iterations is
+   often dramatically faster than N pytest cases.

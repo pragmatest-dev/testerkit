@@ -18,7 +18,7 @@ Study `capability-schema.md` "What goes WHERE" decision tree FIRST, then use the
       range: {min: 0, max: 750, units: V}
       accuracy: {pct_reading: 0.05, pct_range: 0.01}  # best-case default
       resolution: {digits: 6.5}
-      specs:
+      bands:
         - when:
             frequency: {min: 20, max: 100, units: Hz}
           accuracy: {pct_reading: 0.1, pct_range: 0.02}
@@ -51,7 +51,7 @@ Any table where a value varies by a condition MUST become SpecBands on a signal.
   signals:
     reading_rate:
       range: {min: 5.5, max: 28, units: readings/s}
-      specs:
+      bands:
         - when:
             acquisition_mode: {min: 0, max: 0}
             fundamental_frequency: {min: 20, max: 100, units: Hz}
@@ -83,7 +83,7 @@ Same pattern applies to sweep time, settling time, or ANY table with rows:
   signals:
     sweep_time:
       range: {min: 0.2, max: 6.9, units: s}
-      specs:
+      bands:
         - when: {num_frequencies: {min: 5, max: 5}}
           value: 0.2
         - when: {num_frequencies: {min: 30, max: 30}}
@@ -286,12 +286,12 @@ catalog_entry:
 #   test_current_10kohm: {value: 0.0001, units: A}
 #   test_current_1mohm: {value: 0.000005, units: A}
 #
-# RIGHT — conditional attribute with specs:
+# RIGHT — conditional attribute with bands:
 attributes:
   test_current:
     value: 0.001              # default / best-case
     units: A
-    specs:
+    bands:
       - when: {range: 100}
         value: 0.001
       - when: {range: 1000}
@@ -364,7 +364,7 @@ signals:
 signals:
   distortion:
     accuracy: {absolute: 0.8}
-    specs:
+    bands:
       - when:
           fundamental_frequency: {min: 20, max: 20000, units: Hz}
         accuracy: {absolute: 0.8}  # same as top-level!

@@ -1,5 +1,10 @@
 # Test Harness Integration
 
+> **For new pytest projects, use the pytest-native three-fixture split (`context`, `verify`,
+> `logger`) documented in [pytest-native Reference](../reference/pytest-native.md).** The
+> `TestHarness` API documented here is for integrating Litmus into existing tests, non-pytest
+> runners, or custom harnesses where you need explicit lifecycle control.
+
 Add Litmus measurement tracking to existing tests without restructuring your test code.
 
 ## Overview
@@ -46,11 +51,11 @@ harness = TestHarness(
 )
 
 # With spec context for automatic limits
-from litmus.products import SpecContext
-spec = SpecContext.from_file("products/my_product.yaml")
+from litmus.products import ProductContext
+spec = ProductContext.from_file("products/my_product.yaml")
 harness = TestHarness(
     step_name="my_test",
-    spec_context=spec,
+    product_context=spec,
 )
 ```
 
@@ -66,7 +71,7 @@ harness.measure(
     high=3.6,
 )
 
-# With spec-derived limits (if spec_context provided)
+# With spec-derived limits (if product_context provided)
 harness.measure(
     name="output_voltage",
     value=3.31,
@@ -164,19 +169,19 @@ harness.measure("voltage", v)  # Limits from config
 harness.finish()
 ```
 
-When using `@litmus_test`, limits come from sequence steps (primary) or inline decorator config (fallback).
+In pytest-native mode, limits come from sequence step config, `@pytest.mark.litmus_limits`, sidecar YAML, or the active product spec (in that order). See [Test Configuration](../tutorial/05-configuration.md).
 
 ### With Spec-Driven Limits
 
 ```python
 from litmus.execution.harness import TestHarness
-from litmus.products import SpecContext
+from litmus.products import ProductContext
 
-spec = SpecContext.from_file("products/power_board.yaml", guardband_pct=10)
+spec = ProductContext.from_file("products/power_board.yaml", guardband_pct=10)
 
 harness = TestHarness(
     step_name="test_output",
-    spec_context=spec,
+    product_context=spec,
 )
 
 v = measure_voltage()
@@ -184,129 +189,27 @@ harness.measure("output_voltage", v)  # Limits from spec with guardband
 harness.finish()
 ```
 
-## Decorators for Test Architects
+## Non-measurement steps
 
-### @measure Decorator
-
-Create reusable measurement functions with embedded limits.
-
-#### Parameters
-
-| Parameter | Type | Default | Description |
-|-----------|------|---------|-------------|
-| `name` | `str` | Function name | Measurement name in results |
-| `limit` | `Limit` | `None` | Limit object with low/high bounds |
-| `units` | `str` | `None` | Measurement units (overrides `limit.units`) |
-| `raise_on_fail` | `bool` | `True` | Raise AssertionError if limit check fails |
-
-#### Basic Usage
+Litmus no longer ships a `@litmus_step` decorator. Every pytest-native
+test already opens a logger step around its body, so setup helpers and
+dialog functions don't need a decorator to be tracked. Write them as
+plain Python and call them from the test:
 
 ```python
-from litmus.execution.decorators import measure
-from litmus.config.models import Limit
-
-@measure(
-    name="output_voltage",
-    limit=Limit(low=3.2, high=3.4, nominal=3.3, units="V"),
-    raise_on_fail=False,  # Return Measurement object instead of raising
-)
-def measure_output_voltage(dmm):
-    """Reusable measurement - can be called from multiple tests."""
-    return dmm.measure_dc_voltage()
-
-# Usage
-def test_voltage(dmm, litmus_logger):
-    result = measure_output_voltage(dmm)  # Returns Measurement object
-    assert result.outcome == Outcome.PASS
-```
-
-#### Examples
-
-**Minimal (uses function name, no limits):**
-```python
-@measure()
-def measure_temperature(sensor):
-    return sensor.read_temp()
-```
-
-**With limit that raises on failure:**
-```python
-@measure(
-    name="supply_current",
-    limit=Limit(low=0, high=1.5, units="A"),
-    raise_on_fail=True,  # Default - raises AssertionError on FAIL
-)
-def measure_supply_current(psu):
-    return psu.measure_current()
-```
-
-**Override units from limit:**
-```python
-@measure(
-    limit=Limit(low=0, high=1500),  # Stored as mA
-    units="mA",  # Override display units
-)
-def measure_current_ma(psu):
-    return psu.measure_current() * 1000
-```
-
-### @litmus_step Decorator
-
-Track non-measurement steps (setup, verification, dialogs).
-
-#### Parameters
-
-None. This decorator takes no parameters.
-
-#### What It Does
-
-1. Registers the function execution as a step in the test run
-2. Tracks pass/fail based on whether the function raises an exception
-3. Does NOT produce measurements (use `@measure` for that)
-
-#### Basic Usage
-
-```python
-from litmus.execution.decorators import litmus_step
-
-@litmus_step
 def verify_dut_connection(psu):
-    """Step tracked in test run without producing measurements."""
     psu.set_voltage(0.1)
-    current = psu.measure_current()
-    assert current < 0.001, "DUT appears shorted!"
+    assert psu.measure_current() < 0.001, "DUT appears shorted!"
 
-@litmus_step
-def configure_test_equipment(psu, eload):
-    """Setup step - tracked but no measurement."""
-    psu.set_voltage(5.0)
-    psu.enable_output()
-    eload.set_current(0.5)
-    eload.enable()
-
-# Usage
-def test_with_steps(psu, dmm, eload, litmus_logger):
-    verify_dut_connection(psu)      # Tracked as step
-    configure_test_equipment(psu, eload)  # Tracked as step
-    result = measure_output_voltage(dmm)  # Measurement logged
+def test_output_voltage(psu, dmm, eload, verify):
+    verify_dut_connection(psu)
+    psu.set_voltage(5.0); psu.enable_output()
+    eload.set_current(0.5); eload.enable()
+    verify("output_voltage", float(dmm.measure_dc_voltage()))
 ```
 
-#### Use Cases
-
-- **Setup steps:** Configure instruments before measurements
-- **Verification steps:** Check DUT connection, continuity tests
-- **Operator dialogs:** Confirm DUT placement, visual inspections
-- **Cleanup steps:** Disable outputs, safe state transitions
-
-#### Async Support
-
-```python
-@litmus_step
-async def wait_for_temperature(chamber, target):
-    """Async step - works with async functions."""
-    while await chamber.read_temp() < target:
-        await asyncio.sleep(1)
-```
+Any helper can be async — pytest-asyncio handles the test itself, and
+the helper is just awaited normally.
 
 ## Advanced Features
 
@@ -425,22 +328,22 @@ harness.context.configure_all({"psu.voltage": 5.0, "eload.current": 0.8})
 harness.context.observe_all({"temp_probe.temp": 24.8, "humidity": 45.2})
 
 # Read values (checks parent chain)
-voltage = harness.context.get_in("psu.voltage")
-all_inputs = harness.context.inputs   # Merged with parent chain
-all_outputs = harness.context.outputs  # Merged with parent chain
+voltage = harness.context.get_param("psu.voltage")
+all_inputs = harness.context.params   # Merged with parent chain
+all_outputs = harness.context.observations  # Merged with parent chain
 ```
 
-## Comparison with @litmus_test
+## Comparison with pytest-native
 
-| Feature | TestHarness | @litmus_test |
-|---------|-------------|--------------|
+| Feature | TestHarness | pytest-native |
+|---------|-------------|---------------|
 | Explicit control | ✓ | |
 | Works with any test framework | ✓ | pytest only |
 | Automatic vector expansion | | ✓ |
 | Automatic result capture | | ✓ |
 | YAML configuration | ✓ | ✓ |
 | Spec-driven limits | ✓ | ✓ |
-| Incremental adoption | Easy | Requires decorator |
+| Incremental adoption | Easy | Drop in fixtures per-test |
 
 ## When to Use TestHarness
 
@@ -449,7 +352,7 @@ all_outputs = harness.context.outputs  # Merged with parent chain
 - Need explicit control over test flow
 - Gradual migration to Litmus
 
-## When to Use @litmus_test
+## When to Use pytest-native
 
 - New tests written for Litmus
 - Want automatic vector expansion
@@ -460,4 +363,4 @@ all_outputs = harness.context.outputs  # Merged with parent chain
 
 - [Results API](results-api.md) — Store results from any source
 - [Instrument Drivers](instruments.md) — Use Litmus drivers
-- [pytest Plugin](../reference/pytest-plugin.md) — Full pytest integration
+- [pytest-native Reference](../reference/pytest-native.md) — Fixtures, markers, sidecar YAML

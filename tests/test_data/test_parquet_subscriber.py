@@ -43,9 +43,9 @@ class TestParquetSubscriber:
                 measurement_name="vout",
                 value=3.3,
                 units="V",
-                outcome="pass",
-                low_limit=3.0,
-                high_limit=3.6,
+                outcome="passed",
+                limit_low=3.0,
+                limit_high=3.6,
             )
         )
 
@@ -53,7 +53,7 @@ class TestParquetSubscriber:
             RunEnded(
                 session_id=session_id,
                 run_id=run_id,
-                outcome="pass",
+                outcome="passed",
             )
         )
 
@@ -65,10 +65,10 @@ class TestParquetSubscriber:
         assert table.num_rows == 1
         row = table.to_pylist()[0]
         assert row["measurement_name"] == "vout"
-        assert row["value"] == 3.3
+        assert row["measurement_value"] == 3.3
         assert row["station_id"] == "st1"
         assert row["dut_serial"] == "SN001"
-        assert row["run_outcome"] == "pass"
+        assert row["run_outcome"] == "passed"
 
     def test_instruments_cached(self, tmp_path):
         sub = ParquetSubscriber(tmp_path / "results")
@@ -107,7 +107,7 @@ class TestParquetSubscriber:
                 step_index=0,
                 measurement_name="v",
                 value=1.0,
-                outcome="pass",
+                outcome="passed",
             )
         )
 
@@ -116,8 +116,8 @@ class TestParquetSubscriber:
         pq_files = list((tmp_path / "results" / "runs").rglob("*.parquet"))
         table = pq.read_table(pq_files[0])
         row = table.to_pylist()[0]
-        assert row["instr_name"] == ["dmm"]
-        assert row["instr_manufacturer"] == ["Keithley"]
+        assert row["step_instruments_name"] == ["dmm"]
+        assert row["step_instruments_manufacturer"] == ["Keithley"]
 
     def test_close_without_run_ended(self, tmp_path):
         """close() writes even if RunEnded was not received (crash recovery)."""
@@ -140,7 +140,7 @@ class TestParquetSubscriber:
                 step_index=0,
                 measurement_name="v",
                 value=1.0,
-                outcome="pass",
+                outcome="passed",
             )
         )
 
@@ -207,7 +207,7 @@ class TestParquetSubscriber:
                 step_index=0,
                 measurement_name="vout",
                 value=5.01,
-                outcome="pass",
+                outcome="passed",
             )
         )
         sub.on_event(
@@ -216,14 +216,14 @@ class TestParquetSubscriber:
                 run_id=run_id,
                 step_name="test_5v_rail",
                 step_index=0,
-                outcome="pass",
+                outcome="passed",
             )
         )
         sub.on_event(
             RunEnded(
                 session_id=session_id,
                 run_id=run_id,
-                outcome="pass",
+                outcome="passed",
             )
         )
 
@@ -273,7 +273,7 @@ class TestParquetSubscriber:
                 step_index=0,
                 measurement_name="vout",
                 value=3.3,
-                outcome="pass",
+                outcome="passed",
             )
         )
         sub.on_event(
@@ -282,7 +282,7 @@ class TestParquetSubscriber:
                 run_id=run_id,
                 step_name="test_voltage",
                 step_index=0,
-                outcome="pass",
+                outcome="passed",
             )
         )
         # Step 1: no measurements (action step)
@@ -303,14 +303,14 @@ class TestParquetSubscriber:
                 run_id=run_id,
                 step_name="configure_dut",
                 step_index=1,
-                outcome="pass",
+                outcome="passed",
             )
         )
         sub.on_event(
             RunEnded(
                 session_id=session_id,
                 run_id=run_id,
-                outcome="pass",
+                outcome="passed",
             )
         )
 
@@ -342,7 +342,7 @@ class TestParquetSubscriber:
                 step_index=0,
                 measurement_name="v",
                 value=1.0,
-                outcome="pass",
+                outcome="passed",
             )
         )
 
@@ -381,14 +381,14 @@ class TestParquetSubscriber:
                 step_index=0,
                 measurement_name="vout",
                 value=3.3,
-                outcome="pass",
+                outcome="passed",
             )
         )
         sub.on_event(
             RunEnded(
                 session_id=session_id,
                 run_id=run_id,
-                outcome="pass",
+                outcome="passed",
             )
         )
 

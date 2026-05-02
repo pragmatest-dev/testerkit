@@ -12,9 +12,9 @@ def _make_test_run() -> TestRun:
         name="voltage",
         value=3.3,
         units="V",
-        low_limit=3.0,
-        high_limit=3.6,
-        outcome=Outcome.PASS,
+        limit_low=3.0,
+        limit_high=3.6,
+        outcome=Outcome.PASSED,
     )
     v = TestVector(index=0, measurements=[m])
     s = TestStep(name="test_v", vectors=[v])
@@ -22,8 +22,7 @@ def _make_test_run() -> TestRun:
         dut=DUT(serial="SN001"),
         steps=[s],
         station_id="bench_1",
-        test_sequence_id="test_seq",
-        outcome=Outcome.PASS,
+        outcome=Outcome.PASSED,
     )
 
 
@@ -33,13 +32,13 @@ class TestEnforceSchema:
         table = pa.table(
             {
                 "run_id": pa.array([None], type=pa.null()),
-                "value": pa.array([None], type=pa.null()),
+                "measurement_value": pa.array([None], type=pa.null()),
                 "step_index": pa.array([None], type=pa.null()),
             }
         )
         result = _enforce_schema(table)
         assert result.schema.field("run_id").type == pa.string()
-        assert result.schema.field("value").type == pa.float64()
+        assert result.schema.field("measurement_value").type == pa.float64()
         assert result.schema.field("step_index").type == pa.int64()
 
     def test_string_timestamps_converted(self):

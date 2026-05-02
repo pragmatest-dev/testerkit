@@ -3,8 +3,8 @@
 import pyarrow as pa
 import pyarrow.parquet as pq
 
-from litmus.data.backends._protocol import MeasurementWriter
 from litmus.data.backends.parquet import ParquetMeasurementWriter
+from litmus.data.backends.protocol import MeasurementWriter
 
 
 def _make_batch() -> pa.RecordBatch:

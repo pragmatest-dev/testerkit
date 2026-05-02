@@ -16,7 +16,7 @@ def _write_fixture_yaml(path, slots: dict[str, dict]) -> None:
     import yaml
 
     fixture = {
-        "id": "test_fixture",
+        "id": path.stem,
         "slots": slots,
     }
     path.write_text(yaml.safe_dump(fixture))
@@ -27,7 +27,7 @@ def _write_station_yaml(path) -> None:
     import yaml
 
     station = {
-        "id": "test_station",
+        "id": path.stem,
         "name": "Test Station",
         "instruments": {},
     }
@@ -51,8 +51,8 @@ class TestMultiDutE2E:
         _write_fixture_yaml(
             fixture_path,
             {
-                "slot_1": {"points": {}},
-                "slot_2": {"points": {}},
+                "slot_1": {"connections": {}},
+                "slot_2": {"connections": {}},
             },
         )
         _write_station_yaml(station_path)
@@ -70,8 +70,9 @@ class TestMultiDutE2E:
                 "-m",
                 "pytest",
                 str(test_file),
-                f"--fixture-config={fixture_path}",
-                f"--station-config={station_path}",
+                f"--fixture={fixture_path}",
+                f"--station={station_path}",
+                f"--results-dir={tmp_path / 'results'}",
                 "--mock-instruments",
                 "-v",
             ],
@@ -97,8 +98,8 @@ class TestMultiDutE2E:
         _write_fixture_yaml(
             fixture_path,
             {
-                "slot_1": {"points": {}},
-                "slot_2": {"points": {}},
+                "slot_1": {"connections": {}},
+                "slot_2": {"connections": {}},
             },
         )
         _write_station_yaml(station_path)
@@ -108,7 +109,7 @@ class TestMultiDutE2E:
             import os
 
             def test_conditional():
-                slot_id = os.environ.get("LITMUS_SLOT_ID", "")
+                slot_id = os.environ.get("_LITMUS_SLOT_ID", "")
                 if slot_id == "slot_2":
                     assert False, "Intentional failure for slot_2"
                 assert True
@@ -121,8 +122,9 @@ class TestMultiDutE2E:
                 "-m",
                 "pytest",
                 str(test_file),
-                f"--fixture-config={fixture_path}",
-                f"--station-config={station_path}",
+                f"--fixture={fixture_path}",
+                f"--station={station_path}",
+                f"--results-dir={tmp_path / 'results'}",
                 "--mock-instruments",
                 "-v",
             ],
@@ -145,8 +147,8 @@ class TestMultiDutE2E:
         _write_fixture_yaml(
             fixture_path,
             {
-                "slot_1": {"points": {}},
-                "slot_2": {"points": {}},
+                "slot_1": {"connections": {}},
+                "slot_2": {"connections": {}},
             },
         )
         _write_station_yaml(station_path)
@@ -164,8 +166,9 @@ class TestMultiDutE2E:
                 "-m",
                 "pytest",
                 str(test_file),
-                f"--fixture-config={fixture_path}",
-                f"--station-config={station_path}",
+                f"--fixture={fixture_path}",
+                f"--station={station_path}",
+                f"--results-dir={tmp_path / 'results'}",
                 "--mock-instruments",
                 "--dut-serial=SINGLE_SN",
                 "-v",

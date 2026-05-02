@@ -105,7 +105,7 @@ class TestMdf4Subscriber:
         )
         mdf = MDF(result)
         sig = mdf.get("vout", group=0)
-        assert "low_limit" in sig.comment
+        assert "limit_low" in sig.comment
         assert "3.0" in sig.comment
         assert "GELE" in sig.comment
 

@@ -4,8 +4,8 @@ import textwrap
 
 import pytest
 
-from litmus.execution.plugin import InstrumentAccessor
 from litmus.models.instrument import InstrumentRecord
+from litmus.pytest_plugin import InstrumentAccessor
 
 pytest_plugins = ["pytester"]
 
@@ -153,13 +153,13 @@ class TestAutoRegistration:
             },
         )
 
-        # Neutralize litmus_logger to avoid duckdb import errors in child process
+        # Neutralize logger to avoid duckdb import errors in child process
         pytester.makeconftest(
             textwrap.dedent("""\
             import pytest
 
             @pytest.fixture(scope="session", autouse=True)
-            def litmus_logger():
+            def logger():
                 yield None
         """)
         )
@@ -178,7 +178,7 @@ class TestAutoRegistration:
             """),
         )
 
-        result = pytester.runpytest("--mock-instruments", "-v")
+        result = pytester.runpytest("--mock-instruments", "--station=station", "-v")
         result.assert_outcomes(passed=2)
 
     def test_auto_register_no_station(self, pytester):
@@ -188,7 +188,7 @@ class TestAutoRegistration:
             import pytest
 
             @pytest.fixture(scope="session", autouse=True)
-            def litmus_logger():
+            def logger():
                 yield None
         """)
         )
@@ -226,7 +226,7 @@ class TestAutoRegistration:
                 import pytest
 
                 @pytest.fixture(scope="session", autouse=True)
-                def litmus_logger():
+                def logger():
                     yield None
 
                 @pytest.fixture(scope="session")
@@ -269,7 +269,7 @@ class TestAutoRegistration:
             import pytest
 
             @pytest.fixture(scope="session", autouse=True)
-            def litmus_logger():
+            def logger():
                 yield None
         """)
         )
@@ -295,7 +295,7 @@ class TestAutoRegistration:
             """),
         )
 
-        result = pytester.runpytest("--mock-instruments", "-v")
+        result = pytester.runpytest("--mock-instruments", "--station=station", "-v")
         result.assert_outcomes(passed=3)
 
     def test_empty_instruments_section(self, pytester):
@@ -317,7 +317,7 @@ class TestAutoRegistration:
             import pytest
 
             @pytest.fixture(scope="session", autouse=True)
-            def litmus_logger():
+            def logger():
                 yield None
         """)
         )

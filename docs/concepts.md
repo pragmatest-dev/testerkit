@@ -31,7 +31,7 @@ characteristics:
     function: dc_voltage
     units: V
     pins: [VIN]            # Which pin this characteristic applies to
-    specs:
+    bands:
       - value: 5.0
         accuracy: {pct_reading: 10}
 
@@ -40,11 +40,11 @@ characteristics:
     function: dc_voltage
     units: V
     pins: [VOUT]
-    specs:
+    bands:
       - value: 3.3
         accuracy: {pct_reading: 5}
 
-specs:
+bands:
   verify_output:
     characteristic_ref: output_voltage
     guardband_pct: 10      # Tighten limits by 10%
@@ -154,7 +154,7 @@ characteristics:
     function: dc_voltage
     units: V
     pins: [VOUT]
-    specs:
+    bands:
       - value: 5.0
         accuracy: {pct_reading: 10}
 ```
@@ -189,7 +189,7 @@ instruments:
 For development without hardware, use `--mock-instruments`:
 
 ```bash
-pytest tests/ --station-config=stations/bench_1.yaml --mock-instruments --dut-serial=SIM001
+pytest tests/ --station=stations/bench_1.yaml --mock-instruments --dut-serial=SIM001
 ```
 
 Configure mock values in the station:
@@ -224,7 +224,7 @@ instruments:
 id: power_board_fixture
 product_id: power_board
 
-points:
+connections:
   VIN:
     dut_pin: VIN
     instrument: psu
@@ -342,18 +342,18 @@ curl http://localhost:8000/api/match?product_id=power_board&station_id=bench_1
 
 ## Spec-Driven Testing
 
-The **SpecContext** bridges product specs and test execution, enabling:
+The **ProductContext** bridges product specs and test execution, enabling:
 - Automatic limit derivation from characteristics
 - Channel traceability in measurements
 - Guardband application for manufacturing margin
 
-### Using SpecContext
+### Using ProductContext
 
 ```python
-from litmus.products import SpecContext
+from litmus.products import ProductContext
 
 # Load spec
-spec = SpecContext.from_file("products/power_board.yaml")
+spec = ProductContext.from_file("products/power_board.yaml")
 
 # Get limit for characteristic at conditions
 limit = spec.get_limit("output_voltage", temperature=25, load=0.1)
@@ -364,53 +364,25 @@ pin_info = spec.get_pin_info("output_voltage")
 # Returns: {dut_pin: "J1.3", net: "VOUT_3V3", ...}
 ```
 
-### With TestHarness
+### In pytest-native tests
+
+The `verify` fixture is the pytest-native interface — limits resolve from the active `product_context` automatically. Load a spec with `--product=<id>` (looks up `products/<id>.yaml`) or `--product=<path>` (explicit path):
 
 ```python
-from litmus.execution.harness import TestHarness
-from litmus.products import SpecContext
+import pytest
 
-spec = SpecContext.from_file("products/power_board.yaml", guardband_pct=10.0)
-
-harness = TestHarness(
-    step_name="test_output",
-    spec_context=spec,
-    config={"vectors": [{"temperature": 25, "load": 0.1}]},
-)
-
-with harness.step():
-    for vector in harness.vectors:
-        with harness.run_vector(vector):
-            # Automatically resolves limits and channel info from spec
-            harness.measure("output_voltage", dmm.measure_dc_voltage())
+@pytest.mark.parametrize("load", [0.1, 1.0])
+@pytest.mark.parametrize("temperature", [25, 85])
+def test_output_voltage(temperature, load, context, dmm, verify, chamber, eload):
+    chamber.set_temperature(temperature)
+    eload.set_current(load)
+    verify("output_voltage", dmm.measure_dc_voltage())
 ```
 
-### Workflow
-
-```
-Product Spec (YAML)
-       │
-       ▼
-SpecContext.from_file()
-       │
-       ├──► get_limit() → Limit with spec_ref
-       ├──► get_pin_info() → Channel traceability
-       │
-       ▼
-TestHarness.measure()
-       │
-       ├──► Auto-resolves limit from spec
-       ├──► Auto-populates dut_pin
-       ├──► Checks value against limits
-       │
-       ▼
-Measurement (with full traceability)
-       │
-       ▼
-Parquet Storage
-```
+`verify(name, v)` resolves the limit at current conditions, records the measurement with pin + `spec_ref` traceability, and raises `AssertionError` on fail. See the [spec-driven testing guide](guides/spec-driven-testing.md) for details.
 
 ## Next Steps
 
 - [Configuration Reference](reference/configuration.md) — Detailed YAML schemas
-- [pytest Plugin Guide](reference/pytest-plugin.md) — Writing tests with `@litmus_test`
+- [pytest-native reference](reference/pytest-native.md) — the three-fixture card (`context` / `verify` / `logger`)
+- [Writing Tests](guides/writing-tests.md) — end-to-end patterns

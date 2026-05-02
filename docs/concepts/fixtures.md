@@ -20,7 +20,7 @@ id: power_board_fixture
 name: "Power Board Test Fixture"
 product_id: power_board
 
-points:
+connections:
   VIN:
     dut_pin: VIN
     net: VIN_5V
@@ -42,7 +42,7 @@ points:
 | `product_family` | Or product family (for shared fixtures) |
 | `product_revision` | Optional: specific revision |
 
-### Fixture Point Fields
+### Fixture Connection Fields
 
 | Field | Description |
 |-------|-------------|
@@ -76,26 +76,24 @@ def test_output_voltage(pins):
 You don't always need pin mapping. For simple setups, instrument roles from the station config are auto-registered as pytest fixtures:
 
 ```python
-@litmus_test
-def test_voltage(context, psu, dmm):
+def test_voltage(psu, dmm, logger):
     """Direct access by role -- auto-registered from station config."""
     psu.set_voltage(5.0)
     psu.enable_output()
-    return dmm.measure_voltage()
+    logger.measure("output_voltage", dmm.measure_voltage())
 ```
 
 Or use the `instrument` accessor for programmatic access:
 
 ```python
-@litmus_test
-def test_voltage(context, instrument):
+def test_voltage(instrument, logger):
     """Accessor with grouping support."""
     psu = instrument("psu")
     dmm = instrument("dmm")
 
     psu.set_voltage(5.0)
     psu.enable_output()
-    return dmm.measure_voltage()
+    logger.measure("output_voltage", dmm.measure_voltage())
 ```
 
 ### Instrument Aliases
@@ -126,7 +124,7 @@ For complex fixtures with switching or routing:
 id: multi_product_fixture
 product_family: power_converters
 
-points:
+connections:
   # First product position
   DUT1_VIN:
     dut_pin: VIN
@@ -200,7 +198,7 @@ from litmus.store import load_fixture
 
 fixture = load_fixture("fixtures/power_board_fixture.yaml")
 print(fixture.id)
-print(fixture.points)
+print(fixture.connections)
 ```
 
 ## CLI Usage
@@ -208,13 +206,13 @@ print(fixture.points)
 ```bash
 pytest tests/ \
   --station=bench_1 \
-  --fixture-config=fixtures/power_board_fixture.yaml \
+  --fixture=fixtures/power_board_fixture.yaml \
   --dut-serial=SN001
 ```
 
 ## Multi-Slot Fixtures
 
-For multi-DUT testing, fixtures can define multiple **slots** instead of a single `points` map. Each slot has its own set of fixture points, allowing parallel testing of identical products:
+For multi-DUT testing, fixtures can define multiple **slots** instead of a single `connections` map. Each slot has its own set of fixture connections, allowing parallel testing of identical products:
 
 ```yaml
 # fixtures/dual_board_fixture.yaml
@@ -224,7 +222,7 @@ product_family: power_board
 slots:
   slot_1:
     description: Left-side board
-    points:
+    connections:
       vout_measure:
         name: vout_measure
         instrument: dmm
@@ -232,7 +230,7 @@ slots:
         dut_pin: VOUT
   slot_2:
     description: Right-side board
-    points:
+    connections:
       vout_measure:
         name: vout_measure
         instrument: dmm
@@ -240,13 +238,13 @@ slots:
         dut_pin: VOUT
 ```
 
-A fixture uses either `points` (single-DUT) or `slots` (multi-DUT), never both.
+A fixture uses either `connections` (single-DUT) or `slots` (multi-DUT), never both.
 
 ## Shared Instruments
 
 When multiple slots reference the same instrument role, that instrument is automatically detected as **shared**. The orchestrator connects shared instruments once and hosts them via an InstrumentServer (TCP RPC). Worker subprocesses access them through transparent proxy objects — tests never know the difference. Locking is per-resource (keyed on the instrument's connection string), so roles sharing a physical session serialize while roles on independent sessions run in parallel.
 
-For instruments that need active signal switching (e.g., a single DMM routed to different DUT slots via a relay matrix), fixture points include a `route` field:
+For instruments that need active signal switching (e.g., a single DMM routed to different DUT slots via a relay matrix), fixture connections include a `route` field:
 
 ```yaml
 vout_measure:
@@ -259,12 +257,12 @@ vout_measure:
     settling_ms: 10
 ```
 
-See `demo/fixtures/shared_dmm_board.yaml` for a complete working example with a shared DMM routed through a switch matrix.
+See the `examples/02-station/fixtures/` directory for complete working fixture examples.
 
 ## Best Practices
 
 1. **One fixture per product** — Or per product family
-2. **Use descriptive point names** — Match product pin names
+2. **Use descriptive connection names** — Match product pin names
 3. **Include all connections** — Even ground references
 4. **Document channel assignments** — For complex routing
 5. **Version fixtures** — Track changes with product revisions
@@ -310,7 +308,7 @@ instruments:
 id: power_board_fixture
 product_id: power_board
 
-points:
+connections:
   VIN:
     dut_pin: VIN
     instrument: psu

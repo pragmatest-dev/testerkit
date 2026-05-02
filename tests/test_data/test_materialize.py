@@ -56,7 +56,7 @@ def results_tree(tmp_path: Path) -> Path:
             "session_id": [session_id],
             "run_started_at": [_dt("2026-03-01T10:00:00Z")],
             "run_ended_at": [_dt("2026-03-01T10:05:00Z")],
-            "run_outcome": ["pass"],
+            "run_outcome": ["passed"],
             "dut_serial": ["SN001"],
             "station_id": ["station-1"],
             "step_index": [0],

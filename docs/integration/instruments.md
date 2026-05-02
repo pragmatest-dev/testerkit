@@ -53,10 +53,10 @@ instruments:
 The pytest plugin will instantiate the driver and make it available as a fixture:
 
 ```python
-def test_voltage(dmm):
+def test_voltage(dmm, logger):
     # dmm is a pyvisa MessageBasedResource
     voltage = float(dmm.query("MEAS:VOLT:DC?"))
-    assert voltage > 3.0
+    logger.measure("voltage", voltage)
 ```
 
 ## Using PyMeasure Drivers
@@ -85,13 +85,12 @@ instruments:
 ```
 
 ```python
-def test_output_voltage(psu, dmm):
+def test_output_voltage(psu, dmm, logger):
     # PyMeasure provides high-level methods
     psu.voltage = 5.0
     psu.output_enabled = True
 
-    voltage = dmm.voltage_dc
-    assert 4.9 < voltage < 5.1
+    logger.measure("output_voltage", dmm.voltage_dc)
 
     psu.output_enabled = False
 ```
@@ -195,13 +194,10 @@ Station roles become fixtures automatically:
 
 ```python
 # Station config has dmm and psu → fixtures auto-registered
-from litmus.execution import litmus_test
-
-@litmus_test
-def test_output_voltage(context, psu, dmm):
-    psu.voltage = context.get_in("vin", 5.0)
+def test_output_voltage(context, psu, dmm, logger):
+    psu.voltage = context.get_param("vin", 5.0)
     psu.output_enabled = True
-    return dmm.voltage_dc
+    logger.measure("output_voltage", dmm.voltage_dc)
 ```
 
 ### Custom Fixture Override

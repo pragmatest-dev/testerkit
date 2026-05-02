@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from typing import Any
 
+import pytest
+
 from litmus.data.event_log import EventSubscriber
 from litmus.data.models import TestRun
 from litmus.data.subscribers.replay import replay_to_subscriber
@@ -147,6 +149,7 @@ class TestReplayToSubscriber:
             {"completely": "wrong"},
         ]
 
-        # Should not raise
-        replay_to_subscriber(Receiver(), bad_events)
+        # Should not raise; emits one UserWarning per invalid event.
+        with pytest.warns(UserWarning, match="Skipping invalid event"):
+            replay_to_subscriber(Receiver(), bad_events)
         assert len(received) == 0

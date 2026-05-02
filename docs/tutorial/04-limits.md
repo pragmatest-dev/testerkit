@@ -8,22 +8,23 @@ A test that measures voltage and passes/fails based on configurable limits.
 
 ## The Problem
 
-In Step 3, we logged measurements but didn't check if they were good or bad:
+In Step 3, we used `verify(...)` to compare against a product spec. For
+one-off measurements without a spec, you need explicit limits:
 
 ```python
-@litmus_test
-def test_voltage(context, dmm):
-    return dmm.measure_voltage()  # Logged, but is it passing?
+def test_voltage(dmm, logger):
+    logger.measure("output_voltage", dmm.measure_voltage())  # Logged, but is it passing?
 ```
 
-We need limits to determine pass/fail.
+Without a limit, the measurement is recorded but unchecked. We need limits
+to determine pass/fail.
 
 ## Understanding Limits
 
 A `Limit` defines acceptable bounds for a measurement:
 
 ```python
-from litmus.config.models import Limit
+from litmus.models.test_config import Limit
 
 limit = Limit(
     low=3.135,      # Minimum acceptable value
@@ -35,7 +36,7 @@ limit = Limit(
 
 ## The Measurement Model
 
-Under the hood, @litmus_test creates `Measurement` objects:
+Under the hood, the logger creates `Measurement` objects:
 
 ```python
 from litmus.data import Measurement, Outcome
@@ -64,65 +65,88 @@ print(m.outcome)  # Outcome.PASS
 | `ERROR` | Test encountered an error |
 | `ABORTED` | Test was aborted |
 
-## Inline Limits with @litmus_test
+## Inline Limits with `logger.measure`
 
-You can specify limits directly in the decorator:
+Pass an explicit `Limit` to the logger:
 
 ```python
-from litmus.execution import litmus_test
-from litmus.config.models import Limit
+from litmus.models.test_config import Limit
 
-@litmus_test(
-    limits={
-        "test_output_voltage": Limit(low=3.135, high=3.465, units="V"),
-    }
-)
-def test_output_voltage(context, dmm):
-    return dmm.measure_voltage()
+
+def test_output_voltage(dmm, logger):
+    logger.measure(
+        "output_voltage",
+        dmm.measure_voltage(),
+        limit=Limit(low=3.135, high=3.465, units="V"),
+    )
 ```
 
-If the measurement is outside limits, the test fails with an `AssertionError`.
+If the measurement is outside limits, the logger records `outcome=FAIL` and
+raises an `AssertionError`.
+
+## Limits via Marker
+
+For a whole-test limit injection that reads nicely at the top of the test,
+use the `litmus_limits` marker. Values merge with sidecar `limits:`:
+
+```python
+import pytest
+
+
+@pytest.mark.litmus_limits(output_voltage={"low": 3.135, "high": 3.465, "units": "V"})
+def test_output_voltage(dmm, logger):
+    logger.measure("output_voltage", dmm.measure_voltage())
+```
+
+## Limits via Sidecar YAML
+
+The cleanest option for non-trivial tests is a sidecar `test_<module>.yaml`
+next to the test file:
+
+```yaml
+# test_voltage.yaml
+limits:
+  output_voltage: {low: 3.135, high: 3.465, units: "V"}
+```
+
+The test is then just:
+
+```python
+def test_output_voltage(dmm, logger):
+    logger.measure("output_voltage", dmm.measure_voltage())
+```
+
+`logger.measure` resolves the limit from the sidecar automatically.
 
 ## What If It Fails?
 
-Configure a mock value outside the limit range in a sequence step:
+Configure a mock value outside the limit range. Using a sidecar:
 
 ```yaml
-# sequences/debug.yaml
-steps:
-  - id: output_voltage_fail
-    test: tests/test_voltage.py::test_output_voltage
-    mocks:
-      dmm.measure_voltage: 2.5  # Below limit - will fail!
-    limits:
-      test_output_voltage:
-        low: 3.135
-        high: 3.465
-        units: V
+# test_voltage.yaml
+limits:
+  output_voltage: {low: 3.135, high: 3.465, units: "V"}
+mocks:
+  dmm.measure_voltage: 2.5   # Below limit - will fail!
 ```
 
 Run the test:
 
 ```bash
-pytest tests/test_voltage.py --sequence=debug --station=my_station --mock-instruments -v
+pytest tests/test_voltage.py --station=stations/my_station.yaml --mock-instruments -v
 ```
 
 Output:
 ```
-AssertionError: Measurement 'test_output_voltage' FAILED at vector 0:
+AssertionError: Measurement 'output_voltage' FAILED at vector 0:
 2.5 not in [3.135, 3.465]
 ```
 
 ## Characterization Mode
 
-During development, you may want to record values without failing:
-
-```python
-@litmus_test(raise_on_fail=False)
-def test_characterize(context, dmm):
-    # Measurements recorded but won't fail test
-    return dmm.measure_voltage()
-```
+During development, you may want to record values without failing. Drop the
+limit and just call `logger.measure` without one — the value is recorded
+with `outcome=unchecked`.
 
 ## Comparators
 
@@ -135,7 +159,8 @@ low <= value <= high
 Other comparators are available:
 
 ```python
-from litmus.config.models import Comparator, Limit
+from litmus.models.enums import Comparator
+from litmus.models.test_config import Limit
 
 # Upper limit only
 limit = Limit(high=1.0, comparator=Comparator.LE)  # value <= 1.0
@@ -159,14 +184,15 @@ limit = Limit(nominal=5.0, comparator=Comparator.EQ)  # value == 5.0
 
 ## The Problem with Hardcoded Limits
 
-Limits in code have issues:
+Inline `Limit(...)` in code has issues:
 
 ```python
-@litmus_test(
-    limits={"test_voltage": Limit(low=3.135, high=3.465, units="V")}
-)
-def test_voltage(context, instruments):
-    ...
+def test_voltage(dmm, logger):
+    logger.measure(
+        "voltage",
+        dmm.measure_voltage(),
+        limit=Limit(low=3.135, high=3.465, units="V"),
+    )
 ```
 
 Problems:
@@ -175,7 +201,7 @@ Problems:
 - No link to product specifications
 - Different limits for different conditions (temperature, load) are awkward
 
-Solution: **sequence step configuration** (next step).
+Solution: **sidecar YAML** (next step).
 
 ## Dynamic Limits (Callable)
 
@@ -190,31 +216,27 @@ Sometimes limits depend on test conditions:
 
 ### Inline Python (Simple)
 
-Define limits as Python expressions in a sequence step:
+Define limits as Python expressions in a sidecar:
 
 ```yaml
-# sequences/temp_sweep.yaml
-steps:
-  - id: output_voltage_temp
-    test: tests/test_voltage.py::test_output_voltage_temp
-    vectors:
-      expand: product
-      temperature: [-40, 25, 85]
-    limits:
-      test_output_voltage_temp:
-        callable: |
-          temp = ctx.get_in("temperature")
-          if temp < 0:
-            return Limit(low=3.15, high=3.45, units="V")
-          elif temp < 50:
-            return Limit(low=3.25, high=3.35, units="V")
-          else:
-            return Limit(low=3.10, high=3.50, units="V")
+# tests/test_voltage.yaml
+sweeps:
+  - {temperature: [-40, 25, 85]}
+limits:
+  output_voltage:
+    callable: |
+      temp = ctx.get_param("temperature")
+      if temp < 0:
+        return Limit(low=3.15, high=3.45, units="V")
+      elif temp < 50:
+        return Limit(low=3.25, high=3.35, units="V")
+      else:
+        return Limit(low=3.10, high=3.50, units="V")
 ```
 
 The callable has access to:
-- `ctx.get_in(key)` - Input parameters from test vectors
-- `ctx.get_out(key)` - Observations from context.observe()
+- `ctx.get_param(key)` - Input parameters from test vectors
+- `ctx.get_observation(key)` - Observations from context.observe()
 - `Limit` class - For constructing return limits
 
 ### Module Function (Complex)
@@ -223,12 +245,12 @@ For more complex logic, use a Python function:
 
 ```python
 # myproject/limits.py
-from litmus.config.models import Limit
+from litmus.models.test_config import Limit
 
 def output_voltage(ctx):
     """Temperature-dependent voltage limit."""
-    temp = ctx.get_in("temperature")
-    load = ctx.get_in("load_current")
+    temp = ctx.get_param("temperature")
+    load = ctx.get_param("load_current")
 
     # Tighter limits at room temp, nominal load
     if temp >= 20 and temp <= 30 and load < 0.5:
@@ -240,10 +262,9 @@ def output_voltage(ctx):
 Reference it in YAML:
 
 ```yaml
-test_output_voltage:
-  limits:
-    output_voltage:
-      callable: myproject.limits.output_voltage
+limits:
+  output_voltage:
+    callable: myproject.limits.output_voltage
 ```
 
 See the [Limits Guide](../guides/limits.md) for full details on callable limits.
@@ -253,10 +274,9 @@ See the [Limits Guide](../guides/limits.md) for full details on callable limits.
 Tests can retrieve resolved limits via context:
 
 ```python
-@litmus_test
-def test_voltage_with_limit_logging(context, dmm):
+def test_voltage_with_limit_logging(dmm, context, logger):
     # Get the resolved limit
-    limit = context.get_limit("test_voltage_with_limit_logging")
+    limit = context.get_limit("output_voltage")
 
     # Log limit info for traceability
     if limit:
@@ -264,7 +284,7 @@ def test_voltage_with_limit_logging(context, dmm):
         context.observe("limit_high", limit.high)
         context.observe("spec_ref", limit.spec_ref)
 
-    return dmm.measure_voltage()
+    logger.measure("output_voltage", dmm.measure_voltage())
 ```
 
 This is useful for:
@@ -287,43 +307,33 @@ instruments:
       voltage: 3.31
 ```
 
-**sequences/smoke.yaml:**
+**tests/test_limits.yaml:**
 ```yaml
-id: smoke
-name: "Smoke Test"
-test_phase: development
-
-steps:
-  - id: output_voltage
-    test: tests/test_limits.py::test_output_voltage
-    limits:
-      test_output_voltage:
-        low: 3.135
-        high: 3.465
-        nominal: 3.3
-        units: V
-    mocks:
-      dmm.measure_voltage: 3.31
+limits:
+  output_voltage:
+    low: 3.135
+    high: 3.465
+    nominal: 3.3
+    units: V
+mocks:
+  - {target: dmm.measure_voltage, return_value: 3.31}
 ```
 
 **tests/test_limits.py:**
 ```python
-from litmus.execution import litmus_test
-
-@litmus_test
-def test_output_voltage(context, dmm):
+def test_output_voltage(dmm, logger):
     """Verify output voltage is within spec."""
-    return dmm.measure_voltage()
+    logger.measure("output_voltage", dmm.measure_voltage())
 ```
 
 **Run:**
 ```bash
-pytest tests/test_limits.py --sequence=smoke --station=my_station --mock-instruments -v
+pytest tests/test_limits.py --station=my_station --mock-instruments -v
 ```
 
 ## What You Learned
 
-- The Limit model for pass/fail criteria
+- The `Limit` model for pass/fail criteria
 - How measurements are checked against limits
 - Different comparator types (GELE, LE, GE, EQ, etc.)
 - Callable limits for condition-dependent pass/fail criteria

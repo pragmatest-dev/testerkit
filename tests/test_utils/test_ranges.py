@@ -202,7 +202,7 @@ class TestIntegrationWithModels:
 
     def test_characteristic_resolved_pins_with_range(self):
         """Characteristic.resolved_pins expands range syntax."""
-        from litmus.models.config import Direction, MeasurementFunction
+        from litmus.models.enums import Direction, MeasurementFunction
         from litmus.models.product import ProductCharacteristic
 
         char = ProductCharacteristic(
@@ -215,7 +215,7 @@ class TestIntegrationWithModels:
 
     def test_characteristic_resolved_pins_with_list(self):
         """Characteristic.resolved_pins works with explicit list."""
-        from litmus.models.config import Direction, MeasurementFunction
+        from litmus.models.enums import Direction, MeasurementFunction
         from litmus.models.product import ProductCharacteristic
 
         char = ProductCharacteristic(
@@ -228,7 +228,7 @@ class TestIntegrationWithModels:
 
     def test_characteristic_resolved_pins_with_single(self):
         """Characteristic.resolved_pins works with single pin."""
-        from litmus.models.config import Direction, MeasurementFunction
+        from litmus.models.enums import Direction, MeasurementFunction
         from litmus.models.product import ProductCharacteristic
 
         char = ProductCharacteristic(

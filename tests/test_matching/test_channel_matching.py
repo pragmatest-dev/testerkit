@@ -6,13 +6,8 @@ from litmus.matching.service import (
     capability_satisfies,
     match_capabilities,
 )
-from litmus.models.config import (
-    Direction,
-    InstrumentCapability,
-    MeasurementFunction,
-    RangeSpec,
-    Signal,
-)
+from litmus.models.capability import InstrumentCapability, RangeSpec, Signal
+from litmus.models.enums import Direction, MeasurementFunction
 from litmus.models.product import ProductCharacteristic
 
 
@@ -471,7 +466,8 @@ class TestChannelTopology:
 
     def test_channel_topology_defaults(self):
         """ChannelTopology has sensible defaults."""
-        from litmus.models.config import ChannelTopology, GroundTopology
+        from litmus.models.capability import ChannelTopology
+        from litmus.models.enums import GroundTopology
 
         ct = ChannelTopology()
         assert ct.terminals == []
@@ -481,12 +477,8 @@ class TestChannelTopology:
 
     def test_channel_topology_custom(self):
         """ChannelTopology with custom values."""
-        from litmus.models.config import (
-            ChannelTopology,
-            ConnectorType,
-            GroundTopology,
-            TerminalRole,
-        )
+        from litmus.models.capability import ChannelTopology
+        from litmus.models.enums import ConnectorType, GroundTopology, TerminalRole
 
         ct = ChannelTopology(
             label="6V/5A Output",
@@ -506,13 +498,9 @@ class TestChannelTopology:
 
     def test_catalog_entry_structured_channels(self):
         """InstrumentCatalogEntry with structured channel dict."""
+        from litmus.models.capability import ChannelTopology
         from litmus.models.catalog import InstrumentCatalogEntry
-        from litmus.models.config import (
-            ChannelTopology,
-            ConnectorType,
-            GroundTopology,
-            TerminalRole,
-        )
+        from litmus.models.enums import ConnectorType, GroundTopology, TerminalRole
 
         entry = InstrumentCatalogEntry(
             id="test_psu",
@@ -549,28 +537,28 @@ class TestChannelTopology:
         assert entry.channel_names == []
 
 
-class TestFixturePointTerminal:
-    """Tests for instrument_terminal field on FixturePoint."""
+class TestFixtureConnectionTerminal:
+    """Tests for instrument_terminal field on FixtureConnection."""
 
-    def test_fixture_point_no_terminal(self):
-        """FixturePoint without terminal (backward compat)."""
-        from litmus.models.config import FixturePoint
+    def test_fixture_connection_no_terminal(self):
+        """FixtureConnection without terminal (backward compat)."""
+        from litmus.models.test_config import FixtureConnection
 
-        fp = FixturePoint(name="vin_psu", instrument="psu")
-        assert fp.instrument_terminal is None
+        fc = FixtureConnection(name="vin_psu", instrument="psu")
+        assert fc.instrument_terminal is None
 
-    def test_fixture_point_with_terminal(self):
-        """FixturePoint with instrument_terminal."""
-        from litmus.models.config import FixturePoint
+    def test_fixture_connection_with_terminal(self):
+        """FixtureConnection with instrument_terminal."""
+        from litmus.models.test_config import FixtureConnection
 
-        fp = FixturePoint(
+        fc = FixtureConnection(
             name="gnd_psu_lo",
             dut_pin="J1_GND",
             instrument="psu",
             instrument_channel="1",
             instrument_terminal="lo",
         )
-        assert fp.instrument_terminal == "lo"
+        assert fc.instrument_terminal == "lo"
 
 
 class TestDesignerAutoSuggest:

@@ -42,7 +42,7 @@ class TestEventModels:
         assert e.event_type == "run.started"
         assert e.station_id == "st1"
         assert e.dut_serial == "SN001"
-        assert e.test_phase == "production"
+        assert e.test_phase is None
 
     def test_measurement_recorded_fields(self):
         run_id = uuid4()
@@ -53,9 +53,9 @@ class TestEventModels:
             measurement_name="vout",
             value=3.3,
             units="V",
-            outcome="pass",
-            low_limit=3.0,
-            high_limit=3.6,
+            outcome="passed",
+            limit_low=3.0,
+            limit_high=3.6,
         )
         assert e.event_type == "test.measurement"
         assert e.value == 3.3
@@ -75,13 +75,13 @@ class TestEventModels:
     def test_step_events(self):
         s = StepStarted(step_name="step1", step_index=0)
         assert s.event_type == "test.step_started"
-        e = StepEnded(step_name="step1", step_index=0, outcome="pass")
+        e = StepEnded(step_name="step1", step_index=0, outcome="passed")
         assert e.event_type == "test.step_ended"
 
     def test_run_ended(self):
-        e = RunEnded(outcome="fail")
+        e = RunEnded(outcome="failed")
         assert e.event_type == "run.ended"
-        assert e.outcome == "fail"
+        assert e.outcome == "failed"
 
     def test_serialization_roundtrip(self):
         e = RunStarted(
@@ -131,7 +131,7 @@ class TestEventModels:
         assert e.station_hostname is not None
 
     def test_session_started_from_station_reads_env(self, monkeypatch):
-        monkeypatch.setenv("LITMUS_SLOT_COUNT", "4")
+        monkeypatch.setenv("_LITMUS_SLOT_COUNT", "4")
         e = SessionStarted.from_station(
             session_id=uuid4(),
             station_id="st1",
@@ -150,7 +150,7 @@ class TestEventModels:
         from litmus.data.events import SessionEnded
 
         with _pytest.raises(ValueError, match="must not have run_id"):
-            SessionEnded(outcome="pass", run_id=uuid4())
+            SessionEnded(outcome="passed", run_id=uuid4())
 
     def test_session_started_has_no_run_id(self):
         e = SessionStarted(station_id="st1")
@@ -159,7 +159,7 @@ class TestEventModels:
     def test_session_ended_has_no_run_id(self):
         from litmus.data.events import SessionEnded
 
-        e = SessionEnded(outcome="pass")
+        e = SessionEnded(outcome="passed")
         assert e.run_id is None
 
     def test_run_started_slot_index(self):

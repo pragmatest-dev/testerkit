@@ -95,7 +95,7 @@ Issues = "https://github.com/pragmatest-dev/litmus/issues"
 litmus = "litmus.cli:main"
 
 [project.entry-points.pytest11]
-litmus = "litmus.execution.plugin"
+litmus = "litmus.pytest_plugin"
 
 [dependency-groups]
 dev = [
@@ -114,16 +114,17 @@ dev = [
     "weasyprint>=62.0",
     "cyclonedx-python-lib>=11.0",
     "zeroconf>=0.80",
+    "pytest-rerunfailures>=16.1",
 ]
 
 [tool.hatch.build.targets.wheel]
-packages = ["litmus"]
+packages = ["src/litmus"]
 
 [tool.hatch.build.targets.sdist]
 include = [
-    "litmus",
+    "src/litmus",
     "tests",
-    "demo",
+    "examples",
     "docs",
     "schemas",
     "scripts",
@@ -143,6 +144,26 @@ exclude = [
     "report_*.html",
 ]
 
+[tool.uv.workspace]
+members = [
+    "examples/01-vanilla",
+    "examples/02-verify",
+    "examples/03-inline-limits",
+    "examples/04-sidecar-markers",
+    "examples/05-product-spec",
+    "examples/06-station-catalog",
+    "examples/07-profiles",
+]
+
+[tool.uv.sources]
+litmus-example-01-vanilla = { workspace = true }
+litmus-example-02-verify = { workspace = true }
+litmus-example-03-inline-limits = { workspace = true }
+litmus-example-04-sidecar-markers = { workspace = true }
+litmus-example-05-product-spec = { workspace = true }
+litmus-example-06-station-catalog = { workspace = true }
+litmus-example-07-profiles = { workspace = true }
+
 [tool.ruff]
 line-length = 100
 target-version = "py311"
@@ -154,4 +175,4 @@ select = ["E", "F", "I", "UP"]
 testpaths = ["tests"]
 asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "function"
-addopts = "-m 'not benchmark'"
+addopts = "-m 'not benchmark' --ignore=tests/test_e2e --strict-markers"

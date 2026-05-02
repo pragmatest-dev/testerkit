@@ -1,346 +1,183 @@
 # Test Limits
 
-Limits define pass/fail criteria for measurements. Litmus checks return values against configured limits and records the outcome.
+Limits define pass/fail criteria for measurements. Litmus checks every `verify(...)` and `logger.measure(...)` call against a configured `Limit` and records the outcome.
 
-## Where Limits Are Specified
-
-Limits can come from two sources (in order of precedence):
-
-1. **Sequence steps** — Primary source for orchestrated runs
-2. **Inline decorator** — Fallback for ad-hoc pytest runs
-
-### In a Sequence Step
+## Limit structure
 
 ```yaml
-# sequences/power_board_smoke.yaml
-steps:
-  - id: output_voltage
-    test: tests/test_power.py::test_output_voltage
-    limits:
-      test_output_voltage:              # Measurement name
-        low: 3.135
-        high: 3.465
-        nominal: 3.3
-        units: V
-        spec_ref: "output_voltage @ 5%"
+measurement_name:
+  low: 3.135          # lower limit
+  high: 3.465         # upper limit
+  nominal: 3.3        # expected / target (for EQ/NE)
+  units: V
+  comparator: GELE    # default; see table below
+  spec_ref: "..."     # optional traceability pointer
+  ref: "..."          # delegate to a product-spec characteristic
 ```
 
-### In the Inline Decorator
+At least one of `low`, `high`, `nominal`, or `ref` is required.
+
+| Field        | Required | Description                                     |
+|--------------|:--------:|-------------------------------------------------|
+| `low`        | *        | Lower limit (* at least one of low/high/nominal/ref) |
+| `high`       | *        | Upper limit                                     |
+| `nominal`    |          | Expected value (EQ/NE comparators)              |
+| `units`      |          | Unit of measure (for reporting)                 |
+| `comparator` |          | Comparison type (default `GELE`)                |
+| `spec_ref`   |          | Traceability reference                          |
+| `ref`        |          | Delegate to `spec.<char_name>` (inherits limits, units, ref) |
+
+## Where limits come from
+
+Limits flow through Litmus's marker cascade. When
+`logger.measure(name, value)` is called without `limit=`, resolution
+walks the full merge cascade (least → most specific):
+
+1. **Explicit kwargs** — `logger.measure("v", val, low=..., high=..., units=...)`
+2. **Sidecar file-level field** — `limits: {...}` at the YAML root
+3. **Sidecar class branch field** — `tests.<Cls>.limits: {...}`
+4. **Sidecar per-test field** — `tests.<name>.limits: {...}` (or nested `tests.<Cls>.tests.<method>.limits: {...}`)
+5. **Inline `@pytest.mark.litmus_limits(...)`** on method / class
+6. **Profile chain** — parent profile first, child last
+7. **Product spec** — `ref: "<name>"` delegation against the active `ProductContext`
+8. **None** — characterization mode (unchecked, still recorded)
+
+Later stages override earlier ones key-by-key (per measurement name).
+
+`verify(name, value)` bypasses this chain and reads directly from the active product spec.
+
+## Marker form
 
 ```python
-from litmus.execution import litmus_test
+import pytest
 
-@litmus_test(
-    limits={"test_output_voltage": {"low": 3.135, "high": 3.465, "nominal": 3.3, "units": "V"}},
+@pytest.mark.litmus_limits(
+    output_voltage={"low": 3.234, "high": 3.366, "units": "V"},
+    efficiency={"ref": "efficiency"},               # delegate to product spec
+    startup_current={"high": 50, "comparator": "LE", "units": "mA"},
 )
-def test_output_voltage(context, psu, dmm):
-    psu.set_voltage(context.get_in("vin", 5.0))
-    psu.enable_output()
-    return dmm.measure_dc_voltage()
+def test_rails(context, logger, dmm):
+    logger.measure("output_voltage", dmm.measure_dc_voltage())
+    logger.measure("startup_current", measure_startup(...))
 ```
 
-## How Limits Are Automatically Used
-
-When you use `@litmus_test`, the framework:
-
-1. **Resolves config** — From sequence step (if active) or inline decorator
-2. **Expands vectors** — Creates test iterations from vectors config
-3. **Runs your test** — Executes your function for each vector
-4. **Captures return value** — Your return value becomes a measurement
-5. **Applies limits** — Checks the measurement against configured limits
-6. **Records result** — Saves measurement with outcome to Parquet
-
-## Limit Structure
-
-```yaml
-test_name:
-  limits:
-    measurement_name:
-      low: 3.135          # Minimum acceptable value
-      high: 3.465         # Maximum acceptable value
-      nominal: 3.3        # Expected/target value (optional)
-      units: V            # Unit of measure (for reporting)
-      comparator: GELE    # How to compare (default: GELE)
-      spec_ref: "..."     # Reference to specification (optional)
-```
-
-### Required vs Optional Fields
-
-| Field | Required | Description |
-|-------|----------|-------------|
-| `low` | ✓* | Lower limit (* or `high` required) |
-| `high` | ✓* | Upper limit (* or `low` required) |
-| `nominal` | | Expected value (for EQ/NE comparators) |
-| `units` | | Unit of measure |
-| `comparator` | | Comparison type (default: GELE) |
-| `spec_ref` | | Traceability reference |
-
-## Multiple Measurements
-
-When your test returns multiple values:
+Class-level applies to every method; method-level overrides per-key:
 
 ```python
-@litmus_test
-def test_power(context, psu, dmm):
-    return {
-        "input_voltage": psu.measure_voltage(),
-        "output_voltage": dmm.measure_dc_voltage(),
-        "current": psu.measure_current(),
-    }
+@pytest.mark.litmus_limits(output_voltage={"low": 3.2, "high": 3.4})
+class TestPowerBoard:
+    @pytest.mark.litmus_limits(output_voltage={"low": 3.25, "high": 3.35})  # tighter
+    def test_precise(self, logger, dmm): ...
+
+    def test_normal(self, logger, dmm): ...     # uses class-level
 ```
 
-Configure limits for each measurement:
+## Sidecar YAML form
 
 ```yaml
-test_power:
-  limits:
-    input_voltage:
-      low: 4.5
-      high: 5.5
-      units: V
-    output_voltage:
-      low: 3.135
-      high: 3.465
-      units: V
-    current:
-      low: 0
-      high: 1.0
-      units: A
-```
-
-## Limit Sources
-
-### 1. Direct Values (Most Common)
-
-Specify limits directly in a sequence step or inline decorator:
-
-```yaml
-# In a sequence step
+# tests/test_power_board.yaml
 limits:
-  test_output_voltage:
-    low: 3.135
-    high: 3.465
+  output_voltage:  {low: 3.135, high: 3.465, units: V}
+  efficiency:      {ref: efficiency}           # product-spec delegation
+  startup_current: {high: 50, comparator: LE, units: mA}
 ```
 
-### 2. Derived from Product Spec
+The same `limits:` field works at class-branch scope
+(`tests.<Cls>.limits:`) and per-test scope (`tests.<name>.limits:`
+or nested `tests.<Cls>.tests.<method>.limits:`). Per-test overrides
+class overrides file-level, key-by-key.
 
-Reference the product spec and apply guardbanding:
+Sidecar is the preferred home for operator-edited limits — non-developers can tune without touching Python.
+
+## Condition-indexed bands
+
+When a single measurement needs different limits under different conditions, add a `bands:` list inside the limit dict. Each band carries a `when:` mapping plus the fields it overrides. The dict's top-level fields are **defaults** — bands inherit them and override per-row. At measurement time the first band whose `when:` matches the active vector params wins.
 
 ```yaml
-# In a sequence step or inline config
+# test_power_board.yaml
 limits:
-  test_output_voltage:
-    ref: specs.power_board.characteristics.output_voltage
-    guardband_pct: 10  # Tighten by 10%
+  output_voltage:
+    units: V                              # default for every band
+    low: 3.0                              # catch-all (used when no band matches)
+    high: 3.6
+    bands:
+      - {when: {vin: 5.0, load: 0.1}, low: 3.234, high: 3.366}
+      - {when: {vin: 5.0, load: 0.8}, low: 3.2,   high: 3.4}
+      - {when: {vin: 3.3},            low: 3.1,   high: 3.5}   # any load at vin=3.3
 ```
 
-This:
-1. Loads the spec value (e.g., 3.3V ± 5%)
-2. Calculates limits (3.135 to 3.465)
-3. Applies guardband (3.152 to 3.449)
+Matching rules:
 
-### 3. Callable Limits (Dynamic)
+- Keys inside `when:` are **ANDed** — every key must match for the band to apply.
+- Missing keys on a band mean "don't care" (the 3.3 V band above matches every `load`).
+- Bands are scanned top-to-bottom; the **first** match wins.
+- Siblings to `bands:` are the catch-all by design — used when no band's `when:` matches. No `when: {}` entry needed.
+- No catch-all + no band match: the parent has no policy fields, so the measurement records in characterization mode (`outcome=DONE`, no pass/fail). Provide siblings if you want strict behavior.
 
-For limits that depend on test conditions or require complex logic, use callable limits:
+The match is performed against the current row's vector params, so the feature composes naturally with both native `@pytest.mark.parametrize` and Litmus sweeps — every iteration re-resolves against the active row.
+
+The default cascade keeps repetition out of the YAML. Common fields (`units`, `characteristic`, `ref`) live once at the top; bands carry only what changes. Bands can use any policy field a flat limit supports, including `tolerance_pct` against a product characteristic:
 
 ```yaml
-# In a sequence step or inline config
 limits:
-  test_output_voltage:
-    callable: myproject.limits.output_voltage
-
-  test_efficiency:
-    callable: "Limit(low=80 if ctx.get_in('load') > 0.5 else 85, units='%')"
-
-  test_ripple:
-    callable: |
-      vin = ctx.get_in('vin')
-      if vin < 5.0:
-        return Limit(high=vin * 0.01, units='V')
-      else:
-        return Limit(high=0.05, units='V')
+  output_voltage:
+    ref: output_voltage                   # nominal from product spec — shared
+    bands:
+      - {when: {vin: 5.0}, tolerance_pct: 2.0}     # ±2% at vin=5.0
+      - {when: {vin: 3.3}, tolerance_pct: 5.0}     # looser at vin=3.3
 ```
 
-**Module function example:**
+A limit without `bands:` is the flat scalar shape (`output_voltage: {low: 3.2, high: 3.4}`) — equivalent to a single catch-all that always applies.
+
+## Explicit `limit=` kwarg
 
 ```python
-# myproject/limits.py
-from litmus.config.models import Limit
+from litmus.models.test_config import Limit
 
-def output_voltage(context) -> Limit:
-    """Temperature-dependent limits with full context access."""
-    temp = context.get_in("temperature", 25)
-
-    if temp < 0:
-        return Limit(low=3.0, high=3.6, units="V")
-    elif temp < 50:
-        return Limit(low=3.1, high=3.5, units="V")
-    else:
-        return Limit(low=3.0, high=3.6, units="V")
+logger.measure("v", val, limit=Limit(low=3.2, high=3.4, units="V"))
 ```
 
-Callable limits have access to:
-- `ctx.get_in(key)` — Input parameters (from vectors)
-- `ctx.get_out(key)` — Observations (from `context.observe()`)
-- `ctx.inputs` — All input parameters as dict
-- `ctx.outputs` — All observations as dict
-- `Limit` — The Limit class for creating limits
+## Product-spec delegation (`ref:`)
 
-### 4. Inline Decorator (Dev Fallback)
-
-For ad-hoc runs without a sequence, pass limits in the decorator:
+`ref: "<char_name>"` looks up the characteristic on the active `ProductContext` and inherits its limits, units, and `spec_ref`. Works in markers and sidecar:
 
 ```python
-@litmus_test(
-    limits={"test_voltage": Limit(low=3.0, high=3.6, units="V")}
-)
-def test_voltage(context, dmm):
-    return dmm.measure_dc_voltage()
+# product selected via --product=power_board_v1 or litmus.yaml / profile
+@pytest.mark.litmus_limits(output_voltage={"ref": "output_voltage"})
+def test_rails(...): ...
 ```
 
-When running with `--sequence`, the sequence step limits override these.
+Use this when the product YAML is the source of truth and tests are thin wrappers.
 
 ## Comparators
 
-The `comparator` field determines how values are checked:
+| Comparator       | Pass condition           |
+|------------------|--------------------------|
+| `GELE` (default) | `low ≤ value ≤ high`     |
+| `GELT`           | `low ≤ value < high`     |
+| `GTLE`           | `low < value ≤ high`     |
+| `GTLT`           | `low < value < high`     |
+| `GE`             | `value ≥ low`            |
+| `GT`             | `value > low`            |
+| `LE`             | `value ≤ high`           |
+| `LT`             | `value < high`           |
+| `EQ`             | `value == nominal`       |
+| `NE`             | `value ≠ nominal`        |
 
-| Comparator | Pass Condition | Use Case |
-|------------|----------------|----------|
-| `GELE` (default) | `low ≤ value ≤ high` | Normal range checking |
-| `GELT` | `low ≤ value < high` | Left-inclusive only |
-| `GTLE` | `low < value ≤ high` | Right-inclusive only |
-| `GTLT` | `low < value < high` | Exclusive range |
-| `GE` | `value ≥ low` | Only lower bound |
-| `GT` | `value > low` | Strictly greater |
-| `LE` | `value ≤ high` | Only upper bound |
-| `LT` | `value < high` | Strictly less |
-| `EQ` | `value == nominal` | Exact match |
-| `NE` | `value ≠ nominal` | Must not equal |
+## Characterization mode (no limits)
 
-Examples:
-
-```yaml
-# Standard range (3.135 to 3.465 V)
-test_voltage:
-  limits:
-    test_voltage:
-      low: 3.135
-      high: 3.465
-      comparator: GELE  # Default
-
-# Minimum only (must be ≥ 60%)
-test_efficiency:
-  limits:
-    test_efficiency:
-      low: 60
-      comparator: GE
-      units: "%"
-
-# Maximum only (must be ≤ 10mA)
-test_quiescent:
-  limits:
-    test_quiescent:
-      high: 10
-      comparator: LE
-      units: mA
-
-# Exact match (for calibration)
-test_reference:
-  limits:
-    test_reference:
-      nominal: 1.000
-      comparator: EQ
-      units: V
-```
-
-## No Limits (Characterization Mode)
-
-If no limits are configured for a test, measurements still get recorded but always pass:
+Omit all sources to record values without pass/fail:
 
 ```python
-@litmus_test
-def test_characterize(context, dmm):
-    """Collect data without pass/fail."""
-    return dmm.measure_dc_voltage()  # No limits → always PASS
+logger.measure("thermal_resistance", measure_rtheta())   # recorded, unchecked
 ```
 
-To prevent accidental test runs without limits, use `raise_on_fail=True` (default) and ensure limits exist.
+Values show up in the parquet output for post-hoc analysis.
 
-## Config Resolution
+## Best practices
 
-Limits are resolved in this order:
-
-1. **Sequence step** `limits:` — When running with `--sequence`
-2. **Inline decorator** `limits=` — For ad-hoc pytest runs
-3. **Product spec** `ref:` — Derived from spec characteristics
-4. **No limits** — Characterization mode (always passes)
-
-## Complete Example
-
-**Sequence:**
-```yaml
-# sequences/power_board_smoke.yaml
-steps:
-  - id: output_voltage
-    test: tests/test_power.py::test_output_voltage
-    vectors:
-      - vin: 5.0
-    limits:
-      test_output_voltage:
-        low: 3.135
-        high: 3.465
-        nominal: 3.3
-        units: V
-        spec_ref: "output_voltage @ tolerance_pct=5"
-
-  - id: psu_check
-    test: tests/test_power.py::test_psu
-    vectors:
-      expand: product
-      load: [0.1, 0.5, 1.0]
-    limits:
-      voltage:
-        low: 4.9
-        high: 5.1
-        units: V
-      current:
-        low: 0
-        high: 1.5
-        units: A
-```
-
-**Test code:**
-```python
-from litmus.execution import litmus_test
-
-@litmus_test(
-    limits={"test_output_voltage": {"low": 3.135, "high": 3.465, "nominal": 3.3, "units": "V"}},
-)
-def test_output_voltage(context, psu, dmm):
-    """Inline limits for dev; sequence overrides in production."""
-    psu.set_voltage(context.get_in("vin", 5.0))
-    psu.enable_output()
-    return dmm.measure_dc_voltage()
-
-@litmus_test
-def test_psu(context, psu, dmm):
-    load = context.inputs["load"]
-    return {
-        "voltage": psu.measure_voltage(),
-        "current": psu.measure_current(),
-    }
-```
-
-## Best Practices
-
-1. **Always specify limits** — Tests without limits are just data collection
-
-2. **Include spec_ref** — Link limits to specifications for traceability
-
-3. **Use meaningful units** — Helps with reporting and debugging
-
-4. **Derive from specs** — Use `ref` and `guardband_pct` when possible
-
-5. **Match names** — Measurement name in limits must match what the test returns
-
-6. **Use sequences for production** — Inline decorator for dev, sequence steps for production
+1. **Prefer `verify(name, v)`** when a product spec exists — limits, DUT pin, and `spec_ref` all flow automatically
+2. **Use `ref:`** to delegate to product-spec characteristics instead of duplicating values
+3. **Keep operator-tuned values in a sidecar `limits:` field** so non-developers can edit them
+4. **Match names** — the first argument to `verify` / `logger.measure` must match the limit key
+5. **Never hardcode** — no `assert 3.0 <= v <= 3.6` in test bodies; use `limits` (sidecar / profile) or `@pytest.mark.litmus_limits` (inline) or the product spec

@@ -33,7 +33,7 @@ class TestEventLog:
 
     def test_emit_sets_received_at(self, tmp_path):
         log = EventLog(tmp_path / "events", uuid4())
-        event = RunEnded(outcome="pass")
+        event = RunEnded(outcome="passed")
         assert event.received_at is None
 
         log.emit(event)
@@ -144,7 +144,7 @@ class TestEventLog:
                 value=1.0,
             )
         )
-        log.emit(RunEnded(run_id=run_id, outcome="pass"))
+        log.emit(RunEnded(run_id=run_id, outcome="passed"))
         log.close()
 
         reader = ipc.open_stream(pa.OSFile(str(log.path), "rb"))

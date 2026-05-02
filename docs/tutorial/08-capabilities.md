@@ -131,7 +131,7 @@ characteristics:
     function: dc_voltage
     direction: output
     units: V
-    specs:
+    bands:
       - value: 3.3
         accuracy: {pct_reading: 5}
 
@@ -139,7 +139,7 @@ characteristics:
     function: dc_current
     direction: output
     units: A
-    specs:
+    bands:
       - value: 0.5
         accuracy: {pct_reading: 10}
 ```

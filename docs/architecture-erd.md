@@ -12,11 +12,11 @@
 
   products/*.yaml    sequences/*.yaml         tests/test_*.py       pytest
   ┌───────────┐          ┌────────────┐           ┌────────────┐       ┌───────┐
-  │ Product   │          │ steps:     │           │ @litmus_   │       │ CLI   │
-  │ - pins    │          │ - vectors  │           │   test     │       │  or   │
-  │ - chars   │          │ - limits   │           │            │       │  UI   │
-  │ - limits  │          │ - mocks    │           │ measure()  │       │       │
-  └───────────┘          │ - retry    │           │ return val │       └───────┘
+  │ Product   │          │ steps:     │           │ def test_  │       │ CLI   │
+  │ - pins    │          │ - vectors  │           │ (ctx, verify,│       │  or   │
+  │ - chars   │          │ - limits   │           │  logger):  │       │  UI   │
+  │ - limits  │          │ - mocks    │           │ verify │       │       │
+  └───────────┘          │ - retry    │           │ or measure │       └───────┘
                          │ - dialogs  │           └────────────┘
   stations/*.yaml        └────────────┘
   ┌───────────┐
@@ -186,7 +186,7 @@ erDiagram
         string product_id FK
     }
 
-    FixturePoint {
+    FixtureConnection {
         string name PK
         string dut_pin FK
         string instrument FK
@@ -246,9 +246,9 @@ erDiagram
 
     %% Fixture (optional)
     Fixture }o--|| Product : "for"
-    Fixture ||--o{ FixturePoint : has
-    FixturePoint }o--|| Pin : connects
-    FixturePoint }o--|| Instrument : "routes to"
+    Fixture ||--o{ FixtureConnection : has
+    FixtureConnection }o--|| Pin : connects
+    FixtureConnection }o--|| Instrument : "routes to"
 
     %% Capability matching
     Characteristic ||--|| Capability : "requires (direction flipped)"
@@ -283,18 +283,18 @@ erDiagram
 │                        WHERE DO LIMITS COME FROM?                            │
 └─────────────────────────────────────────────────────────────────────────────┘
 
-  OPTION A: Product Spec                OPTION B: Sequence Step      OPTION C: Inline
-  (Derived from datasheet)              (Per-step overrides)         (In decorator)
+  OPTION A: Product Spec                OPTION B: Sequence Step      OPTION C: Marker/Sidecar
+  (Derived from datasheet)              (Per-step overrides)         (Marker or test YAML)
 
-  products/product.yaml            sequences/*.yaml             test_*.py
+  products/product.yaml            sequences/*.yaml             test_*.py / test_*.yaml
   ┌─────────────────────┐              ┌─────────────────────┐      ┌─────────────┐
-  │ characteristics:    │              │ steps:              │      │ @litmus_test│
-  │   output_voltage:   │              │   - id: output      │      │ (limits={   │
-  │     conditions:     │              │     limits:         │      │   "vout":   │
-  │       - nominal: 3.3│              │       output_voltage│      │   Limit(    │
-  │         tolerance: 5%              │         low: 3.2    │      │     low=3.2,│
-  │         temp: 25    │              │         high: 3.4   │      │     high=3.4│
-  │         load: 1.0   │              │         units: V    │      │   )})       │
+  │ characteristics:    │              │ steps:              │      │ @pytest.mark│
+  │   output_voltage:   │              │   - id: output      │      │ .litmus_    │
+  │     conditions:     │              │     limits:         │      │   limits(   │
+  │       - nominal: 3.3│              │       output_voltage│      │   vout={    │
+  │         tolerance: 5%              │         low: 3.2    │      │    low:3.2, │
+  │         temp: 25    │              │         high: 3.4   │      │    high:3.4,│
+  │         load: 1.0   │              │         units: V    │      │    units:V})│
   │                     │              └─────────────────────┘      └─────────────┘
   │ specs
   │   verify_output:    │
@@ -323,17 +323,17 @@ Product Spec (YAML)              Sequence Step (YAML)         Test Code (Python)
 
 products/tps54302.yaml     sequences/production.yaml    tests/test_*.py
 ┌────────────────────┐           ┌────────────────────┐       ┌────────────────┐
-│ characteristics:   │           │ steps:             │       │ @litmus_test   │
-│   output_voltage:  │           │   - id: output     │       │ def test_output│
-│     conditions:    │           │     vectors:       │       │  (context,dmm):│
+│ characteristics:   │           │ steps:             │       │ def test_out   │
+│   output_voltage:  │           │   - id: output     │       │  (ctx, verify,   │
+│     conditions:    │           │     vectors:       │       │   dmm):        │
 │       - temp: 25   │──────────►│       expand: prod │──────►│                │
-│         load: 0.5  │  lookup   │       temp:[25,85] │ sweep │  # context has │
+│         load: 0.5  │  lookup   │       temp:[25,85] │ sweep │  # ctx has     │
 │         nominal:3.3│  limit    │       load:[0.5,3] │       │  # temp & load │
 │         tol: 1%    │  for      │     limits:        │       │                │
-│       - temp: 25   │  condition│       output_volt: │       │  return dmm.   │
-│         load: 3.0  │           │         low: 3.15  │       │    measure()   │
-│         nominal:3.3│           │         high: 3.45 │       └────────────────┘
-│         tol: 1%    │           └────────────────────┘
+│       - temp: 25   │  condition│       output_volt: │       │  verify(   │
+│         load: 3.0  │           │         low: 3.15  │       │   "output_volt"│
+│         nominal:3.3│           │         high: 3.45 │       │   , dmm.meas())│
+│         tol: 1%    │           └────────────────────┘       └────────────────┘
 │       - temp: 85   │
 │         load: 1.0  │
 │         nominal:3.3│

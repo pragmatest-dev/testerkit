@@ -37,7 +37,7 @@ id: power_board_fixture
 name: "Power Board Test Fixture"
 product_id: power_board
 
-points:
+connections:
   vin_supply:
     dut_pin: VIN              # From product spec
     instrument: psu           # From station config
@@ -58,24 +58,21 @@ points:
 With a fixture config, you can access instruments via pin names:
 
 ```python
-from litmus.execution import litmus_test
-
-@litmus_test
-def test_output_voltage(context, pins):
+def test_output_voltage(pins, logger):
     """Access instruments by DUT pin name."""
     pins["VIN"].set_voltage(5.0)
     pins["VIN"].enable_output()
 
     voltage = pins["VOUT"].measure_voltage()
 
-    return voltage
+    logger.measure("output_voltage", voltage)
 ```
 
 Run with fixture config:
 ```bash
 pytest tests/ \
-  --station-config=stations/bench_1.yaml \
-  --fixture-config=fixtures/power_board_fixture.yaml \
+  --station=stations/bench_1.yaml \
+  --fixture=fixtures/power_board_fixture.yaml \
   --dut-serial=SN001
 ```
 
@@ -200,7 +197,7 @@ characteristics:
     function: dc_voltage
     units: V
     pins: [VOUT]
-    specs:
+    bands:
       - value: 3.3
         accuracy: {pct_reading: 5}
 ```
@@ -228,7 +225,7 @@ instruments:
 id: power_board_fixture
 product_id: power_board
 
-points:
+connections:
   vin_supply:
     dut_pin: VIN
     instrument: psu
@@ -239,27 +236,24 @@ points:
 
 **tests/test_power_board.py:**
 ```python
-from litmus.execution import litmus_test
-
-@litmus_test
-def test_input_voltage(context, pins):
+def test_input_voltage(pins, verify):
     """Verify input voltage."""
     pins["VIN"].set_voltage(5.0)
     pins["VIN"].enable_output()
-    return pins["VIN"].measure_voltage()
+    verify("input_voltage", pins["VIN"].measure_voltage())
 
-@litmus_test
-def test_output_voltage(context, pins):
+
+def test_output_voltage(pins, verify):
     """Verify output at various loads."""
-    return pins["VOUT"].measure_voltage()
+    verify("output_voltage", pins["VOUT"].measure_voltage())
 ```
 
 ## Running Production Tests
 
 ```bash
 pytest tests/ \
-  --station-config=stations/bench_1.yaml \
-  --fixture-config=fixtures/power_board_fixture.yaml \
+  --station=stations/bench_1.yaml \
+  --fixture=fixtures/power_board_fixture.yaml \
   --dut-serial=SN12345 \
   --operator="Jane Doe" \
   -v
@@ -268,8 +262,8 @@ pytest tests/ \
 With simulation:
 ```bash
 pytest tests/ \
-  --station-config=stations/bench_1.yaml \
-  --fixture-config=fixtures/power_board_fixture.yaml \
+  --station=stations/bench_1.yaml \
+  --fixture=fixtures/power_board_fixture.yaml \
   --mock-instruments \
   --dut-serial=SIM001 \
   -v
@@ -347,5 +341,5 @@ You've completed the tutorial. You now have a foundation for production hardware
 
 - [API Reference](../reference/api.md) — MCP tools and HTTP endpoints
 - [Configuration Reference](../reference/configuration.md) — All YAML options
-- [pytest Plugin Guide](../reference/pytest-plugin.md) — Full decorator parameters
+- [pytest-native Reference](../reference/pytest-native.md) — Fixtures, markers, sidecar YAML
 - [Test Harness Integration](../integration/harness.md) — Advanced patterns

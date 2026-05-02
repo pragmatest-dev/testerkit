@@ -32,43 +32,42 @@ def sample_test_run() -> TestRun:
         ended_at=datetime(2026, 3, 4, 10, 5, 0, tzinfo=UTC),
         dut=DUT(serial="DUT001", part_number="PN-100", revision="A"),
         station_id="station_001",
-        test_sequence_id="test_seq",
         test_phase="development",
-        outcome=Outcome.PASS,
+        outcome=Outcome.PASSED,
         custom_metadata={"operator_badge": "EMP-123"},
         steps=[
             TestStep(
                 name="test_voltage",
                 started_at=datetime(2026, 3, 4, 10, 0, 0, tzinfo=UTC),
                 ended_at=datetime(2026, 3, 4, 10, 1, 0, tzinfo=UTC),
-                outcome=Outcome.PASS,
+                outcome=Outcome.PASSED,
                 instrument_arrays={
-                    "instr_name": ["DMM_01"],
-                    "instr_resource": ["TCPIP::192.168.1.10"],
-                    "instr_driver": ["Keysight34465A"],
+                    "step_instruments_name": ["DMM_01"],
+                    "step_instruments_resource": ["TCPIP::192.168.1.10"],
+                    "step_instruments_driver": ["Keysight34465A"],
                 },
                 vectors=[
                     TestVector(
                         index=0,
                         attempt=1,
                         params={"vin": 5.0},
-                        outcome=Outcome.PASS,
+                        outcome=Outcome.PASSED,
                         measurements=[
                             Measurement(
                                 name="vout",
                                 value=3.3,
                                 units="V",
-                                low_limit=3.0,
-                                high_limit=3.6,
-                                outcome=Outcome.PASS,
+                                limit_low=3.0,
+                                limit_high=3.6,
+                                outcome=Outcome.PASSED,
                             ),
                             Measurement(
                                 name="iout",
                                 value=0.5,
                                 units="A",
-                                low_limit=0.0,
-                                high_limit=1.0,
-                                outcome=Outcome.PASS,
+                                limit_low=0.0,
+                                limit_high=1.0,
+                                outcome=Outcome.PASSED,
                             ),
                         ],
                     ),
@@ -285,13 +284,13 @@ class TestOutputConfig:
 
 class TestPluginWarnings:
     def test_run_configured_outputs_warns_on_error(self):
-        """_run_configured_outputs emits a warning instead of silently swallowing."""
+        """run_configured_outputs emits a warning instead of silently swallowing."""
         from unittest.mock import patch
 
-        from litmus.execution.plugin import _run_configured_outputs
+        from litmus.pytest_plugin import run_configured_outputs
 
         with patch(
-            "litmus.execution.plugin.run_outputs",
+            "litmus.pytest_plugin.run_outputs",
             side_effect=RuntimeError("boom"),
             create=True,
         ):
@@ -302,7 +301,7 @@ class TestPluginWarnings:
             ):
                 with w.catch_warnings(record=True) as caught:
                     w.simplefilter("always")
-                    _run_configured_outputs(None, "run123", "results")  # type: ignore[arg-type]
+                    run_configured_outputs(None, "run123", "results")  # type: ignore[arg-type]
 
                 assert any("Output processing failed" in str(c.message) for c in caught)
 
@@ -338,7 +337,7 @@ class TestPluginWarnings:
             step_index=0,
             measurement_name="v",
             value=1.0,
-            outcome="pass",
+            outcome="passed",
         )
 
         with w.catch_warnings(record=True) as caught:
@@ -376,9 +375,9 @@ class TestMeasurementRow:
         assert row.station_id == "station_001"
         assert row.step_name == "test_voltage"
         assert row.measurement_name == "vout"
-        assert row.value == 3.3
-        assert row.units == "V"
-        assert row.outcome == "pass"
+        assert row.measurement_value == 3.3
+        assert row.measurement_units == "V"
+        assert row.measurement_outcome == "passed"
 
     def test_to_flat_dict(self, sample_test_run: TestRun):
         """Roundtrip: build → flatten → verify in_*/out_* keys present."""
@@ -403,8 +402,10 @@ class TestMeasurementRow:
         assert flat["in_vin"] == 5.0
 
     def test_iter_rows(self, sample_test_run: TestRun):
-        """TestRun.iter_rows() yields MeasurementRow for each measurement."""
-        rows = list(sample_test_run.iter_rows())
+        """``iter_rows(test_run)`` yields a MeasurementRow per measurement."""
+        from litmus.data.backends._row_helpers import iter_rows
+
+        rows = list(iter_rows(sample_test_run))
         assert len(rows) == 2
         assert all(isinstance(r, MeasurementRow) for r in rows)
         assert rows[0].measurement_name == "vout"
@@ -443,7 +444,7 @@ class TestEventSubscriberLifecycle:
             step_index=0,
             measurement_name="v",
             value=1.0,
-            outcome="pass",
+            outcome="passed",
         )
         event_log.emit(event)
 
@@ -543,7 +544,6 @@ class TestInstrumentArrayKeys:
         logger = TestRunLogger(
             dut_serial="DUT001",
             station_id="station_001",
-            test_sequence_id="seq",
         )
         arrays = logger.build_instrument_arrays()
         assert set(INSTRUMENT_ARRAY_KEYS) == set(arrays.keys())
@@ -589,8 +589,8 @@ class TestReconstructTestRun:
             assert rebuilt_m.value == orig_m.value
             assert rebuilt_m.units == orig_m.units
             assert rebuilt_m.outcome == orig_m.outcome
-            assert rebuilt_m.low_limit == orig_m.low_limit
-            assert rebuilt_m.high_limit == orig_m.high_limit
+            assert rebuilt_m.limit_low == orig_m.limit_low
+            assert rebuilt_m.limit_high == orig_m.limit_high
 
     def test_roundtrip_custom_metadata(self, sample_test_run: TestRun, tmp_path: Path):
         """custom_metadata survives Parquet save → reconstruct."""
@@ -618,9 +618,9 @@ class TestReconstructTestRun:
 
         step = rebuilt.steps[0]
         assert step.instrument_arrays is not None
-        assert step.instrument_arrays["instr_name"] == ["DMM_01"]
-        assert step.instrument_arrays["instr_resource"] == ["TCPIP::192.168.1.10"]
-        assert step.instrument_arrays["instr_driver"] == ["Keysight34465A"]
+        assert step.instrument_arrays["step_instruments_name"] == ["DMM_01"]
+        assert step.instrument_arrays["step_instruments_resource"] == ["TCPIP::192.168.1.10"]
+        assert step.instrument_arrays["step_instruments_driver"] == ["Keysight34465A"]
 
     def test_csv_subscriber_includes_custom_columns(self, sample_test_run: TestRun, tmp_path: Path):
         """CSV subscriber includes custom_* columns from RunStarted."""
@@ -652,7 +652,6 @@ class TestHarnessLoggerIntegration:
         logger = TestRunLogger(
             dut_serial="DUT001",
             station_id="station_001",
-            test_sequence_id="seq",
         )
 
         received = []
@@ -695,7 +694,6 @@ class TestHarnessLoggerIntegration:
         logger = TestRunLogger(
             dut_serial="DUT001",
             station_id="station_001",
-            test_sequence_id="seq",
         )
         harness = TestHarness(logger=logger, step_name="test_voltage")
         with harness.step("test_voltage") as step:

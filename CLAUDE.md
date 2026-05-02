@@ -55,7 +55,7 @@ Entity-aligned folders contain YAML configuration files. Code folders contain Py
 ## Documentation Updates
 
 - `docs/` has codebase descriptions and must be updated when implementing new features
-- `demo/` has working examples
+- `examples/` has three-tier working examples (01-bringup / 02-station / 03-profiles)
 - MCP tools and skills for AI workflows
 
 Do NOT bloat CLAUDE.md with implementation details — the AI can discover those from code.
@@ -90,6 +90,16 @@ When planning a new feature or significant change for Litmus, always follow this
 4. **Exit plan mode** — Present the plan for user approval
 
 IMPORTANT: Always invoke `/agent-os:shape-spec` before finalizing the plan.
+
+## Plan Adherence — NO DESIGN DEVIATIONS
+
+Once a plan is approved, the plan is the contract. While executing:
+
+1. **NO design deviations from plan.** Do not invent new fields, mechanisms, fixtures, or abstractions that the plan did not specify. If the plan says "add field X," add X — do not also add Y because it seems nice.
+2. **If you discover a missing element, STOP and have a design discussion.** Bugs found during implementation (e.g., step_index collision, outcome propagation gap) are design questions, not auto-pilot fixes. Surface them, propose options, wait for the user's answer.
+3. **NO auto-select.** Do not pick between design alternatives on the user's behalf. When the plan is silent on a choice, that's a signal to pause, not a license to decide.
+4. **"Continue" is not a blanket authorization.** Treat each phase as its own decision point. Re-confirm the approach before starting, especially after compaction or a long gap.
+5. **Over-implementation is worse than under-implementation.** Shipping extra scope without discussion is harder to undo than shipping only what was agreed.
 
 ## Compaction Recovery
 

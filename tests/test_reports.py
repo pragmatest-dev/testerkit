@@ -24,35 +24,34 @@ def sample_run():
         ended_at=datetime(2026, 2, 7, 12, 5, 0, tzinfo=UTC),
         dut=DUT(serial="SN-001", part_number="PN-100", revision="A"),
         station_id="bench_01",
-        test_sequence_id="demo_tests",
         product_id="widget_v1",
         product_name="Widget",
         operator_id="test_op",
         test_phase="development",
         git_commit="abc123",
-        outcome=Outcome.PASS,
+        outcome=Outcome.PASSED,
         steps=[
             TestStep(
                 name="test_voltage",
-                outcome=Outcome.PASS,
+                outcome=Outcome.PASSED,
                 vectors=[
                     TestVector(
-                        outcome=Outcome.PASS,
+                        outcome=Outcome.PASSED,
                         measurements=[
                             Measurement(
                                 name="vout",
                                 value=3.301,
                                 units="V",
-                                low_limit=3.0,
-                                high_limit=3.6,
-                                outcome=Outcome.PASS,
+                                limit_low=3.0,
+                                limit_high=3.6,
+                                outcome=Outcome.PASSED,
                             ),
                             Measurement(
                                 name="vout_ripple",
                                 value=0.015,
                                 units="V",
-                                high_limit=0.050,
-                                outcome=Outcome.PASS,
+                                limit_high=0.050,
+                                outcome=Outcome.PASSED,
                             ),
                         ],
                     )
@@ -60,18 +59,18 @@ def sample_run():
             ),
             TestStep(
                 name="test_current",
-                outcome=Outcome.FAIL,
+                outcome=Outcome.FAILED,
                 vectors=[
                     TestVector(
-                        outcome=Outcome.FAIL,
+                        outcome=Outcome.FAILED,
                         measurements=[
                             Measurement(
                                 name="iout",
                                 value=2.5,
                                 units="A",
-                                low_limit=0.0,
-                                high_limit=2.0,
-                                outcome=Outcome.FAIL,
+                                limit_low=0.0,
+                                limit_high=2.0,
+                                outcome=Outcome.FAILED,
                             ),
                         ],
                     )
@@ -202,7 +201,7 @@ class TestProjectConfig:
     def test_load_missing(self, tmp_path):
         from litmus.store import load_project_config
 
-        config = load_project_config(tmp_path / "litmus.yaml")
+        config = load_project_config(tmp_path)
         assert config.results_dir is None
         assert config.outputs == []
 
@@ -212,7 +211,7 @@ class TestProjectConfig:
         (tmp_path / "litmus.yaml").write_text(
             "name: test\nresults_dir: my_results\noutputs:\n  - format: html\n"
         )
-        config = load_project_config(tmp_path / "litmus.yaml")
+        config = load_project_config(tmp_path)
         assert config.results_dir == "my_results"
         assert len(config.outputs) == 1
         assert config.outputs[0].format == "html"

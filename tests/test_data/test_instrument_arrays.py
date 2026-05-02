@@ -43,20 +43,20 @@ def _make_record(
 
 
 EXPECTED_KEYS = [
-    "instr_name",
-    "instr_id",
-    "instr_driver",
-    "instr_resource",
-    "instr_protocol",
-    "instr_manufacturer",
-    "instr_model",
-    "instr_serial",
-    "instr_firmware",
-    "instr_cal_due",
-    "instr_cal_last",
-    "instr_cal_certificate",
-    "instr_cal_lab",
-    "instr_mocked",
+    "step_instruments_name",
+    "step_instruments_id",
+    "step_instruments_driver",
+    "step_instruments_resource",
+    "step_instruments_protocol",
+    "step_instruments_manufacturer",
+    "step_instruments_model",
+    "step_instruments_serial",
+    "step_instruments_firmware",
+    "step_instruments_cal_due",
+    "step_instruments_cal_last",
+    "step_instruments_cal_certificate",
+    "step_instruments_cal_lab",
+    "step_instruments_mocked",
 ]
 
 
@@ -73,7 +73,6 @@ class TestBuildInstrumentArrays:
         logger = TestRunLogger(
             dut_serial="DUT001",
             station_id="station_001",
-            test_sequence_id="test_suite",
             instruments={"dmm": dmm, "psu": psu},
         )
 
@@ -84,10 +83,10 @@ class TestBuildInstrumentArrays:
         lengths = [len(v) for v in arrays.values()]
         assert all(length == 2 for length in lengths)
 
-        assert arrays["instr_name"] == ["dmm", "psu"]
-        assert arrays["instr_id"] == ["keithley_001", "keysight_001"]
-        assert arrays["instr_driver"] == ["drivers.FakeDriver", "drivers.FakeDriver"]
-        assert arrays["instr_serial"] == ["SN-DMM", "SN-PSU"]
+        assert arrays["step_instruments_name"] == ["dmm", "psu"]
+        assert arrays["step_instruments_id"] == ["keithley_001", "keysight_001"]
+        assert arrays["step_instruments_driver"] == ["drivers.FakeDriver", "drivers.FakeDriver"]
+        assert arrays["step_instruments_serial"] == ["SN-DMM", "SN-PSU"]
 
     def test_build_instrument_arrays_filtered(self):
         """Verify roles filter returns only requested instruments."""
@@ -102,15 +101,14 @@ class TestBuildInstrumentArrays:
         logger = TestRunLogger(
             dut_serial="DUT001",
             station_id="station_001",
-            test_sequence_id="test_suite",
             instruments=records,
         )
 
         arrays = logger.build_instrument_arrays(roles=["dmm", "psu"])
 
-        assert len(arrays["instr_name"]) == 2
-        assert arrays["instr_name"] == ["dmm", "psu"]
-        assert arrays["instr_serial"] == ["SN-DMM", "SN-PSU"]
+        assert len(arrays["step_instruments_name"]) == 2
+        assert arrays["step_instruments_name"] == ["dmm", "psu"]
+        assert arrays["step_instruments_serial"] == ["SN-DMM", "SN-PSU"]
 
     def test_build_instrument_arrays_empty(self):
         """No instruments produces empty lists for all 14 keys."""
@@ -119,7 +117,6 @@ class TestBuildInstrumentArrays:
         logger = TestRunLogger(
             dut_serial="DUT001",
             station_id="station_001",
-            test_sequence_id="test_suite",
         )
 
         arrays = logger.build_instrument_arrays()
@@ -143,16 +140,15 @@ class TestBuildInstrumentArrays:
         logger = TestRunLogger(
             dut_serial="DUT001",
             station_id="station_001",
-            test_sequence_id="test_suite",
             instruments={"dmm": record},
         )
 
         arrays = logger.build_instrument_arrays()
 
-        assert arrays["instr_cal_due"] == ["2026-12-31"]
-        assert arrays["instr_cal_last"] == ["2025-12-31"]
-        assert arrays["instr_cal_certificate"] == ["CERT-001"]
-        assert arrays["instr_cal_lab"] == ["NIST"]
+        assert arrays["step_instruments_cal_due"] == ["2026-12-31"]
+        assert arrays["step_instruments_cal_last"] == ["2025-12-31"]
+        assert arrays["step_instruments_cal_certificate"] == ["CERT-001"]
+        assert arrays["step_instruments_cal_lab"] == ["NIST"]
 
 
 class TestSetStepInstruments:
@@ -171,13 +167,12 @@ class TestSetStepInstruments:
         logger = TestRunLogger(
             dut_serial="DUT001",
             station_id="station_001",
-            test_sequence_id="test_suite",
             instruments=records,
         )
 
         result = logger.set_step_instruments(["dmm"])
 
-        assert result["instr_name"] == ["dmm"]
+        assert result["step_instruments_name"] == ["dmm"]
         assert logger._step_instrument_arrays == result
 
 
@@ -185,7 +180,7 @@ class TestEmptyRowSchemaMatches:
     """Verify _build_empty_row fallback keys match build_instrument_arrays keys."""
 
     def test_empty_row_schema_matches(self):
-        """_build_empty_row fallback should have same instr_* keys as build_instrument_arrays."""
+        """_build_empty_row should have same step_instruments_* keys as build_instrument_arrays."""
         from litmus.data.backends.parquet import ParquetBackend
 
         backend = ParquetBackend(results_dir="/tmp/litmus_test_empty_row")
@@ -193,14 +188,13 @@ class TestEmptyRowSchemaMatches:
         test_run = TestRun(
             dut=DUT(serial="SN001"),
             station_id="station_001",
-            test_sequence_id="test_suite",
         )
 
         # Get empty row without instrument_arrays (triggers fallback)
         row = backend._build_empty_row(test_run, instrument_arrays=None)
 
-        # Extract instr_* keys
-        row_instr_keys = sorted(k for k in row if k.startswith("instr_"))
+        # Extract step_instruments_* keys
+        row_instr_keys = sorted(k for k in row if k.startswith("step_instruments_"))
 
         assert row_instr_keys == sorted(EXPECTED_KEYS)
 
@@ -218,31 +212,30 @@ class TestParquetRoundTrip:
         test_run = TestRun(
             dut=DUT(serial="SN001"),
             station_id="station_001",
-            test_sequence_id="test_suite",
         )
 
         step = TestStep(name="test_voltage")
         vector = TestVector(index=0)
-        measurement = Measurement(name="vout", value=3.3, units="V", outcome=Outcome.PASS)
+        measurement = Measurement(name="vout", value=3.3, units="V", outcome=Outcome.PASSED)
         vector.measurements.append(measurement)
         step.vectors.append(vector)
 
         # Set per-step instrument arrays
         step.instrument_arrays = {
-            "instr_name": ["dmm"],
-            "instr_id": ["keithley_001"],
-            "instr_driver": ["drivers.Keithley2000"],
-            "instr_resource": ["GPIB::16::INSTR"],
-            "instr_protocol": ["visa"],
-            "instr_manufacturer": ["Keithley"],
-            "instr_model": ["2000"],
-            "instr_serial": ["SN-DMM-001"],
-            "instr_firmware": ["v1.2.3"],
-            "instr_cal_due": ["2026-12-31"],
-            "instr_cal_last": ["2025-12-31"],
-            "instr_cal_certificate": ["CERT-001"],
-            "instr_cal_lab": ["NIST"],
-            "instr_mocked": [False],
+            "step_instruments_name": ["dmm"],
+            "step_instruments_id": ["keithley_001"],
+            "step_instruments_driver": ["drivers.Keithley2000"],
+            "step_instruments_resource": ["GPIB::16::INSTR"],
+            "step_instruments_protocol": ["visa"],
+            "step_instruments_manufacturer": ["Keithley"],
+            "step_instruments_model": ["2000"],
+            "step_instruments_serial": ["SN-DMM-001"],
+            "step_instruments_firmware": ["v1.2.3"],
+            "step_instruments_cal_due": ["2026-12-31"],
+            "step_instruments_cal_last": ["2025-12-31"],
+            "step_instruments_cal_certificate": ["CERT-001"],
+            "step_instruments_cal_lab": ["NIST"],
+            "step_instruments_mocked": [False],
         }
         test_run.steps.append(step)
 
@@ -259,11 +252,11 @@ class TestParquetRoundTrip:
         row = rows[0]
 
         # Verify instrument columns
-        assert row["instr_name"] == ["dmm"]
-        assert row["instr_id"] == ["keithley_001"]
-        assert row["instr_driver"] == ["drivers.Keithley2000"]
-        assert row["instr_resource"] == ["GPIB::16::INSTR"]
-        assert row["instr_manufacturer"] == ["Keithley"]
-        assert row["instr_serial"] == ["SN-DMM-001"]
-        assert row["instr_cal_due"] == ["2026-12-31"]
-        assert row["instr_cal_lab"] == ["NIST"]
+        assert row["step_instruments_name"] == ["dmm"]
+        assert row["step_instruments_id"] == ["keithley_001"]
+        assert row["step_instruments_driver"] == ["drivers.Keithley2000"]
+        assert row["step_instruments_resource"] == ["GPIB::16::INSTR"]
+        assert row["step_instruments_manufacturer"] == ["Keithley"]
+        assert row["step_instruments_serial"] == ["SN-DMM-001"]
+        assert row["step_instruments_cal_due"] == ["2026-12-31"]
+        assert row["step_instruments_cal_lab"] == ["NIST"]

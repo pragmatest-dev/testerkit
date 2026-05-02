@@ -4,7 +4,7 @@ import pytest
 
 from litmus.fixtures.manager import FixtureManager, PinAccessor
 from litmus.instruments import Mock
-from litmus.models.config import FixtureConfig, FixturePoint
+from litmus.models.test_config import FixtureConfig, FixtureConnection
 
 
 class FakeDMM:
@@ -56,15 +56,15 @@ class TestFixtureManager:
         return FixtureConfig(
             id="test_fixture",
             product_family="test_product",
-            points={
-                "vout_measure": FixturePoint(
+            connections={
+                "vout_measure": FixtureConnection(
                     name="vout_measure",
                     instrument="dmm_main",
                     instrument_channel="1",
                     dut_pin="VOUT",
                     net="VOUT_3V3",
                 ),
-                "vin_supply": FixturePoint(
+                "vin_supply": FixtureConnection(
                     name="vin_supply",
                     instrument="psu_main",
                     instrument_channel="CH1",
@@ -85,32 +85,32 @@ class TestFixtureManager:
         dmm.disconnect()
         psu.disconnect()
 
-    def test_get_point(self, fx_config, inst_map):
+    def test_get_connection(self, fx_config, inst_map):
         manager = FixtureManager(fx_config, inst_map)
-        point = manager.get_point("vout_measure")
-        assert point.name == "vout_measure"
-        assert point.instrument == "dmm_main"
+        conn = manager.get_connection("vout_measure")
+        assert conn.name == "vout_measure"
+        assert conn.instrument == "dmm_main"
 
-    def test_get_point_not_found(self, fx_config, inst_map):
+    def test_get_connection_not_found(self, fx_config, inst_map):
         manager = FixtureManager(fx_config, inst_map)
         with pytest.raises(KeyError, match="nonexistent"):
-            manager.get_point("nonexistent")
+            manager.get_connection("nonexistent")
 
-    def test_get_point_for_pin(self, fx_config, inst_map):
+    def test_get_connection_for_pin(self, fx_config, inst_map):
         manager = FixtureManager(fx_config, inst_map)
-        point = manager.get_point_for_pin("VOUT")
-        assert point.name == "vout_measure"
-        assert point.dut_pin == "VOUT"
+        conn = manager.get_connection_for_pin("VOUT")
+        assert conn.name == "vout_measure"
+        assert conn.dut_pin == "VOUT"
 
-    def test_get_point_for_net(self, fx_config, inst_map):
+    def test_get_connection_for_net(self, fx_config, inst_map):
         manager = FixtureManager(fx_config, inst_map)
-        point = manager.get_point_for_net("VIN_5V")
-        assert point.name == "vin_supply"
-        assert point.net == "VIN_5V"
+        conn = manager.get_connection_for_net("VIN_5V")
+        assert conn.name == "vin_supply"
+        assert conn.net == "VIN_5V"
 
-    def test_get_instrument_for_point(self, fx_config, inst_map):
+    def test_get_instrument_for_connection(self, fx_config, inst_map):
         manager = FixtureManager(fx_config, inst_map)
-        inst = manager.get_instrument_for_point("vout_measure")
+        inst = manager.get_instrument_for_connection("vout_measure")
         assert isinstance(inst, FakeDMM)
 
     def test_get_instrument_for_pin(self, fx_config, inst_map):
@@ -118,9 +118,9 @@ class TestFixtureManager:
         inst = manager.get_instrument_for_pin("VOUT")
         assert isinstance(inst, FakeDMM)
 
-    def test_get_channel_for_point(self, fx_config, inst_map):
+    def test_get_channel_for_connection(self, fx_config, inst_map):
         manager = FixtureManager(fx_config, inst_map)
-        channel = manager.get_channel_for_point("vout_measure")
+        channel = manager.get_channel_for_connection("vout_measure")
         assert channel == "1"
 
     def test_list_pins(self, fx_config, inst_map):
@@ -130,11 +130,11 @@ class TestFixtureManager:
         assert "VIN" in pins
         assert len(pins) == 2
 
-    def test_list_points(self, fx_config, inst_map):
+    def test_list_connections(self, fx_config, inst_map):
         manager = FixtureManager(fx_config, inst_map)
-        points = manager.list_points()
-        assert "vout_measure" in points
-        assert "vin_supply" in points
+        connections = manager.list_connections()
+        assert "vout_measure" in connections
+        assert "vin_supply" in connections
 
 
 class TestPinAccessor:
@@ -146,13 +146,13 @@ class TestPinAccessor:
         fc = FixtureConfig(
             id="test_fixture",
             product_family="test_product",
-            points={
-                "vout_measure": FixturePoint(
+            connections={
+                "vout_measure": FixtureConnection(
                     name="vout_measure",
                     instrument="dmm_main",
                     dut_pin="VOUT",
                 ),
-                "vin_supply": FixturePoint(
+                "vin_supply": FixtureConnection(
                     name="vin_supply",
                     instrument="psu_main",
                     dut_pin="VIN",

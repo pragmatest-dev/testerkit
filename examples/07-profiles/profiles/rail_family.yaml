@@ -1,0 +1,9 @@
+# Family base — not directly selectable (no facets).
+# Scenario files extend this to inherit its marker fields and override
+# what they need. Kept narrow: everything true for every rail test,
+# regardless of phase.
+description: "Shared base for rail scenarios"
+tests:
+  test_rail_holds_across_input:
+    sweeps:
+      - {vin: [3.3, 5.0, 5.5]}

@@ -4,34 +4,40 @@
 
 ## Where Test Config Lives
 
-Test configuration (vectors, limits, mocks, retry) can come from two places:
+Test configuration (vectors, limits, mocks) can come from several places,
+resolved in priority order:
 
-1. **Sequence steps** (primary) — When running with `--sequence`, step config is the source of truth
-2. **Inline decorator** (fallback) — For ad-hoc `pytest` runs without a sequence
+1. **Pytest markers** — `@pytest.mark.parametrize(...)`, `@pytest.mark.litmus_limits`
+2. **Sidecar YAML** — a `test_<module>.yaml` next to the test file
 
-### Config Resolution
+Markers and sidecar entries merge by name+key — later wins on overlap, the
+same rule pytest applies to stacked decorators.
 
-When both exist, sequence step config **replaces** (not merges) inline decorator config:
+## Sidecar YAML
 
+A sidecar `test_<module>.yaml` next to the test file carries vectors, limits,
+and mocks for the tests in that module:
+
+```yaml
+# tests/test_power.yaml
+limits:
+  output_voltage: {low: 3.135, high: 3.465, nominal: 3.3, units: "V"}
+mocks:
+  - {target: dmm.measure_dc_voltage, return_value: 3.31}
+tests:
+  test_output_voltage:
+    sweeps:
+      - {vin: [4.5, 5.0, 5.5], load_current: [0.1, 0.4, 0.8]}
 ```
-sequence step > inline decorator
-```
 
-## Inline Decorator Config
-
-For development and ad-hoc runs, pass config directly to `@litmus_test`:
+The test is then:
 
 ```python
-from litmus.execution import litmus_test
-
-@litmus_test(
-    config={"vectors": {"expand": "product", "vin": [4.5, 5.0, 5.5]}},
-    limits={"output_voltage": {"low": 3.135, "high": 3.465, "nominal": 3.3, "units": "V"}},
-)
-def test_output_voltage(context, psu, dmm):
-    psu.set_voltage(context.get_in("vin", 5.0))
+# tests/test_power.py
+def test_output_voltage(context, psu, dmm, verify):
+    psu.set_voltage(context.get_param("vin"))
     psu.enable_output()
-    return dmm.measure_dc_voltage()
+    verify("output_voltage", dmm.measure_dc_voltage())
 ```
 
 Run directly with pytest:
@@ -40,253 +46,141 @@ Run directly with pytest:
 pytest tests/test_power.py::test_output_voltage -v --dut-serial=TEST001
 ```
 
-## Sequence Step Config
+## Inline Markers
 
-For orchestrated runs (production, validation), config lives in the sequence:
+For inline tweaks, markers work directly on the test function:
 
-```yaml
-# sequences/power_board_smoke.yaml
-id: power_board_smoke
-name: "Power Board - Smoke Test"
-test_phase: development
+```python
+import pytest
 
-steps:
-    - id: output_voltage
-      test: tests/test_power.py::test_output_voltage
-      vectors:
-        expand: product
-        vin: [4.5, 5.0, 5.5]
-        load_percent: [0, 50, 100]
-      limits:
-        output_voltage:
-          low: 3.135
-          high: 3.465
-          nominal: 3.3
-          units: V
-          spec_ref: "Section 7.2"
-      mocks:
-        dmm.measure_dc_voltage: 3.31
-      retry:
-        max_attempts: 2
-        delay_seconds: 0.5
+
+@pytest.mark.parametrize("vin", [4.5, 5.0, 5.5])
+@pytest.mark.litmus_limits(output_voltage={"low": 3.135, "high": 3.465, "units": "V"})
+def test_output_voltage(vin, context, psu, dmm, logger):
+    psu.set_voltage(vin)
+    psu.enable_output()
+    logger.measure("output_voltage", dmm.measure_dc_voltage())
 ```
 
-Run with sequence:
+The `@pytest.mark.litmus_sweeps(...)` form is also available for inline use
+of the runner-neutral vector vocabulary:
 
-```bash
-pytest tests/ --sequence=power_board_smoke --station=bench_1 -v
+```python
+@pytest.mark.litmus_sweeps(vin=[4.5, 5.0, 5.5], load=[0.1, 0.4, 0.8])
+def test_sweep(vin, load, ...): ...
 ```
-
-The test code is the same either way — only the config source changes.
 
 ## Vector Expansion
 
-Vectors define the test conditions. They work identically whether in a sequence step or inline decorator.
+Vectors define test conditions. They work identically inline and in sidecar.
 
 ```yaml
-vectors:
-  expand: product
-  input_voltage: [4.5, 5.0, 5.5]
-  load_percent: [0, 50, 100]
+sweeps:
+  - {input_voltage: [4.5, 5.0, 5.5]}
+  - {load_percent: [0, 50, 100]}
 ```
 
-This runs the test 9 times (3 voltages × 3 loads):
+Each top-level dict in the list is one independent loop; multi-key dicts
+inside one entry zip together; stacked entries cross-product (top entry =
+outermost / slowest loop). For zipped variables, put both keys in one
+entry:
+
+```yaml
+sweeps:
+  - {input_voltage: [4.5, 5.0, 5.5], load_percent: [0, 50, 100]}
+```
 
 ```python
-@litmus_test
-def test_voltage_sweep(context, dmm):
-    vin = context.inputs["input_voltage"]
-    load = context.inputs["load_percent"]
-    print(f"Testing at {vin}V, {load}% load")
-    return dmm.measure_voltage()
+def test_voltage_sweep(context, dmm, logger):
+    vin = context.get_param("input_voltage")
+    load = context.get_param("load_percent")
+    logger.measure("output_voltage", dmm.measure_voltage())
 ```
 
 ## Accessing Vector Parameters via Context
 
 ```python
-@litmus_test
-def test_sweep(context, psu, dmm):
-    # Get required parameter
-    vin = context.inputs["input_voltage"]
+def test_sweep(context, psu, dmm, logger):
+    # Get required parameter (raises if missing)
+    vin = context.get_param("input_voltage")
 
     # Get optional parameter with default
-    load = context.get_in("load_percent", 0)
+    load = context.get_param("load_percent", 0)
 
     # Get all parameters
-    print(context.inputs)  # {"input_voltage": 5.0, "load_percent": 50}
+    print(context.params)  # {"input_voltage": 5.0, "load_percent": 50}
 
     psu.set_voltage(vin)
-    return dmm.measure_voltage()
+    logger.measure("output_voltage", dmm.measure_voltage())
 ```
 
 The context provides:
-- `context.inputs["key"]` - Required parameter (raises KeyError if missing)
-- `context.get_in("key", default)` - Optional parameter with default
-- `context.inputs` - All parameters as a dict
+- `context.get_param("key")` - Required parameter (raises if missing)
+- `context.get_param("key", default)` - Optional parameter with default
+- `context.params` - All parameters as a dict
 
-## Expansion Modes
+## Range Expanders
 
-### product (Cartesian)
-
-All combinations:
+Any vector argvalues position accepts a range-expander dict that fans out
+to a flat list at YAML load:
 
 ```yaml
-vectors:
-  expand: product
-  voltage: [3.3, 5.0, 12.0]
-  current: [0.1, 0.5, 1.0]
-# Creates 9 vectors: (3.3, 0.1), (3.3, 0.5), ..., (12.0, 1.0)
+sweeps:
+  - {voltage: {linspace: [3.0, 5.0, 5]}}      # 5 evenly-spaced points
+  - {frequency: {logspace: [1, 6, 6]}}        # 6 points 10^1 to 10^6
+  - {soak_count: {repeat: [5.0, 100]}}        # 100 copies of 5.0
+  - {pin: {range: [1, 17]}}                   # 1..16
 ```
 
-### zip (Parallel)
+Available expanders: `linspace`, `arange`, `logspace`, `geomspace`,
+`repeat`, `range`. Same shape works in any list position across all Litmus
+YAML (sidecars, profiles, stations, products).
 
-Pair elements by position:
+## Product with Change Detection
 
-```yaml
-vectors:
-  expand: zip
-  voltage: [3.3, 5.0, 12.0]
-  current: [0.1, 0.5, 1.0]
-# Creates 3 vectors: (3.3, 0.1), (5.0, 0.5), (12.0, 1.0)
-```
-
-### Range strings (Numeric sweeps)
-
-Use a compact `"start:stop:step"` string anywhere a list is expected:
+Put slow-changing parameters first. Use `context.changed()` to detect outer
+loop changes:
 
 ```yaml
-vectors:
-  expand: product
-  voltage: "3.0:5.0:0.5"
-# Creates: 3.0, 3.5, 4.0, 4.5, 5.0
-```
-
-### Explicit List
-
-Define each vector explicitly:
-
-```yaml
-vectors:
-  - input_voltage: 5.0
-    load: 0.1
-  - input_voltage: 5.0
-    load: 0.8
-  - input_voltage: 12.0
-    load: 0.5
-```
-
-### Product with Change Detection
-
-Put slow-changing parameters first. Use `context.changed()` to detect outer loop changes:
-
-```yaml
-vectors:
-  expand: product
-  temperature: [25, 85]      # Outer (changes slowly)
-  load: [0.1, 0.5]           # Inner (changes fast)
+sweeps:
+  - {temperature: [25, 85]}      # Outer (changes slowly)
+  - {load: [0.1, 0.5]}           # Inner (changes fast)
 ```
 
 ```python
-@litmus_test
-def test_temp_sweep(context, chamber, dmm):
+def test_temp_sweep(context, chamber, dmm, logger):
     if context.changed("temperature"):
         # Only reconfigure when temperature changes
-        chamber.set_temp(context.inputs["temperature"])
+        chamber.set_temp(context.get_param("temperature"))
         time.sleep(60)  # Wait for stabilization
 
-    return dmm.measure_voltage()
+    logger.measure("output_voltage", dmm.measure_voltage())
 ```
 
-## Retry Configuration
+## Retries
 
-Handle flaky measurements:
+For flaky tests, use the pytest ecosystem:
 
-```yaml
-# In sequence step or inline config
-retry:
-  max_attempts: 3
-  delay_seconds: 0.5
-```
-
-If the test fails, it retries up to 3 times with 0.5s delay between attempts.
-
-## Complete Example
-
-**Sequence (production):**
-```yaml
-# sequences/power_board_smoke.yaml
-id: power_board_smoke
-test_phase: production
-
-steps:
-    - id: input_voltage
-      test: tests/test_power.py::test_input_voltage
-      limits:
-        test_input_voltage:
-          low: 4.5
-          high: 5.5
-          nominal: 5.0
-          units: V
-
-    - id: load_sweep
-      test: tests/test_power.py::test_load_sweep
-      vectors:
-        expand: product
-        load_percent: [0, 50, 100]
-      limits:
-        test_load_sweep:
-          low: 3.135
-          high: 3.465
-          units: V
-      retry:
-        max_attempts: 2
-```
-
-**Test code (same for both modes):**
 ```python
-from litmus.execution import litmus_test
+import pytest
 
-@litmus_test(
-    limits={"test_input_voltage": {"low": 4.5, "high": 5.5, "nominal": 5.0, "units": "V"}},
-)
-def test_input_voltage(context, psu):
-    """Inline limits used for ad-hoc runs; sequence overrides in production."""
-    psu.set_voltage(5.0)
-    psu.enable_output()
-    return psu.measure_voltage()
 
-@litmus_test(
-    config={"vectors": {"expand": "product", "load_percent": [0, 50, 100]}},
-    limits={"test_load_sweep": {"low": 3.135, "high": 3.465, "units": "V"}},
-)
-def test_load_sweep(context, psu, dmm, eload):
-    """Multiple vectors with limits."""
-    psu.set_voltage(5.0)
-    psu.enable_output()
-    eload.set_current(context.inputs["load_percent"] / 100.0)
-    eload.enable()
-    voltage = dmm.measure_voltage()
-    eload.disable()
-    return voltage
+@pytest.mark.flaky(reruns=3, reruns_delay=0.5)
+def test_flaky(dmm, logger):
+    logger.measure("voltage", dmm.measure_voltage())
 ```
 
-**Run:**
-```bash
-# Ad-hoc (uses inline decorator config)
-pytest tests/test_power.py -v --dut-serial=TEST001
-
-# Production (sequence overrides decorator config)
-pytest tests/ --sequence=power_board_smoke --station=bench_1 -v
-```
+This uses `pytest-rerunfailures` (already a Litmus dependency).
 
 ## What You Learned
 
-- Config lives in sequence steps (primary) or inline decorators (fallback)
-- Sequence step config replaces decorator config entirely
-- Vector expansion modes (product, zip, range strings, recursive sub-blocks)
-- Accessing vector parameters via context.inputs and context.get_in()
-- Using context.changed() for product sweeps
-- Retry configuration
+- Config lives in markers (inline) or sidecar YAML (declarative)
+- Markers and sidecar entries merge by name+key — later wins on overlap
+- Vector expansion: cross-product across keys, zip via comma-joined argnames
+- Range expanders (`linspace`, `arange`, `logspace`, …) for compact sweeps
+- Accessing vector parameters via `context.get_param()` and `context.params`
+- Using `context.changed()` for outer-loop detection
+- Retries via `@pytest.mark.flaky`
 
 ## Next Step
 

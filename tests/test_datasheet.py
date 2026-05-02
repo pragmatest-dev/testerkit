@@ -16,7 +16,7 @@ from litmus.reports.datasheet import (
 )
 from litmus.store import load_catalog_entry
 
-CATALOG_DIR = Path(__file__).parent.parent / "demo" / "catalog"
+CATALOG_DIR = Path(__file__).parent.parent / "src" / "litmus" / "catalog" / "generic"
 
 
 class TestFmtSi:
@@ -135,7 +135,7 @@ class TestBuildSignalRender:
             "range": {"min": 9000, "max": 8.5e9, "units": "Hz"},
             "accuracy": None,
             "resolution": None,
-            "specs": [
+            "bands": [
                 {
                     "when": {"option": "503"},
                     "range": {"min": 9000, "max": 3e9, "units": "Hz"},
@@ -163,7 +163,7 @@ class TestBuildSignalRender:
             "range": None,
             "accuracy": None,
             "resolution": None,
-            "specs": [
+            "bands": [
                 {
                     "when": {"voltage_range": 0.1, "cal": "24h"},
                     "range": None,
@@ -203,7 +203,7 @@ class TestBuildSignalRender:
             "range": {"min": 0, "max": 100, "units": "V"},
             "accuracy": {"pct_reading": 1.0},
             "resolution": None,
-            "specs": [
+            "bands": [
                 {
                     "when": {"freq": "low"},
                     "range": {"min": 0, "max": 50, "units": "V"},
@@ -228,7 +228,7 @@ class TestBuildSignalRender:
             "range": None,
             "accuracy": None,
             "resolution": None,
-            "specs": [
+            "bands": [
                 {
                     "when": {"freq": "low"},
                     "range": {"min": 0, "max": 50, "units": "V"},

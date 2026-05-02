@@ -4,18 +4,17 @@ from pathlib import Path
 from unittest.mock import patch
 
 from litmus.matching.service import recommend_from_catalog
-from litmus.models.catalog import InstrumentCatalogEntry
-from litmus.models.config import (
+from litmus.models.capability import (
     AccuracySpec,
     Condition,
-    Direction,
     InstrumentCapability,
-    MeasurementFunction,
     RangeSpec,
     ResolutionSpec,
     Signal,
     SpecBand,
 )
+from litmus.models.catalog import InstrumentCatalogEntry
+from litmus.models.enums import Direction, MeasurementFunction
 
 
 def _make_entry(
@@ -233,7 +232,7 @@ AC_DMM = _make_entry(
                 "voltage": Signal(
                     range=RangeSpec(min=0, max=750, units="V"),
                     accuracy=AccuracySpec(pct_reading=0.1),
-                    specs=[
+                    bands=[
                         SpecBand(
                             when={"frequency": RangeSpec(min=20, max=50000, units="Hz")},
                             accuracy=AccuracySpec(pct_reading=0.05),

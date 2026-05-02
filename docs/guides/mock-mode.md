@@ -7,7 +7,7 @@ Run tests without hardware using Litmus mock instruments.
 Add `--mock-instruments` to run without hardware:
 
 ```bash
-pytest tests/ --station-config=stations/bench_1.yaml --mock-instruments --dut-serial=SIM001
+pytest tests/ --station=stations/bench_1.yaml --mock-instruments --dut-serial=SIM001
 ```
 
 The same test code works with real hardware or mocks.
@@ -62,18 +62,33 @@ steps:
         units: V
 ```
 
-Or in the inline decorator:
+Or from a test using `pytest-mock`'s `mocker` fixture when a specific
+case needs its own patch:
 
 ```python
-@litmus_test(
-    config={"mocks": {"dmm.measure_voltage": 3.31}},
-    limits={"test_output_voltage": {"low": 3.2, "high": 3.4}},
-)
-def test_output_voltage(context, dmm):
-    return dmm.measure_dc_voltage()
+import pytest
+
+@pytest.mark.litmus_limits(output_voltage={"low": 3.2, "high": 3.4, "units": "V"})
+def test_output_voltage(mocker, context, dmm, logger):
+    mocker.patch.object(dmm, "measure_dc_voltage", return_value=3.31)
+    logger.measure("output_voltage", dmm.measure_dc_voltage())
 ```
 
-The `mocks` key maps `instrument.method` to return values.
+To suppress sidecar `mocks:` entries session-wide, declare a profile
+with `mocks: []` — the cascade applies that override on top of all
+sidecars (instrument-layer `--mock-instruments` is independent).
+
+Or in a sidecar YAML:
+
+```yaml
+# tests/test_power.yaml
+mocks:
+  dmm.measure_dc_voltage: 3.31
+limits:
+  output_voltage: {low: 3.2, high: 3.4, units: V}
+```
+
+All forms map `instrument.method` to return values. Patches install on test entry and unwind on teardown.
 
 ### Vector-Level (Different Values per Condition)
 
@@ -131,7 +146,7 @@ This allows realistic tests where:
 - name: Run tests
   run: |
     pytest tests/ \
-      --station-config=stations/bench_1.yaml \
+      --station=stations/bench_1.yaml \
       --mock-instruments \
       --dut-serial=CI-TEST \
       -v
@@ -170,7 +185,7 @@ instruments:
 Run without `--mock-instruments`:
 
 ```bash
-pytest tests/ --station-config=stations/mixed_bench.yaml --dut-serial=SN001
+pytest tests/ --station=stations/mixed_bench.yaml --dut-serial=SN001
 ```
 
 - `psu` and `eload` connect to real hardware
@@ -187,7 +202,7 @@ Set `LITMUS_MOCK_INSTRUMENTS=1` to enable mock mode without the CLI flag:
 
 ```bash
 export LITMUS_MOCK_INSTRUMENTS=1
-pytest tests/ --station-config=stations/bench_1.yaml --dut-serial=CI-TEST
+pytest tests/ --station=stations/bench_1.yaml --dut-serial=CI-TEST
 ```
 
 ## The mock_instruments Fixture

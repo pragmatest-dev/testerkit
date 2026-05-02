@@ -21,9 +21,9 @@ class TestBuildWriteSchemaFixed:
         row = {
             "run_id": "r1",
             "step_name": "test_v",
-            "value": 3.3,
-            "units": "V",
-            "outcome": "PASS",
+            "measurement_value": 3.3,
+            "measurement_units": "V",
+            "measurement_outcome": "PASS",
             "step_index": 0,
         }
         schema = _build_write_schema([row])
@@ -64,16 +64,16 @@ class TestAllNoneColumn:
 
     def test_low_limit_all_none(self):
         rows = [
-            {"run_id": "r1", "low_limit": None, "value": 1.0},
-            {"run_id": "r2", "low_limit": None, "value": 2.0},
+            {"run_id": "r1", "limit_low": None, "measurement_value": 1.0},
+            {"run_id": "r2", "limit_low": None, "measurement_value": 2.0},
         ]
         schema = _build_write_schema(rows)
-        assert schema.field("low_limit").type == pa.float64()
+        assert schema.field("limit_low").type == pa.float64()
 
     def test_value_all_none(self):
-        rows = [{"run_id": "r1", "value": None}]
+        rows = [{"run_id": "r1", "measurement_value": None}]
         schema = _build_write_schema(rows)
-        assert schema.field("value").type == pa.float64()
+        assert schema.field("measurement_value").type == pa.float64()
 
     def test_dynamic_all_none_defaults_to_string(self):
         rows = [{"run_id": "r1", "in_unknown": None}]
@@ -85,14 +85,14 @@ class TestInstrArrayColumns:
     """Instrument array columns get known list types."""
 
     def test_instr_name_is_list_string(self):
-        rows = [{"run_id": "r1", "instr_name": ["DMM1"]}]
+        rows = [{"run_id": "r1", "step_instruments_name": ["DMM1"]}]
         schema = _build_write_schema(rows)
-        assert schema.field("instr_name").type == pa.list_(pa.string())
+        assert schema.field("step_instruments_name").type == pa.list_(pa.string())
 
     def test_instr_mocked_is_list_bool(self):
-        rows = [{"run_id": "r1", "instr_mocked": [True, False]}]
+        rows = [{"run_id": "r1", "step_instruments_mocked": [True, False]}]
         schema = _build_write_schema(rows)
-        assert schema.field("instr_mocked").type == pa.list_(pa.bool_())
+        assert schema.field("step_instruments_mocked").type == pa.list_(pa.bool_())
 
     def test_all_instr_keys_in_type_map(self):
         from litmus.execution.logger import INSTRUMENT_ARRAY_KEYS
@@ -105,7 +105,7 @@ class TestWriteRejectsTypeMismatch:
     """Explicit schema makes Arrow reject invalid data at construction."""
 
     def test_string_in_float_column_raises(self):
-        rows = [{"run_id": "r1", "value": "not_a_number"}]
+        rows = [{"run_id": "r1", "measurement_value": "not_a_number"}]
         schema = _build_write_schema(rows)
         with pytest.raises(pa.ArrowInvalid):
             table_from_rows(rows, schema)
@@ -128,9 +128,9 @@ class TestRoundTripExplicitSchema:
             name="voltage",
             value=3.3,
             units="V",
-            low_limit=3.0,
-            high_limit=3.6,
-            outcome=Outcome.PASS,
+            limit_low=3.0,
+            limit_high=3.6,
+            outcome=Outcome.PASSED,
         )
         v = TestVector(index=0, measurements=[m])
         s = TestStep(name="test_v", vectors=[v])
@@ -138,16 +138,15 @@ class TestRoundTripExplicitSchema:
             dut=DUT(serial="SN001"),
             steps=[s],
             station_id="bench_1",
-            test_sequence_id="seq1",
-            outcome=Outcome.PASS,
+            outcome=Outcome.PASSED,
         )
 
         backend = ParquetBackend(results_dir=tmp_path)
         path = backend.save_test_run(run)
 
         table = pq.read_table(path)
-        assert table.schema.field("value").type == pa.float64()
-        assert table.schema.field("low_limit").type == pa.float64()
+        assert table.schema.field("measurement_value").type == pa.float64()
+        assert table.schema.field("limit_low").type == pa.float64()
         assert table.schema.field("run_id").type == pa.string()
         assert table.schema.field("step_index").type == pa.int64()
 
@@ -157,7 +156,7 @@ class TestRoundTripExplicitSchema:
             name="voltage",
             value=3.3,
             units="V",
-            outcome=Outcome.PASS,
+            outcome=Outcome.PASSED,
         )
         v = TestVector(
             index=0,
@@ -169,8 +168,7 @@ class TestRoundTripExplicitSchema:
             dut=DUT(serial="SN001"),
             steps=[s],
             station_id="bench_1",
-            test_sequence_id="seq1",
-            outcome=Outcome.PASS,
+            outcome=Outcome.PASSED,
         )
 
         backend = ParquetBackend(results_dir=tmp_path)

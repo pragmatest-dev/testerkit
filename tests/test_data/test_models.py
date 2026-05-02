@@ -9,16 +9,25 @@ class TestOutcomeEnum:
     """Tests for Outcome enum."""
 
     def test_pass_value(self):
-        assert Outcome.PASS.value == "pass"
+        assert Outcome.PASSED.value == "passed"
 
     def test_fail_value(self):
-        assert Outcome.FAIL.value == "fail"
+        assert Outcome.FAILED.value == "failed"
 
     def test_error_value(self):
-        assert Outcome.ERROR.value == "error"
+        assert Outcome.ERRORED.value == "errored"
 
     def test_skip_value(self):
-        assert Outcome.SKIP.value == "skip"
+        assert Outcome.SKIPPED.value == "skipped"
+
+    def test_done_value(self):
+        assert Outcome.DONE.value == "done"
+
+    def test_aborted_value(self):
+        assert Outcome.ABORTED.value == "aborted"
+
+    def test_planned_value(self):
+        assert Outcome.PLANNED.value == "planned"
 
 
 class TestMeasurement:
@@ -36,78 +45,83 @@ class TestMeasurement:
             name="voltage",
             value=5.0,
             units="V",
-            low_limit=4.5,
-            high_limit=5.5,
+            limit_low=4.5,
+            limit_high=5.5,
         )
-        assert m.low_limit == 4.5
-        assert m.high_limit == 5.5
+        assert m.limit_low == 4.5
+        assert m.limit_high == 5.5
 
     def test_check_limit_pass(self):
         m = Measurement(
             name="voltage",
             value=5.0,
-            low_limit=4.5,
-            high_limit=5.5,
+            limit_low=4.5,
+            limit_high=5.5,
         )
         result = m.check_limit()
-        assert result == Outcome.PASS
-        assert m.outcome == Outcome.PASS
+        assert result == Outcome.PASSED
+        assert m.outcome == Outcome.PASSED
 
     def test_check_limit_fail_low(self):
         m = Measurement(
             name="voltage",
             value=4.0,
-            low_limit=4.5,
-            high_limit=5.5,
+            limit_low=4.5,
+            limit_high=5.5,
         )
         result = m.check_limit()
-        assert result == Outcome.FAIL
-        assert m.outcome == Outcome.FAIL
+        assert result == Outcome.FAILED
+        assert m.outcome == Outcome.FAILED
 
     def test_check_limit_fail_high(self):
         m = Measurement(
             name="voltage",
             value=6.0,
-            low_limit=4.5,
-            high_limit=5.5,
+            limit_low=4.5,
+            limit_high=5.5,
         )
         result = m.check_limit()
-        assert result == Outcome.FAIL
-        assert m.outcome == Outcome.FAIL
+        assert result == Outcome.FAILED
+        assert m.outcome == Outcome.FAILED
 
     def test_check_limit_error_none_value(self):
         m = Measurement(
             name="voltage",
             value=None,
-            low_limit=4.5,
-            high_limit=5.5,
+            limit_low=4.5,
+            limit_high=5.5,
         )
         result = m.check_limit()
-        assert result == Outcome.ERROR
-        assert m.outcome == Outcome.ERROR
+        assert result == Outcome.ERRORED
+        assert m.outcome == Outcome.ERRORED
 
-    def test_check_limit_no_limits_passes(self):
+    def test_check_limit_no_limits_records_done(self):
+        """``check_limit`` with no limit fields stamped → DONE.
+
+        Recorder semantic ("ran, no judgment") matches what
+        ``logger.measure`` produces for the same case.
+        """
         m = Measurement(name="voltage", value=5.0)
         result = m.check_limit()
-        assert result == Outcome.PASS
+        assert result == Outcome.DONE
 
     def test_check_limit_only_low(self):
-        m = Measurement(name="voltage", value=5.0, low_limit=4.5)
+        m = Measurement(name="voltage", value=5.0, limit_low=4.5)
         result = m.check_limit()
-        assert result == Outcome.PASS
+        assert result == Outcome.PASSED
 
-        m2 = Measurement(name="voltage", value=4.0, low_limit=4.5)
+        m2 = Measurement(name="voltage", value=4.0, limit_low=4.5)
         result2 = m2.check_limit()
-        assert result2 == Outcome.FAIL
+        assert result2 == Outcome.FAILED
 
     def test_check_limit_only_high(self):
-        m = Measurement(name="voltage", value=5.0, high_limit=5.5)
+        m = Measurement(name="voltage", value=5.0, limit_high=5.5)
         result = m.check_limit()
-        assert result == Outcome.PASS
+        assert result == Outcome.PASSED
 
-        m2 = Measurement(name="voltage", value=6.0, high_limit=5.5)
+        m2 = Measurement(name="voltage", value=6.0, limit_high=5.5)
         result2 = m2.check_limit()
-        assert result2 == Outcome.FAIL
+        assert result2 == Outcome.FAILED
 
 
 class TestDUT:
@@ -138,7 +152,7 @@ class TestTestStep:
         step = TestStep(name="measure_voltage")
         assert step.name == "measure_voltage"
         assert isinstance(step.id, UUID)
-        assert step.outcome == Outcome.PASS
+        assert step.outcome == Outcome.PASSED
         # Steps now contain vectors, which contain measurements
         assert step.vectors == []
 
@@ -160,12 +174,10 @@ class TestTestRun:
         run = TestRun(
             dut=DUT(serial="SN001"),
             station_id="station_001",
-            test_sequence_id="test_suite",
         )
         assert run.dut.serial == "SN001"
         assert run.station_id == "station_001"
-        assert run.test_sequence_id == "test_suite"
-        assert run.outcome == Outcome.PASS
+        assert run.outcome == Outcome.PASSED
         assert run.steps == []
 
     def test_test_run_with_steps(self):
@@ -173,7 +185,25 @@ class TestTestRun:
         run = TestRun(
             dut=DUT(serial="SN001"),
             station_id="station_001",
-            test_sequence_id="test_suite",
             steps=[step],
         )
         assert len(run.steps) == 1
+
+    def test_test_run_bringup_tier_no_station(self):
+        """Bringup tier: no station YAML loaded, station_id is None.
+
+        ``station_hostname`` always populates from ``socket.gethostname()``
+        downstream, so a bringup-tier run is still traceable to a
+        machine — but the canonical station ``id`` doesn't exist.
+        """
+        run = TestRun(
+            dut=DUT(serial="SN001"),
+            station_id=None,
+        )
+        assert run.station_id is None
+
+        # Round-trip through Pydantic to confirm None survives serialization.
+        payload = run.model_dump()
+        assert payload["station_id"] is None
+        rehydrated = TestRun.model_validate(payload)
+        assert rehydrated.station_id is None

@@ -75,7 +75,7 @@ signals:                         # What's being measured/sourced
     range: {min: 0, max: 1000, units: V}
     accuracy: {pct_reading: 0.07, pct_range: 0.02}
     resolution: {digits: 6.5}
-    specs: [...]                 # Condition-dependent overrides
+    bands: [...]                 # Condition-dependent overrides
 
 conditions:                      # Operating conditions affecting accuracy
   frequency:
@@ -186,7 +186,7 @@ Real instruments don't have a single accuracy — it varies with operating condi
     voltage:
       range: {min: 0.1, max: 750, units: V}
       accuracy: {pct_reading: 0.07, pct_range: 0.02}  # default/best-case
-      specs:                                            # condition-dependent overrides
+      bands:                                            # condition-dependent overrides
         - when:
             frequency: {min: 3, max: 5, units: Hz}
           accuracy: {pct_reading: 0.35, pct_range: 0.03}
@@ -238,7 +238,7 @@ characteristics:
     direction: output          # DUT provides this signal
     pins: [VOUT]               # which physical pin
     units: V
-    specs:
+    bands:
       - when:
           load: {min: 0, max: 0.5, units: A}
           temperature: {min: 25, max: 25, units: degC}
@@ -307,7 +307,7 @@ characteristics:
       voltage:                   │
         value: 3.3               │
         units: V                 │
-    specs:                       │
+    bands:                       │
       - when:              │
           load: {min: 0, max: 1} │
         accuracy: {pct_reading: 5.0}

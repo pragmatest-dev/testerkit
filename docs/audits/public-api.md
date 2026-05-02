@@ -28,15 +28,18 @@ entry and a deprecation cycle where practical).
 
 ### Sub-namespaces (stable as a group)
 
-- `litmus.models.*` — domain types (Product, StationConfig, Limit, …).
-  Pure Pydantic, no I/O.
+- `litmus.models.*` — YAML schema types authored by users and loaded
+  through `litmus.store` (Product, StationConfig, Limit, Capability,
+  enums, …). Pure Pydantic, no I/O.
 - `litmus.execution.*` — `litmus_test`, `litmus_step`, `measure`,
   `TestHarness`, `Context`, `Vector`, `expand_vectors`, plus contextvar
-  setters used by pytest plugin.
-- `litmus.config.*` — `load_test_config`, `get_test_config`, enum helpers,
-  re-exported model types.
+  setters used by the pytest plugin. Runner-neutral: no module-level
+  pytest imports.
+- `litmus.pytest_plugin` — pytest delivery (hooks, fixtures, marker
+  translation). Auto-loaded via the `pytest11` entry point.
 - `litmus.store` — central YAML I/O: `load_*`, `list_*`, `get_*`,
-  `create_*`, `save_*` per entity, plus `find_yaml_files`.
+  `create_*`, `save_*` per entity, plus `find_yaml_files`,
+  `expand_ranges`, `dump_yaml`, `check_instrument_types`.
 - `litmus.matching.service` — capability matching.
 - `litmus.data.models` — `TestRun`, `Measurement`, `Outcome`, `DUT`,
   `TestVector`, `TestStep`.
@@ -46,7 +49,7 @@ entry and a deprecation cycle where practical).
   `Instrument` / `VisaInstrument`. Observer classes stay private.
 - `litmus.fixtures` — `FixtureManager`, `PinAccessor`.
 - `litmus.products` — `Product`, `ProductCharacteristic`, `ProductFolder`,
-  `SpecContext`, `ProductManifest`, workflow helpers.
+  `ProductContext`, `ProductManifest`, workflow helpers.
 - `litmus.dialogs` — operator dialogs.
 - `litmus.schema_export` — `SCHEMA_MAP`, `FileType`, `export_schemas`.
 
@@ -62,7 +65,7 @@ entry and a deprecation cycle where practical).
 - `litmus.mcp.*` — MCP tools; users invoke over MCP, not Python.
 - `litmus.reports.*`, `litmus.grafana.*`, `litmus.analysis.*` — extension
   hooks for later releases; treat as internal for 0.1.0.
-- `litmus.execution.plugin`, `litmus.execution.logger._*`,
+- `litmus.pytest_plugin`, `litmus.execution.logger._*`,
   `litmus.execution.accessors._*` — pytest plugin internals.
 - Any attribute or module with a leading underscore.
 
@@ -122,4 +125,4 @@ Least-invasive first. Each change keeps the old import path working.
   paths listed in **Stable public surface** above.
 - `uv run pyright` stays clean.
 - `uv run pytest` stays green.
-- External demo code (`demo/`) continues to work without changes.
+- Example projects (`examples/`) continue to work without changes.

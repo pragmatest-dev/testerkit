@@ -94,11 +94,8 @@ Benefits:
 Follow the **full tutorial** for complete integration:
 
 ```python
-from litmus.execution import litmus_test
-
-@litmus_test
-def test_voltage(context, dmm):
-    return dmm.measure_voltage()
+def test_voltage(dmm, logger):
+    logger.measure("voltage", dmm.measure_voltage())
 ```
 
 Benefits:
@@ -116,7 +113,7 @@ Each integration level has trade-offs:
 | Level | What You Keep | What You Miss |
 |-------|--------------|---------------|
 | Results API only | All existing code | Capability matching, instrument simulation |
-| Harness only | Existing test structure | @litmus_test decorator, vector expansion |
+| Harness only | Existing test structure | pytest-native fixtures, vector expansion |
 | Instruments only | Existing framework | Automatic result capture |
 | Full framework | — | Existing tests need migration |
 
@@ -142,7 +139,7 @@ Each integration level has trade-offs:
 
 ### Phase 4: Full Integration
 
-1. New tests use `@litmus_test` decorator
+1. New tests use the pytest-native `context`/`verify`/`logger` fixtures
 2. Migrate high-value tests
 3. Keep legacy tests with Results API
 
@@ -152,7 +149,7 @@ Litmus components work independently. You can:
 
 - Use Results API from LabVIEW while writing new tests in pytest
 - Use Litmus instruments with Robot Framework
-- Mix @litmus_test and plain pytest tests in the same suite
+- Mix Litmus-aware pytest tests (using `context`/`verify`/`logger`) with plain pytest tests
 
 ## Getting Help
 

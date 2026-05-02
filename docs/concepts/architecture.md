@@ -12,11 +12,11 @@
 
   products/*.yaml            tests/config.yaml        tests/test_*.py       pytest
   ┌───────────┐          ┌────────────┐           ┌────────────┐       ┌───────┐
-  │ Product   │          │ vectors    │           │ @litmus_   │       │ CLI   │
-  │ - pins    │          │ - sweep    │           │   test     │       │  or   │
-  │ - chars   │          │ - params   │           │            │       │  UI   │
-  │ - limits  │          │ limits     │           │ measure()  │       │       │
-  └───────────┘          │ - per-test │           │ return val │       └───────┘
+  │ Product   │          │ vectors    │           │ def test_  │       │ CLI   │
+  │ - pins    │          │ - sweep    │           │ (ctx, verify,│       │  or   │
+  │ - chars   │          │ - params   │           │  logger):  │       │  UI   │
+  │ - limits  │          │ limits     │           │ verify │       │       │
+  └───────────┘          │ - per-test │           │ or measure │       └───────┘
                          │ retry      │           └────────────┘
   stations/*.yaml        │ - attempts │
   ┌───────────┐          │ dialogs    │
@@ -179,7 +179,7 @@ erDiagram
         string product_id FK
     }
 
-    FixturePoint {
+    FixtureConnection {
         string name PK
         string dut_pin FK
         string instrument FK
@@ -237,9 +237,9 @@ erDiagram
 
     %% Fixture (optional)
     Fixture }o--|| Product : "for"
-    Fixture ||--o{ FixturePoint : has
-    FixturePoint }o--|| Pin : connects
-    FixturePoint }o--|| Instrument : "routes to"
+    Fixture ||--o{ FixtureConnection : has
+    FixtureConnection }o--|| Pin : connects
+    FixtureConnection }o--|| Instrument : "routes to"
 
     %% Capability matching
     Characteristic ||--|| Capability : "requires (direction flipped)"
@@ -279,13 +279,13 @@ erDiagram
 
   products/product.yaml                    tests/config.yaml            test_*.py
   ┌─────────────────────┐              ┌─────────────────────┐      ┌─────────────┐
-  │ characteristics:    │              │ test_output:        │      │ harness.    │
+  │ characteristics:    │              │ test_output:        │      │ logger.     │
   │   output_voltage:   │              │   limits:           │      │   measure(  │
   │     conditions:     │              │     output_voltage: │      │     "vout", │
   │       - nominal: 3.3│              │       low: 3.2      │      │     value,  │
-  │         tolerance: 5%              │       high: 3.4     │      │     low=3.2,│
-  │         temp: 25    │              │       units: V      │      │     high=3.4│
-  │         load: 1.0   │              └─────────────────────┘      │   )         │
+  │         tolerance: 5%              │       high: 3.4     │      │     limit=  │
+  │         temp: 25    │              │       units: V      │      │       Limit(│
+  │         load: 1.0   │              └─────────────────────┘      │       ...)) │
   │                     │                                           └─────────────┘
   │ specs
   │   verify_output:    │
@@ -314,15 +314,15 @@ Product Spec (YAML)              Test Config (YAML)           Test Code (Python)
 
 products/tps54302.yaml              tests/config.yaml            tests/test_*.py
 ┌────────────────────┐           ┌────────────────────┐       ┌────────────────┐
-│ characteristics:   │           │ test_output:       │       │ @litmus_test   │
-│   output_voltage:  │           │   vectors:         │       │ def test_output│
-│     conditions:    │           │     expand: product│       │  (context, dmm):│
-│       - temp: 25   │──────────►│     temp: [25, 85] │──────►│                │
-│         load: 0.5  │  lookup   │     load: [0.5,3.0]│ sweep │  # context has  │
-│         nominal:3.3│  limit    │                    │       │  # temp & load │
-│         tol: 1%    │  for      │   limits:          │       │                │
-│       - temp: 25   │  condition│     ref: specs.    │       │  return dmm.   │
-│         load: 3.0  │           │       output_volt  │       │    measure()   │
+│ characteristics:   │           │ test_output:       │       │ def test_output│
+│   output_voltage:  │           │   vectors:         │       │  (dmm, verify):  │
+│     conditions:    │           │     expand: product│       │                │
+│       - temp: 25   │──────────►│     temp: [25, 85] │──────►│  # ctx has     │
+│         load: 0.5  │  lookup   │     load: [0.5,3.0]│ sweep │  # temp & load │
+│         nominal:3.3│  limit    │                    │       │                │
+│         tol: 1%    │  for      │   limits:          │       │  verify(   │
+│       - temp: 25   │  condition│     ref: specs.    │       │  "output_volt",│
+│         load: 3.0  │           │       output_volt  │       │  dmm.measure())│
 │         nominal:3.3│           │     guardband: 10% │       └────────────────┘
 │         tol: 1%    │           └────────────────────┘
 │       - temp: 85   │
@@ -341,16 +341,16 @@ products/tps54302.yaml              tests/config.yaml            tests/test_*.py
 │   for vector in vectors:  # {temp:25, load:0.5}, {temp:25, load:3.0}, ...  │
 │       # Create vector context and populate with vector params               │
 │       context = Context(parent=step_context, prev=prev_vector_context)      │
-│       context.set_inputs(vector.params())  # temp, load → context.inputs    │
+│       context.set_params(vector.params())  # temp, load → context.params    │
 │                                                                             │
 │       # Resolve limit (may be callable using context)                       │
 │       limit = spec.get_limit("output_voltage", ctx=context)                 │
 │                                                                             │
-│       # Call test with context (vector params inside)                       │
-│       value = test_func(context, dmm)  # context.inputs["temp"], ["load"]   │
+│       # Call test with fixtures (context has vector params)                 │
+│       test_func(dmm, verify)  # ctx.get_param("temp"), ("load")               │
 │                                                                             │
 │       result = check(value, limit)  # PASS/FAIL                            │
-│       store(Measurement(value, limit, result, params=context.inputs))       │
+│       store(Measurement(value, limit, result, params=context.params))       │
 │                                                                             │
 └─────────────────────────────────────────────────────────────────────────────┘
 ```

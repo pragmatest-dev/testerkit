@@ -1,0 +1,26 @@
+# Per-test spec-driven limits.
+#
+# Each limit names a characteristic from products/buck_3v3.yaml and a
+# tolerance. The resolver reads the band off the product at
+# measurement time — change rail_3v3's nominal in the product YAML
+# and every test recomputes its limit band.
+#
+# This chapter has no station YAML and no fixture YAML; instruments
+# come from conftest.py. Chapter 6 introduces both, and the
+# corresponding ``ctx.connections`` iteration that goes with them.
+
+tests:
+  test_rail_within_spec:
+    limits:
+      v_rail: {characteristic: rail_3v3, tolerance_pct: 2}
+
+  test_rail_holds_across_input:
+    sweeps:
+      - {vin: [3.3, 5.0, 5.5]}
+    limits:
+      v_rail: {characteristic: rail_3v3, tolerance_pct: 2}
+
+  TestIdle:
+    limits:
+      v_rail: {characteristic: rail_3v3, tolerance_pct: 2}
+      i_idle: {characteristic: idle_current, tolerance_pct: 20}

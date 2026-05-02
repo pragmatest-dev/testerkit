@@ -326,7 +326,7 @@ instruments:
 ```
 
 ```bash
-pytest tests/ --station-config=stations/my_station.yaml --mock-instruments
+pytest tests/ --station=stations/my_station.yaml --mock-instruments
 ```
 
 See [Mock Mode](simulation-mode.md) for per-test and per-vector mock configuration.

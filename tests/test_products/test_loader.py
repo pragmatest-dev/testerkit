@@ -5,7 +5,7 @@ from pathlib import Path
 import pytest
 
 from litmus.execution.limits import derive_limit
-from litmus.models.config import Comparator, Direction, MeasurementFunction
+from litmus.models.enums import Comparator, Direction, MeasurementFunction
 from litmus.models.product import Product
 from litmus.products.loader import load_product_driver, resolve_product_driver
 from litmus.store import load_product
@@ -17,7 +17,7 @@ class TestLoadProduct:
     @pytest.fixture
     def power_board_path(self) -> Path:
         """Path to the sample power board spec."""
-        return Path(__file__).parent.parent / "fixtures" / "specs" / "power_board.yaml"
+        return Path(__file__).parent.parent / "fixtures" / "specs" / "power_board_v1.yaml"
 
     def test_load_product_metadata(self, power_board_path):
         """Test loading product metadata."""
@@ -59,7 +59,7 @@ class TestLoadProduct:
         product = load_product(power_board_path)
         char = product.characteristics["rail_3v3_output"]
 
-        assert len(char.specs) >= 3
+        assert len(char.bands) >= 3
 
         band = char.get_spec_at({"temperature": 25, "load": 0.1, "input_voltage": 5.0})
         assert band is not None
@@ -83,7 +83,7 @@ class TestIntegration:
     @pytest.fixture
     def power_board_path(self) -> Path:
         """Path to the sample power board spec."""
-        return Path(__file__).parent.parent / "fixtures" / "specs" / "power_board.yaml"
+        return Path(__file__).parent.parent / "fixtures" / "specs" / "power_board_v1.yaml"
 
     def test_derive_limit_from_loaded_product(self, power_board_path):
         """Test deriving limits from a loaded product."""
@@ -138,7 +138,7 @@ class TestPartNumber:
 
     def test_load_product_without_part_number(self):
         """Test that part_number is None when not specified."""
-        spec_path = Path(__file__).parent.parent / "fixtures" / "specs" / "power_board.yaml"
+        spec_path = Path(__file__).parent.parent / "fixtures" / "specs" / "power_board_v1.yaml"
         product = load_product(spec_path)
         assert product.part_number is None
 
@@ -174,8 +174,8 @@ class TestProductInheritance:
         assert product.part_number == "VAR-002"
         assert product.revision == "B"
         char = product.characteristics["output_voltage"]
-        assert char.specs[0].accuracy is not None
-        assert char.specs[0].accuracy.pct_reading == 2.0
+        assert char.bands[0].accuracy is not None
+        assert char.bands[0].accuracy.pct_reading == 2.0
         assert "VIN" in product.pins
 
     def test_variant_base_field_set(self, specs_dir):

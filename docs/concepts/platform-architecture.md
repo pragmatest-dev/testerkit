@@ -49,7 +49,8 @@ Litmus provides **infrastructure services** that any test runner can use:
     │   pytest    │    │   OpenHTF   │    │  Your Own   │
     │   plugin    │    │   adapter   │    │   runner    │
     │             │    │             │    │             │
-    │ @litmus_test│    │ (migration) │    │ Results API │
+    │ native      │    │ (migration) │    │ Results API │
+    │ fixtures    │    │             │    │             │
     └─────────────┘    └─────────────┘    └─────────────┘
 ```
 
@@ -67,7 +68,7 @@ Because Litmus is a platform, you can access it through multiple entry points:
 
 | Entry Point | Use Case | How It Works |
 |-------------|----------|--------------|
-| **pytest** | New test development | `@litmus_test` decorator + fixtures |
+| **pytest** | New test development | pytest-native: `context`, `verify`, `logger` fixtures |
 | **CLI** | Operations, debugging | `litmus runs`, `litmus show` |
 | **HTTP API** | CI/CD, dashboards | `POST /api/runs`, `GET /api/runs/{id}` |
 | **MCP Server** | AI integration | Claude Code, other AI agents |
@@ -84,20 +85,16 @@ All entry points share the same:
 For new projects, use the pytest plugin:
 
 ```python
-from litmus.execution import litmus_test
-
-@litmus_test
-def test_output_voltage(context, psu, dmm):
-    psu.set_voltage(context.get("vin", 5.0))
+def test_output_voltage(context, psu, dmm, logger):
+    psu.set_voltage(context.get_param("vin", 5.0))
     psu.enable_output()
-    return dmm.measure_dc_voltage()
+    logger.measure("output_voltage", dmm.measure_dc_voltage())
 ```
 
 The plugin provides:
-- `@litmus_test` decorator for test functions
-- `context` fixture for test parameters
+- `context`, `verify`, and `logger` fixtures
 - Instrument fixtures from station config
-- Automatic result logging
+- Automatic result logging via `logger.measure` / `verify`
 
 ## Migration Path (OpenHTF Adapter)
 
@@ -216,8 +213,8 @@ Start small, expand as needed:
 
 | Scenario | Recommended Approach |
 |----------|---------------------|
-| New test project | pytest with @litmus_test |
-| Existing pytest tests | Add @litmus_test gradually |
+| New test project | pytest-native tests with `context`/`verify`/`logger` fixtures |
+| Existing pytest tests | Drop in Litmus fixtures + sidecar YAML incrementally |
 | Existing OpenHTF tests | Use OpenHTF adapter |
 | LabVIEW/TestStand tests | Use Results API |
 | AI-assisted development | Use MCP server |

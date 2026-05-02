@@ -18,7 +18,7 @@ This guide shows how to migrate incrementally.
 
 | OpenHTF | Litmus | Notes |
 |---------|--------|-------|
-| `@measures` decorator | `@litmus_test` | Return values become measurements |
+| `@measures` decorator | `verify()` fixture | Each `verify(name, value)` call records a measurement |
 | `Measurement` | `Measurement` | Similar API |
 | `Plug` | User's driver class | Any Python class — PyMeasure, custom, or refactored plug |
 | `PhaseResult` | `Outcome` | PASS, FAIL, SKIP, ERROR |
@@ -67,12 +67,9 @@ Run both OpenHTF and Litmus tests during migration:
 
 ```python
 # tests/test_voltage_litmus.py
-from litmus.execution import litmus_test
-
-@litmus_test
-def test_voltage(context, dmm):
+def test_voltage(context, dmm, verify):
     """Litmus version of voltage test."""
-    return dmm.measure_dc_voltage()
+    verify("voltage", float(dmm.measure_dc_voltage()))
 ```
 
 ```python
@@ -112,23 +109,15 @@ def power_test(test):
 
 **After (Litmus):**
 ```python
-from litmus.execution import litmus_test
-
-@litmus_test
-def test_power(context, psu, dmm):
+def test_power(context, psu, dmm, verify):
     """Power test migrated from OpenHTF."""
     psu.set_voltage(5.0)
     psu.enable_output()
 
-    input_voltage = dmm.measure_voltage()
-    output_voltage = dmm.measure_voltage()  # After switching
+    verify("input_voltage", float(dmm.measure_voltage()))
+    verify("output_voltage", float(dmm.measure_voltage()))  # after switching
 
     psu.disable_output()
-
-    return {
-        "input_voltage": input_voltage,
-        "output_voltage": output_voltage,
-    }
 ```
 
 **Config (tests/config.yaml):**

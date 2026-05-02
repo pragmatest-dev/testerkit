@@ -36,11 +36,10 @@ my_project/
 │   └── my_fixture.yaml          # Pin-to-channel mappings
 ├── instruments/                 # Custom instrument drivers
 │   └── custom_dmm.yaml          # Driver definitions
-├── sequences/                   # Test config + execution order
-│   └── full_validation.yaml     # Steps with vectors, limits, mocks
-├── tests/                       # Test code
+├── tests/                       # Test code + sidecar config
 │   ├── conftest.py              # Custom fixtures (optional — roles auto-register)
-│   └── test_my_product.py       # Test functions
+│   ├── test_my_product.py       # Test functions
+│   └── test_my_product.yaml     # Sidecar (vectors, limits, mocks)
 ├── results/                     # Output (gitignored)
 │   └── measurements/            # Parquet files
 └── pyproject.toml
@@ -62,7 +61,7 @@ characteristics:
     function: dc_voltage
     direction: output
     units: V
-    specs:
+    bands:
       - when: {temperature: 25}
         value: 3.3
         accuracy: {pct_reading: 2.0}
@@ -119,89 +118,85 @@ instruments:
 
 ### Test Code (`tests/test_example.py`)
 
+Tests are **plain pytest** — no decorator, no base class. The Litmus plugin contributes three fixtures (`context`, `verify`, `logger`) and a few markers:
+
 ```python
 # tests/test_my_product.py
-from litmus.execution import litmus_test
+class TestMyProduct:
+    def test_output_voltage(self, context, psu, dmm, verify):
+        """Verify output voltage is within spec.
 
-@litmus_test
-def test_output_voltage(context, psu, dmm):
-    """Verify output voltage is within spec.
+        verify() resolves the limit from the product YAML,
+        records a measurement, and raises on fail.
+        """
+        vin = context.get_param("vin", 5.0)
 
-    The @litmus_test decorator:
-    1. Loads vectors and limits from the active sequence step
-    2. Captures the return value as a measurement
-    3. Checks against limits
-    4. Records results to Parquet
-    """
-    # Get conditions from context (not hardcoded!)
-    vin = context.get_in("vin", 5.0)
+        psu.set_voltage(vin)
+        psu.enable_output()
 
-    # Set up stimulus
-    psu.set_voltage(vin)
-    psu.enable_output()
-
-    # Measure and return - framework checks limits
-    return dmm.measure_dc_voltage()
+        verify("output_voltage", dmm.measure_dc_voltage())
 ```
 
-### Sequence (`sequences/example_sequence.yaml`)
+For measurements that don't come from the product spec, use `logger.measure(name, value, low=..., high=...)` with inline limits or a sidecar `test_<module>.yaml`.
 
-Sequences are the **single source of truth** for test configuration. Each step carries its own vectors, limits, and mocks:
+### Sidecar (`tests/test_my_product.yaml`)
+
+Sidecar YAML carries vectors, limits, and mocks alongside the test file. Same merge rules as stacked pytest decorators — file scope, class scope, per-test:
 
 ```yaml
-# sequences/my_product_smoke.yaml
-id: my_product_smoke
-name: "My Product - Smoke Test"
-product_family: my_product
-test_phase: development  # development, validation, characterization, or production
-
-steps:
-  - id: output_voltage
-    test: tests/test_my_product.py::test_output_voltage
-    vectors:
-      - vin: 5.0
-    limits:
-      output_voltage:
-        low: 3.234
-        high: 3.366
-        nominal: 3.3
-        units: V
+# tests/test_my_product.yaml
+limits:
+  output_voltage:
+    low: 3.234
+    high: 3.366
+    nominal: 3.3
+    units: V
+tests:
+  TestMyProduct:
+    sweeps:
+      - {vin: [5.0]}
     mocks:
-      dmm.measure_dc_voltage: 3.31
+      - {target: dmm.measure_dc_voltage, return_value: 3.31}
 ```
 
 ### Running Tests
 
 ```bash
-# With a sequence (production pattern)
-pytest tests/ --sequence=my_product_smoke --station=my_station --mock-instruments --dut-serial=TEST001 -v
-
-# Ad-hoc run without sequence (uses inline decorator defaults)
-pytest tests/ --station-config=stations/my_station.yaml --mock-instruments --dut-serial=TEST001 -v
+# Mock-instrument run (default for development)
+pytest tests/ --station=my_station --mock-instruments --dut-serial=TEST001 -v
 
 # With real hardware
-pytest tests/ --sequence=my_product_smoke --station=my_station --dut-serial=SN001 -v
+pytest tests/ --station=my_station --dut-serial=SN001 -v
 ```
+
+> **On `--dut-serial` for early articles:** if your first DUT doesn't have
+> a real serial yet (engineering build, breadboard, dev unit), call it
+> whatever you like — `bob`, `proto-1`, `dev`. The serial is just the
+> identifier the run record will be filed under. Best practice once you
+> have real units is to use the value that uniquely identifies what is
+> being tested and measured (printed serial, scanned barcode, lot+sequence).
 
 ## The Pattern
 
 Every Litmus test follows this pattern:
 
-1. **GET CONDITIONS** from context (not hardcoded)
+1. **GET CONDITIONS** from `context.get_param(...)` (not hardcoded)
 2. **SET UP** stimulus (PSU voltage, load current)
 3. **MEASURE** the result
-4. **RETURN** the value (framework checks limits from the active sequence step)
+4. **CHECK** with `verify(name, value)` or `logger.measure(name, value, ...)` — never `assert 3.0 <= v <= 3.6`
 
 ```python
-@litmus_test
-def test_something(context, psu, dmm):
-    vin = context.get_in("vin", 5.0)  # GET from context
-    psu.set_voltage(vin)              # SET UP
+def test_something(context, psu, dmm, verify):
+    vin = context.get_param("vin", 5.0)     # GET from context
+    psu.set_voltage(vin)                    # SET UP
     psu.enable_output()
-    return dmm.measure_dc_voltage()   # MEASURE and RETURN
+    verify("output_voltage",            # MEASURE + CHECK + RECORD
+               dmm.measure_dc_voltage())
 ```
 
-**No hardcoded values in code.** Conditions come from context (populated by test vectors), limits from sequence steps.
+**No hardcoded values in code.** Conditions come from `context` (populated by native `@pytest.mark.parametrize` or sidecar YAML). Limits come from the product spec, an inline `@pytest.mark.litmus_limits` decorator, or the sidecar's `limits:` field — never inline asserts.
+
+For the full reference — markers, sidecar YAML, `context.changed()`, mocks, retries — see the [Writing Tests guide](guides/writing-tests.md).
 
 ## View Results
 
@@ -236,8 +231,7 @@ print(table.to_pandas())
 | `stations/` | Station configs (instruments + addresses) | /stations |
 | `fixtures/` | Pin-to-instrument mappings | /fixtures |
 | `instruments/` | Custom instrument drivers | /instruments |
-| `sequences/` | Test config + execution order | /sequences |
-| `tests/` | Test code | - |
+| `tests/` | Test code + sidecar config | - |
 | `results/` | Parquet output (gitignored) | /runs |
 
 ## Optional: Set Up AI Assistance
