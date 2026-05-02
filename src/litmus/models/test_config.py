@@ -89,9 +89,13 @@ class MockEntry(BaseModel):
         return self
 
     def patch_kwargs(self) -> dict[str, Any]:
-        """Return all kwargs (everything except ``target``) for ``patch.object``."""
-        # model_dump includes both declared and extra fields.
-        return {k: v for k, v in self.model_dump().items() if k != "target"}
+        """Return all kwargs (everything except ``target``) for ``patch.object``.
+
+        ``model_dump`` includes both declared and extra fields; ``exclude``
+        drops the routing-only ``target`` so the rest passes verbatim to
+        :func:`unittest.mock.patch.object`.
+        """
+        return self.model_dump(exclude={"target"})
 
 
 class ConnectionsBinding(BaseModel):
@@ -575,10 +579,21 @@ class MeasurementLimitConfig(BaseModel):
         the active vector params wins; **if no band matches, the
         parent config itself is the catch-all** — its sibling fields
         (the ones next to ``bands:``) define the fallback limit.
+      * **Callable** — ``callable: "pkg.module:function"`` — dotted
+        path returning a :class:`Limit` per active vector params.
+        Wired through :mod:`litmus.execution.harness`.
 
     ``when`` matches against the active vector params using the same
     rule as :class:`SpecBand.when` (every key must match; empty
     ``when:`` always matches).
+
+    **ROADMAP**: ``expr`` / ``lookup`` / ``steps`` fields are declared
+    on this model but their resolver paths are not yet wired through
+    :mod:`litmus.execution.verify`. See ROADMAP "Limit resolution:
+    expression / lookup / step / callable strategies" — each shape
+    has a real test-engineering use case (load-curve specs,
+    temperature-derated limits, formula-driven limits). Don't delete
+    the fields; wire the resolver.
     """
 
     model_config = ConfigDict(extra="forbid")
