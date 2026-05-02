@@ -627,31 +627,25 @@ observer) for runs with many artifacts? Should the seed/write path
 gain a ``mime_type=`` hint so we don't have to sniff at all? Track
 the latter under the existing "Write-path MIME hint" follow-up.
 
-### Operator-UI store browser
+### Operator-UI store browser — Sessions + Artifacts pages
 
-The platform has multiple stores — events (DuckDB), runs (DuckDB),
-channels (Arrow IPC + Flight), parquet measurement files, sidecar
-``_ref/`` artifacts — but the operator UI exposes them only
-indirectly (Results page lists runs; clicking drills into a single
-run). There's no "browse the event log", no "browse channels",
-no "browse the artifact pool".
+The first cut shipped Events + Channels under "DATA STORES" in the
+sidebar (poll-and-refresh tables, click-through detail). The
+remaining surfaces:
 
-What needs to land:
-
-- **Events page** — table view of the event log with type / role /
-  session / timestamp filters. Backed by ``GET /api/events`` (already
-  exists). Live-tailing toggle.
-- **Channels page** — list of registered channels with descriptors,
-  latest value, sparkline, link to query history.
-- **Artifacts page** — search across every ref ever written, group by
-  run / output key / MIME type. Reuses the artifact viewer dialog.
 - **Sessions page** — drill into a session and see all sibling slot
-  runs at once (multi-DUT view).
+  runs at once (multi-DUT view). Today subsumed by the events
+  ``session_id`` filter, but a dedicated page makes the multi-slot
+  cohort obvious.
+- **Artifacts page** — search across every ref ever written, group
+  by run / output key / MIME type. Reuses the artifact-viewer
+  dialog. Needs cheap MIME detection for `.bin` refs (covered by
+  the inline-previews entry above).
 
 Decision points: server-side pagination for stores that grow
 unbounded (events especially). What's the right cross-store search
-syntax — DuckDB SQL via a console, or facet filters? Coordinate with
-the existing Yield Analytics page so we don't duplicate.
+syntax — DuckDB SQL via a console, or facet filters? Coordinate
+with the existing Yield Analytics page so we don't duplicate.
 
 ### Transports — read side (download / fetch / replay)
 
@@ -680,6 +674,99 @@ stream byte-ranges? How do we surface remote runs in the UI without
 materializing them all (lazy entries with a "fetch" button)? Does
 this share machinery with the upload-queue worker (one queue, two
 directions) or run separately?
+
+### Live updates on Events and Channels store-browser pages
+
+The first cut of the Events / Channels browser is poll-and-refresh:
+hit the page, scan the table, click Refresh to re-query. The
+existing `/live/{run_id}` page already proves that live tailing
+works (`EventStore.on_event` / `ChannelStore.on_channel` +
+`ui_subscribe` thread-safe bridge in
+``ui/shared/event_binding.py``), it just isn't wired into the
+browse pages yet.
+
+What needs to land:
+
+- **Events page** — toggle to start a live subscription with the
+  current filters as the catch-up + ongoing filter. New events
+  prepend to the table; pause toggle stops the firehose. Subscription
+  closes on page navigation.
+- **Channel detail page** — when viewing a channel, the chart and
+  table auto-extend with new samples as the test that's writing them
+  runs. The most important UX: **watching a waveform fill in
+  during capture** without manual refresh.
+- **Cross-process delivery** — `EventStore.on_event` already does
+  500ms-poll fallback for cross-process; `ChannelStore.on_channel`
+  doesn't yet have a cross-process path, so the live-channel chart
+  needs a Flight subscription on the channel daemon (the daemon
+  already serves Flight; the client side is the missing piece).
+
+Decision points: throttle / batch updates so a 10kHz channel doesn't
+flood the websocket? Coalesce by Nth sample before pushing to the
+chart's `appendData` call. Subscription lifecycle when the page
+unmounts — do we reuse the existing `event_binding` cleanup pattern
+or extend it for Flight subscriptions?
+
+### Parametric measurement viewer — compare measurements across runs
+
+Operators and engineers regularly want to ask cross-run questions
+the current UI doesn't answer:
+
+- "How does ``output_voltage`` track ``input_voltage`` across the
+  last week of runs?"
+- "Group ``rail_3v3_ripple`` by station_type — is bench A
+  systematically worse than bench B?"
+- "Histogram of ``efficiency`` for product X, split by DUT
+  revision."
+- "Scatter ``output_current`` vs ``input_voltage`` filtered to
+  ``temperature=25``, color-coded by outcome."
+
+The data is already there — every measurement parquet has the
+flat `in_*` (parameters) / `out_*` (observations) /
+`measurement_*` columns and full DUT / station / product context.
+What's missing is the UI surface.
+
+What needs to land:
+
+- A new `/explore` page (or rename — "Parametric Viewer", "Cross-run
+  Compare"). Picks:
+  - **Test selector** — which test (or product / step / measurement
+    name) to ground the query.
+  - **Y axis** — any `out_*`, `measurement_value`, derived metric
+    (yield rate, sigma).
+  - **X axis** — any `in_*`, `out_*`, `started_at`, `dut_serial`,
+    or aggregation bucket.
+  - **Filters** — facet pickers for `station_id`, `product_id`,
+    `test_phase`, time range, outcome, plus arbitrary `in_*` /
+    `out_*` filters.
+  - **Group / split** — secondary categorical to split into series
+    or facet panels.
+- **Chart types** — line (X ordered), scatter (X any), bar (categorical
+  X), histogram (Y distribution). Toggle in the chart header.
+- **Backed by DuckDB** over the parquet tree — extend
+  ``MetricsStore`` (`analysis/metrics_store.py`) with a generic
+  `query(y, x, filters, group_by, agg)` returning a long-format
+  table for ECharts.
+- **URL state** — selections / filters serialized so a chart can be
+  shared / bookmarked.
+- **HTTP API** — symmetric MCP / API endpoint so an LLM agent can
+  ask the same questions programmatically.
+
+Decision points: do we ship a full visual query builder or start
+with a code-style param textarea (DuckDB SQL fragment) for power
+users? Where does derived-metric registration live (yield rate per
+group, Cpk, sigma) — `analysis/` or a new `analysis/metrics`
+module? Cap the row count returned to the UI so the chart isn't
+overwhelmed (downsample with LTTB for line/scatter; bin
+server-side for histogram).
+
+Tied into:
+
+- "Operator-UI store browser" — this is a sibling page to Events /
+  Channels rather than a replacement.
+- Existing yield-analytics page (`metrics_page.py`) is a baked-in
+  set of dashboards; the parametric viewer is the freeform
+  counterpart.
 
 ---
 
