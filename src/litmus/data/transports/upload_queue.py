@@ -125,7 +125,13 @@ def drain(results_dir: str = "results", max_attempts: int = 3) -> int:
                 transport.send(Path(local_path), config)
                 _update_status(con, row_id, STATUS_DONE)
                 success_count += 1
-            except Exception as exc:
+            except Exception as exc:  # noqa: BLE001 — capture any upload failure for retry
+                # Transport failure mode is open-ended (network, auth,
+                # quota, schema, bucket-not-found, …). Catch any
+                # ``Exception`` so the row is reliably moved to
+                # STATUS_FAILED for the next ``drain`` cycle to
+                # consider; ``BaseException`` (KeyboardInterrupt /
+                # SystemExit) still propagates.
                 _update_status(con, row_id, STATUS_FAILED, error=str(exc))
                 warnings.warn(
                     f"Upload failed for {local_path} → {transport_name}: {exc}",

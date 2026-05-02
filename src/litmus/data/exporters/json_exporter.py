@@ -140,6 +140,11 @@ class JsonSubscriber(EventSubscriber):
                     "measurements": measurements,
                 }
                 if meas_list:
+                    # By the Litmus data model, every measurement in
+                    # a vector shares the same params / observations /
+                    # attempt — they're per-vector fields stamped onto
+                    # each MeasurementRecorded event. Reading from the
+                    # first measurement is canonical, not a heuristic.
                     first = meas_list[0]
                     if first.inputs:
                         vec_dict["params"] = dict(first.inputs)

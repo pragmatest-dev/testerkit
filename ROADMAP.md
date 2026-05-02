@@ -309,6 +309,35 @@ characterization) without duplicating limits or mocks. Worth
 rebuilding when there's a real operator-bundle requirement; not
 worth carrying dead model surface in the meantime.
 
+### Exporter access to row-level cascade outcomes
+
+Surfaced by the Phase 6a.4 design review: ``MeasurementRow`` and
+``MEASUREMENT_SCHEMA`` carry ``step_outcome`` / ``vector_outcome``
+/ ``run_outcome`` (cascade rollups added in Phase 6a.2), but the
+event-driven exporters (``EventSubscriber`` subclasses for CSV /
+JSON / ATML / HDF5 / TDMS / MDF4 / STDF) consume the raw
+``MeasurementRecorded`` event stream and don't see those rolled-up
+columns directly. They reconstruct step outcome from
+``StepEnded.outcome`` (which works for executed steps) but have
+no equivalent for vector or run outcomes — they recover those
+from ``RunEnded`` and from each measurement individually.
+
+What needs to land:
+
+- Either a thin adapter that materialises a ``MeasurementRow``
+  from each ``MeasurementRecorded`` event (using cached
+  ``StepEnded`` / ``RunEnded`` for cascade fields), then exposes
+  it to the subscriber lifecycle, OR
+- A ``MeasurementRecorded`` event-level extension that stamps
+  ``step_outcome`` / ``vector_outcome`` / ``run_outcome`` at emit
+  time so subscribers see them inline. This requires resolving
+  the ordering: vector and run outcomes aren't known at the time
+  of measurement emission, only at vector / run end.
+
+The ``replay_to_subscriber`` path in ``data/subscribers/replay.py``
+is where this would naturally land for post-hoc replay; the live
+path needs the cascade backfill.
+
 ### Channel EventStore-bridging subscription
 
 `channels/__init__.py:channel_subscribe()` is restored after being

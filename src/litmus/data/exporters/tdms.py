@@ -39,6 +39,7 @@ from litmus.data.events import (
     StepEnded,
     StepStarted,
 )
+from litmus.data.exporters._helpers import discover_dynamic_columns
 from litmus.data.subscribers._output_file import OutputFile
 
 
@@ -61,23 +62,12 @@ def _build_step_channels(
     if not measurements:
         return []
 
-    # Discover all column names
-    all_in_keys: list[str] = []
-    all_out_keys: list[str] = []
+    # Discover all column names — inputs / outputs via shared helper,
+    # measurement names locally (TDMS-specific channel layout).
+    all_in_keys, all_out_keys = discover_dynamic_columns(measurements)
     all_meas_names: list[str] = []
-    in_set: set[str] = set()
-    out_set: set[str] = set()
     meas_set: set[str] = set()
-
     for m in measurements:
-        for k in m.inputs:
-            if k not in in_set:
-                in_set.add(k)
-                all_in_keys.append(k)
-        for k in m.outputs:
-            if k not in out_set:
-                out_set.add(k)
-                all_out_keys.append(k)
         if m.measurement_name not in meas_set:
             meas_set.add(m.measurement_name)
             all_meas_names.append(m.measurement_name)

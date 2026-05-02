@@ -167,7 +167,13 @@ class Hdf5Subscriber(EventSubscriber):
                 vec_path = f"vectors/{vec_idx}"
                 vec_grp = grp.require_group(vec_path)
 
-                # Store inputs/outputs as vec attrs
+                # Store inputs/outputs as vec attrs. By the Litmus data
+                # model, all measurements in a vector share the same
+                # ``params`` (parametrize args) and ``observations``
+                # (set once per vector via ``context.observe()``), so
+                # first-wins is equivalent to last-wins — the
+                # ``not in vec_grp.attrs`` guard just avoids redundant
+                # h5py writes.
                 for k, v in m.inputs.items():
                     attr_key = f"in_{k}"
                     if attr_key not in vec_grp.attrs:
