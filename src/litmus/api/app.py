@@ -7,11 +7,47 @@ from pathlib import Path
 from uuid import UUID
 
 from fastapi import APIRouter, HTTPException
-from fastapi.responses import ORJSONResponse
+from fastapi.responses import ORJSONResponse, Response
+from pydantic import BaseModel
 
+from litmus.api._mime import sniff_mime
 from litmus.api.models import DialogCreate, DialogRespondRequest, LaunchRequest, SaveRequest
 from litmus.api.schemas import CapabilitySummary, RequirementSummary, RunView, build_run_view
-from litmus.data.backends.parquet import ParquetBackend
+from litmus.data.backends.parquet import ParquetBackend, is_file_reference, load_ref
+from litmus.data.models import Waveform
+
+
+def _serialize_ref(result: object) -> Response | dict:
+    """Pick a wire format for a materialized ``load_ref`` return value.
+
+    Browser-renderable bytes pass through with a magic-byte-sniffed
+    ``Content-Type``; typed values (``Waveform``, Pydantic, ``dict``,
+    ``ndarray``, ``pa.Table``) come back as JSON. Anything else is a
+    415 — we have nothing useful to give the client.
+    """
+    if isinstance(result, bytes):
+        return Response(content=result, media_type=sniff_mime(result[:64]))
+    if isinstance(result, Waveform):
+        return result.model_dump()
+    if isinstance(result, BaseModel):
+        return result.model_dump()
+    if isinstance(result, dict):
+        return result
+
+    type_name = type(result).__name__
+    if type_name == "ndarray":  # numpy import is heavy; duck-type instead
+        return {
+            "shape": list(getattr(result, "shape", ())),
+            "dtype": str(getattr(result, "dtype", "")),
+            "data": result.tolist(),  # type: ignore[attr-defined]
+        }
+    if type_name == "Table":  # pyarrow.Table — same reasoning
+        return {"data": result.to_pylist()}  # type: ignore[attr-defined]
+
+    raise HTTPException(
+        status_code=415,
+        detail=f"Cannot serialize ref payload of type {type_name!r}",
+    )
 
 
 def _parse_uuid(value: str) -> UUID:
@@ -107,6 +143,51 @@ def create_api_router() -> APIRouter:
             raise HTTPException(status_code=404, detail="Run not found")
         measurements = backend.get_measurements(run_id)
         return {"measurements": measurements}
+
+    @router.get("/runs/{run_id}/ref")
+    def get_ref(run_id: str, uri: str):
+        """Materialize a measurement-output ref URI to its underlying data.
+
+        Clients pass the URI from any ``out_*`` column verbatim
+        (``file://_ref/abc.npz`` or ``channel://scope.ch1?session=...``).
+        The endpoint resolves the run's parquet path, calls
+        :func:`litmus.data.backends.parquet.load_ref`, then dispatches
+        on the materialized type:
+
+        * ``Waveform`` / ``BaseModel`` / ``dict`` / ``pyarrow.Table`` →
+          JSON.
+        * ``numpy.ndarray`` → JSON ``{shape, dtype, data}``.
+        * ``bytes`` → raw response with magic-byte-sniffed Content-Type
+          so browsers render images / video / PDF / text inline.
+        * Anything else (e.g. arbitrary pickled object) → 415.
+        """
+        run = backend.get_run(run_id)
+        if run is None:
+            raise HTTPException(status_code=404, detail="Run not found")
+        if not run.file_path:
+            raise HTTPException(status_code=500, detail="Run has no parquet path")
+        parquet_path = Path(run.file_path)
+
+        channel_store = None
+        if uri.startswith("channel://"):
+            from uuid import uuid4
+
+            from litmus.data.channels.store import ChannelStore
+
+            channels_dir = (results_dir / "channels") if results_dir else Path("results/channels")
+            channel_store = ChannelStore(channels_dir, uuid4())
+
+        try:
+            result = load_ref(uri, parquet_path=parquet_path, channel_store=channel_store)
+        except Exception as exc:  # noqa: BLE001 — surface load failures uniformly
+            raise HTTPException(status_code=502, detail=f"Failed to load ref: {exc}") from exc
+
+        # load_ref returns the URI string unchanged when the underlying
+        # file is missing or the scheme isn't a recognized ref.
+        if isinstance(result, str) and is_file_reference(uri) and result == uri:
+            raise HTTPException(status_code=404, detail=f"Ref payload not found: {uri}")
+
+        return _serialize_ref(result)
 
     @router.post("/runs")
     async def start_run(request: LaunchRequest):
