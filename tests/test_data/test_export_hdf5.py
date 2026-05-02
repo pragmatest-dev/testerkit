@@ -122,7 +122,7 @@ class TestHdf5Subscriber:
             vout = _dataset(f["steps/power/output/voltage/vectors/0/measurements/vout"])
             assert abs(float(vout[()]) - 3.30) < 0.01
             assert vout.attrs["units"] == "V"
-            assert vout.attrs["comparator"] == "GELE"
+            assert vout.attrs["limit_comparator"] == "GELE"
             assert vout.attrs["limit_low"] == 3.0
             assert vout.attrs["limit_high"] == 3.6
             assert vout.attrs["outcome"] == "passed"
@@ -194,5 +194,5 @@ class TestHdf5Subscriber:
         )
         with h5py.File(result, "r") as f:
             vref = f["steps/power/output/voltage/vectors/1/measurements/vref_eq"]
-            assert vref.attrs["comparator"] == "EQ"
-            assert vref.attrs["nominal"] == 1.25
+            assert vref.attrs["limit_comparator"] == "EQ"
+            assert vref.attrs["limit_nominal"] == 1.25
