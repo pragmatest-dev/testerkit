@@ -208,8 +208,9 @@ _COMPARATOR_CHECKS: dict[str, Callable[[Limit, float], bool]] = {
     "LE": lambda lim, v: lim.high is None or v <= lim.high,
     "GT": lambda lim, v: lim.low is None or v > lim.low,
     "GE": lambda lim, v: lim.low is None or v >= lim.low,
-    "GELE": lambda lim, v: (lim.low is None or v >= lim.low)
-    and (lim.high is None or v <= lim.high),
+    "GELE": lambda lim, v: (
+        (lim.low is None or v >= lim.low) and (lim.high is None or v <= lim.high)
+    ),
     "GELT": lambda lim, v: (lim.low is None or v >= lim.low) and (lim.high is None or v < lim.high),
     "GTLE": lambda lim, v: (lim.low is None or v > lim.low) and (lim.high is None or v <= lim.high),
     "GTLT": lambda lim, v: (lim.low is None or v > lim.low) and (lim.high is None or v < lim.high),

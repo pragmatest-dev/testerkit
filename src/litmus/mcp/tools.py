@@ -1466,10 +1466,10 @@ def metrics_tool(
     if action not in _METRICS_ACTIONS:
         return {"error": f"Unknown action '{action}'. Valid: {list(_METRICS_ACTIONS)}"}
 
-    from litmus.analysis.metrics_store import MetricsStore
+    from litmus.analysis.measurements_query import MeasurementsQuery
 
     results_dir = _resolve_results_dir(project)
-    store = MetricsStore(_results_dir=results_dir)
+    store = MeasurementsQuery(_results_dir=results_dir)
 
     kwargs: dict[str, Any] = {
         "product": product,

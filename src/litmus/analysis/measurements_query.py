@@ -1,16 +1,13 @@
-"""Gold layer analytics — SQL on silver daemon view.
+"""Read-only query client over the runs DuckDB daemon.
 
-Pre-aggregated manufacturing metrics computed on-the-fly.  Each
-``MetricsStore`` method sends an analytics SQL query to the runs DuckDB
-daemon via Arrow Flight.  The daemon exposes a ``silver`` VIEW that
-lazily reads raw measurement parquet (``read_parquet(glob,
-union_by_name=true)``), so gold always sees current data without
-maintaining its own DuckDB connection.
+Test runs write raw measurement parquet files; the runs daemon
+exposes them as a single ``measurements`` view via DuckDB
+``read_parquet(glob, union_by_name=true)``. Each ``MeasurementsQuery``
+method sends a SQL query to the daemon over Arrow Flight and returns
+typed rows (long-format, aggregated, or schema descriptions).
 
-Bronze → Silver → Gold:
-  - Bronze: raw parquet files written by the test runner
-  - Silver: DuckDB daemon indexes runs + exposes ``silver`` view
-  - Gold: analytics queries through silver daemon (this module)
+The view always reflects current parquet on disk — no separate
+DuckDB connection to keep in sync.
 """
 
 from __future__ import annotations
@@ -20,6 +17,13 @@ import re
 from pathlib import Path
 from typing import Any
 
+from litmus.analysis.measurement_facets import (
+    FacetOption,
+    FilterSet,
+    HistogramRow,
+    ParametricRow,
+    SummaryCounts,
+)
 from litmus.data import runs_duckdb_manager
 from litmus.data._flight_query import FlightQueryClient
 from litmus.data._sql_helpers import sql_escape
@@ -32,12 +36,56 @@ def _safe_ident(name: str) -> str:
     """Reject any identifier that isn't a bare SQL column name.
 
     Parametric queries take user-chosen Y/X/group_by columns. We only
-    accept the silver view's flat column names — no dotted paths, no
-    quotes, no expressions.
+    accept the measurements view's flat column names — no dotted
+    paths, no quotes, no expressions.
     """
     if not _IDENT_RE.match(name):
         raise ValueError(f"invalid column identifier: {name!r}")
     return name
+
+
+def _filter_clauses(filters: FilterSet | None) -> list[str]:
+    """Build SQL WHERE-clause fragments from a ``FilterSet``.
+
+    Multi-value filters become ``col IN ('a','b','c')``. Date range
+    bounds become ``CAST(run_started_at AS DATE) >= 'YYYY-MM-DD'``.
+    Empty / None filter sets contribute nothing.
+    """
+    if filters is None:
+        return []
+    clauses: list[str] = []
+    for col, values in filters.string_filters.items():
+        if not values:
+            continue
+        escaped = ", ".join(f"'{sql_escape(v)}'" for v in values)
+        clauses.append(f"{_safe_ident(col)} IN ({escaped})")
+    for col, values in filters.enum_filters.items():
+        if not values:
+            continue
+        escaped = ", ".join(f"'{sql_escape(v)}'" for v in values)
+        clauses.append(f"{_safe_ident(col)} IN ({escaped})")
+    if filters.since is not None:
+        clauses.append(f"CAST(run_started_at AS DATE) >= '{filters.since.isoformat()}'")
+    if filters.until is not None:
+        clauses.append(f"CAST(run_started_at AS DATE) <= '{filters.until.isoformat()}'")
+    return clauses
+
+
+def _filters_excluding(filters: FilterSet | None, column: str) -> FilterSet | None:
+    """Return a copy of ``filters`` with ``column`` removed — for cross-filtering.
+
+    Used when populating a facet's own options: that facet's value
+    must NOT be a constraint, otherwise the option list collapses to
+    whatever the user already picked.
+    """
+    if filters is None:
+        return None
+    return FilterSet(
+        string_filters={k: v for k, v in filters.string_filters.items() if k != column},
+        enum_filters={k: v for k, v in filters.enum_filters.items() if k != column},
+        since=filters.since,
+        until=filters.until,
+    )
 
 
 logger = logging.getLogger(__name__)
@@ -115,7 +163,7 @@ def _build_and_clauses(
 ) -> str:
     """Build SQL ``AND`` clauses for inline queries (pareto, cpk).
 
-    Uses raw silver column names with COALESCE wrappers.
+    Uses raw measurement column names with COALESCE wrappers.
     """
     clauses = _build_filter_clauses(
         product=product,
@@ -141,7 +189,7 @@ def _period_col(period: str) -> str:
 
 
 # ---------------------------------------------------------------------------
-# SQL templates — reference the daemon's ``silver`` VIEW directly
+# SQL templates — reference the daemon's ``measurements`` VIEW directly
 # ---------------------------------------------------------------------------
 
 _YIELD_SQL = """
@@ -156,7 +204,7 @@ WITH runs AS (
         run_started_at,
         run_ended_at,
         {period_expr} AS period_day
-    FROM silver
+    FROM measurements
     ORDER BY run_id
 ),
 first_runs AS (
@@ -213,7 +261,7 @@ SELECT
     COUNT(*) FILTER (WHERE measurement_outcome = 'failed') AS fail_count,
     ROUND(COUNT(*) FILTER (WHERE measurement_outcome = 'failed') * 100.0
           / NULLIF(COUNT(*), 0), 2) AS fail_rate
-FROM silver
+FROM measurements
 WHERE measurement_name IS NOT NULL
     {and_clauses}
 GROUP BY product, station, step_name, measurement_name
@@ -246,7 +294,7 @@ SELECT
                      / (3 * STDDEV_SAMP(measurement_value)), 1e9)
         ), 3)
     END AS cpk
-FROM silver
+FROM measurements
 WHERE measurement_value IS NOT NULL AND measurement_name IS NOT NULL
     {and_clauses}
 GROUP BY product, station, measurement_name
@@ -263,7 +311,7 @@ WITH runs AS (
         COALESCE(test_phase, 'unknown') AS phase,
         run_outcome,
         {period_expr} AS period_day
-    FROM silver
+    FROM measurements
     ORDER BY run_id
 )
 SELECT
@@ -290,7 +338,7 @@ WITH runs AS (
         COALESCE(test_phase, 'unknown') AS phase,
         dut_serial,
         {period_expr} AS period_day
-    FROM silver
+    FROM measurements
     ORDER BY run_id
 ),
 serial_counts AS (
@@ -326,7 +374,7 @@ WITH runs AS (
         run_outcome,
         EPOCH(run_ended_at::TIMESTAMP - run_started_at::TIMESTAMP) AS duration_s,
         {period_expr} AS period_day
-    FROM silver
+    FROM measurements
     WHERE run_started_at IS NOT NULL AND run_ended_at IS NOT NULL
     ORDER BY run_id
 )
@@ -347,21 +395,22 @@ ORDER BY period_day
 
 
 # ---------------------------------------------------------------------------
-# MetricsStore
+# MeasurementsQuery
 # ---------------------------------------------------------------------------
 
 
-class MetricsStore:
-    """Query pre-aggregated manufacturing metrics via the runs DuckDB daemon.
+class MeasurementsQuery:
+    """Read-only client over the runs DuckDB daemon's ``measurements`` view.
 
-    Queries go through Arrow Flight to the runs daemon, which exposes a
-    ``silver`` VIEW over raw measurement parquet files.
+    The daemon exposes a single ``measurements`` view that unions all
+    raw measurement parquet files. Methods on this class send SQL
+    queries over Arrow Flight and return typed result rows.
 
     Usage::
 
-        store = MetricsStore()
-        rows = store.yield_summary(product="PN-123", period="week")
-        store.close()
+        q = MeasurementsQuery()
+        rows = q.yield_summary(product="PN-123", period="week")
+        q.close()
     """
 
     def __init__(self, *, _results_dir: Path | str | None = None) -> None:
@@ -374,7 +423,7 @@ class MetricsStore:
             location,
             "runs",
             reacquire=lambda: runs_duckdb_manager.acquire(self._runs_dir),
-            label="MetricsStore",
+            label="MeasurementsQuery",
         )
 
     def _query_dicts(self, sql: str) -> list[dict[str, Any]]:
@@ -547,53 +596,53 @@ class MetricsStore:
         return self._query_dicts(sql)
 
     # ------------------------------------------------------------------
-    # Parametric viewer — generic Y/X query over silver
+    # Parametric viewer — generic Y/X query over measurements
     # ------------------------------------------------------------------
 
-    def describe_silver(self) -> list[dict[str, str]]:
-        """Return the silver view's columns: ``[{name, type}, ...]``.
+    def describe_columns(self) -> list[dict[str, str]]:
+        """Return the measurements view's columns: ``[{name, type}, ...]``.
 
         Used by the parametric viewer UI to populate Y/X/group_by
         dropdowns from real schema rather than a hardcoded list.
         """
-        return self._query_dicts("DESCRIBE silver")
+        return self._query_dicts("DESCRIBE measurements")
 
     def parametric(
         self,
         *,
         y: str,
         x: str,
-        filters: dict[str, str] | None = None,
+        filters: FilterSet | None = None,
         group_by: str | None = None,
         chart_type: str = "scatter",
         bins: int = 30,
         limit: int = 5000,
-    ) -> list[dict[str, Any]]:
-        """Generic Y vs X query over silver, optionally split by ``group_by``.
+    ) -> list[ParametricRow] | list[HistogramRow]:
+        """Generic Y vs X query over measurements, optionally split by ``group_by``.
 
         Returns long-format rows. Shape depends on ``chart_type``:
 
-        - ``scatter`` / ``line``: one row per measurement
-          ``{x, y, group}`` (group key is ``""`` when no group_by).
+        - ``scatter`` / ``line``: ``ParametricRow`` per measurement.
           ``line`` orders by X.
-        - ``bar``: one row per (X, group) with ``y`` = AVG.
-        - ``histogram``: one row per (bin, group) with ``y`` = COUNT,
-          ``x`` = bin midpoint. ``y`` argument is the value being
-          binned; ``x`` is ignored.
+        - ``bar``: ``ParametricRow`` per (X, group) with ``y`` = AVG.
+        - ``histogram``: ``HistogramRow`` per (bin, group) with ``y``
+          = COUNT, ``x`` = bin midpoint. The ``x`` argument is ignored
+          for histograms.
 
-        ``filters`` is a flat ``{column: literal}`` dict — exact-match
-        equality. Column names are validated as bare identifiers.
+        ``filters`` is a validated ``FilterSet`` — multi-value, mixing
+        string and enum facets plus optional date range. Column names
+        are validated as bare identifiers, values escape via
+        :func:`sql_escape`.
         """
         y_col = _safe_ident(y)
         x_col = _safe_ident(x) if chart_type != "histogram" else None
         group_col = _safe_ident(group_by) if group_by else None
 
-        where_parts = [f"{y_col} IS NOT NULL"]
+        clauses = [f"{y_col} IS NOT NULL"]
         if x_col is not None:
-            where_parts.append(f"{x_col} IS NOT NULL")
-        for col, value in (filters or {}).items():
-            where_parts.append(f"{_safe_ident(col)} = '{sql_escape(value)}'")
-        where = " WHERE " + " AND ".join(where_parts)
+            clauses.append(f"{x_col} IS NOT NULL")
+        clauses.extend(_filter_clauses(filters))
+        where = " WHERE " + " AND ".join(clauses)
 
         group_expr = group_col if group_col else "''"
         group_clause = f", {group_col}" if group_col else ""
@@ -602,7 +651,7 @@ class MetricsStore:
             sql = f"""
             WITH stats AS (
                 SELECT MIN({y_col}) AS lo, MAX({y_col}) AS hi
-                FROM silver{where}
+                FROM measurements{where}
             ),
             bucketed AS (
                 SELECT
@@ -613,7 +662,7 @@ class MetricsStore:
                     ) AS bin,
                     stats.lo AS lo, stats.hi AS hi,
                     {group_expr} AS "group"
-                FROM silver, stats{where}
+                FROM measurements, stats{where}
             )
             SELECT
                 bin,
@@ -624,14 +673,16 @@ class MetricsStore:
             GROUP BY bin, lo, hi, "group"
             ORDER BY "group", bin
             """
-        elif chart_type == "bar":
+            return [HistogramRow(**row) for row in self._query_dicts(sql)]
+
+        if chart_type == "bar":
             assert x_col is not None
             sql = f"""
             SELECT
                 {x_col} AS x,
                 AVG({y_col}) AS y,
                 {group_expr} AS "group"
-            FROM silver{where}
+            FROM measurements{where}
             GROUP BY {x_col}{group_clause}
             ORDER BY {x_col}
             LIMIT {int(limit)}
@@ -644,8 +695,68 @@ class MetricsStore:
                 {x_col} AS x,
                 {y_col} AS y,
                 {group_expr} AS "group"
-            FROM silver{where}
+            FROM measurements{where}
             {order}
             LIMIT {int(limit)}
             """
-        return self._query_dicts(sql)
+        return [ParametricRow(**row) for row in self._query_dicts(sql)]
+
+    def distinct_values(
+        self,
+        column: str,
+        *,
+        filters: FilterSet | None = None,
+        exclude_self: bool = True,
+        limit: int = 500,
+    ) -> list[FacetOption]:
+        """Return distinct values for ``column`` with their counts.
+
+        With ``exclude_self=True`` (Tableau-style cross-filter), the
+        column being enumerated is dropped from the WHERE clause —
+        otherwise selecting one value would collapse the option list
+        to that one value.
+
+        Counts are aggregated so the UI can show "PN-100 (12,304)" —
+        useful for spotting which buckets actually have data.
+        """
+        col = _safe_ident(column)
+        scoped = _filters_excluding(filters, column) if exclude_self else filters
+        clauses = [f"{col} IS NOT NULL", *_filter_clauses(scoped)]
+        where = " WHERE " + " AND ".join(clauses)
+        sql = f"""
+        SELECT {col} AS value, COUNT(*) AS count
+        FROM measurements{where}
+        GROUP BY {col}
+        ORDER BY count DESC, value ASC
+        LIMIT {int(limit)}
+        """
+        return [
+            FacetOption(value=str(row["value"]), count=int(row["count"]))
+            for row in self._query_dicts(sql)
+        ]
+
+    def summary_counts(self, *, filters: FilterSet | None = None) -> SummaryCounts:
+        """Cardinality stats for the filter section's badge.
+
+        One round-trip; empty result on no-data is zeros across the
+        board so the UI can render unconditionally.
+        """
+        clauses = _filter_clauses(filters)
+        where = " WHERE " + " AND ".join(clauses) if clauses else ""
+        sql = f"""
+        SELECT
+            COUNT(*) AS total_rows,
+            COUNT(DISTINCT run_id) AS distinct_runs,
+            COUNT(DISTINCT measurement_name) AS distinct_measurements,
+            COUNT(DISTINCT product_id) AS distinct_products
+        FROM measurements{where}
+        """
+        rows = self._query_dicts(sql)
+        if not rows:
+            return SummaryCounts(
+                total_rows=0,
+                distinct_runs=0,
+                distinct_measurements=0,
+                distinct_products=0,
+            )
+        return SummaryCounts(**rows[0])

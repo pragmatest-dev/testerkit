@@ -63,7 +63,7 @@ def _rebuild_schema(conn: duckdb.DuckDBPyConnection) -> None:
     for tbl in (
         "runs",
         "steps",
-        "measurements",
+        "measurement_stats",
         "measurement_io_schema",
         "measurement_refs",
         "_ingested",
@@ -111,7 +111,7 @@ def _rebuild_schema(conn: duckdb.DuckDBPyConnection) -> None:
         )
     """)
     conn.execute("""
-        CREATE TABLE measurements (
+        CREATE TABLE measurement_stats (
             file_path VARCHAR NOT NULL,
             run_id VARCHAR,
             session_id VARCHAR,
@@ -162,9 +162,9 @@ def _rebuild_schema(conn: duckdb.DuckDBPyConnection) -> None:
         )
     """)
 
-    conn.execute("CREATE INDEX idx_meas_name ON measurements(measurement_name)")
-    conn.execute("CREATE INDEX idx_meas_run ON measurements(run_id)")
-    conn.execute("CREATE INDEX idx_meas_fp ON measurements(file_path)")
+    conn.execute("CREATE INDEX idx_meas_name ON measurement_stats(measurement_name)")
+    conn.execute("CREATE INDEX idx_meas_run ON measurement_stats(run_id)")
+    conn.execute("CREATE INDEX idx_meas_fp ON measurement_stats(file_path)")
     conn.execute("CREATE INDEX idx_mrefs_name ON measurement_refs(measurement_name)")
     conn.execute("CREATE INDEX idx_mrefs_session ON measurement_refs(session_short)")
     conn.execute("CREATE INDEX idx_mio_fp ON measurement_io_schema(file_path)")
@@ -391,7 +391,7 @@ def _bulk_insert_measurements(conn: duckdb.DuckDBPyConnection, meas_paths: list[
     avg_expr = "AVG(measurement_value)" if has_value else "NULL"
 
     conn.execute(f"""
-        INSERT INTO measurements
+        INSERT INTO measurement_stats
         SELECT
             filename AS file_path,
             run_id,
@@ -605,14 +605,15 @@ def _index_steps_file(conn: duckdb.DuckDBPyConnection, fkey: str) -> str | None:
         return str(exc)
 
 
-# ── Silver view (gold-layer analytics) ───────────────────────────────
+# ── measurements view (read-side query target) ──────────────────────
 
 
-def _create_silver_view(conn: duckdb.DuckDBPyConnection, runs_dir: Path) -> None:
-    """Register the ``silver`` view for gold-layer analytics.
+def _create_measurements_view(conn: duckdb.DuckDBPyConnection, runs_dir: Path) -> None:
+    """Register the ``measurements`` view for analytics queries.
 
-    Gold queries reference this view instead of reading raw parquet directly,
-    keeping the medallion layering: bronze (parquet) → silver (daemon) → gold.
+    Read clients (``MeasurementsQuery``) hit this view instead of reading
+    raw parquet directly, so they always see current data without
+    holding their own DuckDB connection.
 
     If no parquet files exist yet, the view is not created — it will be
     created after the first file is ingested via ``_on_put``.
@@ -620,14 +621,14 @@ def _create_silver_view(conn: duckdb.DuckDBPyConnection, runs_dir: Path) -> None
     glob = _sql_escape(str(runs_dir / "**" / "*.parquet"))
     try:
         conn.execute(f"""
-            CREATE OR REPLACE VIEW silver AS
+            CREATE OR REPLACE VIEW measurements AS
             SELECT * FROM read_parquet('{glob}',
                 union_by_name=true, filename=true)
             WHERE filename NOT LIKE '%\\_steps.parquet' ESCAPE '\\'
               AND filename NOT LIKE '%\\_ref/%' ESCAPE '\\'
         """)
     except duckdb.IOException:
-        logger.debug("No parquet files yet in %s — silver view deferred", runs_dir)
+        logger.debug("No parquet files yet in %s — measurements view deferred", runs_dir)
 
 
 # ── Daemon entry point ───────────────────────────────────────────────
@@ -648,7 +649,7 @@ def daemon_run(runs_dir: Path) -> None:
 
     index_path = runs_dir / "_index.duckdb"
     conn, is_fresh = _open_index(index_path)
-    _create_silver_view(conn, runs_dir)
+    _create_measurements_view(conn, runs_dir)
 
     def _on_put(table: pa.Table) -> None:
         for row in table.to_pylist():
@@ -660,12 +661,12 @@ def daemon_run(runs_dir: Path) -> None:
             except OSError:
                 continue
             _ingest_one_file(conn, Path(fpath), stat)
-        _create_silver_view(conn, runs_dir)
+        _create_measurements_view(conn, runs_dir)
 
     def _pre_ready() -> None:
         if is_fresh:
             _ingest_parquet_files(index_path, runs_dir)
-            _create_silver_view(conn, runs_dir)
+            _create_measurements_view(conn, runs_dir)
 
     server, port_file, _location = start_flight_server_in_daemon(
         mgr=mgr,

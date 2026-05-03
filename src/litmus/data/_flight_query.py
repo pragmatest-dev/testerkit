@@ -62,9 +62,9 @@ class FlightQueryClient:
         DuckDB raises errors back through the Flight stream as
         ``flight.FlightError`` with the original error text inline —
         we string-match for the two expected DuckDB error messages
-        ("silver" view missing during cold start, "Binder Error" on
-        index schema drift) because DuckDB's typed exceptions don't
-        survive the gRPC round-trip.
+        (``measurements`` view missing during cold start, "Binder
+        Error" on index schema drift) because DuckDB's typed exceptions
+        don't survive the gRPC round-trip.
         """
         last_exc: flight.FlightError | OSError | pa.ArrowException | None = None
         for attempt in range(_retries + 1):
@@ -78,9 +78,9 @@ class FlightQueryClient:
                 return table.to_pylist()
             except (flight.FlightError, OSError, pa.ArrowException) as exc:
                 err_msg = str(exc)
-                # Cold start: silver view not yet created in the runs
-                # daemon. Treat as empty result set rather than retry.
-                if "silver" in err_msg and "does not exist" in err_msg:
+                # Cold start: measurements view not yet created in the
+                # runs daemon. Treat as empty result set rather than retry.
+                if "measurements" in err_msg and "does not exist" in err_msg:
                     return []
                 last_exc = exc
                 self._client = None

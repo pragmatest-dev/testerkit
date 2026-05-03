@@ -2069,11 +2069,11 @@ def _get_results_dir(results_dir):
     return str(resolve_results_dir(results_dir))
 
 
-def _metrics_store(results_dir: str | None):
-    """Create a MetricsStore with resolved results directory."""
-    from litmus.analysis.metrics_store import MetricsStore
+def _measurements_query(results_dir: str | None):
+    """Create a MeasurementsQuery with resolved results directory."""
+    from litmus.analysis.measurements_query import MeasurementsQuery
 
-    return MetricsStore(_results_dir=_get_results_dir(results_dir))
+    return MeasurementsQuery(_results_dir=_get_results_dir(results_dir))
 
 
 @main.group("metrics")
@@ -2087,7 +2087,7 @@ def metrics_group():
 @click.option("--period", type=click.Choice(["day", "week", "month"]), default="day")
 def metrics_summary(results_dir, phase, since, until_date, product, station, period, as_json):
     """Yield summary: FPY, final yield, run counts, duration stats."""
-    store = _metrics_store(results_dir)
+    store = _measurements_query(results_dir)
     rows = store.yield_summary(
         product=product,
         station=station,
@@ -2132,7 +2132,7 @@ def metrics_summary(results_dir, phase, since, until_date, product, station, per
 @click.option("--top", "top_n", default=10, help="Number of top failures")
 def metrics_pareto(results_dir, phase, since, until_date, product, station, top_n, as_json):
     """Top failure modes (Pareto analysis)."""
-    store = _metrics_store(results_dir)
+    store = _measurements_query(results_dir)
     rows = store.pareto(
         product=product,
         station=station,
@@ -2164,7 +2164,7 @@ def metrics_pareto(results_dir, phase, since, until_date, product, station, top_
 @click.option("--min-samples", default=10, help="Minimum sample count")
 def metrics_cpk(results_dir, phase, since, until_date, product, station, min_samples, as_json):
     """Process capability (Cpk/Cp) per measurement."""
-    store = _metrics_store(results_dir)
+    store = _measurements_query(results_dir)
     rows = store.cpk(
         product=product,
         station=station,
@@ -2201,7 +2201,7 @@ def metrics_cpk(results_dir, phase, since, until_date, product, station, min_sam
 @click.option("--period", type=click.Choice(["day", "week", "month"]), default="day")
 def metrics_trend(results_dir, phase, since, until_date, product, station, period, as_json):
     """Yield trend over time."""
-    store = _metrics_store(results_dir)
+    store = _measurements_query(results_dir)
     rows = store.trend(
         product=product,
         station=station,
@@ -2233,7 +2233,7 @@ def metrics_trend(results_dir, phase, since, until_date, product, station, perio
 @click.option("--period", type=click.Choice(["day", "week", "month"]), default="day")
 def metrics_retest(results_dir, phase, since, until_date, product, station, period, as_json):
     """Retest rates: how often DUTs require multiple attempts."""
-    store = _metrics_store(results_dir)
+    store = _measurements_query(results_dir)
     rows = store.retest(
         product=product,
         station=station,
@@ -2266,7 +2266,7 @@ def metrics_retest(results_dir, phase, since, until_date, product, station, peri
 @click.option("--period", type=click.Choice(["day", "week", "month"]), default="day")
 def metrics_time_loss(results_dir, phase, since, until_date, product, station, period, as_json):
     """Time lost to failures and errors."""
-    store = _metrics_store(results_dir)
+    store = _measurements_query(results_dir)
     rows = store.time_loss(
         product=product,
         station=station,

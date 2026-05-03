@@ -1,9 +1,9 @@
 """Parametric viewer — compare measurements across runs.
 
-Pick any silver column for Y / X, optionally split by a categorical
-group, switch chart types (scatter / line / bar / histogram). All
-selections live in the URL query string so the view is shareable
-by copy-paste.
+Pick any measurements-view column for Y / X, optionally split by a
+categorical group, switch chart types (scatter / line / bar /
+histogram). All selections live in the URL query string so the view
+is shareable by copy-paste.
 """
 
 from __future__ import annotations
@@ -17,7 +17,9 @@ from urllib.parse import urlencode
 
 from nicegui import ui
 
-from litmus.analysis.metrics_store import MetricsStore
+from litmus.analysis.measurement_facets import FacetKind as _FacetKind
+from litmus.analysis.measurement_facets import FilterSet, _spec_by_column
+from litmus.analysis.measurements_query import MeasurementsQuery
 from litmus.ui.shared.layout import create_layout
 
 logger = logging.getLogger(__name__)
@@ -39,6 +41,26 @@ _NUMERIC_TYPES = {
     "TINYINT",
     "HUGEINT",
 }
+
+
+def _legacy_dict_to_filter_set(d: dict[str, str]) -> FilterSet:
+    """Bridge the JSON-textarea dict to a FilterSet.
+
+    The textarea is going away in the filter UI rewrite. Until then,
+    accept ``{column: value}`` and route each entry to its registry's
+    bucket. Unknown columns are dropped (graceful URL degradation).
+    """
+    string_filters: dict[str, list[str]] = {}
+    enum_filters: dict[str, list[str]] = {}
+    for col, value in d.items():
+        spec = _spec_by_column(col)
+        if spec is None:
+            continue
+        if spec.kind is _FacetKind.STRING:
+            string_filters[col] = [value]
+        elif spec.kind is _FacetKind.ENUM:
+            enum_filters[col] = [value]
+    return FilterSet(string_filters=string_filters, enum_filters=enum_filters)
 
 
 def _classify_columns(
@@ -99,8 +121,8 @@ def explore_page(  # noqa: PLR0913
 
     # Load schema — drives dropdown options.
     try:
-        store = MetricsStore(_results_dir=results_dir)
-        schema = store.describe_silver()
+        store = MeasurementsQuery(_results_dir=results_dir)
+        schema = store.describe_columns()
         store.close()
     except (OSError, ValueError, RuntimeError) as e:
         with ui.column().classes("w-full p-6"):
@@ -167,12 +189,12 @@ def explore_page(  # noqa: PLR0913
             return
 
         try:
-            store = MetricsStore(_results_dir=results_dir)
+            store = MeasurementsQuery(_results_dir=results_dir)
             try:
                 rows = store.parametric(
                     y=y_val,
                     x=x_val,
-                    filters=parsed_filters,
+                    filters=_legacy_dict_to_filter_set(parsed_filters),
                     group_by=str(group_select.value) if group_select.value else None,
                     chart_type=ct_val,
                     bins=int(bins_input.value or 30),
@@ -188,7 +210,7 @@ def explore_page(  # noqa: PLR0913
             return
 
         with chart_container:
-            _render_chart(rows, ct_val, y_val, x_val)
+            _render_chart([r.model_dump() for r in rows], ct_val, y_val, x_val)
 
     with ui.column().classes("w-full p-6 gap-4"):
         with ui.row().classes("items-center gap-2"):
@@ -280,6 +302,77 @@ def _x_axis_type(rows: list[dict[str, Any]]) -> str:
     return "value"
 
 
+def _x_axis_opt(label: str, x_type: str, *, data: list[Any] | None = None) -> dict[str, Any]:
+    """Standard X-axis with centered name, units-friendly gap, bold style."""
+    opt: dict[str, Any] = {
+        "type": x_type,
+        "name": label,
+        "nameLocation": "middle",
+        "nameGap": 32,
+        "nameTextStyle": {"fontSize": 13, "fontWeight": "bold"},
+        "axisLine": {"show": True},
+        "axisTick": {"show": True},
+    }
+    if x_type == "value":
+        opt["scale"] = True
+    if data is not None:
+        opt["data"] = data
+    return opt
+
+
+def _y_axis_opt(label: str) -> dict[str, Any]:
+    """Standard Y-axis with rotated centered name, scale=True for headroom."""
+    return {
+        "type": "value",
+        "name": label,
+        "nameLocation": "middle",
+        "nameRotate": 90,
+        "nameGap": 50,
+        "nameTextStyle": {"fontSize": 13, "fontWeight": "bold"},
+        "scale": True,
+        "axisLine": {"show": True},
+        "axisTick": {"show": True},
+    }
+
+
+_GRID = {"left": 70, "right": 30, "top": 50, "bottom": 80, "containLabel": True}
+_DATA_ZOOM_XY = [
+    {"type": "inside", "xAxisIndex": 0},
+    {"type": "inside", "yAxisIndex": 0},
+    {"type": "slider", "xAxisIndex": 0, "bottom": 10, "height": 18},
+]
+_DATA_ZOOM_X = [
+    {"type": "inside", "xAxisIndex": 0},
+    {"type": "slider", "xAxisIndex": 0, "bottom": 10, "height": 18},
+]
+
+
+def _toolbox(*, allow_y_zoom: bool) -> dict[str, Any]:
+    """ECharts toolbox: box-zoom, restore, save image, raw data view."""
+    return {
+        "right": 20,
+        "top": 0,
+        "feature": {
+            "dataZoom": {
+                "yAxisIndex": False if allow_y_zoom else "none",
+                "title": {"zoom": "Box zoom", "back": "Reset zoom"},
+            },
+            "restore": {"title": "Reset"},
+            "saveAsImage": {"title": "Save PNG", "name": "litmus_explore"},
+            "dataView": {"title": "View data", "readOnly": True, "lang": ["Data", "Close", ""]},
+        },
+    }
+
+
+def _series_label(group_key: str, fallback: str) -> str:
+    """Display name for a series — empty / null groups become legible labels."""
+    if group_key == "":
+        return fallback
+    if group_key in ("None", "null"):
+        return "(no value)"
+    return group_key
+
+
 def _render_chart(  # noqa: PLR0912
     rows: list[dict[str, Any]],
     chart_type: str,
@@ -291,45 +384,59 @@ def _render_chart(  # noqa: PLR0912
         ui.label("No data matches these selections").classes("text-slate-500 italic")
         return
 
-    # Group rows by `group` key.
+    # Group rows by `group` key, preserving deterministic order.
     by_group: dict[str, list[dict[str, Any]]] = {}
     for r in rows:
         by_group.setdefault(str(r.get("group", "")), []).append(r)
 
+    legend_names = [_series_label(g, y_label) for g in by_group]
+
     if chart_type == "histogram":
         # Categorical x-axis from bin midpoints; one bar series per group.
-        # Pick the first group's x list as the canonical axis.
+        # Each group can have its own bin layout — align by bin index
+        # using the first group's x list as the canonical axis.
         first = next(iter(by_group.values()))
         x_axis = [round(float(r["x"]), 4) for r in first]
         series = [
             {
                 "type": "bar",
-                "name": grp or y_label,
+                "name": _series_label(grp, y_label),
                 "data": [r["y"] for r in items],
                 "stack": "histogram",
+                "barCategoryGap": "5%",
             }
             for grp, items in by_group.items()
         ]
         option: dict[str, Any] = {
-            "tooltip": {"trigger": "axis"},
-            "legend": {"data": list(by_group.keys()) if any(by_group.keys()) else []},
-            "xAxis": {"type": "category", "data": x_axis, "name": y_label},
-            "yAxis": {"type": "value", "name": "count"},
+            "tooltip": {"trigger": "axis", "axisPointer": {"type": "shadow"}},
+            "legend": {"data": legend_names, "top": 0},
+            "toolbox": _toolbox(allow_y_zoom=False),
+            "grid": _GRID,
+            "xAxis": _x_axis_opt(y_label, "category", data=x_axis),
+            "yAxis": _y_axis_opt("count"),
             "series": series,
+            "dataZoom": _DATA_ZOOM_X,
         }
     elif chart_type == "bar":
         first = next(iter(by_group.values()))
         x_axis = [r["x"] for r in first]
         series = [
-            {"type": "bar", "name": grp or y_label, "data": [r["y"] for r in items]}
+            {
+                "type": "bar",
+                "name": _series_label(grp, y_label),
+                "data": [r["y"] for r in items],
+            }
             for grp, items in by_group.items()
         ]
         option = {
-            "tooltip": {"trigger": "axis"},
-            "legend": {"data": list(by_group.keys()) if any(by_group.keys()) else []},
-            "xAxis": {"type": "category", "data": x_axis, "name": x_label},
-            "yAxis": {"type": "value", "name": y_label},
+            "tooltip": {"trigger": "axis", "axisPointer": {"type": "shadow"}},
+            "legend": {"data": legend_names, "top": 0},
+            "toolbox": _toolbox(allow_y_zoom=False),
+            "grid": _GRID,
+            "xAxis": _x_axis_opt(x_label, "category", data=x_axis),
+            "yAxis": _y_axis_opt(y_label),
             "series": series,
+            "dataZoom": _DATA_ZOOM_X,
         }
     else:  # scatter or line
         series_type = "line" if chart_type == "line" else "scatter"
@@ -337,23 +444,23 @@ def _render_chart(  # noqa: PLR0912
         series = [
             {
                 "type": series_type,
-                "name": grp or y_label,
+                "name": _series_label(grp, y_label),
                 "data": [[_coerce_x(r["x"]), r["y"]] for r in items],
                 "symbolSize": 6,
+                "showSymbol": True,
             }
             for grp, items in by_group.items()
         ]
-        x_axis_opt: dict[str, Any] = {"type": x_type, "name": x_label}
-        if x_type == "value":
-            x_axis_opt["scale"] = True
         option = {
             "tooltip": {"trigger": "item"},
-            "legend": {"data": list(by_group.keys()) if any(by_group.keys()) else []},
-            "xAxis": x_axis_opt,
-            "yAxis": {"type": "value", "name": y_label, "scale": True},
+            "legend": {"data": legend_names, "top": 0},
+            "toolbox": _toolbox(allow_y_zoom=True),
+            "grid": _GRID,
+            "xAxis": _x_axis_opt(x_label, x_type),
+            "yAxis": _y_axis_opt(y_label),
             "series": series,
-            "dataZoom": [{"type": "inside"}, {"type": "slider"}],
+            "dataZoom": _DATA_ZOOM_XY,
         }
 
-    chart = ui.echart(option).classes("w-full h-96")
+    chart = ui.echart(option).classes("w-full h-[28rem]")
     ui.timer(0.1, lambda: chart.run_chart_method("resize"), once=True)

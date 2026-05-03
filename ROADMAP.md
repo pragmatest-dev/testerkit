@@ -8,6 +8,95 @@ through, just move.
 
 ## Backlog
 
+### UI Extensions API — third-party Python plugins ship as native UI
+
+The "Litmus is Python-only" pitch has a hidden second beat: a test
+author writing Python should get a **native UI extension surface**
+for free. They `pip install my_power_dashboard` and a new page
+shows up in the operator UI — no JS toolchain, no separate build,
+no bundling, no API to version. Same Pydantic models they already
+use in their tests.
+
+This is the feature that justifies NiceGUI as a strategic choice
+rather than a tactical one: SPAs (React / Next / Vue) cannot do
+this without iframe embedding or bundle federation, and other
+Python UI frameworks (Streamlit, Dash, Reflex) can't do it either
+because their plugin models require JS or compile steps.
+
+What needs to land:
+
+- **Extension contract** — small set of decorators that register
+  contribution points:
+  - `@register_page(path, icon, section, label)` — full page on
+    a new route, picked up by the sidebar
+  - `@register_run_tab(label, icon, predicate)` — adds a tab to
+    `/results/{run_id}`; predicate decides whether to show
+  - `@register_dashboard_card(order)` — card on `/`
+  - `@register_results_column(name, render_fn)` — extra column
+    in run lists
+  - Start narrow (page + run_tab); widen on demand.
+- **Discovery via entry points** — `[project.entry-points."litmus.ui_extensions"]`
+  in the extension's `pyproject.toml`. Litmus walks the group at
+  server startup and imports each module; registration happens via
+  decorator side-effects, same as pytest plugins.
+- **Versioning handshake** — extension declares the Litmus minor
+  version it was built against; mismatch → warning + load anyway,
+  link to migration notes.
+- **Theme helpers** — surface the small set of consistent UI
+  primitives (`info_field`, `metric_card`, `format_datetime`) so
+  most extensions don't reach for raw HTML / CSS and the visual
+  language stays coherent.
+- **Reusable chart primitive** — see "Shared chart primitive"
+  below; extensions need this so they don't re-invent zoom-refetch /
+  decimation / debounce per page.
+- **Process isolation note** — extensions share the uvicorn process.
+  Document the rule: heavy work in `asyncio.to_thread(...)`. Lift to
+  subprocess only if a real misbehaving extension shows up.
+
+Decision points: which contribution points ship in v1 (page +
+tab is enough; resist the urge to ship all five at once); how
+strict to be on extension API stability (semver minor for breaking
+changes feels right); whether to bundle a starter `litmus-extension-template`
+repo so authors get a working example without cargo-culting from
+the main repo.
+
+### Shared chart primitive — `ReactiveChart` for zoom-refetch and decimation
+
+The parametric viewer (`/explore`) and channel detail page
+(`/channels/{id}`) both need:
+
+- Initial render with optional decimation when row count exceeds
+  a threshold (LTTB for ~10k rows; consider Datashader-via-`ui.html`
+  for ~1M+)
+- Debounced `dataZoom` listener that re-queries on the new range
+- Cancel-in-flight via generation counter so a slow query that
+  started before the latest zoom doesn't overwrite the current
+  view with stale data
+- "Don't re-fetch unless the window changed materially" guard
+  (≥95% overlap → keep cached set) to stop wheel-jitter
+
+Today both pages either hard-`LIMIT` (parametric) or apply LTTB
+once at load time (channel detail) — no zoom-refetch anywhere.
+With the UI Extensions API on the horizon, this primitive becomes
+load-bearing: every third-party page that plots engineering data
+needs the same machinery, and we don't want each extension
+reimplementing debounce + cancel + decimation differently.
+
+What needs to land:
+
+- `litmus.ui.shared.reactive_chart.ReactiveChart` taking
+  `query=Callable[[XRange], list[Row]]`, `decimate=...`,
+  `debounce_ms=...`, `chart_type=...`. Wraps `ui.echart` and
+  manages the zoom listener internally.
+- Move `_lttb_indices` from `data/channels/store.py:51` into a
+  shared `data/_lttb.py` so both `ChannelStore` and `ReactiveChart`
+  pull from the same place.
+- Migrate `/explore` and `/channels/{id}` onto it (proves the
+  primitive on real pages before extensions land).
+- Datashader-via-`ui.html` as an optional render mode for the
+  big-data case; selected automatically when row count crosses a
+  threshold.
+
 ### Capability-aware station/test runnability inference
 
 Today's catalog integration in discovery (`cli.py:342-358`) reads only

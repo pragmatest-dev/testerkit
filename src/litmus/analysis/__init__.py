@@ -1,5 +1,6 @@
 """Built-in analysis: yield, capability, Pareto, trend, and test time metrics."""
 
+from litmus.analysis.measurements_query import MeasurementsQuery
 from litmus.analysis.metrics import (
     calculate_cpk,
     calculate_cpk_for_measurements,
@@ -10,7 +11,6 @@ from litmus.analysis.metrics import (
     timing_stats,
     trend_by_period,
 )
-from litmus.analysis.metrics_store import MetricsStore
 from litmus.analysis.query import (
     apply_all_filters,
     deduplicate_runs,
@@ -24,7 +24,7 @@ from litmus.analysis.query import (
 )
 
 __all__ = [
-    "MetricsStore",
+    "MeasurementsQuery",
     "apply_all_filters",
     "calculate_cpk",
     "calculate_cpk_for_measurements",

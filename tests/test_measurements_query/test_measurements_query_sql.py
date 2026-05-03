@@ -1,7 +1,8 @@
-"""Unit tests for gold layer SQL correctness.
+"""Unit tests for MeasurementsQuery SQL correctness.
 
-Creates synthetic silver Parquet using MeasurementRow (the real model),
-runs MetricsStore queries, and cross-validates against the Python metrics module.
+Creates synthetic measurement Parquet using MeasurementRow (the real
+model), runs MeasurementsQuery queries, and cross-validates against
+the Python metrics module.
 """
 
 from __future__ import annotations
@@ -12,8 +13,9 @@ from pathlib import Path
 import pyarrow.parquet as pq
 import pytest
 
+from litmus.analysis.measurement_facets import FilterSet, HistogramRow, ParametricRow
+from litmus.analysis.measurements_query import MeasurementsQuery
 from litmus.analysis.metrics import calculate_cpk, calculate_fpy
-from litmus.analysis.metrics_store import MetricsStore
 from litmus.data.backends._row_helpers import MeasurementRow
 from litmus.data.schemas import _build_write_schema, table_from_rows
 
@@ -58,7 +60,7 @@ def _row(
     )
 
 
-def _write_silver(runs_dir: Path, rows: list[MeasurementRow]) -> None:
+def _write_measurements(runs_dir: Path, rows: list[MeasurementRow]) -> None:
     """Write MeasurementRows to a Parquet file in runs_dir."""
     runs_dir.mkdir(parents=True, exist_ok=True)
     date_dir = runs_dir / "2026-01-01"
@@ -116,13 +118,13 @@ def results_dir(tmp_path: Path) -> Path:
             outcome="passed",
         ),
     ]
-    _write_silver(runs_dir, rows)
+    _write_measurements(runs_dir, rows)
     return tmp_path
 
 
 class TestYieldSummary:
     def test_basic_counts(self, results_dir: Path):
-        store = MetricsStore(_results_dir=results_dir)
+        store = MeasurementsQuery(_results_dir=results_dir)
         rows = store.yield_summary(phase="all")
         assert len(rows) >= 1
         total_runs = sum(r["total_runs"] for r in rows)
@@ -130,7 +132,7 @@ class TestYieldSummary:
 
     def test_fpy_matches_python(self, results_dir: Path):
         """Gold FPY must match metrics.calculate_fpy on same data."""
-        store = MetricsStore(_results_dir=results_dir)
+        store = MeasurementsQuery(_results_dir=results_dir)
         rows = store.yield_summary(phase="all")
         fp_total = sum(r["first_pass_total"] for r in rows)
         fp_passed = sum(r["first_pass_passed"] for r in rows)
@@ -148,7 +150,7 @@ class TestYieldSummary:
         assert gold_fpy == pytest.approx(python_fpy, abs=0.01)
 
     def test_final_yield(self, results_dir: Path):
-        store = MetricsStore(_results_dir=results_dir)
+        store = MeasurementsQuery(_results_dir=results_dir)
         rows = store.yield_summary(phase="all")
         final_passed = sum(r["final_passed"] for r in rows)
         unique_serials = sum(r["unique_serials"] for r in rows)
@@ -156,12 +158,12 @@ class TestYieldSummary:
         assert final_yield == pytest.approx(1.0)
 
     def test_phase_filter(self, results_dir: Path):
-        store = MetricsStore(_results_dir=results_dir)
+        store = MeasurementsQuery(_results_dir=results_dir)
         rows = store.yield_summary()
         assert all(r["phase"] != "development" for r in rows)
 
     def test_duration_stats(self, results_dir: Path):
-        store = MetricsStore(_results_dir=results_dir)
+        store = MeasurementsQuery(_results_dir=results_dir)
         rows = store.yield_summary(phase="all")
         for r in rows:
             assert r["avg_duration_s"] is not None
@@ -170,7 +172,7 @@ class TestYieldSummary:
 
 class TestPareto:
     def test_failure_count(self, results_dir: Path):
-        store = MetricsStore(_results_dir=results_dir)
+        store = MeasurementsQuery(_results_dir=results_dir)
         rows = store.pareto(phase="all")
         assert len(rows) == 1
         assert rows[0]["fail_count"] == 1
@@ -178,13 +180,13 @@ class TestPareto:
 
     def test_no_failures(self, tmp_path: Path):
         runs_dir = tmp_path / "runs"
-        _write_silver(
+        _write_measurements(
             runs_dir,
             [
                 _row(run_id="r1", value=3.3, outcome="passed"),
             ],
         )
-        store = MetricsStore(_results_dir=tmp_path)
+        store = MeasurementsQuery(_results_dir=tmp_path)
         assert store.pareto(phase="all") == []
 
 
@@ -197,9 +199,9 @@ class TestCpk:
             _row(run_id=f"r{i}", dut_serial=f"SN{i:03d}", value=v, outcome="passed")
             for i, v in enumerate(values)
         ]
-        _write_silver(runs_dir, rows)
+        _write_measurements(runs_dir, rows)
 
-        store = MetricsStore(_results_dir=tmp_path)
+        store = MeasurementsQuery(_results_dir=tmp_path)
         gold_rows = store.cpk(phase="all", min_samples=5)
         assert len(gold_rows) >= 1
         gold_cpk = gold_rows[0]["cpk"]
@@ -209,20 +211,20 @@ class TestCpk:
 
     def test_min_samples_filter(self, tmp_path: Path):
         runs_dir = tmp_path / "runs"
-        _write_silver(
+        _write_measurements(
             runs_dir,
             [
                 _row(run_id="r1", value=3.3, outcome="passed"),
                 _row(run_id="r2", dut_serial="SN002", value=3.31, outcome="passed"),
             ],
         )
-        store = MetricsStore(_results_dir=tmp_path)
+        store = MeasurementsQuery(_results_dir=tmp_path)
         assert store.cpk(phase="all", min_samples=10) == []
 
 
 class TestTrend:
     def test_trend_data(self, results_dir: Path):
-        store = MetricsStore(_results_dir=results_dir)
+        store = MeasurementsQuery(_results_dir=results_dir)
         rows = store.trend(phase="all")
         assert len(rows) >= 1
         for r in rows:
@@ -231,14 +233,14 @@ class TestTrend:
             assert "yield_pct" in r
 
     def test_weekly_period(self, results_dir: Path):
-        store = MetricsStore(_results_dir=results_dir)
+        store = MeasurementsQuery(_results_dir=results_dir)
         rows = store.trend(phase="all", period="week")
         assert len(rows) >= 1
 
 
 class TestRetest:
     def test_retest_detection(self, results_dir: Path):
-        store = MetricsStore(_results_dir=results_dir)
+        store = MeasurementsQuery(_results_dir=results_dir)
         rows = store.retest(phase="all")
         assert len(rows) >= 1
         total_serials = sum(r["total_serials"] for r in rows)
@@ -249,7 +251,7 @@ class TestRetest:
 
 class TestTimeLoss:
     def test_time_breakdown(self, results_dir: Path):
-        store = MetricsStore(_results_dir=results_dir)
+        store = MeasurementsQuery(_results_dir=results_dir)
         rows = store.time_loss(phase="all")
         assert len(rows) >= 1
         total = sum(r["total_time_s"] or 0 for r in rows)
@@ -260,7 +262,7 @@ class TestTimeLoss:
 
 class TestEmptyDataset:
     def test_all_methods_return_empty(self, tmp_path: Path):
-        store = MetricsStore(_results_dir=tmp_path)
+        store = MeasurementsQuery(_results_dir=tmp_path)
         assert store.yield_summary() == []
         assert store.pareto() == []
         assert store.cpk() == []
@@ -271,83 +273,145 @@ class TestEmptyDataset:
 
 class TestFilters:
     def test_product_filter(self, results_dir: Path):
-        store = MetricsStore(_results_dir=results_dir)
+        store = MeasurementsQuery(_results_dir=results_dir)
         rows = store.yield_summary(product="PN-100", phase="all")
         assert all(r["product"] == "PN-100" for r in rows)
 
     def test_station_filter(self, results_dir: Path):
-        store = MetricsStore(_results_dir=results_dir)
+        store = MeasurementsQuery(_results_dir=results_dir)
         rows = store.yield_summary(station="STA-01", phase="all")
         assert all(r["station"] == "STA-01" for r in rows)
 
     def test_nonexistent_product(self, results_dir: Path):
-        store = MetricsStore(_results_dir=results_dir)
+        store = MeasurementsQuery(_results_dir=results_dir)
         assert store.yield_summary(product="NOPE", phase="all") == []
 
     def test_date_filter(self, results_dir: Path):
-        store = MetricsStore(_results_dir=results_dir)
+        store = MeasurementsQuery(_results_dir=results_dir)
         rows = store.yield_summary(since="2026-01-01", until="2026-01-01", phase="all")
         assert len(rows) >= 1
 
 
 class TestParametric:
-    def test_describe_silver_lists_columns(self, results_dir: Path):
-        store = MetricsStore(_results_dir=results_dir)
-        cols = store.describe_silver()
+    def test_describe_columns_lists_columns(self, results_dir: Path):
+        store = MeasurementsQuery(_results_dir=results_dir)
+        cols = store.describe_columns()
         names = {c["column_name"] for c in cols}
         assert "measurement_value" in names
         assert "measurement_name" in names
 
-    def test_scatter_returns_long_rows(self, results_dir: Path):
-        store = MetricsStore(_results_dir=results_dir)
+    def test_scatter_returns_typed_rows(self, results_dir: Path):
+        store = MeasurementsQuery(_results_dir=results_dir)
         rows = store.parametric(y="measurement_value", x="dut_serial")
         assert len(rows) == 4
-        assert {"x", "y", "group"} <= set(rows[0].keys())
-        assert all(r["group"] == "" for r in rows)
+        assert all(isinstance(r, ParametricRow) for r in rows)
+        assert all(r.group == "" for r in rows)
 
     def test_group_by_populates_group_column(self, results_dir: Path):
-        store = MetricsStore(_results_dir=results_dir)
+        store = MeasurementsQuery(_results_dir=results_dir)
         rows = store.parametric(y="measurement_value", x="dut_serial", group_by="run_outcome")
-        groups = {r["group"] for r in rows}
+        groups = {r.group for r in rows}
         assert groups == {"passed", "failed"}
 
     def test_filters_apply(self, results_dir: Path):
-        store = MetricsStore(_results_dir=results_dir)
+        store = MeasurementsQuery(_results_dir=results_dir)
         rows = store.parametric(
             y="measurement_value",
             x="dut_serial",
-            filters={"run_outcome": "passed"},
+            filters=FilterSet(enum_filters={"run_outcome": ["passed"]}),
         )
         assert len(rows) == 3
 
-    def test_histogram_bins(self, results_dir: Path):
-        store = MetricsStore(_results_dir=results_dir)
+    def test_filters_multi_value(self, results_dir: Path):
+        store = MeasurementsQuery(_results_dir=results_dir)
+        rows = store.parametric(
+            y="measurement_value",
+            x="dut_serial",
+            filters=FilterSet(enum_filters={"run_outcome": ["passed", "failed"]}),
+        )
+        assert len(rows) == 4
+
+    def test_histogram_returns_histogram_rows(self, results_dir: Path):
+        store = MeasurementsQuery(_results_dir=results_dir)
         rows = store.parametric(
             y="measurement_value", x="dut_serial", chart_type="histogram", bins=4
         )
-        # 4 measurements spread across [2.5, 3.31] → at least one bin populated
-        assert sum(r["y"] for r in rows) == 4
-        assert all("x" in r and "y" in r and "bin" in r for r in rows)
+        assert all(isinstance(r, HistogramRow) for r in rows)
+        assert sum(r.y for r in rows) == 4
 
     def test_bar_aggregates(self, results_dir: Path):
-        store = MetricsStore(_results_dir=results_dir)
+        store = MeasurementsQuery(_results_dir=results_dir)
         rows = store.parametric(y="measurement_value", x="dut_serial", chart_type="bar")
-        # 2 distinct dut_serials → 2 rows, y = AVG(measurement_value)
         assert len(rows) == 2
-        by_serial = {r["x"]: r["y"] for r in rows}
+        assert all(isinstance(r, ParametricRow) for r in rows)
+        by_serial = {r.x: r.y for r in rows}
         assert by_serial["SN001"] == pytest.approx((3.3 + 3.31) / 2)
         assert by_serial["SN002"] == pytest.approx((2.5 + 3.29) / 2)
 
     def test_invalid_column_rejected(self, results_dir: Path):
-        store = MetricsStore(_results_dir=results_dir)
+        store = MeasurementsQuery(_results_dir=results_dir)
         with pytest.raises(ValueError, match="invalid column identifier"):
             store.parametric(y="value; DROP TABLE silver --", x="dut_serial")
 
-    def test_invalid_filter_column_rejected(self, results_dir: Path):
-        store = MetricsStore(_results_dir=results_dir)
+
+class TestDistinctValues:
+    def test_no_filter_returns_all(self, results_dir: Path):
+        store = MeasurementsQuery(_results_dir=results_dir)
+        opts = store.distinct_values("dut_serial")
+        values = {o.value for o in opts}
+        assert values == {"SN001", "SN002"}
+
+    def test_options_carry_counts(self, results_dir: Path):
+        store = MeasurementsQuery(_results_dir=results_dir)
+        opts = store.distinct_values("dut_serial")
+        # 2 measurements per serial in the fixture
+        assert all(o.count == 2 for o in opts)
+
+    def test_cross_filter_excludes_self(self, results_dir: Path):
+        """exclude_self=True means filtering on station_id doesn't narrow station_id options."""
+        store = MeasurementsQuery(_results_dir=results_dir)
+        filters = FilterSet(string_filters={"station_id": ["STA-01"]})
+        opts = store.distinct_values("station_id", filters=filters, exclude_self=True)
+        # All stations still visible because we excluded self
+        assert {o.value for o in opts} == {"STA-01"}
+
+    def test_cross_filter_narrows_other(self, results_dir: Path):
+        """A filter on run_outcome narrows the dut_serial options to passing serials."""
+        store = MeasurementsQuery(_results_dir=results_dir)
+        filters = FilterSet(enum_filters={"run_outcome": ["failed"]})
+        opts = store.distinct_values("dut_serial", filters=filters)
+        # Only SN002 has a failed run in the fixture
+        assert {o.value for o in opts} == {"SN002"}
+
+    def test_exclude_self_false_includes_self(self, results_dir: Path):
+        store = MeasurementsQuery(_results_dir=results_dir)
+        filters = FilterSet(string_filters={"dut_serial": ["SN001"]})
+        opts = store.distinct_values("dut_serial", filters=filters, exclude_self=False)
+        assert {o.value for o in opts} == {"SN001"}
+
+    def test_invalid_column_rejected(self, results_dir: Path):
+        store = MeasurementsQuery(_results_dir=results_dir)
         with pytest.raises(ValueError, match="invalid column identifier"):
-            store.parametric(
-                y="measurement_value",
-                x="dut_serial",
-                filters={"col; DROP --": "x"},
-            )
+            store.distinct_values("evil; DROP --")
+
+
+class TestSummaryCounts:
+    def test_no_filter_counts_all(self, results_dir: Path):
+        store = MeasurementsQuery(_results_dir=results_dir)
+        counts = store.summary_counts()
+        assert counts.total_rows == 4
+        assert counts.distinct_runs == 4
+        assert counts.distinct_measurements == 1  # only "vout"
+        assert counts.distinct_products == 1  # only "PN-100"
+
+    def test_filter_narrows_counts(self, results_dir: Path):
+        store = MeasurementsQuery(_results_dir=results_dir)
+        filters = FilterSet(enum_filters={"run_outcome": ["passed"]})
+        counts = store.summary_counts(filters=filters)
+        assert counts.total_rows == 3
+
+    def test_empty_data_returns_zeros(self, tmp_path: Path):
+        store = MeasurementsQuery(_results_dir=tmp_path)
+        counts = store.summary_counts()
+        assert counts.total_rows == 0
+        assert counts.distinct_runs == 0

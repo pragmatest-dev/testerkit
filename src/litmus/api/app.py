@@ -108,10 +108,10 @@ def create_api_router() -> APIRouter:
     results_dir: Path | None = Path(project.results_dir) if project.results_dir else None
     backend = ParquetBackend(results_dir=results_dir)
 
-    def _metrics_store():
-        from litmus.analysis.metrics_store import MetricsStore
+    def _measurements_query():
+        from litmus.analysis.measurements_query import MeasurementsQuery
 
-        return MetricsStore(_results_dir=results_dir)
+        return MeasurementsQuery(_results_dir=results_dir)
 
     # -------------------------------------------------------------------------
     # Runs
@@ -567,7 +567,7 @@ def create_api_router() -> APIRouter:
     ):
         """Yield summary — DuckDB SQL aggregated from parquet rows at request time."""
         return {
-            "data": _metrics_store().yield_summary(
+            "data": _measurements_query().yield_summary(
                 product=product,
                 station=station,
                 phase=phase,
@@ -588,7 +588,7 @@ def create_api_router() -> APIRouter:
     ):
         """Top failure modes (DuckDB SQL)."""
         return {
-            "data": _metrics_store().pareto(
+            "data": _measurements_query().pareto(
                 product=product, station=station, phase=phase, since=since, until=until, top_n=top_n
             )
         }
@@ -604,7 +604,7 @@ def create_api_router() -> APIRouter:
     ):
         """Process capability (DuckDB SQL)."""
         return {
-            "data": _metrics_store().cpk(
+            "data": _measurements_query().cpk(
                 product=product,
                 station=station,
                 phase=phase,
@@ -625,7 +625,7 @@ def create_api_router() -> APIRouter:
     ):
         """Yield trend (DuckDB SQL)."""
         return {
-            "data": _metrics_store().trend(
+            "data": _measurements_query().trend(
                 product=product,
                 station=station,
                 phase=phase,
@@ -646,7 +646,7 @@ def create_api_router() -> APIRouter:
     ):
         """Retest rates (DuckDB SQL)."""
         return {
-            "data": _metrics_store().retest(
+            "data": _measurements_query().retest(
                 product=product,
                 station=station,
                 phase=phase,
@@ -667,7 +667,7 @@ def create_api_router() -> APIRouter:
     ):
         """Time lost to failures/errors (DuckDB SQL)."""
         return {
-            "data": _metrics_store().time_loss(
+            "data": _measurements_query().time_loss(
                 product=product,
                 station=station,
                 phase=phase,
