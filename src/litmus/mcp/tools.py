@@ -1309,8 +1309,10 @@ def channels_query(
     Shared implementation for HTTP API and MCP tool.
     """
     from litmus.data.channels.store import ChannelStore
+    from litmus.data.results_dir import resolve_results_dir
 
-    channels_dir = (results_dir / "channels") if results_dir else Path("results/channels")
+    base = results_dir if results_dir else resolve_results_dir()
+    channels_dir = base / "channels"
     if not channels_dir.exists():
         return {"channel_id": channel_id, "data": []}
 
@@ -1333,8 +1335,10 @@ def channels_list_query(*, results_dir: Path | None = None) -> dict[str, Any]:
 
     Shared implementation for HTTP API and MCP tool.
     """
-    channels_dir = (results_dir / "channels") if results_dir else Path("results/channels")
-    registry_path = channels_dir / "_registry.json"
+    from litmus.data.results_dir import resolve_results_dir
+
+    base = results_dir if results_dir else resolve_results_dir()
+    registry_path = base / "channels" / "_registry.json"
     if not registry_path.exists():
         return {"channels": {}}
     return {"channels": json.loads(registry_path.read_text())}

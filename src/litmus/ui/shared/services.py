@@ -610,6 +610,81 @@ def aggregate_run_stats(measurements: list[dict]) -> dict[str, Any]:
 
 
 # -----------------------------------------------------------------------------
+# Event / Channel Store Services
+# -----------------------------------------------------------------------------
+#
+# Thin in-process adapters over the shared query implementations in
+# ``litmus.mcp.tools``. The HTTP API uses the same functions, so the
+# operator UI and external clients see the same shapes.
+
+
+def _resolve_results_dir() -> Path | None:
+    """Project-configured results dir (or None for the platformdirs default)."""
+    project = load_project_config()
+    return Path(project.results_dir) if project.results_dir else None
+
+
+def query_events(
+    *,
+    session_id: str | None = None,
+    event_type: str | None = None,
+    role: str | None = None,
+    since: str | None = None,
+    limit: int = 100,
+) -> dict[str, Any]:
+    """Browse the event log with optional filters.
+
+    Returns ``{"events": [...], "count": int}``. See
+    :func:`litmus.mcp.tools.events_query` for filter semantics.
+    """
+    from litmus.mcp.tools import events_query
+
+    return events_query(
+        session_id,
+        event_type,
+        role,
+        since,
+        limit,
+        results_dir=_resolve_results_dir(),
+    )
+
+
+def list_channels() -> dict[str, Any]:
+    """Return the channel registry as ``{"channels": {channel_id: {...}}}``."""
+    from litmus.mcp.tools import channels_list_query
+
+    return channels_list_query(results_dir=_resolve_results_dir())
+
+
+def query_channel(
+    channel_id: str,
+    *,
+    session_id: str | None = None,
+    since: str | None = None,
+    until: str | None = None,
+    last_n: int | None = None,
+    max_points: int | None = None,
+) -> dict[str, Any]:
+    """Query data for one channel with optional filters / LTTB decimation.
+
+    Returns ``{"channel_id": str, "data": [row, ...]}`` where each row is
+    a dict matching the channel's Arrow schema (timestamp + value /
+    samples + source_method + session_id).
+    """
+    from litmus.mcp.tools import channels_query
+
+    return channels_query(
+        channel_id,
+        session_id=session_id,
+        since=since,
+        until=until,
+        last_n=last_n,
+        max_points=max_points,
+        results_dir=_resolve_results_dir(),
+    )
+
+
+# -----------------------------------------------------------------------------
 # Yield Services
 # -----------------------------------------------------------------------------
 
