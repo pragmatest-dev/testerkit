@@ -105,9 +105,12 @@ class RunStore:
         ]
 
     def find_run_file(self, run_id: str) -> Path | None:
-        """Find the parquet file for a run_id (prefix match)."""
-        # Safe: run_id comes from internal UUIDs. Flight do_get
-        # does not support parameterized queries; prefix truncation is safe.
+        """Find the measurements parquet for a run_id (prefix match).
+
+        Returns ``None`` when the runs row has no measurements
+        parquet (measurement-less run — only setup / action /
+        skipped steps) or when the file is missing from disk.
+        """
         prefix = self._id_prefix(run_id)
         rows = self._flight_query(f"""
             SELECT file_path FROM runs
@@ -115,65 +118,66 @@ class RunStore:
             LIMIT 1
         """)
 
-        if not rows:
+        if not rows or rows[0].get("file_path") is None:
             return None
         p = Path(rows[0]["file_path"])
         return p if p.exists() else None
 
     def get_run(self, run_id: str) -> RunSummary | None:
-        """Get a specific test run summary by ID (prefix match)."""
-        pq_file = self.find_run_file(run_id)
-        if pq_file is None:
-            return None
+        """Get a run summary by ID (prefix match), runs-table-first.
 
-        try:
-            table = pq.read_table(pq_file)
-            if table.num_rows == 0:
-                return None
-            row = table.to_pylist()[0]
-            return RunSummary(
-                test_run_id=row.get("run_id"),
-                session_id=row.get("session_id"),
-                slot_id=row.get("slot_id"),
-                started_at=row.get("run_started_at"),
-                ended_at=row.get("run_ended_at"),
-                dut_serial=row.get("dut_serial"),
-                dut_part_number=row.get("dut_part_number"),
-                product_id=row.get("product_id"),
-                station_id=row.get("station_id"),
-                station_type=row.get("station_type"),
-                test_phase=row.get("test_phase"),
-                project_name=row.get("project_name"),
-                operator=row.get("operator_id"),
-                outcome=row.get("run_outcome"),
-                total_measurements=table.num_rows,
-                file_path=str(pq_file),
-            )
-        except Exception as exc:
-            logger.debug("Failed to read run file %s: %s", pq_file, exc)
-            return None
-
-    def find_session_files(self, session_id: str) -> list[Path]:
-        """Find all parquet files sharing a session_id (multi-DUT siblings)."""
-        escaped = _sql_escape(session_id)
+        The runs TABLE carries every run-level field needed to
+        render the summary card. We only crack open the measurements
+        parquet to fill in fields the table doesn't denormalize
+        (``slot_id``, ``station_type``). For measurement-less runs
+        (``file_path`` IS NULL) we return the table row as-is.
+        """
+        prefix = self._id_prefix(run_id)
         rows = self._flight_query(f"""
-            SELECT file_path FROM runs
-            WHERE session_id = '{escaped}'
+            SELECT * FROM runs
+            WHERE run_id LIKE '{_sql_escape(prefix)}%'
+            LIMIT 1
         """)
-        return [Path(r["file_path"]) for r in rows if Path(r["file_path"]).exists()]
+        if not rows:
+            return None
+        r = rows[0]
+        run_id_val = r.get("run_id")
+        if not run_id_val:
+            return None
 
-    def get_session_measurements(self, session_id: str) -> list[dict]:
-        """Get measurements from all runs sharing a session_id."""
-        files = self.find_session_files(session_id)
-        all_measurements: list[dict] = []
-        for pq_file in files:
-            try:
-                table = pq.read_table(pq_file)
-                all_measurements.extend(table.to_pylist())
-            except Exception as exc:
-                logger.debug("Skipping unreadable file %s: %s", pq_file, exc)
-                continue
-        return all_measurements
+        summary = RunSummary(
+            test_run_id=run_id_val,
+            session_id=r.get("session_id"),
+            started_at=r.get("started_at"),
+            ended_at=r.get("ended_at"),
+            dut_serial=r.get("dut_serial"),
+            dut_part_number=r.get("dut_part_number"),
+            product_id=r.get("product_id"),
+            station_id=r.get("station_id"),
+            test_phase=r.get("test_phase"),
+            project_name=r.get("project_name"),
+            operator=r.get("operator_id"),
+            outcome=r.get("outcome"),
+            total_measurements=r.get("num_measurements", 0) or 0,
+            file_path=r.get("file_path"),
+        )
+
+        # Fields not in the runs table — sourced from the measurements
+        # parquet when available. Skipped silently for measurement-less
+        # runs.
+        pq_path_str = r.get("file_path")
+        if pq_path_str:
+            pq_path = Path(pq_path_str)
+            if pq_path.exists():
+                try:
+                    table = pq.read_table(pq_path)
+                    if table.num_rows > 0:
+                        first = table.to_pylist()[0]
+                        summary.slot_id = first.get("slot_id")
+                        summary.station_type = first.get("station_type")
+                except Exception as exc:
+                    logger.debug("Failed to enrich run %s from parquet: %s", run_id, exc)
+        return summary
 
     def get_measurements(self, run_id: str, *, _file: str | None = None) -> list[dict[str, Any]]:
         """Get all measurements for a specific test run.

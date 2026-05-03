@@ -77,9 +77,8 @@ class StationConnection:
         self._event_log = self._event_store.get_event_log(self._session_id)
 
         # Create ChannelStore directly (not as EventLog subscriber)
-        results_dir = self._event_store._results_dir
         self._channel_store = ChannelStore(
-            results_dir / "channels",
+            self._event_store._results_dir,
             self._session_id,
             serve=True,
         )

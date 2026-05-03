@@ -1312,11 +1312,10 @@ def channels_query(
     from litmus.data.results_dir import resolve_results_dir
 
     base = results_dir if results_dir else resolve_results_dir()
-    channels_dir = base / "channels"
-    if not channels_dir.exists():
+    if not (base / "channels").exists():
         return {"channel_id": channel_id, "data": []}
 
-    store = ChannelStore(channels_dir, uuid4())
+    store = ChannelStore(base, uuid4())
     since_dt = datetime.fromisoformat(since) if since else None
     until_dt = datetime.fromisoformat(until) if until else None
     table = store.query(
@@ -1386,6 +1385,59 @@ def channels_tool(
         max_points=max_points,
         results_dir=_resolve_results_dir(project),
     )
+
+
+def steps_tool(
+    run_id: str,
+    action: Literal["list", "tree"] = "list",
+    project: str | None = None,
+) -> dict[str, Any]:
+    """Query the steps table for a run.
+
+    Args:
+        run_id: Full UUID or 8-char prefix of the run.
+        action: ``list`` for flat ordered rows; ``tree`` for the
+            ``step_path``-derived hierarchy.
+        project: Project root path.
+    """
+    from litmus.analysis.steps_query import StepsQuery
+
+    q = StepsQuery(_results_dir=_resolve_results_dir(project))
+    try:
+        if action == "tree":
+            return {"tree": [n.model_dump(mode="json") for n in q.tree_for_run(run_id)]}
+        return {"steps": [r.model_dump(mode="json") for r in q.list_for_run(run_id)]}
+    finally:
+        q.close()
+
+
+def runs_tool(
+    action: Literal["list", "get"] = "list",
+    run_id: str | None = None,
+    limit: int = 50,
+    project: str | None = None,
+) -> dict[str, Any]:
+    """Query the runs table.
+
+    Args:
+        action: ``list`` returns the most recent runs; ``get`` returns
+            one run by ``run_id``.
+        run_id: Required when ``action='get'`` — full UUID or 8-char prefix.
+        limit: Cap on rows returned by ``list`` (default 50).
+        project: Project root path.
+    """
+    from litmus.analysis.runs_query import RunsQuery
+
+    q = RunsQuery(_results_dir=_resolve_results_dir(project))
+    try:
+        if action == "get":
+            if not run_id:
+                return {"error": "run_id is required when action='get'"}
+            run = q.get(run_id)
+            return {"run": run.model_dump(mode="json") if run else None}
+        return {"runs": [r.model_dump(mode="json") for r in q.list_recent(limit=limit)]}
+    finally:
+        q.close()
 
 
 def schema_tool(yaml_type: str | None = None) -> dict[str, Any]:

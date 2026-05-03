@@ -11,7 +11,7 @@ from litmus.ui.shared.layout import create_layout
 from litmus.ui.shared.services import (
     aggregate_run_stats,
     get_run_detail,
-    get_session_measurements,
+    get_session_steps,
     list_all_runs,
 )
 
@@ -111,15 +111,15 @@ def _render_run_detail(run_id: str, run: RunSummary, measurements: list):
         gantt_chart = None
         if has_slots and timeline_tab is not None and session_id:
             with ui.tab_panel(timeline_tab):
-                # Load measurements from ALL sibling runs in the same session
-                session_measurements = get_session_measurements(session_id)
-                # Identify which slot this run belongs to
+                # Pull every step row across sibling runs in this session
+                # straight from the daemon's typed steps table.
+                session_steps = get_session_steps(session_id)
                 current_slot_id = next(
                     (m.get("slot_id") for m in measurements if m.get("slot_id")),
                     None,
                 )
                 gantt_chart = _render_timeline_tab(
-                    session_measurements,
+                    session_steps,
                     current_slot_id=current_slot_id,
                 )
 
@@ -260,11 +260,16 @@ def _render_history_tab(run_id: str, run: RunSummary):
 
 
 def _render_timeline_tab(
-    measurements: list,
+    steps,
     *,
     current_slot_id: str | None = None,
 ) -> Any:
-    """Render the execution timeline tab for multi-DUT runs."""
+    """Render the execution timeline tab for multi-DUT runs.
+
+    ``steps`` is the typed ``list[StepRow]`` returned by
+    :func:`get_session_steps` — every step across the session's
+    sibling runs.
+    """
     from litmus.ui.components.execution_gantt import render_execution_gantt
 
     with ui.card().classes("w-full"):
@@ -276,7 +281,7 @@ def _render_timeline_tab(
             ).classes("text-sm text-slate-500")
         with ui.card_section().classes("w-full"):
             return render_execution_gantt(
-                measurements,
+                steps,
                 current_slot_id=current_slot_id,
             )
 

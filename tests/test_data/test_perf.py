@@ -36,7 +36,7 @@ def event_store(tmp_path_factory: pytest.TempPathFactory) -> Generator[EventStor
 
 @pytest.fixture
 def channel_store(tmp_path: Path) -> Generator[ChannelStore]:
-    s = ChannelStore(tmp_path / "channels", uuid4())
+    s = ChannelStore(tmp_path, uuid4())
     s.open()
     yield s
     s.close()
@@ -140,7 +140,7 @@ class TestChannelStorePerf:
     @pytest.mark.parametrize("n_samples", [100, 1_000, 10_000])
     def test_write_scalars(self, tmp_path: Path, benchmark, n_samples: int):
         """Write scalar channel data at various scales."""
-        store = ChannelStore(tmp_path / "ch", uuid4(), flush_threshold=100)
+        store = ChannelStore(tmp_path, uuid4(), flush_threshold=100)
         store.open()
 
         def write_all():
@@ -154,7 +154,7 @@ class TestChannelStorePerf:
     @pytest.mark.parametrize("n_samples", [1_000, 10_000])
     def test_query_scalars(self, tmp_path: Path, benchmark, n_samples: int):
         """Query channel data at various scales."""
-        store = ChannelStore(tmp_path / "ch", uuid4(), flush_threshold=100)
+        store = ChannelStore(tmp_path, uuid4(), flush_threshold=100)
         store.open()
         for i in range(n_samples):
             store.write("sensor.temp", 25.0 + i * 0.01, units="°C")
@@ -169,7 +169,7 @@ class TestChannelStorePerf:
     @pytest.mark.benchmark(group="channel-query")
     def test_query_with_lttb(self, tmp_path: Path, benchmark):
         """Query 10k samples decimated to 500 via LTTB."""
-        store = ChannelStore(tmp_path / "ch", uuid4(), flush_threshold=100)
+        store = ChannelStore(tmp_path, uuid4(), flush_threshold=100)
         store.open()
         for i in range(10_000):
             store.write("sensor.temp", 25.0 + i * 0.01, units="°C")
@@ -186,7 +186,7 @@ class TestChannelStorePerf:
         """Write array (waveform-like) data — 1k writes of 1k-sample arrays."""
         import random
 
-        store = ChannelStore(tmp_path / "ch", uuid4(), flush_threshold=50)
+        store = ChannelStore(tmp_path, uuid4(), flush_threshold=50)
         store.open()
         waveform = [random.gauss(0, 1) for _ in range(1000)]
 

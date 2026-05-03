@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import logging
 import os
+import re
 import sys
 import threading
 import warnings
@@ -47,9 +48,11 @@ from litmus.models.enums import Comparator
 
 logger = logging.getLogger(__name__)
 
-# Bump on schema-incompatible changes. v2: runs/steps tables restored
-# (were views in v1.5/Step B), measurements promoted to a real TABLE.
-_SCHEMA_VERSION = 2
+# Bump when ``_rebuild_schema``'s table shape changes (column added /
+# dropped, NOT NULL toggled, type changed). Existing ``_index.duckdb``
+# files at any other version are wiped and re-ingested from the
+# parquet files on disk — files are the source of truth.
+_SCHEMA_VERSION = 1
 
 
 def _create_enum_types(conn: duckdb.DuckDBPyConnection) -> None:
@@ -77,23 +80,26 @@ def _create_enum_types(conn: duckdb.DuckDBPyConnection) -> None:
 
 
 def _open_index(index_path: Path) -> tuple[duckdb.DuckDBPyConnection, bool]:
-    """Open or create the persistent DuckDB index; rebuild on schema mismatch.
+    """Open or create the persistent DuckDB index.
 
-    Returns (conn, is_fresh) where is_fresh=True means the schema was just
-    rebuilt and a foreground ingest is needed before signaling ready.
+    Rebuild trigger: the on-disk ``_schema_version`` doesn't match
+    ``_SCHEMA_VERSION``. Any mismatch — newer or older — wipes and
+    rebuilds from the parquet files on disk. Files are the source
+    of truth; the index is derivable.
+
+    Returns (conn, is_fresh) where is_fresh=True means the schema
+    was just rebuilt and a foreground ingest is needed before
+    signaling ready.
     """
     conn = duckdb.connect(str(index_path))
-    needs_rebuild = False
     try:
         row = conn.execute("SELECT v FROM _schema_version LIMIT 1").fetchone()
-        if row is None or row[0] < _SCHEMA_VERSION:
-            warnings.warn("Schema version mismatch — rebuilding run index", stacklevel=2)
-            needs_rebuild = True
+        if row is not None and row[0] == _SCHEMA_VERSION:
+            return conn, False
     except duckdb.Error:
-        needs_rebuild = True  # Fresh DB or corrupt — rebuild silently
-    if needs_rebuild:
-        _rebuild_schema(conn)
-    return conn, needs_rebuild
+        pass  # missing or corrupt — rebuild
+    _rebuild_schema(conn)
+    return conn, True
 
 
 def _rebuild_schema(conn: duckdb.DuckDBPyConnection) -> None:
@@ -127,10 +133,6 @@ def _rebuild_schema(conn: duckdb.DuckDBPyConnection) -> None:
         "_schema_version",
     ):
         conn.execute(f"DROP TABLE IF EXISTS {tbl}")
-    # Drop legacy view names from earlier (Step B) daemon versions
-    # so a stale ``_index.duckdb`` doesn't conflict on table create.
-    for view in ("runs", "steps", "measurements"):
-        conn.execute(f"DROP VIEW IF EXISTS {view}")
 
     _create_enum_types(conn)
 
@@ -139,7 +141,7 @@ def _rebuild_schema(conn: duckdb.DuckDBPyConnection) -> None:
 
     conn.execute("""
         CREATE TABLE runs (
-            file_path VARCHAR NOT NULL,
+            file_path VARCHAR,
             steps_file_path VARCHAR,
             run_id VARCHAR,
             session_id VARCHAR,
@@ -163,6 +165,7 @@ def _rebuild_schema(conn: duckdb.DuckDBPyConnection) -> None:
             file_path VARCHAR NOT NULL,
             run_id VARCHAR,
             session_id VARCHAR,
+            slot_id VARCHAR,
             step_index INTEGER,
             step_name VARCHAR,
             step_path VARCHAR,
@@ -489,32 +492,65 @@ def _bulk_insert_runs(conn: duckdb.DuckDBPyConnection, steps_paths: list[str]) -
     plus per-step ``measurement_count`` we sum into ``num_measurements``.
     Cheaper than scanning the (large) measurements parquet for the
     same aggregation.
+
+    ``file_path`` is NULL'd out for runs whose derived measurements
+    parquet doesn't exist on disk. That happens for runs that emitted
+    only setup / action steps (or had everything skipped) — the
+    streaming subscriber writes ``_steps.parquet`` unconditionally
+    but only writes the measurements parquet when there are
+    measurement rows. The runs row should still appear (with its
+    step rollup); the UI shouldn't try to load a phantom file.
     """
+    # Resolve which derived measurements paths actually exist on disk
+    # so the runs row carries an honest ``file_path`` (or NULL).
+    # Explicit string schema — pyarrow infers null-type columns when
+    # every value is None, which DuckDB then can't join cleanly.
+    filenames: list[str] = []
+    meas_paths: list[str | None] = []
+    for sp in steps_paths:
+        derived = re.sub(r"_steps\.parquet$", ".parquet", sp)
+        filenames.append(sp)
+        meas_paths.append(derived if Path(derived).exists() else None)
+    existence_table = pa.table(
+        {"filename": filenames, "measurements_path": meas_paths},
+        schema=pa.schema(
+            [
+                ("filename", pa.string()),
+                ("measurements_path", pa.string()),
+            ]
+        ),
+    )
+    conn.register("_meas_existence", existence_table)
+
     flist = _file_list_sql(steps_paths)
-    conn.execute(f"""
-        INSERT INTO runs
-        SELECT
-            regexp_replace(filename, '_steps\\.parquet$', '.parquet') AS file_path,
-            filename AS steps_file_path,
-            run_id,
-            CAST(session_id AS VARCHAR) AS session_id,
-            ANY_VALUE(dut_serial) AS dut_serial,
-            ANY_VALUE(dut_part_number) AS dut_part_number,
-            ANY_VALUE(station_id) AS station_id,
-            ANY_VALUE(station_name) AS station_name,
-            ANY_VALUE(run_outcome) AS outcome,
-            ANY_VALUE(run_started_at) AS started_at,
-            ANY_VALUE(run_ended_at) AS ended_at,
-            CAST(SUM(measurement_count) AS INTEGER) AS num_measurements,
-            CAST(COUNT(*) AS INTEGER) AS num_steps,
-            ANY_VALUE(test_phase) AS test_phase,
-            ANY_VALUE(product_id) AS product_id,
-            ANY_VALUE(operator_id) AS operator_id,
-            ANY_VALUE(project_name) AS project_name
-        FROM read_parquet({flist}, filename=true, union_by_name=true)
-        WHERE run_id IS NOT NULL
-        GROUP BY filename, run_id, session_id
-    """)
+    try:
+        conn.execute(f"""
+            INSERT INTO runs
+            SELECT
+                ANY_VALUE(e.measurements_path) AS file_path,
+                s.filename AS steps_file_path,
+                s.run_id,
+                CAST(s.session_id AS VARCHAR) AS session_id,
+                ANY_VALUE(s.dut_serial) AS dut_serial,
+                ANY_VALUE(s.dut_part_number) AS dut_part_number,
+                ANY_VALUE(s.station_id) AS station_id,
+                ANY_VALUE(s.station_name) AS station_name,
+                ANY_VALUE(s.run_outcome) AS outcome,
+                ANY_VALUE(s.run_started_at) AS started_at,
+                ANY_VALUE(s.run_ended_at) AS ended_at,
+                CAST(SUM(s.measurement_count) AS INTEGER) AS num_measurements,
+                CAST(COUNT(*) AS INTEGER) AS num_steps,
+                ANY_VALUE(s.test_phase) AS test_phase,
+                ANY_VALUE(s.product_id) AS product_id,
+                ANY_VALUE(s.operator_id) AS operator_id,
+                ANY_VALUE(s.project_name) AS project_name
+            FROM read_parquet({flist}, filename=true, union_by_name=true) s
+            LEFT JOIN _meas_existence e ON s.filename = e.filename
+            WHERE s.run_id IS NOT NULL
+            GROUP BY s.filename, s.run_id, s.session_id
+        """)
+    finally:
+        conn.unregister("_meas_existence")
 
 
 def _bulk_insert_steps(conn: duckdb.DuckDBPyConnection, steps_paths: list[str]) -> None:
@@ -526,6 +562,7 @@ def _bulk_insert_steps(conn: duckdb.DuckDBPyConnection, steps_paths: list[str]) 
             filename AS file_path,
             run_id,
             CAST(session_id AS VARCHAR) AS session_id,
+            CAST(slot_id AS VARCHAR) AS slot_id,
             "index" AS step_index,
             name AS step_name,
             step_path,
@@ -664,8 +701,20 @@ def _ingest_one_file(
     Measurement parquets populate ``measurement_stats`` and the IO/ref
     indexes. Step sidecars (``*_steps.parquet``) populate ``runs`` and
     ``steps``.
+
+    Idempotent: if ``_ingested`` already records this file with a
+    matching (mtime, size) and ``ok`` status, skip re-insert. Without
+    this guard, a fresh daemon would double-insert when ``_pre_ready``
+    ingests existing files and a near-simultaneous ``notify_new_run``
+    fires ``_on_put`` for the same files.
     """
     path_str = str(fpath)
+    already = conn.execute(
+        "SELECT 1 FROM _ingested WHERE path = ? AND mtime = ? AND size = ? AND status = 'ok'",
+        [path_str, stat.st_mtime, stat.st_size],
+    ).fetchone()
+    if already:
+        return
 
     if _is_steps_file(fpath.name):
         error = _index_steps_file(conn, path_str)

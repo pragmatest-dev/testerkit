@@ -292,7 +292,7 @@ class ParquetBackend:
                     "function": None,
                     "class_name": None,
                     "module": None,
-                    "step_path": step.name,
+                    "step_path": step.step_path or step.name,
                     "description": None,
                     "markers": None,
                     "outcome": step.outcome.value if step.outcome else None,
@@ -459,16 +459,6 @@ class ParquetBackend:
         """Get rows for a specific measurement name with row-group pushdown."""
         with self._run_store_ctx() as store:
             return store.get_measurement(file_path, measurement_name, step_index=step_index)
-
-    def get_session_measurements(self, session_id: str) -> list[dict[str, Any]]:
-        """Get measurements from all runs sharing a session_id.
-
-        For multi-DUT runs, each worker writes its own parquet file but
-        they share a session_id. This collects measurements across all
-        sibling runs for combined views like the execution timeline.
-        """
-        with self._run_store_ctx() as store:
-            return store.get_session_measurements(session_id)
 
     def get_vectors(self, run_id: str) -> list[dict]:
         """Get unique test vectors for a specific test run."""

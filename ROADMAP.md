@@ -99,6 +99,10 @@ What needs to land:
 
 ### Parquet compaction — consolidate per-run files into fewer larger ones
 
+Post-0.1.0. Tables (``runs`` / ``steps``) already solve hot-path
+query cost; compaction is the right answer for the ``measurements``
+view at 10k+ runs but is not gating the 0.1.0 cut.
+
 Today every run writes its own ``{timestamp}_{serial}.parquet`` (and
 companion ``_steps.parquet``). For interactive UI hot paths
 (``runs`` / ``steps`` queries) we precompute tables in the runs
@@ -111,17 +115,55 @@ Compaction job (background sweep, daily / weekly):
 - Group "completed" runs (older than some grace window so streaming
   writes have finished) by some bucket — date, product, station
 - Read all parquets in a bucket, write a single combined parquet,
-  delete the originals
-- Maintain consistent file-naming so the daemon's glob picks up the
-  new file and the cascade-delete handles the originals
+  attach provenance metadata
 - Same for ``_steps.parquet`` sidecars
 
-Open design points: bucket granularity (date is the obvious
-default — keeps queries bounded by date range); how to handle the
-view's ``filename`` column that some queries probably depend on;
-whether to compact across schemas (different ``in_*``/``out_*``
-columns from different tests) or only within-schema; conflict-free
-rewrite during ongoing test runs.
+**Strategy: provenance-tracked supersedes (not blind delete).**
+Each compacted parquet embeds the source-file list in its parquet
+file metadata. The daemon's ``_ingested`` ledger records the
+"compacted X supersedes [Y, Z]" relationship. The ``measurements``
+view filters out rows from any source file marked ``superseded`` so
+the result is deduplicated even when both forms are present on
+disk.
+
+Why provenance > blind-delete: re-uploads (S3 resync, restored
+backups, sync-from-archive) are realistic in field deployments.
+Compacting and deleting originals locally doesn't help if a sync
+brings them back; the ledger is the only mechanism that survives.
+
+**Delete rules** (lifecycle tiers, all configurable):
+1. ``ok`` — just-written, original
+2. ``superseded`` — a compacted parent exists; row data filtered
+   from ``measurements`` view, file kept on disk for grace window
+3. ``hard-deleted`` — source files removed after grace window
+   expires; cascade-delete (already implemented for vanished files)
+   removes any stale ledger rows
+
+Grace window default: keep originals for 30 days post-compaction.
+
+**Open design points:**
+- **Dedup race**: if a re-sync re-uploads originals AFTER hard-delete,
+  daemon sees them as "new" again. Ledger must record the
+  superseded-ness durably (separate ``_compaction_log`` table) so
+  re-uploaded originals can be re-marked without re-ingesting their
+  rows.
+- **Bucket granularity**: date is the obvious default (keeps queries
+  bounded by date range). Cross-day buckets defeat date-pruning.
+- **Cross-schema compaction**: different ``in_*`` / ``out_*``
+  columns from different tests would force ``union_by_name`` writes
+  with mostly-null columns — defeats the size win. Likely
+  within-schema only (group by test signature).
+- **The view's ``filename`` column**: some queries probably depend
+  on it for "which file did this row come from". Compaction breaks
+  that — need to either preserve original filename as a per-row
+  column at compaction time, or accept that ``filename`` becomes
+  the compacted filename.
+- **Conflict-free rewrite during ongoing test runs**: only compact
+  files older than the grace window so streaming writes have
+  finished.
+- **Cluster awareness**: in multi-station deployments, who runs
+  compaction? Single coordinator or per-station with leader
+  election?
 
 This is the right scaling answer for the ``measurements`` view at
 10k+ runs. ``runs`` and ``steps`` perf is already solved by the

@@ -113,6 +113,11 @@ def create_api_router() -> APIRouter:
 
         return MeasurementsQuery(_results_dir=results_dir)
 
+    def _steps_query():
+        from litmus.analysis.steps_query import StepsQuery
+
+        return StepsQuery(_results_dir=results_dir)
+
     # -------------------------------------------------------------------------
     # Runs
     # -------------------------------------------------------------------------
@@ -144,6 +149,30 @@ def create_api_router() -> APIRouter:
         measurements = backend.get_measurements(run_id)
         return {"measurements": measurements}
 
+    @router.get("/runs/{run_id}/steps", response_class=ORJSONResponse)
+    def get_steps(run_id: str):
+        """List steps for a run, ordered by step_index."""
+        q = _steps_query()
+        try:
+            rows = q.list_for_run(run_id)
+        finally:
+            q.close()
+        if not rows:
+            raise HTTPException(status_code=404, detail="Run not found")
+        return {"steps": [r.model_dump(mode="json") for r in rows]}
+
+    @router.get("/runs/{run_id}/steps/tree", response_class=ORJSONResponse)
+    def get_steps_tree(run_id: str):
+        """Hierarchical step tree built from ``step_path``."""
+        q = _steps_query()
+        try:
+            tree = q.tree_for_run(run_id)
+        finally:
+            q.close()
+        if not tree:
+            raise HTTPException(status_code=404, detail="Run not found")
+        return {"tree": [n.model_dump(mode="json") for n in tree]}
+
     @router.get("/runs/{run_id}/ref")
     def get_ref(run_id: str, uri: str):
         """Materialize a measurement-output ref URI to its underlying data.
@@ -174,8 +203,8 @@ def create_api_router() -> APIRouter:
 
             from litmus.data.channels.store import ChannelStore
 
-            channels_dir = (results_dir / "channels") if results_dir else Path("results/channels")
-            channel_store = ChannelStore(channels_dir, uuid4())
+            parent = results_dir if results_dir else Path("results")
+            channel_store = ChannelStore(parent, uuid4())
 
         try:
             result = load_ref(uri, parquet_path=parquet_path, channel_store=channel_store)

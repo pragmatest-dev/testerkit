@@ -183,7 +183,7 @@ class ChannelStore:
 
     def __init__(
         self,
-        channels_dir: Path,
+        results_dir: Path,
         session_id: UUID,
         flush_threshold: int = 100,
         *,
@@ -192,7 +192,11 @@ class ChannelStore:
         port: int = 0,
         on_output: Callable[[OutputFile], None] | None = None,
     ) -> None:
-        self._channels_dir = channels_dir
+        # Parent-only convention — caller passes the results parent
+        # (containing ``runs/``, ``channels/``, ``events/`` …); the
+        # store owns its ``channels/`` subdir. Mirrors RunStore /
+        # StepsQuery / MeasurementsQuery / EventStore.
+        self._channels_dir = results_dir / "channels"
         self._session_id = session_id
         self._flush_threshold = flush_threshold
         self._writers: dict[str, _ChannelWriter] = {}

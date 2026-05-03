@@ -4,31 +4,18 @@ Renders an ECharts Gantt chart showing per-slot test step execution
 over time. Each slot gets a Y-axis row; each step is a colored bar
 showing its duration.
 
-Uses one horizontal bar series per step-slot combination with absolute
-positioning via paired transparent+visible stacked bars per row.
+Sources from typed :class:`StepRow` objects so the chart never sees
+raw measurement dicts — slot_id, started_at, ended_at, outcome, and
+dut_serial are all first-class fields.
 """
 
 from __future__ import annotations
 
-from datetime import datetime
 from typing import Any
 
 from nicegui import ui
 
-
-def _parse_ts(val: Any) -> datetime | None:
-    """Parse a timestamp value to datetime."""
-    if val is None:
-        return None
-    if isinstance(val, datetime):
-        return val
-    if isinstance(val, str):
-        try:
-            return datetime.fromisoformat(val.replace("Z", "+00:00"))
-        except ValueError:
-            return None
-    return None
-
+from litmus.analysis.steps_query import StepRow
 
 _OUTCOME_COLORS = {
     "passed": "#10b981",  # emerald-500
@@ -43,47 +30,37 @@ _DEFAULT_COLOR = "#94a3b8"  # slate-400
 
 
 def render_execution_gantt(
-    measurements: list[dict[str, Any]],
+    steps: list[StepRow],
     *,
     current_slot_id: str | None = None,
 ) -> ui.echart | None:
-    """Render a Gantt chart of step execution grouped by slot_id.
+    """Render a Gantt chart of step execution grouped by ``slot_id``.
 
     Uses separate stacks per slot so offset+duration bars don't
     interfere across slots. If ``current_slot_id`` is provided, that
     lane's label is highlighted with an arrow marker.
     """
-    # Group steps by slot_id, deduplicating by step_name
+    # Group steps by slot_id (one lane per slot, deduplicated by step_name)
     slots: dict[str, dict[str, dict[str, Any]]] = {}
-    for m in measurements:
-        slot_id = m.get("slot_id")
-        if not slot_id:
+    for s in steps:
+        if not s.slot_id or s.started_at is None or s.ended_at is None:
             continue
-        step_name = m.get("step_name", "")
-        if step_name == "_step_summary":
-            continue
-
-        started = _parse_ts(m.get("step_started_at"))
-        ended = _parse_ts(m.get("step_ended_at"))
-        if started is None or ended is None:
-            continue
-
-        if slot_id not in slots:
-            slots[slot_id] = {}
-
-        existing = slots[slot_id].get(step_name)
+        step_name = s.step_name or ""
+        slot = slots.setdefault(s.slot_id, {})
+        existing = slot.get(step_name)
         if existing is None:
-            slots[slot_id][step_name] = {
+            slot[step_name] = {
                 "step_name": step_name,
-                "started": started,
-                "ended": ended,
-                "outcome": m.get("outcome"),
-                "dut_serial": m.get("dut_serial", ""),
+                "started": s.started_at,
+                "ended": s.ended_at,
+                "outcome": s.outcome,
+                "dut_serial": s.dut_serial or "",
             }
         else:
-            if m.get("outcome") == "failed":
+            # Worst-outcome wins when multiple step rows share a name in a slot.
+            if s.outcome == "failed":
                 existing["outcome"] = "failed"
-            elif m.get("outcome") == "errored" and existing["outcome"] != "failed":
+            elif s.outcome == "errored" and existing["outcome"] != "failed":
                 existing["outcome"] = "errored"
 
     if not slots:

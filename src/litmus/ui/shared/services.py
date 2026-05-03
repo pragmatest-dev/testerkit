@@ -560,15 +560,21 @@ def load_artifact_ref(run_id: str, uri: str):
     if uri.startswith("channel://"):
         from litmus.data.channels.store import ChannelStore
 
-        channels_dir = backend.results_dir.parent / "channels"
-        channel_store = ChannelStore(channels_dir, uuid4())
+        channel_store = ChannelStore(backend.results_dir, uuid4())
 
     return load_ref(uri, parquet_path=Path(run.file_path), channel_store=channel_store)
 
 
-def get_session_measurements(session_id: str) -> list[dict]:
-    """Return measurements for all runs in a session (parallel execution timeline)."""
-    return _results_backend().get_session_measurements(session_id)
+def get_session_steps(session_id: str):
+    """Return every step row across the session's sibling runs (typed)."""
+    from litmus.analysis.steps_query import StepsQuery
+
+    backend = _results_backend()
+    q = StepsQuery(_results_dir=backend.results_dir)
+    try:
+        return q.list_for_session(session_id)
+    finally:
+        q.close()
 
 
 def list_all_runs(limit: int = 100) -> list[RunSummary]:

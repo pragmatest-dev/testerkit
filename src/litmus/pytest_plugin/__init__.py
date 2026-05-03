@@ -252,7 +252,7 @@ def _setup_event_log_and_subscribers(
 
     channels_on_output = find_format_transport_callback("channels", results_path)
     channel_store = ChannelStore(
-        results_path / "channels",
+        results_path,
         session_id,
         serve=True,
         on_output=channels_on_output,
