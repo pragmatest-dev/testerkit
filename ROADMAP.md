@@ -97,6 +97,36 @@ What needs to land:
   big-data case; selected automatically when row count crosses a
   threshold.
 
+### Parquet compaction — consolidate per-run files into fewer larger ones
+
+Today every run writes its own ``{timestamp}_{serial}.parquet`` (and
+companion ``_steps.parquet``). For interactive UI hot paths
+(``runs`` / ``steps`` queries) we precompute tables in the runs
+daemon — bounded query cost regardless of file count. But the
+``measurements`` view and any analytics that read raw rows hit the
+parquet glob directly: every query opens every file's footer
+(~80μs/file), giving a 1k-files = 80ms baseline that scales linearly.
+
+Compaction job (background sweep, daily / weekly):
+- Group "completed" runs (older than some grace window so streaming
+  writes have finished) by some bucket — date, product, station
+- Read all parquets in a bucket, write a single combined parquet,
+  delete the originals
+- Maintain consistent file-naming so the daemon's glob picks up the
+  new file and the cascade-delete handles the originals
+- Same for ``_steps.parquet`` sidecars
+
+Open design points: bucket granularity (date is the obvious
+default — keeps queries bounded by date range); how to handle the
+view's ``filename`` column that some queries probably depend on;
+whether to compact across schemas (different ``in_*``/``out_*``
+columns from different tests) or only within-schema; conflict-free
+rewrite during ongoing test runs.
+
+This is the right scaling answer for the ``measurements`` view at
+10k+ runs. ``runs`` and ``steps`` perf is already solved by the
+precomputed tables.
+
 ### Capability-aware station/test runnability inference
 
 Today's catalog integration in discovery (`cli.py:342-358`) reads only
