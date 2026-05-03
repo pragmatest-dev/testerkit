@@ -288,3 +288,66 @@ class TestFilters:
         store = MetricsStore(_results_dir=results_dir)
         rows = store.yield_summary(since="2026-01-01", until="2026-01-01", phase="all")
         assert len(rows) >= 1
+
+
+class TestParametric:
+    def test_describe_silver_lists_columns(self, results_dir: Path):
+        store = MetricsStore(_results_dir=results_dir)
+        cols = store.describe_silver()
+        names = {c["column_name"] for c in cols}
+        assert "measurement_value" in names
+        assert "measurement_name" in names
+
+    def test_scatter_returns_long_rows(self, results_dir: Path):
+        store = MetricsStore(_results_dir=results_dir)
+        rows = store.parametric(y="measurement_value", x="dut_serial")
+        assert len(rows) == 4
+        assert {"x", "y", "group"} <= set(rows[0].keys())
+        assert all(r["group"] == "" for r in rows)
+
+    def test_group_by_populates_group_column(self, results_dir: Path):
+        store = MetricsStore(_results_dir=results_dir)
+        rows = store.parametric(y="measurement_value", x="dut_serial", group_by="run_outcome")
+        groups = {r["group"] for r in rows}
+        assert groups == {"passed", "failed"}
+
+    def test_filters_apply(self, results_dir: Path):
+        store = MetricsStore(_results_dir=results_dir)
+        rows = store.parametric(
+            y="measurement_value",
+            x="dut_serial",
+            filters={"run_outcome": "passed"},
+        )
+        assert len(rows) == 3
+
+    def test_histogram_bins(self, results_dir: Path):
+        store = MetricsStore(_results_dir=results_dir)
+        rows = store.parametric(
+            y="measurement_value", x="dut_serial", chart_type="histogram", bins=4
+        )
+        # 4 measurements spread across [2.5, 3.31] → at least one bin populated
+        assert sum(r["y"] for r in rows) == 4
+        assert all("x" in r and "y" in r and "bin" in r for r in rows)
+
+    def test_bar_aggregates(self, results_dir: Path):
+        store = MetricsStore(_results_dir=results_dir)
+        rows = store.parametric(y="measurement_value", x="dut_serial", chart_type="bar")
+        # 2 distinct dut_serials → 2 rows, y = AVG(measurement_value)
+        assert len(rows) == 2
+        by_serial = {r["x"]: r["y"] for r in rows}
+        assert by_serial["SN001"] == pytest.approx((3.3 + 3.31) / 2)
+        assert by_serial["SN002"] == pytest.approx((2.5 + 3.29) / 2)
+
+    def test_invalid_column_rejected(self, results_dir: Path):
+        store = MetricsStore(_results_dir=results_dir)
+        with pytest.raises(ValueError, match="invalid column identifier"):
+            store.parametric(y="value; DROP TABLE silver --", x="dut_serial")
+
+    def test_invalid_filter_column_rejected(self, results_dir: Path):
+        store = MetricsStore(_results_dir=results_dir)
+        with pytest.raises(ValueError, match="invalid column identifier"):
+            store.parametric(
+                y="measurement_value",
+                x="dut_serial",
+                filters={"col; DROP --": "x"},
+            )

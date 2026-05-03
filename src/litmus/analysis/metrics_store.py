@@ -16,6 +16,7 @@ Bronze → Silver → Gold:
 from __future__ import annotations
 
 import logging
+import re
 from pathlib import Path
 from typing import Any
 
@@ -23,6 +24,21 @@ from litmus.data import runs_duckdb_manager
 from litmus.data._flight_query import FlightQueryClient
 from litmus.data._sql_helpers import sql_escape
 from litmus.data.results_dir import resolve_results_dir
+
+_IDENT_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
+
+
+def _safe_ident(name: str) -> str:
+    """Reject any identifier that isn't a bare SQL column name.
+
+    Parametric queries take user-chosen Y/X/group_by columns. We only
+    accept the silver view's flat column names — no dotted paths, no
+    quotes, no expressions.
+    """
+    if not _IDENT_RE.match(name):
+        raise ValueError(f"invalid column identifier: {name!r}")
+    return name
+
 
 logger = logging.getLogger(__name__)
 
@@ -528,4 +544,108 @@ class MetricsStore:
             period_expr=_period_col(period),
             where=where,
         )
+        return self._query_dicts(sql)
+
+    # ------------------------------------------------------------------
+    # Parametric viewer — generic Y/X query over silver
+    # ------------------------------------------------------------------
+
+    def describe_silver(self) -> list[dict[str, str]]:
+        """Return the silver view's columns: ``[{name, type}, ...]``.
+
+        Used by the parametric viewer UI to populate Y/X/group_by
+        dropdowns from real schema rather than a hardcoded list.
+        """
+        return self._query_dicts("DESCRIBE silver")
+
+    def parametric(
+        self,
+        *,
+        y: str,
+        x: str,
+        filters: dict[str, str] | None = None,
+        group_by: str | None = None,
+        chart_type: str = "scatter",
+        bins: int = 30,
+        limit: int = 5000,
+    ) -> list[dict[str, Any]]:
+        """Generic Y vs X query over silver, optionally split by ``group_by``.
+
+        Returns long-format rows. Shape depends on ``chart_type``:
+
+        - ``scatter`` / ``line``: one row per measurement
+          ``{x, y, group}`` (group key is ``""`` when no group_by).
+          ``line`` orders by X.
+        - ``bar``: one row per (X, group) with ``y`` = AVG.
+        - ``histogram``: one row per (bin, group) with ``y`` = COUNT,
+          ``x`` = bin midpoint. ``y`` argument is the value being
+          binned; ``x`` is ignored.
+
+        ``filters`` is a flat ``{column: literal}`` dict — exact-match
+        equality. Column names are validated as bare identifiers.
+        """
+        y_col = _safe_ident(y)
+        x_col = _safe_ident(x) if chart_type != "histogram" else None
+        group_col = _safe_ident(group_by) if group_by else None
+
+        where_parts = [f"{y_col} IS NOT NULL"]
+        if x_col is not None:
+            where_parts.append(f"{x_col} IS NOT NULL")
+        for col, value in (filters or {}).items():
+            where_parts.append(f"{_safe_ident(col)} = '{sql_escape(value)}'")
+        where = " WHERE " + " AND ".join(where_parts)
+
+        group_expr = group_col if group_col else "''"
+        group_clause = f", {group_col}" if group_col else ""
+
+        if chart_type == "histogram":
+            sql = f"""
+            WITH stats AS (
+                SELECT MIN({y_col}) AS lo, MAX({y_col}) AS hi
+                FROM silver{where}
+            ),
+            bucketed AS (
+                SELECT
+                    LEAST(
+                        CAST(FLOOR(({y_col} - stats.lo)
+                            / NULLIF((stats.hi - stats.lo) / {int(bins)}, 0)) AS INTEGER),
+                        {int(bins) - 1}
+                    ) AS bin,
+                    stats.lo AS lo, stats.hi AS hi,
+                    {group_expr} AS "group"
+                FROM silver, stats{where}
+            )
+            SELECT
+                bin,
+                lo + (bin + 0.5) * (hi - lo) / {int(bins)} AS x,
+                COUNT(*) AS y,
+                "group"
+            FROM bucketed
+            GROUP BY bin, lo, hi, "group"
+            ORDER BY "group", bin
+            """
+        elif chart_type == "bar":
+            assert x_col is not None
+            sql = f"""
+            SELECT
+                {x_col} AS x,
+                AVG({y_col}) AS y,
+                {group_expr} AS "group"
+            FROM silver{where}
+            GROUP BY {x_col}{group_clause}
+            ORDER BY {x_col}
+            LIMIT {int(limit)}
+            """
+        else:
+            assert x_col is not None
+            order = f"ORDER BY {x_col}" if chart_type == "line" else ""
+            sql = f"""
+            SELECT
+                {x_col} AS x,
+                {y_col} AS y,
+                {group_expr} AS "group"
+            FROM silver{where}
+            {order}
+            LIMIT {int(limit)}
+            """
         return self._query_dicts(sql)

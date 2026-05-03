@@ -707,66 +707,29 @@ chart's `appendData` call. Subscription lifecycle when the page
 unmounts — do we reuse the existing `event_binding` cleanup pattern
 or extend it for Flight subscriptions?
 
-### Parametric measurement viewer — compare measurements across runs
+### Parametric measurement viewer — follow-ups
 
-Operators and engineers regularly want to ask cross-run questions
-the current UI doesn't answer:
+The thin slice (`/explore` page, `MetricsStore.parametric()`,
+schema-driven dropdowns, URL state, scatter / line / bar /
+histogram) shipped 2026-05-02. Outstanding work:
 
-- "How does ``output_voltage`` track ``input_voltage`` across the
-  last week of runs?"
-- "Group ``rail_3v3_ripple`` by station_type — is bench A
-  systematically worse than bench B?"
-- "Histogram of ``efficiency`` for product X, split by DUT
-  revision."
-- "Scatter ``output_current`` vs ``input_voltage`` filtered to
-  ``temperature=25``, color-coded by outcome."
-
-The data is already there — every measurement parquet has the
-flat `in_*` (parameters) / `out_*` (observations) /
-`measurement_*` columns and full DUT / station / product context.
-What's missing is the UI surface.
-
-What needs to land:
-
-- A new `/explore` page (or rename — "Parametric Viewer", "Cross-run
-  Compare"). Picks:
-  - **Test selector** — which test (or product / step / measurement
-    name) to ground the query.
-  - **Y axis** — any `out_*`, `measurement_value`, derived metric
-    (yield rate, sigma).
-  - **X axis** — any `in_*`, `out_*`, `started_at`, `dut_serial`,
-    or aggregation bucket.
-  - **Filters** — facet pickers for `station_id`, `product_id`,
-    `test_phase`, time range, outcome, plus arbitrary `in_*` /
-    `out_*` filters.
-  - **Group / split** — secondary categorical to split into series
-    or facet panels.
-- **Chart types** — line (X ordered), scatter (X any), bar (categorical
-  X), histogram (Y distribution). Toggle in the chart header.
-- **Backed by DuckDB** over the parquet tree — extend
-  ``MetricsStore`` (`analysis/metrics_store.py`) with a generic
-  `query(y, x, filters, group_by, agg)` returning a long-format
-  table for ECharts.
-- **URL state** — selections / filters serialized so a chart can be
-  shared / bookmarked.
-- **HTTP API** — symmetric MCP / API endpoint so an LLM agent can
-  ask the same questions programmatically.
-
-Decision points: do we ship a full visual query builder or start
-with a code-style param textarea (DuckDB SQL fragment) for power
-users? Where does derived-metric registration live (yield rate per
-group, Cpk, sigma) — `analysis/` or a new `analysis/metrics`
-module? Cap the row count returned to the UI so the chart isn't
-overwhelmed (downsample with LTTB for line/scatter; bin
-server-side for histogram).
-
-Tied into:
-
-- "Operator-UI store browser" — this is a sibling page to Events /
-  Channels rather than a replacement.
-- Existing yield-analytics page (`metrics_page.py`) is a baked-in
-  set of dashboards; the parametric viewer is the freeform
-  counterpart.
+- **Range filters and facet pickers.** Today filters are a JSON
+  textarea — equality only. Add dedicated `since`/`until` inputs and
+  multi-select pickers for `station_id` / `product_id` / `test_phase`
+  / `outcome` so the common filters don't require typing JSON.
+- **Derived metrics for Y.** Pure column queries today — no yield
+  rate, Cpk per group, or sigma. Decide where these live: keep them
+  in `analysis/metrics_store.py` alongside the hardcoded queries, or
+  carve out `analysis/metrics/` with one module per derived metric.
+- **HTTP / MCP symmetry.** No `/api/parametric` endpoint or MCP tool
+  yet. The MetricsStore method is in place; just needs the wrappers.
+- **Row caps and decimation.** Hard `limit=5000` cap on raw
+  scatter / line. LTTB-decimate large series before sending to the
+  chart so 50k-point queries don't lock the browser.
+- **Per-test grounding.** Today the user picks Y/X over all silver
+  rows. For the "test selector" use case (filter to one test or one
+  measurement name) we already have `measurement_name` as a filter
+  column — but a dedicated dropdown would be more discoverable.
 
 ---
 
@@ -777,6 +740,31 @@ _None._
 ---
 
 ## Completed
+
+### Parametric measurement viewer (thin slice) — 2026-05-02
+
+`/explore` page for cross-run measurement comparison. Pick any
+silver column for Y / X, optionally split by a categorical group,
+toggle between scatter / line / bar / histogram. URL query string
+holds all selections so the view is shareable by copy-paste.
+
+What landed:
+
+- `MetricsStore.parametric(y, x, filters, group_by, chart_type, bins,
+  limit)` returns long-format `{x, y, group}` rows. Histogram bins
+  server-side; bar aggregates AVG; scatter / line return raw rows
+  capped at `limit`.
+- `MetricsStore.describe_silver()` for schema introspection — the
+  Y / X / group_by dropdowns are populated from real columns rather
+  than a hardcoded list.
+- Column identifiers are validated against `^[A-Za-z_][A-Za-z0-9_]*$`
+  before going into SQL; filter values escape via `sql_escape`.
+- Time-axis sniffing: `datetime`-typed X gets ECharts `type: time`,
+  strings get `type: category`, numerics get `type: value`.
+
+Sibling to `/events` / `/channels` (browse) and `/metrics` (canned
+dashboards) — the freeform counterpart that lets an operator ask
+"how does X track Y across runs" without writing SQL.
 
 ### Profiles bind station_type + fixture (test-phase wiring) — 2026-04-27
 

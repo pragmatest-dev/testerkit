@@ -122,6 +122,7 @@ def create_sidebar():
             _nav_item("/launch", "play_arrow", "Launch Test")
             _nav_item("/results", "history", "Results")
             _nav_item("/metrics", "analytics", "Yield Analytics")
+            _nav_item("/explore", "scatter_plot", "Parametric Viewer")
 
             ui.separator().classes("bg-slate-700 my-2")
             ui.label("DATA STORES").classes("text-xs text-slate-500 px-3 pt-2")
