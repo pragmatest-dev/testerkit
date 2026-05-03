@@ -12,6 +12,7 @@ import pytest
 
 from litmus.data.ref import make_channel_uri
 from litmus.data.run_store import RunStore
+from tests._step_sidecar import write_steps_sidecar
 
 
 def _dt(iso: str) -> datetime:
@@ -53,6 +54,16 @@ def runs_store(tmp_path_factory: pytest.TempPathFactory) -> Generator[RunStore]:
         ),
         pq1,
     )
+    write_steps_sidecar(
+        pq1,
+        run_id="run-001-abc",
+        session_id=session_id,
+        started_at=_dt("2026-03-01T10:00:00Z"),
+        ended_at=_dt("2026-03-01T10:05:00Z"),
+        outcome="passed",
+        dut_serial="SN001",
+        station_id="station-1",
+    )
 
     pq2 = runs_dir / "20260301T110000Z_SN002.parquet"
     pq.write_table(
@@ -78,6 +89,16 @@ def runs_store(tmp_path_factory: pytest.TempPathFactory) -> Generator[RunStore]:
             }
         ),
         pq2,
+    )
+    write_steps_sidecar(
+        pq2,
+        run_id="run-002-def",
+        session_id=session_id,
+        started_at=_dt("2026-03-01T11:00:00Z"),
+        ended_at=_dt("2026-03-01T11:05:00Z"),
+        outcome="failed",
+        dut_serial="SN002",
+        station_id="station-1",
     )
 
     store = RunStore(_results_dir=results)
@@ -170,6 +191,16 @@ def test_notify_new_run(tmp_path: Path) -> None:
         ),
         pq_file,
     )
+    write_steps_sidecar(
+        pq_file,
+        run_id="run-099-xyz",
+        session_id="sess-099",
+        started_at=_dt("2026-03-08T12:00:00Z"),
+        ended_at=_dt("2026-03-08T12:01:00Z"),
+        outcome="passed",
+        dut_serial="SN099",
+        station_id="station-2",
+    )
 
     store = RunStore(_results_dir=results)
     try:
@@ -190,6 +221,16 @@ def test_notify_new_run(tmp_path: Path) -> None:
                 }
             ),
             pq_file2,
+        )
+        write_steps_sidecar(
+            pq_file2,
+            run_id="run-100-abc",
+            session_id="sess-100",
+            started_at=_dt("2026-03-08T13:00:00Z"),
+            ended_at=_dt("2026-03-08T13:01:00Z"),
+            outcome="failed",
+            dut_serial="SN100",
+            station_id="station-2",
         )
 
         store.notify_new_run(pq_file2)

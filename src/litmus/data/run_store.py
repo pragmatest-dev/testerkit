@@ -198,10 +198,12 @@ class RunStore:
     # --- Ref management (for materialize) ---
 
     def get_steps(self, run_id: str) -> list[dict[str, Any]]:
-        """Get indexed step results for a run (from the steps table)."""
+        """Get steps for a run from the daemon's ``steps`` view."""
         prefix = self._id_prefix(run_id)
         return self._flight_query(f"""
-            SELECT step_index, step_name, step_path, outcome, started_at, ended_at,
+            SELECT step_index, step_name, step_path, outcome,
+                   CAST(started_at AT TIME ZONE 'UTC' AS VARCHAR) AS started_at,
+                   CAST(ended_at AT TIME ZONE 'UTC' AS VARCHAR) AS ended_at,
                    duration_s, has_measurements, measurement_count, vector_count, markers
             FROM steps
             WHERE run_id LIKE '{_sql_escape(prefix)}%'

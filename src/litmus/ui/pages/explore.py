@@ -1,9 +1,11 @@
 """Parametric viewer — compare measurements across runs.
 
-Pick any measurements-view column for Y / X, optionally split by a
-categorical group, switch chart types (scatter / line / bar /
-histogram). All selections live in the URL query string so the view
-is shareable by copy-paste.
+Filter-first UX: scope the data with chip multi-selects, then ask a
+question with Y / X / group_by. ENUM facet options come straight from
+the data-model enums (zero DB queries); STRING facet options come from
+cross-filtered DISTINCT queries against the current filter set
+(Tableau-style). All selections live in the URL query string so the
+view is shareable by copy-paste.
 """
 
 from __future__ import annotations
@@ -12,24 +14,32 @@ import datetime
 import json
 import logging
 import traceback
+from datetime import date
 from typing import Any
 from urllib.parse import urlencode
 
+from fastapi import Request
 from nicegui import ui
 
-from litmus.analysis.measurement_facets import FacetKind as _FacetKind
-from litmus.analysis.measurement_facets import FilterSet, _spec_by_column
+from litmus.analysis.measurement_facets import (
+    MEASUREMENT_FACETS,
+    FacetKind,
+    FacetSpec,
+    FilterSet,
+)
 from litmus.analysis.measurements_query import MeasurementsQuery
 from litmus.ui.shared.layout import create_layout
 
 logger = logging.getLogger(__name__)
 
 CHART_TYPES = ["scatter", "line", "bar", "histogram"]
+DEFAULT_BINS = 30
+DEFAULT_LIMIT = 5000
 
 # Categorical columns DuckDB reports as VARCHAR — fine as group_by /
 # X candidates. Numeric types stay candidates for Y. We keep the
 # split coarse so users see all real columns; the SQL builder
-# rejects bad identifiers via _safe_ident anyway.
+# rejects bad identifiers anyway.
 _NUMERIC_TYPES = {
     "DOUBLE",
     "FLOAT",
@@ -41,26 +51,6 @@ _NUMERIC_TYPES = {
     "TINYINT",
     "HUGEINT",
 }
-
-
-def _legacy_dict_to_filter_set(d: dict[str, str]) -> FilterSet:
-    """Bridge the JSON-textarea dict to a FilterSet.
-
-    The textarea is going away in the filter UI rewrite. Until then,
-    accept ``{column: value}`` and route each entry to its registry's
-    bucket. Unknown columns are dropped (graceful URL degradation).
-    """
-    string_filters: dict[str, list[str]] = {}
-    enum_filters: dict[str, list[str]] = {}
-    for col, value in d.items():
-        spec = _spec_by_column(col)
-        if spec is None:
-            continue
-        if spec.kind is _FacetKind.STRING:
-            string_filters[col] = [value]
-        elif spec.kind is _FacetKind.ENUM:
-            enum_filters[col] = [value]
-    return FilterSet(string_filters=string_filters, enum_filters=enum_filters)
 
 
 def _classify_columns(
@@ -89,184 +79,430 @@ def _classify_columns(
     return sorted(y_candidates), sorted(x_candidates), sorted(group_candidates)
 
 
-@ui.page("/explore")
-def explore_page(  # noqa: PLR0913
-    results_dir: str = "",
-    y: str = "measurement_value",
-    x: str = "run_started_at",
-    chart_type: str = "scatter",
-    group_by: str = "",
-    bins: int = 30,
-    limit: int = 5000,
-    filters: str = "",
-):
-    """Parametric measurement viewer.
+def _query_dict_from_request(request: Request) -> dict[str, list[str]]:
+    """Multi-value query string → ``{key: [v1, v2, ...]}``.
 
-    Args:
-        results_dir: Results directory path.
-        y: Y-axis column name.
-        x: X-axis column name (ignored for histogram).
-        chart_type: One of scatter / line / bar / histogram.
-        group_by: Optional column to split into series.
-        bins: Histogram bin count.
-        limit: Max rows for non-aggregated charts.
-        filters: JSON-encoded ``{column: value}`` equality filters.
+    FastAPI's ``request.query_params`` is a multi-dict; ``getlist`` is
+    the way to recover repeated keys (e.g. ``?product=A&product=B``).
     """
-    if not results_dir:
-        from litmus.data.results_dir import resolve_results_dir
+    return {k: request.query_params.getlist(k) for k in set(request.query_params)}
 
-        results_dir = str(resolve_results_dir())
+
+@ui.page("/explore")
+def explore_page(request: Request):
+    """Parametric measurement viewer — filter-first, model-driven.
+
+    URL state encodes the full view: each filter facet's selected
+    values as repeated query keys (``?product=PN-100&product=PN-200``)
+    plus ``y`` / ``x`` / ``chart_type`` / ``group_by`` / ``bins`` /
+    ``limit`` / ``since`` / ``until``.
+    """
+    from litmus.data.results_dir import resolve_results_dir
+
+    results_dir = str(resolve_results_dir())
 
     create_layout("Parametric Viewer")
 
-    # Load schema — drives dropdown options.
+    # Schema fetch — drives the Y/X/group_by dropdowns.
     try:
-        store = MeasurementsQuery(_results_dir=results_dir)
-        schema = store.describe_columns()
-        store.close()
-    except (OSError, ValueError, RuntimeError) as e:
+        q = MeasurementsQuery(_results_dir=results_dir)
+        schema = q.describe_columns()
+        q.close()
+    except (OSError, ValueError, RuntimeError) as exc:
         with ui.column().classes("w-full p-6"):
-            ui.label(f"Error loading schema: {e}").classes("text-red-600")
+            ui.label(f"Error loading schema: {exc}").classes("text-red-600")
         return
 
     y_options, x_options, group_options = _classify_columns(schema)
 
-    # Sanitize URL-supplied selections against the real schema. Keeps
-    # a stale URL from blowing up the page.
-    y = y if y in y_options else (y_options[0] if y_options else "")
-    x = x if x in x_options else (x_options[0] if x_options else "")
-    chart_type = chart_type if chart_type in CHART_TYPES else "scatter"
-    group_by = group_by if group_by in group_options else ""
-
+    # Decode URL state.
+    qp = request.query_params
+    qd = _query_dict_from_request(request)
+    is_bare_url = not qd
+    initial_filters = FilterSet.from_url_params(qd)
+    initial_y = qp.get("y", "")
+    initial_x = qp.get("x", "")
+    initial_chart_type = qp.get("chart_type", "scatter")
+    initial_group_by = qp.get("group_by", "")
     try:
-        initial_filters: dict[str, str] = json.loads(filters) if filters else {}
-        if not isinstance(initial_filters, dict):
-            initial_filters = {}
-    except json.JSONDecodeError:
-        initial_filters = {}
+        initial_bins = int(qp.get("bins") or DEFAULT_BINS)
+    except ValueError:
+        initial_bins = DEFAULT_BINS
+    try:
+        initial_limit = int(qp.get("limit") or DEFAULT_LIMIT)
+    except ValueError:
+        initial_limit = DEFAULT_LIMIT
 
-    chart_container: Any = None  # filled in below
+    # Smart defaults for bare URL — comparing `value` across many
+    # measurement names at once is meaningless (different scales,
+    # different units). Pick the most-populated measurement_name as
+    # the starter scope. Y=value, X=vector_index (per-vector trend
+    # within a run) when present, falling back to run_started_at
+    # (cross-run trend) for older data without vector_index.
+    if is_bare_url:
+        try:
+            q = MeasurementsQuery(_results_dir=results_dir)
+            try:
+                top_names = q.distinct_values("measurement_name", filters=FilterSet(), limit=20)
+            finally:
+                q.close()
+        except (OSError, ValueError, RuntimeError):
+            top_names = []
+        # Skip synthetic step-level rollups (Litmus convention: '_'
+        # prefix marks names that don't carry a measurement value).
+        real_names = [o for o in top_names if not o.value.startswith("_")]
+        if real_names:
+            initial_filters = FilterSet(string_filters={"measurement_name": [real_names[0].value]})
+        if not initial_y and "value" in y_options:
+            initial_y = "value"
+        if not initial_x:
+            for candidate in ("vector_index", "run_started_at"):
+                if candidate in x_options:
+                    initial_x = candidate
+                    break
+
+    # Sanitize URL-supplied selections against schema so a stale URL
+    # gracefully degrades rather than blowing up.
+    if initial_y not in y_options:
+        initial_y = y_options[0] if y_options else ""
+    if initial_x not in x_options:
+        initial_x = x_options[0] if x_options else ""
+    if initial_chart_type not in CHART_TYPES:
+        initial_chart_type = "scatter"
+    if initial_group_by and initial_group_by not in group_options:
+        initial_group_by = ""
+
+    # Mutable state captured by the closures below.
+    state: dict[str, Any] = {
+        "filter_set": initial_filters,
+        "y": initial_y,
+        "x": initial_x,
+        "chart_type": initial_chart_type,
+        "group_by": initial_group_by,
+        "bins": initial_bins,
+        "limit": initial_limit,
+    }
+
+    facet_widgets: dict[str, Any] = {}
+    cardinality_label: Any = None
+    chart_container: Any = None
+
+    def _new_query() -> MeasurementsQuery:
+        return MeasurementsQuery(_results_dir=results_dir)
 
     def _push_url() -> None:
-        ct = str(chart_type_select.value or "scatter")
-        params: dict[str, str] = {}
-        if y_select.value:
-            params["y"] = str(y_select.value)
-        if x_select.value and ct != "histogram":
-            params["x"] = str(x_select.value)
-        if ct != "scatter":
-            params["chart_type"] = ct
-        if group_select.value:
-            params["group_by"] = str(group_select.value)
-        if int(bins_input.value or 30) != 30:
-            params["bins"] = str(int(bins_input.value or 30))
-        if int(limit_input.value or 5000) != 5000:
-            params["limit"] = str(int(limit_input.value or 5000))
-        if filters_input.value and filters_input.value.strip():
-            params["filters"] = filters_input.value.strip()
+        params: list[tuple[str, str]] = list(state["filter_set"].to_url_params())
+        if state["y"]:
+            params.append(("y", state["y"]))
+        if state["x"] and state["chart_type"] != "histogram":
+            params.append(("x", state["x"]))
+        if state["chart_type"] != "scatter":
+            params.append(("chart_type", state["chart_type"]))
+        if state["group_by"]:
+            params.append(("group_by", state["group_by"]))
+        if state["bins"] != DEFAULT_BINS:
+            params.append(("bins", str(state["bins"])))
+        if state["limit"] != DEFAULT_LIMIT:
+            params.append(("limit", str(state["limit"])))
         new_url = "/explore" + (f"?{urlencode(params)}" if params else "")
         ui.run_javascript(f"history.replaceState(null, '', {json.dumps(new_url)})")
 
-    def _refresh() -> None:
-        _push_url()
-        chart_container.clear()
-        raw_filters = (filters_input.value or "").strip()
+    def _refresh_string_facets() -> None:
+        """Re-populate STRING facet options based on current filter set."""
+        q = _new_query()
         try:
-            parsed_filters: dict[str, str] = json.loads(raw_filters) if raw_filters else {}
-            if not isinstance(parsed_filters, dict):
-                raise ValueError("Filters must be a JSON object")
-        except (json.JSONDecodeError, ValueError) as e:
-            with chart_container:
-                ui.label(f"Bad filters JSON: {e}").classes("text-red-600")
-            return
+            for facet in MEASUREMENT_FACETS:
+                if facet.kind is not FacetKind.STRING:
+                    continue
+                widget = facet_widgets.get(facet.column)
+                if widget is None:
+                    continue
+                opts = q.distinct_values(
+                    facet.column, filters=state["filter_set"], exclude_self=True
+                )
+                # value → "value (count)" so users see frequency without
+                # losing the underlying value used in SQL.
+                widget.options = {o.value: f"{o.value} ({o.count:,})" for o in opts}
+                # Drop any selected values that vanished from the option set.
+                current = state["filter_set"].string_filters.get(facet.column, [])
+                still_valid = [v for v in current if v in widget.options]
+                widget.value = still_valid
+                if still_valid != current:
+                    state["filter_set"].string_filters[facet.column] = still_valid
+                widget.update()
+        finally:
+            q.close()
 
-        y_val = str(y_select.value or "")
-        x_val = str(x_select.value or "")
-        ct_val = str(chart_type_select.value or "scatter")
-        if not y_val or (not x_val and ct_val != "histogram"):
+    def _refresh_cardinality() -> None:
+        q = _new_query()
+        try:
+            counts = q.summary_counts(filters=state["filter_set"])
+        finally:
+            q.close()
+        cardinality_label.text = (
+            f"{counts.total_rows:,} measurements · "
+            f"{counts.distinct_runs:,} runs · "
+            f"{counts.distinct_measurements:,} measurement names · "
+            f"{counts.distinct_products:,} products"
+        )
+
+    def _refresh_chart() -> None:
+        chart_container.clear()
+        y_val = state["y"]
+        x_val = state["x"]
+        ct = state["chart_type"]
+        if not y_val or (not x_val and ct != "histogram"):
             with chart_container:
                 ui.label("Pick a Y and X column").classes("text-slate-500 italic")
             return
-
         try:
-            store = MeasurementsQuery(_results_dir=results_dir)
+            q = _new_query()
             try:
-                rows = store.parametric(
+                rows = q.parametric(
                     y=y_val,
                     x=x_val,
-                    filters=_legacy_dict_to_filter_set(parsed_filters),
-                    group_by=str(group_select.value) if group_select.value else None,
-                    chart_type=ct_val,
-                    bins=int(bins_input.value or 30),
-                    limit=int(limit_input.value or 5000),
+                    filters=state["filter_set"],
+                    group_by=state["group_by"] or None,
+                    chart_type=ct,
+                    bins=state["bins"],
+                    limit=state["limit"],
                 )
             finally:
-                store.close()
-        except (OSError, ValueError, RuntimeError) as e:
+                q.close()
+        except (OSError, ValueError, RuntimeError) as exc:
             with chart_container:
-                ui.label(f"Query failed: {e}").classes("text-red-600")
+                ui.label(f"Query failed: {exc}").classes("text-red-600")
                 with ui.expansion("Stack trace", icon="bug_report").classes("w-full"):
                     ui.code(traceback.format_exc()).classes("text-xs")
             return
-
         with chart_container:
-            _render_chart([r.model_dump() for r in rows], ct_val, y_val, x_val)
+            _render_chart([r.model_dump() for r in rows], ct, y_val, x_val)
 
+    def _refresh_all() -> None:
+        _push_url()
+        _refresh_cardinality()
+        _refresh_string_facets()
+        _refresh_chart()
+
+    def _on_string_facet_change(facet: FacetSpec, e: Any) -> None:
+        values = list(e.value or [])
+        if values:
+            state["filter_set"].string_filters[facet.column] = values
+        else:
+            state["filter_set"].string_filters.pop(facet.column, None)
+        _refresh_all()
+
+    def _on_enum_facet_change(facet: FacetSpec, e: Any) -> None:
+        values = list(e.value or [])
+        if values:
+            state["filter_set"].enum_filters[facet.column] = values
+        else:
+            state["filter_set"].enum_filters.pop(facet.column, None)
+        _refresh_all()
+
+    def _on_since_change(e: Any) -> None:
+        state["filter_set"].since = _parse_iso_date(e.value)
+        _refresh_all()
+
+    def _on_until_change(e: Any) -> None:
+        state["filter_set"].until = _parse_iso_date(e.value)
+        _refresh_all()
+
+    # ── Layout ──────────────────────────────────────────────────────
     with ui.column().classes("w-full p-6 gap-4"):
         with ui.row().classes("items-center gap-2"):
             ui.icon("scatter_plot").classes("text-slate-600")
             ui.label("Parametric Viewer").classes("text-2xl font-semibold text-slate-700")
 
-        with ui.row().classes("gap-3 flex-wrap items-end w-full"):
-            y_select = ui.select(
-                y_options,
-                value=y,
-                label="Y axis",
-                with_input=True,
-                on_change=lambda _: _refresh(),
-            ).classes("w-56")
-            x_select = ui.select(
-                x_options,
-                value=x,
-                label="X axis",
-                with_input=True,
-                on_change=lambda _: _refresh(),
-            ).classes("w-56")
-            chart_type_select = ui.select(
-                CHART_TYPES,
-                value=chart_type,
-                label="Chart",
-                on_change=lambda _: _refresh(),
-            ).classes("w-32")
-            group_select = ui.select(
-                [""] + group_options,
-                value=group_by,
-                label="Group by",
-                with_input=True,
-                on_change=lambda _: _refresh(),
-            ).classes("w-48")
-            bins_input = ui.number(label="Bins", value=bins, format="%d", min=2, max=200).classes(
-                "w-24"
-            )
-            limit_input = ui.number(
-                label="Limit",
-                value=limit,
-                format="%d",
-                min=10,
-                max=100000,
-            ).classes("w-28")
-            ui.button("Refresh", icon="refresh", on_click=lambda: _refresh()).props("outline")
+        # FILTER section
+        with ui.card().classes("w-full"):
+            ui.label("FILTER").classes("text-xs font-semibold text-slate-500 tracking-wider")
+            with ui.row().classes("w-full gap-3 flex-wrap items-end"):
+                for facet in MEASUREMENT_FACETS:
+                    facet_widgets[facet.column] = _build_facet_widget(
+                        facet,
+                        state["filter_set"],
+                        on_string_change=_on_string_facet_change,
+                        on_enum_change=_on_enum_facet_change,
+                        on_since_change=_on_since_change,
+                        on_until_change=_on_until_change,
+                    )
+            cardinality_label = ui.label("…").classes("text-sm text-slate-600 italic mt-2")
 
-        filters_input = ui.input(
-            label='Filters (JSON, e.g. {"product_id": "PN-100"})',
-            value=json.dumps(initial_filters) if initial_filters else "",
-            placeholder="{}",
-        ).classes("w-full")
-        filters_input.on("blur", lambda _: _refresh())
+        # PLOT section
+        with ui.card().classes("w-full"):
+            ui.label("PLOT").classes("text-xs font-semibold text-slate-500 tracking-wider")
+            with ui.row().classes("items-end gap-3 flex-wrap w-full"):
+                y_select = ui.select(
+                    y_options,
+                    value=state["y"],
+                    label="Y axis",
+                    with_input=True,
+                    on_change=lambda e: (state.update(y=str(e.value or "")), _refresh_all()),
+                ).classes("w-56")
+                x_select = ui.select(
+                    x_options,
+                    value=state["x"],
+                    label="X axis",
+                    with_input=True,
+                    on_change=lambda e: (state.update(x=str(e.value or "")), _refresh_all()),
+                ).classes("w-56")
+                chart_type_select = ui.select(
+                    CHART_TYPES,
+                    value=state["chart_type"],
+                    label="Chart",
+                    on_change=lambda e: (
+                        state.update(chart_type=str(e.value or "scatter")),
+                        _refresh_all(),
+                    ),
+                ).classes("w-32")
+                group_select = ui.select(
+                    [""] + group_options,
+                    value=state["group_by"],
+                    label="Group by",
+                    with_input=True,
+                    on_change=lambda e: (
+                        state.update(group_by=str(e.value or "")),
+                        _refresh_all(),
+                    ),
+                ).classes("w-48")
+                bins_input = ui.number(
+                    label="Bins",
+                    value=state["bins"],
+                    format="%d",
+                    min=2,
+                    max=200,
+                    on_change=lambda e: (
+                        state.update(bins=int(e.value or DEFAULT_BINS)),
+                        _refresh_chart(),
+                        _push_url(),
+                    ),
+                ).classes("w-24")
+                limit_input = ui.number(
+                    label="Limit",
+                    value=state["limit"],
+                    format="%d",
+                    min=10,
+                    max=100_000,
+                    on_change=lambda e: (
+                        state.update(limit=int(e.value or DEFAULT_LIMIT)),
+                        _refresh_chart(),
+                        _push_url(),
+                    ),
+                ).classes("w-28")
+                ui.button("Refresh", icon="refresh", on_click=lambda: _refresh_all()).props(
+                    "outline"
+                )
 
+        # Chart container
         chart_container = ui.column().classes("w-full")
 
-    _refresh()
+    # Bind a few widgets to silence unused warnings (they're closure-captured above).
+    _ = (y_select, x_select, chart_type_select, group_select, bins_input, limit_input)
+
+    _refresh_all()
+
+
+def _parse_iso_date(value: Any) -> date | None:
+    """Parse an ISO date string from a date picker, or ``None`` for blanks."""
+    if not value:
+        return None
+    try:
+        return date.fromisoformat(str(value))
+    except ValueError:
+        return None
+
+
+def _build_facet_widget(  # noqa: PLR0913
+    facet: FacetSpec,
+    filter_set: FilterSet,
+    *,
+    on_string_change: Any,
+    on_enum_change: Any,
+    on_since_change: Any,
+    on_until_change: Any,
+) -> Any:
+    """Render one compact facet block and return its primary widget.
+
+    Each facet is a single labelled select (or a since/until pair for
+    dates). They flex-wrap horizontally in the parent row instead of
+    stacking. Descriptions become tooltips so they don't bloat the
+    section vertically.
+    """
+    if facet.kind is FacetKind.DATE:
+        with ui.row().classes("gap-2 items-end"):
+            since_input = (
+                ui.input(
+                    "Since",
+                    value=filter_set.since.isoformat() if filter_set.since else "",
+                )
+                .classes("w-36")
+                .props("dense outlined")
+            )
+            with since_input.add_slot("append"):
+                ui.icon("event").on("click", lambda: since_menu.open()).classes("cursor-pointer")
+            with ui.menu() as since_menu:
+                ui.date(
+                    value=filter_set.since.isoformat() if filter_set.since else None,
+                    on_change=on_since_change,
+                ).bind_value(since_input)
+            until_input = (
+                ui.input(
+                    "Until",
+                    value=filter_set.until.isoformat() if filter_set.until else "",
+                )
+                .classes("w-36")
+                .props("dense outlined")
+            )
+            with until_input.add_slot("append"):
+                ui.icon("event").on("click", lambda: until_menu.open()).classes("cursor-pointer")
+            with ui.menu() as until_menu:
+                ui.date(
+                    value=filter_set.until.isoformat() if filter_set.until else None,
+                    on_change=on_until_change,
+                ).bind_value(until_input)
+        return since_input
+
+    if facet.kind is FacetKind.ENUM:
+        assert facet.enum_class is not None
+        options = [m.value for m in facet.enum_class.__members__.values()]
+        current = filter_set.enum_filters.get(facet.column, [])
+        sel = (
+            ui.select(
+                options,
+                multiple=True,
+                value=current,
+                label=facet.label,
+                with_input=False,
+                on_change=lambda e, f=facet: on_enum_change(f, e),
+            )
+            .classes("w-56")
+            .props("use-chips dense outlined")
+        )
+        if facet.description:
+            sel.tooltip(facet.description)
+        return sel
+
+    # FacetKind.STRING — options populated lazily by _refresh_string_facets
+    current = filter_set.string_filters.get(facet.column, [])
+    sel = (
+        ui.select(
+            {v: v for v in current},  # seed with current selections so they render
+            multiple=True,
+            value=current,
+            label=facet.label,
+            with_input=True,
+            on_change=lambda e, f=facet: on_string_change(f, e),
+        )
+        .classes("w-56")
+        .props("use-chips dense outlined")
+    )
+    if facet.description:
+        sel.tooltip(facet.description)
+    return sel
+
+
+# ── Chart helpers (preserved from previous iteration) ────────────────
 
 
 def _coerce_x(value: Any) -> Any:
@@ -384,7 +620,6 @@ def _render_chart(  # noqa: PLR0912
         ui.label("No data matches these selections").classes("text-slate-500 italic")
         return
 
-    # Group rows by `group` key, preserving deterministic order.
     by_group: dict[str, list[dict[str, Any]]] = {}
     for r in rows:
         by_group.setdefault(str(r.get("group", "")), []).append(r)
@@ -392,9 +627,6 @@ def _render_chart(  # noqa: PLR0912
     legend_names = [_series_label(g, y_label) for g in by_group]
 
     if chart_type == "histogram":
-        # Categorical x-axis from bin midpoints; one bar series per group.
-        # Each group can have its own bin layout — align by bin index
-        # using the first group's x list as the canonical axis.
         first = next(iter(by_group.values()))
         x_axis = [round(float(r["x"]), 4) for r in first]
         series = [

@@ -140,6 +140,7 @@ STEP_SCHEMA = pa.schema(
         ("slot_id", pa.string()),
         ("run_started_at", pa.timestamp("us", tz="UTC")),
         ("run_ended_at", pa.timestamp("us", tz="UTC")),
+        ("run_outcome", pa.string()),
         # Who
         ("operator_id", pa.string()),
         ("operator_name", pa.string()),
@@ -166,6 +167,10 @@ STEP_SCHEMA = pa.schema(
         ("git_commit", pa.string()),
         ("git_branch", pa.string()),
         ("git_remote", pa.string()),
+        # Environment (matches measurement schema)
+        ("python_version", pa.string()),
+        ("litmus_version", pa.string()),
+        ("env_fingerprint", pa.string()),
     ]
 )
 

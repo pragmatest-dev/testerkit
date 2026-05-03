@@ -59,10 +59,15 @@ def _open_index(index_path: Path) -> tuple[duckdb.DuckDBPyConnection, bool]:
 
 
 def _rebuild_schema(conn: duckdb.DuckDBPyConnection) -> None:
-    """Drop all managed tables and recreate with current schema."""
+    """Drop all managed tables and recreate with current schema.
+
+    ``runs`` and ``steps`` are no longer tables — they're DuckDB views
+    over the parquet glob, registered later by :func:`_create_views`.
+    Only the per-file aggregate tables (``measurement_stats``,
+    ``measurement_io_schema``, ``measurement_refs``) and the
+    ``_ingested`` ledger are persisted here.
+    """
     for tbl in (
-        "runs",
-        "steps",
         "measurement_stats",
         "measurement_io_schema",
         "measurement_refs",
@@ -70,46 +75,15 @@ def _rebuild_schema(conn: duckdb.DuckDBPyConnection) -> None:
         "_schema_version",
     ):
         conn.execute(f"DROP TABLE IF EXISTS {tbl}")
+    # Drop legacy table names that may exist from older daemon versions
+    # so a stale ``_index.duckdb`` doesn't shadow the new views.
+    for view in ("runs", "steps"):
+        conn.execute(f"DROP TABLE IF EXISTS {view}")
+        conn.execute(f"DROP VIEW IF EXISTS {view}")
 
     conn.execute("CREATE TABLE _schema_version (v INTEGER PRIMARY KEY)")
     conn.execute(f"INSERT INTO _schema_version VALUES ({_SCHEMA_VERSION})")
 
-    conn.execute("""
-        CREATE TABLE runs (
-            file_path VARCHAR NOT NULL,
-            run_id VARCHAR,
-            session_id VARCHAR,
-            dut_serial VARCHAR,
-            station_id VARCHAR,
-            outcome VARCHAR,
-            started_at VARCHAR,
-            num_measurements INTEGER,
-            test_phase VARCHAR,
-            product_id VARCHAR,
-            operator_id VARCHAR,
-            project_name VARCHAR
-        )
-    """)
-    conn.execute("""
-        CREATE TABLE steps (
-            file_path VARCHAR NOT NULL,
-            run_id VARCHAR,
-            session_id VARCHAR,
-            step_index INTEGER,
-            step_name VARCHAR,
-            step_path VARCHAR,
-            outcome VARCHAR,
-            started_at VARCHAR,
-            ended_at VARCHAR,
-            duration_s DOUBLE,
-            has_measurements BOOLEAN,
-            measurement_count INTEGER,
-            vector_count INTEGER,
-            markers VARCHAR,
-            dut_serial VARCHAR,
-            station_id VARCHAR
-        )
-    """)
     conn.execute("""
         CREATE TABLE measurement_stats (
             file_path VARCHAR NOT NULL,
@@ -187,13 +161,6 @@ def _parquet_columns(conn: duckdb.DuckDBPyConnection, path: str) -> set[str]:
     """Return column names present in a parquet file."""
     escaped = _sql_escape(path)
     return {r[0] for r in conn.execute(f"SELECT name FROM parquet_schema('{escaped}')").fetchall()}
-
-
-def _col_or_null(col: str, available: set[str], *, cast: str = "VARCHAR") -> str:
-    """SQL expression: CAST(col AS cast) if available, else NULL."""
-    if col in available:
-        return f"CAST({col} AS {cast})"
-    return "NULL"
 
 
 def _mark_ingested(
@@ -316,44 +283,7 @@ def _index_io_and_refs(conn: duckdb.DuckDBPyConnection, fkey: str) -> str | None
         return str(exc)
 
 
-# ── Bulk ingest (batch of files → 3 queries) ────────────────────────
-
-
-_OPTIONAL_RUN_COLS = ("test_phase", "product_id", "operator_id", "project_name")
-
-
-def _bulk_insert_runs(conn: duckdb.DuckDBPyConnection, meas_paths: list[str]) -> None:
-    """Bulk INSERT into runs from all measurement files in one query.
-
-    Columns in _OPTIONAL_RUN_COLS are inserted as NULL when absent from the
-    parquet files (backwards compat with older schema versions).
-
-    Schema check uses the first file; ``union_by_name=true`` handles column
-    differences across files, but NULL logic follows the first file's schema.
-    """
-    flist = _file_list_sql(meas_paths)
-    available = _parquet_columns(conn, meas_paths[0])
-
-    opt_select = ", ".join(f"{_col_or_null(c, available)} AS {c}" for c in _OPTIONAL_RUN_COLS)
-    present = [c for c in _OPTIONAL_RUN_COLS if c in available]
-    opt_group = (", " + ", ".join(present)) if present else ""
-
-    conn.execute(f"""
-        INSERT INTO runs
-        SELECT
-            filename AS file_path,
-            run_id,
-            CAST(session_id AS VARCHAR) AS session_id,
-            CAST(dut_serial AS VARCHAR) AS dut_serial,
-            CAST(station_id AS VARCHAR) AS station_id,
-            CAST(run_outcome AS VARCHAR) AS outcome,
-            CAST(run_started_at AT TIME ZONE 'UTC' AS VARCHAR) AS started_at,
-            COUNT(*) AS num_measurements,
-            {opt_select}
-        FROM read_parquet({flist}, filename=true, union_by_name=true)
-        GROUP BY filename, run_id, session_id, dut_serial, station_id,
-                 run_outcome, run_started_at{opt_group}
-    """)
+# ── Bulk ingest (batch of files → measurement_stats only) ────────────
 
 
 _OPTIONAL_MEAS_LIMITS = ("measurement_units", "limit_low", "limit_high", "limit_nominal")
@@ -411,32 +341,6 @@ def _bulk_insert_measurements(conn: duckdb.DuckDBPyConnection, meas_paths: list[
         GROUP BY
             filename, run_id, session_id, step_index,
             measurement_name{opt_group}
-    """)
-
-
-def _bulk_insert_steps(conn: duckdb.DuckDBPyConnection, steps_paths: list[str]) -> None:
-    """Bulk INSERT into steps from all steps files in one query."""
-    flist = _file_list_sql(steps_paths)
-    conn.execute(f"""
-        INSERT INTO steps
-        SELECT
-            filename AS file_path,
-            run_id,
-            CAST(session_id AS VARCHAR) AS session_id,
-            "index" AS step_index,
-            name AS step_name,
-            step_path,
-            outcome,
-            CAST(started_at AT TIME ZONE 'UTC' AS VARCHAR) AS started_at,
-            CAST(ended_at AT TIME ZONE 'UTC' AS VARCHAR) AS ended_at,
-            duration_s,
-            has_measurements,
-            measurement_count,
-            vector_count,
-            markers,
-            CAST(dut_serial AS VARCHAR) AS dut_serial,
-            CAST(station_id AS VARCHAR) AS station_id
-        FROM read_parquet({flist}, filename=true, union_by_name=true)
     """)
 
 
@@ -498,10 +402,7 @@ def _ingest_parquet_files(index_path: Path, runs_dir: Path) -> None:
                 try:
                     conn.begin()
                     if meas_paths:
-                        _bulk_insert_runs(conn, meas_paths)
                         _bulk_insert_measurements(conn, meas_paths)
-                    if steps_paths:
-                        _bulk_insert_steps(conn, steps_paths)
                     conn.commit()
                 except Exception as exc:  # noqa: BLE001 — bulk ingest fallback to per-file
                     conn.rollback()
@@ -524,6 +425,9 @@ def _ingest_parquet_files(index_path: Path, runs_dir: Path) -> None:
                                 "ok" if error is None else "quarantined",
                                 error,
                             )
+                    # Steps files are read live by the ``steps`` view; no
+                    # ingestion needed. Mark them ingested so the dirty-
+                    # detection query doesn't re-process them every loop.
                     for path_str in steps_paths:
                         stat = stat_map.get(path_str)
                         if stat is not None:
@@ -556,14 +460,19 @@ def _ingest_one_file(
     fpath: Path,
     stat: os.stat_result,
 ) -> None:
-    """Ingest a single parquet file. Used by _on_put for real-time notifications."""
+    """Ingest a single parquet file. Used by _on_put for real-time notifications.
+
+    Steps sidecars (``*_steps.parquet``) are read live by the
+    ``steps`` view, so they don't need ingestion — we just mark them
+    seen in ``_ingested`` so the dirty-detection loop skips them.
+    """
     path_str = str(fpath)
 
     if _is_steps_file(fpath.name):
-        error = _index_steps_file(conn, path_str)
-    else:
-        error = _index_parquet_file(conn, path_str)
+        _mark_ingested(conn, path_str, stat, "ok")
+        return
 
+    error = _index_parquet_file(conn, path_str)
     _mark_ingested(conn, path_str, stat, "ok" if error is None else "quarantined", error)
 
 
@@ -575,7 +484,6 @@ def _index_parquet_file(conn: duckdb.DuckDBPyConnection, fkey: str) -> str | Non
     Returns None on success or an error string.
     """
     try:
-        _bulk_insert_runs(conn, [fkey])
         _bulk_insert_measurements(conn, [fkey])
         io_error = _index_io_and_refs(conn, fkey)
         if io_error:
@@ -589,46 +497,99 @@ def _index_parquet_file(conn: duckdb.DuckDBPyConnection, fkey: str) -> str | Non
         return str(exc)
 
 
-def _index_steps_file(conn: duckdb.DuckDBPyConnection, fkey: str) -> str | None:
-    """Index a steps parquet file into the steps table.
-
-    Returns None on success or an error string.
-    """
-    try:
-        _bulk_insert_steps(conn, [fkey])
-        return None
-    except duckdb.IOException as exc:
-        logger.debug("File gone during ingest (will retry next run): %s — %s", fkey, exc)
-        return f"file unavailable: {exc}"
-    except Exception as exc:  # noqa: BLE001 — per-file ingest tolerance: warn + skip
-        warnings.warn(f"Error ingesting steps file {fkey}: {exc}", stacklevel=2)
-        return str(exc)
+# ── Read-side views over parquet ────────────────────────────────────
 
 
-# ── measurements view (read-side query target) ──────────────────────
+def _create_views(conn: duckdb.DuckDBPyConnection, runs_dir: Path) -> None:
+    """Register the ``measurements``, ``steps``, and ``runs`` views.
 
+    Read clients (``MeasurementsQuery``, ``StepsQuery``, ``RunsQuery``)
+    hit these views over Arrow Flight, so they always see current data
+    without holding their own DuckDB connections. The views read raw
+    parquet on every query — DuckDB pushes filters down to parquet, so
+    typical UI queries land in tens of milliseconds.
 
-def _create_measurements_view(conn: duckdb.DuckDBPyConnection, runs_dir: Path) -> None:
-    """Register the ``measurements`` view for analytics queries.
+    Layering:
+      - ``measurements`` — every measurement row across the parquet
+        glob (excludes ``_steps.parquet`` sidecars and ``_ref/`` blobs).
+      - ``steps`` — every step row across ``_steps.parquet`` sidecars.
+        Renames the parquet's ``index`` / ``name`` to ``step_index`` /
+        ``step_name`` so the wire shape matches the ``StepRow`` model.
+      - ``runs`` — one row per run, aggregated from ``measurements``
+        plus a UNION over ``steps`` so runs that produced only steps
+        (no measurements) still appear.
 
-    Read clients (``MeasurementsQuery``) hit this view instead of reading
-    raw parquet directly, so they always see current data without
-    holding their own DuckDB connection.
-
-    If no parquet files exist yet, the view is not created — it will be
+    If no parquet files exist yet, the views are deferred — they get
     created after the first file is ingested via ``_on_put``.
     """
-    glob = _sql_escape(str(runs_dir / "**" / "*.parquet"))
+    meas_glob = _sql_escape(str(runs_dir / "**" / "*.parquet"))
+    steps_glob = _sql_escape(str(runs_dir / "**" / "*_steps.parquet"))
+
+    # ``measurements`` — every measurement row across the parquet
+    # glob, excluding step sidecars and ref blobs. If no parquet
+    # exists yet, the view is deferred — :func:`_on_put` recreates
+    # it after the first file lands.
     try:
         conn.execute(f"""
             CREATE OR REPLACE VIEW measurements AS
-            SELECT * FROM read_parquet('{glob}',
+            SELECT * FROM read_parquet('{meas_glob}',
                 union_by_name=true, filename=true)
             WHERE filename NOT LIKE '%\\_steps.parquet' ESCAPE '\\'
               AND filename NOT LIKE '%\\_ref/%' ESCAPE '\\'
         """)
     except duckdb.IOException:
         logger.debug("No parquet files yet in %s — measurements view deferred", runs_dir)
+
+    # ``steps`` — every step row across ``_steps.parquet`` sidecars.
+    # Renames the parquet's ``index`` / ``name`` to ``step_index`` /
+    # ``step_name`` so the wire shape matches the ``StepRow`` model.
+    try:
+        conn.execute(f"""
+            CREATE OR REPLACE VIEW steps AS
+            SELECT
+                "index" AS step_index,
+                name AS step_name,
+                * EXCLUDE ("index", name)
+            FROM read_parquet('{steps_glob}',
+                union_by_name=true, filename=true)
+        """)
+    except duckdb.IOException:
+        logger.debug("No _steps.parquet files yet in %s — steps view deferred", runs_dir)
+        return  # ``runs`` depends on ``steps``; both deferred together.
+
+    # ``runs`` — one row per run_id, sourced from steps. Steps carries
+    # full denormalized run context plus ``run_outcome`` and
+    # ``run_ended_at``, so we never need to scan the (large)
+    # measurements view to answer run-level queries.
+    #
+    # ``file_path`` points at the *measurements* parquet (sibling of
+    # the steps file with ``_steps.parquet`` stripped) since that's
+    # what ``RunStore.find_run_file`` consumes for raw measurement
+    # access; the steps file path is exposed separately.
+    conn.execute(r"""
+        CREATE OR REPLACE VIEW runs AS
+        SELECT
+            run_id,
+            ANY_VALUE(session_id) AS session_id,
+            ANY_VALUE(dut_serial) AS dut_serial,
+            ANY_VALUE(dut_part_number) AS dut_part_number,
+            ANY_VALUE(station_id) AS station_id,
+            ANY_VALUE(station_name) AS station_name,
+            ANY_VALUE(run_outcome) AS outcome,
+            ANY_VALUE(run_started_at) AS started_at,
+            ANY_VALUE(run_ended_at) AS ended_at,
+            SUM(measurement_count) AS num_measurements,
+            COUNT(*) AS num_steps,
+            ANY_VALUE(test_phase) AS test_phase,
+            ANY_VALUE(product_id) AS product_id,
+            ANY_VALUE(operator_id) AS operator_id,
+            ANY_VALUE(project_name) AS project_name,
+            regexp_replace(ANY_VALUE(filename), '_steps\.parquet$', '.parquet') AS file_path,
+            ANY_VALUE(filename) AS steps_file_path
+        FROM steps
+        WHERE run_id IS NOT NULL
+        GROUP BY run_id
+    """)
 
 
 # ── Daemon entry point ───────────────────────────────────────────────
@@ -649,7 +610,7 @@ def daemon_run(runs_dir: Path) -> None:
 
     index_path = runs_dir / "_index.duckdb"
     conn, is_fresh = _open_index(index_path)
-    _create_measurements_view(conn, runs_dir)
+    _create_views(conn, runs_dir)
 
     def _on_put(table: pa.Table) -> None:
         for row in table.to_pylist():
@@ -661,12 +622,12 @@ def daemon_run(runs_dir: Path) -> None:
             except OSError:
                 continue
             _ingest_one_file(conn, Path(fpath), stat)
-        _create_measurements_view(conn, runs_dir)
+        _create_views(conn, runs_dir)
 
     def _pre_ready() -> None:
         if is_fresh:
             _ingest_parquet_files(index_path, runs_dir)
-            _create_measurements_view(conn, runs_dir)
+            _create_views(conn, runs_dir)
 
     server, port_file, _location = start_flight_server_in_daemon(
         mgr=mgr,

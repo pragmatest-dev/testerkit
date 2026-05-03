@@ -23,7 +23,7 @@ place.
 
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, datetime
 from enum import StrEnum
 
 from pydantic import BaseModel, Field, model_validator
@@ -75,9 +75,14 @@ class SummaryCounts(BaseModel):
 
 
 class ParametricRow(BaseModel):
-    """One long-format row from a scatter / line / bar parametric query."""
+    """One long-format row from a scatter / line / bar parametric query.
 
-    x: float | str | None = None
+    ``x`` widens to accept datetime / date because measurements view
+    columns include timestamps; the chart layer coerces these to
+    epoch ms for ECharts ``time`` axes.
+    """
+
+    x: float | str | datetime | date | None = None
     y: float
     group: str = ""
 

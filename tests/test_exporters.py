@@ -555,17 +555,9 @@ class TestReconstructTestRun:
     def test_roundtrip(self, sample_test_run: TestRun, tmp_path: Path):
         from litmus.data.backends.parquet import ParquetBackend, reconstruct_test_run_from_file
 
-        runs_dir = tmp_path / "results" / "runs"
-        backend = ParquetBackend(results_dir=runs_dir)
-        backend.save_test_run(sample_test_run)
+        backend = ParquetBackend(results_dir=tmp_path)
+        pq_file = backend.save_test_run(sample_test_run)
 
-        # Find the saved file (direct glob — avoids RunStore path indirection)
-        pq_files = list(runs_dir.rglob("*.parquet"))
-        assert len(pq_files) == 1
-        pq_file = pq_files[0]
-        assert pq_file is not None
-
-        # Reconstruct
         rebuilt = reconstruct_test_run_from_file(pq_file)
 
         # Compare key fields
@@ -596,11 +588,8 @@ class TestReconstructTestRun:
         """custom_metadata survives Parquet save → reconstruct."""
         from litmus.data.backends.parquet import ParquetBackend, reconstruct_test_run_from_file
 
-        runs_dir = tmp_path / "results" / "runs"
-        backend = ParquetBackend(results_dir=runs_dir)
-        backend.save_test_run(sample_test_run)
-
-        pq_file = next(runs_dir.rglob("*.parquet"))
+        backend = ParquetBackend(results_dir=tmp_path)
+        pq_file = backend.save_test_run(sample_test_run)
         rebuilt = reconstruct_test_run_from_file(pq_file)
 
         assert rebuilt.custom_metadata == {"operator_badge": "EMP-123"}
@@ -609,11 +598,8 @@ class TestReconstructTestRun:
         """instrument_arrays survives Parquet save → reconstruct."""
         from litmus.data.backends.parquet import ParquetBackend, reconstruct_test_run_from_file
 
-        runs_dir = tmp_path / "results" / "runs"
-        backend = ParquetBackend(results_dir=runs_dir)
-        backend.save_test_run(sample_test_run)
-
-        pq_file = next(runs_dir.rglob("*.parquet"))
+        backend = ParquetBackend(results_dir=tmp_path)
+        pq_file = backend.save_test_run(sample_test_run)
         rebuilt = reconstruct_test_run_from_file(pq_file)
 
         step = rebuilt.steps[0]

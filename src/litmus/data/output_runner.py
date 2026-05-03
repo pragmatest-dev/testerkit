@@ -100,7 +100,7 @@ def _run_single_output(
         # Transport-only: ship the Parquet file directly
         from litmus.data.backends.parquet import ParquetBackend
 
-        backend = ParquetBackend(results_dir=Path(results_dir) / "runs")
+        backend = ParquetBackend(results_dir=Path(results_dir))
         pq_file = backend.find_run_file(run_id)
         if pq_file:
             _enqueue_and_drain(pq_file, transport_name, output_cfg, results_dir)

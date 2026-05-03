@@ -363,7 +363,7 @@ class LitmusClient:
         Args:
             results_dir: Directory for Parquet result files.
         """
-        self._backend = ParquetBackend(results_dir=Path(results_dir) / "runs")
+        self._backend = ParquetBackend(results_dir=Path(results_dir))
 
     def start_run(
         self,

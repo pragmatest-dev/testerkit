@@ -130,8 +130,8 @@ def app_with_run(tmp_path, monkeypatch):
         ],
     )
 
-    runs_root = tmp_path / "results" / "runs"
-    backend = ParquetBackend(results_dir=runs_root)
+    results_root = tmp_path / "results"
+    backend = ParquetBackend(results_dir=results_root)
     backend.save_test_run(run)
 
     # Patch project config so create_api_router uses our tmp tree.
@@ -139,7 +139,7 @@ def app_with_run(tmp_path, monkeypatch):
 
     monkeypatch.setattr(
         "litmus.store.load_project_config",
-        lambda *a, **kw: ProjectConfig(name="test", results_dir=str(runs_root)),
+        lambda *a, **kw: ProjectConfig(name="test", results_dir=str(results_root)),
     )
 
     app = FastAPI()

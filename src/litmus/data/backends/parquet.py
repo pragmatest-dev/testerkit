@@ -189,8 +189,15 @@ class ParquetBackend:
     """
 
     def __init__(self, results_dir: Path | str | None = None):
+        # ``results_dir`` is the parent (the project's results dir
+        # containing ``runs/``, ``events/``, ``channels/`` subdirs).
+        # Aligns with ``RunStore._results_dir`` and
+        # ``ProjectConfig.results_dir``. Parquets are written under
+        # ``self._runs_dir = results_dir / "runs"``.
         self.results_dir = resolve_results_dir(results_dir)
         self.results_dir.mkdir(parents=True, exist_ok=True)
+        self._runs_dir = self.results_dir / "runs"
+        self._runs_dir.mkdir(parents=True, exist_ok=True)
         self._writer = ParquetMeasurementWriter(notify=self._notify_daemon)
 
     def save_test_run(
@@ -217,8 +224,8 @@ class ParquetBackend:
         date_str = test_run.started_at.strftime("%Y-%m-%d")
         dut_serial = test_run.dut.serial.strip() if test_run.dut.serial else ""
 
-        # Create date directory
-        date_dir = self.results_dir / date_str
+        # Create date directory under runs/
+        date_dir = self._runs_dir / date_str
         date_dir.mkdir(parents=True, exist_ok=True)
 
         # Filename: timestamp first, serial if present
@@ -242,15 +249,74 @@ class ParquetBackend:
         table = table_from_rows(rows, schema)
         batch = table.combine_chunks().to_batches()[0]
 
-        # Write via measurement writer
+        # Steps sidecar first so the daemon's ``_on_put`` glob (fired
+        # by ``write_batch`` below) sees both files when it refreshes
+        # the views — the ``runs`` view is sourced from steps and
+        # doesn't appear until ``_steps.parquet`` is on disk.
+        self._save_steps_parquet(test_run, parquet_path)
+
+        # Then the measurements parquet, which triggers daemon notify.
         metadata = self._build_file_metadata(test_run)
         self._writer.write_batch(batch, parquet_path, file_metadata=metadata)
 
         return parquet_path
 
+    def _save_steps_parquet(self, test_run: TestRun, parquet_path: Path) -> None:
+        """Write the ``{stem}_steps.parquet`` sidecar from a ``TestRun``.
+
+        Mirrors what :meth:`ParquetSubscriber._write_steps_parquet`
+        produces from the streaming path, so both writers (batch and
+        streaming) leave the same on-disk shape.
+        """
+        if not test_run.steps:
+            return
+
+        run_context = build_run_metadata(test_run)
+        run_context["run_outcome"] = test_run.outcome.value if test_run.outcome else None
+        rows: list[dict[str, Any]] = []
+        for idx, step in enumerate(test_run.steps):
+            started_at = step.started_at or test_run.started_at
+            ended_at = step.ended_at or test_run.ended_at or test_run.started_at
+            duration_s = (
+                (ended_at - started_at).total_seconds() if started_at and ended_at else None
+            )
+            measurement_count = (
+                sum(len(v.measurements) for v in step.vectors) if step.vectors else 0
+            )
+            rows.append(
+                {
+                    "index": idx,
+                    "name": step.name,
+                    "node_id": None,
+                    "file": None,
+                    "function": None,
+                    "class_name": None,
+                    "module": None,
+                    "step_path": step.name,
+                    "description": None,
+                    "markers": None,
+                    "outcome": step.outcome.value if step.outcome else None,
+                    "started_at": started_at,
+                    "ended_at": ended_at,
+                    "duration_s": duration_s,
+                    "has_measurements": measurement_count > 0,
+                    "measurement_count": measurement_count,
+                    "vector_count": len(step.vectors) if step.vectors else 0,
+                    **run_context,
+                }
+            )
+        table = pa.Table.from_pylist(rows, schema=STEP_SCHEMA)
+        steps_path = parquet_path.with_name(parquet_path.stem + "_steps.parquet")
+        atomic_write_table(table, steps_path)
+
     @contextmanager
     def _run_store_ctx(self) -> Generator[RunStore, None, None]:
-        """Yield a configured RunStore, closing it on exit."""
+        """Yield a configured RunStore, closing it on exit.
+
+        Both classes use ``results_dir`` to mean *the parent* (the
+        results dir containing ``runs/``, ``events/``, ``channels/``).
+        Each appends its own subdir internally.
+        """
         store = RunStore(_results_dir=self.results_dir)
         try:
             yield store
@@ -500,7 +566,7 @@ class ParquetBackend:
         date_str = started_at.strftime("%Y-%m-%d")
         dut_serial = dut_serial.strip() if dut_serial else ""
 
-        date_dir = self.results_dir / date_str
+        date_dir = self._runs_dir / date_str
         date_dir.mkdir(parents=True, exist_ok=True)
 
         if dut_serial:
@@ -551,12 +617,11 @@ class ParquetSubscriber(EventSubscriber):
     ) -> None:
         self._output_dir = output_dir
         self._on_output = on_output
-        self._backend = ParquetBackend(results_dir=output_dir / "runs")
+        self._backend = ParquetBackend(results_dir=output_dir)
         self._run_started: Any = None  # RunStarted event (run context)
         self._instruments: list[Any] = []  # InstrumentConnected events
         self._measurement_events: list[Any] = []  # MeasurementRecorded events
         self._written = False
-        self._steps_with_measurements: set[int] = set()
         self._step_starts: dict[int, Any] = {}  # step_index → StepStarted
         self._step_ends: dict[int, Any] = {}  # step_index → StepEnded
         self._collected_items: list[dict[str, str | None]] = []
@@ -584,7 +649,6 @@ class ParquetSubscriber(EventSubscriber):
         elif isinstance(event, StepStarted):
             self._step_starts[event.step_index] = event
         elif isinstance(event, MeasurementRecorded):
-            self._steps_with_measurements.add(event.step_index)
             self._measurement_events.append(event)
         elif isinstance(event, StepEnded):
             self._step_ends[event.step_index] = event
@@ -674,44 +738,19 @@ class ParquetSubscriber(EventSubscriber):
         )
         return row.to_flat_dict()
 
-    def _build_step_summary_row(self, step_ended: Any) -> dict[str, Any]:
-        """Build a summary row for a step that completed with no measurements."""
-        row = MeasurementRow(
-            **run_context_from_run_started(self._run_started, step_ended, include_env=True),
-            step_name=step_ended.step_name,
-            step_index=step_ended.step_index,
-            step_path=step_ended.step_path,
-            step_started_at=(
-                self._step_starts[step_ended.step_index].occurred_at
-                if step_ended.step_index in self._step_starts
-                else None
-            ),
-            step_ended_at=step_ended.occurred_at,
-            step_node_id=step_ended.node_id,
-            step_module=step_ended.module,
-            step_file=step_ended.file,
-            step_class=step_ended.class_name,
-            step_function=step_ended.function,
-            step_markers=(
-                self._markers_by_node.get(step_ended.node_id) if step_ended.node_id else None
-            ),
-            measurement_name="_step_summary",
-            measurement_value=None,
-            measurement_outcome=step_ended.outcome,
-            step_outcome=step_ended.outcome,
-            run_outcome=None,
-            instruments=self._build_instrument_arrays(),
-        )
-        return row.to_flat_dict()
-
     def _write(self, outcome: str | None = None) -> None:
         """Write accumulated rows to Parquet.
 
         Orchestration only: build → write measurements + steps →
         notify. Splits into ``_build_final_rows`` and ``_write_results``
-        so the early-exit paths (no RunStarted, no rows) and the actual
-        I/O are separate. ``_written`` flips only after a successful
-        write so callbacks aren't shadowed by half-finished state.
+        so the early-exit paths and the actual I/O are separate.
+        ``_written`` flips only after a successful write so callbacks
+        aren't shadowed by half-finished state.
+
+        Either the measurements rows or the step events being non-empty
+        is enough to trigger a write — a run that only ran action /
+        setup steps without recording measurements still produces a
+        ``_steps.parquet`` so the run is visible in the index.
 
         Args:
             outcome: Run outcome from RunEnded. If None (crash/close without
@@ -725,50 +764,101 @@ class ParquetSubscriber(EventSubscriber):
             self._written = True  # Nothing to write; treat as completed.
             return
 
-        rows = self._build_final_rows(outcome)
-        if not rows:
-            self._written = True
-            return
-
-        self._write_results(s, rows)
-        self._written = True
-
-    def _build_final_rows(self, outcome: str | None) -> list[dict[str, Any]]:
-        """Build the final list of rows to write (measurements + step summaries)."""
         ended_at = _utcnow()
         final_outcome = outcome if outcome is not None else "errored"
 
+        rows = self._build_final_rows(ended_at, final_outcome)
+        if not rows and not self._step_ends:
+            self._written = True
+            return
+
+        self._write_results(s, rows, ended_at=ended_at, run_outcome=final_outcome)
+        self._written = True
+
+    def _build_final_rows(self, run_ended_at: datetime, run_outcome: str) -> list[dict[str, Any]]:
+        """Build the final list of measurement rows to write.
+
+        Steps without measurements are NOT injected here as synthetic
+        rows — they live in the sibling ``_steps.parquet`` file (see
+        :meth:`_write_steps_parquet`), which carries every step
+        regardless of whether it recorded measurements.
+        """
         rows: list[dict[str, Any]] = []
         for event in self._measurement_events:
             row = self._build_row(event)
-            row["run_ended_at"] = ended_at
-            row["run_outcome"] = final_outcome
+            row["run_ended_at"] = run_ended_at
+            row["run_outcome"] = run_outcome
             rows.append(row)
-
-        for step_idx, step_end in self._step_ends.items():
-            if step_idx not in self._steps_with_measurements:
-                row = self._build_step_summary_row(step_end)
-                row["run_ended_at"] = ended_at
-                row["run_outcome"] = final_outcome
-                rows.append(row)
 
         return rows
 
-    def _write_results(self, s: Any, rows: list[dict[str, Any]]) -> None:
-        """Persist rows to parquet, write the steps sidecar, fire ``on_output``."""
-        pq_path = self._backend.save_from_rows(
-            rows,
-            started_at=s.occurred_at,
-            dut_serial=s.dut_serial,
-            file_metadata=self._build_file_metadata(),
-        )
-        self._write_steps_parquet(pq_path)
-        if self._on_output:
+    def _write_results(
+        self,
+        s: Any,
+        rows: list[dict[str, Any]],
+        *,
+        ended_at: datetime,
+        run_outcome: str,
+    ) -> None:
+        """Persist rows to parquet, write the steps sidecar, fire ``on_output``.
+
+        Either the measurements rows or the step events being non-empty
+        triggers a write. The measurements parquet is skipped when
+        there are no measurement rows (typical for runs that only ran
+        action / setup steps without recording any measurements); the
+        steps sidecar is always written when steps occurred.
+        """
+        # Derive the canonical measurements-file path even when we
+        # don't end up writing it — the steps sidecar still wants the
+        # ``{stem}_steps.parquet`` naming convention.
+        pq_path = self._compose_parquet_path(s.occurred_at, s.dut_serial)
+
+        # Steps sidecar first so the daemon's ``_on_put`` notification
+        # (fired by save_from_rows) sees both files on disk.
+        self._write_steps_parquet(pq_path, run_ended_at=ended_at, run_outcome=run_outcome)
+
+        if rows:
+            self._backend.save_from_rows(
+                rows,
+                started_at=s.occurred_at,
+                dut_serial=s.dut_serial,
+                file_metadata=self._build_file_metadata(),
+            )
+
+        if self._on_output and rows:
             run_id = str(s.run_id) if s.run_id else None
             self._on_output(OutputFile(path=pq_path, format="parquet", run_id=run_id))
 
-    def _write_steps_parquet(self, measurements_path: Path) -> None:
-        """Write sibling _steps.parquet alongside the measurements file."""
+    def _compose_parquet_path(self, started_at: datetime, dut_serial: str) -> Path:
+        """Compose the measurements parquet path from run-start metadata.
+
+        Mirrors the naming inside :meth:`ParquetBackend.save_from_rows`
+        so the steps sidecar can be written even when the main
+        measurements parquet is empty (no measurements recorded).
+        """
+        timestamp = started_at.strftime("%Y%m%dT%H%M%SZ")
+        date_str = started_at.strftime("%Y-%m-%d")
+        dut_serial = dut_serial.strip() if dut_serial else ""
+        date_dir = self._backend._runs_dir / date_str
+        date_dir.mkdir(parents=True, exist_ok=True)
+        filename = f"{timestamp}_{dut_serial}.parquet" if dut_serial else f"{timestamp}.parquet"
+        return date_dir / filename
+
+    def _write_steps_parquet(
+        self,
+        measurements_path: Path,
+        *,
+        run_ended_at: datetime,
+        run_outcome: str,
+    ) -> None:
+        """Write sibling _steps.parquet alongside the measurements file.
+
+        Step rows carry the same denormalized run context as measurement
+        rows, *plus* ``run_outcome`` and ``run_ended_at`` and the env
+        columns (``python_version`` / ``litmus_version`` /
+        ``env_fingerprint``) — enough for run-level analytics queries
+        to be answered from steps alone, without scanning measurements.
+        """
         step_results = self._build_step_results_from_events()
         if not step_results:
             return
@@ -777,7 +867,9 @@ class ParquetSubscriber(EventSubscriber):
         if not s:
             return
 
-        run_context = run_context_from_run_started(s, s)
+        run_context = run_context_from_run_started(s, s, include_env=True)
+        run_context["run_ended_at"] = run_ended_at
+        run_context["run_outcome"] = run_outcome
         rows: list[dict[str, Any]] = []
         for entry in step_results:
             started_at = _to_datetime(entry.get("started_at"))
